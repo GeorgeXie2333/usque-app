@@ -6,8 +6,8 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
       'Thay đổi công tắc được lưu tự động. Dùng Áp dụng thay đổi để lưu chỉnh sửa địa chỉ lắng nghe và DNS.',
   'cc_label': 'Kiểm soát tắc nghẽn HTTP/3',
   'cc_help': 'Có hiệu lực ở lần kết nối thủ công tiếp theo.',
-  'cc_upgrade': 'Cần cập nhật Engine.',
-  'cc_h2': 'HTTP/2 dùng TCP của hệ thống.',
+  'cc_upgrade': 'Cập nhật Usque trong Cài đặt.',
+  'cc_h2': 'Tùy chọn này chỉ ảnh hưởng đến kết nối HTTP/3.',
   'cc_saved': 'Đã lưu',
   'cc_pending': 'Chờ lần kết nối thủ công tiếp theo.',
   'save_changes': 'Áp dụng thay đổi',
@@ -43,18 +43,18 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
   'home_kill_switch': 'Kill Switch',
   'home_traffic': 'Lưu lượng',
   'home_traffic_window': '60 giây gần nhất',
-  'home_traffic_idle': 'Bắt đầu sau khi kết nối',
-  'home_traffic_waiting': 'Đang chờ mẫu',
-  'home_traffic_unavailable': 'Không có lịch sử',
-  'home_traffic_stale': 'Mẫu bị trễ',
-  'home_outputs_next': 'Đầu ra sẽ bật sau khi kết nối',
-  'home_outputs_retry': 'Đầu ra đã cấu hình cho lần thử tiếp theo',
+  'home_traffic_idle': 'Lưu lượng sẽ hiển thị sau khi kết nối',
+  'home_traffic_waiting': 'Đang chờ dữ liệu lưu lượng',
+  'home_traffic_unavailable': 'Chưa có lịch sử lưu lượng',
+  'home_traffic_stale': 'Cập nhật lưu lượng bị chậm',
+  'home_outputs_next': 'Có thể dùng sau khi kết nối',
+  'home_outputs_retry': 'VPN và proxy cho lần kết nối tiếp theo',
   'connection_protection_group': 'Kết nối & bảo vệ',
   'proxy_routing_group': 'Proxy & định tuyến',
   'application_group': 'Ứng dụng',
   'proxy_settings_link': 'Địa chỉ trình lắng nghe, cổng, xác thực và DNS.',
   'proxy_auth_separate':
-      'Thông tin xác thực được lưu riêng bằng Lưu thông tin xác thực.',
+      'Dùng nút “Lưu tên người dùng và mật khẩu” bên dưới để áp dụng các thay đổi này.',
   'reset_draft_hint':
       'Giá trị mặc định sẽ được nạp vào biểu mẫu này. Áp dụng thay đổi để chúng có hiệu lực.',
 };
@@ -75,24 +75,24 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_finding_unavailable': 'Phép đo này không có trong trạng thái hiện tại.',
   'nq_finding_invalid_configuration': 'Cấu hình DNS tùy chỉnh không hợp lệ.',
   'nq_finding_dns_system':
-      'Đang chọn DNS hệ thống vật lý; kiểm tra DNS mã hóa không áp dụng.',
+      'Đang dùng DNS của mạng hiện tại. Kiểm tra DNS mã hóa không áp dụng trong trường hợp này.',
   'nq_finding_unsupported':
-      'Engine này không có DNS mã hóa; không cho phép dự phòng DNS không mã hóa (plaintext).',
+      'Cập nhật Usque để dùng DNS mã hóa. Ứng dụng không tự chuyển sang DNS không mã hóa.',
   'nq_finding_dns_custom_valid':
       'Cấu hình DNS mã hóa tùy chỉnh hợp lệ. Đã tắt dự phòng DNS không mã hóa (plaintext).',
   'nq_finding_stale': 'Số liệu đã cũ hoặc mạng vật lý đã đổi.',
   'nq_finding_rtt_high': 'Thời gian khứ hồi đo được đang cao.',
-  'nq_finding_healthy': 'Phép đo cục bộ hiện có nằm trong phạm vi kỳ vọng.',
+  'nq_finding_healthy': 'Các chỉ số kết nối đo được đều bình thường.',
   'nq_finding_loss_high': 'Mất gói trong khoảng đo đang cao.',
   'nq_finding_queue_pressure':
-      'Một hàng đợi đang chịu áp lực hoặc đã ghi nhận gói bị loại trong kết nối này.',
-  'nq_finding_pmtu_degraded': 'Xác thực MTU đường dẫn đã suy giảm.',
-  'nq_finding_migration_reconnect':
-      'Không thể chuyển đường trên đường này; đổi mạng sẽ kết nối lại hoàn toàn.',
+      'Trong kết nối này có dữ liệu đang chờ gửi hoặc đã bị loại bỏ.',
+  'nq_finding_pmtu_degraded':
+      'Không thể xác nhận kích thước gói tin phù hợp với đường truyền.',
+  'nq_finding_migration_reconnect': 'Cần kết nối lại sau khi chuyển mạng.',
   'nq_finding_dns_changed': 'Chế độ DNS đã lưu khác với kết nối đang chạy.',
   'nq_finding_dns_runtime': 'DNS mã hóa đang hoạt động.',
   'nq_finding_dns_degraded':
-      'DNS mã hóa đã suy giảm; truy vấn trực tiếp thất bại không quay về DNS hệ thống.',
+      'DNS mã hóa gặp sự cố. Các truy vấn thất bại không được gửi đến DNS không mã hóa của mạng hiện tại.',
   'nq_finding_probe_unsafe': 'Phép đo này không có trong trạng thái hiện tại.',
   'nq_finding_probe_success': 'Kiểm tra này đã đạt.',
   'nq_finding_probe_cancelled': 'Kiểm tra này đã bị hủy.',
@@ -126,7 +126,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_not_ready': 'Chưa sẵn sàng',
   'nq_unsupported': 'Không được hỗ trợ',
   'nq_capability_missing':
-      'Engine này không cung cấp chất lượng mạng. Các điều khiển kết nối hiện có vẫn hoạt động.',
+      'Phiên bản này không thể hiển thị chất lượng kết nối. Bạn vẫn có thể kết nối và ngắt kết nối. Hãy cập nhật Usque trong Cài đặt.',
   'nq_empty': 'Kết nối để xem số liệu đo.',
   'nq_stale_help': 'Cập nhật đã tạm dừng. Đang hiển thị số liệu gần nhất.',
   'nq_rtt': 'Thời gian khứ hồi',
@@ -154,16 +154,17 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_pmtu': 'MTU đường dẫn',
   'nq_outer_pmtu': 'Giới hạn tải UDP ngoài',
   'nq_inner_payload': 'Giới hạn tải CONNECT-IP',
-  'nq_pmtu_help': 'Khám phá đường không tăng MTU TUN của thiết bị.',
+  'nq_pmtu_help':
+      'Kích thước gói tin mà đường truyền có thể chuyển được. Kiểm tra tự động giúp giảm mất gói và không tăng MTU của VPN đã đặt trong cài đặt mạng nâng cao.',
   'nq_migration': 'Chuyển mạng',
   'nq_migration_help':
-      'Một kết nối, một đường dữ liệu. Chỉ cùng họ IP; không phải đa đường.',
+      'Cố gắng giữ kết nối khi chuyển giữa Wi-Fi và dữ liệu di động. Hai mạng phải dùng cùng phiên bản IP, tức IPv4 hoặc IPv6. Mỗi lần chỉ dùng một đường truyền, không cộng gộp tốc độ của các mạng.',
   'nq_attempts': 'Lần thử',
   'nq_successes': 'Thành công',
   'nq_failures': 'Thất bại',
   'nq_last_duration': 'Thời lượng gần nhất',
   'nq_direct_dns': 'DNS trực tiếp',
-  'nq_system_dns': 'DNS hệ thống vật lý',
+  'nq_system_dns': 'DNS của mạng hiện tại',
   'nq_doh': 'DNS over HTTPS',
   'nq_dot': 'DNS over TLS',
   'nq_ready': 'Sẵn sàng',
@@ -206,43 +207,48 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_phase_unknown': 'Chưa sẵn sàng',
   'nq_phase_unsupported': 'Không được hỗ trợ',
   'nq_reason_family_unavailable':
-      'Họ IP hiện tại không có; sẽ kết nối lại hoàn toàn.',
+      'Mạng mới không dùng được cùng phiên bản IP. Hãy kết nối lại.',
   'nq_reason_socket_protect_failed':
-      'Không chuẩn bị được socket ứng viên đã bảo vệ.',
+      'Không thể sử dụng mạng mới một cách an toàn. Nếu kết nối không tự khôi phục, hãy kết nối lại.',
   'nq_reason_generation_changed_during_setup':
       'Mạng lại thay đổi trong lúc thiết lập.',
-  'nq_reason_peer_cid_unavailable': 'Phía đối không còn mã kết nối dự phòng.',
-  'nq_reason_local_cid_unavailable': 'Mã kết nối cục bộ không có sẵn.',
-  'nq_reason_path_probe_rejected': 'Không xác thực được đường ứng viên.',
+  'nq_reason_peer_cid_unavailable':
+      'Máy chủ không giữ được kết nối trên mạng mới. Kết nối lại nếu cần.',
+  'nq_reason_local_cid_unavailable':
+      'Usque không giữ được kết nối trên mạng mới. Kết nối lại nếu cần.',
+  'nq_reason_path_probe_rejected':
+      'Kiểm tra kết nối của mạng mới thất bại. Kiểm tra khả năng truy cập Internet.',
   'nq_reason_path_validation_timeout':
-      'Xác thực đường hết thời gian; có thể kết nối lại.',
-  'nq_reason_superseded': 'Thay đổi mạng mới hơn đã thay lần thử này.',
-  'nq_reason_promotion_failed': 'Không hoàn tất đổi đường một cách an toàn.',
-  'nq_reason_connection_closed': 'Kết nối đã đóng trong lúc chuyển.',
+      'Mạng mới không phản hồi kịp thời. Kiểm tra khả năng truy cập Internet và kết nối lại nếu cần.',
+  'nq_reason_superseded': 'Mạng lại thay đổi trước khi chuyển xong.',
+  'nq_reason_promotion_failed':
+      'Không thể hoàn tất chuyển mạng một cách an toàn. Nếu kết nối không khôi phục, hãy thử lại.',
+  'nq_reason_connection_closed':
+      'Kết nối đã đóng trong lúc chuyển mạng. Hãy kết nối lại.',
   'nq_reason_unsupported': 'Kết nối này không hỗ trợ chuyển đường.',
   'nq_reason_unknown': 'Không có lý do được hỗ trợ.',
   'nq_dns_custom': 'Bộ phân giải mã hóa tùy chỉnh',
-  'nq_dns_server': 'Tên máy chủ TLS',
+  'nq_dns_server': 'Tên miền máy chủ DNS',
   'nq_dns_path': 'Đường HTTPS',
   'nq_dns_port': 'Cổng (0 dùng mặc định)',
-  'nq_dns_bootstrap': 'Địa chỉ IP bootstrap',
+  'nq_dns_bootstrap': 'Địa chỉ IP của máy chủ DNS',
   'nq_dns_bootstrap_help':
-      'Nhập 1–8 địa chỉ IP dạng số, mỗi dòng một địa chỉ. Không tra cứu tên máy.',
+      'Nhập 1–8 địa chỉ IP do nhà cung cấp DNS cung cấp, mỗi địa chỉ một dòng. Ví dụ: 1.1.1.1. Các địa chỉ này cho phép kết nối trực tiếp mà không cần tra cứu tên máy chủ trước.',
   'nq_dns_no_fallback':
       'Nếu DNS trực tiếp mã hóa thất bại, truy vấn thất bại. Không bao giờ quay về DNS hệ thống hoặc DNS không mã hóa (plaintext).',
   'nq_dns_system_privacy':
-      'DNS hệ thống vật lý có thể lộ tên truy vấn trực tiếp cho nhà cung cấp DNS của mạng vật lý.',
+      'Nhà cung cấp DNS của mạng hiện tại có thể thấy các tên miền được truy vấn cho lưu lượng trực tiếp.',
   'nq_dns_scope':
-      'Chỉ dùng cho truy vấn trực tiếp do Geo chọn. DNS đường hầm không đổi.',
+      'Chỉ ảnh hưởng đến lưu lượng khớp quy tắc kết nối trực tiếp theo quốc gia hoặc khu vực. DNS của lưu lượng VPN không thay đổi.',
   'nq_dns_no_capability':
-      'Engine này không dùng được DNS trực tiếp mã hóa. Cài đặt đã lưu được giữ. Bạn có thể chủ động chọn DNS hệ thống.',
+      'Cập nhật Usque để dùng DNS mã hóa cho kết nối trực tiếp. Các cài đặt đã lưu vẫn được giữ lại. Nếu chấp nhận ảnh hưởng đến quyền riêng tư, bạn có thể tự chọn “DNS của mạng hiện tại”.',
   'nq_dns_invalid_name':
-      'Nhập tên DNS không có khoảng trắng, cú pháp URL hay ký tự đại diện.',
+      'Nhập tên miền như dns.example.com, không kèm https://, cổng hay khoảng trắng.',
   'nq_dns_invalid_path':
-      'Dùng /path tối đa 256 ký tự, không có truy vấn, phân mảnh hay khoảng trắng.',
-  'nq_dns_invalid_bootstrap':
-      'Dùng 1–8 IP unicast không trùng; không dùng địa chỉ chưa chỉ định, multicast, broadcast hoặc link-local IPv6.',
-  'nq_dns_invalid_port': 'Nhập 0–65535.',
+      'Nhập đường dẫn như /dns-query, tối đa 256 ký tự, không có khoảng trắng hoặc phần chứa ? hay #.',
+  'nq_dns_invalid_bootstrap': 'Nhập 1–8 địa chỉ IP cho máy chủ DNS.',
+  'nq_dns_invalid_port':
+      'Nhập cổng từ 1 đến 65535, hoặc 0 để dùng cổng mặc định.',
   'nq_dns_invalid_mode': 'Chọn chế độ DNS được hỗ trợ.',
   'nq_doctor_deep_title': 'Chạy kiểm tra mạng sâu?',
   'nq_doctor_deep_body':
@@ -254,28 +260,28 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
 
 const Map<String, String> kWindowsRecoveryVi = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      "Hãy cập nhật ứng dụng và Windows Agent cùng nhau để tái sử dụng thiết bị TUN. Chưa bắt đầu kết nối VPN mới.",
+      'Cập nhật đồng thời các thành phần Usque trong Cài đặt. Chưa có kết nối VPN mới nào được khởi động.',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      "Thiết bị TUN cũ vẫn cần khôi phục. Thoát hoàn toàn Usque rồi mở lại để thử, hoặc xem chẩn đoán cục bộ.",
+      'Chưa dọn dẹp xong kết nối trước. Thoát hoàn toàn Usque, mở lại rồi thử lại. Nếu vẫn gặp lỗi, hãy mở Chẩn đoán.',
   'WINDOWS_RECOVERY_FAILED':
       'Không thể khôi phục đầy đủ trạng thái mạng VPN trước đó. Chưa khởi động kết nối VPN mới. Hãy thử kết nối lại hoặc xem chẩn đoán cục bộ.',
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows không khôi phục được trạng thái mạng VPN trước đó sau ba lần thử tự động. Hãy thử lại khi sẵn sàng, hoặc xem chẩn đoán cục bộ.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Đã dừng sửa tự động vì không xác minh an toàn được trạng thái mạng Windows trước đó. Hãy khởi động lại Agent hoặc cập nhật Usque, rồi xem chẩn đoán cục bộ.',
+      'Đã dừng sửa chữa tự động vì chưa xác nhận được việc khôi phục an toàn. Cập nhật Usque trong Cài đặt. Nếu vẫn gặp lỗi, hãy xuất nhật ký trong Chẩn đoán.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Việc khôi phục mạng Windows lâu hơn dự kiến. Chưa khởi động kết nối VPN mới. Hãy đợi khôi phục xong rồi mới thử lại.',
   'WINDOWS_RECOVERY_CONFLICT':
       'Trạng thái mạng đã đổi hoặc phiên khác vẫn đang dùng. Đã dừng khôi phục tự động để bảo vệ kết nối đang hoạt động.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'Agent Windows này không hỗ trợ khôi phục tự động an toàn. Hãy cập nhật ứng dụng và Agent cùng lúc, rồi thử lại.',
+      'Bản cài đặt này không thể tự khôi phục kết nối VPN trước. Cập nhật Usque trong Cài đặt rồi thử lại.',
 };
 
 const String kWindowsAdapterCleanupVi =
-    'Không thể gỡ bộ điều hợp Wintun trước đó hoặc không xác nhận được việc đã gỡ. Chưa khởi động kết nối VPN mới.';
+    'Không thể gỡ bộ điều hợp mạng ảo của kết nối trước hoặc xác nhận rằng đã gỡ. Chưa có kết nối VPN mới nào được khởi động.';
 
 const Map<String, String> kL4Vi = <String, String>{
-  'l4_quic_not_ready': 'Đang chờ phiên QUIC sẵn sàng',
+  'l4_quic_not_ready': 'Đang chuẩn bị kết nối L4',
   'l4_unsupported_packets': 'Đã từ chối gói không hỗ trợ hoặc sai định dạng',
   'l4_budget_rejections': 'Số lần từ chối cấp tài nguyên',
   'l4_not_applicable': 'Không áp dụng (L4)',
@@ -283,17 +289,17 @@ const Map<String, String> kL4Vi = <String, String>{
   'l4_transport_hint':
       'Chỉ hỗ trợ TCP. Ứng dụng cần UDP có thể không hoạt động. Chế độ tự động không chọn L4.',
   'l4_explanation':
-      'Chỉ TCP trên HTTP/3. Hỗ trợ VPN/TUN, SOCKS5 và HTTP; DNS của TUN được chuyển sang TCP. Auto không bao giờ chọn L4. UDP khác, ping từ xa, mảnh IP và header mở rộng không được hỗ trợ; một số ứng dụng có thể không chạy.',
+      'L4 truyền lưu lượng TCP qua HTTP/3 và dùng được với VPN, proxy SOCKS5 và HTTP. Truy vấn DNS của VPN được chuyển sang TCP. Không hỗ trợ lưu lượng UDP khác, Ping từ xa, các mảnh và phần mở rộng IP; một số ứng dụng có thể không hoạt động. Bạn cần tự chọn L4, ứng dụng không tự bật chế độ này.',
   'l4_unsupported':
-      'Engine này chưa khai báo hỗ trợ L4 đầy đủ. Không thể bật L4.',
+      'Phiên bản này không hỗ trợ L4. Cập nhật Usque trong Cài đặt.',
   'l4_sni_identity':
-      'Chỉ đọc: suy ra từ danh tính tài khoản đã tải. SNI CONNECT-IP hiện có được giữ lại.',
+      'Tên máy chủ được tài khoản tự động đặt. Tên máy chủ đã lưu cho các chế độ kết nối khác vẫn được giữ lại.',
   'l4_edge_requires_l4':
       'DNS phân giải ở biên yêu cầu L4. Hãy chọn chế độ DNS proxy khác trước khi chuyển sang Auto, H3 hoặc H2.',
   'proxy_dns_edge_resolved': 'Biên Cloudflare (chỉ L4; không tra cứu cục bộ)',
-  'l4_verified': 'Đã xác minh L4 CONNECT',
-  'l4_unverified': 'QUIC sẵn sàng; L4 CONNECT chưa được xác minh',
-  'l4_status_unknown': 'Chưa rõ trạng thái xác minh L4',
+  'l4_verified': 'Đã thiết lập kết nối ứng dụng qua L4',
+  'l4_unverified': 'Đã kết nối máy chủ; chưa xác nhận kết nối ứng dụng',
+  'l4_status_unknown': 'Không có trạng thái kết nối ứng dụng',
   'l4_sessions': 'Phiên / đang xả',
   'l4_flows': 'Luồng đang chạy / đang chờ',
   'l4_connect': 'CONNECT thành công / thất bại / hết hạn',
@@ -315,7 +321,7 @@ const Map<String, String> kNetworkSettingsVi = <String, String>{
   'settings_unknown': 'Kết quả chưa được xác nhận',
   'settings_saved': 'Đã lưu',
   'settings_unsupported':
-      'Hãy khởi động lại hoặc cập nhật Engine để lưu cài đặt mạng.',
+      'Thoát hoàn toàn Usque rồi mở lại, sau đó thử lưu lần nữa. Nếu vẫn gặp lỗi, hãy cập nhật Usque trong Cài đặt.',
   'settings_save_failed':
       'Không lưu được cài đặt. Các chỉnh sửa của bạn vẫn được giữ.',
   'settings_reconnect': 'Kết nối lại',

@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">Menghubungkan dengan HTTP/2</string>
     <string name="vpn_notif_connected">Terhubung</string>
     <string name="vpn_notif_connected_via">Terhubung melalui %1$s</string>
-    <string name="vpn_notif_degraded">Terhubung dengan dukungan keluarga alamat terbatas</string>
+    <string name="vpn_notif_degraded">Terhubung, tetapi sebagian akses Internet terbatas. Buka Usque untuk detail.</string>
     <string name="vpn_notif_reconnecting">Menghubungkan ulang dengan aman</string>
     <string name="vpn_notif_error">Layanan jaringan berhenti setelah kesalahan</string>
     <string name="vpn_notif_disconnecting">Memutuskan</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">Memeriksa</string>
     <string name="tile_working">Sedang diproses</string>
     <string name="tile_open_app">Buka Usque</string>
-    <string name="tile_profile_required">Buka Usque dan hubungkan profil VPN sekali sebelum menggunakan ubin.</string>
-    <string name="tile_identity_required">Buka Usque dan atur identitas WARP untuk profil ini.</string>
+    <string name="tile_profile_required">Buka Usque dan hubungkan sekali sebelum memakai pintasan.</string>
+    <string name="tile_identity_required">Buka Usque dan siapkan akun WARP saat ini.</string>
     <string name="tile_vpn_permission_required">Buka Usque untuk memberikan izin VPN Android.</string>
-    <string name="tile_proxy_only">Koneksi hanya-proksi sedang aktif. Buka Usque untuk mengaktifkan frontend VPN.</string>
+    <string name="tile_proxy_only">Hanya proksi lokal yang aktif. Buka Proksi di Usque dan aktifkan VPN.</string>
     <string name="shortcut_connect">Hubungkan</string>
     <string name="shortcut_disconnect">Putuskan</string>
     <string name="shortcut_profiles">Akun</string>

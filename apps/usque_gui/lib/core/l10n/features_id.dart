@@ -6,8 +6,8 @@ const Map<String, String> kUiWorkflowId = <String, String>{
       'Perubahan sakelar disimpan otomatis. Terapkan perubahan alamat pendengar dan DNS dengan Terapkan perubahan.',
   'cc_label': 'Kontrol kongesti HTTP/3',
   'cc_help': 'Berlaku pada koneksi manual berikutnya.',
-  'cc_upgrade': 'Pembaruan Engine diperlukan.',
-  'cc_h2': 'HTTP/2 memakai TCP sistem.',
+  'cc_upgrade': 'Perbarui Usque di Pengaturan untuk memakai opsi ini.',
+  'cc_h2': 'Opsi ini hanya memengaruhi koneksi HTTP/3.',
   'cc_saved': 'Disimpan',
   'cc_pending': 'Menunggu koneksi manual berikutnya.',
   'save_changes': 'Terapkan perubahan',
@@ -43,18 +43,18 @@ const Map<String, String> kUiWorkflowId = <String, String>{
   'home_kill_switch': 'Kill Switch',
   'home_traffic': 'Lalu lintas',
   'home_traffic_window': '60 detik terakhir',
-  'home_traffic_idle': 'Mulai setelah tersambung',
-  'home_traffic_waiting': 'Menunggu sampel',
-  'home_traffic_unavailable': 'Riwayat tidak tersedia',
-  'home_traffic_stale': 'Sampel tertunda',
-  'home_outputs_next': 'Keluaran diaktifkan setelah tersambung',
-  'home_outputs_retry': 'Keluaran disiapkan untuk percobaan berikutnya',
+  'home_traffic_idle': 'Lalu lintas muncul setelah terhubung',
+  'home_traffic_waiting': 'Menunggu data lalu lintas',
+  'home_traffic_unavailable': 'Riwayat lalu lintas tidak tersedia',
+  'home_traffic_stale': 'Pembaruan lalu lintas tertunda',
+  'home_outputs_next': 'Tersedia setelah terhubung',
+  'home_outputs_retry': 'VPN dan proksi untuk koneksi berikutnya',
   'connection_protection_group': 'Koneksi & perlindungan',
   'proxy_routing_group': 'Proksi & perutean',
   'application_group': 'Aplikasi',
   'proxy_settings_link': 'Alamat listener, port, autentikasi, dan DNS.',
   'proxy_auth_separate':
-      'Kredensial disimpan terpisah lewat Simpan kredensial.',
+      'Gunakan Simpan nama pengguna dan kata sandi di bawah untuk menerapkan perubahan ini.',
   'reset_draft_hint':
       'Nilai default akan dimuat ke formulir ini. Terapkan perubahan agar berlaku.',
 };
@@ -77,27 +77,28 @@ const Map<String, String> kNetworkQualityId = <String, String>{
       'Pengukuran ini tidak tersedia pada status saat ini.',
   'nq_finding_invalid_configuration': 'Konfigurasi DNS kustom tidak valid.',
   'nq_finding_dns_system':
-      'DNS sistem fisik dipilih; pemeriksaan DNS terenkripsi tidak berlaku.',
+      'Menggunakan DNS jaringan saat ini; pemeriksaan DNS terenkripsi tidak berlaku.',
   'nq_finding_unsupported':
-      'DNS terenkripsi tidak tersedia di Engine ini; cadangan teks biasa tidak diizinkan.',
+      'Perbarui Usque untuk menggunakan DNS terenkripsi. Kueri tidak akan beralih ke DNS tanpa enkripsi.',
   'nq_finding_dns_custom_valid':
       'Konfigurasi DNS terenkripsi kustom valid. Cadangan teks biasa dinonaktifkan.',
   'nq_finding_stale': 'Bacaan kedaluwarsa atau jaringan fisik berubah.',
   'nq_finding_rtt_high': 'Waktu bolak-balik terukur lebih tinggi dari biasa.',
   'nq_finding_healthy':
-      'Pengukuran lokal yang tersedia berada dalam rentang yang diharapkan.',
+      'Pengukuran koneksi yang tersedia berada dalam kisaran normal.',
   'nq_finding_loss_high':
       'Kehilangan paket pada selang pengukuran ini lebih tinggi dari biasa.',
   'nq_finding_queue_pressure':
-      'Ada antrean yang tertekan atau mencatat pembuangan selama koneksi ini.',
-  'nq_finding_pmtu_degraded': 'Validasi MTU jalur menurun.',
+      'Ada lalu lintas menunggu dikirim, atau data telah dibuang selama koneksi ini.',
+  'nq_finding_pmtu_degraded':
+      'Usque tidak dapat memastikan ukuran paket yang sesuai untuk koneksi ini.',
   'nq_finding_migration_reconnect':
-      'Migrasi tidak tersedia di jalur ini; perubahan jaringan memakai sambungan ulang penuh.',
+      'Koneksi ini perlu disambungkan ulang saat berpindah jaringan.',
   'nq_finding_dns_changed':
       'Mode DNS tersimpan berbeda dari koneksi yang sedang berjalan.',
   'nq_finding_dns_runtime': 'DNS terenkripsi berfungsi.',
   'nq_finding_dns_degraded':
-      'DNS terenkripsi menurun; kueri langsung yang gagal tidak kembali ke DNS sistem.',
+      'DNS terenkripsi bermasalah. Kueri yang gagal tidak akan memakai DNS jaringan tanpa enkripsi.',
   'nq_finding_probe_unsafe':
       'Pengukuran ini tidak tersedia pada status saat ini.',
   'nq_finding_probe_success': 'Pemeriksaan ini lulus.',
@@ -134,7 +135,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_not_ready': 'Belum siap',
   'nq_unsupported': 'Tidak didukung',
   'nq_capability_missing':
-      'Engine ini tidak menyediakan kualitas jaringan. Kontrol koneksi yang ada tetap berfungsi.',
+      'Versi ini tidak menampilkan kualitas koneksi. Anda tetap dapat menyambung dan memutuskan. Periksa pembaruan di Pengaturan.',
   'nq_empty': 'Hubungkan untuk melihat pengukuran.',
   'nq_stale_help': 'Pembaruan terhenti. Menampilkan hasil pengukuran terakhir.',
   'nq_rtt': 'Waktu bolak-balik',
@@ -163,16 +164,17 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_pmtu': 'MTU jalur',
   'nq_outer_pmtu': 'Batas muatan UDP luar',
   'nq_inner_payload': 'Batas muatan CONNECT-IP',
-  'nq_pmtu_help': 'Penemuan jalur tidak menaikkan MTU TUN perangkat.',
+  'nq_pmtu_help':
+      'Ini adalah ukuran paket yang dapat dibawa jalur jaringan. Usque memeriksanya otomatis untuk mengurangi paket hilang. Pemeriksaan tidak menaikkan MTU VPN di Pengaturan jaringan lanjutan.',
   'nq_migration': 'Migrasi jaringan',
   'nq_migration_help':
-      'Satu koneksi, satu jalur data. Hanya keluarga IP yang sama; bukan banyak jalur.',
+      'Usque mencoba mempertahankan koneksi saat berpindah jaringan, misalnya dari Wi-Fi ke seluler. Keduanya harus memakai versi IP yang sama, IPv4 atau IPv6. Hanya satu jaringan digunakan setiap saat; kecepatannya tidak digabung.',
   'nq_attempts': 'Percobaan',
   'nq_successes': 'Berhasil',
   'nq_failures': 'Gagal',
   'nq_last_duration': 'Durasi terakhir',
   'nq_direct_dns': 'DNS langsung',
-  'nq_system_dns': 'DNS sistem fisik',
+  'nq_system_dns': 'DNS jaringan saat ini',
   'nq_doh': 'DNS over HTTPS',
   'nq_dot': 'DNS over TLS',
   'nq_ready': 'Siap',
@@ -215,46 +217,47 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_phase_unknown': 'Belum siap',
   'nq_phase_unsupported': 'Tidak didukung',
   'nq_reason_family_unavailable':
-      'Keluarga IP saat ini tidak tersedia; sambungan ulang penuh digunakan.',
+      'Jaringan baru tidak dapat memakai versi IP yang sama. Sambungkan ulang.',
   'nq_reason_socket_protect_failed':
-      'Soket kandidat terlindungi tidak dapat disiapkan.',
+      'Usque tidak dapat memakai jaringan baru dengan aman. Jika koneksi belum pulih, sambungkan ulang secara manual.',
   'nq_reason_generation_changed_during_setup':
       'Jaringan berubah lagi selama penyiapan.',
   'nq_reason_peer_cid_unavailable':
-      'Peer tidak memiliki pengenal koneksi cadangan.',
-  'nq_reason_local_cid_unavailable': 'Pengenal koneksi lokal tidak tersedia.',
-  'nq_reason_path_probe_rejected': 'Jalur kandidat tidak dapat divalidasi.',
+      'Server tidak dapat mempertahankan koneksi di jaringan baru. Jika belum pulih, sambungkan ulang secara manual.',
+  'nq_reason_local_cid_unavailable':
+      'Usque tidak dapat mempertahankan koneksi di jaringan baru. Jika belum pulih, sambungkan ulang secara manual.',
+  'nq_reason_path_probe_rejected':
+      'Jaringan baru gagal dalam pemeriksaan koneksi. Pastikan jaringan dapat mengakses Internet.',
   'nq_reason_path_validation_timeout':
-      'Validasi jalur habis waktu; sambungan ulang tersedia.',
-  'nq_reason_superseded':
-      'Perubahan jaringan yang lebih baru menggantikan percobaan ini.',
+      'Jaringan baru tidak merespons tepat waktu. Periksa jaringan dan sambungkan ulang jika perlu.',
+  'nq_reason_superseded': 'Jaringan berubah lagi sebelum perpindahan selesai.',
   'nq_reason_promotion_failed':
-      'Peralihan jalur tidak dapat diselesaikan dengan aman.',
-  'nq_reason_connection_closed': 'Koneksi ditutup selama migrasi.',
+      'Usque tidak dapat menyelesaikan perpindahan jaringan dengan aman. Jika koneksi belum pulih, sambungkan ulang secara manual.',
+  'nq_reason_connection_closed':
+      'Koneksi terputus saat berpindah jaringan. Sambungkan kembali.',
   'nq_reason_unsupported': 'Migrasi tidak tersedia pada koneksi ini.',
   'nq_reason_unknown': 'Tidak ada alasan yang didukung.',
   'nq_dns_custom': 'Resolver terenkripsi kustom',
-  'nq_dns_server': 'Nama server TLS',
+  'nq_dns_server': 'Domain server DNS',
   'nq_dns_path': 'Jalur HTTPS',
   'nq_dns_port': 'Port (0 memakai nilai baku)',
-  'nq_dns_bootstrap': 'Alamat IP bootstrap',
+  'nq_dns_bootstrap': 'Alamat IP server DNS',
   'nq_dns_bootstrap_help':
-      'Masukkan 1–8 alamat IP numerik, satu per baris. Pencarian nama host tidak digunakan.',
+      'Masukkan 1–8 IP dari penyedia DNS, satu per baris, misalnya 1.1.1.1. Usque langsung menghubungi alamat ini tanpa mencari nama server terlebih dahulu.',
   'nq_dns_no_fallback':
       'Jika DNS langsung terenkripsi gagal, kueri gagal. Tidak pernah kembali ke DNS sistem atau teks biasa.',
   'nq_dns_system_privacy':
-      'DNS sistem fisik dapat menampilkan nama kueri langsung kepada penyedia DNS jaringan fisik.',
+      'Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta oleh lalu lintas langsung.',
   'nq_dns_scope':
-      'Hanya untuk kueri langsung yang dipilih Geo. DNS terowongan tidak berubah.',
+      'Untuk lalu lintas yang cocok dengan aturan negara koneksi langsung. DNS lalu lintas VPN tidak berubah.',
   'nq_dns_no_capability':
-      'Engine ini tidak dapat memakai DNS langsung terenkripsi. Setelan tersimpan tetap ada. Anda dapat secara tegas memilih DNS sistem.',
+      'Perbarui Usque untuk memakai DNS terenkripsi pada koneksi langsung. Pengaturan disimpan. Anda dapat memilih DNS jaringan saat ini jika menerima dampak privasinya.',
   'nq_dns_invalid_name':
-      'Masukkan nama DNS tanpa spasi, sintaksis URL, atau karakter pengganti.',
+      'Masukkan domain seperti dns.example.com, tanpa https://, port, atau spasi.',
   'nq_dns_invalid_path':
-      'Gunakan /path hingga 256 karakter, tanpa kueri, fragmen, atau spasi.',
-  'nq_dns_invalid_bootstrap':
-      'Gunakan 1–8 IP unicast unik; tanpa alamat tak ditentukan, multicast, siaran, atau tautan-lokal IPv6.',
-  'nq_dns_invalid_port': 'Masukkan 0–65535.',
+      'Masukkan jalur seperti /dns-query, maksimal 256 karakter. Hapus spasi dan bagian yang diawali ? atau #.',
+  'nq_dns_invalid_bootstrap': 'Masukkan 1–8 alamat IP server.',
+  'nq_dns_invalid_port': 'Masukkan port 1–65535, atau 0 untuk nilai bawaan.',
   'nq_dns_invalid_mode': 'Pilih mode DNS yang didukung.',
   'nq_doctor_deep_title': 'Jalankan pemeriksaan jaringan mendalam?',
   'nq_doctor_deep_body':
@@ -266,28 +269,28 @@ const Map<String, String> kNetworkQualityId = <String, String>{
 
 const Map<String, String> kWindowsRecoveryId = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      "Perbarui aplikasi dan Windows Agent bersamaan untuk memakai ulang perangkat TUN. Belum ada koneksi VPN baru.",
+      'Komponen koneksi Usque perlu diperbarui bersama. Periksa pembaruan di Pengaturan. Koneksi VPN baru belum dimulai.',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      "Perangkat TUN sebelumnya masih perlu dipulihkan. Tutup Usque sepenuhnya, buka kembali dan coba lagi, atau periksa diagnostik lokal.",
+      'Pembersihan koneksi VPN sebelumnya belum selesai. Tutup Usque sepenuhnya dan buka kembali. Jika tetap gagal, buka Diagnostik.',
   'WINDOWS_RECOVERY_FAILED':
       'Status jaringan VPN sebelumnya tidak dapat dipulihkan sepenuhnya. Koneksi VPN baru belum dimulai. Coba sambungkan lagi atau tinjau diagnostik lokal.',
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows tidak dapat memulihkan status jaringan VPN sebelumnya setelah tiga percobaan otomatis. Coba lagi saat siap, atau tinjau diagnostik lokal.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Perbaikan otomatis dihentikan karena status jaringan Windows sebelumnya tidak dapat diverifikasi dengan aman. Mulai ulang Agent atau perbarui Usque, lalu tinjau diagnostik lokal.',
+      'Perbaikan otomatis dihentikan karena pemulihan pengaturan VPN sebelumnya tidak dapat dipastikan aman. Periksa pembaruan di Pengaturan; jika berlanjut, ekspor paket dari Diagnostik.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Pemulihan jaringan Windows memakan waktu lebih lama dari yang diharapkan. Koneksi VPN baru belum dimulai. Tunggu pemulihan selesai sebelum mencoba lagi.',
   'WINDOWS_RECOVERY_CONFLICT':
       'Status jaringan berubah atau masih digunakan sesi lain. Pemulihan otomatis dihentikan untuk melindungi koneksi aktif.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'Agent Windows ini tidak mendukung pemulihan otomatis yang aman. Perbarui aplikasi dan Agent bersama-sama, lalu coba lagi.',
+      'Instalasi ini tidak dapat memulihkan pengaturan VPN sebelumnya secara otomatis. Perbarui Usque di Pengaturan lalu coba lagi.',
 };
 
 const String kWindowsAdapterCleanupId =
-    'Adapter Wintun sebelumnya tidak dapat dihapus atau penghapusannya tidak dapat diverifikasi. Koneksi VPN baru belum dimulai.';
+    'Adaptor jaringan virtual dari koneksi sebelumnya tidak dapat dihapus atau penghapusannya belum dapat dipastikan. Koneksi VPN baru belum dimulai.';
 
 const Map<String, String> kL4Id = <String, String>{
-  'l4_quic_not_ready': 'Menunggu sesi QUIC yang siap',
+  'l4_quic_not_ready': 'Menyiapkan koneksi L4',
   'l4_unsupported_packets': 'Paket tidak didukung atau rusak ditolak',
   'l4_budget_rejections': 'Penerimaan sumber daya ditolak',
   'l4_not_applicable': 'Tidak berlaku (L4)',
@@ -295,18 +298,18 @@ const Map<String, String> kL4Id = <String, String>{
   'l4_transport_hint':
       'Hanya TCP. Aplikasi yang memerlukan UDP mungkin tidak berfungsi. Mode otomatis tidak memilih L4.',
   'l4_explanation':
-      'Hanya TCP melalui HTTP/3. Mendukung VPN/TUN, SOCKS5, dan HTTP; DNS TUN diubah menjadi TCP. Auto tidak pernah memilih L4. UDP lain, ping jarak jauh, fragmen IP, dan header ekstensi tidak didukung; beberapa aplikasi mungkin tidak berfungsi.',
+      'L4 meneruskan TCP lewat HTTP/3 dan mendukung VPN serta proksi SOCKS5 dan HTTP. Kueri DNS VPN diubah menjadi TCP. Aplikasi yang membutuhkan UDP lain, Ping jarak jauh, fragmen IP, atau header ekstensi mungkin tidak berfungsi. Pilih L4 manual; mode otomatis tidak memilihnya.',
   'l4_unsupported':
-      'Mesin ini belum menyatakan dukungan L4 lengkap. L4 tidak dapat diaktifkan.',
+      'Versi Usque ini tidak mendukung L4. Periksa pembaruan di Pengaturan.',
   'l4_sni_identity':
-      'Hanya baca: diturunkan dari identitas akun yang dimuat. SNI CONNECT-IP yang ada dipertahankan.',
+      'Diatur otomatis oleh akun. Nama server mode koneksi lain tetap disimpan.',
   'l4_edge_requires_l4':
       'DNS yang diselesaikan di tepi memerlukan L4. Pilih mode DNS proksi lain sebelum beralih ke Auto, H3, atau H2.',
   'proxy_dns_edge_resolved':
       'Tepi Cloudflare (hanya L4; tanpa pencarian lokal)',
-  'l4_verified': 'L4 CONNECT terverifikasi',
-  'l4_unverified': 'QUIC siap; L4 CONNECT belum terverifikasi',
-  'l4_status_unknown': 'Status verifikasi L4 tidak diketahui',
+  'l4_verified': 'L4 telah berhasil membuat koneksi aplikasi',
+  'l4_unverified': 'Server terhubung; koneksi aplikasi belum dikonfirmasi',
+  'l4_status_unknown': 'Status koneksi aplikasi belum dapat dipastikan',
   'l4_sessions': 'Sesi / pengosongan',
   'l4_flows': 'Aliran aktif / menunggu',
   'l4_connect': 'CONNECT berhasil / gagal / habis waktu',
@@ -328,7 +331,7 @@ const Map<String, String> kNetworkSettingsId = <String, String>{
   'settings_unknown': 'Hasil belum dikonfirmasi',
   'settings_saved': 'Disimpan',
   'settings_unsupported':
-      'Mulai ulang atau perbarui Engine untuk menyimpan pengaturan jaringan.',
+      'Tutup Usque sepenuhnya, buka kembali, lalu simpan lagi. Jika gagal, periksa pembaruan di Pengaturan.',
   'settings_save_failed':
       'Pengaturan tidak dapat disimpan. Suntingan Anda tetap ada.',
   'settings_reconnect': 'Hubungkan ulang',

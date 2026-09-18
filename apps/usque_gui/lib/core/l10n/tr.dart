@@ -4,7 +4,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'disable_quic_help':
       "Proxy veya tünel üzerinden UDP/443 trafiğini, bu porttaki diğer protokollerle birlikte engeller. GEO doğrudan trafiği ve Usque’nin HTTP/3 bağlantısı etkilenmez. Diğer portlarda QUIC serbesttir. Yeniden bağlanmadan uygulanır.",
   'disable_quic_unsupported':
-      "Bu ayarı kullanmak için motoru güncelleyin veya yeniden başlatın.",
+      'Usque’yi tamamen kapatıp yeniden açın. Bu seçenek hâlâ kullanılamıyorsa Ayarlar’dan Usque’yi güncelleyin.',
   'technical_details': 'Teknik ayrıntılar',
   'diag_skip_disconnected': 'Bu kontrolü çalıştırmak için bağlanın.',
   'diag_skip_disabled': 'Bu özellik kapalı.',
@@ -28,13 +28,14 @@ const Map<String, String> kTrCatalog = <String, String>{
   'tray_disconnect_profile': 'Etkin hesabın bağlantısını kes',
   'tray_disconnect_exit': 'Bağlantıyı kes ve çık',
   'connection_status': 'Bağlantı durumu',
-  'outputs': 'Ağ çıkışları',
+  'outputs': 'VPN ve yerel proxy’ler',
   'home': 'Ana sayfa',
   'profiles': 'Hesaplar',
   'profiles_subtitle':
       'WARP hesapları arasında geçiş yapın ve bunları yönetin.',
   'proxy': 'Proxy',
-  'proxy_subtitle': 'Tüm hesapların paylaştığı yerel dinleyiciler ve DNS.',
+  'proxy_subtitle':
+      'Tüm hesapların kullandığı proxy adreslerini ve DNS ayarlarını belirleyin.',
   'settings': 'Ayarlar',
   'settings_subtitle': 'Bağlantı, proxy ve uygulama ayarları.',
   'diagnostics': 'Tanılama',
@@ -42,7 +43,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'nav_profiles': 'Hesaplar',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Ayarlar',
-  'status_stream_degraded': 'Canlı durum güncellemeleri düşürüldü',
+  'status_stream_degraded': 'Durum güncellemeleri gecikiyor',
   'status_stream_degraded_body':
       'Durum güncellemeleri gecikiyor. Otomatik olarak yeniden deneniyor.',
   'connect': 'Bağlan',
@@ -58,7 +59,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'error': 'Bağlantı hatası',
   'active_profile': 'Geçerli hesap',
   'protocol': 'Protokol',
-  'address_family': 'Adres ailesi',
+  'address_family': 'IP sürümü',
   'duration': 'Süre',
   'download': 'İndirme',
   'upload': 'Yükleme',
@@ -67,44 +68,46 @@ const Map<String, String> kTrCatalog = <String, String>{
   'ipv6': 'IPv6',
   'not_available': 'Kullanılamıyor',
   'location_disconnected': 'Bağlantı bekleniyor',
-  'engine_unavailable': 'Yerel Usque Engine bu derlemede henüz kullanılamıyor.',
+  'engine_unavailable':
+      'Bağlantı hizmeti başlatılamadı. Usque’yi tamamen kapatıp yeniden açın. Sorun sürerse Tanılama’yı açın.',
   'dismiss': 'Kapat',
   'new_profile': 'Hesap ekle',
   'profile_name': 'Hesap adı',
   'profile_name_too_long': 'En fazla 64 karakter kullanın.',
-  'configure_identity': 'WARP kimliğini yapılandır',
-  'identity_ready': 'Kimlik hazır',
+  'configure_identity': 'WARP hesabını ayarla',
+  'identity_ready': 'Hesap hazır',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Kimlik gerekli',
-  'identity_invalid': 'Kimliğin onarılması gerekiyor',
-  'identity_setup_failed': 'WARP kimliği yapılandırılamadı.',
+  'identity_missing': 'Hesap ayarlanmalı',
+  'identity_invalid': 'Hesap yeniden ayarlanmalı',
+  'identity_setup_failed': 'WARP hesabı ayarlanamadı. Yeniden deneyin.',
   'use_license_key': 'WARP License Key kullan',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Kuruluş hesabıyla oturum açın',
   'zero_trust_team': 'Kuruluş ekibinin adı',
-  'zero_trust_team_invalid': 'Tek bir DNS etiketli ekip adı girin.',
+  'zero_trust_team_invalid':
+      '1–63 Latin harfi, rakam veya kısa çizgi kullanın. İlk ve son karakter harf ya da rakam olmalıdır. Örnek: example-team.',
   'zero_trust_open_login': 'Kuruluş oturumunu aç',
   'zero_trust_browser_failed': 'Sistem tarayıcısı açılamadı.',
   'zero_trust_manual_callback':
-      'Oturum açtıktan sonra Usque’ye dönün. Geri çağrı URL’si otomatik doldurulmadıysa panodan doldurun veya tam URL’yi yapıştırın.',
+      'Oturum açtıktan sonra Usque’ye dönün. Oturum açma işlemi otomatik tamamlanmazsa giriş sayfasındaki WARP’ı açan bağlantının tamamını kopyalayıp aşağıya yapıştırın.',
   'zero_trust_callback_received':
-      'Kuruluş geri çağrısı güvenli şekilde alındı.',
-  'zero_trust_callback': 'Tam geri çağrı URL’si',
+      'Oturum açma bilgisi alındı. Hesap ayarına devam edin.',
+  'zero_trust_callback': 'Oturum açma dönüş bağlantısı',
   'zero_trust_callback_required':
-      'Yeni bir tam geri çağrı URL’si yapıştırın veya yeniden oturum açın.',
+      'Giriş sayfasındaki bağlantının tamamını yapıştırın veya sayfayı yeniden açıp tekrar oturum açın.',
   'zero_trust_callback_invalid':
-      'Bu kuruluş için bir com.cloudflare.warp Access geri çağrısı kullanın.',
+      'Bu bağlantı seçili kuruluşla eşleşmiyor. Giriş sayfasını yeniden açıp WARP’ı açan bağlantının tamamını kopyalayın.',
   'zero_trust_paste_clipboard': 'Panodan doldur',
-  'zero_trust_clipboard_empty': 'Panoda bir geri çağrı URL’si yok.',
+  'zero_trust_clipboard_empty': 'Panoda oturum açma dönüş bağlantısı yok.',
   'zero_trust_scope_note':
-      'Deneysel: İnternet erişimi için kuruluş cihaz kaydını kullanır; ilke eşitlemesi ve cihaz duruşu uygulanmamıştır.',
+      'Deneysel özellik. Yalnızca genel internete erişim sağlar; kuruluş politikalarının güncellenmesini veya cihaz güvenliği denetimlerini desteklemez.',
   'zero_trust_repair_same_team':
-      'Bu cihaz kaydını yenilemek için aynı kuruluşa yeniden oturum açın.',
+      'Bu hesabın bağlantısını geri yüklemek için aynı kuruluşta yeniden oturum açın.',
   'zero_trust_metadata_missing':
-      'Kayıtlı kuruluş bağlaması eksik. Güvenlik nedeniyle bu hesap kaydı yerinde onarılamaz; yeni bir Zero Trust hesabı ekleyin.',
+      'Kaydedilen kuruluş bilgileri eksik. Yeni bir Zero Trust hesabı ekleyip oturum açın.',
   'zero_trust_endpoint_managed':
-      'Bu uç nokta, Zero Trust cihaz kaydı tarafından yönetilir ve burada düzenlenemez.',
+      'Sunucu adresini kuruluş hesabı belirler. Bu adres burada değiştirilemez.',
   'experimental': 'Deneysel',
   'show_license': 'License Key’i göster',
   'hide_license': 'License Key’i gizle',
@@ -118,10 +121,10 @@ const Map<String, String> kTrCatalog = <String, String>{
   'delete': 'Sil',
   'delete_profile': 'Hesap kaldırılsın mı?',
   'delete_profile_body':
-      'Bu işlem, bu hesap kaydının gizli olmayan ayarlarını kaldırır. Saklanan kimlik verileri silinmez.',
+      'Bu hesap listeden kaldırılır ve yerel ayarları silinir. Kaydedilmiş WARP oturum açma bilgileri bu cihazda kalır.',
   'delete_zero_trust_profile_body':
-      'Bu işlem yalnızca yerel hesap kaydını ve kimlik bilgilerini siler. Kalan cihaz kaydını Zero Trust içinde kaldırması için bir kuruluş yöneticisine başvurun.',
-  'license_not_applicable': 'Lisans uygulanamaz · Deneysel',
+      'Bu hesap ve oturum açma bilgileri bu cihazdan silinir. Cihazın kuruluşun Zero Trust kaydını kaldırmak için yöneticinize başvurun.',
+  'license_not_applicable': 'Kuruluş hesabı · Deneysel',
   'zero_trust_reauthenticate': 'Bu kuruluşa yeniden oturum açın',
   'zero_trust_admin_cleanup_note':
       'Bu hesap kaydını kaldırmak, cihazın Zero Trust yönetim panelindeki kaydını iptal etmez.',
@@ -130,11 +133,12 @@ const Map<String, String> kTrCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Hesabı yeniden adlandır',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'Yalnızca MASQUE kanalı',
-  'channel_only_warning': 'Hiçbir ağ çıkışı etkin değil.',
-  'socks_listener': 'SOCKS5 dinleyicisi',
-  'http_listener': 'HTTP dinleyicisi',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN ve yerel proxy’ler kapalı',
+  'channel_only_warning':
+      'Hiçbir uygulamanın trafiği bu bağlantıyı kullanmıyor. Proxy sayfasını açıp VPN, SOCKS5 veya HTTP’yi etkinleştirin.',
+  'socks_listener': 'SOCKS5 proxy',
+  'http_listener': 'HTTP proxy',
   'listen_ipv4': 'IPv4’te dinle',
   'listen_ipv6': 'IPv6’da dinle',
   'port': 'Port',
@@ -155,25 +159,25 @@ const Map<String, String> kTrCatalog = <String, String>{
   'lan_warning_body':
       'Usque kullanıcı adı/parola kimlik doğrulaması eklemez. Bu dinleyiciye ulaşabilen herkes onu kullanabilir.',
   'lan_warning_body_authenticated':
-      'Bu dinleyici, yapılandırılmış kullanıcı adı ve parolayı sunan kimliği doğrulanmış, loopback olmayan istemcileri kabul eder.',
-  'proxy_auth': 'Dinleyici kimlik doğrulaması',
+      'Yerel ağdaki diğer cihazlar, ayarladığınız kullanıcı adı ve parolayla bu proxy’yi kullanabilir.',
+  'proxy_auth': 'Proxy kullanıcı adı ve parolası',
   'proxy_auth_help':
-      'SOCKS5 ve HTTP dinleyicileri için isteğe bağlı kullanıcı adı ve parola. Parola, profil dosyasında değil sistem kasasında saklanır.',
+      'SOCKS5 ve HTTP proxy’lerini kullanmak için kullanıcı adı ve parola isteyin. Parola bu cihazda güvenli biçimde saklanır.',
   'proxy_username': 'Kullanıcı adı',
   'proxy_password': 'Parola',
   'proxy_password_hint':
-      'Kimlik bilgilerini ayarlamak veya değiştirmek için parola girin.',
-  'proxy_auth_apply': 'Kimlik bilgilerini kaydet',
+      'Kullanıcı adı ve parolayı ayarlamak veya değiştirmek için parolayı girin.',
+  'proxy_auth_apply': 'Kullanıcı adı ve parolayı kaydet',
   'proxy_auth_invalid':
-      'Kullanıcı adı, “:” veya NUL içermeden 1–255 bayt olmalıdır. Kullanıcı adıyla birlikte 1–255 baytlık bir parola gerekir.',
-  'proxy_auth_saved': 'Dinleyici kimlik bilgileri kaydedildi',
-  'proxy_auth_cleared': 'Dinleyici kimlik doğrulaması kaldırıldı',
+      'Kullanıcı adı ve parolayı kontrol edip yeniden deneyin.',
+  'proxy_auth_saved': 'Proxy kullanıcı adı ve parolası kaydedildi.',
+  'proxy_auth_cleared': 'Proxy parola koruması kaldırıldı.',
   'lan_warning_authenticated': 'Kimliği doğrulanmış LAN dinleyicisi',
   'lan_warning_authenticated_body':
       'Bu dinleyici yerel ağdan erişilebilir ve ayarladığınız kullanıcı adı ile parolayı gerektirir.',
   'proxy_password_set':
       'Parola ayarlandı. Değiştirmek için yeni bir parola girin.',
-  'proxy_auth_clear': 'Kimlik doğrulamayı kaldır',
+  'proxy_auth_clear': 'Parola korumasını kaldır',
   'general': 'Genel',
   'system_integration': 'Sistem entegrasyonu',
   'start_on_boot': 'Oturum açtığınızda Usque’yi başlat',
@@ -227,8 +231,8 @@ const Map<String, String> kTrCatalog = <String, String>{
   'update_package_unavailable':
       'Bu cihaz için doğrulanmış paket yok. Sürüm sayfasını açın.',
   'notice': 'Tamamlandı',
-  'identity': 'WARP kimliği',
-  'identity_and_license': 'Kimlik ve lisans',
+  'identity': 'WARP hesabı',
+  'identity_and_license': 'Hesap ve lisans',
   'license_cleanup_pending': 'Eski WARP cihaz kaydı kaldırılmayı bekliyor.',
   'copy_license': 'License Key’i kopyala',
   'change_license': 'License Key’i değiştir',
@@ -268,7 +272,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'lockdown': 'VPN olmadan engelle',
   'not_used_proxy': 'Proxy modunda kullanılmaz',
   'kill_switch_help':
-      'Bağlanırken, yeniden bağlanırken veya bir Usque Engine arızasından kurtulurken trafiği engeller. Android’de bu, VPN hizmeti çalışırken sürer; uygulama sonlandırıldıktan sonra koruma için sistem ayarlarında Her zaman açık VPN ve VPN olmadan bağlantıları engelle seçeneklerini etkinleştirin.',
+      'Bağlanırken, yeniden bağlanırken ve bağlantı hizmeti kurtarılırken trafiği engeller. Android’de yalnızca VPN hizmeti çalışırken etkindir. Uygulama durduktan sonra da korunmak için sistem ayarlarında Her zaman açık VPN ve VPN’siz bağlantıları engelle seçeneklerini açın.',
   'start_on_boot_android':
       'Yeniden başlatmanın ardından Usque’yi başlatın. Ayrıca başlangıçta otomatik bağlanmayı etkinleştirin.',
   'add_quick_settings_tile_help':
@@ -310,8 +314,8 @@ const Map<String, String> kTrCatalog = <String, String>{
   'invalid_cidr': 'Geçersiz CIDR',
   'diagnostics_title': 'Tanılama ve uygulama hakkında',
   'diagnostics_subtitle':
-      'Usque Engine durumu, günlük dışa aktarma ve yerel veriler.',
-  'engine_status': 'Usque Engine durumu',
+      'Bağlantı sorunlarını kontrol edin, günlükleri dışa aktarın ve yerel verileri yönetin.',
+  'engine_status': 'Bağlantı bilgileri',
   'version': 'Sürüm',
   'app_version': 'Usque 0.2.7',
   'logs': 'Yerel günlükler',
@@ -323,9 +327,9 @@ const Map<String, String> kTrCatalog = <String, String>{
   'license': 'Lisans',
   'clear_all_data': 'Tüm verileri temizle',
   'clear_all_data_help':
-      'Bağlantıyı kesin ve bu cihazdaki her hesabı, Consumer WARP kimliğini, tercihi, önbelleği ve yerel tanılama kaydını kalıcı olarak kaldırın.',
+      'Bağlantıyı keser ve bu cihazdaki tüm hesapları, WARP oturum açma bilgilerini, ayarları, önbelleği ve tanılama verilerini kalıcı olarak siler.',
   'clear_all_data_confirm':
-      'Bu işlem geri alınamaz. Usque önce bağlantıyı kesecek, kayıtlı tüm kimlikleri ve hesapları silecek ve ilk kuruluma dönecektir.',
+      'Bu işlem geri alınamaz. Bağlantı kesilir, tüm hesaplar ve oturum açma bilgileri silinir, ilk kurulum ekranı açılır.',
   'clear_all_data_complete': 'Tüm yerel Usque verileri temizlendi.',
   'unofficial':
       'Cloudflare WARP ile uyumlu, resmi olmayan bir istemci. Cloudflare ile bağlantılı değildir ve Cloudflare tarafından onaylanmamıştır.',
@@ -334,13 +338,13 @@ const Map<String, String> kTrCatalog = <String, String>{
   'get_started': 'Başlayın',
   'permissions_title': 'Sistem izinleri',
   'permissions_body':
-      'Usque’nin bir VPN arabirimi oluşturması ve rotaları, DNS’i, güvenlik duvarı kurallarını ve sistem proxy’sini yönetmesi için izin gerekir.',
+      'Uygulama trafiğini VPN üzerinden yönlendirmek için sistem izni gerekir. Seçilen moda bağlı olarak DNS, ağ yolları, güvenlik duvarı veya sistem proxy ayarları da değiştirilebilir.',
   'terms_title': 'Cloudflare koşulları',
   'terms_body':
       'Usque bağımsız bir istemcidir. Consumer WARP veya deneysel Zero Trust kaydı kullanımınız Cloudflare’ın geçerli koşullarına ve gizlilik politikasına tabidir.',
   'terms_accept': 'Bu koşulları anlıyorum ve kabul ediyorum.',
-  'identity_title': 'Consumer WARP’ı ayarla',
-  'register_new': 'Yeni bir kimlik kaydet',
+  'identity_title': 'Kişisel WARP hesabını ayarla',
+  'register_new': 'Ücretsiz WARP hesabı oluştur',
   'manual_secret': 'WARP Secret girin',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Secret’ı göster',
@@ -355,9 +359,9 @@ const Map<String, String> kTrCatalog = <String, String>{
   'profile_required': 'En az bir hesap bulundurun.',
   'socks_capabilities': 'TCP ve UDP',
   'http_capabilities': 'CONNECT ve olağan iletme',
-  'geo_direct': 'Doğrudan yönlendirilen ülkeler',
+  'geo_direct': 'Doğrudan bağlanılacak ülkeler / bölgeler',
   'geo_direct_help':
-      'Eşleşen alan adları geçerli ağınızın DNS’ine görünür; şifreli DNS kullanan uygulamalar yalnızca IP ile yönlendirilir.',
+      'Bu kurallarla eşleşen trafik VPN’i kullanmaz. Mevcut ağın DNS sağlayıcısı sorgulanan alan adlarını görebilir. Şifreli DNS kullanan uygulamalar için yalnızca IP adresine göre yönlendirme yapılır.',
   'geo_update_all': 'Coğrafi verileri güncelle',
   'geo_last_updated': 'Son başarılı güncelleme: {current}',
   'geo_never_updated': 'Henüz güncellenmedi',
@@ -368,12 +372,13 @@ const Map<String, String> kTrCatalog = <String, String>{
   'geo_search': 'Ülke ara',
   'geo_not_downloaded': 'İndirilmedi',
   'geo_downloaded': 'İndirildi',
-  'geo_chip': 'Doğrudan yönlendirme: {current}',
+  'geo_chip': 'Doğrudan: {current}',
   'geo_download_first':
       'Etkinleştirmeden önce bu ülkenin coğrafi verilerini indirin.',
   'geo_update_complete':
       'Coğrafi veri: {updated} güncellendi, {current} zaten güncel.',
-  'geo_update_failed': 'Coğrafi veri güncellemesi başarısız: {current}',
+  'geo_update_failed':
+      'Bazı kurallar güncellenemedi ({current}). Ağ bağlantınızı kontrol edip yeniden deneyin.',
   'diagnostics_page_subtitle':
       'Bağlantıyı, platform korumasını ve kurtarma durumunu katman katman inceleyin. Sonuçlar bu cihazda kalır.',
   'diag_refresh_timeline': 'Zaman çizelgesini yenile',
@@ -382,7 +387,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_event_stream_degraded_body': 'Tanılama ilerlemesi geri yükleniyor…',
   'diag_export_included': 'Dahil:',
   'diag_export_included_body':
-      'Hata kodları, aşamalar, göreli süreler, sayaçlar ve boole durumları',
+      'Hata kodları, bağlantı adımları, süreler, trafik istatistikleri ve özellik durumları.',
   'diag_export_excluded': 'Hariç:',
   'diag_export_excluded_body':
       'Anahtarlar, belirteçler, profil adları, tam adresler, SSID’ler, uygulama listeleri ve kullanıcı yolları',
@@ -390,7 +395,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Arşiv yalnızca seçtiğiniz konuma yazılır ve hiçbir zaman otomatik yüklenmez.',
   'diag_run_title': 'Ağ tanılamasını çalıştır',
   'diag_run_subtitle':
-      'Standart kip yalnızca salt okunur ve edilgen denetimler kullanır.',
+      'Standart denetim yalnızca durumu okur. Test trafiği göndermez ve ayarları değiştirmez.',
   'diag_mode_standard': 'Standart',
   'diag_mode_deep': 'Derin',
   'diag_deep_title': 'Derin tanılama hakkında',
@@ -399,7 +404,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_deep_disconnected':
       'Kontroller ağı kullanabilir. İstediğiniz zaman iptal edebilirsiniz.',
   'diag_start': 'Tanılamayı başlat',
-  'diag_session': 'Tanılama oturumu',
+  'diag_session': 'Geçerli tanılama çalışması',
   'diag_progress_semantics': 'Tanılama ilerlemesi {current}%',
   'diag_waiting_check': 'Denetim durumu bekleniyor…',
   'diag_summary_passed': 'Geçti {count}',
@@ -423,7 +428,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_timeline_empty':
       'Bir bağlantı denemesinden sonra önemli durum geçişleri burada görünür.',
   'diag_timeline_truncated':
-      'Arayüz yalnızca en son 100 olayı gösterir; dışa aktarılan paket Usque Engine’in hâlâ tuttuğu olayları içerir.',
+      'Son 100 kayıt gösteriliyor. Dışa aktarılan dosya, cihazda hâlâ saklanan tüm kayıtları içerir.',
   'diag_metric_reconnects': 'Yeniden bağlantılar',
   'diag_metric_fallbacks': 'Yedek yola geçişler',
   'diag_metric_network_changes': 'Ağ değişiklikleri',
@@ -438,9 +443,11 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_yes': 'Evet',
   'diag_no': 'Hayır',
   'diag_finding_passed': 'Bu denetim geçti.',
-  'diag_finding_attention': 'Bu denetim dikkat gerektiriyor.',
+  'diag_finding_attention':
+      'Olası bir sorun bulundu. Yeniden denemeden önce ayrıntıları inceleyin.',
   'diag_finding_failed': 'Bu denetim başarısız oldu.',
-  'diag_finding_skipped': 'Bu denetim geçerli durumda çalıştırılmadı.',
+  'diag_finding_skipped':
+      'Bu denetim çalıştırılamadı. Bağlantıyı ve başarısız denetimleri kontrol edip yeniden deneyin.',
   'diag_finding_cancelled': 'Bu denetim iptal edildi.',
   'diag_finding_running': 'Bu denetim çalışıyor.',
   'diag_finding_pending': 'Bu denetim henüz başlamadı.',
@@ -457,11 +464,12 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_cat_tunnel': 'Tünel',
   'diag_cat_protection': 'Sistem koruması',
   'diag_cat_recovery': 'Kurtarma',
-  'diag_check_engine_control_channel': 'Usque Engine denetim kanalı',
-  'diag_check_engine_event_stream': 'Usque Engine olay akışı',
-  'diag_check_engine_capabilities': 'API yetenekleri',
+  'diag_check_engine_control_channel': 'Bağlantı hizmetiyle iletişim',
+  'diag_check_engine_event_stream': 'Bağlantı durumu güncellemeleri',
+  'diag_check_engine_capabilities': 'Bağlantı özelliklerinin uyumluluğu',
   'diag_check_engine_configuration': 'Yapılandırma',
-  'diag_check_engine_secure_storage_metadata': 'Kimlik üst verileri',
+  'diag_check_engine_secure_storage_metadata':
+      'Kaydedilmiş oturum açma bilgileri',
   'diag_check_frontend_socks_port': 'SOCKS5 dinleyicisi',
   'diag_check_frontend_http_port': 'HTTP dinleyicisi',
   'diag_check_frontend_system_proxy_state': 'Sistem proxy durumu',
@@ -469,7 +477,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Fiziksel IPv4 rotası',
   'diag_check_physical_ipv6_route': 'Fiziksel IPv6 rotası',
   'diag_check_physical_dns_available': 'Fiziksel DNS',
-  'diag_check_physical_network_generation': 'Ağ kuşağı',
+  'diag_check_physical_network_generation': 'Ağ değişiklikleri',
   'diag_check_transport_h3_connect': 'HTTP/3 bağlantısı',
   'diag_check_transport_h3_datagram': 'HTTP/3 datagramları',
   'diag_check_transport_h2_tcp': 'HTTP/2 TCP',
@@ -485,10 +493,10 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'IPv6 çıkışı',
   'diag_check_protection_kill_switch': 'Kill Switch durumu',
   'diag_check_protection_dns_path': 'DNS yolu',
-  'diag_check_protection_route_ownership': 'Rota sahipliği',
+  'diag_check_protection_route_ownership': 'Usque’nin yönettiği ağ yolları',
   'diag_check_protection_recovery_journal': 'Kurtarma günlüğü',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine kullanılamıyor',
-  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent erişilemiyor',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Bağlantı hizmeti kullanılamıyor',
+  'diag_fail_AGENT_UNREACHABLE': 'Usque’nin sistem ağ hizmetine ulaşılamıyor',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'VPN hizmeti kullanılamıyor',
   'diag_fail_PROXY_PORT_IN_USE': 'Proxy bağlantı noktası kullanımda',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'Fiziksel IPv4 kullanılamıyor',
@@ -538,31 +546,34 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_CANCELLED': 'Tanılama iptal edildi',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'Tanılama bağımlılığı başarısız',
   'diag_fail_INTERNAL': 'İç hata',
-  'diag_fix_try_http2': 'HTTP/2 kullanın ve kurtarma sondalarını açık tutun.',
+  'diag_fix_try_http2':
+      'Ayarlar → Gelişmiş ağ ayarları bölümünde HTTP/2’yi seçip değişiklikleri uygulayın, ardından yeniden bağlanın.',
   'diag_fix_check_physical_network':
-      'Geçerli ağın, DNS’in ve adres ailesinin kullanılabilirliğini denetleyin.',
+      'Wi-Fi veya mobil verinin çalıştığını kontrol edip yeniden bağlanın.',
   'diag_fix_refresh_or_replace_identity':
-      'Yeniden bağlamadan önce kimliği yenileyin veya değiştirin.',
-  'diag_fix_replace_identity': 'Geçerli bir kimliği yeniden yapılandırın.',
+      'Hesaplar → WARP hesabını ayarla bölümünü açın. Yeniden oturum açın veya yeni bir hesap oluşturun, ardından bağlanın.',
+  'diag_fix_replace_identity':
+      'Hesaplar → WARP hesabını ayarla bölümünü açın. Yeniden oturum açın veya geçerli oturum açma bilgilerini içe aktarın.',
   'diag_fix_review_configuration':
-      'Yapılandırmayı gözden geçirin ve geçersiz değerleri düzeltin.',
+      'Ayarlar → Gelişmiş ağ ayarları bölümünde işaretlenen alanları düzeltip değişiklikleri uygulayın.',
   'diag_fix_restore_platform_state':
-      'Yeniden denemeden önce platform ağ durumunu geri yükleyin.',
-  'diag_fix_resolve_dependency': 'Önce başarısız ön koşulu giderin.',
+      'Usque’yi tamamen kapatıp yeniden açın ve tekrar deneyin. Sorun sürerse Tanılama’dan günlükleri dışa aktarıp destek ekibiyle paylaşın.',
+  'diag_fix_resolve_dependency':
+      'Önce başarısız denetimlerdeki sorunları giderin, ardından tanılamayı yeniden çalıştırın.',
   'diag_fix_run_deep_diagnostics':
-      'Uygun bir ortamda derin tanılama çalıştırın.',
+      'Tanılama’da Derin seçeneğini seçip başlatın. Test trafiği gönderilebilir; bağlantı açıkken bazı denetimler atlanabilir.',
   'diag_fix_run_release_leak_gate':
       'Hassas bilgileri kaldırılmış tanılama paketini destek için dışa aktarın.',
   'diag_fix_inspect_platform_state':
-      'Gerçek durumu, işletim sisteminin ağ ve proxy durumunu yalnızca okuyan bir denetimle doğrulayın.',
+      'Tanılama → Sistem koruması bölümündeki başarısız denetimleri inceleyin. Sorun sürerse günlükleri dışa aktarın.',
   'diag_fix_generate_tunnel_traffic':
-      'Az miktarda tünel trafiği oluşturun, sonra yeniden denetleyin.',
+      'Usque bağlantısı üzerinden bir web sayfası açıp denetimi yeniden çalıştırın.',
   'diag_fix_export_diagnostics':
       'Hassas bilgileri kaldırılmış tanılama paketini destek için dışa aktarın.',
   'diag_fix_retry': 'Kısa süre sonra yeniden deneyin.',
   'diag_fix_none': 'İşlem gerekmez.',
   'diag_fix_default':
-      'İlgili yapılandırmayı ve ağ durumunu gözden geçirmek için hata kodunu kullanın.',
+      'Yeniden deneyin. Sorun sürerse Tanılama’dan günlükleri dışa aktarıp destek ekibiyle paylaşın.',
   'diag_event_attempt_started': 'Bağlantı denemesi başladı',
   'diag_event_endpoint_resolved': 'Uç nokta adresi çözümlendi',
   'diag_event_socket_connected': 'Soket bağlantısı kuruldu',

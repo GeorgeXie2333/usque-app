@@ -6,8 +6,8 @@ const Map<String, String> kUiWorkflowAr = <String, String>{
       'تُحفظ تغييرات المفاتيح تلقائيًا. استخدم «تطبيق التغييرات» لتعديلات الاستماع وDNS.',
   'cc_label': 'التحكم في ازدحام HTTP/3',
   'cc_help': 'يسري عند اتصالك اليدوي التالي.',
-  'cc_upgrade': 'يلزم تحديث Engine.',
-  'cc_h2': 'يستخدم HTTP/2 بروتوكول TCP الخاص بالنظام.',
+  'cc_upgrade': 'حدّث Usque من الإعدادات.',
+  'cc_h2': 'يؤثر هذا الخيار في اتصالات HTTP/3 فقط.',
   'cc_saved': 'تم الحفظ',
   'cc_pending': 'بانتظار الاتصال اليدوي التالي.',
   'save_changes': 'تطبيق التغييرات',
@@ -43,18 +43,18 @@ const Map<String, String> kUiWorkflowAr = <String, String>{
   'home_kill_switch': 'Kill Switch',
   'home_traffic': 'حركة البيانات',
   'home_traffic_window': 'آخر 60 ثانية',
-  'home_traffic_idle': 'تبدأ بعد الاتصال',
-  'home_traffic_waiting': 'في انتظار العيّنات',
-  'home_traffic_unavailable': 'السجل غير متاح',
-  'home_traffic_stale': 'العيّنات متأخرة',
-  'home_outputs_next': 'تُفعَّل المخرجات بعد الاتصال',
-  'home_outputs_retry': 'المخرجات مهيأة للمحاولة التالية',
+  'home_traffic_idle': 'تظهر حركة البيانات بعد الاتصال',
+  'home_traffic_waiting': 'بانتظار بيانات الحركة',
+  'home_traffic_unavailable': 'لا يوجد سجل للحركة',
+  'home_traffic_stale': 'تحديثات حركة البيانات متأخرة',
+  'home_outputs_next': 'متاح بعد الاتصال',
+  'home_outputs_retry': 'VPN والوكلاء المستخدمون في الاتصال التالي',
   'connection_protection_group': 'الاتصال والحماية',
   'proxy_routing_group': 'الوكيل والتوجيه',
   'application_group': 'التطبيق',
   'proxy_settings_link': 'عناوين المستمع والمنافذ والمصادقة وDNS.',
   'proxy_auth_separate':
-      'تُحفظ بيانات الاعتماد على حدة بزر «حفظ بيانات الاعتماد».',
+      'لتطبيق هذه التغييرات، استخدم زر «حفظ اسم المستخدم وكلمة المرور» أدناه.',
   'reset_draft_hint':
       'ستُحمَّل القيم الافتراضية في هذا النموذج. طبّق التغييرات حتى تسري.',
 };
@@ -75,24 +75,23 @@ const kNetworkQualityAr = <String, String>{
   'nq_finding_unavailable': 'هذا القياس غير متاح في الحالة الحالية.',
   'nq_finding_invalid_configuration': 'تكوين DNS المخصص غير صالح.',
   'nq_finding_dns_system':
-      'DNS النظام الفعلي محدَّد؛ ولا تنطبق فحوصات DNS المشفّر.',
+      'يُستخدم DNS للشبكة الحالية. لا ينطبق فحص DNS المشفّر في هذه الحالة.',
   'nq_finding_unsupported':
-      'DNS المشفّر غير متاح في هذا Engine؛ ولا يُسمح بالرجوع إلى النص الواضح.',
+      'حدّث Usque لاستخدام DNS المشفّر. لن يحدث انتقال تلقائي إلى DNS غير مشفّر.',
   'nq_finding_dns_custom_valid':
       'تكوين DNS المشفّر المخصص صالح. الرجوع إلى النص الواضح معطَّل.',
   'nq_finding_stale': 'القراءة متقادمة أو تغيّرت الشبكة الفعلية.',
   'nq_finding_rtt_high': 'زمن الذهاب والإياب المقيس مرتفع.',
-  'nq_finding_healthy': 'القياس المحلي المتاح ضمن النطاق المتوقع.',
+  'nq_finding_healthy': 'مؤشرات الاتصال التي أمكن قياسها طبيعية.',
   'nq_finding_loss_high': 'فقدان الرزم في الفترة مرتفع.',
   'nq_finding_queue_pressure':
-      'قائمة تحت ضغط أو سجّلت إسقاطات أثناء هذا الاتصال.',
-  'nq_finding_pmtu_degraded': 'التحقق من MTU المسار متدهور.',
-  'nq_finding_migration_reconnect':
-      'الترحيل غير متاح على هذا المسار؛ ويستخدم تغيّر الشبكة إعادة اتصال كاملة.',
+      'توجد بيانات تنتظر الإرسال أو بيانات أُسقطت في هذا الاتصال.',
+  'nq_finding_pmtu_degraded': 'تعذّر تأكيد حجم حزم مناسب لمسار الشبكة.',
+  'nq_finding_migration_reconnect': 'يتطلب تغيير الشبكة إعادة الاتصال.',
   'nq_finding_dns_changed': 'وضع DNS المحفوظ يختلف عن الاتصال الجاري.',
   'nq_finding_dns_runtime': 'يعمل DNS المشفّر بشكل صحيح.',
   'nq_finding_dns_degraded':
-      'DNS المشفّر متدهور؛ والاستعلامات المباشرة الفاشلة لا ترجع إلى DNS النظام.',
+      'توجد مشكلة في DNS المشفّر. لم تُرسل الطلبات الفاشلة إلى DNS غير المشفّر للشبكة الحالية.',
   'nq_finding_probe_unsafe': 'هذا القياس غير متاح في الحالة الحالية.',
   'nq_finding_probe_success': 'نجح هذا الفحص.',
   'nq_finding_probe_cancelled': 'أُلغي هذا الفحص.',
@@ -126,7 +125,7 @@ const kNetworkQualityAr = <String, String>{
   'nq_not_ready': 'غير جاهز',
   'nq_unsupported': 'غير مدعوم',
   'nq_capability_missing':
-      'لا يوفّر هذا Engine جودة الشبكة. عناصر التحكم الحالية في الاتصال ما زالت تعمل.',
+      'لا يستطيع هذا الإصدار عرض جودة الاتصال. يظل الاتصال وقطع الاتصال متاحين. حدّث Usque من الإعدادات.',
   'nq_empty': 'اتصل لعرض القياسات.',
   'nq_stale_help': 'توقفت التحديثات مؤقتًا. تُعرض آخر القراءات.',
   'nq_rtt': 'زمن الذهاب والإياب',
@@ -154,16 +153,17 @@ const kNetworkQualityAr = <String, String>{
   'nq_pmtu': 'MTU المسار',
   'nq_outer_pmtu': 'حد حمولة UDP الخارجية',
   'nq_inner_payload': 'حد حمولة CONNECT-IP',
-  'nq_pmtu_help': 'اكتشاف المسار لا يزيد MTU الخاص بـ TUN في الجهاز.',
+  'nq_pmtu_help':
+      'حجم الحزم الذي يستطيع مسار الشبكة نقله. تساعد الفحوص التلقائية على تقليل فقد الحزم، ولا ترفع قيمة MTU الخاصة بـ VPN المحددة في إعدادات الشبكة المتقدمة.',
   'nq_migration': 'ترحيل الشبكة',
   'nq_migration_help':
-      'اتصال واحد، ومسار بيانات واحد. عائلة IP نفسها فقط؛ وليس تعدد المسارات.',
+      'يحاول الحفاظ على الاتصال عند الانتقال بين Wi-Fi وبيانات الهاتف. يجب أن تستخدم الشبكتان إصدار IP نفسه، أي IPv4 أو IPv6. يُستخدم مسار شبكة واحد في كل مرة، ولا تُجمع سرعات الشبكات.',
   'nq_attempts': 'المحاولات',
   'nq_successes': 'نجح',
   'nq_failures': 'فشل',
   'nq_last_duration': 'آخر مدة',
   'nq_direct_dns': 'DNS المباشر',
-  'nq_system_dns': 'DNS النظام الفعلي',
+  'nq_system_dns': 'DNS للشبكة الحالية',
   'nq_doh': 'DNS over HTTPS',
   'nq_dot': 'DNS over TLS',
   'nq_ready': 'جاهز',
@@ -205,40 +205,47 @@ const kNetworkQualityAr = <String, String>{
   'nq_phase_unknown': 'غير جاهز',
   'nq_phase_unsupported': 'غير مدعوم',
   'nq_reason_family_unavailable':
-      'عائلة IP الحالية غير متاحة؛ وتُستخدم إعادة اتصال كاملة.',
-  'nq_reason_socket_protect_failed': 'تعذّر إعداد مقبس مرشّح محمي.',
+      'لا تستطيع الشبكة الجديدة استخدام إصدار IP نفسه. أعد الاتصال.',
+  'nq_reason_socket_protect_failed':
+      'تعذّر استخدام الشبكة الجديدة بأمان. إذا لم يعد الاتصال تلقائيًا، فأعد الاتصال.',
   'nq_reason_generation_changed_during_setup':
       'تغيّرت الشبكة مجددًا أثناء الإعداد.',
-  'nq_reason_peer_cid_unavailable': 'ليس لدى النظير معرّف اتصال احتياطي.',
-  'nq_reason_local_cid_unavailable': 'معرّف الاتصال المحلي غير متاح.',
-  'nq_reason_path_probe_rejected': 'تعذّر التحقق من المسار المرشّح.',
+  'nq_reason_peer_cid_unavailable':
+      'لم يتمكن الخادم من الحفاظ على الاتصال في الشبكة الجديدة. أعد الاتصال عند الحاجة.',
+  'nq_reason_local_cid_unavailable':
+      'لم يتمكن Usque من الحفاظ على الاتصال في الشبكة الجديدة. أعد الاتصال عند الحاجة.',
+  'nq_reason_path_probe_rejected':
+      'فشل فحص الاتصال بالشبكة الجديدة. تحقق من الوصول إلى الإنترنت.',
   'nq_reason_path_validation_timeout':
-      'انتهت مهلة التحقق من المسار؛ وإعادة الاتصال متاحة.',
-  'nq_reason_superseded': 'حلّ تغيّر شبكة أحدث محل هذه المحاولة.',
-  'nq_reason_promotion_failed': 'تعذّر إكمال تبديل المسار بأمان.',
-  'nq_reason_connection_closed': 'أُغلق الاتصال أثناء الترحيل.',
+      'لم تستجب الشبكة الجديدة في الوقت المحدد. تحقق من الوصول إلى الإنترنت وأعد الاتصال عند الحاجة.',
+  'nq_reason_superseded': 'تغيّرت الشبكة مرة أخرى قبل اكتمال الانتقال.',
+  'nq_reason_promotion_failed':
+      'تعذّر إكمال تغيير الشبكة بأمان. إذا لم يعد الاتصال، فحاول مجددًا.',
+  'nq_reason_connection_closed':
+      'أُغلق الاتصال أثناء تغيير الشبكة. أعد الاتصال.',
   'nq_reason_unsupported': 'الترحيل غير متاح على هذا الاتصال.',
   'nq_reason_unknown': 'لا يتوفر سبب مدعوم.',
   'nq_dns_custom': 'محلل مشفّر مخصص',
-  'nq_dns_server': 'اسم خادم TLS',
+  'nq_dns_server': 'اسم نطاق خادم DNS',
   'nq_dns_path': 'مسار HTTPS',
   'nq_dns_port': 'المنفذ (0 يستخدم الافتراضي)',
-  'nq_dns_bootstrap': 'عناوين IP للتمهيد',
+  'nq_dns_bootstrap': 'عناوين IP لخادم DNS',
   'nq_dns_bootstrap_help':
-      'أدخل 1–8 عناوين IP رقمية، عنوانًا في كل سطر. لا يُستخدم البحث باسم المضيف.',
+      'أدخل من عنوان IP واحد إلى 8 عناوين يوفّرها مزوّد DNS، كل عنوان في سطر. مثال: 1.1.1.1. تتيح هذه العناوين الاتصال مباشرة دون الحاجة أولًا إلى معرفة العنوان من اسم الخادم.',
   'nq_dns_no_fallback':
       'إذا فشل DNS المباشر المشفّر، يفشل الاستعلام. ولا يعود أبدًا إلى DNS النظام أو النص الواضح.',
   'nq_dns_system_privacy':
-      'قد يكشف DNS النظام الفعلي أسماء الاستعلامات المباشرة لمزوّد DNS في الشبكة الفعلية.',
-  'nq_dns_scope': 'يُستخدم فقط لاستعلامات Geo المباشرة. DNS النفق دون تغيير.',
+      'قد يرى مزوّد DNS للشبكة الحالية النطاقات المطلوبة لحركة الاتصال المباشر.',
+  'nq_dns_scope':
+      'يؤثر فقط في الحركة المطابقة لقواعد الاتصال المباشر للبلدان والمناطق. لا يغيّر DNS الخاص بحركة VPN.',
   'nq_dns_no_capability':
-      'لا يستطيع هذا Engine استخدام DNS المباشر المشفّر. تُحفظ الإعدادات المحفوظة. يمكنك اختيار DNS النظام صراحةً.',
-  'nq_dns_invalid_name': 'أدخل اسم DNS دون مسافات أو صيغة URL أو أحرف بديلة.',
+      'حدّث Usque لاستخدام DNS المشفّر للاتصالات المباشرة. ستبقى الإعدادات المحفوظة. إذا كنت تقبل أثر ذلك على الخصوصية، فيمكنك اختيار «DNS للشبكة الحالية» بنفسك.',
+  'nq_dns_invalid_name':
+      'أدخل اسم نطاق مثل dns.example.com، دون https:// أو منفذ أو مسافات.',
   'nq_dns_invalid_path':
-      'استخدم مسارًا /path بطول 256 حرفًا كحد أقصى، دون استعلام أو جزء أو مسافات.',
-  'nq_dns_invalid_bootstrap':
-      'استخدم 1–8 عناوين IP أحادية الإرسال فريدة؛ بلا عنوان غير محدد أو متعدد الإرسال أو بث أو IPv6 محلي الارتباط.',
-  'nq_dns_invalid_port': 'أدخل 0–65535.',
+      'أدخل مسارًا مثل /dns-query بطول لا يتجاوز 256 حرفًا، دون مسافات أو أجزاء تحتوي على ? أو #.',
+  'nq_dns_invalid_bootstrap': 'أدخل من عنوان IP واحد إلى 8 عناوين لخادم DNS.',
+  'nq_dns_invalid_port': 'أدخل منفذًا من 1 إلى 65535، أو 0 للمنفذ الافتراضي.',
   'nq_dns_invalid_mode': 'اختر وضع DNS مدعومًا.',
   'nq_doctor_deep_title': 'تشغيل فحوصات الشبكة العميقة؟',
   'nq_doctor_deep_body':
@@ -249,28 +256,28 @@ const kNetworkQualityAr = <String, String>{
 
 const Map<String, String> kWindowsRecoveryAr = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      "يجب تحديث التطبيق وWindows Agent معًا لإعادة استخدام جهاز TUN. لم يبدأ اتصال VPN جديد.",
+      'حدّث مكونات Usque معًا من الإعدادات. لم يبدأ أي اتصال VPN جديد.',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      "لا يزال جهاز TUN السابق بحاجة إلى استعادة. أغلق Usque تمامًا ثم افتحه وأعد المحاولة، أو افحص التشخيصات المحلية.",
+      'لم يكتمل تنظيف الاتصال السابق. أغلق Usque تمامًا وافتحه مجددًا ثم أعد المحاولة. إذا استمرت المشكلة، فافتح التشخيص.',
   'WINDOWS_RECOVERY_FAILED':
       'تعذّر استعادة حالة شبكة VPN السابقة بالكامل. لم يبدأ أي اتصال VPN جديد. أعد محاولة الاتصال أو راجع التشخيص المحلي.',
   'WINDOWS_RECOVERY_EXHAUSTED':
       'تعذّر على Windows استعادة حالة شبكة VPN السابقة بعد ثلاث محاولات تلقائية. أعد المحاولة عندما تكون جاهزًا، أو راجع التشخيص المحلي.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'توقّف الإصلاح التلقائي لأنه تعذّر التحقق بأمان من حالة شبكة Windows السابقة. أعد تشغيل Agent أو حدّث Usque، ثم راجع التشخيص المحلي.',
+      'توقف الإصلاح التلقائي لأن الاستعادة الآمنة لم تُؤكَّد. حدّث Usque من الإعدادات. إذا استمرت المشكلة، فصدّر السجلات من التشخيص.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'يستغرق استرداد شبكة Windows وقتًا أطول من المتوقع. لم يبدأ أي اتصال VPN جديد. انتظر حتى يكتمل الاسترداد قبل إعادة المحاولة.',
   'WINDOWS_RECOVERY_CONFLICT':
       'تغيّرت حالة الشبكة أو ما زالت قيد الاستخدام من جلسة أخرى. أُوقف الاسترداد التلقائي لحماية الاتصال النشط.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'لا يدعم Agent الخاص بـ Windows هذا الاسترداد التلقائي الآمن. حدّث التطبيق وAgent معًا، ثم أعد المحاولة.',
+      'لا يستطيع هذا التثبيت استعادة اتصال VPN السابق تلقائيًا. حدّث Usque من الإعدادات وحاول مجددًا.',
 };
 
 const String kWindowsAdapterCleanupAr =
-    'تعذّر إزالة محوّل Wintun السابق أو تعذّر التحقق من إزالته. لم يبدأ أي اتصال VPN جديد.';
+    'تعذّر إزالة محوّل الشبكة الافتراضي للاتصال السابق أو تأكيد إزالته. لم يبدأ أي اتصال VPN جديد.';
 
 const Map<String, String> kL4Ar = <String, String>{
-  'l4_quic_not_ready': 'بانتظار جلسة QUIC جاهزة',
+  'l4_quic_not_ready': 'جارٍ تجهيز اتصال L4',
   'l4_unsupported_packets': 'رُفضت الحزم غير المدعومة أو التالفة',
   'l4_budget_rejections': 'رفض قبول الموارد',
   'l4_not_applicable': 'غير منطبق (L4)',
@@ -278,16 +285,16 @@ const Map<String, String> kL4Ar = <String, String>{
   'l4_transport_hint':
       'يدعم TCP فقط. قد لا تعمل التطبيقات التي تحتاج إلى UDP. الوضع التلقائي لا يختار L4.',
   'l4_explanation':
-      'وضع TCP فقط عبر HTTP/3. يدعم VPN/TUN وSOCKS5 وHTTP؛ ويُحوَّل DNS الخاص بـ TUN إلى TCP. لا يختار Auto وضع L4 أبدًا. بقية UDP والبينغ البعيد وتجزئة IP والرؤوس الموسعة غير مدعومة؛ قد لا تعمل بعض التطبيقات.',
-  'l4_unsupported': 'لم يعلن هذا المحرك عن دعم L4 كامل. لا يمكن تفعيل L4.',
+      'ينقل L4 حركة TCP عبر HTTP/3 ويعمل مع VPN ووكيلي SOCKS5 وHTTP. تُحوّل طلبات DNS الخاصة بـ VPN إلى TCP. لا يدعم حركة UDP الأخرى أو Ping البعيد أو أجزاء IP وامتداداته، لذا قد لا تعمل بعض التطبيقات. يجب اختيار L4 يدويًا؛ لا يُفعّل تلقائيًا.',
+  'l4_unsupported': 'هذا الإصدار لا يدعم L4. حدّث Usque من الإعدادات.',
   'l4_sni_identity':
-      'للقراءة فقط: يُشتق من هوية الحساب المحمّلة. يُحفظ SNI الخاص بـ CONNECT-IP.',
+      'يحدد الحساب اسم الخادم تلقائيًا. يُحتفظ باسم الخادم المحفوظ لأوضاع الاتصال الأخرى.',
   'l4_edge_requires_l4':
       'يتطلب DNS المحلول عند الحافة وضع L4. اختر وضع DNS وكيل آخر قبل التبديل إلى Auto أو H3 أو H2.',
   'proxy_dns_edge_resolved': 'حافة Cloudflare (L4 فقط؛ بلا بحث محلي)',
-  'l4_verified': 'تم التحقق من L4 CONNECT',
-  'l4_unverified': 'QUIC جاهز؛ لم يُتحقق بعد من L4 CONNECT',
-  'l4_status_unknown': 'حالة التحقق من L4 غير معروفة',
+  'l4_verified': 'تم إنشاء اتصال لتطبيق عبر L4',
+  'l4_unverified': 'تم الاتصال بالخادم؛ لم يُؤكَّد اتصال التطبيق بعد',
+  'l4_status_unknown': 'حالة اتصال التطبيق غير متاحة',
   'l4_sessions': 'الجلسات / التفريغ',
   'l4_flows': 'التدفقات النشطة / المنتظرة',
   'l4_connect': 'نجاح / فشل / مهلة CONNECT',
@@ -308,7 +315,8 @@ const Map<String, String> kNetworkSettingsAr = <String, String>{
   'settings_failed': 'تم الحفظ، فشل التطبيق',
   'settings_unknown': 'لم يُؤكد النتيجة بعد',
   'settings_saved': 'تم الحفظ',
-  'settings_unsupported': 'أعد تشغيل المحرك أو حدّثه لحفظ إعدادات الشبكة.',
+  'settings_unsupported':
+      'أغلق Usque تمامًا وافتحه مجددًا، ثم أعد الحفظ. إذا استمرت المشكلة، فحدّث Usque من الإعدادات.',
   'settings_save_failed': 'تعذّر حفظ الإعدادات. احتُفظ بتعديلاتك.',
   'settings_reconnect': 'إعادة الاتصال',
 };

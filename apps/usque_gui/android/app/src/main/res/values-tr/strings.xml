@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">HTTP/2 ile bağlanılıyor</string>
     <string name="vpn_notif_connected">Bağlandı</string>
     <string name="vpn_notif_connected_via">%1$s üzerinden bağlandı</string>
-    <string name="vpn_notif_degraded">Bağlandı, adres ailesi desteği sınırlı</string>
+    <string name="vpn_notif_degraded">Bağlı, ancak bazı internet erişimleri kısıtlı. Ayrıntılar için Usque’yi açın.</string>
     <string name="vpn_notif_reconnecting">Güvenli yeniden bağlanma</string>
     <string name="vpn_notif_error">Ağ hizmeti bir hatadan sonra durdu</string>
     <string name="vpn_notif_disconnecting">Bağlantı kesiliyor</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">Denetleniyor</string>
     <string name="tile_working">İşleniyor</string>
     <string name="tile_open_app">Usque’yu aç</string>
-    <string name="tile_profile_required">Karo kullanmadan önce Usque’yu açın ve bir VPN profiline bir kez bağlanın.</string>
-    <string name="tile_identity_required">Usque’yu açın ve bu profil için WARP kimliğini yapılandırın.</string>
+    <string name="tile_profile_required">Bu kısayolu kullanmadan önce Usque’yi açıp bir kez bağlanın.</string>
+    <string name="tile_identity_required">Usque’yi açıp geçerli WARP hesabını ayarlayın.</string>
     <string name="tile_vpn_permission_required">Android VPN iznini vermek için Usque’yu açın.</string>
-    <string name="tile_proxy_only">Yalnızca vekil bağlantısı etkin. VPN ön ucunu açmak için Usque’yu açın.</string>
+    <string name="tile_proxy_only">Yalnızca yerel proxy etkin. Usque’de Proxy sayfasını açıp VPN’i etkinleştirin.</string>
     <string name="shortcut_connect">Bağlan</string>
     <string name="shortcut_disconnect">Bağlantıyı kes</string>
     <string name="shortcut_profiles">Hesaplar</string>

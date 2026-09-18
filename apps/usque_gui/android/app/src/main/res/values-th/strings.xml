@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">กำลังเชื่อมต่อด้วย HTTP/2</string>
     <string name="vpn_notif_connected">เชื่อมต่อแล้ว</string>
     <string name="vpn_notif_connected_via">เชื่อมต่อผ่าน %1$s</string>
-    <string name="vpn_notif_degraded">เชื่อมต่อแล้ว แต่รองรับตระกูลที่อยู่จำกัด</string>
+    <string name="vpn_notif_degraded">เชื่อมต่อแล้ว แต่การเข้าถึงอินเทอร์เน็ตบางส่วนมีข้อจำกัด เปิด Usque เพื่อดูรายละเอียด</string>
     <string name="vpn_notif_reconnecting">กำลังเชื่อมต่อใหม่อย่างปลอดภัย</string>
     <string name="vpn_notif_error">บริการเครือข่ายหยุดหลังเกิดข้อผิดพลาด</string>
     <string name="vpn_notif_disconnecting">กำลังตัดการเชื่อมต่อ</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">กำลังตรวจสอบ</string>
     <string name="tile_working">กำลังดำเนินการ</string>
     <string name="tile_open_app">เปิด Usque</string>
-    <string name="tile_profile_required">เปิด Usque และเชื่อมต่อโปรไฟล์ VPN หนึ่งครั้งก่อนใช้แผ่นทางลัด</string>
-    <string name="tile_identity_required">เปิด Usque แล้วตั้งค่าข้อมูลประจำตัว WARP ของโปรไฟล์นี้</string>
+    <string name="tile_profile_required">ก่อนใช้ทางลัดนี้ ให้เปิด Usque แล้วเชื่อมต่อหนึ่งครั้ง</string>
+    <string name="tile_identity_required">เปิด Usque แล้วตั้งค่าบัญชี WARP ปัจจุบัน</string>
     <string name="tile_vpn_permission_required">เปิด Usque เพื่อให้สิทธิ์ VPN ของ Android</string>
-    <string name="tile_proxy_only">กำลังใช้การเชื่อมต่อพร็อกซีอย่างเดียว เปิด Usque เพื่อเปิดส่วนหน้า VPN</string>
+    <string name="tile_proxy_only">เปิดใช้เฉพาะพร็อกซีภายในเครื่องอยู่ เปิดหน้าพร็อกซีใน Usque แล้วเปิดใช้ VPN</string>
     <string name="shortcut_connect">เชื่อมต่อ</string>
     <string name="shortcut_disconnect">ตัดการเชื่อมต่อ</string>
     <string name="shortcut_profiles">บัญชี</string>

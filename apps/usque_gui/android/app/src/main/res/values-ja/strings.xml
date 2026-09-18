@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">HTTP/2 で接続しています</string>
     <string name="vpn_notif_connected">接続済み</string>
     <string name="vpn_notif_connected_via">%1$s 経由で接続済み</string>
-    <string name="vpn_notif_degraded">接続済み（アドレスファミリの対応が制限されています）</string>
+    <string name="vpn_notif_degraded">接続済みですが、一部の通信が制限されています。Usque で詳細を確認してください。</string>
     <string name="vpn_notif_reconnecting">安全に再接続しています</string>
     <string name="vpn_notif_error">エラーのためネットワークサービスが停止しました</string>
     <string name="vpn_notif_disconnecting">切断しています</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">確認中</string>
     <string name="tile_working">処理中</string>
     <string name="tile_open_app">Usque を開く</string>
-    <string name="tile_profile_required">タイルを使う前に Usque を開き、VPN プロファイルに一度接続してください。</string>
-    <string name="tile_identity_required">Usque を開き、このプロファイルの WARP 識別情報を設定してください。</string>
+    <string name="tile_profile_required">ショートカットを使う前に Usque を開き、一度接続してください。</string>
+    <string name="tile_identity_required">Usque を開き、現在の WARP アカウントを設定してください。</string>
     <string name="tile_vpn_permission_required">Usque を開いて Android の VPN 権限を許可してください。</string>
-    <string name="tile_proxy_only">プロキシのみの接続が稼働中です。VPN フロントエンドを有効にするには Usque を開いてください。</string>
+    <string name="tile_proxy_only">ローカルプロキシのみ有効です。Usque の「プロキシ」で VPN を有効にしてください。</string>
     <string name="shortcut_connect">接続</string>
     <string name="shortcut_disconnect">切断</string>
     <string name="shortcut_profiles">アカウント</string>

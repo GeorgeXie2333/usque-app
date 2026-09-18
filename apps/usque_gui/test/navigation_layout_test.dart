@@ -9,9 +9,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/advanced_settings_screen.dart';
+import 'package:usque/screens/diagnostics_screen.dart';
+import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
+
+import 'app_test.dart' show FakeEngineClient;
 
 Future<ByteData> _fontData(String path) => SynchronousFuture<ByteData>(
   ByteData.sublistView(File(path).readAsBytesSync()),
@@ -290,4 +295,93 @@ void main() {
       await tester.pump();
     },
   );
+
+  for (final preference in LocalePreference.values.where(
+    (value) => value != LocalePreference.system,
+  )) {
+    testWidgets(
+      '${preference.name} copy fits phone settings and recovery at 200 percent',
+      (tester) async {
+        await _loadPlatformFallbackFonts();
+        for (final family in ['Manrope', 'SpaceGrotesk']) {
+          final weight = family == 'Manrope' ? 'Regular' : 'Medium';
+          await (FontLoader(family)
+                ..addFont(rootBundle.load('assets/fonts/$family-$weight.ttf')))
+              .load();
+        }
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(375, 900);
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final app = AppController(FakeEngineClient())
+          ..localePreference = preference;
+        addTearDown(app.dispose);
+        final strings = app.strings;
+        final parts = strings.catalogId.split('_');
+        final locale = Locale(
+          parts.first,
+          parts.length > 1 ? parts.last : null,
+        );
+        final rtl = const ['ar', 'fa'].contains(locale.languageCode);
+
+        Future<void> showPage(Widget page) async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: rtl ? UsqueTheme.dark() : UsqueTheme.light(),
+              locale: locale,
+              supportedLocales: [locale],
+              localizationsDelegates: const [
+                GlobalMaterialLocalizations.delegate,
+                GlobalWidgetsLocalizations.delegate,
+                GlobalCupertinoLocalizations.delegate,
+              ],
+              home: Scaffold(body: page),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            Directionality.of(tester.element(find.byType(page.runtimeType))),
+            rtl ? TextDirection.rtl : TextDirection.ltr,
+          );
+          expect(tester.takeException(), isNull);
+        }
+
+        Future<void> verifyReadable(String text) async {
+          final target = find.text(text);
+          expect(target, findsOneWidget);
+          await tester.ensureVisible(target);
+          await tester.pumpAndSettle();
+          final paragraph = tester.renderObject<RenderParagraph>(target);
+          expect(paragraph.didExceedMaxLines, isFalse, reason: text);
+          expect(tester.takeException(), isNull);
+        }
+
+        await showPage(ProxyScreen(controller: app));
+        await verifyReadable(strings.get('proxy_auth_help'));
+        await verifyReadable(strings.get('proxy_auth_separate'));
+        await verifyReadable(strings.get('proxy_auth_apply'));
+        expect(
+          find.byKey(const ValueKey('proxy-auth-apply')).hitTestable(),
+          findsOneWidget,
+        );
+
+        app.sharedNetwork = app.activeProfile.copyWith(
+          dataPlane: DataPlaneMode.l4Proxy,
+        );
+        await showPage(AdvancedSettingsScreen(controller: app));
+        await verifyReadable(strings.get('l4_unsupported'));
+
+        app.lastError = strings.windowsRecoveryError(
+          'WINDOWS_RECOVERY_BLOCKED',
+          details: 'Wintun',
+        );
+        await showPage(DiagnosticsScreen(controller: app));
+        await verifyReadable(app.lastError!);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
 }

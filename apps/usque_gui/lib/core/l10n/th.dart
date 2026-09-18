@@ -3,7 +3,8 @@ const Map<String, String> kThCatalog = <String, String>{
   'disable_quic': "ปิดใช้งาน QUIC",
   'disable_quic_help':
       "บล็อก UDP/443 ผ่านพร็อกซีหรืออุโมงค์ รวมถึงโปรโตคอลอื่นบนพอร์ตนี้ โดยไม่กระทบทราฟฟิก GEO โดยตรงหรือการเชื่อมต่อ HTTP/3 ของ Usque ยังคงอนุญาต QUIC บนพอร์ตอื่น ใช้ได้โดยไม่ต้องเชื่อมต่อใหม่",
-  'disable_quic_unsupported': "อัปเดตหรือเริ่มเอนจินใหม่เพื่อใช้การตั้งค่านี้",
+  'disable_quic_unsupported':
+      'ปิด Usque ให้สนิทแล้วเปิดใหม่ หากยังใช้ตัวเลือกนี้ไม่ได้ ให้อัปเดต Usque ในการตั้งค่า',
   'technical_details': 'รายละเอียดทางเทคนิค',
   'diag_skip_disconnected': 'เชื่อมต่อก่อนเริ่มการตรวจสอบนี้',
   'diag_skip_disabled': 'ฟีเจอร์นี้ปิดอยู่',
@@ -26,12 +27,12 @@ const Map<String, String> kThCatalog = <String, String>{
   'tray_disconnect_profile': 'ตัดการเชื่อมต่อบัญชีที่ใช้งาน',
   'tray_disconnect_exit': 'ตัดการเชื่อมต่อแล้วออก',
   'connection_status': 'สถานะการเชื่อมต่อ',
-  'outputs': 'เอาต์พุตเครือข่าย',
+  'outputs': 'VPN และพร็อกซีภายในเครื่อง',
   'home': 'หน้าหลัก',
   'profiles': 'บัญชี',
   'profiles_subtitle': 'สลับและจัดการบัญชี WARP',
   'proxy': 'พร็อกซี',
-  'proxy_subtitle': 'ตัวรับฟังภายในเครื่องและ DNS ใช้ร่วมกันทุกบัญชี',
+  'proxy_subtitle': 'ตั้งค่าที่อยู่พร็อกซีและ DNS ที่ใช้ร่วมกันทุกบัญชี',
   'settings': 'การตั้งค่า',
   'settings_subtitle': 'การตั้งค่าการเชื่อมต่อ พร็อกซี และแอป',
   'diagnostics': 'การวินิจฉัย',
@@ -39,7 +40,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'nav_profiles': 'บัญชี',
   'nav_proxy': 'พร็อกซี',
   'nav_settings': 'การตั้งค่า',
-  'status_stream_degraded': 'การอัปเดตสถานะแบบสดทำงานไม่เต็มที่',
+  'status_stream_degraded': 'การอัปเดตสถานะล่าช้า',
   'status_stream_degraded_body':
       'การอัปเดตสถานะล่าช้า กำลังลองใหม่โดยอัตโนมัติ',
   'connect': 'เชื่อมต่อ',
@@ -55,7 +56,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'error': 'ข้อผิดพลาดในการเชื่อมต่อ',
   'active_profile': 'บัญชีปัจจุบัน',
   'protocol': 'โปรโตคอล',
-  'address_family': 'ตระกูลที่อยู่',
+  'address_family': 'เวอร์ชัน IP',
   'duration': 'ระยะเวลา',
   'download': 'ดาวน์โหลด',
   'upload': 'อัปโหลด',
@@ -64,43 +65,46 @@ const Map<String, String> kThCatalog = <String, String>{
   'ipv6': 'IPv6',
   'not_available': 'ไม่พร้อมใช้งาน',
   'location_disconnected': 'รอการเชื่อมต่อ',
-  'engine_unavailable': 'Usque Engine แบบเนทีฟยังไม่พร้อมใช้งานในรุ่นนี้',
+  'engine_unavailable':
+      'เริ่มบริการเชื่อมต่อไม่ได้ ปิด Usque ให้สนิทแล้วเปิดใหม่ หากยังมีปัญหา ให้เปิดการวินิจฉัย',
   'dismiss': 'ปิด',
   'new_profile': 'เพิ่มบัญชี',
   'profile_name': 'ชื่อบัญชี',
   'profile_name_too_long': 'ใช้ได้ไม่เกิน 64 ตัวอักษร',
-  'configure_identity': 'ตั้งค่าตัวตน WARP',
-  'identity_ready': 'ตัวตนพร้อมแล้ว',
+  'configure_identity': 'ตั้งค่าบัญชี WARP',
+  'identity_ready': 'บัญชีพร้อมใช้งาน',
   'warp_free': 'WARP Free',
-  'identity_missing': 'ต้องมีตัวตน',
-  'identity_invalid': 'ตัวตนต้องซ่อมแซม',
-  'identity_setup_failed': 'ไม่สามารถตั้งค่าตัวตน WARP ได้',
+  'identity_missing': 'ต้องตั้งค่าบัญชี',
+  'identity_invalid': 'ต้องตั้งค่าบัญชีใหม่',
+  'identity_setup_failed': 'ตั้งค่าบัญชี WARP ไม่สำเร็จ โปรดลองอีกครั้ง',
   'use_license_key': 'ใช้ WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'ลงชื่อเข้าใช้ด้วยบัญชีองค์กร',
   'zero_trust_team': 'ชื่อทีมองค์กร',
-  'zero_trust_team_invalid': 'กรอกชื่อทีมเป็นเลเบล DNS เดียว',
+  'zero_trust_team_invalid':
+      'ใช้ตัวอักษรละติน ตัวเลข หรือขีดกลาง 1–63 ตัว โดยตัวแรกและตัวสุดท้ายต้องเป็นตัวอักษรหรือตัวเลข เช่น example-team',
   'zero_trust_open_login': 'เปิดหน้าลงชื่อเข้าใช้องค์กร',
   'zero_trust_browser_failed': 'ไม่สามารถเปิดเบราว์เซอร์ของระบบได้',
   'zero_trust_manual_callback':
-      'หลังลงชื่อเข้าใช้ ให้กลับมาที่ Usque หาก URL คอลแบ็กยังไม่ได้กรอกโดยอัตโนมัติ ให้กรอกจากคลิปบอร์ดหรือวาง URL ฉบับเต็ม',
-  'zero_trust_callback_received': 'ได้รับคอลแบ็กขององค์กรอย่างปลอดภัยแล้ว',
-  'zero_trust_callback': 'URL คอลแบ็กฉบับเต็ม',
+      'หลังเข้าสู่ระบบ ให้กลับมาที่ Usque หากเข้าสู่ระบบไม่เสร็จโดยอัตโนมัติ ให้คัดลอกลิงก์ที่ใช้เปิด WARP จากหน้าเข้าสู่ระบบมาทั้งหมด แล้ววางด้านล่าง',
+  'zero_trust_callback_received':
+      'ได้รับข้อมูลการเข้าสู่ระบบแล้ว ดำเนินการตั้งค่าบัญชีต่อ',
+  'zero_trust_callback': 'ลิงก์กลับหลังเข้าสู่ระบบ',
   'zero_trust_callback_required':
-      'วาง URL คอลแบ็กฉบับเต็มที่ใหม่ หรือลงชื่อเข้าใช้อีกครั้ง',
+      'วางลิงก์จากหน้าเข้าสู่ระบบให้ครบ หรือเปิดหน้านั้นแล้วเข้าสู่ระบบอีกครั้ง',
   'zero_trust_callback_invalid':
-      'ใช้คอลแบ็ก Access แบบ com.cloudflare.warp สำหรับองค์กรนี้',
+      'ลิงก์นี้ไม่ตรงกับองค์กรที่เลือก เปิดหน้าเข้าสู่ระบบอีกครั้ง แล้วคัดลอกลิงก์ที่ใช้เปิด WARP มาทั้งหมด',
   'zero_trust_paste_clipboard': 'กรอกจากคลิปบอร์ด',
-  'zero_trust_clipboard_empty': 'คลิปบอร์ดไม่มี URL คอลแบ็ก',
+  'zero_trust_clipboard_empty': 'ไม่มีลิงก์กลับหลังเข้าสู่ระบบในคลิปบอร์ด',
   'zero_trust_scope_note':
-      'ทดลองใช้: ใช้การลงทะเบียนอุปกรณ์ขององค์กรเพื่อเข้าถึงอินเทอร์เน็ต ยังไม่รองรับการซิงก์นโยบายและสถานะความปลอดภัยของอุปกรณ์',
+      'ฟีเจอร์ทดลอง ใช้เข้าถึงอินเทอร์เน็ตสาธารณะเท่านั้น ไม่รองรับการอัปเดตนโยบายองค์กรหรือการตรวจสอบความปลอดภัยของอุปกรณ์',
   'zero_trust_repair_same_team':
-      'ลงชื่อเข้าใช้องค์กรเดิมอีกครั้งเพื่อรีเฟรชการลงทะเบียนอุปกรณ์นี้',
+      'เข้าสู่ระบบองค์กรเดิมอีกครั้งเพื่อกู้คืนการเชื่อมต่อของบัญชีนี้',
   'zero_trust_metadata_missing':
-      'ไม่พบการผูกองค์กรที่บันทึกไว้ เพื่อความปลอดภัย จึงซ่อมรายการบัญชีนี้แทนที่เดิมไม่ได้ ให้เพิ่มบัญชี Zero Trust ใหม่',
+      'ข้อมูลองค์กรที่บันทึกไว้ไม่ครบ เพิ่มบัญชี Zero Trust ใหม่แล้วเข้าสู่ระบบ',
   'zero_trust_endpoint_managed':
-      'ปลายทางนี้จัดการโดยการลงทะเบียนอุปกรณ์ Zero Trust และแก้ไขที่นี่ไม่ได้',
+      'บัญชีองค์กรเป็นผู้กำหนดที่อยู่เซิร์ฟเวอร์ จึงแก้ไขที่นี่ไม่ได้',
   'experimental': 'ทดลองใช้',
   'show_license': 'แสดง License Key',
   'hide_license': 'ซ่อน License Key',
@@ -114,10 +118,10 @@ const Map<String, String> kThCatalog = <String, String>{
   'delete': 'ลบ',
   'delete_profile': 'ลบบัญชีหรือไม่?',
   'delete_profile_body':
-      'จะลบการตั้งค่าที่ไม่เป็นความลับของรายการบัญชีนี้ ข้อมูลตัวตนที่เก็บไว้จะไม่ถูกลบ',
+      'บัญชีนี้จะถูกนำออกจากรายการและลบการตั้งค่าในเครื่อง แต่ข้อมูลเข้าสู่ระบบ WARP ที่บันทึกไว้จะยังอยู่บนอุปกรณ์นี้',
   'delete_zero_trust_profile_body':
-      'จะลบเฉพาะรายการบัญชีและข้อมูลรับรองในเครื่อง ขอให้ผู้ดูแลองค์กรลบการลงทะเบียนอุปกรณ์ที่เหลือใน Zero Trust',
-  'license_not_applicable': 'License ใช้ไม่ได้ · ทดลองใช้',
+      'บัญชีและข้อมูลเข้าสู่ระบบนี้จะถูกลบจากอุปกรณ์ หากต้องการยกเลิกการลงทะเบียนอุปกรณ์ใน Zero Trust ขององค์กร ให้ติดต่อผู้ดูแลระบบ',
+  'license_not_applicable': 'บัญชีองค์กร · ทดลอง',
   'zero_trust_reauthenticate': 'ลงชื่อเข้าใช้องค์กรนี้อีกครั้ง',
   'zero_trust_admin_cleanup_note':
       'การลบรายการบัญชีนี้ไม่ได้เพิกถอนอุปกรณ์ในแดชบอร์ด Zero Trust',
@@ -126,11 +130,12 @@ const Map<String, String> kThCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'เปลี่ยนชื่อบัญชี',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'ช่อง MASQUE เท่านั้น',
-  'channel_only_warning': 'ยังไม่ได้เปิดเอาต์พุตเครือข่าย',
-  'socks_listener': 'ตัวรับฟัง SOCKS5',
-  'http_listener': 'ตัวรับฟัง HTTP',
+  'tunnel_output': 'VPN',
+  'channel_only': 'ปิด VPN และพร็อกซีภายในเครื่องอยู่',
+  'channel_only_warning':
+      'ยังไม่มีแอปส่งข้อมูลผ่านการเชื่อมต่อนี้ เปิดหน้าพร็อกซีแล้วเปิดใช้ VPN, SOCKS5 หรือ HTTP',
+  'socks_listener': 'พร็อกซี SOCKS5',
+  'http_listener': 'พร็อกซี HTTP',
   'listen_ipv4': 'รับฟัง IPv4',
   'listen_ipv6': 'รับฟัง IPv6',
   'port': 'พอร์ต',
@@ -150,23 +155,23 @@ const Map<String, String> kThCatalog = <String, String>{
   'lan_warning_body':
       'Usque ไม่เพิ่มการยืนยันตัวตนด้วยชื่อผู้ใช้/รหัสผ่าน ผู้ที่เข้าถึงตัวรับฟังนี้ได้สามารถใช้งานได้',
   'lan_warning_body_authenticated':
-      'ตัวรับฟังนี้รับไคลเอนต์ที่ไม่ใช่ลูปแบ็กที่ยืนยันตัวตนด้วยชื่อผู้ใช้และรหัสผ่านที่ตั้งไว้',
-  'proxy_auth': 'การยืนยันตัวตนของตัวรับฟัง',
+      'อุปกรณ์อื่นในเครือข่ายภายในสามารถใช้พร็อกซีนี้ด้วยชื่อผู้ใช้และรหัสผ่านที่คุณตั้งไว้',
+  'proxy_auth': 'ชื่อผู้ใช้และรหัสผ่านพร็อกซี',
   'proxy_auth_help':
-      'ชื่อผู้ใช้และรหัสผ่านไม่บังคับสำหรับตัวรับฟัง SOCKS5 และ HTTP รหัสผ่านเก็บในคลังของระบบ ไม่ใช่ในไฟล์โปรไฟล์',
+      'กำหนดให้ใช้ชื่อผู้ใช้และรหัสผ่านสำหรับพร็อกซี SOCKS5 และ HTTP รหัสผ่านจะถูกเก็บไว้อย่างปลอดภัยบนอุปกรณ์นี้',
   'proxy_username': 'ชื่อผู้ใช้',
   'proxy_password': 'รหัสผ่าน',
-  'proxy_password_hint': 'ป้อนรหัสผ่านเพื่อตั้งค่าหรือเปลี่ยนข้อมูลรับรอง',
-  'proxy_auth_apply': 'บันทึกข้อมูลรับรอง',
-  'proxy_auth_invalid':
-      'ชื่อผู้ใช้ต้องยาว 1–255 ไบต์ โดยไม่มี “:” หรือ NUL หากมีชื่อผู้ใช้ ต้องมีรหัสผ่านยาว 1–255 ไบต์',
-  'proxy_auth_saved': 'บันทึกข้อมูลรับรองของตัวรับฟังแล้ว',
-  'proxy_auth_cleared': 'ลบการยืนยันตัวตนของตัวรับฟังแล้ว',
+  'proxy_password_hint':
+      'ป้อนรหัสผ่านเมื่อตั้งค่าหรือเปลี่ยนชื่อผู้ใช้และรหัสผ่าน',
+  'proxy_auth_apply': 'บันทึกชื่อผู้ใช้และรหัสผ่าน',
+  'proxy_auth_invalid': 'ตรวจสอบชื่อผู้ใช้และรหัสผ่าน แล้วลองอีกครั้ง',
+  'proxy_auth_saved': 'บันทึกชื่อผู้ใช้และรหัสผ่านพร็อกซีแล้ว',
+  'proxy_auth_cleared': 'ยกเลิกการป้องกันพร็อกซีด้วยรหัสผ่านแล้ว',
   'lan_warning_authenticated': 'ตัวรับฟังเครือข่ายภายในที่ต้องยืนยันตัวตน',
   'lan_warning_authenticated_body':
       'ตัวรับฟังนี้เข้าถึงได้จากเครือข่ายภายใน และต้องใช้ชื่อผู้ใช้กับรหัสผ่านที่คุณตั้งไว้',
   'proxy_password_set': 'ตั้งรหัสผ่านแล้ว กรอกรหัสใหม่เพื่อแทนที่',
-  'proxy_auth_clear': 'ลบการยืนยันตัวตน',
+  'proxy_auth_clear': 'ยกเลิกการป้องกันด้วยรหัสผ่าน',
   'general': 'ทั่วไป',
   'system_integration': 'การผสานกับระบบ',
   'start_on_boot': 'เริ่ม Usque เมื่อลงชื่อเข้าใช้',
@@ -220,8 +225,8 @@ const Map<String, String> kThCatalog = <String, String>{
   'update_package_unavailable':
       'ไม่มีแพ็กเกจที่ตรวจสอบแล้วสำหรับอุปกรณ์นี้ โปรดเปิดหน้ารุ่น',
   'notice': 'เสร็จแล้ว',
-  'identity': 'ตัวตน WARP',
-  'identity_and_license': 'ตัวตนและใบอนุญาต',
+  'identity': 'บัญชี WARP',
+  'identity_and_license': 'บัญชีและใบอนุญาต',
   'license_cleanup_pending': 'การลงทะเบียนอุปกรณ์ WARP เก่ากำลังรอการนำออก',
   'copy_license': 'คัดลอก License Key',
   'change_license': 'เปลี่ยน License Key',
@@ -261,7 +266,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'lockdown': 'บล็อกเมื่อไม่มี VPN',
   'not_used_proxy': 'ไม่ใช้ในโหมดพร็อกซี',
   'kill_switch_help':
-      'บล็อกทราฟฟิกขณะกำลังเชื่อมต่อ เชื่อมต่อใหม่ หรือกู้คืนจากความล้มเหลวของ Usque Engine บน Android จะมีผลตลอดที่บริการ VPN ทำงานอยู่ เปิด VPN แบบเปิดตลอดเวลา และบล็อกการเชื่อมต่อเมื่อไม่มี VPN ในการตั้งค่าระบบ เพื่อป้องกันหลังแอปถูกปิด',
+      'บล็อกการรับส่งข้อมูลระหว่างเชื่อมต่อ เชื่อมต่อใหม่ และกู้คืนบริการเชื่อมต่อ บน Android จะทำงานเฉพาะขณะที่บริการ VPN ทำงาน หากต้องการการป้องกันหลังแอปหยุด ให้เปิด VPN แบบเปิดตลอดเวลาและบล็อกการเชื่อมต่อที่ไม่มี VPN ในการตั้งค่าระบบ',
   'start_on_boot_android':
       'เริ่ม Usque หลังเริ่มระบบใหม่ และเปิดการเชื่อมต่ออัตโนมัติเมื่อเริ่มต้นด้วย',
   'add_quick_settings_tile_help':
@@ -303,8 +308,8 @@ const Map<String, String> kThCatalog = <String, String>{
   'invalid_cidr': 'CIDR ไม่ถูกต้อง',
   'diagnostics_title': 'การวินิจฉัยและข้อมูลเกี่ยวกับแอป',
   'diagnostics_subtitle':
-      'สถานะ Usque Engine การส่งออกบันทึก และข้อมูลในเครื่อง',
-  'engine_status': 'สถานะ Usque Engine',
+      'ตรวจสอบปัญหาการเชื่อมต่อ ส่งออกบันทึก และจัดการข้อมูลในเครื่อง',
+  'engine_status': 'ข้อมูลการเชื่อมต่อ',
   'version': 'เวอร์ชัน',
   'app_version': 'Usque 0.2.7',
   'logs': 'บันทึกในเครื่อง',
@@ -316,9 +321,9 @@ const Map<String, String> kThCatalog = <String, String>{
   'license': 'ใบอนุญาต',
   'clear_all_data': 'ล้างข้อมูลทั้งหมด',
   'clear_all_data_help':
-      'ตัดการเชื่อมต่อแล้วลบบัญชี ตัวตน Consumer WARP ค่ากำหนด แคช และบันทึกการวินิจฉัยในเครื่องทั้งหมดออกจากอุปกรณ์นี้อย่างถาวร',
+      'ตัดการเชื่อมต่อและลบทุกบัญชี ข้อมูลเข้าสู่ระบบ WARP การตั้งค่า แคช และข้อมูลการวินิจฉัยออกจากอุปกรณ์นี้อย่างถาวร',
   'clear_all_data_confirm':
-      'ไม่สามารถย้อนกลับได้ Usque จะตัดการเชื่อมต่อก่อน ลบตัวตนและบัญชีที่บันทึกไว้ทั้งหมด แล้วกลับไปตั้งค่าเริ่มต้น',
+      'ย้อนกลับการดำเนินการนี้ไม่ได้ การเชื่อมต่อจะถูกตัด ทุกบัญชีและข้อมูลเข้าสู่ระบบจะถูกลบ และแอปจะกลับไปที่การตั้งค่าเริ่มต้น',
   'clear_all_data_complete': 'ล้างข้อมูล Usque ในเครื่องทั้งหมดแล้ว',
   'unofficial':
       'ไคลเอนต์ที่ไม่เป็นทางการ ที่ใช้กับ Cloudflare WARP ได้ ไม่มีส่วนเกี่ยวข้องหรือการรับรองจาก Cloudflare',
@@ -327,13 +332,13 @@ const Map<String, String> kThCatalog = <String, String>{
   'get_started': 'เริ่มต้นใช้งาน',
   'permissions_title': 'สิทธิ์ของระบบ',
   'permissions_body':
-      'Usque ต้องมีสิทธิ์สร้างอินเทอร์เฟซ VPN และจัดการเส้นทาง, DNS, กฎไฟร์วอลล์ และพร็อกซีของระบบ',
+      'ต้องได้รับสิทธิ์จากระบบเพื่อส่งข้อมูลของแอปผ่าน VPN อาจมีการเปลี่ยน DNS เส้นทางเครือข่าย ไฟร์วอลล์ หรือพร็อกซีระบบด้วย ขึ้นอยู่กับโหมดที่เลือก',
   'terms_title': 'ข้อกำหนดของ Cloudflare',
   'terms_body':
       'Usque เป็นไคลเอนต์อิสระ การใช้ Consumer WARP หรือการลงทะเบียน Zero Trust แบบทดลองยังอยู่ภายใต้ข้อกำหนดและนโยบายความเป็นส่วนตัวที่เกี่ยวข้องของ Cloudflare',
   'terms_accept': 'เข้าใจและยอมรับเงื่อนไขเหล่านี้',
-  'identity_title': 'ตั้งค่า Consumer WARP',
-  'register_new': 'ลงทะเบียนตัวตนใหม่',
+  'identity_title': 'ตั้งค่าบัญชี WARP ส่วนตัว',
+  'register_new': 'สร้างบัญชี WARP ฟรี',
   'manual_secret': 'กรอก WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'แสดงความลับ',
@@ -348,9 +353,9 @@ const Map<String, String> kThCatalog = <String, String>{
   'profile_required': 'คงบัญชีไว้อย่างน้อยหนึ่งรายการ',
   'socks_capabilities': 'TCP และ UDP',
   'http_capabilities': 'CONNECT และการส่งต่อทั่วไป',
-  'geo_direct': 'ประเทศที่กำหนดเส้นทางโดยตรง',
+  'geo_direct': 'ประเทศ / ภูมิภาคที่เชื่อมต่อโดยตรง',
   'geo_direct_help':
-      'โดเมนที่ตรงกันจะปรากฏต่อ DNS ของเครือข่ายปัจจุบัน แอปที่ใช้ DNS แบบเข้ารหัสจะถูกกำหนดเส้นทางตาม IP เท่านั้น',
+      'ข้อมูลที่ตรงกับกฎเหล่านี้จะไม่ผ่าน VPN ผู้ให้บริการ DNS ของเครือข่ายปัจจุบันอาจเห็นชื่อโดเมนที่สอบถาม แอปที่ใช้ DNS แบบเข้ารหัสจะกำหนดเส้นทางตามที่อยู่ IP เท่านั้น',
   'geo_update_all': 'อัปเดตข้อมูลภูมิศาสตร์',
   'geo_last_updated': 'อัปเดตสำเร็จล่าสุด: {current}',
   'geo_never_updated': 'ยังไม่ได้อัปเดต',
@@ -361,11 +366,12 @@ const Map<String, String> kThCatalog = <String, String>{
   'geo_search': 'ค้นหาประเทศ',
   'geo_not_downloaded': 'ยังไม่ได้ดาวน์โหลด',
   'geo_downloaded': 'ดาวน์โหลดแล้ว',
-  'geo_chip': 'กำหนดเส้นทางโดยตรง: {current}',
+  'geo_chip': 'โดยตรง: {current}',
   'geo_download_first': 'ดาวน์โหลดข้อมูลภูมิศาสตร์ของประเทศนี้ก่อนเปิดใช้งาน',
   'geo_update_complete':
       'ข้อมูลภูมิศาสตร์: อัปเดตแล้ว {updated} รายการ, {current} รายการเป็นปัจจุบันอยู่แล้ว',
-  'geo_update_failed': 'อัปเดตข้อมูลภูมิศาสตร์ล้มเหลว: {current}',
+  'geo_update_failed':
+      'อัปเดตกฎบางรายการไม่สำเร็จ ({current}) ตรวจสอบเครือข่ายแล้วลองอีกครั้ง',
   'diagnostics_page_subtitle':
       'ตรวจสอบการเชื่อมต่อ การป้องกันแพลตฟอร์ม และสถานะการกู้คืน ผลลัพธ์เก็บไว้ในเครื่องเท่านั้น',
   'diag_refresh_timeline': 'รีเฟรชไทม์ไลน์',
@@ -374,7 +380,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_event_stream_degraded_body': 'กำลังกู้คืนความคืบหน้าการวินิจฉัย…',
   'diag_export_included': 'รวม:',
   'diag_export_included_body':
-      'รหัสข้อผิดพลาด ขั้นตอน เวลาสัมพัทธ์ ตัวนับ และสถานะบูลีน',
+      'รหัสข้อผิดพลาด ขั้นตอนการเชื่อมต่อ ระยะเวลา สถิติการรับส่งข้อมูล และสถานะฟีเจอร์',
   'diag_export_excluded': 'ไม่รวม:',
   'diag_export_excluded_body':
       'คีย์ โทเค็น ชื่อโปรไฟล์ ที่อยู่เต็ม SSID รายการแอป และเส้นทางผู้ใช้',
@@ -382,7 +388,7 @@ const Map<String, String> kThCatalog = <String, String>{
       'ไฟล์เก็บถาวรถูกเขียนไปยังตำแหน่งที่คุณเลือกเท่านั้น และไม่ถูกอัปโหลดโดยอัตโนมัติ',
   'diag_run_title': 'เรียกใช้การวินิจฉัยเครือข่าย',
   'diag_run_subtitle':
-      'โหมดมาตรฐานใช้เฉพาะการตรวจแบบอ่านอย่างเดียวและแบบพาสซีฟ',
+      'การตรวจสอบมาตรฐานอ่านสถานะเท่านั้น ไม่ส่งข้อมูลทดสอบหรือเปลี่ยนการตั้งค่า',
   'diag_mode_standard': 'มาตรฐาน',
   'diag_mode_deep': 'เชิงลึก',
   'diag_deep_title': 'เกี่ยวกับการวินิจฉัยเชิงลึก',
@@ -390,7 +396,7 @@ const Map<String, String> kThCatalog = <String, String>{
       'จะข้ามการตรวจสอบบางรายการขณะเชื่อมต่อเพื่อไม่ให้การเชื่อมต่อสะดุด',
   'diag_deep_disconnected': 'การตรวจสอบอาจใช้เครือข่าย คุณยกเลิกได้ทุกเมื่อ',
   'diag_start': 'เริ่มการวินิจฉัย',
-  'diag_session': 'เซสชันวินิจฉัย',
+  'diag_session': 'การวินิจฉัยรอบปัจจุบัน',
   'diag_progress_semantics': 'ความคืบหน้าการวินิจฉัย {current}%',
   'diag_waiting_check': 'กำลังรอสถานะการตรวจ…',
   'diag_summary_passed': 'ผ่าน {count}',
@@ -413,7 +419,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_timeline_empty':
       'การเปลี่ยนสถานะการเชื่อมต่อที่สำคัญจะปรากฏที่นี่หลังพยายามเชื่อมต่อ',
   'diag_timeline_truncated':
-      'อินเทอร์เฟซจะแสดงเฉพาะ 100 เหตุการณ์ล่าสุด แพ็กเกจที่ส่งออกมีเหตุการณ์ที่ Usque Engine ยังคงบันทึกไว้',
+      'แสดง 100 รายการล่าสุด ไฟล์ที่ส่งออกมีทุกรายการที่ยังเก็บอยู่บนอุปกรณ์',
   'diag_metric_reconnects': 'เชื่อมต่อใหม่',
   'diag_metric_fallbacks': 'การเปลี่ยนไปใช้เส้นทางสำรอง',
   'diag_metric_network_changes': 'การเปลี่ยนเครือข่าย',
@@ -428,9 +434,10 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_yes': 'ใช่',
   'diag_no': 'ไม่',
   'diag_finding_passed': 'การตรวจนี้ผ่านแล้ว',
-  'diag_finding_attention': 'การตรวจนี้ต้องให้ความสนใจ',
+  'diag_finding_attention': 'พบปัญหาที่อาจเกิดขึ้น ดูรายละเอียดก่อนลองอีกครั้ง',
   'diag_finding_failed': 'การตรวจนี้ล้มเหลว',
-  'diag_finding_skipped': 'การตรวจนี้ไม่ได้รันในสถานะปัจจุบัน',
+  'diag_finding_skipped':
+      'ทำการตรวจสอบนี้ไม่ได้ ตรวจสอบการเชื่อมต่อและรายการที่ตรวจไม่ผ่าน แล้วลองอีกครั้ง',
   'diag_finding_cancelled': 'การตรวจนี้ถูกยกเลิก',
   'diag_finding_running': 'กำลังทำการตรวจนี้',
   'diag_finding_pending': 'การตรวจนี้ยังไม่เริ่ม',
@@ -447,11 +454,11 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_cat_tunnel': 'อุโมงค์',
   'diag_cat_protection': 'การป้องกันระบบ',
   'diag_cat_recovery': 'การกู้คืน',
-  'diag_check_engine_control_channel': 'ช่องควบคุม Usque Engine',
-  'diag_check_engine_event_stream': 'สตรีมเหตุการณ์ Usque Engine',
-  'diag_check_engine_capabilities': 'ความสามารถ API',
+  'diag_check_engine_control_channel': 'การติดต่อบริการเชื่อมต่อ',
+  'diag_check_engine_event_stream': 'การอัปเดตสถานะการเชื่อมต่อ',
+  'diag_check_engine_capabilities': 'ความเข้ากันได้ของฟีเจอร์การเชื่อมต่อ',
   'diag_check_engine_configuration': 'การกำหนดค่า',
-  'diag_check_engine_secure_storage_metadata': 'ข้อมูลเมตาของตัวตน',
+  'diag_check_engine_secure_storage_metadata': 'ข้อมูลเข้าสู่ระบบที่บันทึกไว้',
   'diag_check_frontend_socks_port': 'ตัวฟัง SOCKS5',
   'diag_check_frontend_http_port': 'ตัวฟัง HTTP',
   'diag_check_frontend_system_proxy_state': 'สถานะพร็อกซีระบบ',
@@ -459,7 +466,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'เส้นทาง IPv4 กายภาพ',
   'diag_check_physical_ipv6_route': 'เส้นทาง IPv6 กายภาพ',
   'diag_check_physical_dns_available': 'DNS กายภาพ',
-  'diag_check_physical_network_generation': 'รุ่นเครือข่าย',
+  'diag_check_physical_network_generation': 'การเปลี่ยนเครือข่าย',
   'diag_check_transport_h3_connect': 'การเชื่อมต่อ HTTP/3',
   'diag_check_transport_h3_datagram': 'ดาตาแกรม HTTP/3',
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
@@ -475,10 +482,10 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'ทางออก IPv6',
   'diag_check_protection_kill_switch': 'สถานะ Kill Switch',
   'diag_check_protection_dns_path': 'เส้นทาง DNS',
-  'diag_check_protection_route_ownership': 'ความเป็นเจ้าของเส้นทาง',
+  'diag_check_protection_route_ownership': 'เส้นทางเครือข่ายที่ Usque จัดการ',
   'diag_check_protection_recovery_journal': 'สมุดบันทึกการกู้คืน',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine ไม่พร้อมใช้งาน',
-  'diag_fail_AGENT_UNREACHABLE': 'เข้าถึง Usque Agent ไม่ได้',
+  'diag_fail_ENGINE_UNAVAILABLE': 'บริการเชื่อมต่อไม่พร้อมใช้งาน',
+  'diag_fail_AGENT_UNREACHABLE': 'ติดต่อบริการเครือข่ายระบบของ Usque ไม่ได้',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'บริการ VPN ไม่พร้อมใช้งาน',
   'diag_fail_PROXY_PORT_IN_USE': 'พอร์ตพร็อกซีถูกใช้แล้ว',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 กายภาพไม่พร้อมใช้งาน',
@@ -527,30 +534,34 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_CANCELLED': 'การวินิจฉัยถูกยกเลิก',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'การพึ่งพาของการวินิจฉัยล้มเหลว',
   'diag_fail_INTERNAL': 'ข้อผิดพลาดภายใน',
-  'diag_fix_try_http2': 'ใช้ HTTP/2 และเปิดโพรบกู้คืนต่อไป',
+  'diag_fix_try_http2':
+      'เปิดการตั้งค่า → การตั้งค่าเครือข่ายขั้นสูง เลือก HTTP/2 แล้วใช้การเปลี่ยนแปลง จากนั้นเชื่อมต่อใหม่',
   'diag_fix_check_physical_network':
-      'ตรวจสอบว่าเครือข่ายปัจจุบัน DNS และประเภทที่อยู่พร้อมใช้งานหรือไม่',
+      'ตรวจสอบว่า Wi-Fi หรืออินเทอร์เน็ตมือถือใช้งานได้ แล้วเชื่อมต่อใหม่',
   'diag_fix_refresh_or_replace_identity':
-      'รีเฟรชหรือแทนที่ตัวตนก่อนเชื่อมต่อใหม่',
-  'diag_fix_replace_identity': 'กำหนดค่าตัวตนที่ถูกต้องอีกครั้ง',
-  'diag_fix_review_configuration': 'ตรวจการกำหนดค่าและแก้ค่าที่ไม่ถูกต้อง',
+      'เปิดบัญชี → ตั้งค่าบัญชี WARP เข้าสู่ระบบอีกครั้งหรือสร้างบัญชีใหม่ แล้วเชื่อมต่อ',
+  'diag_fix_replace_identity':
+      'เปิดบัญชี → ตั้งค่าบัญชี WARP เข้าสู่ระบบอีกครั้งหรือนำเข้าข้อมูลเข้าสู่ระบบที่ใช้ได้',
+  'diag_fix_review_configuration':
+      'เปิดการตั้งค่า → การตั้งค่าเครือข่ายขั้นสูง แก้ไขช่องที่มีเครื่องหมายแจ้งเตือน แล้วใช้การเปลี่ยนแปลง',
   'diag_fix_restore_platform_state':
-      'คืนค่าสถานะเครือข่ายของแพลตฟอร์มก่อนลองใหม่',
-  'diag_fix_resolve_dependency': 'แก้เงื่อนไขเบื้องต้นที่ล้มเหลวก่อน',
+      'ปิด Usque ให้สนิท เปิดใหม่ แล้วลองอีกครั้ง หากยังมีปัญหา ให้ส่งออกบันทึกจากการวินิจฉัยเพื่อส่งให้ฝ่ายสนับสนุน',
+  'diag_fix_resolve_dependency':
+      'แก้ไขปัญหาจากรายการที่ตรวจไม่ผ่านก่อน แล้วเรียกใช้การวินิจฉัยอีกครั้ง',
   'diag_fix_run_deep_diagnostics':
-      'เรียกใช้การวินิจฉัยเชิงลึกในสภาพแวดล้อมที่เหมาะสม',
+      'ในการวินิจฉัย เลือก “เชิงลึก” แล้วเริ่มตรวจสอบ อาจมีการส่งข้อมูลทดสอบ และอาจข้ามบางรายการขณะเชื่อมต่ออยู่',
   'diag_fix_run_release_leak_gate':
       'ส่งออกชุดวินิจฉัยที่ลบข้อมูลละเอียดอ่อนแล้วสำหรับฝ่ายสนับสนุน',
   'diag_fix_inspect_platform_state':
-      'ยืนยันสถานะจริงด้วยการตรวจสอบแบบอ่านอย่างเดียวสำหรับสถานะเครือข่ายและพร็อกซีของระบบ',
+      'ดูรายการที่ตรวจไม่ผ่านในการวินิจฉัย → การป้องกันระบบ หากยังมีปัญหา ให้ส่งออกบันทึก',
   'diag_fix_generate_tunnel_traffic':
-      'สร้างทราฟฟิกอุโมงค์เล็กน้อย แล้วตรวจอีกครั้ง',
+      'เปิดหน้าเว็บผ่านการเชื่อมต่อ Usque แล้วตรวจสอบอีกครั้ง',
   'diag_fix_export_diagnostics':
       'ส่งออกชุดวินิจฉัยที่ลบข้อมูลละเอียดอ่อนแล้วสำหรับฝ่ายสนับสนุน',
   'diag_fix_retry': 'ลองใหม่ในอีกสักครู่',
   'diag_fix_none': 'ไม่ต้องดำเนินการ',
   'diag_fix_default':
-      'ใช้รหัสข้อผิดพลาดเพื่อตรวจการกำหนดค่าและสถานะเครือข่ายที่เกี่ยวข้อง',
+      'ลองอีกครั้ง หากยังมีปัญหา ให้ส่งออกบันทึกจากการวินิจฉัยเพื่อส่งให้ฝ่ายสนับสนุน',
   'diag_event_attempt_started': 'เริ่มพยายามเชื่อมต่อแล้ว',
   'diag_event_endpoint_resolved': 'ค้นหาที่อยู่จุดปลายทางแล้ว',
   'diag_event_socket_connected': 'ซ็อกเก็ตเชื่อมต่อแล้ว',

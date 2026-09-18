@@ -4,7 +4,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'disable_quic_help':
       "Blokir UDP/443 melalui proksi atau terowongan, termasuk protokol lain pada port tersebut. Lalu lintas langsung GEO dan koneksi HTTP/3 Usque tidak terpengaruh. QUIC pada port lain tetap diizinkan. Berlaku tanpa menghubungkan ulang.",
   'disable_quic_unsupported':
-      "Perbarui atau mulai ulang mesin untuk menggunakan pengaturan ini.",
+      'Tutup lalu buka kembali Usque dan coba lagi. Jika opsi tetap tidak tersedia, periksa pembaruan di Pengaturan.',
   'technical_details': 'Detail teknis',
   'diag_skip_disconnected': 'Hubungkan untuk menjalankan pemeriksaan ini.',
   'diag_skip_disabled': 'Fitur ini dinonaktifkan.',
@@ -27,12 +27,13 @@ const Map<String, String> kIdCatalog = <String, String>{
   'tray_disconnect_profile': 'Putuskan akun aktif',
   'tray_disconnect_exit': 'Putuskan dan keluar',
   'connection_status': 'Status koneksi',
-  'outputs': 'Keluaran jaringan',
+  'outputs': 'VPN dan proksi lokal',
   'home': 'Beranda',
   'profiles': 'Akun',
   'profiles_subtitle': 'Beralih dan kelola akun WARP.',
   'proxy': 'Proksi',
-  'proxy_subtitle': 'Listener lokal dan DNS digunakan bersama oleh semua akun.',
+  'proxy_subtitle':
+      'Atur alamat proksi dan DNS yang digunakan bersama oleh semua akun.',
   'settings': 'Pengaturan',
   'settings_subtitle': 'Pengaturan koneksi, proksi, dan aplikasi.',
   'diagnostics': 'Diagnostik',
@@ -40,7 +41,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'nav_profiles': 'Akun',
   'nav_proxy': 'Proksi',
   'nav_settings': 'Setelan',
-  'status_stream_degraded': 'Pembaruan status langsung terganggu',
+  'status_stream_degraded': 'Pembaruan status tertunda',
   'status_stream_degraded_body':
       'Pembaruan status tertunda. Mencoba lagi secara otomatis.',
   'connect': 'Sambungkan',
@@ -56,7 +57,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'error': 'Kesalahan koneksi',
   'active_profile': 'Akun saat ini',
   'protocol': 'Protokol',
-  'address_family': 'Keluarga alamat',
+  'address_family': 'Versi IP',
   'duration': 'Durasi',
   'download': 'Unduh',
   'upload': 'Unggah',
@@ -65,43 +66,47 @@ const Map<String, String> kIdCatalog = <String, String>{
   'ipv6': 'IPv6',
   'not_available': 'Tidak tersedia',
   'location_disconnected': 'Menunggu untuk tersambung',
-  'engine_unavailable': 'Usque Engine native belum tersedia di build ini.',
+  'engine_unavailable':
+      'Layanan koneksi tidak dapat dimulai. Tutup Usque sepenuhnya lalu buka kembali. Jika masih gagal, buka Diagnostik.',
   'dismiss': 'Tutup',
   'new_profile': 'Tambah akun',
   'profile_name': 'Nama akun',
   'profile_name_too_long': 'Gunakan paling banyak 64 karakter.',
-  'configure_identity': 'Atur identitas WARP',
-  'identity_ready': 'Identitas siap',
+  'configure_identity': 'Siapkan akun WARP',
+  'identity_ready': 'Akun siap',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Identitas diperlukan',
-  'identity_invalid': 'Identitas perlu diperbaiki',
-  'identity_setup_failed': 'Identitas WARP tidak dapat diatur.',
+  'identity_missing': 'Akun perlu disiapkan',
+  'identity_invalid': 'Akun perlu disiapkan ulang',
+  'identity_setup_failed': 'Akun WARP tidak dapat disiapkan. Coba lagi.',
   'use_license_key': 'Gunakan WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Masuk dengan akun organisasi',
   'zero_trust_team': 'Nama tim organisasi',
-  'zero_trust_team_invalid': 'Masukkan satu nama tim berupa label DNS.',
+  'zero_trust_team_invalid':
+      'Gunakan 1–63 huruf Latin, angka, atau tanda hubung. Awali dan akhiri dengan huruf atau angka. Contoh: example-team.',
   'zero_trust_open_login': 'Buka halaman masuk organisasi',
   'zero_trust_browser_failed': 'Peramban sistem tidak dapat dibuka.',
   'zero_trust_manual_callback':
-      'Setelah masuk, kembali ke Usque. Jika URL callback tidak terisi otomatis, isi dari papan klip atau tempel URL lengkap.',
-  'zero_trust_callback_received': 'Callback organisasi diterima dengan aman.',
-  'zero_trust_callback': 'URL callback lengkap',
+      'Setelah masuk, kembali ke Usque. Jika hasilnya tidak diterima otomatis, salin tautan di halaman masuk yang digunakan untuk membuka WARP, lalu tempel seluruhnya di bawah.',
+  'zero_trust_callback_received':
+      'Hasil masuk diterima. Lanjutkan untuk menyelesaikan penyiapan akun.',
+  'zero_trust_callback': 'Tautan kembali setelah masuk',
   'zero_trust_callback_required':
-      'Tempel URL callback lengkap yang baru atau masuk lagi.',
+      'Tempel tautan lengkap dari halaman masuk, atau buka kembali halaman itu dan masuk lagi.',
   'zero_trust_callback_invalid':
-      'Gunakan callback Access com.cloudflare.warp untuk organisasi ini.',
+      'Tautan ini tidak cocok dengan organisasi saat ini. Buka kembali halaman masuk dan salin tautan lengkap untuk membuka WARP.',
   'zero_trust_paste_clipboard': 'Isi dari papan klip',
-  'zero_trust_clipboard_empty': 'Papan klip tidak berisi URL callback.',
+  'zero_trust_clipboard_empty':
+      'Papan klip tidak berisi tautan kembali setelah masuk.',
   'zero_trust_scope_note':
-      'Eksperimental: menggunakan pendaftaran perangkat organisasi untuk akses Internet; sinkronisasi kebijakan dan postur perangkat belum diimplementasikan.',
+      'Eksperimental: akun ini hanya untuk akses Internet publik. Pembaruan kebijakan organisasi dan pemeriksaan persyaratan keamanan perangkat belum didukung.',
   'zero_trust_repair_same_team':
-      'Masuk lagi ke organisasi yang sama untuk menyegarkan pendaftaran perangkat ini.',
+      'Masuk kembali ke organisasi yang sama untuk memulihkan koneksi akun ini.',
   'zero_trust_metadata_missing':
-      'Ikatan organisasi yang tersimpan tidak ditemukan. Demi keamanan, entri akun ini tidak dapat diperbaiki di tempat; tambahkan akun Zero Trust baru.',
+      'Informasi organisasi yang tersimpan tidak lengkap. Tambahkan akun Zero Trust baru dan masuk lagi.',
   'zero_trust_endpoint_managed':
-      'Endpoint ini dikelola oleh pendaftaran perangkat Zero Trust dan tidak dapat diubah di sini.',
+      'Alamat server ini diatur oleh akun organisasi dan tidak dapat diubah di sini.',
   'experimental': 'Eksperimental',
   'show_license': 'Tampilkan License Key',
   'hide_license': 'Sembunyikan License Key',
@@ -115,10 +120,10 @@ const Map<String, String> kIdCatalog = <String, String>{
   'delete': 'Hapus',
   'delete_profile': 'Hapus akun?',
   'delete_profile_body':
-      'Tindakan ini menghapus pengaturan non-rahasia untuk entri akun ini. Data identitas tersimpan tidak dihapus.',
+      'Akun dihapus dari daftar beserta pengaturan lokalnya. Informasi masuk WARP yang tersimpan tetap ada di perangkat ini.',
   'delete_zero_trust_profile_body':
-      'Tindakan ini hanya menghapus entri akun dan kredensial lokal. Minta administrator organisasi untuk menghapus sisa pendaftaran perangkat di Zero Trust.',
-  'license_not_applicable': 'Lisensi tidak berlaku · Eksperimental',
+      'Akun dan informasi masuk dihapus dari perangkat ini. Minta administrator menghapus juga catatan perangkat di dasbor Zero Trust organisasi.',
+  'license_not_applicable': 'Akun organisasi · Eksperimental',
   'zero_trust_reauthenticate': 'Masuk lagi ke organisasi ini',
   'zero_trust_admin_cleanup_note':
       'Menghapus entri akun ini tidak mencabut perangkat di dasbor Zero Trust.',
@@ -127,11 +132,12 @@ const Map<String, String> kIdCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Ubah nama akun',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'Hanya saluran MASQUE',
-  'channel_only_warning': 'Tidak ada keluaran jaringan yang diaktifkan.',
-  'socks_listener': 'Listener SOCKS5',
-  'http_listener': 'Listener HTTP',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN dan proksi lokal nonaktif',
+  'channel_only_warning':
+      'Koneksi ini tidak meneruskan lalu lintas aplikasi. Buka Proksi dan aktifkan VPN, SOCKS5, atau HTTP.',
+  'socks_listener': 'Proksi SOCKS5',
+  'http_listener': 'Proksi HTTP',
   'listen_ipv4': 'Dengarkan pada IPv4',
   'listen_ipv6': 'Dengarkan pada IPv6',
   'port': 'Port',
@@ -151,25 +157,24 @@ const Map<String, String> kIdCatalog = <String, String>{
   'lan_warning_body':
       'Usque tidak menambahkan autentikasi nama pengguna/kata sandi. Siapa pun yang dapat menjangkau listener ini dapat menggunakannya.',
   'lan_warning_body_authenticated':
-      'Listener ini menerima klien non-loopback terautentikasi yang memberikan nama pengguna dan kata sandi yang dikonfigurasi.',
-  'proxy_auth': 'Autentikasi listener',
+      'Perangkat lain di jaringan lokal dapat memakai proksi ini dengan nama pengguna dan kata sandi yang Anda tetapkan.',
+  'proxy_auth': 'Nama pengguna dan kata sandi proksi',
   'proxy_auth_help':
-      'Nama pengguna dan kata sandi opsional untuk listener SOCKS5 dan HTTP. Kata sandi disimpan di brankas sistem, bukan di berkas profil.',
+      'Wajibkan nama pengguna dan kata sandi untuk proksi SOCKS5 dan HTTP. Kata sandi disimpan dengan aman di perangkat ini.',
   'proxy_username': 'Nama pengguna',
   'proxy_password': 'Kata sandi',
   'proxy_password_hint':
-      'Masukkan kata sandi untuk mengatur atau mengubah kredensial.',
-  'proxy_auth_apply': 'Simpan kredensial',
-  'proxy_auth_invalid':
-      'Nama pengguna harus 1–255 byte tanpa “:” atau NUL. Kata sandi 1–255 byte wajib jika ada nama pengguna.',
-  'proxy_auth_saved': 'Kredensial listener disimpan',
-  'proxy_auth_cleared': 'Autentikasi listener dihapus',
+      'Masukkan kata sandi saat mengatur atau mengubah nama pengguna dan kata sandi.',
+  'proxy_auth_apply': 'Simpan nama pengguna dan kata sandi',
+  'proxy_auth_invalid': 'Periksa nama pengguna dan kata sandi lalu coba lagi.',
+  'proxy_auth_saved': 'Nama pengguna dan kata sandi proksi disimpan.',
+  'proxy_auth_cleared': 'Perlindungan kata sandi proksi dihapus.',
   'lan_warning_authenticated': 'Listener LAN terautentikasi',
   'lan_warning_authenticated_body':
       'Listener ini dapat dijangkau di jaringan lokal dan memerlukan nama pengguna serta kata sandi yang Anda tetapkan.',
   'proxy_password_set':
       'Kata sandi sudah diatur. Masukkan yang baru untuk menggantinya.',
-  'proxy_auth_clear': 'Hapus autentikasi',
+  'proxy_auth_clear': 'Hapus perlindungan kata sandi',
   'general': 'Umum',
   'system_integration': 'Integrasi sistem',
   'start_on_boot': 'Jalankan Usque saat Anda masuk',
@@ -223,8 +228,8 @@ const Map<String, String> kIdCatalog = <String, String>{
   'update_package_unavailable':
       'Tidak ada paket terverifikasi untuk perangkat ini. Buka halaman rilis.',
   'notice': 'Selesai',
-  'identity': 'Identitas WARP',
-  'identity_and_license': 'Identitas & Lisensi',
+  'identity': 'Akun WARP',
+  'identity_and_license': 'Akun dan lisensi',
   'license_cleanup_pending':
       'Pendaftaran perangkat WARP lama menunggu penghapusan.',
   'copy_license': 'Salin License Key',
@@ -265,7 +270,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'lockdown': 'Blokir tanpa VPN',
   'not_used_proxy': 'Tidak digunakan dalam mode proksi',
   'kill_switch_help':
-      'Blokir lalu lintas saat menyambungkan, menyambungkan ulang, atau memulihkan dari kegagalan Usque Engine. Di Android, ini berlaku selama layanan VPN berjalan; aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN di pengaturan sistem untuk perlindungan setelah aplikasi dihentikan.',
+      'Blokir lalu lintas saat menyambung, menyambung ulang, atau memulihkan layanan koneksi yang gagal. Di Android, perlindungan hanya berlaku saat layanan VPN berjalan. Agar tetap terlindungi setelah aplikasi berhenti, aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN di pengaturan sistem.',
   'start_on_boot_android':
       'Jalankan Usque setelah mulai ulang. Aktifkan juga sambungan otomatis saat mulai.',
   'add_quick_settings_tile_help':
@@ -306,8 +311,9 @@ const Map<String, String> kIdCatalog = <String, String>{
   'invalid_dns_name': 'Nama DNS tidak valid',
   'invalid_cidr': 'CIDR tidak valid',
   'diagnostics_title': 'Diagnostik dan informasi aplikasi',
-  'diagnostics_subtitle': 'Status Usque Engine, ekspor log, dan data lokal.',
-  'engine_status': 'Status Usque Engine',
+  'diagnostics_subtitle':
+      'Periksa masalah koneksi, ekspor log, dan kelola data lokal.',
+  'engine_status': 'Informasi koneksi',
   'version': 'Versi',
   'app_version': 'Usque 0.2.7',
   'logs': 'Log lokal',
@@ -319,9 +325,9 @@ const Map<String, String> kIdCatalog = <String, String>{
   'license': 'Lisensi',
   'clear_all_data': 'Hapus semua data',
   'clear_all_data_help':
-      'Putuskan dan hapus secara permanen setiap akun, identitas Consumer WARP, preferensi, cache, dan catatan diagnostik lokal dari perangkat ini.',
+      'Putuskan koneksi dan hapus permanen semua akun, informasi masuk WARP, pengaturan, cache, serta catatan diagnostik dari perangkat ini.',
   'clear_all_data_confirm':
-      'Tindakan ini tidak dapat dibatalkan. Usque akan memutuskan terlebih dahulu, menghapus semua identitas dan akun tersimpan, lalu kembali ke penyiapan awal.',
+      'Tidak dapat dibatalkan. Usque akan memutuskan koneksi, menghapus semua akun dan informasi masuk, lalu kembali ke penyiapan awal.',
   'clear_all_data_complete': 'Semua data Usque lokal telah dihapus.',
   'unofficial':
       'Klien tidak resmi yang kompatibel dengan Cloudflare WARP. Tidak berafiliasi dengan atau didukung oleh Cloudflare.',
@@ -330,13 +336,13 @@ const Map<String, String> kIdCatalog = <String, String>{
   'get_started': 'Mulai',
   'permissions_title': 'Izin sistem',
   'permissions_body':
-      'Usque memerlukan izin untuk membuat antarmuka VPN dan mengelola rute, DNS, aturan firewall, dan proksi sistem.',
+      'Usque memerlukan izin untuk meneruskan lalu lintas aplikasi melalui VPN. Sesuai mode koneksi, Usque juga mengatur DNS, rute jaringan, perlindungan firewall, atau proksi sistem.',
   'terms_title': 'Ketentuan Cloudflare',
   'terms_body':
       'Usque adalah klien independen. Penggunaan Consumer WARP atau pendaftaran Zero Trust eksperimental tetap tunduk pada ketentuan dan kebijakan privasi Cloudflare yang berlaku.',
   'terms_accept': 'Saya memahami dan menerima ketentuan ini.',
-  'identity_title': 'Siapkan Consumer WARP',
-  'register_new': 'Daftarkan identitas baru',
+  'identity_title': 'Siapkan akun WARP pribadi',
+  'register_new': 'Buat akun WARP gratis',
   'manual_secret': 'Masukkan WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Tampilkan rahasia',
@@ -351,9 +357,9 @@ const Map<String, String> kIdCatalog = <String, String>{
   'profile_required': 'Pertahankan setidaknya satu akun.',
   'socks_capabilities': 'TCP dan UDP',
   'http_capabilities': 'CONNECT dan penerusan biasa',
-  'geo_direct': 'Negara yang dirutekan langsung',
+  'geo_direct': 'Negara/wilayah koneksi langsung',
   'geo_direct_help':
-      'Domain yang cocok terlihat oleh DNS jaringan Anda saat ini; aplikasi yang memakai DNS terenkripsi diarahkan hanya berdasarkan IP.',
+      'Lalu lintas yang cocok dengan negara atau wilayah ini tidak melalui VPN. Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta. Aplikasi dengan DNS terenkripsi dicocokkan berdasarkan IP saja.',
   'geo_update_all': 'Perbarui data geo',
   'geo_last_updated': 'Pembaruan berhasil terakhir: {current}',
   'geo_never_updated': 'Belum diperbarui',
@@ -364,11 +370,12 @@ const Map<String, String> kIdCatalog = <String, String>{
   'geo_search': 'Cari negara',
   'geo_not_downloaded': 'Belum diunduh',
   'geo_downloaded': 'Sudah diunduh',
-  'geo_chip': 'Perutean langsung: {current}',
+  'geo_chip': 'Langsung: {current}',
   'geo_download_first': 'Unduh data geo negara ini sebelum mengaktifkannya.',
   'geo_update_complete':
       'Data geo: {updated} diperbarui, {current} sudah yang terbaru.',
-  'geo_update_failed': 'Pembaruan data geo gagal: {current}',
+  'geo_update_failed':
+      'Beberapa aturan gagal diperbarui ({current}). Periksa jaringan dan coba lagi.',
   'diagnostics_page_subtitle':
       'Periksa koneksi, perlindungan platform, dan status pemulihan. Hasil tetap di perangkat ini.',
   'diag_refresh_timeline': 'Segarkan linimasa',
@@ -377,7 +384,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_event_stream_degraded_body': 'Memulihkan kemajuan diagnosis…',
   'diag_export_included': 'Termasuk:',
   'diag_export_included_body':
-      'Kode galat, tahap, waktu relatif, penghitung, dan status boolean',
+      'Kode kesalahan, langkah koneksi, waktu, statistik lalu lintas, dan status fitur',
   'diag_export_excluded': 'Tidak termasuk:',
   'diag_export_excluded_body':
       'Kunci, token, nama profil, alamat lengkap, SSID, daftar aplikasi, dan jalur pengguna',
@@ -385,7 +392,7 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Arsip hanya ditulis ke lokasi yang Anda pilih dan tidak pernah diunggah otomatis.',
   'diag_run_title': 'Jalankan diagnostik jaringan',
   'diag_run_subtitle':
-      'Mode standar hanya memakai pemeriksaan baca-saja dan pasif.',
+      'Pemeriksaan standar hanya membaca status, tanpa mengirim lalu lintas uji atau mengubah pengaturan.',
   'diag_mode_standard': 'Standar',
   'diag_mode_deep': 'Mendalam',
   'diag_deep_title': 'Tentang diagnostik mendalam',
@@ -394,7 +401,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_deep_disconnected':
       'Pemeriksaan dapat menggunakan jaringan. Anda dapat membatalkan kapan saja.',
   'diag_start': 'Mulai diagnostik',
-  'diag_session': 'Sesi diagnostik',
+  'diag_session': 'Diagnostik saat ini',
   'diag_progress_semantics': 'Kemajuan diagnostik {current}%',
   'diag_waiting_check': 'Menunggu status pemeriksaan…',
   'diag_summary_passed': 'Lulus {count}',
@@ -417,7 +424,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_timeline_empty':
       'Perubahan status koneksi penting akan muncul di sini setelah percobaan koneksi.',
   'diag_timeline_truncated':
-      'Antarmuka hanya menampilkan 100 peristiwa terbaru; bundel yang diekspor berisi peristiwa yang masih disimpan oleh Usque Engine.',
+      'Menampilkan 100 catatan terbaru. Paket diagnostik memuat semua catatan yang masih disimpan di perangkat ini.',
   'diag_metric_reconnects': 'Sambung ulang',
   'diag_metric_fallbacks': 'Peralihan ke jalur cadangan',
   'diag_metric_network_changes': 'Perubahan jaringan',
@@ -432,10 +439,11 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_yes': 'Ya',
   'diag_no': 'Tidak',
   'diag_finding_passed': 'Pemeriksaan ini lulus.',
-  'diag_finding_attention': 'Pemeriksaan ini perlu perhatian.',
+  'diag_finding_attention':
+      'Pemeriksaan menemukan kemungkinan masalah. Lihat detail sebelum mencoba lagi.',
   'diag_finding_failed': 'Pemeriksaan ini gagal.',
   'diag_finding_skipped':
-      'Pemeriksaan ini tidak dijalankan pada status saat ini.',
+      'Pemeriksaan ini tidak dapat dijalankan. Periksa koneksi dan pemeriksaan yang gagal, lalu coba lagi.',
   'diag_finding_cancelled': 'Pemeriksaan ini dibatalkan.',
   'diag_finding_running': 'Pemeriksaan ini sedang berjalan.',
   'diag_finding_pending': 'Pemeriksaan ini belum dimulai.',
@@ -452,11 +460,11 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_cat_tunnel': 'Terowongan',
   'diag_cat_protection': 'Perlindungan sistem',
   'diag_cat_recovery': 'Pemulihan',
-  'diag_check_engine_control_channel': 'Saluran kendali Usque Engine',
-  'diag_check_engine_event_stream': 'Aliran peristiwa Usque Engine',
-  'diag_check_engine_capabilities': 'Kemampuan API',
+  'diag_check_engine_control_channel': 'Komunikasi layanan koneksi',
+  'diag_check_engine_event_stream': 'Pembaruan status koneksi',
+  'diag_check_engine_capabilities': 'Kompatibilitas fitur koneksi',
   'diag_check_engine_configuration': 'Konfigurasi',
-  'diag_check_engine_secure_storage_metadata': 'Metadata identitas',
+  'diag_check_engine_secure_storage_metadata': 'Informasi masuk tersimpan',
   'diag_check_frontend_socks_port': 'Pendengar SOCKS5',
   'diag_check_frontend_http_port': 'Pendengar HTTP',
   'diag_check_frontend_system_proxy_state': 'Status proksi sistem',
@@ -464,7 +472,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Rute IPv4 fisik',
   'diag_check_physical_ipv6_route': 'Rute IPv6 fisik',
   'diag_check_physical_dns_available': 'DNS fisik',
-  'diag_check_physical_network_generation': 'Generasi jaringan',
+  'diag_check_physical_network_generation': 'Perubahan jaringan',
   'diag_check_transport_h3_connect': 'Koneksi HTTP/3',
   'diag_check_transport_h3_datagram': 'Datagram HTTP/3',
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
@@ -480,10 +488,11 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'Jalur keluar IPv6',
   'diag_check_protection_kill_switch': 'Status Kill Switch',
   'diag_check_protection_dns_path': 'Jalur DNS',
-  'diag_check_protection_route_ownership': 'Kepemilikan rute',
+  'diag_check_protection_route_ownership': 'Rute jaringan yang dikelola Usque',
   'diag_check_protection_recovery_journal': 'Jurnal pemulihan',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine tidak tersedia',
-  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent tidak dapat dijangkau',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Layanan koneksi Usque tidak tersedia',
+  'diag_fail_AGENT_UNREACHABLE':
+      'Layanan jaringan sistem Usque tidak dapat dihubungi',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Layanan VPN tidak tersedia',
   'diag_fail_PROXY_PORT_IN_USE': 'Port proksi sedang digunakan',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 fisik tidak tersedia',
@@ -534,31 +543,33 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'Ketergantungan diagnostik gagal',
   'diag_fail_INTERNAL': 'Galat internal',
   'diag_fix_try_http2':
-      'Gunakan HTTP/2 dan biarkan probe pemulihan tetap aktif.',
+      'Di Pengaturan → Pengaturan jaringan lanjutan, pilih HTTP/2, terapkan perubahan, lalu sambungkan lagi.',
   'diag_fix_check_physical_network':
-      'Periksa ketersediaan jaringan saat ini, DNS, dan keluarga alamat.',
+      'Pastikan Wi-Fi atau jaringan seluler berfungsi, lalu sambungkan lagi.',
   'diag_fix_refresh_or_replace_identity':
-      'Segarkan atau ganti identitas sebelum menyambung ulang.',
-  'diag_fix_replace_identity': 'Konfigurasikan lagi identitas yang valid.',
+      'Di Akun, pilih Siapkan akun WARP untuk akun ini. Masuk lagi atau buat akun WARP baru, lalu sambungkan kembali.',
+  'diag_fix_replace_identity':
+      'Di Akun → Siapkan akun WARP, masuk kembali atau impor informasi masuk WARP yang valid.',
   'diag_fix_review_configuration':
-      'Tinjau konfigurasi dan perbaiki nilai yang tidak valid.',
+      'Di Pengaturan → Pengaturan jaringan lanjutan, perbaiki isian yang ditandai lalu terapkan perubahan.',
   'diag_fix_restore_platform_state':
-      'Pulihkan status jaringan platform sebelum mencoba lagi.',
-  'diag_fix_resolve_dependency': 'Selesaikan dulu prasyarat yang gagal.',
+      'Tutup Usque sepenuhnya lalu buka kembali. Jika masih gagal, buka Diagnostik dan ekspor paket diagnostik untuk meminta bantuan.',
+  'diag_fix_resolve_dependency':
+      'Tangani pemeriksaan yang gagal dalam daftar terlebih dahulu, lalu jalankan diagnostik lagi.',
   'diag_fix_run_deep_diagnostics':
-      'Jalankan diagnostik mendalam di lingkungan yang sesuai.',
+      'Di Diagnostik, pilih Mendalam lalu mulai. Pemeriksaan mungkin mengirim lalu lintas uji; beberapa dilewati saat terhubung.',
   'diag_fix_run_release_leak_gate':
       'Ekspor bundel diagnostik yang telah dibersihkan dari informasi sensitif untuk dukungan.',
   'diag_fix_inspect_platform_state':
-      'Konfirmasikan status sebenarnya dengan pemeriksaan hanya-baca atas status jaringan dan proksi sistem.',
+      'Di Diagnostik, lihat kegagalan pada Perlindungan sistem. Jika berlanjut, ekspor paket diagnostik untuk meminta bantuan.',
   'diag_fix_generate_tunnel_traffic':
-      'Hasilkan sedikit lalu lintas terowongan, lalu periksa lagi.',
+      'Buka halaman web melalui Usque, lalu ulangi pemeriksaan ini.',
   'diag_fix_export_diagnostics':
       'Ekspor bundel diagnostik yang telah dibersihkan dari informasi sensitif untuk dukungan.',
   'diag_fix_retry': 'Coba lagi sebentar lagi.',
   'diag_fix_none': 'Tidak ada tindakan yang diperlukan.',
   'diag_fix_default':
-      'Gunakan kode galat untuk meninjau konfigurasi dan status jaringan terkait.',
+      'Coba lagi. Jika masalah berlanjut, buka Diagnostik dan ekspor paket untuk meminta bantuan.',
   'diag_event_attempt_started': 'Percobaan koneksi dimulai',
   'diag_event_endpoint_resolved': 'Alamat titik akhir berhasil di-resolve',
   'diag_event_socket_connected': 'Soket terhubung',

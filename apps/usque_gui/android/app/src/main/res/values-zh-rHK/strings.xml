@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">正在以 HTTP/2 連線</string>
     <string name="vpn_notif_connected">已連線</string>
     <string name="vpn_notif_connected_via">已透過 %1$s 連線</string>
-    <string name="vpn_notif_degraded">已連線，但位址族支援受限</string>
+    <string name="vpn_notif_degraded">已連接，但部分互聯網存取受限。請開啟 Usque 查看詳情。</string>
     <string name="vpn_notif_reconnecting">正在安全重新連線</string>
     <string name="vpn_notif_error">網絡服務因錯誤已停止</string>
     <string name="vpn_notif_disconnecting">正在中斷</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">正在檢查</string>
     <string name="tile_working">處理中</string>
     <string name="tile_open_app">開啟 Usque</string>
-    <string name="tile_profile_required">請先開啟 Usque 並連接一次 VPN 設定，然後再使用快捷開關。</string>
-    <string name="tile_identity_required">請開啟 Usque 並為此設定配置 WARP 身分。</string>
+    <string name="tile_profile_required">請先開啟 Usque 並連接一次，再使用此捷徑。</string>
+    <string name="tile_identity_required">請開啟 Usque 並設定目前的 WARP 帳戶。</string>
     <string name="tile_vpn_permission_required">請開啟 Usque 以授予 Android VPN 權限。</string>
-    <string name="tile_proxy_only">目前為僅代理連線。請開啟 Usque 以啟用 VPN 前端。</string>
+    <string name="tile_proxy_only">目前僅啟用本機代理。請開啟 Usque 的「代理」頁面並啟用 VPN。</string>
     <string name="shortcut_connect">連接</string>
     <string name="shortcut_disconnect">中斷</string>
     <string name="shortcut_profiles">帳戶</string>

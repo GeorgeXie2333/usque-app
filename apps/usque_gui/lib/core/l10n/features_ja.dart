@@ -5,8 +5,8 @@ const Map<String, String> kUiWorkflowJa = <String, String>{
   'proxy_switches_hint': 'スイッチの変更は自動保存されます。リスナーと DNS の編集は「変更を適用」で反映します。',
   'cc_label': 'HTTP/3 輻輳制御',
   'cc_help': '次回の手動接続時に適用されます。',
-  'cc_upgrade': 'Engine の更新が必要です。',
-  'cc_h2': 'HTTP/2 はシステムの TCP を使います。',
+  'cc_upgrade': 'この項目を使うには「設定」で Usque を更新してください。',
+  'cc_h2': 'この設定は HTTP/3 接続にのみ適用されます。',
   'cc_saved': '保存済み',
   'cc_pending': '次回の手動接続で適用されます。',
   'save_changes': '変更を適用',
@@ -40,17 +40,17 @@ const Map<String, String> kUiWorkflowJa = <String, String>{
   'home_kill_switch': 'Kill Switch',
   'home_traffic': 'トラフィック',
   'home_traffic_window': '直近 60 秒',
-  'home_traffic_idle': '接続後に開始します',
-  'home_traffic_waiting': 'サンプルを待っています',
-  'home_traffic_unavailable': '履歴を利用できません',
-  'home_traffic_stale': 'サンプルが遅延しています',
-  'home_outputs_next': '接続後に出力が有効になります',
-  'home_outputs_retry': '次回の試行で使う出力が設定されています',
+  'home_traffic_idle': '接続後に通信量を表示',
+  'home_traffic_waiting': '通信量データを待っています',
+  'home_traffic_unavailable': '通信量の履歴はありません',
+  'home_traffic_stale': '通信量の更新が遅れています',
+  'home_outputs_next': '接続後に利用可能',
+  'home_outputs_retry': '次回接続で使う VPN とプロキシ',
   'connection_protection_group': '接続と保護',
   'proxy_routing_group': 'プロキシとルーティング',
   'application_group': 'アプリ',
   'proxy_settings_link': 'リスナーアドレス、ポート、認証、DNS。',
-  'proxy_auth_separate': '資格情報は「資格情報を保存」で別に保存されます。',
+  'proxy_auth_separate': '下の「ユーザー名とパスワードを保存」で、この欄の変更を反映してください。',
   'reset_draft_hint': '既定値がこのフォームに読み込まれます。適用すると反映されます。',
 };
 
@@ -68,20 +68,21 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'diag_check_transport_h3_path_validation_probe': '独立した QUIC ハンドシェイク',
   'nq_finding_unavailable': '現在の状態では、この測定値は利用できません。',
   'nq_finding_invalid_configuration': 'カスタム DNS の設定が無効です。',
-  'nq_finding_dns_system': '物理システムの DNS が選択されているため、暗号化 DNS の検査は適用されません。',
-  'nq_finding_unsupported': 'この Engine では暗号化 DNS を利用できず、平文へのフォールバックも許可されません。',
+  'nq_finding_dns_system': '現在のネットワークの DNS を使っています。暗号化 DNS の検査は対象外です。',
+  'nq_finding_unsupported':
+      '暗号化 DNS を使うには Usque を更新してください。暗号化されていない DNS には切り替えません。',
   'nq_finding_dns_custom_valid': 'カスタム暗号化 DNS の設定は有効です。平文へのフォールバックは無効です。',
   'nq_finding_stale': '読み取り値が古い、または物理ネットワークが変化しました。',
   'nq_finding_rtt_high': '測定した往復遅延が高めです。',
-  'nq_finding_healthy': '利用可能なローカル測定値は想定範囲内です。',
+  'nq_finding_healthy': '測定できた接続指標は正常範囲内です。',
   'nq_finding_loss_high': 'この区間のパケットロスが高めです。',
-  'nq_finding_queue_pressure': 'キューに負荷があるか、この接続中に破棄が記録されています。',
-  'nq_finding_pmtu_degraded': 'パス MTU の検証が低下しています。',
-  'nq_finding_migration_reconnect': 'この経路では移行できないため、ネットワーク変化時は完全な再接続になります。',
+  'nq_finding_queue_pressure': '送信待ちの通信があるか、今回の接続でデータが破棄されました。',
+  'nq_finding_pmtu_degraded': '現在の接続に適したパケットサイズを確認できませんでした。',
+  'nq_finding_migration_reconnect': 'ネットワークを切り替える際、この接続は再接続が必要です。',
   'nq_finding_dns_changed': '保存済みの DNS モードが、実行中の接続と異なります。',
   'nq_finding_dns_runtime': '暗号化 DNS は正常に動作しています。',
   'nq_finding_dns_degraded':
-      '暗号化 DNS が低下しています。失敗した直接クエリはシステム DNS にフォールバックしません。',
+      '暗号化 DNS の問い合わせに問題があります。失敗した問い合わせをネットワークの非暗号化 DNS に切り替えることはありません。',
   'nq_finding_probe_unsafe': '現在の状態では、この測定値は利用できません。',
   'nq_finding_probe_success': 'この検査は成功しました。',
   'nq_finding_probe_cancelled': 'この検査はキャンセルされました。',
@@ -111,7 +112,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_unavailable': '利用できません',
   'nq_not_ready': '未準備',
   'nq_unsupported': '非対応',
-  'nq_capability_missing': 'この Engine はネットワーク品質を提供しません。既存の接続操作はそのまま使えます。',
+  'nq_capability_missing': 'このバージョンでは接続品質を表示できません。接続と切断は可能です。「設定」で更新を確認してください。',
   'nq_empty': '接続すると測定結果が表示されます。',
   'nq_stale_help': '更新が停止しています。最後の測定値を表示しています。',
   'nq_rtt': '往復遅延',
@@ -139,15 +140,17 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_pmtu': 'パス MTU',
   'nq_outer_pmtu': '外側 UDP ペイロード上限',
   'nq_inner_payload': 'CONNECT-IP ペイロード上限',
-  'nq_pmtu_help': '経路探索によって端末の TUN MTU は上がりません。',
+  'nq_pmtu_help':
+      '現在のネットワーク経路が運べるパケットサイズです。Usque はパケットロスを減らすため自動で確認します。この確認で「高度なネットワーク設定」の VPN MTU が大きくなることはありません。',
   'nq_migration': 'ネットワーク移行',
-  'nq_migration_help': '1 つの接続につきデータ経路は 1 本です。同一 IP ファミリーのみで、マルチパスではありません。',
+  'nq_migration_help':
+      'Wi-Fi とモバイル回線などの切り替え時に、接続の維持を試みます。両方が同じ IP バージョン（IPv4 または IPv6）を使う必要があります。一度に使うネットワークは1つで、速度は合算しません。',
   'nq_attempts': '試行',
   'nq_successes': '成功',
   'nq_failures': '失敗',
   'nq_last_duration': '前回の所要時間',
   'nq_direct_dns': '直接 DNS',
-  'nq_system_dns': '物理システムの DNS',
+  'nq_system_dns': '現在のネットワークの DNS',
   'nq_doh': 'DNS over HTTPS',
   'nq_dot': 'DNS over TLS',
   'nq_ready': '準備完了',
@@ -188,36 +191,43 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_phase_degraded': '低下',
   'nq_phase_unknown': '未準備',
   'nq_phase_unsupported': '非対応',
-  'nq_reason_family_unavailable': '現在の IP ファミリーを利用できないため、完全な再接続を使います。',
-  'nq_reason_socket_protect_failed': '保護された候補ソケットを準備できませんでした。',
+  'nq_reason_family_unavailable': '新しいネットワークでは同じ IP バージョンを使えません。再接続が必要です。',
+  'nq_reason_socket_protect_failed':
+      '新しいネットワークを安全に使えませんでした。接続が戻らない場合は手動で再接続してください。',
   'nq_reason_generation_changed_during_setup': '準備中にネットワークが再度変化しました。',
-  'nq_reason_peer_cid_unavailable': '対向に予備の接続識別子がありません。',
-  'nq_reason_local_cid_unavailable': 'ローカルの接続識別子を利用できません。',
-  'nq_reason_path_probe_rejected': '候補経路を検証できませんでした。',
-  'nq_reason_path_validation_timeout': '経路検証がタイムアウトしました。再接続できます。',
-  'nq_reason_superseded': 'より新しいネットワーク変化が、この試行に取って代わりました。',
-  'nq_reason_promotion_failed': '経路の切り替えを安全に完了できませんでした。',
-  'nq_reason_connection_closed': '移行中に接続が閉じられました。',
+  'nq_reason_peer_cid_unavailable':
+      'サーバーが新しいネットワークで接続を維持できませんでした。戻らない場合は手動で再接続してください。',
+  'nq_reason_local_cid_unavailable':
+      'Usque が新しいネットワークで接続を維持できませんでした。戻らない場合は手動で再接続してください。',
+  'nq_reason_path_probe_rejected':
+      '新しいネットワークが接続検査に通りませんでした。インターネットに接続できるか確認してください。',
+  'nq_reason_path_validation_timeout':
+      '新しいネットワークが時間内に応答しませんでした。ネットワークを確認し、必要なら再接続してください。',
+  'nq_reason_superseded': '切り替え完了前にネットワークが再び変わりました。',
+  'nq_reason_promotion_failed':
+      'ネットワークを安全に切り替えられませんでした。接続が戻らない場合は手動で再接続してください。',
+  'nq_reason_connection_closed': 'ネットワーク切り替え中に切断されました。再接続してください。',
   'nq_reason_unsupported': 'この接続では移行を利用できません。',
   'nq_reason_unknown': '対応する理由を取得できません。',
   'nq_dns_custom': 'カスタム暗号化リゾルバー',
-  'nq_dns_server': 'TLS サーバー名',
+  'nq_dns_server': 'DNS サーバーのドメイン名',
   'nq_dns_path': 'HTTPS パス',
   'nq_dns_port': 'ポート（0 は既定値）',
-  'nq_dns_bootstrap': 'Bootstrap IP アドレス',
-  'nq_dns_bootstrap_help': '数値の IP アドレスを 1～8 個、1 行に 1 つ入力してください。ホスト名の検索は使いません。',
+  'nq_dns_bootstrap': 'DNS サーバーの IP アドレス',
+  'nq_dns_bootstrap_help':
+      'DNS 提供元の IP アドレスを 1～8 個、1行に1つ入力してください。例：1.1.1.1。サーバー名を先に調べず、このアドレスに直接接続します。',
   'nq_dns_no_fallback':
       '暗号化された直接 DNS が失敗すると、クエリは失敗します。システム DNS や平文 DNS へはフォールバックしません。',
-  'nq_dns_system_privacy':
-      '物理システムの DNS では、直接クエリの名前が物理ネットワークの DNS 提供者に見える場合があります。',
-  'nq_dns_scope': 'Geo で選んだ直接クエリにのみ使用します。トンネル DNS は変わりません。',
+  'nq_dns_system_privacy': '直接接続の問い合わせ先ドメインは、現在のネットワークの DNS 提供元に見える場合があります。',
+  'nq_dns_scope': '直接接続する国のルールに一致する通信に使います。VPN 通信の DNS は変わりません。',
   'nq_dns_no_capability':
-      'この Engine は暗号化された直接 DNS を使えません。保存済み設定は保持されます。システム DNS を明示的に選べます。',
-  'nq_dns_invalid_name': '空白、URL 構文、ワイルドカードを含まない DNS 名を入力してください。',
-  'nq_dns_invalid_path': '/ で始まる 256 文字以内のパスを指定してください。クエリ、フラグメント、空白は使えません。',
-  'nq_dns_invalid_bootstrap':
-      '重複のないユニキャスト IP を 1～8 個指定してください。未指定、マルチキャスト、ブロードキャスト、IPv6 リンクローカルは使えません。',
-  'nq_dns_invalid_port': '0～65535 を入力してください。',
+      '暗号化した直接接続用 DNS を使うには Usque を更新してください。設定は保持されます。プライバシーへの影響を理解したうえで「現在のネットワークの DNS」を選ぶこともできます。',
+  'nq_dns_invalid_name':
+      'dns.example.com のようなドメイン名を入力してください。https://、ポート、空白は含めません。',
+  'nq_dns_invalid_path':
+      '/dns-query のようなパスを 256 文字以内で入力してください。空白と、? や # 以降の部分は削除してください。',
+  'nq_dns_invalid_bootstrap': 'サーバーの IP アドレスを 1～8 個入力してください。',
+  'nq_dns_invalid_port': '1～65535 のポート、または既定値を使う 0 を入力してください。',
   'nq_dns_invalid_mode': '対応している DNS モードを選んでください。',
   'nq_doctor_deep_title': '詳細なネットワーク検査を実行しますか？',
   'nq_doctor_deep_body':
@@ -228,9 +238,9 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
 
 const Map<String, String> kWindowsRecoveryJa = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      "TUN デバイスを再利用するには、アプリと Windows Agent を一緒に更新してください。新しい VPN 接続は開始していません。",
+      'Usque の接続コンポーネントをまとめて更新する必要があります。「設定」で更新を確認してください。新しい VPN 接続は開始していません。',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      "以前の TUN デバイスの復旧が必要です。Usque を完全に終了して開き直し、再試行するか、ローカル診断を確認してください。",
+      '前回の VPN 接続の後処理が完了していません。Usque を完全に終了して開き直し、再試行してください。解決しない場合は「診断」を開いてください。',
   'WINDOWS_RECOVERY_FAILED':
       '前回の VPN ネットワーク状態を完全には復元できませんでした。新しい VPN '
       '接続は開始されていません。再接続を試すか、ローカル診断を確認してください。',
@@ -238,38 +248,36 @@ const Map<String, String> kWindowsRecoveryJa = <String, String>{
       'Windows は 3 回の自動試行後も、前回の VPN ネットワーク状態を復元できませんでした。'
       '準備ができたら再試行するか、ローカル診断を確認してください。',
   'WINDOWS_RECOVERY_BLOCKED':
-      '前回の Windows ネットワーク状態を安全に検証できなかったため、自動修復を停止しました。'
-      'Agent を再起動するか Usque を更新してから、ローカル診断を確認してください。',
+      '以前の VPN 設定を安全に復元できると確認できず、自動修復を停止しました。「設定」で更新を確認し、解決しない場合は「診断」で診断パッケージを出力してください。',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Windows のネットワーク復旧に想定以上の時間がかかっています。新しい VPN '
       '接続は開始されていません。復旧が完了してから再試行してください。',
   'WINDOWS_RECOVERY_CONFLICT':
       'ネットワーク状態が変化したか、別のセッションが使用中です。アクティブな接続を保護するため、自動復旧を停止しました。',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'この Windows Agent は安全な自動復旧に対応していません。アプリと Agent を同時に更新してから、再試行してください。',
+      'この Usque では以前の VPN 設定を自動復元できません。「設定」で Usque を更新してから再試行してください。',
 };
 
 const String kWindowsAdapterCleanupJa =
-    '前回の Wintun アダプターを削除できなかったか、削除を確認できませんでした。新しい VPN 接続は開始されていません。';
+    '前回の接続で作成した仮想ネットワークアダプターを削除できなかったか、削除を確認できませんでした。新しい VPN 接続は開始していません。';
 
 const Map<String, String> kL4Ja = <String, String>{
-  'l4_quic_not_ready': 'QUIC セッションの準備を待っています',
+  'l4_quic_not_ready': 'L4 接続を準備しています',
   'l4_unsupported_packets': '未対応または不正なパケットを拒否しました',
   'l4_budget_rejections': 'リソース受付の拒否回数',
   'l4_not_applicable': '対象外（L4）',
   'l4_mode': 'L4（実験的）',
   'l4_transport_hint': 'TCP のみ対応。UDP が必要なアプリは動作しない場合があります。自動モードでは L4 を選びません。',
   'l4_explanation':
-      'HTTP/3 上の TCP 専用モードです。VPN/TUN、SOCKS5、HTTP に対応し、TUN DNS は TCP に変換されます。Auto は L4 を選びません。その他の UDP、遠隔 ping、IP 断片、拡張ヘッダーは未対応で、一部のアプリは動作しないことがあります。',
-  'l4_unsupported': 'この Engine は完全な L4 対応を宣言していません。L4 は有効にできません。',
-  'l4_sni_identity':
-      '読み取り専用: 読み込まれたアカウント識別情報から派生します。既存の CONNECT-IP SNI は保持されます。',
+      'L4 は HTTP/3 で TCP 通信を転送し、VPN、SOCKS5、HTTP プロキシで使えます。VPN の DNS 問い合わせは TCP に変換します。他の UDP 通信、リモート Ping、IP 分割、拡張ヘッダーが必要なアプリは動かない場合があります。L4 は手動で選んでください。「自動」では選びません。',
+  'l4_unsupported': 'このバージョンの Usque では L4 を使えません。「設定」で更新を確認してください。',
+  'l4_sni_identity': 'アカウントが自動設定します。変更は不要です。他の接続モードのサーバー名は保持されます。',
   'l4_edge_requires_l4':
       'エッジ解決 DNS は L4 専用です。Auto、H3、H2 に切り替える前に、別のプロキシ DNS モードを選んでください。',
   'proxy_dns_edge_resolved': 'Cloudflare エッジ（L4 のみ、ローカル検索なし）',
-  'l4_verified': 'L4 CONNECT を確認済み',
-  'l4_unverified': 'QUIC 準備完了。L4 CONNECT は未確認',
-  'l4_status_unknown': 'L4 確認状態は不明です',
+  'l4_verified': 'L4 でアプリの接続に成功しました',
+  'l4_unverified': 'サーバー接続済み。アプリが接続できるかは未確認です',
+  'l4_status_unknown': 'アプリの接続状態を確認できません',
   'l4_sessions': 'セッション / 排出中',
   'l4_flows': '稼働中 / 待機中のストリーム',
   'l4_connect': 'CONNECT 成功 / 失敗 / タイムアウト',
@@ -289,7 +297,8 @@ const Map<String, String> kNetworkSettingsJa = <String, String>{
   'settings_failed': '保存済み、適用に失敗しました',
   'settings_unknown': '結果はまだ確認されていません',
   'settings_saved': '保存済み',
-  'settings_unsupported': 'ネットワーク設定を保存するには、Engine を再起動または更新してください。',
+  'settings_unsupported':
+      'Usque を完全に終了して開き直し、再度保存してください。解決しない場合は「設定」で更新を確認してください。',
   'settings_save_failed': '設定を保存できませんでした。編集内容は保持されています。',
   'settings_reconnect': '再接続',
 };

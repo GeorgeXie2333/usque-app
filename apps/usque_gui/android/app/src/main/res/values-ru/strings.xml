@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">Подключение по HTTP/2</string>
     <string name="vpn_notif_connected">Подключено</string>
     <string name="vpn_notif_connected_via">Подключено через %1$s</string>
-    <string name="vpn_notif_degraded">Подключено с ограниченной поддержкой семейства адресов</string>
+    <string name="vpn_notif_degraded">Подключено, но доступ к части Интернета ограничен. Откройте Usque для подробностей.</string>
     <string name="vpn_notif_reconnecting">Безопасное повторное подключение</string>
     <string name="vpn_notif_error">Сетевая служба остановлена после ошибки</string>
     <string name="vpn_notif_disconnecting">Отключение</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">Проверка</string>
     <string name="tile_working">Выполняется</string>
     <string name="tile_open_app">Открыть Usque</string>
-    <string name="tile_profile_required">Откройте Usque и один раз подключите профиль VPN, прежде чем пользоваться плиткой.</string>
-    <string name="tile_identity_required">Откройте Usque и настройте идентификацию WARP для этого профиля.</string>
+    <string name="tile_profile_required">Откройте Usque и подключитесь один раз перед использованием ярлыка.</string>
+    <string name="tile_identity_required">Откройте Usque и настройте текущий аккаунт WARP.</string>
     <string name="tile_vpn_permission_required">Откройте Usque, чтобы выдать разрешение Android VPN.</string>
-    <string name="tile_proxy_only">Активно только прокси-подключение. Откройте Usque, чтобы включить VPN-интерфейс.</string>
+    <string name="tile_proxy_only">Включён только локальный прокси. Откройте Прокси в Usque и включите VPN.</string>
     <string name="shortcut_connect">Подключить</string>
     <string name="shortcut_disconnect">Отключить</string>
     <string name="shortcut_profiles">Учётные записи</string>

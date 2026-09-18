@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">Зʼєднання через HTTP/2</string>
     <string name="vpn_notif_connected">Зʼєднано</string>
     <string name="vpn_notif_connected_via">Зʼєднано через %1$s</string>
-    <string name="vpn_notif_degraded">Зʼєднано з обмеженою підтримкою сімейства адрес</string>
+    <string name="vpn_notif_degraded">Підключено, але деякий доступ до інтернету обмежено. Відкрийте Usque для подробиць.</string>
     <string name="vpn_notif_reconnecting">Безпечне повторне зʼєднання</string>
     <string name="vpn_notif_error">Мережеву службу зупинено після помилки</string>
     <string name="vpn_notif_disconnecting">Відʼєднання</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">Перевірка</string>
     <string name="tile_working">Виконується</string>
     <string name="tile_open_app">Відкрити Usque</string>
-    <string name="tile_profile_required">Відкрийте Usque й один раз зʼєднайте профіль VPN, перш ніж користуватися плиткою.</string>
-    <string name="tile_identity_required">Відкрийте Usque й налаштуйте ідентичність WARP для цього профілю.</string>
+    <string name="tile_profile_required">Перш ніж користуватися цим ярликом, відкрийте Usque й підключіться один раз.</string>
+    <string name="tile_identity_required">Відкрийте Usque та налаштуйте поточний обліковий запис WARP.</string>
     <string name="tile_vpn_permission_required">Відкрийте Usque, щоб надати дозвіл Android VPN.</string>
-    <string name="tile_proxy_only">Активне лише проксі-зʼєднання. Відкрийте Usque, щоб увімкнути інтерфейс VPN.</string>
+    <string name="tile_proxy_only">Активний лише локальний проксі. Відкрийте Проксі в Usque й увімкніть VPN.</string>
     <string name="shortcut_connect">Зʼєднати</string>
     <string name="shortcut_disconnect">Відʼєднати</string>
     <string name="shortcut_profiles">Облікові записи</string>

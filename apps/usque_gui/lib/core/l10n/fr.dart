@@ -4,7 +4,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'disable_quic_help':
       "Bloque UDP/443 via le proxy ou le tunnel, y compris les autres protocoles sur ce port. Le trafic direct GEO et la connexion HTTP/3 d’Usque restent inchangés. QUIC sur les autres ports reste autorisé. Application sans reconnexion.",
   'disable_quic_unsupported':
-      "Mettez à jour ou redémarrez le moteur pour utiliser ce réglage.",
+      'Fermez puis rouvrez Usque et réessayez. Si l’option reste indisponible, recherchez une mise à jour dans Paramètres.',
   'technical_details': 'Détails techniques',
   'diag_skip_disconnected': 'Connectez-vous pour effectuer cette vérification.',
   'diag_skip_disabled': 'Cette fonction est désactivée.',
@@ -30,12 +30,13 @@ const Map<String, String> kFrCatalog = <String, String>{
   'tray_disconnect_profile': 'Déconnecter le compte actif',
   'tray_disconnect_exit': 'Déconnecter et quitter',
   'connection_status': 'État de la connexion',
-  'outputs': 'Sorties réseau',
+  'outputs': 'VPN et proxys locaux',
   'home': 'Accueil',
   'profiles': 'Comptes',
   'profiles_subtitle': 'Changez et gérez les comptes WARP.',
   'proxy': 'Proxy',
-  'proxy_subtitle': 'Écouteurs locaux et DNS partagés par tous les comptes.',
+  'proxy_subtitle':
+      'Configurez les adresses des proxys et le DNS communs à tous les comptes.',
   'settings': 'Paramètres',
   'settings_subtitle': 'Paramètres de connexion, de proxy et de l’application.',
   'diagnostics': 'Diagnostics',
@@ -43,7 +44,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'nav_profiles': 'Comptes',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Réglages',
-  'status_stream_degraded': 'Les mises à jour d’état en direct sont dégradées',
+  'status_stream_degraded': 'La mise à jour de l’état est retardée',
   'status_stream_degraded_body':
       'La mise à jour de l’état est retardée. Nouvelle tentative automatique.',
   'connect': 'Se connecter',
@@ -59,7 +60,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'error': 'Erreur de connexion',
   'active_profile': 'Compte actuel',
   'protocol': 'Protocole',
-  'address_family': 'Famille d’adresses',
+  'address_family': 'Version IP',
   'duration': 'Durée',
   'download': 'Téléchargement',
   'upload': 'Envoi',
@@ -69,47 +70,48 @@ const Map<String, String> kFrCatalog = <String, String>{
   'not_available': 'Non disponible',
   'location_disconnected': 'En attente de connexion',
   'engine_unavailable':
-      'L’Usque Engine natif n’est pas encore disponible dans cette version.',
+      'Le service de connexion n’a pas démarré. Quittez complètement Usque puis rouvrez-le. Si le problème persiste, ouvrez Diagnostics.',
   'dismiss': 'Ignorer',
   'new_profile': 'Ajouter un compte',
   'profile_name': 'Nom du compte',
   'profile_name_too_long': 'Utilisez 64 caractères au maximum.',
-  'configure_identity': 'Configurer l’identité WARP',
-  'identity_ready': 'Identité prête',
+  'configure_identity': 'Configurer le compte WARP',
+  'identity_ready': 'Compte prêt',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Identité requise',
-  'identity_invalid': 'L’identité nécessite une réparation',
-  'identity_setup_failed': 'L’identité WARP n’a pas pu être configurée.',
+  'identity_missing': 'Configuration du compte nécessaire',
+  'identity_invalid': 'Le compte doit être reconfiguré',
+  'identity_setup_failed':
+      'Impossible de configurer le compte WARP. Réessayez.',
   'use_license_key': 'Utiliser une WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Connectez-vous avec un compte d’organisation',
   'zero_trust_team': 'Nom d’équipe de l’organisation',
   'zero_trust_team_invalid':
-      'Saisissez un nom d’équipe constitué d’une seule étiquette DNS.',
+      'Saisissez 1 à 63 lettres latines, chiffres ou tirets, en commençant et terminant par une lettre ou un chiffre. Exemple : example-team.',
   'zero_trust_open_login': 'Ouvrir la connexion de l’organisation',
   'zero_trust_browser_failed':
       'Le navigateur du système n’a pas pu être ouvert.',
   'zero_trust_manual_callback':
-      'Après vous être connecté, revenez dans Usque. Si le callback n’est pas rempli automatiquement, renseignez-le depuis le presse-papiers ou collez l’URL complète.',
+      'Après connexion, revenez à Usque. Si le résultat n’arrive pas automatiquement, copiez le lien de la page de connexion servant à ouvrir WARP et collez-le en entier ci-dessous.',
   'zero_trust_callback_received':
-      'Callback d’organisation reçu de façon sécurisée.',
-  'zero_trust_callback': 'URL de callback complète',
+      'Connexion reçue. Continuez pour terminer la configuration du compte.',
+  'zero_trust_callback': 'Lien de retour après connexion',
   'zero_trust_callback_required':
-      'Collez une URL de callback complète récente ou reconnectez-vous.',
+      'Collez le lien complet de la page de connexion ou rouvrez cette page pour vous reconnecter.',
   'zero_trust_callback_invalid':
-      'Utilisez un callback Access com.cloudflare.warp pour cette organisation.',
+      'Ce lien ne correspond pas à la connexion de cette organisation. Rouvrez la page et copiez le lien complet servant à ouvrir WARP.',
   'zero_trust_paste_clipboard': 'Remplir depuis le presse-papiers',
   'zero_trust_clipboard_empty':
-      'Le presse-papiers ne contient pas d’URL de callback.',
+      'Le presse-papiers ne contient aucun lien de retour de connexion.',
   'zero_trust_scope_note':
-      'Expérimental : utilise l’enregistrement d’appareil de l’organisation pour l’accès Internet ; la synchronisation des politiques et la posture de l’appareil ne sont pas implémentées.',
+      'Expérimental : ce compte sert uniquement à accéder à Internet public. Les mises à jour des politiques de l’organisation et les contrôles des exigences de sécurité de l’appareil ne sont pas pris en charge.',
   'zero_trust_repair_same_team':
-      'Reconnectez-vous à la même organisation pour actualiser l’enregistrement de cet appareil.',
+      'Reconnectez-vous à la même organisation pour rétablir la connexion de ce compte.',
   'zero_trust_metadata_missing':
-      'La liaison d’organisation enregistrée est manquante. Par sécurité, cette entrée de compte ne peut pas être réparée sur place ; ajoutez un nouveau compte Zero Trust.',
+      'Les informations enregistrées sur l’organisation sont incomplètes. Ajoutez un nouveau compte Zero Trust et reconnectez-vous.',
   'zero_trust_endpoint_managed':
-      'Ce point de terminaison est géré par l’enregistrement d’appareil Zero Trust et ne peut pas être modifié ici.',
+      'L’adresse du serveur est définie par le compte de l’organisation et ne peut pas être modifiée ici.',
   'experimental': 'Expérimental',
   'show_license': 'Afficher la License Key',
   'hide_license': 'Masquer la License Key',
@@ -123,10 +125,10 @@ const Map<String, String> kFrCatalog = <String, String>{
   'delete': 'Supprimer',
   'delete_profile': 'Supprimer le compte ?',
   'delete_profile_body':
-      'Cela supprime les paramètres non secrets de cette entrée de compte. Les données d’identité stockées ne sont pas supprimées.',
+      'Ce compte sera retiré de la liste et ses paramètres locaux supprimés. Ses informations de connexion WARP resteront enregistrées sur cet appareil.',
   'delete_zero_trust_profile_body':
-      'Cela supprime uniquement l’entrée de compte locale et les identifiants. Demandez à un administrateur de l’organisation de retirer l’enregistrement d’appareil résiduel dans Zero Trust.',
-  'license_not_applicable': 'Licence non applicable · Expérimental',
+      'Le compte et ses informations de connexion seront supprimés de cet appareil. Demandez aussi à l’administrateur de retirer l’appareil du tableau de bord Zero Trust de l’organisation.',
+  'license_not_applicable': 'Compte d’organisation · Expérimental',
   'zero_trust_reauthenticate': 'Reconnectez-vous à cette organisation',
   'zero_trust_admin_cleanup_note':
       'La suppression de cette entrée de compte ne révoque pas l’appareil dans le tableau de bord Zero Trust.',
@@ -135,11 +137,12 @@ const Map<String, String> kFrCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Renommer le compte',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'Canal MASQUE uniquement',
-  'channel_only_warning': 'Aucune sortie réseau n’est activée.',
-  'socks_listener': 'Écouteur SOCKS5',
-  'http_listener': 'Écouteur HTTP',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN et proxys locaux désactivés',
+  'channel_only_warning':
+      'Cette connexion ne transportera pas le trafic des applications. Ouvrez Proxy et activez VPN, SOCKS5 ou HTTP.',
+  'socks_listener': 'Proxy SOCKS5',
+  'http_listener': 'Proxy HTTP',
   'listen_ipv4': 'Écoute IPv4',
   'listen_ipv6': 'Écoute IPv6',
   'port': 'Port',
@@ -159,25 +162,25 @@ const Map<String, String> kFrCatalog = <String, String>{
   'lan_warning_body':
       'Usque n’ajoute pas d’authentification par nom d’utilisateur/mot de passe. Toute personne pouvant atteindre cet écouteur peut l’utiliser.',
   'lan_warning_body_authenticated':
-      'Cet écouteur accepte les clients authentifiés hors loopback (hors 127.0.0.1 / ::1) qui présentent le nom d’utilisateur et le mot de passe configurés.',
-  'proxy_auth': 'Authentification de l’écouteur',
+      'Les autres appareils du réseau local peuvent utiliser ce proxy avec le nom d’utilisateur et le mot de passe que vous avez définis.',
+  'proxy_auth': 'Nom d’utilisateur et mot de passe du proxy',
   'proxy_auth_help':
-      'Nom d’utilisateur et mot de passe facultatifs pour les écouteurs SOCKS5 et HTTP. Le mot de passe est stocké dans le coffre-fort système, pas dans le fichier de profil.',
+      'Exige un nom d’utilisateur et un mot de passe pour les proxys SOCKS5 et HTTP. Le mot de passe est conservé en sécurité sur cet appareil.',
   'proxy_username': 'Nom d’utilisateur',
   'proxy_password': 'Mot de passe',
   'proxy_password_hint':
-      'Saisissez un mot de passe pour définir ou modifier les identifiants.',
-  'proxy_auth_apply': 'Enregistrer les identifiants',
+      'Saisissez un mot de passe pour définir ou modifier le nom d’utilisateur et le mot de passe.',
+  'proxy_auth_apply': 'Enregistrer le nom et le mot de passe',
   'proxy_auth_invalid':
-      'Le nom d’utilisateur doit faire 1–255 octets, sans « : » ni NUL. Un mot de passe de 1–255 octets est requis avec un nom d’utilisateur.',
-  'proxy_auth_saved': 'Identifiants de l’écouteur enregistrés',
-  'proxy_auth_cleared': 'Authentification de l’écouteur retirée',
+      'Vérifiez le nom d’utilisateur et le mot de passe, puis réessayez.',
+  'proxy_auth_saved': 'Nom d’utilisateur et mot de passe du proxy enregistrés.',
+  'proxy_auth_cleared': 'Protection du proxy par mot de passe supprimée.',
   'lan_warning_authenticated': 'Écouteur LAN authentifié',
   'lan_warning_authenticated_body':
       'Cet écouteur est accessible sur le réseau local et exige le nom d’utilisateur et le mot de passe que vous avez définis.',
   'proxy_password_set':
       'Le mot de passe est défini. Saisissez-en un nouveau pour le remplacer.',
-  'proxy_auth_clear': 'Retirer l’authentification',
+  'proxy_auth_clear': 'Supprimer la protection par mot de passe',
   'general': 'Général',
   'system_integration': 'Intégration système',
   'start_on_boot': 'Démarrer Usque à l’ouverture de session',
@@ -233,8 +236,8 @@ const Map<String, String> kFrCatalog = <String, String>{
   'update_package_unavailable':
       'Aucun paquet vérifié n’est disponible pour cet appareil. Ouvrez la page de version.',
   'notice': 'Terminé',
-  'identity': 'Identité WARP',
-  'identity_and_license': 'Identité et licence',
+  'identity': 'Compte WARP',
+  'identity_and_license': 'Compte et licence',
   'license_cleanup_pending':
       'Un ancien enregistrement d’appareil WARP est en attente de suppression.',
   'copy_license': 'Copier la License Key',
@@ -276,7 +279,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'lockdown': 'Bloquer sans VPN',
   'not_used_proxy': 'Non utilisé en mode proxy',
   'kill_switch_help':
-      'Bloque le trafic pendant la connexion, la reconnexion ou la récupération après une panne de l’Usque Engine. Sur Android, cela dure tant que le service VPN est en cours d’exécution ; activez VPN toujours actif et Bloquer les connexions sans VPN dans les paramètres système pour une protection après l’arrêt forcé de l’application.',
+      'Bloque le trafic pendant la connexion, la reconnexion ou le rétablissement du service. Sur Android, cela ne fonctionne que lorsque le service VPN tourne. Pour rester protégé après l’arrêt de l’application, activez VPN permanent et Bloquer les connexions sans VPN dans les paramètres système.',
   'start_on_boot_android':
       'Démarrer Usque après le redémarrage. Activez aussi la connexion automatique au démarrage.',
   'add_quick_settings_tile_help':
@@ -319,8 +322,8 @@ const Map<String, String> kFrCatalog = <String, String>{
   'invalid_cidr': 'CIDR non valide',
   'diagnostics_title': 'Diagnostics et informations',
   'diagnostics_subtitle':
-      'État de l’Usque Engine, export des journaux et données locales.',
-  'engine_status': 'État de l’Usque Engine',
+      'Vérifiez les problèmes de connexion, exportez les journaux et gérez les données locales.',
+  'engine_status': 'Informations de connexion',
   'version': 'Version',
   'app_version': 'Usque 0.2.7',
   'logs': 'Journaux locaux',
@@ -332,9 +335,9 @@ const Map<String, String> kFrCatalog = <String, String>{
   'license': 'Licence',
   'clear_all_data': 'Effacer toutes les données',
   'clear_all_data_help':
-      'Déconnecter et supprimer définitivement de cet appareil tous les comptes, identités Consumer WARP, préférences, caches et enregistrements de diagnostic locaux.',
+      'Déconnecte et supprime définitivement de cet appareil tous les comptes, informations de connexion WARP, paramètres, caches et diagnostics.',
   'clear_all_data_confirm':
-      'Cette action est irréversible. Usque se déconnectera d’abord, effacera toutes les identités et tous les comptes enregistrés, puis reviendra à la configuration initiale.',
+      'Cette action est irréversible. Usque se déconnectera, supprimera tous les comptes et informations de connexion, puis reviendra à la configuration initiale.',
   'clear_all_data_complete':
       'Toutes les données locales Usque ont été effacées.',
   'unofficial':
@@ -344,13 +347,13 @@ const Map<String, String> kFrCatalog = <String, String>{
   'get_started': 'Commencer',
   'permissions_title': 'Autorisations système',
   'permissions_body':
-      'Usque a besoin de l’autorisation de créer une interface VPN et de gérer les routes, le DNS, les règles de pare-feu et le proxy système.',
+      'Usque a besoin d’une autorisation pour faire passer le trafic des applications par le VPN. Selon le mode choisi, il configure aussi le DNS, les routes réseau, la protection du pare-feu ou le proxy système.',
   'terms_title': 'Conditions Cloudflare',
   'terms_body':
       'Usque est un client indépendant. Votre utilisation de Consumer WARP ou de l’inscription expérimentale Zero Trust reste soumise aux conditions et à la politique de confidentialité applicables de Cloudflare.',
   'terms_accept': 'Je comprends et j’accepte ces conditions.',
-  'identity_title': 'Configurer Consumer WARP',
-  'register_new': 'Enregistrer une nouvelle identité',
+  'identity_title': 'Configurer un compte WARP personnel',
+  'register_new': 'Créer un compte WARP gratuit',
   'manual_secret': 'Saisir le WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Afficher le secret',
@@ -365,9 +368,9 @@ const Map<String, String> kFrCatalog = <String, String>{
   'profile_required': 'Conservez au moins un compte.',
   'socks_capabilities': 'TCP et UDP',
   'http_capabilities': 'CONNECT et transfert ordinaire',
-  'geo_direct': 'Pays avec routage direct',
+  'geo_direct': 'Pays et régions en connexion directe',
   'geo_direct_help':
-      'Les domaines correspondants sont visibles du DNS de votre réseau actuel ; les applications en DNS chiffré sont routées uniquement par IP.',
+      'Le trafic correspondant à ces pays ou régions ne passe pas par le VPN. Le fournisseur DNS du réseau actuel peut voir les domaines demandés. Les applications utilisant un DNS chiffré sont réparties selon l’adresse IP uniquement.',
   'geo_update_all': 'Mettre à jour les données géographiques',
   'geo_last_updated': 'Dernière mise à jour réussie : {current}',
   'geo_never_updated': 'Pas encore mis à jour',
@@ -378,13 +381,13 @@ const Map<String, String> kFrCatalog = <String, String>{
   'geo_search': 'Rechercher des pays',
   'geo_not_downloaded': 'Non téléchargé',
   'geo_downloaded': 'Téléchargé',
-  'geo_chip': 'Routage direct : {current}',
+  'geo_chip': 'Direct : {current}',
   'geo_download_first':
       'Téléchargez les données géographiques de ce pays avant de l’activer.',
   'geo_update_complete':
       'Données géographiques : {updated} mises à jour, {current} déjà à jour.',
   'geo_update_failed':
-      'Échec de la mise à jour des données géographiques : {current}',
+      'Certaines règles n’ont pas été mises à jour ({current}). Vérifiez le réseau et réessayez.',
   'diagnostics_page_subtitle':
       'Inspectez la connexion, la protection de la plateforme et l’état de récupération. Les résultats restent locaux.',
   'diag_refresh_timeline': 'Actualiser la chronologie',
@@ -394,7 +397,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Restauration de la progression du diagnostic…',
   'diag_export_included': 'Inclus :',
   'diag_export_included_body':
-      'Codes d’erreur, étapes, durées relatives, compteurs et états booléens',
+      'Codes d’erreur, étapes de connexion, durées, statistiques de trafic et état des fonctions',
   'diag_export_excluded': 'Exclu :',
   'diag_export_excluded_body':
       'Clés, jetons, noms de profil, adresses complètes, SSID, listes d’applications et chemins utilisateur',
@@ -402,7 +405,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'L’archive n’est écrite qu’à l’emplacement que vous choisissez et n’est jamais envoyée automatiquement.',
   'diag_run_title': 'Lancer le diagnostic réseau',
   'diag_run_subtitle':
-      'Le mode standard n’utilise que des contrôles en lecture seule et passifs.',
+      'Les contrôles standard lisent seulement l’état de connexion, sans trafic de test ni modification des paramètres.',
   'diag_mode_standard': 'Standard',
   'diag_mode_deep': 'Approfondi',
   'diag_deep_title': 'À propos du diagnostic approfondi',
@@ -411,7 +414,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_deep_disconnected':
       'Les vérifications peuvent utiliser le réseau. Vous pouvez les annuler à tout moment.',
   'diag_start': 'Démarrer le diagnostic',
-  'diag_session': 'Session de diagnostic',
+  'diag_session': 'Diagnostic en cours',
   'diag_progress_semantics': 'Progression du diagnostic {current}%',
   'diag_waiting_check': 'En attente de l’état des contrôles…',
   'diag_summary_passed': 'Réussis {count}',
@@ -435,7 +438,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_timeline_empty':
       'Les transitions de connexion importantes apparaîtront ici après une tentative de connexion.',
   'diag_timeline_truncated':
-      'Les 100 événements les plus récents sont affichés ; le paquet de diagnostic exporté conserve tous les événements encore présents dans l’Usque Engine.',
+      'Affichage des 100 derniers événements. Le paquet de diagnostic comprend tous ceux encore conservés sur cet appareil.',
   'diag_metric_reconnects': 'Reconnexions',
   'diag_metric_fallbacks': 'Replis',
   'diag_metric_network_changes': 'Changements réseau',
@@ -450,9 +453,11 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_yes': 'Oui',
   'diag_no': 'Non',
   'diag_finding_passed': 'Ce contrôle a réussi.',
-  'diag_finding_attention': 'Ce contrôle nécessite une attention.',
+  'diag_finding_attention':
+      'Ce contrôle a détecté un problème possible. Consultez les détails avant de réessayer.',
   'diag_finding_failed': 'Ce contrôle a échoué.',
-  'diag_finding_skipped': 'Ce contrôle n’a pas été exécuté dans l’état actuel.',
+  'diag_finding_skipped':
+      'Ce contrôle n’a pas pu s’exécuter. Vérifiez la connexion et les contrôles en échec, puis réessayez.',
   'diag_finding_cancelled': 'Ce contrôle a été annulé.',
   'diag_finding_running': 'Ce contrôle est en cours.',
   'diag_finding_pending': 'Ce contrôle n’a pas encore commencé.',
@@ -469,11 +474,13 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_cat_tunnel': 'Tunnel',
   'diag_cat_protection': 'Protection système',
   'diag_cat_recovery': 'Récupération',
-  'diag_check_engine_control_channel': 'Canal de contrôle de l’Usque Engine',
-  'diag_check_engine_event_stream': 'Flux d’événements de l’Usque Engine',
-  'diag_check_engine_capabilities': 'Capacités de l’API',
+  'diag_check_engine_control_channel':
+      'Communication avec le service de connexion',
+  'diag_check_engine_event_stream': 'Mises à jour de l’état de connexion',
+  'diag_check_engine_capabilities': 'Compatibilité des fonctions de connexion',
   'diag_check_engine_configuration': 'Configuration',
-  'diag_check_engine_secure_storage_metadata': 'Métadonnées d’identité',
+  'diag_check_engine_secure_storage_metadata':
+      'Informations de connexion enregistrées',
   'diag_check_frontend_socks_port': 'Écouteur SOCKS5',
   'diag_check_frontend_http_port': 'Écouteur HTTP',
   'diag_check_frontend_system_proxy_state': 'État du proxy système',
@@ -481,7 +488,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Route IPv4 physique',
   'diag_check_physical_ipv6_route': 'Route IPv6 physique',
   'diag_check_physical_dns_available': 'DNS physique',
-  'diag_check_physical_network_generation': 'Génération réseau',
+  'diag_check_physical_network_generation': 'Changements de réseau',
   'diag_check_transport_h3_connect': 'Connexion HTTP/3',
   'diag_check_transport_h3_datagram': 'Datagrammes HTTP/3',
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
@@ -497,10 +504,11 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'Sortie IPv6',
   'diag_check_protection_kill_switch': 'État du Kill Switch',
   'diag_check_protection_dns_path': 'Chemin DNS',
-  'diag_check_protection_route_ownership': 'Propriété des routes',
+  'diag_check_protection_route_ownership': 'Routes réseau gérées par Usque',
   'diag_check_protection_recovery_journal': 'Journal de récupération',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine indisponible',
-  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent injoignable',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Service de connexion Usque indisponible',
+  'diag_fail_AGENT_UNREACHABLE':
+      'Impossible de joindre le service réseau système d’Usque',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Service VPN indisponible',
   'diag_fail_PROXY_PORT_IN_USE': 'Port proxy occupé',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 physique indisponible',
@@ -553,32 +561,33 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Échec d’une dépendance du diagnostic',
   'diag_fail_INTERNAL': 'Erreur interne',
   'diag_fix_try_http2':
-      'Utilisez HTTP/2 et conservez les sondes de récupération activées.',
+      'Dans Paramètres → Paramètres réseau avancés, choisissez HTTP/2, appliquez les modifications puis réessayez de vous connecter.',
   'diag_fix_check_physical_network':
-      'Vérifiez la disponibilité du réseau actuel, du DNS et de la famille d’adresses.',
+      'Vérifiez que le Wi-Fi ou le réseau mobile fonctionne, puis réessayez de vous connecter.',
   'diag_fix_refresh_or_replace_identity':
-      'Actualisez ou remplacez l’identité avant de vous reconnecter.',
-  'diag_fix_replace_identity': 'Configurez à nouveau une identité valide.',
+      'Dans Comptes, choisissez Configurer le compte WARP. Reconnectez-vous ou créez un compte WARP, puis rétablissez la connexion.',
+  'diag_fix_replace_identity':
+      'Dans Comptes → Configurer le compte WARP, reconnectez-vous ou importez des informations de connexion WARP valides.',
   'diag_fix_review_configuration':
-      'Examinez la configuration et corrigez les valeurs non valides.',
+      'Dans Paramètres → Paramètres réseau avancés, corrigez les champs signalés puis appliquez les modifications.',
   'diag_fix_restore_platform_state':
-      'Restaurez l’état réseau de la plateforme avant de réessayer.',
+      'Quittez complètement Usque puis rouvrez-le. Si le problème persiste, exportez un paquet depuis Diagnostics pour obtenir de l’aide.',
   'diag_fix_resolve_dependency':
-      'Résolvez d’abord la condition préalable en échec.',
+      'Résolvez d’abord les contrôles en échec dans la liste, puis relancez le diagnostic.',
   'diag_fix_run_deep_diagnostics':
-      'Exécutez le diagnostic approfondi dans un environnement approprié.',
+      'Dans Diagnostics, choisissez Approfondi puis lancez les contrôles. Ils peuvent envoyer du trafic de test ; certains sont ignorés pendant une connexion.',
   'diag_fix_run_release_leak_gate':
       'Exportez une archive de diagnostic dont les données sensibles ont été supprimées pour l’assistance.',
   'diag_fix_inspect_platform_state':
-      'Confirmez l’état réel avec une vérification en lecture seule de l’état du réseau et du proxy système.',
+      'Dans Diagnostics, consultez les échecs de Protection système. S’ils persistent, exportez un paquet de diagnostic pour obtenir de l’aide.',
   'diag_fix_generate_tunnel_traffic':
-      'Générez un peu de trafic de tunnel, puis contrôlez à nouveau.',
+      'Ouvrez une page web via Usque, puis relancez ce contrôle.',
   'diag_fix_export_diagnostics':
       'Exportez une archive de diagnostic dont les données sensibles ont été supprimées pour l’assistance.',
   'diag_fix_retry': 'Réessayez sous peu.',
   'diag_fix_none': 'Aucune action n’est requise.',
   'diag_fix_default':
-      'Utilisez le code d’erreur pour examiner la configuration et l’état réseau concernés.',
+      'Réessayez. Si le problème persiste, ouvrez Diagnostics et exportez un paquet pour obtenir de l’aide.',
   'diag_event_attempt_started': 'Tentative de connexion démarrée',
   'diag_event_endpoint_resolved': 'Adresse du point de terminaison résolue',
   'diag_event_socket_connected': 'Socket connecté',

@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">Conectando com HTTP/2</string>
     <string name="vpn_notif_connected">Conectado</string>
     <string name="vpn_notif_connected_via">Conectado via %1$s</string>
-    <string name="vpn_notif_degraded">Conectado com suporte reduzido à família de endereços</string>
+    <string name="vpn_notif_degraded">Conectado, mas parte do acesso à Internet está limitada. Abra o Usque para ver os detalhes.</string>
     <string name="vpn_notif_reconnecting">Reconectando com segurança</string>
     <string name="vpn_notif_error">O serviço de rede parou após um erro</string>
     <string name="vpn_notif_disconnecting">Desconectando</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">Verificando</string>
     <string name="tile_working">Em andamento</string>
     <string name="tile_open_app">Abrir o Usque</string>
-    <string name="tile_profile_required">Abra o Usque e conecte um perfil VPN uma vez antes de usar o atalho.</string>
-    <string name="tile_identity_required">Abra o Usque e configure a identidade WARP deste perfil.</string>
+    <string name="tile_profile_required">Abra o Usque e conecte uma vez antes de usar o atalho.</string>
+    <string name="tile_identity_required">Abra o Usque e configure a conta WARP atual.</string>
     <string name="tile_vpn_permission_required">Abra o Usque para conceder a permissão VPN do Android.</string>
-    <string name="tile_proxy_only">Há uma conexão somente proxy ativa. Abra o Usque para ativar o frontend VPN.</string>
+    <string name="tile_proxy_only">Somente um proxy local está ativo. Abra Proxy no Usque e ative VPN.</string>
     <string name="shortcut_connect">Conectar</string>
     <string name="shortcut_disconnect">Desconectar</string>
     <string name="shortcut_profiles">Contas</string>

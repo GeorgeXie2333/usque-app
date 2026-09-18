@@ -3,7 +3,8 @@ const Map<String, String> kArCatalog = <String, String>{
   'disable_quic': "تعطيل QUIC",
   'disable_quic_help':
       "يحظر UDP/443 عبر الوكيل أو النفق، بما في ذلك البروتوكولات الأخرى على هذا المنفذ. لا يتأثر اتصال GEO المباشر ولا اتصال HTTP/3 الخاص بـ Usque. يبقى QUIC مسموحاً على المنافذ الأخرى. يُطبّق دون إعادة الاتصال.",
-  'disable_quic_unsupported': "حدّث المحرك أو أعد تشغيله لاستخدام هذا الإعداد.",
+  'disable_quic_unsupported':
+      'أغلق Usque تمامًا ثم افتحه مجددًا. إذا ظل هذا الخيار غير متاح، فحدّث Usque من الإعدادات.',
   'technical_details': 'التفاصيل التقنية',
   'diag_skip_disconnected': 'اتصل لتشغيل هذا الفحص.',
   'diag_skip_disabled': 'هذه الميزة متوقفة.',
@@ -26,12 +27,13 @@ const Map<String, String> kArCatalog = <String, String>{
   'tray_disconnect_profile': 'قطع الحساب النشط',
   'tray_disconnect_exit': 'قطع الاتصال والخروج',
   'connection_status': 'حالة الاتصال',
-  'outputs': 'مخرجات الشبكة',
+  'outputs': 'VPN والوكلاء المحليون',
   'home': 'الرئيسية',
   'profiles': 'الحسابات',
   'profiles_subtitle': 'بدّل حسابات WARP وأدرها.',
   'proxy': 'الوكيل',
-  'proxy_subtitle': 'المستمعات المحلية وDNS مشتركة بين جميع الحسابات.',
+  'proxy_subtitle':
+      'اضبط عناوين الوكلاء وإعدادات DNS المشتركة بين جميع الحسابات.',
   'settings': 'الإعدادات',
   'settings_subtitle': 'إعدادات الاتصال والوكيل والتطبيق.',
   'diagnostics': 'التشخيص',
@@ -39,7 +41,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'nav_profiles': 'حسابات',
   'nav_proxy': 'وكيل',
   'nav_settings': 'إعدادات',
-  'status_stream_degraded': 'تحديثات الحالة المباشرة متدهورة',
+  'status_stream_degraded': 'تحديثات الحالة متأخرة',
   'status_stream_degraded_body':
       'تحديثات الحالة متأخرة. تجري إعادة المحاولة تلقائيًا.',
   'connect': 'اتصال',
@@ -55,7 +57,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'error': 'خطأ في الاتصال',
   'active_profile': 'الحساب الحالي',
   'protocol': 'البروتوكول',
-  'address_family': 'عائلة العناوين',
+  'address_family': 'إصدار IP',
   'duration': 'المدة',
   'download': 'التنزيل',
   'upload': 'الرفع',
@@ -64,43 +66,47 @@ const Map<String, String> kArCatalog = <String, String>{
   'ipv6': 'IPv6',
   'not_available': 'غير متاح',
   'location_disconnected': 'في انتظار الاتصال',
-  'engine_unavailable': 'Usque Engine الأصلي غير متوفر في هذه البنية بعد.',
+  'engine_unavailable':
+      'تعذّر بدء خدمة الاتصال. أغلق Usque تمامًا ثم افتحه مجددًا. إذا استمرت المشكلة، فافتح التشخيص.',
   'dismiss': 'تجاهل',
   'new_profile': 'إضافة حساب',
   'profile_name': 'اسم الحساب',
   'profile_name_too_long': 'استخدم 64 حرفًا كحد أقصى.',
-  'configure_identity': 'تهيئة هوية WARP',
-  'identity_ready': 'الهوية جاهزة',
+  'configure_identity': 'إعداد حساب WARP',
+  'identity_ready': 'الحساب جاهز',
   'warp_free': 'WARP Free',
-  'identity_missing': 'الهوية مطلوبة',
-  'identity_invalid': 'الهوية بحاجة إلى إصلاح',
-  'identity_setup_failed': 'تعذّرت تهيئة هوية WARP.',
+  'identity_missing': 'يلزم إعداد الحساب',
+  'identity_invalid': 'يلزم إعداد الحساب مجددًا',
+  'identity_setup_failed': 'تعذّر إعداد حساب WARP. حاول مجددًا.',
   'use_license_key': 'استخدام WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'تسجيل الدخول بحساب مؤسسي',
   'zero_trust_team': 'اسم فريق المؤسسة',
-  'zero_trust_team_invalid': 'أدخل اسم فريق واحد على هيئة تصنيف DNS.',
+  'zero_trust_team_invalid':
+      'استخدم من حرف واحد إلى 63 حرفًا لاتينيًا أو رقمًا أو شرطة. يجب أن يكون أول وآخر رمز حرفًا أو رقمًا. مثال: example-team.',
   'zero_trust_open_login': 'فتح تسجيل دخول المؤسسة',
   'zero_trust_browser_failed': 'تعذّر فتح متصفح النظام.',
   'zero_trust_manual_callback':
-      'بعد تسجيل الدخول، ارجع إلى Usque. إذا لم يُملأ عنوان الاستدعاء تلقائيًا، فاملأه من الحافظة أو الصق عنوان URL الكامل.',
-  'zero_trust_callback_received': 'تم استلام استدعاء المؤسسة بأمان.',
-  'zero_trust_callback': 'عنوان URL الكامل للاستدعاء',
+      'عُد إلى Usque بعد تسجيل الدخول. إذا لم يكتمل الدخول تلقائيًا، فانسخ الرابط الكامل الذي يفتح WARP من صفحة تسجيل الدخول والصقه أدناه.',
+  'zero_trust_callback_received':
+      'تم استلام معلومات الدخول. تابع إعداد الحساب.',
+  'zero_trust_callback': 'رابط العودة بعد تسجيل الدخول',
   'zero_trust_callback_required':
-      'الصق عنوان URL كاملًا وجديدًا للاستدعاء أو سجّل الدخول مجددًا.',
+      'الصق الرابط الكامل من صفحة تسجيل الدخول، أو افتح الصفحة مجددًا وسجّل الدخول مرة أخرى.',
   'zero_trust_callback_invalid':
-      'استخدم استدعاء Access من نوع com.cloudflare.warp لهذه المؤسسة.',
+      'هذا الرابط لا يطابق المؤسسة المحددة. افتح صفحة تسجيل الدخول مجددًا وانسخ الرابط الكامل الذي يفتح WARP.',
   'zero_trust_paste_clipboard': 'تعبئة من الحافظة',
-  'zero_trust_clipboard_empty': 'الحافظة لا تحتوي على عنوان URL للاستدعاء.',
+  'zero_trust_clipboard_empty':
+      'لا يوجد رابط للعودة بعد تسجيل الدخول في الحافظة.',
   'zero_trust_scope_note':
-      'تجريبي: يستخدم تسجيل جهاز المؤسسة للوصول إلى الإنترنت؛ مزامنة السياسات ووضعية أمان الجهاز غير منفَّذتين.',
+      'ميزة تجريبية. تتيح الوصول إلى الإنترنت العام فقط، ولا تدعم تحديث سياسات المؤسسة أو فحوص أمان الجهاز.',
   'zero_trust_repair_same_team':
-      'سجّل الدخول مجددًا إلى المؤسسة نفسها لتحديث تسجيل هذا الجهاز.',
+      'سجّل الدخول مجددًا إلى المؤسسة نفسها لاستعادة اتصال هذا الحساب.',
   'zero_trust_metadata_missing':
-      'ربط المؤسسة المحفوظ مفقود. لأسباب أمنية، لا يمكن إصلاح قيد الحساب هذا في مكانه؛ أضف حساب Zero Trust جديدًا.',
+      'معلومات المؤسسة المحفوظة غير مكتملة. أضف حساب Zero Trust جديدًا وسجّل الدخول.',
   'zero_trust_endpoint_managed':
-      'تُدار نقطة النهاية هذه بواسطة تسجيل جهاز Zero Trust ولا يمكن تعديلها هنا.',
+      'يحدد حساب المؤسسة عنوان الخادم. لا يمكن تغييره هنا.',
   'experimental': 'تجريبي',
   'show_license': 'إظهار License Key',
   'hide_license': 'إخفاء License Key',
@@ -114,10 +120,10 @@ const Map<String, String> kArCatalog = <String, String>{
   'delete': 'حذف',
   'delete_profile': 'إزالة الحساب؟',
   'delete_profile_body':
-      'يزيل هذا الإعدادات غير السرية لقيد الحساب هذا. بيانات الهوية المخزَّنة لا تُحذف.',
+      'سيُزال هذا الحساب من القائمة وتُحذف إعداداته المحلية. ستبقى معلومات دخول WARP المحفوظة على هذا الجهاز.',
   'delete_zero_trust_profile_body':
-      'يحذف هذا قيد الحساب المحلي وبيانات الاعتماد فقط. اطلب من مسؤول المؤسسة إزالة تسجيل الجهاز المتبقي في Zero Trust.',
-  'license_not_applicable': 'الترخيص غير منطبق · تجريبي',
+      'سيُحذف هذا الحساب ومعلومات دخوله من هذا الجهاز. لإلغاء تسجيل الجهاز في Zero Trust لدى المؤسسة، تواصل مع المسؤول.',
+  'license_not_applicable': 'حساب مؤسسة · تجريبي',
   'zero_trust_reauthenticate': 'تسجيل الدخول مجددًا إلى هذه المؤسسة',
   'zero_trust_admin_cleanup_note':
       'إزالة قيد الحساب هذا لا تلغي تسجيل الجهاز في لوحة تحكم Zero Trust.',
@@ -126,11 +132,12 @@ const Map<String, String> kArCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'إعادة تسمية الحساب',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'قناة MASQUE فقط',
-  'channel_only_warning': 'لم يُفعَّل أي مخرج شبكة.',
-  'socks_listener': 'مستمع SOCKS5',
-  'http_listener': 'مستمع HTTP',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN والوكلاء المحليون متوقفون',
+  'channel_only_warning':
+      'لا تمر حركة أي تطبيق عبر هذا الاتصال. افتح صفحة الوكيل وفعّل VPN أو SOCKS5 أو HTTP.',
+  'socks_listener': 'وكيل SOCKS5',
+  'http_listener': 'وكيل HTTP',
   'listen_ipv4': 'الاستماع على IPv4',
   'listen_ipv6': 'الاستماع على IPv6',
   'port': 'المنفذ',
@@ -150,23 +157,23 @@ const Map<String, String> kArCatalog = <String, String>{
   'lan_warning_body':
       'لا يضيف Usque مصادقة باسم المستخدم/كلمة المرور. أي شخص يصل إلى هذا المستمع يمكنه استخدامه.',
   'lan_warning_body_authenticated':
-      'يقبل هذا المستمع العملاء المصادق عليهم من غير عناوين الاسترجاع الذين يقدّمون اسم المستخدم وكلمة المرور المهيأين.',
-  'proxy_auth': 'مصادقة المستمع',
+      'يمكن للأجهزة الأخرى على الشبكة المحلية استخدام هذا الوكيل باسم المستخدم وكلمة المرور اللذين حددتهما.',
+  'proxy_auth': 'اسم المستخدم وكلمة مرور الوكيل',
   'proxy_auth_help':
-      'اسم مستخدم وكلمة مرور اختياريان لمستمعي SOCKS5 وHTTP. تُخزَّن كلمة المرور في خزينة النظام، وليس في ملف التعريف.',
+      'اطلب اسم مستخدم وكلمة مرور لاستخدام وكيلي SOCKS5 وHTTP. تُحفظ كلمة المرور بأمان على هذا الجهاز.',
   'proxy_username': 'اسم المستخدم',
   'proxy_password': 'كلمة المرور',
-  'proxy_password_hint': 'أدخل كلمة مرور لتعيين بيانات الاعتماد أو تغييرها.',
-  'proxy_auth_apply': 'حفظ بيانات الاعتماد',
-  'proxy_auth_invalid':
-      'يجب أن يكون اسم المستخدم بطول 1–255 بايت دون «:» أو NUL. كلمة مرور بطول 1–255 بايت مطلوبة مع اسم المستخدم.',
-  'proxy_auth_saved': 'تم حفظ بيانات اعتماد المستمع',
-  'proxy_auth_cleared': 'تمت إزالة مصادقة المستمع',
+  'proxy_password_hint':
+      'أدخل كلمة المرور عند إعداد اسم المستخدم وكلمة المرور أو تغييرهما.',
+  'proxy_auth_apply': 'حفظ اسم المستخدم وكلمة المرور',
+  'proxy_auth_invalid': 'تحقق من اسم المستخدم وكلمة المرور وحاول مجددًا.',
+  'proxy_auth_saved': 'تم حفظ اسم المستخدم وكلمة مرور الوكيل.',
+  'proxy_auth_cleared': 'أُزيلت حماية الوكيل بكلمة مرور.',
   'lan_warning_authenticated': 'مستمع شبكة محلية بمصادقة',
   'lan_warning_authenticated_body':
       'يمكن الوصول إلى هذا المستمع على الشبكة المحلية ويتطلب اسم المستخدم وكلمة المرور اللذين عيّنتهما.',
   'proxy_password_set': 'كلمة المرور معيَّنة. أدخل كلمة جديدة لاستبدالها.',
-  'proxy_auth_clear': 'إزالة المصادقة',
+  'proxy_auth_clear': 'إزالة الحماية بكلمة مرور',
   'general': 'عام',
   'system_integration': 'التكامل مع النظام',
   'start_on_boot': 'تشغيل Usque عند تسجيل الدخول',
@@ -219,8 +226,8 @@ const Map<String, String> kArCatalog = <String, String>{
   'update_package_unavailable':
       'لا توجد حزمة موثقة لهذا الجهاز. افتح صفحة الإصدار.',
   'notice': 'اكتمل',
-  'identity': 'هوية WARP',
-  'identity_and_license': 'الهوية والترخيص',
+  'identity': 'حساب WARP',
+  'identity_and_license': 'الحساب والترخيص',
   'license_cleanup_pending': 'تسجيل جهاز WARP قديم بانتظار الإزالة.',
   'copy_license': 'نسخ License Key',
   'change_license': 'تغيير License Key',
@@ -260,7 +267,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'lockdown': 'الحظر دون VPN',
   'not_used_proxy': 'غير مستخدم في وضع الوكيل',
   'kill_switch_help':
-      'احظر حركة المرور أثناء الاتصال أو إعادة الاتصال أو الاستعادة من عطل في المحرك. على Android يستمر ذلك طالما خدمة VPN قيد التشغيل؛ فعّل VPN دائم التشغيل وحظر الاتصالات دون VPN في إعدادات النظام للحماية بعد إنهاء التطبيق.',
+      'يمنع حركة البيانات أثناء الاتصال وإعادة الاتصال واستعادة خدمة الاتصال. على Android، يعمل فقط أثناء تشغيل خدمة VPN. لاستمرار الحماية بعد توقف التطبيق، فعّل VPN الدائم وحظر الاتصالات بدون VPN في إعدادات النظام.',
   'start_on_boot_android':
       'تشغيل Usque بعد إعادة التشغيل. فعّل أيضًا الاتصال التلقائي عند البدء.',
   'add_quick_settings_tile_help':
@@ -301,8 +308,9 @@ const Map<String, String> kArCatalog = <String, String>{
   'invalid_dns_name': 'اسم DNS غير صالح',
   'invalid_cidr': 'CIDR غير صالح',
   'diagnostics_title': 'التشخيص ومعلومات التطبيق',
-  'diagnostics_subtitle': 'حالة محرك Usque وتصدير السجلات والبيانات المحلية.',
-  'engine_status': 'حالة محرك Usque',
+  'diagnostics_subtitle':
+      'تحقق من مشكلات الاتصال وصدّر السجلات وأدِر البيانات المحلية.',
+  'engine_status': 'معلومات الاتصال',
   'version': 'الإصدار',
   'app_version': 'Usque 0.2.7',
   'logs': 'السجلات المحلية',
@@ -314,9 +322,9 @@ const Map<String, String> kArCatalog = <String, String>{
   'license': 'الترخيص',
   'clear_all_data': 'مسح جميع البيانات',
   'clear_all_data_help':
-      'اقطع الاتصال وأزل نهائيًا كل حساب، وهوية Consumer WARP، وتفضيل، وذاكرة مؤقتة، وسجل تشخيص محلي من هذا الجهاز.',
+      'يقطع الاتصال ويحذف نهائيًا جميع الحسابات ومعلومات دخول WARP والإعدادات وذاكرة التخزين المؤقت وبيانات التشخيص من هذا الجهاز.',
   'clear_all_data_confirm':
-      'لا يمكن التراجع عن هذا. سيقطع Usque الاتصال أولًا، ويمحو جميع الهويات والحسابات المحفوظة، ويعود إلى الإعداد الأولي.',
+      'لا يمكن التراجع عن هذا الإجراء. سيُقطع الاتصال وتُحذف جميع الحسابات ومعلومات الدخول، وسيعود التطبيق إلى الإعداد الأولي.',
   'clear_all_data_complete': 'تم مسح جميع بيانات Usque المحلية.',
   'unofficial':
       'عميل غير رسمي متوافق مع Cloudflare WARP. غير مرتبط بـ Cloudflare ولا يحظى بتأييده.',
@@ -325,13 +333,13 @@ const Map<String, String> kArCatalog = <String, String>{
   'get_started': 'البدء',
   'permissions_title': 'أذونات النظام',
   'permissions_body':
-      'يحتاج Usque إلى إذن لإنشاء واجهة VPN وإدارة المسارات وDNS وقواعد جدار الحماية ووكيل النظام.',
+      'يلزم إذن النظام لتمرير حركة التطبيقات عبر VPN. وقد تتغير أيضًا إعدادات DNS أو مسارات الشبكة أو جدار الحماية أو وكيل النظام، حسب الوضع المحدد.',
   'terms_title': 'شروط Cloudflare',
   'terms_body':
       'Usque عميل مستقل. يبقى استخدامك لـ Consumer WARP أو تسجيل Zero Trust التجريبي خاضعًا لشروط Cloudflare المعمول بها ولسياسة الخصوصية.',
   'terms_accept': 'أفهم هذه الشروط وأقبلها.',
-  'identity_title': 'إعداد Consumer WARP',
-  'register_new': 'تسجيل هوية جديدة',
+  'identity_title': 'إعداد حساب WARP شخصي',
+  'register_new': 'إنشاء حساب WARP مجاني',
   'manual_secret': 'إدخال WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'إظهار السر',
@@ -346,9 +354,9 @@ const Map<String, String> kArCatalog = <String, String>{
   'profile_required': 'أبقِ حسابًا واحدًا على الأقل.',
   'socks_capabilities': 'TCP وUDP',
   'http_capabilities': 'CONNECT وإعادة التوجيه العادية',
-  'geo_direct': 'البلدان الموجَّهة مباشرةً',
+  'geo_direct': 'بلدان / مناطق للاتصال المباشر',
   'geo_direct_help':
-      'النطاقات المطابقة مرئية لنظام DNS في شبكتك الحالية؛ والتطبيقات التي تستخدم DNS مشفرًا تُوجَّه حسب عنوان IP فقط.',
+      'الحركة المطابقة لهذه القواعد تتجاوز VPN. قد يرى مزوّد DNS للشبكة الحالية أسماء النطاقات المطلوبة. تُوجّه التطبيقات التي تستخدم DNS مشفّرًا حسب عنوان IP فقط.',
   'geo_update_all': 'تحديث بيانات الجغرافيا',
   'geo_last_updated': 'آخر تحديث ناجح: {current}',
   'geo_never_updated': 'لم تُحدَّث بعد',
@@ -359,11 +367,12 @@ const Map<String, String> kArCatalog = <String, String>{
   'geo_search': 'البحث عن بلدان',
   'geo_not_downloaded': 'غير مُنزَّل',
   'geo_downloaded': 'مُنزَّل',
-  'geo_chip': 'توجيه مباشر: {current}',
+  'geo_chip': 'مباشر: {current}',
   'geo_download_first': 'نزِّل بيانات الجغرافيا لهذا البلد قبل تمكينه.',
   'geo_update_complete':
       'بيانات الجغرافيا: تم تحديث {updated}، و{current} محدّثة مسبقًا.',
-  'geo_update_failed': 'فشل تحديث بيانات الجغرافيا: {current}',
+  'geo_update_failed':
+      'تعذّر تحديث بعض القواعد ({current}). تحقق من الشبكة وحاول مجددًا.',
   'diagnostics_page_subtitle':
       'افحص الاتصال وحماية المنصة وحالة الاسترداد. تبقى النتائج على هذا الجهاز.',
   'diag_refresh_timeline': 'تحديث الخط الزمني',
@@ -372,21 +381,22 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_event_stream_degraded_body': 'جارٍ استعادة تقدم التشخيص…',
   'diag_export_included': 'مضمّن:',
   'diag_export_included_body':
-      'رموز الأخطاء والمراحل والتوقيت النسبي والعدادات والحالات المنطقية',
+      'رموز الأخطاء وخطوات الاتصال والمدد وإحصاءات الحركة وحالة الميزات.',
   'diag_export_excluded': 'مستبعد:',
   'diag_export_excluded_body':
       'المفاتيح والرموز المميزة وأسماء الملفات التعريفية والعناوين الكاملة ومعرّفات SSID وقوائم التطبيقات ومسارات المستخدم',
   'diag_export_local_only':
       'يُكتب الأرشيف فقط في الموقع الذي تختاره ولا يُرفع تلقائيًا أبدًا.',
   'diag_run_title': 'تشغيل تشخيص الشبكة',
-  'diag_run_subtitle': 'ينفّذ الوضع القياسي فحوصات سلبية للقراءة فقط.',
+  'diag_run_subtitle':
+      'يقرأ الفحص القياسي الحالة فقط. لا يرسل حركة اختبار ولا يغيّر الإعدادات.',
   'diag_mode_standard': 'قياسي',
   'diag_mode_deep': 'عميق',
   'diag_deep_title': 'حول التشخيص العميق',
   'diag_deep_connected': 'يتم تخطي بعض الفحوص أثناء الاتصال لتجنب مقاطعته.',
   'diag_deep_disconnected': 'قد تستخدم الفحوص الشبكة. يمكنك إلغاؤها في أي وقت.',
   'diag_start': 'بدء التشخيص',
-  'diag_session': 'جلسة التشخيص',
+  'diag_session': 'التشخيص الحالي',
   'diag_progress_semantics': 'تقدم التشخيص {current}%',
   'diag_waiting_check': 'في انتظار حالة الفحوصات…',
   'diag_summary_passed': 'الفحوصات الناجحة: {count}',
@@ -408,7 +418,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_session_cancelled': 'أُلغي',
   'diag_timeline_empty': 'ستظهر انتقالات الاتصال المهمة هنا بعد محاولة اتصال.',
   'diag_timeline_truncated':
-      'تُعرض أحدث 100 حدث. تتضمن حزمة التشخيص المصدَّرة كل الأحداث التي ما زال المحرك يحتفظ بها.',
+      'تظهر أحدث 100 سجل. يتضمن ملف التصدير جميع السجلات التي لا تزال محفوظة على الجهاز.',
   'diag_metric_reconnects': 'إعادات الاتصال',
   'diag_metric_fallbacks': 'التحويلات الاحتياطية للنقل',
   'diag_metric_network_changes': 'تغيرات الشبكة',
@@ -423,9 +433,11 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_yes': 'نعم',
   'diag_no': 'لا',
   'diag_finding_passed': 'نجح هذا الفحص.',
-  'diag_finding_attention': 'يحتاج هذا الفحص إلى انتباه.',
+  'diag_finding_attention':
+      'تم العثور على مشكلة محتملة. راجع التفاصيل قبل المحاولة مجددًا.',
   'diag_finding_failed': 'فشل هذا الفحص.',
-  'diag_finding_skipped': 'لم يُشغَّل هذا الفحص في الحالة الحالية.',
+  'diag_finding_skipped':
+      'تعذّر إجراء هذا الفحص. تحقق من الاتصال والفحوص الفاشلة ثم حاول مجددًا.',
   'diag_finding_cancelled': 'أُلغي هذا الفحص.',
   'diag_finding_running': 'هذا الفحص قيد التشغيل.',
   'diag_finding_pending': 'لم يبدأ هذا الفحص بعد.',
@@ -442,12 +454,11 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_cat_tunnel': 'النفق',
   'diag_cat_protection': 'حماية النظام',
   'diag_cat_recovery': 'الاسترداد',
-  'diag_check_engine_control_channel': 'قناة التحكم في محرك Usque',
-  'diag_check_engine_event_stream': 'بث أحداث محرك Usque',
-  'diag_check_engine_capabilities': 'قدرات واجهة البرمجة',
+  'diag_check_engine_control_channel': 'التواصل مع خدمة الاتصال',
+  'diag_check_engine_event_stream': 'تحديثات حالة الاتصال',
+  'diag_check_engine_capabilities': 'توافق ميزات الاتصال',
   'diag_check_engine_configuration': 'التكوين',
-  'diag_check_engine_secure_storage_metadata':
-      'بيانات الهوية الوصفية المخزَّنة',
+  'diag_check_engine_secure_storage_metadata': 'معلومات الدخول المحفوظة',
   'diag_check_frontend_socks_port': 'مستمع SOCKS5',
   'diag_check_frontend_http_port': 'مستمع HTTP',
   'diag_check_frontend_system_proxy_state': 'حالة وكيل النظام',
@@ -455,7 +466,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'مسار IPv4 الفعلي',
   'diag_check_physical_ipv6_route': 'مسار IPv6 الفعلي',
   'diag_check_physical_dns_available': 'DNS الفعلي',
-  'diag_check_physical_network_generation': 'جيل الشبكة',
+  'diag_check_physical_network_generation': 'تغيّرات الشبكة',
   'diag_check_transport_h3_connect': 'اتصال HTTP/3',
   'diag_check_transport_h3_datagram': 'مخططات بيانات HTTP/3',
   'diag_check_transport_h2_tcp': 'TCP عبر HTTP/2',
@@ -471,10 +482,11 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'خروج IPv6',
   'diag_check_protection_kill_switch': 'حالة Kill Switch',
   'diag_check_protection_dns_path': 'مسار DNS',
-  'diag_check_protection_route_ownership': 'ملكية المسارات',
+  'diag_check_protection_route_ownership': 'مسارات الشبكة التي يديرها Usque',
   'diag_check_protection_recovery_journal': 'سجل الاسترداد',
-  'diag_fail_ENGINE_UNAVAILABLE': 'محرك Usque غير متاح',
-  'diag_fail_AGENT_UNREACHABLE': 'خدمة Usque Agent غير قابلة للوصول',
+  'diag_fail_ENGINE_UNAVAILABLE': 'خدمة الاتصال غير متاحة',
+  'diag_fail_AGENT_UNREACHABLE':
+      'تعذّر الوصول إلى خدمة شبكة النظام الخاصة بـ Usque',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'خدمة VPN غير متاحة',
   'diag_fail_PROXY_PORT_IN_USE': 'منفذ الوكيل مستخدم',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 الفعلي غير متاح',
@@ -522,29 +534,34 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_CANCELLED': 'أُلغي التشخيص',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'فشلت تبعية التشخيص',
   'diag_fail_INTERNAL': 'خطأ داخلي',
-  'diag_fix_try_http2': 'استخدم HTTP/2 وأبقِ مجسات الاسترداد مفعّلة.',
+  'diag_fix_try_http2':
+      'من الإعدادات، افتح إعدادات الشبكة المتقدمة واختر HTTP/2 وطبّق التغييرات، ثم أعد الاتصال.',
   'diag_fix_check_physical_network':
-      'تحقق من توفر الشبكة الحالية ونظام DNS وعائلة العناوين.',
+      'تأكد من عمل Wi-Fi أو بيانات الهاتف، ثم أعد الاتصال.',
   'diag_fix_refresh_or_replace_identity':
-      'حدّث الهوية أو استبدلها قبل إعادة الاتصال.',
-  'diag_fix_replace_identity': 'كوِّن هوية صالحة مرة أخرى.',
-  'diag_fix_review_configuration': 'راجع التكوين وصحح القيم غير الصالحة.',
+      'افتح الحسابات ثم «إعداد حساب WARP». سجّل الدخول مجددًا أو أنشئ حسابًا جديدًا، ثم اتصل.',
+  'diag_fix_replace_identity':
+      'افتح الحسابات ثم «إعداد حساب WARP». سجّل الدخول مجددًا أو استورد معلومات دخول صالحة.',
+  'diag_fix_review_configuration':
+      'من الإعدادات، افتح إعدادات الشبكة المتقدمة وصحّح الحقول المحددة ثم طبّق التغييرات.',
   'diag_fix_restore_platform_state':
-      'استعد حالة شبكة المنصة قبل إعادة المحاولة.',
-  'diag_fix_resolve_dependency': 'عالج الشرط المسبق الفاشل أولًا.',
-  'diag_fix_run_deep_diagnostics': 'شغِّل التشخيص العميق في بيئة مناسبة.',
+      'أغلق Usque تمامًا وافتحه مجددًا ثم أعد المحاولة. إذا استمرت المشكلة، فصدّر السجلات من التشخيص لمشاركتها مع الدعم.',
+  'diag_fix_resolve_dependency':
+      'عالج مشكلات الفحوص الفاشلة أولًا، ثم شغّل التشخيص مجددًا.',
+  'diag_fix_run_deep_diagnostics':
+      'في التشخيص، اختر «عميق» وابدأ الفحص. قد يرسل حركة اختبار، وقد تُتخطى بعض الفحوص أثناء الاتصال.',
   'diag_fix_run_release_leak_gate':
       'صدّر للدعم حزمة تشخيص أُزيلت منها المعلومات الحساسة.',
   'diag_fix_inspect_platform_state':
-      'تحقق من حالة شبكة نظام التشغيل والوكيل بفحص للقراءة فقط.',
+      'راجع الفحوص الفاشلة في قسم حماية النظام ضمن التشخيص. إذا استمرت المشكلة، فصدّر السجلات.',
   'diag_fix_generate_tunnel_traffic':
-      'ولِّد قدرًا صغيرًا من حركة النفق ثم افحص مجددًا.',
+      'افتح صفحة ويب عبر اتصال Usque ثم أعد الفحص.',
   'diag_fix_export_diagnostics':
       'صدّر للدعم حزمة تشخيص أُزيلت منها المعلومات الحساسة.',
   'diag_fix_retry': 'حاول مجددًا بعد قليل.',
   'diag_fix_none': 'لا يلزم أي إجراء.',
   'diag_fix_default':
-      'استخدم رمز الخطأ لمراجعة التكوين وحالة الشبكة ذات الصلة.',
+      'حاول مجددًا. إذا استمرت المشكلة، فصدّر السجلات من التشخيص لمشاركتها مع الدعم.',
   'diag_event_attempt_started': 'بدأت محاولة الاتصال',
   'diag_event_endpoint_resolved': 'حُلّ عنوان نقطة النهاية',
   'diag_event_socket_connected': 'تم توصيل المقبس',

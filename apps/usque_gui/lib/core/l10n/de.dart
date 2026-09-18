@@ -4,7 +4,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'disable_quic_help':
       "Blockiert UDP/443 über Proxy oder Tunnel, auch andere Protokolle auf diesem Port. GEO-Direktverkehr und Usques HTTP/3-Verbindung bleiben unbeeinflusst. QUIC auf anderen Ports bleibt erlaubt. Anwendung ohne Neuverbindung.",
   'disable_quic_unsupported':
-      "Aktualisieren oder starten Sie die Engine neu, um diese Einstellung zu verwenden.",
+      'Beende und öffne Usque erneut. Bleibt die Option gesperrt, suche unter Einstellungen nach Updates.',
   'technical_details': 'Technische Details',
   'diag_skip_disconnected': 'Verbinde dich, um diese Prüfung auszuführen.',
   'diag_skip_disabled': 'Diese Funktion ist ausgeschaltet.',
@@ -29,13 +29,12 @@ const Map<String, String> kDeCatalog = <String, String>{
   'tray_disconnect_profile': 'Aktives Konto trennen',
   'tray_disconnect_exit': 'Trennen und beenden',
   'connection_status': 'Verbindungsstatus',
-  'outputs': 'Netzwerkausgaben',
+  'outputs': 'VPN und lokale Proxys',
   'home': 'Start',
   'profiles': 'Konten',
   'profiles_subtitle': 'WARP-Konten wechseln und verwalten.',
   'proxy': 'Proxy',
-  'proxy_subtitle':
-      'Lokale Listener und DNS werden von allen Konten gemeinsam genutzt.',
+  'proxy_subtitle': 'Proxy-Adressen und DNS für alle Konten festlegen.',
   'settings': 'Einstellungen',
   'settings_subtitle': 'Verbindungs-, Proxy- und Anwendungseinstellungen.',
   'diagnostics': 'Diagnose',
@@ -43,7 +42,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'nav_profiles': 'Konten',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Optionen',
-  'status_stream_degraded': 'Live-Statusaktualisierungen sind eingeschränkt',
+  'status_stream_degraded': 'Statusaktualisierungen sind verzögert',
   'status_stream_degraded_body':
       'Statusaktualisierungen sind verzögert. Ein neuer Versuch erfolgt automatisch.',
   'connect': 'Verbinden',
@@ -59,7 +58,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'error': 'Verbindungsfehler',
   'active_profile': 'Aktuelles Konto',
   'protocol': 'Protokoll',
-  'address_family': 'Adressfamilie',
+  'address_family': 'IP-Version',
   'duration': 'Dauer',
   'download': 'Download',
   'upload': 'Upload',
@@ -69,47 +68,48 @@ const Map<String, String> kDeCatalog = <String, String>{
   'not_available': 'Nicht verfügbar',
   'location_disconnected': 'Warten auf Verbindung',
   'engine_unavailable':
-      'Die native Usque Engine ist in diesem Build noch nicht verfügbar.',
+      'Der Verbindungsdienst konnte nicht starten. Beende Usque vollständig und öffne es erneut. Hilft das nicht, öffne Diagnose.',
   'dismiss': 'Ausblenden',
   'new_profile': 'Konto hinzufügen',
   'profile_name': 'Kontoname',
   'profile_name_too_long': 'Verwenden Sie höchstens 64 Zeichen.',
-  'configure_identity': 'WARP-Identität konfigurieren',
-  'identity_ready': 'Identität bereit',
+  'configure_identity': 'WARP-Konto einrichten',
+  'identity_ready': 'Konto bereit',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Identität erforderlich',
-  'identity_invalid': 'Identität muss repariert werden',
+  'identity_missing': 'Konto einrichten',
+  'identity_invalid': 'Konto erneut einrichten',
   'identity_setup_failed':
-      'Die WARP-Identität konnte nicht konfiguriert werden.',
+      'Das WARP-Konto konnte nicht eingerichtet werden. Versuche es erneut.',
   'use_license_key': 'WARP License Key verwenden',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Mit einem Organisationskonto anmelden',
   'zero_trust_team': 'Teamname der Organisation',
   'zero_trust_team_invalid':
-      'Geben Sie einen Teamnamen als einzelnes DNS-Label ein.',
+      'Verwende 1–63 lateinische Buchstaben, Ziffern oder Bindestriche. Anfang und Ende müssen Buchstaben oder Ziffern sein, etwa example-team.',
   'zero_trust_open_login': 'Organisationsanmeldung öffnen',
   'zero_trust_browser_failed':
       'Der Systembrowser konnte nicht geöffnet werden.',
   'zero_trust_manual_callback':
-      'Kehren Sie nach der Anmeldung zu Usque zurück. Wenn der Callback nicht automatisch eingefügt wird, übernehmen Sie ihn aus der Zwischenablage oder fügen Sie die vollständige URL ein.',
-  'zero_trust_callback_received': 'Organisations-Callback sicher empfangen.',
-  'zero_trust_callback': 'Vollständige Callback-URL',
+      'Kehre nach der Anmeldung zu Usque zurück. Kommt das Ergebnis nicht automatisch an, kopiere den Link der Anmeldeseite zum Öffnen von WARP und füge ihn unten vollständig ein.',
+  'zero_trust_callback_received':
+      'Anmeldung empfangen. Fahre fort, um das Konto einzurichten.',
+  'zero_trust_callback': 'Rückkehrlink nach der Anmeldung',
   'zero_trust_callback_required':
-      'Fügen Sie eine aktuelle vollständige Callback-URL ein oder melden Sie sich erneut an.',
+      'Füge den vollständigen Link der Anmeldeseite ein oder öffne sie erneut und melde dich an.',
   'zero_trust_callback_invalid':
-      'Verwenden Sie einen com.cloudflare.warp Access-Callback für diese Organisation.',
+      'Dieser Link passt nicht zur Anmeldung dieser Organisation. Öffne die Anmeldeseite erneut und kopiere den vollständigen Link zum Öffnen von WARP.',
   'zero_trust_paste_clipboard': 'Aus Zwischenablage übernehmen',
   'zero_trust_clipboard_empty':
-      'Die Zwischenablage enthält keine Callback-URL.',
+      'Die Zwischenablage enthält keinen Rückkehrlink der Anmeldung.',
   'zero_trust_scope_note':
-      'Experimentell: verwendet die Geräteregistrierung der Organisation für den Internetzugang; Richtliniensynchronisierung und Geräte-Posture sind nicht implementiert.',
+      'Experimentell: Dieses Konto dient nur dem Zugang zum öffentlichen Internet. Aktualisierungen von Organisationsrichtlinien und Prüfungen der Sicherheitsanforderungen an das Gerät werden nicht unterstützt.',
   'zero_trust_repair_same_team':
-      'Melden Sie sich erneut bei derselben Organisation an, um diese Geräteregistrierung zu aktualisieren.',
+      'Melde dich erneut bei derselben Organisation an, um die Kontoverbindung wiederherzustellen.',
   'zero_trust_metadata_missing':
-      'Die gespeicherte Organisationsbindung fehlt. Aus Sicherheitsgründen kann dieser Kontosatz nicht an Ort und Stelle repariert werden; fügen Sie ein neues Zero Trust-Konto hinzu.',
+      'Die gespeicherten Organisationsdaten sind unvollständig. Füge ein neues Zero-Trust-Konto hinzu und melde dich an.',
   'zero_trust_endpoint_managed':
-      'Dieser Endpunkt wird durch die Zero Trust-Geräteregistrierung verwaltet und kann hier nicht bearbeitet werden.',
+      'Diese Serveradresse wird vom Organisationskonto festgelegt und kann hier nicht geändert werden.',
   'experimental': 'Experimentell',
   'show_license': 'License Key anzeigen',
   'hide_license': 'License Key ausblenden',
@@ -123,10 +123,10 @@ const Map<String, String> kDeCatalog = <String, String>{
   'delete': 'Löschen',
   'delete_profile': 'Konto entfernen?',
   'delete_profile_body':
-      'Dadurch werden die nicht geheimen Einstellungen dieses Kontosatzes entfernt. Gespeicherte Identitätsdaten werden nicht gelöscht.',
+      'Entfernt das Konto aus der Liste und löscht seine lokalen Einstellungen. Gespeicherte WARP-Anmeldedaten bleiben auf diesem Gerät.',
   'delete_zero_trust_profile_body':
-      'Dadurch werden nur der lokale Kontosatz und die Anmeldedaten gelöscht. Bitten Sie einen Organisationsadministrator, die verbleibende Geräteregistrierung in Zero Trust zu entfernen.',
-  'license_not_applicable': 'Lizenz nicht anwendbar · Experimentell',
+      'Löscht das Konto und seine Anmeldedaten von diesem Gerät. Bitte die Administration, auch den Geräteeintrag im Zero-Trust-Dashboard der Organisation zu entfernen.',
+  'license_not_applicable': 'Organisationskonto · Experimentell',
   'zero_trust_reauthenticate': 'Erneut bei dieser Organisation anmelden',
   'zero_trust_admin_cleanup_note':
       'Das Entfernen dieses Kontosatzes widerruft das Gerät nicht im Zero Trust-Dashboard.',
@@ -135,11 +135,12 @@ const Map<String, String> kDeCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Konto umbenennen',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'Nur MASQUE-Kanal',
-  'channel_only_warning': 'Keine Netzwerkausgabe ist aktiviert.',
-  'socks_listener': 'SOCKS5-Listener',
-  'http_listener': 'HTTP-Listener',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN und lokale Proxys sind aus',
+  'channel_only_warning':
+      'Diese Verbindung überträgt keinen App-Datenverkehr. Öffne Proxy und aktiviere VPN, SOCKS5 oder HTTP.',
+  'socks_listener': 'SOCKS5-Proxy',
+  'http_listener': 'HTTP-Proxy',
   'listen_ipv4': 'An IPv4 lauschen',
   'listen_ipv6': 'An IPv6 lauschen',
   'port': 'Port',
@@ -159,25 +160,25 @@ const Map<String, String> kDeCatalog = <String, String>{
   'lan_warning_body':
       'Usque fügt keine Authentifizierung mit Benutzername und Passwort hinzu. Jeder, der diesen Listener erreichen kann, darf ihn nutzen.',
   'lan_warning_body_authenticated':
-      'Dieser Listener akzeptiert authentifizierte Nicht-Loopback-Clients, die den konfigurierten Benutzernamen und das Passwort vorweisen.',
-  'proxy_auth': 'Listener-Authentifizierung',
+      'Andere Geräte im lokalen Netzwerk können diesen Proxy mit dem festgelegten Benutzernamen und Passwort nutzen.',
+  'proxy_auth': 'Proxy-Benutzername und Passwort',
   'proxy_auth_help':
-      'Optional: Benutzername und Passwort für SOCKS5- und HTTP-Listener. Das Passwort wird im Systemtresor gespeichert, nicht in der Profildatei.',
+      'Verlangt Benutzername und Passwort für SOCKS5- und HTTP-Proxys. Das Passwort wird sicher auf diesem Gerät gespeichert.',
   'proxy_username': 'Benutzername',
   'proxy_password': 'Passwort',
   'proxy_password_hint':
-      'Gib ein Passwort ein, um Zugangsdaten festzulegen oder zu ändern.',
-  'proxy_auth_apply': 'Anmeldedaten speichern',
+      'Gib beim Festlegen oder Ändern von Benutzername und Passwort ein Passwort ein.',
+  'proxy_auth_apply': 'Benutzername und Passwort speichern',
   'proxy_auth_invalid':
-      'Der Benutzername muss 1–255 Byte ohne „:“ oder NUL umfassen. Mit einem Benutzernamen ist ein Passwort von 1–255 Byte erforderlich.',
-  'proxy_auth_saved': 'Listener-Anmeldedaten gespeichert',
-  'proxy_auth_cleared': 'Listener-Authentifizierung entfernt',
+      'Prüfe Benutzername und Passwort und versuche es erneut.',
+  'proxy_auth_saved': 'Proxy-Benutzername und Passwort gespeichert.',
+  'proxy_auth_cleared': 'Passwortschutz des Proxys entfernt.',
   'lan_warning_authenticated': 'Authentifizierter LAN-Listener',
   'lan_warning_authenticated_body':
       'Dieser Listener ist im lokalen Netzwerk erreichbar und erfordert den von Ihnen festgelegten Benutzernamen und das Passwort.',
   'proxy_password_set':
       'Passwort ist gesetzt. Geben Sie ein neues ein, um es zu ersetzen.',
-  'proxy_auth_clear': 'Authentifizierung entfernen',
+  'proxy_auth_clear': 'Passwortschutz entfernen',
   'general': 'Allgemein',
   'system_integration': 'Systemintegration',
   'start_on_boot': 'Usque beim Anmelden starten',
@@ -232,8 +233,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'update_package_unavailable':
       'Für dieses Gerät ist kein verifiziertes Paket verfügbar. Öffnen Sie die Release-Seite.',
   'notice': 'Abgeschlossen',
-  'identity': 'WARP-Identität',
-  'identity_and_license': 'Identität & Lizenz',
+  'identity': 'WARP-Konto',
+  'identity_and_license': 'Konto und Lizenz',
   'license_cleanup_pending':
       'Eine alte WARP-Geräteregistrierung wartet auf die Entfernung.',
   'copy_license': 'License Key kopieren',
@@ -274,7 +275,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'lockdown': 'Ohne VPN blockieren',
   'not_used_proxy': 'Im Proxy-Modus nicht verwendet',
   'kill_switch_help':
-      'Blockiert den Datenverkehr beim Verbinden, erneuten Verbinden oder bei der Wiederherstellung nach einem Fehler der Usque Engine. Unter Android gilt dies, solange der VPN-Dienst läuft; aktivieren Sie Immer aktives VPN und Verbindungen ohne VPN blockieren in den Systemeinstellungen für Schutz, nachdem die App beendet wurde.',
+      'Blockiert Datenverkehr beim Verbinden, Wiederverbinden und Wiederherstellen des Verbindungsdienstes. Unter Android gilt dies nur bei laufendem VPN-Dienst. Für Schutz nach dem Beenden der App aktiviere Immer aktives VPN und Verbindungen ohne VPN blockieren in den Systemeinstellungen.',
   'start_on_boot_android':
       'Usque nach dem Neustart starten. Aktivieren Sie außerdem das automatische Verbinden beim Start.',
   'add_quick_settings_tile_help':
@@ -317,8 +318,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'invalid_cidr': 'Ungültiges CIDR',
   'diagnostics_title': 'Diagnose und Informationen',
   'diagnostics_subtitle':
-      'Status der Usque Engine, Protokollexport und lokale Daten.',
-  'engine_status': 'Status der Usque Engine',
+      'Verbindungsprobleme prüfen, Protokolle exportieren und lokale Daten verwalten.',
+  'engine_status': 'Verbindungsinformationen',
   'version': 'Version',
   'app_version': 'Usque 0.2.7',
   'logs': 'Lokale Protokolle',
@@ -330,9 +331,9 @@ const Map<String, String> kDeCatalog = <String, String>{
   'license': 'Lizenz',
   'clear_all_data': 'Alle Daten löschen',
   'clear_all_data_help':
-      'Verbindung trennen und jedes Konto, jede Consumer-WARP-Identität, jede Einstellung, den Cache und lokale Diagnosedatensätze dauerhaft von diesem Gerät entfernen.',
+      'Trennt die Verbindung und löscht alle Konten, WARP-Anmeldedaten, Einstellungen, Caches und Diagnosedaten dauerhaft von diesem Gerät.',
   'clear_all_data_confirm':
-      'Dies kann nicht rückgängig gemacht werden. Usque trennt zuerst die Verbindung, löscht alle gespeicherten Identitäten und Konten und kehrt zur Ersteinrichtung zurück.',
+      'Das lässt sich nicht rückgängig machen. Usque trennt die Verbindung, löscht alle Konten samt Anmeldedaten und kehrt zur Ersteinrichtung zurück.',
   'clear_all_data_complete': 'Alle lokalen Usque-Daten wurden gelöscht.',
   'unofficial':
       'Inoffizieller Client, kompatibel mit Cloudflare WARP. Nicht mit Cloudflare verbunden und nicht von Cloudflare empfohlen.',
@@ -341,13 +342,13 @@ const Map<String, String> kDeCatalog = <String, String>{
   'get_started': 'Loslegen',
   'permissions_title': 'Systemberechtigungen',
   'permissions_body':
-      'Usque benötigt die Berechtigung, eine VPN-Schnittstelle zu erstellen und Routen, DNS, Firewall-Regeln und den Systemproxy zu verwalten.',
+      'Usque benötigt die Erlaubnis, App-Datenverkehr durch das VPN zu leiten. Je nach Modus werden auch DNS, Netzwerkrouten, Firewall-Schutz oder Systemproxy eingerichtet.',
   'terms_title': 'Cloudflare-Bedingungen',
   'terms_body':
       'Usque ist ein unabhängiger Client. Ihre Nutzung von Consumer WARP oder der experimentellen Zero-Trust-Registrierung unterliegt weiterhin den geltenden Bedingungen und der Datenschutzrichtlinie von Cloudflare.',
   'terms_accept': 'Ich verstehe und akzeptiere diese Bedingungen.',
-  'identity_title': 'Consumer WARP einrichten',
-  'register_new': 'Neue Identität registrieren',
+  'identity_title': 'Persönliches WARP-Konto einrichten',
+  'register_new': 'Kostenloses WARP-Konto erstellen',
   'manual_secret': 'WARP Secret eingeben',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Geheimnis anzeigen',
@@ -362,9 +363,9 @@ const Map<String, String> kDeCatalog = <String, String>{
   'profile_required': 'Behalten Sie mindestens ein Konto.',
   'socks_capabilities': 'TCP und UDP',
   'http_capabilities': 'CONNECT und gewöhnliche Weiterleitung',
-  'geo_direct': 'Länder mit direktem Routing',
+  'geo_direct': 'Länder und Regionen für Direktverbindungen',
   'geo_direct_help':
-      'Passende Domains sind für den DNS Ihres aktuellen Netzes sichtbar; Apps mit verschlüsseltem DNS werden nur per IP geroutet.',
+      'Passender Datenverkehr umgeht das VPN. Der DNS-Anbieter des aktuellen Netzwerks kann abgefragte Domains sehen. Apps mit verschlüsseltem DNS werden nur anhand der IP-Adresse zugeordnet.',
   'geo_update_all': 'Geodaten aktualisieren',
   'geo_last_updated': 'Letzte erfolgreiche Aktualisierung: {current}',
   'geo_never_updated': 'Noch nicht aktualisiert',
@@ -375,12 +376,13 @@ const Map<String, String> kDeCatalog = <String, String>{
   'geo_search': 'Länder suchen',
   'geo_not_downloaded': 'Nicht heruntergeladen',
   'geo_downloaded': 'Heruntergeladen',
-  'geo_chip': 'Direktes Routing: {current}',
+  'geo_chip': 'Direkt: {current}',
   'geo_download_first':
       'Laden Sie die Geodaten für dieses Land herunter, bevor Sie es aktivieren.',
   'geo_update_complete':
       'Geodaten: {updated} aktualisiert, {current} bereits aktuell.',
-  'geo_update_failed': 'Aktualisierung der Geodaten fehlgeschlagen: {current}',
+  'geo_update_failed':
+      'Einige Regeln konnten nicht aktualisiert werden ({current}). Prüfe das Netzwerk und versuche es erneut.',
   'diagnostics_page_subtitle':
       'Verbindung, Plattformschutz und Wiederherstellungszustand schichtweise prüfen. Ergebnisse bleiben lokal.',
   'diag_refresh_timeline': 'Zeitlinie aktualisieren',
@@ -390,7 +392,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Diagnosefortschritt wird wiederhergestellt…',
   'diag_export_included': 'Enthalten:',
   'diag_export_included_body':
-      'Fehlercodes, Phasen, relative Zeiten, Zähler und boolesche Zustände',
+      'Fehlercodes, Verbindungsschritte, Zeitangaben, Verkehrsstatistiken und Funktionsstatus',
   'diag_export_excluded': 'Nicht enthalten:',
   'diag_export_excluded_body':
       'Schlüssel, Token, Profilnamen, vollständige Adressen, SSIDs, App-Listen und Benutzerpfade',
@@ -398,7 +400,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Das Archiv wird nur an den von Ihnen gewählten Ort geschrieben und niemals automatisch hochgeladen.',
   'diag_run_title': 'Netzwerkdiagnose ausführen',
   'diag_run_subtitle':
-      'Der Standardmodus verwendet nur lesende und passive Prüfungen.',
+      'Standardprüfungen lesen nur den Verbindungsstatus. Sie senden keinen Testverkehr und ändern keine Einstellungen.',
   'diag_mode_standard': 'Standard',
   'diag_mode_deep': 'Tiefgehend',
   'diag_deep_title': 'Hinweise zur tiefen Diagnose',
@@ -407,7 +409,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_deep_disconnected':
       'Prüfungen können das Netzwerk verwenden. Du kannst sie jederzeit abbrechen.',
   'diag_start': 'Diagnose starten',
-  'diag_session': 'Diagnosesitzung',
+  'diag_session': 'Aktuelle Diagnose',
   'diag_progress_semantics': 'Diagnosefortschritt {current}%',
   'diag_waiting_check': 'Warten auf Prüfstatus…',
   'diag_summary_passed': 'Bestanden {count}',
@@ -431,7 +433,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_timeline_empty':
       'Wichtige Verbindungswechsel erscheinen hier nach einem Verbindungsversuch.',
   'diag_timeline_truncated':
-      'Die neuesten 100 Ereignisse werden angezeigt; das exportierte Diagnosepaket enthält weiterhin alle von der Usque Engine gespeicherten Ereignisse.',
+      'Die letzten 100 Einträge werden angezeigt. Das Diagnosepaket enthält alle noch auf dem Gerät gespeicherten Einträge.',
   'diag_metric_reconnects': 'Neuverbindungen',
   'diag_metric_fallbacks': 'Fallbacks',
   'diag_metric_network_changes': 'Netzwerkwechsel',
@@ -446,10 +448,11 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_yes': 'Ja',
   'diag_no': 'Nein',
   'diag_finding_passed': 'Diese Prüfung wurde bestanden.',
-  'diag_finding_attention': 'Diese Prüfung erfordert Aufmerksamkeit.',
+  'diag_finding_attention':
+      'Diese Prüfung hat ein mögliches Problem erkannt. Sieh dir die Details an und versuche es erneut.',
   'diag_finding_failed': 'Diese Prüfung ist fehlgeschlagen.',
   'diag_finding_skipped':
-      'Diese Prüfung wurde im aktuellen Zustand nicht ausgeführt.',
+      'Diese Prüfung konnte nicht laufen. Prüfe die Verbindung und fehlgeschlagene Prüfungen und versuche es erneut.',
   'diag_finding_cancelled': 'Diese Prüfung wurde abgebrochen.',
   'diag_finding_running': 'Diese Prüfung läuft.',
   'diag_finding_pending': 'Diese Prüfung hat noch nicht begonnen.',
@@ -466,11 +469,12 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_cat_tunnel': 'Tunnel',
   'diag_cat_protection': 'Systemschutz',
   'diag_cat_recovery': 'Wiederherstellung',
-  'diag_check_engine_control_channel': 'Steuerkanal der Usque Engine',
-  'diag_check_engine_event_stream': 'Ereignisstrom der Usque Engine',
-  'diag_check_engine_capabilities': 'API-Fähigkeiten',
+  'diag_check_engine_control_channel':
+      'Kommunikation mit dem Verbindungsdienst',
+  'diag_check_engine_event_stream': 'Aktualisierungen des Verbindungsstatus',
+  'diag_check_engine_capabilities': 'Kompatibilität der Verbindungsfunktionen',
   'diag_check_engine_configuration': 'Konfiguration',
-  'diag_check_engine_secure_storage_metadata': 'Identitätsmetadaten',
+  'diag_check_engine_secure_storage_metadata': 'Gespeicherte Anmeldedaten',
   'diag_check_frontend_socks_port': 'SOCKS5-Listener',
   'diag_check_frontend_http_port': 'HTTP-Listener',
   'diag_check_frontend_system_proxy_state': 'Systemproxy-Zustand',
@@ -478,7 +482,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Physische IPv4-Route',
   'diag_check_physical_ipv6_route': 'Physische IPv6-Route',
   'diag_check_physical_dns_available': 'Physisches DNS',
-  'diag_check_physical_network_generation': 'Netzwerkgeneration',
+  'diag_check_physical_network_generation': 'Netzwerkänderungen',
   'diag_check_transport_h3_connect': 'HTTP/3-Verbindung',
   'diag_check_transport_h3_datagram': 'HTTP/3-Datagramme',
   'diag_check_transport_h2_tcp': 'HTTP/2-TCP',
@@ -494,10 +498,12 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'IPv6-Ausgang',
   'diag_check_protection_kill_switch': 'Kill-Switch-Zustand',
   'diag_check_protection_dns_path': 'DNS-Pfad',
-  'diag_check_protection_route_ownership': 'Routenbesitz',
+  'diag_check_protection_route_ownership':
+      'Von Usque verwaltete Netzwerkrouten',
   'diag_check_protection_recovery_journal': 'Wiederherstellungsjournal',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine nicht verfügbar',
-  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent nicht erreichbar',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Usque-Verbindungsdienst nicht verfügbar',
+  'diag_fail_AGENT_UNREACHABLE':
+      'Usques Systemnetzwerkdienst ist nicht erreichbar',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'VPN-Dienst nicht verfügbar',
   'diag_fail_PROXY_PORT_IN_USE': 'Proxy-Port belegt',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'Physisches IPv4 nicht verfügbar',
@@ -550,32 +556,33 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Diagnoseabhängigkeit fehlgeschlagen',
   'diag_fail_INTERNAL': 'Interner Fehler',
   'diag_fix_try_http2':
-      'HTTP/2 verwenden und Wiederherstellungssonden aktiv lassen.',
+      'Wähle unter Einstellungen → Erweiterte Netzwerkeinstellungen HTTP/2, übernimm die Änderung und verbinde dich erneut.',
   'diag_fix_check_physical_network':
-      'Aktuelles Netzwerk, DNS und Adressfamilie auf Verfügbarkeit prüfen.',
+      'Prüfe, ob WLAN oder mobile Daten funktionieren, und versuche die Verbindung erneut.',
   'diag_fix_refresh_or_replace_identity':
-      'Identität vor dem erneuten Verbinden aktualisieren oder ersetzen.',
-  'diag_fix_replace_identity': 'Eine gültige Identität erneut konfigurieren.',
+      'Wähle unter Konten für dieses Konto WARP-Konto einrichten. Melde dich erneut an oder erstelle ein WARP-Konto und verbinde dich dann.',
+  'diag_fix_replace_identity':
+      'Melde dich unter Konten → WARP-Konto einrichten erneut an oder importiere gültige WARP-Anmeldedaten.',
   'diag_fix_review_configuration':
-      'Konfiguration prüfen und ungültige Werte korrigieren.',
+      'Korrigiere unter Einstellungen → Erweiterte Netzwerkeinstellungen die markierten Felder und übernimm die Änderungen.',
   'diag_fix_restore_platform_state':
-      'Plattform-Netzwerkzustand vor dem erneuten Versuch wiederherstellen.',
+      'Beende Usque vollständig und öffne es erneut. Besteht das Problem weiter, exportiere unter Diagnose ein Diagnosepaket für den Support.',
   'diag_fix_resolve_dependency':
-      'Zuerst die fehlgeschlagene Voraussetzung lösen.',
+      'Behebe zuerst die fehlgeschlagenen Prüfungen in der Liste und starte die Diagnose erneut.',
   'diag_fix_run_deep_diagnostics':
-      'Tiefe Diagnose in einer geeigneten Umgebung ausführen.',
+      'Wähle unter Diagnose die Option Tiefgehend und starte die Prüfungen. Sie können Testverkehr senden; bei aktiver Verbindung werden einige übersprungen.',
   'diag_fix_run_release_leak_gate':
       'Ein Diagnosepaket mit entfernten sensiblen Daten für den Support exportieren.',
   'diag_fix_inspect_platform_state':
-      'Bestätigen Sie den tatsächlichen Plattformzustand mit einer schreibgeschützten Prüfung des System-, Netzwerk- und Proxyzustands.',
+      'Prüfe unter Diagnose die Fehler im Systemschutz. Bleiben sie bestehen, exportiere ein Diagnosepaket für den Support.',
   'diag_fix_generate_tunnel_traffic':
-      'Etwas Tunnelverkehr erzeugen und danach erneut prüfen.',
+      'Öffne über Usque eine Webseite und wiederhole die Prüfung.',
   'diag_fix_export_diagnostics':
       'Ein Diagnosepaket mit entfernten sensiblen Daten für den Support exportieren.',
   'diag_fix_retry': 'In Kürze erneut versuchen.',
   'diag_fix_none': 'Keine Aktion erforderlich.',
   'diag_fix_default':
-      'Den Fehlercode nutzen, um zugehörige Konfiguration und Netzwerkzustand zu prüfen.',
+      'Versuche es erneut. Besteht das Problem weiter, öffne Diagnose und exportiere ein Paket für den Support.',
   'diag_event_attempt_started': 'Verbindungsversuch gestartet',
   'diag_event_endpoint_resolved': 'Endpunktadresse aufgelöst',
   'diag_event_socket_connected': 'Socket verbunden',

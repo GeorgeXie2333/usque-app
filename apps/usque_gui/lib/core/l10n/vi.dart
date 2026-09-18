@@ -4,7 +4,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'disable_quic_help':
       "Chặn UDP/443 qua proxy hoặc đường hầm, gồm cả giao thức khác trên cổng này. Lưu lượng trực tiếp GEO và kết nối HTTP/3 của Usque không bị ảnh hưởng. QUIC trên cổng khác vẫn được phép. Áp dụng mà không kết nối lại.",
   'disable_quic_unsupported':
-      "Cập nhật hoặc khởi động lại bộ máy để dùng cài đặt này.",
+      'Thoát hoàn toàn Usque rồi mở lại. Nếu vẫn không dùng được tùy chọn này, hãy cập nhật Usque trong Cài đặt.',
   'technical_details': 'Chi tiết kỹ thuật',
   'diag_skip_disconnected': 'Kết nối để chạy kiểm tra này.',
   'diag_skip_disabled': 'Tính năng này đã tắt.',
@@ -27,13 +27,12 @@ const Map<String, String> kViCatalog = <String, String>{
   'tray_disconnect_profile': 'Ngắt tài khoản đang dùng',
   'tray_disconnect_exit': 'Ngắt kết nối và thoát',
   'connection_status': 'Trạng thái kết nối',
-  'outputs': 'Đầu ra mạng',
+  'outputs': 'VPN và proxy cục bộ',
   'home': 'Trang chủ',
   'profiles': 'Tài khoản',
   'profiles_subtitle': 'Chuyển đổi và quản lý tài khoản WARP.',
   'proxy': 'Proxy',
-  'proxy_subtitle':
-      'Trình lắng nghe cục bộ và DNS dùng chung cho mọi tài khoản.',
+  'proxy_subtitle': 'Đặt địa chỉ proxy và DNS dùng chung cho mọi tài khoản.',
   'settings': 'Cài đặt',
   'settings_subtitle': 'Cài đặt kết nối, proxy và ứng dụng.',
   'diagnostics': 'Chẩn đoán',
@@ -41,7 +40,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'nav_profiles': 'Tài khoản',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Cài đặt',
-  'status_stream_degraded': 'Cập nhật trạng thái trực tiếp bị suy giảm',
+  'status_stream_degraded': 'Cập nhật trạng thái bị chậm',
   'status_stream_degraded_body':
       'Cập nhật trạng thái bị chậm. Đang tự động thử lại.',
   'connect': 'Kết nối',
@@ -57,7 +56,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'error': 'Lỗi kết nối',
   'active_profile': 'Tài khoản hiện tại',
   'protocol': 'Giao thức',
-  'address_family': 'Loại địa chỉ',
+  'address_family': 'Phiên bản IP',
   'duration': 'Thời lượng',
   'download': 'Tải xuống',
   'upload': 'Tải lên',
@@ -66,43 +65,47 @@ const Map<String, String> kViCatalog = <String, String>{
   'ipv6': 'IPv6',
   'not_available': 'Không có sẵn',
   'location_disconnected': 'Đang chờ kết nối',
-  'engine_unavailable': 'Usque Engine gốc chưa có trong bản dựng này.',
+  'engine_unavailable':
+      'Không thể khởi động dịch vụ kết nối. Thoát hoàn toàn Usque rồi mở lại. Nếu vẫn gặp lỗi, hãy mở Chẩn đoán.',
   'dismiss': 'Bỏ qua',
   'new_profile': 'Thêm tài khoản',
   'profile_name': 'Tên tài khoản',
   'profile_name_too_long': 'Dùng không quá 64 ký tự.',
-  'configure_identity': 'Cấu hình danh tính WARP',
-  'identity_ready': 'Danh tính đã sẵn sàng',
+  'configure_identity': 'Thiết lập tài khoản WARP',
+  'identity_ready': 'Tài khoản đã sẵn sàng',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Cần danh tính',
-  'identity_invalid': 'Danh tính cần sửa',
-  'identity_setup_failed': 'Không thể cấu hình danh tính WARP.',
+  'identity_missing': 'Cần thiết lập tài khoản',
+  'identity_invalid': 'Cần thiết lập lại tài khoản',
+  'identity_setup_failed': 'Không thể thiết lập tài khoản WARP. Hãy thử lại.',
   'use_license_key': 'Dùng WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Đăng nhập bằng tài khoản tổ chức',
   'zero_trust_team': 'Tên nhóm tổ chức',
-  'zero_trust_team_invalid': 'Nhập một tên nhóm dạng nhãn DNS.',
+  'zero_trust_team_invalid':
+      'Dùng 1–63 chữ cái Latinh, chữ số hoặc dấu gạch nối. Ký tự đầu và cuối phải là chữ cái hoặc chữ số. Ví dụ: example-team.',
   'zero_trust_open_login': 'Mở đăng nhập tổ chức',
   'zero_trust_browser_failed': 'Không thể mở trình duyệt hệ thống.',
   'zero_trust_manual_callback':
-      'Sau khi đăng nhập, hãy quay lại Usque. Nếu URL callback chưa tự điền, hãy điền từ bộ nhớ tạm hoặc dán URL đầy đủ.',
-  'zero_trust_callback_received': 'Đã nhận callback tổ chức một cách an toàn.',
-  'zero_trust_callback': 'URL callback đầy đủ',
+      'Quay lại Usque sau khi đăng nhập. Nếu đăng nhập không tự hoàn tất, hãy sao chép toàn bộ liên kết mở WARP trên trang đăng nhập rồi dán vào bên dưới.',
+  'zero_trust_callback_received':
+      'Đã nhận thông tin đăng nhập. Tiếp tục thiết lập tài khoản.',
+  'zero_trust_callback': 'Liên kết quay lại sau khi đăng nhập',
   'zero_trust_callback_required':
-      'Dán URL callback đầy đủ mới hoặc đăng nhập lại.',
+      'Dán toàn bộ liên kết từ trang đăng nhập, hoặc mở lại trang và đăng nhập lần nữa.',
   'zero_trust_callback_invalid':
-      'Dùng callback Access com.cloudflare.warp cho tổ chức này.',
+      'Liên kết này không khớp với tổ chức đã chọn. Mở lại trang đăng nhập rồi sao chép toàn bộ liên kết mở WARP.',
   'zero_trust_paste_clipboard': 'Điền từ bộ nhớ tạm',
-  'zero_trust_clipboard_empty': 'Bộ nhớ tạm không chứa URL callback.',
+  'zero_trust_clipboard_empty':
+      'Bộ nhớ tạm không có liên kết quay lại sau khi đăng nhập.',
   'zero_trust_scope_note':
-      'Thử nghiệm: dùng đăng ký thiết bị của tổ chức để truy cập Internet; đồng bộ chính sách và trạng thái bảo mật của thiết bị chưa được triển khai.',
+      'Tính năng thử nghiệm. Chỉ cung cấp truy cập Internet công cộng; không hỗ trợ cập nhật chính sách tổ chức hoặc kiểm tra bảo mật thiết bị.',
   'zero_trust_repair_same_team':
-      'Đăng nhập lại vào cùng tổ chức để làm mới đăng ký thiết bị này.',
+      'Đăng nhập lại vào cùng tổ chức để khôi phục kết nối cho tài khoản này.',
   'zero_trust_metadata_missing':
-      'Liên kết tổ chức đã lưu bị thiếu. Để an toàn, không thể sửa mục tài khoản này tại chỗ; hãy thêm tài khoản Zero Trust mới.',
+      'Thông tin tổ chức đã lưu chưa đầy đủ. Thêm tài khoản Zero Trust mới rồi đăng nhập.',
   'zero_trust_endpoint_managed':
-      'Endpoint này do đăng ký thiết bị Zero Trust quản lý và không thể chỉnh sửa ở đây.',
+      'Tài khoản tổ chức quyết định địa chỉ máy chủ. Không thể sửa địa chỉ này tại đây.',
   'experimental': 'Thử nghiệm',
   'show_license': 'Hiện License Key',
   'hide_license': 'Ẩn License Key',
@@ -116,10 +119,10 @@ const Map<String, String> kViCatalog = <String, String>{
   'delete': 'Xóa',
   'delete_profile': 'Xóa tài khoản?',
   'delete_profile_body':
-      'Thao tác này gỡ các cài đặt không bí mật của mục tài khoản này. Dữ liệu danh tính đã lưu không bị xóa.',
+      'Tài khoản này sẽ bị xóa khỏi danh sách cùng các cài đặt cục bộ. Thông tin đăng nhập WARP đã lưu vẫn còn trên thiết bị này.',
   'delete_zero_trust_profile_body':
-      'Chỉ xóa mục tài khoản cục bộ và thông tin xác thực. Hãy nhờ quản trị viên tổ chức gỡ đăng ký thiết bị còn lại trong Zero Trust.',
-  'license_not_applicable': 'Giấy phép không áp dụng · Thử nghiệm',
+      'Tài khoản và thông tin đăng nhập này sẽ bị xóa khỏi thiết bị. Để hủy đăng ký thiết bị trong Zero Trust của tổ chức, hãy liên hệ quản trị viên.',
+  'license_not_applicable': 'Tài khoản tổ chức · Thử nghiệm',
   'zero_trust_reauthenticate': 'Đăng nhập lại vào tổ chức này',
   'zero_trust_admin_cleanup_note':
       'Xóa mục tài khoản này không thu hồi thiết bị trên bảng điều khiển Zero Trust.',
@@ -128,11 +131,12 @@ const Map<String, String> kViCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Đổi tên tài khoản',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'Chỉ kênh MASQUE',
-  'channel_only_warning': 'Chưa bật đầu ra mạng nào.',
-  'socks_listener': 'Trình lắng nghe SOCKS5',
-  'http_listener': 'Trình lắng nghe HTTP',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN và proxy cục bộ đang tắt',
+  'channel_only_warning':
+      'Chưa có ứng dụng nào truyền dữ liệu qua kết nối này. Mở Proxy rồi bật VPN, SOCKS5 hoặc HTTP.',
+  'socks_listener': 'Proxy SOCKS5',
+  'http_listener': 'Proxy HTTP',
   'listen_ipv4': 'Lắng nghe IPv4',
   'listen_ipv6': 'Lắng nghe IPv6',
   'port': 'Cổng',
@@ -152,24 +156,23 @@ const Map<String, String> kViCatalog = <String, String>{
   'lan_warning_body':
       'Usque không thêm xác thực tên người dùng/mật khẩu. Bất kỳ ai truy cập được trình lắng nghe này đều có thể dùng.',
   'lan_warning_body_authenticated':
-      'Trình lắng nghe này chấp nhận máy khách không loopback đã xác thực khi cung cấp tên người dùng và mật khẩu đã cấu hình.',
-  'proxy_auth': 'Xác thực trình lắng nghe',
+      'Thiết bị khác trong mạng nội bộ có thể dùng proxy này với tên người dùng và mật khẩu bạn đã đặt.',
+  'proxy_auth': 'Tên người dùng và mật khẩu proxy',
   'proxy_auth_help':
-      'Tên người dùng và mật khẩu tùy chọn cho trình lắng nghe SOCKS5 và HTTP. Mật khẩu được lưu trong kho hệ thống, không trong tệp hồ sơ.',
+      'Yêu cầu tên người dùng và mật khẩu khi dùng proxy SOCKS5 và HTTP. Mật khẩu được lưu an toàn trên thiết bị này.',
   'proxy_username': 'Tên người dùng',
   'proxy_password': 'Mật khẩu',
   'proxy_password_hint':
-      'Nhập mật khẩu để thiết lập hoặc thay đổi thông tin xác thực.',
-  'proxy_auth_apply': 'Lưu thông tin xác thực',
-  'proxy_auth_invalid':
-      'Tên người dùng phải dài 1–255 byte, không chứa “:” hoặc NUL. Cần mật khẩu 1–255 byte khi có tên người dùng.',
-  'proxy_auth_saved': 'Đã lưu thông tin xác thực trình lắng nghe',
-  'proxy_auth_cleared': 'Đã gỡ xác thực trình lắng nghe',
+      'Nhập mật khẩu khi thiết lập hoặc thay đổi tên người dùng và mật khẩu.',
+  'proxy_auth_apply': 'Lưu tên người dùng và mật khẩu',
+  'proxy_auth_invalid': 'Kiểm tra tên người dùng và mật khẩu rồi thử lại.',
+  'proxy_auth_saved': 'Đã lưu tên người dùng và mật khẩu proxy.',
+  'proxy_auth_cleared': 'Đã bỏ bảo vệ proxy bằng mật khẩu.',
   'lan_warning_authenticated': 'Trình lắng nghe LAN đã xác thực',
   'lan_warning_authenticated_body':
       'Trình lắng nghe này truy cập được trên mạng cục bộ và yêu cầu tên người dùng cùng mật khẩu bạn đã đặt.',
   'proxy_password_set': 'Đã đặt mật khẩu. Nhập mật khẩu mới để thay thế.',
-  'proxy_auth_clear': 'Gỡ xác thực',
+  'proxy_auth_clear': 'Bỏ bảo vệ bằng mật khẩu',
   'general': 'Chung',
   'system_integration': 'Tích hợp hệ thống',
   'start_on_boot': 'Khởi chạy Usque khi bạn đăng nhập',
@@ -223,8 +226,8 @@ const Map<String, String> kViCatalog = <String, String>{
   'update_package_unavailable':
       'Không có gói đã xác minh cho thiết bị này. Hãy mở trang phát hành.',
   'notice': 'Hoàn tất',
-  'identity': 'Danh tính WARP',
-  'identity_and_license': 'Danh tính & Giấy phép',
+  'identity': 'Tài khoản WARP',
+  'identity_and_license': 'Tài khoản và giấy phép',
   'license_cleanup_pending': 'Đăng ký thiết bị WARP cũ đang chờ được gỡ bỏ.',
   'copy_license': 'Sao chép License Key',
   'change_license': 'Đổi License Key',
@@ -264,7 +267,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'lockdown': 'Chặn khi không có VPN',
   'not_used_proxy': 'Không dùng ở chế độ proxy',
   'kill_switch_help':
-      'Chặn lưu lượng khi đang kết nối, kết nối lại hoặc khôi phục sau lỗi Usque Engine. Trên Android, hiệu lực kéo dài khi dịch vụ VPN đang chạy; hãy bật VPN luôn bật và Chặn kết nối khi không có VPN trong cài đặt hệ thống để được bảo vệ sau khi ứng dụng bị buộc dừng.',
+      'Chặn lưu lượng khi đang kết nối, kết nối lại và khôi phục dịch vụ kết nối. Trên Android, chỉ hoạt động khi dịch vụ VPN đang chạy. Để tiếp tục được bảo vệ sau khi ứng dụng dừng, hãy bật VPN luôn bật và chặn kết nối không dùng VPN trong cài đặt hệ thống.',
   'start_on_boot_android':
       'Khởi chạy Usque sau khi khởi động lại. Đồng thời bật tự kết nối khi khởi động.',
   'add_quick_settings_tile_help':
@@ -306,8 +309,8 @@ const Map<String, String> kViCatalog = <String, String>{
   'invalid_cidr': 'CIDR không hợp lệ',
   'diagnostics_title': 'Chẩn đoán & Giới thiệu về ứng dụng',
   'diagnostics_subtitle':
-      'Trạng thái Usque Engine, xuất nhật ký và dữ liệu cục bộ.',
-  'engine_status': 'Trạng thái Usque Engine',
+      'Kiểm tra sự cố kết nối, xuất nhật ký và quản lý dữ liệu cục bộ.',
+  'engine_status': 'Thông tin kết nối',
   'version': 'Phiên bản',
   'app_version': 'Usque 0.2.7',
   'logs': 'Nhật ký cục bộ',
@@ -319,9 +322,9 @@ const Map<String, String> kViCatalog = <String, String>{
   'license': 'Giấy phép',
   'clear_all_data': 'Xóa toàn bộ dữ liệu',
   'clear_all_data_help':
-      'Ngắt kết nối và xóa vĩnh viễn mọi tài khoản, danh tính Consumer WARP, tùy chọn, bộ nhớ đệm và bản ghi chẩn đoán cục bộ khỏi thiết bị này.',
+      'Ngắt kết nối và xóa vĩnh viễn mọi tài khoản, thông tin đăng nhập WARP, cài đặt, bộ nhớ đệm và dữ liệu chẩn đoán trên thiết bị này.',
   'clear_all_data_confirm':
-      'Không thể hoàn tác. Usque sẽ ngắt kết nối trước, xóa mọi danh tính và tài khoản đã lưu, rồi quay về thiết lập ban đầu.',
+      'Không thể hoàn tác thao tác này. Kết nối sẽ bị ngắt, mọi tài khoản và thông tin đăng nhập sẽ bị xóa, ứng dụng sẽ quay về bước thiết lập ban đầu.',
   'clear_all_data_complete': 'Đã xóa toàn bộ dữ liệu Usque cục bộ.',
   'unofficial':
       'Ứng dụng không chính thức tương thích với Cloudflare WARP. Không liên kết với hoặc được Cloudflare xác nhận.',
@@ -330,13 +333,13 @@ const Map<String, String> kViCatalog = <String, String>{
   'get_started': 'Bắt đầu',
   'permissions_title': 'Quyền hệ thống',
   'permissions_body':
-      'Usque cần quyền tạo giao diện VPN và quản lý tuyến, DNS, quy tắc tường lửa và proxy hệ thống.',
+      'Cần có quyền hệ thống để truyền dữ liệu của ứng dụng qua VPN. Tùy chế độ đã chọn, DNS, tuyến mạng, tường lửa hoặc proxy hệ thống cũng có thể được thay đổi.',
   'terms_title': 'Điều khoản Cloudflare',
   'terms_body':
       'Usque là ứng dụng độc lập. Việc bạn dùng Consumer WARP hoặc đăng ký Zero Trust thử nghiệm vẫn tuân theo điều khoản và chính sách quyền riêng tư hiện hành của Cloudflare.',
   'terms_accept': 'Tôi hiểu và chấp nhận các điều kiện này.',
-  'identity_title': 'Thiết lập Consumer WARP',
-  'register_new': 'Đăng ký danh tính mới',
+  'identity_title': 'Thiết lập tài khoản WARP cá nhân',
+  'register_new': 'Tạo tài khoản WARP miễn phí',
   'manual_secret': 'Nhập WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Hiện bí mật',
@@ -351,9 +354,9 @@ const Map<String, String> kViCatalog = <String, String>{
   'profile_required': 'Giữ ít nhất một tài khoản.',
   'socks_capabilities': 'TCP và UDP',
   'http_capabilities': 'CONNECT và chuyển tiếp thông thường',
-  'geo_direct': 'Quốc gia được định tuyến trực tiếp',
+  'geo_direct': 'Quốc gia / khu vực kết nối trực tiếp',
   'geo_direct_help':
-      'Các tên miền khớp sẽ hiện với DNS của mạng hiện tại; ứng dụng dùng DNS mã hóa chỉ được định tuyến theo IP.',
+      'Lưu lượng khớp các quy tắc này sẽ không qua VPN. Nhà cung cấp DNS của mạng hiện tại có thể thấy các tên miền được truy vấn. Ứng dụng dùng DNS mã hóa chỉ được định tuyến theo địa chỉ IP.',
   'geo_update_all': 'Cập nhật dữ liệu địa lý',
   'geo_last_updated': 'Lần cập nhật thành công gần nhất: {current}',
   'geo_never_updated': 'Chưa cập nhật',
@@ -364,12 +367,13 @@ const Map<String, String> kViCatalog = <String, String>{
   'geo_search': 'Tìm quốc gia',
   'geo_not_downloaded': 'Chưa tải xuống',
   'geo_downloaded': 'Đã tải xuống',
-  'geo_chip': 'Định tuyến trực tiếp: {current}',
+  'geo_chip': 'Trực tiếp: {current}',
   'geo_download_first':
       'Hãy tải dữ liệu địa lý của quốc gia này trước khi bật.',
   'geo_update_complete':
       'Dữ liệu địa lý: đã cập nhật {updated}, {current} đã là bản mới nhất.',
-  'geo_update_failed': 'Cập nhật dữ liệu địa lý thất bại: {current}',
+  'geo_update_failed':
+      'Không thể cập nhật một số quy tắc ({current}). Kiểm tra mạng rồi thử lại.',
   'diagnostics_page_subtitle':
       'Kiểm tra kết nối, bảo vệ nền tảng và trạng thái khôi phục. Kết quả chỉ lưu trên thiết bị này.',
   'diag_refresh_timeline': 'Làm mới dòng thời gian',
@@ -378,14 +382,15 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_event_stream_degraded_body': 'Đang khôi phục tiến trình chẩn đoán…',
   'diag_export_included': 'Bao gồm:',
   'diag_export_included_body':
-      'Mã lỗi, giai đoạn, thời gian tương đối, bộ đếm và trạng thái boolean',
+      'Mã lỗi, các bước kết nối, thời gian, thống kê lưu lượng và trạng thái tính năng.',
   'diag_export_excluded': 'Không gồm:',
   'diag_export_excluded_body':
       'Khóa, token, tên hồ sơ, địa chỉ đầy đủ, SSID, danh sách ứng dụng và đường dẫn người dùng',
   'diag_export_local_only':
       'Tệp lưu trữ chỉ được ghi vào vị trí bạn chọn và không bao giờ tự tải lên.',
   'diag_run_title': 'Chạy chẩn đoán mạng',
-  'diag_run_subtitle': 'Chế độ chuẩn chỉ dùng kiểm tra chỉ đọc và thụ động.',
+  'diag_run_subtitle':
+      'Kiểm tra tiêu chuẩn chỉ đọc trạng thái, không gửi lưu lượng thử nghiệm hay thay đổi cài đặt.',
   'diag_mode_standard': 'Chuẩn',
   'diag_mode_deep': 'Sâu',
   'diag_deep_title': 'Về chẩn đoán sâu',
@@ -394,7 +399,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_deep_disconnected':
       'Các kiểm tra có thể sử dụng mạng. Bạn có thể hủy bất cứ lúc nào.',
   'diag_start': 'Bắt đầu chẩn đoán',
-  'diag_session': 'Phiên chẩn đoán',
+  'diag_session': 'Lần chẩn đoán hiện tại',
   'diag_progress_semantics': 'Tiến trình chẩn đoán {current}%',
   'diag_waiting_check': 'Đang chờ trạng thái kiểm tra…',
   'diag_summary_passed': 'Đạt {count}',
@@ -417,7 +422,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_timeline_empty':
       'Các chuyển trạng thái kết nối quan trọng sẽ hiện ở đây sau lần thử kết nối.',
   'diag_timeline_truncated':
-      'Giao diện chỉ hiển thị 100 sự kiện mới nhất; gói xuất ra chứa các sự kiện mà Usque Engine vẫn đang lưu.',
+      'Đang hiển thị 100 bản ghi mới nhất. Tệp xuất chứa tất cả bản ghi còn được lưu trên thiết bị.',
   'diag_metric_reconnects': 'Kết nối lại',
   'diag_metric_fallbacks': 'Chuyển đổi sang đường dự phòng',
   'diag_metric_network_changes': 'Thay đổi mạng',
@@ -432,9 +437,11 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_yes': 'Có',
   'diag_no': 'Không',
   'diag_finding_passed': 'Kiểm tra này đã đạt.',
-  'diag_finding_attention': 'Kiểm tra này cần chú ý.',
+  'diag_finding_attention':
+      'Phát hiện vấn đề có thể ảnh hưởng đến kết nối. Xem chi tiết trước khi thử lại.',
   'diag_finding_failed': 'Kiểm tra này thất bại.',
-  'diag_finding_skipped': 'Kiểm tra này không chạy trong trạng thái hiện tại.',
+  'diag_finding_skipped':
+      'Không thể chạy kiểm tra này. Kiểm tra kết nối và các mục kiểm tra thất bại rồi thử lại.',
   'diag_finding_cancelled': 'Kiểm tra này đã bị hủy.',
   'diag_finding_running': 'Kiểm tra này đang chạy.',
   'diag_finding_pending': 'Kiểm tra này chưa bắt đầu.',
@@ -451,11 +458,12 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_cat_tunnel': 'Đường hầm',
   'diag_cat_protection': 'Bảo vệ hệ thống',
   'diag_cat_recovery': 'Khôi phục',
-  'diag_check_engine_control_channel': 'Kênh điều khiển Usque Engine',
-  'diag_check_engine_event_stream': 'Luồng sự kiện Usque Engine',
-  'diag_check_engine_capabilities': 'Khả năng API',
+  'diag_check_engine_control_channel': 'Liên lạc với dịch vụ kết nối',
+  'diag_check_engine_event_stream': 'Cập nhật trạng thái kết nối',
+  'diag_check_engine_capabilities':
+      'Khả năng tương thích của các tính năng kết nối',
   'diag_check_engine_configuration': 'Cấu hình',
-  'diag_check_engine_secure_storage_metadata': 'Siêu dữ liệu danh tính',
+  'diag_check_engine_secure_storage_metadata': 'Thông tin đăng nhập đã lưu',
   'diag_check_frontend_socks_port': 'Trình nghe SOCKS5',
   'diag_check_frontend_http_port': 'Trình nghe HTTP',
   'diag_check_frontend_system_proxy_state': 'Trạng thái proxy hệ thống',
@@ -463,7 +471,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Tuyến IPv4 vật lý',
   'diag_check_physical_ipv6_route': 'Tuyến IPv6 vật lý',
   'diag_check_physical_dns_available': 'DNS vật lý',
-  'diag_check_physical_network_generation': 'Thế hệ mạng',
+  'diag_check_physical_network_generation': 'Thay đổi mạng',
   'diag_check_transport_h3_connect': 'Kết nối HTTP/3',
   'diag_check_transport_h3_datagram': 'Datagram HTTP/3',
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
@@ -479,10 +487,11 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'Lối ra IPv6',
   'diag_check_protection_kill_switch': 'Trạng thái Kill Switch',
   'diag_check_protection_dns_path': 'Đường DNS',
-  'diag_check_protection_route_ownership': 'Quyền sở hữu tuyến',
+  'diag_check_protection_route_ownership': 'Tuyến mạng do Usque quản lý',
   'diag_check_protection_recovery_journal': 'Nhật ký khôi phục',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine không khả dụng',
-  'diag_fail_AGENT_UNREACHABLE': 'Không thể truy cập Usque Agent',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Dịch vụ kết nối không khả dụng',
+  'diag_fail_AGENT_UNREACHABLE':
+      'Không thể liên lạc với dịch vụ mạng hệ thống của Usque',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Dịch vụ VPN không khả dụng',
   'diag_fail_PROXY_PORT_IN_USE': 'Cổng proxy đang dùng',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 vật lý không khả dụng',
@@ -533,32 +542,34 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_CANCELLED': 'Chẩn đoán đã hủy',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'Phụ thuộc chẩn đoán thất bại',
   'diag_fail_INTERNAL': 'Lỗi nội bộ',
-  'diag_fix_try_http2': 'Dùng HTTP/2 và giữ các đầu dò khôi phục bật.',
+  'diag_fix_try_http2':
+      'Mở Cài đặt → Cài đặt mạng nâng cao, chọn HTTP/2 và áp dụng thay đổi, rồi kết nối lại.',
   'diag_fix_check_physical_network':
-      'Kiểm tra mạng hiện tại, DNS và họ địa chỉ có sẵn không.',
+      'Kiểm tra Wi-Fi hoặc dữ liệu di động có hoạt động không, rồi kết nối lại.',
   'diag_fix_refresh_or_replace_identity':
-      'Làm mới hoặc thay danh tính trước khi kết nối lại.',
-  'diag_fix_replace_identity': 'Cấu hình lại một danh tính hợp lệ.',
+      'Mở Tài khoản → Thiết lập tài khoản WARP. Đăng nhập lại hoặc tạo tài khoản mới, rồi kết nối.',
+  'diag_fix_replace_identity':
+      'Mở Tài khoản → Thiết lập tài khoản WARP. Đăng nhập lại hoặc nhập thông tin đăng nhập hợp lệ.',
   'diag_fix_review_configuration':
-      'Xem lại cấu hình và sửa giá trị không hợp lệ.',
+      'Mở Cài đặt → Cài đặt mạng nâng cao, sửa các trường được đánh dấu rồi áp dụng thay đổi.',
   'diag_fix_restore_platform_state':
-      'Khôi phục trạng thái mạng nền tảng trước khi thử lại.',
+      'Thoát hoàn toàn Usque, mở lại rồi thử lại. Nếu vẫn gặp lỗi, hãy xuất nhật ký trong Chẩn đoán để gửi cho bộ phận hỗ trợ.',
   'diag_fix_resolve_dependency':
-      'Trước hết hãy xử lý điều kiện tiên quyết bị thất bại.',
+      'Xử lý các mục kiểm tra thất bại trước, rồi chạy lại chẩn đoán.',
   'diag_fix_run_deep_diagnostics':
-      'Chạy chẩn đoán sâu trong môi trường phù hợp.',
+      'Trong Chẩn đoán, chọn “Sâu” rồi bắt đầu. Quá trình này có thể gửi lưu lượng thử nghiệm; một số mục có thể bị bỏ qua khi đang kết nối.',
   'diag_fix_run_release_leak_gate':
       'Xuất gói chẩn đoán đã loại bỏ thông tin nhạy cảm để hỗ trợ.',
   'diag_fix_inspect_platform_state':
-      'Xác nhận trạng thái thực bằng một phép kiểm tra chỉ đọc trạng thái mạng và proxy hệ thống.',
+      'Xem các mục kiểm tra thất bại trong Chẩn đoán → Bảo vệ hệ thống. Nếu vẫn gặp lỗi, hãy xuất nhật ký.',
   'diag_fix_generate_tunnel_traffic':
-      'Tạo một ít lưu lượng đường hầm, rồi kiểm tra lại.',
+      'Mở một trang web qua kết nối Usque rồi chạy lại kiểm tra.',
   'diag_fix_export_diagnostics':
       'Xuất gói chẩn đoán đã loại bỏ thông tin nhạy cảm để hỗ trợ.',
   'diag_fix_retry': 'Thử lại sau một lúc.',
   'diag_fix_none': 'Không cần thao tác.',
   'diag_fix_default':
-      'Dùng mã lỗi để xem cấu hình và trạng thái mạng liên quan.',
+      'Thử lại. Nếu vẫn gặp lỗi, hãy xuất nhật ký trong Chẩn đoán để gửi cho bộ phận hỗ trợ.',
   'diag_event_attempt_started': 'Đã bắt đầu thử kết nối',
   'diag_event_endpoint_resolved': 'Đã phân giải địa chỉ điểm cuối',
   'diag_event_socket_connected': 'Socket đã kết nối',

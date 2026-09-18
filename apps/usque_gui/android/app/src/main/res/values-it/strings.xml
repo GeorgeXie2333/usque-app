@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">Connessione con HTTP/2</string>
     <string name="vpn_notif_connected">Connesso</string>
     <string name="vpn_notif_connected_via">Connesso tramite %1$s</string>
-    <string name="vpn_notif_degraded">Connesso con supporto limitato alla famiglia di indirizzi</string>
+    <string name="vpn_notif_degraded">Connesso, ma alcuni accessi a Internet sono limitati. Apri Usque per i dettagli.</string>
     <string name="vpn_notif_reconnecting">Riconnessione sicura</string>
     <string name="vpn_notif_error">Servizio di rete arrestato dopo un errore</string>
     <string name="vpn_notif_disconnecting">Disconnessione</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">Verifica</string>
     <string name="tile_working">In corso</string>
     <string name="tile_open_app">Apri Usque</string>
-    <string name="tile_profile_required">Apri Usque e connetti una volta un profilo VPN prima di usare il riquadro.</string>
-    <string name="tile_identity_required">Apri Usque e configura l’identità WARP di questo profilo.</string>
+    <string name="tile_profile_required">Apri Usque e connettiti una volta prima di usare la scorciatoia.</string>
+    <string name="tile_identity_required">Apri Usque e configura l’account WARP attuale.</string>
     <string name="tile_vpn_permission_required">Apri Usque per concedere l’autorizzazione VPN di Android.</string>
-    <string name="tile_proxy_only">È attiva una connessione solo proxy. Apri Usque per abilitare il frontend VPN.</string>
+    <string name="tile_proxy_only">È attivo solo un proxy locale. Apri Proxy in Usque e attiva VPN.</string>
     <string name="shortcut_connect">Connetti</string>
     <string name="shortcut_disconnect">Disconnetti</string>
     <string name="shortcut_profiles">Account</string>

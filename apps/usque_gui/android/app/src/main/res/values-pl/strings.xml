@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">Łączenie przez HTTP/2</string>
     <string name="vpn_notif_connected">Połączono</string>
     <string name="vpn_notif_connected_via">Połączono przez %1$s</string>
-    <string name="vpn_notif_degraded">Połączono z ograniczoną obsługą rodziny adresów</string>
+    <string name="vpn_notif_degraded">Połączono, ale część dostępu do Internetu jest ograniczona. Otwórz Usque, aby zobaczyć szczegóły.</string>
     <string name="vpn_notif_reconnecting">Bezpieczne ponowne łączenie</string>
     <string name="vpn_notif_error">Usługa sieciowa zatrzymana po błędzie</string>
     <string name="vpn_notif_disconnecting">Rozłączanie</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">Sprawdzanie</string>
     <string name="tile_working">W toku</string>
     <string name="tile_open_app">Otwórz Usque</string>
-    <string name="tile_profile_required">Otwórz Usque i połącz raz profil VPN, zanim użyjesz kafelka.</string>
-    <string name="tile_identity_required">Otwórz Usque i skonfiguruj tożsamość WARP tego profilu.</string>
+    <string name="tile_profile_required">Otwórz Usque i połącz się raz przed użyciem skrótu.</string>
+    <string name="tile_identity_required">Otwórz Usque i skonfiguruj bieżące konto WARP.</string>
     <string name="tile_vpn_permission_required">Otwórz Usque, aby udzielić uprawnienia VPN Androida.</string>
-    <string name="tile_proxy_only">Aktywne jest połączenie tylko proxy. Otwórz Usque, aby włączyć frontend VPN.</string>
+    <string name="tile_proxy_only">Aktywne jest tylko lokalne proxy. Otwórz Proxy w Usque i włącz VPN.</string>
     <string name="shortcut_connect">Połącz</string>
     <string name="shortcut_disconnect">Rozłącz</string>
     <string name="shortcut_profiles">Konta</string>

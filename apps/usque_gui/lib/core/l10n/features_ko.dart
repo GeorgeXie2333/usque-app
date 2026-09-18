@@ -5,8 +5,8 @@ const Map<String, String> kUiWorkflowKo = <String, String>{
   'proxy_switches_hint': '스위치 변경은 자동 저장됩니다. 수신 주소와 DNS 편집은 변경 사항 적용으로 반영하세요.',
   'cc_label': 'HTTP/3 혼잡 제어',
   'cc_help': '다음 수동 연결 시 적용됩니다.',
-  'cc_upgrade': 'Engine 업데이트가 필요합니다.',
-  'cc_h2': 'HTTP/2는 시스템 TCP를 사용합니다.',
+  'cc_upgrade': '이 옵션을 사용하려면 설정에서 Usque를 업데이트하세요.',
+  'cc_h2': '이 옵션은 HTTP/3 연결에만 적용됩니다.',
   'cc_saved': '저장됨',
   'cc_pending': '다음 수동 연결 시 적용 대기 중.',
   'save_changes': '변경 적용',
@@ -41,17 +41,17 @@ const Map<String, String> kUiWorkflowKo = <String, String>{
   'home_kill_switch': 'Kill Switch',
   'home_traffic': '트래픽',
   'home_traffic_window': '최근 60초',
-  'home_traffic_idle': '연결 후 시작',
-  'home_traffic_waiting': '샘플 대기 중',
-  'home_traffic_unavailable': '기록을 사용할 수 없음',
-  'home_traffic_stale': '샘플이 지연됨',
-  'home_outputs_next': '연결 후 출력이 사용 설정됨',
-  'home_outputs_retry': '다음 시도에 사용할 출력이 구성됨',
+  'home_traffic_idle': '연결 후 트래픽 표시',
+  'home_traffic_waiting': '트래픽 데이터 대기 중',
+  'home_traffic_unavailable': '트래픽 기록 없음',
+  'home_traffic_stale': '트래픽 업데이트 지연',
+  'home_outputs_next': '연결 후 사용 가능',
+  'home_outputs_retry': '다음 연결에서 사용할 VPN 및 프록시',
   'connection_protection_group': '연결 및 보호',
   'proxy_routing_group': '프록시 및 라우팅',
   'application_group': '앱',
   'proxy_settings_link': '리스너 주소, 포트, 인증, DNS.',
-  'proxy_auth_separate': '자격 증명은 ‘자격 증명 저장’으로 따로 저장됩니다.',
+  'proxy_auth_separate': '아래의 사용자 이름과 비밀번호 저장을 눌러 이 항목의 변경을 적용하세요.',
   'reset_draft_hint': '기본값이 이 양식에 로드됩니다. 적용해야 반영됩니다.',
 };
 
@@ -69,20 +69,21 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'diag_check_transport_h3_path_validation_probe': '독립 QUIC 핸드셰이크',
   'nq_finding_unavailable': '현재 상태에서는 이 측정값을 사용할 수 없습니다.',
   'nq_finding_invalid_configuration': '사용자 지정 DNS 구성이 유효하지 않습니다.',
-  'nq_finding_dns_system': '물리 시스템 DNS가 선택되어 암호화 DNS 검사가 적용되지 않습니다.',
-  'nq_finding_unsupported': '이 Engine에서는 암호화 DNS를 사용할 수 없으며 평문 폴백도 허용되지 않습니다.',
+  'nq_finding_dns_system': '현재 네트워크의 DNS를 사용하므로 암호화 DNS 검사는 적용되지 않습니다.',
+  'nq_finding_unsupported':
+      '암호화 DNS를 사용하려면 Usque를 업데이트하세요. 암호화되지 않은 DNS로 전환하지 않습니다.',
   'nq_finding_dns_custom_valid': '사용자 지정 암호화 DNS 구성이 유효합니다. 평문 폴백은 사용되지 않습니다.',
   'nq_finding_stale': '측정값이 오래되었거나 물리 네트워크가 변경되었습니다.',
   'nq_finding_rtt_high': '측정된 왕복 시간이 높습니다.',
-  'nq_finding_healthy': '사용 가능한 로컬 측정값이 예상 범위 안에 있습니다.',
+  'nq_finding_healthy': '측정된 연결 지표는 정상 범위에 있습니다.',
   'nq_finding_loss_high': '이 구간의 패킷 손실이 높습니다.',
-  'nq_finding_queue_pressure': '큐에 부하가 있거나 이 연결 동안 드롭이 기록되었습니다.',
-  'nq_finding_pmtu_degraded': '경로 MTU 검증이 저하되었습니다.',
-  'nq_finding_migration_reconnect':
-      '이 경로에서는 마이그레이션을 사용할 수 없어 네트워크 변경 시 전체 재연결을 사용합니다.',
+  'nq_finding_queue_pressure': '전송을 기다리는 트래픽이 있거나 이번 연결에서 일부 데이터가 버려졌습니다.',
+  'nq_finding_pmtu_degraded': '현재 연결에 적합한 패킷 크기를 확인하지 못했습니다.',
+  'nq_finding_migration_reconnect': '네트워크를 전환하면 이 연결을 다시 맺어야 합니다.',
   'nq_finding_dns_changed': '저장된 DNS 모드가 실행 중인 연결과 다릅니다.',
   'nq_finding_dns_runtime': '암호화 DNS가 정상 작동하고 있습니다.',
-  'nq_finding_dns_degraded': '암호화 DNS가 저하되었습니다. 실패한 직접 쿼리는 시스템 DNS로 폴백하지 않습니다.',
+  'nq_finding_dns_degraded':
+      '암호화 DNS 질의에 문제가 있습니다. 실패한 질의를 현재 네트워크의 암호화되지 않은 DNS로 보내지 않습니다.',
   'nq_finding_probe_unsafe': '현재 상태에서는 이 측정값을 사용할 수 없습니다.',
   'nq_finding_probe_success': '이 검사가 통과했습니다.',
   'nq_finding_probe_cancelled': '이 검사가 취소되었습니다.',
@@ -112,7 +113,8 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_unavailable': '사용할 수 없음',
   'nq_not_ready': '준비되지 않음',
   'nq_unsupported': '지원되지 않음',
-  'nq_capability_missing': '이 Engine은 네트워크 품질을 제공하지 않습니다. 기존 연결 제어는 그대로 동작합니다.',
+  'nq_capability_missing':
+      '이 버전에서는 연결 품질을 표시할 수 없습니다. 연결과 연결 해제는 계속 사용할 수 있습니다. 설정에서 업데이트를 확인하세요.',
   'nq_empty': '연결하면 측정 결과가 표시됩니다.',
   'nq_stale_help': '업데이트가 중단되었습니다. 마지막 측정값을 표시합니다.',
   'nq_rtt': '왕복 시간',
@@ -140,15 +142,17 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_pmtu': '경로 MTU',
   'nq_outer_pmtu': '외부 UDP 페이로드 한도',
   'nq_inner_payload': 'CONNECT-IP 페이로드 한도',
-  'nq_pmtu_help': '경로 탐색은 기기의 TUN MTU를 늘리지 않습니다.',
+  'nq_pmtu_help':
+      '현재 네트워크 경로가 전달할 수 있는 패킷 크기입니다. Usque가 패킷 손실을 줄이기 위해 자동으로 확인합니다. 이 검사는 고급 네트워크 설정의 VPN MTU를 높이지 않습니다.',
   'nq_migration': '네트워크 마이그레이션',
-  'nq_migration_help': '연결 하나당 데이터 경로는 하나입니다. 동일 IP 패밀리만 지원하며 멀티패스가 아닙니다.',
+  'nq_migration_help':
+      'Wi-Fi와 모바일 데이터 등 네트워크를 바꿀 때 연결 유지를 시도합니다. 두 네트워크는 같은 IP 버전(IPv4 또는 IPv6)을 사용해야 합니다. 한 번에 한 네트워크만 사용하며 속도를 합치지 않습니다.',
   'nq_attempts': '시도',
   'nq_successes': '성공',
   'nq_failures': '실패',
   'nq_last_duration': '최근 소요 시간',
   'nq_direct_dns': '직접 DNS',
-  'nq_system_dns': '물리 시스템 DNS',
+  'nq_system_dns': '현재 네트워크 DNS',
   'nq_doh': 'DNS over HTTPS',
   'nq_dot': 'DNS over TLS',
   'nq_ready': '준비됨',
@@ -189,38 +193,43 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_phase_degraded': '저하됨',
   'nq_phase_unknown': '준비되지 않음',
   'nq_phase_unsupported': '지원되지 않음',
-  'nq_reason_family_unavailable': '현재 IP 패밀리를 사용할 수 없어 전체 재연결을 사용합니다.',
-  'nq_reason_socket_protect_failed': '보호된 후보 소켓을 준비하지 못했습니다.',
+  'nq_reason_family_unavailable': '새 네트워크가 같은 IP 버전을 사용할 수 없어 다시 연결해야 합니다.',
+  'nq_reason_socket_protect_failed':
+      '새 네트워크를 안전하게 사용하지 못했습니다. 연결이 복구되지 않으면 수동으로 다시 연결하세요.',
   'nq_reason_generation_changed_during_setup': '준비 중에 네트워크가 다시 변경되었습니다.',
-  'nq_reason_peer_cid_unavailable': '피어에 여분의 연결 식별자가 없습니다.',
-  'nq_reason_local_cid_unavailable': '로컬 연결 식별자를 사용할 수 없습니다.',
-  'nq_reason_path_probe_rejected': '후보 경로를 검증하지 못했습니다.',
-  'nq_reason_path_validation_timeout': '경로 검증이 시간 초과되었습니다. 재연결할 수 있습니다.',
-  'nq_reason_superseded': '더 새로운 네트워크 변경이 이 시도를 대체했습니다.',
-  'nq_reason_promotion_failed': '경로 전환을 안전하게 완료하지 못했습니다.',
-  'nq_reason_connection_closed': '마이그레이션 중에 연결이 닫혔습니다.',
+  'nq_reason_peer_cid_unavailable':
+      '서버가 새 네트워크에서 연결을 유지하지 못했습니다. 복구되지 않으면 수동으로 다시 연결하세요.',
+  'nq_reason_local_cid_unavailable':
+      'Usque가 새 네트워크에서 연결을 유지하지 못했습니다. 복구되지 않으면 수동으로 다시 연결하세요.',
+  'nq_reason_path_probe_rejected':
+      '새 네트워크가 연결 검사를 통과하지 못했습니다. 인터넷에 접속할 수 있는지 확인하세요.',
+  'nq_reason_path_validation_timeout':
+      '새 네트워크가 제때 응답하지 않았습니다. 네트워크를 확인하고 필요하면 다시 연결하세요.',
+  'nq_reason_superseded': '전환이 완료되기 전에 네트워크가 다시 바뀌었습니다.',
+  'nq_reason_promotion_failed':
+      '네트워크를 안전하게 전환하지 못했습니다. 연결이 복구되지 않으면 수동으로 다시 연결하세요.',
+  'nq_reason_connection_closed': '네트워크 전환 중 연결이 종료되었습니다. 다시 연결하세요.',
   'nq_reason_unsupported': '이 연결에서는 마이그레이션을 사용할 수 없습니다.',
   'nq_reason_unknown': '지원되는 사유를 확인할 수 없습니다.',
   'nq_dns_custom': '사용자 지정 암호화 리졸버',
-  'nq_dns_server': 'TLS 서버 이름',
+  'nq_dns_server': 'DNS 서버 도메인',
   'nq_dns_path': 'HTTPS 경로',
   'nq_dns_port': '포트(0이면 기본값)',
-  'nq_dns_bootstrap': 'Bootstrap IP 주소',
+  'nq_dns_bootstrap': 'DNS 서버 IP 주소',
   'nq_dns_bootstrap_help':
-      '숫자 IP 주소를 1–8개, 한 줄에 하나씩 입력하세요. 호스트 이름 조회는 사용하지 않습니다.',
+      'DNS 제공업체의 IP 주소를 한 줄에 하나씩 1~8개 입력하세요. 예: 1.1.1.1. Usque는 서버 이름을 먼저 조회하지 않고 이 주소로 직접 연결합니다.',
   'nq_dns_no_fallback':
       '암호화된 직접 DNS가 실패하면 쿼리가 실패합니다. 시스템 DNS나 평문 DNS로 절대 폴백하지 않습니다.',
-  'nq_dns_system_privacy':
-      '물리 시스템 DNS는 직접 쿼리 이름을 물리 네트워크 DNS 제공자에게 노출할 수 있습니다.',
-  'nq_dns_scope': 'Geo로 선택한 직접 쿼리에만 사용됩니다. 터널 DNS는 그대로입니다.',
+  'nq_dns_system_privacy': '현재 네트워크의 DNS 제공업체에 직접 연결 트래픽이 요청한 도메인이 보일 수 있습니다.',
+  'nq_dns_scope': '직접 연결 국가 규칙에 해당하는 트래픽에 사용됩니다. VPN 트래픽의 DNS는 바뀌지 않습니다.',
   'nq_dns_no_capability':
-      '이 Engine은 암호화된 직접 DNS를 사용할 수 없습니다. 저장된 설정은 유지됩니다. '
-      '시스템 DNS를 명시적으로 선택할 수 있습니다.',
-  'nq_dns_invalid_name': '공백, URL 구문, 와일드카드가 없는 DNS 이름을 입력하세요.',
-  'nq_dns_invalid_path': '쿼리, 프래그먼트, 공백 없이 /로 시작하는 최대 256자 경로를 사용하세요.',
-  'nq_dns_invalid_bootstrap':
-      '중복 없는 유니캐스트 IP를 1–8개 사용하세요. 미지정, 멀티캐스트, 브로드캐스트, IPv6 링크 로컬 주소는 안 됩니다.',
-  'nq_dns_invalid_port': '0–65535를 입력하세요.',
+      '암호화된 직접 연결 DNS를 사용하려면 Usque를 업데이트하세요. 설정은 유지됩니다. 개인정보 영향을 감수한다면 현재 네트워크 DNS를 선택할 수도 있습니다.',
+  'nq_dns_invalid_name':
+      'dns.example.com 같은 서버 도메인을 입력하세요. https://, 포트나 공백은 포함하지 마세요.',
+  'nq_dns_invalid_path':
+      '/dns-query 같은 경로를 256자 이내로 입력하세요. 공백과 ? 또는 #으로 시작하는 부분은 제거하세요.',
+  'nq_dns_invalid_bootstrap': '서버 IP 주소를 1~8개 입력하세요.',
+  'nq_dns_invalid_port': '1~65535 사이의 포트 또는 기본값을 사용하려면 0을 입력하세요.',
   'nq_dns_invalid_mode': '지원되는 DNS 모드를 선택하세요.',
   'nq_doctor_deep_title': '심층 네트워크 검사를 실행할까요?',
   'nq_doctor_deep_body':
@@ -231,9 +240,9 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
 
 const Map<String, String> kWindowsRecoveryKo = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      "TUN 장치를 재사용하려면 앱과 Windows Agent를 함께 업데이트하세요. 새 VPN 연결은 시작되지 않았습니다.",
+      'Usque의 연결 구성요소를 함께 업데이트해야 합니다. 설정에서 업데이트를 확인하세요. 새 VPN 연결은 시작하지 않았습니다.',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      "이전 TUN 장치를 아직 복구해야 합니다. Usque를 완전히 종료한 뒤 다시 열어 재시도하거나 로컬 진단을 확인하세요.",
+      '이전 VPN 연결 정리가 완료되지 않았습니다. Usque를 완전히 종료하고 다시 열어 시도하세요. 계속 실패하면 진단을 여세요.',
   'WINDOWS_RECOVERY_FAILED':
       '이전 VPN 네트워크 상태를 완전히 복원하지 못했습니다. 새 VPN 연결은 '
       '시작되지 않았습니다. 연결을 다시 시도하거나 로컬 진단을 확인하세요.',
@@ -241,23 +250,21 @@ const Map<String, String> kWindowsRecoveryKo = <String, String>{
       'Windows가 자동으로 세 번 시도한 뒤에도 이전 VPN 네트워크 상태를 '
       '복원하지 못했습니다. 준비가 되면 다시 시도하거나 로컬 진단을 확인하세요.',
   'WINDOWS_RECOVERY_BLOCKED':
-      '이전 Windows 네트워크 상태를 안전하게 확인할 수 없어 자동 복구가 '
-      '중단되었습니다. Agent를 다시 시작하거나 Usque를 업데이트한 다음 '
-      '로컬 진단을 확인하세요.',
+      '이전 VPN 설정을 안전하게 복원할 수 있는지 확인하지 못해 자동 복구를 멈췄습니다. 설정에서 업데이트를 확인하고 문제가 계속되면 진단 패키지를 내보내세요.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Windows 네트워크 복구가 예상보다 오래 걸리고 있습니다. 새 VPN '
       '연결은 시작되지 않았습니다. 복구가 끝날 때까지 기다린 뒤 다시 시도하세요.',
   'WINDOWS_RECOVERY_CONFLICT':
       '네트워크 상태가 변경되었거나 다른 세션이 아직 사용 중입니다. 활성 연결을 보호하기 위해 자동 복구를 중단했습니다.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      '이 Windows Agent는 안전한 자동 복구를 지원하지 않습니다. 앱과 Agent를 함께 업데이트한 다음 다시 시도하세요.',
+      '현재 설치된 Usque는 이전 VPN 설정을 자동 복원할 수 없습니다. 설정에서 업데이트한 뒤 다시 시도하세요.',
 };
 
 const String kWindowsAdapterCleanupKo =
-    '이전 Wintun 어댑터를 제거하지 못했거나 제거 여부를 확인하지 못했습니다. 새 VPN 연결은 시작되지 않았습니다.';
+    '이전 연결의 가상 네트워크 어댑터를 제거하지 못했거나 제거 여부를 확인하지 못했습니다. 새 VPN 연결은 시작하지 않았습니다.';
 
 const Map<String, String> kL4Ko = <String, String>{
-  'l4_quic_not_ready': '준비된 QUIC 세션을 기다리는 중',
+  'l4_quic_not_ready': 'L4 연결 준비 중',
   'l4_unsupported_packets': '지원되지 않거나 잘못된 패킷을 거부함',
   'l4_budget_rejections': '리소스 수락 거부 횟수',
   'l4_not_applicable': '해당 없음(L4)',
@@ -265,15 +272,15 @@ const Map<String, String> kL4Ko = <String, String>{
   'l4_transport_hint':
       'TCP만 지원합니다. UDP가 필요한 앱은 작동하지 않을 수 있습니다. 자동 모드에는 L4가 포함되지 않습니다.',
   'l4_explanation':
-      'HTTP/3 위의 TCP 전용 모드입니다. VPN/TUN, SOCKS5, HTTP를 지원하며 TUN DNS는 TCP로 변환됩니다. Auto는 L4를 선택하지 않습니다. 그 외 UDP, 원격 ping, IP 조각, 확장 헤더는 지원되지 않아 일부 앱이 동작하지 않을 수 있습니다.',
-  'l4_unsupported': '이 엔진은 완전한 L4 지원을 선언하지 않았습니다. L4를 켤 수 없습니다.',
-  'l4_sni_identity': '읽기 전용: 불러온 계정 식별 정보에서 파생됩니다. 기존 CONNECT-IP SNI는 유지됩니다.',
+      'L4는 HTTP/3로 TCP 트래픽을 전달하며 VPN, SOCKS5 및 HTTP 프록시에서 사용할 수 있습니다. VPN의 DNS 질의는 TCP로 변환됩니다. 다른 UDP 트래픽, 원격 Ping, IP 조각 또는 확장 헤더가 필요한 앱은 작동하지 않을 수 있습니다. L4는 수동으로 선택하세요. 자동 모드는 L4를 선택하지 않습니다.',
+  'l4_unsupported': '이 Usque 버전은 L4를 사용할 수 없습니다. 설정에서 업데이트를 확인하세요.',
+  'l4_sni_identity': '계정에서 자동으로 설정하므로 수정할 필요가 없습니다. 다른 연결 모드의 서버 이름은 유지됩니다.',
   'l4_edge_requires_l4':
       '에지 확인 DNS는 L4 전용입니다. Auto, H3, H2로 바꾸기 전에 다른 프록시 DNS 모드를 선택하세요.',
   'proxy_dns_edge_resolved': 'Cloudflare 에지(L4 전용, 로컬 조회 없음)',
-  'l4_verified': 'L4 CONNECT 확인됨',
-  'l4_unverified': 'QUIC 준비됨. L4 CONNECT는 아직 확인되지 않음',
-  'l4_status_unknown': 'L4 확인 상태를 알 수 없음',
+  'l4_verified': 'L4에서 앱 연결에 성공한 적이 있습니다',
+  'l4_unverified': '서버에 연결했지만 앱 연결 가능 여부는 아직 확인되지 않았습니다',
+  'l4_status_unknown': '앱 연결 상태를 확인할 수 없습니다',
   'l4_sessions': '세션 / 종료 중',
   'l4_flows': '활성 / 대기 스트림',
   'l4_connect': 'CONNECT 성공 / 실패 / 시간 초과',
@@ -294,7 +301,8 @@ const Map<String, String> kNetworkSettingsKo = <String, String>{
   'settings_failed': '저장됨, 적용 실패',
   'settings_unknown': '결과가 아직 확인되지 않음',
   'settings_saved': '저장됨',
-  'settings_unsupported': '네트워크 설정을 저장하려면 Engine을 다시 시작하거나 업데이트하세요.',
+  'settings_unsupported':
+      'Usque를 완전히 종료했다가 다시 열어 저장하세요. 계속 실패하면 설정에서 업데이트를 확인하세요.',
   'settings_save_failed': '설정을 저장하지 못했습니다. 편집 내용은 유지됩니다.',
   'settings_reconnect': '다시 연결',
 };

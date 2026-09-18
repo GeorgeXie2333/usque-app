@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">Verbinden met HTTP/2</string>
     <string name="vpn_notif_connected">Verbonden</string>
     <string name="vpn_notif_connected_via">Verbonden via %1$s</string>
-    <string name="vpn_notif_degraded">Verbonden met beperkte adresfamilieondersteuning</string>
+    <string name="vpn_notif_degraded">Verbonden, maar sommige internettoegang is beperkt. Open Usque voor details.</string>
     <string name="vpn_notif_reconnecting">Veilig opnieuw verbinden</string>
     <string name="vpn_notif_error">Netwerkdienst gestopt na een fout</string>
     <string name="vpn_notif_disconnecting">Verbinding verbreken</string>
@@ -24,10 +24,10 @@
     <string name="tile_checking">Controleren</string>
     <string name="tile_working">Bezig</string>
     <string name="tile_open_app">Usque openen</string>
-    <string name="tile_profile_required">Open Usque en verbind één keer een VPN-profiel voordat u de tegel gebruikt.</string>
-    <string name="tile_identity_required">Open Usque en configureer de WARP-identiteit voor dit profiel.</string>
+    <string name="tile_profile_required">Open Usque en verbind één keer voordat je de snelkoppeling gebruikt.</string>
+    <string name="tile_identity_required">Open Usque en stel het huidige WARP-account in.</string>
     <string name="tile_vpn_permission_required">Open Usque om de Android-VPN-toestemming te geven.</string>
-    <string name="tile_proxy_only">Er is een alleen-proxyverbinding actief. Open Usque om de VPN-frontend in te schakelen.</string>
+    <string name="tile_proxy_only">Alleen een lokale proxy is actief. Open Proxy in Usque en schakel VPN in.</string>
     <string name="shortcut_connect">Verbinden</string>
     <string name="shortcut_disconnect">Verbreken</string>
     <string name="shortcut_profiles">Accounts</string>

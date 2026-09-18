@@ -4,7 +4,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'disable_quic_help':
       "Блокирует UDP/443 через прокси или туннель, включая другие протоколы на этом порту. Прямой трафик GEO и соединение HTTP/3 Usque не затрагиваются. QUIC на других портах разрешён. Применяется без переподключения.",
   'disable_quic_unsupported':
-      "Обновите или перезапустите движок, чтобы использовать эту настройку.",
+      'Закройте и снова откройте Usque. Если настройка всё ещё недоступна, проверьте обновления в Настройках.',
   'technical_details': 'Технические сведения',
   'diag_skip_disconnected': 'Подключитесь, чтобы выполнить эту проверку.',
   'diag_skip_disabled': 'Эта функция отключена.',
@@ -27,12 +27,12 @@ const Map<String, String> kRuCatalog = <String, String>{
   'tray_disconnect_profile': 'Отключить текущую учётную запись',
   'tray_disconnect_exit': 'Отключить и выйти',
   'connection_status': 'Состояние подключения',
-  'outputs': 'Сетевые выходы',
+  'outputs': 'VPN и локальные прокси',
   'home': 'Главная',
   'profiles': 'Аккаунты',
   'profiles_subtitle': 'Переключение и управление учётными записями WARP.',
   'proxy': 'Прокси',
-  'proxy_subtitle': 'Локальные слушатели и DNS общие для всех аккаунтов.',
+  'proxy_subtitle': 'Настройте адреса прокси и DNS, общие для всех аккаунтов.',
   'settings': 'Настройки',
   'settings_subtitle': 'Настройки подключения, прокси и приложения.',
   'diagnostics': 'Диагностика',
@@ -40,7 +40,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'nav_profiles': 'Аккаунты',
   'nav_proxy': 'Прокси',
   'nav_settings': 'Опции',
-  'status_stream_degraded': 'Оперативные обновления состояния ограничены',
+  'status_stream_degraded': 'Обновление статуса задерживается',
   'status_stream_degraded_body':
       'Обновление состояния задерживается. Повторная попытка выполняется автоматически.',
   'connect': 'Подключить',
@@ -56,7 +56,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'error': 'Ошибка подключения',
   'active_profile': 'Текущий аккаунт',
   'protocol': 'Протокол',
-  'address_family': 'Семейство адресов',
+  'address_family': 'Версия IP',
   'duration': 'Длительность',
   'download': 'Загрузка',
   'upload': 'Отправка',
@@ -65,45 +65,48 @@ const Map<String, String> kRuCatalog = <String, String>{
   'ipv6': 'IPv6',
   'not_available': 'Недоступно',
   'location_disconnected': 'Ожидание подключения',
-  'engine_unavailable': 'Нативный Usque Engine пока недоступен в этой сборке.',
+  'engine_unavailable':
+      'Не удалось запустить службу подключения. Полностью закройте Usque и откройте снова. Если ошибка остаётся, откройте Диагностику.',
   'dismiss': 'Скрыть',
   'new_profile': 'Добавить аккаунт',
   'profile_name': 'Имя аккаунта',
   'profile_name_too_long': 'Используйте не более 64 символов.',
-  'configure_identity': 'Настроить идентичность WARP',
-  'identity_ready': 'Идентичность готова',
+  'configure_identity': 'Настроить аккаунт WARP',
+  'identity_ready': 'Аккаунт готов',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Требуется идентичность',
-  'identity_invalid': 'Идентичность требует восстановления',
-  'identity_setup_failed': 'Не удалось настроить идентичность WARP.',
+  'identity_missing': 'Настройте аккаунт',
+  'identity_invalid': 'Аккаунт нужно настроить заново',
+  'identity_setup_failed':
+      'Не удалось настроить аккаунт WARP. Повторите попытку.',
   'use_license_key': 'Использовать WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Войдите с учётной записью организации',
   'zero_trust_team': 'Имя команды организации',
-  'zero_trust_team_invalid': 'Введите одно имя команды в виде DNS-метки.',
+  'zero_trust_team_invalid':
+      'Введите 1–63 латинские буквы, цифры или дефисы. Первый и последний символ — буква или цифра, например example-team.',
   'zero_trust_open_login': 'Открыть вход организации',
   'zero_trust_browser_failed': 'Не удалось открыть системный браузер.',
   'zero_trust_manual_callback':
-      'После входа вернитесь в Usque. Если обратный вызов не заполнился автоматически, заполните его из буфера обмена или вставьте полный URL.',
+      'После входа вернитесь в Usque. Если результат не получен автоматически, скопируйте со страницы входа ссылку для открытия WARP и вставьте её целиком ниже.',
   'zero_trust_callback_received':
-      'Обратный вызов организации получен безопасным способом.',
-  'zero_trust_callback': 'Полный URL обратного вызова',
+      'Результат входа получен. Продолжите настройку аккаунта.',
+  'zero_trust_callback': 'Ссылка возврата после входа',
   'zero_trust_callback_required':
-      'Вставьте свежий полный URL обратного вызова или войдите снова.',
+      'Вставьте полную ссылку со страницы входа или откройте страницу и войдите снова.',
   'zero_trust_callback_invalid':
-      'Используйте обратный вызов Access com.cloudflare.warp для этой организации.',
+      'Ссылка не соответствует входу в эту организацию. Откройте страницу входа заново и скопируйте полную ссылку для открытия WARP.',
   'zero_trust_paste_clipboard': 'Заполнить из буфера обмена',
   'zero_trust_clipboard_empty':
-      'Буфер обмена не содержит URL обратного вызова.',
+      'В буфере обмена нет ссылки возврата после входа.',
   'zero_trust_scope_note':
-      'Экспериментально: используется регистрация устройства организации для доступа в Интернет; синхронизация политик и проверка состояния устройства не реализованы.',
+      'Экспериментальная функция: аккаунт используется только для доступа к публичному Интернету. Обновление политик организации и проверка соответствия устройства её требованиям безопасности не поддерживаются.',
   'zero_trust_repair_same_team':
-      'Войдите снова в ту же организацию, чтобы обновить регистрацию этого устройства.',
+      'Войдите снова в ту же организацию, чтобы восстановить подключение аккаунта.',
   'zero_trust_metadata_missing':
-      'Сохранённая привязка к организации отсутствует. В целях безопасности эту запись аккаунта нельзя исправить на месте; добавьте новый аккаунт Zero Trust.',
+      'Сохранённые сведения об организации неполны. Добавьте новый аккаунт Zero Trust и войдите снова.',
   'zero_trust_endpoint_managed':
-      'Эта конечная точка управляется регистрацией устройства Zero Trust и не может быть изменена здесь.',
+      'Этот адрес сервера задаётся аккаунтом организации. Здесь его изменить нельзя.',
   'experimental': 'Экспериментально',
   'show_license': 'Показать License Key',
   'hide_license': 'Скрыть License Key',
@@ -117,10 +120,10 @@ const Map<String, String> kRuCatalog = <String, String>{
   'delete': 'Удалить',
   'delete_profile': 'Удалить аккаунт?',
   'delete_profile_body':
-      'Будут удалены несекретные настройки этого аккаунта. Сохранённые данные идентичности не удаляются.',
+      'Аккаунт будет удалён из списка вместе с локальными настройками. Сохранённые данные входа WARP останутся на устройстве.',
   'delete_zero_trust_profile_body':
-      'Будут удалены только локальный аккаунт и учётные данные. Попросите администратора организации удалить оставшуюся регистрацию устройства в Zero Trust.',
-  'license_not_applicable': 'Лицензия неприменима · Экспериментально',
+      'Аккаунт и данные входа будут удалены с этого устройства. Попросите администратора также удалить запись устройства из панели Zero Trust организации.',
+  'license_not_applicable': 'Аккаунт организации · Экспериментально',
   'zero_trust_reauthenticate': 'Войти снова в эту организацию',
   'zero_trust_admin_cleanup_note':
       'Удаление этого аккаунта не отзывает устройство в панели Zero Trust.',
@@ -129,11 +132,12 @@ const Map<String, String> kRuCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Переименовать аккаунт',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'Только канал MASQUE',
-  'channel_only_warning': 'Сетевой выход не включён.',
-  'socks_listener': 'Прослушиватель SOCKS5',
-  'http_listener': 'Прослушиватель HTTP',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN и локальные прокси выключены',
+  'channel_only_warning':
+      'Это подключение не передаёт трафик приложений. Откройте Прокси и включите VPN, SOCKS5 или HTTP.',
+  'socks_listener': 'Прокси SOCKS5',
+  'http_listener': 'Прокси HTTP',
   'listen_ipv4': 'Прослушивание IPv4',
   'listen_ipv6': 'Прослушивание IPv6',
   'port': 'Порт',
@@ -153,24 +157,24 @@ const Map<String, String> kRuCatalog = <String, String>{
   'lan_warning_body':
       'Usque не добавляет аутентификацию по имени пользователя и паролю. Любой, кто может обратиться к этому прослушивателю, может им воспользоваться.',
   'lan_warning_body_authenticated':
-      'Этот прослушиватель принимает аутентифицированных клиентов не с адреса loopback, предъявляющих заданные имя пользователя и пароль.',
-  'proxy_auth': 'Аутентификация прослушивателя',
+      'Другие устройства локальной сети могут использовать этот прокси с заданными именем пользователя и паролем.',
+  'proxy_auth': 'Имя пользователя и пароль прокси',
   'proxy_auth_help':
-      'Необязательные имя пользователя и пароль для прослушивателей SOCKS5 и HTTP. Пароль хранится в системном хранилище, а не в файле профиля.',
+      'Требовать имя пользователя и пароль для прокси SOCKS5 и HTTP. Пароль безопасно хранится на этом устройстве.',
   'proxy_username': 'Имя пользователя',
   'proxy_password': 'Пароль',
   'proxy_password_hint':
-      'Введите пароль, чтобы задать или изменить учётные данные.',
-  'proxy_auth_apply': 'Сохранить учётные данные',
+      'Введите пароль при настройке или изменении имени пользователя и пароля.',
+  'proxy_auth_apply': 'Сохранить имя пользователя и пароль',
   'proxy_auth_invalid':
-      'Имя пользователя должно содержать 1–255 байт без «:» и NUL. Вместе с именем пользователя требуется пароль длиной 1–255 байт.',
-  'proxy_auth_saved': 'Учётные данные прослушивателя сохранены',
-  'proxy_auth_cleared': 'Аутентификация прослушивателя удалена',
+      'Проверьте имя пользователя и пароль и повторите попытку.',
+  'proxy_auth_saved': 'Имя пользователя и пароль прокси сохранены.',
+  'proxy_auth_cleared': 'Защита прокси паролем отключена.',
   'lan_warning_authenticated': 'Прослушиватель LAN с аутентификацией',
   'lan_warning_authenticated_body':
       'Этот прослушиватель доступен в локальной сети и требует заданные вами имя пользователя и пароль.',
   'proxy_password_set': 'Пароль задан. Введите новый, чтобы заменить его.',
-  'proxy_auth_clear': 'Удалить аутентификацию',
+  'proxy_auth_clear': 'Отключить защиту паролем',
   'general': 'Основные',
   'system_integration': 'Системная интеграция',
   'start_on_boot': 'Запускать Usque при входе в систему',
@@ -224,8 +228,8 @@ const Map<String, String> kRuCatalog = <String, String>{
   'update_package_unavailable':
       'Для этого устройства нет проверенного пакета. Откройте страницу выпуска.',
   'notice': 'Выполнено',
-  'identity': 'Идентичность WARP',
-  'identity_and_license': 'Идентичность и лицензия',
+  'identity': 'Аккаунт WARP',
+  'identity_and_license': 'Аккаунт и лицензия',
   'license_cleanup_pending':
       'Старая регистрация устройства WARP ожидает удаления.',
   'copy_license': 'Копировать License Key',
@@ -266,7 +270,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'lockdown': 'Блокировать без VPN',
   'not_used_proxy': 'Не используется в режиме прокси',
   'kill_switch_help':
-      'Блокировать трафик во время подключения, повторного подключения или восстановления после сбоя Usque Engine. На Android это действует, пока работает служба VPN; включите «Постоянный VPN» и «Блокировать соединения без VPN» в системных настройках для защиты после принудительного завершения приложения.',
+      'Блокирует трафик при подключении, переподключении и восстановлении службы после сбоя. В Android действует только во время работы службы VPN. Для защиты после остановки приложения включите постоянную VPN и блокировку соединений без VPN в настройках системы.',
   'start_on_boot_android':
       'Запускать Usque после перезагрузки. Также включите автоматическое подключение при запуске.',
   'add_quick_settings_tile_help':
@@ -308,8 +312,8 @@ const Map<String, String> kRuCatalog = <String, String>{
   'invalid_cidr': 'Недопустимый CIDR',
   'diagnostics_title': 'Диагностика и сведения',
   'diagnostics_subtitle':
-      'Состояние Usque Engine, экспорт журналов и локальные данные.',
-  'engine_status': 'Состояние Usque Engine',
+      'Проверяйте проблемы подключения, экспортируйте журналы и управляйте локальными данными.',
+  'engine_status': 'Сведения о подключении',
   'version': 'Версия',
   'app_version': 'Usque 0.2.7',
   'logs': 'Локальные журналы',
@@ -321,9 +325,9 @@ const Map<String, String> kRuCatalog = <String, String>{
   'license': 'Лицензия',
   'clear_all_data': 'Очистить все данные',
   'clear_all_data_help':
-      'Отключиться и безвозвратно удалить с этого устройства все аккаунты, идентичности Consumer WARP, настройки, кэш и локальные диагностические записи.',
+      'Отключает соединение и безвозвратно удаляет с устройства все аккаунты, данные входа WARP, настройки, кэш и диагностические записи.',
   'clear_all_data_confirm':
-      'Это действие нельзя отменить. Usque сначала отключится, удалит все сохранённые идентичности и аккаунты и вернётся к начальной настройке.',
+      'Отменить это нельзя. Usque отключится, удалит все аккаунты и данные входа, затем вернётся к первоначальной настройке.',
   'clear_all_data_complete': 'Все локальные данные Usque очищены.',
   'unofficial':
       'Неофициальный клиент, совместимый с Cloudflare WARP. Не связан с Cloudflare и не одобрен этой компанией.',
@@ -332,13 +336,13 @@ const Map<String, String> kRuCatalog = <String, String>{
   'get_started': 'Начать работу',
   'permissions_title': 'Системные разрешения',
   'permissions_body':
-      'Usque требуется разрешение на создание интерфейса VPN и управление маршрутами, DNS, правилами брандмауэра и системным прокси.',
+      'Usque требуется разрешение направлять трафик приложений через VPN. В зависимости от режима также настраиваются DNS, сетевые маршруты, защита межсетевого экрана или системный прокси.',
   'terms_title': 'Условия Cloudflare',
   'terms_body':
       'Usque — независимый клиент. Использование Consumer WARP или экспериментальной регистрации Zero Trust по-прежнему регулируется применимыми условиями и политикой конфиденциальности Cloudflare.',
   'terms_accept': 'Я понимаю и принимаю эти условия.',
-  'identity_title': 'Настройка Consumer WARP',
-  'register_new': 'Зарегистрировать новую идентичность',
+  'identity_title': 'Настроить личный аккаунт WARP',
+  'register_new': 'Создать бесплатный аккаунт WARP',
   'manual_secret': 'Ввести WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Показать секрет',
@@ -353,9 +357,9 @@ const Map<String, String> kRuCatalog = <String, String>{
   'profile_required': 'Оставьте хотя бы один аккаунт.',
   'socks_capabilities': 'TCP и UDP',
   'http_capabilities': 'CONNECT и обычная пересылка',
-  'geo_direct': 'Страны с прямой маршрутизацией',
+  'geo_direct': 'Страны и регионы прямого подключения',
   'geo_direct_help':
-      'Совпавшие домены видны DNS текущей сети; приложения с шифрованным DNS маршрутизируются только по IP.',
+      'Трафик для этих стран и регионов идёт в обход VPN. DNS-провайдер текущей сети может видеть запрашиваемые домены. Приложения с шифрованным DNS распределяются только по IP-адресу.',
   'geo_update_all': 'Обновить геоданные',
   'geo_last_updated': 'Последнее успешное обновление: {current}',
   'geo_never_updated': 'Ещё не обновлялось',
@@ -366,12 +370,13 @@ const Map<String, String> kRuCatalog = <String, String>{
   'geo_search': 'Поиск стран',
   'geo_not_downloaded': 'Не скачано',
   'geo_downloaded': 'Скачано',
-  'geo_chip': 'Прямая маршрутизация: {current}',
+  'geo_chip': 'Напрямую: {current}',
   'geo_download_first':
       'Скачайте геоданные этой страны, прежде чем включать её.',
   'geo_update_complete':
       'Геоданные: обновлено {updated}, уже актуально {current}.',
-  'geo_update_failed': 'Не удалось обновить геоданные: {current}',
+  'geo_update_failed':
+      'Не удалось обновить часть правил ({current}). Проверьте сеть и повторите попытку.',
   'diagnostics_page_subtitle':
       'Проверьте соединение, защиту платформы и состояние восстановления. Результаты остаются на устройстве.',
   'diag_refresh_timeline': 'Обновить шкалу времени',
@@ -380,7 +385,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_event_stream_degraded_body': 'Восстановление хода диагностики…',
   'diag_export_included': 'Включено:',
   'diag_export_included_body':
-      'Коды ошибок, этапы, относительное время, счётчики и логические состояния',
+      'Коды ошибок, этапы подключения, время, статистика трафика и состояние функций',
   'diag_export_excluded': 'Исключено:',
   'diag_export_excluded_body':
       'Ключи, токены, имена профилей, полные адреса, SSID, списки приложений и пути пользователя',
@@ -388,7 +393,7 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Архив записывается только в выбранное место и никогда не отправляется автоматически.',
   'diag_run_title': 'Запустить сетевую диагностику',
   'diag_run_subtitle':
-      'Стандартный режим использует проверки только для чтения и пассивные проверки.',
+      'Стандартные проверки только читают состояние подключения: не отправляют тестовый трафик и не меняют настройки.',
   'diag_mode_standard': 'Стандартная',
   'diag_mode_deep': 'Глубокая',
   'diag_deep_title': 'О глубокой диагностике',
@@ -397,7 +402,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_deep_disconnected':
       'Проверки могут использовать сеть. Их можно отменить в любой момент.',
   'diag_start': 'Начать диагностику',
-  'diag_session': 'Сеанс диагностики',
+  'diag_session': 'Текущая диагностика',
   'diag_progress_semantics': 'Ход диагностики {current}%',
   'diag_waiting_check': 'Ожидание состояния проверок…',
   'diag_summary_passed': 'Успешно {count}',
@@ -420,7 +425,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_timeline_empty':
       'Ключевые переходы соединения появятся здесь после попытки подключения.',
   'diag_timeline_truncated':
-      'В интерфейсе отображаются только последние 100 событий; экспортируемый пакет содержит события, которые по-прежнему хранит Usque Engine.',
+      'Показаны последние 100 записей. Диагностический пакет содержит все записи, ещё хранящиеся на устройстве.',
   'diag_metric_reconnects': 'Повторные подключения',
   'diag_metric_fallbacks': 'Переходы на резервный путь',
   'diag_metric_network_changes': 'Изменения сети',
@@ -435,9 +440,11 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_yes': 'Да',
   'diag_no': 'Нет',
   'diag_finding_passed': 'Эта проверка пройдена.',
-  'diag_finding_attention': 'Эта проверка требует внимания.',
+  'diag_finding_attention':
+      'Обнаружена возможная проблема. Просмотрите подробности перед повторной попыткой.',
   'diag_finding_failed': 'Эта проверка не удалась.',
-  'diag_finding_skipped': 'Эта проверка не выполнялась в текущем состоянии.',
+  'diag_finding_skipped':
+      'Проверку не удалось выполнить. Проверьте подключение и проверки с ошибками, затем повторите попытку.',
   'diag_finding_cancelled': 'Эта проверка отменена.',
   'diag_finding_running': 'Эта проверка выполняется.',
   'diag_finding_pending': 'Эта проверка ещё не начата.',
@@ -454,11 +461,11 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_cat_tunnel': 'Туннель',
   'diag_cat_protection': 'Системная защита',
   'diag_cat_recovery': 'Восстановление',
-  'diag_check_engine_control_channel': 'Канал управления Usque Engine',
-  'diag_check_engine_event_stream': 'Поток событий Usque Engine',
-  'diag_check_engine_capabilities': 'Возможности API',
+  'diag_check_engine_control_channel': 'Связь со службой подключения',
+  'diag_check_engine_event_stream': 'Обновления состояния подключения',
+  'diag_check_engine_capabilities': 'Совместимость функций подключения',
   'diag_check_engine_configuration': 'Конфигурация',
-  'diag_check_engine_secure_storage_metadata': 'Метаданные идентичности',
+  'diag_check_engine_secure_storage_metadata': 'Сохранённые данные входа',
   'diag_check_frontend_socks_port': 'Прослушиватель SOCKS5',
   'diag_check_frontend_http_port': 'Прослушиватель HTTP',
   'diag_check_frontend_system_proxy_state': 'Состояние системного прокси',
@@ -466,7 +473,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Физический маршрут IPv4',
   'diag_check_physical_ipv6_route': 'Физический маршрут IPv6',
   'diag_check_physical_dns_available': 'Физический DNS',
-  'diag_check_physical_network_generation': 'Поколение сети',
+  'diag_check_physical_network_generation': 'Изменения сети',
   'diag_check_transport_h3_connect': 'Соединение HTTP/3',
   'diag_check_transport_h3_datagram': 'Дейтаграммы HTTP/3',
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
@@ -482,10 +489,11 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'Выход IPv6',
   'diag_check_protection_kill_switch': 'Состояние Kill Switch',
   'diag_check_protection_dns_path': 'Путь DNS',
-  'diag_check_protection_route_ownership': 'Владение маршрутами',
+  'diag_check_protection_route_ownership':
+      'Сетевые маршруты под управлением Usque',
   'diag_check_protection_recovery_journal': 'Журнал восстановления',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine недоступен',
-  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent недоступен',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Служба подключения Usque недоступна',
+  'diag_fail_AGENT_UNREACHABLE': 'Нет связи с системной сетевой службой Usque',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Служба VPN недоступна',
   'diag_fail_PROXY_PORT_IN_USE': 'Порт прокси занят',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'Физический IPv4 недоступен',
@@ -538,32 +546,33 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'Сбой зависимости диагностики',
   'diag_fail_INTERNAL': 'Внутренняя ошибка',
   'diag_fix_try_http2':
-      'Используйте HTTP/2 и оставьте зонды восстановления включёнными.',
+      'В Настройки → Дополнительные сетевые настройки выберите HTTP/2, примените изменение и подключитесь снова.',
   'diag_fix_check_physical_network':
-      'Проверьте доступность текущей сети, DNS и семейства адресов.',
+      'Проверьте работу Wi-Fi или мобильной сети и повторите подключение.',
   'diag_fix_refresh_or_replace_identity':
-      'Обновите или замените идентичность перед повторным подключением.',
-  'diag_fix_replace_identity': 'Снова настройте действительную идентичность.',
+      'В разделе Аккаунты выберите Настроить аккаунт WARP. Войдите снова или создайте аккаунт WARP, затем подключитесь.',
+  'diag_fix_replace_identity':
+      'В Аккаунты → Настроить аккаунт WARP войдите снова или импортируйте действительные данные входа WARP.',
   'diag_fix_review_configuration':
-      'Проверьте конфигурацию и исправьте недопустимые значения.',
+      'В Настройки → Дополнительные сетевые настройки исправьте отмеченные поля и примените изменения.',
   'diag_fix_restore_platform_state':
-      'Восстановите сетевое состояние платформы перед повторной попыткой.',
+      'Полностью закройте Usque и откройте снова. Если проблема остаётся, экспортируйте пакет из Диагностики для обращения в поддержку.',
   'diag_fix_resolve_dependency':
-      'Сначала устраните сбой предварительного условия.',
+      'Сначала устраните ошибки проверок в списке, затем запустите диагностику снова.',
   'diag_fix_run_deep_diagnostics':
-      'Запустите глубокую диагностику в подходящей среде.',
+      'В Диагностике выберите Глубокая и начните проверки. Они могут отправлять тестовый трафик; часть проверок пропускается при активном подключении.',
   'diag_fix_run_release_leak_gate':
       'Экспортируйте диагностический пакет с удалёнными конфиденциальными данными для поддержки.',
   'diag_fix_inspect_platform_state':
-      'Проверьте фактическое состояние с помощью операции, которая только читает состояние сети и системного прокси.',
+      'В Диагностике проверьте ошибки в разделе Системная защита. Если они остаются, экспортируйте диагностический пакет для поддержки.',
   'diag_fix_generate_tunnel_traffic':
-      'Создайте небольшой туннельный трафик, затем проверьте снова.',
+      'Откройте веб-страницу через Usque и повторите проверку.',
   'diag_fix_export_diagnostics':
       'Экспортируйте диагностический пакет с удалёнными конфиденциальными данными для поддержки.',
   'diag_fix_retry': 'Повторите попытку чуть позже.',
   'diag_fix_none': 'Действий не требуется.',
   'diag_fix_default':
-      'Используйте код ошибки, чтобы проверить связанную конфигурацию и состояние сети.',
+      'Повторите попытку. Если проблема остаётся, откройте Диагностику и экспортируйте пакет для поддержки.',
   'diag_event_attempt_started': 'Попытка соединения начата',
   'diag_event_endpoint_resolved': 'Адрес конечной точки разрешён',
   'diag_event_socket_connected': 'Сокет подключён',

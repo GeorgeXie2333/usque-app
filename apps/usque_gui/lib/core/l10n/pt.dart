@@ -4,7 +4,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'disable_quic_help':
       "Bloqueia UDP/443 pelo proxy ou túnel, incluindo outros protocolos nessa porta. O tráfego direto GEO e a ligação HTTP/3 do Usque não são afetados. QUIC noutras portas continua permitido. Aplica-se sem voltar a ligar.",
   'disable_quic_unsupported':
-      "Atualize ou reinicie o motor para usar esta definição.",
+      'Reabra o Usque e tente novamente. Se a opção continuar indisponível, procure atualizações em Configurações.',
   'technical_details': 'Detalhes técnicos',
   'diag_skip_disconnected': 'Conecte-se para executar esta verificação.',
   'diag_skip_disabled': 'Este recurso está desativado.',
@@ -28,13 +28,13 @@ const Map<String, String> kPtCatalog = <String, String>{
   'tray_disconnect_profile': 'Desconectar a conta ativa',
   'tray_disconnect_exit': 'Desconectar e sair',
   'connection_status': 'Status da conexão',
-  'outputs': 'Saídas de rede',
+  'outputs': 'VPN e proxies locais',
   'home': 'Início',
   'profiles': 'Contas',
   'profiles_subtitle': 'Alterne e gerencie contas WARP.',
   'proxy': 'Proxy',
   'proxy_subtitle':
-      'Listeners locais e DNS compartilhados por todas as contas.',
+      'Defina os endereços de proxy e DNS compartilhados por todas as contas.',
   'settings': 'Configurações',
   'settings_subtitle': 'Configurações de conexão, proxy e aplicativo.',
   'diagnostics': 'Diagnósticos',
@@ -42,7 +42,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'nav_profiles': 'Contas',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Ajustes',
-  'status_stream_degraded': 'Atualizações de status em tempo real degradadas',
+  'status_stream_degraded': 'A atualização do status está atrasada',
   'status_stream_degraded_body':
       'As atualizações de status estão atrasadas. Nova tentativa automática em andamento.',
   'connect': 'Conectar',
@@ -58,7 +58,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'error': 'Erro de conexão',
   'active_profile': 'Conta atual',
   'protocol': 'Protocolo',
-  'address_family': 'Família de endereços',
+  'address_family': 'Versão de IP',
   'duration': 'Duração',
   'download': 'Download',
   'upload': 'Upload',
@@ -68,46 +68,47 @@ const Map<String, String> kPtCatalog = <String, String>{
   'not_available': 'Não disponível',
   'location_disconnected': 'Aguardando conexão',
   'engine_unavailable':
-      'O Usque Engine nativo ainda não está disponível nesta compilação.',
+      'Não foi possível iniciar o serviço de conexão. Feche o Usque por completo e abra novamente. Se continuar falhando, abra Diagnósticos.',
   'dismiss': 'Dispensar',
   'new_profile': 'Adicionar conta',
   'profile_name': 'Nome da conta',
   'profile_name_too_long': 'Use no máximo 64 caracteres.',
-  'configure_identity': 'Configurar identidade WARP',
-  'identity_ready': 'Identidade pronta',
+  'configure_identity': 'Configurar conta WARP',
+  'identity_ready': 'Conta pronta',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Identidade obrigatória',
-  'identity_invalid': 'A identidade precisa de reparo',
-  'identity_setup_failed': 'Não foi possível configurar a identidade WARP.',
+  'identity_missing': 'Configure a conta',
+  'identity_invalid': 'Configure a conta novamente',
+  'identity_setup_failed':
+      'Não foi possível configurar a conta WARP. Tente novamente.',
   'use_license_key': 'Usar uma WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Entre com uma conta da organização',
   'zero_trust_team': 'Nome da equipe da organização',
   'zero_trust_team_invalid':
-      'Insira um nome de equipe com um único rótulo DNS.',
+      'Use de 1 a 63 letras latinas, números ou hifens. Comece e termine com letra ou número. Exemplo: example-team.',
   'zero_trust_open_login': 'Abrir login da organização',
   'zero_trust_browser_failed': 'Não foi possível abrir o navegador do sistema.',
   'zero_trust_manual_callback':
-      'Após entrar, retorne ao Usque. Se o callback não for preenchido automaticamente, preencha-o pela área de transferência ou cole o URL completo.',
+      'Após entrar, volte ao Usque. Se o resultado não aparecer automaticamente, copie o link usado pela página de login para abrir o WARP e cole-o inteiro abaixo.',
   'zero_trust_callback_received':
-      'Callback da organização recebido com segurança.',
-  'zero_trust_callback': 'URL de callback completo',
+      'Login recebido. Continue para concluir a configuração da conta.',
+  'zero_trust_callback': 'Link de retorno do login',
   'zero_trust_callback_required':
-      'Cole um URL de callback completo e recente ou entre novamente.',
+      'Cole o link completo da página de login ou abra a página e entre novamente.',
   'zero_trust_callback_invalid':
-      'Use um callback do Access com.cloudflare.warp para esta organização.',
+      'Este link não corresponde ao login da organização. Abra a página novamente e copie o link completo para abrir o WARP.',
   'zero_trust_paste_clipboard': 'Preencher da área de transferência',
   'zero_trust_clipboard_empty':
-      'A área de transferência não contém um URL de callback.',
+      'Não há um link de retorno do login na área de transferência.',
   'zero_trust_scope_note':
-      'Experimental: usa o registro de dispositivo da organização para acesso à Internet; a sincronização de políticas e a postura do dispositivo não estão implementadas.',
+      'Experimental: esta conta serve apenas para acessar a Internet pública. Não oferece atualizações das políticas da organização nem verificações dos requisitos de segurança do dispositivo.',
   'zero_trust_repair_same_team':
-      'Entre novamente na mesma organização para atualizar o registro deste dispositivo.',
+      'Entre novamente na mesma organização para recuperar a conexão desta conta.',
   'zero_trust_metadata_missing':
-      'A vinculação da organização salva está ausente. Por segurança, esta entrada de conta não pode ser reparada no local; adicione uma nova conta Zero Trust.',
+      'Os dados salvos da organização estão incompletos. Adicione outra conta Zero Trust e entre novamente.',
   'zero_trust_endpoint_managed':
-      'Este endpoint é gerenciado pelo registro de dispositivo do Zero Trust e não pode ser editado aqui.',
+      'A conta da organização define este endereço de servidor. Ele não pode ser alterado aqui.',
   'experimental': 'Experimental',
   'show_license': 'Mostrar License Key',
   'hide_license': 'Ocultar License Key',
@@ -121,10 +122,10 @@ const Map<String, String> kPtCatalog = <String, String>{
   'delete': 'Excluir',
   'delete_profile': 'Remover conta?',
   'delete_profile_body':
-      'Isso remove as configurações não secretas desta conta. Os dados de identidade armazenados não são excluídos.',
+      'Remove a conta da lista e apaga suas configurações locais. Os dados de login WARP salvos permanecem neste dispositivo.',
   'delete_zero_trust_profile_body':
-      'Isso exclui apenas a conta local e as credenciais. Peça a um administrador da organização que remova o registro residual do dispositivo no Zero Trust.',
-  'license_not_applicable': 'Licença não aplicável · Experimental',
+      'Apaga a conta e seus dados de login deste dispositivo. Peça ao administrador que também remova o registro do dispositivo no painel Zero Trust da organização.',
+  'license_not_applicable': 'Conta da organização · Experimental',
   'zero_trust_reauthenticate': 'Entre novamente nesta organização',
   'zero_trust_admin_cleanup_note':
       'Remover esta conta não revoga o dispositivo no painel do Zero Trust.',
@@ -133,11 +134,12 @@ const Map<String, String> kPtCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Renomear conta',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'Somente canal MASQUE',
-  'channel_only_warning': 'Nenhuma saída de rede está habilitada.',
-  'socks_listener': 'Ouvinte SOCKS5',
-  'http_listener': 'Ouvinte HTTP',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN e proxies locais desativados',
+  'channel_only_warning':
+      'Esta conexão não encaminhará tráfego dos aplicativos. Abra Proxy e ative VPN, SOCKS5 ou HTTP.',
+  'socks_listener': 'Proxy SOCKS5',
+  'http_listener': 'Proxy HTTP',
   'listen_ipv4': 'Escutar IPv4',
   'listen_ipv6': 'Escutar IPv6',
   'port': 'Porta',
@@ -157,25 +159,24 @@ const Map<String, String> kPtCatalog = <String, String>{
   'lan_warning_body':
       'O Usque não adiciona autenticação de usuário/senha. Qualquer pessoa que alcançar este ouvinte poderá usá-lo.',
   'lan_warning_body_authenticated':
-      'Este ouvinte aceita clientes autenticados fora do loopback que apresentem o nome de usuário e a senha configurados.',
-  'proxy_auth': 'Autenticação do ouvinte',
+      'Outros dispositivos da rede local podem usar este proxy com o usuário e a senha que você definiu.',
+  'proxy_auth': 'Usuário e senha do proxy',
   'proxy_auth_help':
-      'Nome de usuário e senha opcionais para os ouvintes SOCKS5 e HTTP. A senha é armazenada no cofre do sistema, não no arquivo do perfil.',
+      'Exige usuário e senha para usar os proxies SOCKS5 e HTTP. A senha é salva com segurança neste dispositivo.',
   'proxy_username': 'Nome de usuário',
   'proxy_password': 'Senha',
   'proxy_password_hint':
-      'Digite uma senha para definir ou alterar as credenciais.',
-  'proxy_auth_apply': 'Salvar credenciais',
-  'proxy_auth_invalid':
-      'O nome de usuário deve ter de 1 a 255 bytes, sem “:” nem NUL. Uma senha de 1 a 255 bytes é obrigatória com um nome de usuário.',
-  'proxy_auth_saved': 'Credenciais do ouvinte salvas',
-  'proxy_auth_cleared': 'Autenticação do ouvinte removida',
+      'Informe a senha ao configurar ou alterar o usuário e a senha.',
+  'proxy_auth_apply': 'Salvar usuário e senha',
+  'proxy_auth_invalid': 'Confira o usuário e a senha e tente novamente.',
+  'proxy_auth_saved': 'Usuário e senha do proxy salvos.',
+  'proxy_auth_cleared': 'Proteção por senha do proxy removida.',
   'lan_warning_authenticated': 'Ouvinte LAN autenticado',
   'lan_warning_authenticated_body':
       'Este ouvinte é acessível na rede local e exige o nome de usuário e a senha que você definiu.',
   'proxy_password_set':
       'A senha está definida. Insira uma nova para substituí-la.',
-  'proxy_auth_clear': 'Remover autenticação',
+  'proxy_auth_clear': 'Remover proteção por senha',
   'general': 'Geral',
   'system_integration': 'Integração com o sistema',
   'start_on_boot': 'Iniciar o Usque ao entrar no sistema',
@@ -229,8 +230,8 @@ const Map<String, String> kPtCatalog = <String, String>{
   'update_package_unavailable':
       'Não há pacote verificado para este dispositivo. Abra a página da versão.',
   'notice': 'Concluído',
-  'identity': 'Identidade WARP',
-  'identity_and_license': 'Identidade e licença',
+  'identity': 'Conta WARP',
+  'identity_and_license': 'Conta e licença',
   'license_cleanup_pending':
       'Um registro antigo de dispositivo WARP aguarda remoção.',
   'copy_license': 'Copiar License Key',
@@ -271,7 +272,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'lockdown': 'Bloquear sem VPN',
   'not_used_proxy': 'Não usado no modo proxy',
   'kill_switch_help':
-      'Bloqueia o tráfego ao conectar, reconectar ou se recuperar de uma falha do Usque Engine. No Android, isso vale enquanto o serviço VPN estiver em execução; ative VPN sempre ativada e Bloquear conexões sem VPN nas configurações do sistema para proteção depois que o aplicativo for encerrado.',
+      'Bloqueia o tráfego durante conexão, reconexão ou recuperação de falha do serviço. No Android, funciona apenas enquanto o serviço VPN está ativo. Para manter a proteção após o encerramento do aplicativo, ative VPN sempre ativa e Bloquear conexões sem VPN nas configurações do sistema.',
   'start_on_boot_android':
       'Inicie o Usque após a reinicialização. Ative também a conexão automática ao iniciar.',
   'add_quick_settings_tile_help':
@@ -313,8 +314,8 @@ const Map<String, String> kPtCatalog = <String, String>{
   'invalid_cidr': 'CIDR inválido',
   'diagnostics_title': 'Diagnóstico e informações',
   'diagnostics_subtitle':
-      'Estado do Usque Engine, exportação de logs e dados locais.',
-  'engine_status': 'Status do Usque Engine',
+      'Verifique problemas de conexão, exporte registros e gerencie os dados locais.',
+  'engine_status': 'Informações da conexão',
   'version': 'Versão',
   'app_version': 'Usque 0.2.7',
   'logs': 'Logs locais',
@@ -326,9 +327,9 @@ const Map<String, String> kPtCatalog = <String, String>{
   'license': 'Licença',
   'clear_all_data': 'Limpar todos os dados',
   'clear_all_data_help':
-      'Desconecte e remova permanentemente todas as contas, identidades Consumer WARP, preferências, cache e registros de diagnóstico locais deste dispositivo.',
+      'Desconecta e apaga permanentemente deste dispositivo todas as contas, dados de login WARP, configurações, caches e registros de diagnóstico.',
   'clear_all_data_confirm':
-      'Isso não pode ser desfeito. O Usque desconectará primeiro, apagará todas as identidades e contas salvas e retornará à configuração inicial.',
+      'Não é possível desfazer. O Usque desconectará, apagará todas as contas e dados de login e voltará à configuração inicial.',
   'clear_all_data_complete': 'Todos os dados locais do Usque foram limpos.',
   'unofficial':
       'Cliente não oficial compatível com Cloudflare WARP. Não é afiliado nem endossado pela Cloudflare.',
@@ -337,13 +338,13 @@ const Map<String, String> kPtCatalog = <String, String>{
   'get_started': 'Começar',
   'permissions_title': 'Permissões do sistema',
   'permissions_body':
-      'O Usque precisa de permissão para criar uma interface VPN e gerenciar rotas, DNS, regras de firewall e o proxy do sistema.',
+      'O Usque precisa de permissão para encaminhar o tráfego dos aplicativos pela VPN. Conforme o modo de conexão, também configura DNS, rotas de rede, proteção do firewall ou proxy do sistema.',
   'terms_title': 'Termos da Cloudflare',
   'terms_body':
       'O Usque é um cliente independente. Seu uso do Consumer WARP ou do registro experimental do Zero Trust permanece sujeito aos termos e à política de privacidade aplicáveis da Cloudflare.',
   'terms_accept': 'Eu entendo e aceito estas condições.',
-  'identity_title': 'Configurar Consumer WARP',
-  'register_new': 'Registrar uma nova identidade',
+  'identity_title': 'Configurar conta WARP pessoal',
+  'register_new': 'Criar conta WARP gratuita',
   'manual_secret': 'Inserir WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Mostrar segredo',
@@ -358,9 +359,9 @@ const Map<String, String> kPtCatalog = <String, String>{
   'profile_required': 'Mantenha pelo menos uma conta.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e encaminhamento comum',
-  'geo_direct': 'Países com roteamento direto',
+  'geo_direct': 'Países e regiões com conexão direta',
   'geo_direct_help':
-      'Os domínios correspondentes ficam visíveis para o DNS da rede atual; apps com DNS criptografado são roteados só por IP.',
+      'O tráfego correspondente a esses países ou regiões não passa pela VPN. O provedor DNS da rede atual pode ver os domínios consultados. Aplicativos com DNS criptografado são classificados apenas pelo IP.',
   'geo_update_all': 'Atualizar dados geográficos',
   'geo_last_updated': 'Última atualização bem-sucedida: {current}',
   'geo_never_updated': 'Ainda não atualizado',
@@ -371,12 +372,13 @@ const Map<String, String> kPtCatalog = <String, String>{
   'geo_search': 'Pesquisar países',
   'geo_not_downloaded': 'Não baixado',
   'geo_downloaded': 'Baixado',
-  'geo_chip': 'Roteamento direto: {current}',
+  'geo_chip': 'Direto: {current}',
   'geo_download_first':
       'Baixe os dados geográficos deste país antes de ativá-lo.',
   'geo_update_complete':
       'Dados geográficos: {updated} atualizados, {current} já estavam atualizados.',
-  'geo_update_failed': 'Falha ao atualizar os dados geográficos: {current}',
+  'geo_update_failed':
+      'Algumas regras não foram atualizadas ({current}). Verifique a rede e tente novamente.',
   'diagnostics_page_subtitle':
       'Inspecione a conexão, a proteção da plataforma e o estado de recuperação. Os resultados permanecem neste dispositivo.',
   'diag_refresh_timeline': 'Atualizar linha do tempo',
@@ -385,7 +387,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_event_stream_degraded_body': 'Restaurando o progresso do diagnóstico…',
   'diag_export_included': 'Incluído:',
   'diag_export_included_body':
-      'Códigos de erro, etapas, tempos relativos, contadores e estados booleanos',
+      'Códigos de erro, etapas da conexão, tempos, estatísticas de tráfego e status dos recursos',
   'diag_export_excluded': 'Excluído:',
   'diag_export_excluded_body':
       'Chaves, tokens, nomes de perfil, endereços completos, SSIDs, listas de apps e caminhos de usuário',
@@ -393,7 +395,7 @@ const Map<String, String> kPtCatalog = <String, String>{
       'O arquivo é gravado apenas no local que você escolher e nunca é enviado automaticamente.',
   'diag_run_title': 'Executar diagnóstico de rede',
   'diag_run_subtitle':
-      'O modo padrão usa apenas verificações somente leitura e passivas.',
+      'As verificações padrão apenas leem o status da conexão, sem enviar tráfego de teste ou alterar configurações.',
   'diag_mode_standard': 'Padrão',
   'diag_mode_deep': 'Aprofundado',
   'diag_deep_title': 'Sobre o diagnóstico aprofundado',
@@ -402,7 +404,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_deep_disconnected':
       'As verificações podem usar a rede. Você pode cancelar a qualquer momento.',
   'diag_start': 'Iniciar diagnóstico',
-  'diag_session': 'Sessão de diagnóstico',
+  'diag_session': 'Diagnóstico atual',
   'diag_progress_semantics': 'Progresso do diagnóstico {current}%',
   'diag_waiting_check': 'Aguardando o estado das verificações…',
   'diag_summary_passed': 'Aprovadas {count}',
@@ -426,7 +428,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_timeline_empty':
       'As transições importantes de conexão aparecerão aqui após uma tentativa de conexão.',
   'diag_timeline_truncated':
-      'Mostrando os 100 eventos mais recentes; o pacote de diagnóstico exportado mantém todos os eventos que o Usque Engine ainda conserva.',
+      'Mostrando os últimos 100 registros. O pacote de diagnóstico inclui todos os registros ainda salvos neste dispositivo.',
   'diag_metric_reconnects': 'Reconexões',
   'diag_metric_fallbacks': 'Fallbacks',
   'diag_metric_network_changes': 'Mudanças de rede',
@@ -441,9 +443,11 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_yes': 'Sim',
   'diag_no': 'Não',
   'diag_finding_passed': 'Esta verificação passou.',
-  'diag_finding_attention': 'Esta verificação precisa de atenção.',
+  'diag_finding_attention':
+      'Foi encontrado um possível problema. Veja os detalhes antes de tentar novamente.',
   'diag_finding_failed': 'Esta verificação falhou.',
-  'diag_finding_skipped': 'Esta verificação não foi executada no estado atual.',
+  'diag_finding_skipped':
+      'Esta verificação não pôde ser executada. Confira a conexão e as verificações que falharam e tente novamente.',
   'diag_finding_cancelled': 'Esta verificação foi cancelada.',
   'diag_finding_running': 'Esta verificação está em execução.',
   'diag_finding_pending': 'Esta verificação ainda não começou.',
@@ -460,11 +464,11 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_cat_tunnel': 'Túnel',
   'diag_cat_protection': 'Proteção do sistema',
   'diag_cat_recovery': 'Recuperação',
-  'diag_check_engine_control_channel': 'Canal de controle do Usque Engine',
-  'diag_check_engine_event_stream': 'Fluxo de eventos do Usque Engine',
-  'diag_check_engine_capabilities': 'Capacidades da API',
+  'diag_check_engine_control_channel': 'Comunicação com o serviço de conexão',
+  'diag_check_engine_event_stream': 'Atualizações do status da conexão',
+  'diag_check_engine_capabilities': 'Compatibilidade dos recursos de conexão',
   'diag_check_engine_configuration': 'Configuração',
-  'diag_check_engine_secure_storage_metadata': 'Metadados de identidade',
+  'diag_check_engine_secure_storage_metadata': 'Dados de login salvos',
   'diag_check_frontend_socks_port': 'Ouvinte SOCKS5',
   'diag_check_frontend_http_port': 'Ouvinte HTTP',
   'diag_check_frontend_system_proxy_state': 'Estado do proxy do sistema',
@@ -472,7 +476,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Rota IPv4 física',
   'diag_check_physical_ipv6_route': 'Rota IPv6 física',
   'diag_check_physical_dns_available': 'DNS físico',
-  'diag_check_physical_network_generation': 'Geração de rede',
+  'diag_check_physical_network_generation': 'Mudanças na rede',
   'diag_check_transport_h3_connect': 'Conexão HTTP/3',
   'diag_check_transport_h3_datagram': 'Datagramas HTTP/3',
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
@@ -488,10 +492,12 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'Saída IPv6',
   'diag_check_protection_kill_switch': 'Estado do Kill Switch',
   'diag_check_protection_dns_path': 'Caminho DNS',
-  'diag_check_protection_route_ownership': 'Propriedade das rotas',
+  'diag_check_protection_route_ownership':
+      'Rotas de rede gerenciadas pelo Usque',
   'diag_check_protection_recovery_journal': 'Diário de recuperação',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine indisponível',
-  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent inacessível',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Serviço de conexão do Usque indisponível',
+  'diag_fail_AGENT_UNREACHABLE':
+      'Não foi possível contatar o serviço de rede do sistema do Usque',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Serviço VPN indisponível',
   'diag_fail_PROXY_PORT_IN_USE': 'Porta de proxy em uso',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 físico indisponível',
@@ -544,31 +550,33 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'Dependência do diagnóstico falhou',
   'diag_fail_INTERNAL': 'Erro interno',
   'diag_fix_try_http2':
-      'Use HTTP/2 e mantenha as sondas de recuperação ativas.',
+      'Em Configurações → Configurações avançadas de rede, escolha HTTP/2, aplique as alterações e tente conectar novamente.',
   'diag_fix_check_physical_network':
-      'Verifique a disponibilidade da rede atual, do DNS e da família de endereços.',
+      'Verifique se o Wi-Fi ou a rede móvel funciona e tente conectar novamente.',
   'diag_fix_refresh_or_replace_identity':
-      'Atualize ou substitua a identidade antes de reconectar.',
-  'diag_fix_replace_identity': 'Configure novamente uma identidade válida.',
+      'Em Contas, escolha Configurar conta WARP para esta conta. Entre novamente ou crie uma conta WARP e reconecte.',
+  'diag_fix_replace_identity':
+      'Em Contas → Configurar conta WARP, entre novamente ou importe dados de login WARP válidos.',
   'diag_fix_review_configuration':
-      'Revise a configuração e corrija os valores inválidos.',
+      'Em Configurações → Configurações avançadas de rede, corrija os campos destacados e aplique as alterações.',
   'diag_fix_restore_platform_state':
-      'Restaure o estado de rede da plataforma antes de tentar de novo.',
-  'diag_fix_resolve_dependency': 'Resolva primeiro o pré-requisito com falha.',
+      'Feche o Usque por completo e abra novamente. Se continuar falhando, exporte um pacote em Diagnósticos para pedir ajuda.',
+  'diag_fix_resolve_dependency':
+      'Resolva primeiro as verificações que falharam na lista e execute o diagnóstico novamente.',
   'diag_fix_run_deep_diagnostics':
-      'Execute o diagnóstico aprofundado em um ambiente adequado.',
+      'Em Diagnósticos, escolha Aprofundado e inicie as verificações. Elas podem enviar tráfego de teste; algumas são ignoradas durante a conexão.',
   'diag_fix_run_release_leak_gate':
       'Exporte um pacote de diagnóstico sem dados sensíveis para o suporte.',
   'diag_fix_inspect_platform_state':
-      'Confirme o estado real com uma verificação somente leitura do estado de rede e proxy do sistema.',
+      'Em Diagnósticos, veja as falhas de Proteção do sistema. Se persistirem, exporte um pacote de diagnóstico para pedir ajuda.',
   'diag_fix_generate_tunnel_traffic':
-      'Gere um pouco de tráfego no túnel e verifique novamente.',
+      'Abra uma página pela conexão do Usque e repita a verificação.',
   'diag_fix_export_diagnostics':
       'Exporte um pacote de diagnóstico sem dados sensíveis para o suporte.',
   'diag_fix_retry': 'Tente novamente em breve.',
   'diag_fix_none': 'Nenhuma ação é necessária.',
   'diag_fix_default':
-      'Use o código de erro para revisar a configuração e o estado de rede relacionados.',
+      'Tente novamente. Se o problema persistir, abra Diagnósticos e exporte um pacote para pedir ajuda.',
   'diag_event_attempt_started': 'Tentativa de conexão iniciada',
   'diag_event_endpoint_resolved': 'Endereço do endpoint resolvido',
   'diag_event_socket_connected': 'Soquete conectado',

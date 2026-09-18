@@ -4,7 +4,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'disable_quic_help':
       "Блокує UDP/443 через проксі або тунель, зокрема інші протоколи на цьому порту. Прямий трафік GEO та з’єднання HTTP/3 Usque не змінюються. QUIC на інших портах дозволено. Застосовується без перепідключення.",
   'disable_quic_unsupported':
-      "Оновіть або перезапустіть рушій, щоб використовувати це налаштування.",
+      'Повністю закрийте Usque й відкрийте знову. Якщо цей параметр досі недоступний, оновіть Usque в Налаштуваннях.',
   'technical_details': 'Технічні відомості',
   'diag_skip_disconnected': 'Підключіться, щоб виконати цю перевірку.',
   'diag_skip_disabled': 'Цю функцію вимкнено.',
@@ -27,13 +27,13 @@ const Map<String, String> kUkCatalog = <String, String>{
   'tray_disconnect_profile': 'Відʼєднати поточний обліковий запис',
   'tray_disconnect_exit': 'Відʼєднати й вийти',
   'connection_status': 'Стан зʼєднання',
-  'outputs': 'Мережеві виходи',
+  'outputs': 'VPN і локальні проксі',
   'home': 'Головна',
   'profiles': 'Облікові записи',
   'profiles_subtitle': 'Перемикайте облікові записи WARP і керуйте ними.',
   'proxy': 'Проксі',
   'proxy_subtitle':
-      'Локальні слухачі та DNS спільні для всіх облікових записів.',
+      'Налаштуйте адреси проксі та DNS, спільні для всіх облікових записів.',
   'settings': 'Налаштування',
   'settings_subtitle': 'Налаштування зʼєднання, проксі та програми.',
   'diagnostics': 'Діагностика',
@@ -41,7 +41,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'nav_profiles': 'Акаунти',
   'nav_proxy': 'Проксі',
   'nav_settings': 'Опції',
-  'status_stream_degraded': 'Оновлення стану в реальному часі погіршено',
+  'status_stream_degraded': 'Оновлення стану затримуються',
   'status_stream_degraded_body':
       'Оновлення стану затримується. Спроба повториться автоматично.',
   'connect': 'Зʼєднати',
@@ -57,7 +57,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'error': 'Помилка зʼєднання',
   'active_profile': 'Поточний обліковий запис',
   'protocol': 'Протокол',
-  'address_family': 'Сімейство адрес',
+  'address_family': 'Версія IP',
   'duration': 'Тривалість',
   'download': 'Завантаження',
   'upload': 'Вивантаження',
@@ -66,45 +66,48 @@ const Map<String, String> kUkCatalog = <String, String>{
   'ipv6': 'IPv6',
   'not_available': 'Недоступно',
   'location_disconnected': 'Очікування зʼєднання',
-  'engine_unavailable': 'Вбудований Usque Engine ще недоступний у цій збірці.',
+  'engine_unavailable':
+      'Не вдалося запустити службу з’єднання. Повністю закрийте Usque й відкрийте знову. Якщо проблема залишиться, відкрийте Діагностику.',
   'dismiss': 'Закрити',
   'new_profile': 'Додати обліковий запис',
   'profile_name': 'Назва облікового запису',
   'profile_name_too_long': 'Використовуйте не більше ніж 64 символи.',
-  'configure_identity': 'Налаштувати ідентичність WARP',
-  'identity_ready': 'Ідентичність готова',
+  'configure_identity': 'Налаштувати обліковий запис WARP',
+  'identity_ready': 'Обліковий запис готовий',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Потрібна ідентичність',
-  'identity_invalid': 'Ідентичність потребує виправлення',
-  'identity_setup_failed': 'Не вдалося налаштувати ідентичність WARP.',
+  'identity_missing': 'Потрібно налаштувати обліковий запис',
+  'identity_invalid': 'Потрібно повторно налаштувати обліковий запис',
+  'identity_setup_failed':
+      'Не вдалося налаштувати обліковий запис WARP. Спробуйте ще раз.',
   'use_license_key': 'Використати WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Увійти за допомогою облікового запису організації',
   'zero_trust_team': 'Назва команди організації',
-  'zero_trust_team_invalid': 'Введіть одну назву команди як DNS-мітку.',
+  'zero_trust_team_invalid':
+      'Введіть від 1 до 63 латинських літер, цифр або дефісів. Першим і останнім символом має бути літера або цифра. Приклад: example-team.',
   'zero_trust_open_login': 'Відкрити вхід організації',
   'zero_trust_browser_failed': 'Не вдалося відкрити системний браузер.',
   'zero_trust_manual_callback':
-      'Після входу поверніться в Usque. Якщо URL зворотного виклику не заповнився автоматично, заповніть його з буфера обміну або вставте повну URL-адресу.',
+      'Після входу поверніться до Usque. Якщо вхід не завершиться автоматично, скопіюйте зі сторінки входу повне посилання, яке відкриває WARP, і вставте його нижче.',
   'zero_trust_callback_received':
-      'Зворотний виклик організації отримано безпечно.',
-  'zero_trust_callback': 'Повна URL-адреса зворотного виклику',
+      'Дані входу отримано. Продовжте налаштування облікового запису.',
+  'zero_trust_callback': 'Посилання для повернення після входу',
   'zero_trust_callback_required':
-      'Вставте нову повну URL-адресу зворотного виклику або увійдіть знову.',
+      'Вставте повне посилання зі сторінки входу або відкрийте сторінку знову й повторіть вхід.',
   'zero_trust_callback_invalid':
-      'Використайте зворотний виклик Access com.cloudflare.warp для цієї організації.',
+      'Це посилання не відповідає вибраній організації. Відкрийте сторінку входу знову й скопіюйте повне посилання, яке відкриває WARP.',
   'zero_trust_paste_clipboard': 'Заповнити з буфера обміну',
   'zero_trust_clipboard_empty':
-      'Буфер обміну не містить URL-адреси зворотного виклику.',
+      'У буфері обміну немає посилання для повернення після входу.',
   'zero_trust_scope_note':
-      'Експериментально: використовує реєстрацію пристрою організації для доступу до Інтернету; синхронізацію політик і перевірку стану пристрою не реалізовано.',
+      'Експериментальна функція. Надає доступ лише до загальнодоступного інтернету; не підтримує оновлення політик організації та перевірки безпеки пристрою.',
   'zero_trust_repair_same_team':
-      'Увійдіть знову до тієї самої організації, щоб оновити реєстрацію цього пристрою.',
+      'Щоб відновити з’єднання цього облікового запису, увійдіть знову до тієї самої організації.',
   'zero_trust_metadata_missing':
-      'Збережену привʼязку організації втрачено. З міркувань безпеки цей запис облікового запису не можна виправити на місці; додайте новий обліковий запис Zero Trust.',
+      'Збережені відомості про організацію неповні. Додайте новий обліковий запис Zero Trust і увійдіть.',
   'zero_trust_endpoint_managed':
-      'Цією кінцевою точкою керує реєстрація пристрою Zero Trust, тому її не можна змінити тут.',
+      'Адресу сервера визначає обліковий запис організації. Тут її змінити не можна.',
   'experimental': 'Експериментально',
   'show_license': 'Показати License Key',
   'hide_license': 'Сховати License Key',
@@ -118,10 +121,10 @@ const Map<String, String> kUkCatalog = <String, String>{
   'delete': 'Видалити',
   'delete_profile': 'Видалити обліковий запис?',
   'delete_profile_body':
-      'Це видаляє несекретні налаштування цього облікового запису. Збережені дані ідентичності не видаляються.',
+      'Обліковий запис буде вилучено зі списку, а його локальні налаштування — видалено. Збережені дані входу WARP залишаться на цьому пристрої.',
   'delete_zero_trust_profile_body':
-      'Це видаляє лише локальний обліковий запис і облікові дані. Попросіть адміністратора організації вилучити залишкову реєстрацію пристрою в Zero Trust.',
-  'license_not_applicable': 'Ліцензія не застосовується · Експериментально',
+      'Обліковий запис і дані входу буде видалено з цього пристрою. Щоб скасувати реєстрацію пристрою в Zero Trust організації, зверніться до адміністратора.',
+  'license_not_applicable': 'Обліковий запис організації · Експериментально',
   'zero_trust_reauthenticate': 'Увійти знову до цієї організації',
   'zero_trust_admin_cleanup_note':
       'Видалення цього облікового запису не відкликає пристрій на панелі Zero Trust.',
@@ -130,11 +133,12 @@ const Map<String, String> kUkCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Перейменувати обліковий запис',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'Лише канал MASQUE',
-  'channel_only_warning': 'Жоден мережевий вихід не ввімкнено.',
-  'socks_listener': 'Слухач SOCKS5',
-  'http_listener': 'Слухач HTTP',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN і локальні проксі вимкнено',
+  'channel_only_warning':
+      'Трафік жодної програми не використовує це з’єднання. Відкрийте Проксі й увімкніть VPN, SOCKS5 або HTTP.',
+  'socks_listener': 'Проксі SOCKS5',
+  'http_listener': 'Проксі HTTP',
   'listen_ipv4': 'Прослуховування IPv4',
   'listen_ipv6': 'Прослуховування IPv6',
   'port': 'Порт',
@@ -155,24 +159,24 @@ const Map<String, String> kUkCatalog = <String, String>{
   'lan_warning_body':
       'Usque не додає автентифікацію за іменем користувача та паролем. Будь-хто, хто має доступ до цього слухача, може ним користуватися.',
   'lan_warning_body_authenticated':
-      'Цей слухач приймає автентифікованих клієнтів поза loopback, які надають налаштоване імʼя користувача та пароль.',
-  'proxy_auth': 'Автентифікація слухача',
+      'Інші пристрої в локальній мережі можуть використовувати цей проксі з указаними вами ім’ям користувача та паролем.',
+  'proxy_auth': 'Ім’я користувача та пароль проксі',
   'proxy_auth_help':
-      'Необовʼязкові імʼя користувача та пароль для слухачів SOCKS5 і HTTP. Пароль зберігається в системному сховищі, а не у файлі профілю.',
+      'Вимагати ім’я користувача та пароль для проксі SOCKS5 і HTTP. Пароль безпечно зберігається на цьому пристрої.',
   'proxy_username': 'Імʼя користувача',
   'proxy_password': 'Пароль',
   'proxy_password_hint':
-      'Введіть пароль, щоб установити або змінити облікові дані.',
-  'proxy_auth_apply': 'Зберегти облікові дані',
+      'Введіть пароль, щоб установити або змінити ім’я користувача та пароль.',
+  'proxy_auth_apply': 'Зберегти ім’я користувача та пароль',
   'proxy_auth_invalid':
-      'Імʼя користувача має містити 1–255 байтів без «:» і NUL. Разом з іменем користувача потрібен пароль із 1–255 байтів.',
-  'proxy_auth_saved': 'Облікові дані слухача збережено',
-  'proxy_auth_cleared': 'Автентифікацію слухача вилучено',
+      'Перевірте ім’я користувача та пароль і спробуйте ще раз.',
+  'proxy_auth_saved': 'Ім’я користувача та пароль проксі збережено.',
+  'proxy_auth_cleared': 'Захист проксі паролем вимкнено.',
   'lan_warning_authenticated': 'Автентифікований слухач локальної мережі',
   'lan_warning_authenticated_body':
       'Цей слухач доступний у локальній мережі та потребує імені користувача й пароля, які ви задали.',
   'proxy_password_set': 'Пароль установлено. Введіть новий, щоб замінити його.',
-  'proxy_auth_clear': 'Вилучити автентифікацію',
+  'proxy_auth_clear': 'Вимкнути захист паролем',
   'general': 'Загальні',
   'system_integration': 'Інтеграція із системою',
   'start_on_boot': 'Запускати Usque під час входу',
@@ -226,8 +230,8 @@ const Map<String, String> kUkCatalog = <String, String>{
   'update_package_unavailable':
       'Для цього пристрою немає перевіреного пакета. Відкрийте сторінку випуску.',
   'notice': 'Завершено',
-  'identity': 'Ідентичність WARP',
-  'identity_and_license': 'Ідентичність і ліцензія',
+  'identity': 'Обліковий запис WARP',
+  'identity_and_license': 'Обліковий запис і ліцензія',
   'license_cleanup_pending': 'Стара реєстрація пристрою WARP очікує видалення.',
   'copy_license': 'Копіювати License Key',
   'change_license': 'Змінити License Key',
@@ -267,7 +271,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'lockdown': 'Блокувати без VPN',
   'not_used_proxy': 'Не використовується в режимі проксі',
   'kill_switch_help':
-      'Блокувати трафік під час зʼєднання, повторного зʼєднання або відновлення після збою Usque Engine. На Android це діє, поки працює служба VPN; увімкніть «Завжди ввімкнений VPN» і «Блокувати зʼєднання без VPN» у системних налаштуваннях для захисту після завершення програми.',
+      'Блокує трафік під час підключення, повторного підключення та відновлення служби з’єднання. На Android діє лише поки працює служба VPN. Для захисту після зупинки програми ввімкніть у системних налаштуваннях постійний VPN і блокування з’єднань без VPN.',
   'start_on_boot_android':
       'Запускати Usque після перезавантаження. Також увімкніть автоматичне зʼєднання під час запуску.',
   'add_quick_settings_tile_help':
@@ -309,8 +313,8 @@ const Map<String, String> kUkCatalog = <String, String>{
   'invalid_cidr': 'Недійсний CIDR',
   'diagnostics_title': 'Діагностика та відомості',
   'diagnostics_subtitle':
-      'Стан Usque Engine, експорт журналів і локальні дані.',
-  'engine_status': 'Стан Usque Engine',
+      'Перевірте проблеми зі з’єднанням, експортуйте журнали та керуйте локальними даними.',
+  'engine_status': 'Відомості про з’єднання',
   'version': 'Версія',
   'app_version': 'Usque 0.2.7',
   'logs': 'Локальні журнали',
@@ -322,9 +326,9 @@ const Map<String, String> kUkCatalog = <String, String>{
   'license': 'Ліцензія',
   'clear_all_data': 'Очистити всі дані',
   'clear_all_data_help':
-      'Відʼєднайтеся та назавжди видаліть із цього пристрою кожен обліковий запис, ідентичність Consumer WARP, параметри, кеш і локальні діагностичні записи.',
+      'Розриває з’єднання й назавжди видаляє з цього пристрою всі облікові записи, дані входу WARP, налаштування, кеш і діагностичні дані.',
   'clear_all_data_confirm':
-      'Цю дію не можна скасувати. Usque спочатку відʼєднається, зітре всі збережені ідентичності та облікові записи й повернеться до початкового налаштування.',
+      'Цю дію неможливо скасувати. З’єднання буде розірвано, всі облікові записи й дані входу видалено, а програма повернеться до початкового налаштування.',
   'clear_all_data_complete': 'Усі локальні дані Usque очищено.',
   'unofficial':
       'Неофіційний клієнт, сумісний із Cloudflare WARP. Не повʼязаний із Cloudflare і не схвалений Cloudflare.',
@@ -333,13 +337,13 @@ const Map<String, String> kUkCatalog = <String, String>{
   'get_started': 'Почати',
   'permissions_title': 'Системні дозволи',
   'permissions_body':
-      'Usque потрібен дозвіл на створення інтерфейсу VPN і керування маршрутами, DNS, правилами брандмауера та системним проксі.',
+      'Для спрямування трафіку програм через VPN потрібен дозвіл системи. Залежно від режиму також можуть змінюватися DNS, мережеві маршрути, брандмауер або системний проксі.',
   'terms_title': 'Умови Cloudflare',
   'terms_body':
       'Usque — незалежний клієнт. Ваше використання Consumer WARP або експериментальної реєстрації Zero Trust і надалі регулюється відповідними умовами та політикою конфіденційності Cloudflare.',
   'terms_accept': 'Я розумію ці умови та приймаю їх.',
-  'identity_title': 'Налаштувати Consumer WARP',
-  'register_new': 'Зареєструвати нову ідентичність',
+  'identity_title': 'Налаштувати особистий обліковий запис WARP',
+  'register_new': 'Створити безкоштовний обліковий запис WARP',
   'manual_secret': 'Ввести WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Показати секрет',
@@ -354,9 +358,9 @@ const Map<String, String> kUkCatalog = <String, String>{
   'profile_required': 'Залиште принаймні один обліковий запис.',
   'socks_capabilities': 'TCP і UDP',
   'http_capabilities': 'CONNECT і звичайне пересилання',
-  'geo_direct': 'Країни з прямою маршрутизацією',
+  'geo_direct': 'Країни / регіони для прямого з’єднання',
   'geo_direct_help':
-      'Зіставлені домени видимі DNS поточної мережі; програми з шифрованим DNS маршрутизуються лише за IP.',
+      'Трафік, що відповідає цим правилам, оминає VPN. Постачальник DNS поточної мережі може бачити запитувані домени. Для програм із зашифрованим DNS маршрутизація визначається лише за IP-адресою.',
   'geo_update_all': 'Оновити геодані',
   'geo_last_updated': 'Останнє успішне оновлення: {current}',
   'geo_never_updated': 'Ще не оновлювалось',
@@ -367,11 +371,12 @@ const Map<String, String> kUkCatalog = <String, String>{
   'geo_search': 'Пошук країн',
   'geo_not_downloaded': 'Не завантажено',
   'geo_downloaded': 'Завантажено',
-  'geo_chip': 'Пряма маршрутизація: {current}',
+  'geo_chip': 'Напряму: {current}',
   'geo_download_first': 'Завантажте геодані цієї країни, перш ніж вмикати її.',
   'geo_update_complete':
       'Геодані: оновлено {updated}, вже актуальні {current}.',
-  'geo_update_failed': 'Не вдалося оновити геодані: {current}',
+  'geo_update_failed':
+      'Не вдалося оновити деякі правила ({current}). Перевірте мережу й спробуйте ще раз.',
   'diagnostics_page_subtitle':
       'Перевірте з’єднання, захист платформи та стан відновлення. Результати лишаються на пристрої.',
   'diag_refresh_timeline': 'Оновити шкалу часу',
@@ -380,7 +385,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_event_stream_degraded_body': 'Відновлення перебігу діагностики…',
   'diag_export_included': 'Включено:',
   'diag_export_included_body':
-      'Коди помилок, етапи, відносний час, лічильники та логічні стани',
+      'Коди помилок, етапи з’єднання, тривалість, статистика трафіку та стан функцій.',
   'diag_export_excluded': 'Виключено:',
   'diag_export_excluded_body':
       'Ключі, токени, назви профілів, повні адреси, SSID, списки програм і шляхи користувача',
@@ -388,7 +393,7 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Архів записується лише у вибране місце і ніколи не надсилається автоматично.',
   'diag_run_title': 'Запустити мережеву діагностику',
   'diag_run_subtitle':
-      'Стандартний режим використовує перевірки лише для читання та пасивні перевірки.',
+      'Стандартна перевірка лише зчитує стан. Вона не надсилає тестовий трафік і не змінює налаштування.',
   'diag_mode_standard': 'Стандартна',
   'diag_mode_deep': 'Глибока',
   'diag_deep_title': 'Про глибоку діагностику',
@@ -397,7 +402,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_deep_disconnected':
       'Перевірки можуть використовувати мережу. Їх можна скасувати будь-коли.',
   'diag_start': 'Почати діагностику',
-  'diag_session': 'Сеанс діагностики',
+  'diag_session': 'Поточна діагностика',
   'diag_progress_semantics': 'Перебіг діагностики {current}%',
   'diag_waiting_check': 'Очікування стану перевірок…',
   'diag_summary_passed': 'Успішно {count}',
@@ -421,7 +426,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_timeline_empty':
       'Ключові переходи з’єднання з’являться тут після спроби підключення.',
   'diag_timeline_truncated':
-      'В інтерфейсі відображаються лише останні 100 подій; експортований пакет містить події, які й надалі зберігає Usque Engine.',
+      'Показано останні 100 записів. Експорт містить усі записи, що досі зберігаються на пристрої.',
   'diag_metric_reconnects': 'Повторні підключення',
   'diag_metric_fallbacks': 'Переходи на резервний шлях',
   'diag_metric_network_changes': 'Зміни мережі',
@@ -436,9 +441,11 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_yes': 'Так',
   'diag_no': 'Ні',
   'diag_finding_passed': 'Цю перевірку пройдено.',
-  'diag_finding_attention': 'Ця перевірка потребує уваги.',
+  'diag_finding_attention':
+      'Виявлено можливу проблему. Перегляньте подробиці, перш ніж повторювати спробу.',
   'diag_finding_failed': 'Ця перевірка не вдалася.',
-  'diag_finding_skipped': 'Цю перевірку не виконано в поточному стані.',
+  'diag_finding_skipped':
+      'Не вдалося виконати цю перевірку. Перевірте з’єднання й невдалі перевірки та спробуйте ще раз.',
   'diag_finding_cancelled': 'Цю перевірку скасовано.',
   'diag_finding_running': 'Ця перевірка виконується.',
   'diag_finding_pending': 'Цю перевірку ще не розпочато.',
@@ -455,11 +462,11 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_cat_tunnel': 'Тунель',
   'diag_cat_protection': 'Системний захист',
   'diag_cat_recovery': 'Відновлення',
-  'diag_check_engine_control_channel': 'Канал керування Usque Engine',
-  'diag_check_engine_event_stream': 'Потік подій Usque Engine',
-  'diag_check_engine_capabilities': 'Можливості API',
+  'diag_check_engine_control_channel': 'Зв’язок зі службою з’єднання',
+  'diag_check_engine_event_stream': 'Оновлення стану з’єднання',
+  'diag_check_engine_capabilities': 'Сумісність функцій з’єднання',
   'diag_check_engine_configuration': 'Конфігурація',
-  'diag_check_engine_secure_storage_metadata': 'Метадані ідентичності',
+  'diag_check_engine_secure_storage_metadata': 'Збережені дані входу',
   'diag_check_frontend_socks_port': 'Прослуховувач SOCKS5',
   'diag_check_frontend_http_port': 'Прослуховувач HTTP',
   'diag_check_frontend_system_proxy_state': 'Стан системного проксі',
@@ -467,7 +474,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Фізичний маршрут IPv4',
   'diag_check_physical_ipv6_route': 'Фізичний маршрут IPv6',
   'diag_check_physical_dns_available': 'Фізичний DNS',
-  'diag_check_physical_network_generation': 'Покоління мережі',
+  'diag_check_physical_network_generation': 'Зміни мережі',
   'diag_check_transport_h3_connect': 'З’єднання HTTP/3',
   'diag_check_transport_h3_datagram': 'Датаграми HTTP/3',
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
@@ -483,10 +490,12 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'Вихід IPv6',
   'diag_check_protection_kill_switch': 'Стан Kill Switch',
   'diag_check_protection_dns_path': 'Шлях DNS',
-  'diag_check_protection_route_ownership': 'Володіння маршрутами',
+  'diag_check_protection_route_ownership':
+      'Мережеві маршрути під керуванням Usque',
   'diag_check_protection_recovery_journal': 'Журнал відновлення',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine недоступний',
-  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent недоступний',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Служба з’єднання недоступна',
+  'diag_fail_AGENT_UNREACHABLE':
+      'Не вдалося зв’язатися із системною мережевою службою Usque',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Служба VPN недоступна',
   'diag_fail_PROXY_PORT_IN_USE': 'Порт проксі зайнятий',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'Фізичний IPv4 недоступний',
@@ -539,31 +548,33 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'Збій залежності діагностики',
   'diag_fail_INTERNAL': 'Внутрішня помилка',
   'diag_fix_try_http2':
-      'Використовуйте HTTP/2 і залиште зонди відновлення ввімкненими.',
+      'Відкрийте Налаштування → Розширені мережеві налаштування, виберіть HTTP/2, застосуйте зміни й підключіться знову.',
   'diag_fix_check_physical_network':
-      'Перевірте доступність поточної мережі, DNS і сімейств адрес.',
+      'Перевірте, чи працює Wi-Fi або мобільний інтернет, і підключіться знову.',
   'diag_fix_refresh_or_replace_identity':
-      'Оновіть або замініть ідентичність перед повторним підключенням.',
-  'diag_fix_replace_identity': 'Знову налаштуйте дійсну ідентичність.',
+      'Відкрийте Облікові записи → Налаштувати обліковий запис WARP. Увійдіть знову або створіть новий обліковий запис, а потім підключіться.',
+  'diag_fix_replace_identity':
+      'Відкрийте Облікові записи → Налаштувати обліковий запис WARP. Увійдіть знову або імпортуйте дійсні дані входу.',
   'diag_fix_review_configuration':
-      'Перегляньте конфігурацію та виправте неприпустимі значення.',
+      'Відкрийте Налаштування → Розширені мережеві налаштування, виправте позначені поля й застосуйте зміни.',
   'diag_fix_restore_platform_state':
-      'Відновіть мережевий стан платформи перед повторною спробою.',
-  'diag_fix_resolve_dependency': 'Спочатку усуньте збій попередньої умови.',
+      'Повністю закрийте Usque, відкрийте знову й повторіть спробу. Якщо проблема залишиться, експортуйте журнали з Діагностики для служби підтримки.',
+  'diag_fix_resolve_dependency':
+      'Спершу усуньте проблеми, виявлені невдалими перевірками, а потім запустіть діагностику знову.',
   'diag_fix_run_deep_diagnostics':
-      'Запустіть глибоку діагностику в придатному середовищі.',
+      'У Діагностиці виберіть «Глибока» й запустіть перевірку. Вона може надсилати тестовий трафік; за активного з’єднання деякі перевірки можуть бути пропущені.',
   'diag_fix_run_release_leak_gate':
       'Експортуйте діагностичний пакет із вилученими конфіденційними даними для підтримки.',
   'diag_fix_inspect_platform_state':
-      'Перевірте фактичний стан за допомогою перевірки, яка лише читає стан мережі та системного проксі.',
+      'Перегляньте невдалі перевірки в Діагностиці → Системний захист. Якщо проблема залишиться, експортуйте журнали.',
   'diag_fix_generate_tunnel_traffic':
-      'Створіть невеликий тунельний трафік, потім перевірте знову.',
+      'Відкрийте вебсторінку через з’єднання Usque й повторіть перевірку.',
   'diag_fix_export_diagnostics':
       'Експортуйте діагностичний пакет із вилученими конфіденційними даними для підтримки.',
   'diag_fix_retry': 'Повторіть спробу трохи згодом.',
   'diag_fix_none': 'Дій не потрібно.',
   'diag_fix_default':
-      'Використовуйте код помилки, щоб переглянути пов’язану конфігурацію та стан мережі.',
+      'Спробуйте ще раз. Якщо проблема залишиться, експортуйте журнали з Діагностики для служби підтримки.',
   'diag_event_attempt_started': 'Спробу з’єднання розпочато',
   'diag_event_endpoint_resolved': 'Адресу кінцевої точки визначено',
   'diag_event_socket_connected': 'Сокет підключено',

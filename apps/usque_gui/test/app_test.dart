@@ -1394,11 +1394,11 @@ void main() {
     },
   );
 
-  test('tunnel output copy is platform-specific in every catalog', () {
+  test('tunnel output uses the familiar VPN label in every catalog', () {
     for (final catalog in kCatalogs.entries) {
       expect(
         catalog.value['tunnel_output'],
-        catalog.key == 'en' || catalog.key == 'zh_CN' ? 'VPN' : 'VPN (TUN)',
+        'VPN',
         reason: '${catalog.key} Windows tunnel label',
       );
       expect(

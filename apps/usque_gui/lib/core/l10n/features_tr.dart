@@ -6,8 +6,8 @@ const Map<String, String> kUiWorkflowTr = <String, String>{
       'Anahtar değişiklikleri otomatik kaydedilir. Dinleme ve DNS düzenlemeleri için Değişiklikleri uygula seçeneğini kullanın.',
   'cc_label': 'HTTP/3 tıkanıklık denetimi',
   'cc_help': 'Sonraki manuel bağlantınızda uygulanır.',
-  'cc_upgrade': 'Engine güncellemesi gerekli.',
-  'cc_h2': 'HTTP/2 sistem TCP’sini kullanır.',
+  'cc_upgrade': 'Ayarlar’dan Usque’yi güncelleyin.',
+  'cc_h2': 'Bu seçenek yalnızca HTTP/3 bağlantılarını etkiler.',
   'cc_saved': 'Kaydedildi',
   'cc_pending': 'Sonraki manuel bağlantı bekleniyor.',
   'save_changes': 'Değişiklikleri uygula',
@@ -44,19 +44,19 @@ const Map<String, String> kUiWorkflowTr = <String, String>{
   'home_kill_switch': 'Kill Switch',
   'home_traffic': 'Trafik',
   'home_traffic_window': 'Son 60 saniye',
-  'home_traffic_idle': 'Bağlandıktan sonra başlar',
-  'home_traffic_waiting': 'Örnekler bekleniyor',
-  'home_traffic_unavailable': 'Geçmiş kullanılamıyor',
-  'home_traffic_stale': 'Örnekler gecikti',
-  'home_outputs_next': 'Çıkışlar bağlandıktan sonra etkinleşir',
-  'home_outputs_retry': 'Çıkışlar sonraki deneme için yapılandırıldı',
+  'home_traffic_idle': 'Trafik bağlandıktan sonra gösterilir',
+  'home_traffic_waiting': 'Trafik verileri bekleniyor',
+  'home_traffic_unavailable': 'Trafik geçmişi yok',
+  'home_traffic_stale': 'Trafik güncellemeleri gecikiyor',
+  'home_outputs_next': 'Bağlandıktan sonra kullanılabilir',
+  'home_outputs_retry': 'Bir sonraki bağlantıda kullanılacak VPN ve proxy’ler',
   'connection_protection_group': 'Bağlantı ve koruma',
   'proxy_routing_group': 'Proxy ve yönlendirme',
   'application_group': 'Uygulama',
   'proxy_settings_link':
       'Dinleyici adresleri, portlar, kimlik doğrulama ve DNS.',
   'proxy_auth_separate':
-      'Kimlik bilgileri «Kimlik bilgilerini kaydet» ile ayrı kaydedilir.',
+      'Bu değişiklikleri uygulamak için aşağıdaki “Kullanıcı adı ve parolayı kaydet” düğmesini kullanın.',
   'reset_draft_hint':
       'Varsayılanlar bu forma yüklenecek. Geçerli olmaları için değişiklikleri uygulayın.',
 };
@@ -80,24 +80,24 @@ const kNetworkQualityTr = <String, String>{
   'nq_finding_unavailable': 'Bu ölçüm geçerli durumda kullanılamıyor.',
   'nq_finding_invalid_configuration': 'Özel DNS yapılandırması geçersiz.',
   'nq_finding_dns_system':
-      'Fiziksel sistem DNS’i seçili; şifreli DNS denetimleri uygulanmaz.',
+      'Mevcut ağın DNS’i kullanılıyor. Şifreli DNS denetimi bu durumda uygulanmaz.',
   'nq_finding_unsupported':
-      'Bu Engine’de şifreli DNS kullanılamıyor; düz metne geri dönüşe izin verilmez.',
+      'Şifreli DNS kullanmak için Usque’yi güncelleyin. Şifresiz DNS’e otomatik geçilmez.',
   'nq_finding_dns_custom_valid':
       'Özel şifreli DNS yapılandırması geçerli. Düz metne geri dönüş kapalı.',
   'nq_finding_stale': 'Okuma eski veya fiziksel ağ değişti.',
   'nq_finding_rtt_high': 'Ölçülen gidiş-dönüş süresi yüksek.',
-  'nq_finding_healthy': 'Kullanılabilir yerel ölçüm beklenen aralıkta.',
+  'nq_finding_healthy': 'Ölçülebilen bağlantı değerleri normal.',
   'nq_finding_loss_high': 'Bu aralıktaki paket kaybı yüksek.',
   'nq_finding_queue_pressure':
-      'Bir kuyruk baskı altında veya bu bağlantı sırasında düşme kaydetti.',
-  'nq_finding_pmtu_degraded': 'Yol MTU doğrulaması bozulmuş.',
+      'Bu bağlantıda gönderilmeyi bekleyen veya atılan veriler var.',
+  'nq_finding_pmtu_degraded': 'Ağ yoluna uygun paket boyutu doğrulanamadı.',
   'nq_finding_migration_reconnect':
-      'Bu yolda taşıma kullanılamıyor; ağ değişikliğinde tam yeniden bağlantı kullanılır.',
+      'Ağ değişikliği için yeniden bağlanmak gerekiyor.',
   'nq_finding_dns_changed': 'Kayıtlı DNS kipi çalışan bağlantıdan farklı.',
   'nq_finding_dns_runtime': 'Şifreli DNS çalışıyor.',
   'nq_finding_dns_degraded':
-      'Şifreli DNS bozulmuş; başarısız doğrudan sorgular sistem DNS’ine geri dönmez.',
+      'Şifreli DNS’te sorun var. Başarısız sorgular mevcut ağın şifresiz DNS’ine gönderilmedi.',
   'nq_finding_probe_unsafe': 'Bu ölçüm geçerli durumda kullanılamıyor.',
   'nq_finding_probe_success': 'Bu denetim geçti.',
   'nq_finding_probe_cancelled': 'Bu denetim iptal edildi.',
@@ -132,7 +132,7 @@ const kNetworkQualityTr = <String, String>{
   'nq_not_ready': 'Hazır değil',
   'nq_unsupported': 'Desteklenmiyor',
   'nq_capability_missing':
-      'Bu Engine ağ kalitesi sağlamaz. Mevcut bağlantı kontrolleriniz çalışmayı sürdürür.',
+      'Bu sürüm bağlantı kalitesini gösteremiyor. Bağlanma ve bağlantıyı kesme çalışmaya devam eder. Ayarlar’dan Usque’yi güncelleyin.',
   'nq_empty': 'Ölçümleri görmek için bağlanın.',
   'nq_stale_help': 'Güncellemeler durakladı. Son ölçümler gösteriliyor.',
   'nq_rtt': 'Gidiş-dönüş süresi',
@@ -160,16 +160,17 @@ const kNetworkQualityTr = <String, String>{
   'nq_pmtu': 'Yol MTU’su',
   'nq_outer_pmtu': 'Dış UDP yük sınırı',
   'nq_inner_payload': 'CONNECT-IP yük sınırı',
-  'nq_pmtu_help': 'Yol keşfi cihazın TUN MTU’sunu artırmaz.',
+  'nq_pmtu_help':
+      'Ağ yolunun taşıyabildiği paket boyutudur. Otomatik denetimler paket kaybını azaltmaya yardımcı olur ve gelişmiş ağ ayarlarındaki VPN MTU değerini artırmaz.',
   'nq_migration': 'Ağ taşıması',
   'nq_migration_help':
-      'Bir bağlantı, bir veri yolu. Yalnızca aynı IP ailesi; çok yollu değil.',
+      'Wi-Fi ile mobil veri arasında geçişte bağlantıyı korumayı dener. Her iki ağ da aynı IP sürümünü (IPv4 veya IPv6) kullanmalıdır. Aynı anda tek ağ yolu kullanılır; ağların hızları birleştirilmez.',
   'nq_attempts': 'Denemeler',
   'nq_successes': 'Başarılı',
   'nq_failures': 'Başarısız',
   'nq_last_duration': 'Son süre',
   'nq_direct_dns': 'Doğrudan DNS',
-  'nq_system_dns': 'Fiziksel sistem DNS’i',
+  'nq_system_dns': 'Mevcut ağın DNS’i',
   'nq_doh': 'DNS over HTTPS',
   'nq_dot': 'DNS over TLS',
   'nq_ready': 'Hazır',
@@ -212,45 +213,48 @@ const kNetworkQualityTr = <String, String>{
   'nq_phase_unknown': 'Hazır değil',
   'nq_phase_unsupported': 'Desteklenmiyor',
   'nq_reason_family_unavailable':
-      'Geçerli IP ailesi kullanılamıyor; tam yeniden bağlantı kullanılır.',
-  'nq_reason_socket_protect_failed': 'Korumalı aday soket hazırlanamadı.',
+      'Yeni ağ aynı IP sürümünü kullanamıyor. Yeniden bağlanın.',
+  'nq_reason_socket_protect_failed':
+      'Yeni ağ güvenli biçimde kullanılamadı. Bağlantı kendiliğinden geri gelmezse yeniden bağlanın.',
   'nq_reason_generation_changed_during_setup':
       'Kurulum sırasında ağ yeniden değişti.',
   'nq_reason_peer_cid_unavailable':
-      'Karşı uçta yedek bağlantı tanımlayıcısı yok.',
+      'Sunucu, yeni ağda bağlantıyı koruyamadı. Gerekirse yeniden bağlanın.',
   'nq_reason_local_cid_unavailable':
-      'Yerel bir bağlantı tanımlayıcısı kullanılamıyor.',
-  'nq_reason_path_probe_rejected': 'Aday yol doğrulanamadı.',
+      'Usque, yeni ağda bağlantıyı koruyamadı. Gerekirse yeniden bağlanın.',
+  'nq_reason_path_probe_rejected':
+      'Yeni ağın bağlantı denetimi başarısız oldu. İnternet erişimini kontrol edin.',
   'nq_reason_path_validation_timeout':
-      'Yol doğrulaması zaman aşımına uğradı; yeniden bağlantı kullanılabilir.',
-  'nq_reason_superseded':
-      'Daha yeni bir ağ değişikliği bu denemenin yerini aldı.',
-  'nq_reason_promotion_failed': 'Yol değişimi güvenle tamamlanamadı.',
-  'nq_reason_connection_closed': 'Taşıma sırasında bağlantı kapandı.',
+      'Yeni ağ zamanında yanıt vermedi. İnternet erişimini kontrol edin ve gerekirse yeniden bağlanın.',
+  'nq_reason_superseded': 'Geçiş tamamlanmadan ağ yeniden değişti.',
+  'nq_reason_promotion_failed':
+      'Ağ geçişi güvenli biçimde tamamlanamadı. Bağlantı geri gelmezse yeniden deneyin.',
+  'nq_reason_connection_closed':
+      'Ağ değiştirilirken bağlantı kapandı. Yeniden bağlanın.',
   'nq_reason_unsupported': 'Bu bağlantıda taşıma kullanılamıyor.',
   'nq_reason_unknown': 'Desteklenen bir neden yok.',
   'nq_dns_custom': 'Özel şifreli çözümleyici',
-  'nq_dns_server': 'TLS sunucu adı',
+  'nq_dns_server': 'DNS sunucusunun alan adı',
   'nq_dns_path': 'HTTPS yolu',
   'nq_dns_port': 'Port (0 varsayılanı kullanır)',
-  'nq_dns_bootstrap': 'Önyükleme IP adresleri',
+  'nq_dns_bootstrap': 'DNS sunucusunun IP adresleri',
   'nq_dns_bootstrap_help':
-      '1–8 sayısal IP adresi girin, satır başına bir tane. Ana bilgisayar adı sorgusu kullanılmaz.',
+      'DNS sağlayıcınızın verdiği 1–8 IP adresini, her satıra bir adres gelecek şekilde girin. Örnek: 1.1.1.1. Bu adreslerle sunucu adı önceden çözümlenmeden doğrudan bağlantı kurulur.',
   'nq_dns_no_fallback':
       'Şifreli doğrudan DNS başarısız olursa sorgu başarısız olur. Sistem veya düz metin DNS’ine asla geri dönmez.',
   'nq_dns_system_privacy':
-      'Fiziksel sistem DNS’i, doğrudan sorgu adlarını fiziksel ağın DNS sağlayıcısına açığa çıkarabilir.',
+      'Mevcut ağın DNS sağlayıcısı, doğrudan bağlantı trafiğinde sorgulanan alan adlarını görebilir.',
   'nq_dns_scope':
-      'Yalnızca Geo ile seçilen doğrudan sorgular için kullanılır. Tünel DNS’i değişmez.',
+      'Yalnızca doğrudan bağlanılacak ülke/bölge kurallarıyla eşleşen trafiği etkiler. VPN trafiğinin DNS ayarı değişmez.',
   'nq_dns_no_capability':
-      'Bu Engine şifreli doğrudan DNS kullanamaz. Kayıtlı ayarlar korunur. Açıkça Sistem DNS’ini seçebilirsiniz.',
+      'Doğrudan bağlantılar için şifreli DNS kullanmak üzere Usque’yi güncelleyin. Kayıtlı ayarlar korunur. Gizlilik etkisini kabul ediyorsanız “Mevcut ağın DNS’i” seçeneğini kendiniz seçebilirsiniz.',
   'nq_dns_invalid_name':
-      'Boşluk, URL sözdizimi veya joker karakter içermeyen bir DNS adı girin.',
+      'dns.example.com gibi bir alan adı girin. https://, port veya boşluk eklemeyin.',
   'nq_dns_invalid_path':
-      'En fazla 256 karakterlik bir /path kullanın; sorgu, parça veya boşluk olmasın.',
-  'nq_dns_invalid_bootstrap':
-      '1–8 benzersiz tek noktaya yayın IP’si kullanın; belirsiz, çok noktaya yayın, yayın veya IPv6 bağlantı-yerel adresi olmasın.',
-  'nq_dns_invalid_port': '0–65535 girin.',
+      '/dns-query gibi, en fazla 256 karakterlik bir yol girin. Boşluk, ? veya # içeren bölümler kullanmayın.',
+  'nq_dns_invalid_bootstrap': 'DNS sunucusu için 1–8 IP adresi girin.',
+  'nq_dns_invalid_port':
+      '1–65535 arasında bir port veya varsayılan port için 0 girin.',
   'nq_dns_invalid_mode': 'Desteklenen bir DNS modu seçin.',
   'nq_doctor_deep_title': 'Derin ağ denetimleri çalıştırılsın mı?',
   'nq_doctor_deep_body':
@@ -262,28 +266,28 @@ const kNetworkQualityTr = <String, String>{
 
 const Map<String, String> kWindowsRecoveryTr = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      "TUN aygıtını yeniden kullanmak için uygulamayı ve Windows Agent’ı birlikte güncelleyin. Yeni VPN bağlantısı başlatılmadı.",
+      'Usque bileşenlerini Ayarlar’dan birlikte güncelleyin. Yeni bir VPN bağlantısı başlatılmadı.',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      "Önceki TUN aygıtının hâlâ kurtarılması gerekiyor. Usque’yi tamamen kapatıp yeniden açarak tekrar deneyin veya yerel tanılamayı inceleyin.",
+      'Önceki bağlantının temizliği tamamlanmadı. Usque’yi tamamen kapatıp yeniden açın ve tekrar deneyin. Sorun sürerse Tanılama’yı açın.',
   'WINDOWS_RECOVERY_FAILED':
       'Önceki VPN ağ durumu tam olarak geri yüklenemedi. Yeni bir VPN bağlantısı başlatılmadı. Bağlantıyı yeniden deneyin veya yerel tanılamayı inceleyin.',
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows, üç otomatik denemeden sonra önceki VPN ağ durumunu geri yükleyemedi. Hazır olduğunuzda yeniden deneyin veya yerel tanılamayı inceleyin.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Önceki Windows ağ durumu güvenle doğrulanamadığı için otomatik onarım durdu. Agent’ı yeniden başlatın veya Usque’yi güncelleyin, ardından yerel tanılamayı inceleyin.',
+      'Güvenli geri yükleme doğrulanamadığı için otomatik onarım durduruldu. Ayarlar’dan Usque’yi güncelleyin. Sorun sürerse Tanılama’dan günlükleri dışa aktarın.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Windows ağ kurtarması beklenenden uzun sürüyor. Yeni bir VPN bağlantısı başlatılmadı. Yeniden denemeden önce kurtarmanın bitmesini bekleyin.',
   'WINDOWS_RECOVERY_CONFLICT':
       'Ağ durumu değişti veya başka bir oturum tarafından hâlâ kullanılıyor. Etkin bağlantıyı korumak için otomatik kurtarma durduruldu.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'Bu Windows Agent güvenli otomatik kurtarmayı desteklemiyor. Uygulamayı ve Agent’ı birlikte güncelleyin, ardından yeniden deneyin.',
+      'Bu kurulum önceki VPN bağlantısını otomatik olarak geri yükleyemiyor. Ayarlar’dan Usque’yi güncelleyip yeniden deneyin.',
 };
 
 const String kWindowsAdapterCleanupTr =
-    'Önceki Wintun bağdaştırıcısı kaldırılamadı veya kaldırıldığı doğrulanamadı. Yeni bir VPN bağlantısı başlatılmadı.';
+    'Önceki bağlantının sanal ağ bağdaştırıcısı kaldırılamadı veya kaldırıldığı doğrulanamadı. Yeni bir VPN bağlantısı başlatılmadı.';
 
 const Map<String, String> kL4Tr = <String, String>{
-  'l4_quic_not_ready': 'Hazır bir QUIC oturumu bekleniyor',
+  'l4_quic_not_ready': 'L4 bağlantısı hazırlanıyor',
   'l4_unsupported_packets': 'Desteklenmeyen veya bozuk paketler reddedildi',
   'l4_budget_rejections': 'Kaynak kabulleri reddedildi',
   'l4_not_applicable': 'Uygulanamaz (L4)',
@@ -291,17 +295,18 @@ const Map<String, String> kL4Tr = <String, String>{
   'l4_transport_hint':
       'Yalnızca TCP. UDP gerektiren uygulamalar çalışmayabilir. Otomatik mod L4 içermez.',
   'l4_explanation':
-      'HTTP/3 üzerinde yalnızca TCP. VPN/TUN, SOCKS5 ve HTTP desteklenir; TUN DNS TCP’ye dönüştürülür. Auto asla L4 seçmez. Diğer UDP, uzak ping, IP parçaları ve uzantı başlıkları desteklenmez; bazı uygulamalar çalışmayabilir.',
+      'L4, TCP trafiğini HTTP/3 üzerinden taşır ve VPN, SOCKS5 ile HTTP proxy’lerinde kullanılabilir. VPN’in DNS sorguları TCP’ye dönüştürülür. Diğer UDP trafiği, uzak Ping, IP parçaları ve uzantıları desteklenmez; bazı uygulamalar çalışmayabilir. L4’ü kendiniz seçmeniz gerekir; otomatik olarak açılmaz.',
   'l4_unsupported':
-      'Bu motor tam L4 desteği bildirmemiştir. L4 etkinleştirilemez.',
+      'Bu sürüm L4’ü desteklemiyor. Ayarlar’dan Usque’yi güncelleyin.',
   'l4_sni_identity':
-      'Salt okunur: yüklenen hesap kimliğinden türetilir. Mevcut CONNECT-IP SNI korunur.',
+      'Sunucu adı hesap tarafından otomatik belirlenir. Diğer bağlantı modları için kaydedilen sunucu adı korunur.',
   'l4_edge_requires_l4':
       'Kenarda çözülen DNS L4 gerektirir. Auto, H3 veya H2’ye geçmeden önce başka bir vekil DNS kipi seçin.',
   'proxy_dns_edge_resolved': 'Cloudflare kenarı (yalnızca L4; yerel arama yok)',
-  'l4_verified': 'L4 CONNECT doğrulandı',
-  'l4_unverified': 'QUIC hazır; L4 CONNECT henüz doğrulanmadı',
-  'l4_status_unknown': 'L4 doğrulama durumu bilinmiyor',
+  'l4_verified': 'L4 üzerinden bir uygulama bağlantısı kuruldu',
+  'l4_unverified':
+      'Sunucuya bağlanıldı; uygulama bağlantısı henüz doğrulanmadı',
+  'l4_status_unknown': 'Uygulama bağlantısının durumu alınamıyor',
   'l4_sessions': 'Oturumlar / boşaltma',
   'l4_flows': 'Etkin / bekleyen akışlar',
   'l4_connect': 'CONNECT başarı / hata / zaman aşımı',
@@ -323,7 +328,7 @@ const Map<String, String> kNetworkSettingsTr = <String, String>{
   'settings_unknown': 'Sonuç henüz doğrulanmadı',
   'settings_saved': 'Kaydedildi',
   'settings_unsupported':
-      'Ağ ayarlarını kaydetmek için Engine’i yeniden başlatın veya güncelleyin.',
+      'Usque’yi tamamen kapatıp yeniden açın, ardından tekrar kaydedin. Sorun sürerse Ayarlar’dan Usque’yi güncelleyin.',
   'settings_save_failed': 'Ayarlar kaydedilemedi. Düzenlemeleriniz korundu.',
   'settings_reconnect': 'Yeniden bağlan',
 };
