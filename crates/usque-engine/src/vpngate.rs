@@ -479,7 +479,17 @@ impl ControlService {
         &self,
         profile: &usque_core::Profile,
     ) -> Result<Option<(ServerSummary, PreparedProfile)>, ControlServiceError> {
-        if !profile.vpn_gate.enabled {
+        self.validate_chain_selection(profile)?;
+        #[cfg(windows)]
+        if profile.custom_chain().is_some() {
+            return usque_core::chain_exit::prepare_selection(
+                &self.cache_dir,
+                profile,
+                &usque_core::chain_exit::store::WindowsProfileCipher,
+            )
+            .map_err(ControlServiceError::configuration);
+        }
+        if !profile.chain_enabled() {
             return Ok(None);
         }
         let selection = profile
@@ -679,6 +689,14 @@ fn node_progress_to_proto(progress: &NodeProgress) -> v1::VpnGateNodeProgress {
     }
 }
 pub(crate) fn status_to_proto(status: &GateStatus, warp_stage: Option<&str>) -> v1::VpnGateStatus {
+    if status.current_profile.is_some() {
+        // The legacy field still describes VPN Gate only. Custom exits are
+        // published in the appended ChainExitStatus field for capable clients.
+        return v1::VpnGateStatus {
+            stage: "disabled".into(),
+            ..Default::default()
+        };
+    }
     v1::VpnGateStatus {
         stage: enum_name(status.stage),
         generation: status.generation,

@@ -70,6 +70,7 @@ pub const RECONFIGURE_NEED_COLD: i32 = 1;
 pub const RECONFIGURE_NEED_ATTACH: i32 = 2;
 pub const RECONFIGURE_NOT_RUNNING: i32 = -10;
 
+mod chain_exit;
 mod connection_timeline;
 mod diagnostic_probe;
 #[cfg(any(test, target_os = "android"))]
@@ -128,6 +129,9 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "l4_dns_conversion": engine_ready(),
             "vpn_gate_tcp": engine_ready(),
             "vpn_gate_pool_favorites": engine_ready(),
+            "chain_profile_import": engine_ready(),
+            "chain_openvpn_udp": engine_ready(),
+            "chain_wireguard": engine_ready() && cfg!(feature = "wireguard"),
             "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
@@ -307,7 +311,7 @@ fn native_start_proxy<'local>(
         Err(_) => return INVALID_WARP_SECRET,
     };
     let profile = match parse_android_profile(&profile_json) {
-        Ok(profile) if !profile.frontends.tunnel || profile.vpn_gate.enabled => profile,
+        Ok(profile) if !profile.frontends.tunnel || profile.chain_enabled() => profile,
         _ => return START_INVALID_PROFILE,
     };
     let proxy_password = match environment.convert_byte_array(&proxy_password) {
@@ -1040,6 +1044,8 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
 #[derive(Debug, Deserialize)]
 struct AndroidProfile {
     #[serde(default)]
+    chain_exit: Option<usque_core::chain_exit::ChainExitSettings>,
+    #[serde(default)]
     disable_quic: bool,
     #[serde(default)]
     vpn_gate: usque_core::vpngate::VpnGateSettings,
@@ -1212,6 +1218,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
     let http_ipv4: IpAddr = parse_value(&source.proxy.http_ipv4, "HTTP IPv4 listener")?;
     let http_ipv6: IpAddr = parse_value(&source.proxy.http_ipv6, "HTTP IPv6 listener")?;
     let mut profile = Profile {
+        chain_exit: source.chain_exit,
         vpn_gate: source.vpn_gate,
         id: parse_value(&source.id, "profile ID")?,
         data_plane: source.data_plane,
@@ -1427,6 +1434,14 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                     .iter()
                     .find(|profile| Some(profile.id) == config.active_profile_id)
                 {
+                    if active.chain_exit.is_none()
+                        && config.network.chain_exit.as_ref().is_some_and(|s| {
+                            s.source != usque_core::chain_exit::ChainSource::VpnGate
+                                && s.profile_id.is_some()
+                        })
+                    {
+                        return Err("chain_exit capability is required".into());
+                    }
                     let mut network = SharedNetworkSettings::from_profile(active);
                     if active.endpoint.is_zero_trust_managed() {
                         network.endpoint = incoming
@@ -1728,6 +1743,15 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
 
     config.validate().map_err(|error| error.to_string())?;
     if changed {
+        if let Some(active) = config.active_profile()
+            && active.chain_enabled()
+            && active.custom_chain().is_some()
+        {
+            chain_exit::prepare(
+                store.path().parent().ok_or("Invalid storage path")?,
+                &active,
+            )?;
+        }
         if config.network.vpn_gate != previous_gate {
             vpngate::pin_settings(store.path(), &config.network.vpn_gate, &previous_gate)?;
         }
@@ -1755,6 +1779,10 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             }
         }
         if clear_all_data {
+            usque_core::chain_exit::store::clear_library(
+                store.path().parent().ok_or("Invalid storage path")?,
+            )
+            .map_err(|_| "Chain profile cleanup failed")?;
             let _ = std::fs::remove_file(store.backup_path());
         }
     }
@@ -1899,6 +1927,7 @@ fn android_profile_value(
     serde_json::json!({
         "id": profile.id.to_string(),
         "vpn_gate": profile.vpn_gate,
+        "chain_exit": profile.chain_exit,
         "name": profile.name,
         "mode": match profile.mode {
             OperatingMode::Vpn => "vpn",

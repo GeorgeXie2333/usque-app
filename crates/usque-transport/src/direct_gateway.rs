@@ -302,7 +302,7 @@ impl DirectGatewayRouter {
         // A pushed resolver may be inside a LAN bypass. Publish our synthetic
         // DNS address to the OS and forward its queries inside the final stack.
         let gate_dns = profile.frontends.tunnel
-            && profile.vpn_gate.enabled
+            && profile.chain_enabled()
             && profile.dns_mode == usque_core::DnsMode::Tunnel;
         let split_dns_enabled = gate_dns
             || (profile.frontends.tunnel

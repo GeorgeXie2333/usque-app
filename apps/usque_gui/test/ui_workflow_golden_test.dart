@@ -17,6 +17,7 @@ import 'package:usque/screens/vpn_gate_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/state/window_frame.dart';
+import 'package:usque/widgets/chain_proxy_entry.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/usque_dialog.dart';
@@ -460,7 +461,13 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('VPN Gate'));
+      await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
+      await tester.pumpAndSettle();
+      if (find.byType(VpnGateScreen).evaluate().isEmpty) {
+        await tester.tap(find.byType(DropdownButtonFormField<ChainSource>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('VPN Gate').last);
+      }
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
         final context = tester.element(find.byType(VpnGateScreen));
@@ -525,7 +532,13 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('VPN Gate'));
+      await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
+      await tester.pumpAndSettle();
+      if (find.byType(VpnGateScreen).evaluate().isEmpty) {
+        await tester.tap(find.byType(DropdownButtonFormField<ChainSource>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('VPN Gate').last);
+      }
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(ValueKey('vpn-gate-node-${server.id}')));
       await tester.pumpAndSettle();
@@ -1287,7 +1300,7 @@ void main() {
           FocusManager.instance.primaryFocus?.unfocus();
           await tester.pumpAndSettle();
           Scrollable.of(
-            tester.element(find.byType(VpnGateEntry)),
+            tester.element(find.byType(ChainProxyEntry)),
           ).position.jumpTo(0);
           await tester.pumpAndSettle();
         }

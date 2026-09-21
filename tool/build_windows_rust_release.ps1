@@ -6,11 +6,16 @@ param(
     [string]$CargoAction = "build",
     # Optional scoped iteration; omission retains the complete documented gates.
     [ValidatePattern('^usque-[a-z0-9-]+$')]
-    [string]$Package
+    [string]$Package,
+    # Matched release A/B measurement; shipped builds retain the default feature.
+    [switch]$DisableWireGuard
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+if ($DisableWireGuard -and $CargoAction -ne "build") {
+    throw "DisableWireGuard is only supported for compile-only release builds."
+}
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $platform = if ($Variant -eq "arm64") {
@@ -238,6 +243,9 @@ try {
         else {
             $cargoArguments = @("clippy", "--locked", "--package", $Package, "--all-targets", "--", "-D", "warnings")
         }
+    }
+    if ($DisableWireGuard) {
+        $cargoArguments += "--no-default-features"
     }
     & cargo @cargoArguments
     if ($LASTEXITCODE -ne 0) {

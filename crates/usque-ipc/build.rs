@@ -32,6 +32,7 @@ fn main() {
     config.boxed(".usque.v1.ControlResponse.payload.connection_timeline");
     config.boxed(".usque.v1.ControlResponse.payload.network_quality");
     config.boxed(".usque.v1.ControlResponse.payload.vpn_gate_directory");
+    config.boxed(".usque.v1.ControlRequest.payload.chain_profile");
     config.boxed(".usque.v1.EventEnvelope.payload.state_changed");
     config.boxed(".usque.v1.EventEnvelope.payload.exit_info_updated");
     config.boxed(".usque.v1.EventEnvelope.payload.network_quality_updated");

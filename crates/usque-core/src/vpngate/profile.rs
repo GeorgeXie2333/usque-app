@@ -20,6 +20,9 @@ pub enum UnsupportedReason {
 pub struct PreparedProfile {
     pub remote: SocketAddr,
     content: Zeroizing<String>,
+    pub custom: Option<Box<crate::chain_exit::ValidatedProfile>>,
+    pub summary: Option<Box<crate::chain_exit::ChainProfileSummary>>,
+    pub credentials: Box<crate::chain_exit::ImportSecrets>,
 }
 impl fmt::Debug for PreparedProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -29,6 +32,29 @@ impl fmt::Debug for PreparedProfile {
     }
 }
 impl PreparedProfile {
+    pub fn imported(
+        summary: crate::chain_exit::ChainProfileSummary,
+        custom: crate::chain_exit::ValidatedProfile,
+        credentials: crate::chain_exit::ImportSecrets,
+    ) -> Self {
+        let remote = summary.endpoint.address().unwrap_or_else(|| {
+            SocketAddr::new(
+                std::net::Ipv4Addr::UNSPECIFIED.into(),
+                summary.endpoint.port,
+            )
+        });
+        let content = match &custom {
+            crate::chain_exit::ValidatedProfile::OpenVpn(p) => p.content.clone(),
+            crate::chain_exit::ValidatedProfile::WireGuard(_) => Zeroizing::new(String::new()),
+        };
+        Self {
+            remote,
+            content,
+            custom: Some(Box::new(custom)),
+            summary: Some(Box::new(summary)),
+            credentials: Box::new(credentials),
+        }
+    }
     pub fn content(&self) -> &str {
         &self.content
     }
@@ -169,6 +195,9 @@ pub fn prepare_profile(
     Ok(PreparedProfile {
         remote: remote.ok_or(InvalidEndpoint)?,
         content: normalized,
+        custom: None,
+        summary: None,
+        credentials: Default::default(),
     })
 }
 

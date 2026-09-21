@@ -10,10 +10,12 @@ repository.workspace = true
 [features]
 default = []
 fault-injection = []
+wireguard = ["dep:boringtun"]
 
 [dependencies]
 async-trait.workspace = true
 boring.workspace = true
+boringtun = { workspace = true, optional = true }
 bytes.workspace = true
 h2.workspace = true
 http.workspace = true
@@ -26,6 +28,7 @@ quiche.workspace = true
 rustls.workspace = true
 serde_json.workspace = true
 socket2.workspace = true
+smoltcp.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-boring.workspace = true

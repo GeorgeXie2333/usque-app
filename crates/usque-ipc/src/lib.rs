@@ -241,6 +241,37 @@ mod tests {
     }
 
     #[test]
+    fn chain_exit_fields_are_append_only_wire_snapshots() {
+        let request = ControlRequest {
+            request_id: String::new(),
+            payload: Some(control_request::Payload::ChainProfile(Box::default())),
+        };
+        assert_eq!(request.encode_to_vec(), [0xfa, 0x02, 0]); // request field 47
+        let response = v1::ControlResponse {
+            payload: Some(v1::control_response::Payload::ChainProfiles(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(response.encode_to_vec(), [0xc2, 0x01, 0]); // response field 24
+        let profile = v1::Profile {
+            chain_exit: Some(Default::default()),
+            ..Default::default()
+        };
+        assert_eq!(profile.encode_to_vec(), [0xb2, 0x01, 0]); // profile field 22
+        let capability = v1::Capabilities {
+            chain_profile_import: true,
+            chain_openvpn_udp: true,
+            chain_wireguard: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            capability.encode_to_vec(),
+            [0x90, 0x02, 1, 0x98, 0x02, 1, 0xa0, 0x02, 1]
+        );
+    }
+
+    #[test]
     fn privileged_agent_v1_wire_snapshot_is_stable() {
         let decoded: AgentRequest = decode_frame(Bytes::from_static(AGENT_CAPABILITIES_V1_FRAME))
             .expect("decode agent snapshot");

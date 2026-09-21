@@ -36,6 +36,7 @@ pub struct VpnGateStart {
     /// Cancels startup only; the established OpenVPN worker owns its lifetime.
     pub cancellation: CancellationToken,
 }
+pub type ChainExitStart = VpnGateStart;
 struct GateRuntime {
     frontend: MasqueRuntime,
     driver: crate::vpngate::GateDriver,
@@ -70,7 +71,7 @@ impl DataPlaneRuntime {
         refresher: Option<Arc<dyn EndpointPinRefresher>>,
         policy: Arc<GeoDirectPolicy>,
     ) -> Result<Self, TransportError> {
-        if profile.vpn_gate.enabled {
+        if profile.chain_enabled() {
             // Every caller must supply a validated pinned profile explicitly.
             return Err(TransportError::VpnGate(GateFailure::Configuration));
         }
@@ -115,7 +116,7 @@ impl DataPlaneRuntime {
             status,
             cancellation,
         } = gate;
-        if !profile.vpn_gate.enabled {
+        if !profile.chain_enabled() {
             return Self::start_with_geo_policy(profile, identity, protector, refresher, policy)
                 .await;
         }
@@ -124,11 +125,15 @@ impl DataPlaneRuntime {
             status.send_replace(GateStatus {
                 stage: usque_core::vpngate::GateStage::ConnectingWarp,
                 current_server: Some(selected.0.clone()),
+                current_profile: selected.1.summary.clone(),
                 ..Default::default()
             });
         }
         let mut underlay_profile = profile.clone();
-        underlay_profile.vpn_gate.enabled = false;
+        underlay_profile.disable_chain();
+        // The final MTU belongs to the exit. Keep WARP's private packet stack
+        // at the IPv6 minimum so encapsulated UDP fits its bounded fragments.
+        underlay_profile.mtu = 1280;
         underlay_profile.disable_quic = false;
         underlay_profile.frontends.socks5 = false;
         underlay_profile.frontends.http = false;
@@ -144,6 +149,7 @@ impl DataPlaneRuntime {
         .await?;
         runtime.quiesce_final();
         runtime.transition_status.current_server = Some(selected.0.clone());
+        runtime.transition_status.current_profile = selected.1.summary.clone();
         let status_copy = status.clone();
         if let Err(error) = runtime
             .install_gate(
@@ -176,7 +182,7 @@ impl DataPlaneRuntime {
     }
     pub fn headless_profile(profile: &Profile) -> Profile {
         let mut headless = profile.clone();
-        headless.vpn_gate.enabled = false;
+        headless.disable_chain();
         headless.disable_quic = false;
         headless.frontends = usque_core::FrontendSettings {
             tunnel: false,
@@ -203,20 +209,36 @@ impl DataPlaneRuntime {
         } = gate;
         let selected = selected.ok_or(TransportError::VpnGate(GateFailure::Configuration))?;
         let (server, prepared) = selected;
-        if profile.vpn_gate.selection.as_ref().is_none_or(|selection| {
-            selection.server_id != server.id || selection.config_sha256 != server.config_sha256
-        }) {
+        let matches = if let Some(chain) = profile.custom_chain() {
+            prepared.summary.as_ref().is_some_and(|summary| {
+                Some(summary.id) == chain.profile_id
+                    && Some(summary.revision) == chain.revision
+                    && summary.protocol.source() == chain.source
+                    && !(summary.protocol.requires_udp()
+                        && profile.data_plane == DataPlaneMode::L4Proxy)
+            })
+        } else {
+            profile
+                .vpn_gate
+                .selection
+                .as_ref()
+                .is_some_and(|selection| {
+                    selection.server_id == server.id
+                        && selection.config_sha256 == server.config_sha256
+                })
+        };
+        if !matches {
             return Err(TransportError::VpnGate(GateFailure::Configuration));
         }
         let (mut driver, tunnel, mut network) = crate::vpngate::GateDriver::start(
             &prepared,
             self.warp_internal_network(),
             self.underlay_monitor().network_quality_telemetry(),
-            status,
+            status.clone(),
             &cancellation,
         )
         .await?;
-        network.mtu = profile.mtu.min(network.mtu);
+        network.mtu = final_mtu(profile, network.mtu);
         if network.dns_servers.is_empty() {
             network.dns_servers = profile
                 .dns_servers
@@ -228,6 +250,13 @@ impl DataPlaneRuntime {
         if network.dns_servers.is_empty() {
             driver.shutdown().await;
             return Err(TransportError::VpnGate(GateFailure::Configuration));
+        }
+        if let Some(usque_core::chain_exit::ValidatedProfile::WireGuard(wg)) =
+            prepared.custom.as_deref()
+            && network.dns_servers.iter().all(|ip| !wg.allows(*ip))
+            && let Some(status) = &status
+        {
+            status.send_modify(|s| s.dns_unavailable = true);
         }
         let effective = final_profile(profile, &network);
         let mut frontend = match MasqueRuntime::start_over_tunnel(
@@ -292,10 +321,13 @@ impl DataPlaneRuntime {
         self.transition_status = GateStatus {
             stage: usque_core::vpngate::GateStage::ConnectingServer,
             current_server: selected.as_ref().map(|(server, _)| server.clone()),
+            current_profile: selected
+                .as_ref()
+                .and_then(|(_, prepared)| prepared.summary.clone()),
             ..Default::default()
         };
         status.send_replace(self.transition_status.clone());
-        let result = if profile.vpn_gate.enabled {
+        let result = if profile.chain_enabled() {
             match selected {
                 Some(selected) => {
                     Box::pin(self.install_gate(
@@ -605,7 +637,10 @@ impl DataPlaneRuntime {
     }
     pub async fn reconfigure_frontends(&mut self, profile: &Profile) -> Result<(), TransportError> {
         if let Some(pending) = &mut self.pending_frontends {
-            if profile.data_plane != pending.data_plane || profile.vpn_gate != pending.vpn_gate {
+            if profile.data_plane != pending.data_plane
+                || profile.vpn_gate != pending.vpn_gate
+                || profile.chain_exit != pending.chain_exit
+            {
                 return Err(TransportError::VpnGate(GateFailure::Configuration));
             }
             // Android reconfigures frontends between attaching the replacement
@@ -726,14 +761,28 @@ impl DataPlaneRuntime {
     }
 }
 
+fn final_mtu(profile: &Profile, negotiated: u16) -> u16 {
+    if profile
+        .custom_chain()
+        .is_some_and(|c| c.source == usque_core::chain_exit::ChainSource::WireguardCustom)
+    {
+        // The imported WireGuard MTU describes the inner interface, separately
+        // from the WARP MTU. Its parser has already enforced 1280..=9000.
+        negotiated
+    } else {
+        profile.mtu.min(negotiated)
+    }
+}
 fn final_profile(profile: &Profile, network: &FinalNetworkParameters) -> Profile {
     let mut final_profile = profile.clone();
     final_profile.data_plane = DataPlaneMode::ConnectIp;
-    final_profile.mtu = profile.mtu.min(network.mtu);
-    if profile.dns_mode == usque_core::DnsMode::Tunnel {
+    final_profile.mtu = final_mtu(profile, network.mtu);
+    if profile.dns_mode == usque_core::DnsMode::Tunnel || profile.custom_chain().is_some() {
         final_profile.dns_servers = network.dns_servers.clone();
     }
-    if final_profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved {
+    if profile.custom_chain().is_some()
+        || final_profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved
+    {
         final_profile.proxy.dns_mode = usque_core::ProxyDnsMode::Remote;
     }
     final_profile
@@ -830,6 +879,26 @@ mod tests {
     use super::*;
     use crate::netstack::{ExternalPacketChannels, ManagedTunnelRuntime};
     use usque_core::vpngate::GateStage;
+
+    #[test]
+    fn wireguard_inner_mtu_is_independent_of_the_warp_interface_mtu() {
+        let profile = Profile {
+            mtu: 1280,
+            chain_exit: Some(usque_core::chain_exit::ChainExitSettings {
+                source: usque_core::chain_exit::ChainSource::WireguardCustom,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let network = FinalNetworkParameters {
+            ipv4: Some("10.8.0.2".parse().unwrap()),
+            ipv6: None,
+            dns_servers: vec!["10.8.0.1".parse().unwrap()],
+            mtu: 1420,
+        };
+        assert_eq!(final_profile(&profile, &network).mtu, 1420);
+        assert_eq!(final_profile(&Profile::default(), &network).mtu, 1280);
+    }
 
     fn slab_udp(slab: &mut crate::android_tun_read_slab::TunReadSlab, mtu: usize) -> BytesMut {
         let packet = [

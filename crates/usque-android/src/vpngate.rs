@@ -77,6 +77,7 @@ pub(crate) fn signal_cancel() {
 #[derive(Deserialize)]
 pub(crate) struct Request {
     pub command: String,
+    pub chain_profile: Option<usque_core::chain_exit::ChainProfileRequest>,
     #[serde(default)]
     pub cancel: bool,
     #[serde(flatten)]
@@ -95,10 +96,13 @@ impl Request {
     }
 }
 pub(crate) fn parse_request(json: &str) -> Result<Request, String> {
-    if json.len() > 4096 {
+    if json.len() > 256 * 1024 {
         return Err("VPN_GATE_REQUEST_INVALID".into());
     }
     let request: Request = serde_json::from_str(json).map_err(|_| "VPN_GATE_REQUEST_INVALID")?;
+    if request.command != "chain_profile" && json.len() > 4096 {
+        return Err("VPN_GATE_REQUEST_INVALID".into());
+    }
     if request.command == "node" {
         request
             .node
@@ -130,6 +134,13 @@ pub(crate) fn command(
         return Err("VPN_GATE_CLEANUP_PENDING".into());
     }
     let cache = path.parent().ok_or("VPN_GATE_REQUEST_INVALID")?;
+    if request.command == "chain_profile" {
+        return crate::chain_exit::command(
+            path,
+            request.chain_profile.ok_or("CHAIN_REQUEST_INVALID")?,
+            &status,
+        );
+    }
     let mut slot = CATALOGUE
         .get_or_init(|| Mutex::new(None))
         .lock()

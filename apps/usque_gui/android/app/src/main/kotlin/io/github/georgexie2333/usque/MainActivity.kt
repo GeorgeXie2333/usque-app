@@ -68,6 +68,53 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private val pendingVpnConnection = VpnPermissionRequestQueue()
     private var pendingDiagnosticsResult: MethodChannel.Result? = null
+    private var pendingChainFileResult: MethodChannel.Result? = null
+    private val chainFilePicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val result = pendingChainFileResult
+            pendingChainFileResult = null
+            if (result != null) {
+                if (uri == null) {
+                    result.success(null)
+                } else {
+                    identityExecutor.execute {
+                        val buffer = ByteArray(128 * 1024 + 1)
+                        try {
+                            val count =
+                                contentResolver.openInputStream(uri)?.use { input ->
+                                    var total = 0
+                                    while (total < buffer.size) {
+                                        val read = input.read(buffer, total, buffer.size - total)
+                                        if (read < 0) break
+                                        if (read == 0) error("No file progress")
+                                        total += read
+                                    }
+                                    total
+                                } ?: error("File unavailable")
+                            require(count in 1..128 * 1024)
+                            val bytes = buffer.copyOf(count)
+                            runOnUiThread {
+                                try {
+                                    if (!isDestroyed) result.success(bytes)
+                                } finally {
+                                    bytes.fill(0)
+                                }
+                            }
+                        } catch (_: Exception) {
+                            runOnUiThread {
+                                result.error(
+                                    "CHAIN_FILE_UNAVAILABLE",
+                                    "Unable to read configuration file.",
+                                    null,
+                                )
+                            }
+                        } finally {
+                            buffer.fill(0)
+                        }
+                    }
+                }
+            }
+        }
     private var pendingDiagnosticsPayload: AndroidEngineMethodHandler.DiagnosticExportPayload? = null
     private var pendingWarpSecretResult: MethodChannel.Result? = null
     private var pendingWarpSecretProfileId: String? = null
@@ -347,7 +394,19 @@ class MainActivity : FlutterFragmentActivity() {
         ensureEngineComponents()
         engineMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         engineMethodChannel?.setMethodCallHandler { call, result ->
-            if (call.method == "updatePlatformLocale") {
+            if (call.method == "readChainConfiguration") {
+                if (pendingChainFileResult != null) {
+                    result.error("CHAIN_FILE_BUSY", "A file picker is already open.", null)
+                } else {
+                    pendingChainFileResult = result
+                    try {
+                        chainFilePicker.launch(arrayOf("*/*"))
+                    } catch (_: Exception) {
+                        pendingChainFileResult = null
+                        result.error("CHAIN_FILE_UNAVAILABLE", "Paste the configuration text instead.", null)
+                    }
+                }
+            } else if (call.method == "updatePlatformLocale") {
                 updatePlatformLocale(call.argument<String>("catalog_id"), result)
             } else {
                 methodHandler.handle(call, result)
@@ -414,6 +473,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        pendingChainFileResult?.success(null)
+        pendingChainFileResult = null
         pendingVpnConnection.cancel(
             "VPN_PERMISSION_CANCELLED",
             "The Android UI closed before VPN permission was granted.",
@@ -741,9 +802,9 @@ class MainActivity : FlutterFragmentActivity() {
                     payload.diagnosticSession,
                     payload.connectionTimeline,
                 )
-                mainHandler.post { result.success(destination.toString()) }
+                runOnUiThread { result.success(destination.toString()) }
             } catch (error: Exception) {
-                mainHandler.post {
+                runOnUiThread {
                     result.error(
                         "DIAGNOSTICS_EXPORT_FAILED",
                         "Android could not write the diagnostic bundle.",
@@ -839,9 +900,9 @@ class MainActivity : FlutterFragmentActivity() {
                     output.write(secret)
                     output.flush()
                 }
-                mainHandler.post { result.success(destination.toString()) }
+                runOnUiThread { result.success(destination.toString()) }
             } catch (error: Exception) {
-                mainHandler.post {
+                runOnUiThread {
                     result.error(
                         "SENSITIVE_OUTPUT_FAILED",
                         "Android could not save the WARP Secret.",

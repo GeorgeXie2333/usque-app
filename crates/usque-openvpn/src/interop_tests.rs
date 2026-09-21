@@ -9,7 +9,7 @@ const CERT: &str = include_str!("../tests/fixtures/server.crt");
 const KEY: &str = include_str!("../tests/fixtures/server.key");
 const CLIENT_CERT: &str = include_str!("../tests/fixtures/client.crt");
 const CLIENT_KEY: &str = include_str!("../tests/fixtures/client.key");
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(super) static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 unsafe extern "C" {
     fn usque_test_peer_create(
@@ -18,6 +18,7 @@ unsafe extern "C" {
         key: *const c_char,
         reject_auth: i32,
         pushed_mtu: u32,
+        udp: i32,
     ) -> *mut c_void;
     fn usque_test_peer_destroy(peer: *mut c_void);
     fn usque_test_peer_receive(peer: *mut c_void, data: *const u8, length: usize) -> i32;
@@ -33,6 +34,9 @@ impl Peer {
         Self::with_mtu(reject_auth, None)
     }
     fn with_mtu(reject_auth: bool, mtu: Option<u16>) -> Self {
+        Self::with_transport(reject_auth, mtu, false)
+    }
+    fn with_transport(reject_auth: bool, mtu: Option<u16>, udp: bool) -> Self {
         let (ca, cert, key) = (
             CString::new(CA).unwrap(),
             CString::new(CERT).unwrap(),
@@ -46,6 +50,7 @@ impl Peer {
                 key.as_ptr(),
                 i32::from(reject_auth),
                 u32::from(mtu.unwrap_or_default()),
+                i32::from(udp),
             )
         };
         Self(NonNull::new(raw).unwrap_or_else(|| panic!("{}", peer_error())))
@@ -193,9 +198,21 @@ async fn memory_tun_reports_effective_local_and_pushed_mtu() {
 
 #[tokio::test]
 async fn tls12_cbc_sha1_memory_tun_preserves_udp_across_renegotiation_and_stops() {
+    memory_transport_roundtrip(false).await;
+}
+#[tokio::test]
+async fn udp_transport_memory_tun_preserves_data_across_renegotiation_and_stops() {
+    memory_transport_roundtrip(true).await;
+}
+async fn memory_transport_roundtrip(udp: bool) {
     let _serial = SERIAL.lock().await;
-    let peer = Peer::new(false);
-    let mut session = Session::start(&profile(CA), "192.0.2.1:1194".parse().unwrap()).unwrap();
+    let peer = Peer::with_transport(false, None, udp);
+    let profile = if udp {
+        profile(CA).replace("proto tcp", "proto udp")
+    } else {
+        profile(CA)
+    };
+    let mut session = Session::start(&profile, "192.0.2.1:1194".parse().unwrap()).unwrap();
     let mut generation = 0;
     let mut connected_at = None;
     let mut send_at = Instant::now();
@@ -236,7 +253,8 @@ async fn tls12_cbc_sha1_memory_tun_preserves_udp_across_renegotiation_and_stops(
                     Event::TransportPacket { packet, .. } => {
                         if packet[0] >> 3 == 6 {
                             // P_DATA_V1
-                            max_data_frame = max_data_frame.max(packet.len() + 2);
+                            max_data_frame =
+                                max_data_frame.max(packet.len() + if udp { 0 } else { 2 });
                         }
                         assert!(peer.receive(&packet), "{}", peer_error())
                     }
@@ -283,7 +301,7 @@ async fn tls12_cbc_sha1_memory_tun_preserves_udp_across_renegotiation_and_stops(
     assert!(network_seen);
     // 1500 IP + 4 packet ID + 16 CBC padding + 16 IV + 20 SHA1 HMAC
     // + 1 opcode + 2 TCP length bytes. Compression is disabled.
-    assert_eq!(max_data_frame, 1559);
+    assert_eq!(max_data_frame, if udp { 1557 } else { 1559 });
     assert_eq!(peer.count(), 72);
     // SAFETY: The live peer is uniquely owned on this test thread.
     let handshakes = unsafe { usque_test_peer_handshakes(peer.0.as_ptr()) };

@@ -287,8 +287,9 @@ class UsqueVpnService : VpnService() {
             var errorCode: String? = null
             try {
                 val raw = request.data.getString("vpn_gate_request") ?: error("Missing request")
-                require(raw.length <= 4096)
+                require(raw.length <= 256 * 1024)
                 val query = JSONObject(raw)
+                require(query.optString("command") == "chain_profile" || raw.length <= 4096)
                 if ((query.optString("command") == "refresh" && !query.optBoolean("cancel")) ||
                     (
                         query.optString("command") == "node" &&
@@ -1931,12 +1932,10 @@ class UsqueVpnService : VpnService() {
         val command =
             if (failed) {
                 settingsUncertain = true
-                val requestedGate = profile?.let { JSONObject(it).optJSONObject("vpn_gate")?.toString() }
+                val requestedGate = profile?.let { ChainProfileFields.selection(JSONObject(it)) }
                 val confirmedGate =
                     confirmedSettingsProfile?.let {
-                        JSONObject(
-                            it,
-                        ).optJSONObject("vpn_gate")?.toString()
+                        ChainProfileFields.selection(JSONObject(it))
                     }
                 if (requestedGate == confirmedGate) activeProfileJson.set(confirmedSettingsProfile)
                 JSONObject()
@@ -2135,7 +2134,7 @@ class UsqueVpnService : VpnService() {
     ): Boolean {
         val requestedGate =
             activeProfileJson.get()?.let { profile ->
-                runCatching { JSONObject(profile).optJSONObject("vpn_gate")?.optBoolean("enabled") == true }
+                runCatching { ChainProfileFields.enabled(JSONObject(profile)) }
                     .getOrDefault(false)
             } == true
         if (!requestedGate) return false

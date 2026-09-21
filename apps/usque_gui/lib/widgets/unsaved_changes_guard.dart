@@ -24,6 +24,9 @@ class UnsavedChangesGuard extends StatefulWidget {
 class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
   bool _discarding = false;
   Future<bool>? _confirmation;
+  void resetDiscardDecision() {
+    if (mounted) setState(() => _discarding = false);
+  }
 
   /// Shares the route's discard decision with navigation outside this route.
   Future<bool> confirmLeave() async {

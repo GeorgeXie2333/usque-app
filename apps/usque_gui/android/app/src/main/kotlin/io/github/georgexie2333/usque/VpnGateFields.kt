@@ -72,8 +72,9 @@ internal object VpnGateFields {
 
     fun status(source: JSONObject?): Map<String, Any?>? =
         source?.let {
-            fields(it, setOf("stage", "generation", "failure", "warp_stage")).toMutableMap().apply {
+            fields(it, setOf("stage", "generation", "failure", "warp_stage", "dns_unavailable")).toMutableMap().apply {
                 put("current_server", it.optJSONObject("current_server")?.let { node -> server(node) })
+                put("current_profile", ChainProfileFields.summary(it.optJSONObject("current_profile")))
                 put(
                     "network",
                     it.optJSONObject("network")?.let { network ->

@@ -26,7 +26,12 @@ class VpnGateEntry extends StatelessWidget {
     required this.controller,
     required this.onOpen,
     super.key,
+    this.title = 'VPN Gate',
+    this.entryKey = const ValueKey('proxy-vpn-gate-entry'),
   });
+
+  final String title;
+  final Key entryKey;
 
   final AppController controller;
   final VoidCallback onOpen;
@@ -43,8 +48,13 @@ class VpnGateEntry extends StatelessWidget {
       phase: app.snapshot.phase,
       status: app.snapshot.vpnGate,
     ),
-    builder: (context, value) =>
-        _EntryCard(controller: controller, value: value, onOpen: onOpen),
+    builder: (context, value) => _EntryCard(
+      controller: controller,
+      value: value,
+      onOpen: onOpen,
+      title: title,
+      entryKey: entryKey,
+    ),
   );
 }
 
@@ -53,11 +63,15 @@ class _EntryCard extends StatefulWidget {
     required this.controller,
     required this.value,
     required this.onOpen,
+    required this.title,
+    required this.entryKey,
   });
 
   final AppController controller;
   final _EntrySelection value;
   final VoidCallback onOpen;
+  final String title;
+  final Key entryKey;
 
   @override
   State<_EntryCard> createState() => _EntryCardState();
@@ -184,7 +198,7 @@ class _EntryCardState extends State<_EntryCard> {
           ],
         );
         return Panel(
-          key: const ValueKey('proxy-vpn-gate-entry'),
+          key: widget.entryKey,
           onTap: widget.onOpen,
           padding: EdgeInsets.all(compact ? 16 : 20),
           child: Row(
@@ -220,7 +234,8 @@ class _EntryCardState extends State<_EntryCard> {
                       runSpacing: 8,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Text('VPN Gate', style: theme.textTheme.titleLarge),
+                        Text(widget.title, style: theme.textTheme.titleLarge),
+                        if (widget.title != 'VPN Gate') const Text('VPN Gate'),
                         Semantics(
                           liveRegion: true,
                           child: Container(

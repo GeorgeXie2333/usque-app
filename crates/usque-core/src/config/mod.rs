@@ -23,7 +23,7 @@ pub use congestion::CongestionControlAlgorithm;
 pub use data_plane::{CONSUMER_L4_SNI, DataPlaneMode, ZERO_TRUST_L4_SNI, l4_server_name};
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 16;
+pub const CURRENT_SCHEMA_VERSION: u32 = 17;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -155,6 +155,14 @@ impl AppConfig {
     /// updating the shared port, SNI, and remaining network settings.
     pub fn upsert_runtime_profile(&mut self, incoming: Profile) -> Result<Profile, ConfigError> {
         let mut incoming = incoming;
+        if self.account(incoming.id).is_some()
+            && incoming.chain_exit.is_none()
+            && self.network.chain_exit.as_ref().is_some_and(|s| {
+                s.source != crate::chain_exit::ChainSource::VpnGate && s.profile_id.is_some()
+            })
+        {
+            return Err(ConfigError::ChainExitCapabilityRequired);
+        }
         incoming.canonicalize_geo_direct()?;
         incoming.canonicalize_direct_dns();
         incoming.validate()?;
@@ -460,6 +468,8 @@ pub struct Profile {
     /// Additional final exit; independent from the WARP transport/backend.
     #[serde(default)]
     pub vpn_gate: crate::vpngate::VpnGateSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_exit: Option<crate::chain_exit::ChainExitSettings>,
 }
 
 impl Default for Profile {
@@ -486,6 +496,7 @@ impl Default for Profile {
             geo_direct_countries: Vec::new(),
             direct_dns: DirectDnsSettings::default(),
             vpn_gate: crate::vpngate::VpnGateSettings::default(),
+            chain_exit: None,
         };
         profile.canonicalize_mode();
         profile
@@ -493,6 +504,22 @@ impl Default for Profile {
 }
 
 impl Profile {
+    pub fn chain_enabled(&self) -> bool {
+        self.chain_exit
+            .as_ref()
+            .map_or(self.vpn_gate.enabled, |s| s.enabled)
+    }
+    pub fn custom_chain(&self) -> Option<&crate::chain_exit::ChainExitSettings> {
+        self.chain_exit
+            .as_ref()
+            .filter(|s| s.source != crate::chain_exit::ChainSource::VpnGate)
+    }
+    pub fn disable_chain(&mut self) {
+        self.vpn_gate.enabled = false;
+        if let Some(chain) = &mut self.chain_exit {
+            chain.enabled = false;
+        }
+    }
     /// `mode` is the persisted projection of `frontends`.
     pub fn canonicalize_mode(&mut self) {
         self.mode = if self.frontends.tunnel {
@@ -511,9 +538,27 @@ impl Profile {
         }
         self.endpoint.validate()?;
 
-        self.vpn_gate
-            .validate()
-            .map_err(|_| ConfigError::InvalidVpnGateSelection)?;
+        if let Some(chain) = &self.chain_exit {
+            chain
+                .validate()
+                .map_err(|_| ConfigError::InvalidVpnGateSelection)?;
+            if chain.source == crate::chain_exit::ChainSource::VpnGate {
+                let mut gate = self.vpn_gate.clone();
+                gate.enabled = chain.enabled;
+                gate.validate()
+                    .map_err(|_| ConfigError::InvalidVpnGateSelection)?;
+            }
+            if chain.source == crate::chain_exit::ChainSource::VpnGate
+                && chain.enabled
+                && self.vpn_gate.selection.is_none()
+            {
+                return Err(ConfigError::InvalidVpnGateSelection);
+            }
+        } else {
+            self.vpn_gate
+                .validate()
+                .map_err(|_| ConfigError::InvalidVpnGateSelection)?;
+        }
 
         if !(1280..=9000).contains(&self.mtu) {
             return Err(ConfigError::InvalidMtu(self.mtu));
@@ -605,6 +650,7 @@ impl Profile {
         self.geo_direct_countries.clear();
         self.direct_dns = DirectDnsSettings::default();
         self.vpn_gate = crate::vpngate::VpnGateSettings::default();
+        self.chain_exit = None;
     }
 
     pub fn canonicalize_geo_direct(&mut self) -> Result<(), ConfigError> {
@@ -1234,6 +1280,8 @@ fn valid_dns_name(value: &str) -> bool {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
+    #[error("chain_exit capability is required to replace an imported exit")]
+    ChainExitCapabilityRequired,
     #[error("VPN Gate requires a valid pinned server selection")]
     InvalidVpnGateSelection,
     #[error("edge-resolved proxy DNS requires the L4 data plane")]

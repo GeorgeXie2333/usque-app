@@ -129,7 +129,7 @@ impl HarnessRuntime {
     pub(crate) fn replace_gate(&mut self, profile: &Profile) {
         self.gate_replace_count += 1;
         self.gate_status = usque_core::vpngate::GateStatus {
-            stage: if profile.vpn_gate.enabled {
+            stage: if profile.chain_enabled() {
                 usque_core::vpngate::GateStage::Connected
             } else {
                 usque_core::vpngate::GateStage::Disabled

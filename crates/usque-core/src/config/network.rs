@@ -36,6 +36,8 @@ pub struct SharedNetworkSettings {
     pub direct_dns: DirectDnsSettings,
     #[serde(default)]
     pub vpn_gate: crate::vpngate::VpnGateSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_exit: Option<crate::chain_exit::ChainExitSettings>,
 }
 
 impl Default for SharedNetworkSettings {
@@ -45,6 +47,11 @@ impl Default for SharedNetworkSettings {
 }
 
 impl SharedNetworkSettings {
+    pub fn chain_enabled(&self) -> bool {
+        self.chain_exit
+            .as_ref()
+            .map_or(self.vpn_gate.enabled, |s| s.enabled)
+    }
     /// Copy device-wide settings from a runtime profile. Zero Trust endpoint
     /// addresses are restored from the account after the shared copy is made.
     pub fn from_profile(profile: &Profile) -> Self {
@@ -67,6 +74,7 @@ impl SharedNetworkSettings {
             geo_direct_countries: profile.geo_direct_countries.clone(),
             direct_dns: profile.direct_dns.clone(),
             vpn_gate: profile.vpn_gate.clone(),
+            chain_exit: profile.chain_exit.clone(),
         }
     }
 
@@ -98,6 +106,7 @@ impl SharedNetworkSettings {
             geo_direct_countries: self.geo_direct_countries.clone(),
             direct_dns: self.direct_dns.clone(),
             vpn_gate: self.vpn_gate.clone(),
+            chain_exit: self.chain_exit.clone(),
         };
         profile.canonicalize_mode();
         profile.proxy.normalize_auth();

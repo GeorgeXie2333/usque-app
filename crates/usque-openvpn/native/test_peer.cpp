@@ -24,6 +24,7 @@ class Peer final : public ProtoContextCallbackInterface {
     std::unique_ptr<ProtoContext> context_;
     std::deque<std::vector<uint8_t>> output_;
     bool reject_auth_;
+    bool udp_;
     uint32_t pushed_mtu_;
     uint32_t data_count_ = 0;
     uint32_t handshakes_ = 0;
@@ -45,8 +46,8 @@ class Peer final : public ProtoContextCallbackInterface {
     bool supports_epoch_data() override { return false; }
     void active(bool) override { ++handshakes_; }
 public:
-    Peer(const char* ca, const char* cert, const char* key, bool reject_auth, uint32_t pushed_mtu)
-        : reject_auth_(reject_auth), pushed_mtu_(pushed_mtu) {
+    Peer(const char* ca, const char* cert, const char* key, bool reject_auth, uint32_t pushed_mtu, bool udp)
+        : reject_auth_(reject_auth), udp_(udp), pushed_mtu_(pushed_mtu) {
         MbedTLSRandom::Ptr rng(new MbedTLSRandom);
         MbedTLSContext::Config::Ptr tls(new MbedTLSContext::Config);
         tls->set_mode(Mode(Mode::SERVER));
@@ -63,7 +64,7 @@ public:
         config->now = &now_;
         config->rng = rng;
         config->prng = rng;
-        config->protocol = Protocol(Protocol::TCPv4);
+        config->protocol = Protocol(udp ? Protocol::UDPv4 : Protocol::TCPv4);
         config->layer = Layer(Layer::OSI_LAYER_3);
         config->comp_ctx = CompressContext(CompressContext::NONE, false);
         config->dc.set_factory(new CryptoDCSelect<MbedTLSCryptoAPI>(config->ssl_factory->libctx(), frame_, stats_, rng));
@@ -72,6 +73,7 @@ public:
         config->dc.set_cipher(CryptoAlgs::lookup("AES-128-CBC"));
         config->dc.set_digest(CryptoAlgs::lookup("SHA1"));
         config->handshake_window = Time::Duration::seconds(10);
+        config->tls_timeout = Time::Duration::seconds(1);
         config->become_primary = Time::Duration::seconds(1);
         // The shipping Core is a client. Let it initiate renegotiation just
         // as in the upstream client/server tests (server uses a later timer).
@@ -93,7 +95,7 @@ public:
     void receive(const uint8_t* data, size_t length) {
         if (length == 0 || length > 65535) throw std::runtime_error("test packet size");
         auto packet = BufferAllocatedRc::Create();
-        frame_->prepare(Frame::READ_LINK_TCP, *packet);
+        frame_->prepare(udp_ ? Frame::READ_LINK_UDP : Frame::READ_LINK_TCP, *packet);
         packet->write(data, length);
         auto type = context_->packet_type(*packet);
         if (type.is_control()) context_->control_net_recv(type, std::move(packet));
@@ -123,8 +125,8 @@ public:
 thread_local std::string peer_error;
 }
 extern "C" {
-void* usque_test_peer_create(const char* ca, const char* cert, const char* key, int reject_auth, uint32_t pushed_mtu) {
-    try { return new Peer(ca, cert, key, reject_auth != 0, pushed_mtu); }
+void* usque_test_peer_create(const char* ca, const char* cert, const char* key, int reject_auth, uint32_t pushed_mtu, int udp) {
+    try { return new Peer(ca, cert, key, reject_auth != 0, pushed_mtu, udp != 0); }
     catch (const std::exception& e) { peer_error = e.what(); return nullptr; }
 }
 void usque_test_peer_destroy(void* peer) { delete static_cast<Peer*>(peer); }

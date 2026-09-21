@@ -889,7 +889,7 @@ impl WindowsVpnRuntime {
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
         validate_capabilities(&capabilities, profile.kill_switch)?;
-        if profile.vpn_gate.enabled && !capabilities.deferred_network_configuration {
+        if profile.chain_enabled() && !capabilities.deferred_network_configuration {
             return Err(WindowsVpnError::MissingCapabilities(
                 "deferred_network_configuration".into(),
             ));
@@ -916,7 +916,7 @@ impl WindowsVpnRuntime {
                 Ok(agent_v1::AgentPhase::Active) if state.profile_id == profile.id.to_string() => {
                     let operation_id = Uuid::parse_str(&state.operation_id)
                         .map_err(|_| WindowsVpnError::InvalidAgentOperationId)?;
-                    let lease = if profile.vpn_gate.enabled {
+                    let lease = if profile.chain_enabled() {
                         Some(agent.begin_chain_transition_lease(operation_id).await?)
                     } else {
                         None
@@ -943,7 +943,7 @@ impl WindowsVpnRuntime {
             return Err(TransportError::TunnelClosed.into());
         }
 
-        let bootstrap = profile.vpn_gate.enabled.then(|| WarpBootstrap {
+        let bootstrap = profile.chain_enabled().then(|| WarpBootstrap {
             identity: identity.clone(),
             refresher: pin_refresher.clone(),
             registration_api: registration_api.clone(),
@@ -957,7 +957,7 @@ impl WindowsVpnRuntime {
         });
         let preparation =
             prepare_vpn_protector(&agent, operation_id, registration_api, profile, geo_enabled);
-        let preparation = if profile.vpn_gate.enabled {
+        let preparation = if profile.chain_enabled() {
             await_prepared_gate_startup(&startup_cancel, &mut startup_lease, preparation).await
         } else {
             preparation.await
@@ -995,7 +995,7 @@ impl WindowsVpnRuntime {
             geo_policy,
             gate,
         ));
-        let startup = if profile.vpn_gate.enabled {
+        let startup = if profile.chain_enabled() {
             await_prepared_gate_startup(&startup_cancel, &mut startup_lease, startup).await
         } else {
             startup.await
@@ -1034,7 +1034,7 @@ impl WindowsVpnRuntime {
             )
             .await);
         }
-        if profile.vpn_gate.enabled {
+        if profile.chain_enabled() {
             let lifetime = CancellationToken::new();
             let (pump_failure_tx, pump_failure) = watch::channel(None);
             let (_, agent_disconnected) = watch::channel(false);
@@ -1284,7 +1284,7 @@ impl WindowsVpnRuntime {
             .tunnel
             .as_mut()
             .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
-        if profile.vpn_gate.enabled
+        if profile.chain_enabled()
             && tunnel.gate_status().stage == usque_core::vpngate::GateStage::Error
         {
             return Err(TransportError::VpnGate(
@@ -1447,7 +1447,7 @@ impl WindowsVpnRuntime {
         if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch) {
             return Err((tunnel, error));
         }
-        if profile.vpn_gate.enabled && !capabilities.deferred_network_configuration {
+        if profile.chain_enabled() && !capabilities.deferred_network_configuration {
             return Err((
                 tunnel,
                 WindowsVpnError::MissingCapabilities("deferred_network_configuration".into()),
@@ -1476,7 +1476,7 @@ impl WindowsVpnRuntime {
         };
         let operation_id = Uuid::new_v4();
         let mut effective = profile.clone();
-        if profile.vpn_gate.enabled {
+        if profile.chain_enabled() {
             let network = tunnel.network_parameters();
             effective.mtu = network.mtu;
             if profile.dns_mode == usque_core::DnsMode::Tunnel {
@@ -2016,7 +2016,7 @@ fn tunnel_plan(
         registration_api,
         split_dns,
     );
-    plan.defer_network_configuration = profile.vpn_gate.enabled;
+    plan.defer_network_configuration = profile.chain_enabled();
     plan
 }
 
@@ -2028,8 +2028,8 @@ fn tunnel_plan_from_assignment(
     split_dns: bool,
 ) -> agent_v1::TunnelPlan {
     let split_dns = split_dns
-        || profile.vpn_gate.enabled && profile.dns_mode == usque_core::DnsMode::Tunnel
-        || profile.data_plane == usque_core::DataPlaneMode::L4Proxy && !profile.vpn_gate.enabled;
+        || profile.chain_enabled() && profile.dns_mode == usque_core::DnsMode::Tunnel
+        || profile.data_plane == usque_core::DataPlaneMode::L4Proxy && !profile.chain_enabled();
     let ipv4 = profile.endpoint.ipv4_socket();
     let ipv6 = profile.endpoint.ipv6_socket();
     let endpoint = match profile.ip_policy {
@@ -2084,7 +2084,7 @@ fn tunnel_plan_from_assignment(
         endpoint_candidates,
         control_api_candidates: registration_api.iter().map(ToString::to_string).collect(),
         split_dns,
-        vpn_chain: profile.vpn_gate.enabled,
+        vpn_chain: profile.chain_enabled(),
         defer_network_configuration: false,
     }
 }

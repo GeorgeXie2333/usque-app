@@ -133,7 +133,7 @@ internal data class AndroidVpnProfile(
                 mtu = mtu,
                 dnsMode = dnsMode,
                 dataPlane = dataPlane,
-                vpnGateEnabled = source.optJSONObject("vpn_gate")?.optBoolean("enabled") == true,
+                vpnGateEnabled = ChainProfileFields.enabled(source),
                 dnsIpv4 = dnsIpv4,
                 dnsIpv6 = dnsIpv6,
                 killSwitch = source.getBoolean("kill_switch"),

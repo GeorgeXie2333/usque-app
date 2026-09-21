@@ -16,6 +16,11 @@ void main() {
   });
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(const [
+      'BoringTun',
+    ], await rootBundle.loadString('assets/licenses/boringtun.txt'));
+  });
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
       'OpenVPN 3 Core',
       'Mbed TLS',
       'Asio',

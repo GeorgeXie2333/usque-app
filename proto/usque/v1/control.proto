@@ -196,6 +196,36 @@ message Profile {
   DataPlaneMode data_plane = 19;
   VpnGateSettings vpn_gate = 20;
   bool disable_quic = 21;
+  ChainExitSettings chain_exit = 22;
+}
+
+message ChainExitSettings {
+  bool enabled = 1;
+  string source = 2;
+  string profile_id = 3;
+  string revision = 4;
+}
+
+// Single bounded secret-bearing request. It must never enter logs/diagnostics.
+message ChainProfileRequest {
+  string action = 1;
+  string source = 2;
+  string name = 3;
+  string profile_id = 4;
+  string revision = 5;
+  bytes configuration = 6;
+  string username = 7;
+  string password = 8;
+  string private_key_password = 9;
+}
+
+// Metadata-only JSON shared with the Android JNI and Flutter model boundary.
+message ChainProfileResponse {
+  string metadata_json = 1;
+}
+
+message ChainExitStatus {
+  string metadata_json = 1;
 }
 
 message VpnGateSettings {
@@ -397,6 +427,9 @@ message Capabilities {
   bool application_quic_blocking = 31;
   bool account_metadata_mutations = 32;
   bool shared_proxy_auth_application = 33;
+  bool chain_profile_import = 34;
+  bool chain_openvpn_udp = 35;
+  bool chain_wireguard = 36;
 }
 
 message FrontendStatus {
@@ -429,6 +462,7 @@ message ConnectionSnapshot {
   DataPlaneMode data_plane = 19;
   L4Snapshot l4 = 20;
   VpnGateStatus vpn_gate = 21;
+  ChainExitStatus chain_exit = 22;
 }
 
 // No destinations, DNS content, connection IDs, or credential material.
@@ -1103,6 +1137,7 @@ message ControlRequest {
     RefreshVpnGateRequest refresh_vpn_gate = 44;
     VpnGateNodeRequest vpn_gate_node = 45;
     RenameProfileRequest rename_profile = 46;
+    ChainProfileRequest chain_profile = 47;
   }
 }
 
@@ -1147,6 +1182,7 @@ message ControlResponse {
     NetworkQualitySnapshot network_quality = 21;
     NetworkSettingsState network_settings = 22;
     VpnGateDirectory vpn_gate_directory = 23;
+    ChainProfileResponse chain_profiles = 24;
   }
 }
 

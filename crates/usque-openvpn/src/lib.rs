@@ -84,6 +84,9 @@ unsafe extern "C" {
         length: usize,
         remote: *const c_char,
         port: u16,
+        username: *const c_char,
+        password: *const c_char,
+        key_password: *const c_char,
         notify: extern "C" fn(*mut c_void),
         context: *mut c_void,
     ) -> *mut c_void;
@@ -211,6 +214,15 @@ pub struct Session {
 }
 impl Session {
     pub fn start(config: &str, remote: SocketAddr) -> Result<Self, Error> {
+        Self::start_with_credentials(config, remote, "", "", "")
+    }
+    pub fn start_with_credentials(
+        config: &str,
+        remote: SocketAddr,
+        username: &str,
+        password: &str,
+        key_password: &str,
+    ) -> Result<Self, Error> {
         if config.is_empty()
             || config.len() > MAX_CONFIG
             || config.contains('\0')
@@ -221,6 +233,18 @@ impl Session {
         let notify = Box::new(Notify::new());
         let context = (&*notify as *const Notify).cast_mut().cast::<c_void>();
         let address = CString::new(remote.ip().to_string()).map_err(|_| Error::InvalidConfig)?;
+        // Zeroizing byte buffers avoid leaving temporary CString copies of credentials.
+        fn credential(value: &str) -> Result<zeroize::Zeroizing<Vec<u8>>, Error> {
+            if value.len() > 2048 || value.contains('\0') {
+                return Err(Error::InvalidConfig);
+            }
+            let mut bytes = zeroize::Zeroizing::new(value.as_bytes().to_vec());
+            bytes.push(0);
+            Ok(bytes)
+        }
+        let username = credential(username)?;
+        let password = credential(password)?;
+        let key_password = credential(key_password)?;
         // SAFETY: create copies the configuration and remote before returning.
         // The callback points at a stable allocation retained by Native.
         let pointer = unsafe {
@@ -229,6 +253,9 @@ impl Session {
                 config.len(),
                 address.as_ptr(),
                 remote.port(),
+                username.as_ptr().cast(),
+                password.as_ptr().cast(),
+                key_password.as_ptr().cast(),
                 wake,
                 context,
             )
@@ -478,6 +505,11 @@ mod tests {
     }
     #[tokio::test]
     async fn unusable_tls_configuration_finishes_without_opening_a_socket() {
+        // The memory peer changes OpenVPN's process-global CryptoAlgs table.
+        // Even a configuration that fails before dialing must not initialize
+        // another native client concurrently with that test-only setup.
+        #[cfg(feature = "interop-test")]
+        let _native_fixture = crate::interop_tests::SERIAL.lock().await;
         let remote = "192.0.2.1:1194".parse().unwrap();
         let mut session = Session::start(
             "client\ndev tun\nproto tcp\nremote 192.0.2.1 1194\n",

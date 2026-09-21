@@ -72,10 +72,11 @@ VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们�
 
 ## 主要功能
 
-- 可选的 [WARP → VPN Gate 出口](docs/VPN_GATE.md)：在“代理 → VPN Gate”按国家选择志愿服务器。
-  VPN、SOCKS5 和 HTTP 流量可以共用该出口，你设置的直连规则仍然生效。此功能默认关闭。
+- 可选的[链式代理](docs/CHAIN_PROXY.md)：在“代理 → 链式代理”依次选择 **OpenVPN (Custom)**、
+  **WireGuard (Custom)** 或 **VPN Gate**。自定义配置支持文件或文本导入，保存多份后选用并应用。
+  VPN、SOCKS5 和 HTTP 共用最终出口，显式直连规则仍然生效。此功能默认关闭。
 - 可手动启用[实验性 L4 模式](docs/L4_PROXY.md)，通过 HTTP/3 代理 TCP 流量。
-  未启用 VPN Gate 时，它不转发普通 UDP 流量，需要 UDP 的应用可能无法正常使用。自动模式不会选择 L4。
+  未启用 OpenVPN TCP 链式出口时，它不转发普通 UDP 流量，需要 UDP 的应用可能无法正常使用。自动模式不会选择 L4。
 - 自动尝试 HTTP/3，失败时回退到 HTTP/2，并尝试通过 IPv4 和 IPv6 寻找可达入口。
   H3 在支持的网络切换场景下可以迁移连接，详见[路径行为](docs/h3-path-infrastructure.md)。
 - 全隧道 VPN、隧道内 DNS、Kill Switch（断网保护）、局域网访问和自定义 CIDR 绕过规则。
@@ -111,7 +112,7 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 也可以选择 **DoH** 或 **DoT**，自行填写加密 DNS 服务器的域名和 IP 地址。
 查询会发送给该服务器；连接失败时不会改用明文 DNS。详见[配置步骤与示例](docs/encrypted-direct-dns.md)。
 
-其他远程 VPN 查询使用最终出口提供的 DNS：通常为 WARP，启用 VPN Gate 后改用 VPN Gate。
+其他远程 VPN 查询使用最终出口提供的 DNS：通常为 WARP，启用链式代理后使用所选最终出口。
 手动设置的本地 DNS 和代理 DNS 仍按各自规则生效。
 应用自行使用加密 DNS 时，Usque 看不到域名，此时按 IP 判断是否直连。
 断开连接后下载规则，也仍受 Android 系统阻断设置和尚未解除的 Windows 断网保护约束。
@@ -159,4 +160,6 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 
 协议与行为参考 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)。本仓库在 `oracle/go` 中保存一份快照，供互操作测试使用。Flutter 界面与 Rust 引擎为本项目新实现。上游版权声明见许可证。
 
-第一方源码采用 [MIT License](LICENSE.md)，第三方组件保留各自许可证。可选的 [WARP → VPN Gate 出口](docs/VPN_GATE.md) 内嵌 OpenVPN 3 Core（MPL-2.0）和 Mbed TLS（Apache-2.0）。对应源码、补丁和许可文本保存在 `third_party`；应用中的 VPN Gate 页面可查看原生依赖许可声明。
+第一方源码采用 [MIT License](LICENSE.md)，第三方组件保留各自许可证。可选的[链式代理](docs/CHAIN_PROXY.md)内嵌 OpenVPN 3 Core（MPL-2.0）和 Mbed TLS（Apache-2.0）。对应源码、补丁和许可文本保存在 `third_party`；应用中的 VPN Gate 页面可查看原生依赖许可声明。
+
+WireGuard 使用 BoringTun 0.7.1（BSD-3-Clause），本地 SVG 图标使用 flutter_svg 2.3.0（MIT）；相应声明已纳入应用许可证列表。

@@ -426,6 +426,8 @@ pub(crate) fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetr
         tcp_nagle_enabled: false,
         udp_buffer_size: 64 * 1024,
         udp_message_count: 128,
+        raw_buffer_size: 64 * 1024,
+        raw_message_count: 128,
         ..Config::default()
     };
     (config, metrics)

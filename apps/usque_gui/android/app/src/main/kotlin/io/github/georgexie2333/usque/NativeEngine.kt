@@ -3,6 +3,8 @@ package io.github.georgexie2333.usque
 import java.io.File
 
 internal object NativeEngine {
+    private external fun nativeInitializeChainCrypto(codec: ChainProfileCipher): Boolean
+
     fun networkSettings(
         path: String,
         request: String,
@@ -16,7 +18,7 @@ internal object NativeEngine {
     private val libraryLoaded: Boolean =
         try {
             System.loadLibrary("usque_android")
-            true
+            nativeInitializeChainCrypto(ChainProfileCipher)
         } catch (_: UnsatisfiedLinkError) {
             false
         }

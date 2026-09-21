@@ -143,6 +143,10 @@ pub struct GateStatus {
     pub failure: Option<GateFailure>,
     #[serde(default)]
     pub warp_stage: Option<String>,
+    #[serde(default)]
+    pub current_profile: Option<Box<crate::chain_exit::ChainProfileSummary>>,
+    #[serde(default)]
+    pub dns_unavailable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

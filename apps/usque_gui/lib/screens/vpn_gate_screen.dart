@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/app_strings.dart';
+import '../core/chain_strings.dart';
 import '../core/user_facing_errors.dart';
 import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
@@ -30,12 +31,14 @@ class VpnGateScreen extends StatefulWidget {
     this.active = true,
     this.leaveGuardKey,
     this.now = DateTime.now,
+    this.sourcePicker,
     super.key,
   });
   final AppController controller;
   final bool active;
   final GlobalKey<UnsavedChangesGuardState>? leaveGuardKey;
   final DateTime Function() now;
+  final Widget? sourcePicker;
   @override
   State<VpnGateScreen> createState() => _VpnGateScreenState();
 }
@@ -65,7 +68,10 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       _appResumed = true;
   bool get _foreground => _appResumed && widget.active;
   String? _fetchError, _saveError;
-  bool get _dirty => _draft != _baseline;
+  bool get _dirty =>
+      _draft != _baseline ||
+      widget.sourcePicker != null &&
+          _controller.activeProfile.chainSource != ChainSource.vpnGate;
   AppController get _controller => widget.controller;
   @override
   void initState() {
@@ -337,8 +343,19 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       return;
     }
     final saved = await _controller.saveNetwork(
-      _controller.activeProfile.copyWith(vpnGate: target),
-      changedFields: const ['vpn_gate'],
+      _controller.activeProfile.copyWith(
+        vpnGate: target,
+        chainExit: widget.sourcePicker == null
+            ? null
+            : ChainExitSettings(
+                enabled: target.enabled,
+                source: ChainSource.vpnGate,
+              ),
+      ),
+      changedFields: [
+        'vpn_gate',
+        if (widget.sourcePicker != null) 'chain_exit',
+      ],
     );
     if (!mounted) return;
     setState(() {
@@ -551,7 +568,9 @@ class _VpnGateScreenState extends State<VpnGateScreen>
         dirty: _dirty,
         saving: _saving,
         child: SubPage(
-          title: 'VPN Gate',
+          title: widget.sourcePicker == null
+              ? 'VPN Gate'
+              : strings.chain('title'),
           subtitle: strings.get('gate_subtitle'),
           backLabel: strings.get('back'),
           contentWidth: 880,
@@ -594,6 +613,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                 child: PanelStack(
                   spacing: 28,
                   children: [
+                    if (widget.sourcePicker != null) widget.sourcePicker!,
                     if (!supported)
                       WarningBanner(
                         title: strings.get('error'),
@@ -611,14 +631,33 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                               () => _draft = _draft.copyWith(enabled: enabled),
                             ),
                     ),
-                    VpnGateConnectionSummary(
-                      strings: strings,
-                      view: view,
-                      error:
-                          snapshot.warning ??
-                          _controller.lastError ??
-                          snapshot.vpnGate.failure,
-                    ),
+                    if (snapshot.chainExit.currentProfile case final current?)
+                      ContentSection(
+                        title: strings.chain('current'),
+                        children: [
+                          Text('${current.source.label} · ${current.name}'),
+                          Text(
+                            strings.get(
+                              snapshot.isConnected
+                                  ? 'connected'
+                                  : snapshot.isTransitional
+                                  ? 'connecting'
+                                  : snapshot.phase == ConnectionPhase.error
+                                  ? 'error'
+                                  : 'disconnected',
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      VpnGateConnectionSummary(
+                        strings: strings,
+                        view: view,
+                        error:
+                            snapshot.warning ??
+                            _controller.lastError ??
+                            snapshot.vpnGate.failure,
+                      ),
                     ContentSection(
                       title: strings.get('gate_servers'),
                       subtitle:

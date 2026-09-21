@@ -24,6 +24,7 @@ typedef struct {
  * crosses this ABI. No API opens a socket or creates a system TUN. */
 usque_ovpn_session *usque_ovpn_create(const uint8_t *config, size_t length,
                                     const char *remote, uint16_t port,
+                                    const char *username, const char *password, const char *key_password,
                                     usque_ovpn_notify notify, void *context);
 int usque_ovpn_run(usque_ovpn_session *session);
 void usque_ovpn_stop(usque_ovpn_session *session);

@@ -15,7 +15,8 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
 | [Network Doctor](network-doctor.md) | Run checks, read results, and export a local report / 运行检查、理解结果与导出诊断 |
 | [Direct DNS](encrypted-direct-dns.md) | Choose System, DoH or DoT and fill in resolver settings / 选择直连 DNS 模式与填写服务器配置 |
-| [WARP → VPN Gate](VPN_GATE.md) | Select an exit, manage favorites, and understand connection failures / 选择出口、管理收藏与处理连接失败 |
+| [Chain proxy](CHAIN_PROXY.md) | OpenVPN (Custom), WireGuard (Custom), VPN Gate: import, select and apply / 导入、选用与应用 |
+| [VPN Gate directory](VPN_GATE.md) | Manage the volunteer directory and favorites / 管理志愿服务器目录与收藏 |
 | [Experimental L4](L4_PROXY.md) | Enable TCP proxy mode and understand its traffic limits / 启用 TCP 代理模式及了解限制 |
 | [Experimental Zero Trust](ZERO_TRUST_EXPERIMENTAL.md) | Enrollment, unsupported features, and validation requirements / 实验性注册、限制与验证要求 |
 | [Security policy](../SECURITY.md) | Private vulnerability reporting and supported versions / 私密漏洞报告与支持范围 |
@@ -82,6 +83,7 @@ Common terms in these references:
 | [L4 backpressure fix](L4_BACKPRESSURE_FIX.md) | Reproduced stalls, stop handling and regression results / 阻塞复现、停止处理与回归结果 |
 | [L4 download optimization](L4_DOWNLOAD_OPTIMIZATION.md) | Copy/allocation changes and their original measurements / 拷贝、分配优化及当时的检查记录 |
 | [VPN Gate validation](VPN_GATE_VALIDATION.md) | Local implementation and follow-up checks / 本地实现与后续修复检查 |
+| [Chain proxy validation](CHAIN_PROXY_VALIDATION.md) | Native builds, protocol/UI tests and size comparisons / 原生编译、协议与界面测试、体积对照 |
 
 Historical results apply only to the recorded candidate and environment. Some
 records identify a baseline plus uncommitted work rather than a reproducible

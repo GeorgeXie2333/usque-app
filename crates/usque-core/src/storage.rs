@@ -397,6 +397,19 @@ fn migrate_app_config(config: &mut AppConfig) {
         // Missing fields default to false; never enable traffic filtering on upgrade.
         config.schema_version = 16;
     }
+    if config.schema_version < 17 {
+        config.network.chain_exit = Some(crate::chain_exit::ChainExitSettings {
+            enabled: config.network.vpn_gate.enabled,
+            source: if config.network.vpn_gate.selection.is_some() {
+                crate::chain_exit::ChainSource::VpnGate
+            } else {
+                crate::chain_exit::ChainSource::OpenvpnCustom
+            },
+            profile_id: None,
+            revision: None,
+        });
+        config.schema_version = 17;
+    }
 }
 
 #[cfg(not(windows))]
@@ -1122,7 +1135,7 @@ mod tests {
             .remove("disable_quic");
         fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
         let mut config = store.load().unwrap();
-        assert_eq!(config.schema_version, 16);
+        assert_eq!(config.schema_version, CURRENT_SCHEMA_VERSION);
         assert!(!config.network.disable_quic);
         config.network.disable_quic = true;
         let mut account = config.profiles[0].clone();

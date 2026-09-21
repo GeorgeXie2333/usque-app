@@ -34,6 +34,7 @@ macro_rules! network_fields {
             "geo_direct_countries" => geo_direct_countries,
             "direct_dns" => direct_dns,
             "vpn_gate" => vpn_gate,
+            "chain_exit" => chain_exit,
             "proxy.socks5_listeners" => proxy.socks5_listeners,
             "proxy.http_listeners" => proxy.http_listeners,
             "proxy.system_proxy" => proxy.system_proxy,
@@ -49,6 +50,12 @@ macro_rules! define_fields {
         pub const NETWORK_FIELDS: &[&str] = &[$($name),*];
 
         fn copy_field(target: &mut Profile, source: &Profile, field: &str) -> Result<(), SettingsError> {
+            if field == "vpn_gate" && source.chain_exit.is_none() {
+                if target.custom_chain().is_some_and(|c| c.profile_id.is_some()) {
+                    return Err(SettingsError::InvalidField);
+                }
+                target.chain_exit = None;
+            }
             match field {
                 $($name => target.$($member).+.clone_from(&source.$($member).+),)*
                 _ => return Err(SettingsError::InvalidField),
@@ -205,6 +212,10 @@ pub fn merge_patch(
 }
 
 fn normalize(profile: &mut Profile) -> Result<(), SettingsError> {
+    if let Some(chain) = &profile.chain_exit {
+        profile.vpn_gate.enabled =
+            chain.enabled && chain.source == crate::chain_exit::ChainSource::VpnGate;
+    }
     if !profile.frontends.http {
         profile.proxy.system_proxy = false;
     }

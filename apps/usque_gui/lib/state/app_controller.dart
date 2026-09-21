@@ -15,6 +15,28 @@ import 'network_quality_controller.dart';
 import 'network_settings_controller.dart';
 
 class AppController extends ChangeNotifier {
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request) {
+    final engine = _engine;
+    if (engine is ChainProfileClient) {
+      return (engine as ChainProfileClient).chainProfile(request);
+    }
+    throw const EngineException(
+      'CHAIN_PROFILE_UNAVAILABLE',
+      'Chain profiles are unavailable.',
+    );
+  }
+
+  Future<String?> pickChainConfiguration() {
+    final engine = _engine;
+    if (engine is ChainProfileClient) {
+      return (engine as ChainProfileClient).pickChainConfiguration();
+    }
+    throw const EngineException(
+      'CHAIN_PROFILE_UNAVAILABLE',
+      'File import is unavailable.',
+    );
+  }
+
   AppController(
     EngineClient engine, {
     UpdateDownloader? updateDownloader,
@@ -590,6 +612,7 @@ class AppController extends ChangeNotifier {
       snapshot = EngineSnapshot(
         phase: ConnectionPhase.disconnecting,
         vpnGate: snapshot.vpnGate,
+        chainExit: snapshot.chainExit,
         killSwitchState: snapshot.killSwitchState,
         platformLockdown: snapshot.platformLockdown,
         alwaysOn: snapshot.alwaysOn,
@@ -1351,6 +1374,7 @@ class AppController extends ChangeNotifier {
           dataPlane: snapshot.dataPlane,
           l4: snapshot.l4,
           vpnGate: snapshot.vpnGate,
+          chainExit: snapshot.chainExit,
           warning: message,
           errorCode: error is EngineException ? error.code : null,
           errorRetryable: error is EngineException ? error.retryable : null,

@@ -105,6 +105,17 @@ class ControlCodec {
     );
     writer.enumeration(19, profile.dataPlane.index + 1);
     writer.boolean(21, profile.disableQuic);
+    if (profile.chainExit case final chain?) {
+      writer.message(
+        22,
+        (ControlPayloadWriter()
+              ..boolean(1, chain.enabled)
+              ..string(2, chain.source.wire)
+              ..string(3, chain.profileId ?? '')
+              ..string(4, chain.revision ?? ''))
+            .takeBytes(),
+      );
+    }
     if (profile.vpnGate != const VpnGateSettings()) {
       writer.message(
         20,
@@ -147,6 +158,7 @@ class ControlCodec {
       EngineCapabilities? capabilities;
       NetworkSettingsState? networkSettings;
       VpnGateDirectory? vpnGateDirectory;
+      ChainProfileResult? chainProfiles;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -174,6 +186,10 @@ class ControlCodec {
             networkQuality = _decodeNetworkQuality(reader.message(field));
           case 22:
             networkSettings = _decodeNetworkSettings(reader.message(field));
+          case 24:
+            chainProfiles = ChainProfileResult.fromMap(
+              _decodeChainJson(reader.message(field)),
+            );
           case 23:
             vpnGateDirectory = VpnGateDirectory.fromMap(
               _decodeVpnGate(reader.message(field), 'directory'),
@@ -209,6 +225,7 @@ class ControlCodec {
         capabilities: capabilities,
         networkSettings: networkSettings,
         vpnGateDirectory: vpnGateDirectory,
+        chainProfiles: chainProfiles,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -349,6 +366,7 @@ class ControlResponse {
     this.capabilities,
     this.networkSettings,
     this.vpnGateDirectory,
+    this.chainProfiles,
   });
 
   final EngineSnapshot? snapshot;
@@ -362,6 +380,7 @@ class ControlResponse {
   final EngineCapabilities? capabilities;
   final NetworkSettingsState? networkSettings;
   final VpnGateDirectory? vpnGateDirectory;
+  final ChainProfileResult? chainProfiles;
 }
 
 /// Minimal protobuf field writer for control request payloads.
@@ -423,6 +442,12 @@ class ControlPayloadWriter {
 
 Map<String, Object?> _decodeVpnGate(_ProtoReader reader, String kind) {
   const schemas = <String, Map<int, (String, String)>>{
+    'chain_settings': {
+      1: ('enabled', 'b'),
+      2: ('source', 's'),
+      3: ('profile_id', 's'),
+      4: ('revision', 's'),
+    },
     'settings': {
       1: ('enabled', 'b'),
       2: ('server_id', 's'),
@@ -698,6 +723,7 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
 
 UsqueProfile _decodeProfile(_ProtoReader reader) {
   var vpnGate = const VpnGateSettings();
+  ChainExitSettings? chainExit;
   final defaults = UsqueProfile.defaultProfile();
   var id = defaults.id;
   var name = defaults.name;
@@ -824,6 +850,10 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         dataPlane = value == 0
             ? DataPlaneMode.connectIp
             : _decodeIndexedEnum(DataPlaneMode.values, value, 'data plane');
+      case 22:
+        chainExit = ChainExitSettings.fromMap(
+          _decodeVpnGate(reader.message(field), 'chain_settings'),
+        );
       case 20:
         vpnGate = VpnGateSettings.fromMap(
           _decodeVpnGate(reader.message(field), 'settings'),
@@ -848,6 +878,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     transport: transport,
     dataPlane: dataPlane,
     vpnGate: vpnGate,
+    chainExit: chainExit,
     disableQuic: disableQuic,
     congestionControl: congestionControl,
     ipPolicy: ipPolicy,
@@ -1461,6 +1492,9 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var l4TunTcp = false;
   var l4DnsConversion = false;
   var vpnGateTcp = false;
+  var chainProfileImport = false,
+      chainOpenvpnUdp = false,
+      chainWireguard = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
@@ -1486,6 +1520,12 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         applicationQuicBlocking = reader.varint(field) != 0;
       case 32:
         accountMetadataMutations = reader.varint(field) != 0;
+      case 34:
+        chainProfileImport = reader.varint(field) != 0;
+      case 35:
+        chainOpenvpnUdp = reader.varint(field) != 0;
+      case 36:
+        chainWireguard = reader.varint(field) != 0;
       case 33:
         sharedProxyAuthApplication = reader.varint(field) != 0;
       case 20:
@@ -1523,6 +1563,9 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     l4TunTcp: l4TunTcp,
     l4DnsConversion: l4DnsConversion,
     vpnGateTcp: vpnGateTcp,
+    chainProfileImport: chainProfileImport,
+    chainOpenvpnUdp: chainOpenvpnUdp,
+    chainWireguard: chainWireguard,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),
     networkQuality: networkQuality,
@@ -2395,6 +2438,8 @@ _StructuredEngineError _decodeError(_ProtoReader reader) {
 
 EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   var vpnGate = const VpnGateStatus();
+  var chainExit = const ChainExitStatus();
+  Map<String, Object?>? chainMetadata;
   CongestionControlAlgorithm? sessionCongestionControl;
   DataPlaneMode? dataPlane;
   L4Snapshot? l4;
@@ -2479,6 +2524,9 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         };
       case 20:
         l4 = _decodeL4Snapshot(reader.message(field));
+      case 22:
+        chainMetadata = _decodeChainJson(reader.message(field));
+        chainExit = ChainExitStatus.fromMap(chainMetadata);
       case 21:
         vpnGate = VpnGateStatus.fromMap(
           _decodeVpnGate(reader.message(field), 'status'),
@@ -2488,12 +2536,18 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         reader.skip(field);
     }
   }
+  if (chainExit.currentProfile != null && chainMetadata != null) {
+    // Share the existing internal connection presentation without repurposing
+    // the legacy VPN Gate wire field. Protobuf field order is irrelevant.
+    vpnGate = VpnGateStatus.fromMap(chainMetadata);
+  }
   return EngineSnapshot(
     phase: phase,
     sessionCongestionControl: sessionCongestionControl,
     dataPlane: dataPlane,
     l4: l4,
     vpnGate: vpnGate,
+    chainExit: chainExit,
     transport: transport,
     addressFamily: family,
     connectedAt: connectedSeconds == 0
@@ -2919,4 +2973,19 @@ class _ProtoReader {
       throw const FormatException('Unexpected protobuf wire type');
     }
   }
+}
+
+Map<String, Object?> _decodeChainJson(_ProtoReader reader) {
+  Map<String, Object?> result = const {};
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number == 1) {
+      result = Map<String, Object?>.from(
+        jsonDecode(reader.string(field)) as Map,
+      );
+    } else {
+      reader.skip(field);
+    }
+  }
+  return result;
 }

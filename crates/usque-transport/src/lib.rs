@@ -5,6 +5,8 @@
 //! network configuration.
 
 mod application_traffic;
+mod chain_session;
+mod chain_udp;
 mod connect_ip_control;
 mod data_plane;
 mod diagnostic_probe;
@@ -26,6 +28,8 @@ mod migration_barrier;
 mod netstack;
 mod network_quality;
 mod outbound_packet;
+#[cfg(feature = "wireguard")]
+mod wireguard;
 // Compile the actual Android slab producer in memory-only transport tests.
 #[cfg(test)]
 #[path = "../../usque-android/src/tun_read_slab.rs"]
@@ -59,7 +63,7 @@ mod fault_injection;
 #[cfg(all(feature = "fault-injection", not(debug_assertions), not(test)))]
 compile_error!("fault-injection is restricted to test/debug lab builds");
 
-pub use data_plane::{DataPlaneRuntime, TunPacketIo, VpnGateStart};
+pub use data_plane::{ChainExitStart, DataPlaneRuntime, TunPacketIo, VpnGateStart};
 pub use diagnostic_probe::{
     NetworkProbeResult, h3_probe_endpoints, probe_encrypted_dns, probe_h3_handshake,
     probe_h3_handshake_candidates,

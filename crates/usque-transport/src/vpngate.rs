@@ -1,5 +1,6 @@
 //! OpenVPN's transport is supplied exclusively by a WARP internal network.
 //! Decrypted packets use the same bounded mux as CONNECT-IP frontends.
+use crate::chain_session::{Input, Session};
 use crate::h2::TransportError;
 use crate::internal_network::InternalNetwork;
 use crate::netstack::{ExternalPacketChannels, ManagedTunnelRuntime, RuntimeHealth, RuntimePath};
@@ -16,7 +17,7 @@ use tokio_util::task::AbortOnDropHandle;
 use usque_core::vpngate::{
     FinalNetworkParameters, GateFailure, GateStage, GateStatus, PreparedProfile,
 };
-use usque_openvpn::{Event, Input, NetworkConfig, Session};
+use usque_openvpn::{Event, NetworkConfig};
 
 #[cfg(test)]
 mod authentication_tests;
@@ -93,6 +94,17 @@ impl GateDriver {
         startup_cancel: &CancellationToken,
     ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
         let status = status_sink.unwrap_or_else(|| watch::channel(GateStatus::default()).0);
+        if profile.custom.is_some() {
+            return Self::start_attempt(
+                profile,
+                warp,
+                transport_telemetry,
+                status,
+                startup_cancel,
+                0,
+            )
+            .await;
+        }
         with_authentication_retries(startup_cancel, |attempt| {
             Self::start_attempt(
                 profile,
@@ -120,7 +132,22 @@ impl GateDriver {
         if auth_attempt > 0 && !matches!(warp.health_snapshot(), RuntimeHealth::Connected { .. }) {
             return Err(TransportError::VpnGate(GateFailure::Transport));
         }
-        let native = Session::start(profile.content(), profile.remote)
+        let remote = if let Some(summary) = &profile.summary {
+            let ipv6 = match profile.custom.as_deref() {
+                Some(usque_core::chain_exit::ValidatedProfile::OpenVpn(p)) => p.endpoint_ipv6,
+                _ => None,
+            };
+            warp.resolve_endpoint(&summary.endpoint, ipv6, startup_cancel)
+                .await
+                .map_err(|_| TransportError::VpnGate(GateFailure::Transport))?
+        } else {
+            profile.remote
+        };
+        let udp = profile
+            .summary
+            .as_ref()
+            .is_some_and(|s| s.protocol.requires_udp());
+        let native = Session::start(profile, remote)
             .map_err(|_| TransportError::VpnGate(GateFailure::Configuration))?;
         let cancellation = CancellationToken::new();
         let guard = cancellation.clone().drop_guard();
@@ -132,6 +159,7 @@ impl GateDriver {
             };
             s.failure = None;
             s.network = None;
+            s.current_profile = profile.summary.clone();
         });
         let status = status_tx.subscribe();
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -142,7 +170,8 @@ impl GateDriver {
             diagnostic_id,
             auth_attempt,
             native,
-            remote: profile.remote,
+            remote,
+            udp,
             underlay_health: warp.health(),
             transport_telemetry,
             warp,
@@ -259,6 +288,7 @@ struct Actor {
     native: Session,
     warp: InternalNetwork,
     remote: SocketAddr,
+    udp: bool,
     underlay_health: watch::Receiver<RuntimeHealth>,
     transport_telemetry: crate::NetworkQualityTelemetry,
     status: watch::Sender<GateStatus>,
@@ -419,6 +449,7 @@ impl Actor {
                 self.connection = Some(Connection::start(
                     self.warp.clone(),
                     self.remote,
+                    self.udp,
                     self.native.input(),
                     generation,
                     &self.cancellation,
@@ -659,6 +690,7 @@ impl Connection {
     fn start(
         warp: InternalNetwork,
         remote: SocketAddr,
+        udp: bool,
         input: Input,
         generation: u64,
         parent: &CancellationToken,
@@ -669,6 +701,30 @@ impl Connection {
         let cancel = cancellation.clone();
         let task = tokio::spawn(async move {
             let work = async {
+                if udp {
+                    let socket = warp
+                        .bind_udp(remote, &cancel)
+                        .await
+                        .map_err(std::io::Error::from)?;
+                    input
+                        .transport_connected(generation)
+                        .await
+                        .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = cancel.cancelled() => return Ok(()),
+                            packet = packets.recv() => {
+                                let Some(packet) = packet else { return Ok(()); };
+                                socket.send(&packet).await.map_err(std::io::Error::from)?;
+                            },
+                            packet = socket.recv() => {
+                                input.receive_transport(generation, &packet.map_err(std::io::Error::from)?).await
+                                    .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
+                            }
+                        }
+                    }
+                }
                 let stream = warp
                     .connect_address(remote, &cancel, Instant::now() + Duration::from_secs(15))
                     .await

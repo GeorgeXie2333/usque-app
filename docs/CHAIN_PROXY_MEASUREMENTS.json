@@ -1,0 +1,3712 @@
+{
+  "date": "2026-09-22",
+  "base_commit": "0931d1a0898461eed748c67488800a91da9e6630",
+  "candidate": "Uncommitted source changes identified by hashes below; no signed package.",
+  "source_hash_format": "SHA-256 of exact working-tree bytes. Base commit plus replacements/additions. Report and manifest excluded to avoid self-reference.",
+  "changed_source_sha256": "672ad1a331bcde6e20c502c11f3d7ee473408fc7012471063655889952f4083a",
+  "source_files": {
+    "Cargo.lock": "15109ed45b9b32bd680a4d4f0d6a780f0ce307b0d092d3eacac4fdc2aa22765e",
+    "Cargo.toml": "088a2c1b8be2241e5ec04d4881feaa8d15fe523e7ff71e06d66c9ea7fcd28b9f",
+    "README.md": "78a4b94de2c65d30c37f47e97293f262057cd17d488ef085855ab1a3f73fd26e",
+    "README.zh-CN.md": "2edf106aaa9c54c4a1ddac0a56c00d9c98289c432b748825835dae234188b1c8",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/AndroidEngineMethodHandler.kt": "e804313c46e29146272c23f1880c8e5ec9f050dc47cb9f85076a59aa6d172c86",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/AndroidVpnConfiguration.kt": "3a6d8e896e200fb985b852cb19ae0b1ab2c8c39c476c1d32239d8248717e6e76",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/ChainProfileCipher.kt": "63b148d1ab651371c8e9cefa76ba6f3f6ab19f6e1171d76eb0d5091ccd0c686a",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/ChainProfileFields.kt": "33893ab90b8aafbf56971cb04dce0299e3f9b995738af29a1b6a13a01f2653e0",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/MainActivity.kt": "4158e6bdc01864070b03e8e58fc48adaffa17b3eff3bd240684b951719a72b51",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/NativeEngine.kt": "6a67be5b8176e91ed90ff9fcb1824f46aa827c4f5372116a3442e9e6534ad183",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/NetworkQualityFields.kt": "35185e78d9c495db8d96fcebb2b332615f8df088fef541c1453e2a7daf715482",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/UsqueVpnService.kt": "dd4c1d374f883d2a25fd3c3395706b89082203107b7d236e0b41583df577ba1d",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/VpnControlClient.kt": "d3d7bebb9b882c953882c9a611e39c43a4a2a5bec7531f19724d34a40b4049fb",
+    "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/VpnGateFields.kt": "8eb6e840b8698c38585bd9b3b33a375eb562c076dc1b36fb056d28b035aa1f55",
+    "apps/usque_gui/android/app/src/test/kotlin/io/github/georgexie2333/usque/ChainProfileFieldsTest.kt": "f47f005f9652e492f82f5a6f39538c537ff091de82cdd8811525541c23b37ba7",
+    "apps/usque_gui/assets/icons/openvpn.svg": "156b5059455978830072176455788d00e9f0d45bde23688c585b413d63a07a89",
+    "apps/usque_gui/assets/icons/wireguard.svg": "4b9556bd4d7f38793cac2b992881572e52bbea16733d81bcd62c8d9d6061338f",
+    "apps/usque_gui/assets/licenses/boringtun.txt": "6dbef24708bad8c727bd80cca58ba8aa1637cdcb2cc6e9a31ea49235717e9391",
+    "apps/usque_gui/lib/core/chain_strings.dart": "7ce07a6bbe9f8e6fe0c17afa69824e19e97c378c1cfd1d3ce16d54f7fcc6b3bc",
+    "apps/usque_gui/lib/main.dart": "03f6838f13a788896f705567d1e4bca643f10df991cf44786bb428d76218b3d0",
+    "apps/usque_gui/lib/models/app_models.dart": "09c24591b5eeab5675ca34da6988d07c15398fee4322d88b5520c45d4236fd16",
+    "apps/usque_gui/lib/models/chain_exit_models.dart": "e540eb4773ece076bcfb7faf6673e418a73430d697f29b06aa981eae42a87d5c",
+    "apps/usque_gui/lib/models/network_settings.dart": "81185ab6d5799bc4a1a40207581e2b770753d2c8356b323140a7133aff80a26e",
+    "apps/usque_gui/lib/screens/chain_proxy_screen.dart": "e3f22db61a52041e9d92aa346043d94866914b7109652cc60aeffacd942a32d2",
+    "apps/usque_gui/lib/screens/home_screen.dart": "895e9d72efe22b533abfd100d833e3345991696681cc0593ad0bc5284493bff6",
+    "apps/usque_gui/lib/screens/proxy_screen.dart": "a3d4a87ed7aeadeb5dec4d2ec3ab7127d84d923bb7876cf2ea0ec1a0858686a7",
+    "apps/usque_gui/lib/screens/proxy_section.dart": "1908ba03828eb27b184fa8ab0ee2cbe5911a33cf69eb17db44a33832c294fb7b",
+    "apps/usque_gui/lib/screens/vpn_gate_screen.dart": "059b1e116849ab48efe5c1dac1ef7207e6f0c41171f46ed834ec191d6b045f1c",
+    "apps/usque_gui/lib/services/control_codec.dart": "b259b82e340e44f32b90b54003ff58a32495b0b5fd94e8e10c02a32947799465",
+    "apps/usque_gui/lib/services/desktop_engine_client.dart": "bc368148b39adb47700af26d0c1036b5cf462d9429ce646db50baeb2422d3dfc",
+    "apps/usque_gui/lib/services/engine_client.dart": "a1395aa3d912e27e0458e9c6dfb9176a1e46ef153f696c5cd6f3295302c3e2cf",
+    "apps/usque_gui/lib/state/app_controller.dart": "ba05b71d5d5255179451c0c266b71519653f9e948683b95cc6ffa81fbef89aaf",
+    "apps/usque_gui/lib/widgets/chain_proxy_entry.dart": "b94a9b3a182ea727c9cfab5aa921b8bac97531fa093510bd37e258a6f27f3e6d",
+    "apps/usque_gui/lib/widgets/chain_source_icon.dart": "3aa89fa38ba6a9d4f287820da5a59bd2aea97acd90e57bf7e93ddaa2d2d2c6b5",
+    "apps/usque_gui/lib/widgets/unsaved_changes_guard.dart": "6f67b9875c4e4e15e02d32c47d76b2d843752a4e7e89029aa60826265f44ac43",
+    "apps/usque_gui/lib/widgets/vpn_gate_entry.dart": "75fc2936f736d15416cbdd0ce69634a62bcfa0cb37c6e1e05c3b701c3a8be99e",
+    "apps/usque_gui/pubspec.lock": "45c6e64ef6ca06af44341fc5e8d23db6cfb3f89d1c8447c4f30c4716d891f817",
+    "apps/usque_gui/pubspec.yaml": "6da6fe56ddbab92da6755fe25c3e6c9145efb8ec68c99467a6d05d702d93cde2",
+    "apps/usque_gui/test/chain_proxy_test.dart": "758e60491343a180d32cae2a3600d29074ee2a54ecba6cd134cbe53dac65ae73",
+    "apps/usque_gui/test/goldens/chain_custom_desktop.png": "6a5530e2c07047e49884420e828638f9cc70b1dd902b877b532a8dd5a7a074ae",
+    "apps/usque_gui/test/goldens/chain_custom_phone.png": "c3c24e91e51d24eeb7202f9531d27a770d0669973636d7af5c2f53abae640c15",
+    "apps/usque_gui/test/goldens/chain_icons_dark.png": "bbb8c0619598618f372a6c754b8f09fa511aa413aadd39d5220262e77b46667a",
+    "apps/usque_gui/test/goldens/chain_icons_light.png": "7870bd5d7662cbf95af81644019f7cb2a24eb1df88c12e06f5195d067772cd8c",
+    "apps/usque_gui/test/goldens/proxy_desktop_dark.png": "532a56b52fa46bd99aa1daa5617ede6666d914af8e8c998766a36aa54f1e28e5",
+    "apps/usque_gui/test/goldens/proxy_phone_draft.png": "9f117ba7ab33751ff471a2c6d0c41aac29fe38ebe288714e5a44cb7154738dd8",
+    "apps/usque_gui/test/goldens/vpngate_live_draft_desktop_dark.png": "7320e952d294adafa08c63223d624b202526e85de8944af9337f95069071cf1b",
+    "apps/usque_gui/test/goldens/vpngate_shell_desktop_dark.png": "c0fcae07c4c509751fe6f2743f86a572438628a8723b76507be041a8782b7e81",
+    "apps/usque_gui/test/native_layout_test.dart": "b73a8f11d27f582e0df3ae35224d1fde51bd90bdba8037a443f4f1ff8d88d62b",
+    "apps/usque_gui/test/ui_workflow_golden_test.dart": "a7dc843d945c67e85f6ee7acca8b118d19b38caf7cba2ef2552e88c2cc053d26",
+    "apps/usque_gui/test/vpn_gate_entry_test.dart": "90879e66d6c22e402286fe33de302c84be9ea2e4b770a0e732d559905f947857",
+    "apps/usque_gui/test/vpn_gate_navigation_test.dart": "02a340740b720fc478d333017724d24c8b94c7326943149aae4eb511134e87c9",
+    "apps/usque_gui/windows/runner/flutter_window.cpp": "3cc5c9cbddf94c53d77294ff3349c3fc489b5e01338e95dbaa06c4ea837c16ce",
+    "crates/usque-android/Cargo.toml": "fd966df1dec407f82fe0401c9a73fdb99d66d8c180c8cbdfc2f82458c665f22c",
+    "crates/usque-android/src/android_runtime.rs": "5eee94b5b66983754102d45d1b58a69b8ae44cf82fd65a9907177ce5c951ab8b",
+    "crates/usque-android/src/chain_exit.rs": "932351fdd5a0e8f6416284dcb0395195dfc607c92494c73b2aef09f9b9acee43",
+    "crates/usque-android/src/lib.rs": "b828c872e58007abad690933c728aa582920929ea4bfb440b9c81b279f80a67b",
+    "crates/usque-android/src/network_settings.rs": "fe13759f57cc84bdab3fa024c792c555f1fc8eeb3c06e2412bd16ded9a488651",
+    "crates/usque-android/src/vpngate.rs": "a1ed393a3ae3a74f800dc2cb8e2760b9f138d4b4f7754fae3f42574e77741867",
+    "crates/usque-core/src/chain_exit/mod.rs": "4542eba942e0e038b055d8870ca588dfef9ab92c6180165cc82f3f82c14a11d1",
+    "crates/usque-core/src/chain_exit/openvpn.rs": "03d7704415bbd4dcc325e9a83aa10b6ea7258d831f6137c68dfb09073429966b",
+    "crates/usque-core/src/chain_exit/store.rs": "0e22d4f09b2ab6a84350a4306d041f3197d11b26fcd83d2f2c77096af5b6681b",
+    "crates/usque-core/src/chain_exit/tests.rs": "5dfa9f026cbcd6225e61f2cd4fd84aa3ad32593b07c031707c6e7096a655bde0",
+    "crates/usque-core/src/chain_exit/wireguard.rs": "c50acd086a3025dbb003b93cae93b46d1bbc331e169a2f5419356945dee053a6",
+    "crates/usque-core/src/config/mod.rs": "4d4ed938085988902712face6ebdd7d2f3052e644daf5b0ec0dd3ebc2fec7506",
+    "crates/usque-core/src/config/network.rs": "a85338c8a215efd87ac664289ac1dd9c2e9f06666d1b6affbc0dda2c6995c698",
+    "crates/usque-core/src/lib.rs": "cf68d538b333c899d0645b03893b0a0873bedaca36592ee1d39928c3139737a0",
+    "crates/usque-core/src/network_settings.rs": "75314c44d719e09bbba8d3bac52a72322e8ac5c701279312af9a672626934a40",
+    "crates/usque-core/src/reconfigure.rs": "626225bece537e3ee5fd98bdf1a44b73573fa98601bcc1c1a87e6208b55d8cca",
+    "crates/usque-core/src/storage.rs": "478dfe8f18f6092ef84003ec78794ab337a8e64ee8d80ca63cf5879b1b182747",
+    "crates/usque-core/src/vpngate/mod.rs": "813a80b3e5ee18ef829949bda934b12a53c37d7cc79dfe7d370cc312f8336171",
+    "crates/usque-core/src/vpngate/profile.rs": "3524741d35dc8805a37de268cfd3dfe17f29bb1c7068aff220ac82d44bbfa93d",
+    "crates/usque-core/tests/chain_import_properties.rs": "2a2496c5abc91d6a117ec63b84271631baa7cff89ab1e301e6e78aa03923acfb",
+    "crates/usque-engine/Cargo.toml": "2dc561612630c29b4c1e04810b817ee0b5363b36e618b358a6bcab3b97c9ca0e",
+    "crates/usque-engine/src/active_runtime.rs": "d725da9a946b24a16a22bff39499f7c8b9f1e41f2b080db8d2570e2bbef68d59",
+    "crates/usque-engine/src/chain_exit.rs": "fd0c2cdea3215e18298639bfb9e7f4c7702ab6ee76eff7a9a04d3e14fb6c94f9",
+    "crates/usque-engine/src/lib.rs": "5b6c1dd759604be777961debdcdb8060d81d8c6a510657019e0b65aad9051a82",
+    "crates/usque-engine/src/network_settings.rs": "e1228febf6ae38f8b812b4be631e44a5563132c776626257257315d49e7b9048",
+    "crates/usque-engine/src/reconfigure.rs": "6874e07e6ae67bd5ffb604303975270dc51c4d22d0f8929911a48a11475244b0",
+    "crates/usque-engine/src/vpngate.rs": "9270b5260cff473b33e592b0a1cbf59416c066d8b621276047005f0b9584d966",
+    "crates/usque-engine/src/windows_agent.rs": "3fab435099fbf86c208098530785157d18c39d992ed9abab0b908b1da83d7d4d",
+    "crates/usque-ipc/build.rs": "0f3826a525980967682c606c13093079cda1a5638d2980e72b65c66433334f28",
+    "crates/usque-ipc/src/lib.rs": "8c1b0f210b0db26f6d2a3f5e278ce7f2abb99a060d9d7bc8ac14102ce391df76",
+    "crates/usque-openvpn/Cargo.toml": "2d2fac38c4d09158301a8fe6eca6cddd22d61762fd28fc770509ffac7de14050",
+    "crates/usque-openvpn/native/bridge.cpp": "96bc144102280bfa2635162273382dff9529232039ac0f3e13f9ca991b2a4265",
+    "crates/usque-openvpn/native/bridge.h": "d5abb6c472aeda952e53895bb730db5692c42469a315bd7c87638f0b1a3642eb",
+    "crates/usque-openvpn/native/test_peer.cpp": "2769b98974a1d3736e89965a42a6faf646a23c9eca13585c1af01fe89057fd92",
+    "crates/usque-openvpn/src/interop_tests.rs": "e6e6f77653ae287cd7ef835e97b3c9b3ec8a11eada0445de17c4a6e569be896c",
+    "crates/usque-openvpn/src/lib.rs": "14c11958d74bb4cfa4b01450503f8592746211690921ca607b13927b301338a9",
+    "crates/usque-transport/Cargo.toml": "39ff93568974434d7646772e3df8a31aaecbba9206491942185f35a31bb8901f",
+    "crates/usque-transport/src/chain_session.rs": "96c9faef00400433a633258ef6bca1226f47007aba7c0bb0eb4bb383a0320e66",
+    "crates/usque-transport/src/chain_udp.rs": "3a22fddfc37b92cdaf7f8bc525b6075c80abd36c1dafb3ca7cb681556dee5bb6",
+    "crates/usque-transport/src/data_plane.rs": "3f6c646ab8a9d997072a7a4d0851c69ec84956b1919b79eb8d5c132b3b94ad69",
+    "crates/usque-transport/src/direct_gateway.rs": "ee77769fe7108dd720aa3614b4df9ffff68d8d6ad30c6cd40c74839d69834b07",
+    "crates/usque-transport/src/internal_network.rs": "1c1c07fa7140708b24e7c2105577cdfe9195264a2388cf616e270d122b7337c3",
+    "crates/usque-transport/src/l4/runtime.rs": "8b80ecf8daf660f6807da9c5291a494387a1151b770751682857504bfbd4e4ab",
+    "crates/usque-transport/src/lib.rs": "8259ad165d268e562de834067f5400474d016c49b9b03d2c37a648bb919917ec",
+    "crates/usque-transport/src/netstack.rs": "fe8ba3b9b9b79d880d8fce56ff698e1ace345c7a763ffc0eb6bc46570332712f",
+    "crates/usque-transport/src/vpngate.rs": "6fa178c93584e4653182483ac70e5d9de15a563822febc79f456156c4b3de519",
+    "crates/usque-transport/src/wireguard.rs": "42e97b80097aa57fca87ee17b6cc05136c816c30f537308d51295a5ac46b116d",
+    "crates/usque-transport/src/wireguard/tests.rs": "29187d6e62ef7e4d5ed64eca3ae79a28abdd5e9df4aceb1afd5e3bff6d10dc29",
+    "crates/usque-transport/tests/chain_udp_properties.rs": "dad3368173a8945fb01d7a7a86b84ee9d6a6189090beadf14ffb441740bae6d5",
+    "docs/CHAIN_PROXY.md": "97597ab039f97d10f34f704618305a94083a1684f58e005f511f2ebb75b4de35",
+    "docs/README.md": "31ede30bd3db2ce3fe7cdabdfa72ef6c82cd103698f1b2110b4dfd4c7bff87c4",
+    "docs/VPN_GATE.md": "dd6617dc1b1dcf92d2f0bed3f5c585ea5d9cbdb45b336c17f6351ec0dad74f0c",
+    "proto/usque/v1/control.proto": "5f096708db91834921b6b77900b982dd3ffbbdf1b5ec20c62d8dd9a15bc8753f",
+    "tool/build_android_rust.ps1": "cfc3de843c3aa35d9eeb92d8e7ac36a57cb5ca27d7c2500ad897e7a036cd44ec",
+    "tool/build_windows_rust_release.ps1": "aa722fb9322a232f68e1d534de837855e9fdf210eb7173b98b4b19f7d0d75f0f"
+  },
+  "toolchains": {
+    "rust": "1.97.1",
+    "flutter": "3.44.7",
+    "flutter_commit": "84fc5cbb223bc12f83d65b647ff8a56caf779ffd",
+    "android_ndk": "29.0.14206865",
+    "android_cmake": "3.22.1",
+    "python": "3.12.14",
+    "host": "Windows x64"
+  },
+  "release_settings": {
+    "codegen_units": 1,
+    "lto": "thin",
+    "panic": "abort",
+    "strip": "symbols",
+    "windows_target_cpu": "x86-64-v2",
+    "android_minimum_api": 26,
+    "wireguard_ab": "Same release source/lock/toolchain/target/settings; only default wireguard feature disabled in control. Additional integration-test files do not enter native release compilation."
+  },
+  "lockfiles": {
+    "Cargo.lock": {
+      "baseline_sha256": "b28cbb1a3602afd016d438563db75b39756f3591d324ee32cd58aa89d71efee4",
+      "final_sha256": "15109ed45b9b32bd680a4d4f0d6a780f0ce307b0d092d3eacac4fdc2aa22765e"
+    },
+    "apps/usque_gui/pubspec.lock": {
+      "baseline_sha256": "2638e69de05a074023108f3456fba6cb3da9296d46198a3d69226ef3732c64eb",
+      "final_sha256": "45c6e64ef6ca06af44341fc5e8d23db6cfb3f89d1c8447c4f30c4716d891f817"
+    }
+  },
+  "native": [
+    {
+      "label": "Windows x64-v2 engine",
+      "target": "x86_64-pc-windows-msvc",
+      "baseline": {
+        "bytes": 15093760,
+        "sha256": "c2045fc918a0b37e627f3e5e859a31018d50275633d7ab135f25793ee0310740"
+      },
+      "wireguard_disabled": {
+        "bytes": 15324672,
+        "sha256": "288c401f46497234cf72f3783c3882f42fb4046906cc8f5c69e7d3d846f75393"
+      },
+      "wireguard_enabled": {
+        "bytes": 15478272,
+        "sha256": "2c0d7ed47d25fdce6ee817ba47fb2d8148cd8d72e80db22dcd8afe59832cf837"
+      },
+      "wireguard_increment_bytes": 153600,
+      "wireguard_increment_percent": 1.0023,
+      "whole_feature_increment_bytes": 384512,
+      "whole_feature_increment_percent": 2.5475
+    },
+    {
+      "label": "Android arm64-v8a JNI",
+      "target": "aarch64-linux-android",
+      "baseline": {
+        "bytes": 11928968,
+        "sha256": "324983c5ef02c346e0990f07b450e23cab69de7ea6a30ba64b8a60960eb9fce2"
+      },
+      "wireguard_disabled": {
+        "bytes": 12118112,
+        "sha256": "38f1dd1258aac03144ca1bf87089c2cbd5814d518c80b186733b11fd5e02af89"
+      },
+      "wireguard_enabled": {
+        "bytes": 12250248,
+        "sha256": "f823f047bdac50dc51b558376b05f8035cfa903b26937c4679d398d7bfc32b12"
+      },
+      "wireguard_increment_bytes": 132136,
+      "wireguard_increment_percent": 1.0904,
+      "whole_feature_increment_bytes": 321280,
+      "whole_feature_increment_percent": 2.6933
+    },
+    {
+      "label": "Android armeabi-v7a JNI",
+      "target": "armv7-linux-androideabi",
+      "baseline": {
+        "bytes": 7959612,
+        "sha256": "c76b78db6b6663abbe2f601592b5e478fad9c165c03df8248a13fc3a5a1c24f2"
+      },
+      "wireguard_disabled": {
+        "bytes": 8079484,
+        "sha256": "4959faea7233a7d4960640f15662d5ceb954ab0d2dd956e037207a5f3a54783d"
+      },
+      "wireguard_enabled": {
+        "bytes": 8192796,
+        "sha256": "38cffcd2e5583c6861de843a17e947792d67bf3ec65c42a13fbb7c3a12d7b02d"
+      },
+      "wireguard_increment_bytes": 113312,
+      "wireguard_increment_percent": 1.4025,
+      "whole_feature_increment_bytes": 233184,
+      "whole_feature_increment_percent": 2.9296
+    },
+    {
+      "label": "Android x86_64 JNI",
+      "target": "x86_64-linux-android",
+      "baseline": {
+        "bytes": 13403744,
+        "sha256": "3d860baddec704e297ddc58e203cb497b16194e17203b50aa0d55b6aab8845f1"
+      },
+      "wireguard_disabled": {
+        "bytes": 13631688,
+        "sha256": "bb258e84455ead5edd6af5455d0b1158d0925ee1048dcd773afdab71654243e3"
+      },
+      "wireguard_enabled": {
+        "bytes": 13812088,
+        "sha256": "c58d1c004006ab2bf1b9b0038b802f014972b35f4da3c1b9320c13f167fe0c3e"
+      },
+      "wireguard_increment_bytes": 180400,
+      "wireguard_increment_percent": 1.3234,
+      "whole_feature_increment_bytes": 408344,
+      "whole_feature_increment_percent": 3.0465
+    }
+  ],
+  "windows_x64_v1_compile_only": {
+    "bytes": 15498240,
+    "sha256": "72be1be67bf657e342d1ff8078e60c2fad7287252e79b485a3a799a4316ef894"
+  },
+  "gui_windows_x64": {
+    "baseline": {
+      "bytes": 38683984,
+      "files": {
+        "data/app.so": {
+          "bytes": 9618320,
+          "sha256": "0049d8e8abfd75a99afadda3fb0ac69a47729f0bcf368bb0ca6379495c6b1a69"
+        },
+        "data/flutter_assets/AssetManifest.bin": {
+          "bytes": 17547,
+          "sha256": "fc5df19ac1042b6edc8d66aa2c0b2ef9ff7a9b676b92f0ed1bf87160fe344b9c"
+        },
+        "data/flutter_assets/assets/branding/usque-ui-icon.png": {
+          "bytes": 45068,
+          "sha256": "b5d369b610f84c4ec4843e88d617decf7c531bf955dd8b3eeff0f618ef6bcfe5"
+        },
+        "data/flutter_assets/assets/flags/w80/ad.png": {
+          "bytes": 600,
+          "sha256": "c817338716cb52f043776dd6391c09055a089d62692858c5a02b7074c458d8b6"
+        },
+        "data/flutter_assets/assets/flags/w80/ae.png": {
+          "bytes": 132,
+          "sha256": "709f7c8b8a3c4cdc39c35e60f918e944dee6544913bf7f9a1f4efa27aba7cf70"
+        },
+        "data/flutter_assets/assets/flags/w80/af.png": {
+          "bytes": 1278,
+          "sha256": "64c94b21efd5a1498677ab5c968a53a803a5b7d54b15cd345f35c48a434acd0e"
+        },
+        "data/flutter_assets/assets/flags/w80/ag.png": {
+          "bytes": 708,
+          "sha256": "f61f04f1fc1707d15cc29741c5664955e40fcc43c019be70a6cd1a8a91d72352"
+        },
+        "data/flutter_assets/assets/flags/w80/ai.png": {
+          "bytes": 650,
+          "sha256": "cbcc9880359943665523fb359f92557c1f1ea50bb1bdce7c51c9be87d95bbba2"
+        },
+        "data/flutter_assets/assets/flags/w80/al.png": {
+          "bytes": 643,
+          "sha256": "d3bc5980296f0635d91f8afc6d91ff0e4f8434c88a6c59039743dd60529df6ac"
+        },
+        "data/flutter_assets/assets/flags/w80/am.png": {
+          "bytes": 121,
+          "sha256": "3db065ffb4f32c40b721beef135ac748c8bf8ec92f5aacf86ea4901e0e9f2c8c"
+        },
+        "data/flutter_assets/assets/flags/w80/ao.png": {
+          "bytes": 550,
+          "sha256": "871d83191dc7c42b2be09e8389e58c786d6c0128b73a425ffec3ea6888812f45"
+        },
+        "data/flutter_assets/assets/flags/w80/aq.png": {
+          "bytes": 481,
+          "sha256": "c4cff5a9c058a57fd1f681f72090e28f674805ebfee9c03589fda6ccc9dc1a05"
+        },
+        "data/flutter_assets/assets/flags/w80/ar.png": {
+          "bytes": 335,
+          "sha256": "6350038be1f1cd0b67c22cbd02f08bcc0fef2c23b59d5c657c75ab23363cee16"
+        },
+        "data/flutter_assets/assets/flags/w80/as.png": {
+          "bytes": 752,
+          "sha256": "71bc77a84bdc61a8159aba74e9da7b7333abaeaf43f4ce7b7d7884da61e38cf2"
+        },
+        "data/flutter_assets/assets/flags/w80/at.png": {
+          "bytes": 109,
+          "sha256": "6db2a0734919d8c19430b79af8b2682be3a6cb878162aaff1c9c2a47b7660953"
+        },
+        "data/flutter_assets/assets/flags/w80/au.png": {
+          "bytes": 592,
+          "sha256": "eb3cd6aba81315a7db38b55a555938f3d4c1553342eafb3a37e13d4d1fe76450"
+        },
+        "data/flutter_assets/assets/flags/w80/aw.png": {
+          "bytes": 270,
+          "sha256": "17be250f8416b90f6f36ea02092ad14153fcbb05ee6c869ab4d668d697dbcfaf"
+        },
+        "data/flutter_assets/assets/flags/w80/ax.png": {
+          "bytes": 168,
+          "sha256": "bc482eaf53fa5c9ff5f117da325fdc46729c37ae0cc5a221dbf69109d374e3ce"
+        },
+        "data/flutter_assets/assets/flags/w80/az.png": {
+          "bytes": 262,
+          "sha256": "cd60096c80f2a6ab9f9354949240746eec6b167f97f2fc64f14a9c1da3458f2b"
+        },
+        "data/flutter_assets/assets/flags/w80/ba.png": {
+          "bytes": 346,
+          "sha256": "65458f3db09cabf5e23ceb4e27463f3ced69fa3bdd65ff1107a0dbfec2281c97"
+        },
+        "data/flutter_assets/assets/flags/w80/bb.png": {
+          "bytes": 349,
+          "sha256": "c97a495042dfac56e2730342e3b1a36532d7d2b945b85327179396437f552f4b"
+        },
+        "data/flutter_assets/assets/flags/w80/bd.png": {
+          "bytes": 276,
+          "sha256": "497afce056f92f5a2ee5d4c019bdbe3a6b2e63b17767ba1b36e9c4e45104931e"
+        },
+        "data/flutter_assets/assets/flags/w80/be.png": {
+          "bytes": 127,
+          "sha256": "4bb0a14682b00ccb8912a25aee9a44a5129362d0c09e3cfdb5257879bd23adb3"
+        },
+        "data/flutter_assets/assets/flags/w80/bf.png": {
+          "bytes": 249,
+          "sha256": "3c205416bda3c495e8a3e098ca5c73701ee854e73866dd1d43275261723ff83d"
+        },
+        "data/flutter_assets/assets/flags/w80/bg.png": {
+          "bytes": 105,
+          "sha256": "876abdff396a31e87c586865b3a32f5c5d96dc2a766480ea7328341d03591a88"
+        },
+        "data/flutter_assets/assets/flags/w80/bh.png": {
+          "bytes": 329,
+          "sha256": "71cb00a8b7070d702abdc8a98d8c5f68b66b1c500b7730c56fc5c6070174b84d"
+        },
+        "data/flutter_assets/assets/flags/w80/bi.png": {
+          "bytes": 643,
+          "sha256": "be0214ec050ed660fcca6773888dabe78292a41ebdc8a4cbf46ecabf67df9f48"
+        },
+        "data/flutter_assets/assets/flags/w80/bj.png": {
+          "bytes": 115,
+          "sha256": "bd930349392a8d2827011b247704de9eea2167cec49f81e511a24b23c66958a5"
+        },
+        "data/flutter_assets/assets/flags/w80/bl.png": {
+          "bytes": 1937,
+          "sha256": "4f40b845cca5d53ffa122fb5314ec1397d9259177628e1d3ea3c4b8f0bf5c8d4"
+        },
+        "data/flutter_assets/assets/flags/w80/bm.png": {
+          "bytes": 971,
+          "sha256": "22460c72dfa517222ce3983a01eb63c95794e5c4254c9598f6f02a603bfb7eb5"
+        },
+        "data/flutter_assets/assets/flags/w80/bn.png": {
+          "bytes": 995,
+          "sha256": "ecbe39f36db8ab47373cefdfd2a5cd1385609407b64b795868a4356c7326f479"
+        },
+        "data/flutter_assets/assets/flags/w80/bo.png": {
+          "bytes": 630,
+          "sha256": "2a3ef1143661691f5af75a5d0936baf2b89cebacf2aa5a7b606aa49d4ab19394"
+        },
+        "data/flutter_assets/assets/flags/w80/bq.png": {
+          "bytes": 886,
+          "sha256": "38896734bbcc39abb741da8c7a3a8a5b959fb37fb510154d6e7ff01b4b06a7a3"
+        },
+        "data/flutter_assets/assets/flags/w80/br.png": {
+          "bytes": 816,
+          "sha256": "c9ea019c610713d111f4c81d97f5c0df2caf7ae4c9bda6079f414916dcada975"
+        },
+        "data/flutter_assets/assets/flags/w80/bs.png": {
+          "bytes": 285,
+          "sha256": "7d336ee5627660a269b4a1f3dd3917c101012e06d0c36ff3bac0ac43e9e4cd17"
+        },
+        "data/flutter_assets/assets/flags/w80/bt.png": {
+          "bytes": 1086,
+          "sha256": "63dccb63daacb94c036cbed9cef2df2486128af9549b0e9a14c27acbfb9495e5"
+        },
+        "data/flutter_assets/assets/flags/w80/bv.png": {
+          "bytes": 192,
+          "sha256": "f58edc8912be7c7f5a462809dae326895a9b529bd841475a4aedf0ccf26e6d7f"
+        },
+        "data/flutter_assets/assets/flags/w80/bw.png": {
+          "bytes": 134,
+          "sha256": "7674528ab08859b4dd85045dfda5d86d3473a83b3e9ddb5c8dce7b8c644a2654"
+        },
+        "data/flutter_assets/assets/flags/w80/by.png": {
+          "bytes": 418,
+          "sha256": "4e980c20f56bca6204cdf0e541650d4cb2552e39af1b830c31be497412af6232"
+        },
+        "data/flutter_assets/assets/flags/w80/bz.png": {
+          "bytes": 1017,
+          "sha256": "b76e7ac721e240e6db828ec050d7bad2ea317cb777514bcecbf4e8801d37ae9b"
+        },
+        "data/flutter_assets/assets/flags/w80/ca.png": {
+          "bytes": 404,
+          "sha256": "c6a0b1b087f62170a41cd9d0b35bd532df0286608cc7c1c5a8c3639937b6c867"
+        },
+        "data/flutter_assets/assets/flags/w80/cc.png": {
+          "bytes": 599,
+          "sha256": "06e61a460b8d329dc81b5f3a312640f430914cb2fe2dba23599970a7e6527bef"
+        },
+        "data/flutter_assets/assets/flags/w80/cd.png": {
+          "bytes": 447,
+          "sha256": "c90de0651604a09bc297cd1f6bdbbab88ad51e65ef0aa933bb3191c943b69acc"
+        },
+        "data/flutter_assets/assets/flags/w80/cf.png": {
+          "bytes": 282,
+          "sha256": "dc16ffdcc726c94521fa8a665992a9f0305977c9257e4fc9a14bfd64d98bc4f4"
+        },
+        "data/flutter_assets/assets/flags/w80/cg.png": {
+          "bytes": 310,
+          "sha256": "cceaa431a52340bd23671dce72515891d648d2bfffaa182e5dfe1748a497396c"
+        },
+        "data/flutter_assets/assets/flags/w80/ch.png": {
+          "bytes": 135,
+          "sha256": "c0238ceffa2927c670890712efe6eafdce019fa68e9118486ac08c2651ae4a4c"
+        },
+        "data/flutter_assets/assets/flags/w80/ci.png": {
+          "bytes": 122,
+          "sha256": "827734ef91f84698ef5764b62df02de108effe041b90c6fbb8d766b1ea3626e6"
+        },
+        "data/flutter_assets/assets/flags/w80/ck.png": {
+          "bytes": 781,
+          "sha256": "91121eab433ebe3e51c429af55f92aed36135629a9339f319683ea783cf30237"
+        },
+        "data/flutter_assets/assets/flags/w80/cl.png": {
+          "bytes": 228,
+          "sha256": "cc0ac853ca90cf65565e5df4465a2108558eb397166abaa65838c71cecc18077"
+        },
+        "data/flutter_assets/assets/flags/w80/cm.png": {
+          "bytes": 228,
+          "sha256": "422c019d8e77d3bb92335c43dd2641286c736d1e22c2df943f5f49948307efd6"
+        },
+        "data/flutter_assets/assets/flags/w80/cn.png": {
+          "bytes": 315,
+          "sha256": "fdbfb0d49ec098827d28f297a4ee3614edd1dcc014bcdf978b7dce73c7b7b4f1"
+        },
+        "data/flutter_assets/assets/flags/w80/co.png": {
+          "bytes": 125,
+          "sha256": "cc204eef36e8d922b38b794cd00000b9cfefeb7964c914d5c15d432b27cb0771"
+        },
+        "data/flutter_assets/assets/flags/w80/cr.png": {
+          "bytes": 398,
+          "sha256": "aed03feb8e13cbd79cb0118741182306f30878d44a58b095cd3758dfb4f75138"
+        },
+        "data/flutter_assets/assets/flags/w80/cu.png": {
+          "bytes": 387,
+          "sha256": "9350785c8262a9327865a306bf5a2067c244ebdc7efdb4c0848757b9bded0ed5"
+        },
+        "data/flutter_assets/assets/flags/w80/cv.png": {
+          "bytes": 334,
+          "sha256": "aee4766f9fe89db9ac48e1d0b2645c800fe1026026e19a99a455f1a2b339bb43"
+        },
+        "data/flutter_assets/assets/flags/w80/cw.png": {
+          "bytes": 239,
+          "sha256": "ed92c7ec21ad6e5b72150cb2b4af2fe915eb953be0cf2ccb893dbdebb138a363"
+        },
+        "data/flutter_assets/assets/flags/w80/cx.png": {
+          "bytes": 700,
+          "sha256": "d2405f41f2bc68ca2506a03d3c8c8fcadbc07d100417ce35346bdde87ff5e49d"
+        },
+        "data/flutter_assets/assets/flags/w80/cy.png": {
+          "bytes": 559,
+          "sha256": "1a3d4cebcea35731d023e5ba47474129d4490e59d83bb348f36a60a8c64a7ab5"
+        },
+        "data/flutter_assets/assets/flags/w80/cz.png": {
+          "bytes": 363,
+          "sha256": "2b1d29778294d45d3678cd7fdc240de70a16a638dd752be4a212401389dd44e5"
+        },
+        "data/flutter_assets/assets/flags/w80/de.png": {
+          "bytes": 105,
+          "sha256": "5eb33c86a8f1cd43cbbd990aee89e4ce4fabf7efdece1529be66fb1becf29fc9"
+        },
+        "data/flutter_assets/assets/flags/w80/dj.png": {
+          "bytes": 506,
+          "sha256": "d62d587194a32738972059019aeaf86caa5192c419be2a2bf5e3047609634694"
+        },
+        "data/flutter_assets/assets/flags/w80/dk.png": {
+          "bytes": 148,
+          "sha256": "7f9de76f88b1049ad15974b93e1bc863280bfc3c5c566227a702e57684e0f233"
+        },
+        "data/flutter_assets/assets/flags/w80/dm.png": {
+          "bytes": 517,
+          "sha256": "dfe111b09e715810673eeec3b5558ab227c7ebbab7dde54946910c519e528d49"
+        },
+        "data/flutter_assets/assets/flags/w80/do.png": {
+          "bytes": 396,
+          "sha256": "2506bc21a52b79957cb20d08d2022cde9e1d02a058470caa7a96d38f6e724b4c"
+        },
+        "data/flutter_assets/assets/flags/w80/dz.png": {
+          "bytes": 399,
+          "sha256": "15e7ef69c144fa4d9d57ef9c6761a23c5dc1e2f2506c0c77a847139ca6663039"
+        },
+        "data/flutter_assets/assets/flags/w80/ec.png": {
+          "bytes": 933,
+          "sha256": "767a69f140ef4f9a28bdba99a149b53cf1768e6896893b58b3e3ac7a444a515e"
+        },
+        "data/flutter_assets/assets/flags/w80/ee.png": {
+          "bytes": 106,
+          "sha256": "7d6d0649338f46de56927d05a4430f471f572c6e5e46dc52aae9d5cf3cfdfd03"
+        },
+        "data/flutter_assets/assets/flags/w80/eg.png": {
+          "bytes": 291,
+          "sha256": "650c5df8ef5e0d1c2267b67caeac0fb8643a5fb4e55df3117e4aa8b1a5861a77"
+        },
+        "data/flutter_assets/assets/flags/w80/eh.png": {
+          "bytes": 396,
+          "sha256": "518461ad678effb89da7abc5c2019951fd8c694b2549d1874550b09cef78770d"
+        },
+        "data/flutter_assets/assets/flags/w80/er.png": {
+          "bytes": 545,
+          "sha256": "f65175a0c6cc762ea68d0cf2d1660bfed019127416c42379fa65c4b9fd16394e"
+        },
+        "data/flutter_assets/assets/flags/w80/es.png": {
+          "bytes": 673,
+          "sha256": "cfd46911c2d8a218317ecfa94d776ca3784def0212332b2c230d0a7cfeb6be41"
+        },
+        "data/flutter_assets/assets/flags/w80/et.png": {
+          "bytes": 571,
+          "sha256": "5b3ff5e7872066515801cc827688988d998f26ad90a5d6a0145d76a54a1ff909"
+        },
+        "data/flutter_assets/assets/flags/w80/fi.png": {
+          "bytes": 134,
+          "sha256": "0450ed61fdb1680a727663e3a922635e03e4cb3fa019c258b8a1e2e2a6e73701"
+        },
+        "data/flutter_assets/assets/flags/w80/fj.png": {
+          "bytes": 903,
+          "sha256": "50cb3bfc445efb91587b72aa29f5e6ea8e531344280036667b8ad3cb733afa2b"
+        },
+        "data/flutter_assets/assets/flags/w80/fk.png": {
+          "bytes": 1151,
+          "sha256": "b3597e3e96a3a3ecefa64df0872763cc39eaf4a9785f58a3f480115bc37e482b"
+        },
+        "data/flutter_assets/assets/flags/w80/fm.png": {
+          "bytes": 217,
+          "sha256": "93a9299aeef5b31e2acf1a6680e20aab0776e510776b55f4a0f8559b5bbb218c"
+        },
+        "data/flutter_assets/assets/flags/w80/fo.png": {
+          "bytes": 188,
+          "sha256": "fb9d2d8424d9bf9993c0df44c9bd24f9374e21f0500d5c32523b4ebb782a2d1c"
+        },
+        "data/flutter_assets/assets/flags/w80/fr.png": {
+          "bytes": 123,
+          "sha256": "2a539c1a42f160aab68730f4caaa322bd6fbccf42145015bb7544961671a9cbd"
+        },
+        "data/flutter_assets/assets/flags/w80/ga.png": {
+          "bytes": 106,
+          "sha256": "ad6a998bcaca56cec2f3d18d95d8c1033ed2ba1922638c752e2a7a5b5aa87bc7"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-eng.png": {
+          "bytes": 123,
+          "sha256": "51fab4e1b9edf84a4798756f8984c5d767d5d6326dd3614c59de3893bcbeb62e"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-nir.png": {
+          "bytes": 581,
+          "sha256": "1caeef818b94205deb503363349bc0668cda4c628930bf205abfd22f650fecae"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-sct.png": {
+          "bytes": 433,
+          "sha256": "e2fa0198019f3448ed6886da80043a93dc51538fd6eb17ddd21ddb3c67e06db9"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-wls.png": {
+          "bytes": 1482,
+          "sha256": "c062c7167bbfaf6b42787a7883c5c321ee826eb452cdd0c98b706b3e4fbb887d"
+        },
+        "data/flutter_assets/assets/flags/w80/gb.png": {
+          "bytes": 395,
+          "sha256": "94f29281d0b2b67b035dd279a4b43b18b8be9e889f5287af2b2c5e3723e0c810"
+        },
+        "data/flutter_assets/assets/flags/w80/gd.png": {
+          "bytes": 644,
+          "sha256": "48d2fc855ced8cee7fe368c9974bf1975ddf6517dd6dc9eb8683dd51fbe9fee7"
+        },
+        "data/flutter_assets/assets/flags/w80/ge.png": {
+          "bytes": 393,
+          "sha256": "e6c2bdda0963eab8312ef0987efbec4ac4e66c3fc0a2d858352257195cc6c137"
+        },
+        "data/flutter_assets/assets/flags/w80/gf.png": {
+          "bytes": 468,
+          "sha256": "f1aa5be028c8ebd8081e33f8d0b071549740ba9c2f5560b03c68da981ae7ea5f"
+        },
+        "data/flutter_assets/assets/flags/w80/gg.png": {
+          "bytes": 236,
+          "sha256": "57ce45d70c9d3a81a2e4d79a3974676d556e49aaf3ec302ab5bcb547fb4b3c9b"
+        },
+        "data/flutter_assets/assets/flags/w80/gh.png": {
+          "bytes": 267,
+          "sha256": "df792a38cf9620fd3ac55b759de8f54b9ddf4c3f90ff558445f024524f29f42b"
+        },
+        "data/flutter_assets/assets/flags/w80/gi.png": {
+          "bytes": 615,
+          "sha256": "75a51315785d7b026debad168722fa42ff27d23243e36103f9ca5dfc00dfea65"
+        },
+        "data/flutter_assets/assets/flags/w80/gl.png": {
+          "bytes": 371,
+          "sha256": "5c473e39d266eb711ee7276826dc71510efbeb053498eba2ed7a51649ccfee8e"
+        },
+        "data/flutter_assets/assets/flags/w80/gm.png": {
+          "bytes": 145,
+          "sha256": "c76dd7a8e26e4170c5ac7953aa3709f7559c35667b73b24ad7ba465c8e2c2051"
+        },
+        "data/flutter_assets/assets/flags/w80/gn.png": {
+          "bytes": 122,
+          "sha256": "7d2c9ad5136c71d55c79677b58d5d10e4d20d2626113365bc5f9dedb819376be"
+        },
+        "data/flutter_assets/assets/flags/w80/gp.png": {
+          "bytes": 1070,
+          "sha256": "1dddcb6150bc6787b8e1f014710a43a029ccb4b6a9fe1a75a155bc8283159f36"
+        },
+        "data/flutter_assets/assets/flags/w80/gq.png": {
+          "bytes": 634,
+          "sha256": "41cc448712d87ff0207c2dfe57dcda24b21af3db89b8ce51468e0871f36ba0fb"
+        },
+        "data/flutter_assets/assets/flags/w80/gr.png": {
+          "bytes": 208,
+          "sha256": "fd3a391dd9885d56b1fccf99870954dc68ff61184bd38fd4240b44fc562f69f4"
+        },
+        "data/flutter_assets/assets/flags/w80/gs.png": {
+          "bytes": 1269,
+          "sha256": "736da4da4a4b8ab1b795db7f4803a1664be60e1a0931beeb73b7a6b3153a560c"
+        },
+        "data/flutter_assets/assets/flags/w80/gt.png": {
+          "bytes": 540,
+          "sha256": "99bcd45fc224df973b378d21b5d825a9c2805e6d7a73bf45f8a7f7acdb6715e0"
+        },
+        "data/flutter_assets/assets/flags/w80/gu.png": {
+          "bytes": 634,
+          "sha256": "5abd34563333e8d2aec38522097af7835bbb40ad0eeeeee9ff0dcd776da12d64"
+        },
+        "data/flutter_assets/assets/flags/w80/gw.png": {
+          "bytes": 202,
+          "sha256": "d271c4ee019724c789edf7d6d494e266d9df7e7a6d663a77d982a1189d9bbc59"
+        },
+        "data/flutter_assets/assets/flags/w80/gy.png": {
+          "bytes": 498,
+          "sha256": "dfd7da08753860caa80b90561fd0fff47c267e4edc299cb22d2b0f6246302497"
+        },
+        "data/flutter_assets/assets/flags/w80/hk.png": {
+          "bytes": 506,
+          "sha256": "3d4475b36859219c643ffd4f55890b645d024bce1e9a5028a071d7e11efc7b17"
+        },
+        "data/flutter_assets/assets/flags/w80/hm.png": {
+          "bytes": 588,
+          "sha256": "243c3a816337101cf692f9cbc356525e5d532bbfb3da18a81cffc3e103d793b7"
+        },
+        "data/flutter_assets/assets/flags/w80/hn.png": {
+          "bytes": 233,
+          "sha256": "40b0f52cb77ec753d5c119a47eded0d673470537d0401f8b5c1231429a1a20fa"
+        },
+        "data/flutter_assets/assets/flags/w80/hr.png": {
+          "bytes": 639,
+          "sha256": "37700c20552eff5509370aa315cab83f84a878f3ca47c39f65bb280ef0c99422"
+        },
+        "data/flutter_assets/assets/flags/w80/ht.png": {
+          "bytes": 871,
+          "sha256": "ab0c955b1ce98b43984fa9c00d6e3002cc677893638b26066b9534230be27de3"
+        },
+        "data/flutter_assets/assets/flags/w80/hu.png": {
+          "bytes": 119,
+          "sha256": "5e54bb353099fd19f6e6ce673d7248bf83090909d5b4728367971fae097b23b0"
+        },
+        "data/flutter_assets/assets/flags/w80/id.png": {
+          "bytes": 105,
+          "sha256": "2231d4894ef2ef66ab52791b169a6717b00aad81750605a5712ebd4fc3e5724f"
+        },
+        "data/flutter_assets/assets/flags/w80/ie.png": {
+          "bytes": 119,
+          "sha256": "3d67eb9367c3f8903cce0f1af01203d4e5edeb72c0106a6ef856d25ff943eb5b"
+        },
+        "data/flutter_assets/assets/flags/w80/il.png": {
+          "bytes": 301,
+          "sha256": "e9c4bee374d1a69832dc0de7c0dbdc2a2d8ef96d795768b3a2eb967744338e50"
+        },
+        "data/flutter_assets/assets/flags/w80/im.png": {
+          "bytes": 667,
+          "sha256": "6ac3aa16ae39b408cdec56d0cd5302159f3de3532ef367b6546a4c81b256188f"
+        },
+        "data/flutter_assets/assets/flags/w80/in.png": {
+          "bytes": 354,
+          "sha256": "fc3292a3ac5feb33759087d8968441965723068fa7cbbd12226b646b7ff83252"
+        },
+        "data/flutter_assets/assets/flags/w80/io.png": {
+          "bytes": 1631,
+          "sha256": "56b6e296e73ce7b20576ea08bac9615ffb5d613bf25b90a22f2aa2bca904341d"
+        },
+        "data/flutter_assets/assets/flags/w80/iq.png": {
+          "bytes": 319,
+          "sha256": "cd95b18f6ade141eabd5f00d4f420f49c64eadfb5320dcfcdb6d68bb0e554d03"
+        },
+        "data/flutter_assets/assets/flags/w80/ir.png": {
+          "bytes": 451,
+          "sha256": "2b08721b074f09dd599539aae078ca6b5a59c2b7f18c493b0124bce28daf4f8e"
+        },
+        "data/flutter_assets/assets/flags/w80/is.png": {
+          "bytes": 185,
+          "sha256": "c3c910c259f77d246b2159e5287520a28cc849672ba622a60f50734fd2b1699e"
+        },
+        "data/flutter_assets/assets/flags/w80/it.png": {
+          "bytes": 122,
+          "sha256": "655b1b31b9a3d3b6f659863e6ffebedaf8810e5e97f12fea687e9ede6d298c3d"
+        },
+        "data/flutter_assets/assets/flags/w80/je.png": {
+          "bytes": 765,
+          "sha256": "323123bd422a9ed2210a82b8baf950f262c3da6f161344467757a18b464f7bf8"
+        },
+        "data/flutter_assets/assets/flags/w80/jm.png": {
+          "bytes": 293,
+          "sha256": "1319eb2c2e936f9b8d797fe2f554f05faf37808ba93ac76e99463ba00fc0849a"
+        },
+        "data/flutter_assets/assets/flags/w80/jo.png": {
+          "bytes": 287,
+          "sha256": "e56000f765062306350e6138c41ee7d3f4ba18e60709f4b803aa90af47065cb3"
+        },
+        "data/flutter_assets/assets/flags/w80/jp.png": {
+          "bytes": 353,
+          "sha256": "25c1ac6db4fa0b5e6b79b4efe546683c8589cf060f5f848b27be02944fad8114"
+        },
+        "data/flutter_assets/assets/flags/w80/ke.png": {
+          "bytes": 655,
+          "sha256": "e62c36f709dba84c7bbd0bf5e8accdca8090d5aeacdffb609bab7925dee7aabc"
+        },
+        "data/flutter_assets/assets/flags/w80/kg.png": {
+          "bytes": 615,
+          "sha256": "a8dd2fb329eb1958d7ee7666c7e6a361835db73dc7659ee74aa8f7734d7ac567"
+        },
+        "data/flutter_assets/assets/flags/w80/kh.png": {
+          "bytes": 647,
+          "sha256": "1a6db9f204c13dc79e077689c22d7755fea802e807b7bfd6b431a3bd677cf93f"
+        },
+        "data/flutter_assets/assets/flags/w80/ki.png": {
+          "bytes": 907,
+          "sha256": "9dfb51d78a8d1ea7f7369ee5dafd6958afb7f58835f55e0f74107e917df8dc9e"
+        },
+        "data/flutter_assets/assets/flags/w80/km.png": {
+          "bytes": 529,
+          "sha256": "6f1a3b77c07e23bc619d6b769f6f0518e96e83dde0ca9288ef4016292b27b7dd"
+        },
+        "data/flutter_assets/assets/flags/w80/kn.png": {
+          "bytes": 765,
+          "sha256": "6592211d56a37d04207c20559ea52bc8cc3382f1f174364bceace52dd223fefe"
+        },
+        "data/flutter_assets/assets/flags/w80/kp.png": {
+          "bytes": 321,
+          "sha256": "bb7ec927c18eda57e6a8e8eeead2ce817cbef690a9ca4067d8bfba306387ac82"
+        },
+        "data/flutter_assets/assets/flags/w80/kr.png": {
+          "bytes": 972,
+          "sha256": "8a0e8db363c5177c129bdc1140f5c219f17014153a5da592877c4b4c718c248f"
+        },
+        "data/flutter_assets/assets/flags/w80/kw.png": {
+          "bytes": 233,
+          "sha256": "6015e3d991364ac735eac1cbd45550c19edd63309e9a07961cc0ea6a37f3096c"
+        },
+        "data/flutter_assets/assets/flags/w80/ky.png": {
+          "bytes": 977,
+          "sha256": "fb8985b4d7f6271a49316dacdb8bfc509e33e2eba9a212752d33601934219231"
+        },
+        "data/flutter_assets/assets/flags/w80/kz.png": {
+          "bytes": 552,
+          "sha256": "9dd15436c71357bfe6059992a9a83cd60e634a3ae99200c7d67a5410e986b9d2"
+        },
+        "data/flutter_assets/assets/flags/w80/la.png": {
+          "bytes": 264,
+          "sha256": "f44d2ce837fd22ef7adb3a3cff06224e0f3bc26a20520f619e56fc7269ef72e0"
+        },
+        "data/flutter_assets/assets/flags/w80/lb.png": {
+          "bytes": 432,
+          "sha256": "6cf8508c1b85f73e4ed7f002817b812a8bbb00eb0d11326eafcbbc7f528154a8"
+        },
+        "data/flutter_assets/assets/flags/w80/lc.png": {
+          "bytes": 499,
+          "sha256": "605f03273666ac06127e1b9342e81725be525f4674397787951146d471ce32b5"
+        },
+        "data/flutter_assets/assets/flags/w80/li.png": {
+          "bytes": 399,
+          "sha256": "973064cdad477f87b25d784fa32294755d712e2d5c7e7b10a3abe9195e1d5ac4"
+        },
+        "data/flutter_assets/assets/flags/w80/lk.png": {
+          "bytes": 673,
+          "sha256": "9313b9f86445835ee2a1a026bda52ee079a9b8b203dc43e11396fb5d25f70e91"
+        },
+        "data/flutter_assets/assets/flags/w80/lr.png": {
+          "bytes": 278,
+          "sha256": "2324a3c7b6eb1a1e53a882bd1d5cf692b72efbba7a8670a6fa340b9f13994e73"
+        },
+        "data/flutter_assets/assets/flags/w80/ls.png": {
+          "bytes": 319,
+          "sha256": "5edebe1f9731155a12caca11819c4a313fbfc3fe7de6fc2074db3b6c36ff4683"
+        },
+        "data/flutter_assets/assets/flags/w80/lt.png": {
+          "bytes": 105,
+          "sha256": "58b3036362d8b800df8df379a5b38b899163d317023f8ca85725f4b26a90bda6"
+        },
+        "data/flutter_assets/assets/flags/w80/lu.png": {
+          "bytes": 105,
+          "sha256": "50b9d335fd95f1340a29fee63c1b9431288d5daf39efd8682bfba90faaf7d070"
+        },
+        "data/flutter_assets/assets/flags/w80/lv.png": {
+          "bytes": 94,
+          "sha256": "645630d51b2968c8aee6ca8ea1d4823b774fa54a2e8fad4c05ae6c7909430c28"
+        },
+        "data/flutter_assets/assets/flags/w80/ly.png": {
+          "bytes": 226,
+          "sha256": "27cc5866d042cb27e297c68e5def5c081763ea2be1cad2bbf008719dd289a360"
+        },
+        "data/flutter_assets/assets/flags/w80/ma.png": {
+          "bytes": 304,
+          "sha256": "2c5b318cf6fef7f438edc4bf43507a50b782ac57191b6069fe367ee5151c1b0d"
+        },
+        "data/flutter_assets/assets/flags/w80/mc.png": {
+          "bytes": 95,
+          "sha256": "a848cea9948b2022be902760bbda38b98485a5af04214f75c80b9b6801608aba"
+        },
+        "data/flutter_assets/assets/flags/w80/md.png": {
+          "bytes": 610,
+          "sha256": "31b2f57e339d539d943f9199efb00dbd289a4518e461e3d2f724d41db9c9fe0e"
+        },
+        "data/flutter_assets/assets/flags/w80/me.png": {
+          "bytes": 529,
+          "sha256": "f66ae28c5d3ca1acca514b255230450c44139a40fecf24f0ce6117010216a8d6"
+        },
+        "data/flutter_assets/assets/flags/w80/mf.png": {
+          "bytes": 123,
+          "sha256": "2a539c1a42f160aab68730f4caaa322bd6fbccf42145015bb7544961671a9cbd"
+        },
+        "data/flutter_assets/assets/flags/w80/mg.png": {
+          "bytes": 132,
+          "sha256": "1c03cfdb2b0b213d28cfe4e29a67cd62c92210ef59e94c1a16f27e0c10723709"
+        },
+        "data/flutter_assets/assets/flags/w80/mh.png": {
+          "bytes": 641,
+          "sha256": "7a005e717f16e425fdde84ec61c0cbb3eff71e5c462a682bd5c60ef006fd488f"
+        },
+        "data/flutter_assets/assets/flags/w80/mk.png": {
+          "bytes": 545,
+          "sha256": "35b772b223c5fb4ee46824a36bb3d57e9bc265edccfe8ed2ef8428d53e1fb821"
+        },
+        "data/flutter_assets/assets/flags/w80/ml.png": {
+          "bytes": 123,
+          "sha256": "a70210ab927c180381cd122ee32f65b4612fa69f641b5fb04d17deeb96779ebe"
+        },
+        "data/flutter_assets/assets/flags/w80/mm.png": {
+          "bytes": 463,
+          "sha256": "d34d541cc986436b8005185fd945100e4d9b0a774e108ecd394fb09e45db92e0"
+        },
+        "data/flutter_assets/assets/flags/w80/mn.png": {
+          "bytes": 304,
+          "sha256": "a0712260fd394e74be80bb5c742db06664148ef3aae99f1202eb3626a25a88b7"
+        },
+        "data/flutter_assets/assets/flags/w80/mo.png": {
+          "bytes": 616,
+          "sha256": "dd6a112317d93bd9ab7c6563bc7e35ba7c5de7d5a79e3984ba0cac313069c8c9"
+        },
+        "data/flutter_assets/assets/flags/w80/mp.png": {
+          "bytes": 1445,
+          "sha256": "c7b6878983368596c7eebb84ae11c50f67896842f8c908af697baab4bf3596b9"
+        },
+        "data/flutter_assets/assets/flags/w80/mq.png": {
+          "bytes": 354,
+          "sha256": "c1f7b89efec09f64e422d2f9b76be8c0ec2e241bc121d6e7fd01fc1994659a38"
+        },
+        "data/flutter_assets/assets/flags/w80/mr.png": {
+          "bytes": 379,
+          "sha256": "8744320da9562820fbca640b0359ba50df507071ce189bd38ea70ae598fd1e79"
+        },
+        "data/flutter_assets/assets/flags/w80/ms.png": {
+          "bytes": 772,
+          "sha256": "a2e339adb8b62755d083bfdaf51f0cb73b8a233eddef9d694dc80174bbda53f3"
+        },
+        "data/flutter_assets/assets/flags/w80/mt.png": {
+          "bytes": 266,
+          "sha256": "c739cfb6266e2c969516bb5905c187afa97fab417a9d8db74264a35e6dbb9dc0"
+        },
+        "data/flutter_assets/assets/flags/w80/mu.png": {
+          "bytes": 138,
+          "sha256": "28552502baa778428c43466e2b8f4ff2d11cd93f0bad3db02aabc77e65be04f9"
+        },
+        "data/flutter_assets/assets/flags/w80/mv.png": {
+          "bytes": 243,
+          "sha256": "5556b719ae8879eebc9cff61813b1aa6a6632efedefb6b2bb2de080cb6df45c9"
+        },
+        "data/flutter_assets/assets/flags/w80/mw.png": {
+          "bytes": 349,
+          "sha256": "4f47a02943482de0fc8ae0d3eaf21064549c186f181cf228434a63f00eb40a11"
+        },
+        "data/flutter_assets/assets/flags/w80/mx.png": {
+          "bytes": 562,
+          "sha256": "c0fdb027d455efda31d165351dbac9b2145fdca51aa1f9c9410a346b43bf1f2f"
+        },
+        "data/flutter_assets/assets/flags/w80/my.png": {
+          "bytes": 398,
+          "sha256": "cfa5f23d144106a08268fd9cd9aa18ddfb893eed0a255e288e5648b396774fee"
+        },
+        "data/flutter_assets/assets/flags/w80/mz.png": {
+          "bytes": 664,
+          "sha256": "d83fc8b9e5948b9ac72d735800fb26e79b166454d42501e74b19b88cda8fa55b"
+        },
+        "data/flutter_assets/assets/flags/w80/na.png": {
+          "bytes": 780,
+          "sha256": "f06d0d31252fa2c707dbb4af303c342c1f11375158f7d97b6d86b4776a569a6b"
+        },
+        "data/flutter_assets/assets/flags/w80/nc.png": {
+          "bytes": 609,
+          "sha256": "1a5fa3965872308321a4184eeb0e4e82614f5d7a18d08333940c5d5210dad6d1"
+        },
+        "data/flutter_assets/assets/flags/w80/ne.png": {
+          "bytes": 263,
+          "sha256": "e6535bab7b7ee08a2d087a4adedb8e0b39df9370c6e91bb7264ab85c958aea11"
+        },
+        "data/flutter_assets/assets/flags/w80/nf.png": {
+          "bytes": 460,
+          "sha256": "caae77d969ae742ddb7f5f825b21b168097f6871d4ec7af76f1c25074211dd17"
+        },
+        "data/flutter_assets/assets/flags/w80/ng.png": {
+          "bytes": 105,
+          "sha256": "6076be1144054cb5cecb1fe958b5f0bbfd23d6a1894146300c60fc54a09b15ca"
+        },
+        "data/flutter_assets/assets/flags/w80/ni.png": {
+          "bytes": 360,
+          "sha256": "bd686d6b7fa00414636a098fe2423947ddb12e4ad782b0d0d621e861fc9ac5d9"
+        },
+        "data/flutter_assets/assets/flags/w80/nl.png": {
+          "bytes": 127,
+          "sha256": "2551bcd6a2ea816da99fd646a6f68feef0e3b2897216b1afca88a6e4283ee42f"
+        },
+        "data/flutter_assets/assets/flags/w80/no.png": {
+          "bytes": 192,
+          "sha256": "f58edc8912be7c7f5a462809dae326895a9b529bd841475a4aedf0ccf26e6d7f"
+        },
+        "data/flutter_assets/assets/flags/w80/np.png": {
+          "bytes": 1032,
+          "sha256": "35dac648e44adfdd7f3d37c813b12d2c45391e9556573a6496599355bd80f5d4"
+        },
+        "data/flutter_assets/assets/flags/w80/nr.png": {
+          "bytes": 255,
+          "sha256": "2601a72acad9b3284d125573c987a292e665a528273d4f0d1b3a93a76f50bfda"
+        },
+        "data/flutter_assets/assets/flags/w80/nu.png": {
+          "bytes": 557,
+          "sha256": "4a0956a9f819ae57568cfac496a355c28bc9a8cbba8148368c5e6ba62c732c81"
+        },
+        "data/flutter_assets/assets/flags/w80/nz.png": {
+          "bytes": 536,
+          "sha256": "2a69d660a346b756b26e5faba477f8033901b76b2ccf35d00463620be4a794c4"
+        },
+        "data/flutter_assets/assets/flags/w80/om.png": {
+          "bytes": 261,
+          "sha256": "c2edcf47f4d0e9b20bcd23a373ed494eb0a0c5dca3d49905966c419be0511bb2"
+        },
+        "data/flutter_assets/assets/flags/w80/pa.png": {
+          "bytes": 361,
+          "sha256": "5b7c11938c58bc8160d12f608dd0bc6acff113fe165c5c45b46ee1d5a4a1f71e"
+        },
+        "data/flutter_assets/assets/flags/w80/pe.png": {
+          "bytes": 107,
+          "sha256": "41282776c7f57cd127e6577cbc380f3e252049f976bcf566ee77d4578e50ed57"
+        },
+        "data/flutter_assets/assets/flags/w80/pf.png": {
+          "bytes": 645,
+          "sha256": "c78a808b5b68e4a3b229b6f7f27e150a19ff0c36d00492c44a21e98ec4497926"
+        },
+        "data/flutter_assets/assets/flags/w80/pg.png": {
+          "bytes": 784,
+          "sha256": "fc790fba9d6b76f8e7fdc7436c0b6a01ac42e19820a17eb272c4e7b48d466f32"
+        },
+        "data/flutter_assets/assets/flags/w80/ph.png": {
+          "bytes": 564,
+          "sha256": "089e20ed35c6c16e3d28ced61045285b63c344e00620bf90376dbe9a12865d52"
+        },
+        "data/flutter_assets/assets/flags/w80/pk.png": {
+          "bytes": 453,
+          "sha256": "6b8b4ed3916a89ac16ca96278fa57a26ff3846fab049b7f25986e79bc17cdbf9"
+        },
+        "data/flutter_assets/assets/flags/w80/pl.png": {
+          "bytes": 94,
+          "sha256": "bc81e9a8f5f9482d3b266a434f5f28441b8df90b29c6f7e8d08d120d8dfb97d0"
+        },
+        "data/flutter_assets/assets/flags/w80/pm.png": {
+          "bytes": 2820,
+          "sha256": "982507196a0ab3cf707cddaf903d56b5855c7190037bbfe6303d2c2c41c8718a"
+        },
+        "data/flutter_assets/assets/flags/w80/pn.png": {
+          "bytes": 1152,
+          "sha256": "f3896a549254890612d938aedad5e909b782edeae7017ffc5f160b34e31dd1cb"
+        },
+        "data/flutter_assets/assets/flags/w80/pr.png": {
+          "bytes": 469,
+          "sha256": "1f7b84c8309da06cd4aff493a50492f71ec6a55179a7bbbfe40b9a3d2725d9d1"
+        },
+        "data/flutter_assets/assets/flags/w80/ps.png": {
+          "bytes": 304,
+          "sha256": "ba4ebad41d9c4459ab860306f2eadafbf23dc43ac452929d7b354423dc5323f0"
+        },
+        "data/flutter_assets/assets/flags/w80/pt.png": {
+          "bytes": 893,
+          "sha256": "0006bee743a0d81fc4dcea7ae2fdc2bb17e560792b9939fb10ec05d76dd828ef"
+        },
+        "data/flutter_assets/assets/flags/w80/pw.png": {
+          "bytes": 307,
+          "sha256": "781b73a91a4a2b8c559932b4ec60487ea50e088690f483e66b91f6e389c533e2"
+        },
+        "data/flutter_assets/assets/flags/w80/py.png": {
+          "bytes": 287,
+          "sha256": "3791bcf57ecc71e23b15b941b026ac807470e9fc5b97a624aaef0df74e2d0684"
+        },
+        "data/flutter_assets/assets/flags/w80/qa.png": {
+          "bytes": 201,
+          "sha256": "ab007ed48922bf300c3a76462aa8a40ccdb2bf9a06276e3acde96a6b6296bbbc"
+        },
+        "data/flutter_assets/assets/flags/w80/re.png": {
+          "bytes": 784,
+          "sha256": "be8329d2a862b5737f9314da66a23e32724dbd4f345e12b97441e22d9420c197"
+        },
+        "data/flutter_assets/assets/flags/w80/ro.png": {
+          "bytes": 122,
+          "sha256": "8c5a6a64e197aba1acadb221486790c1b04022de391c72be5da8023bb2391a1d"
+        },
+        "data/flutter_assets/assets/flags/w80/rs.png": {
+          "bytes": 934,
+          "sha256": "5a2996144f6c1415c6e680f36d21f6b7fae66091fc50840cc1b848da15a31d16"
+        },
+        "data/flutter_assets/assets/flags/w80/ru.png": {
+          "bytes": 125,
+          "sha256": "fe1a82a5145e5fba6982bb14cb20663b888a5feabada2235d036825fa4cbcac8"
+        },
+        "data/flutter_assets/assets/flags/w80/rw.png": {
+          "bytes": 281,
+          "sha256": "254565a00c8d28fb3fa06b4c2881df2d7797983e9eaf0e6dca01ce59aaec354c"
+        },
+        "data/flutter_assets/assets/flags/w80/sa.png": {
+          "bytes": 566,
+          "sha256": "279bc6e2da48470081c4c754c9c6b880465fa425d70319fcc786b06a4e01821b"
+        },
+        "data/flutter_assets/assets/flags/w80/sb.png": {
+          "bytes": 457,
+          "sha256": "6ea25b29aa4ae0732fec517448de13ec02eaca1d834ae9e0aa9bcec22d464f05"
+        },
+        "data/flutter_assets/assets/flags/w80/sc.png": {
+          "bytes": 492,
+          "sha256": "89190698de93265201c7999b33f00df09c680a45e62a84672dd18c980b419f0b"
+        },
+        "data/flutter_assets/assets/flags/w80/sd.png": {
+          "bytes": 299,
+          "sha256": "8a64e056f6a0dd1b7e22ba1cd9cb511c7247264b0715d836ae734f622b4a3e87"
+        },
+        "data/flutter_assets/assets/flags/w80/se.png": {
+          "bytes": 100,
+          "sha256": "e8433ddb96b727f2b2420f21f588feb88a5f3984b0c2fe65e97e0b5285f3a2ef"
+        },
+        "data/flutter_assets/assets/flags/w80/sg.png": {
+          "bytes": 354,
+          "sha256": "a99506c879dd6e6d86d9b75e79ff9ec63c1ff7948906ac9b91c8b0e09390f5d5"
+        },
+        "data/flutter_assets/assets/flags/w80/sh.png": {
+          "bytes": 845,
+          "sha256": "26a133a1856c25a1ba89edc50dc88001f48d70663dde23dae96d10ff847e8468"
+        },
+        "data/flutter_assets/assets/flags/w80/si.png": {
+          "bytes": 313,
+          "sha256": "37c463135e3fbd09539b6bbcd2edb668897657161b7e5a205ecd0294f4100f14"
+        },
+        "data/flutter_assets/assets/flags/w80/sj.png": {
+          "bytes": 192,
+          "sha256": "f58edc8912be7c7f5a462809dae326895a9b529bd841475a4aedf0ccf26e6d7f"
+        },
+        "data/flutter_assets/assets/flags/w80/sk.png": {
+          "bytes": 524,
+          "sha256": "bfb0ce5b40660048a0e13fdc9089c26d872a4cc41f709065276b80bc15fca0ca"
+        },
+        "data/flutter_assets/assets/flags/w80/sl.png": {
+          "bytes": 127,
+          "sha256": "9aa703af0a2b94e2de448da95469fee21856e89f81f26646fb87b4ca6a7d852d"
+        },
+        "data/flutter_assets/assets/flags/w80/sm.png": {
+          "bytes": 1130,
+          "sha256": "70d6493008f0a06bd73cb32dc246c7da1ceb62ff64a8b6e49951537235c8dc57"
+        },
+        "data/flutter_assets/assets/flags/w80/sn.png": {
+          "bytes": 241,
+          "sha256": "858bcf6fe5da87f2b9affb7492ef06482b6ad0b475b70203d38f4fbb0fbaa7e8"
+        },
+        "data/flutter_assets/assets/flags/w80/so.png": {
+          "bytes": 264,
+          "sha256": "7ee3f20feb414f327ae69c3d4c3a54e989bc2410616fedefc1de453c1b6d329c"
+        },
+        "data/flutter_assets/assets/flags/w80/sr.png": {
+          "bytes": 281,
+          "sha256": "49c57626ec7f16370a254b7020c6d1bd0dac8de1a303b9c614447db2259cce7a"
+        },
+        "data/flutter_assets/assets/flags/w80/ss.png": {
+          "bytes": 437,
+          "sha256": "6376d90a2aa369425c03228da8df161e9c3c20616a4ff6ff0e7cd528388881f8"
+        },
+        "data/flutter_assets/assets/flags/w80/st.png": {
+          "bytes": 342,
+          "sha256": "fbcfe87d46cdfdf7147d5987503aa4fb3fbfc844f5420fe947ddbe2166c79187"
+        },
+        "data/flutter_assets/assets/flags/w80/sv.png": {
+          "bytes": 479,
+          "sha256": "0325efeb9cd30269f18a30faaf848d0e6ee83118dcb0effbb821b0facd087862"
+        },
+        "data/flutter_assets/assets/flags/w80/sx.png": {
+          "bytes": 831,
+          "sha256": "50dd1dbe64ba89b2f6a28131214c7b578ba588350bff9372267a8d8fbc9acfbd"
+        },
+        "data/flutter_assets/assets/flags/w80/sy.png": {
+          "bytes": 253,
+          "sha256": "efc9eeb2d7a68fb9c49627082e6b1cc328cf4f456cff86c702935a8b56fc1063"
+        },
+        "data/flutter_assets/assets/flags/w80/sz.png": {
+          "bytes": 809,
+          "sha256": "448430a1a1d779ab04ab014eaf5b68467c283f1a30aa00f32c36d41afb224efa"
+        },
+        "data/flutter_assets/assets/flags/w80/tc.png": {
+          "bytes": 775,
+          "sha256": "36a007d46602c9de800584a9ca095d7674513caa4fd3d178e0ed091a5cd81542"
+        },
+        "data/flutter_assets/assets/flags/w80/td.png": {
+          "bytes": 122,
+          "sha256": "9bc51a23aeca73146a0c5c43a1b79143654f5be5b340bfedef85c00b61bf4a44"
+        },
+        "data/flutter_assets/assets/flags/w80/tf.png": {
+          "bytes": 359,
+          "sha256": "7884802bf8a5b3749cdf92c49695f46fb7d7da671100fd7c3d1323be0e7974dc"
+        },
+        "data/flutter_assets/assets/flags/w80/tg.png": {
+          "bytes": 314,
+          "sha256": "2c99cc0ba6ea2513cf61f2ba32e8c33ef12fa1975898930fc592e0c6fcbfb0bf"
+        },
+        "data/flutter_assets/assets/flags/w80/th.png": {
+          "bytes": 137,
+          "sha256": "21290b9be44e3953831573fc7416dd266a7f1d31b523efcbfd68b5df22ea79a1"
+        },
+        "data/flutter_assets/assets/flags/w80/tj.png": {
+          "bytes": 264,
+          "sha256": "1040c4e9de97d444b90e07bc9582ac189e743741488eaea8e367d240b6f46dd3"
+        },
+        "data/flutter_assets/assets/flags/w80/tk.png": {
+          "bytes": 577,
+          "sha256": "274edad9704de6b6d92cd9e90e25263d4c79cd31d82157f1d79f6469bf454e7b"
+        },
+        "data/flutter_assets/assets/flags/w80/tl.png": {
+          "bytes": 382,
+          "sha256": "40f66b4ca1295526e85985f0b853b3bfadf821f3992de3500faa4faeaf0c53b3"
+        },
+        "data/flutter_assets/assets/flags/w80/tm.png": {
+          "bytes": 1379,
+          "sha256": "2a7bd1aecf3009086f30543dff31fd19234400c653c9926d90dfd827a1bb7ef9"
+        },
+        "data/flutter_assets/assets/flags/w80/tn.png": {
+          "bytes": 466,
+          "sha256": "cf2f658f340f1c9e8071a05990dc3bd6790b381aac25c6662187857c28026370"
+        },
+        "data/flutter_assets/assets/flags/w80/to.png": {
+          "bytes": 158,
+          "sha256": "d416c9218cb371a4caf10d156d3c15f962ec68e74ade00888fb088e8c8221f64"
+        },
+        "data/flutter_assets/assets/flags/w80/tr.png": {
+          "bytes": 377,
+          "sha256": "1cacb57e7a84e9305b482108bfbd5af019dbb5268d55f8533ee651065cea9f85"
+        },
+        "data/flutter_assets/assets/flags/w80/tt.png": {
+          "bytes": 653,
+          "sha256": "22243a94f33d3d307980935b449c78c26f742ab383a66660f8dd0dee5354e5aa"
+        },
+        "data/flutter_assets/assets/flags/w80/tv.png": {
+          "bytes": 704,
+          "sha256": "d15b679acc477477932637f4f3db7ea53af8628e5fec97f4788006a09c1928e6"
+        },
+        "data/flutter_assets/assets/flags/w80/tw.png": {
+          "bytes": 359,
+          "sha256": "e4b9328efec9ce9646e8b45a44867bb2309b640e0cb428c6da3d029bf640a67d"
+        },
+        "data/flutter_assets/assets/flags/w80/tz.png": {
+          "bytes": 442,
+          "sha256": "f055c70902ca984d6428de9753f220f192559ac726e49f1d5ba72b7a19795324"
+        },
+        "data/flutter_assets/assets/flags/w80/ua.png": {
+          "bytes": 105,
+          "sha256": "a7474c46f2e957e4d27bd034119bc4be4bf9b1faf908338d0f5d97574e1ba07d"
+        },
+        "data/flutter_assets/assets/flags/w80/ug.png": {
+          "bytes": 452,
+          "sha256": "346730a1053373109240fea54b23c5f499e99321dc087c75f7c2f6affdaa9824"
+        },
+        "data/flutter_assets/assets/flags/w80/um.png": {
+          "bytes": 430,
+          "sha256": "59ac434b97e6db8b4fcee5c8e1996995562747e76875625f0886f1936488b7c9"
+        },
+        "data/flutter_assets/assets/flags/w80/us.png": {
+          "bytes": 430,
+          "sha256": "59ac434b97e6db8b4fcee5c8e1996995562747e76875625f0886f1936488b7c9"
+        },
+        "data/flutter_assets/assets/flags/w80/uy.png": {
+          "bytes": 504,
+          "sha256": "f446f4d253f26719bdee356b97231594bc2c01577cb7ddc26cca1652b0b330c1"
+        },
+        "data/flutter_assets/assets/flags/w80/uz.png": {
+          "bytes": 242,
+          "sha256": "25570b17f4a0c3ae9de90db0714fe74e1efb87963cdbf143587df2aec36a6e10"
+        },
+        "data/flutter_assets/assets/flags/w80/va.png": {
+          "bytes": 1113,
+          "sha256": "3bf6a904e87e66a4c8c2ebd601bdff6b2eb8adb26c261a4c79d70c216a160dd7"
+        },
+        "data/flutter_assets/assets/flags/w80/vc.png": {
+          "bytes": 316,
+          "sha256": "e51d83cdc247c4ebe0942fcc248efcc7aa9d31e37f0181ed5c0cd2c5081934b5"
+        },
+        "data/flutter_assets/assets/flags/w80/ve.png": {
+          "bytes": 297,
+          "sha256": "c952d54805f2c507d393168985ccf2cd51df03549222d7a92998853d0e9390e9"
+        },
+        "data/flutter_assets/assets/flags/w80/vg.png": {
+          "bytes": 938,
+          "sha256": "6485d2d920e5e375a15905de1ff5760fa48d4afbdf629b46f774de2163e3627d"
+        },
+        "data/flutter_assets/assets/flags/w80/vi.png": {
+          "bytes": 1992,
+          "sha256": "1021e47157a05edd163b75efd310172627fe5b088af5c49a7c3a1d42c831662f"
+        },
+        "data/flutter_assets/assets/flags/w80/vn.png": {
+          "bytes": 335,
+          "sha256": "78168f022ff2f2a1a97441797776cd4170f7e4cee8a68de50049d21ca6f7e710"
+        },
+        "data/flutter_assets/assets/flags/w80/vu.png": {
+          "bytes": 660,
+          "sha256": "ba612637486886f5ea206a86a36e7c8dfddb310627d482d5b56eb41e7b02b390"
+        },
+        "data/flutter_assets/assets/flags/w80/wf.png": {
+          "bytes": 311,
+          "sha256": "60d7830025a9935c3c17cf1acc8680bf26bdfb12a761c851f48d9d59c4a891bb"
+        },
+        "data/flutter_assets/assets/flags/w80/ws.png": {
+          "bytes": 240,
+          "sha256": "41e9e3b473f4f7300dcae528233c1203f0a713eaaccd4fd7dc16e9251cbe330b"
+        },
+        "data/flutter_assets/assets/flags/w80/xk.png": {
+          "bytes": 558,
+          "sha256": "452450d67ea2a07d004a8d19fd3402291fef0c0ed10fd032d17b1d61f2654c72"
+        },
+        "data/flutter_assets/assets/flags/w80/ye.png": {
+          "bytes": 127,
+          "sha256": "0e24f81877839ab7b673b6100f0ecd81b67488b32c0235cb550c8aab57315e1a"
+        },
+        "data/flutter_assets/assets/flags/w80/yt.png": {
+          "bytes": 1498,
+          "sha256": "9ca657866bb9ce4492eb119a61925e2860f9d2c4965182e6b93415ec5e14f5eb"
+        },
+        "data/flutter_assets/assets/flags/w80/za.png": {
+          "bytes": 543,
+          "sha256": "ed7056cd01ca444344dd15379189fe9da0f6b500f0f1049d5442cee9fe6ea65e"
+        },
+        "data/flutter_assets/assets/flags/w80/zm.png": {
+          "bytes": 292,
+          "sha256": "daa4a37ffc444bc3bb7d4a0ad7e047d8e6aab6b1c5940dc8e9d6346b50f02919"
+        },
+        "data/flutter_assets/assets/flags/w80/zw.png": {
+          "bytes": 585,
+          "sha256": "2a96a36a785b535857baee3e4494dfac275563ab85f0d0ceb6cd112143bdbcfa"
+        },
+        "data/flutter_assets/assets/fonts/IBMPlexMono-Medium.ttf": {
+          "bytes": 129916,
+          "sha256": "4fc14a73ca53ba9d32fd759ae1ca1a3133326035d0dd337862b3ee1633cc156e"
+        },
+        "data/flutter_assets/assets/fonts/IBMPlexMono-Regular.ttf": {
+          "bytes": 128812,
+          "sha256": "a7fdc993f9f0387caedba4e42521136fa97e4c0837ae6239bf0413ccf8af00c2"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-Bold.ttf": {
+          "bytes": 94928,
+          "sha256": "b9584e099e0e7f1e1e914c3037aabb9010c50346a3ce8df5eeeeecc0563044d8"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-Medium.ttf": {
+          "bytes": 95060,
+          "sha256": "f433e5d333be1128d8ec8a28b8aadd0314d10e14e4105406076666bc830fc15d"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-Regular.ttf": {
+          "bytes": 94972,
+          "sha256": "a13d9b41b0a471ce58f0e46d377fa3cc76615e4632c3b15eb397caadf7a13f0a"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-SemiBold.ttf": {
+          "bytes": 95096,
+          "sha256": "6bad1a774228464cc88b8b0271555b266f7a3c64a7bedf15e165fdab4f6ac0ce"
+        },
+        "data/flutter_assets/assets/fonts/SpaceGrotesk-Bold.ttf": {
+          "bytes": 69308,
+          "sha256": "3e756954468ff1cb302dae0414262e72f76a67d87bef3fa1f3226cd0fb9b2d85"
+        },
+        "data/flutter_assets/assets/fonts/SpaceGrotesk-Medium.ttf": {
+          "bytes": 69416,
+          "sha256": "3e699ead1876244fa392243054ddefe7cf631b488438828a8a100731a22ab995"
+        },
+        "data/flutter_assets/assets/fonts/SpaceGrotesk-SemiBold.ttf": {
+          "bytes": 69356,
+          "sha256": "6c0346b8d297ebdc225832833e03e884a26ad99d265ecd3924d46e1ba285ea87"
+        },
+        "data/flutter_assets/assets/licenses/flagpedia.txt": {
+          "bytes": 499,
+          "sha256": "e5abe6d196526aa6171bfebe812d8a7127c2cb5eee052da09df402047ee97584"
+        },
+        "data/flutter_assets/assets/licenses/vpngate.txt": {
+          "bytes": 55802,
+          "sha256": "3cd084bbb1aa2b51765f6508f2604a3bc0dc98bc326ffd00276cd3bf5ee2e50c"
+        },
+        "data/flutter_assets/FontManifest.json": {
+          "bytes": 1802,
+          "sha256": "11a4d2bc44245d6fd873047e6386dcc73a67f3fa3330196ce83d30eabc7d1db0"
+        },
+        "data/flutter_assets/fonts/MaterialIcons-Regular.otf": {
+          "bytes": 1645184,
+          "sha256": "d9865b671a09d683d13a863089d8825e0f61a37696ce5d7d448bc8023aa62453"
+        },
+        "data/flutter_assets/NativeAssetsManifest.json": {
+          "bytes": 45,
+          "sha256": "9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb"
+        },
+        "data/flutter_assets/NOTICES.Z": {
+          "bytes": 103996,
+          "sha256": "e35c31255a1cae5ee66def215b119b397706b5432701d9fe24b0a0c1c81c004b"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w100.ttf": {
+          "bytes": 435552,
+          "sha256": "d9048950054e2f1350abf1286afa3186f2a3a7f585dc770064b0c8fcfc627b12"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w200.ttf": {
+          "bytes": 478064,
+          "sha256": "75cf395ba5ba5900eebf33b5aed94a2491eecfc5ba6ea23b3f459bfd4e2f6ab2"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w300.ttf": {
+          "bytes": 484696,
+          "sha256": "4f69f2f3e1a01279976bc44783e7c29c448803473109da041c7e3c1788e9a463"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w400.ttf": {
+          "bytes": 456484,
+          "sha256": "c31dd2add601c66bfc6eacb15357b98927118ccec6529693f8d2cbf646dc65a6"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w500.ttf": {
+          "bytes": 456476,
+          "sha256": "6b78f647b373e88956fb8ac9c2ca5771d8fc0bd0feb1691f489eca8ba08af52b"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w600.ttf": {
+          "bytes": 494112,
+          "sha256": "6dcd42b418015a11541512ed9e9afba9fea818a7557d4fa2282ef52b1014d1a9"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/lucide.ttf": {
+          "bytes": 877160,
+          "sha256": "b27152b2215731ec9a65a3b351b45873f912bf5d15a64e058aac4136699b804e"
+        },
+        "data/flutter_assets/shaders/ink_sparkle.frag": {
+          "bytes": 21856,
+          "sha256": "1fe8436a743884cb65078fe8c7b38e18f5365f2a2961270916f426fd13c604af"
+        },
+        "data/flutter_assets/shaders/stretch_effect.frag": {
+          "bytes": 17624,
+          "sha256": "62a899ff4e168ac6ca888ce7c2f40e5d3fbf8ca20a1c3ded781a116a6d7907e2"
+        },
+        "data/icudtl.dat": {
+          "bytes": 862304,
+          "sha256": "998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5"
+        },
+        "flutter_windows.dll": {
+          "bytes": 21284864,
+          "sha256": "7f04e026b1639b7594e1b6be32844547984da484d47394667e66f0288c83bd6a"
+        },
+        "url_launcher_windows_plugin.dll": {
+          "bytes": 98304,
+          "sha256": "fe5ce2019c05f778f4965ee0536dee156f91969256de7b73f541164aa655cdd6"
+        },
+        "usque.exe": {
+          "bytes": 259584,
+          "sha256": "fe2eda652e7df079bafb0564f544124945267904359cc172198c9dba7ee72d1d"
+        }
+      }
+    },
+    "without_svg": {
+      "bytes": 38835569,
+      "files": {
+        "data/app.so": {
+          "bytes": 9765776,
+          "sha256": "d0c5a5a5646d9f492eaa28017a5548f09692075579c156ea958f403f68d482a7"
+        },
+        "data/flutter_assets/AssetManifest.bin": {
+          "bytes": 17620,
+          "sha256": "e4a5bd86f38a16c159ea106f9052d8a49e672ed9b52fe05a9b5c55a9574db2df"
+        },
+        "data/flutter_assets/assets/branding/usque-ui-icon.png": {
+          "bytes": 45068,
+          "sha256": "b5d369b610f84c4ec4843e88d617decf7c531bf955dd8b3eeff0f618ef6bcfe5"
+        },
+        "data/flutter_assets/assets/flags/w80/ad.png": {
+          "bytes": 600,
+          "sha256": "c817338716cb52f043776dd6391c09055a089d62692858c5a02b7074c458d8b6"
+        },
+        "data/flutter_assets/assets/flags/w80/ae.png": {
+          "bytes": 132,
+          "sha256": "709f7c8b8a3c4cdc39c35e60f918e944dee6544913bf7f9a1f4efa27aba7cf70"
+        },
+        "data/flutter_assets/assets/flags/w80/af.png": {
+          "bytes": 1278,
+          "sha256": "64c94b21efd5a1498677ab5c968a53a803a5b7d54b15cd345f35c48a434acd0e"
+        },
+        "data/flutter_assets/assets/flags/w80/ag.png": {
+          "bytes": 708,
+          "sha256": "f61f04f1fc1707d15cc29741c5664955e40fcc43c019be70a6cd1a8a91d72352"
+        },
+        "data/flutter_assets/assets/flags/w80/ai.png": {
+          "bytes": 650,
+          "sha256": "cbcc9880359943665523fb359f92557c1f1ea50bb1bdce7c51c9be87d95bbba2"
+        },
+        "data/flutter_assets/assets/flags/w80/al.png": {
+          "bytes": 643,
+          "sha256": "d3bc5980296f0635d91f8afc6d91ff0e4f8434c88a6c59039743dd60529df6ac"
+        },
+        "data/flutter_assets/assets/flags/w80/am.png": {
+          "bytes": 121,
+          "sha256": "3db065ffb4f32c40b721beef135ac748c8bf8ec92f5aacf86ea4901e0e9f2c8c"
+        },
+        "data/flutter_assets/assets/flags/w80/ao.png": {
+          "bytes": 550,
+          "sha256": "871d83191dc7c42b2be09e8389e58c786d6c0128b73a425ffec3ea6888812f45"
+        },
+        "data/flutter_assets/assets/flags/w80/aq.png": {
+          "bytes": 481,
+          "sha256": "c4cff5a9c058a57fd1f681f72090e28f674805ebfee9c03589fda6ccc9dc1a05"
+        },
+        "data/flutter_assets/assets/flags/w80/ar.png": {
+          "bytes": 335,
+          "sha256": "6350038be1f1cd0b67c22cbd02f08bcc0fef2c23b59d5c657c75ab23363cee16"
+        },
+        "data/flutter_assets/assets/flags/w80/as.png": {
+          "bytes": 752,
+          "sha256": "71bc77a84bdc61a8159aba74e9da7b7333abaeaf43f4ce7b7d7884da61e38cf2"
+        },
+        "data/flutter_assets/assets/flags/w80/at.png": {
+          "bytes": 109,
+          "sha256": "6db2a0734919d8c19430b79af8b2682be3a6cb878162aaff1c9c2a47b7660953"
+        },
+        "data/flutter_assets/assets/flags/w80/au.png": {
+          "bytes": 592,
+          "sha256": "eb3cd6aba81315a7db38b55a555938f3d4c1553342eafb3a37e13d4d1fe76450"
+        },
+        "data/flutter_assets/assets/flags/w80/aw.png": {
+          "bytes": 270,
+          "sha256": "17be250f8416b90f6f36ea02092ad14153fcbb05ee6c869ab4d668d697dbcfaf"
+        },
+        "data/flutter_assets/assets/flags/w80/ax.png": {
+          "bytes": 168,
+          "sha256": "bc482eaf53fa5c9ff5f117da325fdc46729c37ae0cc5a221dbf69109d374e3ce"
+        },
+        "data/flutter_assets/assets/flags/w80/az.png": {
+          "bytes": 262,
+          "sha256": "cd60096c80f2a6ab9f9354949240746eec6b167f97f2fc64f14a9c1da3458f2b"
+        },
+        "data/flutter_assets/assets/flags/w80/ba.png": {
+          "bytes": 346,
+          "sha256": "65458f3db09cabf5e23ceb4e27463f3ced69fa3bdd65ff1107a0dbfec2281c97"
+        },
+        "data/flutter_assets/assets/flags/w80/bb.png": {
+          "bytes": 349,
+          "sha256": "c97a495042dfac56e2730342e3b1a36532d7d2b945b85327179396437f552f4b"
+        },
+        "data/flutter_assets/assets/flags/w80/bd.png": {
+          "bytes": 276,
+          "sha256": "497afce056f92f5a2ee5d4c019bdbe3a6b2e63b17767ba1b36e9c4e45104931e"
+        },
+        "data/flutter_assets/assets/flags/w80/be.png": {
+          "bytes": 127,
+          "sha256": "4bb0a14682b00ccb8912a25aee9a44a5129362d0c09e3cfdb5257879bd23adb3"
+        },
+        "data/flutter_assets/assets/flags/w80/bf.png": {
+          "bytes": 249,
+          "sha256": "3c205416bda3c495e8a3e098ca5c73701ee854e73866dd1d43275261723ff83d"
+        },
+        "data/flutter_assets/assets/flags/w80/bg.png": {
+          "bytes": 105,
+          "sha256": "876abdff396a31e87c586865b3a32f5c5d96dc2a766480ea7328341d03591a88"
+        },
+        "data/flutter_assets/assets/flags/w80/bh.png": {
+          "bytes": 329,
+          "sha256": "71cb00a8b7070d702abdc8a98d8c5f68b66b1c500b7730c56fc5c6070174b84d"
+        },
+        "data/flutter_assets/assets/flags/w80/bi.png": {
+          "bytes": 643,
+          "sha256": "be0214ec050ed660fcca6773888dabe78292a41ebdc8a4cbf46ecabf67df9f48"
+        },
+        "data/flutter_assets/assets/flags/w80/bj.png": {
+          "bytes": 115,
+          "sha256": "bd930349392a8d2827011b247704de9eea2167cec49f81e511a24b23c66958a5"
+        },
+        "data/flutter_assets/assets/flags/w80/bl.png": {
+          "bytes": 1937,
+          "sha256": "4f40b845cca5d53ffa122fb5314ec1397d9259177628e1d3ea3c4b8f0bf5c8d4"
+        },
+        "data/flutter_assets/assets/flags/w80/bm.png": {
+          "bytes": 971,
+          "sha256": "22460c72dfa517222ce3983a01eb63c95794e5c4254c9598f6f02a603bfb7eb5"
+        },
+        "data/flutter_assets/assets/flags/w80/bn.png": {
+          "bytes": 995,
+          "sha256": "ecbe39f36db8ab47373cefdfd2a5cd1385609407b64b795868a4356c7326f479"
+        },
+        "data/flutter_assets/assets/flags/w80/bo.png": {
+          "bytes": 630,
+          "sha256": "2a3ef1143661691f5af75a5d0936baf2b89cebacf2aa5a7b606aa49d4ab19394"
+        },
+        "data/flutter_assets/assets/flags/w80/bq.png": {
+          "bytes": 886,
+          "sha256": "38896734bbcc39abb741da8c7a3a8a5b959fb37fb510154d6e7ff01b4b06a7a3"
+        },
+        "data/flutter_assets/assets/flags/w80/br.png": {
+          "bytes": 816,
+          "sha256": "c9ea019c610713d111f4c81d97f5c0df2caf7ae4c9bda6079f414916dcada975"
+        },
+        "data/flutter_assets/assets/flags/w80/bs.png": {
+          "bytes": 285,
+          "sha256": "7d336ee5627660a269b4a1f3dd3917c101012e06d0c36ff3bac0ac43e9e4cd17"
+        },
+        "data/flutter_assets/assets/flags/w80/bt.png": {
+          "bytes": 1086,
+          "sha256": "63dccb63daacb94c036cbed9cef2df2486128af9549b0e9a14c27acbfb9495e5"
+        },
+        "data/flutter_assets/assets/flags/w80/bv.png": {
+          "bytes": 192,
+          "sha256": "f58edc8912be7c7f5a462809dae326895a9b529bd841475a4aedf0ccf26e6d7f"
+        },
+        "data/flutter_assets/assets/flags/w80/bw.png": {
+          "bytes": 134,
+          "sha256": "7674528ab08859b4dd85045dfda5d86d3473a83b3e9ddb5c8dce7b8c644a2654"
+        },
+        "data/flutter_assets/assets/flags/w80/by.png": {
+          "bytes": 418,
+          "sha256": "4e980c20f56bca6204cdf0e541650d4cb2552e39af1b830c31be497412af6232"
+        },
+        "data/flutter_assets/assets/flags/w80/bz.png": {
+          "bytes": 1017,
+          "sha256": "b76e7ac721e240e6db828ec050d7bad2ea317cb777514bcecbf4e8801d37ae9b"
+        },
+        "data/flutter_assets/assets/flags/w80/ca.png": {
+          "bytes": 404,
+          "sha256": "c6a0b1b087f62170a41cd9d0b35bd532df0286608cc7c1c5a8c3639937b6c867"
+        },
+        "data/flutter_assets/assets/flags/w80/cc.png": {
+          "bytes": 599,
+          "sha256": "06e61a460b8d329dc81b5f3a312640f430914cb2fe2dba23599970a7e6527bef"
+        },
+        "data/flutter_assets/assets/flags/w80/cd.png": {
+          "bytes": 447,
+          "sha256": "c90de0651604a09bc297cd1f6bdbbab88ad51e65ef0aa933bb3191c943b69acc"
+        },
+        "data/flutter_assets/assets/flags/w80/cf.png": {
+          "bytes": 282,
+          "sha256": "dc16ffdcc726c94521fa8a665992a9f0305977c9257e4fc9a14bfd64d98bc4f4"
+        },
+        "data/flutter_assets/assets/flags/w80/cg.png": {
+          "bytes": 310,
+          "sha256": "cceaa431a52340bd23671dce72515891d648d2bfffaa182e5dfe1748a497396c"
+        },
+        "data/flutter_assets/assets/flags/w80/ch.png": {
+          "bytes": 135,
+          "sha256": "c0238ceffa2927c670890712efe6eafdce019fa68e9118486ac08c2651ae4a4c"
+        },
+        "data/flutter_assets/assets/flags/w80/ci.png": {
+          "bytes": 122,
+          "sha256": "827734ef91f84698ef5764b62df02de108effe041b90c6fbb8d766b1ea3626e6"
+        },
+        "data/flutter_assets/assets/flags/w80/ck.png": {
+          "bytes": 781,
+          "sha256": "91121eab433ebe3e51c429af55f92aed36135629a9339f319683ea783cf30237"
+        },
+        "data/flutter_assets/assets/flags/w80/cl.png": {
+          "bytes": 228,
+          "sha256": "cc0ac853ca90cf65565e5df4465a2108558eb397166abaa65838c71cecc18077"
+        },
+        "data/flutter_assets/assets/flags/w80/cm.png": {
+          "bytes": 228,
+          "sha256": "422c019d8e77d3bb92335c43dd2641286c736d1e22c2df943f5f49948307efd6"
+        },
+        "data/flutter_assets/assets/flags/w80/cn.png": {
+          "bytes": 315,
+          "sha256": "fdbfb0d49ec098827d28f297a4ee3614edd1dcc014bcdf978b7dce73c7b7b4f1"
+        },
+        "data/flutter_assets/assets/flags/w80/co.png": {
+          "bytes": 125,
+          "sha256": "cc204eef36e8d922b38b794cd00000b9cfefeb7964c914d5c15d432b27cb0771"
+        },
+        "data/flutter_assets/assets/flags/w80/cr.png": {
+          "bytes": 398,
+          "sha256": "aed03feb8e13cbd79cb0118741182306f30878d44a58b095cd3758dfb4f75138"
+        },
+        "data/flutter_assets/assets/flags/w80/cu.png": {
+          "bytes": 387,
+          "sha256": "9350785c8262a9327865a306bf5a2067c244ebdc7efdb4c0848757b9bded0ed5"
+        },
+        "data/flutter_assets/assets/flags/w80/cv.png": {
+          "bytes": 334,
+          "sha256": "aee4766f9fe89db9ac48e1d0b2645c800fe1026026e19a99a455f1a2b339bb43"
+        },
+        "data/flutter_assets/assets/flags/w80/cw.png": {
+          "bytes": 239,
+          "sha256": "ed92c7ec21ad6e5b72150cb2b4af2fe915eb953be0cf2ccb893dbdebb138a363"
+        },
+        "data/flutter_assets/assets/flags/w80/cx.png": {
+          "bytes": 700,
+          "sha256": "d2405f41f2bc68ca2506a03d3c8c8fcadbc07d100417ce35346bdde87ff5e49d"
+        },
+        "data/flutter_assets/assets/flags/w80/cy.png": {
+          "bytes": 559,
+          "sha256": "1a3d4cebcea35731d023e5ba47474129d4490e59d83bb348f36a60a8c64a7ab5"
+        },
+        "data/flutter_assets/assets/flags/w80/cz.png": {
+          "bytes": 363,
+          "sha256": "2b1d29778294d45d3678cd7fdc240de70a16a638dd752be4a212401389dd44e5"
+        },
+        "data/flutter_assets/assets/flags/w80/de.png": {
+          "bytes": 105,
+          "sha256": "5eb33c86a8f1cd43cbbd990aee89e4ce4fabf7efdece1529be66fb1becf29fc9"
+        },
+        "data/flutter_assets/assets/flags/w80/dj.png": {
+          "bytes": 506,
+          "sha256": "d62d587194a32738972059019aeaf86caa5192c419be2a2bf5e3047609634694"
+        },
+        "data/flutter_assets/assets/flags/w80/dk.png": {
+          "bytes": 148,
+          "sha256": "7f9de76f88b1049ad15974b93e1bc863280bfc3c5c566227a702e57684e0f233"
+        },
+        "data/flutter_assets/assets/flags/w80/dm.png": {
+          "bytes": 517,
+          "sha256": "dfe111b09e715810673eeec3b5558ab227c7ebbab7dde54946910c519e528d49"
+        },
+        "data/flutter_assets/assets/flags/w80/do.png": {
+          "bytes": 396,
+          "sha256": "2506bc21a52b79957cb20d08d2022cde9e1d02a058470caa7a96d38f6e724b4c"
+        },
+        "data/flutter_assets/assets/flags/w80/dz.png": {
+          "bytes": 399,
+          "sha256": "15e7ef69c144fa4d9d57ef9c6761a23c5dc1e2f2506c0c77a847139ca6663039"
+        },
+        "data/flutter_assets/assets/flags/w80/ec.png": {
+          "bytes": 933,
+          "sha256": "767a69f140ef4f9a28bdba99a149b53cf1768e6896893b58b3e3ac7a444a515e"
+        },
+        "data/flutter_assets/assets/flags/w80/ee.png": {
+          "bytes": 106,
+          "sha256": "7d6d0649338f46de56927d05a4430f471f572c6e5e46dc52aae9d5cf3cfdfd03"
+        },
+        "data/flutter_assets/assets/flags/w80/eg.png": {
+          "bytes": 291,
+          "sha256": "650c5df8ef5e0d1c2267b67caeac0fb8643a5fb4e55df3117e4aa8b1a5861a77"
+        },
+        "data/flutter_assets/assets/flags/w80/eh.png": {
+          "bytes": 396,
+          "sha256": "518461ad678effb89da7abc5c2019951fd8c694b2549d1874550b09cef78770d"
+        },
+        "data/flutter_assets/assets/flags/w80/er.png": {
+          "bytes": 545,
+          "sha256": "f65175a0c6cc762ea68d0cf2d1660bfed019127416c42379fa65c4b9fd16394e"
+        },
+        "data/flutter_assets/assets/flags/w80/es.png": {
+          "bytes": 673,
+          "sha256": "cfd46911c2d8a218317ecfa94d776ca3784def0212332b2c230d0a7cfeb6be41"
+        },
+        "data/flutter_assets/assets/flags/w80/et.png": {
+          "bytes": 571,
+          "sha256": "5b3ff5e7872066515801cc827688988d998f26ad90a5d6a0145d76a54a1ff909"
+        },
+        "data/flutter_assets/assets/flags/w80/fi.png": {
+          "bytes": 134,
+          "sha256": "0450ed61fdb1680a727663e3a922635e03e4cb3fa019c258b8a1e2e2a6e73701"
+        },
+        "data/flutter_assets/assets/flags/w80/fj.png": {
+          "bytes": 903,
+          "sha256": "50cb3bfc445efb91587b72aa29f5e6ea8e531344280036667b8ad3cb733afa2b"
+        },
+        "data/flutter_assets/assets/flags/w80/fk.png": {
+          "bytes": 1151,
+          "sha256": "b3597e3e96a3a3ecefa64df0872763cc39eaf4a9785f58a3f480115bc37e482b"
+        },
+        "data/flutter_assets/assets/flags/w80/fm.png": {
+          "bytes": 217,
+          "sha256": "93a9299aeef5b31e2acf1a6680e20aab0776e510776b55f4a0f8559b5bbb218c"
+        },
+        "data/flutter_assets/assets/flags/w80/fo.png": {
+          "bytes": 188,
+          "sha256": "fb9d2d8424d9bf9993c0df44c9bd24f9374e21f0500d5c32523b4ebb782a2d1c"
+        },
+        "data/flutter_assets/assets/flags/w80/fr.png": {
+          "bytes": 123,
+          "sha256": "2a539c1a42f160aab68730f4caaa322bd6fbccf42145015bb7544961671a9cbd"
+        },
+        "data/flutter_assets/assets/flags/w80/ga.png": {
+          "bytes": 106,
+          "sha256": "ad6a998bcaca56cec2f3d18d95d8c1033ed2ba1922638c752e2a7a5b5aa87bc7"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-eng.png": {
+          "bytes": 123,
+          "sha256": "51fab4e1b9edf84a4798756f8984c5d767d5d6326dd3614c59de3893bcbeb62e"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-nir.png": {
+          "bytes": 581,
+          "sha256": "1caeef818b94205deb503363349bc0668cda4c628930bf205abfd22f650fecae"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-sct.png": {
+          "bytes": 433,
+          "sha256": "e2fa0198019f3448ed6886da80043a93dc51538fd6eb17ddd21ddb3c67e06db9"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-wls.png": {
+          "bytes": 1482,
+          "sha256": "c062c7167bbfaf6b42787a7883c5c321ee826eb452cdd0c98b706b3e4fbb887d"
+        },
+        "data/flutter_assets/assets/flags/w80/gb.png": {
+          "bytes": 395,
+          "sha256": "94f29281d0b2b67b035dd279a4b43b18b8be9e889f5287af2b2c5e3723e0c810"
+        },
+        "data/flutter_assets/assets/flags/w80/gd.png": {
+          "bytes": 644,
+          "sha256": "48d2fc855ced8cee7fe368c9974bf1975ddf6517dd6dc9eb8683dd51fbe9fee7"
+        },
+        "data/flutter_assets/assets/flags/w80/ge.png": {
+          "bytes": 393,
+          "sha256": "e6c2bdda0963eab8312ef0987efbec4ac4e66c3fc0a2d858352257195cc6c137"
+        },
+        "data/flutter_assets/assets/flags/w80/gf.png": {
+          "bytes": 468,
+          "sha256": "f1aa5be028c8ebd8081e33f8d0b071549740ba9c2f5560b03c68da981ae7ea5f"
+        },
+        "data/flutter_assets/assets/flags/w80/gg.png": {
+          "bytes": 236,
+          "sha256": "57ce45d70c9d3a81a2e4d79a3974676d556e49aaf3ec302ab5bcb547fb4b3c9b"
+        },
+        "data/flutter_assets/assets/flags/w80/gh.png": {
+          "bytes": 267,
+          "sha256": "df792a38cf9620fd3ac55b759de8f54b9ddf4c3f90ff558445f024524f29f42b"
+        },
+        "data/flutter_assets/assets/flags/w80/gi.png": {
+          "bytes": 615,
+          "sha256": "75a51315785d7b026debad168722fa42ff27d23243e36103f9ca5dfc00dfea65"
+        },
+        "data/flutter_assets/assets/flags/w80/gl.png": {
+          "bytes": 371,
+          "sha256": "5c473e39d266eb711ee7276826dc71510efbeb053498eba2ed7a51649ccfee8e"
+        },
+        "data/flutter_assets/assets/flags/w80/gm.png": {
+          "bytes": 145,
+          "sha256": "c76dd7a8e26e4170c5ac7953aa3709f7559c35667b73b24ad7ba465c8e2c2051"
+        },
+        "data/flutter_assets/assets/flags/w80/gn.png": {
+          "bytes": 122,
+          "sha256": "7d2c9ad5136c71d55c79677b58d5d10e4d20d2626113365bc5f9dedb819376be"
+        },
+        "data/flutter_assets/assets/flags/w80/gp.png": {
+          "bytes": 1070,
+          "sha256": "1dddcb6150bc6787b8e1f014710a43a029ccb4b6a9fe1a75a155bc8283159f36"
+        },
+        "data/flutter_assets/assets/flags/w80/gq.png": {
+          "bytes": 634,
+          "sha256": "41cc448712d87ff0207c2dfe57dcda24b21af3db89b8ce51468e0871f36ba0fb"
+        },
+        "data/flutter_assets/assets/flags/w80/gr.png": {
+          "bytes": 208,
+          "sha256": "fd3a391dd9885d56b1fccf99870954dc68ff61184bd38fd4240b44fc562f69f4"
+        },
+        "data/flutter_assets/assets/flags/w80/gs.png": {
+          "bytes": 1269,
+          "sha256": "736da4da4a4b8ab1b795db7f4803a1664be60e1a0931beeb73b7a6b3153a560c"
+        },
+        "data/flutter_assets/assets/flags/w80/gt.png": {
+          "bytes": 540,
+          "sha256": "99bcd45fc224df973b378d21b5d825a9c2805e6d7a73bf45f8a7f7acdb6715e0"
+        },
+        "data/flutter_assets/assets/flags/w80/gu.png": {
+          "bytes": 634,
+          "sha256": "5abd34563333e8d2aec38522097af7835bbb40ad0eeeeee9ff0dcd776da12d64"
+        },
+        "data/flutter_assets/assets/flags/w80/gw.png": {
+          "bytes": 202,
+          "sha256": "d271c4ee019724c789edf7d6d494e266d9df7e7a6d663a77d982a1189d9bbc59"
+        },
+        "data/flutter_assets/assets/flags/w80/gy.png": {
+          "bytes": 498,
+          "sha256": "dfd7da08753860caa80b90561fd0fff47c267e4edc299cb22d2b0f6246302497"
+        },
+        "data/flutter_assets/assets/flags/w80/hk.png": {
+          "bytes": 506,
+          "sha256": "3d4475b36859219c643ffd4f55890b645d024bce1e9a5028a071d7e11efc7b17"
+        },
+        "data/flutter_assets/assets/flags/w80/hm.png": {
+          "bytes": 588,
+          "sha256": "243c3a816337101cf692f9cbc356525e5d532bbfb3da18a81cffc3e103d793b7"
+        },
+        "data/flutter_assets/assets/flags/w80/hn.png": {
+          "bytes": 233,
+          "sha256": "40b0f52cb77ec753d5c119a47eded0d673470537d0401f8b5c1231429a1a20fa"
+        },
+        "data/flutter_assets/assets/flags/w80/hr.png": {
+          "bytes": 639,
+          "sha256": "37700c20552eff5509370aa315cab83f84a878f3ca47c39f65bb280ef0c99422"
+        },
+        "data/flutter_assets/assets/flags/w80/ht.png": {
+          "bytes": 871,
+          "sha256": "ab0c955b1ce98b43984fa9c00d6e3002cc677893638b26066b9534230be27de3"
+        },
+        "data/flutter_assets/assets/flags/w80/hu.png": {
+          "bytes": 119,
+          "sha256": "5e54bb353099fd19f6e6ce673d7248bf83090909d5b4728367971fae097b23b0"
+        },
+        "data/flutter_assets/assets/flags/w80/id.png": {
+          "bytes": 105,
+          "sha256": "2231d4894ef2ef66ab52791b169a6717b00aad81750605a5712ebd4fc3e5724f"
+        },
+        "data/flutter_assets/assets/flags/w80/ie.png": {
+          "bytes": 119,
+          "sha256": "3d67eb9367c3f8903cce0f1af01203d4e5edeb72c0106a6ef856d25ff943eb5b"
+        },
+        "data/flutter_assets/assets/flags/w80/il.png": {
+          "bytes": 301,
+          "sha256": "e9c4bee374d1a69832dc0de7c0dbdc2a2d8ef96d795768b3a2eb967744338e50"
+        },
+        "data/flutter_assets/assets/flags/w80/im.png": {
+          "bytes": 667,
+          "sha256": "6ac3aa16ae39b408cdec56d0cd5302159f3de3532ef367b6546a4c81b256188f"
+        },
+        "data/flutter_assets/assets/flags/w80/in.png": {
+          "bytes": 354,
+          "sha256": "fc3292a3ac5feb33759087d8968441965723068fa7cbbd12226b646b7ff83252"
+        },
+        "data/flutter_assets/assets/flags/w80/io.png": {
+          "bytes": 1631,
+          "sha256": "56b6e296e73ce7b20576ea08bac9615ffb5d613bf25b90a22f2aa2bca904341d"
+        },
+        "data/flutter_assets/assets/flags/w80/iq.png": {
+          "bytes": 319,
+          "sha256": "cd95b18f6ade141eabd5f00d4f420f49c64eadfb5320dcfcdb6d68bb0e554d03"
+        },
+        "data/flutter_assets/assets/flags/w80/ir.png": {
+          "bytes": 451,
+          "sha256": "2b08721b074f09dd599539aae078ca6b5a59c2b7f18c493b0124bce28daf4f8e"
+        },
+        "data/flutter_assets/assets/flags/w80/is.png": {
+          "bytes": 185,
+          "sha256": "c3c910c259f77d246b2159e5287520a28cc849672ba622a60f50734fd2b1699e"
+        },
+        "data/flutter_assets/assets/flags/w80/it.png": {
+          "bytes": 122,
+          "sha256": "655b1b31b9a3d3b6f659863e6ffebedaf8810e5e97f12fea687e9ede6d298c3d"
+        },
+        "data/flutter_assets/assets/flags/w80/je.png": {
+          "bytes": 765,
+          "sha256": "323123bd422a9ed2210a82b8baf950f262c3da6f161344467757a18b464f7bf8"
+        },
+        "data/flutter_assets/assets/flags/w80/jm.png": {
+          "bytes": 293,
+          "sha256": "1319eb2c2e936f9b8d797fe2f554f05faf37808ba93ac76e99463ba00fc0849a"
+        },
+        "data/flutter_assets/assets/flags/w80/jo.png": {
+          "bytes": 287,
+          "sha256": "e56000f765062306350e6138c41ee7d3f4ba18e60709f4b803aa90af47065cb3"
+        },
+        "data/flutter_assets/assets/flags/w80/jp.png": {
+          "bytes": 353,
+          "sha256": "25c1ac6db4fa0b5e6b79b4efe546683c8589cf060f5f848b27be02944fad8114"
+        },
+        "data/flutter_assets/assets/flags/w80/ke.png": {
+          "bytes": 655,
+          "sha256": "e62c36f709dba84c7bbd0bf5e8accdca8090d5aeacdffb609bab7925dee7aabc"
+        },
+        "data/flutter_assets/assets/flags/w80/kg.png": {
+          "bytes": 615,
+          "sha256": "a8dd2fb329eb1958d7ee7666c7e6a361835db73dc7659ee74aa8f7734d7ac567"
+        },
+        "data/flutter_assets/assets/flags/w80/kh.png": {
+          "bytes": 647,
+          "sha256": "1a6db9f204c13dc79e077689c22d7755fea802e807b7bfd6b431a3bd677cf93f"
+        },
+        "data/flutter_assets/assets/flags/w80/ki.png": {
+          "bytes": 907,
+          "sha256": "9dfb51d78a8d1ea7f7369ee5dafd6958afb7f58835f55e0f74107e917df8dc9e"
+        },
+        "data/flutter_assets/assets/flags/w80/km.png": {
+          "bytes": 529,
+          "sha256": "6f1a3b77c07e23bc619d6b769f6f0518e96e83dde0ca9288ef4016292b27b7dd"
+        },
+        "data/flutter_assets/assets/flags/w80/kn.png": {
+          "bytes": 765,
+          "sha256": "6592211d56a37d04207c20559ea52bc8cc3382f1f174364bceace52dd223fefe"
+        },
+        "data/flutter_assets/assets/flags/w80/kp.png": {
+          "bytes": 321,
+          "sha256": "bb7ec927c18eda57e6a8e8eeead2ce817cbef690a9ca4067d8bfba306387ac82"
+        },
+        "data/flutter_assets/assets/flags/w80/kr.png": {
+          "bytes": 972,
+          "sha256": "8a0e8db363c5177c129bdc1140f5c219f17014153a5da592877c4b4c718c248f"
+        },
+        "data/flutter_assets/assets/flags/w80/kw.png": {
+          "bytes": 233,
+          "sha256": "6015e3d991364ac735eac1cbd45550c19edd63309e9a07961cc0ea6a37f3096c"
+        },
+        "data/flutter_assets/assets/flags/w80/ky.png": {
+          "bytes": 977,
+          "sha256": "fb8985b4d7f6271a49316dacdb8bfc509e33e2eba9a212752d33601934219231"
+        },
+        "data/flutter_assets/assets/flags/w80/kz.png": {
+          "bytes": 552,
+          "sha256": "9dd15436c71357bfe6059992a9a83cd60e634a3ae99200c7d67a5410e986b9d2"
+        },
+        "data/flutter_assets/assets/flags/w80/la.png": {
+          "bytes": 264,
+          "sha256": "f44d2ce837fd22ef7adb3a3cff06224e0f3bc26a20520f619e56fc7269ef72e0"
+        },
+        "data/flutter_assets/assets/flags/w80/lb.png": {
+          "bytes": 432,
+          "sha256": "6cf8508c1b85f73e4ed7f002817b812a8bbb00eb0d11326eafcbbc7f528154a8"
+        },
+        "data/flutter_assets/assets/flags/w80/lc.png": {
+          "bytes": 499,
+          "sha256": "605f03273666ac06127e1b9342e81725be525f4674397787951146d471ce32b5"
+        },
+        "data/flutter_assets/assets/flags/w80/li.png": {
+          "bytes": 399,
+          "sha256": "973064cdad477f87b25d784fa32294755d712e2d5c7e7b10a3abe9195e1d5ac4"
+        },
+        "data/flutter_assets/assets/flags/w80/lk.png": {
+          "bytes": 673,
+          "sha256": "9313b9f86445835ee2a1a026bda52ee079a9b8b203dc43e11396fb5d25f70e91"
+        },
+        "data/flutter_assets/assets/flags/w80/lr.png": {
+          "bytes": 278,
+          "sha256": "2324a3c7b6eb1a1e53a882bd1d5cf692b72efbba7a8670a6fa340b9f13994e73"
+        },
+        "data/flutter_assets/assets/flags/w80/ls.png": {
+          "bytes": 319,
+          "sha256": "5edebe1f9731155a12caca11819c4a313fbfc3fe7de6fc2074db3b6c36ff4683"
+        },
+        "data/flutter_assets/assets/flags/w80/lt.png": {
+          "bytes": 105,
+          "sha256": "58b3036362d8b800df8df379a5b38b899163d317023f8ca85725f4b26a90bda6"
+        },
+        "data/flutter_assets/assets/flags/w80/lu.png": {
+          "bytes": 105,
+          "sha256": "50b9d335fd95f1340a29fee63c1b9431288d5daf39efd8682bfba90faaf7d070"
+        },
+        "data/flutter_assets/assets/flags/w80/lv.png": {
+          "bytes": 94,
+          "sha256": "645630d51b2968c8aee6ca8ea1d4823b774fa54a2e8fad4c05ae6c7909430c28"
+        },
+        "data/flutter_assets/assets/flags/w80/ly.png": {
+          "bytes": 226,
+          "sha256": "27cc5866d042cb27e297c68e5def5c081763ea2be1cad2bbf008719dd289a360"
+        },
+        "data/flutter_assets/assets/flags/w80/ma.png": {
+          "bytes": 304,
+          "sha256": "2c5b318cf6fef7f438edc4bf43507a50b782ac57191b6069fe367ee5151c1b0d"
+        },
+        "data/flutter_assets/assets/flags/w80/mc.png": {
+          "bytes": 95,
+          "sha256": "a848cea9948b2022be902760bbda38b98485a5af04214f75c80b9b6801608aba"
+        },
+        "data/flutter_assets/assets/flags/w80/md.png": {
+          "bytes": 610,
+          "sha256": "31b2f57e339d539d943f9199efb00dbd289a4518e461e3d2f724d41db9c9fe0e"
+        },
+        "data/flutter_assets/assets/flags/w80/me.png": {
+          "bytes": 529,
+          "sha256": "f66ae28c5d3ca1acca514b255230450c44139a40fecf24f0ce6117010216a8d6"
+        },
+        "data/flutter_assets/assets/flags/w80/mf.png": {
+          "bytes": 123,
+          "sha256": "2a539c1a42f160aab68730f4caaa322bd6fbccf42145015bb7544961671a9cbd"
+        },
+        "data/flutter_assets/assets/flags/w80/mg.png": {
+          "bytes": 132,
+          "sha256": "1c03cfdb2b0b213d28cfe4e29a67cd62c92210ef59e94c1a16f27e0c10723709"
+        },
+        "data/flutter_assets/assets/flags/w80/mh.png": {
+          "bytes": 641,
+          "sha256": "7a005e717f16e425fdde84ec61c0cbb3eff71e5c462a682bd5c60ef006fd488f"
+        },
+        "data/flutter_assets/assets/flags/w80/mk.png": {
+          "bytes": 545,
+          "sha256": "35b772b223c5fb4ee46824a36bb3d57e9bc265edccfe8ed2ef8428d53e1fb821"
+        },
+        "data/flutter_assets/assets/flags/w80/ml.png": {
+          "bytes": 123,
+          "sha256": "a70210ab927c180381cd122ee32f65b4612fa69f641b5fb04d17deeb96779ebe"
+        },
+        "data/flutter_assets/assets/flags/w80/mm.png": {
+          "bytes": 463,
+          "sha256": "d34d541cc986436b8005185fd945100e4d9b0a774e108ecd394fb09e45db92e0"
+        },
+        "data/flutter_assets/assets/flags/w80/mn.png": {
+          "bytes": 304,
+          "sha256": "a0712260fd394e74be80bb5c742db06664148ef3aae99f1202eb3626a25a88b7"
+        },
+        "data/flutter_assets/assets/flags/w80/mo.png": {
+          "bytes": 616,
+          "sha256": "dd6a112317d93bd9ab7c6563bc7e35ba7c5de7d5a79e3984ba0cac313069c8c9"
+        },
+        "data/flutter_assets/assets/flags/w80/mp.png": {
+          "bytes": 1445,
+          "sha256": "c7b6878983368596c7eebb84ae11c50f67896842f8c908af697baab4bf3596b9"
+        },
+        "data/flutter_assets/assets/flags/w80/mq.png": {
+          "bytes": 354,
+          "sha256": "c1f7b89efec09f64e422d2f9b76be8c0ec2e241bc121d6e7fd01fc1994659a38"
+        },
+        "data/flutter_assets/assets/flags/w80/mr.png": {
+          "bytes": 379,
+          "sha256": "8744320da9562820fbca640b0359ba50df507071ce189bd38ea70ae598fd1e79"
+        },
+        "data/flutter_assets/assets/flags/w80/ms.png": {
+          "bytes": 772,
+          "sha256": "a2e339adb8b62755d083bfdaf51f0cb73b8a233eddef9d694dc80174bbda53f3"
+        },
+        "data/flutter_assets/assets/flags/w80/mt.png": {
+          "bytes": 266,
+          "sha256": "c739cfb6266e2c969516bb5905c187afa97fab417a9d8db74264a35e6dbb9dc0"
+        },
+        "data/flutter_assets/assets/flags/w80/mu.png": {
+          "bytes": 138,
+          "sha256": "28552502baa778428c43466e2b8f4ff2d11cd93f0bad3db02aabc77e65be04f9"
+        },
+        "data/flutter_assets/assets/flags/w80/mv.png": {
+          "bytes": 243,
+          "sha256": "5556b719ae8879eebc9cff61813b1aa6a6632efedefb6b2bb2de080cb6df45c9"
+        },
+        "data/flutter_assets/assets/flags/w80/mw.png": {
+          "bytes": 349,
+          "sha256": "4f47a02943482de0fc8ae0d3eaf21064549c186f181cf228434a63f00eb40a11"
+        },
+        "data/flutter_assets/assets/flags/w80/mx.png": {
+          "bytes": 562,
+          "sha256": "c0fdb027d455efda31d165351dbac9b2145fdca51aa1f9c9410a346b43bf1f2f"
+        },
+        "data/flutter_assets/assets/flags/w80/my.png": {
+          "bytes": 398,
+          "sha256": "cfa5f23d144106a08268fd9cd9aa18ddfb893eed0a255e288e5648b396774fee"
+        },
+        "data/flutter_assets/assets/flags/w80/mz.png": {
+          "bytes": 664,
+          "sha256": "d83fc8b9e5948b9ac72d735800fb26e79b166454d42501e74b19b88cda8fa55b"
+        },
+        "data/flutter_assets/assets/flags/w80/na.png": {
+          "bytes": 780,
+          "sha256": "f06d0d31252fa2c707dbb4af303c342c1f11375158f7d97b6d86b4776a569a6b"
+        },
+        "data/flutter_assets/assets/flags/w80/nc.png": {
+          "bytes": 609,
+          "sha256": "1a5fa3965872308321a4184eeb0e4e82614f5d7a18d08333940c5d5210dad6d1"
+        },
+        "data/flutter_assets/assets/flags/w80/ne.png": {
+          "bytes": 263,
+          "sha256": "e6535bab7b7ee08a2d087a4adedb8e0b39df9370c6e91bb7264ab85c958aea11"
+        },
+        "data/flutter_assets/assets/flags/w80/nf.png": {
+          "bytes": 460,
+          "sha256": "caae77d969ae742ddb7f5f825b21b168097f6871d4ec7af76f1c25074211dd17"
+        },
+        "data/flutter_assets/assets/flags/w80/ng.png": {
+          "bytes": 105,
+          "sha256": "6076be1144054cb5cecb1fe958b5f0bbfd23d6a1894146300c60fc54a09b15ca"
+        },
+        "data/flutter_assets/assets/flags/w80/ni.png": {
+          "bytes": 360,
+          "sha256": "bd686d6b7fa00414636a098fe2423947ddb12e4ad782b0d0d621e861fc9ac5d9"
+        },
+        "data/flutter_assets/assets/flags/w80/nl.png": {
+          "bytes": 127,
+          "sha256": "2551bcd6a2ea816da99fd646a6f68feef0e3b2897216b1afca88a6e4283ee42f"
+        },
+        "data/flutter_assets/assets/flags/w80/no.png": {
+          "bytes": 192,
+          "sha256": "f58edc8912be7c7f5a462809dae326895a9b529bd841475a4aedf0ccf26e6d7f"
+        },
+        "data/flutter_assets/assets/flags/w80/np.png": {
+          "bytes": 1032,
+          "sha256": "35dac648e44adfdd7f3d37c813b12d2c45391e9556573a6496599355bd80f5d4"
+        },
+        "data/flutter_assets/assets/flags/w80/nr.png": {
+          "bytes": 255,
+          "sha256": "2601a72acad9b3284d125573c987a292e665a528273d4f0d1b3a93a76f50bfda"
+        },
+        "data/flutter_assets/assets/flags/w80/nu.png": {
+          "bytes": 557,
+          "sha256": "4a0956a9f819ae57568cfac496a355c28bc9a8cbba8148368c5e6ba62c732c81"
+        },
+        "data/flutter_assets/assets/flags/w80/nz.png": {
+          "bytes": 536,
+          "sha256": "2a69d660a346b756b26e5faba477f8033901b76b2ccf35d00463620be4a794c4"
+        },
+        "data/flutter_assets/assets/flags/w80/om.png": {
+          "bytes": 261,
+          "sha256": "c2edcf47f4d0e9b20bcd23a373ed494eb0a0c5dca3d49905966c419be0511bb2"
+        },
+        "data/flutter_assets/assets/flags/w80/pa.png": {
+          "bytes": 361,
+          "sha256": "5b7c11938c58bc8160d12f608dd0bc6acff113fe165c5c45b46ee1d5a4a1f71e"
+        },
+        "data/flutter_assets/assets/flags/w80/pe.png": {
+          "bytes": 107,
+          "sha256": "41282776c7f57cd127e6577cbc380f3e252049f976bcf566ee77d4578e50ed57"
+        },
+        "data/flutter_assets/assets/flags/w80/pf.png": {
+          "bytes": 645,
+          "sha256": "c78a808b5b68e4a3b229b6f7f27e150a19ff0c36d00492c44a21e98ec4497926"
+        },
+        "data/flutter_assets/assets/flags/w80/pg.png": {
+          "bytes": 784,
+          "sha256": "fc790fba9d6b76f8e7fdc7436c0b6a01ac42e19820a17eb272c4e7b48d466f32"
+        },
+        "data/flutter_assets/assets/flags/w80/ph.png": {
+          "bytes": 564,
+          "sha256": "089e20ed35c6c16e3d28ced61045285b63c344e00620bf90376dbe9a12865d52"
+        },
+        "data/flutter_assets/assets/flags/w80/pk.png": {
+          "bytes": 453,
+          "sha256": "6b8b4ed3916a89ac16ca96278fa57a26ff3846fab049b7f25986e79bc17cdbf9"
+        },
+        "data/flutter_assets/assets/flags/w80/pl.png": {
+          "bytes": 94,
+          "sha256": "bc81e9a8f5f9482d3b266a434f5f28441b8df90b29c6f7e8d08d120d8dfb97d0"
+        },
+        "data/flutter_assets/assets/flags/w80/pm.png": {
+          "bytes": 2820,
+          "sha256": "982507196a0ab3cf707cddaf903d56b5855c7190037bbfe6303d2c2c41c8718a"
+        },
+        "data/flutter_assets/assets/flags/w80/pn.png": {
+          "bytes": 1152,
+          "sha256": "f3896a549254890612d938aedad5e909b782edeae7017ffc5f160b34e31dd1cb"
+        },
+        "data/flutter_assets/assets/flags/w80/pr.png": {
+          "bytes": 469,
+          "sha256": "1f7b84c8309da06cd4aff493a50492f71ec6a55179a7bbbfe40b9a3d2725d9d1"
+        },
+        "data/flutter_assets/assets/flags/w80/ps.png": {
+          "bytes": 304,
+          "sha256": "ba4ebad41d9c4459ab860306f2eadafbf23dc43ac452929d7b354423dc5323f0"
+        },
+        "data/flutter_assets/assets/flags/w80/pt.png": {
+          "bytes": 893,
+          "sha256": "0006bee743a0d81fc4dcea7ae2fdc2bb17e560792b9939fb10ec05d76dd828ef"
+        },
+        "data/flutter_assets/assets/flags/w80/pw.png": {
+          "bytes": 307,
+          "sha256": "781b73a91a4a2b8c559932b4ec60487ea50e088690f483e66b91f6e389c533e2"
+        },
+        "data/flutter_assets/assets/flags/w80/py.png": {
+          "bytes": 287,
+          "sha256": "3791bcf57ecc71e23b15b941b026ac807470e9fc5b97a624aaef0df74e2d0684"
+        },
+        "data/flutter_assets/assets/flags/w80/qa.png": {
+          "bytes": 201,
+          "sha256": "ab007ed48922bf300c3a76462aa8a40ccdb2bf9a06276e3acde96a6b6296bbbc"
+        },
+        "data/flutter_assets/assets/flags/w80/re.png": {
+          "bytes": 784,
+          "sha256": "be8329d2a862b5737f9314da66a23e32724dbd4f345e12b97441e22d9420c197"
+        },
+        "data/flutter_assets/assets/flags/w80/ro.png": {
+          "bytes": 122,
+          "sha256": "8c5a6a64e197aba1acadb221486790c1b04022de391c72be5da8023bb2391a1d"
+        },
+        "data/flutter_assets/assets/flags/w80/rs.png": {
+          "bytes": 934,
+          "sha256": "5a2996144f6c1415c6e680f36d21f6b7fae66091fc50840cc1b848da15a31d16"
+        },
+        "data/flutter_assets/assets/flags/w80/ru.png": {
+          "bytes": 125,
+          "sha256": "fe1a82a5145e5fba6982bb14cb20663b888a5feabada2235d036825fa4cbcac8"
+        },
+        "data/flutter_assets/assets/flags/w80/rw.png": {
+          "bytes": 281,
+          "sha256": "254565a00c8d28fb3fa06b4c2881df2d7797983e9eaf0e6dca01ce59aaec354c"
+        },
+        "data/flutter_assets/assets/flags/w80/sa.png": {
+          "bytes": 566,
+          "sha256": "279bc6e2da48470081c4c754c9c6b880465fa425d70319fcc786b06a4e01821b"
+        },
+        "data/flutter_assets/assets/flags/w80/sb.png": {
+          "bytes": 457,
+          "sha256": "6ea25b29aa4ae0732fec517448de13ec02eaca1d834ae9e0aa9bcec22d464f05"
+        },
+        "data/flutter_assets/assets/flags/w80/sc.png": {
+          "bytes": 492,
+          "sha256": "89190698de93265201c7999b33f00df09c680a45e62a84672dd18c980b419f0b"
+        },
+        "data/flutter_assets/assets/flags/w80/sd.png": {
+          "bytes": 299,
+          "sha256": "8a64e056f6a0dd1b7e22ba1cd9cb511c7247264b0715d836ae734f622b4a3e87"
+        },
+        "data/flutter_assets/assets/flags/w80/se.png": {
+          "bytes": 100,
+          "sha256": "e8433ddb96b727f2b2420f21f588feb88a5f3984b0c2fe65e97e0b5285f3a2ef"
+        },
+        "data/flutter_assets/assets/flags/w80/sg.png": {
+          "bytes": 354,
+          "sha256": "a99506c879dd6e6d86d9b75e79ff9ec63c1ff7948906ac9b91c8b0e09390f5d5"
+        },
+        "data/flutter_assets/assets/flags/w80/sh.png": {
+          "bytes": 845,
+          "sha256": "26a133a1856c25a1ba89edc50dc88001f48d70663dde23dae96d10ff847e8468"
+        },
+        "data/flutter_assets/assets/flags/w80/si.png": {
+          "bytes": 313,
+          "sha256": "37c463135e3fbd09539b6bbcd2edb668897657161b7e5a205ecd0294f4100f14"
+        },
+        "data/flutter_assets/assets/flags/w80/sj.png": {
+          "bytes": 192,
+          "sha256": "f58edc8912be7c7f5a462809dae326895a9b529bd841475a4aedf0ccf26e6d7f"
+        },
+        "data/flutter_assets/assets/flags/w80/sk.png": {
+          "bytes": 524,
+          "sha256": "bfb0ce5b40660048a0e13fdc9089c26d872a4cc41f709065276b80bc15fca0ca"
+        },
+        "data/flutter_assets/assets/flags/w80/sl.png": {
+          "bytes": 127,
+          "sha256": "9aa703af0a2b94e2de448da95469fee21856e89f81f26646fb87b4ca6a7d852d"
+        },
+        "data/flutter_assets/assets/flags/w80/sm.png": {
+          "bytes": 1130,
+          "sha256": "70d6493008f0a06bd73cb32dc246c7da1ceb62ff64a8b6e49951537235c8dc57"
+        },
+        "data/flutter_assets/assets/flags/w80/sn.png": {
+          "bytes": 241,
+          "sha256": "858bcf6fe5da87f2b9affb7492ef06482b6ad0b475b70203d38f4fbb0fbaa7e8"
+        },
+        "data/flutter_assets/assets/flags/w80/so.png": {
+          "bytes": 264,
+          "sha256": "7ee3f20feb414f327ae69c3d4c3a54e989bc2410616fedefc1de453c1b6d329c"
+        },
+        "data/flutter_assets/assets/flags/w80/sr.png": {
+          "bytes": 281,
+          "sha256": "49c57626ec7f16370a254b7020c6d1bd0dac8de1a303b9c614447db2259cce7a"
+        },
+        "data/flutter_assets/assets/flags/w80/ss.png": {
+          "bytes": 437,
+          "sha256": "6376d90a2aa369425c03228da8df161e9c3c20616a4ff6ff0e7cd528388881f8"
+        },
+        "data/flutter_assets/assets/flags/w80/st.png": {
+          "bytes": 342,
+          "sha256": "fbcfe87d46cdfdf7147d5987503aa4fb3fbfc844f5420fe947ddbe2166c79187"
+        },
+        "data/flutter_assets/assets/flags/w80/sv.png": {
+          "bytes": 479,
+          "sha256": "0325efeb9cd30269f18a30faaf848d0e6ee83118dcb0effbb821b0facd087862"
+        },
+        "data/flutter_assets/assets/flags/w80/sx.png": {
+          "bytes": 831,
+          "sha256": "50dd1dbe64ba89b2f6a28131214c7b578ba588350bff9372267a8d8fbc9acfbd"
+        },
+        "data/flutter_assets/assets/flags/w80/sy.png": {
+          "bytes": 253,
+          "sha256": "efc9eeb2d7a68fb9c49627082e6b1cc328cf4f456cff86c702935a8b56fc1063"
+        },
+        "data/flutter_assets/assets/flags/w80/sz.png": {
+          "bytes": 809,
+          "sha256": "448430a1a1d779ab04ab014eaf5b68467c283f1a30aa00f32c36d41afb224efa"
+        },
+        "data/flutter_assets/assets/flags/w80/tc.png": {
+          "bytes": 775,
+          "sha256": "36a007d46602c9de800584a9ca095d7674513caa4fd3d178e0ed091a5cd81542"
+        },
+        "data/flutter_assets/assets/flags/w80/td.png": {
+          "bytes": 122,
+          "sha256": "9bc51a23aeca73146a0c5c43a1b79143654f5be5b340bfedef85c00b61bf4a44"
+        },
+        "data/flutter_assets/assets/flags/w80/tf.png": {
+          "bytes": 359,
+          "sha256": "7884802bf8a5b3749cdf92c49695f46fb7d7da671100fd7c3d1323be0e7974dc"
+        },
+        "data/flutter_assets/assets/flags/w80/tg.png": {
+          "bytes": 314,
+          "sha256": "2c99cc0ba6ea2513cf61f2ba32e8c33ef12fa1975898930fc592e0c6fcbfb0bf"
+        },
+        "data/flutter_assets/assets/flags/w80/th.png": {
+          "bytes": 137,
+          "sha256": "21290b9be44e3953831573fc7416dd266a7f1d31b523efcbfd68b5df22ea79a1"
+        },
+        "data/flutter_assets/assets/flags/w80/tj.png": {
+          "bytes": 264,
+          "sha256": "1040c4e9de97d444b90e07bc9582ac189e743741488eaea8e367d240b6f46dd3"
+        },
+        "data/flutter_assets/assets/flags/w80/tk.png": {
+          "bytes": 577,
+          "sha256": "274edad9704de6b6d92cd9e90e25263d4c79cd31d82157f1d79f6469bf454e7b"
+        },
+        "data/flutter_assets/assets/flags/w80/tl.png": {
+          "bytes": 382,
+          "sha256": "40f66b4ca1295526e85985f0b853b3bfadf821f3992de3500faa4faeaf0c53b3"
+        },
+        "data/flutter_assets/assets/flags/w80/tm.png": {
+          "bytes": 1379,
+          "sha256": "2a7bd1aecf3009086f30543dff31fd19234400c653c9926d90dfd827a1bb7ef9"
+        },
+        "data/flutter_assets/assets/flags/w80/tn.png": {
+          "bytes": 466,
+          "sha256": "cf2f658f340f1c9e8071a05990dc3bd6790b381aac25c6662187857c28026370"
+        },
+        "data/flutter_assets/assets/flags/w80/to.png": {
+          "bytes": 158,
+          "sha256": "d416c9218cb371a4caf10d156d3c15f962ec68e74ade00888fb088e8c8221f64"
+        },
+        "data/flutter_assets/assets/flags/w80/tr.png": {
+          "bytes": 377,
+          "sha256": "1cacb57e7a84e9305b482108bfbd5af019dbb5268d55f8533ee651065cea9f85"
+        },
+        "data/flutter_assets/assets/flags/w80/tt.png": {
+          "bytes": 653,
+          "sha256": "22243a94f33d3d307980935b449c78c26f742ab383a66660f8dd0dee5354e5aa"
+        },
+        "data/flutter_assets/assets/flags/w80/tv.png": {
+          "bytes": 704,
+          "sha256": "d15b679acc477477932637f4f3db7ea53af8628e5fec97f4788006a09c1928e6"
+        },
+        "data/flutter_assets/assets/flags/w80/tw.png": {
+          "bytes": 359,
+          "sha256": "e4b9328efec9ce9646e8b45a44867bb2309b640e0cb428c6da3d029bf640a67d"
+        },
+        "data/flutter_assets/assets/flags/w80/tz.png": {
+          "bytes": 442,
+          "sha256": "f055c70902ca984d6428de9753f220f192559ac726e49f1d5ba72b7a19795324"
+        },
+        "data/flutter_assets/assets/flags/w80/ua.png": {
+          "bytes": 105,
+          "sha256": "a7474c46f2e957e4d27bd034119bc4be4bf9b1faf908338d0f5d97574e1ba07d"
+        },
+        "data/flutter_assets/assets/flags/w80/ug.png": {
+          "bytes": 452,
+          "sha256": "346730a1053373109240fea54b23c5f499e99321dc087c75f7c2f6affdaa9824"
+        },
+        "data/flutter_assets/assets/flags/w80/um.png": {
+          "bytes": 430,
+          "sha256": "59ac434b97e6db8b4fcee5c8e1996995562747e76875625f0886f1936488b7c9"
+        },
+        "data/flutter_assets/assets/flags/w80/us.png": {
+          "bytes": 430,
+          "sha256": "59ac434b97e6db8b4fcee5c8e1996995562747e76875625f0886f1936488b7c9"
+        },
+        "data/flutter_assets/assets/flags/w80/uy.png": {
+          "bytes": 504,
+          "sha256": "f446f4d253f26719bdee356b97231594bc2c01577cb7ddc26cca1652b0b330c1"
+        },
+        "data/flutter_assets/assets/flags/w80/uz.png": {
+          "bytes": 242,
+          "sha256": "25570b17f4a0c3ae9de90db0714fe74e1efb87963cdbf143587df2aec36a6e10"
+        },
+        "data/flutter_assets/assets/flags/w80/va.png": {
+          "bytes": 1113,
+          "sha256": "3bf6a904e87e66a4c8c2ebd601bdff6b2eb8adb26c261a4c79d70c216a160dd7"
+        },
+        "data/flutter_assets/assets/flags/w80/vc.png": {
+          "bytes": 316,
+          "sha256": "e51d83cdc247c4ebe0942fcc248efcc7aa9d31e37f0181ed5c0cd2c5081934b5"
+        },
+        "data/flutter_assets/assets/flags/w80/ve.png": {
+          "bytes": 297,
+          "sha256": "c952d54805f2c507d393168985ccf2cd51df03549222d7a92998853d0e9390e9"
+        },
+        "data/flutter_assets/assets/flags/w80/vg.png": {
+          "bytes": 938,
+          "sha256": "6485d2d920e5e375a15905de1ff5760fa48d4afbdf629b46f774de2163e3627d"
+        },
+        "data/flutter_assets/assets/flags/w80/vi.png": {
+          "bytes": 1992,
+          "sha256": "1021e47157a05edd163b75efd310172627fe5b088af5c49a7c3a1d42c831662f"
+        },
+        "data/flutter_assets/assets/flags/w80/vn.png": {
+          "bytes": 335,
+          "sha256": "78168f022ff2f2a1a97441797776cd4170f7e4cee8a68de50049d21ca6f7e710"
+        },
+        "data/flutter_assets/assets/flags/w80/vu.png": {
+          "bytes": 660,
+          "sha256": "ba612637486886f5ea206a86a36e7c8dfddb310627d482d5b56eb41e7b02b390"
+        },
+        "data/flutter_assets/assets/flags/w80/wf.png": {
+          "bytes": 311,
+          "sha256": "60d7830025a9935c3c17cf1acc8680bf26bdfb12a761c851f48d9d59c4a891bb"
+        },
+        "data/flutter_assets/assets/flags/w80/ws.png": {
+          "bytes": 240,
+          "sha256": "41e9e3b473f4f7300dcae528233c1203f0a713eaaccd4fd7dc16e9251cbe330b"
+        },
+        "data/flutter_assets/assets/flags/w80/xk.png": {
+          "bytes": 558,
+          "sha256": "452450d67ea2a07d004a8d19fd3402291fef0c0ed10fd032d17b1d61f2654c72"
+        },
+        "data/flutter_assets/assets/flags/w80/ye.png": {
+          "bytes": 127,
+          "sha256": "0e24f81877839ab7b673b6100f0ecd81b67488b32c0235cb550c8aab57315e1a"
+        },
+        "data/flutter_assets/assets/flags/w80/yt.png": {
+          "bytes": 1498,
+          "sha256": "9ca657866bb9ce4492eb119a61925e2860f9d2c4965182e6b93415ec5e14f5eb"
+        },
+        "data/flutter_assets/assets/flags/w80/za.png": {
+          "bytes": 543,
+          "sha256": "ed7056cd01ca444344dd15379189fe9da0f6b500f0f1049d5442cee9fe6ea65e"
+        },
+        "data/flutter_assets/assets/flags/w80/zm.png": {
+          "bytes": 292,
+          "sha256": "daa4a37ffc444bc3bb7d4a0ad7e047d8e6aab6b1c5940dc8e9d6346b50f02919"
+        },
+        "data/flutter_assets/assets/flags/w80/zw.png": {
+          "bytes": 585,
+          "sha256": "2a96a36a785b535857baee3e4494dfac275563ab85f0d0ceb6cd112143bdbcfa"
+        },
+        "data/flutter_assets/assets/fonts/IBMPlexMono-Medium.ttf": {
+          "bytes": 129916,
+          "sha256": "4fc14a73ca53ba9d32fd759ae1ca1a3133326035d0dd337862b3ee1633cc156e"
+        },
+        "data/flutter_assets/assets/fonts/IBMPlexMono-Regular.ttf": {
+          "bytes": 128812,
+          "sha256": "a7fdc993f9f0387caedba4e42521136fa97e4c0837ae6239bf0413ccf8af00c2"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-Bold.ttf": {
+          "bytes": 94928,
+          "sha256": "b9584e099e0e7f1e1e914c3037aabb9010c50346a3ce8df5eeeeecc0563044d8"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-Medium.ttf": {
+          "bytes": 95060,
+          "sha256": "f433e5d333be1128d8ec8a28b8aadd0314d10e14e4105406076666bc830fc15d"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-Regular.ttf": {
+          "bytes": 94972,
+          "sha256": "a13d9b41b0a471ce58f0e46d377fa3cc76615e4632c3b15eb397caadf7a13f0a"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-SemiBold.ttf": {
+          "bytes": 95096,
+          "sha256": "6bad1a774228464cc88b8b0271555b266f7a3c64a7bedf15e165fdab4f6ac0ce"
+        },
+        "data/flutter_assets/assets/fonts/SpaceGrotesk-Bold.ttf": {
+          "bytes": 69308,
+          "sha256": "3e756954468ff1cb302dae0414262e72f76a67d87bef3fa1f3226cd0fb9b2d85"
+        },
+        "data/flutter_assets/assets/fonts/SpaceGrotesk-Medium.ttf": {
+          "bytes": 69416,
+          "sha256": "3e699ead1876244fa392243054ddefe7cf631b488438828a8a100731a22ab995"
+        },
+        "data/flutter_assets/assets/fonts/SpaceGrotesk-SemiBold.ttf": {
+          "bytes": 69356,
+          "sha256": "6c0346b8d297ebdc225832833e03e884a26ad99d265ecd3924d46e1ba285ea87"
+        },
+        "data/flutter_assets/assets/licenses/boringtun.txt": {
+          "bytes": 1496,
+          "sha256": "6dbef24708bad8c727bd80cca58ba8aa1637cdcb2cc6e9a31ea49235717e9391"
+        },
+        "data/flutter_assets/assets/licenses/flagpedia.txt": {
+          "bytes": 499,
+          "sha256": "e5abe6d196526aa6171bfebe812d8a7127c2cb5eee052da09df402047ee97584"
+        },
+        "data/flutter_assets/assets/licenses/vpngate.txt": {
+          "bytes": 55802,
+          "sha256": "3cd084bbb1aa2b51765f6508f2604a3bc0dc98bc326ffd00276cd3bf5ee2e50c"
+        },
+        "data/flutter_assets/FontManifest.json": {
+          "bytes": 1802,
+          "sha256": "11a4d2bc44245d6fd873047e6386dcc73a67f3fa3330196ce83d30eabc7d1db0"
+        },
+        "data/flutter_assets/fonts/MaterialIcons-Regular.otf": {
+          "bytes": 1645184,
+          "sha256": "d9865b671a09d683d13a863089d8825e0f61a37696ce5d7d448bc8023aa62453"
+        },
+        "data/flutter_assets/NativeAssetsManifest.json": {
+          "bytes": 45,
+          "sha256": "9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb"
+        },
+        "data/flutter_assets/NOTICES.Z": {
+          "bytes": 103996,
+          "sha256": "e35c31255a1cae5ee66def215b119b397706b5432701d9fe24b0a0c1c81c004b"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w100.ttf": {
+          "bytes": 435552,
+          "sha256": "d9048950054e2f1350abf1286afa3186f2a3a7f585dc770064b0c8fcfc627b12"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w200.ttf": {
+          "bytes": 478064,
+          "sha256": "75cf395ba5ba5900eebf33b5aed94a2491eecfc5ba6ea23b3f459bfd4e2f6ab2"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w300.ttf": {
+          "bytes": 484696,
+          "sha256": "4f69f2f3e1a01279976bc44783e7c29c448803473109da041c7e3c1788e9a463"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w400.ttf": {
+          "bytes": 456484,
+          "sha256": "c31dd2add601c66bfc6eacb15357b98927118ccec6529693f8d2cbf646dc65a6"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w500.ttf": {
+          "bytes": 456476,
+          "sha256": "6b78f647b373e88956fb8ac9c2ca5771d8fc0bd0feb1691f489eca8ba08af52b"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w600.ttf": {
+          "bytes": 494112,
+          "sha256": "6dcd42b418015a11541512ed9e9afba9fea818a7557d4fa2282ef52b1014d1a9"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/lucide.ttf": {
+          "bytes": 877160,
+          "sha256": "b27152b2215731ec9a65a3b351b45873f912bf5d15a64e058aac4136699b804e"
+        },
+        "data/flutter_assets/shaders/ink_sparkle.frag": {
+          "bytes": 21856,
+          "sha256": "1fe8436a743884cb65078fe8c7b38e18f5365f2a2961270916f426fd13c604af"
+        },
+        "data/flutter_assets/shaders/stretch_effect.frag": {
+          "bytes": 17624,
+          "sha256": "62a899ff4e168ac6ca888ce7c2f40e5d3fbf8ca20a1c3ded781a116a6d7907e2"
+        },
+        "data/icudtl.dat": {
+          "bytes": 862304,
+          "sha256": "998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5"
+        },
+        "flutter_windows.dll": {
+          "bytes": 21284864,
+          "sha256": "7f04e026b1639b7594e1b6be32844547984da484d47394667e66f0288c83bd6a"
+        },
+        "url_launcher_windows_plugin.dll": {
+          "bytes": 98304,
+          "sha256": "582031e4457bc2f4de203e98879f8d9c4fda531d7c7000a1a06ac344ff8af04a"
+        },
+        "usque.exe": {
+          "bytes": 262144,
+          "sha256": "cf5cab78cc326649183b706a92d9c470d552d6f3d1694f58bb8f4da5334785fa"
+        }
+      }
+    },
+    "with_svg": {
+      "bytes": 39330720,
+      "files": {
+        "data/app.so": {
+          "bytes": 10257296,
+          "sha256": "b84376454724bb736adc35e04512e16134fe247d54c3a211ec1bec121e27dc72"
+        },
+        "data/flutter_assets/AssetManifest.bin": {
+          "bytes": 17750,
+          "sha256": "cb8dbc089aa68650cdaa0b35d2314fcdd9ad2c785874048bce3b7342bdfc37d1"
+        },
+        "data/flutter_assets/assets/branding/usque-ui-icon.png": {
+          "bytes": 45068,
+          "sha256": "b5d369b610f84c4ec4843e88d617decf7c531bf955dd8b3eeff0f618ef6bcfe5"
+        },
+        "data/flutter_assets/assets/flags/w80/ad.png": {
+          "bytes": 600,
+          "sha256": "c817338716cb52f043776dd6391c09055a089d62692858c5a02b7074c458d8b6"
+        },
+        "data/flutter_assets/assets/flags/w80/ae.png": {
+          "bytes": 132,
+          "sha256": "709f7c8b8a3c4cdc39c35e60f918e944dee6544913bf7f9a1f4efa27aba7cf70"
+        },
+        "data/flutter_assets/assets/flags/w80/af.png": {
+          "bytes": 1278,
+          "sha256": "64c94b21efd5a1498677ab5c968a53a803a5b7d54b15cd345f35c48a434acd0e"
+        },
+        "data/flutter_assets/assets/flags/w80/ag.png": {
+          "bytes": 708,
+          "sha256": "f61f04f1fc1707d15cc29741c5664955e40fcc43c019be70a6cd1a8a91d72352"
+        },
+        "data/flutter_assets/assets/flags/w80/ai.png": {
+          "bytes": 650,
+          "sha256": "cbcc9880359943665523fb359f92557c1f1ea50bb1bdce7c51c9be87d95bbba2"
+        },
+        "data/flutter_assets/assets/flags/w80/al.png": {
+          "bytes": 643,
+          "sha256": "d3bc5980296f0635d91f8afc6d91ff0e4f8434c88a6c59039743dd60529df6ac"
+        },
+        "data/flutter_assets/assets/flags/w80/am.png": {
+          "bytes": 121,
+          "sha256": "3db065ffb4f32c40b721beef135ac748c8bf8ec92f5aacf86ea4901e0e9f2c8c"
+        },
+        "data/flutter_assets/assets/flags/w80/ao.png": {
+          "bytes": 550,
+          "sha256": "871d83191dc7c42b2be09e8389e58c786d6c0128b73a425ffec3ea6888812f45"
+        },
+        "data/flutter_assets/assets/flags/w80/aq.png": {
+          "bytes": 481,
+          "sha256": "c4cff5a9c058a57fd1f681f72090e28f674805ebfee9c03589fda6ccc9dc1a05"
+        },
+        "data/flutter_assets/assets/flags/w80/ar.png": {
+          "bytes": 335,
+          "sha256": "6350038be1f1cd0b67c22cbd02f08bcc0fef2c23b59d5c657c75ab23363cee16"
+        },
+        "data/flutter_assets/assets/flags/w80/as.png": {
+          "bytes": 752,
+          "sha256": "71bc77a84bdc61a8159aba74e9da7b7333abaeaf43f4ce7b7d7884da61e38cf2"
+        },
+        "data/flutter_assets/assets/flags/w80/at.png": {
+          "bytes": 109,
+          "sha256": "6db2a0734919d8c19430b79af8b2682be3a6cb878162aaff1c9c2a47b7660953"
+        },
+        "data/flutter_assets/assets/flags/w80/au.png": {
+          "bytes": 592,
+          "sha256": "eb3cd6aba81315a7db38b55a555938f3d4c1553342eafb3a37e13d4d1fe76450"
+        },
+        "data/flutter_assets/assets/flags/w80/aw.png": {
+          "bytes": 270,
+          "sha256": "17be250f8416b90f6f36ea02092ad14153fcbb05ee6c869ab4d668d697dbcfaf"
+        },
+        "data/flutter_assets/assets/flags/w80/ax.png": {
+          "bytes": 168,
+          "sha256": "bc482eaf53fa5c9ff5f117da325fdc46729c37ae0cc5a221dbf69109d374e3ce"
+        },
+        "data/flutter_assets/assets/flags/w80/az.png": {
+          "bytes": 262,
+          "sha256": "cd60096c80f2a6ab9f9354949240746eec6b167f97f2fc64f14a9c1da3458f2b"
+        },
+        "data/flutter_assets/assets/flags/w80/ba.png": {
+          "bytes": 346,
+          "sha256": "65458f3db09cabf5e23ceb4e27463f3ced69fa3bdd65ff1107a0dbfec2281c97"
+        },
+        "data/flutter_assets/assets/flags/w80/bb.png": {
+          "bytes": 349,
+          "sha256": "c97a495042dfac56e2730342e3b1a36532d7d2b945b85327179396437f552f4b"
+        },
+        "data/flutter_assets/assets/flags/w80/bd.png": {
+          "bytes": 276,
+          "sha256": "497afce056f92f5a2ee5d4c019bdbe3a6b2e63b17767ba1b36e9c4e45104931e"
+        },
+        "data/flutter_assets/assets/flags/w80/be.png": {
+          "bytes": 127,
+          "sha256": "4bb0a14682b00ccb8912a25aee9a44a5129362d0c09e3cfdb5257879bd23adb3"
+        },
+        "data/flutter_assets/assets/flags/w80/bf.png": {
+          "bytes": 249,
+          "sha256": "3c205416bda3c495e8a3e098ca5c73701ee854e73866dd1d43275261723ff83d"
+        },
+        "data/flutter_assets/assets/flags/w80/bg.png": {
+          "bytes": 105,
+          "sha256": "876abdff396a31e87c586865b3a32f5c5d96dc2a766480ea7328341d03591a88"
+        },
+        "data/flutter_assets/assets/flags/w80/bh.png": {
+          "bytes": 329,
+          "sha256": "71cb00a8b7070d702abdc8a98d8c5f68b66b1c500b7730c56fc5c6070174b84d"
+        },
+        "data/flutter_assets/assets/flags/w80/bi.png": {
+          "bytes": 643,
+          "sha256": "be0214ec050ed660fcca6773888dabe78292a41ebdc8a4cbf46ecabf67df9f48"
+        },
+        "data/flutter_assets/assets/flags/w80/bj.png": {
+          "bytes": 115,
+          "sha256": "bd930349392a8d2827011b247704de9eea2167cec49f81e511a24b23c66958a5"
+        },
+        "data/flutter_assets/assets/flags/w80/bl.png": {
+          "bytes": 1937,
+          "sha256": "4f40b845cca5d53ffa122fb5314ec1397d9259177628e1d3ea3c4b8f0bf5c8d4"
+        },
+        "data/flutter_assets/assets/flags/w80/bm.png": {
+          "bytes": 971,
+          "sha256": "22460c72dfa517222ce3983a01eb63c95794e5c4254c9598f6f02a603bfb7eb5"
+        },
+        "data/flutter_assets/assets/flags/w80/bn.png": {
+          "bytes": 995,
+          "sha256": "ecbe39f36db8ab47373cefdfd2a5cd1385609407b64b795868a4356c7326f479"
+        },
+        "data/flutter_assets/assets/flags/w80/bo.png": {
+          "bytes": 630,
+          "sha256": "2a3ef1143661691f5af75a5d0936baf2b89cebacf2aa5a7b606aa49d4ab19394"
+        },
+        "data/flutter_assets/assets/flags/w80/bq.png": {
+          "bytes": 886,
+          "sha256": "38896734bbcc39abb741da8c7a3a8a5b959fb37fb510154d6e7ff01b4b06a7a3"
+        },
+        "data/flutter_assets/assets/flags/w80/br.png": {
+          "bytes": 816,
+          "sha256": "c9ea019c610713d111f4c81d97f5c0df2caf7ae4c9bda6079f414916dcada975"
+        },
+        "data/flutter_assets/assets/flags/w80/bs.png": {
+          "bytes": 285,
+          "sha256": "7d336ee5627660a269b4a1f3dd3917c101012e06d0c36ff3bac0ac43e9e4cd17"
+        },
+        "data/flutter_assets/assets/flags/w80/bt.png": {
+          "bytes": 1086,
+          "sha256": "63dccb63daacb94c036cbed9cef2df2486128af9549b0e9a14c27acbfb9495e5"
+        },
+        "data/flutter_assets/assets/flags/w80/bv.png": {
+          "bytes": 192,
+          "sha256": "f58edc8912be7c7f5a462809dae326895a9b529bd841475a4aedf0ccf26e6d7f"
+        },
+        "data/flutter_assets/assets/flags/w80/bw.png": {
+          "bytes": 134,
+          "sha256": "7674528ab08859b4dd85045dfda5d86d3473a83b3e9ddb5c8dce7b8c644a2654"
+        },
+        "data/flutter_assets/assets/flags/w80/by.png": {
+          "bytes": 418,
+          "sha256": "4e980c20f56bca6204cdf0e541650d4cb2552e39af1b830c31be497412af6232"
+        },
+        "data/flutter_assets/assets/flags/w80/bz.png": {
+          "bytes": 1017,
+          "sha256": "b76e7ac721e240e6db828ec050d7bad2ea317cb777514bcecbf4e8801d37ae9b"
+        },
+        "data/flutter_assets/assets/flags/w80/ca.png": {
+          "bytes": 404,
+          "sha256": "c6a0b1b087f62170a41cd9d0b35bd532df0286608cc7c1c5a8c3639937b6c867"
+        },
+        "data/flutter_assets/assets/flags/w80/cc.png": {
+          "bytes": 599,
+          "sha256": "06e61a460b8d329dc81b5f3a312640f430914cb2fe2dba23599970a7e6527bef"
+        },
+        "data/flutter_assets/assets/flags/w80/cd.png": {
+          "bytes": 447,
+          "sha256": "c90de0651604a09bc297cd1f6bdbbab88ad51e65ef0aa933bb3191c943b69acc"
+        },
+        "data/flutter_assets/assets/flags/w80/cf.png": {
+          "bytes": 282,
+          "sha256": "dc16ffdcc726c94521fa8a665992a9f0305977c9257e4fc9a14bfd64d98bc4f4"
+        },
+        "data/flutter_assets/assets/flags/w80/cg.png": {
+          "bytes": 310,
+          "sha256": "cceaa431a52340bd23671dce72515891d648d2bfffaa182e5dfe1748a497396c"
+        },
+        "data/flutter_assets/assets/flags/w80/ch.png": {
+          "bytes": 135,
+          "sha256": "c0238ceffa2927c670890712efe6eafdce019fa68e9118486ac08c2651ae4a4c"
+        },
+        "data/flutter_assets/assets/flags/w80/ci.png": {
+          "bytes": 122,
+          "sha256": "827734ef91f84698ef5764b62df02de108effe041b90c6fbb8d766b1ea3626e6"
+        },
+        "data/flutter_assets/assets/flags/w80/ck.png": {
+          "bytes": 781,
+          "sha256": "91121eab433ebe3e51c429af55f92aed36135629a9339f319683ea783cf30237"
+        },
+        "data/flutter_assets/assets/flags/w80/cl.png": {
+          "bytes": 228,
+          "sha256": "cc0ac853ca90cf65565e5df4465a2108558eb397166abaa65838c71cecc18077"
+        },
+        "data/flutter_assets/assets/flags/w80/cm.png": {
+          "bytes": 228,
+          "sha256": "422c019d8e77d3bb92335c43dd2641286c736d1e22c2df943f5f49948307efd6"
+        },
+        "data/flutter_assets/assets/flags/w80/cn.png": {
+          "bytes": 315,
+          "sha256": "fdbfb0d49ec098827d28f297a4ee3614edd1dcc014bcdf978b7dce73c7b7b4f1"
+        },
+        "data/flutter_assets/assets/flags/w80/co.png": {
+          "bytes": 125,
+          "sha256": "cc204eef36e8d922b38b794cd00000b9cfefeb7964c914d5c15d432b27cb0771"
+        },
+        "data/flutter_assets/assets/flags/w80/cr.png": {
+          "bytes": 398,
+          "sha256": "aed03feb8e13cbd79cb0118741182306f30878d44a58b095cd3758dfb4f75138"
+        },
+        "data/flutter_assets/assets/flags/w80/cu.png": {
+          "bytes": 387,
+          "sha256": "9350785c8262a9327865a306bf5a2067c244ebdc7efdb4c0848757b9bded0ed5"
+        },
+        "data/flutter_assets/assets/flags/w80/cv.png": {
+          "bytes": 334,
+          "sha256": "aee4766f9fe89db9ac48e1d0b2645c800fe1026026e19a99a455f1a2b339bb43"
+        },
+        "data/flutter_assets/assets/flags/w80/cw.png": {
+          "bytes": 239,
+          "sha256": "ed92c7ec21ad6e5b72150cb2b4af2fe915eb953be0cf2ccb893dbdebb138a363"
+        },
+        "data/flutter_assets/assets/flags/w80/cx.png": {
+          "bytes": 700,
+          "sha256": "d2405f41f2bc68ca2506a03d3c8c8fcadbc07d100417ce35346bdde87ff5e49d"
+        },
+        "data/flutter_assets/assets/flags/w80/cy.png": {
+          "bytes": 559,
+          "sha256": "1a3d4cebcea35731d023e5ba47474129d4490e59d83bb348f36a60a8c64a7ab5"
+        },
+        "data/flutter_assets/assets/flags/w80/cz.png": {
+          "bytes": 363,
+          "sha256": "2b1d29778294d45d3678cd7fdc240de70a16a638dd752be4a212401389dd44e5"
+        },
+        "data/flutter_assets/assets/flags/w80/de.png": {
+          "bytes": 105,
+          "sha256": "5eb33c86a8f1cd43cbbd990aee89e4ce4fabf7efdece1529be66fb1becf29fc9"
+        },
+        "data/flutter_assets/assets/flags/w80/dj.png": {
+          "bytes": 506,
+          "sha256": "d62d587194a32738972059019aeaf86caa5192c419be2a2bf5e3047609634694"
+        },
+        "data/flutter_assets/assets/flags/w80/dk.png": {
+          "bytes": 148,
+          "sha256": "7f9de76f88b1049ad15974b93e1bc863280bfc3c5c566227a702e57684e0f233"
+        },
+        "data/flutter_assets/assets/flags/w80/dm.png": {
+          "bytes": 517,
+          "sha256": "dfe111b09e715810673eeec3b5558ab227c7ebbab7dde54946910c519e528d49"
+        },
+        "data/flutter_assets/assets/flags/w80/do.png": {
+          "bytes": 396,
+          "sha256": "2506bc21a52b79957cb20d08d2022cde9e1d02a058470caa7a96d38f6e724b4c"
+        },
+        "data/flutter_assets/assets/flags/w80/dz.png": {
+          "bytes": 399,
+          "sha256": "15e7ef69c144fa4d9d57ef9c6761a23c5dc1e2f2506c0c77a847139ca6663039"
+        },
+        "data/flutter_assets/assets/flags/w80/ec.png": {
+          "bytes": 933,
+          "sha256": "767a69f140ef4f9a28bdba99a149b53cf1768e6896893b58b3e3ac7a444a515e"
+        },
+        "data/flutter_assets/assets/flags/w80/ee.png": {
+          "bytes": 106,
+          "sha256": "7d6d0649338f46de56927d05a4430f471f572c6e5e46dc52aae9d5cf3cfdfd03"
+        },
+        "data/flutter_assets/assets/flags/w80/eg.png": {
+          "bytes": 291,
+          "sha256": "650c5df8ef5e0d1c2267b67caeac0fb8643a5fb4e55df3117e4aa8b1a5861a77"
+        },
+        "data/flutter_assets/assets/flags/w80/eh.png": {
+          "bytes": 396,
+          "sha256": "518461ad678effb89da7abc5c2019951fd8c694b2549d1874550b09cef78770d"
+        },
+        "data/flutter_assets/assets/flags/w80/er.png": {
+          "bytes": 545,
+          "sha256": "f65175a0c6cc762ea68d0cf2d1660bfed019127416c42379fa65c4b9fd16394e"
+        },
+        "data/flutter_assets/assets/flags/w80/es.png": {
+          "bytes": 673,
+          "sha256": "cfd46911c2d8a218317ecfa94d776ca3784def0212332b2c230d0a7cfeb6be41"
+        },
+        "data/flutter_assets/assets/flags/w80/et.png": {
+          "bytes": 571,
+          "sha256": "5b3ff5e7872066515801cc827688988d998f26ad90a5d6a0145d76a54a1ff909"
+        },
+        "data/flutter_assets/assets/flags/w80/fi.png": {
+          "bytes": 134,
+          "sha256": "0450ed61fdb1680a727663e3a922635e03e4cb3fa019c258b8a1e2e2a6e73701"
+        },
+        "data/flutter_assets/assets/flags/w80/fj.png": {
+          "bytes": 903,
+          "sha256": "50cb3bfc445efb91587b72aa29f5e6ea8e531344280036667b8ad3cb733afa2b"
+        },
+        "data/flutter_assets/assets/flags/w80/fk.png": {
+          "bytes": 1151,
+          "sha256": "b3597e3e96a3a3ecefa64df0872763cc39eaf4a9785f58a3f480115bc37e482b"
+        },
+        "data/flutter_assets/assets/flags/w80/fm.png": {
+          "bytes": 217,
+          "sha256": "93a9299aeef5b31e2acf1a6680e20aab0776e510776b55f4a0f8559b5bbb218c"
+        },
+        "data/flutter_assets/assets/flags/w80/fo.png": {
+          "bytes": 188,
+          "sha256": "fb9d2d8424d9bf9993c0df44c9bd24f9374e21f0500d5c32523b4ebb782a2d1c"
+        },
+        "data/flutter_assets/assets/flags/w80/fr.png": {
+          "bytes": 123,
+          "sha256": "2a539c1a42f160aab68730f4caaa322bd6fbccf42145015bb7544961671a9cbd"
+        },
+        "data/flutter_assets/assets/flags/w80/ga.png": {
+          "bytes": 106,
+          "sha256": "ad6a998bcaca56cec2f3d18d95d8c1033ed2ba1922638c752e2a7a5b5aa87bc7"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-eng.png": {
+          "bytes": 123,
+          "sha256": "51fab4e1b9edf84a4798756f8984c5d767d5d6326dd3614c59de3893bcbeb62e"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-nir.png": {
+          "bytes": 581,
+          "sha256": "1caeef818b94205deb503363349bc0668cda4c628930bf205abfd22f650fecae"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-sct.png": {
+          "bytes": 433,
+          "sha256": "e2fa0198019f3448ed6886da80043a93dc51538fd6eb17ddd21ddb3c67e06db9"
+        },
+        "data/flutter_assets/assets/flags/w80/gb-wls.png": {
+          "bytes": 1482,
+          "sha256": "c062c7167bbfaf6b42787a7883c5c321ee826eb452cdd0c98b706b3e4fbb887d"
+        },
+        "data/flutter_assets/assets/flags/w80/gb.png": {
+          "bytes": 395,
+          "sha256": "94f29281d0b2b67b035dd279a4b43b18b8be9e889f5287af2b2c5e3723e0c810"
+        },
+        "data/flutter_assets/assets/flags/w80/gd.png": {
+          "bytes": 644,
+          "sha256": "48d2fc855ced8cee7fe368c9974bf1975ddf6517dd6dc9eb8683dd51fbe9fee7"
+        },
+        "data/flutter_assets/assets/flags/w80/ge.png": {
+          "bytes": 393,
+          "sha256": "e6c2bdda0963eab8312ef0987efbec4ac4e66c3fc0a2d858352257195cc6c137"
+        },
+        "data/flutter_assets/assets/flags/w80/gf.png": {
+          "bytes": 468,
+          "sha256": "f1aa5be028c8ebd8081e33f8d0b071549740ba9c2f5560b03c68da981ae7ea5f"
+        },
+        "data/flutter_assets/assets/flags/w80/gg.png": {
+          "bytes": 236,
+          "sha256": "57ce45d70c9d3a81a2e4d79a3974676d556e49aaf3ec302ab5bcb547fb4b3c9b"
+        },
+        "data/flutter_assets/assets/flags/w80/gh.png": {
+          "bytes": 267,
+          "sha256": "df792a38cf9620fd3ac55b759de8f54b9ddf4c3f90ff558445f024524f29f42b"
+        },
+        "data/flutter_assets/assets/flags/w80/gi.png": {
+          "bytes": 615,
+          "sha256": "75a51315785d7b026debad168722fa42ff27d23243e36103f9ca5dfc00dfea65"
+        },
+        "data/flutter_assets/assets/flags/w80/gl.png": {
+          "bytes": 371,
+          "sha256": "5c473e39d266eb711ee7276826dc71510efbeb053498eba2ed7a51649ccfee8e"
+        },
+        "data/flutter_assets/assets/flags/w80/gm.png": {
+          "bytes": 145,
+          "sha256": "c76dd7a8e26e4170c5ac7953aa3709f7559c35667b73b24ad7ba465c8e2c2051"
+        },
+        "data/flutter_assets/assets/flags/w80/gn.png": {
+          "bytes": 122,
+          "sha256": "7d2c9ad5136c71d55c79677b58d5d10e4d20d2626113365bc5f9dedb819376be"
+        },
+        "data/flutter_assets/assets/flags/w80/gp.png": {
+          "bytes": 1070,
+          "sha256": "1dddcb6150bc6787b8e1f014710a43a029ccb4b6a9fe1a75a155bc8283159f36"
+        },
+        "data/flutter_assets/assets/flags/w80/gq.png": {
+          "bytes": 634,
+          "sha256": "41cc448712d87ff0207c2dfe57dcda24b21af3db89b8ce51468e0871f36ba0fb"
+        },
+        "data/flutter_assets/assets/flags/w80/gr.png": {
+          "bytes": 208,
+          "sha256": "fd3a391dd9885d56b1fccf99870954dc68ff61184bd38fd4240b44fc562f69f4"
+        },
+        "data/flutter_assets/assets/flags/w80/gs.png": {
+          "bytes": 1269,
+          "sha256": "736da4da4a4b8ab1b795db7f4803a1664be60e1a0931beeb73b7a6b3153a560c"
+        },
+        "data/flutter_assets/assets/flags/w80/gt.png": {
+          "bytes": 540,
+          "sha256": "99bcd45fc224df973b378d21b5d825a9c2805e6d7a73bf45f8a7f7acdb6715e0"
+        },
+        "data/flutter_assets/assets/flags/w80/gu.png": {
+          "bytes": 634,
+          "sha256": "5abd34563333e8d2aec38522097af7835bbb40ad0eeeeee9ff0dcd776da12d64"
+        },
+        "data/flutter_assets/assets/flags/w80/gw.png": {
+          "bytes": 202,
+          "sha256": "d271c4ee019724c789edf7d6d494e266d9df7e7a6d663a77d982a1189d9bbc59"
+        },
+        "data/flutter_assets/assets/flags/w80/gy.png": {
+          "bytes": 498,
+          "sha256": "dfd7da08753860caa80b90561fd0fff47c267e4edc299cb22d2b0f6246302497"
+        },
+        "data/flutter_assets/assets/flags/w80/hk.png": {
+          "bytes": 506,
+          "sha256": "3d4475b36859219c643ffd4f55890b645d024bce1e9a5028a071d7e11efc7b17"
+        },
+        "data/flutter_assets/assets/flags/w80/hm.png": {
+          "bytes": 588,
+          "sha256": "243c3a816337101cf692f9cbc356525e5d532bbfb3da18a81cffc3e103d793b7"
+        },
+        "data/flutter_assets/assets/flags/w80/hn.png": {
+          "bytes": 233,
+          "sha256": "40b0f52cb77ec753d5c119a47eded0d673470537d0401f8b5c1231429a1a20fa"
+        },
+        "data/flutter_assets/assets/flags/w80/hr.png": {
+          "bytes": 639,
+          "sha256": "37700c20552eff5509370aa315cab83f84a878f3ca47c39f65bb280ef0c99422"
+        },
+        "data/flutter_assets/assets/flags/w80/ht.png": {
+          "bytes": 871,
+          "sha256": "ab0c955b1ce98b43984fa9c00d6e3002cc677893638b26066b9534230be27de3"
+        },
+        "data/flutter_assets/assets/flags/w80/hu.png": {
+          "bytes": 119,
+          "sha256": "5e54bb353099fd19f6e6ce673d7248bf83090909d5b4728367971fae097b23b0"
+        },
+        "data/flutter_assets/assets/flags/w80/id.png": {
+          "bytes": 105,
+          "sha256": "2231d4894ef2ef66ab52791b169a6717b00aad81750605a5712ebd4fc3e5724f"
+        },
+        "data/flutter_assets/assets/flags/w80/ie.png": {
+          "bytes": 119,
+          "sha256": "3d67eb9367c3f8903cce0f1af01203d4e5edeb72c0106a6ef856d25ff943eb5b"
+        },
+        "data/flutter_assets/assets/flags/w80/il.png": {
+          "bytes": 301,
+          "sha256": "e9c4bee374d1a69832dc0de7c0dbdc2a2d8ef96d795768b3a2eb967744338e50"
+        },
+        "data/flutter_assets/assets/flags/w80/im.png": {
+          "bytes": 667,
+          "sha256": "6ac3aa16ae39b408cdec56d0cd5302159f3de3532ef367b6546a4c81b256188f"
+        },
+        "data/flutter_assets/assets/flags/w80/in.png": {
+          "bytes": 354,
+          "sha256": "fc3292a3ac5feb33759087d8968441965723068fa7cbbd12226b646b7ff83252"
+        },
+        "data/flutter_assets/assets/flags/w80/io.png": {
+          "bytes": 1631,
+          "sha256": "56b6e296e73ce7b20576ea08bac9615ffb5d613bf25b90a22f2aa2bca904341d"
+        },
+        "data/flutter_assets/assets/flags/w80/iq.png": {
+          "bytes": 319,
+          "sha256": "cd95b18f6ade141eabd5f00d4f420f49c64eadfb5320dcfcdb6d68bb0e554d03"
+        },
+        "data/flutter_assets/assets/flags/w80/ir.png": {
+          "bytes": 451,
+          "sha256": "2b08721b074f09dd599539aae078ca6b5a59c2b7f18c493b0124bce28daf4f8e"
+        },
+        "data/flutter_assets/assets/flags/w80/is.png": {
+          "bytes": 185,
+          "sha256": "c3c910c259f77d246b2159e5287520a28cc849672ba622a60f50734fd2b1699e"
+        },
+        "data/flutter_assets/assets/flags/w80/it.png": {
+          "bytes": 122,
+          "sha256": "655b1b31b9a3d3b6f659863e6ffebedaf8810e5e97f12fea687e9ede6d298c3d"
+        },
+        "data/flutter_assets/assets/flags/w80/je.png": {
+          "bytes": 765,
+          "sha256": "323123bd422a9ed2210a82b8baf950f262c3da6f161344467757a18b464f7bf8"
+        },
+        "data/flutter_assets/assets/flags/w80/jm.png": {
+          "bytes": 293,
+          "sha256": "1319eb2c2e936f9b8d797fe2f554f05faf37808ba93ac76e99463ba00fc0849a"
+        },
+        "data/flutter_assets/assets/flags/w80/jo.png": {
+          "bytes": 287,
+          "sha256": "e56000f765062306350e6138c41ee7d3f4ba18e60709f4b803aa90af47065cb3"
+        },
+        "data/flutter_assets/assets/flags/w80/jp.png": {
+          "bytes": 353,
+          "sha256": "25c1ac6db4fa0b5e6b79b4efe546683c8589cf060f5f848b27be02944fad8114"
+        },
+        "data/flutter_assets/assets/flags/w80/ke.png": {
+          "bytes": 655,
+          "sha256": "e62c36f709dba84c7bbd0bf5e8accdca8090d5aeacdffb609bab7925dee7aabc"
+        },
+        "data/flutter_assets/assets/flags/w80/kg.png": {
+          "bytes": 615,
+          "sha256": "a8dd2fb329eb1958d7ee7666c7e6a361835db73dc7659ee74aa8f7734d7ac567"
+        },
+        "data/flutter_assets/assets/flags/w80/kh.png": {
+          "bytes": 647,
+          "sha256": "1a6db9f204c13dc79e077689c22d7755fea802e807b7bfd6b431a3bd677cf93f"
+        },
+        "data/flutter_assets/assets/flags/w80/ki.png": {
+          "bytes": 907,
+          "sha256": "9dfb51d78a8d1ea7f7369ee5dafd6958afb7f58835f55e0f74107e917df8dc9e"
+        },
+        "data/flutter_assets/assets/flags/w80/km.png": {
+          "bytes": 529,
+          "sha256": "6f1a3b77c07e23bc619d6b769f6f0518e96e83dde0ca9288ef4016292b27b7dd"
+        },
+        "data/flutter_assets/assets/flags/w80/kn.png": {
+          "bytes": 765,
+          "sha256": "6592211d56a37d04207c20559ea52bc8cc3382f1f174364bceace52dd223fefe"
+        },
+        "data/flutter_assets/assets/flags/w80/kp.png": {
+          "bytes": 321,
+          "sha256": "bb7ec927c18eda57e6a8e8eeead2ce817cbef690a9ca4067d8bfba306387ac82"
+        },
+        "data/flutter_assets/assets/flags/w80/kr.png": {
+          "bytes": 972,
+          "sha256": "8a0e8db363c5177c129bdc1140f5c219f17014153a5da592877c4b4c718c248f"
+        },
+        "data/flutter_assets/assets/flags/w80/kw.png": {
+          "bytes": 233,
+          "sha256": "6015e3d991364ac735eac1cbd45550c19edd63309e9a07961cc0ea6a37f3096c"
+        },
+        "data/flutter_assets/assets/flags/w80/ky.png": {
+          "bytes": 977,
+          "sha256": "fb8985b4d7f6271a49316dacdb8bfc509e33e2eba9a212752d33601934219231"
+        },
+        "data/flutter_assets/assets/flags/w80/kz.png": {
+          "bytes": 552,
+          "sha256": "9dd15436c71357bfe6059992a9a83cd60e634a3ae99200c7d67a5410e986b9d2"
+        },
+        "data/flutter_assets/assets/flags/w80/la.png": {
+          "bytes": 264,
+          "sha256": "f44d2ce837fd22ef7adb3a3cff06224e0f3bc26a20520f619e56fc7269ef72e0"
+        },
+        "data/flutter_assets/assets/flags/w80/lb.png": {
+          "bytes": 432,
+          "sha256": "6cf8508c1b85f73e4ed7f002817b812a8bbb00eb0d11326eafcbbc7f528154a8"
+        },
+        "data/flutter_assets/assets/flags/w80/lc.png": {
+          "bytes": 499,
+          "sha256": "605f03273666ac06127e1b9342e81725be525f4674397787951146d471ce32b5"
+        },
+        "data/flutter_assets/assets/flags/w80/li.png": {
+          "bytes": 399,
+          "sha256": "973064cdad477f87b25d784fa32294755d712e2d5c7e7b10a3abe9195e1d5ac4"
+        },
+        "data/flutter_assets/assets/flags/w80/lk.png": {
+          "bytes": 673,
+          "sha256": "9313b9f86445835ee2a1a026bda52ee079a9b8b203dc43e11396fb5d25f70e91"
+        },
+        "data/flutter_assets/assets/flags/w80/lr.png": {
+          "bytes": 278,
+          "sha256": "2324a3c7b6eb1a1e53a882bd1d5cf692b72efbba7a8670a6fa340b9f13994e73"
+        },
+        "data/flutter_assets/assets/flags/w80/ls.png": {
+          "bytes": 319,
+          "sha256": "5edebe1f9731155a12caca11819c4a313fbfc3fe7de6fc2074db3b6c36ff4683"
+        },
+        "data/flutter_assets/assets/flags/w80/lt.png": {
+          "bytes": 105,
+          "sha256": "58b3036362d8b800df8df379a5b38b899163d317023f8ca85725f4b26a90bda6"
+        },
+        "data/flutter_assets/assets/flags/w80/lu.png": {
+          "bytes": 105,
+          "sha256": "50b9d335fd95f1340a29fee63c1b9431288d5daf39efd8682bfba90faaf7d070"
+        },
+        "data/flutter_assets/assets/flags/w80/lv.png": {
+          "bytes": 94,
+          "sha256": "645630d51b2968c8aee6ca8ea1d4823b774fa54a2e8fad4c05ae6c7909430c28"
+        },
+        "data/flutter_assets/assets/flags/w80/ly.png": {
+          "bytes": 226,
+          "sha256": "27cc5866d042cb27e297c68e5def5c081763ea2be1cad2bbf008719dd289a360"
+        },
+        "data/flutter_assets/assets/flags/w80/ma.png": {
+          "bytes": 304,
+          "sha256": "2c5b318cf6fef7f438edc4bf43507a50b782ac57191b6069fe367ee5151c1b0d"
+        },
+        "data/flutter_assets/assets/flags/w80/mc.png": {
+          "bytes": 95,
+          "sha256": "a848cea9948b2022be902760bbda38b98485a5af04214f75c80b9b6801608aba"
+        },
+        "data/flutter_assets/assets/flags/w80/md.png": {
+          "bytes": 610,
+          "sha256": "31b2f57e339d539d943f9199efb00dbd289a4518e461e3d2f724d41db9c9fe0e"
+        },
+        "data/flutter_assets/assets/flags/w80/me.png": {
+          "bytes": 529,
+          "sha256": "f66ae28c5d3ca1acca514b255230450c44139a40fecf24f0ce6117010216a8d6"
+        },
+        "data/flutter_assets/assets/flags/w80/mf.png": {
+          "bytes": 123,
+          "sha256": "2a539c1a42f160aab68730f4caaa322bd6fbccf42145015bb7544961671a9cbd"
+        },
+        "data/flutter_assets/assets/flags/w80/mg.png": {
+          "bytes": 132,
+          "sha256": "1c03cfdb2b0b213d28cfe4e29a67cd62c92210ef59e94c1a16f27e0c10723709"
+        },
+        "data/flutter_assets/assets/flags/w80/mh.png": {
+          "bytes": 641,
+          "sha256": "7a005e717f16e425fdde84ec61c0cbb3eff71e5c462a682bd5c60ef006fd488f"
+        },
+        "data/flutter_assets/assets/flags/w80/mk.png": {
+          "bytes": 545,
+          "sha256": "35b772b223c5fb4ee46824a36bb3d57e9bc265edccfe8ed2ef8428d53e1fb821"
+        },
+        "data/flutter_assets/assets/flags/w80/ml.png": {
+          "bytes": 123,
+          "sha256": "a70210ab927c180381cd122ee32f65b4612fa69f641b5fb04d17deeb96779ebe"
+        },
+        "data/flutter_assets/assets/flags/w80/mm.png": {
+          "bytes": 463,
+          "sha256": "d34d541cc986436b8005185fd945100e4d9b0a774e108ecd394fb09e45db92e0"
+        },
+        "data/flutter_assets/assets/flags/w80/mn.png": {
+          "bytes": 304,
+          "sha256": "a0712260fd394e74be80bb5c742db06664148ef3aae99f1202eb3626a25a88b7"
+        },
+        "data/flutter_assets/assets/flags/w80/mo.png": {
+          "bytes": 616,
+          "sha256": "dd6a112317d93bd9ab7c6563bc7e35ba7c5de7d5a79e3984ba0cac313069c8c9"
+        },
+        "data/flutter_assets/assets/flags/w80/mp.png": {
+          "bytes": 1445,
+          "sha256": "c7b6878983368596c7eebb84ae11c50f67896842f8c908af697baab4bf3596b9"
+        },
+        "data/flutter_assets/assets/flags/w80/mq.png": {
+          "bytes": 354,
+          "sha256": "c1f7b89efec09f64e422d2f9b76be8c0ec2e241bc121d6e7fd01fc1994659a38"
+        },
+        "data/flutter_assets/assets/flags/w80/mr.png": {
+          "bytes": 379,
+          "sha256": "8744320da9562820fbca640b0359ba50df507071ce189bd38ea70ae598fd1e79"
+        },
+        "data/flutter_assets/assets/flags/w80/ms.png": {
+          "bytes": 772,
+          "sha256": "a2e339adb8b62755d083bfdaf51f0cb73b8a233eddef9d694dc80174bbda53f3"
+        },
+        "data/flutter_assets/assets/flags/w80/mt.png": {
+          "bytes": 266,
+          "sha256": "c739cfb6266e2c969516bb5905c187afa97fab417a9d8db74264a35e6dbb9dc0"
+        },
+        "data/flutter_assets/assets/flags/w80/mu.png": {
+          "bytes": 138,
+          "sha256": "28552502baa778428c43466e2b8f4ff2d11cd93f0bad3db02aabc77e65be04f9"
+        },
+        "data/flutter_assets/assets/flags/w80/mv.png": {
+          "bytes": 243,
+          "sha256": "5556b719ae8879eebc9cff61813b1aa6a6632efedefb6b2bb2de080cb6df45c9"
+        },
+        "data/flutter_assets/assets/flags/w80/mw.png": {
+          "bytes": 349,
+          "sha256": "4f47a02943482de0fc8ae0d3eaf21064549c186f181cf228434a63f00eb40a11"
+        },
+        "data/flutter_assets/assets/flags/w80/mx.png": {
+          "bytes": 562,
+          "sha256": "c0fdb027d455efda31d165351dbac9b2145fdca51aa1f9c9410a346b43bf1f2f"
+        },
+        "data/flutter_assets/assets/flags/w80/my.png": {
+          "bytes": 398,
+          "sha256": "cfa5f23d144106a08268fd9cd9aa18ddfb893eed0a255e288e5648b396774fee"
+        },
+        "data/flutter_assets/assets/flags/w80/mz.png": {
+          "bytes": 664,
+          "sha256": "d83fc8b9e5948b9ac72d735800fb26e79b166454d42501e74b19b88cda8fa55b"
+        },
+        "data/flutter_assets/assets/flags/w80/na.png": {
+          "bytes": 780,
+          "sha256": "f06d0d31252fa2c707dbb4af303c342c1f11375158f7d97b6d86b4776a569a6b"
+        },
+        "data/flutter_assets/assets/flags/w80/nc.png": {
+          "bytes": 609,
+          "sha256": "1a5fa3965872308321a4184eeb0e4e82614f5d7a18d08333940c5d5210dad6d1"
+        },
+        "data/flutter_assets/assets/flags/w80/ne.png": {
+          "bytes": 263,
+          "sha256": "e6535bab7b7ee08a2d087a4adedb8e0b39df9370c6e91bb7264ab85c958aea11"
+        },
+        "data/flutter_assets/assets/flags/w80/nf.png": {
+          "bytes": 460,
+          "sha256": "caae77d969ae742ddb7f5f825b21b168097f6871d4ec7af76f1c25074211dd17"
+        },
+        "data/flutter_assets/assets/flags/w80/ng.png": {
+          "bytes": 105,
+          "sha256": "6076be1144054cb5cecb1fe958b5f0bbfd23d6a1894146300c60fc54a09b15ca"
+        },
+        "data/flutter_assets/assets/flags/w80/ni.png": {
+          "bytes": 360,
+          "sha256": "bd686d6b7fa00414636a098fe2423947ddb12e4ad782b0d0d621e861fc9ac5d9"
+        },
+        "data/flutter_assets/assets/flags/w80/nl.png": {
+          "bytes": 127,
+          "sha256": "2551bcd6a2ea816da99fd646a6f68feef0e3b2897216b1afca88a6e4283ee42f"
+        },
+        "data/flutter_assets/assets/flags/w80/no.png": {
+          "bytes": 192,
+          "sha256": "f58edc8912be7c7f5a462809dae326895a9b529bd841475a4aedf0ccf26e6d7f"
+        },
+        "data/flutter_assets/assets/flags/w80/np.png": {
+          "bytes": 1032,
+          "sha256": "35dac648e44adfdd7f3d37c813b12d2c45391e9556573a6496599355bd80f5d4"
+        },
+        "data/flutter_assets/assets/flags/w80/nr.png": {
+          "bytes": 255,
+          "sha256": "2601a72acad9b3284d125573c987a292e665a528273d4f0d1b3a93a76f50bfda"
+        },
+        "data/flutter_assets/assets/flags/w80/nu.png": {
+          "bytes": 557,
+          "sha256": "4a0956a9f819ae57568cfac496a355c28bc9a8cbba8148368c5e6ba62c732c81"
+        },
+        "data/flutter_assets/assets/flags/w80/nz.png": {
+          "bytes": 536,
+          "sha256": "2a69d660a346b756b26e5faba477f8033901b76b2ccf35d00463620be4a794c4"
+        },
+        "data/flutter_assets/assets/flags/w80/om.png": {
+          "bytes": 261,
+          "sha256": "c2edcf47f4d0e9b20bcd23a373ed494eb0a0c5dca3d49905966c419be0511bb2"
+        },
+        "data/flutter_assets/assets/flags/w80/pa.png": {
+          "bytes": 361,
+          "sha256": "5b7c11938c58bc8160d12f608dd0bc6acff113fe165c5c45b46ee1d5a4a1f71e"
+        },
+        "data/flutter_assets/assets/flags/w80/pe.png": {
+          "bytes": 107,
+          "sha256": "41282776c7f57cd127e6577cbc380f3e252049f976bcf566ee77d4578e50ed57"
+        },
+        "data/flutter_assets/assets/flags/w80/pf.png": {
+          "bytes": 645,
+          "sha256": "c78a808b5b68e4a3b229b6f7f27e150a19ff0c36d00492c44a21e98ec4497926"
+        },
+        "data/flutter_assets/assets/flags/w80/pg.png": {
+          "bytes": 784,
+          "sha256": "fc790fba9d6b76f8e7fdc7436c0b6a01ac42e19820a17eb272c4e7b48d466f32"
+        },
+        "data/flutter_assets/assets/flags/w80/ph.png": {
+          "bytes": 564,
+          "sha256": "089e20ed35c6c16e3d28ced61045285b63c344e00620bf90376dbe9a12865d52"
+        },
+        "data/flutter_assets/assets/flags/w80/pk.png": {
+          "bytes": 453,
+          "sha256": "6b8b4ed3916a89ac16ca96278fa57a26ff3846fab049b7f25986e79bc17cdbf9"
+        },
+        "data/flutter_assets/assets/flags/w80/pl.png": {
+          "bytes": 94,
+          "sha256": "bc81e9a8f5f9482d3b266a434f5f28441b8df90b29c6f7e8d08d120d8dfb97d0"
+        },
+        "data/flutter_assets/assets/flags/w80/pm.png": {
+          "bytes": 2820,
+          "sha256": "982507196a0ab3cf707cddaf903d56b5855c7190037bbfe6303d2c2c41c8718a"
+        },
+        "data/flutter_assets/assets/flags/w80/pn.png": {
+          "bytes": 1152,
+          "sha256": "f3896a549254890612d938aedad5e909b782edeae7017ffc5f160b34e31dd1cb"
+        },
+        "data/flutter_assets/assets/flags/w80/pr.png": {
+          "bytes": 469,
+          "sha256": "1f7b84c8309da06cd4aff493a50492f71ec6a55179a7bbbfe40b9a3d2725d9d1"
+        },
+        "data/flutter_assets/assets/flags/w80/ps.png": {
+          "bytes": 304,
+          "sha256": "ba4ebad41d9c4459ab860306f2eadafbf23dc43ac452929d7b354423dc5323f0"
+        },
+        "data/flutter_assets/assets/flags/w80/pt.png": {
+          "bytes": 893,
+          "sha256": "0006bee743a0d81fc4dcea7ae2fdc2bb17e560792b9939fb10ec05d76dd828ef"
+        },
+        "data/flutter_assets/assets/flags/w80/pw.png": {
+          "bytes": 307,
+          "sha256": "781b73a91a4a2b8c559932b4ec60487ea50e088690f483e66b91f6e389c533e2"
+        },
+        "data/flutter_assets/assets/flags/w80/py.png": {
+          "bytes": 287,
+          "sha256": "3791bcf57ecc71e23b15b941b026ac807470e9fc5b97a624aaef0df74e2d0684"
+        },
+        "data/flutter_assets/assets/flags/w80/qa.png": {
+          "bytes": 201,
+          "sha256": "ab007ed48922bf300c3a76462aa8a40ccdb2bf9a06276e3acde96a6b6296bbbc"
+        },
+        "data/flutter_assets/assets/flags/w80/re.png": {
+          "bytes": 784,
+          "sha256": "be8329d2a862b5737f9314da66a23e32724dbd4f345e12b97441e22d9420c197"
+        },
+        "data/flutter_assets/assets/flags/w80/ro.png": {
+          "bytes": 122,
+          "sha256": "8c5a6a64e197aba1acadb221486790c1b04022de391c72be5da8023bb2391a1d"
+        },
+        "data/flutter_assets/assets/flags/w80/rs.png": {
+          "bytes": 934,
+          "sha256": "5a2996144f6c1415c6e680f36d21f6b7fae66091fc50840cc1b848da15a31d16"
+        },
+        "data/flutter_assets/assets/flags/w80/ru.png": {
+          "bytes": 125,
+          "sha256": "fe1a82a5145e5fba6982bb14cb20663b888a5feabada2235d036825fa4cbcac8"
+        },
+        "data/flutter_assets/assets/flags/w80/rw.png": {
+          "bytes": 281,
+          "sha256": "254565a00c8d28fb3fa06b4c2881df2d7797983e9eaf0e6dca01ce59aaec354c"
+        },
+        "data/flutter_assets/assets/flags/w80/sa.png": {
+          "bytes": 566,
+          "sha256": "279bc6e2da48470081c4c754c9c6b880465fa425d70319fcc786b06a4e01821b"
+        },
+        "data/flutter_assets/assets/flags/w80/sb.png": {
+          "bytes": 457,
+          "sha256": "6ea25b29aa4ae0732fec517448de13ec02eaca1d834ae9e0aa9bcec22d464f05"
+        },
+        "data/flutter_assets/assets/flags/w80/sc.png": {
+          "bytes": 492,
+          "sha256": "89190698de93265201c7999b33f00df09c680a45e62a84672dd18c980b419f0b"
+        },
+        "data/flutter_assets/assets/flags/w80/sd.png": {
+          "bytes": 299,
+          "sha256": "8a64e056f6a0dd1b7e22ba1cd9cb511c7247264b0715d836ae734f622b4a3e87"
+        },
+        "data/flutter_assets/assets/flags/w80/se.png": {
+          "bytes": 100,
+          "sha256": "e8433ddb96b727f2b2420f21f588feb88a5f3984b0c2fe65e97e0b5285f3a2ef"
+        },
+        "data/flutter_assets/assets/flags/w80/sg.png": {
+          "bytes": 354,
+          "sha256": "a99506c879dd6e6d86d9b75e79ff9ec63c1ff7948906ac9b91c8b0e09390f5d5"
+        },
+        "data/flutter_assets/assets/flags/w80/sh.png": {
+          "bytes": 845,
+          "sha256": "26a133a1856c25a1ba89edc50dc88001f48d70663dde23dae96d10ff847e8468"
+        },
+        "data/flutter_assets/assets/flags/w80/si.png": {
+          "bytes": 313,
+          "sha256": "37c463135e3fbd09539b6bbcd2edb668897657161b7e5a205ecd0294f4100f14"
+        },
+        "data/flutter_assets/assets/flags/w80/sj.png": {
+          "bytes": 192,
+          "sha256": "f58edc8912be7c7f5a462809dae326895a9b529bd841475a4aedf0ccf26e6d7f"
+        },
+        "data/flutter_assets/assets/flags/w80/sk.png": {
+          "bytes": 524,
+          "sha256": "bfb0ce5b40660048a0e13fdc9089c26d872a4cc41f709065276b80bc15fca0ca"
+        },
+        "data/flutter_assets/assets/flags/w80/sl.png": {
+          "bytes": 127,
+          "sha256": "9aa703af0a2b94e2de448da95469fee21856e89f81f26646fb87b4ca6a7d852d"
+        },
+        "data/flutter_assets/assets/flags/w80/sm.png": {
+          "bytes": 1130,
+          "sha256": "70d6493008f0a06bd73cb32dc246c7da1ceb62ff64a8b6e49951537235c8dc57"
+        },
+        "data/flutter_assets/assets/flags/w80/sn.png": {
+          "bytes": 241,
+          "sha256": "858bcf6fe5da87f2b9affb7492ef06482b6ad0b475b70203d38f4fbb0fbaa7e8"
+        },
+        "data/flutter_assets/assets/flags/w80/so.png": {
+          "bytes": 264,
+          "sha256": "7ee3f20feb414f327ae69c3d4c3a54e989bc2410616fedefc1de453c1b6d329c"
+        },
+        "data/flutter_assets/assets/flags/w80/sr.png": {
+          "bytes": 281,
+          "sha256": "49c57626ec7f16370a254b7020c6d1bd0dac8de1a303b9c614447db2259cce7a"
+        },
+        "data/flutter_assets/assets/flags/w80/ss.png": {
+          "bytes": 437,
+          "sha256": "6376d90a2aa369425c03228da8df161e9c3c20616a4ff6ff0e7cd528388881f8"
+        },
+        "data/flutter_assets/assets/flags/w80/st.png": {
+          "bytes": 342,
+          "sha256": "fbcfe87d46cdfdf7147d5987503aa4fb3fbfc844f5420fe947ddbe2166c79187"
+        },
+        "data/flutter_assets/assets/flags/w80/sv.png": {
+          "bytes": 479,
+          "sha256": "0325efeb9cd30269f18a30faaf848d0e6ee83118dcb0effbb821b0facd087862"
+        },
+        "data/flutter_assets/assets/flags/w80/sx.png": {
+          "bytes": 831,
+          "sha256": "50dd1dbe64ba89b2f6a28131214c7b578ba588350bff9372267a8d8fbc9acfbd"
+        },
+        "data/flutter_assets/assets/flags/w80/sy.png": {
+          "bytes": 253,
+          "sha256": "efc9eeb2d7a68fb9c49627082e6b1cc328cf4f456cff86c702935a8b56fc1063"
+        },
+        "data/flutter_assets/assets/flags/w80/sz.png": {
+          "bytes": 809,
+          "sha256": "448430a1a1d779ab04ab014eaf5b68467c283f1a30aa00f32c36d41afb224efa"
+        },
+        "data/flutter_assets/assets/flags/w80/tc.png": {
+          "bytes": 775,
+          "sha256": "36a007d46602c9de800584a9ca095d7674513caa4fd3d178e0ed091a5cd81542"
+        },
+        "data/flutter_assets/assets/flags/w80/td.png": {
+          "bytes": 122,
+          "sha256": "9bc51a23aeca73146a0c5c43a1b79143654f5be5b340bfedef85c00b61bf4a44"
+        },
+        "data/flutter_assets/assets/flags/w80/tf.png": {
+          "bytes": 359,
+          "sha256": "7884802bf8a5b3749cdf92c49695f46fb7d7da671100fd7c3d1323be0e7974dc"
+        },
+        "data/flutter_assets/assets/flags/w80/tg.png": {
+          "bytes": 314,
+          "sha256": "2c99cc0ba6ea2513cf61f2ba32e8c33ef12fa1975898930fc592e0c6fcbfb0bf"
+        },
+        "data/flutter_assets/assets/flags/w80/th.png": {
+          "bytes": 137,
+          "sha256": "21290b9be44e3953831573fc7416dd266a7f1d31b523efcbfd68b5df22ea79a1"
+        },
+        "data/flutter_assets/assets/flags/w80/tj.png": {
+          "bytes": 264,
+          "sha256": "1040c4e9de97d444b90e07bc9582ac189e743741488eaea8e367d240b6f46dd3"
+        },
+        "data/flutter_assets/assets/flags/w80/tk.png": {
+          "bytes": 577,
+          "sha256": "274edad9704de6b6d92cd9e90e25263d4c79cd31d82157f1d79f6469bf454e7b"
+        },
+        "data/flutter_assets/assets/flags/w80/tl.png": {
+          "bytes": 382,
+          "sha256": "40f66b4ca1295526e85985f0b853b3bfadf821f3992de3500faa4faeaf0c53b3"
+        },
+        "data/flutter_assets/assets/flags/w80/tm.png": {
+          "bytes": 1379,
+          "sha256": "2a7bd1aecf3009086f30543dff31fd19234400c653c9926d90dfd827a1bb7ef9"
+        },
+        "data/flutter_assets/assets/flags/w80/tn.png": {
+          "bytes": 466,
+          "sha256": "cf2f658f340f1c9e8071a05990dc3bd6790b381aac25c6662187857c28026370"
+        },
+        "data/flutter_assets/assets/flags/w80/to.png": {
+          "bytes": 158,
+          "sha256": "d416c9218cb371a4caf10d156d3c15f962ec68e74ade00888fb088e8c8221f64"
+        },
+        "data/flutter_assets/assets/flags/w80/tr.png": {
+          "bytes": 377,
+          "sha256": "1cacb57e7a84e9305b482108bfbd5af019dbb5268d55f8533ee651065cea9f85"
+        },
+        "data/flutter_assets/assets/flags/w80/tt.png": {
+          "bytes": 653,
+          "sha256": "22243a94f33d3d307980935b449c78c26f742ab383a66660f8dd0dee5354e5aa"
+        },
+        "data/flutter_assets/assets/flags/w80/tv.png": {
+          "bytes": 704,
+          "sha256": "d15b679acc477477932637f4f3db7ea53af8628e5fec97f4788006a09c1928e6"
+        },
+        "data/flutter_assets/assets/flags/w80/tw.png": {
+          "bytes": 359,
+          "sha256": "e4b9328efec9ce9646e8b45a44867bb2309b640e0cb428c6da3d029bf640a67d"
+        },
+        "data/flutter_assets/assets/flags/w80/tz.png": {
+          "bytes": 442,
+          "sha256": "f055c70902ca984d6428de9753f220f192559ac726e49f1d5ba72b7a19795324"
+        },
+        "data/flutter_assets/assets/flags/w80/ua.png": {
+          "bytes": 105,
+          "sha256": "a7474c46f2e957e4d27bd034119bc4be4bf9b1faf908338d0f5d97574e1ba07d"
+        },
+        "data/flutter_assets/assets/flags/w80/ug.png": {
+          "bytes": 452,
+          "sha256": "346730a1053373109240fea54b23c5f499e99321dc087c75f7c2f6affdaa9824"
+        },
+        "data/flutter_assets/assets/flags/w80/um.png": {
+          "bytes": 430,
+          "sha256": "59ac434b97e6db8b4fcee5c8e1996995562747e76875625f0886f1936488b7c9"
+        },
+        "data/flutter_assets/assets/flags/w80/us.png": {
+          "bytes": 430,
+          "sha256": "59ac434b97e6db8b4fcee5c8e1996995562747e76875625f0886f1936488b7c9"
+        },
+        "data/flutter_assets/assets/flags/w80/uy.png": {
+          "bytes": 504,
+          "sha256": "f446f4d253f26719bdee356b97231594bc2c01577cb7ddc26cca1652b0b330c1"
+        },
+        "data/flutter_assets/assets/flags/w80/uz.png": {
+          "bytes": 242,
+          "sha256": "25570b17f4a0c3ae9de90db0714fe74e1efb87963cdbf143587df2aec36a6e10"
+        },
+        "data/flutter_assets/assets/flags/w80/va.png": {
+          "bytes": 1113,
+          "sha256": "3bf6a904e87e66a4c8c2ebd601bdff6b2eb8adb26c261a4c79d70c216a160dd7"
+        },
+        "data/flutter_assets/assets/flags/w80/vc.png": {
+          "bytes": 316,
+          "sha256": "e51d83cdc247c4ebe0942fcc248efcc7aa9d31e37f0181ed5c0cd2c5081934b5"
+        },
+        "data/flutter_assets/assets/flags/w80/ve.png": {
+          "bytes": 297,
+          "sha256": "c952d54805f2c507d393168985ccf2cd51df03549222d7a92998853d0e9390e9"
+        },
+        "data/flutter_assets/assets/flags/w80/vg.png": {
+          "bytes": 938,
+          "sha256": "6485d2d920e5e375a15905de1ff5760fa48d4afbdf629b46f774de2163e3627d"
+        },
+        "data/flutter_assets/assets/flags/w80/vi.png": {
+          "bytes": 1992,
+          "sha256": "1021e47157a05edd163b75efd310172627fe5b088af5c49a7c3a1d42c831662f"
+        },
+        "data/flutter_assets/assets/flags/w80/vn.png": {
+          "bytes": 335,
+          "sha256": "78168f022ff2f2a1a97441797776cd4170f7e4cee8a68de50049d21ca6f7e710"
+        },
+        "data/flutter_assets/assets/flags/w80/vu.png": {
+          "bytes": 660,
+          "sha256": "ba612637486886f5ea206a86a36e7c8dfddb310627d482d5b56eb41e7b02b390"
+        },
+        "data/flutter_assets/assets/flags/w80/wf.png": {
+          "bytes": 311,
+          "sha256": "60d7830025a9935c3c17cf1acc8680bf26bdfb12a761c851f48d9d59c4a891bb"
+        },
+        "data/flutter_assets/assets/flags/w80/ws.png": {
+          "bytes": 240,
+          "sha256": "41e9e3b473f4f7300dcae528233c1203f0a713eaaccd4fd7dc16e9251cbe330b"
+        },
+        "data/flutter_assets/assets/flags/w80/xk.png": {
+          "bytes": 558,
+          "sha256": "452450d67ea2a07d004a8d19fd3402291fef0c0ed10fd032d17b1d61f2654c72"
+        },
+        "data/flutter_assets/assets/flags/w80/ye.png": {
+          "bytes": 127,
+          "sha256": "0e24f81877839ab7b673b6100f0ecd81b67488b32c0235cb550c8aab57315e1a"
+        },
+        "data/flutter_assets/assets/flags/w80/yt.png": {
+          "bytes": 1498,
+          "sha256": "9ca657866bb9ce4492eb119a61925e2860f9d2c4965182e6b93415ec5e14f5eb"
+        },
+        "data/flutter_assets/assets/flags/w80/za.png": {
+          "bytes": 543,
+          "sha256": "ed7056cd01ca444344dd15379189fe9da0f6b500f0f1049d5442cee9fe6ea65e"
+        },
+        "data/flutter_assets/assets/flags/w80/zm.png": {
+          "bytes": 292,
+          "sha256": "daa4a37ffc444bc3bb7d4a0ad7e047d8e6aab6b1c5940dc8e9d6346b50f02919"
+        },
+        "data/flutter_assets/assets/flags/w80/zw.png": {
+          "bytes": 585,
+          "sha256": "2a96a36a785b535857baee3e4494dfac275563ab85f0d0ceb6cd112143bdbcfa"
+        },
+        "data/flutter_assets/assets/fonts/IBMPlexMono-Medium.ttf": {
+          "bytes": 129916,
+          "sha256": "4fc14a73ca53ba9d32fd759ae1ca1a3133326035d0dd337862b3ee1633cc156e"
+        },
+        "data/flutter_assets/assets/fonts/IBMPlexMono-Regular.ttf": {
+          "bytes": 128812,
+          "sha256": "a7fdc993f9f0387caedba4e42521136fa97e4c0837ae6239bf0413ccf8af00c2"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-Bold.ttf": {
+          "bytes": 94928,
+          "sha256": "b9584e099e0e7f1e1e914c3037aabb9010c50346a3ce8df5eeeeecc0563044d8"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-Medium.ttf": {
+          "bytes": 95060,
+          "sha256": "f433e5d333be1128d8ec8a28b8aadd0314d10e14e4105406076666bc830fc15d"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-Regular.ttf": {
+          "bytes": 94972,
+          "sha256": "a13d9b41b0a471ce58f0e46d377fa3cc76615e4632c3b15eb397caadf7a13f0a"
+        },
+        "data/flutter_assets/assets/fonts/Manrope-SemiBold.ttf": {
+          "bytes": 95096,
+          "sha256": "6bad1a774228464cc88b8b0271555b266f7a3c64a7bedf15e165fdab4f6ac0ce"
+        },
+        "data/flutter_assets/assets/fonts/SpaceGrotesk-Bold.ttf": {
+          "bytes": 69308,
+          "sha256": "3e756954468ff1cb302dae0414262e72f76a67d87bef3fa1f3226cd0fb9b2d85"
+        },
+        "data/flutter_assets/assets/fonts/SpaceGrotesk-Medium.ttf": {
+          "bytes": 69416,
+          "sha256": "3e699ead1876244fa392243054ddefe7cf631b488438828a8a100731a22ab995"
+        },
+        "data/flutter_assets/assets/fonts/SpaceGrotesk-SemiBold.ttf": {
+          "bytes": 69356,
+          "sha256": "6c0346b8d297ebdc225832833e03e884a26ad99d265ecd3924d46e1ba285ea87"
+        },
+        "data/flutter_assets/assets/icons/openvpn.svg": {
+          "bytes": 640,
+          "sha256": "156b5059455978830072176455788d00e9f0d45bde23688c585b413d63a07a89"
+        },
+        "data/flutter_assets/assets/icons/wireguard.svg": {
+          "bytes": 2460,
+          "sha256": "4b9556bd4d7f38793cac2b992881572e52bbea16733d81bcd62c8d9d6061338f"
+        },
+        "data/flutter_assets/assets/licenses/boringtun.txt": {
+          "bytes": 1496,
+          "sha256": "6dbef24708bad8c727bd80cca58ba8aa1637cdcb2cc6e9a31ea49235717e9391"
+        },
+        "data/flutter_assets/assets/licenses/flagpedia.txt": {
+          "bytes": 499,
+          "sha256": "e5abe6d196526aa6171bfebe812d8a7127c2cb5eee052da09df402047ee97584"
+        },
+        "data/flutter_assets/assets/licenses/vpngate.txt": {
+          "bytes": 55802,
+          "sha256": "3cd084bbb1aa2b51765f6508f2604a3bc0dc98bc326ffd00276cd3bf5ee2e50c"
+        },
+        "data/flutter_assets/FontManifest.json": {
+          "bytes": 1802,
+          "sha256": "11a4d2bc44245d6fd873047e6386dcc73a67f3fa3330196ce83d30eabc7d1db0"
+        },
+        "data/flutter_assets/fonts/MaterialIcons-Regular.otf": {
+          "bytes": 1645184,
+          "sha256": "d9865b671a09d683d13a863089d8825e0f61a37696ce5d7d448bc8023aa62453"
+        },
+        "data/flutter_assets/NativeAssetsManifest.json": {
+          "bytes": 45,
+          "sha256": "9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb"
+        },
+        "data/flutter_assets/NOTICES.Z": {
+          "bytes": 104352,
+          "sha256": "71a9b7c600f461181a7602df7519262e6bae8149fd5e440eb7fbdc16cdc9889c"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w100.ttf": {
+          "bytes": 435552,
+          "sha256": "d9048950054e2f1350abf1286afa3186f2a3a7f585dc770064b0c8fcfc627b12"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w200.ttf": {
+          "bytes": 478064,
+          "sha256": "75cf395ba5ba5900eebf33b5aed94a2491eecfc5ba6ea23b3f459bfd4e2f6ab2"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w300.ttf": {
+          "bytes": 484696,
+          "sha256": "4f69f2f3e1a01279976bc44783e7c29c448803473109da041c7e3c1788e9a463"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w400.ttf": {
+          "bytes": 456484,
+          "sha256": "c31dd2add601c66bfc6eacb15357b98927118ccec6529693f8d2cbf646dc65a6"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w500.ttf": {
+          "bytes": 456476,
+          "sha256": "6b78f647b373e88956fb8ac9c2ca5771d8fc0bd0feb1691f489eca8ba08af52b"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w600.ttf": {
+          "bytes": 494112,
+          "sha256": "6dcd42b418015a11541512ed9e9afba9fea818a7557d4fa2282ef52b1014d1a9"
+        },
+        "data/flutter_assets/packages/lucide_icons_flutter/assets/lucide.ttf": {
+          "bytes": 877160,
+          "sha256": "b27152b2215731ec9a65a3b351b45873f912bf5d15a64e058aac4136699b804e"
+        },
+        "data/flutter_assets/shaders/ink_sparkle.frag": {
+          "bytes": 21856,
+          "sha256": "1fe8436a743884cb65078fe8c7b38e18f5365f2a2961270916f426fd13c604af"
+        },
+        "data/flutter_assets/shaders/stretch_effect.frag": {
+          "bytes": 17624,
+          "sha256": "62a899ff4e168ac6ca888ce7c2f40e5d3fbf8ca20a1c3ded781a116a6d7907e2"
+        },
+        "data/icudtl.dat": {
+          "bytes": 862304,
+          "sha256": "998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5"
+        },
+        "flutter_windows.dll": {
+          "bytes": 21284864,
+          "sha256": "7f04e026b1639b7594e1b6be32844547984da484d47394667e66f0288c83bd6a"
+        },
+        "native_assets.json": {
+          "bytes": 45,
+          "sha256": "9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb"
+        },
+        "url_launcher_windows_plugin.dll": {
+          "bytes": 98304,
+          "sha256": "4636025d44995caad2f8176543b339484f436f2f34063ae9e81bfdd427ce29bc"
+        },
+        "usque.exe": {
+          "bytes": 262144,
+          "sha256": "56513f42e7189431100f002edcfb40e8133d7a225f950d2e4040909e7906b05c"
+        }
+      }
+    },
+    "svg_increment_bytes": 495151,
+    "whole_feature_increment_bytes": 646736,
+    "svg_assets_bytes": 3100,
+    "control_common_dependency_versions_match": true,
+    "control_library_differences": [
+      "widgets/chain_source_icon.dart"
+    ],
+    "control_removed_dependencies": [
+      "args",
+      "flutter_svg",
+      "http",
+      "http_parser",
+      "path_parsing",
+      "petitparser",
+      "typed_data",
+      "vector_graphics",
+      "vector_graphics_codec",
+      "vector_graphics_compiler",
+      "xml"
+    ]
+  },
+  "not_measured": [
+    "Windows ARM64: missing compiler",
+    "Android Flutter AOT",
+    "Compressed MSI/APK packages"
+  ]
+}

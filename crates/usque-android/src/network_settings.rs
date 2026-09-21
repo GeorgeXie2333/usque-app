@@ -77,7 +77,9 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                 changed_fields,
             };
             let commit = store.update(|config| {
-                if patch.changed_fields.iter().any(|f| f == "vpn_gate") {
+                if patch.values.custom_chain().is_none()
+                    && patch.changed_fields.iter().any(|f| f == "vpn_gate")
+                {
                     crate::vpngate::pin_settings(
                         path,
                         &patch.values.vpn_gate,
@@ -85,8 +87,18 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                     )
                     .map_err(StoreError::NetworkSettings)?;
                 }
-                merge_patch(config, &patch)
-                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))
+                let profile = merge_patch(config, &patch)
+                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
+                if profile.chain_enabled() && profile.custom_chain().is_some() {
+                    crate::chain_exit::prepare(
+                        path.parent().ok_or_else(|| {
+                            StoreError::NetworkSettings("Invalid storage path".into())
+                        })?,
+                        &profile,
+                    )
+                    .map_err(StoreError::NetworkSettings)?;
+                }
+                Ok(profile)
             });
             let stored = match commit {
                 Ok((config, profile)) => {

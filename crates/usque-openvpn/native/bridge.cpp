@@ -117,8 +117,8 @@ class Transport final : public TransportClient {
     ~Transport() override { stop(); }
 
     void transport_start() override {
-        if (!config.protocol.is_tcp())
-            throw std::runtime_error("only OpenVPN TCP is supported");
+        if (!config.protocol.is_tcp() && !config.protocol.is_udp())
+            throw std::runtime_error("unsupported OpenVPN transport");
         if (shared.stopping.load()) {
             parent->transport_error(Error::TCP_CONNECT_ERROR, "cancelled");
             return;
@@ -148,7 +148,7 @@ class Transport final : public TransportClient {
             return;
         try {
             BufferAllocated buffer;
-            config.frame->prepare(Frame::READ_LINK_TCP, buffer);
+            config.frame->prepare(config.protocol.is_tcp() ? Frame::READ_LINK_TCP : Frame::READ_LINK_UDP, buffer);
             buffer.write(data.data(), data.size());
             config.stats->inc_stat(SessionStats::BYTES_IN, data.size());
             config.stats->inc_stat(SessionStats::PACKETS_IN, 1);
@@ -378,7 +378,7 @@ class Client final : public ClientAPI::OpenVPNClient {
   public:
     explicit Client(Shared &state) : shared(state) {}
     TransportClientFactory *new_transport_factory(const ExternalTransport::Config &conf) override {
-        if (!conf.protocol.is_tcp())
+        if (!conf.protocol.is_tcp() && !conf.protocol.is_udp())
             throw std::runtime_error("unsupported transport");
         return new TransportFactory(shared, conf);
     }
@@ -426,6 +426,7 @@ struct usque_ovpn_session {
 
 extern "C" usque_ovpn_session *usque_ovpn_create(const uint8_t *config, size_t length,
                                                  const char *remote, uint16_t port,
+                                                 const char *username, const char *password, const char *key_password,
                                                  usque_ovpn_notify notify, void *context) {
     try {
         if (!config || !length || length > 128 * 1024 || !remote || !port || !notify)
@@ -444,10 +445,21 @@ extern "C" usque_ovpn_session *usque_ovpn_create(const uint8_t *config, size_t l
         settings.enableLegacyAlgorithms = false;
         settings.retryOnAuthFailed = false;
         settings.clockTickMS = 100;
+        settings.privateKeyPassword = key_password ? key_password : "";
         auto evaluated = session->client.eval_config(settings);
         std::fill(settings.content.begin(), settings.content.end(), '\0');
+        std::fill(settings.privateKeyPassword.begin(), settings.privateKeyPassword.end(), '\0');
         if (evaluated.error)
             return nullptr;
+        if (username && *username) {
+            ClientAPI::ProvideCreds credentials;
+            credentials.username = username;
+            credentials.password = password ? password : "";
+            const auto result = session->client.provide_creds(credentials);
+            std::fill(credentials.username.begin(), credentials.username.end(), '\0');
+            std::fill(credentials.password.begin(), credentials.password.end(), '\0');
+            if (result.error) return nullptr;
+        }
         return session.release();
     } catch (...) { return nullptr; }
 }

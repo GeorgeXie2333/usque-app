@@ -25,7 +25,29 @@ export 'control_codec.dart'
 /// Desktop [EngineClient] that coordinates request serialization, codec, and
 /// transport. Public API, MethodChannel names, named pipes, and protobuf wire
 /// data are unchanged from the pre-split client.
-class DesktopEngineClient implements EngineClient, VpnGateClient {
+class DesktopEngineClient
+    implements EngineClient, VpnGateClient, ChainProfileClient {
+  @override
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request) =>
+      _serialized(() async {
+        final payload = ControlPayloadWriter()
+          ..string(1, request['action'] as String? ?? 'list')
+          ..string(2, request['source'] as String? ?? '')
+          ..string(3, request['name'] as String? ?? '')
+          ..string(4, request['profile_id'] as String? ?? '')
+          ..string(5, request['revision'] as String? ?? '')
+          ..string(6, request['configuration'] as String? ?? '')
+          ..string(7, request['username'] as String? ?? '')
+          ..string(8, request['password'] as String? ?? '')
+          ..string(9, request['private_key_password'] as String? ?? '');
+        return (await _request(47, payload.takeBytes())).chainProfiles ??
+            (throw const EngineException(
+              'CHAIN_PROFILE_UNAVAILABLE',
+              'Chain profiles are unavailable.',
+            ));
+      });
+  @override
+  Future<String?> pickChainConfiguration() => pickChainConfigurationFile();
   @override
   Future<VpnGateDirectory> listVpnGate({
     String? countryCode,

@@ -35,7 +35,17 @@ impl ControlService {
             .ok_or(ControlServiceError::ProfileNotFound(profile.id))?;
 
         let class = classify_reconfigure(&previous, &profile);
-        if previous.vpn_gate != profile.vpn_gate {
+        if previous
+            .custom_chain()
+            .is_some_and(|s| s.profile_id.is_some())
+            && profile.chain_exit.is_none()
+        {
+            return Err(ControlServiceError::InvalidRequest(
+                "chain_exit capability is required".into(),
+            ));
+        }
+        self.validate_chain_selection(&profile)?;
+        if profile.custom_chain().is_none() && previous.vpn_gate != profile.vpn_gate {
             self.pin_gate_settings(&profile.vpn_gate).await?;
         }
         match class {

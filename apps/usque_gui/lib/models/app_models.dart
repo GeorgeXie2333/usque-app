@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'chain_exit_models.dart';
 import 'diagnostics_models.dart';
 import 'l4_performance.dart';
 import 'vpngate_models.dart';
 
+export 'chain_exit_models.dart';
 export 'l4_performance.dart';
 export 'vpngate_models.dart';
 
@@ -751,6 +753,7 @@ class UsqueProfile {
     this.frontends = const FrontendSettings.windowsDefault(),
     this.directDns = const DirectDnsSettings(),
     this.vpnGate = const VpnGateSettings(),
+    this.chainExit,
   });
 
   static const defaultEndpointIpv4 = '162.159.198.2';
@@ -787,6 +790,13 @@ class UsqueProfile {
   final FrontendSettings frontends;
   final DirectDnsSettings directDns;
   final VpnGateSettings vpnGate;
+  final ChainExitSettings? chainExit;
+  bool get chainEnabled => chainExit?.enabled ?? vpnGate.enabled;
+  ChainSource get chainSource =>
+      chainExit?.source ??
+      (vpnGate.enabled || vpnGate.hasSelection
+          ? ChainSource.vpnGate
+          : ChainSource.openvpnCustom);
 
   factory UsqueProfile.defaultProfile() {
     final android = defaultTargetPlatform == TargetPlatform.android;
@@ -859,6 +869,7 @@ class UsqueProfile {
     FrontendSettings? frontends,
     DirectDnsSettings? directDns,
     VpnGateSettings? vpnGate,
+    ChainExitSettings? chainExit,
   }) {
     final nextFrontends = frontends ?? this.frontends;
     final nextMode = frontends != null
@@ -890,6 +901,7 @@ class UsqueProfile {
       frontends: nextFrontends,
       directDns: directDns ?? this.directDns,
       vpnGate: vpnGate ?? this.vpnGate,
+      chainExit: chainExit ?? this.chainExit,
     );
   }
 
@@ -901,6 +913,7 @@ class UsqueProfile {
       'transport': transport.name,
       'data_plane': dataPlane.wireName,
       'vpn_gate': vpnGate.toMap(),
+      if (chainExit != null) 'chain_exit': chainExit!.toMap(),
       'congestion_control': congestionControl.name,
       'ip_policy': ipPolicy.name,
       'endpoint_v4': endpointIpv4,
@@ -965,6 +978,9 @@ class UsqueProfile {
       id: id,
       name: name,
       mode: modeFromFrontends(migratedFrontends),
+      chainExit: map['chain_exit'] is Map
+          ? ChainExitSettings.fromMap(map['chain_exit'] as Map)
+          : null,
       vpnGate: map['vpn_gate'] is Map
           ? VpnGateSettings.fromMap(map['vpn_gate'] as Map)
           : const VpnGateSettings(),
@@ -1903,6 +1919,9 @@ class NetworkQualitySnapshot {
 class EngineCapabilities {
   const EngineCapabilities({
     this.vpnGateTcp = false,
+    this.chainProfileImport = false,
+    this.chainOpenvpnUdp = false,
+    this.chainWireguard = false,
     this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
     this.applicationQuicBlocking = false,
@@ -1921,6 +1940,9 @@ class EngineCapabilities {
   factory EngineCapabilities.fromMap(Map<Object?, Object?> map) =>
       EngineCapabilities(
         vpnGateTcp: map['vpn_gate_tcp'] == true,
+        chainProfileImport: map['chain_profile_import'] == true,
+        chainOpenvpnUdp: map['chain_openvpn_udp'] == true,
+        chainWireguard: map['chain_wireguard'] == true,
         vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
         applicationQuicBlocking: map['application_quic_blocking'] == true,
@@ -1947,6 +1969,7 @@ class EngineCapabilities {
 
   final bool networkQuality;
   final bool vpnGateTcp;
+  final bool chainProfileImport, chainOpenvpnUdp, chainWireguard;
   final bool vpnGatePoolFavorites;
   final bool networkSettingsApplication;
   final bool applicationQuicBlocking;
@@ -1966,6 +1989,9 @@ class EngineCapabilities {
       identical(this, other) ||
       other is EngineCapabilities &&
           vpnGateTcp == other.vpnGateTcp &&
+          chainProfileImport == other.chainProfileImport &&
+          chainOpenvpnUdp == other.chainOpenvpnUdp &&
+          chainWireguard == other.chainWireguard &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
           applicationQuicBlocking == other.applicationQuicBlocking &&
@@ -1990,6 +2016,9 @@ class EngineCapabilities {
     accountMetadataMutations,
     sharedProxyAuthApplication,
     vpnGateTcp,
+    chainProfileImport,
+    chainOpenvpnUdp,
+    chainWireguard,
     vpnGatePoolFavorites,
     l4Tcp,
     l4TunTcp,
@@ -2138,6 +2167,7 @@ class L4Snapshot {
 class EngineSnapshot {
   const EngineSnapshot({
     this.vpnGate = const VpnGateStatus(),
+    this.chainExit = const ChainExitStatus(),
     this.sessionCongestionControl,
     this.dataPlane,
     this.l4,
@@ -2165,6 +2195,7 @@ class EngineSnapshot {
 
   final ConnectionPhase phase;
   final VpnGateStatus vpnGate;
+  final ChainExitStatus chainExit;
   final CongestionControlAlgorithm? sessionCongestionControl;
   final DataPlaneMode? dataPlane;
   final L4Snapshot? l4;
@@ -2211,6 +2242,11 @@ class EngineSnapshot {
       phase: parsePhase(map['phase'] as String?),
       dataPlane: DataPlaneMode.fromWire(map['data_plane']),
       l4: map['l4'] is Map ? L4Snapshot.fromMap(map['l4'] as Map) : null,
+      chainExit: ChainExitStatus.fromMap(
+        (map['chain_exit'] ?? map['vpn_gate']) is Map
+            ? (map['chain_exit'] ?? map['vpn_gate']) as Map
+            : const {},
+      ),
       vpnGate: map['vpn_gate'] is Map
           ? VpnGateStatus.fromMap(map['vpn_gate'] as Map)
           : const VpnGateStatus(),
@@ -2293,6 +2329,7 @@ class EngineSnapshot {
             sessionCongestionControl == other.sessionCongestionControl &&
             dataPlane == other.dataPlane &&
             vpnGate == other.vpnGate &&
+            chainExit == other.chainExit &&
             l4 == other.l4 &&
             phase == other.phase &&
             transport == other.transport &&
@@ -2321,6 +2358,7 @@ class EngineSnapshot {
     sessionCongestionControl,
     dataPlane,
     vpnGate,
+    chainExit,
     l4,
     phase,
     transport,

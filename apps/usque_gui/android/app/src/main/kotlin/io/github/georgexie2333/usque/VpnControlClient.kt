@@ -173,6 +173,15 @@ internal class VpnControlClient(
     ) {
         scheduler.cancel("vpn-gate-$id")
         val request = pendingVpnGate.remove(id) ?: return
+        if (request.json?.let { org.json.JSONObject(it).optString("command") } == "chain_profile") {
+            val value = json?.let { runCatching { ChainProfileFields.response(it) }.getOrNull() }
+            if (value == null) {
+                request.result.error("CHAIN_PROFILE_UNAVAILABLE", "Chain profile request failed.", null)
+            } else {
+                request.result.success(value)
+            }
+            return
+        }
         val parsed = json?.let { runCatching { VpnGateFields.directory(it) }.getOrNull() }
         if (parsed == null) {
             request.result.error(error ?: "VPN_GATE_UNAVAILABLE", "The catalogue request failed.", null)

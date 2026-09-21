@@ -46,6 +46,7 @@ use usque_transport::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+mod chain_exit;
 pub mod diagnostics;
 #[cfg(any(windows, test))]
 mod event_stream;
@@ -528,7 +529,11 @@ impl ControlService {
     ) -> v1::ConnectionSnapshot {
         let mut proto = snapshot_to_proto(snapshot);
         proto.network_quality = self.network_quality_payload().map(Box::new);
-        proto.vpn_gate = Some(vpngate::status_to_proto(&self.gate_status.borrow(), None));
+        let chain_status = self.gate_status.borrow();
+        proto.vpn_gate = Some(vpngate::status_to_proto(&chain_status, None));
+        proto.chain_exit = Some(v1::ChainExitStatus {
+            metadata_json: serde_json::to_string(&*chain_status).unwrap_or_default(),
+        });
         proto
     }
 
@@ -804,6 +809,11 @@ impl ControlService {
             control_request::Payload::GetCapabilities(_) => Ok(
                 control_response::Payload::Capabilities(current_capabilities()),
             ),
+            control_request::Payload::ChainProfile(request) => {
+                Ok(control_response::Payload::ChainProfiles(
+                    self.chain_profile_command(*request).await?,
+                ))
+            }
             control_request::Payload::ImportLegacyProfiles(request) => {
                 self.import_legacy_profiles(request).await?;
                 Ok(control_response::Payload::ProfileList(
@@ -2329,7 +2339,7 @@ impl ControlService {
         // Location is diagnostic: report Connected immediately and fill ip.sb
         // later, matching the Android runtime. Probe failure must not delay or
         // tear down a healthy session.
-        if profile.vpn_gate.enabled {
+        if profile.chain_enabled() {
             self.spawn_gate_exit_probe(profile_id, session_generation)
                 .await;
         } else {
@@ -2495,7 +2505,7 @@ impl ControlService {
             .as_ref()
             .filter(|active| {
                 active.profile_id == profile_id
-                    && (active.profile.vpn_gate.enabled
+                    && (active.profile.chain_enabled()
                         || active.runtime.gate_status().stage
                             == usque_core::vpngate::GateStage::Error)
                     && active.runtime.can_retry_gate_in_place()
@@ -2615,6 +2625,8 @@ impl ControlService {
             Ok(())
         })
         .await?;
+        usque_core::chain_exit::store::clear_library(&self.cache_dir)
+            .map_err(ControlServiceError::configuration)?;
         self.maintenance.clear_local_state().await?;
         *self.settings.lock().await = Default::default();
         self.settings_tx.send_replace(0);
@@ -3693,7 +3705,10 @@ impl ControlService {
     ) -> Result<Profile, ControlServiceError> {
         // All profile APIs, including older clients, must pin an exact Gate
         // configuration before persisting its reference.
-        self.pin_gate_settings(&profile.vpn_gate).await?;
+        if profile.custom_chain().is_none() {
+            self.pin_gate_settings(&profile.vpn_gate).await?;
+        }
+        self.validate_chain_selection(&profile)?;
         self.update_config(move |latest| {
             let stored = latest
                 .upsert_runtime_profile(profile)
@@ -3745,6 +3760,16 @@ impl ControlService {
                 .iter()
                 .find(|profile| Some(profile.id) == next.active_profile_id)
             {
+                if active.chain_exit.is_none()
+                    && next.network.chain_exit.as_ref().is_some_and(|s| {
+                        s.source != usque_core::chain_exit::ChainSource::VpnGate
+                            && s.profile_id.is_some()
+                    })
+                {
+                    return Err(ControlServiceError::configuration(
+                        usque_core::ConfigError::ChainExitCapabilityRequired,
+                    ));
+                }
                 self.pin_gate_settings(&active.vpn_gate).await?;
                 let mut network = SharedNetworkSettings::from_profile(active);
                 if active.endpoint.is_zero_trust_managed() {
@@ -4571,6 +4596,10 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
     direct_dns.canonicalize();
 
     let mut profile = Profile {
+        chain_exit: source
+            .chain_exit
+            .map(chain_exit::settings_from_proto)
+            .transpose()?,
         id: parse_profile_id(&source.id)?,
         data_plane: data_plane::from_proto(source.data_plane)?,
         name: source.name,
@@ -4718,6 +4747,10 @@ fn parse_listeners(values: &[String]) -> Result<Vec<SocketAddr>, ControlServiceE
 
 pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
     v1::Profile {
+        chain_exit: profile
+            .chain_exit
+            .as_ref()
+            .map(chain_exit::settings_to_proto),
         vpn_gate: Some(vpngate::settings_to_proto(&profile.vpn_gate)),
         data_plane: data_plane::to_proto(profile.data_plane),
         congestion_control: congestion::to_proto(profile.congestion_control),
@@ -4889,6 +4922,9 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
 
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
+        chain_profile_import: cfg!(windows),
+        chain_openvpn_udp: cfg!(windows),
+        chain_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
         application_quic_blocking: true,
@@ -4930,6 +4966,7 @@ fn current_capabilities() -> v1::Capabilities {
 
 pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
     v1::ConnectionSnapshot {
+        chain_exit: None,
         vpn_gate: None,
         data_plane: snapshot
             .data_plane

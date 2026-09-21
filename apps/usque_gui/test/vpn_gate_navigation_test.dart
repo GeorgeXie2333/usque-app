@@ -20,6 +20,10 @@ Future<AppController> openGate(
   tester.view.physicalSize = size;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
+  engine.legacyProfilesImported = true;
+  engine.storedProfiles[0] = engine.storedProfiles[0].copyWith(
+    chainExit: const ChainExitSettings(source: ChainSource.vpnGate),
+  );
   final app = AppController(engine);
   await app.initialize();
   addTearDown(app.dispose);
@@ -28,7 +32,13 @@ Future<AppController> openGate(
     workflowHost(app, home: ShellScreen(controller: app)),
   );
   await tester.pumpAndSettle();
-  await tester.tap(find.text('VPN Gate'));
+  await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
+  await tester.pumpAndSettle();
+  if (find.byType(VpnGateScreen).evaluate().isEmpty) {
+    await tester.tap(find.byType(DropdownButtonFormField<ChainSource>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('VPN Gate').last);
+  }
   await tester.pumpAndSettle();
   return app;
 }
@@ -127,7 +137,8 @@ void main() {
     (tester) async {
       await openGate(tester, GateEngine(), size: const Size(390, 1000));
       final country = find.byType(DropdownButtonFormField<String>);
-      await tester.ensureVisible(country);
+      await Scrollable.ensureVisible(tester.element(country), alignment: 0.5);
+      await tester.pumpAndSettle();
       await tester.tap(country);
       await tester.pumpAndSettle();
       await tester.binding.handlePopRoute();

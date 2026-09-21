@@ -74,11 +74,12 @@ Network settings are shared by all accounts.
 
 ## Features
 
-- Optional [WARP → VPN Gate exit](docs/VPN_GATE.md): choose a volunteer TCP server
-  by country in **Proxy → VPN Gate**. VPN, SOCKS5 and HTTP traffic can share that
-  exit, while your explicit direct rules still apply. The feature is off by default.
+- Optional [chain proxy](docs/CHAIN_PROXY.md): open **Proxy → Chain proxy** for
+  **OpenVPN (Custom)**, **WireGuard (Custom)**, or **VPN Gate**, in that order.
+  Import files or paste configurations, save several, then select and apply one.
+  VPN, SOCKS5 and HTTP share the exit; explicit direct rules still apply. Off by default.
 - Opt-in [experimental L4 mode](docs/L4_PROXY.md) proxies TCP over HTTP/3.
-  Without VPN Gate, it does not forward ordinary UDP; applications that need UDP
+  Without an OpenVPN TCP chain, it does not forward ordinary UDP; applications that need UDP
   may not work. Auto does not select L4.
 - Automatic HTTP/3 connections with HTTP/2 fallback. IPv4 and IPv6 connection
   attempts help find a reachable endpoint; supported H3 network changes can
@@ -131,7 +132,7 @@ choose **DoH** or **DoT** and supply an encrypted resolver's name and IP address
 That resolver receives the queries; connection failures do not switch them to
 plaintext DNS. See [configuration steps and examples](docs/encrypted-direct-dns.md).
 
-Other remote VPN queries use the final tunnel's DNS: WARP normally, or VPN Gate
+Other remote VPN queries use the final tunnel's DNS: WARP normally, or the selected chain exit
 when enabled. Explicit local and proxy DNS settings still apply. Apps that use
 their own encrypted DNS hide domain names from Usque, so direct routing uses IP
 rules. Rule downloads also respect Android Lockdown and any remaining Windows
@@ -184,7 +185,8 @@ Use the pinned toolchains and change-scoped checks in the contribution guide. Co
 Protocol behavior follows [Diniboy1123/usque](https://github.com/Diniboy1123/usque). This repository keeps a snapshot of that client in `oracle/go` for interoperability tests. The Flutter UI and Rust engine are new code. Upstream copyright stays in the license.
 
 First-party source is [MIT](LICENSE.md). Third-party components keep their own
-licenses. The optional [WARP → VPN Gate exit](docs/VPN_GATE.md) embeds OpenVPN 3
+licenses. The optional [chain proxy](docs/CHAIN_PROXY.md) embeds OpenVPN 3
 Core under MPL-2.0 and Mbed TLS under Apache-2.0. Corresponding source, reviewed
 patches and license texts are included in `third_party`; the application exposes
-the notices from its VPN Gate page.
+the notices from its VPN Gate page. WireGuard uses BoringTun 0.7.1 (BSD-3-Clause),
+and local SVG icons use flutter_svg 2.3.0 (MIT); their notices are in the app's license registry.

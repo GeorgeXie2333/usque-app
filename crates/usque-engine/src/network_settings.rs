@@ -86,17 +86,32 @@ impl ControlService {
             })?)?,
             changed_fields: request.changed_fields,
         };
-        if patch.changed_fields.iter().any(|field| field == "vpn_gate") {
+        if patch.values.custom_chain().is_none()
+            && patch.changed_fields.iter().any(|field| field == "vpn_gate")
+        {
             self.pin_gate_settings(&patch.values.vpn_gate).await?;
+        }
+        if patch
+            .changed_fields
+            .iter()
+            .any(|field| field == "chain_exit" || field == "data_plane")
+        {
+            self.validate_chain_selection(&patch.values)?;
         }
         // Only local read/modify/write work holds the configuration guard.
         let mut config = self.config.write().await;
         let store = self.store.clone();
         let edit = patch.clone();
+        let chain_parent = self.cache_dir.clone();
         let commit = tokio::task::spawn_blocking(move || {
             store.update(|latest| {
-                merge_patch(latest, &edit)
-                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))
+                let merged = merge_patch(latest, &edit)
+                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
+                // Validate the committed combination, including fields omitted
+                // by old clients, while holding the configuration transaction.
+                ControlService::validate_chain_selection_at(&chain_parent, &merged)
+                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
+                Ok(merged)
             })
         })
         .await
@@ -258,7 +273,9 @@ impl ControlService {
                                 operation_id,
                                 journal_generation,
                             } => {
-                                let recovery_target = if target.vpn_gate == previous.vpn_gate {
+                                let recovery_target = if target.vpn_gate == previous.vpn_gate
+                                    && target.chain_exit == previous.chain_exit
+                                {
                                     &previous
                                 } else {
                                     &target
@@ -325,7 +342,8 @@ impl ControlService {
                 *self.session_profile.lock().await = Some(target.clone());
                 if let Err(error) = self.connect_locked(target.id).await {
                     if self.settings_intent.load(Ordering::SeqCst) == intent
-                        && previous.vpn_gate == target.vpn_gate
+                        && (previous.vpn_gate == target.vpn_gate
+                            && previous.chain_exit == target.chain_exit)
                     {
                         *self.session_profile.lock().await = Some(previous.clone());
                         let _ = self.connect_locked(previous.id).await;

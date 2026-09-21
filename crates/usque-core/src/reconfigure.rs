@@ -40,9 +40,13 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
             ReconfigureClass::PersistOnly
         };
     }
-    if previous.vpn_gate != next.vpn_gate {
+    if previous.vpn_gate != next.vpn_gate || previous.chain_exit != next.chain_exit {
+        if !previous.chain_enabled() && next.chain_enabled() && previous.mtu != 1280 {
+            return ReconfigureClass::ColdReconnect;
+        }
         let mut without_gate = runtime_next.clone();
         without_gate.vpn_gate = previous.vpn_gate.clone();
+        without_gate.chain_exit = previous.chain_exit.clone();
         if previous == &without_gate {
             return ReconfigureClass::HotVpnGate;
         }
@@ -69,7 +73,7 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
                 // The final Gate gateway creates its synthetic DNS service at
                 // startup only when TUN is enabled. A hot attach cannot supply
                 // the resolver that both platforms advertise to the OS.
-                || previous.vpn_gate.enabled && previous.dns_mode == crate::DnsMode::Tunnel);
+                || previous.chain_enabled() && previous.dns_mode == crate::DnsMode::Tunnel);
     if cold {
         return ReconfigureClass::ColdReconnect;
     }

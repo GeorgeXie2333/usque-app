@@ -156,12 +156,10 @@ fn spawn_runtime(
             return START_TRANSPORT_FAILURE;
         }
     };
-    let selected_gate = if profile.vpn_gate.enabled {
-        let selected = profile.vpn_gate.selection.as_ref().and_then(|selection| {
-            usque_core::vpngate::CatalogueStore::new(&geo_cache_dir)
-                .load_selection(selection)
-                .ok()
-        });
+    let selected_gate = if profile.chain_enabled() {
+        let selected = super::chain_exit::prepare(&geo_cache_dir, &profile)
+            .ok()
+            .flatten();
         let Some(selected) = selected else {
             return START_INVALID_PROFILE;
         };
@@ -605,7 +603,7 @@ async fn run(
 
 fn spawn_exit_probe(context: &GateContext, tunnel: &DataPlaneRuntime, profile: &Profile) {
     let cancellation = context.exit_probe.begin(&context.cancellation);
-    if profile.vpn_gate.enabled && !matches!(tunnel.health(), RuntimeHealth::Connected { .. }) {
+    if profile.chain_enabled() && !matches!(tunnel.health(), RuntimeHealth::Connected { .. }) {
         return;
     }
     // Keep both WARP and Gate diagnostics inside the selected final session.
@@ -741,7 +739,7 @@ async fn run_session(
             command = commands.recv() => {
                 let Some(command) = command else { break; };
                 if matches!(&command, RuntimeCommand::AttachTun { .. } | RuntimeCommand::DetachTun { .. } | RuntimeCommand::RejectFinalNetwork { .. })
-                    || matches!(&command, RuntimeCommand::Reconfigure { profile: next, .. } if next.frontends.tunnel != profile.frontends.tunnel || next.vpn_gate != profile.vpn_gate)
+                    || matches!(&command, RuntimeCommand::Reconfigure { profile: next, .. } if next.frontends.tunnel != profile.frontends.tunnel || (next.vpn_gate != profile.vpn_gate || next.chain_exit != profile.chain_exit))
                 {
                     pending_send.set(None);
                     pending_write = None;
@@ -757,7 +755,7 @@ async fn run_session(
                 )
                 .await;
                 if tunnel.gate_status().stage == usque_core::vpngate::GateStage::Error
-                    || (profile.vpn_gate.enabled && status.lock().is_ok_and(|s| s.phase == "error"))
+                    || (profile.chain_enabled() && status.lock().is_ok_and(|s| s.phase == "error"))
                 {
                     break;
                 }
@@ -934,7 +932,7 @@ async fn handle_runtime_command(
     let status = &gate_context.snapshot;
     match command {
         RuntimeCommand::RejectFinalNetwork { reply, cancelled } => {
-            if !super::jni_command_abandoned(&cancelled) && profile.vpn_gate.enabled {
+            if !super::jni_command_abandoned(&cancelled) && profile.chain_enabled() {
                 gate_context.exit_probe.cancel();
                 detach_tun_locked(tunnel, tun, tun_io);
                 tunnel
@@ -981,14 +979,12 @@ async fn handle_runtime_command(
                         snapshot.exit_country_code = None;
                         snapshot.exit_flag_svg = None;
                     }
-                    let selected = next.vpn_gate.selection.as_ref().and_then(|selection| {
-                        usque_core::vpngate::CatalogueStore::new(&gate_context.cache_dir)
-                            .load_selection(selection)
-                            .ok()
-                    });
+                    let selected = super::chain_exit::prepare(&gate_context.cache_dir, &next)
+                        .ok()
+                        .flatten();
                     let policy = load_geo_direct_policy(&next, &gate_context.cache_dir);
                     let result = match (selected, policy) {
-                        (selected, Ok(policy)) if selected.is_some() || !next.vpn_gate.enabled => {
+                        (selected, Ok(policy)) if selected.is_some() || !next.chain_enabled() => {
                             tunnel
                                 .replace_gate(
                                     &next,

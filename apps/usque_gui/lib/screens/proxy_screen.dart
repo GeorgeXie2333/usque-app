@@ -11,11 +11,11 @@ import '../core/frontend_presentation.dart';
 import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
+import '../widgets/chain_proxy_entry.dart';
 import '../widgets/common.dart';
 import '../widgets/local_proxy_outputs.dart';
 import '../widgets/save_changes_bar.dart';
-import '../widgets/vpn_gate_entry.dart';
-import 'vpn_gate_screen.dart';
+import 'chain_proxy_screen.dart';
 
 ({String key, bool username})? proxyAuthError(
   String username,
@@ -310,13 +310,13 @@ class _ProxyScreenState extends State<ProxyScreen> {
                   PanelStack(
                     spacing: 32,
                     children: [
-                      VpnGateEntry(
+                      ChainProxyEntry(
                         controller: widget.controller,
                         onOpen:
                             widget.onOpenVpnGate ??
                             () => Navigator.of(context).push<void>(
                               MaterialPageRoute(
-                                builder: (_) => VpnGateScreen(
+                                builder: (_) => ChainProxyScreen(
                                   controller: widget.controller,
                                 ),
                               ),

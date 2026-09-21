@@ -11,6 +11,9 @@ use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::time::{Instant, timeout_at};
 use tokio_util::sync::CancellationToken;
+use ts_netstack_smoltcp::CreateSocket;
+use ts_netstack_smoltcp::netcore::Channel;
+use ts_netstack_smoltcp::netsock::{RawSocket, UdpSocket};
 use usque_core::vpngate::{
     CONNECT_TIMEOUT, CatalogueHttp, DirectoryError, MAX_DIRECTORY_BYTES, RESPONSE_TIMEOUT,
     approved_url,
@@ -22,6 +25,7 @@ pub struct InternalNetwork {
     resolver: Option<Resolver>,
     health: watch::Receiver<RuntimeHealth>,
     cancellation: CancellationToken,
+    packet_channel: Option<(Channel, Ipv4Addr, Ipv6Addr)>,
 }
 
 impl InternalNetwork {
@@ -130,6 +134,7 @@ impl InternalNetwork {
             )),
             health: stack.subscribe_health(),
             cancellation: stack.cancellation.clone(),
+            packet_channel: Some((stack.channel.clone(), ipv4, ipv6)),
         }
     }
     pub(crate) fn for_streams(
@@ -143,10 +148,78 @@ impl InternalNetwork {
             resolver: None,
             health,
             cancellation,
+            packet_channel: None,
         }
     }
     pub(crate) fn health(&self) -> watch::Receiver<RuntimeHealth> {
         self.health.clone()
+    }
+    pub(crate) fn with_resolver(mut self, resolver: Resolver) -> Self {
+        self.resolver = Some(resolver);
+        self
+    }
+
+    pub(crate) async fn resolve_endpoint(
+        &self,
+        endpoint: &usque_core::chain_exit::Endpoint,
+        ipv6: Option<bool>,
+        cancel: &CancellationToken,
+    ) -> Result<SocketAddr, DialError> {
+        if let Some(address) = endpoint.address() {
+            return Ok(address);
+        }
+        let resolver = self.resolver.as_ref().ok_or(DialError::Closed)?;
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(DialError::Cancelled),
+            _ = self.cancellation.cancelled() => Err(DialError::Closed),
+            result = tokio::time::timeout(CONNECT_TIMEOUT, resolver.resolve(&endpoint.host)) => {
+                let addresses = result.map_err(|_| DialError::Timeout)?.map_err(|_| DialError::Closed)?;
+                addresses.into_iter().find(|ip| ipv6.is_none_or(|v6| ip.is_ipv6() == v6) && !ip.is_unspecified() && !ip.is_multicast() && !ip.is_loopback())
+                    .map(|ip| SocketAddr::new(ip, endpoint.port)).ok_or(DialError::Closed)
+            }
+        }
+    }
+    pub(crate) async fn bind_udp(
+        &self,
+        remote: SocketAddr,
+        cancel: &CancellationToken,
+    ) -> Result<InternalUdp, DialError> {
+        let (channel, ipv4, ipv6) = self.packet_channel.as_ref().ok_or(DialError::Closed)?;
+        if !matches!(self.health_snapshot(), RuntimeHealth::Connected { .. }) {
+            return Err(DialError::Closed);
+        }
+        let local = SocketAddr::new(
+            if remote.is_ipv4() {
+                (*ipv4).into()
+            } else {
+                (*ipv6).into()
+            },
+            crate::port_allocator::next_udp_port(),
+        );
+        let socket = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(DialError::Cancelled),
+            _ = self.cancellation.cancelled() => return Err(DialError::Closed),
+            result = channel.udp_bind(local) => result.map_err(|_| DialError::Closed)?,
+        };
+        let fragments = if remote.is_ipv6() {
+            Some(tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Err(DialError::Cancelled),
+                _ = self.cancellation.cancelled() => return Err(DialError::Closed),
+                result = channel.raw_open(false, smoltcp::wire::IpProtocol::Ipv6Frag) => result.map_err(|_| DialError::Closed)?,
+            })
+        } else {
+            None
+        };
+        Ok(InternalUdp {
+            socket,
+            remote,
+            cancellation: self.cancellation.clone(),
+            fragments,
+            reassembly: tokio::sync::Mutex::new(crate::chain_udp::Reassembler::default()),
+        })
     }
 
     pub(crate) async fn connect_address(
@@ -320,6 +393,69 @@ impl InternalNetwork {
     }
 }
 
+pub(crate) struct InternalUdp {
+    socket: UdpSocket,
+    remote: SocketAddr,
+    cancellation: CancellationToken,
+    fragments: Option<RawSocket>,
+    reassembly: tokio::sync::Mutex<crate::chain_udp::Reassembler>,
+}
+impl InternalUdp {
+    pub(crate) async fn send(&self, packet: &[u8]) -> Result<(), DialError> {
+        if packet.len() > 16 * 1024 - 48 {
+            return Err(DialError::Protocol);
+        }
+        if packet.len() + 48 > 1280
+            && let (Some(raw), SocketAddr::V6(local), SocketAddr::V6(remote)) =
+                (&self.fragments, self.socket.local_addr(), self.remote)
+        {
+            static NEXT_FRAGMENT: std::sync::atomic::AtomicU32 =
+                std::sync::atomic::AtomicU32::new(1);
+            let fragments = crate::chain_udp::fragments(
+                local,
+                remote,
+                packet,
+                NEXT_FRAGMENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            )
+            .ok_or(DialError::Protocol)?;
+            for fragment in fragments {
+                tokio::select! {
+                    biased;
+                    _ = self.cancellation.cancelled() => return Err(DialError::Closed),
+                    result = raw.send(&fragment) => result.map_err(|_| DialError::Closed)?,
+                }
+            }
+            return Ok(());
+        }
+        tokio::select! {
+            biased;
+            _ = self.cancellation.cancelled() => Err(DialError::Closed),
+            result = self.socket.send_to(self.remote, packet) => result.map_err(|_| DialError::Closed),
+        }
+    }
+    pub(crate) async fn recv(&self) -> Result<Bytes, DialError> {
+        loop {
+            let (source, packet) = tokio::select! {
+                biased;
+                _ = self.cancellation.cancelled() => return Err(DialError::Closed),
+                result = self.socket.recv_from_bytes() => result.map_err(|_| DialError::Closed)?,
+                result = async {
+                    if let Some(raw) = &self.fragments { raw.recv_bytes().await }
+                    else { std::future::pending().await }
+                } => {
+                    let packet = result.map_err(|_| DialError::Closed)?;
+                    if let (SocketAddr::V6(local), SocketAddr::V6(remote)) = (self.socket.local_addr(), self.remote)
+                        && let Some(packet) = self.reassembly.lock().await.receive(&packet, local, remote) { return Ok(packet); }
+                    continue;
+                },
+            };
+            if source == self.remote {
+                return Ok(packet);
+            }
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl CatalogueHttp for InternalNetwork {
     async fn get(
@@ -338,6 +474,106 @@ impl CatalogueHttp for InternalNetwork {
 #[cfg(test)]
 mod catalogue_tests {
     use super::*;
+    use std::time::Duration;
+    use ts_netstack_smoltcp::HasChannel;
+    use ts_netstack_smoltcp::netcore::NetstackControl;
+    #[tokio::test]
+    async fn memory_only_udp_crosses_1280_mtu_stacks_in_both_families() {
+        for (a, b) in [
+            ("192.0.2.1:40001", "192.0.2.2:51820"),
+            ("[2001:db8::1]:40001", "[2001:db8::2]:51820"),
+        ] {
+            let a: SocketAddr = a.parse().unwrap();
+            let b: SocketAddr = b.parse().unwrap();
+            let profile = usque_core::Profile {
+                mtu: 1280,
+                ..Default::default()
+            };
+            let (config, _) = crate::netstack::proxy_netstack_config(&profile);
+            let (left, mut left_pipe) = crate::netstack::bounded_piped(config);
+            let (config, _) = crate::netstack::proxy_netstack_config(&profile);
+            let (right, mut right_pipe) = crate::netstack::bounded_piped(config);
+            let left_channel = left.command_channel();
+            let right_channel = right.command_channel();
+            let left_task = left.spawn_tokio();
+            let right_task = right.spawn_tokio();
+            left_channel.set_ips([a.ip()]).await.unwrap();
+            right_channel.set_ips([b.ip()]).await.unwrap();
+            let bridge = tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        Some(packet) = left_pipe.rx.recv_async() => {
+                            assert!(packet.len() <= 1280);
+                            right_pipe.tx.send_owned_async(packet).await;
+                        }
+                        Some(packet) = right_pipe.rx.recv_async() => {
+                            assert!(packet.len() <= 1280);
+                            left_pipe.tx.send_owned_async(packet).await;
+                        }
+                        else => break,
+                    }
+                }
+            });
+            let cancel = CancellationToken::new();
+            let left = InternalUdp {
+                socket: left_channel.udp_bind(a).await.unwrap(),
+                remote: b,
+                cancellation: cancel.clone(),
+                fragments: if a.is_ipv6() {
+                    Some(
+                        left_channel
+                            .raw_open(false, smoltcp::wire::IpProtocol::Ipv6Frag)
+                            .await
+                            .unwrap(),
+                    )
+                } else {
+                    None
+                },
+                reassembly: Default::default(),
+            };
+            let right = InternalUdp {
+                socket: right_channel.udp_bind(b).await.unwrap(),
+                remote: a,
+                cancellation: cancel.clone(),
+                fragments: if b.is_ipv6() {
+                    Some(
+                        right_channel
+                            .raw_open(false, smoltcp::wire::IpProtocol::Ipv6Frag)
+                            .await
+                            .unwrap(),
+                    )
+                } else {
+                    None
+                },
+                reassembly: Default::default(),
+            };
+            for size in [32, 1312, 9032] {
+                let bytes = vec![0x57; size];
+                left.send(&bytes).await.unwrap();
+                assert_eq!(
+                    tokio::time::timeout(Duration::from_secs(2), right.recv())
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    bytes
+                );
+                right.send(&bytes).await.unwrap();
+                assert_eq!(
+                    tokio::time::timeout(Duration::from_secs(2), left.recv())
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    bytes
+                );
+            }
+            cancel.cancel();
+            assert!(left.recv().await.is_err());
+            assert!(right.send(&[0]).await.is_err());
+            bridge.abort();
+            left_task.abort();
+            right_task.abort();
+        }
+    }
     struct FailureDialer(DialError);
     #[async_trait::async_trait]
     impl TcpDialer for FailureDialer {

@@ -61,6 +61,7 @@ void main() {
       tester.view.physicalSize = const Size(1220, 1000);
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
+      final entry = find.byKey(const ValueKey('proxy-chain-proxy-entry'));
       final engine = _EntryEngine();
       final app = _controllerFor(engine);
       addTearDown(app.dispose);

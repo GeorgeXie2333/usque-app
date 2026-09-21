@@ -1,3 +1,4 @@
+pub mod chain_exit;
 pub mod config;
 pub mod connector;
 pub mod diagnostics;

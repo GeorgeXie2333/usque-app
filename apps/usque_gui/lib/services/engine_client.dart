@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/services.dart';
@@ -190,7 +191,35 @@ abstract interface class VpnGateClient {
   Future<void> vpnGateNode(VpnGateNodeRequest request);
 }
 
-class MethodChannelEngineClient implements EngineClient, VpnGateClient {
+abstract interface class ChainProfileClient {
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request);
+  Future<String?> pickChainConfiguration();
+}
+
+Future<String?> pickChainConfigurationFile() async {
+  const channel = MethodChannel('io.github.georgexie2333.usque/engine');
+  final bytes = await channel.invokeMethod<Uint8List>('readChainConfiguration');
+  if (bytes == null) return null;
+  try {
+    if (bytes.length > 128 * 1024) {
+      throw const FormatException('Configuration size limit');
+    }
+    return utf8.decode(bytes);
+  } finally {
+    bytes.fillRange(0, bytes.length, 0);
+  }
+}
+
+class MethodChannelEngineClient
+    implements EngineClient, VpnGateClient, ChainProfileClient {
+  @override
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request) async =>
+      ChainProfileResult.fromMap(
+        await _invoke<Map<Object?, Object?>>('chainProfile', request) ??
+            const {},
+      );
+  @override
+  Future<String?> pickChainConfiguration() => pickChainConfigurationFile();
   @override
   Future<VpnGateDirectory> listVpnGate({
     String? countryCode,

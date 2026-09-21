@@ -298,6 +298,16 @@ internal class AndroidEngineMethodHandler(
             return
         }
         when (call.method) {
+            "chainProfile" -> {
+                val request =
+                    JSONObject()
+                        .put(
+                            "command",
+                            "chain_profile",
+                        ).put("chain_profile", JSONObject(flutterValueToJson(call.arguments)))
+                controlClient.requestVpnGate(request.toString(), result)
+            }
+
             "listVpnGate", "refreshVpnGate", "vpnGateNode" -> {
                 val values =
                     (call.arguments as? Map<*, *>)

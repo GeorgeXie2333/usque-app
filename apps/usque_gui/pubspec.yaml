@@ -12,6 +12,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   lucide_icons_flutter: ^3.1.19
+  flutter_svg: 2.3.0
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.2
 
@@ -25,6 +26,9 @@ flutter:
   assets:
     - assets/branding/usque-ui-icon.png
     - assets/licenses/vpngate.txt
+    - assets/licenses/boringtun.txt
+    - assets/icons/openvpn.svg
+    - assets/icons/wireguard.svg
     - assets/licenses/flagpedia.txt
     - assets/flags/w80/
   fonts:

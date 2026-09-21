@@ -1,11 +1,15 @@
 # WARP → VPN Gate
 
+VPN Gate is the third source in [Chain proxy](CHAIN_PROXY.md), after
+**OpenVPN (Custom)** and **WireGuard (Custom)**. This reference describes the
+VPN Gate catalogue, trust restrictions and shared OpenVPN driver.
+
 VPN Gate lets you choose a volunteer server as the final Internet exit on
 Windows, Android and Android TV. Usque reaches that server through WARP.
 
 ## Set up an exit
 
-1. Open **Proxy → VPN Gate** and turn on the VPN Gate switch. It is off by default.
+1. Open **Proxy → Chain proxy**, select **VPN Gate**, and turn on its switch. It is off by default.
 2. Refresh the directory, filter by country and select a TCP server.
 3. Save or apply the selection using the bottom bar. Selecting a row alone only
    edits a draft; it does not reconnect.

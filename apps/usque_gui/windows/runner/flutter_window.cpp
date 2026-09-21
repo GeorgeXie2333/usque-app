@@ -11,6 +11,7 @@
 #include <optional>
 #include <thread>
 #include <variant>
+#include <vector>
 
 #include "engine_ipc.h"
 #include "flutter/generated_plugin_registrant.h"
@@ -21,6 +22,42 @@
 #include "zero_trust_protocol.h"
 
 namespace {
+
+std::optional<std::vector<uint8_t>> ReadChainConfiguration(HWND owner,
+                                                        bool& cancelled) {
+  cancelled = false;
+  IFileOpenDialog* dialog = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                              IID_PPV_ARGS(&dialog)))) return std::nullopt;
+  const COMDLG_FILTERSPEC filters[] = {
+      {L"VPN configuration", L"*.ovpn;*.conf"}, {L"All files", L"*.*"}};
+  dialog->SetFileTypes(2, filters);
+  dialog->SetOptions(FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM);
+  const HRESULT shown = dialog->Show(owner);
+  if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED)) cancelled = true;
+  IShellItem* item = nullptr;
+  PWSTR path = nullptr;
+  if (SUCCEEDED(shown)) dialog->GetResult(&item);
+  if (item != nullptr) item->GetDisplayName(SIGDN_FILESYSPATH, &path);
+  dialog->Release();
+  if (item != nullptr) item->Release();
+  if (path == nullptr) return std::nullopt;
+  HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  CoTaskMemFree(path);
+  if (file == INVALID_HANDLE_VALUE) return std::nullopt;
+  std::vector<uint8_t> bytes(128 * 1024 + 1);
+  DWORD count = 0;
+  const BOOL read = ReadFile(file, bytes.data(), static_cast<DWORD>(bytes.size()),
+                            &count, nullptr);
+  CloseHandle(file);
+  if (!read || count == 0 || count > 128 * 1024) {
+    SecureZeroMemory(bytes.data(), bytes.size());
+    return std::nullopt;
+  }
+  bytes.resize(count);
+  return bytes;
+}
 
 constexpr UINT kEngineIpcComplete = WM_APP + 17;
 constexpr UINT kEngineEventAvailable = WM_APP + 18;
@@ -226,6 +263,21 @@ bool FlutterWindow::OnCreate() {
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) {
+        if (call.method_name() == "readChainConfiguration") {
+          bool cancelled = false;
+          auto bytes = ReadChainConfiguration(GetHandle(), cancelled);
+          if (bytes) {
+            flutter::EncodableValue value(std::move(*bytes));
+            result->Success(value);
+            auto& data = std::get<std::vector<uint8_t>>(value);
+            SecureZeroMemory(data.data(), data.size());
+          } else if (cancelled) {
+            result->Success();
+          } else {
+            result->Error("CHAIN_FILE_UNAVAILABLE", "Choose a readable configuration no larger than 128 KiB.");
+          }
+          return;
+        }
         if (call.method_name() == "exchangeFrame") {
           const auto* arguments =
               std::get_if<flutter::EncodableMap>(call.arguments());
