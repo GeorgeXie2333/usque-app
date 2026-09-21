@@ -1452,6 +1452,7 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
 EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var applicationQuicBlocking = false;
   var accountMetadataMutations = false;
+  var sharedProxyAuthApplication = false;
   var networkSettingsApplication = false;
   var l4Tcp = false;
   var l4TunTcp = false;
@@ -1482,6 +1483,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         applicationQuicBlocking = reader.varint(field) != 0;
       case 32:
         accountMetadataMutations = reader.varint(field) != 0;
+      case 33:
+        sharedProxyAuthApplication = reader.varint(field) != 0;
       case 20:
         networkQuality = reader.varint(field) != 0;
       case 21:
@@ -1512,6 +1515,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     networkSettingsApplication: networkSettingsApplication,
     applicationQuicBlocking: applicationQuicBlocking,
     accountMetadataMutations: accountMetadataMutations,
+    sharedProxyAuthApplication: sharedProxyAuthApplication,
     l4Tcp: l4Tcp,
     l4TunTcp: l4TunTcp,
     l4DnsConversion: l4DnsConversion,

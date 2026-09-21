@@ -555,21 +555,34 @@ impl ControlService {
             Some(value) => value.is_empty(),
         };
         if missing_shared {
+            let mut candidate: Option<Zeroizing<Vec<u8>>> = None;
             for profile_id in &account_ids {
-                let password = self
+                if let Some(password) = self
                     .vault
                     .get(*profile_id, SecretRecord::ProxyPassword)
-                    .await?;
-                if let Some(password) = password.filter(|value| !value.is_empty()) {
-                    self.vault
-                        .put(
-                            SHARED_NETWORK_SECRET_ID,
-                            SecretRecord::ProxyPassword,
-                            &password,
-                        )
-                        .await?;
-                    break;
+                    .await?
+                    .filter(|value| !value.is_empty())
+                {
+                    if candidate
+                        .as_ref()
+                        .is_some_and(|saved| saved.as_slice() != password.as_slice())
+                    {
+                        return Err(ControlServiceError::InvalidProxyAuth(
+                            "conflicting legacy proxy passwords; save a new shared credential"
+                                .into(),
+                        ));
+                    }
+                    candidate = Some(password);
                 }
+            }
+            if let Some(password) = candidate {
+                self.vault
+                    .put(
+                        SHARED_NETWORK_SECRET_ID,
+                        SecretRecord::ProxyPassword,
+                        &password,
+                    )
+                    .await?;
             }
         }
         let mut first_error = None;
@@ -3380,34 +3393,90 @@ impl ControlService {
                 .map_err(ControlServiceError::invalid_proxy_auth)?;
         }
 
+        let _submission = self.settings_submission.lock().await;
         let _mutation = self.mutation_lock.lock().await;
-        self.migrate_shared_proxy_password().await?;
-        let mut next = self.config.read().await.clone();
-        if !next.profiles.iter().any(|profile| profile.id == profile_id) {
-            return Err(ControlServiceError::ProfileNotFound(profile_id));
+        self.ensure_profile_exists(profile_id).await?;
+        let transaction = async {
+            // Install the secret before enabling its username. A partial store
+            // failure never downgrades a configured listener to anonymous auth.
+            if !username.is_empty() {
+                self.vault
+                    .put(
+                        SHARED_NETWORK_SECRET_ID,
+                        SecretRecord::ProxyPassword,
+                        &password,
+                    )
+                    .await?;
+            }
+            let next_username = (!username.is_empty()).then_some(username);
+            self.update_config(move |latest| {
+                latest.network.proxy.auth_username = next_username;
+                latest.network.proxy.auth_password = None;
+                Ok(())
+            })
+            .await?;
+            let ids: Vec<_> = {
+                let config = self.config.read().await;
+                config
+                    .profiles
+                    .iter()
+                    .map(|p| p.id)
+                    .chain(config.pending_identity_deletions.iter().copied())
+                    .collect()
+            };
+            for id in ids {
+                self.vault.delete(id, SecretRecord::ProxyPassword).await?;
+            }
+            if password.is_empty() {
+                self.vault
+                    .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+                    .await?;
+            }
+            Ok::<(), ControlServiceError>(())
         }
-        if username.is_empty() {
-            next.network.proxy.auth_username = None;
-            next.network.proxy.auth_password = None;
-            self.vault
-                .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
-                .await?;
-        } else {
-            next.network.proxy.auth_username = Some(username);
-            self.vault
-                .put(
-                    SHARED_NETWORK_SECRET_ID,
-                    SecretRecord::ProxyPassword,
-                    &password,
-                )
-                .await?;
+        .await;
+        if let Err(error) = transaction {
+            // Persistence may be ambiguous across the vault and config file.
+            // Retire the old listeners; a retry can reconcile the saved pair.
+            #[cfg(windows)]
+            self.clear_windows_connection_intent().await;
+            let _ = self.disconnect_locked().await;
+            return Err(error);
         }
-        self.update_config(move |latest| {
-            latest.network.proxy.auth_username = next.network.proxy.auth_username;
-            latest.network.proxy.auth_password = None;
-            Ok(())
-        })
-        .await
+        let active = self
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .map(|active| active.profile.clone());
+        if let Some(mut applied) = active {
+            applied.proxy.auth_username =
+                self.config.read().await.network.proxy.auth_username.clone();
+            if self.attach_proxy_auth(&mut applied).await.is_err() {
+                #[cfg(windows)]
+                self.clear_windows_connection_intent().await;
+                let _ = self.disconnect_locked().await;
+                return Err(ControlServiceError::ProxyAuthApplyFailed);
+            }
+            if self.hot_reconfigure_frontends(&applied).await.is_err() {
+                #[cfg(windows)]
+                self.clear_windows_connection_intent().await;
+                let _ = self.disconnect_locked().await;
+                return Err(ControlServiceError::ProxyAuthApplyFailed);
+            }
+            let generation = {
+                let mut runtime = self.data_plane.lock().await;
+                runtime.as_mut().map(|active| {
+                    active.profile = applied.clone();
+                    active.session_generation
+                })
+            };
+            self.apply_hot_profile_state(&applied).await;
+            *self.session_profile.lock().await = Some(applied.clone());
+            self.publish_settings_runtime(Some(applied), generation)
+                .await;
+        }
+        Ok(())
     }
 
     async fn attach_proxy_auth(&self, profile: &mut Profile) -> Result<(), ControlServiceError> {
@@ -4058,6 +4127,10 @@ pub enum ControlServiceError {
     DisconnectCleanup(String),
     #[error("proxy listener authentication is invalid: {0}")]
     InvalidProxyAuth(String),
+    #[error(
+        "Credentials were saved, but listeners could not apply them. The connection was stopped; retry to reconnect."
+    )]
+    ProxyAuthApplyFailed,
     #[error("geo rules operation failed: {0}")]
     GeoRules(String),
 }
@@ -4090,6 +4163,7 @@ impl ControlServiceError {
             Self::InvalidRequest(_) | Self::InvalidConfiguration(_) => ("INVALID_ARGUMENT", false),
             Self::InvalidDirectDnsConfiguration { code, .. } => (*code, false),
             Self::InvalidProxyAuth(_) => ("CONFIGURATION_INVALID", false),
+            Self::ProxyAuthApplyFailed => ("PROXY_AUTH_APPLY_FAILED", true),
             Self::FeatureUnavailable(_) => ("FEATURE_UNAVAILABLE", false),
             Self::FeatureRemoved(_) => ("FEATURE_REMOVED", false),
             Self::ProfileNotFound(_) => ("PROFILE_NOT_FOUND", false),
@@ -4815,6 +4889,7 @@ fn current_capabilities() -> v1::Capabilities {
         vpn_gate_pool_favorites: true,
         application_quic_blocking: true,
         account_metadata_mutations: true,
+        shared_proxy_auth_application: true,
         l4_tcp: true,
         l4_tun_tcp: cfg!(windows),
         l4_dns_conversion: true,
@@ -7857,6 +7932,115 @@ mod tests {
                 .network
                 .proxy
                 .auth_username
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn shared_proxy_rotation_updates_the_live_session_without_rewriting_other_settings() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile.clone(), false, 3)
+            .await
+            .unwrap();
+        for password in [b"old".to_vec(), b"new".to_vec()] {
+            service
+                .update_proxy_auth(v1::UpdateProxyAuthRequest {
+                    profile_id: profile.id.to_string(),
+                    username: "user".into(),
+                    password: password.clone(),
+                    confirmed: true,
+                })
+                .await
+                .unwrap();
+            let active = service.data_plane.lock().await;
+            let active = active.as_ref().unwrap();
+            assert_eq!(
+                active
+                    .profile
+                    .proxy
+                    .auth_password
+                    .as_deref()
+                    .unwrap()
+                    .as_slice(),
+                password
+            );
+            assert_eq!(active.profile.mtu, profile.mtu);
+            assert_eq!(
+                active.profile.proxy.socks5_listeners,
+                profile.proxy.socks5_listeners
+            );
+        }
+        let state = service.network_settings_state().await;
+        assert!(!format!("{state:?}").contains("password"));
+    }
+
+    #[tokio::test]
+    async fn conflicting_legacy_passwords_are_not_arbitrarily_selected() {
+        let directory = tempfile::tempdir().unwrap();
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .unwrap();
+        let a = service.config_snapshot().await.active_profile().unwrap();
+        let b = Profile {
+            id: Uuid::new_v4(),
+            name: "B".into(),
+            ..a.clone()
+        };
+        service.upsert_profile(b.clone()).await.unwrap();
+        vault
+            .put(a.id, SecretRecord::ProxyPassword, b"a")
+            .await
+            .unwrap();
+        vault
+            .put(b.id, SecretRecord::ProxyPassword, b"b")
+            .await
+            .unwrap();
+        assert!(service.migrate_shared_proxy_password().await.is_err());
+        assert!(
+            vault
+                .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            vault
+                .get(a.id, SecretRecord::ProxyPassword)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        service
+            .update_proxy_auth(v1::UpdateProxyAuthRequest {
+                profile_id: a.id.to_string(),
+                username: "user".into(),
+                password: b"replacement".to_vec(),
+                confirmed: true,
+            })
+            .await
+            .unwrap();
+        assert!(
+            vault
+                .get(a.id, SecretRecord::ProxyPassword)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            vault
+                .get(b.id, SecretRecord::ProxyPassword)
+                .await
+                .unwrap()
                 .is_none()
         );
     }

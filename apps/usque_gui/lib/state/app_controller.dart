@@ -618,25 +618,23 @@ class AppController extends ChangeNotifier {
   }) async {
     final success = await networkSettings.enqueue(
       () => _run(() async {
-        final profile = activeProfile;
-        await _engine.updateProxyAuth(
-          profile.id,
-          username: username,
-          password: password,
-          confirmed: true,
-        );
-        final next = profile.copyWith(
-          proxy: profile.proxy.copyWith(authUsername: username),
-        );
-        if (profile.id == activeProfileId && snapshot.isConnected) {
-          await _engine.reconfigureActiveProfile(next);
-        } else {
-          await _engine.upsertProfile(next);
+        try {
+          await _engine.updateProxyAuth(
+            activeProfileId,
+            username: username,
+            password: password,
+            confirmed: true,
+          );
+        } finally {
+          // Read back even when persistence succeeded but runtime application failed.
+          try {
+            await _refreshProfileCatalog();
+          } on Object {
+            // Keep the original credential result if catalogue readback fails.
+          }
+          await networkSettings.refresh();
+          await refreshSnapshot();
         }
-        profiles = profiles
-            .map((item) => item.id == next.id ? next : item)
-            .toList(growable: false);
-        sharedNetwork = next;
       }, affectsConnection: false),
     );
     if (success) {

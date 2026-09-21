@@ -271,6 +271,13 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
     bool confirmed = true,
   }) {
     return _serialized(() async {
+      final capabilities = (await _request(24, Uint8List(0))).capabilities;
+      if (capabilities?.sharedProxyAuthApplication != true) {
+        throw const EngineException(
+          'PROXY_AUTH_UNSUPPORTED',
+          'Update the Engine before saving shared credentials.',
+        );
+      }
       final secret = Uint8List.fromList(utf8.encode(password));
       try {
         final payload = ControlPayloadWriter()

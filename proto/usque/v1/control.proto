@@ -396,6 +396,7 @@ message Capabilities {
   bool vpn_gate_pool_favorites = 30;
   bool application_quic_blocking = 31;
   bool account_metadata_mutations = 32;
+  bool shared_proxy_auth_application = 33;
 }
 
 message FrontendStatus {

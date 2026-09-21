@@ -553,11 +553,20 @@ class AndroidEngineMethodHandlerTest {
             ),
             saved,
         )
+        assertEquals(0, saved.completionCount)
+        assertEquals(true, endpoint.lastExtras?.get("auth_only"))
+        controlClient.deliverSnapshotReply(
+            endpoint.messages.last().second,
+            null,
+            null,
+            mapOf("phase" to "disconnected"),
+        )
+        assertEquals(1, saved.completionCount)
         assertNull(saved.errorCode)
         assertEquals(
             "s3cret",
             identityStore
-                .get("p1", SecureIdentityStore.Record.PROXY_PASSWORD)!!
+                .get(SharedProxyCredentials.SHARED_ID, SecureIdentityStore.Record.PROXY_PASSWORD)!!
                 .toString(Charsets.UTF_8),
         )
 
@@ -574,6 +583,13 @@ class AndroidEngineMethodHandlerTest {
             ),
             cleared,
         )
+        controlClient.deliverSnapshotReply(
+            endpoint.messages.last().second,
+            null,
+            null,
+            mapOf("phase" to "disconnected"),
+        )
+        assertNull(identityStore.get(SharedProxyCredentials.SHARED_ID, SecureIdentityStore.Record.PROXY_PASSWORD))
         assertNull(cleared.errorCode)
         assertNull(identityStore.get("p1", SecureIdentityStore.Record.PROXY_PASSWORD))
     }

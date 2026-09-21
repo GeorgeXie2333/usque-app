@@ -31,6 +31,27 @@ class _FailingConnection extends FakeEngineClient {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('credential persistence and application failures remain distinct', () {
+    for (final locale in [
+      LocalePreference.english,
+      LocalePreference.simplifiedChinese,
+    ]) {
+      final strings = AppStrings(locale);
+      expect(
+        userFacingFailure(strings, code: 'PROXY_AUTH_APPLY_FAILED'),
+        strings.get('settings_failed'),
+      );
+      expect(
+        userFacingFailure(strings, code: 'PROXY_AUTH_SAVE_FAILED'),
+        strings.get('settings_save_failed'),
+      );
+      expect(
+        userFacingFailure(strings, code: 'PROXY_AUTH_UNSUPPORTED'),
+        strings.get('settings_unsupported'),
+      );
+    }
+  });
+
   test('replies and asynchronous failures never expose backend text', () async {
     for (final locale in [
       LocalePreference.english,

@@ -558,7 +558,13 @@ class MethodChannelEngineClient implements EngineClient, VpnGateClient {
     required String username,
     required String password,
     bool confirmed = true,
-  }) {
+  }) async {
+    if ((await getCapabilities())?.sharedProxyAuthApplication != true) {
+      throw const EngineException(
+        'PROXY_AUTH_UNSUPPORTED',
+        'Update the Engine before saving shared credentials.',
+      );
+    }
     return _invoke<void>('updateProxyAuth', <String, Object>{
       'profile_id': profileId,
       'username': username,

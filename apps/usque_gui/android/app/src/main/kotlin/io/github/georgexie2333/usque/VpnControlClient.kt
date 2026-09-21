@@ -594,6 +594,7 @@ internal class VpnControlClient(
     fun requestReconfigure(
         profileJson: String,
         result: MethodChannel.Result,
+        authOnly: Boolean = false,
     ): Boolean {
         if (destroyed) {
             result.error(
@@ -613,7 +614,7 @@ internal class VpnControlClient(
                 )
                 return true
             }
-            pendingReconfigure = PendingReconfigure(profileJson, result)
+            pendingReconfigure = PendingReconfigure(profileJson, result, authOnly)
             bind()
             val token = reconfigurePendingToken(result)
             scheduler.postDelayed(reconfigureTimeoutMillis, token) {
@@ -633,7 +634,7 @@ internal class VpnControlClient(
         if (!service.send(
                 UsqueVpnService.MSG_RECONFIGURE,
                 requestId,
-                mapOf(UsqueVpnService.EXTRA_PROFILE_JSON to profileJson),
+                mapOf(UsqueVpnService.EXTRA_PROFILE_JSON to profileJson, "auth_only" to authOnly),
             )
         ) {
             pendingSnapshots.remove(requestId)
@@ -1156,13 +1157,14 @@ internal class VpnControlClient(
         pendingReconfigure?.let { pending ->
             pendingReconfigure = null
             scheduler.cancel(reconfigurePendingToken(pending.result))
-            requestReconfigure(pending.profileJson, pending.result)
+            requestReconfigure(pending.profileJson, pending.result, pending.authOnly)
         }
     }
 
     private data class PendingReconfigure(
         val profileJson: String,
         val result: MethodChannel.Result,
+        val authOnly: Boolean = false,
     )
 
     private fun snapshotFromBundle(bundle: Bundle): Map<String, Any?> {

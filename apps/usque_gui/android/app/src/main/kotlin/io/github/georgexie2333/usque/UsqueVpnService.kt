@@ -605,6 +605,10 @@ class UsqueVpnService : VpnService() {
         request: Message,
         settingsToken: Long? = null,
     ) {
+        if (request.data.getBoolean("auth_only", false)) {
+            reconfigureProxyAuth(request)
+            return
+        }
         val settingsRequest = settingsToken != null
         if (settingsApplication.busy && !settingsRequest) {
             replyControlError(request, "NETWORK_SETTINGS_BUSY", "A settings application is in progress.")
@@ -664,7 +668,7 @@ class UsqueVpnService : VpnService() {
                 mainHandler.post { replyWithSnapshot(request) }
                 return@execute
             }
-            val result = NativeEngine.reconfigure(profileJson)
+            val result = withProxyPassword(profileJson) { NativeEngine.reconfigure(profileJson, it) }
             if (!isCurrent(generation)) {
                 mainHandler.post { replyWithSnapshot(request) }
                 return@execute
@@ -818,7 +822,7 @@ class UsqueVpnService : VpnService() {
                 return false
             }
             lastTunIdentity.set(tunIdentity(profile))
-            val attached = NativeEngine.attachTun(descriptor.fd, profileJson)
+            val attached = withProxyPassword(profileJson) { NativeEngine.attachTun(descriptor.fd, profileJson, it) }
             if (attached != NativeEngine.OK) {
                 if (!profile.vpnGateEnabled) {
                     tunnel.compareAndSet(descriptor, null)
@@ -1140,7 +1144,8 @@ class UsqueVpnService : VpnService() {
                 // Keep both FDs until native packet ownership has transferred.
                 val previous = tunnel.getAndSet(finalDescriptor)
                 descriptor = finalDescriptor
-                val attached = NativeEngine.attachTun(finalDescriptor.fd, profileJson)
+                val attached =
+                    withProxyPassword(profileJson) { NativeEngine.attachTun(finalDescriptor.fd, profileJson, it) }
                 closeQuietly(previous)
                 if (attached != NativeEngine.OK) {
                     stopNativeRuntime(beginNativeStop())
@@ -2354,6 +2359,105 @@ class UsqueVpnService : VpnService() {
         val gateStatus: String? = null,
     )
 
+    private fun withProxyPassword(
+        profileJson: String,
+        operation: (ByteArray) -> Int,
+    ): Int {
+        val password = loadProxyPassword(JSONObject(profileJson).optString("id"), profileJson)
+        return try {
+            operation(password)
+        } finally {
+            password.fill(0)
+        }
+    }
+
+    private fun reconfigureProxyAuth(request: Message) {
+        val current = activeProfileJson.get()
+        if (current == null && !nativeRuntimeActive.get()) {
+            replyWithSnapshot(request)
+            return
+        }
+        if (settingsApplication.busy || runtimeReconfigureInFlight || !nativeRuntimeActive.get()) {
+            disconnect(stopService = false)
+            replyControlError(request, "PROXY_AUTH_APPLY_FAILED", "Credentials were saved. Reconnect to apply them.")
+            return
+        }
+        val generation = connectionGeneration.get()
+        runtimeReconfigureInFlight = true
+        engineExecutor.execute {
+            var applied: String? = null
+            val code =
+                try {
+                    SharedProxyCredentials.withCurrent(
+                        AndroidEngineMethodHandler.SecureIdentityStoreAdapter(SecureIdentityStore(this)),
+                        {
+                            JSONObject(
+                                requireNotNull(
+                                    NativeEngine.applyProfileCommand(settingsPath, "{\"command\":\"list_profiles\"}"),
+                                ),
+                            )
+                        },
+                    ) { catalog, password ->
+                        val source = JSONObject(requireNotNull(current))
+                        val shared = catalog.getJSONObject("shared_network_profile").getJSONObject("proxy")
+                        source.getJSONObject("proxy").put("auth_username", shared.optString("auth_username"))
+                        val next = source.toString()
+                        if (isCurrent(generation)) {
+                            applied = next
+                            NativeEngine.reconfigure(next, password)
+                        } else {
+                            NativeEngine.OK
+                        }
+                    }
+                } catch (_: Exception) {
+                    NativeEngine.ERROR_NOT_LINKED
+                }
+            mainHandler.post {
+                if (!isCurrent(generation)) {
+                    replyWithSnapshot(request)
+                    return@post
+                }
+                runtimeReconfigureInFlight = false
+                if (code == NativeEngine.OK && applied != null) {
+                    try {
+                        activeProfileJson.set(applied)
+                        recoveryPreferences.edit {
+                            putString(RECOVERY_PROFILE, applied)
+                            val last = recoveryPreferences.getString(LAST_PROFILE, null)
+                            if (last != null) {
+                                val saved = JSONObject(last)
+                                saved
+                                    .getJSONObject(
+                                        "proxy",
+                                    ).put(
+                                        "auth_username",
+                                        JSONObject(applied!!).getJSONObject("proxy").optString("auth_username"),
+                                    )
+                                putString(LAST_PROFILE, saved.toString())
+                            }
+                        }
+                        refreshNativeSnapshot()
+                        replyWithSnapshot(request)
+                    } catch (_: Exception) {
+                        disconnect(stopService = false)
+                        replyControlError(
+                            request,
+                            "PROXY_AUTH_APPLY_FAILED",
+                            "Credentials were saved. Reconnect to apply them.",
+                        )
+                    }
+                } else {
+                    disconnect(stopService = false)
+                    replyControlError(
+                        request,
+                        "PROXY_AUTH_APPLY_FAILED",
+                        "Credentials were saved. Reconnect to apply them.",
+                    )
+                }
+            }
+        }
+    }
+
     private fun loadProxyPassword(
         profileId: String,
         profileJson: String,
@@ -2369,7 +2473,14 @@ class UsqueVpnService : VpnService() {
             return ByteArray(0)
         }
         return runCatching {
-            SecureIdentityStore(this).get(profileId, SecureIdentityStore.Record.PROXY_PASSWORD)
+            val catalog =
+                JSONObject(
+                    requireNotNull(NativeEngine.applyProfileCommand(settingsPath, "{\"command\":\"list_profiles\"}")),
+                )
+            SharedProxyCredentials.read(
+                AndroidEngineMethodHandler.SecureIdentityStoreAdapter(SecureIdentityStore(this)),
+                catalog,
+            )
         }.getOrNull() ?: ByteArray(0)
     }
 

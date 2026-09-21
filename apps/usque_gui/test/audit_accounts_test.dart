@@ -126,6 +126,16 @@ void main() {
         await app.updateProxyAuth(username: 'audit', password: 'test-only'),
         true,
       );
+      expect(app.activeProfile.proxy.authUsername, 'audit');
+      // The credential operation must not trigger a second full-profile write.
+      final writes = engine.calls
+          .where((call) => call == 'upsertProfile')
+          .length;
+      await app.updateProxyAuth(username: 'audit', password: 'rotated');
+      expect(
+        engine.calls.where((call) => call == 'upsertProfile').length,
+        writes,
+      );
       expect(app.sharedNetwork.allowLan, false);
       app.renameProfile(b.id, 'Renamed');
       await app.flushProfileWrites();

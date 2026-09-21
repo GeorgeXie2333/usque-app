@@ -1282,6 +1282,21 @@ mod tests {
             407
         );
 
+        authed.proxy.auth_password = Some(Zeroizing::new(b"new".to_vec()));
+        runtime.reconfigure_frontends(&authed).await.unwrap();
+        assert_eq!(
+            socks_userpass_status(socks_addr, b"lan-user", b"s3cret").await,
+            1
+        );
+        assert_eq!(
+            socks_userpass_status(socks_addr, b"lan-user", b"new").await,
+            0
+        );
+        assert_eq!(
+            http_status(http_addr, Some("Basic bGFuLXVzZXI6czNjcmV0")).await,
+            407
+        );
+
         runtime.shutdown().await;
     }
 

@@ -25,6 +25,26 @@ The command cannot create or rename accounts, change identity, or write
 credentials. Unknown fields and managed Zero Trust endpoint edits are rejected.
 Rust disables system proxy when HTTP is disabled.
 
+Shared listener credentials use their own native transaction, negotiated by
+capability field 33 (`shared_proxy_auth_application`). The GUI never follows
+that transaction with a full-profile write. The native owner saves the password
+before enabling the username, applies only the credential change to a running
+session, and waits for the listener result. An application failure returns
+`PROXY_AUTH_APPLY_FAILED` and stops the old listeners. A disconnected session
+stays disconnected. A persistence error across the vault and configuration is
+not a success: the connection is retired and the user must save again.
+
+Android stores one encrypted shared password and serializes its migration,
+write and runtime read with a stable file lock. Account deletion retains the
+shared record; clearing credentials or all data removes it. Legacy passwords
+are migrated only when they agree. Conflicts retain the old records and require
+an explicit replacement. JNI reconfigure and TUN attachment receive a fresh
+secret buffer, clear it after use, and never substitute the previous password.
+
+代理凭据的“保存用户名和密码”操作会等待原生监听更新。若凭据已保存但未能生效，
+应用会显示错误并停止旧连接；重新连接会读取已保存的凭据。清空用户名和密码会
+移除共享凭据，删除单个账户不会移除它。
+
 The result includes process epoch, sequence, operation ID, session ID, saved
 profile, optional confirmed session profile, deferred fields, a sanitized error
 code, and runtime status. The optional persisted flag means:

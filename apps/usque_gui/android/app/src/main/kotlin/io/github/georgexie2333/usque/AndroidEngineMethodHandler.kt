@@ -117,6 +117,8 @@ internal class AndroidEngineMethodHandler(
      * Identity vault surface — injectable for JVM tests.
      */
     interface IdentityStore {
+        fun <T> withProxyLock(action: () -> T): T = action()
+
         fun put(
             profileId: String,
             record: SecureIdentityStore.Record,
@@ -210,6 +212,8 @@ internal class AndroidEngineMethodHandler(
     internal class SecureIdentityStoreAdapter(
         private val store: SecureIdentityStore,
     ) : IdentityStore {
+        override fun <T> withProxyLock(action: () -> T): T = store.withProxyLock(action)
+
         override fun put(
             profileId: String,
             record: SecureIdentityStore.Record,
@@ -235,7 +239,7 @@ internal class AndroidEngineMethodHandler(
         }
 
         override fun clearAll() {
-            store.clearAll()
+            store.withProxyLock { store.clearAll() }
         }
     }
 
@@ -926,18 +930,76 @@ internal class AndroidEngineMethodHandler(
         }
         identityExecutor.execute {
             try {
-                if (username.isEmpty()) {
-                    identityStore.delete(profileId, SecureIdentityStore.Record.PROXY_PASSWORD)
-                } else {
-                    identityStore.put(profileId, SecureIdentityStore.Record.PROXY_PASSWORD, passwordBytes)
+                val catalog =
+                    JSONObject(
+                        requireNotNull(
+                            engineBridge.applyProfileCommand(profileConfigPath, "{\"command\":\"list_profiles\"}"),
+                        ),
+                    )
+                check(profileId in SharedProxyCredentials.accountIds(catalog)) { "Account no longer exists" }
+                SharedProxyCredentials.save(identityStore, catalog, passwordBytes) {
+                    requireNotNull(
+                        engineBridge.applyProfileCommand(
+                            profileConfigPath,
+                            JSONObject()
+                                .put("command", "set_proxy_username")
+                                .put("profile_id", profileId)
+                                .put("username", username)
+                                .toString(),
+                        ),
+                    )
                 }
-                mainScheduler.post { result.success(null) }
+                mainScheduler.post {
+                    controlClient.requestReconfigure(
+                        "{}",
+                        object : MethodChannel.Result {
+                            override fun success(value: Any?) {
+                                result.success(null)
+                            }
+
+                            override fun error(
+                                code: String,
+                                message: String?,
+                                details: Any?,
+                            ) {
+                                result.error(code, message, details)
+                            }
+
+                            override fun notImplemented() {
+                                result.notImplemented()
+                            }
+                        },
+                        authOnly = true,
+                    )
+                }
             } catch (error: Exception) {
                 mainScheduler.post {
-                    result.error(
-                        "CONFIGURATION_INVALID",
-                        error.message ?: "Listener credentials could not be saved.",
-                        null,
+                    controlClient.requestDisconnect(
+                        object : MethodChannel.Result {
+                            private fun failed() {
+                                result.error(
+                                    "PROXY_AUTH_SAVE_FAILED",
+                                    "Credentials could not be fully saved. Retry saving before reconnecting.",
+                                    null,
+                                )
+                            }
+
+                            override fun success(value: Any?) {
+                                failed()
+                            }
+
+                            override fun error(
+                                code: String,
+                                message: String?,
+                                details: Any?,
+                            ) {
+                                failed()
+                            }
+
+                            override fun notImplemented() {
+                                failed()
+                            }
+                        },
                     )
                 }
             } finally {
@@ -1174,6 +1236,7 @@ internal class AndroidEngineMethodHandler(
                     engineBridge.applyProfileCommand(profileConfigPath, commandJson)
                         ?: throw IllegalStateException("Rust returned no profile catalog")
                 var responseObject = JSONObject(response)
+                SharedProxyCredentials.read(identityStore, responseObject)?.fill(0)
                 responseObject = recoverPendingIdentityReplacements(responseObject)
                 response = responseObject.toString()
                 val pending = responseObject.optJSONArray("pending_identity_deletions")

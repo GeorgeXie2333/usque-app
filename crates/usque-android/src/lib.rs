@@ -122,6 +122,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
         let json = serde_json::json!({
             "network_settings_application": engine_ready(),
             "account_metadata_mutations": engine_ready(),
+            "shared_proxy_auth_application": engine_ready(),
             "l4_tcp": engine_ready(),
             "l4_tun_tcp": engine_ready(),
             "l4_dns_conversion": engine_ready(),
@@ -436,6 +437,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRec
     mut environment: EnvUnowned<'local>,
     _class: JClass<'local>,
     profile_json: JString<'local>,
+    proxy_password: JByteArray<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
         let profile_json = match profile_json.try_to_string(environment) {
@@ -445,6 +447,14 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRec
         let profile = match parse_android_profile(&profile_json) {
             Ok(profile) => profile,
             Err(_) => return START_INVALID_PROFILE,
+        };
+        let password = match environment.convert_byte_array(&proxy_password) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        let profile = match attach_android_proxy_password(profile, password) {
+            Ok(profile) => profile,
+            Err(code) => return code,
         };
         reconfigure_engine(profile)
     })
@@ -456,6 +466,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeAtt
     _class: JClass<'local>,
     tun_file_descriptor: jint,
     profile_json: JString<'local>,
+    proxy_password: JByteArray<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
         if tun_file_descriptor < 0 {
@@ -468,6 +479,14 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeAtt
         let profile = match parse_android_profile(&profile_json) {
             Ok(profile) => profile,
             Err(_) => return START_INVALID_PROFILE,
+        };
+        let password = match environment.convert_byte_array(&proxy_password) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        let profile = match attach_android_proxy_password(profile, password) {
+            Ok(profile) => profile,
+            Err(code) => return code,
         };
         attach_tun_engine(tun_file_descriptor, profile)
     })
@@ -1291,6 +1310,10 @@ enum AndroidConfigCommand {
         identity_provider: Option<String>,
         organization: Option<String>,
     },
+    SetProxyUsername {
+        profile_id: String,
+        username: String,
+    },
     RenameProfile {
         profile_id: String,
         name: String,
@@ -1452,6 +1475,22 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                     .map_err(|error| error.to_string())?;
             }
             config.preferences.profiles_migrated_from_flutter = true;
+            changed = true;
+        }
+        AndroidConfigCommand::SetProxyUsername {
+            profile_id,
+            username,
+        } => {
+            let id = parse_value(&profile_id, "profile ID")?;
+            if config.account(id).is_none() {
+                return Err("profile not found".into());
+            }
+            if !username.is_empty() {
+                usque_core::config::validate_proxy_username(&username)
+                    .map_err(|e| e.to_string())?;
+            }
+            config.network.proxy.auth_username = (!username.is_empty()).then_some(username);
+            config.network.proxy.auth_password = None;
             changed = true;
         }
         AndroidConfigCommand::RenameProfile { profile_id, name } => {
@@ -3416,6 +3455,15 @@ mod tests {
         let attached =
             attach_android_proxy_password(profile, Zeroizing::new(b"s3cret".to_vec())).unwrap();
         assert!(attached.proxy.listener_credentials().unwrap().is_some());
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["proxy"]["auth_username"] = serde_json::json!("lan-user");
+        let next = parse_android_profile(&source.to_string()).unwrap();
+        assert!(attach_android_proxy_password(next.clone(), Zeroizing::new(vec![])).is_err());
+        let rotated = attach_android_proxy_password(next, Zeroizing::new(b"new".to_vec())).unwrap();
+        assert_eq!(
+            usque_core::classify_reconfigure(&attached, &rotated),
+            usque_core::ReconfigureClass::HotFrontends
+        );
     }
 
     #[test]

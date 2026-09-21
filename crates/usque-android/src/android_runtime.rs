@@ -956,8 +956,9 @@ async fn handle_runtime_command(
                 let _ = reply.send(START_PLATFORM_FAILURE);
                 return;
             }
-            if next.proxy.listener_auth_username().is_some() && next.proxy.auth_password.is_none() {
-                next.proxy.auth_password = profile.proxy.auth_password.clone();
+            if next.proxy.listener_credentials().is_err() {
+                let _ = reply.send(START_INVALID_PROFILE);
+                return;
             }
             let code = match classify_reconfigure(profile, &next) {
                 ReconfigureClass::HotTrafficPolicy => {
@@ -1112,8 +1113,9 @@ async fn handle_runtime_command(
                     return;
                 }
             };
-            if next.proxy.listener_auth_username().is_some() && next.proxy.auth_password.is_none() {
-                next.proxy.auth_password = profile.proxy.auth_password.clone();
+            if next.proxy.listener_credentials().is_err() {
+                let _ = reply.send(START_INVALID_PROFILE);
+                return;
             }
             if let Err(error) = tunnel.reconfigure_frontends(&next).await {
                 tunnel.detach_tun();

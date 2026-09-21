@@ -383,6 +383,8 @@ class FakeEngineClient implements EngineClient {
     }
     lastProxyAuthUsername = username;
     lastProxyAuthPassword = password;
+    settingsState = null;
+    settingsSequence++;
     storedProfiles = storedProfiles
         .map(
           (profile) => profile.copyWith(

@@ -8,12 +8,13 @@ use crate::{ControlService, ControlServiceError, profile_to_proto};
 impl ControlService {
     pub(crate) async fn reconfigure_active_profile(
         &self,
-        profile: Profile,
+        mut profile: Profile,
     ) -> Result<v1::ReconfigureResult, ControlServiceError> {
         profile
             .validate()
             .map_err(ControlServiceError::profile_configuration)?;
         let _mutation = self.mutation_lock.lock().await;
+        self.attach_proxy_auth(&mut profile).await?;
         let active_profile_id = self
             .data_plane
             .lock()
