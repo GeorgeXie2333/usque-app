@@ -415,6 +415,10 @@ internal class AndroidEngineMethodHandler(
                 upsertProfile(call, result)
             }
 
+            "renameProfile" -> {
+                renameProfile(call, result)
+            }
+
             "deleteProfile" -> {
                 deleteProfile(call, result)
             }
@@ -747,6 +751,23 @@ internal class AndroidEngineMethodHandler(
                     "profile" to profile,
                 ),
             ),
+            result,
+        )
+    }
+
+    private fun renameProfile(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val id = call.argument<String>("profile_id")
+        val name = call.argument<String>("name")
+        if (id == null || name == null) {
+            result.error("INVALID_ARGUMENT", "The account name is missing.", null)
+            return
+        }
+        if (!requireProfileEngine(result)) return
+        runProfileCommand(
+            flutterValueToJson(mapOf("command" to "rename_profile", "profile_id" to id, "name" to name)),
             result,
         )
     }

@@ -119,7 +119,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'delete': 'Xóa',
   'delete_profile': 'Xóa tài khoản?',
   'delete_profile_body':
-      'Tài khoản này sẽ bị xóa khỏi danh sách cùng các cài đặt cục bộ. Thông tin đăng nhập WARP đã lưu vẫn còn trên thiết bị này.',
+      "Xóa tài khoản này và dữ liệu đăng nhập WARP đã lưu trên thiết bị? Hệ thống cũng sẽ thử hủy liên kết giấy phép nếu áp dụng.",
   'delete_zero_trust_profile_body':
       'Tài khoản và thông tin đăng nhập này sẽ bị xóa khỏi thiết bị. Để hủy đăng ký thiết bị trong Zero Trust của tổ chức, hãy liên hệ quản trị viên.',
   'license_not_applicable': 'Tài khoản tổ chức · Thử nghiệm',

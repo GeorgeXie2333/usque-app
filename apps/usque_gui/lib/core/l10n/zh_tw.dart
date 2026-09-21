@@ -106,7 +106,7 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'edit': '編輯',
   'delete': '刪除',
   'delete_profile': '移除帳號？',
-  'delete_profile_body': '此帳號將從清單移除，其本機設定也會刪除。已儲存的 WARP 登入資訊仍會保留在此裝置上。',
+  'delete_profile_body': "移除此帳號及其在本裝置儲存的 WARP 登入資料？如適用，也會嘗試解除授權綁定。",
   'delete_zero_trust_profile_body':
       '此帳號和登入資訊將從裝置刪除。若要移除組織 Zero Trust 中的裝置註冊紀錄，請聯絡管理員。',
   'license_not_applicable': '組織帳號 · 實驗性功能',

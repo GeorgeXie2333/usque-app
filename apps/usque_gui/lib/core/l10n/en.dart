@@ -118,7 +118,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'delete': 'Delete',
   'delete_profile': 'Remove account?',
   'delete_profile_body':
-      'This removes the account from your list and deletes its local settings. Its saved WARP login information will remain on this device.',
+      "Remove this account and its saved WARP sign-in data from this device? Any applicable license unlink will also be attempted.",
   'delete_zero_trust_profile_body':
       'This removes the account and its login information from this device. Ask your administrator to also remove this device from the organization’s Zero Trust dashboard.',
   'license_not_applicable': 'Organization account · Experimental',

@@ -125,7 +125,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'delete': 'Supprimer',
   'delete_profile': 'Supprimer le compte ?',
   'delete_profile_body':
-      'Ce compte sera retiré de la liste et ses paramètres locaux supprimés. Ses informations de connexion WARP resteront enregistrées sur cet appareil.',
+      "Supprimer ce compte et ses données de connexion WARP enregistrées sur cet appareil ? La dissociation de la licence sera aussi tentée si nécessaire.",
   'delete_zero_trust_profile_body':
       'Le compte et ses informations de connexion seront supprimés de cet appareil. Demandez aussi à l’administrateur de retirer l’appareil du tableau de bord Zero Trust de l’organisation.',
   'license_not_applicable': 'Compte d’organisation · Expérimental',

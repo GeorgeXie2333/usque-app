@@ -55,6 +55,7 @@ class FakeEngineClient implements EngineClient {
       sequence: ++settingsSequence,
       operationId: operationId,
       storedProfile: storedProfiles.firstWhere((p) => p.id == accountId),
+      sharedNetwork: _currentNetwork(normalized),
       persisted: true,
       status: NetworkSettingsApplyStatus.deferred,
       deferredFields: changedFields,
@@ -204,6 +205,22 @@ class FakeEngineClient implements EngineClient {
           return _hydrate(account, network);
         })
         .toList(growable: false);
+  }
+
+  @override
+  Future<void> renameProfile(String profileId, String name) async {
+    if (failProfileUpsert) {
+      throw const EngineException(
+        'PROFILE_SAVE_FAILED',
+        'Profile save failed.',
+      );
+    }
+    storedProfiles = storedProfiles
+        .map(
+          (profile) =>
+              profile.id == profileId ? profile.copyWith(name: name) : profile,
+        )
+        .toList();
   }
 
   @override
@@ -2220,7 +2237,8 @@ void main() {
     expect(catalog.activeProfileId, 'p');
     expect(catalog.profiles, hasLength(1));
     expect(catalog.profiles.single.name, 'X');
-    expect(catalog.profiles.single.killSwitch, isTrue);
+    // The Rust proto3 fixture omits false; creation defaults do not apply here.
+    expect(catalog.profiles.single.killSwitch, isFalse);
   });
 
   test('non-loopback proxy address is treated as LAN exposure', () {

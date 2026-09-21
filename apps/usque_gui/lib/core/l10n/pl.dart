@@ -120,7 +120,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'delete': 'Usuń',
   'delete_profile': 'Usunąć konto?',
   'delete_profile_body':
-      'Usuwa konto z listy i jego lokalne ustawienia. Zapisane dane logowania WARP pozostają na tym urządzeniu.',
+      "Usunąć to konto i zapisane na tym urządzeniu dane logowania WARP? W razie potrzeby nastąpi również próba odłączenia licencji.",
   'delete_zero_trust_profile_body':
       'Usuwa konto i dane logowania z tego urządzenia. Poproś administratora o usunięcie również wpisu urządzenia z panelu Zero Trust organizacji.',
   'license_not_applicable': 'Konto organizacji · Eksperymentalne',

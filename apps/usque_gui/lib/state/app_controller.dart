@@ -228,6 +228,9 @@ class AppController extends ChangeNotifier {
   };
 
   UsqueProfile sharedNetwork = UsqueProfile.defaultProfile();
+  NetworkSettingsState? _acceptedSettings;
+  final Set<String> _managedAccountIds = {};
+  final List<void Function()> _pendingAccountViews = [];
 
   UsqueProfile get activeProfile {
     final account = profiles.firstWhere(
@@ -273,10 +276,18 @@ class AppController extends ChangeNotifier {
   }
 
   void _acceptNetworkSettings() {
-    final stored = networkSettings.state?.storedProfile;
-    if (stored != null && profiles.any((profile) => profile.id == stored.id)) {
+    final state = networkSettings.state;
+    if (identical(state, _acceptedSettings)) {
+      _notifyListeners();
+      return;
+    }
+    _acceptedSettings = state;
+    final stored = state?.sharedNetwork ?? state?.storedProfile;
+    if (stored != null) {
       final managed =
-          identityStatus(stored.id).provider == IdentityProvider.zeroTrust;
+          state?.sharedNetwork == null &&
+          (_managedAccountIds.contains(stored.id) ||
+              identityStatus(stored.id).provider == IdentityProvider.zeroTrust);
       sharedNetwork = managed
           ? stored.copyWith(
               endpointIpv4: sharedNetwork.endpointIpv4,
@@ -409,6 +420,8 @@ class AppController extends ChangeNotifier {
       profileIdentityStates = catalog.identityStates;
       profileIdentityStatuses = catalog.identityStatuses;
       _captureSharedNetwork();
+      sharedNetwork = catalog.sharedNetwork ?? sharedNetwork;
+      _rememberManagedAccounts();
       await preferences?.remove(_profilesKey);
     } on EngineException catch (error) {
       lastError ??= userFacingError(strings, error);
@@ -623,7 +636,7 @@ class AppController extends ChangeNotifier {
         profiles = profiles
             .map((item) => item.id == next.id ? next : item)
             .toList(growable: false);
-        _captureSharedNetwork();
+        sharedNetwork = next;
       }, affectsConnection: false),
     );
     if (success) {
@@ -697,7 +710,18 @@ class AppController extends ChangeNotifier {
     activeProfileId = catalog.activeProfileId;
     profileIdentityStates = catalog.identityStates;
     profileIdentityStatuses = catalog.identityStatuses;
-    _captureSharedNetwork();
+    _rememberManagedAccounts();
+    for (final apply in _pendingAccountViews) {
+      apply();
+    }
+  }
+
+  void _rememberManagedAccounts() {
+    _managedAccountIds.addAll(
+      profileIdentityStatuses.entries
+          .where((entry) => entry.value.provider == IdentityProvider.zeroTrust)
+          .map((entry) => entry.key),
+    );
   }
 
   Future<void> checkForUpdates() async {
@@ -1168,7 +1192,14 @@ class AppController extends ChangeNotifier {
       ),
     };
     _notifyListeners();
-    _queueProfileMutation(() => _engine.upsertProfile(added));
+    _queueProfileMutation(
+      () => _engine.upsertProfile(added),
+      optimistic: () {
+        if (!profiles.any((p) => p.id == added.id)) {
+          profiles = [...profiles, added];
+        }
+      },
+    );
   }
 
   ProfileIdentityState identityState(String profileId) =>
@@ -1201,7 +1232,10 @@ class AppController extends ChangeNotifier {
       activeProfileId = catalog!.activeProfileId;
       profileIdentityStates = catalog!.identityStates;
       profileIdentityStatuses = catalog!.identityStatuses;
-      _captureSharedNetwork();
+      _rememberManagedAccounts();
+      for (final apply in _pendingAccountViews) {
+        apply();
+      }
     }, affectsConnection: false);
     return success;
   }
@@ -1278,9 +1312,15 @@ class AppController extends ChangeNotifier {
         .toList(growable: false);
     _notifyListeners();
     _queueProfileMutation(
-      () => _engine.upsertProfile(
-        _hydrateAccount(profiles.firstWhere((profile) => profile.id == id)),
-      ),
+      () => _engine.renameProfile(id, name),
+      optimistic: () {
+        profiles = profiles
+            .map(
+              (profile) =>
+                  profile.id == id ? profile.copyWith(name: name) : profile,
+            )
+            .toList(growable: false);
+      },
     );
   }
 
@@ -1315,7 +1355,12 @@ class AppController extends ChangeNotifier {
       _connectionIntent++;
       activeProfileId = id;
       _notifyListeners();
-      _queueProfileMutation(() => _engine.setActiveProfile(id));
+      _queueProfileMutation(
+        () => _engine.setActiveProfile(id),
+        optimistic: () {
+          if (profiles.any((p) => p.id == id)) activeProfileId = id;
+        },
+      );
     }
   }
 
@@ -1334,40 +1379,43 @@ class AppController extends ChangeNotifier {
       activeProfileId = profiles.first.id;
     }
     _notifyListeners();
-    _queueProfileMutation(() => _engine.deleteProfile(id));
+    _queueProfileMutation(
+      () => _engine.deleteProfile(id),
+      optimistic: () {
+        profiles = profiles.where((p) => p.id != id).toList();
+        profileIdentityStates = {...profileIdentityStates}..remove(id);
+        profileIdentityStatuses = {...profileIdentityStatuses}..remove(id);
+        if (activeProfileId == id && profiles.isNotEmpty) {
+          activeProfileId = profiles.first.id;
+        }
+      },
+    );
     return true;
   }
 
-  Future<bool> _queueProfileMutation(Future<void> Function() mutation) {
-    final outcome = Completer<bool>();
-    unawaited(
-      networkSettings.enqueue(() async {
-        var succeeded = false;
-        try {
-          await mutation();
-          succeeded = true;
-        } on Object catch (error) {
-          lastError = userFacingError(strings, error);
-          try {
-            final catalog = await _engine.importLegacyProfiles(
-              const <UsqueProfile>[],
-              '',
-            );
-            profiles = catalog.profiles;
-            activeProfileId = catalog.activeProfileId;
-            profileIdentityStates = catalog.identityStates;
-            profileIdentityStatuses = catalog.identityStatuses;
-            _captureSharedNetwork();
-          } on Object {
-            // Keep the optimistic in-memory state when the authoritative store
-            // cannot be reloaded; the original mutation error remains visible.
-          }
-          _notifyListeners();
-        }
-        outcome.complete(succeeded);
-      }),
-    );
-    return outcome.future;
+  Future<bool> _queueProfileMutation(
+    Future<void> Function() mutation, {
+    required void Function() optimistic,
+  }) {
+    _pendingAccountViews.add(optimistic);
+    return networkSettings.enqueue(() async {
+      var succeeded = false;
+      try {
+        await mutation();
+        succeeded = true;
+      } on Object catch (error) {
+        lastError = userFacingError(strings, error);
+      }
+      _pendingAccountViews.remove(optimistic);
+      try {
+        await _refreshProfileCatalog();
+      } on Object {
+        // Keep the current view if authoritative readback is unavailable.
+        // Subsequent mutations retain their original immutable arguments.
+      }
+      _notifyListeners();
+      return succeeded;
+    });
   }
 
   /// Waits for already queued non-secret profile writes. Installers and tests

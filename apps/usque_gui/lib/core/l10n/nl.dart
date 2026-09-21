@@ -121,7 +121,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'delete': 'Verwijderen',
   'delete_profile': 'Account verwijderen?',
   'delete_profile_body':
-      'Verwijdert dit account uit de lijst en wist de lokale instellingen. Opgeslagen WARP-aanmeldgegevens blijven op dit apparaat staan.',
+      "Dit account en de opgeslagen WARP-aanmeldgegevens van dit apparaat verwijderen? Indien van toepassing wordt ook geprobeerd de licentie te ontkoppelen.",
   'delete_zero_trust_profile_body':
       'Verwijdert het account en de aanmeldgegevens van dit apparaat. Vraag de beheerder ook het apparaat uit het Zero Trust-dashboard van de organisatie te verwijderen.',
   'license_not_applicable': 'Organisatieaccount · Experimenteel',

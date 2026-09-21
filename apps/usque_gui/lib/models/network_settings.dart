@@ -27,6 +27,7 @@ class NetworkSettingsState {
     this.operationId,
     this.sessionId,
     this.storedProfile,
+    this.sharedNetwork,
     this.appliedProfile,
     this.status = NetworkSettingsApplyStatus.unknown,
     this.deferredFields = const [],
@@ -49,6 +50,7 @@ class NetworkSettingsState {
       operationId: map['operation_id'] as String?,
       sessionId: map['session_id'] as String?,
       storedProfile: profile('stored_profile'),
+      sharedNetwork: profile('shared_network_profile'),
       appliedProfile: profile('applied_profile'),
       status: NetworkSettingsApplyStatus.parse(map['apply_status']),
       deferredFields:
@@ -63,6 +65,7 @@ class NetworkSettingsState {
   final String? operationId;
   final String? sessionId;
   final UsqueProfile? storedProfile;
+  final UsqueProfile? sharedNetwork;
   final UsqueProfile? appliedProfile;
   final NetworkSettingsApplyStatus status;
   final List<String> deferredFields;

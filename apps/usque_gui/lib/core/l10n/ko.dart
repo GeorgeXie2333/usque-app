@@ -113,7 +113,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'delete': '삭제',
   'delete_profile': '계정을 삭제할까요?',
   'delete_profile_body':
-      '목록에서 이 계정과 기기의 해당 설정을 삭제합니다. 저장된 WARP 로그인 정보는 기기에 남습니다.',
+      "이 계정과 기기에 저장된 WARP 로그인 정보를 삭제할까요? 해당하는 경우 라이선스 연결 해제도 시도합니다.",
   'delete_zero_trust_profile_body':
       '이 기기의 계정과 로그인 정보를 삭제합니다. 조직의 Zero Trust 관리 화면에 남은 기기 기록도 삭제하도록 관리자에게 요청하세요.',
   'license_not_applicable': '조직 계정 · 실험적',

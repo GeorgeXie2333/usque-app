@@ -492,8 +492,10 @@ class ProfileCatalog {
     required this.activeProfileId,
     this.identityStates = const <String, ProfileIdentityState>{},
     this.identityStatuses = const <String, ProfileIdentityStatus>{},
+    this.sharedNetwork,
   });
 
+  final UsqueProfile? sharedNetwork;
   final List<UsqueProfile> profiles;
   final String activeProfileId;
   final Map<String, ProfileIdentityState> identityStates;
@@ -1848,6 +1850,7 @@ class EngineCapabilities {
     this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
     this.applicationQuicBlocking = false,
+    this.accountMetadataMutations = false,
     this.l4Tcp = false,
     this.l4TunTcp = false,
     this.l4DnsConversion = false,
@@ -1864,6 +1867,7 @@ class EngineCapabilities {
         vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
         applicationQuicBlocking: map['application_quic_blocking'] == true,
+        accountMetadataMutations: map['account_metadata_mutations'] == true,
         l4Tcp: map['l4_tcp'] == true,
         l4TunTcp: map['l4_tun_tcp'] == true,
         l4DnsConversion: map['l4_dns_conversion'] == true,
@@ -1887,6 +1891,7 @@ class EngineCapabilities {
   final bool vpnGatePoolFavorites;
   final bool networkSettingsApplication;
   final bool applicationQuicBlocking;
+  final bool accountMetadataMutations;
   final bool l4Tcp;
   final bool l4TunTcp;
   final bool l4DnsConversion;
@@ -1904,6 +1909,7 @@ class EngineCapabilities {
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
           applicationQuicBlocking == other.applicationQuicBlocking &&
+          accountMetadataMutations == other.accountMetadataMutations &&
           l4Tcp == other.l4Tcp &&
           l4TunTcp == other.l4TunTcp &&
           l4DnsConversion == other.l4DnsConversion &&
@@ -1920,6 +1926,7 @@ class EngineCapabilities {
   int get hashCode => Object.hash(
     networkSettingsApplication,
     applicationQuicBlocking,
+    accountMetadataMutations,
     vpnGateTcp,
     vpnGatePoolFavorites,
     l4Tcp,

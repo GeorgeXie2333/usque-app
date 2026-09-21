@@ -608,6 +608,7 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
   final identityStates = <String, ProfileIdentityState>{};
   final identityStatuses = <String, ProfileIdentityStatus>{};
   String? activeProfileId;
+  UsqueProfile? sharedNetwork;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -615,6 +616,8 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
         profiles.add(_decodeProfile(reader.message(field)));
       case 2:
         activeProfileId = _emptyToNull(reader.string(field));
+      case 4:
+        sharedNetwork = _decodeProfile(reader.message(field));
       case 3:
         final status = reader.message(field);
         String? profileId;
@@ -679,6 +682,7 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
   }
   return ProfileCatalog(
     profiles: List<UsqueProfile>.unmodifiable(profiles),
+    sharedNetwork: sharedNetwork,
     activeProfileId: activeProfileId,
     identityStates: Map<String, ProfileIdentityState>.unmodifiable(
       identityStates,
@@ -708,7 +712,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   final dnsServers = <String>[];
   var allowLan = false;
   final bypassCidrs = <String>[];
-  var killSwitch = defaults.killSwitch;
+  var killSwitch = false;
   var autoConnect = defaults.autoConnect;
   var dnsMode = defaults.dnsMode;
   var proxy = defaults.proxy;
@@ -1447,6 +1451,7 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
 
 EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var applicationQuicBlocking = false;
+  var accountMetadataMutations = false;
   var networkSettingsApplication = false;
   var l4Tcp = false;
   var l4TunTcp = false;
@@ -1475,6 +1480,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         vpnGatePoolFavorites = reader.varint(field) != 0;
       case 31:
         applicationQuicBlocking = reader.varint(field) != 0;
+      case 32:
+        accountMetadataMutations = reader.varint(field) != 0;
       case 20:
         networkQuality = reader.varint(field) != 0;
       case 21:
@@ -1504,6 +1511,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   return EngineCapabilities(
     networkSettingsApplication: networkSettingsApplication,
     applicationQuicBlocking: applicationQuicBlocking,
+    accountMetadataMutations: accountMetadataMutations,
     l4Tcp: l4Tcp,
     l4TunTcp: l4TunTcp,
     l4DnsConversion: l4DnsConversion,
@@ -1557,6 +1565,10 @@ NetworkSettingsState _decodeNetworkSettings(_ProtoReader reader) {
         values['error_code'] = _emptyToNull(reader.string(field));
       case 10:
         values['persisted'] = reader.varint(field) != 0;
+      case 11:
+        values['shared_network_profile'] = _decodeProfile(
+          reader.message(field),
+        ).toMap();
       default:
         reader.skip(field);
     }

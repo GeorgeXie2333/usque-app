@@ -106,7 +106,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'edit': '编辑',
   'delete': '删除',
   'delete_profile': '移除账号？',
-  'delete_profile_body': '此账号将从列表中移除，并删除它的本地设置。已保存的 WARP 登录信息仍会保留在此设备上。',
+  'delete_profile_body': "移除此账号及其在本设备保存的 WARP 登录资料？如适用，还会尝试解绑许可证。",
   'delete_zero_trust_profile_body':
       '此操作会删除本机上的账号及登录信息。组织后台中的设备记录仍会保留，请联系管理员移除。',
   'license_not_applicable': '组织账号 · 实验性',

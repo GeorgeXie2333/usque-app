@@ -153,6 +153,25 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
       _serialized(() => _upsertProfile(profile));
 
   @override
+  Future<void> renameProfile(String profileId, String name) =>
+      _serialized(() async {
+        final capabilities = (await _request(24, Uint8List(0))).capabilities;
+        if (!(capabilities?.accountMetadataMutations ?? false)) {
+          throw const EngineException(
+            'ACCOUNT_METADATA_UNSUPPORTED',
+            'Update the Engine to rename an account safely.',
+          );
+        }
+        await _request(
+          46,
+          (ControlPayloadWriter()
+                ..string(1, profileId)
+                ..string(2, name))
+              .takeBytes(),
+        );
+      });
+
+  @override
   Future<void> deleteProfile(String profileId) {
     return _serialized(() async {
       final payload = ControlPayloadWriter()..string(1, profileId);
@@ -177,7 +196,6 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
     String? callbackUri,
   }) {
     return _serialized(() async {
-      await _upsertProfile(profile);
       final license = Uint8List.fromList(utf8.encode(licenseKey ?? ''));
       final callback = Uint8List.fromList(utf8.encode(callbackUri ?? ''));
       try {

@@ -13,10 +13,18 @@ use crate::{
 impl ControlService {
     pub(crate) async fn network_settings_state(&self) -> v1::NetworkSettingsState {
         let _submission = self.settings_submission.lock().await;
-        let stored = self.config.read().await.active_profile();
+        let config = self.config.read().await;
+        let stored = config.active_profile();
+        let shared = Some(
+            config
+                .network
+                .hydrate(&usque_core::config::Account::default_account()),
+        );
+        drop(config);
         let mut state = self.settings.lock().await;
-        if state.stored_profile != stored {
+        if state.stored_profile != stored || state.shared_network_profile != shared {
             state.stored_profile = stored;
+            state.shared_network_profile = shared;
             state.advance();
         }
         to_proto(&state)
@@ -101,6 +109,10 @@ impl ControlService {
                 let mut state = self.settings.lock().await;
                 if let Ok(Ok(next)) = observed {
                     state.stored_profile = next.active_profile();
+                    state.shared_network_profile = Some(
+                        next.network
+                            .hydrate(&usque_core::config::Account::default_account()),
+                    );
                     *config = next;
                 }
                 state.operation_id = Some(patch.operation_id);
@@ -113,6 +125,9 @@ impl ControlService {
             }
             Err(error) => return Err(error.into()),
         };
+        let shared = next
+            .network
+            .hydrate(&usque_core::config::Account::default_account());
         *config = next;
         drop(config);
 
@@ -133,6 +148,7 @@ impl ControlService {
         state.operation_id = Some(patch.operation_id);
         state.persisted = Some(true);
         state.stored_profile = Some(stored);
+        state.shared_network_profile = Some(shared);
         state.error_code = None;
         if let Some((profile, generation, _)) = &runtime
             && confirmed
@@ -358,6 +374,7 @@ fn to_proto(state: &NetworkSettingsState) -> v1::NetworkSettingsState {
             .unwrap_or_default(),
         session_id: state.session_id.clone().unwrap_or_default(),
         stored_profile: state.stored_profile.as_ref().map(profile_to_proto),
+        shared_network_profile: state.shared_network_profile.as_ref().map(profile_to_proto),
         applied_profile: state.applied_profile.as_ref().map(profile_to_proto),
         apply_status: match state.apply_status {
             ApplyStatus::NotRequired => 1,

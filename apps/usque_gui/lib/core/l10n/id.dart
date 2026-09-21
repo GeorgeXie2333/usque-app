@@ -120,7 +120,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'delete': 'Hapus',
   'delete_profile': 'Hapus akun?',
   'delete_profile_body':
-      'Akun dihapus dari daftar beserta pengaturan lokalnya. Informasi masuk WARP yang tersimpan tetap ada di perangkat ini.',
+      "Hapus akun ini dan data masuk WARP yang tersimpan di perangkat ini? Pelepasan lisensi juga akan dicoba jika berlaku.",
   'delete_zero_trust_profile_body':
       'Akun dan informasi masuk dihapus dari perangkat ini. Minta administrator menghapus juga catatan perangkat di dasbor Zero Trust organisasi.',
   'license_not_applicable': 'Akun organisasi · Eksperimental',

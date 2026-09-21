@@ -92,6 +92,7 @@ pub struct NetworkSettingsState {
     pub operation_id: Option<Uuid>,
     pub session_id: Option<String>,
     pub stored_profile: Option<Profile>,
+    pub shared_network_profile: Option<Profile>,
     pub applied_profile: Option<Profile>,
     pub apply_status: ApplyStatus,
     pub deferred_fields: Vec<String>,
@@ -107,6 +108,7 @@ impl Default for NetworkSettingsState {
             operation_id: None,
             session_id: None,
             stored_profile: None,
+            shared_network_profile: None,
             applied_profile: None,
             apply_status: ApplyStatus::Unknown,
             deferred_fields: Vec::new(),
@@ -137,6 +139,9 @@ impl NetworkSettingsState {
             self.apply_status = ApplyStatus::Deferred;
         }
         // Passwords are only carried by the private runtime plan.
+        if let Some(profile) = &mut self.shared_network_profile {
+            profile.proxy.auth_password = None;
+        }
         if let Some(profile) = &mut self.stored_profile {
             profile.proxy.auth_password = None;
         }

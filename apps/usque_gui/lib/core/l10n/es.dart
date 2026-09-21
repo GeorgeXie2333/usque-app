@@ -123,7 +123,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'delete': 'Eliminar',
   'delete_profile': '¿Eliminar cuenta?',
   'delete_profile_body':
-      'Se quitará la cuenta de la lista y se borrarán sus ajustes locales. La información de acceso WARP guardada permanecerá en este dispositivo.',
+      "¿Eliminar esta cuenta y sus datos de acceso a WARP guardados en este dispositivo? También se intentará desvincular la licencia cuando corresponda.",
   'delete_zero_trust_profile_body':
       'Se borrarán la cuenta y sus datos de acceso de este dispositivo. Pide al administrador que elimine también el registro del dispositivo en el panel Zero Trust de la organización.',
   'license_not_applicable': 'Cuenta de organización · Experimental',

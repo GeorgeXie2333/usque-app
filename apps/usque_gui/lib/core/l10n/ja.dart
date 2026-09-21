@@ -114,7 +114,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'delete': '削除',
   'delete_profile': 'アカウントを削除しますか？',
   'delete_profile_body':
-      '一覧からこのアカウントを削除し、端末内の設定を消去します。保存済みの WARP ログイン情報は端末に残ります。',
+      "このアカウントと端末に保存された WARP ログイン情報を削除しますか？該当する場合はライセンスの解除も試みます。",
   'delete_zero_trust_profile_body':
       'この端末のアカウントとログイン情報を削除します。組織の Zero Trust 管理画面にも端末記録が残るため、管理者に削除を依頼してください。',
   'license_not_applicable': '組織アカウント · 試験的',

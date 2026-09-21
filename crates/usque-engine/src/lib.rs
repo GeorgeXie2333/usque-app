@@ -811,6 +811,18 @@ impl ControlService {
                     profile_to_proto(&stored),
                 )))
             }
+            control_request::Payload::RenameProfile(request) => {
+                let id = parse_profile_id(&request.profile_id)?;
+                let _mutation = self.mutation_lock.lock().await;
+                self.update_config(move |latest| {
+                    latest
+                        .rename_account(id, request.name)
+                        .map_err(ControlServiceError::configuration)?;
+                    Ok(())
+                })
+                .await?;
+                Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
             control_request::Payload::DeleteProfile(request) => {
                 let id = parse_profile_id(&request.profile_id)?;
                 self.delete_profile(id).await?;
@@ -4761,6 +4773,11 @@ fn profile_list_to_proto(config: &AppConfig) -> v1::ProfileList {
             .map(|id| id.to_string())
             .unwrap_or_default(),
         identity_statuses: Vec::new(),
+        shared_network_profile: Some(Box::new(profile_to_proto(
+            &config
+                .network
+                .hydrate(&usque_core::config::Account::default_account()),
+        ))),
     }
 }
 
@@ -4797,6 +4814,7 @@ fn current_capabilities() -> v1::Capabilities {
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
         application_quic_blocking: true,
+        account_metadata_mutations: true,
         l4_tcp: true,
         l4_tun_tcp: cfg!(windows),
         l4_dns_conversion: true,
@@ -5047,6 +5065,43 @@ fn location_to_proto(location: &usque_core::GeoLocation) -> v1::GeoLocation {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn omitted_false_profile_wire_fixture() {
+        let profile = v1::Profile {
+            id: "p".into(),
+            name: "X".into(),
+            kill_switch: false,
+            ..Default::default()
+        };
+        // Same minimal fixture is decoded by the Dart audit_accounts suite.
+        let frame = usque_ipc::encode_frame(&profile).unwrap();
+        assert_eq!(&frame[4..], &[10, 1, b'p', 18, 1, b'X']);
+    }
+
+    #[tokio::test]
+    async fn account_rename_does_not_replace_shared_network() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let before = service.config_snapshot().await;
+        let id = before.active_profile_id.unwrap();
+        service
+            .handle_payload(control_request::Payload::RenameProfile(
+                v1::RenameProfileRequest {
+                    profile_id: id.to_string(),
+                    name: "Renamed".into(),
+                },
+            ))
+            .await
+            .unwrap();
+        let after = service.config_snapshot().await;
+        assert_eq!(after.network, before.network);
+        assert_eq!(after.account(id).unwrap().name, "Renamed");
+    }
     use std::collections::HashMap;
 
     #[cfg(windows)]

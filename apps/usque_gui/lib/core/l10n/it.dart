@@ -123,7 +123,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'delete': 'Elimina',
   'delete_profile': 'Rimuovere l’account?',
   'delete_profile_body':
-      'Rimuove l’account dall’elenco e cancella le sue impostazioni locali. I dati di accesso WARP salvati rimangono sul dispositivo.',
+      "Rimuovere questo account e i dati di accesso WARP salvati sul dispositivo? Se applicabile, verrà anche tentato lo scollegamento della licenza.",
   'delete_zero_trust_profile_body':
       'Cancella l’account e i dati di accesso da questo dispositivo. Chiedi all’amministratore di rimuovere anche il dispositivo dal pannello Zero Trust dell’organizzazione.',
   'license_not_applicable': 'Account dell’organizzazione · Sperimentale',

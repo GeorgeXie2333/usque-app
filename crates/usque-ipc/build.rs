@@ -19,6 +19,7 @@ fn main() {
         config.type_attribute(format!(".usque.agent.v1.{message}"), "#[serde(default)]");
     }
     // Keep control envelopes small enough to pass cheaply across async queues.
+    config.boxed(".usque.v1.ProfileList.shared_network_profile");
     config.boxed(".usque.v1.ControlRequest.payload.upsert_profile");
     config.boxed(".usque.v1.ControlRequest.payload.create_profile_with_identity");
     config.boxed(".usque.v1.ControlRequest.payload.reconfigure_active_profile");

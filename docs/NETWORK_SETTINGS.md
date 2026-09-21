@@ -54,6 +54,20 @@ itself. The latest save may succeed while the global warning remains. An
 accepted durable acknowledgement is retained for its in-flight request even
 if another snapshot arrives before that request times out.
 
+## Account metadata and shared confirmations
+
+Account renames use the appended RenameProfile request (46), advertised by
+account_metadata_mutations (32). Identity provisioning for an existing account
+does not upsert a network snapshot. Older engines without the rename capability
+are rejected instead of falling back to a full-profile write.
+
+ProfileList field 4 and NetworkSettingsState field 11 carry a non-secret shared
+network profile without registration-owned endpoint overlays. Account removal
+does not invalidate an already acknowledged shared-network save. Account mutation
+arguments remain immutable while queued; readback reapplies later optimistic
+metadata operations instead of overwriting them. Product creation defaults do not
+override proto3 false values during decoding.
+
 ## Application rules
 
 A hot change can update the running connection. A cold change requires a

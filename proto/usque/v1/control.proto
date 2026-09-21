@@ -395,6 +395,7 @@ message Capabilities {
   bool vpn_gate_tcp = 29;
   bool vpn_gate_pool_favorites = 30;
   bool application_quic_blocking = 31;
+  bool account_metadata_mutations = 32;
 }
 
 message FrontendStatus {
@@ -559,6 +560,10 @@ message DisconnectRequest {}
 message RetryRequest {}
 message UpsertProfileRequest {
   Profile profile = 1;
+}
+message RenameProfileRequest {
+  string profile_id = 1;
+  string name = 2;
 }
 message DeleteProfileRequest {
   string profile_id = 1;
@@ -1052,6 +1057,8 @@ message NetworkSettingsState {
   repeated string deferred_fields = 8;
   string error_code = 9;
   optional bool persisted = 10;
+  // Shared settings without a registration-owned endpoint overlay.
+  Profile shared_network_profile = 11;
 }
 
 message ControlRequest {
@@ -1094,6 +1101,7 @@ message ControlRequest {
     ListVpnGateRequest list_vpn_gate = 43;
     RefreshVpnGateRequest refresh_vpn_gate = 44;
     VpnGateNodeRequest vpn_gate_node = 45;
+    RenameProfileRequest rename_profile = 46;
   }
 }
 
@@ -1101,6 +1109,7 @@ message ProfileList {
   repeated Profile profiles = 1;
   string active_profile_id = 2;
   repeated ProfileIdentityStatus identity_statuses = 3;
+  Profile shared_network_profile = 4;
 }
 
 message UpdatePackage {

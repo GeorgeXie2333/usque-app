@@ -62,6 +62,8 @@ abstract interface class EngineClient {
 
   Future<void> upsertProfile(UsqueProfile profile);
 
+  Future<void> renameProfile(String profileId, String name);
+
   Future<void> deleteProfile(String profileId);
 
   Future<void> setActiveProfile(String profileId);
@@ -381,6 +383,11 @@ class MethodChannelEngineClient implements EngineClient, VpnGateClient {
       );
     }
     return ProfileCatalog(
+      sharedNetwork: map['shared_network_profile'] is Map
+          ? UsqueProfile.fromMap(
+              Map<String, Object?>.from(map['shared_network_profile'] as Map),
+            )
+          : null,
       profiles: decodedProfiles,
       activeProfileId: active,
       identityStates: _identityStatesFromMap(map),
@@ -462,6 +469,10 @@ class MethodChannelEngineClient implements EngineClient, VpnGateClient {
   @override
   Future<void> upsertProfile(UsqueProfile profile) =>
       _invoke<void>('upsertProfile', profile.toMap());
+
+  @override
+  Future<void> renameProfile(String profileId, String name) =>
+      _invoke<void>('renameProfile', {'profile_id': profileId, 'name': name});
 
   @override
   Future<void> deleteProfile(String profileId) =>

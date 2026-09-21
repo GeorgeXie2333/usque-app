@@ -121,6 +121,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
     with_jni_env(&mut environment, |environment| {
         let json = serde_json::json!({
             "network_settings_application": engine_ready(),
+            "account_metadata_mutations": engine_ready(),
             "l4_tcp": engine_ready(),
             "l4_tun_tcp": engine_ready(),
             "l4_dns_conversion": engine_ready(),
@@ -1290,6 +1291,10 @@ enum AndroidConfigCommand {
         identity_provider: Option<String>,
         organization: Option<String>,
     },
+    RenameProfile {
+        profile_id: String,
+        name: String,
+    },
     DeleteProfile {
         profile_id: String,
     },
@@ -1447,6 +1452,13 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                     .map_err(|error| error.to_string())?;
             }
             config.preferences.profiles_migrated_from_flutter = true;
+            changed = true;
+        }
+        AndroidConfigCommand::RenameProfile { profile_id, name } => {
+            let id = parse_value(&profile_id, "profile ID")?;
+            config
+                .rename_account(id, name)
+                .map_err(|error| error.to_string())?;
             changed = true;
         }
         AndroidConfigCommand::DeleteProfile { profile_id } => {
@@ -1775,6 +1787,7 @@ fn geo_update_json(
 
 fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
     serde_json::json!({
+        "shared_network_profile": android_profile_value(&config.network.hydrate(&usque_core::config::Account::default_account()), None, false),
         "profiles": config
             .profiles
             .iter()
@@ -3327,6 +3340,26 @@ mod tests {
         ] {
             assert!(!error.contains("USQUE_ZT_"), "{error}");
         }
+    }
+
+    #[test]
+    fn rename_command_preserves_shared_network() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let path = path.to_str().unwrap();
+        let before: serde_json::Value = serde_json::from_str(
+            &apply_profile_command(path, r#"{"command":"list_profiles"}"#).unwrap(),
+        )
+        .unwrap();
+        let command = serde_json::json!({"command":"rename_profile", "profile_id": before["active_profile_id"], "name":"Renamed"});
+        let after: serde_json::Value =
+            serde_json::from_str(&apply_profile_command(path, &command.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(
+            before["shared_network_profile"],
+            after["shared_network_profile"]
+        );
+        assert_eq!(after["profiles"][0]["name"], "Renamed");
     }
 
     fn valid_profile_json() -> String {

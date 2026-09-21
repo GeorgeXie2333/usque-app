@@ -121,7 +121,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'delete': 'Sil',
   'delete_profile': 'Hesap kaldırılsın mı?',
   'delete_profile_body':
-      'Bu hesap listeden kaldırılır ve yerel ayarları silinir. Kaydedilmiş WARP oturum açma bilgileri bu cihazda kalır.',
+      "Bu hesap ve cihazda kayıtlı WARP oturum açma bilgileri kaldırılsın mı? Geçerliyse lisans bağlantısının kaldırılması da denenecek.",
   'delete_zero_trust_profile_body':
       'Bu hesap ve oturum açma bilgileri bu cihazdan silinir. Cihazın kuruluşun Zero Trust kaydını kaldırmak için yöneticinize başvurun.',
   'license_not_applicable': 'Kuruluş hesabı · Deneysel',

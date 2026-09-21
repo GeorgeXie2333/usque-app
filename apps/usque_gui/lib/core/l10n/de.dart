@@ -123,7 +123,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'delete': 'Löschen',
   'delete_profile': 'Konto entfernen?',
   'delete_profile_body':
-      'Entfernt das Konto aus der Liste und löscht seine lokalen Einstellungen. Gespeicherte WARP-Anmeldedaten bleiben auf diesem Gerät.',
+      "Dieses Konto und seine gespeicherten WARP-Anmeldedaten von diesem Gerät entfernen? Gegebenenfalls wird auch versucht, die Lizenzverknüpfung aufzuheben.",
   'delete_zero_trust_profile_body':
       'Löscht das Konto und seine Anmeldedaten von diesem Gerät. Bitte die Administration, auch den Geräteeintrag im Zero-Trust-Dashboard der Organisation zu entfernen.',
   'license_not_applicable': 'Organisationskonto · Experimentell',

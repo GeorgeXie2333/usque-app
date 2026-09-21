@@ -122,7 +122,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'delete': 'Excluir',
   'delete_profile': 'Remover conta?',
   'delete_profile_body':
-      'Remove a conta da lista e apaga suas configurações locais. Os dados de login WARP salvos permanecem neste dispositivo.',
+      "Remover esta conta e os dados de acesso ao WARP salvos neste dispositivo? Também será tentada a desvinculação da licença, quando aplicável.",
   'delete_zero_trust_profile_body':
       'Apaga a conta e seus dados de login deste dispositivo. Peça ao administrador que também remova o registro do dispositivo no painel Zero Trust da organização.',
   'license_not_applicable': 'Conta da organização · Experimental',
