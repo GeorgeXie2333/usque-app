@@ -144,6 +144,21 @@ only while the original account and user intent still match, and closing its
 dialog cancels that continuation. Windows event-pipe EOF is reported to Dart so
 status polling remains available even when quality sampling is paused.
 
+Clear All Data retires pending GUI reads and mutations before the native wipe.
+It resets shared network settings, diagnostics, timeline, quality history and
+update state, then opens a fresh event subscription. A failed wipe reloads
+authoritative state and remains a failure. Windows resets the settings source
+epoch and diagnostic session; a diagnostic worker is bound to its original
+session ID so it cannot finish a later session. Android drains older settings
+writes before acknowledging the stop, resets native settings and diagnostic
+state, and releases the service binding after the local wipe.
+
+The updater holds file ownership through download, verification, publication
+and cleanup. A late publication after reset is discarded before a later download
+can reuse the same path. Stream, HTTP and file cleanup run independently; cleanup
+errors cannot keep the operation busy or replace the primary failure. Native
+package path, size, digest and signature validation are unchanged.
+
 Android reserves a fresh application token and session generation before
 dispatching persistence. Its lifecycle is idle, persisting, reconfiguring,
 awaiting observation, then idle. Snapshots cannot finish an application while

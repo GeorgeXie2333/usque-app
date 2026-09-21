@@ -47,9 +47,22 @@ internal class AtomicPolicyStore(
             revision,
             values.keys().asSequence().associateWith { key ->
                 when (val value = values.get(key)) {
-                    is JSONArray -> (0 until value.length()).map { value.getString(it) }.toSet()
-                    JSONObject.NULL -> null
-                    else -> value
+                    is JSONArray -> {
+                        (0 until value.length())
+                            .map {
+                                val item = value.get(it)
+                                check(item is String) { "Policy set contains a non-string value" }
+                                item
+                            }.toSet()
+                    }
+
+                    JSONObject.NULL -> {
+                        null
+                    }
+
+                    else -> {
+                        value
+                    }
                 }
             },
         )
@@ -96,19 +109,31 @@ internal class AtomicPolicyStore(
     fun getString(
         key: String,
         fallback: String?,
-    ): String? = locked { readLocked().values[key] as? String ?: fallback }
+    ): String? =
+        locked {
+            val value = readLocked().values[key]
+            check(value == null || value is String) { "Policy value is not a string" }
+            value ?: fallback
+        }
 
     fun getBoolean(
         key: String,
         fallback: Boolean,
-    ): Boolean = locked { readLocked().values[key] as? Boolean ?: fallback }
+    ): Boolean =
+        locked {
+            val value = readLocked().values[key]
+            check(value == null || value is Boolean) { "Policy value is not a boolean" }
+            value ?: fallback
+        }
 
     fun getStringSet(
         key: String,
         fallback: Set<String>?,
     ): Set<String>? =
         locked {
-            (readLocked().values[key] as? Set<*>)
+            val value = readLocked().values[key]
+            check(value == null || value is Set<*>) { "Policy value is not a string set" }
+            value
                 ?.map {
                     require(it is String)
                     it

@@ -769,6 +769,7 @@ internal class VpnControlClient(
      * @return false when the control endpoint is unavailable (caller already received the error).
      */
     fun requestClearAllData(result: MethodChannel.Result): Boolean {
+        pendingPerAppRevision = null
         cancelPendingConnections()
         if (destroyed) {
             result.error(
@@ -919,6 +920,35 @@ internal class VpnControlClient(
         unbind()
         eventListener = null
         clearAllAcknowledgedListener = null
+    }
+
+    fun resetAfterClear() {
+        cancelPendingConnections()
+        pendingPerAppRevision = null
+        val oldTimeline = pendingTimeline
+        pendingTimeline = null
+        oldTimeline?.let { (id, callback) ->
+            scheduler.cancel(snapshotTimeoutToken(id))
+            callback(null)
+        }
+        val oldProbes = pendingDiagnosticProbes.toMap()
+        pendingDiagnosticProbes.clear()
+        oldProbes.forEach { (id, callback) ->
+            scheduler.cancel(snapshotTimeoutToken(id))
+            callback(SnapshotProbe(disconnectedSnapshot(), false))
+        }
+        eventsWanted = false
+        desiredLocaleCatalog = null
+        eventRefreshGeneration++
+        scheduler.cancel(eventRefreshToken)
+        eventSubscriptionReachable = false
+        endpoint = null
+        lastSnapshot = disconnectedSnapshot()
+        // stopSelf alone cannot destroy a service still retained by this bind.
+        if (controlBound) {
+            controlBound = false
+            runCatching { serviceUnbinder(controlConnection) }
+        }
     }
 
     /**

@@ -35,6 +35,34 @@ UpdatePackage _package(Uri uri, int size) => UpdatePackage(
   variant: 'arm64-v8a',
 );
 
+class _ClosingClient implements HttpClient {
+  final HttpClient inner = HttpClient();
+  int closes = 0;
+  @override
+  set connectionTimeout(Duration? value) => inner.connectionTimeout = value;
+  @override
+  Future<HttpClientRequest> getUrl(Uri uri) => inner.getUrl(uri);
+  @override
+  void close({bool force = false}) {
+    closes++;
+    inner.close(force: force);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FailingSink implements IOSink {
+  @override
+  void add(List<int> bytes) {}
+  @override
+  Future<void> flush() async => throw StateError('primary flush failure');
+  @override
+  Future<void> close() async => throw StateError('secondary close failure');
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   late Directory root;
   late HttpServer server;
@@ -54,6 +82,43 @@ void main() {
     await server.close(force: true);
     await root.delete(recursive: true);
   });
+
+  test(
+    'sink failure still closes and detaches the client and preserves the primary error',
+    () async {
+      server.listen((request) async {
+        request.response.contentLength = 1;
+        request.response.add([1]);
+        await request.response.close();
+      });
+      final client = _ClosingClient();
+      final cancellation = UpdateDownloadCancellation();
+      final faulty = UpdateDownloader(
+        _CacheEngine(root.path),
+        clientFactory: () => client,
+        sinkFactory: (_) => _FailingSink(),
+        uriPolicy: (uri, _) => uri.host == '127.0.0.1',
+      );
+      await expectLater(
+        faulty.download(
+          _package(Uri.parse('http://127.0.0.1:${server.port}/asset'), 1),
+          onProgress: (_, _) {},
+          cancellation: cancellation,
+        ),
+        throwsA(
+          isA<UpdateDownloadException>().having(
+            (e) => e.message,
+            'primary error',
+            contains('primary flush failure'),
+          ),
+        ),
+      );
+      expect(client.closes, 1);
+      cancellation.cancel();
+      expect(client.closes, 1);
+      expect(await root.list().toList(), isEmpty);
+    },
+  );
 
   test(
     'streams determinate progress and atomically publishes the package',

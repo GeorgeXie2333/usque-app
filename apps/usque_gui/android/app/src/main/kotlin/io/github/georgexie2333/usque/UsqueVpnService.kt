@@ -1657,12 +1657,32 @@ class UsqueVpnService : VpnService() {
                         fail(generation, "Native cleanup has not completed. Retry stopping before clearing data.")
                         return@post
                     }
-                    snapshotState.reset("disconnected")
-                    notifyTileStateChanged()
-                    broadcastSnapshot()
-                    replyWithSnapshot(request)
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    // A barrier puts the final wipe after every older settings
+                    // write. Requests arriving during clear are rejected below.
+                    settingsExecutor.execute {
+                        val reset =
+                            runCatching {
+                                requireNotNull(NativeEngine.networkSettings(settingsPath, "{\"command\":\"reset\"}"))
+                            }
+                        mainHandler.post resetDone@{
+                            if (!isCurrent(generation)) return@resetDone
+                            if (reset.isFailure) {
+                                replyControlError(request, "CLEAR_ALL_FAILED", "Network settings could not be reset.")
+                                return@resetDone
+                            }
+                            settingsStateJson = null
+                            confirmedSettingsProfile = null
+                            settingsUncertain = false
+                            runtimeReconfigureInFlight = false
+                            diagnosticProbes.cancel()
+                            snapshotState.reset("disconnected")
+                            notifyTileStateChanged()
+                            broadcastSnapshot()
+                            replyWithSnapshot(request)
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            stopSelf()
+                        }
+                    }
                 }
             }
         }
@@ -1785,6 +1805,10 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun networkSettingsRequest(request: Message) {
+        if (clearAllRequested.get()) {
+            replySettings(request, null, "NETWORK_SETTINGS_UNCONFIRMED")
+            return
+        }
         val generation = connectionGeneration.get()
         settingsApplication.cancelIfStale(generation)
         val phase = snapshotState.phase

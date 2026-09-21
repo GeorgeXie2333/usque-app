@@ -322,6 +322,19 @@ class DesktopEngineTransport {
     Map<String, Object?>? arguments,
   ]) => _nativeTransport.invokeMethod<T>(method, arguments);
 
+  Future<void> resetEventStream() async {
+    final subscription = _rawEventSubscription;
+    final events = _rawEventController;
+    _rawEventSubscription = null;
+    _rawEventController = null;
+    _rawEventFrames = null;
+    try {
+      await subscription?.cancel();
+    } finally {
+      if (events != null && !events.isClosed) await events.close();
+    }
+  }
+
   void dispose() {
     _disposed = true;
     unawaited(_rawEventSubscription?.cancel());

@@ -14,7 +14,11 @@ class UpdateDownloadCancellation {
 
   void cancel() {
     _cancelled = true;
-    _client?.close(force: true);
+    try {
+      _client?.close(force: true);
+    } on Object {
+      // The owner still closes and detaches this client in its finally block.
+    }
   }
 
   void attach(HttpClient client) {
@@ -44,9 +48,12 @@ class UpdateDownloader {
   UpdateDownloader(
     this._engine, {
     HttpClient Function()? clientFactory,
+    IOSink Function(File file)? sinkFactory,
     this.uriPolicy,
     this.responseTimeout = const Duration(seconds: 30),
-  }) : _clientFactory = clientFactory ?? HttpClient.new;
+  }) : _clientFactory = clientFactory ?? HttpClient.new,
+       _sinkFactory =
+           sinkFactory ?? ((file) => file.openWrite(mode: FileMode.writeOnly));
 
   static const Duration _connectionTimeout = Duration(seconds: 8);
   static const Duration _staleAge = Duration(days: 7);
@@ -54,8 +61,24 @@ class UpdateDownloader {
 
   final EngineClient _engine;
   final HttpClient Function() _clientFactory;
+  final IOSink Function(File file) _sinkFactory;
+  static Future<void> _fileOperations = Future<void>.value();
   final Duration responseTimeout;
   final bool Function(Uri uri, bool initial)? uriPolicy;
+
+  /// Keep download, verification, publication and cleanup in one ownership
+  /// interval, including across controller replacement in the same isolate.
+  Future<T> runExclusive<T>(Future<T> Function() operation) {
+    final result = Completer<T>();
+    _fileOperations = _fileOperations.then((_) async {
+      try {
+        result.complete(await operation());
+      } on Object catch (error, stack) {
+        result.completeError(error, stack);
+      }
+    });
+    return result.future;
+  }
 
   Future<String> download(
     UpdatePackage package, {
@@ -73,11 +96,13 @@ class UpdateDownloader {
     await _deleteIfPresent(destination);
     await _deleteIfPresent(partial);
 
-    final client = _clientFactory()..connectionTimeout = _connectionTimeout;
-    cancellation.attach(client);
+    final client = _clientFactory();
     IOSink? sink;
     var retainPartial = false;
+    Object? primaryFailure;
     try {
+      client.connectionTimeout = _connectionTimeout;
+      cancellation.attach(client);
       if (cancellation.isCancelled) throw const UpdateDownloadCancelled();
       final response = await _openResponse(
         client,
@@ -89,7 +114,7 @@ class UpdateDownloader {
           'The downloaded package size did not match the release metadata.',
         );
       }
-      sink = partial.openWrite(mode: FileMode.writeOnly);
+      sink = _sinkFactory(partial);
       var downloaded = 0;
       onProgress(0, package.size);
       await for (final chunk in response.timeout(responseTimeout)) {
@@ -114,19 +139,42 @@ class UpdateDownloader {
       }
       retainPartial = true;
       return partial.path;
-    } on UpdateDownloadCancelled {
+    } on UpdateDownloadCancelled catch (error) {
+      primaryFailure = error;
       rethrow;
     } on Object catch (error) {
+      primaryFailure = error;
       if (cancellation.isCancelled) throw const UpdateDownloadCancelled();
       if (error is UpdateDownloadException) rethrow;
       throw UpdateDownloadException('The update download failed: $error');
     } finally {
-      if (sink != null) {
-        await sink.close();
+      Object? cleanupFailure;
+      StackTrace? cleanupStack;
+      try {
+        if (sink != null) await sink.close();
+      } on Object catch (error, stack) {
+        cleanupFailure = error;
+        cleanupStack = stack;
       }
-      client.close(force: true);
-      cancellation.detach(client);
-      if (!retainPartial) await _deleteIfPresent(partial);
+      try {
+        client.close(force: true);
+      } on Object catch (error, stack) {
+        cleanupFailure ??= error;
+        cleanupStack ??= stack;
+      } finally {
+        cancellation.detach(client);
+      }
+      if (!retainPartial || cleanupFailure != null) {
+        try {
+          await _deleteIfPresent(partial);
+        } on Object catch (error, stack) {
+          cleanupFailure ??= error;
+          cleanupStack ??= stack;
+        }
+      }
+      if (primaryFailure == null && cleanupFailure != null) {
+        Error.throwWithStackTrace(cleanupFailure, cleanupStack!);
+      }
     }
   }
 

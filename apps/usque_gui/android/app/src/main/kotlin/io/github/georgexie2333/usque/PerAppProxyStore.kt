@@ -15,6 +15,8 @@ internal object PerAppProxyStore {
         selfPackage: String = context.packageName,
     ): PerAppProxySettings {
         val values = preferences(context).snapshot()
+        check(values[KEY_ENABLED] == null || values[KEY_ENABLED] is Boolean) { "Invalid per-app enabled flag" }
+        check(values[KEY_PACKAGES] == null || values[KEY_PACKAGES] is Set<*>) { "Invalid per-app package set" }
         val stored =
             PerAppProxySettings(
                 enabled = values[KEY_ENABLED] as? Boolean ?: false,

@@ -29,6 +29,7 @@ enum Command {
         session_id: String,
     },
     Get,
+    Reset,
     Observe {
         profile: Option<AndroidProfile>,
         session_id: String,
@@ -143,6 +144,9 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                     state.error_code = Some("NETWORK_SETTINGS_APPLY_INVALID".into());
                 }
             }
+        }
+        Command::Reset => {
+            *state = NetworkSettingsState::default();
         }
         Command::Get => {
             let _lock = store

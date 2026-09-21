@@ -31,6 +31,7 @@ internal class AndroidEngineMethodHandler(
     }
 
     private val connectionIntent = AtomicLong(0)
+    private val dataGeneration = AtomicLong(0)
 
     private val diagnosticsCoordinator =
         AndroidDiagnosticsCoordinator(
@@ -350,11 +351,16 @@ internal class AndroidEngineMethodHandler(
             }
 
             "startDiagnostics" -> {
+                val generation = dataGeneration.get()
                 val mode = call.argument<String>("mode")
                 if (mode == null) {
                     result.error("INVALID_ARGUMENT", "The diagnostic mode is missing.", null)
                 } else {
                     controlClient.probeSnapshot { probe ->
+                        if (generation != dataGeneration.get()) {
+                            result.error("ENGINE_REQUEST_CANCELLED", "Diagnostics were cancelled by data reset.", null)
+                            return@probeSnapshot
+                        }
                         runDiagnosticsCommand(result) {
                             diagnosticsCoordinator.start(
                                 mode = mode,
@@ -384,7 +390,16 @@ internal class AndroidEngineMethodHandler(
             }
 
             "getConnectionTimeline" -> {
+                val generation = dataGeneration.get()
                 controlClient.requestTimeline { timeline ->
+                    if (generation != dataGeneration.get()) {
+                        result.error(
+                            "ENGINE_REQUEST_CANCELLED",
+                            "The timeline request was cancelled by data reset.",
+                            null,
+                        )
+                        return@requestTimeline
+                    }
                     diagnosticsCoordinator.observeNativeTimeline(timeline)
                     result.success(diagnosticsCoordinator.timeline())
                 }
@@ -701,8 +716,10 @@ internal class AndroidEngineMethodHandler(
                     """{"command":"clear_all_data"}""",
                 ) ?: throw IllegalStateException("Rust did not reset the Profile store")
                 maintenanceBridge.clearLocalState()
+                diagnosticsCoordinator.clear()
                 mainScheduler.post {
                     if (!controlClient.takeClaimedClearAll(result)) return@post
+                    controlClient.resetAfterClear()
                     result.success(null)
                 }
             } catch (error: Exception) {
@@ -1516,6 +1533,7 @@ internal class AndroidEngineMethodHandler(
             return
         }
         connectionIntent.incrementAndGet()
+        dataGeneration.incrementAndGet()
         activityCommands.cancelPendingVpnConnection(
             "VPN_PERMISSION_CANCELLED",
             "The VPN connection request was cancelled while clearing local data.",

@@ -2585,6 +2585,7 @@ impl ControlService {
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
+        let _submission = self.settings_submission.lock().await;
         let _mutation = self.mutation_lock.lock().await;
         self.disconnect_locked().await?;
         self.await_disconnect_cleanup().await?;
@@ -2615,6 +2616,9 @@ impl ControlService {
         })
         .await?;
         self.maintenance.clear_local_state().await?;
+        *self.settings.lock().await = Default::default();
+        self.settings_tx.send_replace(0);
+        self.diagnostics.clear().await;
         Ok(())
     }
 

@@ -93,6 +93,13 @@ class NetworkQualityController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void reset() {
+    if (_disposed) return;
+    _clear(retire: true);
+    _syncTimer();
+    notifyListeners();
+  }
+
   /// Legacy state counters are sampled only from full state events. Source
   /// history already owns its counters, including in quality-only replies.
   void updateConnection(EngineSnapshot value) {

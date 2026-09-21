@@ -46,6 +46,7 @@ pub(crate) enum DiagnosticEvent {
 #[derive(Clone)]
 pub(crate) struct DiagnosticsManager {
     inner: Arc<Mutex<DiagnosticsState>>,
+    run_session_id: Option<uuid::Uuid>,
     // Only Windows exposes the live event stream; tests exercise it on hosts.
     #[cfg(any(windows, test))]
     events: broadcast::Sender<DiagnosticEvent>,
@@ -65,6 +66,7 @@ impl Default for DiagnosticsManager {
 impl DiagnosticsManager {
     pub(crate) fn new() -> Self {
         Self {
+            run_session_id: None,
             inner: Arc::new(Mutex::new(DiagnosticsState {
                 session: None,
                 cancellation: None,
@@ -111,7 +113,8 @@ impl DiagnosticsManager {
             .events
             .send(DiagnosticEvent::SessionStarted(session.clone()));
 
-        let manager = self.clone();
+        let mut manager = self.clone();
+        manager.run_session_id = Some(session.session_id);
         tokio::spawn(async move {
             runner::run(manager, checks, Arc::new(context), cancellation).await;
         });
@@ -146,13 +149,24 @@ impl DiagnosticsManager {
         self.inner.lock().await.session.clone()
     }
 
+    pub(crate) async fn clear(&self) {
+        let mut state = self.inner.lock().await;
+        if let Some(cancellation) = state.cancellation.take() {
+            cancellation.cancel();
+        }
+        state.session = None;
+    }
+
     #[cfg(any(windows, test))]
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<DiagnosticEvent> {
         self.events.subscribe()
     }
 
     pub(super) async fn session_snapshot(&self) -> Option<DiagnosticSession> {
-        self.get().await
+        self.get().await.filter(|session| {
+            self.run_session_id
+                .is_none_or(|id| id == session.session_id)
+        })
     }
 
     pub(super) async fn check_started(&self, check_id: &str) {
@@ -161,6 +175,12 @@ impl DiagnosticsManager {
             let Some(session) = state.session.as_mut() else {
                 return;
             };
+            if self
+                .run_session_id
+                .is_some_and(|id| id != session.session_id)
+            {
+                return;
+            }
             let Some(finding) = session
                 .findings
                 .iter_mut()
@@ -185,6 +205,12 @@ impl DiagnosticsManager {
             let Some(session) = state.session.as_mut() else {
                 return;
             };
+            if self
+                .run_session_id
+                .is_some_and(|id| id != session.session_id)
+            {
+                return;
+            }
             let Some(finding) = session
                 .findings
                 .iter_mut()
@@ -212,6 +238,12 @@ impl DiagnosticsManager {
             let Some(session) = state.session.as_mut() else {
                 return;
             };
+            if self
+                .run_session_id
+                .is_some_and(|id| id != session.session_id)
+            {
+                return;
+            }
             if cancelled {
                 for finding in &mut session.findings {
                     if matches!(
@@ -364,6 +396,36 @@ mod tests {
         })
         .await
         .expect("diagnostic session should terminate")
+    }
+
+    #[tokio::test]
+    async fn clear_retires_the_old_runner_before_a_new_session() {
+        let manager = DiagnosticsManager::new();
+        let checks: Vec<Arc<dyn DiagnosticCheck>> = vec![Arc::new(TestCheck {
+            id: "held",
+            dependencies: &[],
+            behavior: Behavior::WaitForCancellation,
+            timeout: Duration::from_secs(10),
+        })];
+        let old = manager
+            .start_with_checks(DiagnosticMode::Standard, context(), checks.clone())
+            .await
+            .unwrap();
+        let mut old_runner = manager.clone();
+        old_runner.run_session_id = Some(old.session_id);
+        manager.clear().await;
+        assert!(manager.get().await.is_none());
+        let new = manager
+            .start_with_checks(DiagnosticMode::Standard, context(), checks)
+            .await
+            .unwrap();
+        old_runner.check_started("held").await;
+        old_runner.finish(true).await;
+        assert!(old_runner.session_snapshot().await.is_none());
+        let current = manager.get().await.unwrap();
+        assert_eq!(current.session_id, new.session_id);
+        assert_eq!(current.state, DiagnosticSessionState::Running);
+        manager.clear().await;
     }
 
     #[tokio::test]

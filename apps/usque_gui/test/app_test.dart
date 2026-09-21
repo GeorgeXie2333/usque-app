@@ -38,6 +38,8 @@ import 'package:usque/widgets/profile_identity_dialog.dart';
 class FakeEngineClient implements EngineClient {
   NetworkSettingsState? settingsState;
   int settingsSequence = 0;
+  int _dataResets = 0;
+  String settingsEpoch = 'test-engine';
 
   @override
   Future<NetworkSettingsState> saveNetworkSettings(
@@ -51,7 +53,7 @@ class FakeEngineClient implements EngineClient {
         : values.copyWith(proxy: values.proxy.copyWith(systemProxy: false));
     await upsertProfile(normalized);
     return settingsState = NetworkSettingsState(
-      sourceEpoch: 'test-engine',
+      sourceEpoch: settingsEpoch,
       sequence: ++settingsSequence,
       operationId: operationId,
       storedProfile: storedProfiles.firstWhere((p) => p.id == accountId),
@@ -66,7 +68,7 @@ class FakeEngineClient implements EngineClient {
   Future<NetworkSettingsState> getNetworkSettingsState() async =>
       settingsState ??
       NetworkSettingsState(
-        sourceEpoch: 'test-engine',
+        sourceEpoch: settingsEpoch,
         sequence: settingsSequence,
         storedProfile: storedProfiles.firstWhere(
           (p) => p.id == storedActiveProfileId,
@@ -619,6 +621,8 @@ class FakeEngineClient implements EngineClient {
       throw clearAllDataError!;
     }
     current = const EngineSnapshot();
+    settingsState = null;
+    settingsEpoch = 'test-engine-reset-${++_dataResets}';
     storedProfiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
     storedActiveProfileId = UsqueProfile.defaultProfileId;
     legacyProfilesImported = false;

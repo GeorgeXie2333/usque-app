@@ -661,6 +661,7 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
     return _serialized(() async {
       final payload = ControlPayloadWriter()..boolean(1, confirmed);
       await _request(22, payload.takeBytes());
+      await _transport.resetEventStream();
     });
   }
 

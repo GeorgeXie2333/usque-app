@@ -10,6 +10,20 @@ import java.util.concurrent.Executors
 
 class AtomicPolicyStoreTest {
     @Test
+    fun corruptKnownTypesDoNotSilentlyDisablePolicy() {
+        val root = Files.createTempDirectory("usque-policy-type-test").toFile()
+        try {
+            val store = AtomicPolicyStore(File(root, "policy.json"))
+            store.edit { putString("enabled", "true") }
+            org.junit.Assert.assertThrows(IllegalStateException::class.java) { store.getBoolean("enabled", false) }
+            store.edit { putBoolean("name", true) }
+            org.junit.Assert.assertThrows(IllegalStateException::class.java) { store.getString("name", null) }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun independentReadersAndWritersNeverReuseCachedPolicy() {
         val root = Files.createTempDirectory("usque-policy-test").toFile()
         try {
