@@ -593,13 +593,31 @@ class _FrontendStatuses extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final configured = <FrontendKind, FrontendPhase?>{
-      if (view.frontends.tunnel) FrontendKind.tunnel: view.runtime.tunnel,
-      if (view.frontends.socks5) FrontendKind.socks5: view.runtime.socks5,
-      if (view.frontends.http) FrontendKind.http: view.runtime.http,
-      if (view.systemProxy) FrontendKind.systemProxy: view.runtime.systemProxy,
+    final outputs = <FrontendKind, ({bool desired, FrontendPhase? runtime})>{
+      FrontendKind.tunnel: (
+        desired: view.frontends.tunnel,
+        runtime: view.runtime.tunnel,
+      ),
+      FrontendKind.socks5: (
+        desired: view.frontends.socks5,
+        runtime: view.runtime.socks5,
+      ),
+      FrontendKind.http: (
+        desired: view.frontends.http,
+        runtime: view.runtime.http,
+      ),
+      FrontendKind.systemProxy: (
+        desired: view.systemProxy,
+        runtime: view.runtime.systemProxy,
+      ),
     };
-    final enabled = configured.entries.toList(growable: false);
+    bool observed(FrontendPhase? runtime) =>
+        view.phase != ConnectionPhase.disconnected &&
+        runtime != null &&
+        runtime != FrontendPhase.disabled;
+    final enabled = outputs.entries
+        .where((entry) => entry.value.desired || observed(entry.value.runtime))
+        .toList(growable: false);
     if (enabled.isEmpty) {
       return Text(
         strings.get('channel_only_warning'),
@@ -612,7 +630,7 @@ class _FrontendStatuses extends StatelessWidget {
       final state = FrontendPresentation.of(
         configured: true,
         connection: view.phase,
-        runtime: entry.value,
+        runtime: entry.value.runtime,
       );
       final name = switch (entry.key) {
         FrontendKind.tunnel => strings.tunnelOutputLabel(defaultTargetPlatform),

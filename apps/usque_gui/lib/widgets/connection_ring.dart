@@ -75,6 +75,11 @@ class _ConnectionRingState extends State<ConnectionRing>
     final bool reduced = UsqueMotion.reduced(context);
     _applied = mode;
     _reduced = reduced;
+    if (reduced) {
+      _controller.stop();
+      _controller.value = 1;
+      return;
+    }
     if (mode == previous) {
       // Resume a scan after reduced-motion lifts; never restart one that
       // is already travelling.
