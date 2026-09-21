@@ -280,7 +280,7 @@ class DiagnosticsController extends ChangeNotifier {
         lastExportPath = destination;
       }
       return destination;
-    } on EngineException catch (error) {
+    } on Object catch (error) {
       if (!_disposed && generation == _dataGeneration) {
         lastError = userFacingError(resolveStrings(), error);
       }

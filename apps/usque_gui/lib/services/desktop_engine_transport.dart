@@ -302,13 +302,18 @@ class DesktopEngineTransport {
   bool get hasLiveProcess => _process != null;
 
   Future<String?> selectDiagnosticsDestination() async {
-    final testSelect = _testSelectDiagnostics;
-    if (testSelect != null) {
-      return testSelect();
+    try {
+      final testSelect = _testSelectDiagnostics;
+      if (testSelect != null) return await testSelect();
+      return await _nativeTransport.invokeMethod<String>(
+        'selectDiagnosticsDestination',
+      );
+    } on PlatformException catch (error) {
+      throw EngineException(
+        error.code,
+        error.message ?? 'The diagnostic destination dialog failed.',
+      );
     }
-    return _nativeTransport.invokeMethod<String>(
-      'selectDiagnosticsDestination',
-    );
   }
 
   Future<String?> selectWarpSecretDestination() async {
