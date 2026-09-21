@@ -18,6 +18,32 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class AndroidEngineMethodHandlerTest {
+    @Test
+    fun disconnectInvalidatesPendingProfileValidation() {
+        var pending: Runnable? = null
+        engineBridge.profileCatalogJson =
+            """{"profiles":[{"id":"p1","mode":"socks5","frontends":{"tunnel":false,"socks5":true,"http":false}}]}"""
+        val delayed =
+            AndroidEngineMethodHandler(
+                profileConfigPath = "/tmp/profiles-v2.json",
+                identityStore = identityStore,
+                identityExecutor = Executor { pending = it },
+                mainScheduler = scheduler,
+                controlClient = controlClient,
+                activityCommands = activityCommands,
+                engineBridge = engineBridge,
+                maintenanceBridge = maintenance,
+                warpSecretOkCode = 0,
+            )
+        val result = RecordingResult()
+        delayed.handle(MethodCall("connect", mapOf("id" to "p1", "mode" to "vpn")), result)
+        delayed.handle(MethodCall("disconnect", null), RecordingResult())
+        pending!!.run()
+        assertEquals("ENGINE_REQUEST_CANCELLED", result.errorCode)
+        assertEquals(0, activityCommands.connectCount)
+        assertEquals(1, result.completionCount)
+    }
+
     private lateinit var scheduler: ImmediateScheduler
     private lateinit var controlClient: VpnControlClient
     private lateinit var endpoint: RecordingEndpoint

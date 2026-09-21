@@ -12,6 +12,36 @@ import org.junit.Before
 import org.junit.Test
 
 class VpnControlClientTest {
+    @Test
+    fun retryWaitsForBindingAndDisconnectCancelsAnUnsentRetry() {
+        val retry = RecordingResult()
+        client.requestRetry(retry)
+        assertEquals(0, retry.completionCount)
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        assertEquals(UsqueVpnService.MSG_RETRY, endpoint.messages.single().what)
+        client.deliverSnapshotReply(endpoint.messages.single().requestId, null, null, mapOf("phase" to "preparing"))
+        assertEquals(1, retry.completionCount)
+
+        client.detachEndpointForTest()
+        val cancelled = RecordingResult()
+        client.requestRetry(cancelled)
+        client.requestDisconnect(RecordingResult())
+        assertEquals("ENGINE_REQUEST_CANCELLED", cancelled.errorCode)
+        val next = RecordingEndpoint()
+        client.attachEndpointForTest(next)
+        assertEquals(UsqueVpnService.MSG_DISCONNECT, next.messages.single().what)
+    }
+
+    @Test
+    fun anUnboundRetryTimesOutWithoutClaimingDisconnection() {
+        val result = RecordingResult()
+        client.requestRetry(result)
+        scheduler.fireAllDelayed()
+        assertEquals("ENGINE_IPC_TIMEOUT", result.errorCode)
+        assertEquals(1, result.completionCount)
+    }
+
     private lateinit var scheduler: FakeMainScheduler
     private lateinit var binder: RecordingServiceBinder
     private lateinit var client: VpnControlClient

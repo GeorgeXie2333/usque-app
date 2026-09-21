@@ -75,6 +75,8 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
 
   @override
   void dispose() {
+    final id = widget.profile?.id;
+    if (id != null && _submitting) widget.controller.cancelIdentityFlow(id);
     unawaited(widget.controller.cancelZeroTrustLogin());
     _licenseController.clear();
     _licenseFocusNode.dispose();

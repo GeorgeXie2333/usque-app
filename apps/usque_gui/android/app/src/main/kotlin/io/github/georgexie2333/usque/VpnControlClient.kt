@@ -262,6 +262,7 @@ internal class VpnControlClient(
     private val eventRefreshToken = Any()
     private var eventRefreshGeneration = 0L
     private var pendingDisconnectResult: MethodChannel.Result? = null
+    private var pendingRetryResult: MethodChannel.Result? = null
     private var pendingReconfigure: PendingReconfigure? = null
     private var desiredLocaleCatalog: String? = null
     private var pendingPerAppRevision: Long? = null
@@ -320,6 +321,7 @@ internal class VpnControlClient(
                     scheduler.cancel(disconnectPendingToken(result))
                     requestDisconnect(result)
                 }
+                flushPendingRetry()
                 flushPendingReconfigure()
                 flushSettings()
                 flushVpnGate()
@@ -566,8 +568,18 @@ internal class VpnControlClient(
         }
         val service = endpoint
         if (service == null) {
+            pendingRetryResult?.let { previous ->
+                scheduler.cancel(previous)
+                previous.error("ENGINE_REQUEST_CANCELLED", "A newer retry superseded this request.", null)
+            }
+            pendingRetryResult = result
             bind()
-            result.success(disconnectedSnapshot())
+            scheduler.postDelayed(snapshotTimeoutMillis, result) {
+                if (pendingRetryResult === result) {
+                    pendingRetryResult = null
+                    result.error("ENGINE_IPC_TIMEOUT", "The VPN process did not accept retry in time.", null)
+                }
+            }
             return
         }
         val requestId = allocateRequestId()
@@ -588,6 +600,27 @@ internal class VpnControlClient(
                 "The Android VPN process did not retry in time.",
                 null,
             )
+        }
+    }
+
+    private fun flushPendingRetry() {
+        val result = pendingRetryResult ?: return
+        if (endpoint == null) return
+        pendingRetryResult = null
+        scheduler.cancel(result)
+        requestRetry(result)
+    }
+
+    private fun cancelPendingConnections(code: String = "ENGINE_REQUEST_CANCELLED") {
+        pendingRetryResult?.let {
+            pendingRetryResult = null
+            scheduler.cancel(it)
+            it.error(code, "The connection request was cancelled.", null)
+        }
+        pendingReconfigure?.let {
+            pendingReconfigure = null
+            scheduler.cancel(reconfigurePendingToken(it.result))
+            it.result.error(code, "The reconfigure request was cancelled.", null)
         }
     }
 
@@ -674,6 +707,7 @@ internal class VpnControlClient(
     }
 
     fun requestDisconnect(result: MethodChannel.Result) {
+        cancelPendingConnections()
         if (destroyed) {
             result.error(
                 "ENGINE_IPC_CLOSED",
@@ -735,6 +769,7 @@ internal class VpnControlClient(
      * @return false when the control endpoint is unavailable (caller already received the error).
      */
     fun requestClearAllData(result: MethodChannel.Result): Boolean {
+        cancelPendingConnections()
         if (destroyed) {
             result.error(
                 "CLEAR_ALL_CANCELLED",
@@ -790,6 +825,7 @@ internal class VpnControlClient(
     }
 
     fun destroy() {
+        cancelPendingConnections("ENGINE_IPC_CLOSED")
         pendingVpnGate.forEach { (id, request) ->
             scheduler.cancel("vpn-gate-$id")
             request.result.error("VPN_GATE_UNAVAILABLE", "The catalogue service was closed.", null)
@@ -993,6 +1029,7 @@ internal class VpnControlClient(
             scheduler.cancel(disconnectPendingToken(result))
             requestDisconnect(result)
         }
+        flushPendingRetry()
         flushPendingReconfigure()
         flushSettings()
         flushLocale()

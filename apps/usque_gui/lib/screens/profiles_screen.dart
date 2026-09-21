@@ -254,6 +254,7 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
 
   @override
   void dispose() {
+    if (_busy) widget.controller.cancelIdentityFlow(widget.profile.id);
     _licenseController
       ..clear()
       ..dispose();

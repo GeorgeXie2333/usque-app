@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Flutter engine method dispatch: argument validation and coordination of
@@ -28,6 +29,8 @@ internal class AndroidEngineMethodHandler(
     companion object {
         const val DEFAULT_IDENTITY_PROFILE = "8c30b771-9ebd-457a-b67b-bbc74a1ddba6"
     }
+
+    private val connectionIntent = AtomicLong(0)
 
     private val diagnosticsCoordinator =
         AndroidDiagnosticsCoordinator(
@@ -388,6 +391,7 @@ internal class AndroidEngineMethodHandler(
             }
 
             "disconnect" -> {
+                connectionIntent.incrementAndGet()
                 activityCommands.cancelPendingVpnConnection(
                     "VPN_PERMISSION_CANCELLED",
                     "The VPN connection request was cancelled.",
@@ -396,6 +400,11 @@ internal class AndroidEngineMethodHandler(
             }
 
             "retry" -> {
+                connectionIntent.incrementAndGet()
+                activityCommands.cancelPendingVpnConnection(
+                    "VPN_PERMISSION_CANCELLED",
+                    "A newer connection was requested.",
+                )
                 controlClient.requestRetry(result)
             }
 
@@ -1506,6 +1515,7 @@ internal class AndroidEngineMethodHandler(
             )
             return
         }
+        connectionIntent.incrementAndGet()
         activityCommands.cancelPendingVpnConnection(
             "VPN_PERMISSION_CANCELLED",
             "The VPN connection request was cancelled while clearing local data.",
@@ -2532,6 +2542,7 @@ internal class AndroidEngineMethodHandler(
             return
         }
         val requested = flutterValueToJson(arguments)
+        val intent = connectionIntent.incrementAndGet()
         identityExecutor.execute {
             try {
                 val catalog =
@@ -2541,7 +2552,13 @@ internal class AndroidEngineMethodHandler(
                 val profileJson = NetworkSettingsFields.savedProfile(requested, catalog)
                 val tunnel = VpnReconfigure.tunnelFrontendEnabled(profileJson)
                 val mode = VpnReconfigure.canonicalMode(tunnel)
-                mainScheduler.post { activityCommands.connectAfterValidation(profileJson, mode, result) }
+                mainScheduler.post {
+                    if (intent != connectionIntent.get() || controlClient.isClosed) {
+                        result.error("ENGINE_REQUEST_CANCELLED", "The connection request was cancelled.", null)
+                    } else {
+                        activityCommands.connectAfterValidation(profileJson, mode, result)
+                    }
+                }
             } catch (_: Exception) {
                 mainScheduler.post {
                     result.error(

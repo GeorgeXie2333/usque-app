@@ -591,13 +591,29 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun retryConnection(request: Message) {
-        val profileJson = recoveryPreferences.getString(LAST_PROFILE, null)
-        if (profileJson.isNullOrEmpty()) {
-            request.let(::replyWithSnapshot)
-            return
+        val generation = connectionGeneration.get()
+        engineExecutor.execute {
+            val profile =
+                runCatching {
+                    CurrentAccountProfile.read(
+                        requireNotNull(
+                            NativeEngine.applyProfileCommand(settingsPath, "{\"command\":\"list_profiles\"}"),
+                        ),
+                    )
+                }.getOrNull()
+            mainHandler.post {
+                if (!isCurrent(generation)) {
+                    replyWithSnapshot(request)
+                    return@post
+                }
+                if (profile == null) {
+                    replyControlError(request, "PROFILE_STORE_FAILED", "The current account could not be loaded.")
+                } else {
+                    beginConnection(profile)
+                    replyWithSnapshot(request)
+                }
+            }
         }
-        beginConnection(profileJson)
-        request.let(::replyWithSnapshot)
     }
 
     @SuppressLint("ApplySharedPref", "UseKtx")

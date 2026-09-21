@@ -113,6 +113,7 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
   final ControlCodec _codec;
   final Duration Function(int payloadField)? _requestTimeoutOverride;
   Future<void> _requestTail = Future<void>.value();
+  int _connectionIntent = 0;
 
   @override
   bool get supportsSnapshotEvents => _transport.supportsSnapshotEvents;
@@ -403,15 +404,21 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) {
+    final intent = ++_connectionIntent;
     return _serialized(() async {
       final payload = ControlPayloadWriter()..string(1, profile.id);
-      final response = await _request(12, payload.takeBytes());
+      final response = await _request(
+        12,
+        payload.takeBytes(),
+        connectionIntent: intent,
+      );
       return response.snapshot ?? const EngineSnapshot();
     });
   }
 
   @override
   Future<EngineSnapshot> disconnect() async {
+    _connectionIntent++;
     // Disconnect is a priority safety operation. Do not queue it behind
     // profile persistence, status reads, or other non-critical requests.
     final response = await _request(13, Uint8List(0));
@@ -420,8 +427,13 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
 
   @override
   Future<EngineSnapshot> retry() {
+    final intent = ++_connectionIntent;
     return _serialized(() async {
-      final response = await _request(14, Uint8List(0));
+      final response = await _request(
+        14,
+        Uint8List(0),
+        connectionIntent: intent,
+      );
       return response.snapshot ?? const EngineSnapshot();
     });
   }
@@ -658,7 +670,12 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
     await _request(15, request.takeBytes());
   }
 
-  Future<ControlResponse> _request(int payloadField, Uint8List payload) async {
+  Future<ControlResponse> _request(
+    int payloadField,
+    Uint8List payload, {
+    int? connectionIntent,
+  }) async {
+    _checkConnectionIntent(connectionIntent);
     if (_transport.isDisposed) {
       throw const EngineException(
         'ENGINE_CLOSED',
@@ -682,6 +699,7 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
 
     Object? lastError;
     for (var attempt = 0; attempt < 20; attempt++) {
+      _checkConnectionIntent(connectionIntent);
       Uint8List responseFrame;
       try {
         responseFrame = await _transport
@@ -699,7 +717,8 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
         lastError = error;
         // Production: stop retrying once the sidecar process handle is gone.
         // Test transports have no live process, so errors surface immediately.
-        if (payloadField == 41 || !_transport.hasLiveProcess) {
+        const safeReads = {10, 11, 24, 33, 38, 39, 40, 42, 43};
+        if (!safeReads.contains(payloadField) || !_transport.hasLiveProcess) {
           break;
         }
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -729,6 +748,15 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
       return override(payloadField);
     }
     return requestTimeoutForPayload(payloadField);
+  }
+
+  void _checkConnectionIntent(int? expected) {
+    if (expected != null && expected != _connectionIntent) {
+      throw const EngineException(
+        'ENGINE_REQUEST_CANCELLED',
+        'The connection request was cancelled.',
+      );
+    }
   }
 
   Future<T> _serialized<T>(Future<T> Function() operation) {

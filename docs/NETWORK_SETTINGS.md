@@ -134,6 +134,16 @@ binding. Boot reads the current active account and its current auto-connect
 flag from the native catalogue after unlock, within a bounded receiver task.
 The last connected profile remains exclusively a recovery input.
 
+Connection and retry requests retain the intent that queued them. A later
+disconnect invalidates unsent requests, including those waiting for process
+startup, profile validation or Android service binding. Transport failures may
+replay read-only queries, but never a mutation whose reply could have been lost.
+Automatic startup waits for the saved catalogue, status and required capability
+information; a failed catalogue load is retried. Identity completion reconnects
+only while the original account and user intent still match, and closing its
+dialog cancels that continuation. Windows event-pipe EOF is reported to Dart so
+status polling remains available even when quality sampling is paused.
+
 Android reserves a fresh application token and session generation before
 dispatching persistence. Its lifecycle is idle, persisting, reconfiguring,
 awaiting observation, then idle. Snapshots cannot finish an application while

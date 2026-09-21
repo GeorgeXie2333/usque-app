@@ -372,6 +372,68 @@ void engineEventPipeReadsFramesWithReadOnlyClientAccess() {
   ::CloseHandle(server);
 }
 
+void engineEventPipeReportsTruncatedBody() {
+  const std::string pipe_name = TestPipeName("stream.events");
+  const std::wstring pipe_name_wide = Wide(pipe_name);
+  HANDLE server = ::CreateNamedPipeW(
+      pipe_name_wide.c_str(), PIPE_ACCESS_OUTBOUND,
+      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0,
+      nullptr);
+  Expect(server != INVALID_HANDLE_VALUE,
+         "engineEventPipeReportsTruncatedBody.create");
+  if (server == INVALID_HANDLE_VALUE) return;
+
+  auto active = std::make_shared<std::atomic_bool>(true);
+  std::mutex mutex;
+  std::condition_variable delivered;
+  bool callback_called = false;
+  EngineIpcResult received;
+  std::thread reader([&]() {
+    StreamEngineEvents(pipe_name, active, [&](EngineIpcResult event) {
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        received = std::move(event);
+        callback_called = true;
+      }
+      active->store(false);
+      delivered.notify_one();
+    });
+  });
+
+  const BOOL connected = ::ConnectNamedPipe(server, nullptr);
+  const bool connection_ready =
+      connected || ::GetLastError() == ERROR_PIPE_CONNECTED;
+  Expect(connection_ready,
+         "engineEventPipeReportsTruncatedBody.connect");
+  const std::vector<uint8_t> frame{0, 0, 0, 4, 1};
+  DWORD written = 0;
+  const bool wrote =
+      connection_ready &&
+      ::WriteFile(server, frame.data(), static_cast<DWORD>(frame.size()),
+                  &written, nullptr) &&
+      written == static_cast<DWORD>(frame.size());
+  Expect(wrote, "engineEventPipeReportsTruncatedBody.write");
+  ::FlushFileBuffers(server);
+  ::DisconnectNamedPipe(server);
+  ::CloseHandle(server);
+
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    delivered.wait_for(lock, std::chrono::seconds(2),
+                       [&]() { return callback_called; });
+  }
+  active->store(false);
+  reader.join();
+  Expect(callback_called,
+         "engineEventPipeReportsTruncatedBody.callback");
+  if (callback_called) {
+    Expect(!received.error.empty(),
+           "engineEventPipeReportsTruncatedBody.error");
+    Expect(received.response.empty(),
+           "engineEventPipeReportsTruncatedBody.frame");
+  }
+}
+
 void engineEventPipeReportsFatalValidationErrors() {
   auto active = std::make_shared<std::atomic_bool>(true);
   std::mutex mutex;
@@ -456,6 +518,7 @@ int main() {
   enginePipeReadinessRetriesAInitiallyMissingPipe();
   enginePipeReadinessUsesAnOverallDeadline();
   engineEventPipeReadsFramesWithReadOnlyClientAccess();
+  engineEventPipeReportsTruncatedBody();
   engineEventPipeReportsFatalValidationErrors();
   maintenanceShutdownMessagesAreClassified();
   if (g_failures != 0) {

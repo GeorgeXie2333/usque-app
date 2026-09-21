@@ -402,6 +402,15 @@ class DesktopEngineTransport {
       exitCode.then((_) {
         if (identical(_process, process)) {
           _process = null;
+          final events = _rawEventController;
+          if (!_disposed && events != null && !events.isClosed) {
+            events.addError(
+              const EngineException(
+                'ENGINE_EVENT_UNAVAILABLE',
+                'The Engine exited. Status will be checked again.',
+              ),
+            );
+          }
         }
       }),
     );

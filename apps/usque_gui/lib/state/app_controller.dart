@@ -229,6 +229,14 @@ class AppController extends ChangeNotifier {
 
   UsqueProfile sharedNetwork = UsqueProfile.defaultProfile();
   NetworkSettingsState? _acceptedSettings;
+  bool _profilesLoaded = false;
+  String? _profileLoadError;
+  bool _initialStatusLoaded = false;
+  bool _startupAutoConnectChecked = false;
+  Timer? _bootstrapRetryTimer;
+  Future<void>? _bootstrapWork;
+  int _bootstrapGeneration = 0;
+  final Map<String, int> _identityReconnectIntents = {};
   final Set<String> _managedAccountIds = {};
   final List<void Function()> _pendingAccountViews = [];
 
@@ -299,6 +307,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    _bootstrapGeneration++;
     _preferences = await SharedPreferences.getInstance();
     onboardingComplete = _preferences?.getBool('onboarding_complete') ?? false;
     updateChecksEnabled =
@@ -341,18 +350,78 @@ class AppController extends ChangeNotifier {
       unawaited(_subscribeToSnapshotEvents());
     }
     initialized = true;
-    unawaited(_refreshCapabilities());
     _notifyListeners();
     unawaited(diagnostics.restore(silent: true));
-    unawaited(refreshSnapshot(silent: true));
     unawaited(_updateDownloader.cleanupStale());
     if (updateChecksEnabled && !_startupUpdateCheckStarted) {
       _startupUpdateCheckStarted = true;
       unawaited(_checkForUpdates(manual: false, silent: true));
     }
-    if (_shouldAutoConnectOnStart()) {
-      await connectOrDisconnect();
+    // Rendering can proceed after the deadline; a late bootstrap still checks
+    // the user's current intent before it may auto-connect.
+    await _finishBootstrap().timeout(
+      const Duration(seconds: 12),
+      onTimeout: () {},
+    );
+  }
+
+  Future<void> _finishBootstrap() {
+    return _bootstrapWork ??= _bootstrapOnce().whenComplete(
+      () => _bootstrapWork = null,
+    );
+  }
+
+  Future<void> _bootstrapOnce() async {
+    final generation = _bootstrapGeneration;
+    final intent = _connectionIntent;
+    try {
+      if (!_profilesLoaded) await _loadProfiles();
+      await Future.wait<void>([
+        _refreshCapabilities(),
+        refreshSnapshot(silent: true),
+      ]);
+      if (_disposed || generation != _bootstrapGeneration) return;
+      final needsCapabilities =
+          activeProfile.dataPlane == DataPlaneMode.l4Proxy ||
+          activeProfile.vpnGate.enabled;
+      if (!_profilesLoaded ||
+          !_initialStatusLoaded ||
+          (needsCapabilities && engineCapabilities == null)) {
+        _scheduleBootstrapRetry();
+        return;
+      }
+      _bootstrapRetryTimer?.cancel();
+      _bootstrapRetryTimer = null;
+      if (!_startupAutoConnectChecked) {
+        _startupAutoConnectChecked = true;
+        if (intent == _connectionIntent && _shouldAutoConnectOnStart()) {
+          await connectOrDisconnect();
+        }
+      }
+    } on Object {
+      if (!_disposed && generation == _bootstrapGeneration) {
+        _scheduleBootstrapRetry();
+      }
     }
+  }
+
+  void _scheduleBootstrapRetry() {
+    _bootstrapRetryTimer?.cancel();
+    _bootstrapRetryTimer = Timer(const Duration(seconds: 2), () {
+      _bootstrapRetryTimer = null;
+      if (!_disposed) unawaited(_finishBootstrap());
+    });
+  }
+
+  Future<void> _ensureConnectionInputs() async {
+    if (!_profilesLoaded) await _loadProfiles();
+    if (!_profilesLoaded) {
+      throw const EngineException(
+        'ENGINE_UNAVAILABLE',
+        'The saved accounts are not available.',
+      );
+    }
+    if (engineCapabilities == null) await _refreshCapabilities();
   }
 
   bool _shouldAutoConnectOnStart() {
@@ -365,6 +434,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _loadProfiles() async {
+    final generation = _bootstrapGeneration;
     final preferences = _preferences;
     final raw = preferences?.getString(_profilesKey);
     var legacyProfiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
@@ -415,6 +485,10 @@ class AppController extends ChangeNotifier {
         legacyProfiles,
         legacyActiveProfileId,
       );
+      if (_disposed || generation != _bootstrapGeneration) return;
+      _profilesLoaded = true;
+      if (lastError == _profileLoadError) lastError = null;
+      _profileLoadError = null;
       profiles = catalog.profiles;
       activeProfileId = catalog.activeProfileId;
       profileIdentityStates = catalog.identityStates;
@@ -423,8 +497,12 @@ class AppController extends ChangeNotifier {
       sharedNetwork = catalog.sharedNetwork ?? sharedNetwork;
       _rememberManagedAccounts();
       await preferences?.remove(_profilesKey);
-    } on EngineException catch (error) {
-      lastError ??= userFacingError(strings, error);
+    } on Object catch (error) {
+      if (!_disposed &&
+          generation == _bootstrapGeneration &&
+          lastError == null) {
+        lastError = _profileLoadError = userFacingError(strings, error);
+      }
     }
   }
 
@@ -514,6 +592,8 @@ class AppController extends ChangeNotifier {
     snapshot = const EngineSnapshot(phase: ConnectionPhase.preparing);
     _notifyListeners();
     final success = await _run(() async {
+      await _ensureConnectionInputs();
+      if (intent != _connectionIntent) return;
       if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
         throw const EngineException(
           'IDENTITY_SETUP_REQUIRED',
@@ -536,6 +616,7 @@ class AppController extends ChangeNotifier {
   Future<void> retry() async {
     final intent = ++_connectionIntent;
     final success = await _run(() async {
+      await _ensureConnectionInputs();
       await flushProfileWrites();
       if (intent != _connectionIntent) return;
       _requireDataPlaneCapability(activeProfile);
@@ -577,6 +658,7 @@ class AppController extends ChangeNotifier {
       if (_disposed || revision != _snapshotRevision) {
         return;
       }
+      _initialStatusLoaded = true;
       snapshot = next;
       if (!snapshot.isConnected && !snapshotStreamDegraded) {
         _stopPolling();
@@ -646,46 +728,80 @@ class AppController extends ChangeNotifier {
     return success;
   }
 
-  Future<bool> updateLicenseKey(String profileId, String licenseKey) async {
-    final success = await _run(() async {
-      final reconnect = profileId == activeProfileId && snapshot.isConnected;
+  Future<bool> updateLicenseKey(String profileId, String licenseKey) => _run(
+    () => _mutateIdentity(
+      profileId,
+      () => _engine.updateLicenseKey(profileId, licenseKey),
+    ),
+    affectsConnection: false,
+    connectionIntent: _connectionIntent,
+  );
+
+  Future<bool> unbindLicenseKey(String profileId) => _run(
+    () => _mutateIdentity(profileId, () => _engine.unbindLicenseKey(profileId)),
+    affectsConnection: false,
+    connectionIntent: _connectionIntent,
+  );
+
+  Future<void> _mutateIdentity(
+    String profileId,
+    Future<void> Function() mutation,
+  ) async {
+    final intent = _connectionIntent;
+    final reconnect = profileId == activeProfileId && snapshot.isConnected;
+    var committed = false;
+    var refreshed = false;
+    if (reconnect) _identityReconnectIntents[profileId] = intent;
+    try {
       if (reconnect) {
-        snapshot = await _engine.disconnect();
+        final next = await _engine.disconnect();
+        if (intent == _connectionIntent) snapshot = next;
         _notifyListeners();
       }
       try {
-        await _engine.updateLicenseKey(profileId, licenseKey);
+        await mutation();
+        committed = true;
         await _refreshProfileCatalog();
+        refreshed = true;
       } finally {
-        if (reconnect) {
+        if (reconnect &&
+            (!committed || refreshed) &&
+            !_disposed &&
+            intent == _connectionIntent &&
+            profileId == activeProfileId) {
           _requireDataPlaneCapability(activeProfile);
-          snapshot = await _engine.connect(activeProfile);
+          final next = await _engine.connect(activeProfile);
+          if (intent == _connectionIntent && profileId == activeProfileId) {
+            snapshot = next;
+          }
           _notifyListeners();
         }
       }
-    });
-    return success;
+    } finally {
+      if (_identityReconnectIntents[profileId] == intent) {
+        _identityReconnectIntents.remove(profileId);
+      }
+    }
   }
 
-  Future<bool> unbindLicenseKey(String profileId) async {
-    final success = await _run(() async {
-      final reconnect = profileId == activeProfileId && snapshot.isConnected;
-      if (reconnect) {
-        snapshot = await _engine.disconnect();
-        _notifyListeners();
-      }
-      try {
-        await _engine.unbindLicenseKey(profileId);
-        await _refreshProfileCatalog();
-      } finally {
-        if (reconnect) {
-          _requireDataPlaneCapability(activeProfile);
-          snapshot = await _engine.connect(activeProfile);
-          _notifyListeners();
-        }
-      }
-    });
-    return success;
+  void cancelIdentityFlow(String profileId) {
+    final intent = _identityReconnectIntents.remove(profileId);
+    if (intent == null || intent != _connectionIntent) return;
+    final cancelled = ++_connectionIntent;
+    _userDisconnectedThisSession = true;
+    unawaited(
+      _engine
+          .disconnect()
+          .then((next) {
+            if (!_disposed && cancelled == _connectionIntent) {
+              snapshot = next;
+              _notifyListeners();
+            }
+          })
+          .catchError((Object _) {
+            /* Snapshot recovery reports any unconfirmed stop. */
+          }),
+    );
   }
 
   Future<void> exportWarpSecret(String profileId) async {
@@ -1245,35 +1361,20 @@ class AppController extends ChangeNotifier {
     String? teamName,
     String? callbackUri,
   }) async {
-    final success = await _run(() async {
-      final reconnect = profile.id == activeProfileId && snapshot.isConnected;
-      var mutationCommitted = false;
-      var refreshedCatalog = false;
-      if (reconnect) {
-        snapshot = await _engine.disconnect();
-        _notifyListeners();
-      }
-      try {
-        await _engine.provisionIdentity(
+    return _run(
+      () => _mutateIdentity(
+        profile.id,
+        () => _engine.provisionIdentity(
           profile,
           method: method,
           licenseKey: licenseKey,
           teamName: teamName,
           callbackUri: callbackUri,
-        );
-        mutationCommitted = true;
-        await _refreshProfileCatalog();
-        refreshedCatalog = true;
-      } finally {
-        final safeToReconnect = !mutationCommitted || refreshedCatalog;
-        if (reconnect && safeToReconnect) {
-          _requireDataPlaneCapability(activeProfile);
-          snapshot = await _engine.connect(activeProfile);
-          _notifyListeners();
-        }
-      }
-    }, affectsConnection: false);
-    return success;
+        ),
+      ),
+      affectsConnection: false,
+      connectionIntent: _connectionIntent,
+    );
   }
 
   Future<String> beginZeroTrustLogin(String teamName) async {
@@ -1513,6 +1614,7 @@ class AppController extends ChangeNotifier {
       networkSettings.accept(event.networkSettings!);
     }
     final next = event.snapshot;
+    if (next != null) _initialStatusLoaded = true;
     if (next == null) {
       if ((wasDegraded || handledNetworkQuality || handledCapabilities) &&
           !handledGeoProgress) {
@@ -1595,6 +1697,8 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _bootstrapGeneration++;
+    _bootstrapRetryTimer?.cancel();
     _connectionIntent++;
     _updateOperationGeneration += 1;
     _updateCancellation?.cancel();

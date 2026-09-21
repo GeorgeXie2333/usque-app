@@ -296,7 +296,10 @@ void StreamEngineEvents(const std::string& pipe_name,
       event.response.resize(4);
       if (!ReadAllCancellable(pipe.get(), event.response.data(), 4, active,
                               &event.error)) {
-        break;
+        if (active->load()) {
+          callback(EngineIpcResult{{}, "Engine event pipe closed during the frame header"});
+        }
+        return;
       }
       const uint32_t payload_length = BigEndianLength(event.response.data());
       if (payload_length > kMaximumFrameBytes) {
@@ -306,7 +309,10 @@ void StreamEngineEvents(const std::string& pipe_name,
       event.response.resize(static_cast<size_t>(payload_length) + 4);
       if (!ReadAllCancellable(pipe.get(), event.response.data() + 4,
                               payload_length, active, &event.error)) {
-        break;
+        if (active->load()) {
+          callback(EngineIpcResult{{}, "Engine event pipe closed during the frame body"});
+        }
+        return;
       }
       event.error.clear();
       callback(std::move(event));
