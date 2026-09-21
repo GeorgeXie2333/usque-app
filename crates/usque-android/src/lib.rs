@@ -1097,6 +1097,10 @@ struct AndroidFrontends {
 
 #[derive(Debug, Deserialize)]
 struct AndroidProxy {
+    #[serde(default)]
+    socks5_listeners: Option<Vec<SocketAddr>>,
+    #[serde(default)]
+    http_listeners: Option<Vec<SocketAddr>>,
     socks_ipv4: String,
     socks_ipv6: String,
     socks_port: u16,
@@ -1241,14 +1245,18 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         geo_direct_countries: source.geo_direct_countries,
         direct_dns,
         proxy: ProxySettings {
-            socks5_listeners: vec![
-                SocketAddr::new(socks_ipv4, source.proxy.socks_port),
-                SocketAddr::new(socks_ipv6, source.proxy.socks_port),
-            ],
-            http_listeners: vec![
-                SocketAddr::new(http_ipv4, source.proxy.http_port),
-                SocketAddr::new(http_ipv6, source.proxy.http_port),
-            ],
+            socks5_listeners: source.proxy.socks5_listeners.unwrap_or_else(|| {
+                vec![
+                    SocketAddr::new(socks_ipv4, source.proxy.socks_port),
+                    SocketAddr::new(socks_ipv6, source.proxy.socks_port),
+                ]
+            }),
+            http_listeners: source.proxy.http_listeners.unwrap_or_else(|| {
+                vec![
+                    SocketAddr::new(http_ipv4, source.proxy.http_port),
+                    SocketAddr::new(http_ipv6, source.proxy.http_port),
+                ]
+            }),
             system_proxy: false,
             udp_idle_timeout_seconds: 60,
             dns_mode: proxy_dns_mode,
@@ -1966,6 +1974,8 @@ fn android_profile_value(
         },
         "proxy": {
             "socks_ipv4": socks_ipv4.ip().to_string(),
+            "socks5_listeners": profile.proxy.socks5_listeners.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "http_listeners": profile.proxy.http_listeners.iter().map(ToString::to_string).collect::<Vec<_>>(),
             "socks_ipv6": socks_ipv6.ip().to_string(),
             "socks_port": socks_ipv4.port(),
             "http_ipv4": http_ipv4.ip().to_string(),
@@ -3439,6 +3449,35 @@ mod tests {
     #[test]
     fn bootstrap_boundary_is_platform_explicit() {
         assert_eq!(engine_ready(), cfg!(target_os = "android"));
+    }
+
+    #[test]
+    fn android_proxy_listener_lists_round_trip_without_family_or_port_loss() {
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["proxy"]["socks5_listeners"] =
+            serde_json::json!(["127.0.0.1:1080", "127.0.0.2:1081", "[::1]:1082"]);
+        source["proxy"]["http_listeners"] = serde_json::json!([]);
+        source["frontends"] = serde_json::json!({"tunnel": false, "socks5": true, "http": false});
+        let profile = parse_android_profile(&source.to_string()).unwrap();
+        assert_eq!(profile.proxy.socks5_listeners.len(), 3);
+        assert!(profile.proxy.http_listeners.is_empty());
+        let encoded = android_profile_value(&profile, None, false);
+        assert_eq!(
+            encoded["proxy"]["socks5_listeners"],
+            source["proxy"]["socks5_listeners"]
+        );
+        let decoded = parse_android_profile(&encoded.to_string()).unwrap();
+        assert_eq!(
+            decoded.proxy.socks5_listeners,
+            profile.proxy.socks5_listeners
+        );
+        assert_eq!(decoded.proxy.http_listeners, profile.proxy.http_listeners);
+
+        source["proxy"]["socks5_listeners"] =
+            serde_json::json!(["127.0.0.1:1080", "127.0.0.1:1080"]);
+        assert!(parse_android_profile(&source.to_string()).is_err());
+        source["proxy"]["socks5_listeners"] = serde_json::json!(["127.0.0.1:0"]);
+        assert!(parse_android_profile(&source.to_string()).is_err());
     }
 
     #[test]

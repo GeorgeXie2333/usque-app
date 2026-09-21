@@ -143,6 +143,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Cette connexion ne transportera pas le trafic des applications. Ouvrez Proxy et activez VPN, SOCKS5 ou HTTP.',
   'socks_listener': 'Proxy SOCKS5',
   'http_listener': 'Proxy HTTP',
+  'listener_addresses': 'Adresses d’écoute (une par ligne)',
   'listen_ipv4': 'Écoute IPv4',
   'listen_ipv6': 'Écoute IPv6',
   'port': 'Port',

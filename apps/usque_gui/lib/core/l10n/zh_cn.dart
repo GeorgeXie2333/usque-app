@@ -122,6 +122,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'channel_only_warning': '此连接不会转发应用流量。请打开“代理”，开启 VPN、SOCKS5 或 HTTP。',
   'socks_listener': 'SOCKS5 代理',
   'http_listener': 'HTTP 代理',
+  'listener_addresses': '监听地址（每行一个）',
   'listen_ipv4': '监听 IPv4',
   'listen_ipv6': '监听 IPv6',
   'port': '端口',

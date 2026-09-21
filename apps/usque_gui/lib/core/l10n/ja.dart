@@ -132,6 +132,7 @@ const Map<String, String> kJaCatalog = <String, String>{
       'この接続ではアプリの通信を転送しません。「プロキシ」で VPN、SOCKS5、HTTP のいずれかを有効にしてください。',
   'socks_listener': 'SOCKS5 プロキシ',
   'http_listener': 'HTTP プロキシ',
+  'listener_addresses': '待受アドレス（1 行に 1 つ）',
   'listen_ipv4': 'IPv4 でリッスン',
   'listen_ipv6': 'IPv6 でリッスン',
   'port': 'ポート',

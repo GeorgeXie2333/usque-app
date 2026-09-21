@@ -139,6 +139,7 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Трафік жодної програми не використовує це з’єднання. Відкрийте Проксі й увімкніть VPN, SOCKS5 або HTTP.',
   'socks_listener': 'Проксі SOCKS5',
   'http_listener': 'Проксі HTTP',
+  'listener_addresses': 'Адреси прослуховування (по одній у рядку)',
   'listen_ipv4': 'Прослуховування IPv4',
   'listen_ipv6': 'Прослуховування IPv6',
   'port': 'Порт',

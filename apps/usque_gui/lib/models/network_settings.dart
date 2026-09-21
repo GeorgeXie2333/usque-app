@@ -114,16 +114,8 @@ Map<String, Object?> _fields(UsqueProfile p) => {
   'auto_connect': p.autoConnect,
   'geo_direct_countries': p.geoDirectCountries,
   'direct_dns': p.directDns,
-  'proxy.socks5_listeners': [
-    p.proxy.socksIpv4,
-    p.proxy.socksIpv6,
-    p.proxy.socksPort,
-  ],
-  'proxy.http_listeners': [
-    p.proxy.httpIpv4,
-    p.proxy.httpIpv6,
-    p.proxy.httpPort,
-  ],
+  'proxy.socks5_listeners': p.proxy.socksListeners,
+  'proxy.http_listeners': p.proxy.httpListeners,
   'proxy.system_proxy': p.proxy.systemProxy,
   'proxy.dns_mode': p.proxy.dnsMode,
   'proxy.dns_servers': [p.proxy.dnsIpv4, p.proxy.dnsIpv6],

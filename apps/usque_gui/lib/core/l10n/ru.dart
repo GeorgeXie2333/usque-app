@@ -138,6 +138,7 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Это подключение не передаёт трафик приложений. Откройте Прокси и включите VPN, SOCKS5 или HTTP.',
   'socks_listener': 'Прокси SOCKS5',
   'http_listener': 'Прокси HTTP',
+  'listener_addresses': 'Адреса прослушивания (по одному в строке)',
   'listen_ipv4': 'Прослушивание IPv4',
   'listen_ipv6': 'Прослушивание IPv6',
   'port': 'Порт',

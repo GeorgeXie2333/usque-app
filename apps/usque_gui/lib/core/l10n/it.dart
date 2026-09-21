@@ -141,6 +141,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Questa connessione non trasporterà traffico delle app. Apri Proxy e attiva VPN, SOCKS5 o HTTP.',
   'socks_listener': 'Proxy SOCKS5',
   'http_listener': 'Proxy HTTP',
+  'listener_addresses': 'Indirizzi di ascolto (uno per riga)',
   'listen_ipv4': 'Ascolto IPv4',
   'listen_ipv6': 'Ascolto IPv6',
   'port': 'Porta',

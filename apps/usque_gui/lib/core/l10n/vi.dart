@@ -137,6 +137,7 @@ const Map<String, String> kViCatalog = <String, String>{
       'Chưa có ứng dụng nào truyền dữ liệu qua kết nối này. Mở Proxy rồi bật VPN, SOCKS5 hoặc HTTP.',
   'socks_listener': 'Proxy SOCKS5',
   'http_listener': 'Proxy HTTP',
+  'listener_addresses': 'Địa chỉ lắng nghe (mỗi dòng một địa chỉ)',
   'listen_ipv4': 'Lắng nghe IPv4',
   'listen_ipv6': 'Lắng nghe IPv6',
   'port': 'Cổng',

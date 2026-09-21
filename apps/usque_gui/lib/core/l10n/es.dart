@@ -141,6 +141,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Esta conexión no transportará tráfico de las aplicaciones. Abre Proxy y activa VPN, SOCKS5 o HTTP.',
   'socks_listener': 'Proxy SOCKS5',
   'http_listener': 'Proxy HTTP',
+  'listener_addresses': 'Direcciones de escucha (una por línea)',
   'listen_ipv4': 'Escuchar IPv4',
   'listen_ipv6': 'Escuchar IPv6',
   'port': 'Puerto',

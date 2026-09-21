@@ -220,7 +220,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
                       label: '${strings.get('geo_enable')} ${country.code}',
                       child: Switch(
                         value: enabled,
-                        onChanged: ready || enabled
+                        onChanged: !_saving && (ready || enabled)
                             ? (value) {
                                 setState(() {
                                   if (value) {

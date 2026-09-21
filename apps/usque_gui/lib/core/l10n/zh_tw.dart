@@ -122,6 +122,7 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'channel_only_warning': '目前沒有應用程式透過此連線傳輸資料。請開啟「代理」，啟用 VPN、SOCKS5 或 HTTP。',
   'socks_listener': 'SOCKS5 代理',
   'http_listener': 'HTTP 代理',
+  'listener_addresses': '監聽位址（每行一個）',
   'listen_ipv4': '監聽 IPv4',
   'listen_ipv6': '監聽 IPv6',
   'port': '連接埠',

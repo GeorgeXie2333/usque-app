@@ -136,6 +136,7 @@ const Map<String, String> kEnCatalog = <String, String>{
       'No app traffic will use this connection. Open Proxy and enable VPN, SOCKS5 or HTTP.',
   'socks_listener': 'SOCKS5 proxy',
   'http_listener': 'HTTP proxy',
+  'listener_addresses': 'Listen addresses (one per line)',
   'listen_ipv4': 'Listen IPv4',
   'listen_ipv6': 'Listen IPv6',
   'port': 'Port',

@@ -139,6 +139,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Hiçbir uygulamanın trafiği bu bağlantıyı kullanmıyor. Proxy sayfasını açıp VPN, SOCKS5 veya HTTP’yi etkinleştirin.',
   'socks_listener': 'SOCKS5 proxy',
   'http_listener': 'HTTP proxy',
+  'listener_addresses': 'Dinleme adresleri (her satırda bir adres)',
   'listen_ipv4': 'IPv4’te dinle',
   'listen_ipv6': 'IPv6’da dinle',
   'port': 'Port',

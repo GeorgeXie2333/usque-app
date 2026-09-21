@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/user_facing_errors.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
@@ -262,6 +263,7 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
   }
 
   Future<void> _updateLicense() async {
+    if (_busy) return;
     final value = _licenseController.text.trim();
     _licenseController.clear();
     if (value.isEmpty) {
@@ -272,32 +274,45 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
       _busy = true;
       _error = null;
     });
-    final success = await widget.controller.updateLicenseKey(
-      widget.profile.id,
-      value,
-    );
-    if (!mounted) return;
-    if (success) {
-      Navigator.of(context).pop();
-    } else {
-      setState(() {
-        _busy = false;
-        _error = widget.controller.lastError;
-      });
+    try {
+      final success = await widget.controller.updateLicenseKey(
+        widget.profile.id,
+        value,
+      );
+      if (!mounted) return;
+      if (success) {
+        Navigator.of(context).pop();
+      } else {
+        setState(() => _error = widget.controller.lastError);
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        setState(() => _error = userFacingError(widget.strings, error));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _unbind() async {
+    if (_busy) return;
     setState(() => _busy = true);
-    final success = await widget.controller.unbindLicenseKey(widget.profile.id);
-    if (!mounted) return;
-    if (success) {
-      Navigator.of(context).pop();
-    } else {
-      setState(() {
-        _busy = false;
-        _error = widget.controller.lastError;
-      });
+    try {
+      final success = await widget.controller.unbindLicenseKey(
+        widget.profile.id,
+      );
+      if (!mounted) return;
+      if (success) {
+        Navigator.of(context).pop();
+      } else {
+        setState(() => _error = widget.controller.lastError);
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        setState(() => _error = userFacingError(widget.strings, error));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -371,6 +386,7 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
             const SizedBox(height: 12),
             TextField(
               controller: _licenseController,
+              enabled: !_busy,
               obscureText: !_showLicense,
               enableSuggestions: false,
               autocorrect: false,
@@ -378,13 +394,15 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
                 labelText: widget.strings.get('warp_license_key'),
                 errorText: _error,
                 suffixIcon: IconButton(
-                  onPressed: () => setState(() => _showLicense = !_showLicense),
+                  onPressed: _busy
+                      ? null
+                      : () => setState(() => _showLicense = !_showLicense),
                   icon: Icon(
                     _showLicense ? LucideIcons.eyeOff : LucideIcons.eye,
                   ),
                 ),
               ),
-              onSubmitted: (_) => _updateLicense(),
+              onSubmitted: _busy ? null : (_) => _updateLicense(),
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(

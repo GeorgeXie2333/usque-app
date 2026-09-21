@@ -139,6 +139,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Deze verbinding vervoert geen appverkeer. Open Proxy en zet VPN, SOCKS5 of HTTP aan.',
   'socks_listener': 'SOCKS5-proxy',
   'http_listener': 'HTTP-proxy',
+  'listener_addresses': 'Luisteradressen (één per regel)',
   'listen_ipv4': 'Luisteren op IPv4',
   'listen_ipv6': 'Luisteren op IPv6',
   'port': 'Poort',

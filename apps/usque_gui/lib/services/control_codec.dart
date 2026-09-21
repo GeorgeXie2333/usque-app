@@ -49,11 +49,14 @@ class ControlCodec {
       ..string(2, profile.endpointIpv6)
       ..unsigned(3, profile.endpointPort)
       ..string(4, profile.sni);
-    final proxy = ControlPayloadWriter()
-      ..string(1, '${profile.proxy.socksIpv4}:${profile.proxy.socksPort}')
-      ..string(1, '[${profile.proxy.socksIpv6}]:${profile.proxy.socksPort}')
-      ..string(2, '${profile.proxy.httpIpv4}:${profile.proxy.httpPort}')
-      ..string(2, '[${profile.proxy.httpIpv6}]:${profile.proxy.httpPort}')
+    final proxy = ControlPayloadWriter();
+    for (final listener in profile.proxy.socksListeners) {
+      proxy.string(1, listener);
+    }
+    for (final listener in profile.proxy.httpListeners) {
+      proxy.string(2, listener);
+    }
+    proxy
       ..boolean(3, profile.proxy.systemProxy)
       ..unsigned(4, 60)
       ..enumeration(5, profile.proxy.dnsMode.index + 1)
@@ -2215,6 +2218,8 @@ ProxySettings _decodeProxySettings(
     httpIpv4: http.ipv4,
     httpIpv6: http.ipv6,
     httpPort: http.port,
+    socksListeners: List<String>.unmodifiable(socksListeners),
+    httpListeners: List<String>.unmodifiable(httpListeners),
     dnsMode: dnsMode,
     dnsIpv4:
         dnsServers.where((value) => value.contains('.')).firstOrNull ??

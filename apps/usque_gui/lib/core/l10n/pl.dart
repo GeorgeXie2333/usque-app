@@ -138,6 +138,7 @@ const Map<String, String> kPlCatalog = <String, String>{
       'To połączenie nie przeniesie ruchu aplikacji. Otwórz Proxy i włącz VPN, SOCKS5 lub HTTP.',
   'socks_listener': 'Proxy SOCKS5',
   'http_listener': 'Proxy HTTP',
+  'listener_addresses': 'Adresy nasłuchiwania (jeden na wiersz)',
   'listen_ipv4': 'Nasłuch IPv4',
   'listen_ipv6': 'Nasłuch IPv6',
   'port': 'Port',

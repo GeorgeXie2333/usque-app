@@ -138,6 +138,7 @@ const Map<String, String> kFaCatalog = <String, String>{
       'ترافیک هیچ برنامه‌ای از این اتصال عبور نمی‌کند. بخش پروکسی را باز کنید و VPN،‏ SOCKS5 یا HTTP را فعال کنید.',
   'socks_listener': 'پروکسی SOCKS5',
   'http_listener': 'پروکسی HTTP',
+  'listener_addresses': 'نشانی‌های شنود (هر خط یک نشانی)',
   'listen_ipv4': 'شنود IPv4',
   'listen_ipv6': 'شنود IPv6',
   'port': 'پورت',

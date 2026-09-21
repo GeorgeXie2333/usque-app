@@ -140,6 +140,7 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Esta conexão não encaminhará tráfego dos aplicativos. Abra Proxy e ative VPN, SOCKS5 ou HTTP.',
   'socks_listener': 'Proxy SOCKS5',
   'http_listener': 'Proxy HTTP',
+  'listener_addresses': 'Endereços de escuta (um por linha)',
   'listen_ipv4': 'Escutar IPv4',
   'listen_ipv6': 'Escutar IPv6',
   'port': 'Porta',

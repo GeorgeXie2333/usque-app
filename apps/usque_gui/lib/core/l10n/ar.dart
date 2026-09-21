@@ -138,6 +138,7 @@ const Map<String, String> kArCatalog = <String, String>{
       'لا تمر حركة أي تطبيق عبر هذا الاتصال. افتح صفحة الوكيل وفعّل VPN أو SOCKS5 أو HTTP.',
   'socks_listener': 'وكيل SOCKS5',
   'http_listener': 'وكيل HTTP',
+  'listener_addresses': 'عناوين الاستماع (عنوان في كل سطر)',
   'listen_ipv4': 'الاستماع على IPv4',
   'listen_ipv6': 'الاستماع على IPv6',
   'port': 'المنفذ',

@@ -136,6 +136,7 @@ const Map<String, String> kThCatalog = <String, String>{
       'ยังไม่มีแอปส่งข้อมูลผ่านการเชื่อมต่อนี้ เปิดหน้าพร็อกซีแล้วเปิดใช้ VPN, SOCKS5 หรือ HTTP',
   'socks_listener': 'พร็อกซี SOCKS5',
   'http_listener': 'พร็อกซี HTTP',
+  'listener_addresses': 'ที่อยู่รับฟัง (หนึ่งรายการต่อบรรทัด)',
   'listen_ipv4': 'รับฟัง IPv4',
   'listen_ipv6': 'รับฟัง IPv6',
   'port': 'พอร์ต',

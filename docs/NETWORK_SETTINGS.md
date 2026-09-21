@@ -25,6 +25,23 @@ The command cannot create or rename accounts, change identity, or write
 credentials. Unknown fields and managed Zero Trust endpoint edits are rejected.
 Rust disables system proxy when HTTP is disabled.
 
+Proxy listener lists retain every address and port through desktop protobuf,
+Android JSON, edit-mask comparison and unrelated settings changes. Configurations
+that do not fit one IPv4 and one IPv6 address with a shared port use a multiline
+editor. Each line is an IP socket address; IPv6 uses brackets. The same native
+limits and duplicate checks still apply. Resetting Advanced defaults stages
+the listener and DNS defaults as well as the visible transport fields; Apply
+submits the complete changed-field mask and preserves listener credentials.
+
+代理页会完整保留每个监听地址及其端口。已有的多地址或不同端口配置按行显示，
+IPv6 地址使用方括号，例如 `[::1]:1080`。高级设置的“恢复默认值”会暂存监听
+和 DNS 默认值，点击“应用更改”后才保存；该操作保留已设置的代理用户名和密码。
+
+Per-app policy saves return an operation-specific persistence result. The picker
+keeps its draft on failure and prevents edits or duplicate submission while the
+save is pending. A saved policy alone is not a runtime acknowledgement from the
+Android VPN service.
+
 Shared listener credentials use their own native transaction, negotiated by
 capability field 33 (`shared_proxy_auth_application`). The GUI never follows
 that transaction with a full-profile write. The native owner saves the password

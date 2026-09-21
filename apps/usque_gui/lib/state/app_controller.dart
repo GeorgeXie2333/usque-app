@@ -1122,6 +1122,7 @@ class AppController extends ChangeNotifier {
     busy = true;
     _dataGeneration++;
     _connectionIntent++;
+    _perAppSaveToken = null;
     _identityReconnectIntents.clear();
     _activeOperations = 0;
     _bootstrapGeneration++;
@@ -1394,20 +1395,31 @@ class AppController extends ChangeNotifier {
     await _preferences?.setBool('update_checks_enabled', value);
   }
 
-  Future<void> setPerAppProxy(PerAppProxySettings value) async {
-    final previous = perAppProxy;
-    perAppProxy = value;
-    _notifyListeners();
-    try {
-      perAppProxy = await _engine.setPerAppProxy(value);
-      if (snapshot.isConnected) {
-        await refreshSnapshot(silent: true);
-      }
-    } on Object catch (error) {
-      perAppProxy = previous;
-      lastError = userFacingError(strings, error);
+  Object? _perAppSaveToken;
+
+  /// The result confirms persisted policy. Runtime application is asynchronous.
+  Future<({bool saved, String? error})> setPerAppProxy(
+    PerAppProxySettings value,
+  ) async {
+    if (_clearing || _disposed || _perAppSaveToken != null) {
+      return (saved: false, error: strings.get('operation_failed'));
     }
-    _notifyListeners();
+    final generation = _dataGeneration;
+    final token = Object();
+    _perAppSaveToken = token;
+    try {
+      final saved = await _engine.setPerAppProxy(value);
+      if (_disposed || generation != _dataGeneration) {
+        return (saved: false, error: strings.get('operation_failed'));
+      }
+      perAppProxy = saved;
+      _notifyListeners();
+      return (saved: true, error: null);
+    } on Object catch (error) {
+      return (saved: false, error: userFacingError(strings, error));
+    } finally {
+      if (identical(_perAppSaveToken, token)) _perAppSaveToken = null;
+    }
   }
 
   Future<List<InstalledAppInfo>> listInstalledApps() =>

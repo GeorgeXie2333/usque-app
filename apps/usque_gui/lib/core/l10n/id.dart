@@ -138,6 +138,7 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Koneksi ini tidak meneruskan lalu lintas aplikasi. Buka Proksi dan aktifkan VPN, SOCKS5, atau HTTP.',
   'socks_listener': 'Proksi SOCKS5',
   'http_listener': 'Proksi HTTP',
+  'listener_addresses': 'Alamat pendengar (satu per baris)',
   'listen_ipv4': 'Dengarkan pada IPv4',
   'listen_ipv6': 'Dengarkan pada IPv6',
   'port': 'Port',

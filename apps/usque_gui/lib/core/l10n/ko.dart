@@ -131,6 +131,7 @@ const Map<String, String> kKoCatalog = <String, String>{
       '이 연결은 앱 트래픽을 전달하지 않습니다. 프록시에서 VPN, SOCKS5 또는 HTTP를 켜세요.',
   'socks_listener': 'SOCKS5 프록시',
   'http_listener': 'HTTP 프록시',
+  'listener_addresses': '수신 주소 (한 줄에 하나)',
   'listen_ipv4': 'IPv4 수신 대기',
   'listen_ipv6': 'IPv6 수신 대기',
   'port': '포트',

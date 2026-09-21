@@ -43,6 +43,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late bool _allowLan;
   late bool _disableQuic;
   late DirectDnsSettings _directDns;
+  late DnsMode _dnsMode;
+  late ProxySettings _proxy;
   final _directDnsKey = GlobalKey<DirectDnsEditorState>();
   bool _saving = false;
   String? _saveError;
@@ -75,6 +77,13 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _allowLan,
     _disableQuic,
     _directDns,
+    _dnsMode,
+    _proxy.socksListeners.join('\n'),
+    _proxy.httpListeners.join('\n'),
+    _proxy.dnsMode,
+    _proxy.dnsIpv4,
+    _proxy.dnsIpv6,
+    _proxy.systemProxy,
   ];
   bool get _dirty => !listEquals(_values, _baseline);
   void _edited() {
@@ -124,6 +133,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _allowLan = profile.allowLan;
     _disableQuic = profile.disableQuic;
     _directDns = profile.directDns;
+    _dnsMode = profile.dnsMode;
+    _proxy = profile.proxy;
     if (baseline) {
       _baseline = _values;
       _editingAccountId = profile.id;
@@ -684,8 +695,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       return;
     }
     if (_dataPlane == DataPlaneMode.connectIp &&
-        widget.controller.activeProfile.proxy.dnsMode ==
-            ProxyDnsMode.edgeResolved) {
+        _proxy.dnsMode == ProxyDnsMode.edgeResolved) {
       setState(
         () => _validationError = widget.controller.strings.get(
           'l4_edge_requires_l4',
@@ -734,6 +744,13 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'allow_lan',
       'disable_quic',
       'direct_dns',
+      'dns_mode',
+      'proxy.socks5_listeners',
+      'proxy.http_listeners',
+      'proxy.dns_mode',
+      'proxy.dns_servers',
+      'proxy.dns_servers',
+      'proxy.system_proxy',
     ];
     final changedFields = <String>{
       for (var i = 0; i < paths.length; i++)
@@ -762,6 +779,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         allowLan: _allowLan,
         disableQuic: _disableQuic,
         directDns: _directDns,
+        dnsMode: _dnsMode,
+        proxy: _proxy.copyWith(authUsername: profile.proxy.authUsername),
         bypassCidrs: _bypass.text
             .split(RegExp(r'\r?\n'))
             .map((line) => line.trim())

@@ -141,6 +141,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Diese Verbindung überträgt keinen App-Datenverkehr. Öffne Proxy und aktiviere VPN, SOCKS5 oder HTTP.',
   'socks_listener': 'SOCKS5-Proxy',
   'http_listener': 'HTTP-Proxy',
+  'listener_addresses': 'Lauschadressen (eine pro Zeile)',
   'listen_ipv4': 'An IPv4 lauschen',
   'listen_ipv6': 'An IPv6 lauschen',
   'port': 'Port',

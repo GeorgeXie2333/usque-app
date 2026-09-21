@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import 'diagnostics_models.dart';
@@ -579,6 +581,8 @@ class ProxySettings {
     this.dnsIpv6 = '2606:4700:4700::1111',
     this.systemProxy = false,
     this.authUsername = '',
+    this._socksListeners,
+    this._httpListeners,
   });
 
   final String socksIpv4;
@@ -592,19 +596,51 @@ class ProxySettings {
   final String dnsIpv6;
   final bool systemProxy;
   final String authUsername;
+  final List<String>? _socksListeners;
+  final List<String>? _httpListeners;
+
+  List<String> get socksListeners => List<String>.unmodifiable(
+    _socksListeners ?? ['$socksIpv4:$socksPort', '[$socksIpv6]:$socksPort'],
+  );
+  List<String> get httpListeners => List<String>.unmodifiable(
+    _httpListeners ?? ['$httpIpv4:$httpPort', '[$httpIpv6]:$httpPort'],
+  );
+  bool get hasCustomSocksListeners => !listEquals(socksListeners, [
+    '$socksIpv4:$socksPort',
+    '[$socksIpv6]:$socksPort',
+  ]);
+  bool get hasCustomHttpListeners => !listEquals(httpListeners, [
+    '$httpIpv4:$httpPort',
+    '[$httpIpv6]:$httpPort',
+  ]);
+
+  static ({String host, int port})? parseListener(String value) {
+    final match = RegExp(r'^(?:\[([^\]]+)\]|([^:]+)):(\d+)$').firstMatch(value);
+    if (match == null) return null;
+    final host = match.group(1) ?? match.group(2)!;
+    final address = InternetAddress.tryParse(host);
+    final port = int.tryParse(match.group(3)!);
+    if (address == null ||
+        port == null ||
+        port < 1 ||
+        port > 65535 ||
+        (match.group(1) != null) !=
+            (address.type == InternetAddressType.IPv6)) {
+      return null;
+    }
+    return (host: address.address, port: port);
+  }
 
   bool get remoteDns => dnsMode == ProxyDnsMode.remote;
 
   bool get hasAuth => authUsername.isNotEmpty;
 
   bool get exposesLan {
-    final addresses = <String>[socksIpv4, socksIpv6, httpIpv4, httpIpv6];
-    return addresses.any(
-      (address) =>
-          address != '127.0.0.1' &&
-          address != '::1' &&
-          address.toLowerCase() != 'localhost',
-    );
+    return [...socksListeners, ...httpListeners].any((listener) {
+      final address = parseListener(listener)?.host;
+      return address == null ||
+          !(InternetAddress.tryParse(address)?.isLoopback ?? false);
+    });
   }
 
   ProxySettings copyWith({
@@ -619,6 +655,8 @@ class ProxySettings {
     String? dnsIpv6,
     bool? systemProxy,
     String? authUsername,
+    List<String>? socksListeners,
+    List<String>? httpListeners,
   }) {
     return ProxySettings(
       socksIpv4: socksIpv4 ?? this.socksIpv4,
@@ -632,6 +670,16 @@ class ProxySettings {
       dnsIpv6: dnsIpv6 ?? this.dnsIpv6,
       systemProxy: systemProxy ?? this.systemProxy,
       authUsername: authUsername ?? this.authUsername,
+      socksListeners:
+          socksListeners ??
+          (socksIpv4 != null || socksIpv6 != null || socksPort != null
+              ? null
+              : _socksListeners),
+      httpListeners:
+          httpListeners ??
+          (httpIpv4 != null || httpIpv6 != null || httpPort != null
+              ? null
+              : _httpListeners),
     );
   }
 
@@ -648,6 +696,12 @@ class ProxySettings {
       dnsIpv6: _stringOr(map, 'dns_v6', '2606:4700:4700::1111'),
       systemProxy: _bool(map, 'system_proxy'),
       authUsername: _stringOr(map, 'auth_username', ''),
+      socksListeners: map.containsKey('socks5_listeners')
+          ? List<String>.unmodifiable(_stringList(map, 'socks5_listeners'))
+          : null,
+      httpListeners: map.containsKey('http_listeners')
+          ? List<String>.unmodifiable(_stringList(map, 'http_listeners'))
+          : null,
     );
   }
 
@@ -663,6 +717,8 @@ class ProxySettings {
       'dns_v4': dnsIpv4,
       'dns_v6': dnsIpv6,
       'system_proxy': systemProxy,
+      'socks5_listeners': socksListeners,
+      'http_listeners': httpListeners,
       if (authUsername.isNotEmpty) 'auth_username': authUsername,
     };
   }
