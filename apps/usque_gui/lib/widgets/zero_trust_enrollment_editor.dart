@@ -125,6 +125,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
   bool _callbackReceived = false;
   bool? _reportedValidity;
   late int _seenZeroTrustTicket;
+  int _inputGeneration = 0;
 
   AppStrings get _strings => widget.controller.strings;
 
@@ -150,6 +151,11 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
   @override
   void didUpdateWidget(covariant ZeroTrustEnrollmentEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller ||
+        oldWidget.enabled != widget.enabled ||
+        oldWidget.initialTeam != widget.initialTeam) {
+      _inputGeneration++;
+    }
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_onControllerChanged);
       widget.controller.addListener(_onControllerChanged);
@@ -164,6 +170,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
 
   @override
   void dispose() {
+    _inputGeneration++;
     widget.controller.removeListener(_onControllerChanged);
     WidgetsBinding.instance.removeObserver(this);
     unawaited(widget.controller.cancelZeroTrustLogin());
@@ -238,7 +245,21 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
 
   Future<void> _fillCallbackFromClipboard() async {
     if (_startingLogin || !widget.enabled) return;
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final generation = ++_inputGeneration;
+    ClipboardData? data;
+    try {
+      data = await Clipboard.getData(Clipboard.kTextPlain);
+    } on Object catch (error) {
+      if (!mounted || !widget.enabled || generation != _inputGeneration) return;
+      setState(() => _operationError = userFacingError(_strings, error));
+      return;
+    }
+    if (!mounted ||
+        !widget.enabled ||
+        _startingLogin ||
+        generation != _inputGeneration) {
+      return;
+    }
     var text = data?.text?.trim() ?? '';
     if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
       text = text.substring(1, text.length - 1).trim();
@@ -261,6 +282,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
 
   Future<void> _beginZeroTrustLogin() async {
     if (_startingLogin || !widget.enabled) return;
+    _inputGeneration++;
     final team = _normalizedTeam();
     if (team == null) {
       setState(() => _teamError = _strings.get('zero_trust_team_invalid'));
@@ -305,10 +327,19 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
   }
 
   Future<void> _consumeAutomaticCallback() async {
+    if (!widget.enabled) return;
+    final generation = _inputGeneration;
     final team = _normalizedTeam();
     if (team == null) return;
     final callback = await widget.controller.consumeZeroTrustCallback();
-    if (!mounted || callback == null || callback.isEmpty) return;
+    if (!mounted ||
+        !widget.enabled ||
+        generation != _inputGeneration ||
+        team != _normalizedTeam() ||
+        callback == null ||
+        callback.isEmpty) {
+      return;
+    }
     if (!ZeroTrustCallbackSession.isValidCallback(team, callback)) return;
     _callbackController.text = callback;
     setState(() {
@@ -342,6 +373,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
   }
 
   Future<void> clearSensitive() async {
+    _inputGeneration++;
     _callbackController.clear();
     if (mounted) {
       setState(() {
@@ -379,6 +411,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
                   prefixIcon: const Icon(LucideIcons.building2),
                 ),
                 onChanged: (_) {
+                  _inputGeneration++;
                   setState(() {
                     _teamError = null;
                     _callbackError = _callbackValidationError(
@@ -427,6 +460,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
                   prefixIcon: const Icon(LucideIcons.link),
                 ),
                 onChanged: (_) {
+                  _inputGeneration++;
                   setState(() {
                     _callbackReceived = false;
                     _callbackError = _callbackValidationError(

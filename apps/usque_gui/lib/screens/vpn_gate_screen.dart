@@ -55,6 +55,9 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   bool _favoritesOnly = false;
   String? _nodeOperation, _nodeError;
   int _offset = 0, _query = 0;
+  int _refreshGeneration = 0;
+  Future<void>? _refreshRequest;
+  bool _cancellingRefresh = false;
   bool _loading = false,
       _pollingRefresh = false,
       _saving = false,
@@ -81,6 +84,8 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       if (_foreground &&
           !_loading &&
           !_pollingRefresh &&
+          _refreshRequest == null &&
+          !_cancellingRefresh &&
           _nodeOperation == null &&
           (_ownsRefresh || _directory.refreshing)) {
         unawaited(_pollRefresh());
@@ -107,6 +112,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.active != widget.active) _visibilityChanged();
     if (oldWidget.controller == _controller) return;
+    _abandonRefresh(oldWidget.controller);
     oldWidget.controller.removeListener(_settingsChanged);
     _controller.addListener(_settingsChanged);
     _draft = _baseline = _controller.activeProfile.vpnGate;
@@ -121,6 +127,8 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   }
 
   void _visibilityChanged() {
+    _query++;
+    _loading = false;
     if (_foreground) {
       unawaited(_load(refreshIfOld: true));
     } else if (_ownsRefresh) {
@@ -131,6 +139,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
 
   @override
   void dispose() {
+    _query++;
     WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_settingsChanged);
     _hourly?.cancel();
@@ -138,17 +147,15 @@ class _VpnGateScreenState extends State<VpnGateScreen>
     _ageTick?.cancel();
     if (_nodeOperation != null) unawaited(_cancelNode(rebuild: false));
     unawaited(_releaseDraft());
-    if (_ownsRefresh) {
-      unawaited(
-        _controller.refreshVpnGate(cancel: true).catchError((Object _) {}),
-      );
-    }
+    _abandonRefresh(_controller);
     super.dispose();
   }
 
   Future<void> _load({bool refreshIfOld = false}) async {
     if (!mounted || !_foreground) return;
     final query = ++_query;
+    final refreshGeneration = _refreshGeneration;
+    final startedDuringRefreshRequest = _refreshRequest != null;
     setState(() => _loading = true);
     try {
       final value = await _controller.listVpnGate(
@@ -159,7 +166,12 @@ class _VpnGateScreenState extends State<VpnGateScreen>
         unknownCountry: _country == 'UNKNOWN',
         offset: _offset,
       );
-      if (!mounted || query != _query) return;
+      if (!mounted ||
+          !_foreground ||
+          query != _query ||
+          refreshGeneration != _refreshGeneration) {
+        return;
+      }
       if (_offset > 0 && _offset >= value.total) {
         _offset = 0;
         await _load(refreshIfOld: refreshIfOld);
@@ -168,11 +180,13 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       setState(() {
         _directory = value;
         _fetchError = null;
-        if (const [
-          'complete',
-          'failed',
-          'cancelled',
-        ].contains(value.refreshStage)) {
+        if (!startedDuringRefreshRequest &&
+            _refreshRequest == null &&
+            const [
+              'complete',
+              'failed',
+              'cancelled',
+            ].contains(value.refreshStage)) {
           _ownsRefresh = false;
         }
         if (_draftServer == null &&
@@ -190,7 +204,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       if (mounted && query == _query) {
         setState(() => _fetchError = 'gate_fetch_error');
       }
-      if (refreshIfOld && mounted) await _refresh();
+      if (refreshIfOld && mounted && query == _query) await _refresh();
     } finally {
       if (mounted && query == _query) setState(() => _loading = false);
     }
@@ -222,37 +236,84 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   Future<void> _refresh() async {
     if (!mounted ||
         _ownsRefresh ||
+        _cancellingRefresh ||
         !_foreground ||
         _nodeOperation != null ||
         _saving) {
       return;
     }
+    final generation = ++_refreshGeneration;
+    _query++;
+    final controller = _controller;
     setState(() {
+      _loading = false;
       _ownsRefresh = true;
       _fetchError = null;
     });
+    final request = controller.refreshVpnGate();
+    _refreshRequest = request;
     try {
-      await _controller.refreshVpnGate();
+      await request;
     } on Object {
-      if (mounted) {
+      if (mounted && generation == _refreshGeneration) {
         setState(() {
           _ownsRefresh = false;
           _fetchError = 'gate_fetch_error';
         });
       }
+    } finally {
+      if (identical(_refreshRequest, request)) _refreshRequest = null;
     }
   }
 
   Future<void> _cancelRefresh() async {
+    if (_cancellingRefresh) return;
+    final generation = ++_refreshGeneration;
+    _query++;
+    final controller = _controller;
+    final pending = _refreshRequest;
+    setState(() {
+      _cancellingRefresh = true;
+      _loading = false;
+    });
     try {
-      await _controller.refreshVpnGate(cancel: true);
+      await _stopRefresh(controller, pending);
     } on Object {
-      if (mounted) setState(() => _fetchError = 'gate_fetch_error');
+      if (mounted && generation == _refreshGeneration) {
+        setState(() => _fetchError = 'gate_fetch_error');
+      }
     }
-    if (mounted) {
-      setState(() => _ownsRefresh = false);
+    if (mounted && generation == _refreshGeneration) {
+      setState(() {
+        _ownsRefresh = false;
+        _cancellingRefresh = false;
+      });
       await _load();
     }
+  }
+
+  Future<void> _stopRefresh(
+    AppController controller,
+    Future<void>? pending,
+  ) async {
+    try {
+      await pending;
+    } on Object {
+      // A failed acknowledgement may still have started the native refresh.
+    }
+    await controller.refreshVpnGate(cancel: true);
+  }
+
+  void _abandonRefresh(AppController controller) {
+    _refreshGeneration++;
+    if (_ownsRefresh && !_cancellingRefresh) {
+      unawaited(
+        _stopRefresh(controller, _refreshRequest).catchError((Object _) {}),
+      );
+    }
+    _ownsRefresh = false;
+    _cancellingRefresh = false;
+    _refreshRequest = null;
   }
 
   Future<void> _save() async {
@@ -518,7 +579,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
           ),
           actions: [
             TextButton.icon(
-              onPressed: _nodeOperation != null
+              onPressed: _nodeOperation != null || _cancellingRefresh
                   ? null
                   : refreshing
                   ? _cancelRefresh

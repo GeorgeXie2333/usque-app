@@ -24,6 +24,8 @@ class DiagnosticsEngineStub implements EngineClient {
   int restoreCalls = 0;
   int exportCalls = 0;
   Completer<DiagnosticSession>? pendingStart;
+  Completer<DiagnosticSession?>? pendingRestore;
+  String? cancelledId;
 
   @override
   bool get supportsSnapshotEvents => false;
@@ -35,7 +37,7 @@ class DiagnosticsEngineStub implements EngineClient {
   @override
   Future<DiagnosticSession?> getDiagnostics() async {
     restoreCalls += 1;
-    return recovered;
+    return pendingRestore?.future ?? recovered;
   }
 
   @override
@@ -54,6 +56,7 @@ class DiagnosticsEngineStub implements EngineClient {
   @override
   Future<DiagnosticSession> cancelDiagnostics(String sessionId) async {
     cancelCalls += 1;
+    cancelledId = sessionId;
     final cancelled = DiagnosticSession(
       sessionId: sessionId,
       state: DiagnosticSessionState.cancelled,
@@ -101,6 +104,59 @@ DiagnosticSession runningSession({
 }
 
 void main() {
+  testWidgets(
+    'second pending start cancels its own session despite old events',
+    (tester) async {
+      final old = DiagnosticSession(
+        sessionId: 'old',
+        state: DiagnosticSessionState.completed,
+        startedAt: DateTime.fromMillisecondsSinceEpoch(1),
+        mode: DiagnosticMode.standard,
+        progressPercent: 100,
+      );
+      final engine = DiagnosticsEngineStub()..recovered = old;
+      final controller = DiagnosticsController(engine);
+      addTearDown(controller.dispose);
+      await controller.restore();
+      engine.pendingStart = Completer<DiagnosticSession>();
+      final start = controller.start(DiagnosticMode.deep);
+      controller.handleEngineEvent(
+        EngineSnapshotEvent(diagnosticsChanged: true, diagnosticSession: old),
+      );
+      final next = runningSession(id: 'new', mode: DiagnosticMode.deep);
+      controller.handleEngineEvent(
+        EngineSnapshotEvent(diagnosticsChanged: true, diagnosticSession: next),
+      );
+      await controller.cancel();
+      expect(controller.state, DiagnosticsControllerState.cancelling);
+      engine.pendingStart!.complete(next);
+      await start;
+      expect(engine.cancelCalls, 1);
+      expect(engine.cancelledId, 'new');
+      expect(controller.session?.state, DiagnosticSessionState.cancelled);
+    },
+  );
+
+  testWidgets('restore begun before start cannot overwrite the new session', (
+    tester,
+  ) async {
+    final engine = DiagnosticsEngineStub()
+      ..pendingRestore = Completer<DiagnosticSession?>();
+    final controller = DiagnosticsController(engine);
+    addTearDown(controller.dispose);
+    final restore = controller.restore();
+    await controller.start(DiagnosticMode.deep);
+    engine.pendingRestore!.complete(null);
+    await restore;
+    expect(controller.isActive, isTrue);
+    expect(controller.session?.mode, DiagnosticMode.deep);
+    engine.pendingRestore = null;
+    final reads = engine.restoreCalls;
+    await tester.pump(const Duration(milliseconds: 800));
+    expect(engine.restoreCalls, greaterThan(reads));
+    await controller.cancel();
+  });
+
   testWidgets('restore recovers an active diagnostic session', (tester) async {
     final engine = DiagnosticsEngineStub()..recovered = runningSession();
     final controller = DiagnosticsController(engine);
