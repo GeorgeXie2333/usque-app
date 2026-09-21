@@ -160,11 +160,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
 
             override fun platformPreferences(): Map<String, Any?> {
-                val preferences =
-                    createDeviceProtectedStorageContext().getSharedPreferences(
-                        UsqueVpnService.RECOVERY_PREFERENCES,
-                        MODE_PRIVATE,
-                    )
+                val preferences = AndroidPolicyStore.startup(this@MainActivity)
                 return mapOf(
                     "start_on_boot" to
                         preferences.getBoolean(UsqueVpnService.START_ON_BOOT, false),
@@ -173,8 +169,8 @@ class MainActivity : FlutterFragmentActivity() {
             }
 
             override fun setStartOnBoot(enabled: Boolean) {
-                createDeviceProtectedStorageContext()
-                    .getSharedPreferences(UsqueVpnService.RECOVERY_PREFERENCES, MODE_PRIVATE)
+                AndroidPolicyStore
+                    .startup(this@MainActivity)
                     .edit { putBoolean(UsqueVpnService.START_ON_BOOT, enabled) }
             }
 
@@ -201,7 +197,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .save(
                         this@MainActivity,
                         PerAppProxySettings(enabled = enabled, packageNames = packageNames),
-                    ).toMap()
+                    ).toMap() + mapOf("revision" to PerAppProxyStore.preferences(this@MainActivity).revision())
 
             override fun getUpdateCacheDirectory(): String {
                 updateInstaller.prepareCache()

@@ -105,6 +105,15 @@ restoration using the previous session, without changing the durable file.
 Android keeps the confirmed recovery profile separate from an in-progress
 settings target and confirms the target after native and platform completion.
 
+Android startup preferences, recovery records and per-app policy use separate
+versioned files. Every read and field patch takes the same stable file lock;
+writers sync a temporary file and atomically replace the data file. Old
+preferences are imported once, and clearing persists an empty record to prevent
+re-import. Per-app notifications retain the latest revision across service
+binding. Boot reads the current active account and its current auto-connect
+flag from the native catalogue after unlock, within a bounded receiver task.
+The last connected profile remains exclusively a recovery input.
+
 Android reserves a fresh application token and session generation before
 dispatching persistence. Its lifecycle is idle, persisting, reconfiguring,
 awaiting observation, then idle. Snapshots cannot finish an application while

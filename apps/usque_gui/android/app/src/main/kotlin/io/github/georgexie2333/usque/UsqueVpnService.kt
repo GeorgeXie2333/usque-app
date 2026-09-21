@@ -111,8 +111,7 @@ class UsqueVpnService : VpnService() {
     @Volatile private var pendingTunRestart: TunRestartDecision = TunRestartDecision.TEARDOWN
     private val eventClients = CopyOnWriteArrayList<Messenger>()
     private val recoveryPreferences by lazy {
-        createDeviceProtectedStorageContext()
-            .getSharedPreferences(RECOVERY_PREFERENCES, MODE_PRIVATE)
+        AndroidPolicyStore.recovery(this)
     }
     private val flagCache by lazy { FlagSvgCache(this) }
     private val logStore by lazy { AndroidLogStore(this) }
@@ -1513,6 +1512,13 @@ class UsqueVpnService : VpnService() {
         }
 
     private fun applyPerAppFilter(request: Message) {
+        try {
+            check(PerAppProxyStore.preferences(this).revision() >= request.data.getLong("revision", 0L))
+            PerAppProxyStore.load(this)
+        } catch (_: Exception) {
+            replyControlError(request, "PER_APP_STORE_FAILED", "Android could not read the committed per-app policy.")
+            return
+        }
         val profileJson = activeProfileJson.get()
         val tunnelOn =
             profileJson != null &&
@@ -1599,9 +1605,14 @@ class UsqueVpnService : VpnService() {
             return
         }
         clearAllRequested.set(true)
-        recoveryPreferences.edit().clear().commit()
+        try {
+            AndroidPolicyStore.clear(this)
+        } catch (_: Exception) {
+            clearAllRequested.set(false)
+            replyControlError(request, "POLICY_CLEAR_FAILED", "Android could not clear persisted policy.")
+            return
+        }
         AndroidLocaleController.clear(this)
-        PerAppProxyStore.clear(this)
         val generation = connectionGeneration.incrementAndGet()
         settingsApplication.cancel()
         networkMonitor.bumpGeneration()

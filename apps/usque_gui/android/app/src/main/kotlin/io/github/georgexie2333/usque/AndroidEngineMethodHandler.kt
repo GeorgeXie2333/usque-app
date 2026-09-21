@@ -655,7 +655,7 @@ internal class AndroidEngineMethodHandler(
         }
         try {
             val saved = activityCommands.savePerAppProxy(enabled, packageNames)
-            controlClient.notifyApplyPerApp()
+            controlClient.notifyApplyPerApp((saved["revision"] as? Number)?.toLong() ?: 0L)
             result.success(saved)
         } catch (error: PerAppProxyStoreException) {
             val message =

@@ -264,6 +264,7 @@ internal class VpnControlClient(
     private var pendingDisconnectResult: MethodChannel.Result? = null
     private var pendingReconfigure: PendingReconfigure? = null
     private var desiredLocaleCatalog: String? = null
+    private var pendingPerAppRevision: Long? = null
 
     /** Guards the acknowledgement-to-local-wipe ownership transition across threads. */
     private val clearAllStateLock = Any()
@@ -323,6 +324,7 @@ internal class VpnControlClient(
                 flushSettings()
                 flushVpnGate()
                 flushLocale()
+                flushPerApp()
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
@@ -653,10 +655,19 @@ internal class VpnControlClient(
         return true
     }
 
-    fun notifyApplyPerApp() {
+    fun notifyApplyPerApp(revision: Long = 0L) {
         if (destroyed) return
+        pendingPerAppRevision = maxOf(pendingPerAppRevision ?: 0L, revision)
+        if (endpoint == null) bind()
+        flushPerApp()
+    }
+
+    private fun flushPerApp() {
+        val revision = pendingPerAppRevision ?: return
         val service = endpoint ?: return
-        if (!service.send(UsqueVpnService.MSG_APPLY_PER_APP)) {
+        if (service.send(UsqueVpnService.MSG_APPLY_PER_APP, extras = mapOf("revision" to revision))) {
+            pendingPerAppRevision = null
+        } else {
             endpoint = null
         }
     }
@@ -984,6 +995,7 @@ internal class VpnControlClient(
         flushPendingReconfigure()
         flushSettings()
         flushLocale()
+        flushPerApp()
     }
 
     fun detachEndpointForTest() {

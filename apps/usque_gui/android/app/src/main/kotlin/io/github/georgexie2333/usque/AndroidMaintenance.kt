@@ -219,7 +219,7 @@ internal object AndroidMaintenance {
         }
         AndroidLogStore(context).clear()
         FlagSvgCache(context).clear()
-        PerAppProxyStore.clear(context)
+        AndroidPolicyStore.clear(context)
     }
 
     internal fun parseUpdateResult(json: String): Map<String, Any?> {

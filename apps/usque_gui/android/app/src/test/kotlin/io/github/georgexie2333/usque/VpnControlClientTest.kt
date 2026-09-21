@@ -330,14 +330,29 @@ class VpnControlClientTest {
     }
 
     @Test
-    fun notifyApplyPerAppSendsWhenBoundAndIsIgnoredWhenUnbound() {
-        client.notifyApplyPerApp()
-        assertEquals(0, binder.bindCount)
+    fun notifyApplyPerAppRetainsNewestRevisionUntilBound() {
+        client.notifyApplyPerApp(2)
+        client.notifyApplyPerApp(3)
+        assertEquals(1, binder.bindCount)
 
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)
-        client.notifyApplyPerApp()
         assertEquals(UsqueVpnService.MSG_APPLY_PER_APP, endpoint.messages.single().what)
+        assertEquals(
+            3L,
+            endpoint.messages
+                .single()
+                .extras
+                ?.get("revision"),
+        )
+        client.notifyApplyPerApp(4)
+        assertEquals(
+            4L,
+            endpoint.messages
+                .last()
+                .extras
+                ?.get("revision"),
+        )
     }
 
     @Test
