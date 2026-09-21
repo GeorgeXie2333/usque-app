@@ -135,6 +135,8 @@ internal object NetworkQualityFields {
             "vpn_gate_tcp",
             "vpn_gate_pool_favorites",
             "application_quic_blocking",
+            "account_metadata_mutations",
+            "shared_proxy_auth_application",
         ).associateWith {
             source?.opt(it) ==
                 true

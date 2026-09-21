@@ -11,6 +11,14 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 
 class NetworkQualityFieldsTest {
+    @Test fun sharedCredentialCapabilityReachesTheFlutterBridge() {
+        for (key in listOf("account_metadata_mutations", "shared_proxy_auth_application")) {
+            assertEquals(true, NetworkQualityFields.capabilities("{\"$key\":true}")[key])
+            assertEquals(false, NetworkQualityFields.capabilities("{}")[key])
+            assertEquals(false, NetworkQualityFields.capabilities("{\"$key\":\"true\"}")[key])
+        }
+    }
+
     @Test fun applicationQuicCapabilityRequiresExplicitBooleanSupport() {
         val key = "application_quic_blocking"
         assertEquals(true, NetworkQualityFields.capabilities("{\"application_quic_blocking\":true}")[key])
