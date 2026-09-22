@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::{Instant, timeout_at};
 use tokio_util::sync::CancellationToken;
-use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
 use ts_netstack_smoltcp::netsock::TcpStream as StackTcpStream;
 
@@ -177,7 +176,7 @@ impl TcpDialer for StackDialer {
         let local = SocketAddr::new(ip, crate::port_allocator::next_tcp_port());
         tokio::select! {
             _ = cancellation.cancelled() => Err(DialError::Cancelled),
-            result = timeout_at(deadline, self.channel.tcp_connect(local, remote)) => match result {
+            result = timeout_at(deadline, crate::stack_tcp::StackTcpStream::connect(self.channel.clone(), local, remote)) => match result {
                 Ok(Ok(stream)) => Ok(Box::new(stream)),
                 Ok(Err(error)) if error.is_tcp_buffer_budget_exhausted() => Err(DialError::Budget),
                 Ok(Err(_)) => Err(DialError::Refused),
@@ -232,7 +231,8 @@ impl ProxyServices {
                 servers,
                 profile.proxy.dns_mode,
                 Arc::clone(&stack.protector),
-            ),
+            )
+            .with_final_exit(profile.chain_enabled()),
             protector: Arc::clone(&stack.protector),
             geo_policy: Arc::clone(&stack.geo_policy),
             counters: Arc::clone(&stack.counters),

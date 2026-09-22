@@ -18,6 +18,10 @@ using namespace openvpn;
 constexpr size_t MAX_PACKETS = 256;
 constexpr size_t MAX_BYTES = 4 * 1024 * 1024;
 constexpr size_t MAX_PACKET = 65535;
+// The pinned Core's default tcp-queue-limit drops plaintext above 64 queued
+// transport packets, for both external TCP and UDP transports. Apply pressure
+// before invoking tun_recv, while retaining the remaining bounded queue budget.
+constexpr size_t MAX_TRANSPORT_PACKETS = 64;
 enum EventKind : uint32_t { DIAL = 1, TRANSPORT = 2, PACKET = 3, NETWORK = 4, STATE = 5, STOPPED = 6 };
 enum InputKind : uint32_t { RECEIVE_TRANSPORT = 1, SEND_IP = 2, TRANSPORT_CONNECTED = 3, TRANSPORT_FAILED = 4 };
 class Transport;
@@ -43,6 +47,9 @@ struct Shared {
     size_t output_bytes = 0;
     size_t input_bytes = 0;
     size_t transport_packets = 0;
+    size_t ip_packets = 0;
+    size_t input_transport_packets = 0;
+    size_t input_ip_packets = 0;
     openvpn_io::io_context *io = nullptr;
     Transport *transport = nullptr;
     Tun *tun = nullptr;
@@ -62,12 +69,16 @@ struct Shared {
     bool emit(Message message) {
         {
             std::lock_guard<std::mutex> lock(mutex);
-            if (output.size() >= MAX_PACKETS || message.bytes.size() > MAX_BYTES - output_bytes)
+            const bool data = message.event.kind == TRANSPORT || message.event.kind == PACKET;
+            if (output.size() >= (data ? MAX_PACKETS - 8 : MAX_PACKETS)
+                || message.bytes.size() > MAX_BYTES - output_bytes)
                 return false;
             message.event.length = static_cast<uint32_t>(message.bytes.size());
             output_bytes += message.bytes.size();
             if (message.event.kind == TRANSPORT)
                 ++transport_packets;
+            if (message.event.kind == PACKET)
+                ++ip_packets;
             output.push_back(std::move(message));
         }
         notify(context);
@@ -324,7 +335,7 @@ class TunFactory final : public TunClientFactory {
 };
 
 void Shared::drain() {
-    for (;;) {
+    for (size_t dispatched = 0; dispatched < MAX_PACKETS; ++dispatched) {
         Input next;
         // Parent callbacks can replace a protocol object synchronously. Keep
         // its intrusive reference until this dispatch returns on the core thread.
@@ -333,17 +344,36 @@ void Shared::drain() {
         bool can_send_ip;
         bool empty;
         {
-            std::lock_guard<std::mutex> lock(mutex);
+            std::unique_lock<std::mutex> lock(mutex);
             current_transport = transport;
             current_tun = tun;
             can_send_ip = ready;
+            // Hold data in the bounded input queue until its output direction
+            // can advance. Scan past a blocked direction so the opposite one
+            // and lifecycle notifications remain live. Reserve eight output
+            // slots for control and half the data budget per busy direction.
+            auto available = [this](const Input& packet) {
+                if (packet.generation != generation || packet.kind == TRANSPORT_CONNECTED || packet.kind == TRANSPORT_FAILED) return true;
+                if (output.size() >= MAX_PACKETS - 8 || output_bytes > MAX_BYTES - MAX_PACKET) return false;
+                if (packet.kind == SEND_IP) return transport_packets < MAX_TRANSPORT_PACKETS;
+                return ip_packets < (MAX_PACKETS - 8) / 2;
+            };
+            auto selected = std::find_if(input.begin(), input.end(), available);
             empty = input.empty();
+            if (selected == input.end() && !empty) {
+                scheduled = false;
+                lock.unlock();
+                notify(context);
+                return;
+            }
             if (empty) {
                 scheduled = false;
             } else {
-                next = std::move(input.front());
-                input.pop_front();
+                next = std::move(*selected);
+                input.erase(selected);
                 input_bytes -= next.bytes.size();
+                if (next.kind == RECEIVE_TRANSPORT) --input_transport_packets;
+                if (next.kind == SEND_IP) --input_ip_packets;
                 if (next.generation != generation)
                     continue;
             }
@@ -371,6 +401,13 @@ void Shared::drain() {
             break;
         }
     }
+    // Repost a bounded drain so timers and stop handlers get an ASIO turn.
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        scheduled = false;
+        if (!input.empty()) schedule_locked();
+    }
+    notify(context);
 }
 
 class Client final : public ClientAPI::OpenVPNClient {
@@ -426,7 +463,7 @@ struct usque_ovpn_session {
 
 extern "C" usque_ovpn_session *usque_ovpn_create(const uint8_t *config, size_t length,
                                                  const char *remote, uint16_t port,
-                                                 const char *username, const char *password, const char *key_password,
+                                                 const char *username, const char *password, const char *key_password, uint32_t disable_client_cert,
                                                  usque_ovpn_notify notify, void *context) {
     try {
         if (!config || !length || length > 128 * 1024 || !remote || !port || !notify)
@@ -444,6 +481,7 @@ extern "C" usque_ovpn_session *usque_ovpn_create(const uint8_t *config, size_t l
         settings.enableNonPreferredDCAlgorithms = true;
         settings.enableLegacyAlgorithms = false;
         settings.retryOnAuthFailed = false;
+        settings.disableClientCert = disable_client_cert != 0;
         settings.clockTickMS = 100;
         settings.privateKeyPassword = key_password ? key_password : "";
         auto evaluated = session->client.eval_config(settings);
@@ -499,10 +537,16 @@ extern "C" int usque_ovpn_push(usque_ovpn_session *session, uint32_t kind, uint6
         std::lock_guard<std::mutex> lock(shared.mutex);
         if (shared.stopping.load() || !shared.io || generation != shared.generation
             || (kind == SEND_IP && !shared.ready)) return -1;
-        if (shared.input.size() >= MAX_PACKETS || length > MAX_BYTES - shared.input_bytes) return 0;
+        const bool data_packet = kind == RECEIVE_TRANSPORT || kind == SEND_IP;
+        if (shared.input.size() >= (data_packet ? MAX_PACKETS - 8 : MAX_PACKETS)
+            || length > MAX_BYTES - shared.input_bytes
+            || (kind == RECEIVE_TRANSPORT && shared.input_transport_packets >= (MAX_PACKETS - 8) / 2)
+            || (kind == SEND_IP && shared.input_ip_packets >= (MAX_PACKETS - 8) / 2)) return 0;
         Input input{kind, generation, {}};
         if (length) input.bytes.assign(data, data + length);
         shared.input_bytes += length;
+        if (kind == RECEIVE_TRANSPORT) ++shared.input_transport_packets;
+        if (kind == SEND_IP) ++shared.input_ip_packets;
         shared.input.push_back(std::move(input));
         shared.schedule_locked();
         return 1;
@@ -511,25 +555,57 @@ extern "C" int usque_ovpn_push(usque_ovpn_session *session, uint32_t kind, uint6
 
 extern "C" int usque_ovpn_pop(usque_ovpn_session *session, usque_ovpn_event *event,
                               uint8_t *data, size_t capacity) {
+    return usque_ovpn_pop_filtered(session, event, data, capacity, UINT32_MAX);
+}
+extern "C" int usque_ovpn_pop_filtered(usque_ovpn_session *session, usque_ovpn_event *event,
+                                       uint8_t *data, size_t capacity, uint32_t mask) {
     try {
         if (!session || !event || !data) return -1;
         auto &shared = session->shared;
         std::lock_guard<std::mutex> lock(shared.mutex);
-        if (shared.output.empty()) {
+        auto selected = std::find_if(shared.output.begin(), shared.output.end(),
+                                    [mask](const Message& m) { return (mask & (1u << m.event.kind)) != 0; });
+        if (selected == shared.output.end()) {
             if (!shared.finished.load()) return 0;
             *event = {};
             event->kind = STOPPED;
             return 1;
         }
-        const auto &message = shared.output.front();
+        const auto &message = *selected;
         if (message.bytes.size() > capacity) return -1;
         *event = message.event;
         if (!message.bytes.empty()) std::memcpy(data, message.bytes.data(), message.bytes.size());
         shared.output_bytes -= message.bytes.size();
         if (message.event.kind == TRANSPORT) --shared.transport_packets;
-        shared.output.pop_front();
+        if (message.event.kind == PACKET) --shared.ip_packets;
+        shared.output.erase(selected);
         shared.schedule_locked();
         return 1;
     } catch (...) { return -1; }
 }
 extern "C" size_t usque_ovpn_event_size(void) { return sizeof(usque_ovpn_event); }
+
+#ifdef USQUE_INTEROP_TEST
+// Exercise capacity wakeups without timing the protocol worker or opening I/O.
+extern "C" int usque_test_input_capacity_wakeup(void) {
+    size_t notifications = 0;
+    Shared shared("192.0.2.1", 1194, [](void *context) {
+        ++*static_cast<size_t *>(context);
+    }, &notifications);
+    shared.generation = 2;
+    for (size_t i = 0; i < MAX_PACKETS; ++i)
+        shared.input.push_back({RECEIVE_TRANSPORT, 1, {}});
+    shared.input_transport_packets = MAX_PACKETS;
+    shared.scheduled = true;
+    shared.drain();
+    if (!shared.input.empty() || notifications != 1 || shared.scheduled) return 0;
+    shared.input.push_back({RECEIVE_TRANSPORT, 1, {}});
+    shared.input.push_back({SEND_IP, 2, {}});
+    shared.input_transport_packets = 1;
+    shared.input_ip_packets = 1;
+    shared.transport_packets = (MAX_PACKETS - 8) / 2;
+    shared.scheduled = true;
+    shared.drain();
+    return shared.input.size() == 1 && notifications == 2 && !shared.scheduled;
+}
+#endif

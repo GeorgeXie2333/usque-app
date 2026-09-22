@@ -132,6 +132,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "chain_profile_import": engine_ready(),
             "chain_openvpn_udp": engine_ready(),
             "chain_wireguard": engine_ready() && cfg!(feature = "wireguard"),
+            "chain_openvpn_multi_endpoint": engine_ready(),
             "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,

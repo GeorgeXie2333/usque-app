@@ -5,6 +5,7 @@
 //! network configuration.
 
 mod application_traffic;
+mod chain_raw;
 mod chain_session;
 mod chain_udp;
 mod connect_ip_control;
@@ -15,6 +16,7 @@ mod dns;
 mod dns_stream;
 mod encrypted_dns;
 mod feature_flags;
+mod final_dns;
 mod geo_direct;
 mod h2;
 mod h3;

@@ -1,6 +1,7 @@
 //! Private network clients never pass through a frontend's direct-rule policy.
 //! A handle is bound to one runtime and cannot silently obtain another exit.
-use crate::dns::Resolver;
+use crate::chain_raw::RawSocket;
+use crate::dns::{QuerySocket as UdpSocket, Resolver};
 use crate::netstack::{PacketStack, RuntimeHealth};
 use crate::tcp::{DialError, FlowClass, StackDialer, TcpDialer, TcpStream, TcpTarget};
 use bytes::Bytes;
@@ -8,12 +9,11 @@ use http_body_util::{BodyExt, Empty};
 use hyper_util::rt::TokioIo;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, timeout_at};
 use tokio_util::sync::CancellationToken;
-use ts_netstack_smoltcp::CreateSocket;
+use tokio_util::task::AbortOnDropHandle;
 use ts_netstack_smoltcp::netcore::Channel;
-use ts_netstack_smoltcp::netsock::{RawSocket, UdpSocket};
 use usque_core::vpngate::{
     CONNECT_TIMEOUT, CatalogueHttp, DirectoryError, MAX_DIRECTORY_BYTES, RESPONSE_TIMEOUT,
     approved_url,
@@ -124,14 +124,17 @@ impl InternalNetwork {
                 ipv4,
                 ipv6,
             }),
-            resolver: Some(Resolver::new(
-                stack.channel.clone(),
-                ipv4,
-                ipv6,
-                profile.dns_servers.clone(),
-                usque_core::ProxyDnsMode::Remote,
-                stack.protector.clone(),
-            )),
+            resolver: Some(
+                Resolver::new(
+                    stack.channel.clone(),
+                    ipv4,
+                    ipv6,
+                    profile.dns_servers.clone(),
+                    usque_core::ProxyDnsMode::Remote,
+                    stack.protector.clone(),
+                )
+                .with_final_exit(profile.chain_enabled()),
+            ),
             health: stack.subscribe_health(),
             cancellation: stack.cancellation.clone(),
             packet_channel: Some((stack.channel.clone(), ipv4, ipv6)),
@@ -201,25 +204,24 @@ impl InternalNetwork {
             biased;
             _ = cancel.cancelled() => return Err(DialError::Cancelled),
             _ = self.cancellation.cancelled() => return Err(DialError::Closed),
-            result = channel.udp_bind(local) => result.map_err(|_| DialError::Closed)?,
+            result = UdpSocket::bind(channel.clone(), local) => result.map_err(|_| DialError::Closed)?,
         };
         let fragments = if remote.is_ipv6() {
             Some(tokio::select! {
                 biased;
                 _ = cancel.cancelled() => return Err(DialError::Cancelled),
                 _ = self.cancellation.cancelled() => return Err(DialError::Closed),
-                result = channel.raw_open(false, smoltcp::wire::IpProtocol::Ipv6Frag) => result.map_err(|_| DialError::Closed)?,
+                result = RawSocket::open(channel.clone()) => result.map_err(|_| DialError::Closed)?,
             })
         } else {
             None
         };
-        Ok(InternalUdp {
+        Ok(InternalUdp::new(
             socket,
             remote,
-            cancellation: self.cancellation.clone(),
+            &self.cancellation,
             fragments,
-            reassembly: tokio::sync::Mutex::new(crate::chain_udp::Reassembler::default()),
-        })
+        ))
     }
 
     pub(crate) async fn connect_address(
@@ -394,13 +396,82 @@ impl InternalNetwork {
 }
 
 pub(crate) struct InternalUdp {
-    socket: UdpSocket,
+    socket: Arc<UdpSocket>,
     remote: SocketAddr,
     cancellation: CancellationToken,
-    fragments: Option<RawSocket>,
-    reassembly: tokio::sync::Mutex<crate::chain_udp::Reassembler>,
+    fragments: Option<Arc<RawSocket>>,
+    received: tokio::sync::Mutex<mpsc::Receiver<Result<Bytes, DialError>>>,
+    readers: Vec<AbortOnDropHandle<()>>,
 }
 impl InternalUdp {
+    fn new(
+        socket: UdpSocket,
+        remote: SocketAddr,
+        parent: &CancellationToken,
+        fragments: Option<RawSocket>,
+    ) -> Self {
+        let cancellation = parent.child_token();
+        let socket = Arc::new(socket);
+        let fragments = fragments.map(Arc::new);
+        let (packets, received) = mpsc::channel(16);
+        let mut readers = Vec::new();
+        let udp = socket.clone();
+        let cancel = cancellation.clone();
+        let output = packets.clone();
+        readers.push(AbortOnDropHandle::new(tokio::spawn(async move {
+            let work = async {
+                loop {
+                    match udp.recv_from_bytes().await {
+                        Ok((source, packet)) if source == remote => {
+                            if output.send(Ok(packet)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(_) => {
+                            let _ = output.send(Err(DialError::Closed)).await;
+                            break;
+                        }
+                    }
+                }
+            };
+            tokio::select! { biased; _ = cancel.cancelled() => {}, _ = work => {} }
+        })));
+        if let (Some(raw), SocketAddr::V6(local), SocketAddr::V6(remote)) =
+            (fragments.clone(), socket.local_addr(), remote)
+        {
+            let cancel = cancellation.clone();
+            readers.push(AbortOnDropHandle::new(tokio::spawn(async move {
+                let work = async {
+                    let mut reassembly = crate::chain_udp::Reassembler::default();
+                    loop {
+                        match raw.recv_bytes().await {
+                            Ok(packet) => {
+                                if let Some(packet) = reassembly.receive(&packet, local, remote)
+                                    && packets.send(Ok(packet)).await.is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            Err(_) => {
+                                let _ = packets.send(Err(DialError::Closed)).await;
+                                break;
+                            }
+                        }
+                    }
+                };
+                tokio::select! { biased; _ = cancel.cancelled() => {}, _ = work => {} }
+            })));
+        }
+        Self {
+            socket,
+            remote,
+            cancellation,
+            fragments,
+            received: tokio::sync::Mutex::new(received),
+            readers,
+        }
+    }
     pub(crate) async fn send(&self, packet: &[u8]) -> Result<(), DialError> {
         if packet.len() > 16 * 1024 - 48 {
             return Err(DialError::Protocol);
@@ -433,26 +504,20 @@ impl InternalUdp {
             result = self.socket.send_to(self.remote, packet) => result.map_err(|_| DialError::Closed),
         }
     }
+    /// Only this cancellation-safe channel receive is exposed to callers.
+    /// Native socket RPCs stay owned by persistent readers until completion.
     pub(crate) async fn recv(&self) -> Result<Bytes, DialError> {
-        loop {
-            let (source, packet) = tokio::select! {
-                biased;
-                _ = self.cancellation.cancelled() => return Err(DialError::Closed),
-                result = self.socket.recv_from_bytes() => result.map_err(|_| DialError::Closed)?,
-                result = async {
-                    if let Some(raw) = &self.fragments { raw.recv_bytes().await }
-                    else { std::future::pending().await }
-                } => {
-                    let packet = result.map_err(|_| DialError::Closed)?;
-                    if let (SocketAddr::V6(local), SocketAddr::V6(remote)) = (self.socket.local_addr(), self.remote)
-                        && let Some(packet) = self.reassembly.lock().await.receive(&packet, local, remote) { return Ok(packet); }
-                    continue;
-                },
-            };
-            if source == self.remote {
-                return Ok(packet);
-            }
+        tokio::select! {
+            biased;
+            _ = self.cancellation.cancelled() => Err(DialError::Closed),
+            packet = async { self.received.lock().await.recv().await } => packet.unwrap_or(Err(DialError::Closed)),
         }
+    }
+}
+impl Drop for InternalUdp {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+        self.readers.clear();
     }
 }
 
@@ -477,6 +542,125 @@ mod catalogue_tests {
     use std::time::Duration;
     use ts_netstack_smoltcp::HasChannel;
     use ts_netstack_smoltcp::netcore::NetstackControl;
+    #[cfg(feature = "wireguard")]
+    async fn wireguard_through_fragmented_udp(left: &InternalUdp, right: &InternalUdp) {
+        use boringtun::x25519::{PublicKey, StaticSecret};
+        use usque_core::chain_exit::{Endpoint, WireGuardProfile};
+        use usque_openvpn::Event;
+        use zeroize::Zeroizing;
+        let key = |byte| StaticSecret::from([byte; 32]);
+        let profile = |own, peer| WireGuardProfile {
+            private_key: Zeroizing::new(key(own).to_bytes()),
+            public_key: PublicKey::from(&key(peer)).to_bytes(),
+            preshared_key: None,
+            endpoint: Endpoint::parse("192.0.2.1", "51820", 0).unwrap(),
+            addresses: vec![format!("10.8.0.{own}/32").parse().unwrap()],
+            dns_servers: vec![],
+            allowed_ips: vec!["10.8.0.0/24".parse().unwrap()],
+            mtu: 9000,
+            keepalive: None,
+        };
+        let mut a = crate::wireguard::Session::start(profile(1, 2));
+        let mut b = crate::wireguard::Session::start(profile(2, 1));
+        let ai = a.input();
+        let bi = b.input();
+        let (mut at, mut ap) = a.split_packet_outputs().unwrap();
+        let (mut bt, mut bp) = b.split_packet_outputs().unwrap();
+        let transport = async {
+            tokio::join!(
+                async {
+                    while let Some(Event::TransportPacket { packet, .. }) = at.recv().await {
+                        left.send(&packet).await.unwrap();
+                    }
+                },
+                async {
+                    while let Some(Event::TransportPacket { packet, .. }) = bt.recv().await {
+                        right.send(&packet).await.unwrap();
+                    }
+                },
+                async {
+                    loop {
+                        ai.push_owned(1, 1, left.recv().await.unwrap())
+                            .await
+                            .unwrap();
+                    }
+                },
+                async {
+                    loop {
+                        bi.push_owned(1, 1, right.recv().await.unwrap())
+                            .await
+                            .unwrap();
+                    }
+                },
+            );
+        };
+        async fn connected(session: &mut crate::wireguard::Session) {
+            loop {
+                match session.next_event().await.unwrap() {
+                    Event::Dial { generation } => {
+                        session.input().push(3, generation, &[]).await.unwrap()
+                    }
+                    Event::State {
+                        name, error, fatal, ..
+                    } => {
+                        assert!(!error && !fatal, "{name}");
+                        if name == "CONNECTED" {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let work = async {
+            tokio::join!(connected(&mut a), connected(&mut b));
+            // Both directions share the real bounded outer IP stack and raw
+            // fragment reassembly, without any OS sockets or VPN interface.
+            for round in 0..32 {
+                for size in [64, 1280, 1420, 1500, 9000] {
+                    let packet = |source, destination| {
+                        let mut bytes = vec![round; size];
+                        bytes[0] = 0x45;
+                        bytes[2..4].copy_from_slice(&(size as u16).to_be_bytes());
+                        bytes[9] = 17;
+                        bytes[12..16].copy_from_slice(&[10, 8, 0, source]);
+                        bytes[16..20].copy_from_slice(&[10, 8, 0, destination]);
+                        Bytes::from(bytes)
+                    };
+                    let outgoing_a = packet(1, 2);
+                    let outgoing_b = packet(2, 1);
+                    let (sent_a, sent_b, received_a, received_b) = tokio::join!(
+                        ai.push_owned(2, 1, outgoing_a.clone()),
+                        bi.push_owned(2, 1, outgoing_b.clone()),
+                        ap.recv(),
+                        bp.recv(),
+                    );
+                    sent_a.unwrap();
+                    sent_b.unwrap();
+                    let Some(Event::IpPacket {
+                        packet: received_a, ..
+                    }) = received_a
+                    else {
+                        panic!("authenticated packet")
+                    };
+                    let Some(Event::IpPacket {
+                        packet: received_b, ..
+                    }) = received_b
+                    else {
+                        panic!("authenticated packet")
+                    };
+                    assert_eq!(received_a, outgoing_b);
+                    assert_eq!(received_b, outgoing_a);
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::select! { _ = work => {}, _ = transport => panic!("transport stopped before load completed") }
+        }).await.expect("fragmented WireGuard duplex transfer must advance");
+        a.shutdown().await.unwrap();
+        b.shutdown().await.unwrap();
+    }
+
     #[tokio::test]
     async fn memory_only_udp_crosses_1280_mtu_stacks_in_both_families() {
         for (a, b) in [
@@ -515,41 +699,43 @@ mod catalogue_tests {
                 }
             });
             let cancel = CancellationToken::new();
-            let left = InternalUdp {
-                socket: left_channel.udp_bind(a).await.unwrap(),
-                remote: b,
-                cancellation: cancel.clone(),
-                fragments: if a.is_ipv6() {
-                    Some(
-                        left_channel
-                            .raw_open(false, smoltcp::wire::IpProtocol::Ipv6Frag)
-                            .await
-                            .unwrap(),
-                    )
+            let left = InternalUdp::new(
+                UdpSocket::bind(left_channel.clone(), a).await.unwrap(),
+                b,
+                &cancel,
+                if a.is_ipv6() {
+                    Some(RawSocket::open(left_channel.clone()).await.unwrap())
                 } else {
                     None
                 },
-                reassembly: Default::default(),
-            };
-            let right = InternalUdp {
-                socket: right_channel.udp_bind(b).await.unwrap(),
-                remote: a,
-                cancellation: cancel.clone(),
-                fragments: if b.is_ipv6() {
-                    Some(
-                        right_channel
-                            .raw_open(false, smoltcp::wire::IpProtocol::Ipv6Frag)
-                            .await
-                            .unwrap(),
-                    )
+            );
+            let right = InternalUdp::new(
+                UdpSocket::bind(right_channel.clone(), b).await.unwrap(),
+                a,
+                &cancel,
+                if b.is_ipv6() {
+                    Some(RawSocket::open(right_channel.clone()).await.unwrap())
                 } else {
                     None
                 },
-                reassembly: Default::default(),
-            };
+            );
             for size in [32, 1312, 9032] {
                 let bytes = vec![0x57; size];
+                // Submit a receive RPC and abandon only its public waiter
+                // after the datagram can arrive. Persistent readers must keep
+                // the result; the former select-owned socket RPC lost it here.
+                let mut abandoned = Box::pin(right.recv());
+                std::future::poll_fn(|cx| {
+                    use std::future::Future;
+                    assert!(abandoned.as_mut().poll(cx).is_pending());
+                    std::task::Poll::Ready(())
+                })
+                .await;
                 left.send(&bytes).await.unwrap();
+                for _ in 0..8 {
+                    tokio::task::yield_now().await;
+                }
+                drop(abandoned);
                 assert_eq!(
                     tokio::time::timeout(Duration::from_secs(2), right.recv())
                         .await
@@ -566,6 +752,8 @@ mod catalogue_tests {
                     bytes
                 );
             }
+            #[cfg(feature = "wireguard")]
+            wireguard_through_fragmented_udp(&left, &right).await;
             cancel.cancel();
             assert!(left.recv().await.is_err());
             assert!(right.send(&[0]).await.is_err());

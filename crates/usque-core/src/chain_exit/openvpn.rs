@@ -1,13 +1,22 @@
-use super::{ChainProtocol, Endpoint, ImportError, MAX_CONFIG_BYTES, OpenVpnProfile};
+use super::{
+    ChainProtocol, ClientCertificateMode, Endpoint, ImportError, MAX_CONFIG_BYTES, MssModifier,
+    MssPolicy, OpenVpnEndpoint, OpenVpnProfile,
+};
 use std::collections::BTreeSet;
 use zeroize::Zeroizing;
 
 pub(super) fn parse(text: &str) -> Result<OpenVpnProfile, ImportError> {
+    parse_record(text, false)
+}
+pub(super) fn parse_record(text: &str, legacy: bool) -> Result<OpenVpnProfile, ImportError> {
     let mut output = Zeroizing::new(String::new());
     let mut blocks = BTreeSet::new();
     let mut directives = BTreeSet::new();
     let mut block: Option<&str> = None;
-    let mut endpoint = None;
+    let mut remotes = Vec::new();
+    let mut remote_random = false;
+    let mut client_cert = None;
+    let mut mss = MssPolicy::Default;
     let mut protocol = None;
     let mut auth = false;
     let mut key_password = false;
@@ -55,7 +64,7 @@ pub(super) fn parse(text: &str) -> Result<OpenVpnProfile, ImportError> {
             continue;
         };
         let args = &parts[1..];
-        if !directives.insert(name) {
+        if !directives.insert(name) && name != "remote" {
             return Err(ImportError::new(line, "directive", "duplicate_directive"));
         }
         let allowed = match (name, args) {
@@ -66,28 +75,53 @@ pub(super) fn parse(text: &str) -> Result<OpenVpnProfile, ImportError> {
             ) => true,
             ("dev" | "dev-type", ["tun"]) => true,
             ("remote", [host]) => {
-                endpoint = Some(Endpoint::parse(host, "1194", line)?);
+                remotes.push((Endpoint::parse(host, "1194", line)?, None, line));
                 true
             }
             ("remote", [host, port]) => {
-                endpoint = Some(Endpoint::parse(host, port, line)?);
+                remotes.push((Endpoint::parse(host, port, line)?, None, line));
                 true
             }
             ("remote", [host, port, proto]) => {
-                endpoint = Some(Endpoint::parse(host, port, line)?);
-                let selected = parse_protocol(proto, line)?;
-                if protocol.is_some_and(|p| p != selected) {
-                    return Err(ImportError::new(line, "proto", "conflicting_protocol"));
-                }
-                protocol = Some(selected);
+                remotes.push((
+                    Endpoint::parse(host, port, line)?,
+                    Some(parse_protocol(proto, line)?),
+                    line,
+                ));
                 true
             }
             ("proto", [proto]) => {
-                let selected = parse_protocol(proto, line)?;
-                if protocol.is_some_and(|p| p != selected) {
-                    return Err(ImportError::new(line, "proto", "conflicting_protocol"));
-                }
-                protocol = Some(selected);
+                protocol = Some(parse_protocol(proto, line)?);
+                true
+            }
+            ("remote-random", []) => {
+                remote_random = true;
+                true
+            }
+            ("setenv", ["CLIENT_CERT", value @ ("0" | "1")]) => {
+                client_cert = Some((*value == "1", line));
+                true
+            }
+            ("mssfix", ["0"]) => {
+                mss = MssPolicy::Disabled;
+                true
+            }
+            ("mssfix", [value]) if number(value, 576, 65535) => {
+                mss = MssPolicy::Value {
+                    value: value.parse().expect("validated"),
+                    modifier: MssModifier::None,
+                };
+                true
+            }
+            ("mssfix", [value, modifier @ ("mtu" | "fixed")]) if number(value, 576, 65535) => {
+                mss = MssPolicy::Value {
+                    value: value.parse().expect("validated"),
+                    modifier: if *modifier == "mtu" {
+                        MssModifier::Mtu
+                    } else {
+                        MssModifier::Fixed
+                    },
+                };
                 true
             }
             ("auth-user-pass", []) => {
@@ -130,7 +164,7 @@ pub(super) fn parse(text: &str) -> Result<OpenVpnProfile, ImportError> {
         }
         // Endpoint/protocol are re-emitted once; every connection uses the WARP
         // resolver and the native bridge's exact numeric endpoint override.
-        if !matches!(name, "remote" | "proto") {
+        if !matches!(name, "remote" | "proto" | "remote-random" | "setenv") {
             output.push_str(raw);
             output.push('\n');
         }
@@ -143,13 +177,58 @@ pub(super) fn parse(text: &str) -> Result<OpenVpnProfile, ImportError> {
     {
         return Err(ImportError::new(0, "configuration", "incomplete_profile"));
     }
-    let endpoint = endpoint.ok_or_else(|| ImportError::new(0, "remote", "missing_endpoint"))?;
-    let (protocol, endpoint_ipv6) = protocol.unwrap_or((ChainProtocol::OpenvpnUdp, None));
-    if let Some(address) = endpoint.address()
-        && endpoint_ipv6.is_some_and(|v6| address.is_ipv6() != v6)
+    let has_cert = blocks.contains("cert");
+    if client_cert.is_some_and(|(required, _)| required != has_cert)
+        || !legacy && !has_cert && !auth
     {
-        return Err(ImportError::new(0, "remote", "conflicting_address_family"));
+        return Err(ImportError::new(
+            client_cert.map_or(0, |(_, line)| line),
+            "CLIENT_CERT",
+            "conflicting_authentication",
+        ));
     }
+    let client_certificate = if has_cert {
+        ClientCertificateMode::Required
+    } else {
+        ClientCertificateMode::Disabled
+    };
+    let default_protocol = protocol.unwrap_or((ChainProtocol::OpenvpnUdp, None));
+    let mut candidates = Vec::new();
+    let mut selected_protocol = None;
+    for (endpoint, override_protocol, line) in remotes {
+        if protocol.is_some() && override_protocol.is_some_and(|p| p.0 != default_protocol.0) {
+            return Err(ImportError::new(line, "proto", "conflicting_protocol"));
+        }
+        let (protocol, ipv6) = override_protocol.unwrap_or(default_protocol);
+        if selected_protocol.is_some_and(|selected| selected != protocol) {
+            return Err(ImportError::new(line, "remote", "mixed_protocols"));
+        }
+        selected_protocol = Some(protocol);
+        if endpoint
+            .address()
+            .is_some_and(|address| ipv6.is_some_and(|v6| address.is_ipv6() != v6))
+        {
+            return Err(ImportError::new(
+                line,
+                "remote",
+                "conflicting_address_family",
+            ));
+        }
+        let ipv6 = endpoint.address().map(|address| address.is_ipv6()).or(ipv6);
+        let candidate = OpenVpnEndpoint { endpoint, ipv6 };
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+        if candidates.len() > 16 {
+            return Err(ImportError::new(line, "remote", "too_many_endpoints"));
+        }
+    }
+    let first = candidates
+        .first()
+        .ok_or_else(|| ImportError::new(0, "remote", "missing_endpoint"))?;
+    let endpoint = first.endpoint.clone();
+    let endpoint_ipv6 = first.ipv6;
+    let protocol = selected_protocol.expect("nonempty candidates");
     output.push_str(&format!(
         "remote {} {}\nproto {}\n",
         endpoint.host,
@@ -176,6 +255,10 @@ pub(super) fn parse(text: &str) -> Result<OpenVpnProfile, ImportError> {
         content: output,
         requires_auth: auth,
         requires_key_password: key_password,
+        candidates,
+        remote_random,
+        client_certificate,
+        mss,
     })
 }
 fn parse_protocol(value: &str, line: usize) -> Result<(ChainProtocol, Option<bool>), ImportError> {

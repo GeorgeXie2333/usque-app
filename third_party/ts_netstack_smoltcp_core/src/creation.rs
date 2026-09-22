@@ -1,11 +1,12 @@
 //! Ownership while an allocation response is in flight to its caller.
-use crate::{Command, Netstack, Response, TcpListenerHandle, tcp, udp};
+use crate::{Command, Netstack, Response, TcpListenerHandle, raw, tcp, udp};
 use smoltcp::iface::SocketHandle;
 
 #[derive(Clone, Copy)]
 pub(crate) enum CreatedSocket {
     Tcp(SocketHandle),
     Udp(SocketHandle),
+    Raw(SocketHandle),
     Listener(TcpListenerHandle),
 }
 
@@ -19,6 +20,7 @@ impl CreatedSocket {
                 Some(Self::Tcp(*handle))
             }
             Response::Udp(udp::Response::Bound { handle, .. }) => Some(Self::Udp(*handle)),
+            Response::Raw(raw::Response::Opened { handle }) => Some(Self::Raw(*handle)),
             Response::TcpListen(tcp::listen::Response::Listening { handle }) => {
                 Some(Self::Listener(*handle))
             }
@@ -41,6 +43,9 @@ impl Netstack {
             }
             CreatedSocket::Udp(handle) => {
                 drop(self.process_udp(udp::Command::Close, Some(handle)));
+            }
+            CreatedSocket::Raw(handle) => {
+                drop(self.process_raw(raw::Command::Close, Some(handle)));
             }
             CreatedSocket::Listener(handle) => {
                 drop(self.process_tcp_listen(tcp::listen::Command::Close { handle }, None));

@@ -303,7 +303,8 @@ impl DirectGatewayRouter {
         // DNS address to the OS and forward its queries inside the final stack.
         let gate_dns = profile.frontends.tunnel
             && profile.chain_enabled()
-            && profile.dns_mode == usque_core::DnsMode::Tunnel;
+            && (profile.dns_mode == usque_core::DnsMode::Tunnel
+                || profile.custom_chain().is_some());
         let split_dns_enabled = gate_dns
             || (profile.frontends.tunnel
                 && !profile.geo_direct_countries.is_empty()
@@ -367,7 +368,8 @@ impl DirectGatewayRouter {
                     Arc::clone(&policy),
                     Arc::clone(&protector),
                     quality.clone(),
-                ),
+                )
+                .with_final_exit(profile.chain_enabled()),
                 &cancellation,
             )
             .await

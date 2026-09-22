@@ -1259,7 +1259,7 @@ impl TransportError {
                         (Code::AuthenticationFailed, Stage::TlsHandshake)
                     }
                     GateFailure::Certificate => (Code::EndpointPinMismatch, Stage::TlsHandshake),
-                    GateFailure::Configuration => {
+                    GateFailure::Configuration | GateFailure::Protocol | GateFailure::Cleanup => {
                         (Code::ConfigurationInvalid, Stage::TunnelStartup)
                     }
                     GateFailure::AddressChanged => {

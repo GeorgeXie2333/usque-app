@@ -799,7 +799,7 @@ void main() {
     );
 
     test('production timeout table matches the pre-split contract', () {
-      expect(requestTimeoutForPayload(12), const Duration(seconds: 55));
+      expect(requestTimeoutForPayload(12), const Duration(seconds: 195));
       expect(requestTimeoutForPayload(23), const Duration(seconds: 60));
       expect(requestTimeoutForPayload(26), const Duration(seconds: 60));
       expect(requestTimeoutForPayload(20), const Duration(seconds: 20));

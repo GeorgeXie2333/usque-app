@@ -198,15 +198,48 @@ abstract interface class ChainProfileClient {
 
 Future<String?> pickChainConfigurationFile() async {
   const channel = MethodChannel('io.github.georgexie2333.usque/engine');
-  final bytes = await channel.invokeMethod<Uint8List>('readChainConfiguration');
-  if (bytes == null) return null;
+  Uint8List? bytes;
   try {
-    if (bytes.length > 128 * 1024) {
-      throw const FormatException('Configuration size limit');
-    }
-    return utf8.decode(bytes);
+    bytes = await channel.invokeMethod<Uint8List>('readChainConfiguration');
+  } on MissingPluginException {
+    throw const EngineException(
+      'CHAIN_FILE_UNAVAILABLE',
+      'File picker unavailable.',
+    );
+  } on PlatformException catch (error) {
+    final code = switch (error.code) {
+      'CHAIN_FILE_UNAVAILABLE' ||
+      'CHAIN_FILE_TOO_LARGE' ||
+      'CHAIN_FILE_BUSY' => error.code,
+      _ => 'CHAIN_FILE_READ_FAILED',
+    };
+    throw EngineException(code, 'Configuration file could not be read.');
+  }
+  if (bytes == null) return null;
+  if (bytes.length > 128 * 1024) {
+    throw const EngineException(
+      'CHAIN_FILE_TOO_LARGE',
+      'Configuration size limit.',
+    );
+  }
+  if (bytes.isEmpty) {
+    throw const EngineException(
+      'CHAIN_FILE_READ_FAILED',
+      'The configuration file is empty.',
+    );
+  }
+  // Platform replies belong to the engine and may be immutable. Only wipe an
+  // owned mutable copy; cleanup must never override the decoded result.
+  final owned = Uint8List.fromList(bytes);
+  try {
+    return utf8.decode(owned);
+  } on FormatException {
+    throw const EngineException(
+      'CHAIN_FILE_ENCODING_INVALID',
+      'Use UTF-8 configuration text.',
+    );
   } finally {
-    bytes.fillRange(0, bytes.length, 0);
+    owned.fillRange(0, owned.length, 0);
   }
 }
 

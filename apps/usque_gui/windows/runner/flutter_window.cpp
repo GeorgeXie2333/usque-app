@@ -24,11 +24,16 @@
 namespace {
 
 std::optional<std::vector<uint8_t>> ReadChainConfiguration(HWND owner,
-                                                        bool& cancelled) {
+                                                        bool& cancelled,
+                                                        std::string& error) {
   cancelled = false;
+  error = "CHAIN_FILE_READ_FAILED";
   IFileOpenDialog* dialog = nullptr;
   if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
-                              IID_PPV_ARGS(&dialog)))) return std::nullopt;
+                              IID_PPV_ARGS(&dialog)))) {
+    error = "CHAIN_FILE_UNAVAILABLE";
+    return std::nullopt;
+  }
   const COMDLG_FILTERSPEC filters[] = {
       {L"VPN configuration", L"*.ovpn;*.conf"}, {L"All files", L"*.*"}};
   dialog->SetFileTypes(2, filters);
@@ -52,6 +57,7 @@ std::optional<std::vector<uint8_t>> ReadChainConfiguration(HWND owner,
                             &count, nullptr);
   CloseHandle(file);
   if (!read || count == 0 || count > 128 * 1024) {
+    if (count > 128 * 1024) error = "CHAIN_FILE_TOO_LARGE";
     SecureZeroMemory(bytes.data(), bytes.size());
     return std::nullopt;
   }
@@ -265,7 +271,8 @@ bool FlutterWindow::OnCreate() {
                  result) {
         if (call.method_name() == "readChainConfiguration") {
           bool cancelled = false;
-          auto bytes = ReadChainConfiguration(GetHandle(), cancelled);
+          std::string error;
+          auto bytes = ReadChainConfiguration(GetHandle(), cancelled, error);
           if (bytes) {
             flutter::EncodableValue value(std::move(*bytes));
             result->Success(value);
@@ -274,7 +281,7 @@ bool FlutterWindow::OnCreate() {
           } else if (cancelled) {
             result->Success();
           } else {
-            result->Error("CHAIN_FILE_UNAVAILABLE", "Choose a readable configuration no larger than 128 KiB.");
+            result->Error(error, "Configuration file could not be read.");
           }
           return;
         }

@@ -1494,7 +1494,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var vpnGateTcp = false;
   var chainProfileImport = false,
       chainOpenvpnUdp = false,
-      chainWireguard = false;
+      chainWireguard = false,
+      chainOpenvpnMultiEndpoint = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
@@ -1526,6 +1527,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainOpenvpnUdp = reader.varint(field) != 0;
       case 36:
         chainWireguard = reader.varint(field) != 0;
+      case 37:
+        chainOpenvpnMultiEndpoint = reader.varint(field) != 0;
       case 33:
         sharedProxyAuthApplication = reader.varint(field) != 0;
       case 20:
@@ -1566,6 +1569,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     chainProfileImport: chainProfileImport,
     chainOpenvpnUdp: chainOpenvpnUdp,
     chainWireguard: chainWireguard,
+    chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),
     networkQuality: networkQuality,

@@ -58,6 +58,7 @@ impl Command {
             self,
             Self::TcpStream(tcp::stream::Command::Connect { .. })
                 | Self::Udp(udp::Command::Bind { .. })
+                | Self::Raw(raw::Command::Open { .. })
                 | Self::TcpListen(
                     tcp::listen::Command::Listen { .. } | tcp::listen::Command::ListenOnce { .. }
                 )

@@ -806,7 +806,7 @@ Duration requestTimeoutForPayload(int payloadField) {
   switch (payloadField) {
     case 12:
     case 14:
-      return const Duration(seconds: 55);
+      return const Duration(seconds: 195);
     case 23:
     case 26:
     case 29:

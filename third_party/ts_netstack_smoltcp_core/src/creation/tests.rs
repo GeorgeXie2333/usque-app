@@ -8,12 +8,12 @@ extern crate std;
 
 #[test]
 fn concurrent_response_handoff_never_reclaims_the_received_socket() {
-    for _ in 0..256 {
+    for iteration in 0..256 {
         let (mut stack, _) = stack();
         let (resp, receiver) = flume::bounded(1);
         stack.process_one_cmd(crate::Request {
             handle: None,
-            command: command(1),
+            command: command(if iteration % 2 == 0 { 1 } else { 3 }),
             resp,
         });
         let received = std::thread::spawn(move || receiver.recv().unwrap());
@@ -62,6 +62,11 @@ fn command(kind: usize) -> Command {
         }
         .into(),
         1 => udp::Command::Bind { endpoint: local }.into(),
+        3 => raw::Command::Open {
+            ip_version: smoltcp::wire::IpVersion::Ipv6,
+            protocol: smoltcp::wire::IpProtocol::Ipv6Frag,
+        }
+        .into(),
         _ => tcp::listen::Command::ListenOnce {
             local_endpoint: local,
         }
@@ -71,7 +76,7 @@ fn command(kind: usize) -> Command {
 
 #[test]
 fn cancellation_before_admission_after_allocation_and_with_a_full_queue_reclaims_creations() {
-    for kind in 0..3 {
+    for kind in 0..4 {
         for stage in 0..3 {
             let (mut stack, metrics) = stack();
             let channel = stack.command_channel();
@@ -118,7 +123,7 @@ fn cancellation_before_admission_after_allocation_and_with_a_full_queue_reclaims
 
 #[test]
 fn received_response_survives_tracking_cleanup_and_slot_reuse() {
-    for kind in [1, 2] {
+    for kind in [1, 2, 3] {
         let (mut stack, _) = stack();
         let channel = stack.command_channel();
         let mut request = Box::pin(channel.request(None, command(kind)));

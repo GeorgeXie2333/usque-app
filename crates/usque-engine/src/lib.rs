@@ -1870,6 +1870,7 @@ impl ControlService {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
         }
+        let connection_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
         self.ensure_gate_supervisor().await;
         let cleanup_result = tokio::select! {
             biased;
@@ -2110,6 +2111,7 @@ impl ControlService {
                         selected: selected_gate,
                         status: Some(self.gate_status.clone()),
                         cancellation: startup_cancel.clone(),
+                        deadline: Some(connection_deadline),
                     },
                     &self.windows_device,
                 )
@@ -2153,6 +2155,7 @@ impl ControlService {
                     selected: selected_gate,
                     status: Some(self.gate_status.clone()),
                     cancellation: startup_cancel.clone(),
+                    deadline: Some(connection_deadline),
                 },
             ))
             .await
@@ -4925,6 +4928,7 @@ fn current_capabilities() -> v1::Capabilities {
         chain_profile_import: cfg!(windows),
         chain_openvpn_udp: cfg!(windows),
         chain_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
+        chain_openvpn_multi_endpoint: cfg!(windows),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
         application_quic_blocking: true,

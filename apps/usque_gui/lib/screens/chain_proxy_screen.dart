@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/chain_strings.dart';
 import '../models/app_models.dart';
+import '../services/engine_client.dart';
 import '../state/app_controller.dart';
 import '../widgets/chain_source_icon.dart';
 import '../widgets/common.dart';
@@ -44,33 +45,37 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = widget.controller.strings;
-    final picker = DropdownButtonFormField<ChainSource>(
-      key: ValueKey('chain-source-${_source.wire}'),
-      initialValue: _source,
-      isExpanded: true,
-      isDense: false,
-      itemHeight: null,
+    final picker = InputDecorator(
       decoration: InputDecoration(labelText: strings.chain('source')),
-      items: [
-        for (final source in ChainSource.values)
-          DropdownMenuItem(
-            value: source,
-            child: Row(
-              children: [
-                ChainSourceIcon(
-                  source: source,
-                  size: 20,
-                  color: source == _source
-                      ? Theme.of(context).colorScheme.primary
-                      : null,
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<ChainSource>(
+          key: ValueKey('chain-source-${_source.wire}'),
+          value: _source,
+          isExpanded: true,
+          isDense: false,
+          itemHeight: null,
+          items: [
+            for (final source in ChainSource.values)
+              DropdownMenuItem(
+                value: source,
+                child: Row(
+                  children: [
+                    ChainSourceIcon(
+                      source: source,
+                      size: 20,
+                      color: source == _source
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Flexible(child: Text(source.label)),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Flexible(child: Text(source.label)),
-              ],
-            ),
-          ),
-      ],
-      onChanged: (value) => unawaited(_switch(value)),
+              ),
+          ],
+          onChanged: (value) => unawaited(_switch(value)),
+        ),
+      ),
     );
     if (_source == ChainSource.vpnGate) {
       return VpnGateScreen(
@@ -191,9 +196,19 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     if (file) {
       try {
         text = await _app.pickChainConfiguration();
-      } catch (_) {
+      } catch (error) {
         if (mounted) {
-          setState(() => _error = _app.strings.chain('file_unavailable'));
+          final key = switch (error) {
+            EngineException(code: 'CHAIN_FILE_UNAVAILABLE') =>
+              'file_unavailable',
+            EngineException(code: 'CHAIN_FILE_TOO_LARGE') =>
+              'invalid_size_or_encoding',
+            EngineException(code: 'CHAIN_FILE_ENCODING_INVALID') =>
+              'file_encoding_invalid',
+            EngineException(code: 'CHAIN_FILE_BUSY') => 'file_busy',
+            _ => 'file_read_failed',
+          };
+          setState(() => _error = _app.strings.chain(key));
         }
         return;
       }
@@ -215,6 +230,12 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
 
   Future<void> _apply({bool switchMode = false}) async {
     final target = _draft;
+    if (target.enabled &&
+        (_selected?.candidates.length ?? 0) > 1 &&
+        !(_app.engineCapabilities?.chainOpenvpnMultiEndpoint ?? false)) {
+      setState(() => _error = _app.strings.chain('multi_endpoint_unavailable'));
+      return;
+    }
     final account = _app.activeProfile.id;
     final intent = _app.connectionIntent;
     if (_saving ||
@@ -340,7 +361,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
           dirty: _dirty,
           saving: _saving,
           error: _error,
-          statusLabel: _app.networkSettingsMessage,
+          statusLabel: _error == null ? _app.networkSettingsMessage : null,
           onSave:
               _dirty &&
                   !_saving &&
@@ -386,7 +407,10 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                     _app.snapshot.isTransitional)
                   Text(
                     strings.chain(
-                      _app.snapshot.chainExit.stage == 'connected'
+                      _app.snapshot.phase == ConnectionPhase.disconnecting
+                          ? 'disconnecting'
+                          : _app.snapshot.chainExit.stage == 'connected' &&
+                                _app.snapshot.isConnected
                           ? 'connected'
                           : _app.snapshot.chainExit.stage == 'error'
                           ? 'error'
@@ -394,6 +418,15 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                           ? 'connecting'
                           : 'disconnected',
                     ),
+                  ),
+                if (_app.snapshot.chainExit.attemptingEndpoint
+                    case final endpoint?)
+                  Text(
+                    '${strings.chain('attempting')}: ${endpoint.label} (${_app.snapshot.chainExit.attemptCount}/${_app.snapshot.chainExit.candidateCount})',
+                  ),
+                if (_app.snapshot.chainExit.activeEndpoint case final endpoint?)
+                  SelectableText(
+                    '${strings.chain('actual_endpoint')}: $endpoint',
                   ),
                 if (_app.snapshot.chainExit.failure != null)
                   Text(
@@ -547,6 +580,12 @@ class _ProfileDetails extends StatelessWidget {
         ),
         Text(profile.addressFamily),
         Text('${s.chain('source')}: ${profile.source.label}'),
+        if (profile.candidates.length > 1) ...[
+          SelectableText(
+            '${s.chain('candidates')}: ${profile.candidates.map((endpoint) => endpoint.label).join(', ')}',
+          ),
+          Text(s.chain(profile.remoteRandom ? 'random_order' : 'file_order')),
+        ],
         if (profile.addresses.isNotEmpty)
           SelectableText(
             '${s.chain('addresses')}: ${profile.addresses.join(', ')}',
@@ -618,6 +657,13 @@ class _ImportDialogState extends State<_ImportDialog> {
     }
     final profile = widget.credentialsFor ?? _preview;
     if (save &&
+        (profile?.candidates.length ?? 0) > 1 &&
+        !(widget.controller.engineCapabilities?.chainOpenvpnMultiEndpoint ??
+            false)) {
+      setState(() => _error = s.chain('multi_endpoint_unavailable'));
+      return;
+    }
+    if (save &&
         (profile?.requiresAuth == true &&
                 (_username.text.isEmpty || _password.text.isEmpty) ||
             profile?.requiresKeyPassword == true &&
@@ -653,6 +699,10 @@ class _ImportDialogState extends State<_ImportDialog> {
           () => _error =
               '${s.chain(error['reason'] as String? ?? 'invalid_configuration')} (${error['field']}: ${error['line']})',
         );
+      } else if ((result.preview?.candidates.length ?? 0) > 1 &&
+          !(widget.controller.engineCapabilities?.chainOpenvpnMultiEndpoint ??
+              false)) {
+        setState(() => _error = s.chain('multi_endpoint_unavailable'));
       } else if (save) {
         Navigator.pop(context, result.preview);
       } else {

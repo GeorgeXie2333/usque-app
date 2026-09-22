@@ -414,6 +414,7 @@ async fn live_saved_vpngate_handshake_without_tun() {
             selected: Some(selected),
             status: None,
             cancellation,
+            deadline: None,
         },
     )
     .await

@@ -37,8 +37,9 @@ internal class VpnControlClient(
         const val CLEAR_ALL_TIMEOUT_MILLIS = 45_000L
         const val EVENT_REFRESH_INTERVAL_MILLIS = 5_000L
 
-        // Native reconfigure and attach_tun each wait up to 30s; NEED_ATTACH runs both.
-        const val RECONFIGURE_TIMEOUT_MILLIS = 95_000L
+        // Native connection work shares one 180s deadline through final attachment.
+        // Binder retains cleanup margin; quick acceptance and snapshots stay short.
+        const val RECONFIGURE_TIMEOUT_MILLIS = 200_000L
 
         fun create(
             context: Context,

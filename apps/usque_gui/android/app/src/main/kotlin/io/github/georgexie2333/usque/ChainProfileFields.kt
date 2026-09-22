@@ -9,8 +9,29 @@ internal object ChainProfileFields {
 
     fun enabled(profile: JSONObject): Boolean = settings(profile)?.optBoolean("enabled") == true
 
-    fun selection(profile: JSONObject): String? =
-        (profile.optJSONObject("chain_exit") ?: profile.optJSONObject("vpn_gate"))?.toString()
+    fun custom(profile: JSONObject): Boolean =
+        profile.optJSONObject("chain_exit")?.let { it.optString("source") != "vpn_gate" } == true
+
+    fun selection(profile: JSONObject): String? {
+        val chain = profile.optJSONObject("chain_exit")
+        return if (chain != null && chain.optString("source") != "vpn_gate") {
+            listOf(
+                chain.optBoolean("enabled"),
+                chain.optString("source"),
+                chain.optString("profile_id"),
+                chain.optString("revision"),
+            ).joinToString("|")
+        } else {
+            val gate = profile.optJSONObject("vpn_gate") ?: return null
+            val selected = gate.optJSONObject("selection")
+            listOf(
+                enabled(profile),
+                "vpn_gate",
+                selected?.optString("server_id"),
+                selected?.optString("config_sha256"),
+            ).joinToString("|")
+        }
+    }
 
     private val summaryKeys =
         setOf(
@@ -20,6 +41,8 @@ internal object ChainProfileFields {
             "name",
             "protocol",
             "endpoint",
+            "candidates",
+            "remote_random",
             "address_family",
             "addresses",
             "dns_servers",
@@ -32,9 +55,20 @@ internal object ChainProfileFields {
     fun summary(source: JSONObject?): Map<String, Any?>? =
         source?.let { value ->
             summaryKeys.associateWith { key ->
-                if (key ==
-                    "endpoint"
-                ) {
+                if (key == "candidates") {
+                    value.optJSONArray(key)?.let { candidates ->
+                        require(candidates.length() <= 16)
+                        List(candidates.length()) { index ->
+                            val candidate = candidates.getJSONObject(index)
+                            val endpoint = candidate.getJSONObject("endpoint")
+                            mapOf(
+                                "endpoint" to
+                                    mapOf("host" to endpoint.optString("host"), "port" to endpoint.optInt("port")),
+                                "ipv6" to primitive(candidate.opt("ipv6")),
+                            )
+                        }
+                    }
+                } else if (key == "endpoint") {
                     value.optJSONObject(key)?.let {
                         mapOf(
                             "host" to it.optString("host"),

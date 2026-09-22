@@ -432,6 +432,89 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn configuration_selection_and_library_deletion_share_one_transaction() {
+        use usque_core::chain_exit::{
+            ChainSource, ImportSecrets,
+            store::{ChainProfileStore, WindowsProfileCipher},
+        };
+        for select_first in [false, true] {
+            let (_directory, service) = service();
+            let summary = ChainProfileStore::new(&service.cache_dir, &WindowsProfileCipher).import(
+                ChainSource::OpenvpnCustom, "Race fixture", ImportSecrets::new("client\ndev tun\nproto tcp\nremote vpn.example 1194\nauth-user-pass\n<ca>\nTEST\n</ca>\n".into())
+            ).unwrap();
+            let mut profile = service.config_snapshot().await.active_profile().unwrap();
+            let mut selection = summary.selection();
+            selection.enabled = false;
+            profile.chain_exit = Some(selection);
+            let save = request(&profile, &["chain_exit"]);
+            let remove = v1::ChainProfileRequest {
+                action: "remove".into(),
+                profile_id: summary.id.to_string(),
+                revision: summary.edit_revision.to_string(),
+                ..Default::default()
+            };
+            let transaction = service.store.lock_exclusive().unwrap();
+            let first = service.clone();
+            let saving;
+            let deleting;
+            if select_first {
+                saving = tokio::spawn(async move { first.save_network_settings(save).await });
+                tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                    while service.config.try_read().is_ok() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                let second = service.clone();
+                deleting = tokio::spawn(async move { second.chain_profile_command(remove).await });
+            } else {
+                deleting = tokio::spawn(async move { first.chain_profile_command(remove).await });
+                tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                    while service.config.try_read().is_ok() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                let second = service.clone();
+                saving = tokio::spawn(async move { second.save_network_settings(save).await });
+            }
+            drop(transaction);
+            let (saved, removed) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                tokio::join!(saving, deleting)
+            })
+            .await
+            .unwrap();
+            let saved = saved.unwrap();
+            let removed: serde_json::Value =
+                serde_json::from_str(&removed.unwrap().unwrap().metadata_json).unwrap();
+            let library = ChainProfileStore::new(&service.cache_dir, &WindowsProfileCipher)
+                .list()
+                .unwrap();
+            if select_first {
+                assert_eq!(saved.unwrap().persisted, Some(true));
+                assert_eq!(removed["error"]["reason"], "profile_in_use");
+                assert_eq!(library.len(), 1);
+            } else {
+                assert!(saved.is_err());
+                assert!(removed["error"].is_null());
+                assert!(library.is_empty());
+            }
+            let latest = service.store.load().unwrap();
+            if let Some(id) = latest
+                .network
+                .chain_exit
+                .as_ref()
+                .and_then(|value| value.profile_id)
+            {
+                assert!(library.iter().any(|item| item.id == id));
+            }
+        }
+    }
+
     #[tokio::test]
     async fn saving_does_not_join_the_connection_executor() {
         let (_directory, service) = service();

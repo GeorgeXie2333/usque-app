@@ -1,0 +1,512 @@
+{
+  "base_commit": "0f8afd95cba36db3ec07324a0a61512f4b6ec2c2",
+  "candidate": "uncommitted working tree",
+  "recorded_utc": "2026-09-21T23:17:16.969390+00:00",
+  "digest_scheme": "SHA-256 of sorted changed-file records, compact JSON; UTF-8 text uses LF; unchanged paths come from base_commit",
+  "source_digest_sha256": "8c1c82a6fb43fb93c50163e566b000796eae984f273f95cd214f24c97212202f",
+  "excluded_record_artifacts": [
+    "docs/CHAIN_PROXY_FIX_MEASUREMENTS.json",
+    "docs/CHAIN_PROXY_FIX_SOURCE_MANIFEST.json",
+    "docs/CHAIN_PROXY_FIX_VALIDATION.md"
+  ],
+  "files": [
+    {
+      "path": "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/AndroidVpnConfiguration.kt",
+      "encoding": "utf8_lf",
+      "sha256": "5ee9a25272b8f5151ac48af4674056759f8e865b3cb891aded3133a7ff64e974",
+      "bytes": 10000
+    },
+    {
+      "path": "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/ChainProfileFields.kt",
+      "encoding": "utf8_lf",
+      "sha256": "956e5f5aa75c21f8bdc753633713a59144a275c00f39b651a79153cf9cb28c8d",
+      "bytes": 4078
+    },
+    {
+      "path": "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/MainActivity.kt",
+      "encoding": "utf8_lf",
+      "sha256": "ed1578959ffeed1c25bbef521c2719dd57aa28ae5f4b71ad4a4f72d5ea9a5e23",
+      "bytes": 41110
+    },
+    {
+      "path": "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/NetworkQualityFields.kt",
+      "encoding": "utf8_lf",
+      "sha256": "964962f47d3a012aed2d9f73c10b60e4b493bce3dbf2599ce3e63588f79bfe53",
+      "bytes": 12805
+    },
+    {
+      "path": "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/VpnControlClient.kt",
+      "encoding": "utf8_lf",
+      "sha256": "138f6fff1f4b00903fc672440d4f9b26ec2370c13ae1d65e0ce12ba7474e974f",
+      "bytes": 53253
+    },
+    {
+      "path": "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/VpnGateFields.kt",
+      "encoding": "utf8_lf",
+      "sha256": "bdc79dd5eb8f9ee01e98c4899a8c94a7ad7a843d57c4c973a4467f0eb4d365e1",
+      "bytes": 5248
+    },
+    {
+      "path": "apps/usque_gui/android/app/src/test/kotlin/io/github/georgexie2333/usque/AndroidVpnConfigurationTest.kt",
+      "encoding": "utf8_lf",
+      "sha256": "6261c13c7e2a0d94946d3d71d0afbeb767cf23e9a9b462b3a71dde287f118c20",
+      "bytes": 3618
+    },
+    {
+      "path": "apps/usque_gui/android/app/src/test/kotlin/io/github/georgexie2333/usque/ChainProfileFieldsTest.kt",
+      "encoding": "utf8_lf",
+      "sha256": "5da89965b8a2dbbc7c708c4b325412b44df073576a0c851ea1afe4155ae81f8e",
+      "bytes": 4106
+    },
+    {
+      "path": "apps/usque_gui/lib/core/chain_strings.dart",
+      "encoding": "utf8_lf",
+      "sha256": "f8f712ea66f58f2de1202a07b178612ab65366c6381b73f900cde2be2dca7d69",
+      "bytes": 8164
+    },
+    {
+      "path": "apps/usque_gui/lib/models/app_models.dart",
+      "encoding": "utf8_lf",
+      "sha256": "7de01a90342c20e69087f72f666bb3086a253a351a55d73832190b4cbee97b93",
+      "bytes": 74735
+    },
+    {
+      "path": "apps/usque_gui/lib/models/chain_exit_models.dart",
+      "encoding": "utf8_lf",
+      "sha256": "a4d4a1d91a0cb41aa0854935bd3fa2584ce7792bc5c3c75c34dc68334566eaa2",
+      "bytes": 8350
+    },
+    {
+      "path": "apps/usque_gui/lib/screens/chain_proxy_screen.dart",
+      "encoding": "utf8_lf",
+      "sha256": "691dd828515fafa963cf091817730505097254c07d9e63f68706c6ce0fe4ec02",
+      "bytes": 28844
+    },
+    {
+      "path": "apps/usque_gui/lib/services/control_codec.dart",
+      "encoding": "utf8_lf",
+      "sha256": "f0a13ff06dd91ae13073752af36061bc477b06b1b4a65bf88a04fd50b0003dde",
+      "bytes": 91526
+    },
+    {
+      "path": "apps/usque_gui/lib/services/desktop_engine_client.dart",
+      "encoding": "utf8_lf",
+      "sha256": "07d361cf206044d8163ac206a2ec4d4db6d1c8a5cf2e0aba670496d83ba6031f",
+      "bytes": 26681
+    },
+    {
+      "path": "apps/usque_gui/lib/services/engine_client.dart",
+      "encoding": "utf8_lf",
+      "sha256": "5345f495bdc67b3b145113133f8385b2598cda61f31880c98ed9f6b8c8f81a8c",
+      "bytes": 29211
+    },
+    {
+      "path": "apps/usque_gui/lib/widgets/chain_proxy_entry.dart",
+      "encoding": "utf8_lf",
+      "sha256": "311620d3c795ca3d69f3463a5c463350319ee419873f5ee631b7e2e9af985570",
+      "bytes": 3342
+    },
+    {
+      "path": "apps/usque_gui/test/chain_file_import_test.dart",
+      "encoding": "utf8_lf",
+      "sha256": "71fb6353e8a0a1e1de8742ec0374c8e8c89426342005204c6710d1b7658d2e31",
+      "bytes": 3390
+    },
+    {
+      "path": "apps/usque_gui/test/chain_proxy_test.dart",
+      "encoding": "utf8_lf",
+      "sha256": "1758171d808659e5ed51449b4b47ca7e897968684ed8583df3b91a8fec322683",
+      "bytes": 22398
+    },
+    {
+      "path": "apps/usque_gui/test/desktop_engine_client_test.dart",
+      "encoding": "utf8_lf",
+      "sha256": "72fc03bb9c6c0f31a2a74666525af27fc7ea2a3d053edcc3e3c8e15682cc54ec",
+      "bytes": 31118
+    },
+    {
+      "path": "apps/usque_gui/test/goldens/chain_custom_desktop.png",
+      "encoding": "binary",
+      "sha256": "19cb1155de882c2ce3d23d4cf1eb4d05708f600c55dc833400ebcd4febfa0550",
+      "bytes": 57354
+    },
+    {
+      "path": "apps/usque_gui/test/goldens/chain_custom_phone.png",
+      "encoding": "binary",
+      "sha256": "1df1ecc6e0228a7497fe7ce22c10ee083978ed5d5eae3ca813a4753829718bd8",
+      "bytes": 50482
+    },
+    {
+      "path": "apps/usque_gui/test/goldens/proxy_desktop_dark.png",
+      "encoding": "binary",
+      "sha256": "740768c2c9803995a4420bf8c3a9625dac90bf5170e59572f2beb5db67130a88",
+      "bytes": 81714
+    },
+    {
+      "path": "apps/usque_gui/test/goldens/proxy_phone_draft.png",
+      "encoding": "binary",
+      "sha256": "8e8afdfa64f635d56fb18ce052c71c1de3b3cdb65370d7638759bca23a6be5bf",
+      "bytes": 45900
+    },
+    {
+      "path": "apps/usque_gui/test/goldens/vpngate_live_draft_desktop_dark.png",
+      "encoding": "binary",
+      "sha256": "20f8424cf59cbc08fceebf0ab4ed280590a7b1258f0127aebbf74af4f5683d5c",
+      "bytes": 84821
+    },
+    {
+      "path": "apps/usque_gui/test/goldens/vpngate_shell_desktop_dark.png",
+      "encoding": "binary",
+      "sha256": "9bdeca3daca5699c09ce188b6f1e7fbec3532f7afabbcfba28ca5e980a08df01",
+      "bytes": 82791
+    },
+    {
+      "path": "apps/usque_gui/test/ui_workflow_golden_test.dart",
+      "encoding": "utf8_lf",
+      "sha256": "27e2ffb25b95ad1622b47448a3946461a8e364151c47fd4bf7088f8e13c58a74",
+      "bytes": 48731
+    },
+    {
+      "path": "apps/usque_gui/test/vpn_gate_navigation_test.dart",
+      "encoding": "utf8_lf",
+      "sha256": "a90f958b163287b15ccf9fe59c3b606de536a02e8fde39bc1072a8cfdca0867b",
+      "bytes": 11132
+    },
+    {
+      "path": "apps/usque_gui/windows/runner/flutter_window.cpp",
+      "encoding": "utf8_lf",
+      "sha256": "33578fdde5b2a7e20383b2780d919c6cbc09f8bc674aeaf0ac17f224f7f183b5",
+      "bytes": 35328
+    },
+    {
+      "path": "crates/usque-android/src/android_runtime.rs",
+      "encoding": "utf8_lf",
+      "sha256": "f75c491a6f456b21aaf2ebe02ce61a4f8fe0940b091752a8cbde7ed5d5cae9b9",
+      "bytes": 54091
+    },
+    {
+      "path": "crates/usque-android/src/lib.rs",
+      "encoding": "utf8_lf",
+      "sha256": "c02f7d0c5b56e0c491dbbce19e86c359a13502c3821b885460b3c793405046fd",
+      "bytes": 162198
+    },
+    {
+      "path": "crates/usque-core/src/chain_exit/mod.rs",
+      "encoding": "utf8_lf",
+      "sha256": "bc68289bb5309ce3a65e6c143cd48795e5161b011ec44f1332141dff8e0a1f2d",
+      "bytes": 15877
+    },
+    {
+      "path": "crates/usque-core/src/chain_exit/openvpn.rs",
+      "encoding": "utf8_lf",
+      "sha256": "6f89479134f615776c057b09affd6f47c55789bfdbc7c47435dda1270ecf1dfe",
+      "bytes": 11860
+    },
+    {
+      "path": "crates/usque-core/src/chain_exit/store.rs",
+      "encoding": "utf8_lf",
+      "sha256": "a49dceeca2e904053b04b04a6c03251aa1faa50aca9702b083daca7b88aa4a72",
+      "bytes": 15786
+    },
+    {
+      "path": "crates/usque-core/src/chain_exit/tests.rs",
+      "encoding": "utf8_lf",
+      "sha256": "a3742347c4a099b9a77a8f395d8fa60b24b0b0384cf95e1710706a475856b94f",
+      "bytes": 13368
+    },
+    {
+      "path": "crates/usque-core/src/reconfigure.rs",
+      "encoding": "utf8_lf",
+      "sha256": "71cc6d8c12642da8549dbf0d7f537dec35b5d755c86190cd13bfa56a0ec020be",
+      "bytes": 14109
+    },
+    {
+      "path": "crates/usque-core/src/vpngate/mod.rs",
+      "encoding": "utf8_lf",
+      "sha256": "817caf9ca37cfdcf67c78bb9a43642c9ec17a048f86bbb2e969cdbe9d9c00c3e",
+      "bytes": 21432
+    },
+    {
+      "path": "crates/usque-core/tests/chain_fix_regressions.rs",
+      "encoding": "utf8_lf",
+      "sha256": "f2aa961080f62cde1532b3d7cfe6002b4518c1df0b8d0278246ec65ffbb68324",
+      "bytes": 7742
+    },
+    {
+      "path": "crates/usque-core/tests/fixtures/README.md",
+      "encoding": "utf8_lf",
+      "sha256": "720c43e5a87656810819b765a7ef33a452bc596c5e43e4e4d20682aaced3d683",
+      "bytes": 415
+    },
+    {
+      "path": "crates/usque-core/tests/fixtures/proton_style_password_udp.ovpn",
+      "encoding": "utf8_lf",
+      "sha256": "0f27dc2ee98675cf2a0160ac1c7a9985a553d626aa29f3537b678448ab450eb8",
+      "bytes": 2023
+    },
+    {
+      "path": "crates/usque-engine/src/chain_exit.rs",
+      "encoding": "utf8_lf",
+      "sha256": "eb054d88eb0036228a22ca2842edf5def7aa724a66728cc290b4cfdb1ad7647f",
+      "bytes": 6554
+    },
+    {
+      "path": "crates/usque-engine/src/lib.rs",
+      "encoding": "utf8_lf",
+      "sha256": "e97681551fb2db1f329c5ed7e59bf481e7b9592a5cc5e14457217e33f57a50d9",
+      "bytes": 338988
+    },
+    {
+      "path": "crates/usque-engine/src/network_settings.rs",
+      "encoding": "utf8_lf",
+      "sha256": "77d407047a29c774066f94def5a378d6a50432bcca0620a2a9ca0bdbbf4f947b",
+      "bytes": 29517
+    },
+    {
+      "path": "crates/usque-engine/src/vpngate_connection_tests.rs",
+      "encoding": "utf8_lf",
+      "sha256": "446fa933949411edd09166d82167c9cbcea2accf49d506bef9d94ac36533d814",
+      "bytes": 17147
+    },
+    {
+      "path": "crates/usque-engine/src/windows_agent.rs",
+      "encoding": "utf8_lf",
+      "sha256": "c1a5f78cbd4cd72c2f3e825e4cda66843423be02f41f338b86d54594387fc9ab",
+      "bytes": 234071
+    },
+    {
+      "path": "crates/usque-ipc/src/lib.rs",
+      "encoding": "utf8_lf",
+      "sha256": "09e1b05be616e58e1947f77d2b8c1958b8bd925d943ac054d5638312049cd459",
+      "bytes": 44842
+    },
+    {
+      "path": "crates/usque-openvpn/native/CMakeLists.txt",
+      "encoding": "utf8_lf",
+      "sha256": "4c8afa32dddcbdbb8664d520a9749e83884e970cb0a0b918b382cd5fab42ea7f",
+      "bytes": 3302
+    },
+    {
+      "path": "crates/usque-openvpn/native/bridge.cpp",
+      "encoding": "utf8_lf",
+      "sha256": "6eba44225566c7bc569033992fb39d28d8c3f22786076916e9979ed97d9de3ec",
+      "bytes": 25618
+    },
+    {
+      "path": "crates/usque-openvpn/native/bridge.h",
+      "encoding": "utf8_lf",
+      "sha256": "36b4a2be9b5ce2d43d71c2f9db58cfb54c1783241787e41fc83b990923615648",
+      "bytes": 1762
+    },
+    {
+      "path": "crates/usque-openvpn/native/test_peer.cpp",
+      "encoding": "utf8_lf",
+      "sha256": "52fb18517fff02e233fb0b801394e623faee364279388c35ecacb35941811955",
+      "bytes": 8211
+    },
+    {
+      "path": "crates/usque-openvpn/src/interop_tests.rs",
+      "encoding": "utf8_lf",
+      "sha256": "0b372903fd72290176edc99c131ae5791480b23cbbc903e4bdc858d5ffca3771",
+      "bytes": 26896
+    },
+    {
+      "path": "crates/usque-openvpn/src/lib.rs",
+      "encoding": "utf8_lf",
+      "sha256": "bd5f30c888809d196d56aa30012e4a5157ed18698cd40cd034007cc5e6ab8fae",
+      "bytes": 20155
+    },
+    {
+      "path": "crates/usque-openvpn/tests/fixtures/README.md",
+      "encoding": "utf8_lf",
+      "sha256": "da6df0df95a134488d6df20c1cfe38207b0dfca12a9b21f7367c60f1a571bad2",
+      "bytes": 842
+    },
+    {
+      "path": "crates/usque-openvpn/tests/fixtures/client-encrypted.key",
+      "encoding": "utf8_lf",
+      "sha256": "fd687838fb2ca1c7b770fdc4daf2175e3d2c58cfa77ed0eb16c2f2e0cfd361db",
+      "bytes": 1886
+    },
+    {
+      "path": "crates/usque-openvpn/tests/fixtures/tls-crypt.key",
+      "encoding": "utf8_lf",
+      "sha256": "0d0475c8f2c5077f9d95cf467def6132720fd373ca401396fef3c0caea196671",
+      "bytes": 602
+    },
+    {
+      "path": "crates/usque-transport/src/chain_raw.rs",
+      "encoding": "utf8_lf",
+      "sha256": "369ae87ac8a84465d812ccf51be36075fd1d267b9e0b339736fb621db45d8d01",
+      "bytes": 3690
+    },
+    {
+      "path": "crates/usque-transport/src/chain_session.rs",
+      "encoding": "utf8_lf",
+      "sha256": "f7bbae032d0fe4d15568890ead9b8e0d2f774a6386975bd9bf49bd8c79da7c9d",
+      "bytes": 6598
+    },
+    {
+      "path": "crates/usque-transport/src/data_plane.rs",
+      "encoding": "utf8_lf",
+      "sha256": "142a8de3521d8403e24f2ec7bc76dbea564acfb5b304e8883b25423f2d8fb545",
+      "bytes": 48272
+    },
+    {
+      "path": "crates/usque-transport/src/direct_gateway.rs",
+      "encoding": "utf8_lf",
+      "sha256": "fa9b953a95507fcb8d2e23e01e1e04da44db64c682a924be718c4843da3a2602",
+      "bytes": 54122
+    },
+    {
+      "path": "crates/usque-transport/src/dns.rs",
+      "encoding": "utf8_lf",
+      "sha256": "cf8ac46a9f8f7ff937ca76e0e76819cd18459e0b5ded5997b0572eec11e037ac",
+      "bytes": 35303
+    },
+    {
+      "path": "crates/usque-transport/src/final_dns.rs",
+      "encoding": "utf8_lf",
+      "sha256": "72455c4ef8cefd8b5974b6acf0e8cfd74f53774a9afbe11ac0219bc265d7379e",
+      "bytes": 5510
+    },
+    {
+      "path": "crates/usque-transport/src/h2.rs",
+      "encoding": "utf8_lf",
+      "sha256": "a64f076c44b49f7575a6df1bf889414c9e244b75b35c82b70b2d0d111e784cc8",
+      "bytes": 89355
+    },
+    {
+      "path": "crates/usque-transport/src/internal_network.rs",
+      "encoding": "utf8_lf",
+      "sha256": "1707ce6d0776d12b35d4932c9626f51db900ac2938dbabff9b5a0c50cd24b17d",
+      "bytes": 31979
+    },
+    {
+      "path": "crates/usque-transport/src/lib.rs",
+      "encoding": "utf8_lf",
+      "sha256": "428398fad02604fc2d80e6ff621eddbe8a9b1a13657d4764a68d1c83e6ef45e8",
+      "bytes": 4103
+    },
+    {
+      "path": "crates/usque-transport/src/netstack.rs",
+      "encoding": "utf8_lf",
+      "sha256": "2e2d2b51f9b08e02d820a50a5fa610af5e7582e972d6c3950f2aad771e84f01b",
+      "bytes": 121831
+    },
+    {
+      "path": "crates/usque-transport/src/queue_metrics.rs",
+      "encoding": "utf8_lf",
+      "sha256": "b876550d41044d1a3e72f052b141d1f0ea8e7f0c5fcb2c198f9383f4b10e8a2a",
+      "bytes": 30773
+    },
+    {
+      "path": "crates/usque-transport/src/split_dns.rs",
+      "encoding": "utf8_lf",
+      "sha256": "4b81a5c048e3e174afd6eddc4fdeb7547f0f2e3e0661bd99a69fc44d9deb60e3",
+      "bytes": 69810
+    },
+    {
+      "path": "crates/usque-transport/src/stack_tcp.rs",
+      "encoding": "utf8_lf",
+      "sha256": "19730a39843e5233797cc3064799fd346773bf61c48877b5b38db9baf2296bd8",
+      "bytes": 27442
+    },
+    {
+      "path": "crates/usque-transport/src/tcp.rs",
+      "encoding": "utf8_lf",
+      "sha256": "70b012f3e50574a0ccff7aef62736863ecab11350819b6b26cda42e1e637860d",
+      "bytes": 9566
+    },
+    {
+      "path": "crates/usque-transport/src/vpngate.rs",
+      "encoding": "utf8_lf",
+      "sha256": "7620162cca3c86a0f150625e9700eec4681bce21fcb5ff48a76eae491b281cc5",
+      "bytes": 53632
+    },
+    {
+      "path": "crates/usque-transport/src/wireguard.rs",
+      "encoding": "utf8_lf",
+      "sha256": "09af667a5f212b40c6a389180a5d3ce9042f4fc000e337f9b4c3c3e412e96726",
+      "bytes": 12148
+    },
+    {
+      "path": "crates/usque-transport/src/wireguard/benchmark.rs",
+      "encoding": "utf8_lf",
+      "sha256": "dc5b6965f3ebae2fede97c9b375f3fdae78cc1e5522ee21ef601c963fbb70053",
+      "bytes": 12575
+    },
+    {
+      "path": "crates/usque-transport/src/wireguard/tests.rs",
+      "encoding": "utf8_lf",
+      "sha256": "9b00fc42de574d78862dd19b0a29af646b5a38b2dadf09bb5f8dc5c7399d762b",
+      "bytes": 11787
+    },
+    {
+      "path": "docs/CHAIN_PROXY.md",
+      "encoding": "utf8_lf",
+      "sha256": "39e45313ab927c0e35ec4f67817e631c49004ac6a7c3698636c941ac06ba22ce",
+      "bytes": 15781
+    },
+    {
+      "path": "docs/README.md",
+      "encoding": "utf8_lf",
+      "sha256": "420a9185064b8c4bc7807b2537d7e65b174c0758b29b35d85ac34ed833e56845",
+      "bytes": 9191
+    },
+    {
+      "path": "proto/usque/v1/control.proto",
+      "encoding": "utf8_lf",
+      "sha256": "4c3ee68afccea19d606842501919a8c2f58d8af17ffd82df137e00e07da11fbf",
+      "bytes": 34207
+    },
+    {
+      "path": "third_party/openvpn3-3.11.7/USQUE-PATCH.md",
+      "encoding": "utf8_lf",
+      "sha256": "870aed1727a43a1f3c5645b3b8b4841c6bbf6ea755b2cd74c8009a408cfd8466",
+      "bytes": 2990
+    },
+    {
+      "path": "third_party/openvpn3-3.11.7/openvpn/ssl/mssparms.hpp",
+      "encoding": "utf8_lf",
+      "sha256": "c4a5e0f6a14129895a1c81618f161d8a9951e595dec4afa4a603c4b5d37f7286",
+      "bytes": 3449
+    },
+    {
+      "path": "third_party/openvpn3-3.11.7/openvpn/ssl/proto.hpp",
+      "encoding": "utf8_lf",
+      "sha256": "9ee4bcf2952d9a5dd54b9adc12ac54fe22c7c1926aca1925c73fd782b463d5b0",
+      "bytes": 177495
+    },
+    {
+      "path": "third_party/ts_netstack_smoltcp_core/PATCHES.md",
+      "encoding": "utf8_lf",
+      "sha256": "1c26598ba2155c4804f2427140fda401d5d737a2218cee8e3b185bd8679cc8cb",
+      "bytes": 3565
+    },
+    {
+      "path": "third_party/ts_netstack_smoltcp_core/src/command/mod.rs",
+      "encoding": "utf8_lf",
+      "sha256": "e7a98877c7b8ce141fde4f27f11520144e3ce95d7cbb61780e26a15ebd6ca680",
+      "bytes": 4524
+    },
+    {
+      "path": "third_party/ts_netstack_smoltcp_core/src/creation.rs",
+      "encoding": "utf8_lf",
+      "sha256": "fb49197db7fc0596a7a472009f7d069e59b2c6a0b8cf6920691caf835dc78910",
+      "bytes": 3912
+    },
+    {
+      "path": "third_party/ts_netstack_smoltcp_core/src/creation/tests.rs",
+      "encoding": "utf8_lf",
+      "sha256": "e94a2a8f1cdb85659fdf9afd84d6b0d77f2de1f32873fa408eecbdfd38386e87",
+      "bytes": 7335
+    },
+    {
+      "path": "tool/openvpn_sources.json",
+      "encoding": "utf8_lf",
+      "sha256": "648524c01a327349e2330326d8e284288cefa4201a1ca5238894e6231a892242",
+      "bytes": 3127
+    }
+  ]
+}

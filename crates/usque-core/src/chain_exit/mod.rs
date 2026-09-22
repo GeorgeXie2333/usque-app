@@ -112,7 +112,9 @@ impl Endpoint {
             return Err(ImportError::new(line, "endpoint", "invalid_endpoint"));
         }
         Ok(Self {
-            host: host.to_ascii_lowercase(),
+            host: host
+                .parse::<IpAddr>()
+                .map_or_else(|_| host.to_ascii_lowercase(), |ip| ip.to_string()),
             port,
         })
     }
@@ -187,6 +189,10 @@ pub struct ChainProfileSummary {
     pub name: String,
     pub protocol: ChainProtocol,
     pub endpoint: Endpoint,
+    #[serde(default)]
+    pub candidates: Vec<OpenVpnEndpoint>,
+    #[serde(default)]
+    pub remote_random: bool,
     pub address_family: String,
     pub addresses: Vec<String>,
     pub dns_servers: Vec<IpAddr>,
@@ -241,6 +247,32 @@ pub struct OpenVpnProfile {
     pub content: Zeroizing<String>,
     pub requires_auth: bool,
     pub requires_key_password: bool,
+    pub candidates: Vec<OpenVpnEndpoint>,
+    pub remote_random: bool,
+    pub client_certificate: ClientCertificateMode,
+    pub mss: MssPolicy,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenVpnEndpoint {
+    pub endpoint: Endpoint,
+    pub ipv6: Option<bool>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientCertificateMode {
+    Required,
+    Disabled,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MssPolicy {
+    Default,
+    Disabled,
+    Value { value: u16, modifier: MssModifier },
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MssModifier {
+    None,
+    Mtu,
+    Fixed,
 }
 #[derive(Clone)]
 pub enum ValidatedProfile {
@@ -290,11 +322,15 @@ impl ValidatedProfile {
             mtu: None,
             requires_auth: false,
             requires_key_password: false,
+            candidates: vec![],
+            remote_random: false,
         };
         match self {
             Self::OpenVpn(p) => {
                 result.protocol = p.protocol;
                 result.endpoint = p.endpoint.clone();
+                result.candidates = p.candidates.clone();
+                result.remote_random = p.remote_random;
                 result.requires_auth = p.requires_auth;
                 result.requires_key_password = p.requires_key_password;
                 result.address_family = match p.endpoint_ipv6 {

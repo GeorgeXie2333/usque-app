@@ -25,6 +25,7 @@ class Peer final : public ProtoContextCallbackInterface {
     std::deque<std::vector<uint8_t>> output_;
     bool reject_auth_;
     bool udp_;
+    bool password_only_;
     uint32_t pushed_mtu_;
     uint32_t data_count_ = 0;
     uint32_t handshakes_ = 0;
@@ -43,14 +44,18 @@ class Peer final : public ProtoContextCallbackInterface {
         BufferAllocated message(reinterpret_cast<const unsigned char*>(reply.c_str()), reply.size() + 1, 0);
         context_->control_send(std::move(message));
     }
+    void server_auth(const std::string& username, const SafeString& password, const std::string&, const AuthCert::Ptr&) override {
+        if (password_only_ && (username != "fixture-user" || std::strcmp(password.c_str(), "fixture-password") != 0)) reject_auth_ = true;
+    }
     bool supports_epoch_data() override { return false; }
     void active(bool) override { ++handshakes_; }
 public:
-    Peer(const char* ca, const char* cert, const char* key, bool reject_auth, uint32_t pushed_mtu, bool udp)
-        : reject_auth_(reject_auth), udp_(udp), pushed_mtu_(pushed_mtu) {
+    Peer(const char* ca, const char* cert, const char* key, bool reject_auth, uint32_t pushed_mtu, bool udp, bool password_only, const char* tls_key)
+        : reject_auth_(reject_auth), udp_(udp), password_only_(password_only), pushed_mtu_(pushed_mtu) {
         MbedTLSRandom::Ptr rng(new MbedTLSRandom);
         MbedTLSContext::Config::Ptr tls(new MbedTLSContext::Config);
         tls->set_mode(Mode(Mode::SERVER));
+        if (password_only_) tls->set_flags(SSLConst::NO_VERIFY_PEER);
         tls->set_frame(frame_);
         tls->set_rng(rng);
         tls->load_ca(ca, true);
@@ -60,6 +65,14 @@ public:
         tls->set_tls_version_max(TLSVersion::Type::V1_2);
         ProtoContext::ProtoConfig::Ptr config(new ProtoContext::ProtoConfig);
         config->ssl_factory = tls->new_factory();
+        if (tls_key && *tls_key) {
+            config->tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V1;
+            config->tls_key.parse(tls_key);
+            config->tls_crypt_factory.reset(new CryptoTLSCryptFactory<MbedTLSCryptoAPI>());
+            config->set_tls_crypt_algs();
+        }
+        config->mss_parms.mssfix_default = false;
+        config->mss_parms.mssfix = 0;
         config->frame = frame_;
         config->now = &now_;
         config->rng = rng;
@@ -125,8 +138,8 @@ public:
 thread_local std::string peer_error;
 }
 extern "C" {
-void* usque_test_peer_create(const char* ca, const char* cert, const char* key, int reject_auth, uint32_t pushed_mtu, int udp) {
-    try { return new Peer(ca, cert, key, reject_auth != 0, pushed_mtu, udp != 0); }
+void* usque_test_peer_create(const char* ca, const char* cert, const char* key, int reject_auth, uint32_t pushed_mtu, int udp, int password_only, const char* tls_key) {
+    try { return new Peer(ca, cert, key, reject_auth != 0, pushed_mtu, udp != 0, password_only != 0, tls_key); }
     catch (const std::exception& e) { peer_error = e.what(); return nullptr; }
 }
 void usque_test_peer_destroy(void* peer) { delete static_cast<Peer*>(peer); }

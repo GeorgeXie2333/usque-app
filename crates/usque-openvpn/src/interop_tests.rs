@@ -12,6 +12,7 @@ const CLIENT_KEY: &str = include_str!("../tests/fixtures/client.key");
 pub(super) static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 unsafe extern "C" {
+    fn usque_test_input_capacity_wakeup() -> i32;
     fn usque_test_peer_create(
         ca: *const c_char,
         cert: *const c_char,
@@ -19,6 +20,8 @@ unsafe extern "C" {
         reject_auth: i32,
         pushed_mtu: u32,
         udp: i32,
+        password_only: i32,
+        tls_key: *const c_char,
     ) -> *mut c_void;
     fn usque_test_peer_destroy(peer: *mut c_void);
     fn usque_test_peer_receive(peer: *mut c_void, data: *const u8, length: usize) -> i32;
@@ -27,6 +30,13 @@ unsafe extern "C" {
     fn usque_test_peer_handshakes(peer: *mut c_void) -> u32;
     fn usque_test_peer_data_keys(peer: *mut c_void) -> u32;
     fn usque_test_peer_error() -> *const c_char;
+}
+
+#[test]
+fn native_input_capacity_wakes_after_a_full_batch_and_blocked_direction() {
+    // SAFETY: This isolated helper owns all of its queue state and invokes no
+    // protocol runtime or external I/O; the return value is a boolean result.
+    assert_eq!(unsafe { usque_test_input_capacity_wakeup() }, 1);
 }
 struct Peer(NonNull<c_void>);
 impl Peer {
@@ -37,6 +47,24 @@ impl Peer {
         Self::with_transport(reject_auth, mtu, false)
     }
     fn with_transport(reject_auth: bool, mtu: Option<u16>, udp: bool) -> Self {
+        Self::with_options(reject_auth, mtu, udp, false)
+    }
+    fn with_options(reject_auth: bool, mtu: Option<u16>, udp: bool, password_only: bool) -> Self {
+        Self::with_crypto(reject_auth, mtu, udp, password_only, false)
+    }
+    fn with_crypto(
+        reject_auth: bool,
+        mtu: Option<u16>,
+        udp: bool,
+        password_only: bool,
+        tls_crypt: bool,
+    ) -> Self {
+        let tls_key = CString::new(if tls_crypt {
+            include_str!("../tests/fixtures/tls-crypt.key")
+        } else {
+            ""
+        })
+        .unwrap();
         let (ca, cert, key) = (
             CString::new(CA).unwrap(),
             CString::new(CERT).unwrap(),
@@ -51,6 +79,8 @@ impl Peer {
                 i32::from(reject_auth),
                 u32::from(mtu.unwrap_or_default()),
                 i32::from(udp),
+                i32::from(password_only),
+                tls_key.as_ptr(),
             )
         };
         Self(NonNull::new(raw).unwrap_or_else(|| panic!("{}", peer_error())))
@@ -146,10 +176,31 @@ async fn initial_tcp_reset_matches_softether_protocol_detection() {
 #[tokio::test]
 async fn memory_tun_reports_effective_local_and_pushed_mtu() {
     let _serial = SERIAL.lock().await;
-    for (pushed_mtu, expected) in [(None, 1400), (Some(1300), 1300)] {
+    for (pushed_mtu, expected, encrypted_key) in [
+        (None, 1400, false),
+        (Some(1300), 1300, false),
+        (None, 1400, true),
+    ] {
         let peer = Peer::with_mtu(false, pushed_mtu);
-        let config = format!("{}tun-mtu 1400\n", profile(CA));
-        let mut session = Session::start(&config, "192.0.2.1:1194".parse().unwrap()).unwrap();
+        let mut config = format!("{}tun-mtu 1400\n", profile(CA));
+        if encrypted_key {
+            config = config.replace(
+                CLIENT_KEY,
+                include_str!("../tests/fixtures/client-encrypted.key"),
+            );
+        }
+        let mut session = Session::start_with_credentials(
+            &config,
+            "192.0.2.1:1194".parse().unwrap(),
+            "",
+            "",
+            if encrypted_key {
+                "fixture-key-password"
+            } else {
+                ""
+            },
+        )
+        .unwrap();
         let mut generation = 0;
         let mut network_mtu = None;
         let mut connected = false;
@@ -401,5 +452,220 @@ async fn authentication_and_ca_failures_never_publish_connected_or_ip_data() {
         });
         assert_eq!(peer.count(), 0);
         let _ = session.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn password_only_and_split_outputs_preserve_mss_zero_and_reject_wrong_credentials() {
+    let _serial = SERIAL.lock().await;
+    for (udp, password, tls_crypt) in [
+        (false, "fixture-password", false),
+        (true, "fixture-password", false),
+        (true, "fixture-password", true),
+        (true, "wrong", true),
+    ] {
+        let peer = Peer::with_crypto(false, None, udp, true, tls_crypt);
+        let base = profile(CA);
+        let mut config = format!(
+            "{}auth-user-pass\nmssfix 0\ntun-mtu 1500\n",
+            base.split("<cert>").next().unwrap()
+        );
+        if tls_crypt {
+            config.push_str(&format!(
+                "<tls-crypt>\n{}</tls-crypt>\n",
+                include_str!("../tests/fixtures/tls-crypt.key")
+            ));
+        }
+        if udp {
+            config = config.replace("proto tcp", "proto udp");
+        }
+        let mut session = Session::start_with_options(
+            &config,
+            "192.0.2.1:1194".parse().unwrap(),
+            "fixture-user",
+            password,
+            "",
+            true,
+        )
+        .unwrap();
+        let (mut transport, mut packets) = session.split_packet_outputs().unwrap();
+        let mut payload = vec![0; 44];
+        payload[0] = 0x45;
+        payload[2..4].copy_from_slice(&44u16.to_be_bytes());
+        payload[8] = 64;
+        payload[9] = 6;
+        payload[12..16].copy_from_slice(&[10, 8, 0, 2]);
+        payload[16..20].copy_from_slice(&[10, 8, 0, 1]);
+        payload[32] = 0x60;
+        payload[33] = 2;
+        payload[40..44].copy_from_slice(&[2, 4, 0x05, 0xb4]); // TCP SYN MSS 1460
+        let mut generation = 0;
+        let mut buffer = vec![0; MAX_PACKET];
+        timeout(Duration::from_secs(8), async {
+            loop {
+                while let length @ 1.. = peer.pop(&mut buffer) {
+                    session
+                        .input()
+                        .receive_transport(generation, &buffer[..length])
+                        .await
+                        .unwrap();
+                }
+                let event = tokio::select! {
+                    event = session.next_event() => event,
+                    event = transport.next_event() => event,
+                    event = packets.next_event() => event,
+                    _ = tokio::time::sleep(Duration::from_millis(2)) => continue,
+                }
+                .unwrap();
+                match event {
+                    Event::Dial { generation: next } => {
+                        generation = next;
+                        session
+                            .input()
+                            .transport_connected(generation)
+                            .await
+                            .unwrap();
+                    }
+                    Event::TransportPacket { packet, .. } => {
+                        assert!(peer.receive(&packet), "{}", peer_error())
+                    }
+                    Event::State {
+                        name, error, fatal, ..
+                    } => {
+                        if name == "CONNECTED" {
+                            assert_eq!(password, "fixture-password");
+                            session.input().send_ip(generation, &payload).await.unwrap();
+                        } else if error || fatal {
+                            assert_eq!(password, "wrong");
+                            assert_eq!(name, "AUTH_FAILED");
+                            assert_eq!(peer.count(), 0);
+                            break;
+                        }
+                    }
+                    Event::IpPacket { packet, .. } => {
+                        assert_eq!(&packet[..], &payload);
+                        break;
+                    }
+                    Event::Stopped => panic!("stopped before expected result"),
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let _ = session.shutdown().await;
+        for mut output in [transport, packets] {
+            timeout(Duration::from_secs(1), async {
+                loop {
+                    match output.next_event().await {
+                        Ok(Event::Stopped) | Err(Error::Closed) => break,
+                        Ok(_) => {}
+                        Err(error) => panic!("unexpected decode error {error:?}"),
+                    }
+                }
+            })
+            .await
+            .expect("all split readers finish after queued packets are drained");
+        }
+    }
+}
+
+#[tokio::test]
+async fn split_packet_queues_resume_after_bidirectional_saturation() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let _serial = SERIAL.lock().await;
+    const COUNT: usize = 1024;
+    for udp in [false, true] {
+        let peer = Peer::with_transport(false, None, udp);
+        let config = if udp {
+            profile(CA).replace("proto tcp", "proto udp")
+        } else {
+            profile(CA)
+        };
+        let mut session = Session::start(&config, "192.0.2.1:1194".parse().unwrap()).unwrap();
+        let mut generation = 0;
+        let mut buffer = vec![0; MAX_PACKET];
+        timeout(Duration::from_secs(4), async {
+            loop {
+                while let length @ 1.. = peer.pop(&mut buffer) {
+                    session
+                        .input()
+                        .receive_transport(generation, &buffer[..length])
+                        .await
+                        .unwrap();
+                }
+                match timeout(Duration::from_millis(2), session.next_event()).await {
+                    Ok(Ok(Event::Dial { generation: next })) => {
+                        generation = next;
+                        session
+                            .input()
+                            .transport_connected(generation)
+                            .await
+                            .unwrap();
+                    }
+                    Ok(Ok(Event::TransportPacket { packet, .. })) => assert!(peer.receive(&packet)),
+                    Ok(Ok(Event::State {
+                        name, error, fatal, ..
+                    })) => {
+                        assert!(!error && !fatal, "{name}");
+                        if name == "CONNECTED" {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let (mut transport, mut packets) = session.split_packet_outputs().unwrap();
+        let input = session.input();
+        let sent = AtomicUsize::new(0);
+        let produce = async {
+            for sequence in 0..COUNT {
+                let mut packet = udp_packet(1);
+                packet[28..32].copy_from_slice(&(sequence as u32).to_be_bytes());
+                input.send_ip(generation, &packet).await.unwrap();
+                sent.fetch_add(1, Ordering::SeqCst);
+            }
+        };
+        let relay = async {
+            loop {
+                while let length @ 1.. = peer.pop(&mut buffer) {
+                    input
+                        .receive_transport(generation, &buffer[..length])
+                        .await
+                        .unwrap();
+                }
+                if peer.count() as usize == COUNT {
+                    break;
+                }
+                if let Event::TransportPacket { packet, .. } = transport.next_event().await.unwrap()
+                {
+                    assert!(peer.receive(&packet), "{}", peer_error());
+                }
+            }
+        };
+        let consume = async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert!(
+                sent.load(Ordering::SeqCst) < COUNT,
+                "paused output must backpressure input"
+            );
+            let mut seen = std::collections::HashSet::new();
+            while seen.len() < COUNT {
+                if let Event::IpPacket { packet, .. } = packets.next_event().await.unwrap() {
+                    let sequence = u32::from_be_bytes(packet[28..32].try_into().unwrap());
+                    assert!((sequence as usize) < COUNT && seen.insert(sequence));
+                }
+            }
+        };
+        timeout(Duration::from_secs(8), async {
+            tokio::join!(produce, relay, consume);
+        })
+        .await
+        .unwrap();
+        assert_eq!(peer.count() as usize, COUNT);
+        session.shutdown().await.unwrap();
     }
 }

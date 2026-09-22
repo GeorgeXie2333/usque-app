@@ -504,7 +504,7 @@ pub struct ManagedTunnelRuntime {
 /// Protocol-neutral packet boundary for an embedded, in-memory VPN. The
 /// producer owns cleanup; the existing mux owns these bounded packet queues.
 pub(crate) struct ExternalPacketChannels {
-    pub(crate) outgoing: TrackedReceiver<OutboundPacket>,
+    pub(crate) outgoing: Option<TrackedReceiver<OutboundPacket>>,
     pub(crate) incoming: TrackedSender<PacketBatch>,
     pub(crate) health: watch::Sender<RuntimeHealth>,
     pub(crate) failure: watch::Sender<Option<String>>,
@@ -733,7 +733,7 @@ impl ManagedTunnelRuntime {
                 tasks: vec![sampler],
             },
             ExternalPacketChannels {
-                outgoing: outgoing_rx,
+                outgoing: Some(outgoing_rx),
                 incoming: incoming_tx,
                 health: health_tx,
                 failure: failure_tx,

@@ -9,6 +9,7 @@ import 'package:usque/screens/chain_proxy_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/chain_proxy_entry.dart';
 import 'package:usque/widgets/chain_source_icon.dart';
 import 'ui_workflow_test.dart' show workflowHost, fieldWithLabel;
 import 'vpngate_test.dart' show GateEngine;
@@ -31,26 +32,37 @@ class ChainEngine extends GateEngine implements ChainProfileClient {
   List<ChainProfileSummary> library = [];
   final actions = <String>[];
   String? picked;
+  EngineException? pickerError;
+  bool multiEndpoint = true;
+  ChainProfileSummary previewProfile = imported;
   @override
-  Future<EngineCapabilities?> getCapabilities() async =>
-      const EngineCapabilities(
-        vpnGateTcp: true,
-        vpnGatePoolFavorites: true,
-        networkSettingsApplication: true,
-        chainProfileImport: true,
-        chainOpenvpnUdp: true,
-        chainWireguard: true,
-      );
+  Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    vpnGateTcp: true,
+    vpnGatePoolFavorites: true,
+    networkSettingsApplication: true,
+    chainProfileImport: true,
+    chainOpenvpnUdp: true,
+    chainWireguard: true,
+    chainOpenvpnMultiEndpoint: multiEndpoint,
+  );
   @override
-  Future<String?> pickChainConfiguration() async => picked;
+  Future<String?> pickChainConfiguration() async {
+    if (pickerError case final error?) {
+      throw error;
+    }
+    return picked;
+  }
+
   @override
   Future<ChainProfileResult> chainProfile(Map<String, Object?> request) async {
     final action = request['action'] as String;
     actions.add(action);
-    if (action == 'import') library = [imported];
+    if (action == 'import') library = [previewProfile];
     return ChainProfileResult(
       profiles: library,
-      preview: action == 'preview' || action == 'import' ? imported : null,
+      preview: action == 'preview' || action == 'import'
+          ? previewProfile
+          : null,
     );
   }
 }
@@ -84,6 +96,219 @@ Future<AppController> hostChain(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('disabled chain entry shows status without a default protocol', (
+    tester,
+  ) async {
+    final app = await hostChain(tester, ChainEngine());
+    await tester.pumpWidget(
+      workflowHost(
+        app,
+        home: Scaffold(
+          body: ChainProxyEntry(controller: app, onOpen: () {}),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Not enabled'), findsOneWidget);
+    expect(find.text('WireGuard (Custom)'), findsNothing);
+    expect(find.text('OpenVPN (Custom)'), findsNothing);
+  });
+  testWidgets(
+    'live and disconnecting sessions override a saved disabled selection',
+    (tester) async {
+      final app = await hostChain(tester, ChainEngine());
+      for (final (phase, stage, expected) in [
+        (ConnectionPhase.connected, 'connected', 'Connected'),
+        (ConnectionPhase.disconnecting, 'connected', 'Disconnecting'),
+        (ConnectionPhase.reconnecting, 'negotiating', 'Connecting'),
+      ]) {
+        app.snapshot = EngineSnapshot(
+          phase: phase,
+          chainExit: ChainExitStatus(stage: stage, currentProfile: imported),
+        );
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            home: Scaffold(
+              body: ChainProxyEntry(controller: app, onOpen: () {}),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Not enabled'), findsNothing);
+        expect(find.textContaining(expected), findsOneWidget);
+        expect(find.textContaining('WireGuard (Custom)'), findsOneWidget);
+      }
+      app.snapshot = const EngineSnapshot();
+      app.localePreference = LocalePreference.simplifiedChinese;
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: ChainProxyEntry(controller: app, onOpen: () {}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('未启用'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'picker read errors remain visible after an earlier saved settings message',
+    (tester) async {
+      final engine = ChainEngine()
+        ..pickerError = const EngineException(
+          'CHAIN_FILE_READ_FAILED',
+          'Read failed',
+        );
+      final app = await hostChain(tester, engine);
+      await app.saveNetwork(
+        app.activeProfile.copyWith(mtu: 1400),
+        changedFields: ['mtu'],
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Import file'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('The configuration file could not be read.'),
+        findsOneWidget,
+      );
+      expect(engine.actions.where((action) => action == 'import'), isEmpty);
+    },
+  );
+
+  test('multi-endpoint capability is appended and absent on old replies', () {
+    const codec = ControlCodec();
+    for (final enabled in [false, true]) {
+      final capabilities = ControlPayloadWriter();
+      if (enabled) capabilities.boolean(37, true);
+      final response = ControlPayloadWriter()
+        ..string(1, 'cap')
+        ..message(15, capabilities.takeBytes());
+      expect(
+        debugDecodeCapabilitiesFrame(
+          codec.frame(response.takeBytes()),
+          'cap',
+        )!.chainOpenvpnMultiEndpoint,
+        enabled,
+      );
+    }
+  });
+
+  test('candidate status decoding keeps the saved endpoint independent', () {
+    final summary = <String, Object?>{
+      'id': 'id',
+      'revision': 'rev',
+      'edit_revision': 'edit',
+      'name': 'Multi',
+      'protocol': 'openvpn_udp',
+      'endpoint': {'host': 'first.example', 'port': 1194},
+      'candidates': [
+        {
+          'endpoint': {'host': 'first.example', 'port': 1194},
+          'ipv6': null,
+        },
+        {
+          'endpoint': {'host': '2001:db8::1', 'port': 80},
+          'ipv6': true,
+        },
+      ],
+      'remote_random': true,
+    };
+    final status = ChainExitStatus.fromMap({
+      'stage': 'negotiating',
+      'current_profile': summary,
+      'attempting_endpoint': {'host': '2001:db8::1', 'port': 80},
+      'attempt_count': 2,
+      'candidate_count': 2,
+      'active_endpoint': '[2001:db8::1]:80',
+      'attempt_failures': ['transport'],
+    });
+    expect(status.currentProfile!.host, 'first.example');
+    expect(status.currentProfile!.candidates.last.ipv6, isTrue);
+    expect(status.attemptingEndpoint!.label, '[2001:db8::1]:80');
+    expect(status.attemptCount, 2);
+    expect(
+      status,
+      isNot(
+        ChainExitStatus(
+          stage: 'negotiating',
+          currentProfile: status.currentProfile,
+        ),
+      ),
+    );
+  });
+
+  testWidgets(
+    'old engines cannot preview-save or enable multiple endpoints but can disable them',
+    (tester) async {
+      const multi = ChainProfileSummary(
+        id: 'multi',
+        revision: 'r',
+        editRevision: 'e',
+        name: 'Multiple servers',
+        protocol: 'openvpn_udp',
+        host: 'first.example',
+        port: 1194,
+        candidates: [
+          ChainEndpoint('first.example', 1194),
+          ChainEndpoint('second.example', 1194),
+        ],
+      );
+      final engine = ChainEngine()
+        ..multiEndpoint = false
+        ..previewProfile = multi
+        ..library = [multi]
+        ..picked = 'client';
+      final app = await hostChain(tester, engine);
+      await tester.tap(find.byType(DropdownButton<ChainSource>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OpenVPN (Custom)').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Import file'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Check configuration'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Update the engine to use configurations with multiple endpoints.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Save configuration'),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(engine.actions.where((action) => action == 'import'), isEmpty);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Multiple servers'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply changes'));
+      await tester.pumpAndSettle();
+      expect(engine.saves, 0);
+      expect(
+        find.text(
+          'Update the engine to use configurations with multiple endpoints.',
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply changes'));
+      await tester.pumpAndSettle();
+      expect(engine.saves, 1);
+      expect(app.activeProfile.chainExit!.enabled, isFalse);
+    },
+  );
+
   setUpAll(() async {
     await (FontLoader(
       'MaterialIcons',
@@ -115,7 +340,7 @@ void main() {
       phase: ConnectionPhase.connected,
       chainExit: ChainExitStatus(stage: 'connected', currentProfile: imported),
     );
-    await tester.tap(find.byType(DropdownButtonFormField<ChainSource>));
+    await tester.tap(find.byType(DropdownButton<ChainSource>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('VPN Gate').last);
     await tester.pumpAndSettle();
@@ -272,13 +497,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(engine.saves, 0);
       expect(app.activeProfile.dataPlane, DataPlaneMode.l4Proxy);
-      await tester.tap(find.byType(DropdownButtonFormField<ChainSource>));
+      await tester.tap(find.byType(DropdownButton<ChainSource>));
       await tester.pumpAndSettle();
       await tester.tap(find.text('OpenVPN (Custom)').last);
       await tester.pumpAndSettle();
       expect(find.text(app.strings.get('discard_changes_title')), findsWidgets);
       await tester.tap(find.text(app.strings.get('keep_editing')));
       await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<DropdownButton<ChainSource>>(
+              find.byType(DropdownButton<ChainSource>),
+            )
+            .value,
+        ChainSource.wireguardCustom,
+      );
       final apply = find.text('Switch to CONNECT-IP and apply');
       await Scrollable.ensureVisible(tester.element(apply), alignment: 0.5);
       await tester.pumpAndSettle();

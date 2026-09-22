@@ -272,6 +272,15 @@ mod tests {
     }
 
     #[test]
+    fn multi_endpoint_capability_is_append_only() {
+        let value = v1::Capabilities {
+            chain_openvpn_multi_endpoint: true,
+            ..Default::default()
+        };
+        assert_eq!(value.encode_to_vec(), [0xa8, 0x02, 1]);
+    }
+
+    #[test]
     fn privileged_agent_v1_wire_snapshot_is_stable() {
         let decoded: AgentRequest = decode_frame(Bytes::from_static(AGENT_CAPABILITIES_V1_FRAME))
             .expect("decode agent snapshot");

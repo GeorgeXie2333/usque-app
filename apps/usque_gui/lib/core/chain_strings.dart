@@ -8,9 +8,26 @@ extension ChainStrings on AppStrings {
 }
 
 const _en = <String, String>{
+  'duplicate_directive': 'This directive may appear only once.',
+  'mixed_protocols':
+      'All remote endpoints must use the same TCP or UDP transport.',
+  'conflicting_protocol': 'The remote and global transport settings conflict.',
+  'too_many_endpoints': 'Use no more than 16 remote endpoints.',
+  'conflicting_authentication':
+      'CLIENT_CERT conflicts with the inline certificate or authentication mode.',
+  'serialized_size_limit':
+      'The encrypted record would exceed the storage size limit.',
+  'multi_endpoint_unavailable':
+      'Update the engine to use configurations with multiple endpoints.',
+  'candidates': 'Startup endpoints',
+  'random_order': 'Try endpoints in a new random order for each connection.',
+  'file_order': 'Try endpoints in file order.',
+  'attempting': 'Trying endpoint',
+  'actual_endpoint': 'Connected endpoint',
+
   'dns_fallback': 'Tunnel DNS (OpenVPN may negotiate DNS)',
   'dns_unavailable':
-      'DNS is outside AllowedIPs. Use IP addresses or reimport a configuration with reachable DNS.',
+      'No DNS server is reachable through this exit. Use IP addresses or reimport a configuration with reachable DNS.',
   'authentication_failed':
       'Authentication failed. Update credentials before connecting again.',
   'profile_limit': 'The configuration library is full (128 profiles).',
@@ -41,6 +58,11 @@ const _en = <String, String>{
   'saved': 'Saved selection',
   'draft': 'Pending selection',
   'disconnected': 'Not connected',
+  'disabled': 'Not enabled',
+  'disconnecting': 'Disconnecting',
+  'file_read_failed': 'The configuration file could not be read.',
+  'file_encoding_invalid': 'The configuration file must use UTF-8 text.',
+  'file_busy': 'A file picker is already open.',
   'connected': 'Connected',
   'connecting': 'Connecting',
   'error': 'Connection failed',
@@ -79,8 +101,21 @@ const _en = <String, String>{
   'changed': 'Changes saved',
 };
 const _zh = <String, String>{
+  'duplicate_directive': '此指令只能出现一次。',
+  'mixed_protocols': '所有 remote 端点必须统一使用 TCP 或 UDP。',
+  'conflicting_protocol': 'remote 与全局传输协议设置冲突。',
+  'too_many_endpoints': '最多支持 16 个 remote 端点。',
+  'conflicting_authentication': 'CLIENT_CERT 与内嵌证书或认证方式冲突。',
+  'serialized_size_limit': '加密记录将超过存储大小上限。',
+  'multi_endpoint_unavailable': '请更新引擎后使用多端点配置。',
+  'candidates': '启动候选端点',
+  'random_order': '每次连接以新的随机顺序尝试候选端点。',
+  'file_order': '按配置文件顺序尝试候选端点。',
+  'attempting': '正在尝试端点',
+  'actual_endpoint': '实际连接端点',
+
   'dns_fallback': '现有隧道 DNS（OpenVPN 可由服务器协商）',
-  'dns_unavailable': 'DNS 不在 AllowedIPs 范围内。请使用 IP 地址，或重新导入包含可达 DNS 的配置。',
+  'dns_unavailable': '此出口没有可达的 DNS 服务器。请使用 IP 地址，或重新导入包含可达 DNS 的配置。',
   'authentication_failed': '认证失败，请更新认证信息后重新连接。',
   'profile_limit': '配置库已满（最多 128 份配置）。',
   'metadata_limit': '配置库元数据已达到容量上限。',
@@ -110,6 +145,11 @@ const _zh = <String, String>{
   'saved': '已保存的选择',
   'draft': '待应用的选择',
   'disconnected': '未连接',
+  'disabled': '未启用',
+  'disconnecting': '正在断开',
+  'file_read_failed': '无法读取配置文件。',
+  'file_encoding_invalid': '配置文件必须使用 UTF-8 编码。',
+  'file_busy': '文件选择器已经打开。',
   'connected': '已连接',
   'connecting': '正在连接',
   'error': '连接失败',

@@ -32,10 +32,15 @@ pub(crate) struct Resolver {
     assigned_ipv6: Ipv6Addr,
     servers: Vec<IpAddr>,
     mode: ProxyDnsMode,
+    final_exit: bool,
     protector: Arc<dyn SocketProtector>,
 }
 
 impl Resolver {
+    pub(crate) fn with_final_exit(mut self, enabled: bool) -> Self {
+        self.final_exit = enabled;
+        self
+    }
     pub(crate) fn for_streams(
         stream_dns: Arc<crate::dns_stream::StreamDns>,
         servers: Vec<IpAddr>,
@@ -49,6 +54,7 @@ impl Resolver {
             assigned_ipv6: Ipv6Addr::UNSPECIFIED,
             servers,
             mode,
+            final_exit: false,
             protector,
         }
     }
@@ -68,6 +74,7 @@ impl Resolver {
             assigned_ipv6,
             servers,
             mode,
+            final_exit: false,
             protector,
         }
     }
@@ -175,7 +182,7 @@ impl Resolver {
     ) -> Result<Vec<IpAddr>, TransportError> {
         let transaction_id = NEXT_DNS_ID.fetch_add(1, Ordering::Relaxed);
         let query = encode_query(transaction_id, name, query_type)?;
-        query_servers(&self.servers, deadline, |server| {
+        let query_server = |server, deadline| {
             let query = &query;
             async move {
                 let remote = SocketAddr::new(server, DNS_PORT);
@@ -219,8 +226,20 @@ impl Resolver {
                 }
                 decode_query_response(query, &response, query_type)
             }
-        })
-        .await
+        };
+        if self.final_exit {
+            crate::final_dns::query(&self.servers, deadline, |server, deadline| {
+                let future = query_server(server, deadline);
+                async move { future.await.map_err(|error| error.to_string()) }
+            })
+            .await
+            .map_err(TransportError::Dns)
+        } else {
+            query_servers(&self.servers, deadline, |server| {
+                query_server(server, deadline)
+            })
+            .await
+        }
     }
 
     async fn query_with_configured_servers(
@@ -246,13 +265,14 @@ impl Resolver {
 
 // DNS cancellation can coincide with a full stack command queue. Retain the
 // existing retrying cleanup path instead of the upstream best-effort drop.
-struct QuerySocket {
+pub(crate) struct QuerySocket {
     channel: Channel,
     handle: ts_netstack_smoltcp::netcore::smoltcp::iface::SocketHandle,
+    local: SocketAddr,
 }
 
 impl QuerySocket {
-    async fn bind(
+    pub(crate) async fn bind(
         channel: Channel,
         endpoint: SocketAddr,
     ) -> Result<Self, ts_netstack_smoltcp::netcore::Error> {
@@ -261,13 +281,21 @@ impl QuerySocket {
             .request(None, udp::Command::Bind { endpoint })
             .await?
         {
-            Response::Udp(udp::Response::Bound { handle, .. }) => Ok(Self { channel, handle }),
+            Response::Udp(udp::Response::Bound { handle, local }) => Ok(Self {
+                channel,
+                handle,
+                local,
+            }),
             Response::Error(error) => Err(error),
             _ => Err(ts_netstack_smoltcp::netcore::Error::wrong_type()),
         }
     }
 
-    async fn send_to(
+    pub(crate) fn local_addr(&self) -> SocketAddr {
+        self.local
+    }
+
+    pub(crate) async fn send_to(
         &self,
         endpoint: SocketAddr,
         bytes: &[u8],
@@ -285,7 +313,7 @@ impl QuerySocket {
             .to_ok()
     }
 
-    async fn recv_from_bytes(
+    pub(crate) async fn recv_from_bytes(
         &self,
     ) -> Result<(SocketAddr, bytes::Bytes), ts_netstack_smoltcp::netcore::Error> {
         use ts_netstack_smoltcp::netcore::{HasChannel, Response, udp};
@@ -642,6 +670,60 @@ fn deduplicate(addresses: &mut Vec<IpAddr>) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn full_command_queue_retries_socket_close_without_network_progress() {
+        use std::future::Future;
+        use std::task::{Context, Waker};
+        use ts_netstack_smoltcp::netcore::{
+            Config, HasChannel, Netstack, stack_control, try_request_nonblocking,
+        };
+        let mut stack = Netstack::new(
+            Config {
+                command_channel_capacity: Some(1),
+                ..Default::default()
+            },
+            ts_netstack_smoltcp::netcore::smoltcp::time::Instant::from_millis(0),
+        );
+        let channel = stack.command_channel();
+        let allocate = || QuerySocket::bind(channel.clone(), "127.0.0.1:40001".parse().unwrap());
+        let mut opening = Box::pin(allocate());
+        assert!(
+            opening
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        stack.process_cmds();
+        let socket = opening.await.unwrap();
+        let original = socket.handle;
+        try_request_nonblocking(
+            &channel,
+            None,
+            stack_control::Command::SetIps { new_ips: vec![] },
+        )
+        .unwrap();
+        drop(socket);
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+            stack.process_cmds();
+        }
+        let mut opening = Box::pin(allocate());
+        assert!(
+            opening
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        stack.process_cmds();
+        let replacement = opening.await.unwrap();
+        assert_eq!(
+            replacement.handle, original,
+            "the old socket must release its slot"
+        );
+        drop(replacement);
+        stack.process_cmds();
+    }
+
     use super::*;
     use crate::socket::NoopSocketProtector;
     use std::sync::atomic::AtomicUsize;

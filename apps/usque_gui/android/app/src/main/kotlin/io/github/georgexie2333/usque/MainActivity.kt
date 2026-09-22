@@ -91,7 +91,19 @@ class MainActivity : FlutterFragmentActivity() {
                                     }
                                     total
                                 } ?: error("File unavailable")
-                            require(count in 1..128 * 1024)
+                            if (count > 128 * 1024) {
+                                runOnUiThread {
+                                    if (!isDestroyed) {
+                                        result.error(
+                                            "CHAIN_FILE_TOO_LARGE",
+                                            "Configuration size limit.",
+                                            null,
+                                        )
+                                    }
+                                }
+                                return@execute
+                            }
+                            require(count > 0)
                             val bytes = buffer.copyOf(count)
                             runOnUiThread {
                                 try {
@@ -103,7 +115,7 @@ class MainActivity : FlutterFragmentActivity() {
                         } catch (_: Exception) {
                             runOnUiThread {
                                 result.error(
-                                    "CHAIN_FILE_UNAVAILABLE",
+                                    "CHAIN_FILE_READ_FAILED",
                                     "Unable to read configuration file.",
                                     null,
                                 )

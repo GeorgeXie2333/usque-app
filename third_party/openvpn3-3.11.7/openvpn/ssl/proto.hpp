@@ -2227,6 +2227,11 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         void calculate_mssfix(ProtoConfig &c)
         {
+            if (!c.mss_parms.mssfix_default && c.mss_parms.mssfix == 0)
+            {
+                c.mss_fix = 0;
+                return;
+            }
             if (c.mss_parms.fixed)
             {
                 // substract IPv4 and TCP overhead, mssfix method will add extra 20 bytes for IPv6

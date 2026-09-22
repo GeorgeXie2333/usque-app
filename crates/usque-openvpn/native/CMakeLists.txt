@@ -50,6 +50,7 @@ set_source_files_properties(bridge.cpp "${CORE}/client/ovpncli.cpp"
 option(USQUE_INTEROP_TEST "Build the memory-only protocol test peer" OFF)
 if(USQUE_INTEROP_TEST)
     target_sources(usque_openvpn PRIVATE test_peer.cpp)
+    target_compile_definitions(usque_openvpn PRIVATE USQUE_INTEROP_TEST)
 endif()
 if(WIN32)
     target_compile_definitions(usque_openvpn PRIVATE _WIN32_WINNT=0x0A00

@@ -64,6 +64,25 @@ class ChainExitSettings {
 }
 
 @immutable
+class ChainEndpoint {
+  const ChainEndpoint(this.host, this.port, {this.ipv6});
+  final String host;
+  final int port;
+  final bool? ipv6;
+  String get label => '${host.contains(':') ? '[$host]' : host}:$port';
+  factory ChainEndpoint.fromMap(Map<Object?, Object?> map) =>
+      ChainEndpoint(map['host'] as String, map['port'] as int);
+  @override
+  bool operator ==(Object other) =>
+      other is ChainEndpoint &&
+      host == other.host &&
+      port == other.port &&
+      ipv6 == other.ipv6;
+  @override
+  int get hashCode => Object.hash(host, port, ipv6);
+}
+
+@immutable
 class ChainProfileSummary {
   const ChainProfileSummary({
     required this.id,
@@ -80,6 +99,8 @@ class ChainProfileSummary {
     this.requiresAuth = false,
     this.requiresKeyPassword = false,
     this.addressFamily = 'IPv4/IPv6',
+    this.candidates = const [],
+    this.remoteRandom = false,
   });
   final String id, revision, editRevision, name, protocol, host;
   final String addressFamily;
@@ -87,6 +108,8 @@ class ChainProfileSummary {
   final List<String> addresses, dns, allowedIps;
   final int? mtu;
   final bool requiresAuth, requiresKeyPassword;
+  final List<ChainEndpoint> candidates;
+  final bool remoteRandom;
   ChainSource get source => protocol == 'wireguard'
       ? ChainSource.wireguardCustom
       : ChainSource.openvpnCustom;
@@ -107,6 +130,18 @@ class ChainProfileSummary {
       dns: (map['dns_servers'] as List? ?? const []).cast<String>(),
       allowedIps: (map['allowed_ips'] as List? ?? const []).cast<String>(),
       mtu: map['mtu'] as int?,
+      candidates: (map['candidates'] as List? ?? const [])
+          .whereType<Map<Object?, Object?>>()
+          .map((candidate) {
+            final endpoint = candidate['endpoint'] as Map;
+            return ChainEndpoint(
+              endpoint['host'] as String,
+              endpoint['port'] as int,
+              ipv6: candidate['ipv6'] as bool?,
+            );
+          })
+          .toList(growable: false),
+      remoteRandom: map['remote_random'] == true,
       requiresAuth: map['requires_auth'] == true,
       requiresKeyPassword: map['requires_key_password'] == true,
       addressFamily: map['address_family'] as String? ?? 'IPv4/IPv6',
@@ -155,12 +190,21 @@ class ChainExitStatus {
     this.currentProfile,
     this.failure,
     this.dnsUnavailable = false,
+    this.attemptingEndpoint,
+    this.activeEndpoint,
+    this.attemptCount = 0,
+    this.candidateCount = 0,
+    this.attemptFailures = const [],
   });
   final String stage;
   final int generation;
   final ChainProfileSummary? currentProfile;
   final String? failure;
   final bool dnsUnavailable;
+  final ChainEndpoint? attemptingEndpoint;
+  final String? activeEndpoint;
+  final int attemptCount, candidateCount;
+  final List<String> attemptFailures;
   factory ChainExitStatus.fromMap(Map<Object?, Object?> map) => ChainExitStatus(
     stage: map['stage'] as String? ?? 'disabled',
     generation: map['generation'] as int? ?? 0,
@@ -169,6 +213,14 @@ class ChainExitStatus {
         : null,
     failure: map['failure'] as String?,
     dnsUnavailable: map['dns_unavailable'] == true,
+    attemptingEndpoint: map['attempting_endpoint'] is Map
+        ? ChainEndpoint.fromMap(map['attempting_endpoint'] as Map)
+        : null,
+    activeEndpoint: map['active_endpoint'] as String?,
+    attemptCount: map['attempt_count'] as int? ?? 0,
+    candidateCount: map['candidate_count'] as int? ?? 0,
+    attemptFailures: (map['attempt_failures'] as List? ?? const [])
+        .cast<String>(),
   );
   @override
   bool operator ==(Object other) =>
@@ -177,8 +229,23 @@ class ChainExitStatus {
       generation == other.generation &&
       currentProfile == other.currentProfile &&
       failure == other.failure &&
-      dnsUnavailable == other.dnsUnavailable;
+      dnsUnavailable == other.dnsUnavailable &&
+      attemptingEndpoint == other.attemptingEndpoint &&
+      activeEndpoint == other.activeEndpoint &&
+      attemptCount == other.attemptCount &&
+      candidateCount == other.candidateCount &&
+      listEquals(attemptFailures, other.attemptFailures);
   @override
-  int get hashCode =>
-      Object.hash(stage, generation, currentProfile, failure, dnsUnavailable);
+  int get hashCode => Object.hash(
+    stage,
+    generation,
+    currentProfile,
+    failure,
+    dnsUnavailable,
+    attemptingEndpoint,
+    activeEndpoint,
+    attemptCount,
+    candidateCount,
+    Object.hashAll(attemptFailures),
+  );
 }

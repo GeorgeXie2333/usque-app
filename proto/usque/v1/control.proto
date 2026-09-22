@@ -430,6 +430,7 @@ message Capabilities {
   bool chain_profile_import = 34;
   bool chain_openvpn_udp = 35;
   bool chain_wireguard = 36;
+  bool chain_openvpn_multi_endpoint = 37;
 }
 
 message FrontendStatus {

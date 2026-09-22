@@ -52,3 +52,10 @@ its TCP reservation. Already cancelled creation commands allocate nothing.
 Async creation cancellation disconnects the reply and submits a nonblocking
 `ReapCancelled` wake. A full command queue already wakes the actor, whose next
 I/O pass performs the same cleanup. No packet or external interface changes.
+
+Raw socket creation now participates in the same cancellation ownership tracking
+as UDP bind and TCP connect. Unclaimed IPv6 fragment sockets are reclaimed before
+or after response delivery, including a saturated command queue. First-party
+UDP and raw wrappers own their handles exclusively and retry Close through the
+existing bounded cleanup path; the upstream best-effort socket Drop is not used
+for final DNS or chained protocol transport.

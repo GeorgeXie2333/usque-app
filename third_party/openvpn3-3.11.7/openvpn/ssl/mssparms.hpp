@@ -41,6 +41,16 @@ struct MSSParms
                     throw option_error(ERR_INVALID_OPTION_VAL, "mssfix must have a value");
             }
 
+            // Usque: an explicit zero disables MSS rewriting, including the
+            // default calculation performed later during key setup.
+            if (*val == "0")
+            {
+                mssfix = 0;
+                mssfix_default = false;
+                mtu = false;
+                fixed = false;
+                return;
+            }
             const bool status = parse_number_validate<decltype(mssfix)>(*val,
                                                                         16,
                                                                         576,

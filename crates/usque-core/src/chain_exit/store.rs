@@ -5,6 +5,10 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+pub const MAX_RECORD_PLAINTEXT_BYTES: usize = 192 * 1024;
+pub const MAX_RECORD_CIPHERTEXT_BYTES: usize = 256 * 1024;
+const MAX_LEGACY_PLAINTEXT_BYTES: usize = 256 * 1024;
+
 pub trait ProfileCipher: Send + Sync {
     fn seal(&self, id: Uuid, value: &[u8]) -> Result<Vec<u8>, ImportError>;
     fn open(&self, id: Uuid, value: &[u8]) -> Result<Zeroizing<Vec<u8>>, ImportError>;
@@ -76,29 +80,68 @@ impl<'a> ChainProfileStore<'a> {
     fn read(&self, id: Uuid) -> Result<Record, ImportError> {
         let path = self.path(id);
         let meta = fs::symlink_metadata(&path).map_err(|_| storage_error())?;
-        if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > 256 * 1024 {
+        if !meta.is_file()
+            || meta.file_type().is_symlink()
+            || meta.len() > MAX_RECORD_CIPHERTEXT_BYTES as u64
+        {
             return Err(storage_error());
         }
         let mut encrypted = Vec::new();
         fs::File::open(path)
             .map_err(|_| storage_error())?
-            .take(256 * 1024 + 1)
+            .take(MAX_RECORD_CIPHERTEXT_BYTES as u64 + 1)
             .read_to_end(&mut encrypted)
             .map_err(|_| storage_error())?;
-        if encrypted.len() > 256 * 1024 {
+        if encrypted.len() > MAX_RECORD_CIPHERTEXT_BYTES {
             return Err(storage_error());
         }
         let plaintext = self.cipher.open(id, &encrypted)?;
-        if plaintext.len() > 192 * 1024 {
+        if plaintext.len() > MAX_LEGACY_PLAINTEXT_BYTES {
             return Err(storage_error());
         }
-        let record: Record = serde_json::from_slice(&plaintext).map_err(|_| storage_error())?;
-        if record.version != 1 || record.summary.id != id {
+        let mut record: Record = serde_json::from_slice(&plaintext).map_err(|_| storage_error())?;
+        if !matches!(record.version, 1 | 2)
+            || record.summary.id != id
+            || record.version == 2 && plaintext.len() > MAX_RECORD_PLAINTEXT_BYTES
+        {
             return Err(storage_error());
         }
-        let validated = ValidatedProfile::parse(record.summary.protocol.source(), &record.secrets)?;
+        record.secrets.validate()?;
+        let validated = if record.version == 1
+            && record.summary.protocol.source() == ChainSource::OpenvpnCustom
+        {
+            ValidatedProfile::OpenVpn(super::openvpn::parse_record(
+                &record.secrets.configuration,
+                true,
+            )?)
+        } else {
+            ValidatedProfile::parse(record.summary.protocol.source(), &record.secrets)?
+        };
         let mut expected = validated.summary(&record.summary.name, id, record.summary.revision)?;
         expected.edit_revision = record.summary.edit_revision;
+        if record.version == 1 {
+            // Version 1 never supported multiple remotes. Reconstruct only this
+            // newly appended metadata, then validate every pre-existing field.
+            if expected.candidates.len() > 1 || expected.remote_random {
+                return Err(storage_error());
+            }
+            if record.summary.endpoint.port == expected.endpoint.port
+                && record
+                    .summary
+                    .endpoint
+                    .host
+                    .parse::<IpAddr>()
+                    .ok()
+                    .is_some_and(|ip| Some(ip) == expected.endpoint.host.parse::<IpAddr>().ok())
+            {
+                record
+                    .summary
+                    .endpoint
+                    .host
+                    .clone_from(&expected.endpoint.host);
+            }
+            record.summary.candidates = expected.candidates.clone();
+        }
         if expected != record.summary {
             return Err(storage_error());
         }
@@ -163,13 +206,25 @@ impl<'a> ChainProfileStore<'a> {
             return Err(ImportError::new(0, "profiles", "profile_limit"));
         }
         self.write(&Record {
-            version: 1,
+            version: 2,
             summary: summary.clone(),
             secrets,
         })?;
         Ok(summary)
     }
     fn write(&self, record: &Record) -> Result<(), ImportError> {
+        // Legacy compatibility is read-only. Never promote an old invalid
+        // configuration into a version 2 object that cannot be read again.
+        let parsed = ValidatedProfile::parse(record.summary.protocol.source(), &record.secrets)?;
+        let mut expected = parsed.summary(
+            &record.summary.name,
+            record.summary.id,
+            record.summary.revision,
+        )?;
+        expected.edit_revision = record.summary.edit_revision;
+        if record.version != 2 || expected != record.summary {
+            return Err(storage_error());
+        }
         // Binder carries UTF-16 strings. Bound the complete metadata catalogue
         // below its transaction budget, including each profile's AllowedIPs.
         let mut metadata_bytes = serde_json::to_vec(&record.summary)
@@ -186,8 +241,15 @@ impl<'a> ChainProfileStore<'a> {
             return Err(ImportError::new(0, "profiles", "metadata_limit"));
         }
         let plaintext = Zeroizing::new(serde_json::to_vec(record).map_err(|_| storage_error())?);
+        if plaintext.len() > MAX_RECORD_PLAINTEXT_BYTES {
+            return Err(ImportError::new(
+                0,
+                "configuration",
+                "serialized_size_limit",
+            ));
+        }
         let encrypted = self.cipher.seal(record.summary.id, &plaintext)?;
-        if encrypted.is_empty() || encrypted.len() > 256 * 1024 {
+        if encrypted.is_empty() || encrypted.len() > MAX_RECORD_CIPHERTEXT_BYTES {
             return Err(storage_error());
         }
         let mut file = tempfile::Builder::new()
@@ -232,6 +294,7 @@ impl<'a> ChainProfileStore<'a> {
         // Display-only edits do not invalidate a selected immutable protocol revision.
         record.summary = parsed.summary(name, id, record.summary.revision)?;
         record.summary.edit_revision = Uuid::new_v4();
+        record.version = 2;
         self.write(&record)?;
         Ok(record.summary)
     }
@@ -264,6 +327,7 @@ impl<'a> ChainProfileStore<'a> {
             .clone_from(&credentials.private_key_password);
         record.secrets.validate()?;
         record.summary.edit_revision = Uuid::new_v4();
+        record.version = 2;
         // Running sessions retain their own zeroizing credential snapshot.
         self.write(&record)?;
         Ok(record.summary)

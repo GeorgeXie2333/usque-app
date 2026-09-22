@@ -73,7 +73,7 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
                 // The final Gate gateway creates its synthetic DNS service at
                 // startup only when TUN is enabled. A hot attach cannot supply
                 // the resolver that both platforms advertise to the OS.
-                || previous.chain_enabled() && previous.dns_mode == crate::DnsMode::Tunnel);
+                || previous.chain_enabled() && (previous.dns_mode == crate::DnsMode::Tunnel || previous.custom_chain().is_some()));
     if cold {
         return ReconfigureClass::ColdReconnect;
     }

@@ -80,34 +80,38 @@ impl ControlService {
                     private_key_password: request.private_key_password,
                 },
             };
+            // Match settings commits: in-memory configuration, configuration
+            // transaction, then library lock. Never validate a stale reference
+            // snapshot and subsequently delete outside that transaction.
+            let _config = self.config.write().await;
+            let store = self.store.clone();
             let mut retained = Vec::new();
-            if let Some(id) = self
-                .config
-                .read()
-                .await
-                .network
-                .chain_exit
-                .as_ref()
-                .and_then(|s| s.profile_id)
-            {
-                retained.push(id);
-            }
             if let Some(profile) = &self.gate_status.borrow().current_profile {
                 retained.push(profile.id);
             }
             let parent = self.cache_dir.clone();
             let result = tokio::task::spawn_blocking(move || {
-                usque_core::chain_exit::profile_command(
+                let _transaction = store.lock_exclusive()?;
+                let latest = store.load_or_default()?;
+                if let Some(id) = latest
+                    .network
+                    .chain_exit
+                    .as_ref()
+                    .and_then(|s| s.profile_id)
+                {
+                    retained.push(id);
+                }
+                Ok::<_, ControlServiceError>(usque_core::chain_exit::profile_command(
                     &parent,
                     &usque_core::chain_exit::store::WindowsProfileCipher,
                     request,
                     &retained,
-                )
+                ))
             })
             .await
             .map_err(|_| {
                 ControlServiceError::InvalidRequest("Chain storage worker failed".into())
-            })?;
+            })??;
             Ok(v1::ChainProfileResponse {
                 metadata_json: serde_json::to_string(&result)
                     .map_err(ControlServiceError::configuration)?,

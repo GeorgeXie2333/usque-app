@@ -1,8 +1,13 @@
 use super::*;
 
 fn ovpn(extra: &str) -> ImportSecrets {
+    let auth = if extra.contains("auth-user-pass") {
+        ""
+    } else {
+        "auth-user-pass\n"
+    };
     ImportSecrets::new(format!(
-        "client\ndev tun\nproto tcp-client\nremote vpn.example.org 443\n<ca>\nTEST\n</ca>\n{extra}"
+        "client\ndev tun\nproto tcp-client\nremote vpn.example.org 443\n<ca>\nTEST\n</ca>\n{auth}{extra}"
     ))
 }
 fn wg(extra: &str) -> ImportSecrets {
@@ -36,13 +41,12 @@ fn imported_openvpn_preserves_udp_and_certificate_constraints() {
     assert!(p.content.contains("remote-cert-tls server"));
 }
 #[test]
-fn imported_openvpn_rejects_execution_files_and_multiple_remotes() {
+fn imported_openvpn_rejects_execution_files_and_unsafe_directives() {
     for directive in [
         "up secret-script",
         "plugin secret-plugin",
         "ca secret.pem",
         "auth-user-pass secret.txt",
-        "remote second.example 443",
         "compress lz4",
         "tls-version-min 1.0",
         "remote-cert-tls client",
@@ -69,7 +73,9 @@ fn protocol_family_and_conflicting_remote_options_are_not_lost() {
         "proto tcp\nremote vpn.example 443 udp",
         "remote vpn.example 443 udp\nproto tcp",
     ] {
-        let input = ImportSecrets::new(format!("client\ndev tun\n<ca>\nTEST\n</ca>\n{text}"));
+        let input = ImportSecrets::new(format!(
+            "client\ndev tun\nauth-user-pass\n<ca>\nTEST\n</ca>\n{text}"
+        ));
         assert_eq!(
             ValidatedProfile::parse(ChainSource::OpenvpnCustom, &input)
                 .unwrap_err()

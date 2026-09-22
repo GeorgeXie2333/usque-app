@@ -49,6 +49,7 @@ pub(super) fn is_running() -> bool {
 enum RuntimeCommand {
     Reconfigure {
         profile: Profile,
+        deadline: Instant,
         reply: std::sync::mpsc::SyncSender<i32>,
         cancelled: Arc<AtomicBool>,
     },
@@ -73,6 +74,7 @@ struct EngineHandle {
     status: Arc<Mutex<NativeSnapshot>>,
     protector: Arc<AndroidSocketProtector>,
     commands: tokio::sync::mpsc::UnboundedSender<RuntimeCommand>,
+    connection_deadline: Arc<Mutex<Option<Instant>>>,
     // A retained, shared join owner keeps ENGINE occupied while stopping.
     // Starts remain fail-closed, without holding ENGINE across a blocking wait.
     thread: Arc<Mutex<Option<JoinHandle<()>>>>,
@@ -119,6 +121,11 @@ fn spawn_runtime(
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> i32 {
+    let connection_deadline = Arc::new(Mutex::new(
+        profile
+            .chain_enabled()
+            .then(|| Instant::now() + Duration::from_secs(180)),
+    ));
     clear_last_start_error();
     let engine = ENGINE.get_or_init(|| Mutex::new(None));
     let mut slot = match engine.lock() {
@@ -185,6 +192,7 @@ fn spawn_runtime(
     let status = Arc::new(Mutex::new(initial_status));
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
     let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+    let thread_deadline = connection_deadline.clone();
     let thread_cancel = cancellation.clone();
     let thread_status = Arc::clone(&status);
     let handle_protector = Arc::clone(&protector);
@@ -220,6 +228,7 @@ fn spawn_runtime(
                 thread_status,
                 started_tx,
                 command_rx,
+                thread_deadline,
             ));
         });
     let thread = match thread {
@@ -231,17 +240,25 @@ fn spawn_runtime(
         status: Arc::clone(&status),
         protector: handle_protector,
         commands: command_tx,
+        connection_deadline: connection_deadline.clone(),
         thread: Arc::new(Mutex::new(Some(thread))),
     });
     drop(slot);
 
-    let result = match started_rx.recv_timeout(Duration::from_secs(90)) {
+    let wait = connection_deadline
+        .lock()
+        .ok()
+        .and_then(|value| *value)
+        .map_or(Duration::from_secs(195), |deadline| {
+            deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(15)
+        });
+    let result = match started_rx.recv_timeout(wait) {
         Ok(result) => result,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             set_error_with_code(
                 &status,
                 "ANDROID_START_TIMEOUT",
-                "The Android native runtime did not start within 90 seconds.".to_owned(),
+                "The Android native runtime did not start within 195 seconds.".to_owned(),
             );
             START_TRANSPORT_FAILURE
         }
@@ -382,6 +399,7 @@ pub(super) fn snapshot() -> NativeSnapshot {
 pub(super) fn reconfigure(profile: Profile) -> i32 {
     send_command(|reply, cancelled| RuntimeCommand::Reconfigure {
         profile,
+        deadline: Instant::now() + Duration::from_secs(180),
         reply,
         cancelled,
     })
@@ -420,24 +438,35 @@ fn send_command(
     let Some(engine) = ENGINE.get() else {
         return RECONFIGURE_NOT_RUNNING;
     };
-    let commands = {
+    let (commands, connection_deadline) = {
         let Ok(slot) = engine.lock() else {
             return START_PLATFORM_FAILURE;
         };
         let Some(handle) = slot.as_ref() else {
             return RECONFIGURE_NOT_RUNNING;
         };
-        handle.commands.clone()
+        (handle.commands.clone(), handle.connection_deadline.clone())
     };
     let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
     let cancelled = Arc::new(AtomicBool::new(false));
-    if commands
-        .send(build(reply_tx, Arc::clone(&cancelled)))
-        .is_err()
-    {
+    let command = build(reply_tx, Arc::clone(&cancelled));
+    let wait = match &command {
+        RuntimeCommand::Reconfigure { deadline, .. } => {
+            deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(15)
+        }
+        RuntimeCommand::AttachTun { .. } => connection_deadline
+            .lock()
+            .ok()
+            .and_then(|value| *value)
+            .map_or(Duration::from_secs(30), |deadline| {
+                deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(15)
+            }),
+        _ => Duration::from_secs(30),
+    };
+    if commands.send(command).is_err() {
         return RECONFIGURE_NOT_RUNNING;
     }
-    super::wait_jni_command_reply(reply_rx, &cancelled, Duration::from_secs(90))
+    super::wait_jni_command_reply(reply_rx, &cancelled, wait)
 }
 
 fn clear_last_start_error() {
@@ -479,6 +508,7 @@ async fn run(
     status: Arc<Mutex<NativeSnapshot>>,
     started: std::sync::mpsc::SyncSender<i32>,
     commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
+    connection_deadline: Arc<Mutex<Option<Instant>>>,
 ) {
     let tun = match tun {
         Some(fd) => match AsyncFd::new(TunFd(fd)) {
@@ -533,6 +563,11 @@ async fn run(
                 selected: selected_gate,
                 status: Some(gate_tx.clone()),
                 cancellation: cancellation.clone(),
+                deadline: connection_deadline
+                    .lock()
+                    .ok()
+                    .and_then(|value| *value)
+                    .map(tokio::time::Instant::from_std),
             },
         ));
         tokio::pin!(startup);
@@ -564,6 +599,11 @@ async fn run(
         let _ = started.send(START_TRANSPORT_FAILURE);
         return;
     }
+    if !profile.frontends.tunnel
+        && let Ok(mut deadline) = connection_deadline.lock()
+    {
+        *deadline = None;
+    }
     update_health(&status, &tunnel);
     update_frontends(&status, &tunnel);
     let _ = started.send(START_OK);
@@ -573,6 +613,7 @@ async fn run(
         snapshot: status.clone(),
         cancellation: cancellation.clone(),
         exit_probe: ExitProbeTask::default(),
+        connection_deadline,
     };
     spawn_exit_probe(&gate_context, &tunnel, &profile);
 
@@ -612,8 +653,7 @@ fn spawn_exit_probe(context: &GateContext, tunnel: &DataPlaneRuntime, profile: &
     let network = tunnel.internal_network();
     let status = Arc::clone(&context.snapshot);
     let gate_generation = profile
-        .vpn_gate
-        .enabled
+        .chain_enabled()
         .then(|| tunnel.gate_status().generation);
     tokio::spawn(async move {
         if let Some(Ok(exit)) = run_probe(&cancellation, network.probe_exit()).await
@@ -644,6 +684,7 @@ struct GateContext {
     snapshot: Arc<Mutex<NativeSnapshot>>,
     cancellation: CancellationToken,
     exit_probe: ExitProbeTask,
+    connection_deadline: Arc<Mutex<Option<Instant>>>,
 }
 
 struct PendingPacketIo<'a, F> {
@@ -945,6 +986,7 @@ async fn handle_runtime_command(
         }
         RuntimeCommand::Reconfigure {
             profile: mut next,
+            deadline,
             reply,
             cancelled,
         } => {
@@ -967,6 +1009,9 @@ async fn handle_runtime_command(
                 ReconfigureClass::Reject => START_INVALID_PROFILE,
                 ReconfigureClass::ColdReconnect => RECONFIGURE_NEED_COLD,
                 ReconfigureClass::HotVpnGate => {
+                    if let Ok(mut saved) = gate_context.connection_deadline.lock() {
+                        *saved = Some(deadline);
+                    }
                     gate_context.exit_probe.cancel();
                     tunnel.quiesce_final();
                     detach_tun_locked(tunnel, tun, tun_io);
@@ -986,12 +1031,13 @@ async fn handle_runtime_command(
                     let result = match (selected, policy) {
                         (selected, Ok(policy)) if selected.is_some() || !next.chain_enabled() => {
                             tunnel
-                                .replace_gate(
+                                .replace_gate_before(
                                     &next,
                                     selected,
                                     Arc::new(policy),
                                     gate_context.status.clone(),
                                     &gate_context.cancellation,
+                                    tokio::time::Instant::from_std(deadline),
                                 )
                                 .await
                         }
@@ -1018,6 +1064,11 @@ async fn handle_runtime_command(
                         } else {
                             match tunnel.activate_final().await {
                                 Ok(()) => {
+                                    if let Ok(mut deadline) =
+                                        gate_context.connection_deadline.lock()
+                                    {
+                                        *deadline = None;
+                                    }
                                     update_frontends(status, tunnel);
                                     spawn_exit_probe(gate_context, tunnel, profile);
                                     RECONFIGURE_OK
@@ -1132,6 +1183,9 @@ async fn handle_runtime_command(
                 set_transport_error_on_path(status, &error, tunnel.path());
                 let _ = reply.send(START_TRANSPORT_FAILURE);
                 return;
+            }
+            if let Ok(mut deadline) = gate_context.connection_deadline.lock() {
+                *deadline = None;
             }
             if super::jni_command_abandoned(&cancelled) || reply.send(RECONFIGURE_OK).is_err() {
                 detach_tun_locked(tunnel, tun, tun_io);

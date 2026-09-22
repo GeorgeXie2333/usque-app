@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/chain_strings.dart';
+import '../models/app_models.dart' show ConnectionPhase;
 import '../models/chain_exit_models.dart';
 import '../state/app_controller.dart';
 import 'chain_source_icon.dart';
@@ -23,7 +24,36 @@ class ChainProxyEntry extends StatelessWidget {
       final current = controller.snapshot.chainExit.currentProfile;
       final source = current?.source ?? profile.chainSource;
       final strings = controller.strings;
-      if (source == ChainSource.vpnGate) {
+      final stage = source == ChainSource.vpnGate
+          ? controller.snapshot.vpnGate.stage
+          : controller.snapshot.chainExit.stage;
+      final connecting = const {
+        'connecting_warp',
+        'connecting_server',
+        'negotiating',
+        'configuring_network',
+        'reconnecting',
+      }.contains(stage);
+      final connected = stage == 'connected' && controller.snapshot.isConnected;
+      final disconnecting =
+          controller.snapshot.phase == ConnectionPhase.disconnecting &&
+          (current != null ||
+              controller.snapshot.vpnGate.server != null ||
+              connecting);
+      final disabled =
+          !profile.chainEnabled && !connecting && !connected && !disconnecting;
+      final state = disabled
+          ? 'disabled'
+          : disconnecting
+          ? 'disconnecting'
+          : connected
+          ? 'connected'
+          : connecting
+          ? 'connecting'
+          : stage == 'error'
+          ? 'error'
+          : 'disconnected';
+      if (source == ChainSource.vpnGate && !disabled) {
         return VpnGateEntry(
           controller: controller,
           onOpen: onOpen,
@@ -37,7 +67,10 @@ class ChainProxyEntry extends StatelessWidget {
         onTap: onOpen,
         child: Row(
           children: [
-            ChainSourceIcon(source: source),
+            if (disabled)
+              const Icon(LucideIcons.link)
+            else
+              ChainSourceIcon(source: source),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -48,15 +81,12 @@ class ChainProxyEntry extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 8),
-                  Text(source.label),
-                  if (current != null && controller.snapshot.isConnected)
+                  if (!disabled) Text(source.label),
+                  Text(strings.chain(state)),
+                  if (current != null && connected)
                     Text('WARP → ${current.name}')
-                  else
-                    Text(
-                      strings.chain(
-                        profile.chainEnabled ? 'disconnected' : 'subtitle',
-                      ),
-                    ),
+                  else if (disabled)
+                    Text(strings.chain('subtitle')),
                 ],
               ),
             ),

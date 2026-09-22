@@ -1,15 +1,14 @@
 //! OpenVPN's transport is supplied exclusively by a WARP internal network.
 //! Decrypted packets use the same bounded mux as CONNECT-IP frontends.
-use crate::chain_session::{Input, Session};
+use crate::chain_session::{EventStream, Input, Session};
 use crate::h2::TransportError;
 use crate::internal_network::InternalNetwork;
 use crate::netstack::{ExternalPacketChannels, ManagedTunnelRuntime, RuntimeHealth, RuntimePath};
 use crate::packet_batch::PacketBatch;
-use bytes::Bytes;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -75,6 +74,54 @@ async fn until_cancelled<F: std::future::Future>(
     }
 }
 
+fn candidate_order(count: usize, random: bool) -> Vec<usize> {
+    let mut order: Vec<_> = (0..count).collect();
+    if random {
+        for index in (1..count).rev() {
+            let entropy = uuid::Uuid::new_v4();
+            let value =
+                u64::from_le_bytes(entropy.as_bytes()[..8].try_into().expect("UUID length"));
+            order.swap(index, value as usize % (index + 1));
+        }
+    }
+    order
+}
+fn candidate_deadline(now: Instant, deadline: Instant, remaining: usize) -> Option<Instant> {
+    let available = deadline.saturating_duration_since(now);
+    if available.is_zero() || remaining == 0 {
+        return None;
+    }
+    Some(now + (available / remaining as u32).min(Duration::from_secs(35)))
+}
+
+async fn attempt_candidates<T, F, Fut>(
+    cancel: &CancellationToken,
+    deadline: Instant,
+    order: &[usize],
+    mut attempt: F,
+) -> Result<T, TransportError>
+where
+    F: FnMut(usize, Instant) -> Fut,
+    Fut: std::future::Future<Output = Result<T, TransportError>>,
+{
+    for (position, index) in order.iter().enumerate() {
+        if cancel.is_cancelled() {
+            return Err(TransportError::TunnelClosed);
+        }
+        let Some(attempt_deadline) =
+            candidate_deadline(Instant::now(), deadline, order.len() - position)
+        else {
+            break;
+        };
+        // The attempt owns cleanup; never cancel/drop it to start a successor.
+        match attempt(*index, attempt_deadline).await {
+            Err(TransportError::VpnGate(GateFailure::Transport)) => {}
+            result => return result,
+        }
+    }
+    Err(TransportError::VpnGate(GateFailure::Transport))
+}
+
 pub(crate) struct GateDriver {
     pub(crate) status: watch::Receiver<GateStatus>,
     status_tx: watch::Sender<GateStatus>,
@@ -92,8 +139,64 @@ impl GateDriver {
         transport_telemetry: crate::NetworkQualityTelemetry,
         status_sink: Option<watch::Sender<GateStatus>>,
         startup_cancel: &CancellationToken,
+        connection_deadline: Instant,
     ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
         let status = status_sink.unwrap_or_else(|| watch::channel(GateStatus::default()).0);
+        if let Some(usque_core::chain_exit::ValidatedProfile::OpenVpn(config)) =
+            profile.custom.as_deref()
+        {
+            let deadline = connection_deadline.min(Instant::now() + Duration::from_secs(120));
+            let order = candidate_order(config.candidates.len(), config.remote_random);
+            status.send_modify(|s| {
+                s.attempt_count = 0;
+                s.candidate_count = order.len() as u32;
+                s.attempt_failures.clear();
+                s.active_endpoint = None;
+            });
+            let result = attempt_candidates(
+                startup_cancel,
+                deadline,
+                &order,
+                |index, attempt_deadline| {
+                    let candidate = config.candidates[index].clone();
+                    let status = status.clone();
+                    let warp = warp.clone();
+                    let telemetry = transport_telemetry.clone();
+                    async move {
+                        status.send_modify(|s| {
+                            s.attempt_count += 1;
+                            s.attempting_endpoint = Some(candidate.endpoint.clone());
+                            s.stage = GateStage::ConnectingServer;
+                        });
+                        let result = Self::start_attempt(
+                            profile,
+                            warp,
+                            telemetry,
+                            status.clone(),
+                            startup_cancel,
+                            0,
+                            Some((candidate, attempt_deadline)),
+                            connection_deadline,
+                        )
+                        .await;
+                        if let Err(TransportError::VpnGate(reason)) = &result {
+                            status.send_modify(|s| s.attempt_failures.push(*reason));
+                        }
+                        result
+                    }
+                },
+            )
+            .await;
+            if let Err(TransportError::VpnGate(failure)) = &result {
+                status.send_modify(|s| {
+                    s.stage = GateStage::Error;
+                    s.failure = Some(*failure);
+                    s.attempting_endpoint = None;
+                });
+            }
+            return result;
+        }
+
         if profile.custom.is_some() {
             return Self::start_attempt(
                 profile,
@@ -102,6 +205,8 @@ impl GateDriver {
                 status,
                 startup_cancel,
                 0,
+                None,
+                connection_deadline,
             )
             .await;
         }
@@ -113,11 +218,17 @@ impl GateDriver {
                 status.clone(),
                 startup_cancel,
                 attempt,
+                None,
+                connection_deadline,
             )
         })
         .await
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "attempt owns the protocol, underlay, telemetry, status, cancellation, retry and both absolute deadlines"
+    )]
     async fn start_attempt(
         profile: &PreparedProfile,
         warp: InternalNetwork,
@@ -125,6 +236,8 @@ impl GateDriver {
         status_tx: watch::Sender<GateStatus>,
         startup_cancel: &CancellationToken,
         auth_attempt: u8,
+        candidate: Option<(usque_core::chain_exit::OpenVpnEndpoint, Instant)>,
+        connection_deadline: Instant,
     ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
         if startup_cancel.is_cancelled() {
             return Err(TransportError::TunnelClosed);
@@ -132,14 +245,30 @@ impl GateDriver {
         if auth_attempt > 0 && !matches!(warp.health_snapshot(), RuntimeHealth::Connected { .. }) {
             return Err(TransportError::VpnGate(GateFailure::Transport));
         }
-        let remote = if let Some(summary) = &profile.summary {
+        let deadline = candidate.as_ref().map_or_else(
+            || connection_deadline.min(Instant::now() + Duration::from_secs(35)),
+            |(_, deadline)| *deadline,
+        );
+        let remote = if let Some((candidate, _)) = &candidate {
+            tokio::time::timeout_at(
+                deadline,
+                warp.resolve_endpoint(&candidate.endpoint, candidate.ipv6, startup_cancel),
+            )
+            .await
+            .map_err(|_| TransportError::VpnGate(GateFailure::Transport))?
+            .map_err(|_| TransportError::VpnGate(GateFailure::Transport))?
+        } else if let Some(summary) = &profile.summary {
             let ipv6 = match profile.custom.as_deref() {
                 Some(usque_core::chain_exit::ValidatedProfile::OpenVpn(p)) => p.endpoint_ipv6,
                 _ => None,
             };
-            warp.resolve_endpoint(&summary.endpoint, ipv6, startup_cancel)
-                .await
-                .map_err(|_| TransportError::VpnGate(GateFailure::Transport))?
+            tokio::time::timeout_at(
+                deadline,
+                warp.resolve_endpoint(&summary.endpoint, ipv6, startup_cancel),
+            )
+            .await
+            .map_err(|_| TransportError::VpnGate(GateFailure::Transport))?
+            .map_err(|_| TransportError::VpnGate(GateFailure::Transport))?
         } else {
             profile.remote
         };
@@ -147,8 +276,11 @@ impl GateDriver {
             .summary
             .as_ref()
             .is_some_and(|s| s.protocol.requires_udp());
-        let native = Session::start(profile, remote)
+        let mut native = Session::start(profile, remote)
             .map_err(|_| TransportError::VpnGate(GateFailure::Configuration))?;
+        let (transport_output, ip_output) = native
+            .split_packet_outputs()
+            .ok_or(TransportError::VpnGate(GateFailure::Configuration))?;
         let cancellation = CancellationToken::new();
         let guard = cancellation.clone().drop_guard();
         status_tx.send_modify(|s| {
@@ -168,8 +300,12 @@ impl GateDriver {
         let diagnostic_id = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let actor = Actor {
             diagnostic_id,
+            connection_deadline,
             auth_attempt,
             native,
+            transport_output,
+            ip_output,
+            packet_tasks: Vec::new(),
             remote,
             udp,
             underlay_health: warp.health(),
@@ -203,7 +339,7 @@ impl GateDriver {
                 driver.shutdown().await;
                 return Err(TransportError::TunnelClosed);
             }
-            result = tokio::time::timeout(Duration::from_secs(35), ready_rx) => result,
+            result = tokio::time::timeout_at(deadline, ready_rx) => result,
         };
         match result {
             Ok(Ok(Ok((runtime, network)))) => {
@@ -221,8 +357,8 @@ impl GateDriver {
                 let stopped = driver.shutdown().await;
                 // A pending native worker is not a completed attempt. Stop the
                 // chain instead of starting another worker alongside it.
-                let reason = if !stopped && reason == GateFailure::Authentication {
-                    GateFailure::Transport
+                let reason = if !stopped {
+                    GateFailure::Cleanup
                 } else {
                     reason
                 };
@@ -284,8 +420,12 @@ impl Drop for GateDriver {
 type Startup = Result<(ManagedTunnelRuntime, FinalNetworkParameters), GateFailure>;
 struct Actor {
     diagnostic_id: u64,
+    connection_deadline: Instant,
     auth_attempt: u8,
     native: Session,
+    transport_output: EventStream,
+    ip_output: EventStream,
+    packet_tasks: Vec<AbortOnDropHandle<()>>,
     warp: InternalNetwork,
     remote: SocketAddr,
     udp: bool,
@@ -354,6 +494,9 @@ impl Actor {
                 "VPN Gate transport shutdown finished"
             );
         }
+        for task in self.packet_tasks.drain(..) {
+            let _ = task.await;
+        }
         let started = Instant::now();
         let shutdown = self.native.shutdown().await;
         match &shutdown {
@@ -376,10 +519,10 @@ impl Actor {
                 .channels
                 .as_ref()
                 .map(|channels| channels.cancellation.clone());
-            let input = self.native.input();
             tokio::select! {
                 biased;
                 _ = self.cancellation.cancelled() => return Ok(()),
+                _ = tokio::time::sleep_until(self.connection_deadline), if !*self.admitted.borrow() => return Err(GateFailure::Transport),
                 _ = async {
                     if let Some(cancel) = &channel_cancel { cancel.cancelled().await }
                     else { std::future::pending().await }
@@ -401,26 +544,7 @@ impl Actor {
                     if changed.is_err() { return Ok(()); }
                     if self.connected { self.publish_connected(); }
                 }
-                packet = async {
-                    if let Some(channels) = &mut self.channels { channels.outgoing.recv().await }
-                    else { std::future::pending().await }
-                } => {
-                    let Some(packet) = packet else { return Ok(()); };
-                    // The native packet boundary keeps its existing bytes API.
-                    // It owns forwarding semantics; do not decrement TTL here.
-                    let packet = packet.freeze();
-                    // The decision follows DirectGatewayRouter. Unsupported
-                    // proxied families are dropped here, never sent to WARP.
-                    if self.connected && *self.admitted.borrow() && self.network.as_ref().is_some_and(|n| packet_family_supported(n, &packet)) {
-                        tokio::select! {
-                            _ = self.cancellation.cancelled() => return Ok(()),
-                            result = input.send_ip(self.generation, &packet) => {
-                                if result.is_err() { return Err(GateFailure::Transport); }
-                                else if let Some(channels) = &self.channels { channels.counters.record_sent(packet.len()); }
-                            }
-                        }
-                    }
-                }
+
             }
         }
     }
@@ -451,19 +575,10 @@ impl Actor {
                     self.remote,
                     self.udp,
                     self.native.input(),
+                    self.transport_output.clone(),
                     generation,
                     &self.cancellation,
                 ));
-            }
-            Event::TransportPacket { generation, packet } if generation == self.generation => {
-                if let Some(connection) = &self.connection {
-                    tokio::select! {
-                        _ = self.cancellation.cancelled() => return Ok(()),
-                        result = connection.outgoing.send(packet) => {
-                            if result.is_err() { let _ = self.native.input().transport_failed(generation).await; }
-                        }
-                    }
-                }
             }
             Event::Network { generation, config } if generation == self.generation => {
                 let network = final_network(config)?;
@@ -500,10 +615,11 @@ impl Actor {
                     self.connected = true;
                     let path = self.path();
                     if let Some(ready) = self.ready.take() {
-                        let (runtime, channels) = ManagedTunnelRuntime::for_external_packets(
+                        let (runtime, mut channels) = ManagedTunnelRuntime::for_external_packets(
                             path,
                             self.transport_telemetry.clone(),
                         );
+                        self.start_packet_tasks(&mut channels, &network)?;
                         self.channels = Some(channels);
                         self.publish_connected();
                         ready
@@ -528,25 +644,105 @@ impl Actor {
                         .send_modify(|s| s.stage = GateStage::Negotiating);
                 }
             }
-            Event::IpPacket { generation, packet }
-                if generation == self.generation && self.connected =>
-            {
-                if let Some(channels) = &self.channels {
-                    let length = packet.len();
-                    // A full frontend queue drops an IP datagram; it cannot
-                    // block the core's control channel or transport reader.
-                    if channels
-                        .incoming
-                        .try_send(PacketBatch::single(packet), length)
-                        .is_ok()
-                    {
-                        channels.counters.record_received(length);
-                    }
-                }
-            }
             Event::Stopped => return Err(GateFailure::Transport),
             _ => {}
         }
+        Ok(())
+    }
+
+    fn start_packet_tasks(
+        &mut self,
+        channels: &mut ExternalPacketChannels,
+        network: &FinalNetworkParameters,
+    ) -> Result<(), GateFailure> {
+        let mut outgoing = channels.outgoing.take().ok_or(GateFailure::Configuration)?;
+        let input = self.native.input();
+        let generation = self.generation;
+        let cancel = self.cancellation.clone();
+        let admitted = self.admitted.clone();
+        let network = network.clone();
+        let counters = channels.counters.clone();
+        self.packet_tasks
+            .push(AbortOnDropHandle::new(tokio::spawn(async move {
+                let result = until_cancelled(&cancel, async {
+                    while let Some(packet) = outgoing.recv().await {
+                        let packet = packet.freeze();
+                        if !*admitted.borrow() || !packet_family_supported(&network, &packet) {
+                            continue;
+                        }
+                        let length = packet.len();
+                        input.send_ip_owned(generation, packet).await?;
+                        counters.record_sent(length);
+                    }
+                    Err::<(), _>(usque_openvpn::Error::Closed)
+                })
+                .await;
+                if result.is_some() {
+                    input.stop();
+                }
+            })));
+        let output = self.ip_output.clone();
+        let incoming = channels.incoming.clone();
+        let counters = channels.counters.clone();
+        let input = self.native.input();
+        let cancel = self.cancellation.clone();
+        let admitted = self.admitted.clone();
+        self.packet_tasks
+            .push(AbortOnDropHandle::new(tokio::spawn(async move {
+                let result = until_cancelled(&cancel, async {
+                    let mut pending = None;
+                    loop {
+                        let event = match pending.take() {
+                            Some(event) => event,
+                            None => output.next().await?,
+                        };
+                        let mut batch = PacketBatch::new();
+                        let mut next = Some(event);
+                        for index in 0..crate::packet_batch::MAX_PACKET_BATCH_PACKETS {
+                            let Some(event) = next.take() else {
+                                break;
+                            };
+                            match event {
+                                Event::IpPacket {
+                                    generation: current,
+                                    packet,
+                                } if current == generation && *admitted.borrow() => {
+                                    if let Err(packet) = batch.push_back(packet) {
+                                        pending = Some(Event::IpPacket {
+                                            generation: current,
+                                            packet,
+                                        });
+                                        break;
+                                    }
+                                }
+                                Event::Stopped => {
+                                    return Err::<(), _>(usque_openvpn::Error::Closed);
+                                }
+                                _ => {}
+                            }
+                            if index + 1 == crate::packet_batch::MAX_PACKET_BATCH_PACKETS
+                                || batch.len() == crate::packet_batch::MAX_PACKET_BATCH_PACKETS
+                            {
+                                break;
+                            }
+                            next = output.try_next().await?;
+                        }
+                        if !batch.is_empty() {
+                            let bytes = batch.bytes();
+                            incoming
+                                .send(batch, bytes)
+                                .await
+                                .map_err(|_| usque_openvpn::Error::Closed)?;
+                            counters.record_received(bytes);
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await;
+                if result.is_some() {
+                    input.stop();
+                }
+            })));
         Ok(())
     }
 
@@ -585,6 +781,10 @@ impl Actor {
                 GateStage::ConfiguringNetwork
             };
             s.failure = None;
+            s.active_endpoint = admitted.then_some(self.remote);
+            if admitted {
+                s.attempting_endpoint = None;
+            }
         });
     }
     fn reconnecting(&mut self) {
@@ -639,7 +839,10 @@ fn event_failure(name: &str) -> GateFailure {
         "CLIENT_SETUP" | "TUN_SETUP_FAILED" | "OPTIONS_ERROR" | "UNUSED_OPTIONS" => {
             GateFailure::Configuration
         }
-        _ => GateFailure::Transport,
+        "CONNECTION_TIMEOUT" | "INACTIVE_TIMEOUT" | "NETWORK_EOF_ERROR" | "NETWORK_RECV_ERROR"
+        | "NETWORK_SEND_ERROR" | "TRANSPORT_ERROR" | "RESOLVE_ERROR" | "TCP_CONNECT_ERROR"
+        | "UDP_CONNECT_ERROR" => GateFailure::Transport,
+        _ => GateFailure::Protocol,
     }
 }
 fn final_network(config: NetworkConfig) -> Result<FinalNetworkParameters, GateFailure> {
@@ -682,21 +885,23 @@ fn packet_family_supported(network: &FinalNetworkParameters, packet: &[u8]) -> b
 }
 
 struct Connection {
-    outgoing: mpsc::Sender<Bytes>,
     cancellation: CancellationToken,
     task: AbortOnDropHandle<()>,
 }
 impl Connection {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the WARP transport binds its endpoint, protocol, generation, independent output and cancellation"
+    )]
     fn start(
         warp: InternalNetwork,
         remote: SocketAddr,
         udp: bool,
         input: Input,
+        packets: EventStream,
         generation: u64,
         parent: &CancellationToken,
     ) -> Self {
-        // At most 64 * 65535 bytes, plus one packet in each I/O operation.
-        let (outgoing, mut packets) = mpsc::channel::<Bytes>(64);
         let cancellation = parent.child_token();
         let cancel = cancellation.clone();
         let task = tokio::spawn(async move {
@@ -710,20 +915,29 @@ impl Connection {
                         .transport_connected(generation)
                         .await
                         .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
-                    loop {
-                        tokio::select! {
-                            biased;
-                            _ = cancel.cancelled() => return Ok(()),
-                            packet = packets.recv() => {
-                                let Some(packet) = packet else { return Ok(()); };
-                                socket.send(&packet).await.map_err(std::io::Error::from)?;
-                            },
-                            packet = socket.recv() => {
-                                input.receive_transport(generation, &packet.map_err(std::io::Error::from)?).await
-                                    .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
-                            }
+                    let receive = async {
+                        loop {
+                            let packet = socket.recv().await.map_err(std::io::Error::from)?;
+                            input
+                                .receive_transport_owned(generation, packet)
+                                .await
+                                .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
                         }
-                    }
+                        #[allow(unreachable_code)]
+                        Ok::<(), std::io::Error>(())
+                    };
+                    let send = async {
+                        loop {
+                            let packet = packets
+                                .transport(generation)
+                                .await
+                                .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
+                            socket.send(&packet).await.map_err(std::io::Error::from)?;
+                        }
+                        #[allow(unreachable_code)]
+                        Ok::<(), std::io::Error>(())
+                    };
+                    return tokio::select! { result = receive => result, result = send => result };
                 }
                 let stream = warp
                     .connect_address(remote, &cancel, Instant::now() + Duration::from_secs(15))
@@ -758,12 +972,17 @@ impl Connection {
                     Ok::<(), std::io::Error>(())
                 };
                 let send = async {
-                    while let Some(packet) = packets.recv().await {
+                    loop {
+                        let packet = packets
+                            .transport(generation)
+                            .await
+                            .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
                         write_frame(&mut writer, &packet).await.inspect_err(|error| {
                             tracing::warn!(gate_event = "TCP_WRITE_FAILED", io_error_kind = ?error.kind(), "VPN Gate framed transport failed");
                         })?;
                         sent_frames.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
+                    #[allow(unreachable_code)]
                     Ok::<(), std::io::Error>(())
                 };
                 let result = tokio::select! { result = receive => result, result = send => result };
@@ -782,7 +1001,6 @@ impl Connection {
             .await;
         });
         Self {
-            outgoing,
             cancellation,
             task: AbortOnDropHandle::new(task),
         }
@@ -816,6 +1034,78 @@ mod tests {
     use super::*;
     use crate::tcp::{DialError, FlowClass, TcpDialer, TcpIo, TcpStream, TcpTarget};
     use std::sync::Arc;
+
+    #[tokio::test(start_paused = true)]
+    async fn candidates_only_continue_after_completed_retriable_failures() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = AtomicUsize::new(0);
+        let cancel = CancellationToken::new();
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let result = attempt_candidates(&cancel, deadline, &[3, 1, 2], |index, _| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async move {
+                if index == 3 {
+                    Err(TransportError::VpnGate(GateFailure::Transport))
+                } else {
+                    Ok(index)
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        for failure in [
+            GateFailure::Authentication,
+            GateFailure::Certificate,
+            GateFailure::Configuration,
+            GateFailure::Protocol,
+            GateFailure::Cleanup,
+        ] {
+            calls.store(0, Ordering::SeqCst);
+            let result: Result<(), _> = attempt_candidates(&cancel, deadline, &[0, 1], |_, _| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async move { Err(TransportError::VpnGate(failure)) }
+            })
+            .await;
+            assert!(matches!(result, Err(TransportError::VpnGate(reason)) if reason == failure));
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+        }
+        let now = Instant::now();
+        assert_eq!(
+            candidate_deadline(now, deadline, 5).unwrap() - now,
+            Duration::from_secs(24)
+        );
+        assert_eq!(
+            candidate_deadline(now, deadline, 1).unwrap() - now,
+            Duration::from_secs(35)
+        );
+        calls.store(0, Ordering::SeqCst);
+        let _: Result<(), _> =
+            attempt_candidates(&cancel, deadline, &[0, 1, 2, 3, 4], |_, until| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    tokio::time::sleep_until(until).await;
+                    Err(TransportError::VpnGate(GateFailure::Transport))
+                }
+            })
+            .await;
+        assert_eq!(Instant::now(), deadline);
+        assert_eq!(calls.load(Ordering::SeqCst), 5);
+        cancel.cancel();
+        let _: Result<(), _> = attempt_candidates(&cancel, deadline, &[0], |_, _| async {
+            panic!("cancelled connection started a worker")
+        })
+        .await;
+        for random in [false, true] {
+            let mut values = candidate_order(16, random);
+            if !random {
+                assert_eq!(values, (0..16).collect::<Vec<_>>());
+            }
+            values.sort_unstable();
+            assert_eq!(values, (0..16).collect::<Vec<_>>());
+        }
+    }
 
     struct MemoryDialer {
         connected: bool,
@@ -868,9 +1158,7 @@ mod tests {
             })
             .await;
         });
-        let (outgoing, _) = mpsc::channel(1);
         let connection = Connection {
-            outgoing,
             cancellation,
             task: AbortOnDropHandle::new(task),
         };
@@ -945,6 +1233,8 @@ mod tests {
                         watch::channel(GateStatus::default()).0,
                         cancel,
                         attempt,
+                        None,
+                        Instant::now() + Duration::from_secs(180),
                     )
                     .await
                 }

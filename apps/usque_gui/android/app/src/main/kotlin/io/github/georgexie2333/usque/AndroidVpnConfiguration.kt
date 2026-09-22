@@ -21,6 +21,7 @@ internal data class AndroidVpnProfile(
     val directDnsMode: String = "physicalSystem",
     val dataPlane: String = "connect_ip",
     val vpnGateEnabled: Boolean = false,
+    val customChain: Boolean = false,
 ) {
     // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
     // dual-stack regardless of which outer address family carries it.
@@ -40,7 +41,7 @@ internal data class AndroidVpnProfile(
     val splitDnsEnabled: Boolean
         get() =
             geoDirectCountries.isNotEmpty() ||
-                (vpnGateEnabled && dnsMode == "tunnel") || (dataPlane == "l4_proxy" && !vpnGateEnabled)
+                (vpnGateEnabled && (dnsMode == "tunnel" || customChain)) || (dataPlane == "l4_proxy" && !vpnGateEnabled)
 
     val requiresPhysicalDns: Boolean
         get() = geoDirectCountries.isNotEmpty() && directDnsMode == "physicalSystem"
@@ -134,6 +135,7 @@ internal data class AndroidVpnProfile(
                 dnsMode = dnsMode,
                 dataPlane = dataPlane,
                 vpnGateEnabled = ChainProfileFields.enabled(source),
+                customChain = ChainProfileFields.custom(source),
                 dnsIpv4 = dnsIpv4,
                 dnsIpv6 = dnsIpv6,
                 killSwitch = source.getBoolean("kill_switch"),
@@ -186,7 +188,7 @@ internal data class VpnGateNetwork(
             val mtu = source.getInt("mtu")
             require(mtu in 1280..9000) { "Invalid VPN Gate MTU" }
             val values = source.getJSONArray("dns_servers")
-            require(values.length() in 1..8) { "Invalid VPN Gate DNS" }
+            require(values.length() in 0..8) { "Invalid VPN Gate DNS" }
             val dns =
                 List(values.length()) { index ->
                     val text = values.getString(index)

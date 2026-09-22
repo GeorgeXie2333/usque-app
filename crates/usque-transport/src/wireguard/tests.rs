@@ -3,6 +3,25 @@ use boringtun::x25519::{PublicKey, StaticSecret};
 use tokio::time::timeout;
 use zeroize::Zeroizing;
 
+#[test]
+fn expired_keys_can_reauthenticate_without_a_stale_timeout() {
+    let now = Instant::now();
+    let mut watch = HandshakeWatch::default();
+    watch.observe(Some(Duration::from_secs(180)));
+    watch.observe(None);
+    assert!(!watch.expired(now + Duration::from_secs(1000)));
+    watch.initiated(now);
+    watch.observe(Some(Duration::ZERO));
+    assert!(!watch.expired(now + Duration::from_secs(36)));
+    watch.observe(Some(Duration::from_secs(120)));
+    watch.initiated(now + Duration::from_secs(120));
+    watch.observe(Some(Duration::ZERO));
+    assert!(!watch.expired(now + Duration::from_secs(160)));
+    watch.initiated(now + Duration::from_secs(200));
+    assert!(!watch.expired(now + Duration::from_secs(235)));
+    assert!(watch.expired(now + Duration::from_secs(236)));
+}
+
 fn setup() -> (Session, Tunn) {
     setup_with_keepalive(None)
 }
@@ -67,12 +86,15 @@ async fn peer_receive(peer: &mut Tunn, bytes: &[u8], input: &Input) -> Vec<Vec<u
 async fn connect(session: &mut Session, peer: &mut Tunn) {
     let input = session.input();
     let mut assignment = false;
+    let mut connected = false;
+    let mut confirmed = false;
     timeout(Duration::from_secs(3), async {
         loop {
             match session.next_event().await.unwrap() {
                 Event::Dial { generation } => input.push(3, generation, &[]).await.unwrap(),
                 Event::TransportPacket { packet, .. } => {
                     peer_receive(peer, &packet, &input).await;
+                    confirmed |= packet.starts_with(&[4, 0, 0, 0]);
                 }
                 Event::Network { config, .. } => {
                     assert_eq!(config.ipv4, Some(Ipv4Addr::new(10, 8, 0, 2)));
@@ -80,9 +102,12 @@ async fn connect(session: &mut Session, peer: &mut Tunn) {
                 }
                 Event::State { name, .. } if name == "CONNECTED" => {
                     assert!(assignment);
-                    break;
+                    connected = true;
                 }
                 _ => {}
+            }
+            if connected && confirmed {
+                break;
             }
         }
     })
@@ -211,6 +236,96 @@ async fn forced_rekey_preserves_authenticated_connection_and_stop_cancels_backpr
         .unwrap()
         .unwrap();
     timeout(Duration::from_secs(1), producer)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn saturated_bidirectional_packet_channels_resume_and_cancel() {
+    let (mut session, mut peer) = setup();
+    connect(&mut session, &mut peer).await;
+    let (mut transport, mut packets) = session.split_packet_outputs().unwrap();
+    let input = session.input();
+    const COUNT: usize = 256;
+    let mut inbound = Vec::with_capacity(COUNT);
+    let mut buffer = vec![0; MAX_PACKET + 256];
+    for sequence in 0..COUNT {
+        let mut payload = packet([10, 8, 0, 1], [10, 8, 0, 2], 1280);
+        payload[28..32].copy_from_slice(&(sequence as u32).to_be_bytes());
+        let TunnResult::WriteToNetwork(bytes) = peer.encapsulate(&payload, &mut buffer) else {
+            panic!()
+        };
+        inbound.push(Bytes::copy_from_slice(bytes));
+    }
+    let encrypt_input = input.clone();
+    let decrypt_input = input.clone();
+    let outbound = async move {
+        for sequence in 0..COUNT {
+            let mut payload = packet([10, 8, 0, 2], [10, 8, 0, 1], 1280);
+            payload[28..32].copy_from_slice(&(sequence as u32).to_be_bytes());
+            encrypt_input
+                .push_owned(2, GENERATION, Bytes::from(payload))
+                .await
+                .unwrap();
+        }
+    };
+    let encrypted = async move {
+        for payload in inbound {
+            decrypt_input
+                .push_owned(1, GENERATION, payload)
+                .await
+                .unwrap();
+        }
+    };
+    let receive = async {
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        for sequence in 0..COUNT {
+            let Event::IpPacket { packet, .. } = packets.recv().await.unwrap() else {
+                panic!()
+            };
+            assert_eq!(&packet[28..32], &(sequence as u32).to_be_bytes());
+        }
+    };
+    let send = async {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let mut sequence = 0;
+        while sequence < COUNT {
+            let Event::TransportPacket { packet, .. } = transport.recv().await.unwrap() else {
+                panic!()
+            };
+            for payload in peer_receive(&mut peer, &packet, &input).await {
+                assert_eq!(&payload[28..32], &(sequence as u32).to_be_bytes());
+                sequence += 1;
+            }
+        }
+    };
+    timeout(Duration::from_secs(5), async {
+        tokio::join!(outbound, encrypted, receive, send);
+    })
+    .await
+    .expect("both saturated directions must resume without a queue cycle");
+    let blocked = tokio::spawn(async move {
+        loop {
+            if input
+                .push_owned(
+                    2,
+                    GENERATION,
+                    Bytes::from(packet([10, 8, 0, 2], [10, 8, 0, 1], 1280)),
+                )
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    timeout(Duration::from_secs(1), session.shutdown())
+        .await
+        .unwrap()
+        .unwrap();
+    timeout(Duration::from_secs(1), blocked)
         .await
         .unwrap()
         .unwrap();

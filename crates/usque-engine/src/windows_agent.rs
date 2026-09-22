@@ -1210,6 +1210,7 @@ impl WindowsVpnRuntime {
         status: watch::Sender<usque_core::vpngate::GateStatus>,
         startup_cancel: &CancellationToken,
     ) -> Result<(), WindowsVpnError> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
         self.quiesce_final();
         require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
         self.agent.begin_chain_transition(self.operation_id).await?;
@@ -1245,6 +1246,7 @@ impl WindowsVpnRuntime {
                     selected,
                     status: Some(status),
                     cancellation: startup_cancel.clone(),
+                    deadline: Some(deadline),
                 },
             ));
             let tunnel =
@@ -1261,7 +1263,7 @@ impl WindowsVpnRuntime {
             .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
         tunnel.detach_tun();
         if let Err(error) = tunnel
-            .replace_gate(profile, selected, policy, status, startup_cancel)
+            .replace_gate_before(profile, selected, policy, status, startup_cancel, deadline)
             .await
         {
             let reason = match &error {
@@ -1299,7 +1301,7 @@ impl WindowsVpnRuntime {
             let network = tunnel.network_parameters();
             let mut final_profile = profile.clone();
             final_profile.mtu = network.mtu;
-            if profile.dns_mode == usque_core::DnsMode::Tunnel {
+            if profile.dns_mode == usque_core::DnsMode::Tunnel || profile.custom_chain().is_some() {
                 final_profile.dns_servers = network.dns_servers;
             }
             // Use the immutable bootstrap policy recorded for this operation.
@@ -1479,7 +1481,7 @@ impl WindowsVpnRuntime {
         if profile.chain_enabled() {
             let network = tunnel.network_parameters();
             effective.mtu = network.mtu;
-            if profile.dns_mode == usque_core::DnsMode::Tunnel {
+            if profile.dns_mode == usque_core::DnsMode::Tunnel || profile.custom_chain().is_some() {
                 effective.dns_servers = network.dns_servers;
             }
         }
@@ -2028,7 +2030,9 @@ fn tunnel_plan_from_assignment(
     split_dns: bool,
 ) -> agent_v1::TunnelPlan {
     let split_dns = split_dns
-        || profile.chain_enabled() && profile.dns_mode == usque_core::DnsMode::Tunnel
+        || profile.chain_enabled()
+            && (profile.dns_mode == usque_core::DnsMode::Tunnel
+                || profile.custom_chain().is_some())
         || profile.data_plane == usque_core::DataPlaneMode::L4Proxy && !profile.chain_enabled();
     let ipv4 = profile.endpoint.ipv4_socket();
     let ipv6 = profile.endpoint.ipv6_socket();
@@ -3893,6 +3897,30 @@ impl WindowsVpnError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn custom_exit_with_no_upstream_dns_still_advertises_the_internal_resolver() {
+        let profile = Profile {
+            dns_mode: usque_core::DnsMode::System,
+            dns_servers: vec![],
+            chain_exit: Some(usque_core::chain_exit::ChainExitSettings {
+                enabled: true,
+                source: usque_core::chain_exit::ChainSource::WireguardCustom,
+                profile_id: Some(Uuid::new_v4()),
+                revision: Some(Uuid::new_v4()),
+            }),
+            ..Default::default()
+        };
+        let plan = tunnel_plan_from_assignment(
+            &profile,
+            "10.8.0.2".parse().unwrap(),
+            std::net::Ipv6Addr::UNSPECIFIED,
+            &[],
+            false,
+        );
+        assert!(plan.split_dns);
+        assert_eq!(plan.dns_servers, vec![SPLIT_DNS_IPV4.to_string()]);
+    }
+
     mod device_tests;
 
     fn test_device_lease() -> agent_v1::DeviceLease {

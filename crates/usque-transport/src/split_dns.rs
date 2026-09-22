@@ -212,6 +212,7 @@ pub(crate) struct SplitDnsResolver {
     assigned_ipv4: Ipv4Addr,
     assigned_ipv6: Ipv6Addr,
     tunnel_servers: Vec<SocketAddr>,
+    final_exit: bool,
     policy: Arc<GeoDirectPolicy>,
     protector: Arc<dyn SocketProtector>,
     hints: Arc<DnsRouteCache>,
@@ -234,6 +235,7 @@ impl SplitDnsResolver {
             stream_dns: Some(dns),
             assigned_ipv4: Ipv4Addr::UNSPECIFIED,
             assigned_ipv6: Ipv6Addr::UNSPECIFIED,
+            final_exit: false,
             tunnel_servers: servers.iter().map(|ip| SocketAddr::new(*ip, 53)).collect(),
             policy,
             protector,
@@ -389,8 +391,20 @@ impl SplitDnsResolver {
         query: &ParsedQuery,
         transport: QueryTransport,
     ) -> Result<Vec<u8>, String> {
-        self.query_servers(query_bytes, query, transport, &self.tunnel_servers, false)
+        if self.final_exit {
+            crate::final_dns::query(
+                &self.tunnel_servers,
+                tokio::time::Instant::now() + DNS_TIMEOUT,
+                |server, _| async move {
+                    self.query_servers(query_bytes, query, transport, &[server], false)
+                        .await
+                },
+            )
             .await
+        } else {
+            self.query_servers(query_bytes, query, transport, &self.tunnel_servers, false)
+                .await
+        }
     }
 
     async fn query_servers(
@@ -473,11 +487,11 @@ impl SplitDnsResolver {
             },
             next_udp_port(),
         );
-        let socket = self
+        let channel = self
             .tunnel_channel
             .as_ref()
-            .ok_or_else(|| "DNS transport unavailable".to_owned())?
-            .udp_bind(local)
+            .ok_or_else(|| "DNS transport unavailable".to_owned())?;
+        let socket = crate::dns::QuerySocket::bind(channel.clone(), local)
             .await
             .map_err(|error| error.to_string())?;
         socket
@@ -513,10 +527,13 @@ impl SplitDnsResolver {
             .tunnel_channel
             .as_ref()
             .ok_or_else(|| "DNS transport unavailable".to_owned())?;
-        let stream = timeout(DNS_TIMEOUT, channel.tcp_connect(local, server))
-            .await
-            .map_err(|_| "connect timed out".to_owned())?
-            .map_err(|error| error.to_string())?;
+        let stream = timeout(
+            DNS_TIMEOUT,
+            crate::stack_tcp::StackTcpStream::connect(channel.clone(), local, server),
+        )
+        .await
+        .map_err(|_| "connect timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
         exchange_tcp(stream, query).await
     }
 }
@@ -536,12 +553,17 @@ pub(crate) struct SplitDnsConfig {
     tunnel_channel: Channel,
     assigned_addresses: (Ipv4Addr, Ipv6Addr),
     tunnel_dns_servers: Vec<IpAddr>,
+    final_exit: bool,
     policy: Arc<GeoDirectPolicy>,
     protector: Arc<dyn SocketProtector>,
     quality: NetworkQualityTelemetry,
 }
 
 impl SplitDnsConfig {
+    pub(crate) fn with_final_exit(mut self, enabled: bool) -> Self {
+        self.final_exit = enabled;
+        self
+    }
     pub(crate) fn new(
         tunnel_channel: Channel,
         assigned_addresses: (Ipv4Addr, Ipv6Addr),
@@ -554,6 +576,7 @@ impl SplitDnsConfig {
             tunnel_channel,
             assigned_addresses,
             tunnel_dns_servers: tunnel_dns_servers.to_vec(),
+            final_exit: false,
             policy,
             protector,
             quality,
@@ -567,9 +590,6 @@ impl SplitDnsRuntime {
         config: SplitDnsConfig,
         cancellation: &CancellationToken,
     ) -> Result<Self, String> {
-        if config.tunnel_dns_servers.is_empty() {
-            return Err("the final DNS server list is empty".to_owned());
-        }
         let encrypted = config.protector.direct_dns_resolver().is_some();
         if config.policy.is_enabled()
             && !encrypted
@@ -612,6 +632,7 @@ impl SplitDnsRuntime {
             stream_dns: None,
             assigned_ipv4: config.assigned_addresses.0,
             assigned_ipv6: config.assigned_addresses.1,
+            final_exit: config.final_exit,
             tunnel_servers: config
                 .tunnel_dns_servers
                 .into_iter()
@@ -1449,6 +1470,32 @@ fn read_u32(packet: &[u8], offset: usize) -> Result<u32, String> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[tokio::test(start_paused = true)]
+    async fn empty_final_dns_returns_servfail_without_fallback_or_delay() {
+        let resolver = SplitDnsResolver {
+            tunnel_channel: None,
+            stream_dns: None,
+            assigned_ipv4: "10.8.0.2".parse().unwrap(),
+            assigned_ipv6: Ipv6Addr::UNSPECIFIED,
+            tunnel_servers: vec![],
+            final_exit: true,
+            policy: Arc::new(GeoDirectPolicy::disabled()),
+            protector: Arc::new(crate::socket::NoopSocketProtector),
+            hints: Arc::new(DnsRouteCache::default()),
+            permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            service_tasks: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            quality: NetworkQualityTelemetry::default(),
+            direct_queue: None,
+        };
+        let started = tokio::time::Instant::now();
+        let response = resolver
+            .handle(&query(31, "private.example"), QueryTransport::Udp)
+            .await;
+        assert_eq!(read_u16(&response, 0).unwrap(), 31);
+        assert_eq!(read_u16(&response, 2).unwrap() & 15, RCODE_SERVFAIL);
+        assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
     use super::*;
     use crate::geo_direct::GeoDirectClassifier;
     use crate::socket::{SocketHandle, SocketProtector};
@@ -1484,6 +1531,7 @@ pub(crate) mod tests {
             assigned_ipv4: Ipv4Addr::new(172, 16, 0, 2),
             assigned_ipv6: "2001:db8::2".parse().unwrap(),
             tunnel_servers: Vec::new(),
+            final_exit: false,
             policy: Arc::new(policy()),
             protector,
             hints: Arc::new(DnsRouteCache::default()),

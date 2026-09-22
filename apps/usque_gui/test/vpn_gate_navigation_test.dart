@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:usque/core/chain_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/screens/vpn_gate_screen.dart';
@@ -35,7 +36,7 @@ Future<AppController> openGate(
   await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
   await tester.pumpAndSettle();
   if (find.byType(VpnGateScreen).evaluate().isEmpty) {
-    await tester.tap(find.byType(DropdownButtonFormField<ChainSource>));
+    await tester.tap(find.byType(DropdownButton<ChainSource>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('VPN Gate').last);
   }
@@ -187,7 +188,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(VpnGateScreen), findsNothing);
       expect(app.section, AppSection.proxy);
-      expect(find.text('VPN Gate').hitTestable(), findsOneWidget);
+      expect(
+        find.text(app.strings.chain('disabled')).hitTestable(),
+        findsOneWidget,
+      );
     },
   );
 

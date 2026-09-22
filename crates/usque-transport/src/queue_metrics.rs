@@ -472,6 +472,7 @@ impl<T> TrackedSender<T> {
         tokio::pin!(reserve);
         let item_permit = if let Some(cancellation) = cancellation {
             tokio::select! {
+                biased;
                 _ = cancellation.cancelled() => {
                     self.metrics.record_rejected(bytes);
                     drop(value);
@@ -500,6 +501,7 @@ impl<T> TrackedSender<T> {
         tokio::pin!(slot);
         let slot = if let Some(cancellation) = cancellation {
             tokio::select! {
+                biased;
                 _ = cancellation.cancelled() => {
                     self.metrics.record_rejected(bytes);
                     drop(value);
@@ -522,6 +524,7 @@ impl<T> TrackedSender<T> {
         tokio::pin!(acquire);
         let byte_permit = if let Some(cancellation) = cancellation {
             tokio::select! {
+                biased;
                 _ = cancellation.cancelled() => {
                     self.metrics.record_rejected(bytes);
                     drop(value);
@@ -543,6 +546,12 @@ impl<T> TrackedSender<T> {
                 });
             }
         };
+        if cancellation.is_some_and(CancellationToken::is_cancelled) {
+            self.metrics.record_rejected(bytes);
+            return Err(TrackedSendError {
+                kind: TrackedSendErrorKind::Cancelled,
+            });
+        }
         item_permit.send(TrackedItem {
             value: Some(value),
             entry: Some(self.metrics.start_entry(bytes)),
