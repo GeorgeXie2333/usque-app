@@ -308,6 +308,9 @@ impl GateDriver {
             packet_tasks: Vec::new(),
             remote,
             udp,
+            tcp_packet_budget: profile.summary.as_ref().and_then(|summary| {
+                crate::chain_mss::packet_budget(summary.protocol, remote.is_ipv6())
+            }),
             underlay_health: warp.health(),
             transport_telemetry,
             warp,
@@ -429,6 +432,7 @@ struct Actor {
     warp: InternalNetwork,
     remote: SocketAddr,
     udp: bool,
+    tcp_packet_budget: Option<u16>,
     underlay_health: watch::Receiver<RuntimeHealth>,
     transport_telemetry: crate::NetworkQualityTelemetry,
     status: watch::Sender<GateStatus>,
@@ -662,6 +666,8 @@ impl Actor {
         let admitted = self.admitted.clone();
         let network = network.clone();
         let counters = channels.counters.clone();
+        let tcp_packet_budget = self.tcp_packet_budget;
+        let health = self.underlay_health.clone();
         self.packet_tasks
             .push(AbortOnDropHandle::new(tokio::spawn(async move {
                 let result = until_cancelled(&cancel, async {
@@ -670,6 +676,11 @@ impl Actor {
                         if !*admitted.borrow() || !packet_family_supported(&network, &packet) {
                             continue;
                         }
+                        let packet = crate::chain_mss::clamp(
+                            packet,
+                            tcp_packet_budget,
+                            health.borrow().path().transport,
+                        );
                         let length = packet.len();
                         input.send_ip_owned(generation, packet).await?;
                         counters.record_sent(length);
@@ -687,6 +698,7 @@ impl Actor {
         let input = self.native.input();
         let cancel = self.cancellation.clone();
         let admitted = self.admitted.clone();
+        let health = self.underlay_health.clone();
         self.packet_tasks
             .push(AbortOnDropHandle::new(tokio::spawn(async move {
                 let result = until_cancelled(&cancel, async {
@@ -707,6 +719,11 @@ impl Actor {
                                     generation: current,
                                     packet,
                                 } if current == generation && *admitted.borrow() => {
+                                    let packet = crate::chain_mss::clamp(
+                                        packet,
+                                        tcp_packet_budget,
+                                        health.borrow().path().transport,
+                                    );
                                     if let Err(packet) = batch.push_back(packet) {
                                         pending = Some(Event::IpPacket {
                                             generation: current,

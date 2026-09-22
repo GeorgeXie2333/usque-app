@@ -84,9 +84,11 @@ Inline CA/client certificates/keys, `tls-auth`/`tls-crypt`, username/password an
 encrypted private-key passwords are supported. A password-only profile does not
 require a client certificate. `setenv CLIENT_CERT 0` explicitly selects that mode;
 `CLIENT_CERT 1` requires an inline certificate and key. Contradictory modes are
-rejected. Other `setenv` options are unsupported. `mssfix 0` disables TCP MSS
-rewriting; positive values 576–65535 support an optional `mtu` or `fixed` modifier.
-Zero does not accept a modifier.
+rejected. Other `setenv` options are unsupported. `mssfix 0` disables OpenVPN
+Core's MSS rewriting; positive values 576–65535 support an optional `mtu` or
+`fixed` modifier. Zero does not accept a modifier. H3 with a UDP chain exit
+also applies Usque's independent TCP MSS ceiling, including when `mssfix 0`
+is present, to account for the nested transport's encapsulation overhead.
 
 TUN, TLS 1.2 or newer and server-certificate verification are required. TAP,
 external certificate/key/credential files, scripts, plugins, compression,
@@ -114,8 +116,10 @@ remote 候选；保留各端点的地址族限制。默认按文件顺序尝试�
 绝对截止时间。已经连接后的终止性故障仍断开整条链。
 
 纯用户名/密码配置可以不带客户端证书；支持精确的 `setenv CLIENT_CERT 0/1`，
-与证书矛盾时拒绝。`mssfix 0` 明确关闭 MSS 修改；正数范围为 576–65535，支持
-可选的 `mtu` 或 `fixed` 修饰符。仍不支持 TAP、外部文件、脚本、插件或 MFA/SSO。
+与证书矛盾时拒绝。`mssfix 0` 关闭 OpenVPN Core 自身的 MSS 修改；正数范围为
+576–65535，支持可选的 `mtu` 或 `fixed` 修饰符。H3 搭配 UDP 链式出口时，Usque
+另按嵌套封装开销限制 TCP MSS，此上限也适用于 `mssfix 0`。仍不支持 TAP、外部
+文件、脚本、插件或 MFA/SSO。
 WireGuard 首版支持标准单 Peer 和部分 AllowedIPs；范围之外的代理流量被拒绝，
 显式直连规则仍生效。局部网络配置不能访问公网探测服务时，出口信息可能不可用，
 这不等同于连接失败。
@@ -147,6 +151,25 @@ separate policy. Endpoint resolution through WARP is also separate.
 WireGuard defaults to inner MTU 1280, with explicit MTU in the project's 1280–9000
 range. Its imported MTU controls the final interface; it is not capped by the WARP
 interface's MTU. The WARP stack for a chain uses MTU 1280 separately from the final interface.
+For OpenVPN (Custom) UDP and WireGuard (Custom) over H3, TCP SYN/SYN-ACK MSS
+is capped in both directions so ordinary TCP data fits the 1280-byte WARP
+packet budget after outer IP/UDP headers and protocol overhead. WireGuard
+includes the peer's 16-byte padding; OpenVPN reserves 128 bytes for its supported
+data-channel crypto modes. Smaller MSS values are preserved. Interface MTU,
+stored configuration, direct rules, H2 and TCP exits are unchanged. New TCP
+connections use the current outer transport; existing connections retain their
+negotiated MSS after a transport change. Authenticated TCP options and fragmented
+SYN packets are not rewritten. This TCP mitigation does not eliminate the need
+for UDP fragmentation or prove every external path's MTU.
+
+H3 搭配 OpenVPN (Custom) UDP 或 WireGuard (Custom) 时，Usque 会在两个方向上限制
+TCP SYN/SYN-ACK 的 MSS，为外层 IP/UDP、协议加密及 WireGuard 填充预留空间。
+较小的 MSS 保持不变；不降低接口 MTU，不改写保存的配置，也不影响直连规则、H2
+或 TCP 出口。外层传输切换后，现有 TCP 连接仍使用建连时的 MSS；新连接使用当前
+传输的策略。带 TCP 认证选项或分片的 SYN 不改写。此修复针对 TCP 首次访问延迟，
+不表示所有 UDP 大包问题均已解决。遇到旧版本的 H3 链式首次访问延迟，可将 WARP
+外层切到 CONNECT-IP H2 并应用后重试。
+
 Protocol UDP larger than this uses IPv4 fragmentation or the private IPv6 UDP
 fragment/reassembly path; its buffers and queues are bounded. An existing WARP
 session with another MTU is reconnected when first enabling a chain.

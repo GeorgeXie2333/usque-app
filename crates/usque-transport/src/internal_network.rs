@@ -314,9 +314,15 @@ impl InternalNetwork {
         let connect_deadline = Instant::now() + CONNECT_TIMEOUT;
         let request = async {
             let establish = async {
+                let stage_started = Instant::now();
                 let stream = self
                     .connect_host(&host, port, cancel, connect_deadline)
                     .await?;
+                tracing::debug!(
+                    probe_stage = "tcp",
+                    elapsed_us = stage_started.elapsed().as_micros(),
+                    "Internal HTTPS timing"
+                );
                 let roots = rustls::RootCertStore::from_iter(
                     webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
                 );
@@ -325,10 +331,18 @@ impl InternalNetwork {
                     .with_no_client_auth();
                 let server_name = rustls::pki_types::ServerName::try_from(host.clone())
                     .map_err(|_| DirectoryError::Request)?;
-                tokio_rustls::TlsConnector::from(Arc::new(config))
+                let stage_started = Instant::now();
+                let result = tokio_rustls::TlsConnector::from(Arc::new(config))
                     .connect(server_name, stream)
                     .await
-                    .map_err(|_| DirectoryError::Request)
+                    .map_err(|_| DirectoryError::Request);
+                tracing::debug!(
+                    probe_stage = "tls",
+                    elapsed_us = stage_started.elapsed().as_micros(),
+                    ok = result.is_ok(),
+                    "Internal HTTPS timing"
+                );
+                result
             };
             let stream = timeout_at(connect_deadline, establish)
                 .await
@@ -351,10 +365,16 @@ impl InternalNetwork {
                 .header(http::header::CONNECTION, "close")
                 .body(Empty::<Bytes>::new())
                 .map_err(|_| DirectoryError::Request)?;
+            let stage_started = Instant::now();
             let mut response = sender
                 .send_request(request)
                 .await
                 .map_err(|_| DirectoryError::Request)?;
+            tracing::debug!(
+                probe_stage = "headers",
+                elapsed_us = stage_started.elapsed().as_micros(),
+                "Internal HTTPS timing"
+            );
             if response.status() != http::StatusCode::OK {
                 return Err(DirectoryError::Request);
             }

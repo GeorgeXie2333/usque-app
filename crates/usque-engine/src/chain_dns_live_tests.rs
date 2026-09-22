@@ -199,11 +199,45 @@ async fn sample_dns(proxy: SocketAddr, servers: &[IpAddr]) -> bool {
     valid > 0 && domain_connected > 0
 }
 
+async fn sample_https(network: &usque_transport::InternalNetwork) -> bool {
+    let mut successful = 0;
+    // Numeric and named destinations separate complete HTTPS transfers from
+    // the small DNS/CONNECT exchanges above. Never log response bodies.
+    for (target, url) in [
+        "https://1.1.1.1/cdn-cgi/trace",
+        "https://example.com/",
+        "https://www.cloudflare.com/cdn-cgi/trace",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for round in 0..3 {
+            let cancel = CancellationToken::new();
+            let started = Instant::now();
+            let result = tokio::time::timeout(
+                Duration::from_secs(10),
+                network.get_https(url, 64 * 1024, &cancel),
+            )
+            .await;
+            cancel.cancel();
+            let bytes = result.as_ref().ok().and_then(|r| r.as_ref().ok());
+            successful += usize::from(bytes.is_some());
+            eprintln!(
+                "WEB_LIVE {}",
+                serde_json::json!({"target":target,"round":round,
+                "elapsed_us":started.elapsed().as_micros(),"ok":bytes.is_some(),
+                "bytes":bytes.map(Vec::len),"timeout":result.is_err()})
+            );
+        }
+    }
+    successful == 9
+}
+
 #[tokio::test]
 #[ignore = "explicit USQUE_LIVE_CONFIG and USQUE_LIVE_WIREGUARD; loopback SOCKS only, never TUN"]
 async fn live_wireguard_dns_through_loopback_socks_without_tun() {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("usque_transport::vpngate=info")
+        .with_env_filter("usque_transport::vpngate=info,usque_transport::internal_network=debug")
         .with_ansi(false)
         .with_writer(std::io::stderr)
         .try_init();
@@ -315,7 +349,15 @@ async fn live_wireguard_dns_through_loopback_socks_without_tun() {
         "elapsed_us":started.elapsed().as_micros(),"loopback_port":proxy.port(),"tun":false})
     );
     let result = if activated.is_ok() {
-        tokio::time::timeout(Duration::from_secs(150), sample_dns(proxy, &servers)).await
+        tokio::time::timeout(Duration::from_secs(150), async {
+            let dns = sample_dns(proxy, &servers).await;
+            if std::env::var("USQUE_LIVE_HTTPS").is_ok_and(|v| v == "1") {
+                sample_https(&runtime.internal_network()).await && dns
+            } else {
+                dns
+            }
+        })
+        .await
     } else {
         Ok(false)
     };

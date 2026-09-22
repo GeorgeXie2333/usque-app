@@ -140,7 +140,7 @@ impl DataPlaneRuntime {
         underlay_profile.disable_chain();
         // The final MTU belongs to the exit. Keep WARP's private packet stack
         // at the IPv6 minimum so encapsulated UDP fits its bounded fragments.
-        underlay_profile.mtu = 1280;
+        underlay_profile.mtu = crate::chain_mss::WARP_MTU;
         underlay_profile.disable_quic = false;
         underlay_profile.frontends.socks5 = false;
         underlay_profile.frontends.http = false;
