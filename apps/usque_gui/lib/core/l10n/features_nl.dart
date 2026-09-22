@@ -364,3 +364,136 @@ const Map<String, String> kNetworkSettingsNl = <String, String>{
       'Instellingen konden niet worden opgeslagen. Uw wijzigingen blijven behouden.',
   'settings_reconnect': 'Opnieuw verbinden',
 };
+
+const Map<String, String> kChainNl = <String, String>{
+  'duplicate_directive': 'Deze richtlijn mag maar één keer voorkomen.',
+  'mixed_protocols':
+      'Alle remote-eindpunten moeten hetzelfde TCP- of UDP-transport gebruiken.',
+  'conflicting_protocol':
+      'De remote-waarde botst met de globale transportinstelling.',
+  'too_many_endpoints': 'Gebruik hoogstens 16 remote-eindpunten.',
+  'conflicting_authentication':
+      'CLIENT_CERT botst met het ingesloten certificaat of de authenticatiemodus.',
+  'serialized_size_limit':
+      'De versleutelde record zou de opslaglimiet overschrijden.',
+  'multi_endpoint_unavailable':
+      'Werk de engine bij om configuraties met meerdere eindpunten te gebruiken.',
+  'candidates': 'Starteindpunten',
+  'random_order':
+      'Eindpunten worden bij elke verbinding in een nieuwe willekeurige volgorde geprobeerd.',
+  'file_order': 'Eindpunten worden in de volgorde van het bestand geprobeerd.',
+  'attempting': 'Eindpunt wordt geprobeerd',
+  'actual_endpoint': 'Verbonden eindpunt',
+  'attempt_failures': 'Mislukte pogingen',
+  'failure_transport': 'transport gesloten',
+  'failure_authentication': 'authenticatie',
+  'failure_certificate': 'certificaat',
+  'failure_configuration': 'configuratie',
+  'failure_address_changed': 'adres gewijzigd',
+  'failure_protocol': 'protocolfout',
+  'failure_cleanup': 'opschoning',
+  'failure_reason': 'Fout: {reason}.',
+  'manage': 'Beheren',
+  'dns_fallback': 'Tunnel-DNS (OpenVPN kan DNS onderhandelen)',
+  'dns_unavailable_title': 'Geen DNS via deze uitgang',
+  'dns_unavailable':
+      'Er is geen DNS-server bereikbaar via deze uitgang. Gebruik IP-adressen of importeer opnieuw een configuratie met bereikbare DNS.',
+  'authentication_failed':
+      'Authenticatie mislukt. Werk de aanmeldgegevens bij voordat u opnieuw verbindt.',
+  'profile_limit': 'De configuratiebibliotheek is vol (128 profielen).',
+  'metadata_limit': 'De metadata van de configuratiebibliotheek is vol.',
+  'title': 'Ketenproxy',
+  'subtitle': 'Kies een uitgang die via WARP wordt bereikt.',
+  'source': 'Uitgangsbron',
+  'enable': 'Ketenproxy inschakelen',
+  'import_file': 'Bestand importeren',
+  'paste': 'Configuratie plakken',
+  'profiles': 'Opgeslagen configuraties',
+  'empty': 'Importeer een configuratie om een uitgang te kiezen.',
+  'empty_hint_openvpn':
+      'Importeer een .ovpn-bestand of plak de tekst. TCP- en UDP-eindpunten, ingesloten certificaten en gebruikersnaam/wachtwoord worden ondersteund.',
+  'empty_hint_wireguard':
+      'Importeer een .conf-bestand of plak de tekst. Eén sectie [Interface] en één sectie [Peer] worden ondersteund.',
+  'import_limits':
+      'Configuraties moeten UTF-8-tekst van maximaal 128 KiB zijn. Zonder bestandskeuze kunt u de tekst plakken.',
+  'enable_to_choose': 'Schakel de ketenproxy in om een configuratie te kiezen.',
+  'select_required': 'Selecteer een opgeslagen configuratie om toe te passen.',
+  'pending_disable': 'In afwachting: ketenproxy uitschakelen',
+  'apply_reconnect': 'Toepassen en opnieuw verbinden',
+  'requires_connect_ip': 'Vereist CONNECT-IP',
+  'menu': 'Configuratieacties',
+  'preview': 'Configuratie controleren',
+  'save_import': 'Configuratie opslaan',
+  'name': 'Naam',
+  'configuration': 'Configuratietekst',
+  'file_loaded': 'Configuratie geladen uit bestand ({lines} regels).',
+  'username': 'Gebruikersnaam',
+  'password': 'Wachtwoord',
+  'key_password': 'Wachtwoord van de privésleutel',
+  'show_password': 'Wachtwoord tonen',
+  'hide_password': 'Wachtwoord verbergen',
+  'credentials': 'Aanmeldgegevens bijwerken',
+  'rename': 'Hernoemen',
+  'delete': 'Verwijderen',
+  'cancel': 'Annuleren',
+  'save': 'Opslaan',
+  'apply': 'Wijzigingen toepassen',
+  'clear': 'Selectie wissen',
+  'current': 'Huidige verbinding',
+  'saved': 'Opgeslagen selectie',
+  'draft': 'Selectie in afwachting',
+  'disconnected': 'Niet verbonden',
+  'disabled': 'Niet ingeschakeld',
+  'enabled_idle': 'Ingeschakeld · niet verbonden',
+  'disconnecting': 'Verbinding wordt verbroken',
+  'file_read_failed': 'Het configuratiebestand kon niet worden gelezen.',
+  'file_encoding_invalid': 'Het configuratiebestand moet UTF-8-tekst zijn.',
+  'file_busy': 'Er is al een bestandskeuze geopend.',
+  'connected': 'Verbonden',
+  'connecting': 'Verbinden',
+  'error': 'Verbinding mislukt',
+  'no_selection': 'Geen configuratie geselecteerd',
+  'l4': 'Deze configuratie vereist de modus CONNECT-IP.',
+  'switch_mode': 'Overschakelen naar CONNECT-IP en toepassen',
+  'unsupported': 'Deze engine ondersteunt deze uitgangsbron niet.',
+  'scope':
+      'Bestaande expliciete directe regels blijven gelden. Overig verkeer gebruikt de gekozen uitgang.',
+  'allowed': 'Toegestane bestemmingen',
+  'dns': 'DNS',
+  'addresses': 'Tunneladressen',
+  'address_family': 'Adresfamilie',
+  'transport': 'Overdracht',
+  'endpoint': 'Doelserver',
+  'restricted':
+      'Bestemmingen buiten AllowedIPs worden op het proxypad geblokkeerd.',
+  'delete_confirm':
+      'Deze opgeslagen configuratie verwijderen? Het oorspronkelijk geïmporteerde bestand blijft ongewijzigd.',
+  'profile_in_use':
+      'Kies een andere configuratie of wis de opgeslagen selectie voordat u deze configuratie verwijdert.',
+  'stale_revision':
+      'De configuratie is gewijzigd. Vernieuw de lijst en probeer het opnieuw.',
+  'secure_storage_failed':
+      'De versleutelde configuratie kon niet worden gelezen of opgeslagen.',
+  'invalid_configuration':
+      'De configuratie is ongeldig of bevat niet-ondersteunde opties.',
+  'looks_like_wireguard':
+      'Dit lijkt een WireGuard-configuratie. Zet de uitgangsbron op WireGuard (Custom).',
+  'looks_like_openvpn':
+      'Dit lijkt een OpenVPN-configuratie. Zet de uitgangsbron op OpenVPN (Custom).',
+  'error_location': '{message} ({field}, regel {line})',
+  'error_field': '{message} ({field})',
+  'file_unavailable':
+      'Er is geen bestandskeuze beschikbaar. Plak de configuratietekst.',
+  'invalid_size_or_encoding':
+      'Gebruik een UTF-8-configuratie van maximaal 128 KiB.',
+  'unsupported_directive': 'Deze OpenVPN-richtlijn wordt niet ondersteund.',
+  'unsupported_or_duplicate_field':
+      'Dit veld wordt niet ondersteund of komt dubbel voor.',
+  'unsupported_or_duplicate_section':
+      'Gebruik één sectie Interface en één sectie Peer.',
+  'missing_field': 'Een verplicht veld ontbreekt.',
+  'invalid_key':
+      'De sleutel moet een geldige Base64-sleutel van 32 bytes zijn.',
+  'checking': 'Configuratie wordt gecontroleerd…',
+  'changed': 'Wijzigingen opgeslagen',
+};

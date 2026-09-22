@@ -441,7 +441,7 @@ void main() {
     );
   });
 
-  test('error locations and traditional Chinese copy resolve', () {
+  test('error locations and localized chain copy resolve', () {
     final en = AppStrings(
       LocalePreference.english,
       systemLocale: const Locale('en'),
@@ -474,8 +474,29 @@ void main() {
         LocalePreference.japanese,
         systemLocale: const Locale('en'),
       ).chain('title'),
-      'Chain proxy',
+      'チェーンプロキシ',
     );
+    expect(
+      AppStrings(
+        LocalePreference.german,
+        systemLocale: const Locale('en'),
+      ).chain('title'),
+      'Kettenproxy',
+    );
+    final hongKong = AppStrings(
+      LocalePreference.traditionalChineseHongKong,
+      systemLocale: const Locale('en'),
+    );
+    final taiwan = AppStrings(
+      LocalePreference.traditionalChineseTaiwan,
+      systemLocale: const Locale('en'),
+    );
+    expect(hongKong.chain('address_family'), '地址族');
+    expect(taiwan.chain('address_family'), '位址族');
+    expect(hongKong.chain('username'), '用戶名稱');
+    expect(taiwan.chain('username'), '使用者名稱');
+    expect(hongKong.chain('addresses'), '隧道地址');
+    expect(taiwan.chain('addresses'), '通道位址');
   });
 
   setUpAll(() async {

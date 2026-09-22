@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../models/app_models.dart';
 import 'l10n/catalogs.dart';
+import 'l10n/chain.dart';
 import 'l10n/l4.dart';
 import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
@@ -57,7 +58,10 @@ class AppStrings {
       ? get('vpn_mode')
       : get('tunnel_output');
 
-  /// Feature-table keys whose English value may be reused (protocol/product).
+  /// Feature-table keys whose English value may be reused.
+  ///
+  /// Protocol names, product names, and placeholder-only templates stay in
+  /// English when the target language uses the same spelling.
   @visibleForTesting
   static const Set<String> kFeatureEnglishAllowlist = <String>{
     'nq_doh',
@@ -65,6 +69,8 @@ class AppStrings {
     'nq_bytes',
     'nq_stream_window',
     'home_kill_switch',
+    'dns',
+    'error_field',
   };
 
   @visibleForTesting
@@ -74,7 +80,8 @@ class AppStrings {
         !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn) ||
         !_featureTablesComplete(kL4Catalogs, kL4En) ||
         !_featureTablesComplete(kVpnGateCatalogs, kVpnGateEn) ||
-        !_featureTablesComplete(kNetworkSettingsCatalogs, kNetworkSettingsEn)) {
+        !_featureTablesComplete(kNetworkSettingsCatalogs, kNetworkSettingsEn) ||
+        !_featureTablesComplete(kChainCatalogs, kChainEn)) {
       return false;
     }
     if (!setEquals(
@@ -162,6 +169,7 @@ class AppStrings {
     scan(kL4Catalogs, kL4En);
     scan(kVpnGateCatalogs, kVpnGateEn);
     scan(kNetworkSettingsCatalogs, kNetworkSettingsEn);
+    scan(kChainCatalogs, kChainEn);
     for (final catalogEntry in kWindowsAdapterCleanupCatalogs.entries) {
       if (catalogEntry.key == 'en') {
         continue;
@@ -191,7 +199,8 @@ class AppStrings {
         !_placeholdersPreserved(
           kNetworkSettingsEn,
           kNetworkSettingsCatalogs.values,
-        )) {
+        ) ||
+        !_placeholdersPreserved(kChainEn, kChainCatalogs.values)) {
       return false;
     }
     return true;

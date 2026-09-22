@@ -369,3 +369,138 @@ const Map<String, String> kNetworkSettingsDe = <String, String>{
       'Einstellungen konnten nicht gespeichert werden. Ihre Änderungen bleiben erhalten.',
   'settings_reconnect': 'Erneut verbinden',
 };
+
+const Map<String, String> kChainDe = <String, String>{
+  'duplicate_directive': 'Diese Direktive darf nur einmal vorkommen.',
+  'mixed_protocols':
+      'Alle remote-Endpunkte müssen denselben TCP- oder UDP-Transport verwenden.',
+  'conflicting_protocol':
+      'Die remote-Angabe widerspricht der globalen Transporteinstellung.',
+  'too_many_endpoints': 'Verwenden Sie höchstens 16 remote-Endpunkte.',
+  'conflicting_authentication':
+      'CLIENT_CERT widerspricht dem eingebetteten Zertifikat oder dem Authentifizierungsmodus.',
+  'serialized_size_limit':
+      'Der verschlüsselte Datensatz würde die Speichergrenze überschreiten.',
+  'multi_endpoint_unavailable':
+      'Aktualisieren Sie die Engine, um Konfigurationen mit mehreren Endpunkten zu verwenden.',
+  'candidates': 'Start-Endpunkte',
+  'random_order':
+      'Endpunkte werden bei jeder Verbindung in einer neuen Zufallsreihenfolge versucht.',
+  'file_order': 'Endpunkte werden in der Dateireihenfolge versucht.',
+  'attempting': 'Endpunkt wird versucht',
+  'actual_endpoint': 'Verbundener Endpunkt',
+  'attempt_failures': 'Fehlgeschlagene Versuche',
+  'failure_transport': 'Transport getrennt',
+  'failure_authentication': 'Authentifizierung',
+  'failure_certificate': 'Zertifikat',
+  'failure_configuration': 'Konfiguration',
+  'failure_address_changed': 'Adresse geändert',
+  'failure_protocol': 'Protokoll',
+  'failure_cleanup': 'Aufräumen',
+  'failure_reason': 'Fehlerursache: {reason}.',
+  'manage': 'Verwalten',
+  'dns_fallback': 'Tunnel-DNS (OpenVPN kann DNS aushandeln)',
+  'dns_unavailable_title': 'Kein DNS über diesen Ausgang',
+  'dns_unavailable':
+      'Über diesen Ausgang ist kein DNS-Server erreichbar. Verwenden Sie IP-Adressen oder importieren Sie eine Konfiguration mit erreichbarem DNS erneut.',
+  'authentication_failed':
+      'Authentifizierung fehlgeschlagen. Aktualisieren Sie die Anmeldedaten, bevor Sie sich erneut verbinden.',
+  'profile_limit': 'Die Konfigurationsbibliothek ist voll (128 Profile).',
+  'metadata_limit': 'Die Metadaten der Konfigurationsbibliothek sind voll.',
+  'title': 'Kettenproxy',
+  'subtitle': 'Wählen Sie einen über WARP erreichten Ausgang.',
+  'source': 'Ausgangsart',
+  'enable': 'Kettenproxy aktivieren',
+  'import_file': 'Datei importieren',
+  'paste': 'Konfiguration einfügen',
+  'profiles': 'Gespeicherte Konfigurationen',
+  'empty': 'Importieren Sie eine Konfiguration, um einen Ausgang zu wählen.',
+  'empty_hint_openvpn':
+      'Importieren Sie eine .ovpn-Datei oder fügen Sie ihren Text ein. TCP- und UDP-Endpunkte, eingebettete Zertifikate sowie Benutzername und Passwort werden unterstützt.',
+  'empty_hint_wireguard':
+      'Importieren Sie eine .conf-Datei oder fügen Sie ihren Text ein. Je ein Abschnitt [Interface] und [Peer] wird unterstützt.',
+  'import_limits':
+      'Konfigurationen müssen UTF-8-Text bis 128 KiB sein. Geräte ohne Dateiauswahl können den Text einfügen.',
+  'enable_to_choose':
+      'Aktivieren Sie den Kettenproxy, um eine Konfiguration zu wählen.',
+  'select_required':
+      'Wählen Sie eine gespeicherte Konfiguration aus, bevor Sie sie anwenden.',
+  'pending_disable': 'Ausstehend: Kettenproxy deaktivieren',
+  'apply_reconnect': 'Anwenden und neu verbinden',
+  'requires_connect_ip': 'Erfordert CONNECT-IP',
+  'menu': 'Konfigurationsaktionen',
+  'preview': 'Konfiguration prüfen',
+  'save_import': 'Konfiguration speichern',
+  'name': 'Bezeichnung',
+  'configuration': 'Konfigurationstext',
+  'file_loaded': 'Konfiguration aus Datei geladen ({lines} Zeilen).',
+  'username': 'Benutzername',
+  'password': 'Passwort',
+  'key_password': 'Passwort des privaten Schlüssels',
+  'show_password': 'Passwort anzeigen',
+  'hide_password': 'Passwort verbergen',
+  'credentials': 'Anmeldedaten aktualisieren',
+  'rename': 'Umbenennen',
+  'delete': 'Löschen',
+  'cancel': 'Abbrechen',
+  'save': 'Speichern',
+  'apply': 'Änderungen anwenden',
+  'clear': 'Auswahl aufheben',
+  'current': 'Aktuelle Verbindung',
+  'saved': 'Gespeicherte Auswahl',
+  'draft': 'Ausstehende Auswahl',
+  'disconnected': 'Nicht verbunden',
+  'disabled': 'Nicht aktiviert',
+  'enabled_idle': 'Aktiviert · nicht verbunden',
+  'disconnecting': 'Verbindung wird getrennt',
+  'file_read_failed': 'Die Konfigurationsdatei konnte nicht gelesen werden.',
+  'file_encoding_invalid': 'Die Konfigurationsdatei muss UTF-8-Text sein.',
+  'file_busy': 'Eine Dateiauswahl ist bereits geöffnet.',
+  'connected': 'Verbunden',
+  'connecting': 'Verbindung wird hergestellt',
+  'error': 'Verbindung fehlgeschlagen',
+  'no_selection': 'Keine Konfiguration ausgewählt',
+  'l4': 'Diese Konfiguration erfordert den CONNECT-IP-Modus.',
+  'switch_mode': 'Zu CONNECT-IP wechseln und anwenden',
+  'unsupported': 'Diese Engine unterstützt diese Ausgangsart nicht.',
+  'scope':
+      'Bestehende ausdrückliche Direktregeln bleiben gültig. Übriger Datenverkehr nutzt den gewählten Ausgang.',
+  'allowed': 'Zulässige Ziele',
+  'dns': 'DNS',
+  'addresses': 'Tunneladressen',
+  'address_family': 'Adressfamilie',
+  'transport': 'Übertragung',
+  'endpoint': 'Zielserver',
+  'restricted':
+      'Ziele außerhalb von AllowedIPs werden auf dem Proxy-Pfad blockiert.',
+  'delete_confirm':
+      'Diese gespeicherte Konfiguration löschen? Die ursprünglich importierte Datei bleibt unverändert.',
+  'profile_in_use':
+      'Wählen Sie eine andere Konfiguration oder heben Sie die gespeicherte Auswahl auf, bevor Sie diese Konfiguration löschen.',
+  'stale_revision':
+      'Die Konfiguration hat sich geändert. Aktualisieren Sie die Liste und versuchen Sie es erneut.',
+  'secure_storage_failed':
+      'Die verschlüsselte Konfiguration konnte nicht gelesen oder gespeichert werden.',
+  'invalid_configuration':
+      'Die Konfiguration ist ungültig oder enthält nicht unterstützte Optionen.',
+  'looks_like_wireguard':
+      'Das sieht nach einer WireGuard-Konfiguration aus. Stellen Sie die Ausgangsart auf WireGuard (Custom) um.',
+  'looks_like_openvpn':
+      'Das sieht nach einer OpenVPN-Konfiguration aus. Stellen Sie die Ausgangsart auf OpenVPN (Custom) um.',
+  'error_location': '{message} ({field}, Zeile {line})',
+  'error_field': '{message} ({field})',
+  'file_unavailable':
+      'Keine Dateiauswahl verfügbar. Fügen Sie den Konfigurationstext ein.',
+  'invalid_size_or_encoding':
+      'Verwenden Sie eine UTF-8-Konfiguration von höchstens 128 KiB.',
+  'unsupported_directive': 'Diese OpenVPN-Direktive wird nicht unterstützt.',
+  'unsupported_or_duplicate_field':
+      'Dieses Feld wird nicht unterstützt oder ist doppelt.',
+  'unsupported_or_duplicate_section':
+      'Verwenden Sie je einen Abschnitt Interface und Peer.',
+  'missing_field': 'Ein erforderliches Feld fehlt.',
+  'invalid_key':
+      'Der Schlüssel muss ein gültiger 32-Byte-Base64-Schlüssel sein.',
+  'checking': 'Konfiguration wird geprüft…',
+  'changed': 'Änderungen gespeichert',
+};

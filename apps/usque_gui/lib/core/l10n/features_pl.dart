@@ -359,3 +359,134 @@ const Map<String, String> kNetworkSettingsPl = <String, String>{
       'Nie udało się zapisać ustawień. Twoje zmiany zostały zachowane.',
   'settings_reconnect': 'Połącz ponownie',
 };
+
+const Map<String, String> kChainPl = <String, String>{
+  'duplicate_directive': 'Ta dyrektywa może wystąpić tylko raz.',
+  'mixed_protocols':
+      'Wszystkie punkty remote muszą używać tego samego transportu TCP albo UDP.',
+  'conflicting_protocol':
+      'Wartość remote koliduje z globalnym ustawieniem transportu.',
+  'too_many_endpoints': 'Użyj najwyżej 16 punktów remote.',
+  'conflicting_authentication':
+      'CLIENT_CERT koliduje z osadzonym certyfikatem albo trybem uwierzytelniania.',
+  'serialized_size_limit':
+      'Zaszyfrowany rekord przekroczyłby limit rozmiaru przechowywania.',
+  'multi_endpoint_unavailable':
+      'Zaktualizuj silnik, aby używać konfiguracji z wieloma punktami.',
+  'candidates': 'Punkty startowe',
+  'random_order':
+      'Punkty są próbowane w nowej kolejności losowej przy każdym połączeniu.',
+  'file_order': 'Punkty są próbowane w kolejności z pliku.',
+  'attempting': 'Próbowany punkt',
+  'actual_endpoint': 'Połączony punkt',
+  'attempt_failures': 'Nieudane próby',
+  'failure_transport': 'transport zamknięty',
+  'failure_authentication': 'uwierzytelnianie',
+  'failure_certificate': 'certyfikat',
+  'failure_configuration': 'konfiguracja',
+  'failure_address_changed': 'zmiana adresu',
+  'failure_protocol': 'protokół',
+  'failure_cleanup': 'czyszczenie',
+  'failure_reason': 'Przyczyna: {reason}.',
+  'manage': 'Zarządzaj',
+  'dns_fallback': 'DNS tunelu (OpenVPN może negocjować DNS)',
+  'dns_unavailable_title': 'Brak DNS przez to wyjście',
+  'dns_unavailable':
+      'Przez to wyjście nie można osiągnąć żadnego serwera DNS. Użyj adresów IP albo zaimportuj ponownie konfigurację z osiągalnym DNS.',
+  'authentication_failed':
+      'Uwierzytelnianie nie powiodło się. Zaktualizuj dane logowania przed ponownym połączeniem.',
+  'profile_limit': 'Biblioteka konfiguracji jest pełna (128 profili).',
+  'metadata_limit': 'Metadane biblioteki konfiguracji są pełne.',
+  'title': 'Proxy łańcuchowe',
+  'subtitle': 'Wybierz wyjście osiągane przez WARP.',
+  'source': 'Źródło wyjścia',
+  'enable': 'Włącz proxy łańcuchowe',
+  'import_file': 'Importuj plik',
+  'paste': 'Wklej konfigurację',
+  'profiles': 'Zapisane konfiguracje',
+  'empty': 'Zaimportuj konfigurację, aby wybrać wyjście.',
+  'empty_hint_openvpn':
+      'Zaimportuj plik .ovpn albo wklej jego treść. Obsługiwane są punkty TCP i UDP, osadzone certyfikaty oraz nazwa użytkownika i hasło.',
+  'empty_hint_wireguard':
+      'Zaimportuj plik .conf albo wklej jego treść. Obsługiwana jest jedna sekcja [Interface] i jedna [Peer].',
+  'import_limits':
+      'Konfiguracje muszą być tekstem UTF-8 do 128 KiB. Bez wyboru pliku wklej tekst.',
+  'enable_to_choose': 'Włącz proxy łańcuchowe, aby wybrać konfigurację.',
+  'select_required': 'Wybierz zapisaną konfigurację, zanim ją zastosujesz.',
+  'pending_disable': 'Oczekuje: wyłączenie proxy łańcuchowego',
+  'apply_reconnect': 'Zastosuj i połącz ponownie',
+  'requires_connect_ip': 'Wymaga CONNECT-IP',
+  'menu': 'Działania konfiguracji',
+  'preview': 'Sprawdź konfigurację',
+  'save_import': 'Zapisz konfigurację',
+  'name': 'Nazwa',
+  'configuration': 'Tekst konfiguracji',
+  'file_loaded': 'Konfiguracja wczytana z pliku ({lines} wierszy).',
+  'username': 'Nazwa użytkownika',
+  'password': 'Hasło',
+  'key_password': 'Hasło klucza prywatnego',
+  'show_password': 'Pokaż hasło',
+  'hide_password': 'Ukryj hasło',
+  'credentials': 'Zaktualizuj dane logowania',
+  'rename': 'Zmień nazwę',
+  'delete': 'Usuń',
+  'cancel': 'Anuluj',
+  'save': 'Zapisz',
+  'apply': 'Zastosuj zmiany',
+  'clear': 'Wyczyść wybór',
+  'current': 'Bieżące połączenie',
+  'saved': 'Zapisany wybór',
+  'draft': 'Wybór oczekujący',
+  'disconnected': 'Niepołączony',
+  'disabled': 'Niewłączony',
+  'enabled_idle': 'Włączony · niepołączony',
+  'disconnecting': 'Rozłączanie',
+  'file_read_failed': 'Nie udało się odczytać pliku konfiguracji.',
+  'file_encoding_invalid': 'Plik konfiguracji musi być tekstem UTF-8.',
+  'file_busy': 'Wybór pliku jest już otwarty.',
+  'connected': 'Połączono',
+  'connecting': 'Łączenie',
+  'error': 'Połączenie nie powiodło się',
+  'no_selection': 'Nie wybrano konfiguracji',
+  'l4': 'Ta konfiguracja wymaga trybu CONNECT-IP.',
+  'switch_mode': 'Przełącz na CONNECT-IP i zastosuj',
+  'unsupported': 'Ten silnik nie obsługuje tego źródła wyjścia.',
+  'scope':
+      'Istniejące jawne reguły bezpośrednie nadal obowiązują. Pozostały ruch używa wybranego wyjścia.',
+  'allowed': 'Dozwolone miejsca docelowe',
+  'dns': 'DNS',
+  'addresses': 'Adresy tunelu',
+  'address_family': 'Rodzina adresów',
+  'transport': 'Protokół transportowy',
+  'endpoint': 'Serwer',
+  'restricted':
+      'Miejsca docelowe poza AllowedIPs są blokowane na ścieżce proxy.',
+  'delete_confirm':
+      'Usunąć tę zapisaną konfigurację? Oryginalny zaimportowany plik pozostaje bez zmian.',
+  'profile_in_use':
+      'Wybierz inną konfigurację albo wyczyść zapisany wybór, zanim usuniesz tę konfigurację.',
+  'stale_revision':
+      'Konfiguracja się zmieniła. Odśwież listę i spróbuj ponownie.',
+  'secure_storage_failed':
+      'Nie udało się odczytać ani zapisać zaszyfrowanej konfiguracji.',
+  'invalid_configuration':
+      'Konfiguracja jest nieprawidłowa albo zawiera nieobsługiwane opcje.',
+  'looks_like_wireguard':
+      'To wygląda na konfigurację WireGuard. Przełącz źródło wyjścia na WireGuard (Custom).',
+  'looks_like_openvpn':
+      'To wygląda na konfigurację OpenVPN. Przełącz źródło wyjścia na OpenVPN (Custom).',
+  'error_location': '{message} ({field}, wiersz {line})',
+  'error_field': '{message} ({field})',
+  'file_unavailable': 'Wybór pliku jest niedostępny. Wklej tekst konfiguracji.',
+  'invalid_size_or_encoding': 'Użyj konfiguracji UTF-8 o rozmiarze do 128 KiB.',
+  'unsupported_directive': 'Ta dyrektywa OpenVPN nie jest obsługiwana.',
+  'unsupported_or_duplicate_field':
+      'To pole jest nieobsługiwane albo powtórzone.',
+  'unsupported_or_duplicate_section':
+      'Użyj jednej sekcji Interface i jednej sekcji Peer.',
+  'missing_field': 'Brakuje wymaganego pola.',
+  'invalid_key':
+      'Klucz musi być prawidłowym kluczem Base64 o długości 32 bajtów.',
+  'checking': 'Sprawdzanie konfiguracji…',
+  'changed': 'Zmiany zapisane',
+};

@@ -336,3 +336,133 @@ const Map<String, String> kNetworkSettingsId = <String, String>{
       'Pengaturan tidak dapat disimpan. Suntingan Anda tetap ada.',
   'settings_reconnect': 'Hubungkan ulang',
 };
+
+const Map<String, String> kChainId = <String, String>{
+  'duplicate_directive': 'Direktif ini hanya boleh muncul sekali.',
+  'mixed_protocols':
+      'Semua titik akhir remote harus memakai angkutan TCP atau UDP yang sama.',
+  'conflicting_protocol':
+      'Nilai remote bertentangan dengan pengaturan angkutan global.',
+  'too_many_endpoints': 'Gunakan paling banyak 16 titik akhir remote.',
+  'conflicting_authentication':
+      'CLIENT_CERT bertentangan dengan sertifikat tersemat atau mode autentikasi.',
+  'serialized_size_limit':
+      'Catatan terenkripsi akan melampaui batas ukuran penyimpanan.',
+  'multi_endpoint_unavailable':
+      'Perbarui mesin untuk memakai konfigurasi dengan beberapa titik akhir.',
+  'candidates': 'Titik akhir awal',
+  'random_order':
+      'Titik akhir dicoba dalam urutan acak baru pada setiap koneksi.',
+  'file_order': 'Titik akhir dicoba sesuai urutan berkas.',
+  'attempting': 'Titik akhir yang dicoba',
+  'actual_endpoint': 'Titik akhir yang terhubung',
+  'attempt_failures': 'Percobaan yang gagal',
+  'failure_transport': 'angkutan tertutup',
+  'failure_authentication': 'autentikasi',
+  'failure_certificate': 'sertifikat',
+  'failure_configuration': 'konfigurasi',
+  'failure_address_changed': 'alamat berubah',
+  'failure_protocol': 'protokol',
+  'failure_cleanup': 'pembersihan',
+  'failure_reason': 'Kegagalan: {reason}.',
+  'manage': 'Kelola',
+  'dns_fallback': 'DNS terowongan (OpenVPN dapat menegosiasikan DNS)',
+  'dns_unavailable_title': 'Tidak ada DNS lewat pintu keluar ini',
+  'dns_unavailable':
+      'Tidak ada peladen DNS yang dapat dijangkau lewat pintu keluar ini. Gunakan alamat IP atau impor ulang konfigurasi dengan DNS yang terjangkau.',
+  'authentication_failed':
+      'Autentikasi gagal. Perbarui kredensial sebelum menghubungkan lagi.',
+  'profile_limit': 'Pustaka konfigurasi penuh (128 profil).',
+  'metadata_limit': 'Metadata pustaka konfigurasi sudah penuh.',
+  'title': 'Proksi berantai',
+  'subtitle': 'Pilih pintu keluar yang dicapai melalui WARP.',
+  'source': 'Sumber pintu keluar',
+  'enable': 'Aktifkan proksi berantai',
+  'import_file': 'Impor berkas',
+  'paste': 'Tempel konfigurasi',
+  'profiles': 'Konfigurasi tersimpan',
+  'empty': 'Impor konfigurasi untuk memilih pintu keluar.',
+  'empty_hint_openvpn':
+      'Impor berkas .ovpn atau tempel teksnya. Titik akhir TCP dan UDP, sertifikat tersemat, serta nama pengguna/kata sandi didukung.',
+  'empty_hint_wireguard':
+      'Impor berkas .conf atau tempel teksnya. Satu bagian [Interface] dan satu [Peer] didukung.',
+  'import_limits':
+      'Konfigurasi harus berupa teks UTF-8 hingga 128 KiB. Jika pemilih berkas tidak ada, tempel teksnya.',
+  'enable_to_choose': 'Aktifkan proksi berantai untuk memilih konfigurasi.',
+  'select_required': 'Pilih konfigurasi tersimpan sebelum menerapkan.',
+  'pending_disable': 'Menunggu: nonaktifkan proksi berantai',
+  'apply_reconnect': 'Terapkan dan hubungkan ulang',
+  'requires_connect_ip': 'Memerlukan CONNECT-IP',
+  'menu': 'Tindakan konfigurasi',
+  'preview': 'Periksa konfigurasi',
+  'save_import': 'Simpan konfigurasi',
+  'name': 'Nama',
+  'configuration': 'Teks konfigurasi',
+  'file_loaded': 'Konfigurasi dimuat dari berkas ({lines} baris).',
+  'username': 'Nama pengguna',
+  'password': 'Kata sandi',
+  'key_password': 'Kata sandi kunci pribadi',
+  'show_password': 'Tampilkan kata sandi',
+  'hide_password': 'Sembunyikan kata sandi',
+  'credentials': 'Perbarui kredensial',
+  'rename': 'Ubah nama',
+  'delete': 'Hapus',
+  'cancel': 'Batal',
+  'save': 'Simpan',
+  'apply': 'Terapkan perubahan',
+  'clear': 'Hapus pilihan',
+  'current': 'Koneksi saat ini',
+  'saved': 'Pilihan tersimpan',
+  'draft': 'Pilihan yang menunggu',
+  'disconnected': 'Tidak terhubung',
+  'disabled': 'Tidak diaktifkan',
+  'enabled_idle': 'Aktif · tidak terhubung',
+  'disconnecting': 'Memutuskan koneksi',
+  'file_read_failed': 'Berkas konfigurasi tidak dapat dibaca.',
+  'file_encoding_invalid': 'Berkas konfigurasi harus berupa teks UTF-8.',
+  'file_busy': 'Pemilih berkas sudah terbuka.',
+  'connected': 'Terhubung',
+  'connecting': 'Menghubungkan',
+  'error': 'Koneksi gagal',
+  'no_selection': 'Belum ada konfigurasi yang dipilih',
+  'l4': 'Konfigurasi ini memerlukan mode CONNECT-IP.',
+  'switch_mode': 'Beralih ke CONNECT-IP dan terapkan',
+  'unsupported': 'Mesin ini tidak mendukung sumber pintu keluar ini.',
+  'scope':
+      'Aturan langsung eksplisit yang sudah ada tetap berlaku. Lalu lintas lain memakai pintu keluar yang dipilih.',
+  'allowed': 'Tujuan yang diizinkan',
+  'dns': 'DNS',
+  'addresses': 'Alamat terowongan',
+  'address_family': 'Keluarga alamat',
+  'transport': 'Angkutan',
+  'endpoint': 'Peladen',
+  'restricted': 'Tujuan di luar AllowedIPs diblokir pada jalur proksi.',
+  'delete_confirm':
+      'Hapus konfigurasi tersimpan ini? Berkas asli yang diimpor tidak berubah.',
+  'profile_in_use':
+      'Pilih konfigurasi lain atau hapus pilihan tersimpan sebelum menghapus konfigurasi ini.',
+  'stale_revision': 'Konfigurasi berubah. Segarkan daftar, lalu coba lagi.',
+  'secure_storage_failed':
+      'Konfigurasi terenkripsi tidak dapat dibaca atau disimpan.',
+  'invalid_configuration':
+      'Konfigurasi tidak valid atau berisi opsi yang tidak didukung.',
+  'looks_like_wireguard':
+      'Ini tampak seperti konfigurasi WireGuard. Ubah sumber pintu keluar ke WireGuard (Custom).',
+  'looks_like_openvpn':
+      'Ini tampak seperti konfigurasi OpenVPN. Ubah sumber pintu keluar ke OpenVPN (Custom).',
+  'error_location': '{message} ({field}, baris {line})',
+  'error_field': '{message} ({field})',
+  'file_unavailable': 'Pemilih berkas tidak tersedia. Tempel teks konfigurasi.',
+  'invalid_size_or_encoding':
+      'Gunakan konfigurasi UTF-8 berukuran paling besar 128 KiB.',
+  'unsupported_directive': 'Direktif OpenVPN ini tidak didukung.',
+  'unsupported_or_duplicate_field':
+      'Bidang ini tidak didukung atau terduplikasi.',
+  'unsupported_or_duplicate_section':
+      'Gunakan satu bagian Interface dan satu Peer.',
+  'missing_field': 'Ada bidang wajib yang belum diisi.',
+  'invalid_key':
+      'Kunci harus berupa kunci Base64 yang valid sepanjang 32 byte.',
+  'checking': 'Memeriksa konfigurasi…',
+  'changed': 'Perubahan disimpan',
+};
