@@ -173,6 +173,17 @@ settings affect only the peer-to-client CONNECT-IP data path. Registration and
 future encrypted-DNS control clients keep independent small default Builders;
 the send-buffer limit is unchanged.
 
+H2 receive batches span already-ready DATA frames, up to the common 64-packet
+or 256 KiB limit. After the first packet, a batch polls at most 64 additional
+DATA frames and returns immediately when no more data is ready. This also
+bounds lookahead through empty or control-only frames. A peer that flushes one
+DATAGRAM per DATA frame therefore does not force every buffered packet to use
+its own downstream batch slot. The 16-slot handoffs retain their existing
+memory limits; batches are not delayed to fill them. Partial capsules remain
+owned by the receiver across cancellation, receive capacity is returned once
+per consumed frame, and a lookahead failure is reported on the next receive
+after delivering the already-completed batch.
+
 One protocol PING may be outstanding at a time. The interval is five seconds.
 The deadline is five seconds before the first sample, then three times smoothed
 RTT clamped to two through ten seconds. Smoothed RTT and variance use an integer

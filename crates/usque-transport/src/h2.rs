@@ -4,6 +4,7 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::Poll;
 use std::time::Duration;
 
 use boring::asn1::{Asn1Integer, Asn1Time};
@@ -53,6 +54,8 @@ const MAX_CAPSULE_BYTES: usize = 65_535;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const H2_OUTGOING_CAPACITY: usize = 1_024;
 const H2_PACKET_QUEUE_CAPACITY: usize = 1_024;
+// Bound lookahead even when ready DATA contains only control or empty frames.
+const H2_RECEIVE_BATCH_MAX_FRAMES: usize = 64;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const H2_PING_INTERVAL: Duration = Duration::from_secs(5);
 const H2_PING_DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -274,6 +277,7 @@ pub struct H2ReceiveHalf {
     stream: RecvStream,
     control: ConnectIpControlPlane,
     packets: VecDeque<Bytes>,
+    receive_error: Option<TransportError>,
     rejections: mpsc::Sender<H2Rejection>,
     rejection_bytes: Arc<Semaphore>,
 }
@@ -282,6 +286,9 @@ impl H2ReceiveHalf {
     /// Receives the next raw IP packet, transparently handling capsules split
     /// across or coalesced within HTTP/2 DATA frames.
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
+        if let Some(error) = self.receive_error.take() {
+            return Err(error);
+        }
         loop {
             self.drain_ready_capsules()?;
             if let Some(packet) = self.packets.pop_front() {
@@ -293,25 +300,56 @@ impl H2ReceiveHalf {
                 .data()
                 .await
                 .ok_or(TransportError::TunnelClosed)??;
-            if self.control.buffer.len().saturating_add(chunk.len()) > MAX_CAPSULE_PAYLOAD + 16 {
-                return Err(TransportError::CapsuleTooLarge);
-            }
-            let length = chunk.len();
-            self.control.buffer.extend_from_slice(&chunk);
-            self.stream.flow_control().release_capacity(length)?;
+            self.buffer_data(chunk)?;
         }
     }
 
     pub(crate) async fn receive_batch(&mut self) -> Result<PacketBatch, TransportError> {
         let first = self.receive_packet().await?;
         let mut batch = PacketBatch::single(first);
-        while let Some(packet) = self.packets.pop_front() {
-            if let Err(packet) = batch.push_back(packet) {
-                self.packets.push_front(packet);
+        let mut frames = 0;
+        loop {
+            while let Some(packet) = self.packets.pop_front() {
+                if let Err(packet) = batch.push_back(packet) {
+                    self.packets.push_front(packet);
+                    return Ok(batch);
+                }
+            }
+            if !batch.can_accept(1) || frames == H2_RECEIVE_BATCH_MAX_FRAMES {
+                break;
+            }
+
+            // DATA boundaries are chosen by the peer, not by our packet batch.
+            // Drain only frames already ready: waiting here would delay ACKs and
+            // make cancellation drop the packets held in this local batch.
+            let next = std::future::poll_fn(|cx| Poll::Ready(self.stream.poll_data(cx))).await;
+            let result = match next {
+                Poll::Ready(Some(Ok(chunk))) => {
+                    frames += 1;
+                    self.buffer_data(chunk)
+                        .and_then(|()| self.drain_ready_capsules())
+                }
+                Poll::Ready(Some(Err(error))) => Err(error.into()),
+                Poll::Ready(None) | Poll::Pending => break,
+            };
+            if let Err(error) = result {
+                // Deliver the already-completed batch, then surface the terminal
+                // error before any packets parsed during the failed lookahead.
+                self.receive_error = Some(error);
                 break;
             }
         }
         Ok(batch)
+    }
+
+    fn buffer_data(&mut self, chunk: Bytes) -> Result<(), TransportError> {
+        if self.control.buffer.len().saturating_add(chunk.len()) > MAX_CAPSULE_PAYLOAD + 16 {
+            return Err(TransportError::CapsuleTooLarge);
+        }
+        let length = chunk.len();
+        self.control.buffer.extend_from_slice(&chunk);
+        self.stream.flow_control().release_capacity(length)?;
+        Ok(())
     }
 
     fn drain_ready_capsules(&mut self) -> Result<(), TransportError> {
@@ -756,6 +794,7 @@ fn h2_tunnel_from_streams(
             stream: receive,
             control: ConnectIpControlPlane::new(control_tx),
             packets: VecDeque::new(),
+            receive_error: None,
             rejections: rejection_tx,
             rejection_bytes,
         },
@@ -1839,6 +1878,190 @@ mod tests {
                 .send_data(encoded.split_to(length), false)
                 .expect("peer send");
         }
+    }
+
+    async fn wait_for_buffered_data(receive: &mut H2ReceiveHalf, bytes: usize) {
+        timeout(Duration::from_secs(2), async {
+            while receive.stream.flow_control().used_capacity() < bytes {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("peer DATA reaches the H2 receive queue");
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_combines_ready_data_frames_without_packet_loss() {
+        use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PACKET_BATCH_CHANNEL_CAPACITY};
+
+        let mut loopback = connect_h2_loopback().await;
+        let count = 2 * MAX_PACKET_BATCH_PACKETS;
+        let mut wire_bytes = 0;
+        for sequence in 0..count {
+            let mut packet = sized_ipv4_packet(1_280).to_vec();
+            packet[4..6].copy_from_slice(&(sequence as u16).to_be_bytes());
+            let capsule = encode_datagram_capsule(&packet).unwrap();
+            wire_bytes += capsule.len();
+            // One DATAGRAM per DATA frame, as a flushing peer may send it.
+            peer_send_all(&mut loopback.peer_send, capsule).await;
+        }
+        wait_for_buffered_data(&mut loopback.receive, wire_bytes).await;
+
+        // Model the existing bounded batch handoff while its consumer is busy.
+        let (incoming, mut queued) = mpsc::channel(PACKET_BATCH_CHANNEL_CAPACITY);
+        let mut received = 0;
+        let mut batches = 0;
+        while received < count {
+            let batch = loopback.receive.receive_batch().await.unwrap();
+            received += batch.len();
+            batches += 1;
+            incoming.try_send(batch).expect("burst fits batch handoff");
+        }
+        assert_eq!(batches, 2);
+
+        let mut sequence = 0;
+        while let Ok(mut batch) = queued.try_recv() {
+            assert_eq!(batch.len(), MAX_PACKET_BATCH_PACKETS);
+            while let Some(packet) = batch.pop_front() {
+                assert_eq!(u16::from_be_bytes([packet[4], packet[5]]), sequence);
+                sequence += 1;
+            }
+        }
+        assert_eq!(usize::from(sequence), count);
+        assert_eq!(loopback.receive.stream.flow_control().used_capacity(), 0);
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_preserves_packet_order_at_the_byte_limit() {
+        let mut loopback = connect_h2_loopback().await;
+        let mut wire_bytes = 0;
+        for sequence in 0_u16..6 {
+            let mut packet = sized_ipv4_packet(60 * 1024).to_vec();
+            packet[4..6].copy_from_slice(&sequence.to_be_bytes());
+            let capsule = encode_datagram_capsule(&packet).unwrap();
+            wire_bytes += capsule.len();
+            peer_send_all(&mut loopback.peer_send, capsule).await;
+        }
+        wait_for_buffered_data(&mut loopback.receive, wire_bytes).await;
+
+        let mut sequence = 0;
+        for expected_count in [4, 2] {
+            let mut batch = loopback.receive.receive_batch().await.unwrap();
+            assert_eq!(batch.len(), expected_count);
+            assert_eq!(batch.bytes(), expected_count * 60 * 1024);
+            while let Some(packet) = batch.pop_front() {
+                assert_eq!(u16::from_be_bytes([packet[4], packet[5]]), sequence);
+                sequence += 1;
+            }
+        }
+        assert_eq!(sequence, 6);
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_returns_immediately_and_retains_partial_capsules() {
+        let mut loopback = connect_h2_loopback().await;
+        let packet = sized_ipv4_packet(1_280);
+        let capsule = encode_datagram_capsule(&packet).unwrap();
+        peer_send_all(&mut loopback.peer_send, capsule.clone()).await;
+        peer_send_all(&mut loopback.peer_send, capsule.slice(..1)).await;
+        wait_for_buffered_data(&mut loopback.receive, capsule.len() + 1).await;
+
+        // A partial next capsule must not make a completed batch Pending.
+        let received = std::future::poll_fn(|cx| {
+            Poll::Ready(std::pin::pin!(loopback.receive.receive_batch()).poll(cx))
+        })
+        .await;
+        let Poll::Ready(Ok(mut batch)) = received else {
+            panic!("ready packets must not wait for another DATA frame");
+        };
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch.pop_front().unwrap(), packet);
+        assert_eq!(loopback.receive.control.buffer.as_ref(), &capsule[..1]);
+
+        // Cancel a waiting receive, then complete the same partial capsule.
+        let cancelled = std::future::poll_fn(|cx| {
+            Poll::Ready(std::pin::pin!(loopback.receive.receive_batch()).poll(cx))
+        })
+        .await;
+        assert!(cancelled.is_pending());
+        let assignment = ipv4_only_assignment().encode().unwrap();
+        let mut tail = BytesMut::from(&capsule[1..]);
+        tail.extend_from_slice(&assignment);
+        peer_send_all(&mut loopback.peer_send, tail.freeze()).await;
+        let mut next = timeout(Duration::from_secs(2), loopback.receive.receive_batch())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.len(), 1);
+        assert_eq!(next.pop_front().unwrap(), packet);
+        let mut expected = PeerNetworkState::default();
+        expected.apply(&ipv4_only_assignment());
+        assert_eq!(*loopback.control.borrow(), expected);
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_delivers_ready_packets_before_end_of_stream() {
+        let mut loopback = connect_h2_loopback().await;
+        let packet = sized_ipv4_packet(1_280);
+        let capsule = encode_datagram_capsule(&packet).unwrap();
+        peer_send_all(&mut loopback.peer_send, capsule.clone()).await;
+        loopback.peer_send.send_data(Bytes::new(), true).unwrap();
+        wait_for_buffered_data(&mut loopback.receive, capsule.len()).await;
+
+        let mut batch = loopback.receive.receive_batch().await.unwrap();
+        assert_eq!(batch.pop_front().unwrap(), packet);
+        assert!(batch.is_empty());
+        assert!(matches!(
+            timeout(Duration::from_secs(2), loopback.receive.receive_batch())
+                .await
+                .unwrap(),
+            Err(TransportError::TunnelClosed)
+        ));
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_surfaces_malformed_lookahead_after_the_ready_batch() {
+        for malformed in [
+            // DATAGRAM containing an invalid IP header.
+            Bytes::from_static(&[0, 1, 0]),
+            // DATAGRAM declaring a payload over the capsule limit.
+            Bytes::from_static(&[0, 0x80, 1, 0, 1]),
+        ] {
+            let mut loopback = connect_h2_loopback().await;
+            let packet = sized_ipv4_packet(1_280);
+            let capsule = encode_datagram_capsule(&packet).unwrap();
+            peer_send_all(&mut loopback.peer_send, capsule.clone()).await;
+            peer_send_all(&mut loopback.peer_send, malformed.clone()).await;
+            wait_for_buffered_data(&mut loopback.receive, capsule.len() + malformed.len()).await;
+
+            let mut batch = loopback.receive.receive_batch().await.unwrap();
+            assert_eq!(batch.len(), 1);
+            assert_eq!(batch.pop_front().unwrap(), packet);
+            assert!(matches!(
+                loopback.receive.receive_batch().await,
+                Err(TransportError::MalformedIpPacket | TransportError::CapsuleTooLarge)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_bounds_control_only_lookahead() {
+        let mut loopback = connect_h2_loopback().await;
+        let capsule = encode_datagram_capsule(&ipv4_packet()).unwrap();
+        peer_send_all(&mut loopback.peer_send, capsule.clone()).await;
+        let unknown = Bytes::from_static(&[0x21, 0]);
+        for _ in 0..=H2_RECEIVE_BATCH_MAX_FRAMES {
+            peer_send_all(&mut loopback.peer_send, unknown.clone()).await;
+        }
+        let wire_bytes = capsule.len() + (H2_RECEIVE_BATCH_MAX_FRAMES + 1) * unknown.len();
+        wait_for_buffered_data(&mut loopback.receive, wire_bytes).await;
+
+        assert_eq!(loopback.receive.receive_batch().await.unwrap().len(), 1);
+        assert_eq!(
+            loopback.receive.stream.flow_control().used_capacity(),
+            unknown.len(),
+            "control-only lookahead yields after its bounded frame budget"
+        );
     }
 
     async fn peer_recv_capsule(stream: &mut RecvStream, buffer: &mut BytesMut) -> ConnectIpCapsule {
