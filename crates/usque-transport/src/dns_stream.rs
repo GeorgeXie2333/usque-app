@@ -35,6 +35,24 @@ pub(crate) struct StreamDns {
 }
 
 impl StreamDns {
+    pub(crate) fn over_stack(
+        channel: ts_netstack_smoltcp::netcore::Channel,
+        ipv4: std::net::Ipv4Addr,
+        ipv6: std::net::Ipv6Addr,
+        protector: Arc<dyn crate::SocketProtector>,
+        cancellation: CancellationToken,
+    ) -> Self {
+        Self::new(
+            Arc::new(crate::tcp::StackDialer {
+                channel,
+                ipv4,
+                ipv6,
+            }),
+            protector,
+            cancellation,
+            Arc::default(),
+        )
+    }
     pub(crate) fn new(
         dialer: Arc<dyn TcpDialer>,
         protector: Arc<dyn crate::SocketProtector>,
@@ -128,6 +146,11 @@ impl StreamDns {
             };
             crate::split_dns::validate_response_bytes(query, &response)
                 .map_err(|_| DialError::Protocol)?;
+            // A truncated TCP answer cannot satisfy the question. Discard the
+            // stream instead of pooling an incomplete response as success.
+            if response[2] & 0x02 != 0 {
+                return Err(DialError::Protocol);
+            }
             if self.protector.network_generation() != generation {
                 return Err(DialError::Closed);
             }

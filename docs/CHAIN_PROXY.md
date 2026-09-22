@@ -134,10 +134,15 @@ filtered out. With no usable DNS, the private tunnel and IP destinations remain
 available; the system VPN uses the in-app synthetic DNS service to return failure.
 It never leaves platform DNS unspecified to obtain physical fallback.
 
-Final-exit queries start immediately, add a backup after 250 ms, run at most two
-candidates concurrently, and allow one second per candidate within a four-second
-question deadline. Valid NXDOMAIN/NODATA answers are terminal. Direct-rule DNS
-retains its separate policy. Endpoint resolution through WARP is also separate.
+Final-exit queries start with UDP and add an alternative after 250 ms. Configured
+servers receive their first UDP attempt before TCP alternatives; a single DNS
+server gets its TCP alternative after 250 ms. Servers and protocols share at most
+two concurrent attempts and one four-second question deadline. Each attempt has
+at most one second, shortened when necessary to reserve time for later candidates.
+Truncated UDP responses retry TCP immediately. TCP connections are reused within
+the same final session; cancelled or invalid exchanges are never returned to the
+pool. Valid NXDOMAIN/NODATA answers are terminal. Direct-rule DNS retains its
+separate policy. Endpoint resolution through WARP is also separate.
 
 WireGuard defaults to inner MTU 1280, with explicit MTU in the project's 1280–9000
 range. Its imported MTU controls the final interface; it is not capped by the WARP
@@ -162,8 +167,11 @@ to describe only the WARP leg.
 服务器域名解析及协议 UDP 均通过当前 WARP 会话。远程 DNS 必须通过最终出口，
 不会回退到物理 DNS；DNS 地址在使用前按最终地址族和 AllowedIPs 过滤。没有可用
 DNS 时仍可使用 IP 访问局部网络，系统 VPN 的应用内 DNS 返回明确失败。第一个
-DNS 候选立即查询，250 ms 后启用备用候选；最多两个并发，每个候选最多 1 秒，
-整轮最多 4 秒。有效的 NXDOMAIN/NODATA 不会重复向其他候选查询。默认 WireGuard 内层 MTU 为
+DNS 候选立即以 UDP 查询，250 ms 后启用备用候选；只有一个 DNS 时，该备用为 TCP。
+多个 DNS 优先完成各服务器的 UDP 首试，再安排 TCP 备用。两种协议共用最多两个
+并发与整轮 4 秒预算；每次最多 1 秒，候选较多时缩短，避免后面的服务器没有机会。
+UDP 截断回复立即改用 TCP；TCP 连接在同一链式会话内复用。有效的 NXDOMAIN/NODATA
+不会重复向其他候选查询。默认 WireGuard 内层 MTU 为
 1280。切换出口先停止旧出口流量并清理旧协议会话；终止性错误会断开整条链，
 保留配置与错误，不会自动退化为仅 WARP。Windows/Android 复用现有平台接口和
 清理机制。Android 应用进程结束后的系统级阻断仍依赖系统 Always-on/Lockdown。

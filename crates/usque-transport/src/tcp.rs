@@ -232,7 +232,7 @@ impl ProxyServices {
                 profile.proxy.dns_mode,
                 Arc::clone(&stack.protector),
             )
-            .with_final_exit(profile.chain_enabled()),
+            .with_final_exit(profile.chain_enabled(), stack.cancellation.clone()),
             protector: Arc::clone(&stack.protector),
             geo_policy: Arc::clone(&stack.geo_policy),
             counters: Arc::clone(&stack.counters),

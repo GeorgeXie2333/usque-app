@@ -3,9 +3,59 @@ use std::future::Future;
 use std::time::Duration;
 use tokio::time::{Instant, sleep_until, timeout_at};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Transport {
+    Udp,
+    Tcp,
+}
+
+/// All servers and protocols share the same two active slots and deadline.
+/// Preserve the 250 ms backup-server start. A single resolver gets a TCP
+/// hedge after 250 ms; with two UDP requests active, TCP waits for capacity.
+pub(crate) async fn query_auto<S: Copy, T, F, Fut>(
+    servers: &[S],
+    deadline: Instant,
+    mut attempt: F,
+) -> Result<T, String>
+where
+    F: FnMut(S, Transport, Instant) -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    let mut candidates = Vec::with_capacity(servers.len().min(8) * 2);
+    for transport in [Transport::Udp, Transport::Tcp] {
+        candidates.extend(servers.iter().take(8).map(|server| (*server, transport)));
+    }
+    // Reserve time for later resolvers and TCP alternatives rather than
+    // spending the whole deadline retrying the first few silent servers.
+    let budget = deadline
+        .saturating_duration_since(Instant::now())
+        .min(Duration::from_secs(4));
+    let limit = (budget * 2 / candidates.len().max(1) as u32).min(Duration::from_secs(1));
+    query_with_limit(
+        &candidates,
+        deadline,
+        limit,
+        |(server, transport), deadline| attempt(server, transport, deadline),
+    )
+    .await
+}
+
 pub(crate) async fn query<S: Copy, T, F, Fut>(
     servers: &[S],
     deadline: Instant,
+    query: F,
+) -> Result<T, String>
+where
+    F: FnMut(S, Instant) -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    query_with_limit(servers, deadline, Duration::from_secs(1), query).await
+}
+
+async fn query_with_limit<S: Copy, T, F, Fut>(
+    servers: &[S],
+    deadline: Instant,
+    limit: Duration,
     mut query: F,
 ) -> Result<T, String>
 where
@@ -26,7 +76,7 @@ where
         let active = usize::from(first.is_some()) + usize::from(second.is_some());
         if !exhausted && active < 2 && (active == 0 || Instant::now() >= next_start) {
             if let Some(server) = remaining.next() {
-                let candidate_deadline = deadline.min(Instant::now() + Duration::from_secs(1));
+                let candidate_deadline = deadline.min(Instant::now() + limit);
                 let future = query(*server, candidate_deadline);
                 let future = Box::pin(async move {
                     timeout_at(candidate_deadline, future)
@@ -71,6 +121,117 @@ async fn wait<F: Future + Unpin>(slot: &mut Option<F>) -> F::Output {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn silent_early_resolvers_do_not_starve_the_fifth_server() {
+        let start = Instant::now();
+        let result = query_auto(
+            &[1, 2, 3, 4, 5, 6, 7, 8],
+            start + Duration::from_secs(4),
+            |server, transport, _| async move {
+                if server == 5 && transport == Transport::Udp {
+                    Ok(5)
+                } else {
+                    std::future::pending().await
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, 5);
+        assert!(start.elapsed() <= Duration::from_secs(2));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn automatic_tcp_hedge_preserves_udp_and_backup_server_precedence() {
+        let start = Instant::now();
+        let response = query_auto(
+            &[1],
+            start + Duration::from_secs(4),
+            |_, transport, _| async move {
+                match transport {
+                    Transport::Udp => std::future::pending().await,
+                    Transport::Tcp => Ok(Vec::<u8>::new()), // valid negative DNS answer
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(response.is_empty());
+        assert_eq!(start.elapsed(), Duration::from_millis(250));
+        let start = Instant::now();
+        assert_eq!(
+            query_auto(
+                &[1, 2],
+                start + Duration::from_secs(4),
+                |server, transport, _| async move {
+                    assert_eq!(transport, Transport::Udp);
+                    if server == 1 {
+                        std::future::pending().await
+                    } else {
+                        Ok(2)
+                    }
+                }
+            )
+            .await
+            .unwrap(),
+            2
+        );
+        assert_eq!(start.elapsed(), Duration::from_millis(250));
+        let start = Instant::now();
+        assert_eq!(
+            query_auto(
+                &[1],
+                start + Duration::from_secs(4),
+                |_, transport, _| async move {
+                    match transport {
+                        Transport::Udp => {
+                            tokio::time::sleep(Duration::from_millis(400)).await;
+                            Ok(1)
+                        }
+                        Transport::Tcp => Err("refused".into()),
+                    }
+                }
+            )
+            .await
+            .unwrap(),
+            1
+        );
+        assert_eq!(start.elapsed(), Duration::from_millis(400));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn auto_servers_and_protocols_share_two_slots_and_one_deadline() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let active = AtomicUsize::new(0);
+        let tcp = AtomicUsize::new(0);
+        struct Guard<'a>(&'a AtomicUsize);
+        impl Drop for Guard<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let start = Instant::now();
+        let result: Result<(), _> = query_auto(
+            &[0; 8],
+            start + Duration::from_secs(4),
+            |_, transport, _| {
+                let active = &active;
+                let tcp = &tcp;
+                async move {
+                    assert!(active.fetch_add(1, Ordering::SeqCst) < 2);
+                    let _guard = Guard(active);
+                    if transport == Transport::Tcp {
+                        tcp.fetch_add(1, Ordering::SeqCst);
+                    }
+                    std::future::pending().await
+                }
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(start.elapsed(), Duration::from_secs(4));
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert!(tcp.load(Ordering::SeqCst) > 0);
+    }
     #[tokio::test(start_paused = true)]
     async fn empty_expired_and_single_candidate_bounds() {
         let start = Instant::now();

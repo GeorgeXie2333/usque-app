@@ -1,0 +1,959 @@
+{
+  "base_commit": "3f7e678c2ae35d85cf277e6feaef087cfaa61ca0",
+  "source_digest_sha256": "e5ba0ee23e6b589f8217d83e6f04a65dbdfb126bfbec03c1eb64dcf2c2f6f865",
+  "source_files": [
+    {
+      "path": "crates/usque-engine/src/chain_dns_live_tests.rs",
+      "encoding": "utf8_lf",
+      "sha256": "426e29d3796fc260a5bc5f062422315c4b99bf64701b5323ddc42f22612e426c"
+    },
+    {
+      "path": "crates/usque-engine/src/lib.rs",
+      "encoding": "utf8_lf",
+      "sha256": "e01d533ce9e09997245e1b5770d8493d6ee5b9b78f37d7f31feea116444e402f"
+    },
+    {
+      "path": "crates/usque-transport/src/dns.rs",
+      "encoding": "utf8_lf",
+      "sha256": "6783f1e627be41f18ea2f63d74338c53928ab9af0d8e553e8200848367a1c018"
+    },
+    {
+      "path": "crates/usque-transport/src/dns_stream.rs",
+      "encoding": "utf8_lf",
+      "sha256": "707a6cabeeefd3d1ec549fdbfd86cf0ecf45c46488edcfea3a45667d3f4f0f8e"
+    },
+    {
+      "path": "crates/usque-transport/src/final_dns.rs",
+      "encoding": "utf8_lf",
+      "sha256": "4714669f1f2b3261026a730a9a28825c1ccd2280655a6c80a14178e4bc2daf43"
+    },
+    {
+      "path": "crates/usque-transport/src/internal_network.rs",
+      "encoding": "utf8_lf",
+      "sha256": "7c4d75e5a01ef812be723ad9d1e2ac9dfb597890abea4139fbe9f82b73e59a1a"
+    },
+    {
+      "path": "crates/usque-transport/src/split_dns.rs",
+      "encoding": "utf8_lf",
+      "sha256": "126b3ddda45313d7bf316817d3c5f47338d2551a850389dddbc3cdadb4b222ee"
+    },
+    {
+      "path": "crates/usque-transport/src/tcp.rs",
+      "encoding": "utf8_lf",
+      "sha256": "80b5e8e9e1f96922b33245d4336fd3e400102300580418b082b14e6664e9ffd2"
+    },
+    {
+      "path": "crates/usque-transport/src/vpngate.rs",
+      "encoding": "utf8_lf",
+      "sha256": "cb638cc309da13e7012f4971a2593b008f3009e5385174263674f39bc62b9bb9"
+    },
+    {
+      "path": "docs/CHAIN_PROXY.md",
+      "encoding": "utf8_lf",
+      "sha256": "d6bee6ecda06c0c2147480961d85190bcbe372a93f1589e92629a3ac95edb49e"
+    },
+    {
+      "path": "docs/README.md",
+      "encoding": "utf8_lf",
+      "sha256": "e62f64732e50f4b5cf8222559ff42661a470110eabf2703691aff237625a5988"
+    }
+  ],
+  "record_excludes": [
+    "docs/CHAIN_DNS_VALIDATION.md",
+    "docs/CHAIN_DNS_MEASUREMENTS.json"
+  ],
+  "measurement_scope": "authorized Windows loopback SOCKS only; no TUN; WARP-only control is distinct from nested WireGuard",
+  "live_source_digest_sha256": "e8a1813686fb2536e2f523025fbd0f0200202947bd791e8fc6e193cea991ba39",
+  "live_source_files": [
+    {
+      "path": "crates/usque-engine/src/chain_dns_live_tests.rs",
+      "encoding": "utf8_lf",
+      "sha256": "426e29d3796fc260a5bc5f062422315c4b99bf64701b5323ddc42f22612e426c"
+    },
+    {
+      "path": "crates/usque-engine/src/lib.rs",
+      "encoding": "utf8_lf",
+      "sha256": "e01d533ce9e09997245e1b5770d8493d6ee5b9b78f37d7f31feea116444e402f"
+    },
+    {
+      "path": "crates/usque-transport/src/dns.rs",
+      "encoding": "utf8_lf",
+      "sha256": "6783f1e627be41f18ea2f63d74338c53928ab9af0d8e553e8200848367a1c018"
+    },
+    {
+      "path": "crates/usque-transport/src/dns_stream.rs",
+      "encoding": "utf8_lf",
+      "sha256": "707a6cabeeefd3d1ec549fdbfd86cf0ecf45c46488edcfea3a45667d3f4f0f8e"
+    },
+    {
+      "path": "crates/usque-transport/src/final_dns.rs",
+      "encoding": "utf8_lf",
+      "sha256": "4714669f1f2b3261026a730a9a28825c1ccd2280655a6c80a14178e4bc2daf43"
+    },
+    {
+      "path": "crates/usque-transport/src/internal_network.rs",
+      "encoding": "utf8_lf",
+      "sha256": "7c4d75e5a01ef812be723ad9d1e2ac9dfb597890abea4139fbe9f82b73e59a1a"
+    },
+    {
+      "path": "crates/usque-transport/src/split_dns.rs",
+      "encoding": "utf8_lf",
+      "sha256": "eb88e2ac81e18edb3e3a59dba4cad462c30cdfbab7f0ee9450501412fc9e687c"
+    },
+    {
+      "path": "crates/usque-transport/src/tcp.rs",
+      "encoding": "utf8_lf",
+      "sha256": "80b5e8e9e1f96922b33245d4336fd3e400102300580418b082b14e6664e9ffd2"
+    },
+    {
+      "path": "crates/usque-transport/src/vpngate.rs",
+      "encoding": "utf8_lf",
+      "sha256": "cb638cc309da13e7012f4971a2593b008f3009e5385174263674f39bc62b9bb9"
+    },
+    {
+      "path": "docs/CHAIN_PROXY.md",
+      "encoding": "utf8_lf",
+      "sha256": "d6bee6ecda06c0c2147480961d85190bcbe372a93f1589e92629a3ac95edb49e"
+    },
+    {
+      "path": "docs/README.md",
+      "encoding": "utf8_lf",
+      "sha256": "e62f64732e50f4b5cf8222559ff42661a470110eabf2703691aff237625a5988"
+    }
+  ],
+  "live_source_difference": "Final runtime additionally caps retained oversized rejected UDP queries to 4096 bytes; final test-only fixture also retries bounded shared TCP/UDP port selection. Live probes did not exercise those paths and were not rerun after them.",
+  "warp_only": {
+    "samples": [
+      {
+        "transport": "Auto",
+        "warp_only": true
+      },
+      {
+        "elapsed_us": 296341,
+        "loopback_port": 46022,
+        "ok": true,
+        "stage": "startup",
+        "tun": false
+      },
+      {
+        "connect_us": 1630,
+        "ok": true,
+        "query_us": 5534,
+        "rcode": 0,
+        "round": 0,
+        "server": 0,
+        "tcp": false
+      },
+      {
+        "connect_us": 1630,
+        "ok": true,
+        "query_us": 3884,
+        "rcode": 0,
+        "round": 1,
+        "server": 0,
+        "tcp": false
+      },
+      {
+        "connect_us": 1630,
+        "ok": true,
+        "query_us": 4088,
+        "rcode": 0,
+        "round": 2,
+        "server": 0,
+        "tcp": false
+      },
+      {
+        "connect_us": 1630,
+        "ok": true,
+        "query_us": 3789,
+        "rcode": 0,
+        "round": 3,
+        "server": 0,
+        "tcp": false
+      },
+      {
+        "connect_us": 1630,
+        "ok": true,
+        "query_us": 3882,
+        "rcode": 0,
+        "round": 4,
+        "server": 0,
+        "tcp": false
+      },
+      {
+        "connect_us": 5842,
+        "ok": true,
+        "query_us": 3792,
+        "rcode": 0,
+        "round": 0,
+        "server": 0,
+        "tcp": true
+      },
+      {
+        "connect_us": 5842,
+        "ok": true,
+        "query_us": 3833,
+        "rcode": 0,
+        "round": 1,
+        "server": 0,
+        "tcp": true
+      },
+      {
+        "connect_us": 5842,
+        "ok": true,
+        "query_us": 4272,
+        "rcode": 0,
+        "round": 2,
+        "server": 0,
+        "tcp": true
+      },
+      {
+        "connect_us": 5842,
+        "ok": true,
+        "query_us": 3882,
+        "rcode": 0,
+        "round": 3,
+        "server": 0,
+        "tcp": true
+      },
+      {
+        "connect_us": 5842,
+        "ok": true,
+        "query_us": 4027,
+        "rcode": 0,
+        "round": 4,
+        "server": 0,
+        "tcp": true
+      },
+      {
+        "connect_us": 1568,
+        "ok": true,
+        "query_us": 5091,
+        "rcode": 0,
+        "round": 0,
+        "server": 1,
+        "tcp": false
+      },
+      {
+        "connect_us": 1568,
+        "ok": true,
+        "query_us": 3795,
+        "rcode": 0,
+        "round": 1,
+        "server": 1,
+        "tcp": false
+      },
+      {
+        "connect_us": 1568,
+        "ok": true,
+        "query_us": 3980,
+        "rcode": 0,
+        "round": 2,
+        "server": 1,
+        "tcp": false
+      },
+      {
+        "connect_us": 1568,
+        "ok": true,
+        "query_us": 3724,
+        "rcode": 0,
+        "round": 3,
+        "server": 1,
+        "tcp": false
+      },
+      {
+        "connect_us": 1568,
+        "ok": true,
+        "query_us": 3850,
+        "rcode": 0,
+        "round": 4,
+        "server": 1,
+        "tcp": false
+      },
+      {
+        "connect_us": 5957,
+        "ok": true,
+        "query_us": 3858,
+        "rcode": 0,
+        "round": 0,
+        "server": 1,
+        "tcp": true
+      },
+      {
+        "connect_us": 5957,
+        "ok": true,
+        "query_us": 4136,
+        "rcode": 0,
+        "round": 1,
+        "server": 1,
+        "tcp": true
+      },
+      {
+        "connect_us": 5957,
+        "ok": true,
+        "query_us": 3953,
+        "rcode": 0,
+        "round": 2,
+        "server": 1,
+        "tcp": true
+      },
+      {
+        "connect_us": 5957,
+        "ok": true,
+        "query_us": 3907,
+        "rcode": 0,
+        "round": 3,
+        "server": 1,
+        "tcp": true
+      },
+      {
+        "connect_us": 5957,
+        "ok": true,
+        "query_us": 3812,
+        "rcode": 0,
+        "round": 4,
+        "server": 1,
+        "tcp": true
+      },
+      {
+        "connect_us": 1570,
+        "ok": true,
+        "query_us": 5292,
+        "rcode": 0,
+        "round": 0,
+        "server": 2,
+        "tcp": false
+      },
+      {
+        "connect_us": 1570,
+        "ok": true,
+        "query_us": 3973,
+        "rcode": 0,
+        "round": 1,
+        "server": 2,
+        "tcp": false
+      },
+      {
+        "connect_us": 1570,
+        "ok": true,
+        "query_us": 4200,
+        "rcode": 0,
+        "round": 2,
+        "server": 2,
+        "tcp": false
+      },
+      {
+        "connect_us": 1570,
+        "ok": true,
+        "query_us": 4500,
+        "rcode": 0,
+        "round": 3,
+        "server": 2,
+        "tcp": false
+      },
+      {
+        "connect_us": 1570,
+        "ok": true,
+        "query_us": 4359,
+        "rcode": 0,
+        "round": 4,
+        "server": 2,
+        "tcp": false
+      },
+      {
+        "connect_us": 6624,
+        "ok": true,
+        "query_us": 3922,
+        "rcode": 0,
+        "round": 0,
+        "server": 2,
+        "tcp": true
+      },
+      {
+        "connect_us": 6624,
+        "ok": true,
+        "query_us": 4333,
+        "rcode": 0,
+        "round": 1,
+        "server": 2,
+        "tcp": true
+      },
+      {
+        "connect_us": 6624,
+        "ok": true,
+        "query_us": 4037,
+        "rcode": 0,
+        "round": 2,
+        "server": 2,
+        "tcp": true
+      },
+      {
+        "connect_us": 6624,
+        "ok": true,
+        "query_us": 4068,
+        "rcode": 0,
+        "round": 3,
+        "server": 2,
+        "tcp": true
+      },
+      {
+        "connect_us": 6624,
+        "ok": true,
+        "query_us": 4203,
+        "rcode": 0,
+        "round": 4,
+        "server": 2,
+        "tcp": true
+      },
+      {
+        "connect_us": 1449,
+        "ok": true,
+        "query_us": 5121,
+        "rcode": 0,
+        "round": 0,
+        "server": 3,
+        "tcp": false
+      },
+      {
+        "connect_us": 1449,
+        "ok": true,
+        "query_us": 4046,
+        "rcode": 0,
+        "round": 1,
+        "server": 3,
+        "tcp": false
+      },
+      {
+        "connect_us": 1449,
+        "ok": true,
+        "query_us": 3984,
+        "rcode": 0,
+        "round": 2,
+        "server": 3,
+        "tcp": false
+      },
+      {
+        "connect_us": 1449,
+        "ok": true,
+        "query_us": 4087,
+        "rcode": 0,
+        "round": 3,
+        "server": 3,
+        "tcp": false
+      },
+      {
+        "connect_us": 1449,
+        "ok": true,
+        "query_us": 4162,
+        "rcode": 0,
+        "round": 4,
+        "server": 3,
+        "tcp": false
+      },
+      {
+        "connect_us": 6357,
+        "ok": true,
+        "query_us": 3925,
+        "rcode": 0,
+        "round": 0,
+        "server": 3,
+        "tcp": true
+      },
+      {
+        "connect_us": 6357,
+        "ok": true,
+        "query_us": 4091,
+        "rcode": 0,
+        "round": 1,
+        "server": 3,
+        "tcp": true
+      },
+      {
+        "connect_us": 6357,
+        "ok": true,
+        "query_us": 3953,
+        "rcode": 0,
+        "round": 2,
+        "server": 3,
+        "tcp": true
+      },
+      {
+        "connect_us": 6357,
+        "ok": true,
+        "query_us": 4090,
+        "rcode": 0,
+        "round": 3,
+        "server": 3,
+        "tcp": true
+      },
+      {
+        "connect_us": 6357,
+        "ok": true,
+        "query_us": 3971,
+        "rcode": 0,
+        "round": 4,
+        "server": 3,
+        "tcp": true
+      },
+      {
+        "elapsed_us": 11452,
+        "mode": "application_domain_connect",
+        "ok": true,
+        "round": 0
+      },
+      {
+        "elapsed_us": 10650,
+        "mode": "application_domain_connect",
+        "ok": true,
+        "round": 1
+      },
+      {
+        "elapsed_us": 10335,
+        "mode": "application_domain_connect",
+        "ok": true,
+        "round": 2
+      },
+      {
+        "elapsed_us": 10609,
+        "mode": "application_domain_connect",
+        "ok": true,
+        "round": 3
+      },
+      {
+        "elapsed_us": 10219,
+        "mode": "application_domain_connect",
+        "ok": true,
+        "round": 4
+      }
+    ],
+    "summary": {
+      "udp": {
+        "count": 20,
+        "successes": 20,
+        "median_query_ms": 4.0665,
+        "min_query_ms": 3.724,
+        "max_query_ms": 5.534
+      },
+      "tcp": {
+        "count": 20,
+        "successes": 20,
+        "median_query_ms": 3.9619999999999997,
+        "min_query_ms": 3.792,
+        "max_query_ms": 4.333,
+        "median_first_connect_ms": 6.157
+      }
+    },
+    "status": "passed",
+    "cache_scope": "fresh client queries; upstream cache state uncontrolled"
+  },
+  "nested_wireguard": {
+    "status": "startup_failed",
+    "outer_h3": "handshake timeout around 35 seconds",
+    "outer_h2": "handshake timeout around 35 seconds (earlier exploratory run)",
+    "packets_submitted_to_warp_stack": 7,
+    "packets_delivered_to_chain_receive": 0,
+    "dns_measurements": "not_run: authenticated final exit unavailable",
+    "configuration_validity": "user confirmed the same temporary configuration connects in another WireGuard client",
+    "attribution": "no conclusion about where packets were lost or whether a remote policy blocks them"
+  },
+  "tun_created": false,
+  "system_network_changes": false,
+  "notes": "User-authorized proxy-only workstation tests, not isolated platform restoration, Android or external leak evidence. Successful run verifies the loopback listener closes.",
+  "nested_wireguard_sg": {
+    "profile_label": "user-supplied temporary SG WireGuard profile",
+    "source_digest_sha256": "e5ba0ee23e6b589f8217d83e6f04a65dbdfb126bfbec03c1eb64dcf2c2f6f865",
+    "test_binary_sha256": "ca9a8c21c9d66d15d196cdb5e27f67c0da1e0414aed833f75ecf31ac0657299b",
+    "tun_created": false,
+    "system_network_changes": false,
+    "cache_scope": "fresh client queries; recursive-server cache state uncontrolled",
+    "path": "loopback SOCKS5 -> WARP CONNECT-IP -> WireGuard -> configured DNS",
+    "runs": {
+      "h3": {
+        "status": "passed",
+        "summary": {
+          "udp": {
+            "count": 5,
+            "successes": 5,
+            "median_query_ms": 46.211,
+            "min_query_ms": 46.033,
+            "max_query_ms": 48.419,
+            "mad_query_ms": 0.17799999999999727
+          },
+          "tcp": {
+            "count": 5,
+            "successes": 5,
+            "median_query_ms": 114.227,
+            "min_query_ms": 88.067,
+            "max_query_ms": 156.62,
+            "mad_query_ms": 23.836,
+            "first_connect_ms": 47.277
+          },
+          "domain_connect": {
+            "count": 5,
+            "successes": 5,
+            "median_ms": 93.726
+          }
+        },
+        "samples": [
+          {
+            "transport": "Http3",
+            "warp_only": false
+          },
+          {
+            "failure": null,
+            "phase": "ConnectingWarp",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "ConnectingServer",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "ConnectingServer",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "ConfiguringNetwork",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "ConfiguringNetwork",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "Connected",
+            "warp_phase": null
+          },
+          {
+            "elapsed_us": 348584,
+            "loopback_port": 33716,
+            "ok": true,
+            "stage": "startup",
+            "tun": false
+          },
+          {
+            "connect_us": 1295,
+            "ok": true,
+            "query_us": 46211,
+            "rcode": 0,
+            "round": 0,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 1295,
+            "ok": true,
+            "query_us": 48419,
+            "rcode": 0,
+            "round": 1,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 1295,
+            "ok": true,
+            "query_us": 46033,
+            "rcode": 0,
+            "round": 2,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 1295,
+            "ok": true,
+            "query_us": 47012,
+            "rcode": 0,
+            "round": 3,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 1295,
+            "ok": true,
+            "query_us": 46143,
+            "rcode": 0,
+            "round": 4,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 47277,
+            "ok": true,
+            "query_us": 114227,
+            "rcode": 0,
+            "round": 0,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "connect_us": 47277,
+            "ok": true,
+            "query_us": 156620,
+            "rcode": 0,
+            "round": 1,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "connect_us": 47277,
+            "ok": true,
+            "query_us": 88067,
+            "rcode": 0,
+            "round": 2,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "connect_us": 47277,
+            "ok": true,
+            "query_us": 137502,
+            "rcode": 0,
+            "round": 3,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "connect_us": 47277,
+            "ok": true,
+            "query_us": 90391,
+            "rcode": 0,
+            "round": 4,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "elapsed_us": 116587,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 0
+          },
+          {
+            "elapsed_us": 93726,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 1
+          },
+          {
+            "elapsed_us": 93869,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 2
+          },
+          {
+            "elapsed_us": 93715,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 3
+          },
+          {
+            "elapsed_us": 93544,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 4
+          }
+        ],
+        "chain_udp_packets_submitted": 49,
+        "chain_udp_packets_received": 84,
+        "loopback_listener_closed_assertion": "passed"
+      },
+      "h2": {
+        "status": "passed",
+        "summary": {
+          "udp": {
+            "count": 5,
+            "successes": 5,
+            "median_query_ms": 46.793,
+            "min_query_ms": 46.37,
+            "max_query_ms": 47.715,
+            "mad_query_ms": 0.2289999999999992
+          },
+          "tcp": {
+            "count": 5,
+            "successes": 5,
+            "median_query_ms": 91.8,
+            "min_query_ms": 87.797,
+            "max_query_ms": 154.551,
+            "mad_query_ms": 4.003,
+            "first_connect_ms": 52.772
+          },
+          "domain_connect": {
+            "count": 5,
+            "successes": 5,
+            "median_ms": 94.924
+          }
+        },
+        "samples": [
+          {
+            "transport": "Http2",
+            "warp_only": false
+          },
+          {
+            "failure": null,
+            "phase": "ConnectingWarp",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "ConnectingServer",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "ConnectingServer",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "ConfiguringNetwork",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "ConfiguringNetwork",
+            "warp_phase": null
+          },
+          {
+            "failure": null,
+            "phase": "Connected",
+            "warp_phase": null
+          },
+          {
+            "elapsed_us": 125390,
+            "loopback_port": 33729,
+            "ok": true,
+            "stage": "startup",
+            "tun": false
+          },
+          {
+            "connect_us": 1374,
+            "ok": true,
+            "query_us": 47022,
+            "rcode": 0,
+            "round": 0,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 1374,
+            "ok": true,
+            "query_us": 47715,
+            "rcode": 0,
+            "round": 1,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 1374,
+            "ok": true,
+            "query_us": 46793,
+            "rcode": 0,
+            "round": 2,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 1374,
+            "ok": true,
+            "query_us": 46687,
+            "rcode": 0,
+            "round": 3,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 1374,
+            "ok": true,
+            "query_us": 46370,
+            "rcode": 0,
+            "round": 4,
+            "server": 0,
+            "tcp": false
+          },
+          {
+            "connect_us": 52772,
+            "ok": true,
+            "query_us": 117831,
+            "rcode": 0,
+            "round": 0,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "connect_us": 52772,
+            "ok": true,
+            "query_us": 154551,
+            "rcode": 0,
+            "round": 1,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "connect_us": 52772,
+            "ok": true,
+            "query_us": 90470,
+            "rcode": 0,
+            "round": 2,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "connect_us": 52772,
+            "ok": true,
+            "query_us": 91800,
+            "rcode": 0,
+            "round": 3,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "connect_us": 52772,
+            "ok": true,
+            "query_us": 87797,
+            "rcode": 0,
+            "round": 4,
+            "server": 0,
+            "tcp": true
+          },
+          {
+            "elapsed_us": 94924,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 0
+          },
+          {
+            "elapsed_us": 94687,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 1
+          },
+          {
+            "elapsed_us": 97103,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 2
+          },
+          {
+            "elapsed_us": 94453,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 3
+          },
+          {
+            "elapsed_us": 358610,
+            "mode": "application_domain_connect",
+            "ok": true,
+            "round": 4
+          }
+        ],
+        "chain_udp_packets_submitted": 49,
+        "chain_udp_packets_received": 42,
+        "loopback_listener_closed_assertion": "passed"
+      }
+    }
+  }
+}

@@ -888,6 +888,23 @@ struct Connection {
     cancellation: CancellationToken,
     task: AbortOnDropHandle<()>,
 }
+
+#[derive(Default)]
+struct UdpTransportCounts {
+    sent: std::sync::atomic::AtomicU64,
+    received: std::sync::atomic::AtomicU64,
+}
+impl Drop for UdpTransportCounts {
+    fn drop(&mut self) {
+        // Counts only; no endpoint, configuration, key or packet contents.
+        tracing::info!(
+            gate_event = "UDP_CLOSED",
+            sent_packets = self.sent.load(std::sync::atomic::Ordering::Relaxed),
+            received_packets = self.received.load(std::sync::atomic::Ordering::Relaxed),
+            "Chain UDP transport ended"
+        );
+    }
+}
 impl Connection {
     #[expect(
         clippy::too_many_arguments,
@@ -907,10 +924,16 @@ impl Connection {
         let task = tokio::spawn(async move {
             let work = async {
                 if udp {
+                    let counts = UdpTransportCounts::default();
                     let socket = warp
                         .bind_udp(remote, &cancel)
                         .await
                         .map_err(std::io::Error::from)?;
+                    tracing::info!(
+                        gate_event = "UDP_CONNECTED",
+                        ipv6 = remote.is_ipv6(),
+                        "Chain WARP UDP transport ready"
+                    );
                     input
                         .transport_connected(generation)
                         .await
@@ -918,6 +941,9 @@ impl Connection {
                     let receive = async {
                         loop {
                             let packet = socket.recv().await.map_err(std::io::Error::from)?;
+                            counts
+                                .received
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             input
                                 .receive_transport_owned(generation, packet)
                                 .await
@@ -933,6 +959,9 @@ impl Connection {
                                 .await
                                 .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
                             socket.send(&packet).await.map_err(std::io::Error::from)?;
+                            counts
+                                .sent
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
                         #[allow(unreachable_code)]
                         Ok::<(), std::io::Error>(())

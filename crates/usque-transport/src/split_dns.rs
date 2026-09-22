@@ -3,6 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::dns::QuerySocket as StackUdpSocket;
 use bytes::Bytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, UdpSocket};
@@ -12,7 +13,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
-use ts_netstack_smoltcp::netsock::{TcpListener as StackTcpListener, UdpSocket as StackUdpSocket};
+use ts_netstack_smoltcp::netsock::TcpListener as StackTcpListener;
 
 use crate::encrypted_dns::{DirectDnsError, DirectDnsQueryContext, DirectDnsResolver};
 use crate::geo_direct::{GeoDirectPolicy, GeoRoute};
@@ -213,6 +214,7 @@ pub(crate) struct SplitDnsResolver {
     assigned_ipv6: Ipv6Addr,
     tunnel_servers: Vec<SocketAddr>,
     final_exit: bool,
+    final_tcp: Option<Arc<crate::dns_stream::StreamDns>>,
     policy: Arc<GeoDirectPolicy>,
     protector: Arc<dyn SocketProtector>,
     hints: Arc<DnsRouteCache>,
@@ -236,6 +238,7 @@ impl SplitDnsResolver {
             assigned_ipv4: Ipv4Addr::UNSPECIFIED,
             assigned_ipv6: Ipv6Addr::UNSPECIFIED,
             final_exit: false,
+            final_tcp: None,
             tunnel_servers: servers.iter().map(|ip| SocketAddr::new(*ip, 53)).collect(),
             policy,
             protector,
@@ -392,12 +395,40 @@ impl SplitDnsResolver {
         transport: QueryTransport,
     ) -> Result<Vec<u8>, String> {
         if self.final_exit {
-            crate::final_dns::query(
-                &self.tunnel_servers,
-                tokio::time::Instant::now() + DNS_TIMEOUT,
-                |server, _| async move {
-                    self.query_servers(query_bytes, query, transport, &[server], false)
+            let deadline = tokio::time::Instant::now() + DNS_TIMEOUT;
+            if transport == QueryTransport::Tcp {
+                return crate::final_dns::query(
+                    &self.tunnel_servers,
+                    deadline,
+                    |server, _| async move {
+                        self.query_servers(
+                            query_bytes,
+                            query,
+                            QueryTransport::Tcp,
+                            &[server],
+                            false,
+                        )
                         .await
+                    },
+                )
+                .await;
+            }
+            crate::final_dns::query_auto(
+                &self.tunnel_servers,
+                deadline,
+                |server, method, _| async move {
+                    let method = match method {
+                        crate::final_dns::Transport::Udp => QueryTransport::Udp,
+                        crate::final_dns::Transport::Tcp => QueryTransport::Tcp,
+                    };
+                    let response = self
+                        .query_servers(query_bytes, query, method, &[server], false)
+                        .await?;
+                    Ok(if response.len() > MAX_UDP_MESSAGE {
+                        truncated_response(query_bytes)
+                    } else {
+                        response
+                    })
                 },
             )
             .await
@@ -509,7 +540,7 @@ impl SplitDnsResolver {
     }
 
     async fn tunnel_tcp(&self, server: SocketAddr, query: &[u8]) -> Result<Vec<u8>, String> {
-        if let Some(dns) = &self.stream_dns {
+        if let Some(dns) = self.final_tcp.as_ref().or(self.stream_dns.as_ref()) {
             return dns
                 .query(server, query, tokio::time::Instant::now() + DNS_TIMEOUT)
                 .await
@@ -597,14 +628,18 @@ impl SplitDnsRuntime {
         {
             return Err("the selected physical network has no DNS server".to_owned());
         }
-        let udp_v4 = internal_channel
-            .udp_bind(SocketAddr::new(SPLIT_DNS_IPV4.into(), DNS_PORT))
-            .await
-            .map_err(|error| error.to_string())?;
-        let udp_v6 = internal_channel
-            .udp_bind(SocketAddr::new(SPLIT_DNS_IPV6.into(), DNS_PORT))
-            .await
-            .map_err(|error| error.to_string())?;
+        let udp_v4 = StackUdpSocket::bind(
+            internal_channel.clone(),
+            SocketAddr::new(SPLIT_DNS_IPV4.into(), DNS_PORT),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        let udp_v6 = StackUdpSocket::bind(
+            internal_channel.clone(),
+            SocketAddr::new(SPLIT_DNS_IPV6.into(), DNS_PORT),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
         let tcp_v4 = internal_channel
             .tcp_listen(SocketAddr::new(SPLIT_DNS_IPV4.into(), DNS_PORT))
             .await
@@ -628,10 +663,19 @@ impl SplitDnsRuntime {
             ))
         };
         let resolver = SplitDnsResolver {
-            tunnel_channel: Some(config.tunnel_channel),
+            tunnel_channel: Some(config.tunnel_channel.clone()),
             stream_dns: None,
             assigned_ipv4: config.assigned_addresses.0,
             assigned_ipv6: config.assigned_addresses.1,
+            final_tcp: config.final_exit.then(|| {
+                Arc::new(crate::dns_stream::StreamDns::over_stack(
+                    config.tunnel_channel.clone(),
+                    config.assigned_addresses.0,
+                    config.assigned_addresses.1,
+                    config.protector.clone(),
+                    cancellation.child_token(),
+                ))
+            }),
             final_exit: config.final_exit,
             tunnel_servers: config
                 .tunnel_dns_servers
@@ -682,41 +726,75 @@ async fn run_udp_server(
     cancellation: CancellationToken,
 ) {
     let (responses_tx, mut responses_rx) = mpsc::channel::<DnsUdpReply>(MAX_IN_FLIGHT);
-    loop {
-        tokio::select! {
-            _ = cancellation.cancelled() => break,
-            response = responses_rx.recv() => {
-                let Some(response) = response else { break; };
-                let body = reply_for_generation(&response.query, response.response, response.generation, resolver.protector.network_generation());
-                let _ = socket.send_to(response.client, &body).await;
-            }
-            query = socket.recv_from_bytes() => {
-                let Ok((client, query)) = query else { break; };
-                if query.len() > MAX_UDP_MESSAGE {
-                    let _ = socket.send_to(client, &error_response(&query, RCODE_FORMERR)).await;
-                    continue;
-                }
-                let Ok(task_permit) = resolver.service_tasks.clone().try_acquire_owned() else {
-                    let _ = socket.send_to(client, &error_response(&query, RCODE_SERVFAIL)).await;
-                    continue;
+    let children = cancellation.child_token();
+    let receive = async {
+        loop {
+            // This socket RPC remains alive while the independent writer sends
+            // replies. Cancelling a completed Recv RPC would discard its packet.
+            let Ok((client, query)) = socket.recv_from_bytes().await else {
+                break;
+            };
+            let generation = resolver.protector.network_generation();
+            let permit = if query.len() <= MAX_UDP_MESSAGE {
+                resolver.service_tasks.clone().try_acquire_owned().ok()
+            } else {
+                None
+            };
+            let Some(permit) = permit else {
+                let code = if query.len() > MAX_UDP_MESSAGE {
+                    RCODE_FORMERR
+                } else {
+                    RCODE_SERVFAIL
                 };
-                let resolver = resolver.clone();
-                let responses = responses_tx.clone();
-                let child = cancellation.child_token();
-                let generation = resolver.protector.network_generation();
-                tokio::spawn(async move {
-                    let _task_permit = task_permit;
-                    tokio::select! {
-                        _ = child.cancelled() => {},
-                        _ = async {
-                            let response = resolver.handle(&query, QueryTransport::Udp).await;
-                            let _ = responses.send(DnsUdpReply { client, response, query: query.to_vec(), generation, _permit: _task_permit }).await;
-                        } => {},
-                    }
-                });
+                // Rejected oversized datagrams must not inflate the bounded
+                // reply queue beyond its normal per-query byte allowance.
+                let query = query.slice(..query.len().min(MAX_UDP_MESSAGE));
+                if responses_tx
+                    .send(DnsUdpReply {
+                        client,
+                        response: error_response(&query, code),
+                        query: query.to_vec(),
+                        generation,
+                        _permit: None,
+                    })
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                continue;
+            };
+            let resolver = resolver.clone();
+            let responses = responses_tx.clone();
+            let child = children.child_token();
+            tokio::spawn(async move {
+                tokio::select! {
+                    biased;
+                    _ = child.cancelled() => {},
+                    _ = async {
+                        let response = resolver.handle(&query, QueryTransport::Udp).await;
+                        let _ = responses.send(DnsUdpReply { client, response, query: query.to_vec(),
+                            generation, _permit: Some(permit) }).await;
+                    } => {},
+                }
+            });
+        }
+    };
+    let send = async {
+        while let Some(response) = responses_rx.recv().await {
+            let body = reply_for_generation(
+                &response.query,
+                response.response,
+                response.generation,
+                resolver.protector.network_generation(),
+            );
+            if socket.send_to(response.client, &body).await.is_err() {
+                break;
             }
         }
-    }
+    };
+    tokio::select! { biased; _ = cancellation.cancelled() => {}, _ = receive => {}, _ = send => {} }
+    children.cancel();
 }
 
 struct DnsUdpReply {
@@ -724,7 +802,7 @@ struct DnsUdpReply {
     query: Vec<u8>,
     response: Vec<u8>,
     generation: Option<u64>,
-    _permit: tokio::sync::OwnedSemaphorePermit,
+    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
 fn reply_for_generation(
@@ -1470,6 +1548,209 @@ fn read_u32(packet: &[u8], offset: usize) -> Result<u32, String> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[tokio::test]
+    async fn final_dns_uses_and_reuses_tcp_when_udp_has_no_answer() {
+        use std::sync::atomic::AtomicUsize;
+        use tokio_util::task::AbortOnDropHandle;
+        use ts_netstack_smoltcp::HasChannel;
+        use ts_netstack_smoltcp::netcore::{Config, NetstackControl};
+        let (client, mut a) = crate::netstack::bounded_piped(Config::default());
+        let (server, mut b) = crate::netstack::bounded_piped(Config::default());
+        let client_channel = client.command_channel();
+        let server_channel = server.command_channel();
+        let _client = AbortOnDropHandle::new(client.spawn_tokio());
+        let _server = AbortOnDropHandle::new(server.spawn_tokio());
+        let client_ip = Ipv4Addr::new(10, 8, 0, 2);
+        let server_ip = Ipv4Addr::new(10, 8, 0, 3);
+        client_channel
+            .set_ips([IpAddr::V4(client_ip)])
+            .await
+            .unwrap();
+        server_channel
+            .set_ips([IpAddr::V4(server_ip)])
+            .await
+            .unwrap();
+        let _pipe = AbortOnDropHandle::new(tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    Some(packet) = a.rx.recv_async() => { b.tx.send_owned_async(packet).await; },
+                    Some(packet) = b.rx.recv_async() => { a.tx.send_owned_async(packet).await; },
+                    else => break,
+                }
+            }
+        }));
+        let listener = server_channel
+            .tcp_listen(SocketAddr::new(server_ip.into(), 53))
+            .await
+            .unwrap();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let accepted = connections.clone();
+        let _peer = AbortOnDropHandle::new(tokio::spawn(async move {
+            let mut tasks = tokio::task::JoinSet::new();
+            loop {
+                let Ok(mut stream) = listener.accept().await else {
+                    break;
+                };
+                accepted.fetch_add(1, Ordering::SeqCst);
+                tasks.spawn(async move {
+                    while let Ok(length) = stream.read_u16().await {
+                        let mut request = vec![0; usize::from(length)];
+                        stream.read_exact(&mut request).await.unwrap();
+                        let mut response = error_response(&request, 0); // valid NODATA
+                        if parse_query(&request).unwrap().questions[0].name == "truncated.example" {
+                            response[2] |= 2;
+                        }
+                        stream.write_u16(response.len() as u16).await.unwrap();
+                        stream.write_all(&response).await.unwrap();
+                    }
+                });
+            }
+        }));
+        let protector = Arc::new(crate::socket::NoopSocketProtector);
+        let resolver = SplitDnsResolver {
+            tunnel_channel: Some(client_channel.clone()),
+            stream_dns: None,
+            assigned_ipv4: client_ip,
+            assigned_ipv6: Ipv6Addr::UNSPECIFIED,
+            tunnel_servers: vec![SocketAddr::new(server_ip.into(), 53)],
+            final_exit: true,
+            final_tcp: Some(Arc::new(crate::dns_stream::StreamDns::over_stack(
+                client_channel.clone(),
+                client_ip,
+                Ipv6Addr::UNSPECIFIED,
+                protector.clone(),
+                CancellationToken::new(),
+            ))),
+            policy: Arc::new(GeoDirectPolicy::disabled()),
+            protector: protector.clone(),
+            hints: Arc::new(DnsRouteCache::default()),
+            permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            service_tasks: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            quality: NetworkQualityTelemetry::default(),
+            direct_queue: None,
+        };
+        for id in 1..=2 {
+            let request = query(id, "memory.example");
+            let started = tokio::time::Instant::now();
+            let response = resolver.handle(&request, QueryTransport::Udp).await;
+            assert_eq!(read_u16(&response, 2).unwrap() & 15, 0);
+            validate_response_bytes(&request, &response).unwrap();
+            assert!(started.elapsed() < Duration::from_secs(1));
+        }
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            1,
+            "sequential hedges reuse their TCP connection"
+        );
+        let rejected = resolver
+            .handle(&query(3, "truncated.example"), QueryTransport::Udp)
+            .await;
+        assert_eq!(read_u16(&rejected, 2).unwrap() & 15, RCODE_SERVFAIL);
+        // The SOCKS/HTTP resolver uses the same policy, independently of the
+        // synthetic system-VPN DNS listener, and accepts valid negative answers.
+        let resolver = crate::dns::Resolver::new(
+            client_channel,
+            client_ip,
+            Ipv6Addr::UNSPECIFIED,
+            vec![server_ip.into()],
+            usque_core::ProxyDnsMode::Remote,
+            protector,
+        )
+        .with_final_exit(true, CancellationToken::new());
+        let started = tokio::time::Instant::now();
+        assert!(resolver.resolve("memory.example").await.is_err()); // NODATA for A and AAAA
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(connections.load(Ordering::SeqCst), 3); // Two simultaneous questions, bounded pool.
+    }
+
+    #[tokio::test]
+    async fn concurrent_udp_queries_survive_reply_delivery() {
+        use ts_netstack_smoltcp::netcore::smoltcp::{iface::SocketSet, socket::udp as raw_udp};
+        use ts_netstack_smoltcp::netcore::{Request, Response, flume, udp};
+        const COUNT: usize = 128;
+        let mut sockets = SocketSet::new(vec![]);
+        let buffer =
+            || raw_udp::PacketBuffer::new(vec![raw_udp::PacketMetadata::EMPTY; 1], vec![0; 512]);
+        let handle = sockets.add(raw_udp::Socket::new(buffer(), buffer()));
+        let (commands, requests) = flume::bounded::<Request>(16);
+        let (seen, mut replies) = mpsc::channel(COUNT);
+        let stack = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            let mut next = 0;
+            let mut pending = Vec::new();
+            while let Ok(request) = requests.recv_async().await {
+                let response = match request.command {
+                    ts_netstack_smoltcp::netcore::Command::Udp(udp::Command::Bind { endpoint }) => {
+                        udp::Response::Bound {
+                            handle,
+                            local: endpoint,
+                        }
+                        .into()
+                    }
+                    ts_netstack_smoltcp::netcore::Command::Udp(udp::Command::Recv { .. }) => {
+                        if next == COUNT {
+                            pending.push(request.resp);
+                            continue;
+                        }
+                        next += 1;
+                        udp::Response::RecvFrom {
+                            remote: "127.0.0.1:55001".parse().unwrap(),
+                            buf: Bytes::from(query(next as u16, "memory.example")),
+                            truncated: None,
+                        }
+                        .into()
+                    }
+                    ts_netstack_smoltcp::netcore::Command::Udp(udp::Command::Send {
+                        buf, ..
+                    }) => {
+                        seen.send(read_u16(&buf, 0).unwrap()).await.unwrap();
+                        Response::Ok
+                    }
+                    _ => Response::Ok,
+                };
+                // A queued RPC result can be ready at the same time as an
+                // earlier DNS reply. Dropping the receive future loses it.
+                let _ = request.resp.send(response);
+                tokio::task::yield_now().await;
+            }
+        }));
+        let socket = StackUdpSocket::bind(commands.downgrade(), "198.18.0.1:53".parse().unwrap())
+            .await
+            .unwrap();
+        let cancel = CancellationToken::new();
+        let resolver = SplitDnsResolver {
+            tunnel_channel: None,
+            stream_dns: None,
+            assigned_ipv4: "10.8.0.2".parse().unwrap(),
+            assigned_ipv6: Ipv6Addr::UNSPECIFIED,
+            tunnel_servers: vec![],
+            final_exit: true,
+            final_tcp: None,
+            policy: Arc::new(GeoDirectPolicy::disabled()),
+            protector: Arc::new(crate::socket::NoopSocketProtector),
+            hints: Arc::new(DnsRouteCache::default()),
+            permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            service_tasks: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            quality: NetworkQualityTelemetry::default(),
+            direct_queue: None,
+        };
+        let server = tokio::spawn(run_udp_server(socket, resolver, cancel.clone()));
+        let mut received = HashSet::new();
+        let result = timeout(Duration::from_secs(2), async {
+            while received.len() < COUNT {
+                assert!(received.insert(replies.recv().await.unwrap()));
+            }
+        })
+        .await;
+        cancel.cancel();
+        server.await.unwrap();
+        drop(stack);
+        assert!(
+            result.is_ok(),
+            "received only {} of {COUNT} queries",
+            received.len()
+        );
+    }
+
     #[tokio::test(start_paused = true)]
     async fn empty_final_dns_returns_servfail_without_fallback_or_delay() {
         let resolver = SplitDnsResolver {
@@ -1479,6 +1760,7 @@ pub(crate) mod tests {
             assigned_ipv6: Ipv6Addr::UNSPECIFIED,
             tunnel_servers: vec![],
             final_exit: true,
+            final_tcp: None,
             policy: Arc::new(GeoDirectPolicy::disabled()),
             protector: Arc::new(crate::socket::NoopSocketProtector),
             hints: Arc::new(DnsRouteCache::default()),
@@ -1532,6 +1814,7 @@ pub(crate) mod tests {
             assigned_ipv6: "2001:db8::2".parse().unwrap(),
             tunnel_servers: Vec::new(),
             final_exit: false,
+            final_tcp: None,
             policy: Arc::new(policy()),
             protector,
             hints: Arc::new(DnsRouteCache::default()),
@@ -1824,15 +2107,29 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn physical_resolver_retries_truncated_udp_over_tcp() {
-        // Windows reserves some TCP ranges independently of UDP. Let TCP
-        // choose its ephemeral port before binding the matching UDP endpoint.
-        let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let port = tcp.local_addr().unwrap().port();
-        let udp = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, port))
-            .await
-            .unwrap();
+        // TCP and UDP reservations differ on Windows. Retain both successful
+        // binds, retrying only port conflicts/restrictions with a finite bound.
+        // If the host blocks all candidates this still fails, never skips.
+        let mut pair = None;
+        for _ in 0..32 {
+            let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+                .await
+                .unwrap();
+            let port = tcp.local_addr().unwrap().port();
+            match tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, port)).await {
+                Ok(udp) => {
+                    pair = Some((tcp, udp, port));
+                    break;
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied
+                    ) => {}
+                Err(error) => panic!("loopback UDP bind failed: {error}"),
+            }
+        }
+        let (tcp, udp, port) = pair.expect("no shared loopback TCP/UDP port available");
         let udp_task = tokio::spawn(async move {
             let mut packet = [0_u8; 512];
             for _ in 0..2 {

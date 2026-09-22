@@ -46,6 +46,8 @@ use usque_transport::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+#[cfg(all(test, windows))]
+mod chain_dns_live_tests;
 mod chain_exit;
 pub mod diagnostics;
 #[cfg(any(windows, test))]

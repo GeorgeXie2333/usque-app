@@ -33,12 +33,26 @@ pub(crate) struct Resolver {
     servers: Vec<IpAddr>,
     mode: ProxyDnsMode,
     final_exit: bool,
+    final_tcp: Option<Arc<crate::dns_stream::StreamDns>>,
     protector: Arc<dyn SocketProtector>,
 }
 
 impl Resolver {
-    pub(crate) fn with_final_exit(mut self, enabled: bool) -> Self {
+    pub(crate) fn with_final_exit(
+        mut self,
+        enabled: bool,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Self {
         self.final_exit = enabled;
+        self.final_tcp = self.channel.as_ref().filter(|_| enabled).map(|channel| {
+            Arc::new(crate::dns_stream::StreamDns::over_stack(
+                channel.clone(),
+                self.assigned_ipv4,
+                self.assigned_ipv6,
+                self.protector.clone(),
+                cancellation.clone(),
+            ))
+        });
         self
     }
     pub(crate) fn for_streams(
@@ -55,6 +69,7 @@ impl Resolver {
             servers,
             mode,
             final_exit: false,
+            final_tcp: None,
             protector,
         }
     }
@@ -75,6 +90,7 @@ impl Resolver {
             servers,
             mode,
             final_exit: false,
+            final_tcp: None,
             protector,
         }
     }
@@ -182,10 +198,21 @@ impl Resolver {
     ) -> Result<Vec<IpAddr>, TransportError> {
         let transaction_id = NEXT_DNS_ID.fetch_add(1, Ordering::Relaxed);
         let query = encode_query(transaction_id, name, query_type)?;
-        let query_server = |server, deadline| {
+        let query_server = |server, transport, deadline| {
             let query = &query;
             async move {
                 let remote = SocketAddr::new(server, DNS_PORT);
+                if transport == crate::final_dns::Transport::Tcp {
+                    let dns = self
+                        .final_tcp
+                        .as_ref()
+                        .ok_or_else(|| TransportError::Dns("TCP DNS unavailable".into()))?;
+                    let response = dns
+                        .query(remote, query, deadline)
+                        .await
+                        .map_err(|error| TransportError::Dns(error.to_string()))?;
+                    return decode_query_response(query, &response, query_type);
+                }
                 if let Some(dns) = &self.stream_dns {
                     let response = dns
                         .query(remote, query, deadline)
@@ -224,19 +251,32 @@ impl Resolver {
                         "DNS response source mismatch".to_owned(),
                     ));
                 }
+                if self.final_exit && read_u16(&response, 2)? & 0x0200 != 0 {
+                    crate::split_dns::validate_response_bytes(query, &response)
+                        .map_err(TransportError::Dns)?;
+                    let dns = self
+                        .final_tcp
+                        .as_ref()
+                        .ok_or_else(|| TransportError::Dns("TCP DNS unavailable".into()))?;
+                    let response = dns
+                        .query(remote, query, deadline)
+                        .await
+                        .map_err(|error| TransportError::Dns(error.to_string()))?;
+                    return decode_query_response(query, &response, query_type);
+                }
                 decode_query_response(query, &response, query_type)
             }
         };
         if self.final_exit {
-            crate::final_dns::query(&self.servers, deadline, |server, deadline| {
-                let future = query_server(server, deadline);
+            crate::final_dns::query_auto(&self.servers, deadline, |server, transport, deadline| {
+                let future = query_server(server, transport, deadline);
                 async move { future.await.map_err(|error| error.to_string()) }
             })
             .await
             .map_err(TransportError::Dns)
         } else {
             query_servers(&self.servers, deadline, |server| {
-                query_server(server, deadline)
+                query_server(server, crate::final_dns::Transport::Udp, deadline)
             })
             .await
         }
