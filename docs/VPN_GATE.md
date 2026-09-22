@@ -1,7 +1,7 @@
 # WARP → VPN Gate
 
 VPN Gate is the third source in [Chain proxy](CHAIN_PROXY.md), after
-**OpenVPN (Custom)** and **WireGuard (Custom)**. This reference describes the
+**OpenVPN** and **WireGuard**. This reference describes the
 VPN Gate catalogue, trust restrictions and shared OpenVPN driver.
 
 VPN Gate lets you choose a volunteer server as the final Internet exit on

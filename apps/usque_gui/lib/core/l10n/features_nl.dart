@@ -477,9 +477,9 @@ const Map<String, String> kChainNl = <String, String>{
   'invalid_configuration':
       'De configuratie is ongeldig of bevat niet-ondersteunde opties.',
   'looks_like_wireguard':
-      'Dit lijkt een WireGuard-configuratie. Zet de uitgangsbron op WireGuard (Custom).',
+      'Dit lijkt een WireGuard-configuratie. Zet de uitgangsbron op WireGuard.',
   'looks_like_openvpn':
-      'Dit lijkt een OpenVPN-configuratie. Zet de uitgangsbron op OpenVPN (Custom).',
+      'Dit lijkt een OpenVPN-configuratie. Zet de uitgangsbron op OpenVPN.',
   'error_location': '{message} ({field}, regel {line})',
   'error_field': '{message} ({field})',
   'file_unavailable':
@@ -492,6 +492,8 @@ const Map<String, String> kChainNl = <String, String>{
   'unsupported_or_duplicate_section':
       'Gebruik één sectie Interface en één sectie Peer.',
   'missing_field': 'Een verplicht veld ontbreekt.',
+  'invalid_name':
+      'Gebruik een naam van 1 tot 64 tekens zonder besturingstekens.',
   'invalid_key':
       'De sleutel moet een geldige Base64-sleutel van 32 bytes zijn.',
   'checking': 'Configuratie wordt gecontroleerd…',

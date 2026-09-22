@@ -472,9 +472,9 @@ const Map<String, String> kChainPl = <String, String>{
   'invalid_configuration':
       'Konfiguracja jest nieprawidłowa albo zawiera nieobsługiwane opcje.',
   'looks_like_wireguard':
-      'To wygląda na konfigurację WireGuard. Przełącz źródło wyjścia na WireGuard (Custom).',
+      'To wygląda na konfigurację WireGuard. Przełącz źródło wyjścia na WireGuard.',
   'looks_like_openvpn':
-      'To wygląda na konfigurację OpenVPN. Przełącz źródło wyjścia na OpenVPN (Custom).',
+      'To wygląda na konfigurację OpenVPN. Przełącz źródło wyjścia na OpenVPN.',
   'error_location': '{message} ({field}, wiersz {line})',
   'error_field': '{message} ({field})',
   'file_unavailable': 'Wybór pliku jest niedostępny. Wklej tekst konfiguracji.',
@@ -485,6 +485,8 @@ const Map<String, String> kChainPl = <String, String>{
   'unsupported_or_duplicate_section':
       'Użyj jednej sekcji Interface i jednej sekcji Peer.',
   'missing_field': 'Brakuje wymaganego pola.',
+  'invalid_name':
+      'Użyj nazwy o długości od 1 do 64 znaków bez znaków sterujących.',
   'invalid_key':
       'Klucz musi być prawidłowym kluczem Base64 o długości 32 bajtów.',
   'checking': 'Sprawdzanie konfiguracji…',

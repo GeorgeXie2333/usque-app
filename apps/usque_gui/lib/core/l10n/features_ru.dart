@@ -470,9 +470,9 @@ const Map<String, String> kChainRu = <String, String>{
   'invalid_configuration':
       'Конфигурация недействительна или содержит неподдерживаемые параметры.',
   'looks_like_wireguard':
-      'Похоже на конфигурацию WireGuard. Переключите источник выхода на WireGuard (Custom).',
+      'Похоже на конфигурацию WireGuard. Переключите источник выхода на WireGuard.',
   'looks_like_openvpn':
-      'Похоже на конфигурацию OpenVPN. Переключите источник выхода на OpenVPN (Custom).',
+      'Похоже на конфигурацию OpenVPN. Переключите источник выхода на OpenVPN.',
   'error_location': '{message} ({field}, строка {line})',
   'error_field': '{message} ({field})',
   'file_unavailable': 'Выбор файла недоступен. Вставьте текст конфигурации.',
@@ -484,6 +484,8 @@ const Map<String, String> kChainRu = <String, String>{
   'unsupported_or_duplicate_section':
       'Используйте по одному разделу Interface и Peer.',
   'missing_field': 'Не хватает обязательного поля.',
+  'invalid_name':
+      'Используйте имя длиной от 1 до 64 символов без управляющих символов.',
   'invalid_key':
       'Ключ должен быть действительным ключом Base64 длиной 32 байта.',
   'checking': 'Проверка конфигурации…',

@@ -425,9 +425,9 @@ const Map<String, String> kChainTh = <String, String>{
   'secure_storage_failed': 'อ่านหรือบันทึกการกำหนดค่าที่เข้ารหัสไม่ได้',
   'invalid_configuration': 'การกำหนดค่าไม่ถูกต้องหรือมีตัวเลือกที่ไม่รองรับ',
   'looks_like_wireguard':
-      'ดูเหมือนการกำหนดค่า WireGuard ให้เปลี่ยนแหล่งทางออกเป็น WireGuard (Custom)',
+      'ดูเหมือนการกำหนดค่า WireGuard ให้เปลี่ยนแหล่งทางออกเป็น WireGuard',
   'looks_like_openvpn':
-      'ดูเหมือนการกำหนดค่า OpenVPN ให้เปลี่ยนแหล่งทางออกเป็น OpenVPN (Custom)',
+      'ดูเหมือนการกำหนดค่า OpenVPN ให้เปลี่ยนแหล่งทางออกเป็น OpenVPN',
   'error_location': '{message} ({field} บรรทัด {line})',
   'error_field': '{message} ({field})',
   'file_unavailable': 'ไม่มีตัวเลือกไฟล์ ให้วางข้อความการกำหนดค่าแทน',
@@ -437,6 +437,7 @@ const Map<String, String> kChainTh = <String, String>{
   'unsupported_or_duplicate_section':
       'ใช้ส่วน Interface และ Peer อย่างละหนึ่งส่วน',
   'missing_field': 'ขาดฟิลด์ที่จำเป็น',
+  'invalid_name': 'ใช้ชื่อยาว 1 ถึง 64 อักขระ และไม่มีอักขระควบคุม',
   'invalid_key': 'กุญแจต้องเป็นกุญแจ Base64 ที่ถูกต้องขนาด 32 ไบต์',
   'checking': 'กำลังตรวจการกำหนดค่า…',
   'changed': 'บันทึกการเปลี่ยนแปลงแล้ว',

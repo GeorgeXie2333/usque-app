@@ -467,9 +467,9 @@ const Map<String, String> kChainUk = <String, String>{
   'invalid_configuration':
       'Конфігурація недійсна або містить непідтримувані параметри.',
   'looks_like_wireguard':
-      'Схоже на конфігурацію WireGuard. Перемкніть джерело виходу на WireGuard (Custom).',
+      'Схоже на конфігурацію WireGuard. Перемкніть джерело виходу на WireGuard.',
   'looks_like_openvpn':
-      'Схоже на конфігурацію OpenVPN. Перемкніть джерело виходу на OpenVPN (Custom).',
+      'Схоже на конфігурацію OpenVPN. Перемкніть джерело виходу на OpenVPN.',
   'error_location': '{message} ({field}, рядок {line})',
   'error_field': '{message} ({field})',
   'file_unavailable': 'Вибір файлу недоступний. Вставте текст конфігурації.',
@@ -481,6 +481,8 @@ const Map<String, String> kChainUk = <String, String>{
   'unsupported_or_duplicate_section':
       'Використовуйте по одному розділу Interface і Peer.',
   'missing_field': 'Бракує обовʼязкового поля.',
+  'invalid_name':
+      'Використовуйте назву від 1 до 64 символів без керівних символів.',
   'invalid_key': 'Ключ має бути дійсним ключем Base64 завдовжки 32 байти.',
   'checking': 'Перевірка конфігурації…',
   'changed': 'Зміни збережено',

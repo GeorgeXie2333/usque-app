@@ -476,9 +476,9 @@ const Map<String, String> kChainIt = <String, String>{
   'invalid_configuration':
       'La configurazione non è valida o contiene opzioni non supportate.',
   'looks_like_wireguard':
-      'Sembra una configurazione WireGuard. Imposta l’origine dell’uscita su WireGuard (Custom).',
+      'Sembra una configurazione WireGuard. Imposta l’origine dell’uscita su WireGuard.',
   'looks_like_openvpn':
-      'Sembra una configurazione OpenVPN. Imposta l’origine dell’uscita su OpenVPN (Custom).',
+      'Sembra una configurazione OpenVPN. Imposta l’origine dell’uscita su OpenVPN.',
   'error_location': '{message} ({field}, riga {line})',
   'error_field': '{message} ({field})',
   'file_unavailable':
@@ -491,6 +491,7 @@ const Map<String, String> kChainIt = <String, String>{
   'unsupported_or_duplicate_section':
       'Usa una sola sezione Interface e una sola sezione Peer.',
   'missing_field': 'Manca un campo obbligatorio.',
+  'invalid_name': 'Usa un nome di 1-64 caratteri senza caratteri di controllo.',
   'invalid_key': 'La chiave deve essere una chiave Base64 valida di 32 byte.',
   'checking': 'Controllo della configurazione…',
   'changed': 'Modifiche salvate',

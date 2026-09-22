@@ -1,21 +1,24 @@
 # Chain proxy / 链式代理
 
-Open **Proxy → Chain proxy**. The source selector is a row of three choices
-that always uses this order:
+Open **Proxy → Chain proxy**. The page switch comes first, then the source
+selector: three choices that always use this order:
 
-1. **OpenVPN (Custom)**
-2. **WireGuard (Custom)**
+1. **OpenVPN**
+2. **WireGuard**
 3. **VPN Gate**
 
-The source names remain English in every locale. A source the running engine
-cannot provide is shown disabled with its reason. One exit is enabled at a time:
+The source names remain English in every locale. On phones and other narrow
+layouts each choice takes its own line; wider layouts keep the row. A source
+the running engine cannot provide is shown disabled with its reason. One exit
+is enabled at a time:
 `Application → WARP → selected chain exit → Internet`. System VPN, SOCKS5 and
 HTTP share the final exit while retaining their own protocol capabilities;
 HTTP CONNECT does not gain UDP support. Explicit direct rules still apply.
 
-打开 **代理 → 链式代理**，来源名称和顺序固定为 **OpenVPN (Custom)**、
-**WireGuard (Custom)**、**VPN Gate**。每次启用一个出口，系统 VPN、SOCKS5 和
-HTTP 共用最终出口，各入口保留自身协议能力，显式直连规则继续生效。
+打开 **代理 → 链式代理**，总开关在最上方，其下的来源名称和顺序固定为
+**OpenVPN**、**WireGuard**、**VPN Gate**；窄屏上每个来源单独占一行。每次启用
+一个出口，系统 VPN、SOCKS5 和 HTTP 共用最终出口，各入口保留自身协议能力，
+显式直连规则继续生效。
 
 ## Import, select and apply / 导入、选用与应用
 
@@ -42,7 +45,9 @@ configuration's details expand under its row. The action bar names the pending
 selection and states why a draft cannot be applied yet; while connected, its
 button reads **Apply and reconnect**. A disconnected connection stays
 disconnected; an active connection applies the new exit using the existing
-connection workflow. Navigating away or switching sources asks before
+connection workflow. Switching sources is browsing, not editing: it never asks
+to discard anything, and a selection made under one source is still there when
+you return to it until settings are applied. Navigating away asks before
 discarding an unapplied draft. **Current connection** shows the live state,
 the endpoint being tried and the connected endpoint, and explains failures and
 missing DNS inline.
@@ -61,6 +66,8 @@ of the selected WARP account.
 或自动连接。打开总开关、选择配置，再在底栏应用。列表会标记已保存的选择、
 当前连接使用的配置以及需要 CONNECT-IP 的配置；所选配置的详情展开在其行下。
 底栏说明待应用的选择及暂时不能应用的原因；已连接时按钮为**应用并重新连接**。
+切换出口来源只是浏览，不会弹出“放弃未应用的修改”提示；在某个来源下做出的
+选择会保留到切回时，直到应用为止。只有离开页面才会询问是否放弃未应用的修改。
 重命名和更新认证信息使用配置菜单；内容变化请重新导入。被选中、已保存或
 当前连接使用的配置不能删除，页面会直接说明原因。切换 WARP 账号不会丢失
 导入配置库。
@@ -69,9 +76,9 @@ of the selected WARP account.
 
 | Source and transport | CONNECT-IP H3/H2 | L4 |
 | --- | --- | --- |
-| OpenVPN (Custom), TCP | Supported | Supported |
-| OpenVPN (Custom), UDP | Supported | Cannot enable |
-| WireGuard (Custom), UDP | Supported | Cannot enable |
+| OpenVPN, TCP | Supported | Supported |
+| OpenVPN, UDP | Supported | Cannot enable |
+| WireGuard, UDP | Supported | Cannot enable |
 | VPN Gate, directory TCP | Supported | Supported |
 
 L4 can store UDP and WireGuard imports. Enabling them requires the explicit
@@ -167,7 +174,7 @@ separate policy. Endpoint resolution through WARP is also separate.
 WireGuard defaults to inner MTU 1280, with explicit MTU in the project's 1280–9000
 range. Its imported MTU controls the final interface; it is not capped by the WARP
 interface's MTU. The WARP stack for a chain uses MTU 1280 separately from the final interface.
-For OpenVPN (Custom) UDP and WireGuard (Custom) over H3, TCP SYN/SYN-ACK MSS
+For OpenVPN UDP and WireGuard over H3, TCP SYN/SYN-ACK MSS
 is capped in both directions so ordinary TCP data fits the 1280-byte WARP
 packet budget after outer IP/UDP headers and protocol overhead. WireGuard
 includes the peer's 16-byte padding; OpenVPN reserves 128 bytes for its supported
@@ -178,7 +185,7 @@ negotiated MSS after a transport change. Authenticated TCP options and fragmente
 SYN packets are not rewritten. This TCP mitigation does not eliminate the need
 for UDP fragmentation or prove every external path's MTU.
 
-H3 搭配 OpenVPN (Custom) UDP 或 WireGuard (Custom) 时，Usque 会在两个方向上限制
+H3 搭配 OpenVPN UDP 或 WireGuard 时，Usque 会在两个方向上限制
 TCP SYN/SYN-ACK 的 MSS，为外层 IP/UDP、协议加密及 WireGuard 填充预留空间。
 较小的 MSS 保持不变；不降低接口 MTU，不改写保存的配置，也不影响直连规则、H2
 或 TCP 出口。外层传输切换后，现有 TCP 连接仍使用建连时的 MSS；新连接使用当前
@@ -221,7 +228,7 @@ These placeholders are not usable credentials. Obtain matching keys/certificates
 and an endpoint from the server administrator. Keep CA verification enabled.
 
 ```ini
-# OpenVPN (Custom): replace the inline PEM with the administrator's CA.
+# OpenVPN: replace the inline PEM with the administrator's CA.
 client
 dev tun
 proto tcp-client
@@ -235,7 +242,7 @@ tls-version-min 1.2
 ```
 
 ```ini
-# WireGuard (Custom): replace every key placeholder with the real Base64 key.
+# WireGuard: replace every key placeholder with the real Base64 key.
 [Interface]
 PrivateKey = <client-private-key>
 Address = 10.8.0.2/32

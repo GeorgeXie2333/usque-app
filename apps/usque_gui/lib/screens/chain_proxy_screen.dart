@@ -30,42 +30,151 @@ class ChainProxyScreen extends StatefulWidget {
   State<ChainProxyScreen> createState() => _ChainProxyScreenState();
 }
 
+/// The stored chain settings, or their legacy equivalent before the first
+/// chain-exit save.
+ChainExitSettings _storedChainExit(UsqueProfile profile) =>
+    profile.chainExit ??
+    ChainExitSettings(
+      enabled: profile.vpnGate.enabled,
+      source: profile.chainSource,
+    );
+
+/// Whether a custom draft changes what is stored.
+///
+/// Looking at another source is not an edit: only the page switch and a
+/// configuration selection count, so switching sources never asks to discard
+/// anything.
+bool _chainPending(ChainExitSettings stored, ChainExitSettings draft) {
+  if (draft.enabled != stored.enabled) return true;
+  if (draft.source != stored.source) return draft.profileId != null;
+  return draft != stored;
+}
+
 class _ChainProxyScreenState extends State<ChainProxyScreen> {
   final _ownGuard = GlobalKey<UnsavedChangesGuardState>();
   GlobalKey<UnsavedChangesGuardState> get _guard =>
       widget.leaveGuardKey ?? _ownGuard;
   late ChainSource _source = widget.controller.activeProfile.chainSource;
-  Future<void> _switch(ChainSource? source) async {
-    if (source == null || source == _source) return;
-    if (!await (_guard.currentState?.confirmLeave() ?? Future.value(true)) ||
-        !mounted) {
-      return;
+
+  /// Unapplied drafts, kept while the user compares sources.
+  ///
+  /// Switching the source is browsing, not editing: it never asks to discard
+  /// anything, and a selection made under one source is still there when the
+  /// user comes back to it. Applied or reloaded settings replace them.
+  final _drafts = <ChainSource, ChainExitSettings>{};
+  VpnGateSettings? _gateDraft;
+  VpnGateServer? _gateServer;
+
+  /// The page switch as the user last left it, under any source.
+  bool? _enabled;
+  late ChainExitSettings? _storedExit =
+      widget.controller.activeProfile.chainExit;
+  AppController get _app => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _app.addListener(_storedChanged);
+  }
+
+  @override
+  void dispose() {
+    _app.removeListener(_storedChanged);
+    super.dispose();
+  }
+
+  void _storedChanged() {
+    final stored = _app.activeProfile.chainExit;
+    if (stored == _storedExit || !mounted) return;
+    setState(() {
+      _storedExit = stored;
+      _drafts.clear();
+      _gateDraft = null;
+      _gateServer = null;
+      _enabled = null;
+    });
+  }
+
+  void _retain(ChainExitSettings draft) {
+    _drafts[draft.source] = draft;
+    _enabled = draft.enabled;
+  }
+
+  void _retainGate(VpnGateSettings draft, VpnGateServer? server) {
+    _gateDraft = draft;
+    _gateServer = server;
+    _enabled = draft.enabled;
+  }
+
+  /// The draft a custom editor for [source] starts from: the draft retained
+  /// for that source, else the stored settings, with the page switch carried
+  /// over from the source the user just left.
+  ChainExitSettings _initialDraft(ChainSource source) {
+    final stored = _storedChainExit(_app.activeProfile);
+    final base =
+        _drafts[source] ??
+        (stored.source == source
+            ? stored
+            : ChainExitSettings(source: source, enabled: stored.enabled));
+    return base.copyWith(enabled: _enabled ?? base.enabled);
+  }
+
+  /// Whether a source other than [current] holds an unapplied draft, so
+  /// leaving the page still asks before discarding it.
+  bool _otherPending(ChainSource current) {
+    final profile = _app.activeProfile;
+    final stored = _storedChainExit(profile);
+    for (final draft in _drafts.values) {
+      if (draft.source != current &&
+          _chainPending(
+            stored,
+            draft.copyWith(enabled: _enabled ?? draft.enabled),
+          )) {
+        return true;
+      }
     }
-    _guard.currentState?.resetDiscardDecision();
+    return current != ChainSource.vpnGate &&
+        _gateDraft != null &&
+        VpnGateScreen.chainPending(
+          profile,
+          _gateDraft!.copyWith(enabled: _enabled),
+        );
+  }
+
+  void _switch(ChainSource? source) {
+    if (source == null || source == _source) return;
     setState(() => _source = source);
   }
 
   @override
   Widget build(BuildContext context) {
     final picker = ChainSourcePicker(
-      controller: widget.controller,
+      controller: _app,
       source: _source,
-      onChanged: (source) => unawaited(_switch(source)),
+      onChanged: _switch,
     );
     if (_source == ChainSource.vpnGate) {
       return VpnGateScreen(
-        controller: widget.controller,
+        controller: _app,
         active: widget.active,
         leaveGuardKey: _guard,
         sourcePicker: picker,
+        initialDraft: _gateDraft?.copyWith(enabled: _enabled),
+        initialServer: _gateServer,
+        initialEnabled: _enabled,
+        onDraftChanged: _retainGate,
+        otherPending: _otherPending(ChainSource.vpnGate),
       );
     }
     return _CustomChainEditor(
       key: ValueKey(_source),
-      controller: widget.controller,
+      controller: _app,
       source: _source,
       picker: picker,
       guard: _guard,
+      initialDraft: _initialDraft(_source),
+      onDraftChanged: _retain,
+      otherPending: _otherPending(_source),
     );
   }
 }
@@ -76,12 +185,18 @@ class _CustomChainEditor extends StatefulWidget {
     required this.source,
     required this.picker,
     required this.guard,
+    required this.initialDraft,
+    required this.onDraftChanged,
+    required this.otherPending,
     super.key,
   });
   final AppController controller;
   final ChainSource source;
   final Widget picker;
   final GlobalKey<UnsavedChangesGuardState> guard;
+  final ChainExitSettings initialDraft;
+  final ValueChanged<ChainExitSettings> onDraftChanged;
+  final bool otherPending;
   @override
   State<_CustomChainEditor> createState() => _CustomChainEditorState();
 }
@@ -98,17 +213,17 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   /// Import, file and library problems, shown beside the import actions.
   String? _libraryError;
   AppController get _app => widget.controller;
-  bool get _dirty => _draft != _baseline;
+  bool get _dirty => _chainPending(_baseline, _draft);
   bool get _supported =>
       (_app.engineCapabilities?.chainProfileImport ?? false) &&
       (widget.source != ChainSource.wireguardCustom ||
           (_app.engineCapabilities?.chainWireguard ?? false));
-  ChainExitSettings get _stored =>
-      _app.activeProfile.chainExit ??
-      ChainExitSettings(
-        enabled: _app.activeProfile.vpnGate.enabled,
-        source: _app.activeProfile.chainSource,
-      );
+  ChainExitSettings get _stored => _storedChainExit(_app.activeProfile);
+
+  /// The stored settings as seen from this source, with nothing pending.
+  ChainExitSettings get _fresh => _baseline.source == widget.source
+      ? _baseline
+      : ChainExitSettings(source: widget.source, enabled: _baseline.enabled);
   ChainProfileSummary? get _selected =>
       _profiles.where((p) => p.id == _draft.profileId).firstOrNull;
   bool get _l4 => _app.activeProfile.dataPlane == DataPlaneMode.l4Proxy;
@@ -135,11 +250,18 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   void initState() {
     super.initState();
     _baseline = _stored;
-    _draft = _baseline.source == widget.source
-        ? _baseline
-        : ChainExitSettings(source: widget.source, enabled: _baseline.enabled);
+    _draft = widget.initialDraft.source == widget.source
+        ? widget.initialDraft
+        : _fresh;
     _app.addListener(_changed);
     unawaited(_load());
+  }
+
+  /// Replaces the draft and lets the page retain it across source switches.
+  void _setDraft(ChainExitSettings draft) {
+    if (draft == _draft) return;
+    _draft = draft;
+    widget.onDraftChanged(draft);
   }
 
   void _changed() {
@@ -150,7 +272,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     }
     if (!_dirty && !_saving) {
       _baseline = _stored;
-      if (_baseline.source == widget.source) _draft = _baseline;
+      _setDraft(_fresh);
     }
     setState(() {});
   }
@@ -257,7 +379,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
       _saving = false;
       if (saved) {
         _baseline = _stored;
-        _draft = _baseline;
+        _setDraft(_baseline);
       } else {
         _error = _app.lastError ?? _app.strings.chain('error');
       }
@@ -364,7 +486,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     return UnsavedChangesGuard(
       key: widget.guard,
       strings: strings,
-      dirty: _dirty,
+      dirty: _dirty || widget.otherPending,
       saving: _saving,
       child: SubPage(
         title: strings.chain('title'),
@@ -424,9 +546,8 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
               : null,
         ),
         child: PanelStack(
-          spacing: 28,
+          spacing: 20,
           children: [
-            widget.picker,
             SwitchListTile.adaptive(
               key: const ValueKey('chain-proxy-toggle'),
               contentPadding: EdgeInsets.zero,
@@ -436,9 +557,10 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
               onChanged: _saving || !_supported
                   ? null
                   : (value) => setState(
-                      () => _draft = _draft.copyWith(enabled: value),
+                      () => _setDraft(_draft.copyWith(enabled: value)),
                     ),
             ),
+            widget.picker,
             if (!_supported)
               WarningBanner(
                 title: widget.source.label,
@@ -450,10 +572,11 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
             ),
             ContentSection(
               title: strings.chain('profiles'),
+              gap: 12,
               children: [
                 Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     OutlinedButton.icon(
                       onPressed: _supported && !_saving
@@ -487,7 +610,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                 if (!_loading && profiles.isEmpty)
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    spacing: 6,
+                    spacing: 4,
                     children: [
                       Text(strings.chain('empty')),
                       Text(
@@ -509,9 +632,11 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                     if (!_draft.enabled || _saving || id == null) return;
                     final profile = profiles.firstWhere((p) => p.id == id);
                     setState(
-                      () => _draft = _draft.copyWith(
-                        profileId: profile.id,
-                        revision: profile.revision,
+                      () => _setDraft(
+                        _draft.copyWith(
+                          profileId: profile.id,
+                          revision: profile.revision,
+                        ),
                       ),
                     );
                   },
@@ -542,8 +667,8 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                       onPressed: _saving
                           ? null
                           : () => setState(
-                              () => _draft = _draft.copyWith(
-                                clearSelection: true,
+                              () => _setDraft(
+                                _draft.copyWith(clearSelection: true),
                               ),
                             ),
                       icon: const Icon(LucideIcons.x, size: 18),
@@ -607,9 +732,9 @@ class _CurrentConnection extends StatelessWidget {
     return ContentSection(
       key: const ValueKey('chain-current-connection'),
       title: strings.chain('current'),
-      gap: 12,
+      gap: 8,
       child: PanelStack(
-        spacing: 8,
+        spacing: 6,
         children: [
           Semantics(
             liveRegion: true,
@@ -742,7 +867,7 @@ class _ProfileRow extends StatelessWidget {
               ),
               if (tags.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.only(top: 4),
                   child: Wrap(
                     spacing: 12,
                     runSpacing: 4,
@@ -781,7 +906,7 @@ class _ProfileRow extends StatelessWidget {
             padding: const EdgeInsetsDirectional.only(
               start: 56,
               end: 8,
-              bottom: 12,
+              bottom: 10,
             ),
             child: _ProfileDetails(profile: profile, controller: controller),
           ),
@@ -808,7 +933,7 @@ class _ProfileDetails extends StatelessWidget {
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      spacing: 8,
+      spacing: 6,
       children: [
         row(s.chain('endpoint'), '${profile.host}:${profile.port}'),
         ReadoutRow(
@@ -976,6 +1101,10 @@ class _ImportDialogState extends State<_ImportDialog> {
       _error = null;
     });
     try {
+      // The engine validates the name even when only checking. A file is
+      // checked before the user has named it, so a check uses a stand-in
+      // and the real name is sent only when saving.
+      final name = _name.text.trim();
       final result = await widget.controller.chainProfile({
         'action': widget.credentialsFor != null
             ? 'credentials'
@@ -983,7 +1112,7 @@ class _ImportDialogState extends State<_ImportDialog> {
             ? 'import'
             : 'preview',
         'source': widget.source.wire,
-        'name': _name.text.trim(),
+        'name': !save && name.isEmpty ? widget.source.label : name,
         if (widget.credentialsFor case final stored?) ...{
           'profile_id': stored.id,
           'revision': stored.editRevision,

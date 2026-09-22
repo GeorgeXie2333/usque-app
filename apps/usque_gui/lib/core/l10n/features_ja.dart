@@ -400,10 +400,8 @@ const Map<String, String> kChainJa = <String, String>{
   'stale_revision': '設定が変更されています。一覧を更新してから、もう一度試してください。',
   'secure_storage_failed': '暗号化された設定を読み取れないか、保存できませんでした。',
   'invalid_configuration': '設定が無効か、対応していない項目が含まれています。',
-  'looks_like_wireguard':
-      'これは WireGuard の設定のようです。出口の種類を WireGuard (Custom) に切り替えてください。',
-  'looks_like_openvpn':
-      'これは OpenVPN の設定のようです。出口の種類を OpenVPN (Custom) に切り替えてください。',
+  'looks_like_wireguard': 'これは WireGuard の設定のようです。出口の種類を WireGuard に切り替えてください。',
+  'looks_like_openvpn': 'これは OpenVPN の設定のようです。出口の種類を OpenVPN に切り替えてください。',
   'error_location': '{message}（{field}、{line} 行目）',
   'error_field': '{message}（{field}）',
   'file_unavailable': 'ファイル選択を利用できません。設定テキストを貼り付けてください。',
@@ -412,6 +410,7 @@ const Map<String, String> kChainJa = <String, String>{
   'unsupported_or_duplicate_field': 'この項目は未対応か、重複しています。',
   'unsupported_or_duplicate_section': 'Interface と Peer はそれぞれ一つだけにしてください。',
   'missing_field': '必須項目がありません。',
+  'invalid_name': '名前は 1〜64 文字で、制御文字を含めないでください。',
   'invalid_key': '鍵は有効な 32 バイトの Base64 鍵である必要があります。',
   'checking': '設定を確認しています…',
   'changed': '変更を保存しました',

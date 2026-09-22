@@ -440,9 +440,9 @@ const Map<String, String> kChainTr = <String, String>{
   'invalid_configuration':
       'Yapılandırma geçersiz veya desteklenmeyen seçenekler içeriyor.',
   'looks_like_wireguard':
-      'Bu bir WireGuard yapılandırmasına benziyor. Çıkış kaynağını WireGuard (Custom) olarak değiştirin.',
+      'Bu bir WireGuard yapılandırmasına benziyor. Çıkış kaynağını WireGuard olarak değiştirin.',
   'looks_like_openvpn':
-      'Bu bir OpenVPN yapılandırmasına benziyor. Çıkış kaynağını OpenVPN (Custom) olarak değiştirin.',
+      'Bu bir OpenVPN yapılandırmasına benziyor. Çıkış kaynağını OpenVPN olarak değiştirin.',
   'error_location': '{message} ({field}, satır {line})',
   'error_field': '{message} ({field})',
   'file_unavailable': 'Dosya seçici yok. Yapılandırma metnini yapıştırın.',
@@ -453,6 +453,8 @@ const Map<String, String> kChainTr = <String, String>{
   'unsupported_or_duplicate_section':
       'Bir Interface ve bir Peer bölümü kullanın.',
   'missing_field': 'Zorunlu bir alan eksik.',
+  'invalid_name':
+      '1 ile 64 karakter arasında, denetim karakteri içermeyen bir ad kullanın.',
   'invalid_key': 'Anahtar, geçerli 32 baytlık bir Base64 anahtarı olmalıdır.',
   'checking': 'Yapılandırma denetleniyor…',
   'changed': 'Değişiklikler kaydedildi',

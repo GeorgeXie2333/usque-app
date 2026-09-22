@@ -28,8 +28,8 @@ impl ChainSource {
         [Self::OpenvpnCustom, Self::WireguardCustom, Self::VpnGate];
     pub const fn label(self) -> &'static str {
         match self {
-            Self::OpenvpnCustom => "OpenVPN (Custom)",
-            Self::WireguardCustom => "WireGuard (Custom)",
+            Self::OpenvpnCustom => "OpenVPN",
+            Self::WireguardCustom => "WireGuard",
             Self::VpnGate => "VPN Gate",
         }
     }

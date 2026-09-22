@@ -19,7 +19,7 @@ fn wg(extra: &str) -> ImportSecrets {
 fn labels_and_protocol_capabilities_are_explicit() {
     assert_eq!(
         ChainSource::DISPLAY_ORDER.map(ChainSource::label),
-        ["OpenVPN (Custom)", "WireGuard (Custom)", "VPN Gate"]
+        ["OpenVPN", "WireGuard", "VPN Gate"]
     );
     assert!(!ChainProtocol::OpenvpnTcp.requires_udp());
     assert!(ChainProtocol::OpenvpnUdp.requires_udp());

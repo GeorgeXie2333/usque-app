@@ -75,7 +75,7 @@ Network settings are shared by all accounts.
 ## Features
 
 - Optional [chain proxy](docs/CHAIN_PROXY.md): open **Proxy → Chain proxy** for
-  **OpenVPN (Custom)**, **WireGuard (Custom)**, or **VPN Gate**, in that order.
+  **OpenVPN**, **WireGuard**, or **VPN Gate**, in that order.
   Import files or paste configurations, save several, then select and apply one.
   VPN, SOCKS5 and HTTP share the exit; explicit direct rules still apply. Off by default.
 - Opt-in [experimental L4 mode](docs/L4_PROXY.md) proxies TCP over HTTP/3.

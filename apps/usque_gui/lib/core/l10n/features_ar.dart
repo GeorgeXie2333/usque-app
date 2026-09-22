@@ -424,9 +424,8 @@ const Map<String, String> kChainAr = <String, String>{
   'secure_storage_failed': 'تعذّر قراءة الإعداد المشفّر أو حفظه.',
   'invalid_configuration': 'الإعداد غير صالح أو يتضمن خيارات غير مدعومة.',
   'looks_like_wireguard':
-      'يبدو هذا إعداد WireGuard. بدّل مصدر المخرج إلى WireGuard (Custom).',
-  'looks_like_openvpn':
-      'يبدو هذا إعداد OpenVPN. بدّل مصدر المخرج إلى OpenVPN (Custom).',
+      'يبدو هذا إعداد WireGuard. بدّل مصدر المخرج إلى WireGuard.',
+  'looks_like_openvpn': 'يبدو هذا إعداد OpenVPN. بدّل مصدر المخرج إلى OpenVPN.',
   'error_location': '{message} ({field}، السطر {line})',
   'error_field': '{message} ({field})',
   'file_unavailable': 'منتقي الملفات غير متاح. الصق نص الإعداد.',
@@ -436,6 +435,7 @@ const Map<String, String> kChainAr = <String, String>{
   'unsupported_or_duplicate_section':
       'استخدم قسم Interface واحدًا وقسم Peer واحدًا.',
   'missing_field': 'حقل مطلوب مفقود.',
+  'invalid_name': 'استخدم اسمًا من 1 إلى 64 حرفًا بدون أحرف تحكم.',
   'invalid_key': 'يجب أن يكون المفتاح مفتاح Base64 صالحًا بطول 32 بايتًا.',
   'checking': 'جارٍ فحص الإعداد…',
   'changed': 'تم حفظ التغييرات',

@@ -483,9 +483,9 @@ const Map<String, String> kChainFr = <String, String>{
   'invalid_configuration':
       'La configuration est invalide ou contient des options non prises en charge.',
   'looks_like_wireguard':
-      'Cela ressemble à une configuration WireGuard. Passez la source de sortie à WireGuard (Custom).',
+      'Cela ressemble à une configuration WireGuard. Passez la source de sortie à WireGuard.',
   'looks_like_openvpn':
-      'Cela ressemble à une configuration OpenVPN. Passez la source de sortie à OpenVPN (Custom).',
+      'Cela ressemble à une configuration OpenVPN. Passez la source de sortie à OpenVPN.',
   'error_location': '{message} ({field}, ligne {line})',
   'error_field': '{message} ({field})',
   'file_unavailable':
@@ -498,6 +498,8 @@ const Map<String, String> kChainFr = <String, String>{
   'unsupported_or_duplicate_section':
       'Utilisez une seule section Interface et une seule section Peer.',
   'missing_field': 'Un champ obligatoire est absent.',
+  'invalid_name':
+      'Utilisez un nom de 1 à 64 caractères sans caractères de contrôle.',
   'invalid_key': 'La clé doit être une clé Base64 valide de 32 octets.',
   'checking': 'Vérification de la configuration…',
   'changed': 'Modifications enregistrées',

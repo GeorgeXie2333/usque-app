@@ -436,9 +436,9 @@ const Map<String, String> kChainFa = <String, String>{
   'invalid_configuration':
       'پیکربندی نامعتبر است یا گزینه‌های پشتیبانی‌نشده دارد.',
   'looks_like_wireguard':
-      'این شبیه پیکربندی WireGuard است. منبع خروجی را به WireGuard (Custom) تغییر دهید.',
+      'این شبیه پیکربندی WireGuard است. منبع خروجی را به WireGuard تغییر دهید.',
   'looks_like_openvpn':
-      'این شبیه پیکربندی OpenVPN است. منبع خروجی را به OpenVPN (Custom) تغییر دهید.',
+      'این شبیه پیکربندی OpenVPN است. منبع خروجی را به OpenVPN تغییر دهید.',
   'error_location': '{message} ({field}، خط {line})',
   'error_field': '{message} ({field})',
   'file_unavailable':
@@ -450,6 +450,7 @@ const Map<String, String> kChainFa = <String, String>{
   'unsupported_or_duplicate_section':
       'یک بخش Interface و یک بخش Peer به کار ببرید.',
   'missing_field': 'یک فیلد ضروری وجود ندارد.',
+  'invalid_name': 'نامی با ۱ تا ۶۴ نویسه و بدون نویسه‌های کنترلی وارد کنید.',
   'invalid_key': 'کلید باید یک کلید Base64 معتبر ۳۲ بایتی باشد.',
   'checking': 'در حال بررسی پیکربندی…',
   'changed': 'تغییرات ذخیره شد',

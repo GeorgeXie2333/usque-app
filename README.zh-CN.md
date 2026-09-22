@@ -72,8 +72,8 @@ VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们�
 
 ## 主要功能
 
-- 可选的[链式代理](docs/CHAIN_PROXY.md)：在“代理 → 链式代理”依次选择 **OpenVPN (Custom)**、
-  **WireGuard (Custom)** 或 **VPN Gate**。自定义配置支持文件或文本导入，保存多份后选用并应用。
+- 可选的[链式代理](docs/CHAIN_PROXY.md)：在“代理 → 链式代理”依次选择 **OpenVPN**、
+  **WireGuard** 或 **VPN Gate**。自定义配置支持文件或文本导入，保存多份后选用并应用。
   VPN、SOCKS5 和 HTTP 共用最终出口，显式直连规则仍然生效。此功能默认关闭。
 - 可手动启用[实验性 L4 模式](docs/L4_PROXY.md)，通过 HTTP/3 代理 TCP 流量。
   未启用 OpenVPN TCP 链式出口时，它不转发普通 UDP 流量，需要 UDP 的应用可能无法正常使用。自动模式不会选择 L4。

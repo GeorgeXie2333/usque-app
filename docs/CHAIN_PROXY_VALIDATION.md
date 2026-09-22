@@ -6,7 +6,7 @@ implementation. The [measurement manifest](CHAIN_PROXY_MEASUREMENTS.json)
 records source-file and artifact hashes; this is local compile/test evidence,
 not a signed release or an installer comparison.
 
-The implemented sources are **OpenVPN (Custom)**, **WireGuard (Custom)**,
+The implemented sources are **OpenVPN**, **WireGuard**,
 **VPN Gate**, in that order. [The guide](CHAIN_PROXY.md) documents the import
 workflow, compatibility, encrypted storage, DNS and lifecycle boundaries.
 The two icons use the SVG paths supplied by the user, with theme colors and

@@ -15,7 +15,7 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
 | [Network Doctor](network-doctor.md) | Run checks, read results, and export a local report / 运行检查、理解结果与导出诊断 |
 | [Direct DNS](encrypted-direct-dns.md) | Choose System, DoH or DoT and fill in resolver settings / 选择直连 DNS 模式与填写服务器配置 |
-| [Chain proxy](CHAIN_PROXY.md) | OpenVPN (Custom), WireGuard (Custom), VPN Gate: import, select and apply / 导入、选用与应用 |
+| [Chain proxy](CHAIN_PROXY.md) | OpenVPN, WireGuard, VPN Gate: import, select and apply / 导入、选用与应用 |
 | [VPN Gate directory](VPN_GATE.md) | Manage the volunteer directory and favorites / 管理志愿服务器目录与收藏 |
 | [Experimental L4](L4_PROXY.md) | Enable TCP proxy mode and understand its traffic limits / 启用 TCP 代理模式及了解限制 |
 | [Experimental Zero Trust](ZERO_TRUST_EXPERIMENTAL.md) | Enrollment, unsupported features, and validation requirements / 实验性注册、限制与验证要求 |

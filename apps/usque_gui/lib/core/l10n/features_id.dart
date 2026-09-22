@@ -447,9 +447,9 @@ const Map<String, String> kChainId = <String, String>{
   'invalid_configuration':
       'Konfigurasi tidak valid atau berisi opsi yang tidak didukung.',
   'looks_like_wireguard':
-      'Ini tampak seperti konfigurasi WireGuard. Ubah sumber pintu keluar ke WireGuard (Custom).',
+      'Ini tampak seperti konfigurasi WireGuard. Ubah sumber pintu keluar ke WireGuard.',
   'looks_like_openvpn':
-      'Ini tampak seperti konfigurasi OpenVPN. Ubah sumber pintu keluar ke OpenVPN (Custom).',
+      'Ini tampak seperti konfigurasi OpenVPN. Ubah sumber pintu keluar ke OpenVPN.',
   'error_location': '{message} ({field}, baris {line})',
   'error_field': '{message} ({field})',
   'file_unavailable': 'Pemilih berkas tidak tersedia. Tempel teks konfigurasi.',
@@ -461,6 +461,7 @@ const Map<String, String> kChainId = <String, String>{
   'unsupported_or_duplicate_section':
       'Gunakan satu bagian Interface dan satu Peer.',
   'missing_field': 'Ada bidang wajib yang belum diisi.',
+  'invalid_name': 'Gunakan nama 1 hingga 64 karakter tanpa karakter kontrol.',
   'invalid_key':
       'Kunci harus berupa kunci Base64 yang valid sepanjang 32 byte.',
   'checking': 'Memeriksa konfigurasi…',

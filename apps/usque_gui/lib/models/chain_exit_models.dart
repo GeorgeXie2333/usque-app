@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 enum ChainSource {
-  openvpnCustom('openvpn_custom', 'OpenVPN (Custom)'),
-  wireguardCustom('wireguard_custom', 'WireGuard (Custom)'),
+  openvpnCustom('openvpn_custom', 'OpenVPN'),
+  wireguardCustom('wireguard_custom', 'WireGuard'),
   vpnGate('vpn_gate', 'VPN Gate');
 
   const ChainSource(this.wire, this.label);

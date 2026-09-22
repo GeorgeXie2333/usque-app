@@ -433,9 +433,9 @@ const Map<String, String> kChainVi = <String, String>{
   'invalid_configuration':
       'Cấu hình không hợp lệ hoặc chứa tùy chọn không được hỗ trợ.',
   'looks_like_wireguard':
-      'Đây có vẻ là cấu hình WireGuard. Hãy chuyển nguồn lối ra sang WireGuard (Custom).',
+      'Đây có vẻ là cấu hình WireGuard. Hãy chuyển nguồn lối ra sang WireGuard.',
   'looks_like_openvpn':
-      'Đây có vẻ là cấu hình OpenVPN. Hãy chuyển nguồn lối ra sang OpenVPN (Custom).',
+      'Đây có vẻ là cấu hình OpenVPN. Hãy chuyển nguồn lối ra sang OpenVPN.',
   'error_location': '{message} ({field}, dòng {line})',
   'error_field': '{message} ({field})',
   'file_unavailable': 'Không có hộp chọn tệp. Hãy dán văn bản cấu hình.',
@@ -445,6 +445,7 @@ const Map<String, String> kChainVi = <String, String>{
   'unsupported_or_duplicate_section':
       'Chỉ dùng một mục Interface và một mục Peer.',
   'missing_field': 'Thiếu một trường bắt buộc.',
+  'invalid_name': 'Dùng tên dài 1 đến 64 ký tự, không chứa ký tự điều khiển.',
   'invalid_key': 'Khóa phải là khóa Base64 hợp lệ dài 32 byte.',
   'checking': 'Đang kiểm tra cấu hình…',
   'changed': 'Đã lưu thay đổi',
