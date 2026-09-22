@@ -1,12 +1,14 @@
 # Chain proxy / 链式代理
 
-Open **Proxy → Chain proxy**. The source selector always uses this order:
+Open **Proxy → Chain proxy**. The source selector is a row of three choices
+that always uses this order:
 
 1. **OpenVPN (Custom)**
 2. **WireGuard (Custom)**
 3. **VPN Gate**
 
-The source names remain English in every locale. One exit is enabled at a time:
+The source names remain English in every locale. A source the running engine
+cannot provide is shown disabled with its reason. One exit is enabled at a time:
 `Application → WARP → selected chain exit → Internet`. System VPN, SOCKS5 and
 HTTP share the final exit while retaining their own protocol capabilities;
 HTTP CONNECT does not gain UDP support. Explicit direct rules still apply.
@@ -21,34 +23,47 @@ Choose a custom source, then **Import file** or **Paste configuration**. Use
 UTF-8 text up to 128 KiB. Windows opens its native picker; Android uses the
 system document provider. Android TV devices without a document provider can
 use pasted text. Usque reads the document once and does not retain a dependency
-on its path or document-provider permissions.
+on its path or document-provider permissions. An imported file is checked as
+soon as the dialog opens; pasted text is checked with **Check configuration**.
+Text that structurally belongs to the other source is reported before the
+engine runs.
 
-**Check configuration** displays the endpoint, protocol, address family,
-addresses, DNS, AllowedIPs and MTU where available. OpenVPN addresses and DNS
-may be negotiated by the server. Supply the requested username, password or
-encrypted private-key password, choose a name, and **Save configuration**.
+The check displays the endpoint, transport, address family, addresses, DNS,
+AllowedIPs and MTU where available. OpenVPN addresses and DNS may be negotiated
+by the server. The name defaults to the endpoint host. Supply the requested
+username, password or encrypted private-key password and **Save configuration**.
 Errors identify a field and line without reproducing configuration values.
 Saving to the library neither selects the configuration nor starts a connection.
 
-Enable the page switch, select a saved configuration, review **Current
-connection**, **Saved selection** and **Pending selection**, then **Apply changes**.
-A disconnected connection stays disconnected; an active connection applies the
-new exit using the existing connection workflow. Navigating away or switching
-sources asks before discarding an unapplied draft.
+Enable the page switch, select a saved configuration, then apply from the
+action bar. The list marks the saved selection, the configuration used by the
+current connection, and configurations that require CONNECT-IP. The selected
+configuration's details expand under its row. The action bar names the pending
+selection and states why a draft cannot be applied yet; while connected, its
+button reads **Apply and reconnect**. A disconnected connection stays
+disconnected; an active connection applies the new exit using the existing
+connection workflow. Navigating away or switching sources asks before
+discarding an unapplied draft. **Current connection** shows the live state,
+the endpoint being tried and the connected endpoint, and explains failures and
+missing DNS inline.
 
 Use the configuration's menu to rename it or update OpenVPN credentials. Import
 again to replace configuration content. Credential changes are used on the next
-connection; they do not silently reconnect the current one. To delete a selected
-configuration, clear or change the selection and apply it first. A configuration
-still used by the current connection cannot be deleted. Imports are device-wide,
-independent of the selected WARP account.
+connection; they do not silently reconnect the current one. A configuration that
+is selected, saved, or used by the current connection cannot be deleted; the
+page says so instead of hiding the action. Imports are device-wide, independent
+of the selected WARP account.
 
 选择自定义来源后，可导入文件或粘贴配置。两种入口共用 Rust 校验流程，限制为
-128 KiB UTF-8 文本。TV 没有系统文件选择器时请粘贴文本。预览后补充认证信息、
-命名并保存；保存不会选用配置或自动连接。打开总开关、选择配置，再点击
-**应用更改**。页面分别展示当前连接、已保存选择和待应用草稿。重命名和更新
-认证信息使用配置菜单；内容变化请重新导入。删除前必须解除已保存选择及当前
-连接的引用。切换 WARP 账号不会丢失导入配置库。
+128 KiB UTF-8 文本。TV 没有系统文件选择器时请粘贴文本。导入文件后立即检查；
+粘贴文本需点击**检查配置**。粘贴到错误来源的配置会在调用引擎前得到提示。
+检查后补充认证信息、命名（默认使用服务器主机名）并保存；保存不会选用配置
+或自动连接。打开总开关、选择配置，再在底栏应用。列表会标记已保存的选择、
+当前连接使用的配置以及需要 CONNECT-IP 的配置；所选配置的详情展开在其行下。
+底栏说明待应用的选择及暂时不能应用的原因；已连接时按钮为**应用并重新连接**。
+重命名和更新认证信息使用配置菜单；内容变化请重新导入。被选中、已保存或
+当前连接使用的配置不能删除，页面会直接说明原因。切换 WARP 账号不会丢失
+导入配置库。
 
 ## Compatibility / 兼容范围
 
@@ -60,7 +75,8 @@ independent of the selected WARP account.
 | VPN Gate, directory TCP | Supported | Supported |
 
 L4 can store UDP and WireGuard imports. Enabling them requires the explicit
-**Switch to CONNECT-IP and apply** action. Capability discovery prevents enabling
+**Switch to CONNECT-IP and apply** action, which replaces the action bar's
+button while the conflict exists. Capability discovery prevents enabling
 WireGuard when the native binary was compiled without it. Such a binary rejects
 an existing enabled WireGuard selection; it never ignores that selection.
 
@@ -107,8 +123,8 @@ rules retain their existing behavior. External exit-IP probes can be unavailable
 for a valid private-network tunnel without failing the connection. Idle
 WireGuard key expiry alone does not disconnect a healthy idle session.
 
-L4 可以保存 OpenVPN UDP 和 WireGuard 配置，但不能直接启用。请使用页面的
-**切换为 CONNECT-IP 并应用**。OpenVPN 支持最多 16 个同为 TCP 或同为 UDP 的
+L4 可以保存 OpenVPN UDP 和 WireGuard 配置，但不能直接启用。存在冲突时底栏
+按钮直接变为**切换为 CONNECT-IP 并应用**。OpenVPN 支持最多 16 个同为 TCP 或同为 UDP 的
 remote 候选；保留各端点的地址族限制。默认按文件顺序尝试，`remote-random`
 为每次连接生成一次随机顺序。只在建立连接时切换候选；认证、证书、配置及未知
 致命协议错误立即停止，错误密码不会在备用端点重复尝试。候选阶段总计最多

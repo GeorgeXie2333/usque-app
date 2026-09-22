@@ -3,14 +3,17 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/chain_strings.dart';
+import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../state/app_controller.dart';
 import '../widgets/chain_source_icon.dart';
+import '../widgets/chain_source_picker.dart';
 import '../widgets/common.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
+import '../widgets/vpn_gate_summary.dart';
 import 'vpn_gate_screen.dart';
 
 class ChainProxyScreen extends StatefulWidget {
@@ -44,38 +47,10 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final strings = widget.controller.strings;
-    final picker = InputDecorator(
-      decoration: InputDecoration(labelText: strings.chain('source')),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<ChainSource>(
-          key: ValueKey('chain-source-${_source.wire}'),
-          value: _source,
-          isExpanded: true,
-          isDense: false,
-          itemHeight: null,
-          items: [
-            for (final source in ChainSource.values)
-              DropdownMenuItem(
-                value: source,
-                child: Row(
-                  children: [
-                    ChainSourceIcon(
-                      source: source,
-                      size: 20,
-                      color: source == _source
-                          ? Theme.of(context).colorScheme.primary
-                          : null,
-                    ),
-                    const SizedBox(width: 12),
-                    Flexible(child: Text(source.label)),
-                  ],
-                ),
-              ),
-          ],
-          onChanged: (value) => unawaited(_switch(value)),
-        ),
-      ),
+    final picker = ChainSourcePicker(
+      controller: widget.controller,
+      source: _source,
+      onChanged: (source) => unawaited(_switch(source)),
     );
     if (_source == ChainSource.vpnGate) {
       return VpnGateScreen(
@@ -116,7 +91,12 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   List<ChainProfileSummary> _profiles = const [];
   bool _loading = true, _saving = false;
   bool _wasSupported = false;
+
+  /// Result of the last apply, shown in the action bar.
   String? _error;
+
+  /// Import, file and library problems, shown beside the import actions.
+  String? _libraryError;
   AppController get _app => widget.controller;
   bool get _dirty => _draft != _baseline;
   bool get _supported =>
@@ -131,10 +111,26 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
       );
   ChainProfileSummary? get _selected =>
       _profiles.where((p) => p.id == _draft.profileId).firstOrNull;
+  bool get _l4 => _app.activeProfile.dataPlane == DataPlaneMode.l4Proxy;
   bool get _modeConflict =>
+      _draft.enabled && _selected?.requiresUdp == true && _l4;
+  bool get _multiEndpointBlocked =>
       _draft.enabled &&
-      _selected?.requiresUdp == true &&
-      _app.activeProfile.dataPlane == DataPlaneMode.l4Proxy;
+      (_selected?.candidates.length ?? 0) > 1 &&
+      !(_app.engineCapabilities?.chainOpenvpnMultiEndpoint ?? false);
+
+  /// Why the draft cannot be applied yet, or null when it can.
+  String? get _validation {
+    final strings = _app.strings;
+    if (_draft.enabled && _selected == null) {
+      return strings.chain('select_required');
+    }
+    if (_multiEndpointBlocked) {
+      return strings.chain('multi_endpoint_unavailable');
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -165,8 +161,6 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     super.dispose();
   }
 
-  String _message(Map<String, Object?> error) =>
-      '${_app.strings.chain(error['reason'] as String? ?? 'invalid_configuration')} (${error['field'] ?? ''}: ${error['line'] ?? 0})';
   Future<void> _load() async {
     _wasSupported = _supported;
     if (!_supported) {
@@ -179,13 +173,15 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
       setState(() {
         _profiles = result.profiles;
         _loading = false;
-        _error = result.error == null ? null : _message(result.error!);
+        _libraryError = result.error == null
+            ? null
+            : _app.strings.chainError(result.error!);
       });
     } catch (_) {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = _app.strings.chain('secure_storage_failed');
+          _libraryError = _app.strings.chain('secure_storage_failed');
         });
       }
     }
@@ -208,13 +204,14 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
             EngineException(code: 'CHAIN_FILE_BUSY') => 'file_busy',
             _ => 'file_read_failed',
           };
-          setState(() => _error = _app.strings.chain(key));
+          setState(() => _libraryError = _app.strings.chain(key));
         }
         return;
       }
       if (text == null || !mounted) return;
     }
     if (!mounted) return;
+    setState(() => _libraryError = null);
     final result = await showDialog<ChainProfileSummary>(
       context: context,
       builder: (_) => _ImportDialog(
@@ -230,17 +227,11 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
 
   Future<void> _apply({bool switchMode = false}) async {
     final target = _draft;
-    if (target.enabled &&
-        (_selected?.candidates.length ?? 0) > 1 &&
-        !(_app.engineCapabilities?.chainOpenvpnMultiEndpoint ?? false)) {
-      setState(() => _error = _app.strings.chain('multi_endpoint_unavailable'));
-      return;
-    }
     final account = _app.activeProfile.id;
     final intent = _app.connectionIntent;
     if (_saving ||
         !_supported ||
-        target.enabled && _selected == null ||
+        _validation != null ||
         _modeConflict && !switchMode) {
       return;
     }
@@ -287,12 +278,21 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
       if (mounted) await _load();
       return;
     }
+    if (action == 'remove' &&
+        (profile.id == _draft.profileId ||
+            profile.id == _baseline.profileId ||
+            profile.id == _app.snapshot.chainExit.currentProfile?.id)) {
+      setState(() => _libraryError = strings.chain('profile_in_use'));
+      return;
+    }
     final name = TextEditingController(text: profile.name);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => UsqueDialog(
         icon: action == 'remove' ? LucideIcons.trash2 : LucideIcons.pencil,
+        danger: action == 'remove',
         title: strings.chain(action == 'remove' ? 'delete' : 'rename'),
+        subtitle: profile.name,
         content: action == 'remove'
             ? Text(strings.chain('delete_confirm'))
             : TextField(
@@ -316,7 +316,10 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     final value = name.text;
     name.dispose();
     if (confirmed != true || !mounted) return;
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _libraryError = null;
+    });
     try {
       final result = await _app.chainProfile({
         'action': action,
@@ -327,11 +330,13 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
       if (!mounted) return;
       setState(() {
         if (result.error == null) _profiles = result.profiles;
-        _error = result.error == null ? null : _message(result.error!);
+        _libraryError = result.error == null
+            ? null
+            : strings.chainError(result.error!);
       });
     } catch (_) {
       if (mounted) {
-        setState(() => _error = strings.chain('secure_storage_failed'));
+        setState(() => _libraryError = strings.chain('secure_storage_failed'));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -341,11 +346,21 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   @override
   Widget build(BuildContext context) {
     final strings = _app.strings;
+    final theme = Theme.of(context);
+    final snapshot = _app.snapshot;
     final profiles = _profiles.where((p) => p.source == widget.source).toList();
-    final current = _app.snapshot.chainExit.currentProfile;
-    final saved = _profiles
-        .where((p) => p.id == _baseline.profileId)
-        .firstOrNull;
+    final current = snapshot.chainExit.currentProfile;
+    final validation = _validation;
+    final canApply =
+        !_saving &&
+        !snapshot.isTransitional &&
+        _supported &&
+        validation == null &&
+        (_dirty || _modeConflict);
+    final disabling = _dirty && _baseline.enabled && !_draft.enabled;
+    final mutedStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     return UnsavedChangesGuard(
       key: widget.guard,
       strings: strings,
@@ -357,19 +372,55 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
         backLabel: strings.get('back'),
         contentWidth: 880,
         bottomBar: SaveChangesBar(
+          key: const ValueKey('chain-proxy-bar'),
           strings: strings,
-          dirty: _dirty,
+          dirty: _dirty || _modeConflict,
           saving: _saving,
           error: _error,
-          statusLabel: _error == null ? _app.networkSettingsMessage : null,
-          onSave:
-              _dirty &&
-                  !_saving &&
-                  !_app.snapshot.isTransitional &&
-                  !_modeConflict &&
-                  _supported &&
-                  (!_draft.enabled || _selected != null)
-              ? () => unawaited(_apply())
+          validationError: _dirty ? validation : null,
+          statusLabel: _error != null
+              ? null
+              : _modeConflict
+              ? strings.chain('l4')
+              : !_dirty ||
+                    _app.networkSettings.unconfirmed ||
+                    _app.networkSettings.saveError != null
+              ? _app.networkSettingsMessage
+              : null,
+          saveLabel: _modeConflict
+              ? strings.chain('switch_mode')
+              : snapshot.isConnected && _dirty
+              ? strings.chain('apply_reconnect')
+              : null,
+          summary: !_dirty
+              ? null
+              : disabling
+              ? Text(
+                  strings.chain('pending_disable'),
+                  style: theme.textTheme.labelLarge,
+                )
+              : _draft.enabled && _selected != null
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${strings.chain('draft')}: ${_selected!.name}',
+                      style: theme.textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${_selected!.host}:${_selected!.port} · ${_selected!.transportLabel}',
+                      style: UsqueTheme.mono(
+                        context,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                )
+              : null,
+          onSave: canApply
+              ? () => unawaited(_apply(switchMode: _modeConflict))
               : null,
         ),
         child: PanelStack(
@@ -393,55 +444,9 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                 title: widget.source.label,
                 message: strings.chain('unsupported'),
               ),
-            ContentSection(
-              title: strings.chain('current'),
-              children: [
-                Text(
-                  current == null
-                      ? (_app.snapshot.vpnGate.server?.hostname ??
-                            strings.chain('disconnected'))
-                      : '${current.source.label} · ${current.name}',
-                ),
-                if (current != null ||
-                    _app.snapshot.vpnGate.server != null ||
-                    _app.snapshot.isTransitional)
-                  Text(
-                    strings.chain(
-                      _app.snapshot.phase == ConnectionPhase.disconnecting
-                          ? 'disconnecting'
-                          : _app.snapshot.chainExit.stage == 'connected' &&
-                                _app.snapshot.isConnected
-                          ? 'connected'
-                          : _app.snapshot.chainExit.stage == 'error'
-                          ? 'error'
-                          : _app.snapshot.isTransitional
-                          ? 'connecting'
-                          : 'disconnected',
-                    ),
-                  ),
-                if (_app.snapshot.chainExit.attemptingEndpoint
-                    case final endpoint?)
-                  Text(
-                    '${strings.chain('attempting')}: ${endpoint.label} (${_app.snapshot.chainExit.attemptCount}/${_app.snapshot.chainExit.candidateCount})',
-                  ),
-                if (_app.snapshot.chainExit.activeEndpoint case final endpoint?)
-                  SelectableText(
-                    '${strings.chain('actual_endpoint')}: $endpoint',
-                  ),
-                if (_app.snapshot.chainExit.failure != null)
-                  Text(
-                    strings.chain(
-                      _app.snapshot.chainExit.failure == 'authentication'
-                          ? 'authentication_failed'
-                          : 'error',
-                    ),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                if (_app.snapshot.chainExit.dnsUnavailable)
-                  Text(strings.chain('dns_unavailable')),
-              ],
+            _CurrentConnection(
+              controller: _app,
+              configuredEnabled: _baseline.enabled,
             ),
             ContentSection(
               title: strings.chain('profiles'),
@@ -466,8 +471,38 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                     ),
                   ],
                 ),
-                if (_loading) const LinearProgressIndicator(),
-                if (!_loading && profiles.isEmpty) Text(strings.chain('empty')),
+                BannerSlot(
+                  spacing: 0,
+                  child: _libraryError == null
+                      ? null
+                      : WarningBanner(
+                          key: const ValueKey('chain-library-error'),
+                          title: strings.get('error'),
+                          message: _libraryError!,
+                          danger: true,
+                          onDismiss: () => setState(() => _libraryError = null),
+                        ),
+                ),
+                if (_loading) const LinearProgressIndicator(minHeight: 2),
+                if (!_loading && profiles.isEmpty)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    spacing: 6,
+                    children: [
+                      Text(strings.chain('empty')),
+                      Text(
+                        strings.chain(
+                          widget.source == ChainSource.wireguardCustom
+                              ? 'empty_hint_wireguard'
+                              : 'empty_hint_openvpn',
+                        ),
+                        style: mutedStyle,
+                      ),
+                      Text(strings.chain('import_limits'), style: mutedStyle),
+                    ],
+                  ),
+                if (profiles.isNotEmpty && !_draft.enabled && _supported)
+                  Text(strings.chain('enable_to_choose'), style: mutedStyle),
                 RadioGroup<String>(
                   groupValue: _draft.profileId,
                   onChanged: (id) {
@@ -480,87 +515,277 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                       ),
                     );
                   },
-                  child: Column(
+                  child: ContentList(
                     children: [
                       for (final profile in profiles)
-                        RadioListTile<String>(
-                          value: profile.id,
+                        _ProfileRow(
+                          controller: _app,
+                          profile: profile,
                           enabled: _draft.enabled && !_saving && _supported,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(profile.name),
-                          subtitle: Text(
-                            '${profile.host}:${profile.port} · ${profile.transportLabel}',
-                          ),
-                          secondary: PopupMenuButton<String>(
-                            enabled: !_saving,
-                            onSelected: (action) =>
-                                unawaited(_manage(profile, action)),
-                            itemBuilder: (_) => [
-                              PopupMenuItem(
-                                value: 'rename',
-                                child: Text(strings.chain('rename')),
-                              ),
-                              if (profile.source == ChainSource.openvpnCustom)
-                                PopupMenuItem(
-                                  value: 'credentials',
-                                  child: Text(strings.chain('credentials')),
-                                ),
-                              PopupMenuItem(
-                                value: 'remove',
-                                enabled: profile.id != _draft.profileId,
-                                child: Text(strings.chain('delete')),
-                              ),
-                            ],
-                          ),
+                          busy: _saving,
+                          selected: profile.id == _draft.profileId,
+                          saved:
+                              _baseline.enabled &&
+                              profile.id == _baseline.profileId,
+                          current: profile.id == current?.id,
+                          needsConnectIp: _l4 && profile.requiresUdp,
+                          onAction: (action) =>
+                              unawaited(_manage(profile, action)),
                         ),
                     ],
                   ),
                 ),
-              ],
-            ),
-            ContentSection(
-              title: strings.chain('saved'),
-              child: Text(
-                saved?.name ??
-                    (_baseline.source == ChainSource.vpnGate
-                        ? 'VPN Gate'
-                        : strings.chain('no_selection')),
-              ),
-            ),
-            ContentSection(
-              title: strings.chain('draft'),
-              children: [
-                Text(_selected?.name ?? strings.chain('no_selection')),
-                if (_selected case final selected?)
-                  _ProfileDetails(profile: selected, controller: _app),
-                TextButton(
-                  onPressed: _saving
-                      ? null
-                      : () => setState(
-                          () => _draft = _draft.copyWith(
-                            enabled: false,
-                            clearSelection: true,
-                          ),
-                        ),
-                  child: Text(strings.chain('clear')),
-                ),
-              ],
-            ),
-            if (_modeConflict)
-              ContentSection(
-                children: [
-                  Text(strings.chain('l4')),
-                  FilledButton(
-                    onPressed: _saving || _app.snapshot.isTransitional
-                        ? null
-                        : () => unawaited(_apply(switchMode: true)),
-                    child: Text(strings.chain('switch_mode')),
+                if (_draft.enabled && _draft.profileId != null)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      onPressed: _saving
+                          ? null
+                          : () => setState(
+                              () => _draft = _draft.copyWith(
+                                clearSelection: true,
+                              ),
+                            ),
+                      icon: const Icon(LucideIcons.x, size: 18),
+                      label: Text(strings.chain('clear')),
+                    ),
                   ),
-                ],
-              ),
+              ],
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Runtime state of the chain, independent of the draft being edited.
+class _CurrentConnection extends StatelessWidget {
+  const _CurrentConnection({
+    required this.controller,
+    required this.configuredEnabled,
+  });
+  final AppController controller;
+  final bool configuredEnabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = controller.strings;
+    final theme = Theme.of(context);
+    final snapshot = controller.snapshot;
+    final chain = snapshot.chainExit;
+    final current = chain.currentProfile;
+    final gateServer = snapshot.vpnGate.server;
+    final hasSession =
+        current != null || gateServer != null || snapshot.isTransitional;
+    final stateKey = !hasSession
+        ? configuredEnabled
+              ? 'disconnected'
+              : 'disabled'
+        : snapshot.phase == ConnectionPhase.disconnecting
+        ? 'disconnecting'
+        : chain.stage == 'connected' && snapshot.isConnected
+        ? 'connected'
+        : chain.stage == 'error'
+        ? 'error'
+        : snapshot.isTransitional
+        ? 'connecting'
+        : 'disconnected';
+    final tone = switch (stateKey) {
+      'connected' => StatusTone.success,
+      'error' => StatusTone.danger,
+      'connecting' || 'disconnecting' => StatusTone.brand,
+      _ => StatusTone.neutral,
+    };
+    final failure = chain.failure;
+    String reason(String value) {
+      final key = 'failure_$value';
+      final label = strings.chain(key);
+      return label == strings.chain('invalid_configuration') ? value : label;
+    }
+
+    return ContentSection(
+      key: const ValueKey('chain-current-connection'),
+      title: strings.chain('current'),
+      gap: 12,
+      child: PanelStack(
+        spacing: 8,
+        children: [
+          Semantics(
+            liveRegion: true,
+            child: InlineStatus(label: strings.chain(stateKey), tone: tone),
+          ),
+          if (current != null)
+            Row(
+              children: [
+                ChainSourceIcon(
+                  source: current.source,
+                  size: 18,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('${current.source.label} · ${current.name}'),
+                ),
+              ],
+            )
+          else if (gateServer != null) ...[
+            Row(
+              children: [
+                Icon(
+                  LucideIcons.globe,
+                  size: 18,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('VPN Gate')),
+              ],
+            ),
+            VpnGateNodeIdentity(server: gateServer),
+          ],
+          if (chain.attemptingEndpoint case final endpoint?)
+            ReadoutRow(
+              label: strings.chain('attempting'),
+              stackWhenNarrow: true,
+              value: MonoValue(
+                value:
+                    '${endpoint.label} (${chain.attemptCount}/${chain.candidateCount})',
+              ),
+            ),
+          if (chain.activeEndpoint case final endpoint?)
+            ReadoutRow(
+              label: strings.chain('actual_endpoint'),
+              stackWhenNarrow: true,
+              value: MonoValue(value: endpoint),
+            ),
+          if (chain.attemptFailures.isNotEmpty)
+            Text(
+              '${strings.chain('attempt_failures')}: ${chain.attemptFailures.map(reason).join(', ')}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          if (failure != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: WarningBanner(
+                key: const ValueKey('chain-failure'),
+                title: strings.chain('error'),
+                message: failure == 'authentication'
+                    ? strings.chain('authentication_failed')
+                    : strings
+                          .chain('failure_reason')
+                          .replaceAll('{reason}', reason(failure)),
+                danger: true,
+              ),
+            ),
+          if (chain.dnsUnavailable)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: WarningBanner(
+                title: strings.chain('dns_unavailable_title'),
+                message: strings.chain('dns_unavailable'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileRow extends StatelessWidget {
+  const _ProfileRow({
+    required this.controller,
+    required this.profile,
+    required this.enabled,
+    required this.busy,
+    required this.selected,
+    required this.saved,
+    required this.current,
+    required this.needsConnectIp,
+    required this.onAction,
+  });
+  final AppController controller;
+  final ChainProfileSummary profile;
+  final bool enabled, busy, selected, saved, current, needsConnectIp;
+  final ValueChanged<String> onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = controller.strings;
+    final theme = Theme.of(context);
+    final tags = <(String, StatusTone)>[
+      if (current) ('current', StatusTone.success),
+      if (saved) ('saved', StatusTone.brand),
+      if (needsConnectIp) ('requires_connect_ip', StatusTone.warning),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        RadioListTile<String>(
+          key: ValueKey('chain-profile-${profile.id}'),
+          value: profile.id,
+          enabled: enabled,
+          contentPadding: EdgeInsets.zero,
+          title: Text(profile.name),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${profile.host}:${profile.port} · ${profile.transportLabel}',
+                style: UsqueTheme.mono(
+                  context,
+                  color: enabled
+                      ? theme.colorScheme.onSurfaceVariant
+                      : theme.disabledColor,
+                ),
+              ),
+              if (tags.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: [
+                      for (final (key, tone) in tags)
+                        InlineStatus(label: strings.chain(key), tone: tone),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          secondary: PopupMenuButton<String>(
+            key: ValueKey('chain-profile-menu-${profile.id}'),
+            tooltip: strings.chain('menu'),
+            enabled: !busy,
+            onSelected: onAction,
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'rename',
+                child: Text(strings.chain('rename')),
+              ),
+              if (profile.source == ChainSource.openvpnCustom)
+                PopupMenuItem(
+                  value: 'credentials',
+                  child: Text(strings.chain('credentials')),
+                ),
+              PopupMenuItem(
+                value: 'remove',
+                child: Text(strings.chain('delete')),
+              ),
+            ],
+          ),
+        ),
+        if (selected && enabled)
+          Padding(
+            padding: const EdgeInsetsDirectional.only(
+              start: 56,
+              end: 8,
+              bottom: 12,
+            ),
+            child: _ProfileDetails(profile: profile, controller: controller),
+          ),
+      ],
     );
   }
 }
@@ -572,34 +797,57 @@ class _ProfileDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = controller.strings;
+    final theme = Theme.of(context);
+    final note = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    Widget row(String label, String value) => ReadoutRow(
+      label: label,
+      stackWhenNarrow: true,
+      value: MonoValue(value: value),
+    );
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: 8,
       children: [
-        SelectableText(
-          '${s.chain('endpoint')}: ${profile.host}:${profile.port} · ${profile.transportLabel}',
-        ),
-        Text(profile.addressFamily),
-        Text('${s.chain('source')}: ${profile.source.label}'),
-        if (profile.candidates.length > 1) ...[
-          SelectableText(
-            '${s.chain('candidates')}: ${profile.candidates.map((endpoint) => endpoint.label).join(', ')}',
+        row(s.chain('endpoint'), '${profile.host}:${profile.port}'),
+        ReadoutRow(
+          label: s.chain('transport'),
+          value: Text(
+            '${profile.transportLabel} · ${profile.addressFamily}',
+            textAlign: TextAlign.end,
+            style: theme.textTheme.bodyMedium,
           ),
-          Text(s.chain(profile.remoteRandom ? 'random_order' : 'file_order')),
+        ),
+        if (profile.candidates.length > 1) ...[
+          row(
+            s.chain('candidates'),
+            profile.candidates.map((endpoint) => endpoint.label).join('\n'),
+          ),
+          Text(
+            s.chain(profile.remoteRandom ? 'random_order' : 'file_order'),
+            style: note,
+          ),
         ],
         if (profile.addresses.isNotEmpty)
-          SelectableText(
-            '${s.chain('addresses')}: ${profile.addresses.join(', ')}',
-          ),
-        SelectableText(
-          '${s.chain('dns')}: ${profile.dns.isEmpty ? s.chain('dns_fallback') : profile.dns.join(', ')}',
-        ),
+          row(s.chain('addresses'), profile.addresses.join('\n')),
+        if (profile.dns.isEmpty)
+          ReadoutRow(
+            label: s.chain('dns'),
+            stackWhenNarrow: true,
+            value: Text(
+              s.chain('dns_fallback'),
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodyMedium,
+            ),
+          )
+        else
+          row(s.chain('dns'), profile.dns.join('\n')),
         if (profile.allowedIps.isNotEmpty) ...[
-          SelectableText(
-            '${s.chain('allowed')}: ${profile.allowedIps.join(', ')}',
-          ),
-          Text(s.chain('restricted')),
+          row(s.chain('allowed'), profile.allowedIps.join('\n')),
+          Text(s.chain('restricted'), style: note),
         ],
-        if (profile.mtu != null) Text('MTU: ${profile.mtu}'),
+        if (profile.mtu != null) row('MTU', '${profile.mtu}'),
       ],
     );
   }
@@ -622,7 +870,7 @@ class _ImportDialog extends StatefulWidget {
 
 class _ImportDialogState extends State<_ImportDialog> {
   late final _name = TextEditingController(
-    text: widget.credentialsFor?.name ?? widget.source.label,
+    text: widget.credentialsFor?.name ?? '',
   );
   late final _configuration = TextEditingController(
     text: widget.configuration ?? '',
@@ -632,7 +880,21 @@ class _ImportDialogState extends State<_ImportDialog> {
       _keyPassword = TextEditingController();
   ChainProfileSummary? _preview;
   bool _busy = false;
+  bool _nameEdited = false;
+  bool _showPassword = false, _showKeyPassword = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.configuration != null) {
+      // A file has already been chosen; checking it is the only next step.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_submit(false));
+      });
+    }
+  }
+
   @override
   void dispose() {
     for (final controller in [
@@ -648,12 +910,46 @@ class _ImportDialogState extends State<_ImportDialog> {
     super.dispose();
   }
 
+  /// A cheap structural check that catches a file pasted under the wrong
+  /// source before the engine reports an unhelpful parse error.
+  String? _sourceMismatch(String text) {
+    final lines = text
+        .split('\n')
+        .map((line) => line.trim().toLowerCase())
+        .where((line) => line.isNotEmpty && !line.startsWith('#'))
+        .toList();
+    final wireguard = lines.any(
+      (line) => line == '[interface]' || line == '[peer]',
+    );
+    final openvpn = lines.any(
+      (line) =>
+          line == 'client' ||
+          line.startsWith('remote ') ||
+          line.startsWith('dev ') ||
+          line.startsWith('<ca>'),
+    );
+    return switch (widget.source) {
+      ChainSource.openvpnCustom when wireguard && !openvpn =>
+        'looks_like_wireguard',
+      ChainSource.wireguardCustom when openvpn && !wireguard =>
+        'looks_like_openvpn',
+      _ => null,
+    };
+  }
+
   Future<void> _submit(bool save) async {
     final s = widget.controller.strings;
     if (_busy) return;
     if (utf8.encode(_configuration.text).length > 128 * 1024) {
       setState(() => _error = s.chain('invalid_size_or_encoding'));
       return;
+    }
+    if (widget.credentialsFor == null) {
+      final mismatch = _sourceMismatch(_configuration.text);
+      if (mismatch != null) {
+        setState(() => _error = s.chain(mismatch));
+        return;
+      }
     }
     final profile = widget.credentialsFor ?? _preview;
     if (save &&
@@ -671,6 +967,10 @@ class _ImportDialogState extends State<_ImportDialog> {
       setState(() => _error = s.chain('missing_field'));
       return;
     }
+    if (save && _name.text.trim().isEmpty) {
+      setState(() => _error = s.chain('missing_field'));
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -683,7 +983,7 @@ class _ImportDialogState extends State<_ImportDialog> {
             ? 'import'
             : 'preview',
         'source': widget.source.wire,
-        'name': _name.text,
+        'name': _name.text.trim(),
         if (widget.credentialsFor case final stored?) ...{
           'profile_id': stored.id,
           'revision': stored.editRevision,
@@ -695,10 +995,7 @@ class _ImportDialogState extends State<_ImportDialog> {
       });
       if (!mounted) return;
       if (result.error case final error?) {
-        setState(
-          () => _error =
-              '${s.chain(error['reason'] as String? ?? 'invalid_configuration')} (${error['field']}: ${error['line']})',
-        );
+        setState(() => _error = s.chainError(error));
       } else if ((result.preview?.candidates.length ?? 0) > 1 &&
           !(widget.controller.engineCapabilities?.chainOpenvpnMultiEndpoint ??
               false)) {
@@ -706,7 +1003,12 @@ class _ImportDialogState extends State<_ImportDialog> {
       } else if (save) {
         Navigator.pop(context, result.preview);
       } else {
-        setState(() => _preview = result.preview);
+        setState(() {
+          _preview = result.preview;
+          if (!_nameEdited && _name.text.trim().isEmpty) {
+            _name.text = result.preview?.host ?? widget.source.label;
+          }
+        });
       }
     } catch (_) {
       if (mounted) setState(() => _error = s.chain('secure_storage_failed'));
@@ -715,50 +1017,126 @@ class _ImportDialogState extends State<_ImportDialog> {
     }
   }
 
+  Widget _secret(
+    TextEditingController controller,
+    String label,
+    bool visible,
+    VoidCallback toggle,
+  ) {
+    final s = widget.controller.strings;
+    return TextField(
+      controller: controller,
+      enabled: !_busy,
+      obscureText: !visible,
+      autocorrect: false,
+      enableSuggestions: false,
+      decoration: InputDecoration(
+        labelText: label,
+        suffixIcon: IconButton(
+          tooltip: s.chain(visible ? 'hide_password' : 'show_password'),
+          onPressed: toggle,
+          icon: Icon(visible ? LucideIcons.eyeOff : LucideIcons.eye, size: 20),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = widget.controller.strings;
+    final theme = Theme.of(context);
     final profile = widget.credentialsFor ?? _preview;
+    final lines = widget.configuration == null
+        ? 0
+        : widget.configuration!.trim().isEmpty
+        ? 0
+        : widget.configuration!.trimRight().split('\n').length;
     return PopScope(
       canPop: !_busy,
       child: UsqueDialog(
-        icon: LucideIcons.fileUp,
+        icon: widget.credentialsFor == null
+            ? LucideIcons.fileUp
+            : LucideIcons.keyRound,
         title: widget.credentialsFor == null
             ? widget.source.label
             : s.chain('credentials'),
+        subtitle: widget.credentialsFor?.name,
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (widget.credentialsFor == null) ...[
-                TextField(
-                  controller: _name,
-                  enabled: !_busy,
-                  maxLength: 64,
-                  decoration: InputDecoration(labelText: s.chain('name')),
-                ),
-                const SizedBox(height: 16),
-                if (widget.configuration == null)
+                if (widget.configuration == null) ...[
                   TextField(
                     controller: _configuration,
                     enabled: !_busy,
-                    minLines: 5,
-                    maxLines: 10,
+                    minLines: 6,
+                    maxLines: 12,
+                    autofocus: true,
                     autocorrect: false,
                     enableSuggestions: false,
+                    style: UsqueTheme.mono(context),
                     decoration: InputDecoration(
                       labelText: s.chain('configuration'),
+                      alignLabelWithHint: true,
                     ),
-                    onChanged: (_) => setState(() => _preview = null),
+                    onChanged: (_) => setState(() {
+                      _preview = null;
+                      _error = null;
+                    }),
                   ),
+                  const SizedBox(height: 16),
+                ] else ...[
+                  Row(
+                    children: [
+                      Icon(
+                        LucideIcons.fileCheck,
+                        size: 18,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          s
+                              .chain('file_loaded')
+                              .replaceAll('{lines}', '$lines'),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 if (_preview == null)
-                  OutlinedButton(
-                    onPressed: _busy ? null : () => unawaited(_submit(false)),
-                    child: Text(s.chain(_busy ? 'checking' : 'preview')),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : () => unawaited(_submit(false)),
+                      icon: _busy
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(LucideIcons.searchCheck, size: 18),
+                      label: Text(s.chain(_busy ? 'checking' : 'preview')),
+                    ),
                   ),
               ],
               if (profile != null) ...[
+                if (widget.credentialsFor == null) ...[
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _name,
+                    enabled: !_busy,
+                    maxLength: 64,
+                    autofocus: widget.configuration != null,
+                    decoration: InputDecoration(labelText: s.chain('name')),
+                    onChanged: (_) => _nameEdited = true,
+                  ),
+                ],
                 const SizedBox(height: 16),
                 _ProfileDetails(
                   profile: profile,
@@ -776,37 +1154,37 @@ class _ImportDialogState extends State<_ImportDialog> {
                     decoration: InputDecoration(labelText: s.chain('username')),
                   ),
                   const SizedBox(height: 16),
-                  TextField(
-                    controller: _password,
-                    enabled: !_busy,
-                    obscureText: true,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: InputDecoration(labelText: s.chain('password')),
+                  _secret(
+                    _password,
+                    s.chain('password'),
+                    _showPassword,
+                    () => setState(() => _showPassword = !_showPassword),
                   ),
                 ],
                 if (profile.requiresKeyPassword) ...[
                   const SizedBox(height: 16),
-                  TextField(
-                    controller: _keyPassword,
-                    enabled: !_busy,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: s.chain('key_password'),
-                    ),
+                  _secret(
+                    _keyPassword,
+                    s.chain('key_password'),
+                    _showKeyPassword,
+                    () => setState(() => _showKeyPassword = !_showKeyPassword),
                   ),
                 ],
               ],
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
+              BannerSlot(
+                spacing: 0,
+                child: _error == null
+                    ? null
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: WarningBanner(
+                          key: const ValueKey('chain-import-error'),
+                          title: s.get('error'),
+                          message: _error!,
+                          danger: true,
+                        ),
+                      ),
+              ),
             ],
           ),
         ),

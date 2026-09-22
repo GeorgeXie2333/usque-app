@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/chain_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/chain_proxy_screen.dart';
@@ -262,14 +263,14 @@ void main() {
         ..library = [multi]
         ..picked = 'client';
       final app = await hostChain(tester, engine);
-      await tester.tap(find.byType(DropdownButton<ChainSource>));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('OpenVPN (Custom)').last);
+      await tester.tap(
+        find.byKey(const ValueKey('chain-source-openvpn_custom')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Import file'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Check configuration'));
-      await tester.pumpAndSettle();
+      // A chosen file is checked as soon as the dialog opens.
+      expect(engine.actions, contains('preview'));
       expect(
         find.text(
           'Update the engine to use configurations with multiple endpoints.',
@@ -309,6 +310,174 @@ void main() {
     },
   );
 
+  testWidgets(
+    'action bar explains a blocked draft and protects a selected configuration',
+    (tester) async {
+      final engine = ChainEngine()..library = [imported];
+      final app = await hostChain(tester, engine);
+      expect(
+        find.text('Enable chain proxy to select a configuration.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Select a saved configuration to apply.'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Apply changes'),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.text('Office tunnel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pending selection: Office tunnel'), findsOneWidget);
+      expect(find.textContaining('AllowedIPs'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Apply changes'),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      await tester.tap(
+        find.byKey(ValueKey('chain-profile-menu-${imported.id}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Choose another configuration or clear the saved selection before deleting this configuration.',
+        ),
+        findsOneWidget,
+      );
+      expect(engine.actions, isNot(contains('remove')));
+      expect(engine.saves, 0);
+      expect(app.activeProfile.chainExit!.enabled, isFalse);
+    },
+  );
+
+  testWidgets('a WireGuard file pasted under OpenVPN is caught locally', (
+    tester,
+  ) async {
+    final engine = ChainEngine();
+    await hostChain(tester, engine);
+    await tester.tap(find.byKey(const ValueKey('chain-source-openvpn_custom')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste configuration'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      fieldWithLabel('Configuration text'),
+      '[Interface]\nPrivateKey = fixture',
+    );
+    await tester.tap(find.text('Check configuration'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'This looks like a WireGuard configuration. Switch the exit source to WireGuard (Custom).',
+      ),
+      findsOneWidget,
+    );
+    expect(engine.actions, isNot(contains('preview')));
+  });
+
+  testWidgets('file import checks immediately and names the endpoint', (
+    tester,
+  ) async {
+    final engine = ChainEngine()
+      ..picked =
+          '[Interface]\nPrivateKey = fixture\n[Peer]\nEndpoint = vpn.example:51820\n';
+    await hostChain(tester, engine);
+    await tester.tap(find.text('Import file'));
+    await tester.pumpAndSettle();
+    expect(engine.actions, contains('preview'));
+    expect(find.text('Check configuration'), findsNothing);
+    expect(
+      find.text('Configuration loaded from file (4 lines).'),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<TextField>(fieldWithLabel('Name')).controller!.text,
+      'vpn.example',
+    );
+    expect(find.textContaining('PrivateKey'), findsNothing);
+  });
+
+  testWidgets('connection failures and DNS gaps are explained inline', (
+    tester,
+  ) async {
+    final engine = ChainEngine()..library = [imported];
+    final app = await hostChain(tester, engine);
+    engine.current = const EngineSnapshot(
+      phase: ConnectionPhase.error,
+      chainExit: ChainExitStatus(
+        stage: 'error',
+        currentProfile: imported,
+        failure: 'transport',
+        dnsUnavailable: true,
+        attemptFailures: ['transport', 'address_changed'],
+      ),
+    );
+    await app.refreshSnapshot();
+    await tester.pumpAndSettle();
+    expect(find.text('Failure: transport closed.'), findsOneWidget);
+    expect(find.text('No DNS through this exit'), findsOneWidget);
+    expect(
+      find.text('Failed attempts: transport closed, address changed'),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(ValueKey('chain-profile-${imported.id}')),
+        matching: find.text('Current connection'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  test('error locations and traditional Chinese copy resolve', () {
+    final en = AppStrings(
+      LocalePreference.english,
+      systemLocale: const Locale('en'),
+    );
+    expect(
+      en.chainError({
+        'reason': 'unsupported_or_duplicate_field',
+        'field': 'PostUp',
+        'line': 7,
+      }),
+      'This field is unsupported or duplicated. (PostUp, line 7)',
+    );
+    expect(
+      en.chainError({'reason': 'missing_field', 'field': '', 'line': 0}),
+      'A required field is missing.',
+    );
+    for (final preference in [
+      LocalePreference.traditionalChineseTaiwan,
+      LocalePreference.traditionalChineseHongKong,
+    ]) {
+      final strings = AppStrings(preference, systemLocale: const Locale('en'));
+      expect(strings.chain('title'), '鏈式代理');
+      expect(
+        strings.chainError({'reason': 'invalid_key', 'field': 'PublicKey'}),
+        '金鑰必須是有效的 32 位元組 Base64 金鑰。（PublicKey）',
+      );
+    }
+    expect(
+      AppStrings(
+        LocalePreference.japanese,
+        systemLocale: const Locale('en'),
+      ).chain('title'),
+      'Chain proxy',
+    );
+  });
+
   setUpAll(() async {
     await (FontLoader(
       'MaterialIcons',
@@ -320,6 +489,7 @@ void main() {
     for (final family in {
       'Manrope': ['Regular', 'Medium', 'SemiBold', 'Bold'],
       'SpaceGrotesk': ['Medium', 'SemiBold', 'Bold'],
+      'IBMPlexMono': ['Regular', 'Medium'],
     }.entries) {
       final loader = FontLoader(family.key);
       for (final weight in family.value) {
@@ -340,9 +510,7 @@ void main() {
       phase: ConnectionPhase.connected,
       chainExit: ChainExitStatus(stage: 'connected', currentProfile: imported),
     );
-    await tester.tap(find.byType(DropdownButton<ChainSource>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('VPN Gate').last);
+    await tester.tap(find.byKey(const ValueKey('chain-source-vpn_gate')));
     await tester.pumpAndSettle();
     expect(find.text('WireGuard (Custom) · Office tunnel'), findsOneWidget);
     expect(find.textContaining('0.0.0.0'), findsNothing);
@@ -497,24 +665,29 @@ void main() {
       await tester.pumpAndSettle();
       expect(engine.saves, 0);
       expect(app.activeProfile.dataPlane, DataPlaneMode.l4Proxy);
-      await tester.tap(find.byType(DropdownButton<ChainSource>));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('OpenVPN (Custom)').last);
+      expect(find.text('Requires CONNECT-IP'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('chain-source-openvpn_custom')),
+      );
       await tester.pumpAndSettle();
       expect(find.text(app.strings.get('discard_changes_title')), findsWidgets);
       await tester.tap(find.text(app.strings.get('keep_editing')));
       await tester.pumpAndSettle();
       expect(
         tester
-            .widget<DropdownButton<ChainSource>>(
-              find.byType(DropdownButton<ChainSource>),
+            .widget<ChoiceChip>(
+              find.byKey(const ValueKey('chain-source-wireguard_custom')),
             )
-            .value,
-        ChainSource.wireguardCustom,
+            .selected,
+        isTrue,
+      );
+      // The conflict and its resolution live in the action bar together.
+      expect(
+        find.text('This configuration requires CONNECT-IP.'),
+        findsOneWidget,
       );
       final apply = find.text('Switch to CONNECT-IP and apply');
-      await Scrollable.ensureVisible(tester.element(apply), alignment: 0.5);
-      await tester.pumpAndSettle();
+      expect(apply, findsOneWidget);
       await tester.tap(apply);
       await tester.pumpAndSettle();
       expect(engine.saves, 1);

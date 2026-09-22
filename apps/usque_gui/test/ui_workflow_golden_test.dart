@@ -464,9 +464,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
       await tester.pumpAndSettle();
       if (find.byType(VpnGateScreen).evaluate().isEmpty) {
-        await tester.tap(find.byType(DropdownButton<ChainSource>));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('VPN Gate').last);
+        await tester.tap(find.byKey(const ValueKey('chain-source-vpn_gate')));
       }
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
@@ -535,9 +533,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
       await tester.pumpAndSettle();
       if (find.byType(VpnGateScreen).evaluate().isEmpty) {
-        await tester.tap(find.byType(DropdownButton<ChainSource>));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('VPN Gate').last);
+        await tester.tap(find.byKey(const ValueKey('chain-source-vpn_gate')));
       }
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(ValueKey('vpn-gate-node-${server.id}')));

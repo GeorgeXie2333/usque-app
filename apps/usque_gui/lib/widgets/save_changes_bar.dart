@@ -19,6 +19,8 @@ class SaveChangesBar extends StatelessWidget {
     this.idleHint,
     this.statusLabel,
     this.onReconnect,
+    this.saveLabel,
+    this.summary,
     super.key,
   });
 
@@ -30,6 +32,12 @@ class SaveChangesBar extends StatelessWidget {
   final String? idleHint;
   final String? statusLabel;
   final VoidCallback? onReconnect;
+
+  /// Contextual label for the primary action, such as an explicit reconnect.
+  final String? saveLabel;
+
+  /// What the pending edit will do, shown above the status line.
+  final Widget? summary;
   final String? error;
 
   /// Current form validation takes precedence over an earlier engine result.
@@ -70,7 +78,7 @@ class SaveChangesBar extends StatelessWidget {
                 ),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final status = Semantics(
+                    final statusText = Semantics(
                       liveRegion: true,
                       child: Text(
                         message,
@@ -81,6 +89,17 @@ class SaveChangesBar extends StatelessWidget {
                         ),
                       ),
                     );
+                    final status = summary == null
+                        ? statusText
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              summary!,
+                              const SizedBox(height: 6),
+                              statusText,
+                            ],
+                          );
                     final saveButton = FilledButton.icon(
                       onPressed: saving || (!dirty && error == null)
                           ? null
@@ -92,7 +111,9 @@ class SaveChangesBar extends StatelessWidget {
                             )
                           : const Icon(LucideIcons.check, size: 18),
                       label: Text(
-                        strings.get(saving ? 'saving_changes' : 'save_changes'),
+                        saving
+                            ? strings.get('saving_changes')
+                            : saveLabel ?? strings.get('save_changes'),
                       ),
                     );
                     final save = onReconnect == null

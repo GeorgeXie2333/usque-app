@@ -36,9 +36,7 @@ Future<AppController> openGate(
   await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
   await tester.pumpAndSettle();
   if (find.byType(VpnGateScreen).evaluate().isEmpty) {
-    await tester.tap(find.byType(DropdownButton<ChainSource>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('VPN Gate').last);
+    await tester.tap(find.byKey(const ValueKey('chain-source-vpn_gate')));
   }
   await tester.pumpAndSettle();
   return app;
@@ -249,10 +247,26 @@ void main() {
       await tester.tap(node);
       await tester.pumpAndSettle();
       final state = tester.state(find.byType(VpnGateScreen));
+      final scrollable = find
+          .descendant(
+            of: find.byType(VpnGateScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first;
       for (final width in [900.0, 700.0, 390.0, 1200.0, 390.0]) {
         tester.view.physicalSize = Size(width, 1000);
         await tester.pumpAndSettle();
         expect(tester.state(find.byType(VpnGateScreen)), same(state));
+        // The taller phone layout can lay the row out beyond the viewport;
+        // the draft must survive regardless of where the row ends up.
+        if (node.evaluate().isEmpty) {
+          await tester.dragUntilVisible(
+            node,
+            scrollable,
+            const Offset(0, -160),
+          );
+          await tester.pumpAndSettle();
+        }
         expect(tester.widget<ListTile>(node).selected, isTrue);
         expect(
           find.byType(NavigationRail),
