@@ -54,6 +54,42 @@ SDK explicitly. Logs stay in the local temporary directory. Initial failures
 full affected suites rerun. Vendor linker/Gradle deprecation notices remain;
 no check or warning policy was weakened.
 
+## B — duplex queue admission
+
+A source: `e43493e47bb081faa351090bdb532d7d5687d1d1`.
+The mux retains one pinned outgoing admission future, pauses both input queues
+until it resolves, and continues tunnel/direct replies and priority cancellation.
+Routing and NAT complete before the future is created. Queue accounting is
+owned by the future and released on error/cancellation. Flow expiry scans pause
+while an admission is outstanding. One separately bounded proxy delivery batch
+preserves proxy order; synchronous classification delivers its TUN subset first.
+Only further tunnel batches pause while proxy delivery waits. Closed proxy
+receivers drop their bounded delivery tail and release accounting.
+
+The original implementation failed the new full-uplink and blocked-proxy
+reverse-progress tests (502 passed, 2 failed in the library test run). The
+regression asserts replies while capacity remains full; it does not drain the
+uplink first. Additional tests cover colliding TUN/proxy ports, restored reply
+bytes/checksums, direct replies, global cancellation, attachment replacement,
+receiver close, exact-once admission order, capacity recovery, expired NAT
+mapping retention during a wait, and cancellation of a proxy delivery tail.
+GEO/internal DNS asynchronous direct-flow creation retains its existing behavior;
+this stage does not eliminate that independent wait.
+
+B checks completed with exit 0:
+
+- `cargo fmt --all --check`
+- `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy`
+- `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test`
+  (1,270 passed, 8 ignored, 0 failed)
+- `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy`
+- `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2`
+- `python tool/check_repository_policy.py` (verified executable listed above)
+- `git diff --check`
+
+The GUI and wire schema are unchanged from A; their checks were not repeated
+for this Rust-only scheduling change. No device throughput result is available.
+
 ## Device and isolated evidence
 
 All candidate throughput, CPU, RSS, device lifecycle, and protected-runner

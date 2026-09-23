@@ -894,114 +894,210 @@ async fn run_packet_mux(
         PACKET_QUEUE_BYTE_CAPACITY,
     );
 
+    // These own packets and accounting, never a mutable flow-table borrow.
+    // No per-packet allocation/task is needed to retain an admission future.
+    let mut pending_send = std::pin::pin!(None);
+    let mut pending_proxy = std::pin::pin!(None);
     loop {
-        // Tokio randomizes ready branch order, so the two ingress queues get
-        // equal scheduling opportunities instead of a fixed preference.
-        tokio::select! {
+        let can_send = pending_send.as_ref().get_ref().is_none();
+        let can_receive = pending_proxy.as_ref().get_ref().is_none();
+        // Cancellation is prioritized, while data directions remain fair.
+        let event = tokio::select! {
+            biased;
             _ = cancellation.cancelled() => break,
-            _ = maintenance.tick() => flows.maintain(std::time::Instant::now()),
-            packet = raw_outgoing.recv() => {
-                let Some(packet) = packet else { break; };
+            event = async {
+                tokio::select! {
+                    _ = maintenance.tick() => MuxEvent::Maintain,
+                    packet = raw_outgoing.recv(), if can_send => MuxEvent::Tun(packet),
+                    packet = rx.recv_async(), if can_send => MuxEvent::Proxy(packet),
+                    batch = tunnel.receive_batch(), if can_receive => MuxEvent::Incoming(batch),
+                    packet = incoming.recv(), if direct_incoming_open => MuxEvent::Direct(packet),
+                    result = wait_mux_pending(pending_send.as_mut()) => MuxEvent::Sent(result),
+                    () = wait_mux_pending(pending_proxy.as_mut()) => MuxEvent::Delivered,
+                }
+            } => event,
+        };
+        match event {
+            MuxEvent::Maintain => {
+                maintain_mux_flows(&mut flows, can_send, std::time::Instant::now())
+            }
+            MuxEvent::Sent(result) => {
+                pending_send.set(None);
+                match result {
+                    None | Some(Ok(())) => {}
+                    Some(Err(TransportError::TunnelClosed)) => break,
+                    Some(Err(error)) => {
+                        tracing::warn!(%error, "discarded a packet rejected by the MASQUE sender")
+                    }
+                }
+            }
+            MuxEvent::Delivered => pending_proxy.set(None),
+            MuxEvent::Tun(packet) => {
+                let Some(packet) = packet else {
+                    break;
+                };
                 let TunOutbound { packet, attachment } = packet;
-                if attachment.is_cancelled() { continue; }
+                if attachment.is_cancelled() {
+                    continue;
+                }
                 let mut packet = packet.into_mut();
                 let inspection = flows.inspect_outgoing(PacketOrigin::Tunnel, &packet);
                 if !inspection.is_owned() {
+                    // GEO / internal DNS connection creation retains its existing
+                    // async lifecycle; it is separate from queue admission.
                     let direct = tokio::select! {
                         biased;
                         _ = cancellation.cancelled() => break,
                         _ = attachment.cancelled() => continue,
                         direct = router.route_outgoing(&mut packet) => direct,
                     };
-                    if direct { continue; }
-                }
-                // DirectGatewayRouter guarantees that a false result leaves
-                // the packet unchanged, so the earlier parse remains valid.
-                if flows.route_inspected_outgoing(&mut packet, inspection) {
-                    let sent = tokio::select! {
-                        biased;
-                        _ = attachment.cancelled() => continue,
-                        result = sender.send_mut_packet(packet) => result,
-                    };
-                    match sent {
-                        Ok(()) => {}
-                        Err(TransportError::TunnelClosed) => break,
-                        Err(error) => {
-                            tracing::warn!(%error, "discarded a TUN packet rejected by the MASQUE sender");
-                        }
+                    if direct {
+                        continue;
                     }
                 }
+                if flows.route_inspected_outgoing(&mut packet, inspection) {
+                    pending_send.set(Some(send_mux_packet(
+                        sender.clone(),
+                        packet,
+                        Some(attachment),
+                        None,
+                    )));
+                }
             }
-            packet = rx.recv_async() => {
-                let Some(packet) = packet else { break; };
+            MuxEvent::Proxy(packet) => {
+                let Some(packet) = packet else {
+                    break;
+                };
                 let queue_entry = proxy_outgoing.start_entry(packet.len());
                 let mut packet = packet
                     .try_into_mut()
                     .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
                 if flows.route_outgoing(PacketOrigin::Proxy, &mut packet) {
-                    match sender.send_mut_packet(packet).await {
-                        Ok(()) => {}
-                        Err(TransportError::TunnelClosed) => break,
-                        Err(error) => {
-                            tracing::warn!(%error, "discarded a proxy packet rejected by the MASQUE sender");
-                        }
-                    }
+                    pending_send.set(Some(send_mux_packet(
+                        sender.clone(),
+                        packet,
+                        None,
+                        Some(queue_entry),
+                    )));
                 }
-                queue_entry.complete();
+                // Rejected packets and cancelled admissions release accounting by RAII.
             }
-            batch = tunnel.receive_batch() => {
-                let Ok(mut batch) = batch else { break; };
+            MuxEvent::Incoming(batch) => {
+                let Ok(mut batch) = batch else {
+                    break;
+                };
                 let mut tun_batch = PacketBatch::new();
+                let mut proxy_batch = Vec::new();
                 while let Some(packet) = batch.pop_front() {
-                    let mut packet = packet
-                        .try_into_mut()
-                        .unwrap_or_else(|packet| {
-                            crate::transport_performance::add(&quality.performance().incoming_copy_bytes, packet.len() as u64);
-                            bytes::BytesMut::from(packet.as_ref())
-                        });
+                    let mut packet = packet.try_into_mut().unwrap_or_else(|packet| {
+                        crate::transport_performance::add(
+                            &quality.performance().incoming_copy_bytes,
+                            packet.len() as u64,
+                        );
+                        bytes::BytesMut::from(packet.as_ref())
+                    });
                     match flows.route_incoming(&mut packet) {
-                        Some(PacketOrigin::Tunnel) => {
-                            let packet = packet.freeze();
-                            if let Err(packet) = tun_batch.push_back(packet) {
-                                record_tun_sink_drop(
-                                    dispatch_tun_incoming_batch(&tun_sink, std::mem::take(&mut tun_batch)),
-                                    &mut tun_dropped_batches,
-                                    &mut tun_dropped_packets,
-                                );
-                                tun_batch
-                                    .push_back(packet)
-                                    .expect("one valid packet fits an empty TUN batch");
-                            }
-                        }
+                        Some(PacketOrigin::Tunnel) => tun_batch
+                            .push_back(packet.freeze())
+                            .expect("a subset fits the original bounded batch"),
                         Some(PacketOrigin::Proxy) => {
-                            let queue_entry = proxy_incoming_metrics.start_entry(packet.len());
-                            proxy_incoming.send_owned_async(packet.freeze()).await;
-                            queue_entry.complete();
+                            let entry = proxy_incoming_metrics.start_entry(packet.len());
+                            proxy_batch.push((packet.freeze(), entry));
                         }
-                        // Policy and unattributed drops do not produce per-packet logs.
                         None => {}
                     }
                 }
+                // Classify synchronously, deliver all TUN packets before any
+                // proxy wait. The pending proxy subset is at most one batch.
                 record_tun_sink_drop(
                     dispatch_tun_incoming_batch(&tun_sink, tun_batch),
                     &mut tun_dropped_batches,
                     &mut tun_dropped_packets,
                 );
-            }
-            packet = incoming.recv(), if direct_incoming_open => {
-                match packet {
-                    Some(packet) => record_tun_sink_drop(
-                        dispatch_tun_incoming(&tun_sink, packet),
-                        &mut tun_dropped_batches,
-                        &mut tun_dropped_packets,
-                    ),
-                    None => direct_incoming_open = false,
+                if !proxy_batch.is_empty() {
+                    pending_proxy.set(Some(deliver_proxy_batch(
+                        proxy_incoming.clone(),
+                        proxy_batch,
+                    )));
                 }
             }
+            MuxEvent::Direct(packet) => match packet {
+                Some(packet) => record_tun_sink_drop(
+                    dispatch_tun_incoming(&tun_sink, packet),
+                    &mut tun_dropped_batches,
+                    &mut tun_dropped_packets,
+                ),
+                None => direct_incoming_open = false,
+            },
         }
     }
+    pending_send.set(None);
+    pending_proxy.set(None);
     if cancellation.is_cancelled() {
         raw_outgoing.cancel();
+    }
+}
+
+enum MuxEvent {
+    Maintain,
+    Tun(Option<TunOutbound>),
+    Proxy(Option<Bytes>),
+    Incoming(Result<PacketBatch, TransportError>),
+    Direct(Option<Bytes>),
+    Sent(Option<Result<(), TransportError>>),
+    Delivered,
+}
+
+fn maintain_mux_flows(flows: &mut PacketMuxTable, send_idle: bool, now: std::time::Instant) {
+    // A routed packet already contains its wire identifier. Do not remove its
+    // reverse mapping while capacity admission still owns that packet.
+    if send_idle {
+        flows.maintain(now);
+    }
+}
+
+async fn wait_mux_pending<F: std::future::Future>(
+    pending: std::pin::Pin<&mut Option<F>>,
+) -> F::Output {
+    match pending.as_pin_mut() {
+        Some(future) => future.await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn send_mux_packet(
+    sender: crate::netstack::ManagedTunnelSender,
+    packet: BytesMut,
+    attachment: Option<CancellationToken>,
+    entry: Option<crate::queue_metrics::QueueEntry>,
+) -> Option<Result<(), TransportError>> {
+    let cancelled = async {
+        match attachment {
+            Some(token) => token.cancelled().await,
+            None => std::future::pending().await,
+        }
+    };
+    let result = tokio::select! {
+        biased;
+        () = cancelled => return None,
+        result = sender.send_mut_packet(packet) => result,
+    };
+    if result.is_ok()
+        && let Some(entry) = entry
+    {
+        entry.complete();
+    }
+    Some(result)
+}
+
+async fn deliver_proxy_batch(
+    sender: crate::packet_pipe::PacketSender,
+    batch: Vec<(Bytes, crate::queue_metrics::QueueEntry)>,
+) {
+    for (packet, entry) in batch {
+        if sender.send_owned_checked(packet).await {
+            entry.complete();
+        }
     }
 }
 
@@ -1148,6 +1244,10 @@ impl FrontendSpec {
 }
 
 #[cfg(test)]
+#[path = "masque_runtime/mux_progress_tests.rs"]
+mod mux_progress_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::queue_metrics::QueueMetrics;
@@ -1181,7 +1281,7 @@ mod tests {
         ))
     }
 
-    fn test_tun_io(
+    pub(super) fn test_tun_io(
         outgoing_capacity: usize,
         incoming_capacity: usize,
     ) -> (
@@ -1204,7 +1304,7 @@ mod tests {
         )
     }
 
-    fn mux_udp_packet(source_port: u16) -> Bytes {
+    pub(super) fn mux_udp_packet(source_port: u16) -> Bytes {
         let mut packet = vec![0u8; 28];
         packet[0] = 0x45;
         packet[2..4].copy_from_slice(&28_u16.to_be_bytes());
