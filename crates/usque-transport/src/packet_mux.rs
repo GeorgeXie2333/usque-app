@@ -267,9 +267,41 @@ impl PacketMuxTable {
         true
     }
 
+    pub(crate) fn route_owned_incoming(&mut self, packet: bytes::Bytes) -> Option<RoutedPacket> {
+        let (origin, rewrite) = self.inspect_incoming(&packet)?;
+        let mut copied_bytes = 0;
+        let packet = if let Some(rewrite) = rewrite {
+            let mut packet = packet.try_into_mut().unwrap_or_else(|packet| {
+                copied_bytes = packet.len();
+                bytes::BytesMut::from(packet.as_ref())
+            });
+            rewrite.apply(&mut packet);
+            packet.freeze()
+        } else {
+            packet
+        };
+        Some(RoutedPacket {
+            origin,
+            packet,
+            copied_bytes,
+        })
+    }
+
+    #[cfg(test)]
     pub(crate) fn route_incoming(&mut self, packet: &mut [u8]) -> Option<PacketOrigin> {
+        let (origin, rewrite) = self.inspect_incoming(packet)?;
+        if let Some(rewrite) = rewrite {
+            rewrite.apply(packet);
+        }
+        Some(origin)
+    }
+
+    fn inspect_incoming(
+        &mut self,
+        packet: &[u8],
+    ) -> Option<(PacketOrigin, Option<IncomingRewrite>)> {
         let Some(parsed) = ParsedPacket::parse(packet, Direction::Incoming) else {
-            return self.route_incoming_icmp_error(packet);
+            return self.inspect_incoming_icmp_error(packet);
         };
         let (tuple, fragment) = match parsed {
             ParsedPacket::Flow { tuple, fragment } => (tuple, fragment),
@@ -282,7 +314,7 @@ impl PacketMuxTable {
                     return None;
                 }
                 mapping.1 = Instant::now();
-                return Some(mapping.0);
+                return Some((mapping.0, None));
             }
         };
         let wire = WireKey {
@@ -312,16 +344,17 @@ impl PacketMuxTable {
             }
             return None;
         }
-        if wire.local_id != flow.local_id {
-            rewrite_identifier(packet, &tuple, flow.local_id);
-        }
+        let rewrite = (wire.local_id != flow.local_id).then_some(IncomingRewrite::Identifier {
+            tuple,
+            new_id: flow.local_id,
+        });
         if let Some(forward) = self.forward.get_mut(&flow) {
             forward.last_seen = Instant::now();
         }
         if let Some(fragment) = fragment {
             self.record_incoming_fragment(fragment, flow.origin, Instant::now(), application_quic);
         }
-        Some(flow.origin)
+        Some((flow.origin, rewrite))
     }
 
     fn prepare_outgoing_fragment(
@@ -469,7 +502,10 @@ impl PacketMuxTable {
         None
     }
 
-    fn route_incoming_icmp_error(&mut self, packet: &mut [u8]) -> Option<PacketOrigin> {
+    fn inspect_incoming_icmp_error(
+        &mut self,
+        packet: &[u8],
+    ) -> Option<(PacketOrigin, Option<IncomingRewrite>)> {
         let network = parse_network_packet(packet)?;
         let transport_offset = network.transport_offset?;
         if !is_icmp_error_type(network.protocol, *packet.get(transport_offset)?) {
@@ -495,22 +531,19 @@ impl PacketMuxTable {
         }
         let reverse = self.reverse.get(&wire)?;
         let flow = reverse.flow.clone();
-        if wire.local_id != flow.local_id {
-            rewrite_embedded_identifier(
-                packet,
-                inner_offset,
-                &tuple,
-                transport_offset + 2,
-                flow.local_id,
-            );
-        }
+        let rewrite = (wire.local_id != flow.local_id).then_some(IncomingRewrite::Quoted {
+            tuple,
+            inner_offset,
+            checksum_offset: transport_offset + 2,
+            new_id: flow.local_id,
+        });
         if let Some(forward) = self.forward.get_mut(&flow) {
             forward.last_seen = Instant::now();
         }
         if let Some(fragment) = network.fragment {
             self.record_incoming_fragment(fragment, flow.origin, Instant::now(), false);
         }
-        Some(flow.origin)
+        Some((flow.origin, rewrite))
     }
 
     /// The owning mux calls this once per second. Each live mapping has exactly
@@ -619,6 +652,40 @@ struct PacketTuple {
     identifier_offset: usize,
     checksum_offset: usize,
     checksum_optional: bool,
+}
+
+pub(crate) struct RoutedPacket {
+    pub(crate) origin: PacketOrigin,
+    pub(crate) packet: bytes::Bytes,
+    pub(crate) copied_bytes: usize,
+}
+
+enum IncomingRewrite {
+    Identifier {
+        tuple: PacketTuple,
+        new_id: u16,
+    },
+    Quoted {
+        tuple: PacketTuple,
+        inner_offset: usize,
+        checksum_offset: usize,
+        new_id: u16,
+    },
+}
+impl IncomingRewrite {
+    fn apply(self, packet: &mut [u8]) {
+        match self {
+            Self::Identifier { tuple, new_id } => rewrite_identifier(packet, &tuple, new_id),
+            Self::Quoted {
+                tuple,
+                inner_offset,
+                checksum_offset,
+                new_id,
+            } => {
+                rewrite_embedded_identifier(packet, inner_offset, &tuple, checksum_offset, new_id);
+            }
+        }
+    }
 }
 
 enum ParsedPacket {
@@ -965,6 +1032,7 @@ fn write_u16(packet: &mut [u8], offset: usize, value: u16) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("packet_mux/ownership_tests.rs");
 
     #[test]
     fn full_flow_table_preserves_packet_bytes_and_existing_routes() {

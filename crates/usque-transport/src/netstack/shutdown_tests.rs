@@ -90,7 +90,10 @@ async fn h3_shutdown_preserves_typed_failure_before_and_after_driver_completion(
                 let (closed_tx, closed_rx) = oneshot::channel();
                 let tunnel = tunnel_with_closed_channel(channel, finish_rx, closed_tx);
                 closed_rx.await.unwrap();
-                let pump = pump_fixture(MasqueTunnel::Http3(tunnel), CancellationToken::new());
+                let pump = pump_fixture(
+                    MasqueTunnel::Http3(Box::new(tunnel)),
+                    CancellationToken::new(),
+                );
                 tokio::pin!(pump);
                 if already_finished {
                     finish_tx.send(Err(error)).unwrap();
@@ -154,7 +157,10 @@ async fn h3_clean_driver_exit_is_a_connection_close_not_a_control_rejection() {
         let (closed_tx, closed_rx) = oneshot::channel();
         let tunnel = tunnel_with_closed_channel(channel, finish_rx, closed_tx);
         closed_rx.await.unwrap();
-        let pump = pump_fixture(MasqueTunnel::Http3(tunnel), CancellationToken::new());
+        let pump = pump_fixture(
+            MasqueTunnel::Http3(Box::new(tunnel)),
+            CancellationToken::new(),
+        );
         tokio::pin!(pump);
         assert!(
             poll_fn(|cx| Poll::Ready(pump.as_mut().poll(cx)))
@@ -181,7 +187,7 @@ async fn h3_shutdown_wait_is_cancellable_and_aborts_the_driver() {
         let tunnel = tunnel_with_closed_channel(channel, finish_rx, closed_tx);
         closed_rx.await.unwrap();
         let cancellation = CancellationToken::new();
-        let pump = pump_fixture(MasqueTunnel::Http3(tunnel), cancellation.clone());
+        let pump = pump_fixture(MasqueTunnel::Http3(Box::new(tunnel)), cancellation.clone());
         tokio::pin!(pump);
         assert!(
             poll_fn(|cx| Poll::Ready(pump.as_mut().poll(cx)))
@@ -203,7 +209,10 @@ async fn h3_shutdown_wait_has_a_non_fallback_timeout() {
         let (closed_tx, closed_rx) = oneshot::channel();
         let tunnel = tunnel_with_closed_channel(channel, finish_rx, closed_tx);
         closed_rx.await.unwrap();
-        let pump = pump_fixture(MasqueTunnel::Http3(tunnel), CancellationToken::new());
+        let pump = pump_fixture(
+            MasqueTunnel::Http3(Box::new(tunnel)),
+            CancellationToken::new(),
+        );
         tokio::pin!(pump);
         for _ in 0..4 {
             assert!(

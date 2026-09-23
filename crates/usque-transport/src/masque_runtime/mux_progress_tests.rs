@@ -361,3 +361,23 @@ async fn attachment_cancel_revokes_only_pending_packet_and_preserves_admitted_or
     );
     f.stop().await;
 }
+
+#[tokio::test]
+async fn shared_inbound_without_rewrite_preserves_original_storage() {
+    let mut f = Fixture::new(4).await;
+    let reply = f.establish(PacketOrigin::Tunnel).await;
+    f.inject(std::slice::from_ref(&reply)).await;
+    let packet = timeout(Duration::from_secs(2), f.io.receive_packet())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(packet.as_ptr(), reply.as_ptr());
+    assert_eq!(
+        f.quality
+            .performance()
+            .incoming_copy_bytes
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    f.stop().await;
+}

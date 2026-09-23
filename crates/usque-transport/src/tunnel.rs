@@ -16,8 +16,8 @@ pub(crate) type BatchSendFuture =
 /// multipath variant: Auto may replace a channel, but only one channel carries
 /// packets at a time.
 pub(crate) enum MasqueTunnel {
-    Http3(H3Tunnel),
-    Http2(H2Tunnel),
+    Http3(Box<H3Tunnel>),
+    Http2(Box<H2Tunnel>),
 }
 
 impl MasqueTunnel {

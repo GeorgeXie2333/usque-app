@@ -94,7 +94,7 @@ async fn supervisor_with_refresh(
     };
     (
         tokio::spawn(run_transport_supervisor(
-            MasqueTunnel::Http3(tunnel),
+            MasqueTunnel::Http3(Box::new(tunnel)),
             AddressFamily::Ipv4,
             packet_io,
             context,

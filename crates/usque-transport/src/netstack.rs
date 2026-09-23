@@ -1359,7 +1359,7 @@ async fn connect_endpoint(
                     Some(&attempt),
                 )
                 .await
-                .map(MasqueTunnel::Http3),
+                .map(|tunnel| MasqueTunnel::Http3(Box::new(tunnel))),
                 Transport::Http2 => connect_h2_with_protector(
                     endpoint,
                     sni,
@@ -1368,7 +1368,7 @@ async fn connect_endpoint(
                     Some(&attempt),
                 )
                 .await
-                .map(MasqueTunnel::Http2),
+                .map(|tunnel| MasqueTunnel::Http2(Box::new(tunnel))),
             }
         };
         tokio::pin!(connecting);

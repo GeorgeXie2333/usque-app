@@ -1,3 +1,6 @@
+mod framing;
+use framing::H2CapsuleFramer;
+
 use std::collections::VecDeque;
 use std::future::Future;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -284,6 +287,7 @@ impl H2SendHalf {
 }
 
 pub struct H2ReceiveHalf {
+    framing: H2CapsuleFramer,
     quality: NetworkQualityTelemetry,
     stream: RecvStream,
     control: ConnectIpControlPlane,
@@ -327,6 +331,13 @@ impl H2ReceiveHalf {
         let mut batch = PacketBatch::single(first);
         let mut frames = 0;
         loop {
+            if self.packets.is_empty()
+                && !self.framing.data.is_empty()
+                && let Err(error) = self.drain_ready_capsules()
+            {
+                self.receive_error = Some(error);
+                break;
+            }
             while let Some(packet) = self.packets.pop_front() {
                 if let Err(packet) = batch.push_back(packet) {
                     self.packets.push_front(packet);
@@ -370,25 +381,33 @@ impl H2ReceiveHalf {
     }
 
     fn buffer_data(&mut self, chunk: Bytes) -> Result<(), TransportError> {
-        if self.control.buffer.len().saturating_add(chunk.len()) > MAX_CAPSULE_PAYLOAD + 16 {
-            return Err(TransportError::CapsuleTooLarge);
-        }
         let length = chunk.len();
         let counters = &self.quality.performance().h2;
         crate::transport_performance::add(&counters.data_frames, 1);
         crate::transport_performance::add(&counters.data_bytes, length as u64);
-        crate::transport_performance::add(&counters.assembly_copy_bytes, length as u64);
-        self.control.buffer.extend_from_slice(&chunk);
+        self.framing.feed(chunk);
         self.stream.flow_control().release_capacity(length)?;
         Ok(())
     }
 
     fn drain_ready_capsules(&mut self) -> Result<(), TransportError> {
+        let result = self.drain_capsules();
+        let copied = self.framing.take_copied_bytes();
+        if copied != 0 {
+            crate::transport_performance::add(
+                &self.quality.performance().h2.assembly_copy_bytes,
+                copied,
+            );
+        }
+        result
+    }
+
+    fn drain_capsules(&mut self) -> Result<(), TransportError> {
         loop {
             if self.packets.len() >= H2_PACKET_QUEUE_CAPACITY {
                 return Ok(());
             }
-            let Some(capsule) = take_complete_capsule(&mut self.control.buffer)? else {
+            let Some(capsule) = self.framing.next()? else {
                 return Ok(());
             };
             if let ConnectIpCapsule::Unknown {
@@ -882,6 +901,7 @@ fn h2_tunnel_from_streams(
             liveness_failed: connection.liveness_failed.clone(),
         },
         receive: H2ReceiveHalf {
+            framing: H2CapsuleFramer::default(),
             quality: quality.clone(),
             stream: receive,
             control: ConnectIpControlPlane::new(control_tx),
@@ -1128,35 +1148,19 @@ fn self_signed_certificate(private_key: &PKey<Private>) -> Result<X509, ErrorSta
     Ok(certificate.build())
 }
 
+#[cfg(test)]
 fn take_complete_capsule(
     buffer: &mut BytesMut,
 ) -> Result<Option<ConnectIpCapsule>, TransportError> {
-    let Some((_, type_length)) = decode_varint(buffer)? else {
-        return Ok(None);
-    };
-    let Some((payload_length, length_length)) = decode_varint(&buffer[type_length..])? else {
-        return Ok(None);
-    };
-    let payload_length =
-        usize::try_from(payload_length).map_err(|_| TransportError::CapsuleTooLarge)?;
-    if payload_length > MAX_CAPSULE_PAYLOAD {
-        return Err(TransportError::CapsuleTooLarge);
+    let mut framer = H2CapsuleFramer::default();
+    framer.feed(buffer.clone().freeze());
+    let result = framer.next();
+    // Preserve test helper's historical transactional incomplete-input contract.
+    if !matches!(result, Ok(None)) {
+        let consumed = buffer.len() - framer.data.len();
+        buffer.advance(consumed);
     }
-    let frame_length = type_length
-        .checked_add(length_length)
-        .and_then(|header_length| header_length.checked_add(payload_length))
-        .ok_or(TransportError::CapsuleTooLarge)?;
-    if buffer.len() < frame_length {
-        return Ok(None);
-    }
-
-    // A complete malformed capsule is terminal for this H2 tunnel. Splitting
-    // only after framing is complete preserves fragmented-input semantics while
-    // allowing successful DATAGRAM payloads to remain zero-copy `Bytes` views.
-    let mut frame = buffer.split_to(frame_length).freeze();
-    let capsule = ConnectIpCapsule::decode(&mut frame)?;
-    debug_assert!(frame.is_empty());
-    Ok(Some(capsule))
+    result
 }
 
 #[cfg(test)]
@@ -1511,6 +1515,7 @@ impl TransportError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("h2/receive_framing_tests.rs");
     use crate::network_quality::{MetricAvailability, NetworkQualitySampler};
     use crate::socket::{DirectEgressLease, SocketHandle};
     use std::sync::atomic::{AtomicU64, AtomicUsize};
@@ -2254,7 +2259,7 @@ mod tests {
         };
         assert_eq!(batch.len(), 1);
         assert_eq!(batch.pop_front().unwrap(), packet);
-        assert_eq!(loopback.receive.control.buffer.as_ref(), &capsule[..1]);
+        assert_eq!(loopback.receive.framing.partial.as_ref(), &capsule[..1]);
 
         // Cancel a waiting receive, then complete the same partial capsule.
         let cancelled = std::future::poll_fn(|cx| {
@@ -2778,11 +2783,11 @@ mod tests {
             }
             wire.extend_from_slice(&capsule);
         }
-        loopback.receive.control.buffer.extend_from_slice(&wire);
+        loopback.receive.framing.feed(wire.freeze());
 
         loopback.receive.drain_ready_capsules().unwrap();
         assert_eq!(loopback.receive.packets.len(), H2_PACKET_QUEUE_CAPACITY);
-        assert_eq!(loopback.receive.control.buffer, final_capsule);
+        assert_eq!(loopback.receive.framing.data, final_capsule);
         assert_eq!(
             u16::from_be_bytes([
                 loopback.receive.packets.front().unwrap()[4],
@@ -2794,7 +2799,7 @@ mod tests {
         loopback.receive.packets.pop_front();
         loopback.receive.drain_ready_capsules().unwrap();
         assert_eq!(loopback.receive.packets.len(), H2_PACKET_QUEUE_CAPACITY);
-        assert!(loopback.receive.control.buffer.is_empty());
+        assert!(loopback.receive.framing.data.is_empty());
         assert_eq!(
             u16::from_be_bytes([
                 loopback.receive.packets.back().unwrap()[4],

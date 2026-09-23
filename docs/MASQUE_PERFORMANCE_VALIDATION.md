@@ -90,6 +90,47 @@ B checks completed with exit 0:
 The GUI and wire schema are unchanged from A; their checks were not repeated
 for this Rust-only scheduling change. No device throughput result is available.
 
+## C1 — H2 framing and conditional inbound rewriting
+
+B source: `ff48bef4590e12ab7ad8c6642d63200c9deb9e96`.
+A private H2 framer retains the current DATA as `Bytes` and copies only an
+incomplete capsule into a bounded partial buffer (at most 65,552 bytes). It
+finishes that capsule before interpreting the DATA tail, so the size check is
+per capsule instead of aggregate buffered bytes. The mux first classifies an
+immutable packet and obtains mutable storage only for an actual NAT identifier
+or quoted ICMP rewrite. Copy counters are accumulated at drain/batch boundaries.
+The larger connection state is boxed once when creating the private transport
+enum; no per-packet task/boxing is introduced.
+
+Before the fix, the three new storage/boundary tests failed (509 passed,
+3 failed in the transport library): complete-DATA pointer retention, maximum
+capsule tail plus following capsule, and no-rewrite inbound pointer retention.
+The small-window test already passed and remains a regression guard: a 65,535-byte
+IP packet traverses a 1,024-byte stream receive window, with used capacity back
+to zero. Every DATA still returns its capacity exactly once. The 128-packet
+ready-frame regression, control order, bounded rejection replies, incomplete
+receive cancellation, deferred lookahead error, EOF and batch bounds remain.
+
+New property tests use the locked proptest dependency for arbitrary bytes and
+random chunking. Deterministic tests split every position across all four
+varint widths and verify that the following complete capsule retains its DATA
+pointer. Owned inbound tests cover IPv4, IPv6, fragments, ICMP quotes, policy
+rejection, shared-source immutability and unique-allocation reuse.
+
+C1 checks completed with exit 0:
+
+- `cargo fmt --all --check`
+- `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy`
+- `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test`
+  (1,280 passed, 8 ignored, 0 failed)
+- `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy`
+- `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2`
+- `python tool/check_repository_policy.py` (verified executable listed above)
+- `git diff --check`
+
+The unchanged protobuf/GUI/Kotlin checks retain A's results. No device
+throughput or allocation/CPU improvement is claimed from unit tests alone.
+
 ## Device and isolated evidence
 
 All candidate throughput, CPU, RSS, device lifecycle, and protected-runner

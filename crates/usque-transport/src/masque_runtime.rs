@@ -988,24 +988,28 @@ async fn run_packet_mux(
                 };
                 let mut tun_batch = PacketBatch::new();
                 let mut proxy_batch = Vec::new();
+                let mut copied_bytes = 0;
                 while let Some(packet) = batch.pop_front() {
-                    let mut packet = packet.try_into_mut().unwrap_or_else(|packet| {
-                        crate::transport_performance::add(
-                            &quality.performance().incoming_copy_bytes,
-                            packet.len() as u64,
-                        );
-                        bytes::BytesMut::from(packet.as_ref())
-                    });
-                    match flows.route_incoming(&mut packet) {
-                        Some(PacketOrigin::Tunnel) => tun_batch
-                            .push_back(packet.freeze())
+                    let Some(routed) = flows.route_owned_incoming(packet) else {
+                        continue;
+                    };
+                    copied_bytes += routed.copied_bytes;
+                    let packet = routed.packet;
+                    match routed.origin {
+                        PacketOrigin::Tunnel => tun_batch
+                            .push_back(packet)
                             .expect("a subset fits the original bounded batch"),
-                        Some(PacketOrigin::Proxy) => {
+                        PacketOrigin::Proxy => {
                             let entry = proxy_incoming_metrics.start_entry(packet.len());
-                            proxy_batch.push((packet.freeze(), entry));
+                            proxy_batch.push((packet, entry));
                         }
-                        None => {}
                     }
+                }
+                if copied_bytes != 0 {
+                    crate::transport_performance::add(
+                        &quality.performance().incoming_copy_bytes,
+                        copied_bytes as u64,
+                    );
                 }
                 // Classify synchronously, deliver all TUN packets before any
                 // proxy wait. The pending proxy subset is at most one batch.
