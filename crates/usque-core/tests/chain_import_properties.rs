@@ -14,7 +14,7 @@ proptest! {
         secrets.username = format!("{credential}{sentinel}");
         secrets.password = format!("{credential}{sentinel}");
         secrets.private_key_password = format!("{credential}{sentinel}");
-        for source in [ChainSource::OpenvpnCustom, ChainSource::WireguardCustom] {
+        for source in [ChainSource::OpenvpnCustom, ChainSource::WireguardCustom, ChainSource::WarpWireguard] {
             let result = ValidatedProfile::parse(source, &secrets);
             let debug = format!("{result:?}");
             prop_assert!(!debug.contains(sentinel));
@@ -22,6 +22,10 @@ proptest! {
                 prop_assert!(!error.to_string().contains(sentinel));
                 prop_assert!(error.to_string().len() < 256);
             }
+        }
+        if let Err(error) = usque_core::warp_wireguard::Request::parse(&text) {
+            prop_assert!(!error.to_string().contains(sentinel));
+            prop_assert!(error.to_string().len() < 256);
         }
     }
 }

@@ -1922,6 +1922,7 @@ class EngineCapabilities {
     this.chainProfileImport = false,
     this.chainOpenvpnUdp = false,
     this.chainWireguard = false,
+    this.chainWarpWireguard = false,
     this.chainOpenvpnMultiEndpoint = false,
     this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
@@ -1944,6 +1945,7 @@ class EngineCapabilities {
         chainProfileImport: map['chain_profile_import'] == true,
         chainOpenvpnUdp: map['chain_openvpn_udp'] == true,
         chainWireguard: map['chain_wireguard'] == true,
+        chainWarpWireguard: map['chain_warp_wireguard'] == true,
         chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
         vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
@@ -1974,6 +1976,7 @@ class EngineCapabilities {
   final bool chainProfileImport,
       chainOpenvpnUdp,
       chainWireguard,
+      chainWarpWireguard,
       chainOpenvpnMultiEndpoint;
   final bool vpnGatePoolFavorites;
   final bool networkSettingsApplication;
@@ -1997,6 +2000,7 @@ class EngineCapabilities {
           chainProfileImport == other.chainProfileImport &&
           chainOpenvpnUdp == other.chainOpenvpnUdp &&
           chainWireguard == other.chainWireguard &&
+          chainWarpWireguard == other.chainWarpWireguard &&
           chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
@@ -2025,6 +2029,7 @@ class EngineCapabilities {
     chainProfileImport,
     chainOpenvpnUdp,
     chainWireguard,
+    chainWarpWireguard,
     chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites,
     l4Tcp,

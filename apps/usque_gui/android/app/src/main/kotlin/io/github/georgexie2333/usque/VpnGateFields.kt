@@ -89,6 +89,12 @@ internal object VpnGateFields {
                 put("current_server", it.optJSONObject("current_server")?.let { node -> server(node) })
                 put("current_profile", ChainProfileFields.summary(it.optJSONObject("current_profile")))
                 put(
+                    "warp_observation",
+                    it.optJSONObject("warp_observation")?.let { observed ->
+                        WarpWireguardFields.response(observed.toString())
+                    },
+                )
+                put(
                     "attempting_endpoint",
                     it.optJSONObject("attempting_endpoint")?.let { endpoint ->
                         fields(endpoint, setOf("host", "port"))

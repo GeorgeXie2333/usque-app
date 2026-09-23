@@ -14,6 +14,7 @@ wireguard = ["dep:boringtun"]
 
 [dependencies]
 async-trait.workspace = true
+base64.workspace = true
 boring.workspace = true
 boringtun = { workspace = true, optional = true }
 bytes.workspace = true
@@ -48,6 +49,7 @@ zeroize.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 proptest.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

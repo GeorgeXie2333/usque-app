@@ -19,11 +19,17 @@ class ChainSourceIcon extends StatelessWidget {
         color ??
         IconTheme.of(context).color ??
         Theme.of(context).colorScheme.onSurface;
-    if (source == ChainSource.vpnGate) {
+    final asset = switch (source) {
+      ChainSource.openvpnCustom => 'openvpn',
+      ChainSource.wireguardCustom => 'wireguard',
+      ChainSource.warpWireguard => 'warp-wireguard',
+      ChainSource.vpnGate => null,
+    };
+    if (asset == null) {
       return Icon(LucideIcons.globe, size: size, color: tint);
     }
     return SvgPicture.asset(
-      'assets/icons/${source == ChainSource.openvpnCustom ? 'openvpn' : 'wireguard'}.svg',
+      'assets/icons/$asset.svg',
       width: size,
       height: size,
       colorFilter: ColorFilter.mode(tint, BlendMode.srcIn),

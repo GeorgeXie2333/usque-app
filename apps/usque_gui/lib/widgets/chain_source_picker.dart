@@ -8,7 +8,7 @@ import '../state/app_controller.dart';
 import 'chain_source_icon.dart';
 import 'common.dart';
 
-/// The three fixed exit sources, with a compact picker on narrow layouts.
+/// The fixed exit sources, with a compact picker on narrow layouts.
 ///
 /// The sheet and wide-layout choices show unavailable sources with their reason.
 /// The compact trigger keeps the selected choice's dimensions below the heading.
@@ -23,15 +23,19 @@ class ChainSourcePicker extends StatelessWidget {
   final ChainSource source;
   final ValueChanged<ChainSource> onChanged;
 
-  /// Below this width the current choice opens a sheet with all three sources.
+  /// Below this width the current choice opens a sheet with all sources.
   static const double compactBelowWidth = 600;
 
   static bool available(EngineCapabilities? capabilities, ChainSource source) {
-    if (capabilities == null) return true;
+    if (capabilities == null) return source != ChainSource.warpWireguard;
     return switch (source) {
       ChainSource.openvpnCustom => capabilities.chainProfileImport,
       ChainSource.wireguardCustom =>
         capabilities.chainProfileImport && capabilities.chainWireguard,
+      ChainSource.warpWireguard =>
+        capabilities.chainProfileImport &&
+            capabilities.chainWireguard &&
+            capabilities.chainWarpWireguard,
       ChainSource.vpnGate => capabilities.vpnGateTcp,
     };
   }
@@ -130,7 +134,13 @@ class ChainSourcePicker extends StatelessWidget {
           label: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(option.label),
+              Flexible(
+                child: Text(
+                  option.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               if (selected) ...[
                 const SizedBox(width: 6),
                 Icon(

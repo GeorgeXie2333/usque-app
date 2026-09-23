@@ -34,7 +34,12 @@ const imported = ChainProfileSummary(
   mtu: 1280,
 );
 
-class ChainEngine extends GateEngine implements ChainProfileClient {
+class ChainEngine extends GateEngine
+    implements ChainProfileClient, WarpWireguardClient {
+  @override
+  Future<Map<Object?, Object?>> warpWireguard(
+    Map<String, Object?> request,
+  ) async => const {};
   List<ChainProfileSummary> library = [];
   final actions = <String>[];
   final names = <String>[];
@@ -50,6 +55,7 @@ class ChainEngine extends GateEngine implements ChainProfileClient {
     chainProfileImport: true,
     chainOpenvpnUdp: true,
     chainWireguard: true,
+    chainWarpWireguard: true,
     chainOpenvpnMultiEndpoint: multiEndpoint,
   );
   @override
@@ -138,9 +144,10 @@ Future<void> chooseSource(WidgetTester tester, ChainSource source) async {
     await tester.pumpAndSettle();
     await tester.tap(picker);
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(ValueKey('chain-source-option-${source.wire}')),
-    );
+    final option = find.byKey(ValueKey('chain-source-option-${source.wire}'));
+    await tester.ensureVisible(option);
+    await tester.pumpAndSettle();
+    await tester.tap(option);
   } else {
     await tester.ensureVisible(
       find.byKey(ValueKey('chain-source-${source.wire}')),
@@ -743,6 +750,7 @@ void main() {
       expect(ChainSource.values.map((s) => s.label), [
         'OpenVPN',
         'WireGuard',
+        'WARP via WireGuard',
         'VPN Gate',
       ]);
       const codec = ControlCodec();
@@ -1010,7 +1018,7 @@ void main() {
           of: find.byType(BottomSheet),
           matching: find.byType(ListTile),
         );
-        expect(options, findsNWidgets(3));
+        expect(options, findsNWidgets(4));
         expect(
           tester
               .widgetList<ListTile>(options)
@@ -1022,7 +1030,8 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.byType(BottomSheet), findsNothing);
-        final nextSource = ChainSource.values[(source.index + 1) % 3];
+        final nextSource =
+            ChainSource.values[(source.index + 1) % ChainSource.values.length];
         await chooseSource(tester, nextSource);
         expect(
           find.descendant(of: picker, matching: find.text(nextSource.label)),
@@ -1137,7 +1146,7 @@ void main() {
             expect(tester.takeException(), isNull);
           }
         }
-        // Wide large-text layouts retain their three visible choices.
+        // Wide large-text layouts retain their four visible choices.
         tester.view.physicalSize = const Size(980, 1100);
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('chain-source-picker')), findsNothing);
@@ -1145,7 +1154,7 @@ void main() {
           of: find.byType(ChainSourcePicker),
           matching: find.byType(ChoiceChip),
         );
-        expect(choices, findsNWidgets(3));
+        expect(choices, findsNWidgets(4));
         expect(
           choices
               .evaluate()
@@ -1154,7 +1163,7 @@ void main() {
                     tester.getTopLeft(find.byWidget(element.widget)).dy,
               )
               .toSet(),
-          hasLength(3),
+          hasLength(4),
         );
         expect(engine.saves, 0);
       } finally {
@@ -1206,6 +1215,21 @@ void main() {
             findsOneWidget,
           );
           if (source == ChainSource.vpnGate) {
+            await tester.scrollUntilVisible(
+              find.widgetWithText(
+                OutlinedButton,
+                app.strings.get('gate_refresh'),
+              ),
+              200,
+              scrollable: find
+                  .descendant(
+                    of: find.byType(CustomScrollView),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first,
+            );
+            await tester.pumpAndSettle();
+
             expect(
               find.descendant(
                 of: find.byKey(const ValueKey('chain-gate-directory')),

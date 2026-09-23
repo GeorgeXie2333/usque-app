@@ -19,7 +19,7 @@ fn wg(extra: &str) -> ImportSecrets {
 fn labels_and_protocol_capabilities_are_explicit() {
     assert_eq!(
         ChainSource::DISPLAY_ORDER.map(ChainSource::label),
-        ["OpenVPN", "WireGuard", "VPN Gate"]
+        ["OpenVPN", "WireGuard", "WARP via WireGuard", "VPN Gate"]
     );
     assert!(!ChainProtocol::OpenvpnTcp.requires_udp());
     assert!(ChainProtocol::OpenvpnUdp.requires_udp());
@@ -99,7 +99,7 @@ fn schema_16_retains_gate_selection_backups_and_unrelated_favorites() {
     let favorites = directory.path().join("favorites.json");
     std::fs::write(&favorites, b"unchanged-fixture").unwrap();
     let migrated = store.load().unwrap();
-    assert_eq!(migrated.schema_version, 17);
+    assert_eq!(migrated.schema_version, 18);
     let chain = migrated.network.chain_exit.unwrap();
     assert!(chain.enabled);
     assert_eq!(chain.source, ChainSource::VpnGate);
@@ -125,6 +125,7 @@ fn imported_library_is_shared_and_legacy_writers_cannot_clear_its_selection() {
     next.chain_exit = Some(ChainExitSettings {
         enabled: true,
         source: ChainSource::WireguardCustom,
+        endpoint_override: None,
         profile_id: Some(Uuid::new_v4()),
         revision: Some(Uuid::new_v4()),
     });

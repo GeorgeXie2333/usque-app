@@ -133,6 +133,10 @@ pub(crate) struct GateDriver {
 }
 
 impl GateDriver {
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn observation_sink(&self) -> watch::Sender<GateStatus> {
+        self.status_tx.clone()
+    }
     pub(crate) async fn start(
         profile: &PreparedProfile,
         warp: InternalNetwork,

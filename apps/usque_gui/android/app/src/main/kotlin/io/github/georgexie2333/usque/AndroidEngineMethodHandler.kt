@@ -262,7 +262,7 @@ internal class AndroidEngineMethodHandler(
         call: MethodCall,
         result: MethodChannel.Result,
     ) {
-        if (controlClient.vpnGateRefreshPending && call.method in
+        if ((controlClient.vpnGateRefreshPending || controlClient.warpScanPending) && call.method in
             setOf(
                 "setActiveProfile",
                 "deleteProfile",
@@ -298,6 +298,14 @@ internal class AndroidEngineMethodHandler(
             return
         }
         when (call.method) {
+            "warpWireguard" -> {
+                val request =
+                    JSONObject()
+                        .put("command", "warp_wireguard")
+                        .put("warp_wireguard", JSONObject(flutterValueToJson(call.arguments)))
+                controlClient.requestVpnGate(request.toString(), result)
+            }
+
             "chainProfile" -> {
                 val request =
                     JSONObject()

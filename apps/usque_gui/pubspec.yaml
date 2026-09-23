@@ -27,8 +27,10 @@ flutter:
     - assets/branding/usque-ui-icon.png
     - assets/licenses/vpngate.txt
     - assets/licenses/boringtun.txt
+    - assets/licenses/warpscout.txt
     - assets/icons/openvpn.svg
     - assets/icons/wireguard.svg
+    - assets/icons/warp-wireguard.svg
     - assets/licenses/flagpedia.txt
     - assets/flags/w80/
   fonts:

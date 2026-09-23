@@ -5,7 +5,7 @@ use crate::dns::{QuerySocket as UdpSocket, Resolver};
 use crate::netstack::{PacketStack, RuntimeHealth};
 use crate::tcp::{DialError, FlowClass, StackDialer, TcpDialer, TcpStream, TcpTarget};
 use bytes::Bytes;
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Full};
 use hyper_util::rt::TokioIo;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
@@ -26,6 +26,15 @@ pub struct InternalNetwork {
     health: watch::Receiver<RuntimeHealth>,
     cancellation: CancellationToken,
     packet_channel: Option<(Channel, Ipv4Addr, Ipv6Addr)>,
+}
+
+pub(crate) struct InternalRequest<'a> {
+    pub url: &'a str,
+    pub method: http::Method,
+    pub headers: Vec<(&'a str, &'a str)>,
+    pub body: Bytes,
+    pub limit: usize,
+    pub ipv6: Option<bool>,
 }
 
 impl InternalNetwork {
@@ -255,6 +264,7 @@ impl InternalNetwork {
         port: u16,
         cancel: &CancellationToken,
         deadline: Instant,
+        ipv6: Option<bool>,
     ) -> Result<TcpStream, DirectoryError> {
         if self.cancellation.is_cancelled() || cancel.is_cancelled() {
             return Err(DirectoryError::Cancelled);
@@ -269,6 +279,9 @@ impl InternalNetwork {
             };
             let mut failure = DirectoryError::Request;
             for ip in addresses {
+                if ipv6.is_some_and(|v6| ip.is_ipv6() != v6) {
+                    continue;
+                }
                 match self
                     .connect_address(SocketAddr::new(ip, port), cancel, deadline)
                     .await
@@ -300,6 +313,32 @@ impl InternalNetwork {
         limit: usize,
         cancel: &CancellationToken,
     ) -> Result<Vec<u8>, DirectoryError> {
+        self.request_https(
+            InternalRequest {
+                url,
+                method: http::Method::GET,
+                headers: vec![],
+                body: Bytes::new(),
+                limit,
+                ipv6: None,
+            },
+            cancel,
+        )
+        .await
+    }
+    pub(crate) async fn request_https(
+        &self,
+        options: InternalRequest<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<u8>, DirectoryError> {
+        let InternalRequest {
+            url,
+            method,
+            headers,
+            body,
+            limit,
+            ipv6,
+        } = options;
         if limit == 0 || limit > MAX_DIRECTORY_BYTES {
             return Err(DirectoryError::SizeLimit);
         }
@@ -316,7 +355,7 @@ impl InternalNetwork {
             let establish = async {
                 let stage_started = Instant::now();
                 let stream = self
-                    .connect_host(&host, port, cancel, connect_deadline)
+                    .connect_host(&host, port, cancel, connect_deadline, ipv6)
                     .await?;
                 tracing::debug!(
                     probe_stage = "tcp",
@@ -354,16 +393,20 @@ impl InternalNetwork {
             let _driver = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
                 let _ = connection.await;
             }));
-            let request = http::Request::builder()
-                .method("GET")
+            let mut request = http::Request::builder()
+                .method(method)
                 .uri(uri.path_and_query().map_or("/", |v| v.as_str()))
                 .header(
                     http::header::HOST,
                     uri.authority().ok_or(DirectoryError::Request)?.as_str(),
                 )
                 .header(http::header::ACCEPT_ENCODING, "identity")
-                .header(http::header::CONNECTION, "close")
-                .body(Empty::<Bytes>::new())
+                .header(http::header::CONNECTION, "close");
+            for (name, value) in headers {
+                request = request.header(name, value);
+            }
+            let request = request
+                .body(Full::new(body))
                 .map_err(|_| DirectoryError::Request)?;
             let stage_started = Instant::now();
             let mut response = sender
@@ -375,7 +418,7 @@ impl InternalNetwork {
                 elapsed_us = stage_started.elapsed().as_micros(),
                 "Internal HTTPS timing"
             );
-            if response.status() != http::StatusCode::OK {
+            if !response.status().is_success() {
                 return Err(DirectoryError::Request);
             }
             if response

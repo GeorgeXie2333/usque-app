@@ -1,17 +1,18 @@
 # Chain proxy / 链式代理
 
 Open **Proxy → Chain proxy**. The page switch comes first, then the source
-selector: three choices that always use this order:
+selector: four choices that always use this order:
 
 1. **OpenVPN**
 2. **WireGuard**
-3. **VPN Gate**
+3. **WARP via WireGuard**
+4. **VPN Gate**
 
 The source names remain English in every locale. On phones and other layouts
 with less than 600 logical pixels of content width, the source heading stays
 above a compact selector showing the current source. Tap it to open a bottom
 sheet, then choose a source to close the sheet and show its configuration. The
-selector keeps the existing selected choice's size. Wider layouts keep all three
+selector keeps the existing selected choice's size. Wider layouts keep all four
 choices visible, wrapping normally and stacking at large text. A source the
 running engine cannot provide is shown disabled with its reason. One exit
 is enabled at a time:
@@ -20,10 +21,10 @@ HTTP share the final exit while retaining their own protocol capabilities;
 HTTP CONNECT does not gain UDP support. Explicit direct rules still apply.
 
 打开 **代理 → 链式代理**，总开关在最上方，其下的来源名称和顺序固定为
-**OpenVPN**、**WireGuard**、**VPN Gate**。手机和内容宽度小于 600 逻辑像素的
+**OpenVPN**、**WireGuard**、**WARP via WireGuard**、**VPN Gate**。手机和内容宽度小于 600 逻辑像素的
 窄屏上，“出口来源”标题独占一行，下方选择框显示当前来源，大小与原来的选中
 标签一致。点击选择框打开底部列表，选中来源后列表自动收起并显示对应配置。
-宽屏仍显示三个选项，通常横向排列并自动换行，大字号时竖排；不可用的来源会
+宽屏仍显示四个选项，通常横向排列并自动换行，大字号时竖排；不可用的来源会
 禁用并说明原因。每次启用一个出口，系统 VPN、SOCKS5 和 HTTP 共用最终出口，
 各入口保留自身协议能力，显式直连规则继续生效。
 
@@ -34,11 +35,17 @@ paste actions with saved configurations; VPN Gate provides refresh, country and
 favorite filters with public nodes. Selection rows use the same radio controls
 and saved/current markers. VPN Gate observations remain labeled as remote data.
 
-三种来源共用页头、总开关、“当前连接”和底部应用栏。切换来源浏览时，“当前连接”
+四种来源共用页头、总开关、“当前连接”和底部应用栏。切换来源浏览时，“当前连接”
 仍显示正在使用的出口。下方内容随来源变化：OpenVPN／WireGuard 提供导入、粘贴
 和已保存配置，VPN Gate 提供刷新、国家／地区筛选、收藏和公共节点。两类列表
 使用相同的单选控件及“已保存的选择”“当前连接”标记；VPN Gate 的远端观测说明
 保持可见。
+
+WARP via WireGuard supports generated/imported configurations, editable endpoints
+and resumable scans. See [WARP via WireGuard](WARP_WIREGUARD.md).
+
+WARP via WireGuard 支持生成／导入配置、编辑端点和可恢复扫描，详见
+[使用指南](WARP_WIREGUARD.md)。
 
 ## Import, select and apply / 导入、选用与应用
 

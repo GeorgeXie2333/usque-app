@@ -15,6 +15,17 @@ import 'network_quality_controller.dart';
 import 'network_settings_controller.dart';
 
 class AppController extends ChangeNotifier {
+  Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request) {
+    final engine = _engine;
+    if (engine is WarpWireguardClient) {
+      return (engine as WarpWireguardClient).warpWireguard(request);
+    }
+    throw const EngineException(
+      'WARP_SCAN_UNAVAILABLE',
+      'WARP discovery unavailable.',
+    );
+  }
+
   Future<ChainProfileResult> chainProfile(Map<String, Object?> request) {
     final engine = _engine;
     if (engine is ChainProfileClient) {

@@ -204,6 +204,8 @@ message ChainExitSettings {
   string source = 2;
   string profile_id = 3;
   string revision = 4;
+  optional string endpoint_override_ip = 5;
+  optional uint32 endpoint_override_port = 6;
 }
 
 // Single bounded secret-bearing request. It must never enter logs/diagnostics.
@@ -221,6 +223,15 @@ message ChainProfileRequest {
 
 // Metadata-only JSON shared with the Android JNI and Flutter model boundary.
 message ChainProfileResponse {
+  string metadata_json = 1;
+}
+
+// Bounded metadata commands; generated keys never cross this interface.
+message WarpWireguardRequest {
+  string command_json = 1;
+}
+
+message WarpWireguardResponse {
   string metadata_json = 1;
 }
 
@@ -431,6 +442,7 @@ message Capabilities {
   bool chain_openvpn_udp = 35;
   bool chain_wireguard = 36;
   bool chain_openvpn_multi_endpoint = 37;
+  bool chain_warp_wireguard = 38;
 }
 
 message FrontendStatus {
@@ -1139,6 +1151,7 @@ message ControlRequest {
     VpnGateNodeRequest vpn_gate_node = 45;
     RenameProfileRequest rename_profile = 46;
     ChainProfileRequest chain_profile = 47;
+    WarpWireguardRequest warp_wireguard = 48;
   }
 }
 
@@ -1184,6 +1197,7 @@ message ControlResponse {
     NetworkSettingsState network_settings = 22;
     VpnGateDirectory vpn_gate_directory = 23;
     ChainProfileResponse chain_profiles = 24;
+    WarpWireguardResponse warp_wireguard = 25;
   }
 }
 

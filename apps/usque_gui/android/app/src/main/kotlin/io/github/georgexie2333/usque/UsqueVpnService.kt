@@ -290,7 +290,12 @@ class UsqueVpnService : VpnService() {
                 require(raw.length <= 256 * 1024)
                 val query = JSONObject(raw)
                 require(query.optString("command") == "chain_profile" || raw.length <= 4096)
-                if ((query.optString("command") == "refresh" && !query.optBoolean("cancel")) ||
+                if ((
+                        query.optString("command") == "warp_wireguard" &&
+                            query.optJSONObject("warp_wireguard")?.optString("action") in
+                            setOf("generate", "start", "resume")
+                    ) ||
+                    (query.optString("command") == "refresh" && !query.optBoolean("cancel")) ||
                     (
                         query.optString("command") == "node" &&
                             query.optString("action") in setOf("prepare", "favorite", "update_favorite")

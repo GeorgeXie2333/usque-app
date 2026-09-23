@@ -62,6 +62,7 @@ mod sensitive_output;
 mod vpngate;
 #[cfg(test)]
 mod vpngate_connection_tests;
+mod warp_wireguard;
 
 mod active_runtime;
 mod reconfigure;
@@ -113,6 +114,8 @@ pub struct ControlServiceState {
     geo_progress_tx: tokio::sync::broadcast::Sender<v1::GeoRulesProgress>,
     gate_directory: usque_core::vpngate::DirectoryDownloader,
     gate_fetch_task: Mutex<Option<vpngate::FetchTask>>,
+    #[cfg(all(windows, feature = "wireguard"))]
+    warp_scanner: Arc<usque_transport::warp_wireguard::Manager>,
     gate_status: watch::Sender<usque_core::vpngate::GateStatus>,
     gate_supervisor: Mutex<Option<AbortOnDropHandle<()>>>,
     gate_startup_cancel: Mutex<tokio_util::sync::CancellationToken>,
@@ -424,6 +427,11 @@ impl ControlService {
             inner: Arc::new(ControlServiceState {
                 maintenance: maintenance::Maintenance::new(store.path()),
                 diagnostics: diagnostics::DiagnosticsManager::new(),
+                #[cfg(all(windows, feature = "wireguard"))]
+                warp_scanner: Arc::new(usque_transport::warp_wireguard::Manager::new(
+                    store.path().to_path_buf(),
+                    Arc::new(usque_core::chain_exit::store::WindowsProfileCipher),
+                )),
                 store,
                 config: RwLock::new(config),
                 state: Arc::new(Mutex::new(StateMachine::default())),
@@ -698,6 +706,7 @@ impl ControlService {
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
         self.gate_startup_cancel.lock().await.cancel();
+        self.cancel_warp_jobs().await?;
         self.cancel_gate_refresh().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
@@ -731,7 +740,8 @@ impl ControlService {
     pub async fn handle(&self, request: ControlRequest) -> ControlResponse {
         let request_id = request.request_id;
         let result = match request.payload {
-            Some(payload) => self.handle_payload(payload).await,
+            // Keep the growing protocol dispatch future off the caller's stack.
+            Some(payload) => Box::pin(self.handle_payload(payload)).await,
             None => Err(ControlServiceError::InvalidRequest(
                 "control request payload is missing".to_owned(),
             )),
@@ -770,9 +780,15 @@ impl ControlService {
                 | control_request::Payload::UpsertProfile(_)
                 | control_request::Payload::CreateProfileWithIdentity(_)
         ) {
+            self.cancel_warp_jobs().await?;
             self.cancel_gate_refresh().await;
         }
         match payload {
+            control_request::Payload::WarpWireguard(request) => {
+                Ok(control_response::Payload::WarpWireguard(
+                    Box::pin(self.warp_wireguard_command(request)).await?,
+                ))
+            }
             control_request::Payload::VpnGateNode(request) => {
                 self.vpn_gate_node(request).await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))
@@ -4950,6 +4966,7 @@ fn current_capabilities() -> v1::Capabilities {
         chain_profile_import: cfg!(windows),
         chain_openvpn_udp: cfg!(windows),
         chain_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
+        chain_warp_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
         chain_openvpn_multi_endpoint: cfg!(windows),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,

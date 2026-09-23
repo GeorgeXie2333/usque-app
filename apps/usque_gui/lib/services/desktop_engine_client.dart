@@ -26,7 +26,18 @@ export 'control_codec.dart'
 /// transport. Public API, MethodChannel names, named pipes, and protobuf wire
 /// data are unchanged from the pre-split client.
 class DesktopEngineClient
-    implements EngineClient, VpnGateClient, ChainProfileClient {
+    implements
+        EngineClient,
+        VpnGateClient,
+        ChainProfileClient,
+        WarpWireguardClient {
+  @override
+  Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request) =>
+      _serialized(() async {
+        final payload = ControlPayloadWriter()..string(1, jsonEncode(request));
+        return (await _request(48, payload.takeBytes())).warpWireguard ??
+            const {};
+      });
   @override
   Future<ChainProfileResult> chainProfile(Map<String, Object?> request) =>
       _serialized(() async {

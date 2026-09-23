@@ -159,6 +159,8 @@ pub struct GateStatus {
     pub candidate_count: u32,
     #[serde(default)]
     pub attempt_failures: Vec<GateFailure>,
+    #[serde(default)]
+    pub warp_observation: Option<Box<crate::warp_wireguard::ExitObservation>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

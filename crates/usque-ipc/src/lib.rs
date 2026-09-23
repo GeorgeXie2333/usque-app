@@ -281,6 +281,40 @@ mod tests {
     }
 
     #[test]
+    fn warp_wireguard_control_and_capability_append_without_changing_existing_fields() {
+        let request = ControlRequest {
+            payload: Some(control_request::Payload::WarpWireguard(
+                v1::WarpWireguardRequest {
+                    command_json: "{}".into(),
+                },
+            )),
+            ..Default::default()
+        };
+        assert_eq!(request.encode_to_vec(), [0x82, 0x03, 4, 10, 2, b'{', b'}']);
+        let response = v1::ControlResponse {
+            payload: Some(v1::control_response::Payload::WarpWireguard(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(response.encode_to_vec(), [0xca, 0x01, 0]);
+        let capability = v1::Capabilities {
+            chain_warp_wireguard: true,
+            ..Default::default()
+        };
+        assert_eq!(capability.encode_to_vec(), [0xb0, 0x02, 1]);
+        let settings = v1::ChainExitSettings {
+            endpoint_override_ip: Some("::1".into()),
+            endpoint_override_port: Some(500),
+            ..Default::default()
+        };
+        assert_eq!(
+            settings.encode_to_vec(),
+            [42, 3, b':', b':', b'1', 48, 0xf4, 3]
+        );
+    }
+
+    #[test]
     fn privileged_agent_v1_wire_snapshot_is_stable() {
         let decoded: AgentRequest = decode_frame(Bytes::from_static(AGENT_CAPABILITIES_V1_FRAME))
             .expect("decode agent snapshot");

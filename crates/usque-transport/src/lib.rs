@@ -32,6 +32,8 @@ mod netstack;
 mod network_quality;
 mod outbound_packet;
 #[cfg(feature = "wireguard")]
+pub mod warp_wireguard;
+#[cfg(feature = "wireguard")]
 mod wireguard;
 // Compile the actual Android slab producer in memory-only transport tests.
 #[cfg(test)]

@@ -13,6 +13,18 @@ pub(crate) fn settings_from_proto(
         source,
         profile_id: uuid(&value.profile_id)?,
         revision: uuid(&value.revision)?,
+        endpoint_override: match (value.endpoint_override_ip, value.endpoint_override_port) {
+            (None, None) => None,
+            (Some(ip), Some(port)) => Some(
+                usque_core::chain_exit::Endpoint::parse(&ip, &port.to_string(), 0)
+                    .map_err(ControlServiceError::configuration)?,
+            ),
+            _ => {
+                return Err(ControlServiceError::InvalidRequest(
+                    "Invalid endpoint override".into(),
+                ));
+            }
+        },
     };
     settings
         .validate()
@@ -28,12 +40,15 @@ pub(crate) fn settings_to_proto(value: &ChainExitSettings) -> v1::ChainExitSetti
             .map(|id| id.to_string())
             .unwrap_or_default(),
         revision: value.revision.map(|id| id.to_string()).unwrap_or_default(),
+        endpoint_override_ip: value.endpoint_override.as_ref().map(|v| v.host.clone()),
+        endpoint_override_port: value.endpoint_override.as_ref().map(|v| u32::from(v.port)),
     }
 }
 fn source(value: &str) -> Result<ChainSource, ControlServiceError> {
     match value {
         "openvpn_custom" | "" => Ok(ChainSource::OpenvpnCustom),
         "wireguard_custom" => Ok(ChainSource::WireguardCustom),
+        "warp_wireguard" => Ok(ChainSource::WarpWireguard),
         "vpn_gate" => Ok(ChainSource::VpnGate),
         _ => Err(ControlServiceError::InvalidRequest(
             "Unknown chain source".into(),
@@ -44,6 +59,7 @@ fn source_name(value: ChainSource) -> &'static str {
     match value {
         ChainSource::OpenvpnCustom => "openvpn_custom",
         ChainSource::WireguardCustom => "wireguard_custom",
+        ChainSource::WarpWireguard => "warp_wireguard",
         ChainSource::VpnGate => "vpn_gate",
     }
 }

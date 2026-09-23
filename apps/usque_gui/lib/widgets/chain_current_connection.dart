@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/chain_strings.dart';
 import '../core/vpn_gate_presentation.dart';
+import '../core/warp_strings.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import 'chain_source_icon.dart';
@@ -170,6 +171,17 @@ class ChainCurrentConnection extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+          if (chain.warpObservation case final observed?)
+            for (final family in ['ipv4', 'ipv6'])
+              Builder(
+                builder: (context) {
+                  final value =
+                      observed[family] as Map<Object?, Object?>? ?? const {};
+                  return Text(
+                    'Cloudflare · ${family.toUpperCase()} · ${value['country'] ?? strings.warp('unknown')} · ${value['exit_ip'] ?? '—'} · ${value['colo'] ?? '—'} · ${value['response_ms'] ?? '—'} ms\n${strings.warp('observed')}: ${observed['checked_at']}',
+                  );
+                },
+              ),
           if (failure != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),

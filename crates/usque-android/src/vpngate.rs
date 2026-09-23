@@ -46,6 +46,10 @@ impl Job {
 }
 
 pub(crate) fn cancel_refresh() -> bool {
+    #[cfg(feature = "wireguard")]
+    if !crate::warp_wireguard::stop() {
+        return false;
+    }
     let Some(controller) = CATALOGUE.get() else {
         return true;
     };
@@ -65,6 +69,8 @@ pub(crate) fn cancel_refresh() -> bool {
 }
 
 pub(crate) fn signal_cancel() {
+    #[cfg(feature = "wireguard")]
+    crate::warp_wireguard::signal_stop();
     if let Some(controller) = CATALOGUE.get()
         && let Ok(controller) = controller.try_lock()
         && let Some(controller) = controller.as_ref()
@@ -78,6 +84,7 @@ pub(crate) fn signal_cancel() {
 pub(crate) struct Request {
     pub command: String,
     pub chain_profile: Option<usque_core::chain_exit::ChainProfileRequest>,
+    pub warp_wireguard: Option<usque_core::warp_wireguard::Request>,
     #[serde(default)]
     pub cancel: bool,
     #[serde(flatten)]
@@ -87,7 +94,12 @@ pub(crate) struct Request {
 }
 impl Request {
     pub fn needs_fetch(&self) -> bool {
-        (self.command == "refresh" && !self.cancel)
+        (self.command == "warp_wireguard"
+            && self
+                .warp_wireguard
+                .as_ref()
+                .is_some_and(|r| r.needs_network()))
+            || (self.command == "refresh" && !self.cancel)
             || (self.command == "node"
                 && matches!(
                     self.node.action,
@@ -99,7 +111,16 @@ pub(crate) fn parse_request(json: &str) -> Result<Request, String> {
     if json.len() > 256 * 1024 {
         return Err("VPN_GATE_REQUEST_INVALID".into());
     }
-    let request: Request = serde_json::from_str(json).map_err(|_| "VPN_GATE_REQUEST_INVALID")?;
+    let mut request: Request =
+        serde_json::from_str(json).map_err(|_| "VPN_GATE_REQUEST_INVALID")?;
+    if request.command == "warp_wireguard" {
+        let value: serde_json::Value =
+            serde_json::from_str(json).map_err(|_| "VPN_GATE_REQUEST_INVALID")?;
+        request.warp_wireguard = Some(
+            usque_core::warp_wireguard::Request::parse(&value["warp_wireguard"].to_string())
+                .map_err(|_| "VPN_GATE_REQUEST_INVALID")?,
+        );
+    }
     if request.command != "chain_profile" && json.len() > 4096 {
         return Err("VPN_GATE_REQUEST_INVALID".into());
     }
@@ -134,6 +155,16 @@ pub(crate) fn command(
         return Err("VPN_GATE_CLEANUP_PENDING".into());
     }
     let cache = path.parent().ok_or("VPN_GATE_REQUEST_INVALID")?;
+    if request.command == "warp_wireguard" {
+        #[cfg(feature = "wireguard")]
+        return crate::warp_wireguard::command(
+            path,
+            request.warp_wireguard.ok_or("WARP_SCAN_INVALID")?,
+            fetch,
+        );
+        #[cfg(not(feature = "wireguard"))]
+        return Err("WARP_SCAN_UNAVAILABLE".into());
+    }
     if request.command == "chain_profile" {
         return crate::chain_exit::command(
             path,

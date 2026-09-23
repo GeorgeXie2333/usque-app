@@ -407,8 +407,12 @@ fn migrate_app_config(config: &mut AppConfig) {
             },
             profile_id: None,
             revision: None,
+            endpoint_override: None,
         });
         config.schema_version = 17;
+    }
+    if config.schema_version < 18 {
+        config.schema_version = 18;
     }
 }
 

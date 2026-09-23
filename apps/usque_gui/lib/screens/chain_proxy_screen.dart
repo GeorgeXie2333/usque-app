@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/chain_strings.dart';
 import '../core/usque_theme.dart';
+import '../core/warp_strings.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../state/app_controller.dart';
@@ -14,6 +15,7 @@ import '../widgets/common.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
+import '../widgets/warp_wireguard_panel.dart';
 import 'vpn_gate_screen.dart';
 
 class ChainProxyScreen extends StatefulWidget {
@@ -251,9 +253,11 @@ class _CustomChainEditor extends StatefulWidget {
 }
 
 class _CustomChainEditorState extends State<_CustomChainEditor> {
+  final _warpPanel = GlobalKey<WarpWireguardPanelState>();
   late ChainExitSettings _baseline, _draft;
   List<ChainProfileSummary> _profiles = const [];
   bool _loading = true, _saving = false;
+  bool _warpEndpointValid = true;
   bool _wasSupported = false;
 
   /// Result of the last apply, shown in the action bar.
@@ -265,7 +269,9 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   bool get _dirty => _chainPending(_baseline, _draft);
   bool get _supported =>
       (_app.engineCapabilities?.chainProfileImport ?? false) &&
-      (widget.source != ChainSource.wireguardCustom ||
+      (widget.source != ChainSource.warpWireguard ||
+          (_app.engineCapabilities?.chainWarpWireguard ?? false)) &&
+      (!widget.source.isWireguard ||
           (_app.engineCapabilities?.chainWireguard ?? false));
   ChainExitSettings get _stored => _storedChainExit(_app.activeProfile);
 
@@ -286,6 +292,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   /// Why the draft cannot be applied yet, or null when it can.
   String? get _validation {
     final strings = _app.strings;
+    if (!_warpEndpointValid) return strings.chain('invalid_endpoint');
     if (_draft.enabled && _selected == null) {
       return strings.chain('select_required');
     }
@@ -590,7 +597,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${_selected!.host}:${_selected!.port} · ${_selected!.transportLabel}',
+                      '${(_draft.endpointOverride ?? ChainEndpoint(_selected!.host, _selected!.port)).label} · ${_selected!.transportLabel}',
                       style: UsqueTheme.mono(
                         context,
                         color: theme.colorScheme.onSurfaceVariant,
@@ -613,6 +620,17 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
+                    if (widget.source == ChainSource.warpWireguard)
+                      OutlinedButton.icon(
+                        onPressed: !_supported || _saving
+                            ? null
+                            : () async {
+                                final state = _warpPanel.currentState;
+                                if (state != null) await state.generate();
+                              },
+                        icon: const Icon(LucideIcons.plus),
+                        label: Text(strings.warp('generate')),
+                      ),
                     OutlinedButton.icon(
                       onPressed: _supported && !_saving
                           ? () => unawaited(_import(true))
@@ -650,7 +668,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                       Text(strings.chain('empty')),
                       Text(
                         strings.chain(
-                          widget.source == ChainSource.wireguardCustom
+                          widget.source.isWireguard
                               ? 'empty_hint_wireguard'
                               : 'empty_hint_openvpn',
                         ),
@@ -713,6 +731,31 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
               ],
             ),
           ),
+          if (widget.source == ChainSource.warpWireguard && _supported)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 24),
+                child: WarpWireguardPanel(
+                  key: _warpPanel,
+                  controller: _app,
+                  endpoint: _selected == null
+                      ? null
+                      : ChainEndpoint(_selected!.host, _selected!.port),
+                  overrideEndpoint: _draft.endpointOverride,
+                  onEndpoint: (endpoint) => setState(
+                    () => _setDraft(
+                      _draft.copyWith(
+                        endpointOverride: endpoint,
+                        clearEndpoint: endpoint == null,
+                      ),
+                    ),
+                  ),
+                  onValid: (valid) =>
+                      setState(() => _warpEndpointValid = valid),
+                  onGenerated: () => unawaited(_load()),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -965,7 +1008,8 @@ class _ImportDialogState extends State<_ImportDialog> {
     return switch (widget.source) {
       ChainSource.openvpnCustom when wireguard && !openvpn =>
         'looks_like_wireguard',
-      ChainSource.wireguardCustom when openvpn && !wireguard =>
+      ChainSource.wireguardCustom || ChainSource.warpWireguard
+          when openvpn && !wireguard =>
         'looks_like_openvpn',
       _ => null,
     };

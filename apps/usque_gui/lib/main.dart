@@ -28,6 +28,11 @@ void main() {
       'xxHash',
     ], await rootBundle.loadString('assets/licenses/vpngate.txt'));
   });
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
+      'WARPSCOUT endpoint data',
+    ], await rootBundle.loadString('assets/licenses/warpscout.txt'));
+  });
   // The Windows runner removes the native caption, so Flutter has to draw one.
   if (!kIsWeb && Platform.isWindows) {
     WindowFrame.instance.enable();

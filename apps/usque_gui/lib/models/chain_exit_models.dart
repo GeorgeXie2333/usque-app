@@ -3,11 +3,13 @@ import 'package:flutter/foundation.dart';
 enum ChainSource {
   openvpnCustom('openvpn_custom', 'OpenVPN'),
   wireguardCustom('wireguard_custom', 'WireGuard'),
+  warpWireguard('warp_wireguard', 'WARP via WireGuard'),
   vpnGate('vpn_gate', 'VPN Gate');
 
   const ChainSource(this.wire, this.label);
   final String wire;
   final String label;
+  bool get isWireguard => this == wireguardCustom || this == warpWireguard;
   static ChainSource parse(Object? value) => ChainSource.values.firstWhere(
     (source) => source.wire == value,
     orElse: () => throw const FormatException('Unknown chain source'),
@@ -21,17 +23,27 @@ class ChainExitSettings {
     this.source = ChainSource.openvpnCustom,
     this.profileId,
     this.revision,
+    this.endpointOverride,
   });
   final bool enabled;
   final ChainSource source;
   final String? profileId;
   final String? revision;
+  final ChainEndpoint? endpointOverride;
   factory ChainExitSettings.fromMap(Map<Object?, Object?> map) =>
       ChainExitSettings(
         enabled: map['enabled'] == true,
         source: ChainSource.parse(map['source'] ?? 'openvpn_custom'),
         profileId: _reference(map['profile_id']),
         revision: _reference(map['revision']),
+        endpointOverride: map['endpoint_override'] is Map
+            ? ChainEndpoint.fromMap(map['endpoint_override'] as Map)
+            : map['endpoint_override_ip'] is String
+            ? ChainEndpoint(
+                map['endpoint_override_ip'] as String,
+                map['endpoint_override_port'] as int,
+              )
+            : null,
       );
   static String? _reference(Object? value) =>
       value is String && value.isNotEmpty ? value : null;
@@ -40,17 +52,25 @@ class ChainExitSettings {
     'source': source.wire,
     'profile_id': profileId,
     'revision': revision,
+    'endpoint_override': endpointOverride == null
+        ? null
+        : {'host': endpointOverride!.host, 'port': endpointOverride!.port},
   };
   ChainExitSettings copyWith({
     bool? enabled,
     String? profileId,
     String? revision,
     bool clearSelection = false,
+    ChainEndpoint? endpointOverride,
+    bool clearEndpoint = false,
   }) => ChainExitSettings(
     enabled: enabled ?? this.enabled,
     source: source,
     profileId: clearSelection ? null : profileId ?? this.profileId,
     revision: clearSelection ? null : revision ?? this.revision,
+    endpointOverride: clearSelection || clearEndpoint
+        ? null
+        : endpointOverride ?? this.endpointOverride,
   );
   @override
   bool operator ==(Object other) =>
@@ -58,9 +78,11 @@ class ChainExitSettings {
       enabled == other.enabled &&
       source == other.source &&
       profileId == other.profileId &&
-      revision == other.revision;
+      revision == other.revision &&
+      endpointOverride == other.endpointOverride;
   @override
-  int get hashCode => Object.hash(enabled, source, profileId, revision);
+  int get hashCode =>
+      Object.hash(enabled, source, profileId, revision, endpointOverride);
 }
 
 @immutable
@@ -101,7 +123,12 @@ class ChainProfileSummary {
     this.addressFamily = 'IPv4/IPv6',
     this.candidates = const [],
     this.remoteRandom = false,
-  });
+    ChainSource? source,
+  }) : _source =
+           source ??
+           (protocol == 'wireguard'
+               ? ChainSource.wireguardCustom
+               : ChainSource.openvpnCustom);
   final String id, revision, editRevision, name, protocol, host;
   final String addressFamily;
   final int port;
@@ -110,9 +137,12 @@ class ChainProfileSummary {
   final bool requiresAuth, requiresKeyPassword;
   final List<ChainEndpoint> candidates;
   final bool remoteRandom;
-  ChainSource get source => protocol == 'wireguard'
-      ? ChainSource.wireguardCustom
-      : ChainSource.openvpnCustom;
+  final ChainSource? _source;
+  ChainSource get source =>
+      _source ??
+      (protocol == 'wireguard'
+          ? ChainSource.wireguardCustom
+          : ChainSource.openvpnCustom);
   bool get requiresUdp => protocol != 'openvpn_tcp';
   String get transportLabel => protocol == 'openvpn_tcp' ? 'TCP' : 'UDP';
   factory ChainProfileSummary.fromMap(Map<Object?, Object?> map) {
@@ -124,6 +154,7 @@ class ChainProfileSummary {
           map['edit_revision'] as String? ?? map['revision'] as String,
       name: map['name'] as String,
       protocol: map['protocol'] as String,
+      source: map['source'] == null ? null : ChainSource.parse(map['source']),
       host: endpoint['host'] as String,
       port: endpoint['port'] as int,
       addresses: (map['addresses'] as List? ?? const []).cast<String>(),
@@ -195,6 +226,7 @@ class ChainExitStatus {
     this.attemptCount = 0,
     this.candidateCount = 0,
     this.attemptFailures = const [],
+    this.warpObservation,
   });
   final String stage;
   final int generation;
@@ -205,6 +237,7 @@ class ChainExitStatus {
   final String? activeEndpoint;
   final int attemptCount, candidateCount;
   final List<String> attemptFailures;
+  final Map<Object?, Object?>? warpObservation;
   factory ChainExitStatus.fromMap(Map<Object?, Object?> map) => ChainExitStatus(
     stage: map['stage'] as String? ?? 'disabled',
     generation: map['generation'] as int? ?? 0,
@@ -217,6 +250,7 @@ class ChainExitStatus {
         ? ChainEndpoint.fromMap(map['attempting_endpoint'] as Map)
         : null,
     activeEndpoint: map['active_endpoint'] as String?,
+    warpObservation: map['warp_observation'] as Map<Object?, Object?>?,
     attemptCount: map['attempt_count'] as int? ?? 0,
     candidateCount: map['candidate_count'] as int? ?? 0,
     attemptFailures: (map['attempt_failures'] as List? ?? const [])
@@ -232,6 +266,7 @@ class ChainExitStatus {
       dnsUnavailable == other.dnsUnavailable &&
       attemptingEndpoint == other.attemptingEndpoint &&
       activeEndpoint == other.activeEndpoint &&
+      mapEquals(warpObservation, other.warpObservation) &&
       attemptCount == other.attemptCount &&
       candidateCount == other.candidateCount &&
       listEquals(attemptFailures, other.attemptFailures);

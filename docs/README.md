@@ -15,7 +15,8 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
 | [Network Doctor](network-doctor.md) | Run checks, read results, and export a local report / 运行检查、理解结果与导出诊断 |
 | [Direct DNS](encrypted-direct-dns.md) | Choose System, DoH or DoT and fill in resolver settings / 选择直连 DNS 模式与填写服务器配置 |
-| [Chain proxy](CHAIN_PROXY.md) | OpenVPN, WireGuard, VPN Gate: import, select and apply / 导入、选用与应用 |
+| [WARP via WireGuard](WARP_WIREGUARD.md) | Generate/import WARP configurations and scan endpoints / 生成、导入 WARP 配置与扫描端点 |
+| [Chain proxy](CHAIN_PROXY.md) | OpenVPN, WireGuard, WARP via WireGuard, VPN Gate: import, select and apply / 导入、选用与应用 |
 | [VPN Gate directory](VPN_GATE.md) | Manage the volunteer directory and favorites / 管理志愿服务器目录与收藏 |
 | [Experimental L4](L4_PROXY.md) | Enable TCP proxy mode and understand its traffic limits / 启用 TCP 代理模式及了解限制 |
 | [Experimental Zero Trust](ZERO_TRUST_EXPERIMENTAL.md) | Enrollment, unsupported features, and validation requirements / 实验性注册、限制与验证要求 |
@@ -86,6 +87,7 @@ Common terms in these references:
 | [Chain proxy validation](CHAIN_PROXY_VALIDATION.md) | Native builds, protocol/UI tests and size comparisons / 原生编译、协议与界面测试、体积对照 |
 | [Chain proxy fixes](CHAIN_PROXY_FIX_VALIDATION.md) | Import, DNS, queues, authentication, multiple endpoints and candidate-specific regressions / 导入、DNS、队列、认证、多端点修复与回归 |
 | [Chain DNS follow-up](CHAIN_DNS_VALIDATION.md) | DNS receive cancellation, TCP alternatives, and explicitly authorized SOCKS-only measurements / DNS 接收竞态、TCP 备用及无 TUN 代理实测 |
+| [WARP WireGuard validation](WARP_WIREGUARD_VALIDATION.md) | Discovery, storage, platform checks and artifact sizes / 扫描、存储、平台检查与产物体积 |
 
 Historical results apply only to the recorded candidate and environment. Some
 records identify a baseline plus uncommitted work rather than a reproducible

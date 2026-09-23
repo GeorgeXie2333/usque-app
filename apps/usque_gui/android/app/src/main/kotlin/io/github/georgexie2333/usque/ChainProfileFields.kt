@@ -20,6 +20,8 @@ internal object ChainProfileFields {
                 chain.optString("source"),
                 chain.optString("profile_id"),
                 chain.optString("revision"),
+                chain.optJSONObject("endpoint_override")?.optString("host"),
+                chain.optJSONObject("endpoint_override")?.optInt("port"),
             ).joinToString("|")
         } else {
             val gate = profile.optJSONObject("vpn_gate") ?: return null
@@ -40,6 +42,7 @@ internal object ChainProfileFields {
             "edit_revision",
             "name",
             "protocol",
+            "source",
             "endpoint",
             "candidates",
             "remote_random",

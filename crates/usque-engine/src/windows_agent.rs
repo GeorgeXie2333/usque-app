@@ -3978,6 +3978,7 @@ mod tests {
             chain_exit: Some(usque_core::chain_exit::ChainExitSettings {
                 enabled: true,
                 source: usque_core::chain_exit::ChainSource::WireguardCustom,
+                endpoint_override: None,
                 profile_id: Some(Uuid::new_v4()),
                 revision: Some(Uuid::new_v4()),
             }),

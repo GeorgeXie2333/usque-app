@@ -17,6 +17,7 @@ pub trait ProfileCipher: Send + Sync {
 /// Called only by the explicit clear-all-data flow after connection cleanup.
 /// Enumerates only this library's regular files; never follows linked paths.
 pub fn clear_library(parent: &Path) -> Result<(), ImportError> {
+    crate::warp_wireguard::clear(parent)?;
     let directory = parent.join("chain-profiles");
     if !directory.exists() {
         return Ok(());
@@ -100,13 +101,16 @@ impl<'a> ChainProfileStore<'a> {
             return Err(storage_error());
         }
         let mut record: Record = serde_json::from_slice(&plaintext).map_err(|_| storage_error())?;
-        if !matches!(record.version, 1 | 2)
+        if !matches!(record.version, 1..=3)
             || record.summary.id != id
-            || record.version == 2 && plaintext.len() > MAX_RECORD_PLAINTEXT_BYTES
+            || record.version >= 2 && plaintext.len() > MAX_RECORD_PLAINTEXT_BYTES
         {
             return Err(storage_error());
         }
         record.secrets.validate()?;
+        if record.version < 3 {
+            record.summary.source = record.summary.protocol.source();
+        }
         let validated = if record.version == 1
             && record.summary.protocol.source() == ChainSource::OpenvpnCustom
         {
@@ -115,10 +119,11 @@ impl<'a> ChainProfileStore<'a> {
                 true,
             )?)
         } else {
-            ValidatedProfile::parse(record.summary.protocol.source(), &record.secrets)?
+            ValidatedProfile::parse(record.summary.source, &record.secrets)?
         };
         let mut expected = validated.summary(&record.summary.name, id, record.summary.revision)?;
         expected.edit_revision = record.summary.edit_revision;
+        expected.source = record.summary.source;
         if record.version == 1 {
             // Version 1 never supported multiple remotes. Reconstruct only this
             // newly appended metadata, then validate every pre-existing field.
@@ -184,13 +189,8 @@ impl<'a> ChainProfileStore<'a> {
             .into_iter()
             .map(|id| self.read(id).map(|r| r.summary))
             .collect::<Result<Vec<_>, _>>()?;
-        entries.sort_by(|a, b| {
-            (a.protocol.source() as u8, &a.name, a.id).cmp(&(
-                b.protocol.source() as u8,
-                &b.name,
-                b.id,
-            ))
-        });
+        entries
+            .sort_by(|a, b| (a.source as u8, &a.name, a.id).cmp(&(b.source as u8, &b.name, b.id)));
         Ok(entries)
     }
     pub fn import(
@@ -200,13 +200,14 @@ impl<'a> ChainProfileStore<'a> {
         secrets: ImportSecrets,
     ) -> Result<ChainProfileSummary, ImportError> {
         let parsed = ValidatedProfile::parse(source, &secrets)?;
-        let summary = parsed.summary(name, Uuid::new_v4(), Uuid::new_v4())?;
+        let mut summary = parsed.summary(name, Uuid::new_v4(), Uuid::new_v4())?;
+        summary.source = source;
         let _guard = self.lock()?;
         if self.ids()?.len() >= MAX_IMPORTED_PROFILES {
             return Err(ImportError::new(0, "profiles", "profile_limit"));
         }
         self.write(&Record {
-            version: 2,
+            version: 3,
             summary: summary.clone(),
             secrets,
         })?;
@@ -214,15 +215,16 @@ impl<'a> ChainProfileStore<'a> {
     }
     fn write(&self, record: &Record) -> Result<(), ImportError> {
         // Legacy compatibility is read-only. Never promote an old invalid
-        // configuration into a version 2 object that cannot be read again.
-        let parsed = ValidatedProfile::parse(record.summary.protocol.source(), &record.secrets)?;
+        // configuration into a current object that cannot be read again.
+        let parsed = ValidatedProfile::parse(record.summary.source, &record.secrets)?;
         let mut expected = parsed.summary(
             &record.summary.name,
             record.summary.id,
             record.summary.revision,
         )?;
         expected.edit_revision = record.summary.edit_revision;
-        if record.version != 2 || expected != record.summary {
+        expected.source = record.summary.source;
+        if record.version != 3 || expected != record.summary {
             return Err(storage_error());
         }
         // Binder carries UTF-16 strings. Bound the complete metadata catalogue
@@ -272,7 +274,7 @@ impl<'a> ChainProfileStore<'a> {
             .ok_or_else(|| ImportError::new(0, "selection", "missing_profile"))?;
         let record = self.read(id)?;
         if Some(record.summary.revision) != settings.revision
-            || record.summary.protocol.source() != settings.source
+            || record.summary.source != settings.source
         {
             return Err(ImportError::new(0, "selection", "stale_revision"));
         }
@@ -290,11 +292,13 @@ impl<'a> ChainProfileStore<'a> {
         if record.summary.edit_revision != revision {
             return Err(ImportError::new(0, "revision", "stale_revision"));
         }
-        let parsed = ValidatedProfile::parse(record.summary.protocol.source(), &record.secrets)?;
+        let parsed = ValidatedProfile::parse(record.summary.source, &record.secrets)?;
         // Display-only edits do not invalidate a selected immutable protocol revision.
+        let source = record.summary.source;
         record.summary = parsed.summary(name, id, record.summary.revision)?;
+        record.summary.source = source;
         record.summary.edit_revision = Uuid::new_v4();
-        record.version = 2;
+        record.version = 3;
         self.write(&record)?;
         Ok(record.summary)
     }
@@ -327,7 +331,7 @@ impl<'a> ChainProfileStore<'a> {
             .clone_from(&credentials.private_key_password);
         record.secrets.validate()?;
         record.summary.edit_revision = Uuid::new_v4();
-        record.version = 2;
+        record.version = 3;
         // Running sessions retain their own zeroizing credential snapshot.
         self.write(&record)?;
         Ok(record.summary)

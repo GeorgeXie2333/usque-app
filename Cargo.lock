@@ -3157,6 +3157,7 @@ name = "usque-transport"
 version = "0.2.7"
 dependencies = [
  "async-trait",
+ "base64 0.23.1",
  "boring",
  "boringtun",
  "bytes",
@@ -3173,6 +3174,7 @@ dependencies = [
  "serde_json",
  "smoltcp",
  "socket2",
+ "tempfile",
  "thiserror",
  "tokio",
  "tokio-boring",

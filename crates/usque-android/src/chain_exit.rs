@@ -6,6 +6,21 @@ use usque_core::chain_exit::{ImportError, store::ProfileCipher};
 use uuid::Uuid;
 
 static CIPHER: OnceLock<AndroidCipher> = OnceLock::new();
+#[cfg(feature = "wireguard")]
+pub(crate) fn profile_cipher() -> Result<Arc<dyn ProfileCipher>, String> {
+    struct Shared(&'static AndroidCipher);
+    impl ProfileCipher for Shared {
+        fn seal(&self, id: Uuid, value: &[u8]) -> Result<Vec<u8>, ImportError> {
+            self.0.seal(id, value)
+        }
+        fn open(&self, id: Uuid, value: &[u8]) -> Result<Zeroizing<Vec<u8>>, ImportError> {
+            self.0.open(id, value)
+        }
+    }
+    Ok(Arc::new(Shared(
+        CIPHER.get().ok_or("CHAIN_CRYPTO_UNAVAILABLE")?,
+    )))
+}
 struct AndroidCipher {
     vm: JavaVM,
     object: Global<JObject<'static>>,

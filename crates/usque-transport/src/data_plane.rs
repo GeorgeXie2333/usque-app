@@ -42,6 +42,8 @@ pub struct VpnGateStart {
 }
 pub type ChainExitStart = VpnGateStart;
 struct GateRuntime {
+    #[cfg(feature = "wireguard")]
+    warp_probe: Option<tokio_util::task::AbortOnDropHandle<()>>,
     frontend: MasqueRuntime,
     driver: crate::vpngate::GateDriver,
     network: FinalNetworkParameters,
@@ -227,7 +229,7 @@ impl DataPlaneRuntime {
             prepared.summary.as_ref().is_some_and(|summary| {
                 Some(summary.id) == chain.profile_id
                     && Some(summary.revision) == chain.revision
-                    && summary.protocol.source() == chain.source
+                    && summary.source == chain.source
                     && !(summary.protocol.requires_udp()
                         && profile.data_plane == DataPlaneMode::L4Proxy)
             })
@@ -290,6 +292,8 @@ impl DataPlaneRuntime {
             return Err(TransportError::TunnelClosed);
         }
         self.gate = Some(Box::new(GateRuntime {
+            #[cfg(feature = "wireguard")]
+            warp_probe: None,
             frontend,
             driver,
             network,
@@ -457,12 +461,33 @@ impl DataPlaneRuntime {
             self.final_blocked = false;
             self.transition_status = GateStatus::default();
         }
-        if let Some(gate) = &self.gate {
+        if let Some(gate) = &mut self.gate {
             let mut status = gate.driver.status.clone();
             gate.driver.admit();
             loop {
                 match status.borrow().stage {
                     usque_core::vpngate::GateStage::Connected => {
+                        #[cfg(feature = "wireguard")]
+                        if gate.warp_probe.is_none()
+                            && status.borrow().current_profile.as_ref().is_some_and(|p| {
+                                p.source == usque_core::chain_exit::ChainSource::WarpWireguard
+                            })
+                        {
+                            let network = gate.frontend.internal_network();
+                            let sink = gate.driver.observation_sink();
+                            gate.warp_probe = Some(tokio_util::task::AbortOnDropHandle::new(
+                                tokio::spawn(async move {
+                                    let observation =
+                                        crate::warp_wireguard::observe_exit(&network).await;
+                                    sink.send_modify(|status| {
+                                        if status.stage == usque_core::vpngate::GateStage::Connected
+                                        {
+                                            status.warp_observation = Some(Box::new(observation));
+                                        }
+                                    });
+                                }),
+                            ));
+                        }
                         self.activation_deadline = None;
                         return Ok(());
                     }
@@ -839,7 +864,7 @@ fn filter_final_dns(
 fn final_mtu(profile: &Profile, negotiated: u16) -> u16 {
     if profile
         .custom_chain()
-        .is_some_and(|c| c.source == usque_core::chain_exit::ChainSource::WireguardCustom)
+        .is_some_and(|c| c.source.is_wireguard())
     {
         // The imported WireGuard MTU describes the inner interface, separately
         // from the WARP MTU. Its parser has already enforced 1280..=9000.
@@ -1000,6 +1025,7 @@ mod tests {
             mtu: 1280,
             chain_exit: Some(usque_core::chain_exit::ChainExitSettings {
                 source: usque_core::chain_exit::ChainSource::WireguardCustom,
+                endpoint_override: None,
                 ..Default::default()
             }),
             ..Default::default()

@@ -21,15 +21,24 @@ pub enum ChainSource {
     #[default]
     OpenvpnCustom,
     WireguardCustom,
+    WarpWireguard,
     VpnGate,
 }
 impl ChainSource {
-    pub const DISPLAY_ORDER: [Self; 3] =
-        [Self::OpenvpnCustom, Self::WireguardCustom, Self::VpnGate];
+    pub const DISPLAY_ORDER: [Self; 4] = [
+        Self::OpenvpnCustom,
+        Self::WireguardCustom,
+        Self::WarpWireguard,
+        Self::VpnGate,
+    ];
+    pub const fn is_wireguard(self) -> bool {
+        matches!(self, Self::WireguardCustom | Self::WarpWireguard)
+    }
     pub const fn label(self) -> &'static str {
         match self {
             Self::OpenvpnCustom => "OpenVPN",
             Self::WireguardCustom => "WireGuard",
+            Self::WarpWireguard => "WARP via WireGuard",
             Self::VpnGate => "VPN Gate",
         }
     }
@@ -41,9 +50,20 @@ pub struct ChainExitSettings {
     pub source: ChainSource,
     pub profile_id: Option<Uuid>,
     pub revision: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_override: Option<Endpoint>,
 }
 impl ChainExitSettings {
     pub fn validate(&self) -> Result<(), ImportError> {
+        if let Some(endpoint) = &self.endpoint_override {
+            if self.source != ChainSource::WarpWireguard
+                || self.profile_id.is_none()
+                || endpoint.address().is_none()
+            {
+                return Err(ImportError::new(0, "endpoint_override", "invalid_endpoint"));
+            }
+            Endpoint::parse(&endpoint.host, &endpoint.port.to_string(), 0)?;
+        }
         if self.profile_id.is_some() != self.revision.is_some()
             || self.enabled && self.source != ChainSource::VpnGate && self.profile_id.is_none()
             || self.source == ChainSource::VpnGate && self.profile_id.is_some()
@@ -188,6 +208,8 @@ pub struct ChainProfileSummary {
     pub edit_revision: Uuid,
     pub name: String,
     pub protocol: ChainProtocol,
+    #[serde(default)]
+    pub source: ChainSource,
     pub endpoint: Endpoint,
     #[serde(default)]
     pub candidates: Vec<OpenVpnEndpoint>,
@@ -205,14 +227,22 @@ impl ChainProfileSummary {
     pub fn selection(&self) -> ChainExitSettings {
         ChainExitSettings {
             enabled: true,
-            source: self.protocol.source(),
+            source: self.source,
             profile_id: Some(self.id),
             revision: Some(self.revision),
+            endpoint_override: None,
         }
     }
     pub fn reference_hash(&self) -> String {
         use sha2::{Digest, Sha256};
-        Sha256::digest(self.revision.as_bytes())
+        let mut digest = Sha256::new();
+        digest.update(self.revision.as_bytes());
+        if self.source == ChainSource::WarpWireguard {
+            digest.update(self.endpoint.host.as_bytes());
+            digest.update(self.endpoint.port.to_be_bytes());
+        }
+        digest
+            .finalize()
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect()
@@ -289,7 +319,7 @@ impl ValidatedProfile {
         secrets.validate()?;
         match source {
             ChainSource::OpenvpnCustom => openvpn::parse(&secrets.configuration).map(Self::OpenVpn),
-            ChainSource::WireguardCustom => {
+            ChainSource::WireguardCustom | ChainSource::WarpWireguard => {
                 wireguard::parse(&secrets.configuration).map(Self::WireGuard)
             }
             ChainSource::VpnGate => Err(ImportError::new(0, "source", "directory_only")),
@@ -311,6 +341,7 @@ impl ValidatedProfile {
             edit_revision: revision,
             name: name.into(),
             protocol: ChainProtocol::OpenvpnTcp,
+            source: ChainSource::OpenvpnCustom,
             endpoint: Endpoint {
                 host: String::new(),
                 port: 1,
@@ -342,6 +373,7 @@ impl ValidatedProfile {
             }
             Self::WireGuard(p) => {
                 result.protocol = ChainProtocol::Wireguard;
+                result.source = ChainSource::WireguardCustom;
                 result.endpoint = p.endpoint.clone();
                 result.addresses = p.addresses.iter().map(ToString::to_string).collect();
                 result.allowed_ips = p.allowed_ips.iter().map(ToString::to_string).collect();
@@ -414,13 +446,12 @@ pub fn profile_command(
         };
         let preview = match request.action.as_str() {
             "list" => None,
-            "preview" => Some(
-                ValidatedProfile::parse(request.source, &request.secrets)?.summary(
-                    &request.name,
-                    Uuid::nil(),
-                    Uuid::nil(),
-                )?,
-            ),
+            "preview" => {
+                let mut summary = ValidatedProfile::parse(request.source, &request.secrets)?
+                    .summary(&request.name, Uuid::nil(), Uuid::nil())?;
+                summary.source = request.source;
+                Some(summary)
+            }
             "import" => Some(store.import(request.source, &request.name, request.secrets)?),
             "rename" => {
                 let (id, rev) = reference()?;
@@ -464,8 +495,21 @@ pub fn prepare_selection(
         return Ok(None);
     }
     if let Some(chain) = profile.custom_chain() {
-        let (summary, parsed, secrets) =
+        let (mut summary, mut parsed, secrets) =
             store::ChainProfileStore::new(parent, cipher).load(chain)?;
+        if let Some(endpoint) = &chain.endpoint_override {
+            let ValidatedProfile::WireGuard(wireguard) = &mut parsed else {
+                return Err(ImportError::new(0, "endpoint_override", "invalid_endpoint"));
+            };
+            wireguard.endpoint = endpoint.clone();
+            summary.endpoint = endpoint.clone();
+            summary.address_family = if endpoint.address().is_some_and(|a| a.is_ipv6()) {
+                "IPv6"
+            } else {
+                "IPv4"
+            }
+            .into();
+        }
         if profile.data_plane == crate::DataPlaneMode::L4Proxy && summary.protocol.requires_udp() {
             return Err(ImportError::new(0, "data_plane", "connect_ip_required"));
         }

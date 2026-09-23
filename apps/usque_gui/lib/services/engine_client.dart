@@ -191,6 +191,10 @@ abstract interface class VpnGateClient {
   Future<void> vpnGateNode(VpnGateNodeRequest request);
 }
 
+abstract interface class WarpWireguardClient {
+  Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request);
+}
+
 abstract interface class ChainProfileClient {
   Future<ChainProfileResult> chainProfile(Map<String, Object?> request);
   Future<String?> pickChainConfiguration();
@@ -244,7 +248,17 @@ Future<String?> pickChainConfigurationFile() async {
 }
 
 class MethodChannelEngineClient
-    implements EngineClient, VpnGateClient, ChainProfileClient {
+    implements
+        EngineClient,
+        VpnGateClient,
+        ChainProfileClient,
+        WarpWireguardClient {
+  @override
+  Future<Map<Object?, Object?>> warpWireguard(
+    Map<String, Object?> request,
+  ) async =>
+      await _invoke<Map<Object?, Object?>>('warpWireguard', request) ??
+      const {};
   @override
   Future<ChainProfileResult> chainProfile(Map<String, Object?> request) async =>
       ChainProfileResult.fromMap(

@@ -75,6 +75,8 @@ mod connection_timeline;
 mod diagnostic_probe;
 #[cfg(any(test, target_os = "android"))]
 mod exit_probe_task;
+#[cfg(feature = "wireguard")]
+mod warp_wireguard;
 
 #[derive(Debug)]
 struct JniCode(jint);
@@ -132,6 +134,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "chain_profile_import": engine_ready(),
             "chain_openvpn_udp": engine_ready(),
             "chain_wireguard": engine_ready() && cfg!(feature = "wireguard"),
+            "chain_warp_wireguard": engine_ready() && cfg!(feature = "wireguard"),
             "chain_openvpn_multi_endpoint": engine_ready(),
             "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
@@ -1395,6 +1398,19 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
     }
     let command: AndroidConfigCommand = serde_json::from_str(request_json)
         .map_err(|error| format!("invalid profile-store command: {error}"))?;
+    #[cfg(feature = "wireguard")]
+    if matches!(
+        &command,
+        AndroidConfigCommand::ClearAllData
+            | AndroidConfigCommand::SetActiveProfile { .. }
+            | AndroidConfigCommand::DeleteProfile { .. }
+            | AndroidConfigCommand::UpsertProfile { .. }
+            | AndroidConfigCommand::ReconfigureActiveProfile { .. }
+            | AndroidConfigCommand::BeginIdentityReplacement { .. }
+    ) && !warp_wireguard::stop()
+    {
+        return Err("WARP_SCAN_CLEANUP_PENDING".into());
+    }
     let clear_all_data = matches!(&command, AndroidConfigCommand::ClearAllData);
     let store = ConfigStore::new(config_path);
     if matches!(

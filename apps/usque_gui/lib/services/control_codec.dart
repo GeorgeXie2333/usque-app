@@ -106,16 +106,19 @@ class ControlCodec {
     writer.enumeration(19, profile.dataPlane.index + 1);
     writer.boolean(21, profile.disableQuic);
     if (profile.chainExit case final chain?) {
-      writer.message(
-        22,
-        (ControlPayloadWriter()
-              ..boolean(1, chain.enabled)
-              ..string(2, chain.source.wire)
-              ..string(3, chain.profileId ?? '')
-              ..string(4, chain.revision ?? ''))
-            .takeBytes(),
-      );
+      final payload = ControlPayloadWriter()
+        ..boolean(1, chain.enabled)
+        ..string(2, chain.source.wire)
+        ..string(3, chain.profileId ?? '')
+        ..string(4, chain.revision ?? '');
+      if (chain.endpointOverride case final endpoint?) {
+        payload
+          ..string(5, endpoint.host)
+          ..unsigned(6, endpoint.port);
+      }
+      writer.message(22, payload.takeBytes());
     }
+
     if (profile.vpnGate != const VpnGateSettings()) {
       writer.message(
         20,
@@ -159,6 +162,7 @@ class ControlCodec {
       NetworkSettingsState? networkSettings;
       VpnGateDirectory? vpnGateDirectory;
       ChainProfileResult? chainProfiles;
+      Map<String, Object?>? warpWireguard;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -186,6 +190,8 @@ class ControlCodec {
             networkQuality = _decodeNetworkQuality(reader.message(field));
           case 22:
             networkSettings = _decodeNetworkSettings(reader.message(field));
+          case 25:
+            warpWireguard = _decodeChainJson(reader.message(field));
           case 24:
             chainProfiles = ChainProfileResult.fromMap(
               _decodeChainJson(reader.message(field)),
@@ -226,6 +232,7 @@ class ControlCodec {
         networkSettings: networkSettings,
         vpnGateDirectory: vpnGateDirectory,
         chainProfiles: chainProfiles,
+        warpWireguard: warpWireguard,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -367,6 +374,7 @@ class ControlResponse {
     this.networkSettings,
     this.vpnGateDirectory,
     this.chainProfiles,
+    this.warpWireguard,
   });
 
   final EngineSnapshot? snapshot;
@@ -381,6 +389,7 @@ class ControlResponse {
   final NetworkSettingsState? networkSettings;
   final VpnGateDirectory? vpnGateDirectory;
   final ChainProfileResult? chainProfiles;
+  final Map<String, Object?>? warpWireguard;
 }
 
 /// Minimal protobuf field writer for control request payloads.
@@ -447,6 +456,8 @@ Map<String, Object?> _decodeVpnGate(_ProtoReader reader, String kind) {
       2: ('source', 's'),
       3: ('profile_id', 's'),
       4: ('revision', 's'),
+      5: ('endpoint_override_ip', 's'),
+      6: ('endpoint_override_port', 'u'),
     },
     'settings': {
       1: ('enabled', 'b'),
@@ -1495,6 +1506,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var chainProfileImport = false,
       chainOpenvpnUdp = false,
       chainWireguard = false,
+      chainWarpWireguard = false,
       chainOpenvpnMultiEndpoint = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
@@ -1525,6 +1537,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainProfileImport = reader.varint(field) != 0;
       case 35:
         chainOpenvpnUdp = reader.varint(field) != 0;
+      case 38:
+        chainWarpWireguard = reader.varint(field) != 0;
       case 36:
         chainWireguard = reader.varint(field) != 0;
       case 37:
@@ -1569,6 +1583,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     chainProfileImport: chainProfileImport,
     chainOpenvpnUdp: chainOpenvpnUdp,
     chainWireguard: chainWireguard,
+    chainWarpWireguard: chainWarpWireguard,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),
