@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/chain_home_status.dart';
 import '../core/connection_presentation.dart';
 import '../core/frontend_presentation.dart';
 import '../core/usque_motion.dart';
@@ -174,6 +175,7 @@ class _VpnGateReadout extends StatelessWidget {
       ControllerSelector<
         ({
           bool enabled,
+          ConnectionPhase phase,
           VpnGateStatus status,
           ChainExitStatus chain,
           ChainSource source,
@@ -183,26 +185,26 @@ class _VpnGateReadout extends StatelessWidget {
         active: (app) => app.section == AppSection.home,
         selector: (app) => (
           enabled: app.activeProfile.chainEnabled,
+          phase: app.snapshot.phase,
           status: app.snapshot.vpnGate,
           chain: app.snapshot.chainExit,
           source: app.activeProfile.chainSource,
         ),
         builder: (context, view) {
-          if (!view.enabled && view.status.stage == 'disabled') {
+          final homeStatus = ChainHomeStatus.of(
+            phase: view.phase,
+            chainEnabled: view.enabled,
+            chainStage: view.chain.stage,
+            gateStage: view.status.stage,
+            hasCurrentProfile: view.chain.currentProfile != null,
+            hasGateServer: view.status.server != null,
+          );
+          if (!homeStatus.showChainRow) {
             return const SizedBox.shrink();
           }
           final status = view.status;
-          final phaseKey = switch (status.stage) {
-            'connecting_warp' => 'gate_connecting_warp',
-            'connecting_server' => 'gate_connecting_server',
-            'negotiating' => 'gate_negotiating',
-            'configuring_network' => 'gate_configuring_network',
-            'connected' => 'connected',
-            'reconnecting' => 'reconnecting',
-            'error' => 'error',
-            _ => 'disconnected',
-          };
           final server = status.server;
+          final phaseLabel = homeStatus.label(strings);
           return Padding(
             padding: const EdgeInsets.only(bottom: 24),
             child: Semantics(
@@ -239,7 +241,7 @@ class _VpnGateReadout extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  strings.get(phaseKey),
+                                  phaseLabel,
                                   style: Theme.of(context).textTheme.bodySmall
                                       ?.copyWith(
                                         color: Theme.of(
@@ -329,6 +331,11 @@ typedef _HeroView = ({
   bool systemProxy,
   String geoDirect,
   _OutputPhases runtime,
+  bool chainEnabled,
+  String chainStage,
+  String gateStage,
+  bool chainProfile,
+  bool gateServer,
 });
 
 /// Runtime phase of each output, flattened so the hero compares by value and
@@ -370,6 +377,11 @@ _HeroView _heroView(AppController controller) => (
   systemProxy: controller.activeProfile.proxy.systemProxy,
   geoDirect: controller.activeProfile.geoDirectCountries.join(','),
   runtime: _outputPhases(controller.snapshot),
+  chainEnabled: controller.activeProfile.chainEnabled,
+  chainStage: controller.snapshot.chainExit.stage,
+  gateStage: controller.snapshot.vpnGate.stage,
+  chainProfile: controller.snapshot.chainExit.currentProfile != null,
+  gateServer: controller.snapshot.vpnGate.server != null,
 );
 
 class _ConnectionHero extends StatelessWidget {
@@ -396,8 +408,18 @@ class _ConnectionHero extends StatelessWidget {
 
   Widget _buildHero(BuildContext context, _HeroView view) {
     final theme = Theme.of(context);
-    final presentation = ConnectionPresentation.of(view.phase);
-    final status = strings.get(presentation.labelKey);
+    final connection = ConnectionPresentation.of(view.phase);
+    final chainStatus = ChainHomeStatus.of(
+      phase: view.phase,
+      chainEnabled: view.chainEnabled,
+      chainStage: view.chainStage,
+      gateStage: view.gateStage,
+      hasCurrentProfile: view.chainProfile,
+      hasGateServer: view.gateServer,
+    );
+    final status = chainStatus.drivesHome
+        ? chainStatus.label(strings)
+        : strings.get(connection.labelKey);
     final error = view.phase == ConnectionPhase.error;
     final recoveryBlocked =
         error && view.errorCode == 'WINDOWS_RECOVERY_BLOCKED';
@@ -407,7 +429,7 @@ class _ConnectionHero extends StatelessWidget {
           ? 'retry'
           : error && !recoveryBlocked && !view.identityReady
           ? 'configure_identity'
-          : presentation.actionKey,
+          : connection.actionKey,
     );
     final canAct =
         (!view.busy ||
@@ -419,6 +441,9 @@ class _ConnectionHero extends StatelessWidget {
         !recoveryBlocked;
     Widget ring(double size) => ConnectionRing(
       phase: view.phase,
+      presentation: chainStatus.drivesHome
+          ? chainStatus.presentation(connection)
+          : null,
       busy: view.busy,
       actionLabel: action,
       semanticLabel: '${strings.get('connection_status')}: $status',
@@ -456,7 +481,9 @@ class _ConnectionHero extends StatelessWidget {
       child: FadeThroughSwitcher(
         child: Text(
           status,
-          key: ValueKey(view.phase),
+          key: ValueKey(
+            chainStatus.drivesHome ? chainStatus.labelKey : view.phase,
+          ),
           textAlign: TextAlign.center,
           style: theme.textTheme.headlineSmall,
         ),
@@ -529,7 +556,7 @@ class _ConnectionHero extends StatelessWidget {
             statusText(),
             const SizedBox(height: 10),
             _ErrorSlot(controller: controller, strings: strings),
-            if (presentation.recoverable && !error) ...[
+            if (connection.recoverable && !error) ...[
               Center(
                 child: OutlinedButton.icon(
                   onPressed: view.busy ? null : controller.retry,
@@ -561,7 +588,7 @@ class _ConnectionHero extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Center(child: statusText()),
-          if (presentation.recoverable) ...[
+          if (connection.recoverable) ...[
             const SizedBox(height: 16),
             recovery(),
           ],

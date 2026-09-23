@@ -23,6 +23,7 @@ class ConnectionRing extends StatefulWidget {
     this.size = 232,
     this.semanticLabel,
     this.compactControl = false,
+    this.presentation,
     super.key,
   });
 
@@ -33,6 +34,10 @@ class ConnectionRing extends StatefulWidget {
   final double size;
   final String? semanticLabel;
   final bool compactControl;
+
+  /// Replaces the phase bezel while a chain session is the home status.
+  /// The action label stays with the real connection control.
+  final ConnectionPresentation? presentation;
 
   @override
   State<ConnectionRing> createState() => _ConnectionRingState();
@@ -50,7 +55,7 @@ class _ConnectionRingState extends State<ConnectionRing>
   bool _reduced = false;
 
   ConnectionPresentation get _presentation =>
-      ConnectionPresentation.of(widget.phase);
+      widget.presentation ?? ConnectionPresentation.of(widget.phase);
 
   @override
   void didChangeDependencies() {
@@ -64,7 +69,8 @@ class _ConnectionRingState extends State<ConnectionRing>
   @override
   void didUpdateWidget(covariant ConnectionRing oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.phase != widget.phase) {
+    if (oldWidget.phase != widget.phase ||
+        oldWidget.presentation?.mode != widget.presentation?.mode) {
       _syncMotion();
     }
   }
@@ -152,7 +158,10 @@ class _ConnectionRingState extends State<ConnectionRing>
               diameter: widget.size * (widget.compactControl ? 0.68 : 0.47),
               label: widget.actionLabel,
               busy: widget.busy,
-              engaged: _presentation.engaged,
+              // The bezel follows the chain stage. The control stays with the
+              // real session, so an open tunnel can still be disconnected
+              // while the exit is still being applied.
+              engaged: ConnectionPresentation.of(widget.phase).engaged,
               onPressed: widget.onPressed,
             ),
           ],
