@@ -52,6 +52,16 @@ pub enum ScanMode {
     Full,
 }
 
+/// Persist the enumeration rule so a saved cursor never changes meaning after
+/// an upgrade. Legacy jobs remain readable but cannot resume with the new rule.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanPlan {
+    #[default]
+    LegacyPorts,
+    SinglePortV1,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
@@ -135,6 +145,8 @@ pub struct Job {
     pub id: Uuid,
     pub kind: String,
     pub mode: ScanMode,
+    #[serde(default)]
+    pub plan: ScanPlan,
     pub ipv6: bool,
     pub state: String,
     pub context: String,
@@ -159,6 +171,7 @@ impl Job {
             id: Uuid::new_v4(),
             kind: request.action.clone(),
             mode: request.mode,
+            plan: ScanPlan::SinglePortV1,
             ipv6: request.ipv6,
             state: "running".into(),
             context,
@@ -173,7 +186,7 @@ impl Job {
             profile_id: None,
         })
     }
-    pub fn ports(&self) -> &[u16] {
+    fn legacy_ports(&self) -> &[u16] {
         if self.mode == ScanMode::Quick {
             &PRIMARY_PORTS
         } else {
@@ -181,15 +194,25 @@ impl Job {
         }
     }
     pub fn total(&self) -> usize {
-        self.addresses.len() * self.ports().len()
+        match self.plan {
+            ScanPlan::SinglePortV1 => self.addresses.len(),
+            ScanPlan::LegacyPorts => self.addresses.len() * self.legacy_ports().len(),
+        }
     }
     pub fn endpoint(&self, index: usize) -> Option<Endpoint> {
-        self.addresses
-            .get(index / self.ports().len())
-            .map(|ip| Endpoint {
-                host: ip.to_string(),
-                port: self.ports()[index % self.ports().len()],
-            })
+        let (address, port) = match self.plan {
+            // V1's order is part of the saved plan. Do not change it when
+            // updating pool data: a resumed job must use the same IP/port.
+            ScanPlan::SinglePortV1 => (index, [2408, 500, 1701, 4500][index % 4]),
+            ScanPlan::LegacyPorts => {
+                let ports = self.legacy_ports();
+                (index / ports.len(), ports[index % ports.len()])
+            }
+        };
+        self.addresses.get(address).map(|ip| Endpoint {
+            host: ip.to_string(),
+            port,
+        })
     }
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
@@ -572,25 +595,71 @@ pub fn now() -> String {
 mod tests {
     use super::*;
     #[test]
-    fn modes_are_bounded_and_ports_are_distinct() {
+    fn full_scan_visits_each_ip_once_on_one_common_port() {
         let req = Request::parse(r#"{"action":"start","mode":"full"}"#).unwrap();
         let job = Job::new(&req, String::new()).unwrap();
-        assert_eq!(job.total(), 193536);
+        assert_eq!(job.total(), 3584);
         assert_eq!(PORTS.into_iter().collect::<BTreeSet<_>>().len(), 54);
-        assert_ne!(job.endpoint(0), job.endpoint(1));
+        let mut addresses = BTreeSet::new();
+        for index in 0..job.total() {
+            let endpoint = job.endpoint(index).unwrap();
+            assert!(addresses.insert(endpoint.host));
+            assert_eq!(endpoint.port, PRIMARY_PORTS[index % PRIMARY_PORTS.len()]);
+        }
         assert_eq!(job.endpoint(job.total()), None);
         let req = Request::parse(r#"{"action":"start","mode":"full","ipv6":true}"#).unwrap();
         assert!(Job::new(&req, String::new()).is_err());
     }
     #[test]
     fn quick_targets_and_invalid_input() {
-        for (ipv6, total) in [(false, 280), (true, 40)] {
+        for (ipv6, total) in [(false, 70), (true, 10)] {
             let req = Request::parse(&format!(r#"{{"action":"start","ipv6":{ipv6}}}"#)).unwrap();
-            assert_eq!(Job::new(&req, String::new()).unwrap().total(), total);
+            let job = Job::new(&req, String::new()).unwrap();
+            assert_eq!(job.total(), total);
+            let addresses: BTreeSet<_> = (0..job.total())
+                .map(|index| job.endpoint(index).unwrap().host)
+                .collect();
+            assert_eq!(addresses.len(), total);
         }
         assert!(Request::parse(r#"{"action":"start","country":"anything"}"#).is_err());
         let req =
             Request::parse(r#"{"action":"start","mode":"target","target":"127.0.0.1"}"#).unwrap();
         assert!(Job::new(&req, String::new()).is_err());
+    }
+
+    #[test]
+    fn single_address_scan_uses_only_the_primary_port() {
+        for ip in ["162.159.192.1", "2606:4700:d0::1"] {
+            let req = Request::parse(&format!(
+                r#"{{"action":"start","mode":"target","target":"{ip}"}}"#
+            ))
+            .unwrap();
+            let job = Job::new(&req, String::new()).unwrap();
+            assert_eq!(job.total(), 1);
+            assert_eq!(
+                job.endpoint(0),
+                Some(Endpoint::parse(ip, "2408", 0).unwrap())
+            );
+            assert_eq!(job.endpoint(1), None);
+        }
+    }
+
+    #[test]
+    fn legacy_job_cursors_keep_their_original_port_mapping() {
+        let req = Request::parse(r#"{"action":"start","mode":"full"}"#).unwrap();
+        let mut value = serde_json::to_value(Job::new(&req, String::new()).unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("plan");
+        let job: Job = serde_json::from_value(value).unwrap();
+        assert_eq!(job.plan, ScanPlan::LegacyPorts);
+        assert_eq!(job.total(), 193536);
+        assert_eq!(
+            job.endpoint(0).unwrap().host,
+            job.endpoint(53).unwrap().host
+        );
+        assert_ne!(
+            job.endpoint(53).unwrap().host,
+            job.endpoint(54).unwrap().host
+        );
+        assert_eq!(job.endpoint(53).unwrap().port, PORTS[53]);
     }
 }

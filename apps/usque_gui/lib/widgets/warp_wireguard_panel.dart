@@ -113,6 +113,7 @@ class WarpWireguardPanelState extends State<WarpWireguardPanel> {
     return switch (code) {
       'connect_ip_required' => _app.strings.chain('l4'),
       'context_changed' => w('stale'),
+      'scan_plan_changed' => w('scan_plan_changed'),
       'scan_busy' => w('running'),
       'secure_storage_failed' => _app.strings.chain('secure_storage_failed'),
       'identity_required' || 'identity_invalid' => w('identity_required'),
@@ -265,6 +266,7 @@ class WarpWireguardPanelState extends State<WarpWireguardPanel> {
               helperText: w('target'),
             ),
           ),
+        Text(w('single_port_hint')),
         if (_mode == 'full') Text(w('full_hint')),
         const SizedBox(height: 8),
         Wrap(

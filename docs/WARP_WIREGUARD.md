@@ -39,10 +39,13 @@ MASQUE 隧道。保存配置不会自动选用或连接，私钥使用现有平�
 
 ## Scan, pause and resume / 扫描、暂停与继续
 
-**Quick scan** samples five addresses per built-in pool on four primary ports.
-**Scan one IP** tests all 54 known WARP ports for the entered address.
-**Complete IPv4 pool** tests every IPv4 address/known-port combination and may
-take days. IPv6 supports quick and single-address scans, not exhaustive scans.
+Each IP is tested on exactly one common port. **Quick scan** samples five
+addresses per built-in pool: 70 IPv4 addresses or 10 IPv6 addresses.
+**Complete IPv4 pool** tests all 3,584 built-in IPv4 addresses. These modes
+assign 2408, 500, 1701 and 4500 to successive IPs in rotation.
+**Scan one IP** tests the entered IPv4/IPv6 address on port 2408 only.
+An unsuccessful IP is not retried on its other ports; this saves work but can
+miss an IP that would work on a different port. IPv6 has no exhaustive scan.
 
 Discovery uses a separate persistent scan identity and one candidate tunnel at
 a time. It reuses the connected MASQUE outer network; when disconnected it
@@ -60,10 +63,16 @@ the scan identity, progress and historical results after workers stop.
 Changes to the outer account/settings or observed outer address require a new
 scan. Previous results remain historical observations. Progress counts attempts,
 including failures; result pages contain endpoints with validated tunnel data.
+Tasks created by the former all-ports scanner retain their original results and
+counts, but cannot resume under the new enumeration rule. Start a new scan when
+the application reports that the scan rules changed. Current tasks persist
+their rule and sampled addresses, keeping the same port assignment on resume.
 
-**快速扫描**每个内置地址池抽样五个地址，测试四个常用端口；**指定 IP 深扫**
-测试该地址的全部 54 个已知 WARP 端口；**完整 IPv4 地址池**遍历全部地址与
-端口组合，可能耗时数天。IPv6 支持抽样及单地址深扫，不提供穷举。
+每个 IP 只测试一个常用端口。**快速扫描**每个内置地址池抽样五个地址，共
+70 个 IPv4 或 10 个 IPv6 地址；**完整 IPv4 地址池**遍历全部 3,584 个内置
+IPv4 地址。这两种模式按 IP 依次轮换分配 2408、500、1701、4500 端口。
+**指定 IP 扫描**只测试输入的 IPv4／IPv6 地址的 2408 端口。
+失败后不追加其他端口，因此可能漏掉仅在其他端口可用的 IP。IPv6 不提供穷举。
 
 扫描复用独立保存的扫描身份，串行测试候选，不主动中断当前出口。已连接时
 复用 MASQUE 外层，未连接时建立临时外层，不创建系统隧道、代理监听或系统
@@ -76,6 +85,9 @@ including failures; result pages contain endpoints with validated tunnel data.
 
 外层账号、设置或已观测的外层地址改变时，需要开始新的扫描，旧结果仍作为
 历史观测保留。进度包含失败尝试，结果列表仅展示已经验证隧道数据通信的端点。
+旧版全端口扫描任务的结果和计数会保留，但不能按新规则续扫；看到扫描规则
+已更新的提示时，请开始新的扫描。新任务会保存扫描规则及抽样地址，暂停或
+重启后手动继续仍使用相同的 IP 与端口对应关系。
 
 ## Understanding countries / 理解国家信息
 
@@ -143,10 +155,19 @@ Technical provenance: [upstream reference](WARP_WIREGUARD_UPSTREAM.md).
   only after its result blocks and country indexes. Uncommitted rows are hidden
   by the persisted cursor, including after a crash or storage error. The UI reads
   bounded pages and uses encrypted country indexes to skip unrelated blocks.
+- New jobs use persisted plan `single_port_v1`: one candidate per IP, with
+  2408/500/1701/4500 assigned by saved address index. A target job has one
+  candidate on 2408. Records without a plan retain legacy enumeration for
+  historical reads; attempting to resume them returns `scan_plan_changed`.
 - Handshake deadline: 3 seconds. Each HTTPS request: 5 seconds. Endpoint probe:
   20 seconds, followed by confirmed cleanup before the next candidate. A valid
   trace response over HTTPS is required for a usable endpoint; handshake success
   alone does not qualify. Metadata failure leaves the country unknown.
+- Trace and metadata requests run concurrently inside the same candidate
+  tunnel, separately for each available address family. Trace latency excludes
+  the metadata request. An invalid/failed trace cancels its pending metadata;
+  metadata failure does not discard successful trace data. Candidate tunnels
+  remain serial and are fully cleaned up before testing the next IP.
 - Registration requests have a separate 15-second budget, including up to
   10 seconds for DNS/TCP/TLS setup. They do not use the endpoint probe's
   five-second request limit. A temporary session has no listener credentials
@@ -159,3 +180,4 @@ Technical provenance: [upstream reference](WARP_WIREGUARD_UPSTREAM.md).
 
 Validation and size measurements: [implementation validation](WARP_WIREGUARD_VALIDATION.md).
 Registration follow-up: [fix validation](WARP_WIREGUARD_REGISTRATION_FIX.md).
+Single-port scanning: [scan validation](WARP_WIREGUARD_SCAN_VALIDATION.md).

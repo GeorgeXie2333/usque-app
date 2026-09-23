@@ -87,26 +87,42 @@ async fn observe(
     ipv6: bool,
     cancel: &CancellationToken,
 ) -> Option<Observation> {
-    let start = Instant::now();
-    let trace = trace(network, Some(ipv6), cancel).await.ok()?;
-    let exit_ip = trace_ip(&trace, Some(ipv6))?;
-    let response_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    // A valid trace proves in-tunnel data. Metadata availability is independent.
-    let meta = http(
-        network,
-        InternalRequest {
-            url: META,
-            method: Method::GET,
-            headers: vec![("Referer", "https://speed.cloudflare.com")],
-            body: Bytes::new(),
-            limit: 4096,
-            ipv6: Some(ipv6),
-        },
-        cancel,
+    observe_requests(
+        ipv6,
+        trace(network, Some(ipv6), cancel),
+        http(
+            network,
+            InternalRequest {
+                url: META,
+                method: Method::GET,
+                headers: vec![("Referer", "https://speed.cloudflare.com")],
+                body: Bytes::new(),
+                limit: 4096,
+                ipv6: Some(ipv6),
+            },
+            cancel,
+        ),
     )
     .await
-    .ok()
-    .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+}
+async fn observe_requests(
+    ipv6: bool,
+    trace: impl std::future::Future<Output = Result<Vec<u8>, ImportError>>,
+    meta: impl std::future::Future<Output = Result<Vec<u8>, ImportError>>,
+) -> Option<Observation> {
+    // Both requests stay inside the same candidate tunnel. Overlap their
+    // deadlines, and drop metadata immediately if trace cannot prove data.
+    let trace = async {
+        let start = TokioInstant::now();
+        let body = trace.await?;
+        let exit_ip = trace_ip(&body, Some(ipv6)).ok_or_else(|| error("no_tunnel_data"))?;
+        let response_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        Ok::<_, ImportError>((exit_ip, response_ms))
+    };
+    // Metadata failure must not discard a working tunnel or invent a country.
+    let meta = async { Ok::<_, ImportError>(meta.await.ok()) };
+    let ((exit_ip, response_ms), meta) = tokio::try_join!(trace, meta).ok()?;
+    let meta = meta.and_then(|b| serde_json::from_slice::<Value>(&b).ok());
     Some(Observation {
         exit_ip: Some(exit_ip),
         country: code(meta.as_ref().and_then(|m| m["country"].as_str()), 2),
@@ -233,6 +249,57 @@ async fn probe(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn trace_and_metadata_overlap_without_inflating_trace_latency() {
+        let started = TokioInstant::now();
+        let observation = observe_requests(
+            false,
+            async {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                Ok(b"ip=104.28.1.1\nloc=DE\n".to_vec())
+            },
+            async {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                Ok(br#"{"country":"SG","colo":{"iata":"FRA"}}"#.to_vec())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(started.elapsed(), Duration::from_millis(300));
+        assert_eq!(observation.response_ms, Some(200));
+        assert_eq!(observation.country.as_deref(), Some("SG"));
+        assert_eq!(observation.colo.as_deref(), Some("FRA"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn trace_failure_stops_metadata_but_metadata_failure_keeps_tunnel_data() {
+        let observation = observe_requests(
+            false,
+            async { Ok(b"ip=104.28.1.1\nloc=DE\n".to_vec()) },
+            async { Err(error("probe_timeout")) },
+        )
+        .await
+        .unwrap();
+        assert_eq!(observation.country, None);
+        assert_eq!(observation.exit_ip, Some("104.28.1.1".parse().unwrap()));
+
+        // A pending metadata request must be dropped for transport failures,
+        // malformed trace bodies, and a response from the wrong address family.
+        for trace in [
+            Err(error("probe_timeout")),
+            Ok(b"no exit address".to_vec()),
+            Ok(b"ip=2606:4700::1\n".to_vec()),
+        ] {
+            let result = timeout(
+                Duration::from_secs(1),
+                observe_requests(false, async { trace }, std::future::pending()),
+            )
+            .await;
+            assert!(result.unwrap().is_none());
+        }
+    }
+
     #[test]
     fn never_substitute_a_node_or_wrong_family_for_an_exit() {
         assert_eq!(

@@ -143,6 +143,9 @@ impl Manager {
                 {
                     return Err(error("cannot_resume"));
                 }
+                if job.plan != ScanPlan::SinglePortV1 {
+                    return Err(error("scan_plan_changed"));
+                }
                 if job.context != fingerprint {
                     return Err(error("context_changed"));
                 }

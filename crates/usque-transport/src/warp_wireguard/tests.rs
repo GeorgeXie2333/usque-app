@@ -78,6 +78,58 @@ fn terminal_failure_never_commits_volatile_progress() {
     assert_eq!(saved.next, 0);
     assert_eq!(saved.state, "failed");
 }
+
+#[test]
+fn legacy_scan_results_stay_readable_but_cannot_resume_a_port_sweep() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = Profile::default();
+    let mut job = Job::new(
+        &Request::parse(r#"{"action":"start"}"#).unwrap(),
+        usque_core::warp_wireguard::context(&profile).unwrap(),
+    )
+    .unwrap();
+    job.plan = ScanPlan::LegacyPorts;
+    job.state = "paused".into();
+    let row = ProbeResult {
+        index: 0,
+        endpoint: job.endpoint(0).unwrap(),
+        checked_at: now(),
+        ipv4: Some(Observation {
+            exit_ip: Some("104.28.1.1".parse().unwrap()),
+            country: Some("SG".into()),
+            ..Default::default()
+        }),
+        ipv6: None,
+        failure: None,
+    };
+    let store = Store::new(directory.path(), &MetadataFixture);
+    store.insert(&job).unwrap();
+    job.next = 1;
+    store.checkpoint(&mut job, &mut vec![row.clone()]).unwrap();
+    let manager = Arc::new(Manager::new(
+        directory.path().join("profiles-v2.json"),
+        Arc::new(MetadataFixture),
+    ));
+    let response = manager
+        .command(Request::parse(r#"{"action":"get"}"#).unwrap(), None)
+        .unwrap();
+    assert_eq!(response.job.unwrap().total, 280);
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(response.results[0].endpoint, row.endpoint);
+    assert_eq!(response.results[0].ipv4, row.ipv4);
+    let error = manager
+        .command(
+            Request::parse(&format!(r#"{{"action":"resume","job_id":"{}"}}"#, job.id)).unwrap(),
+            Some(context(profile)),
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.reason, "scan_plan_changed");
+    assert!(manager.running.lock().unwrap().is_none());
+    let saved = store.job(job.id).unwrap();
+    assert_eq!(saved.next, 1);
+    assert_eq!(saved.state, "paused");
+}
 #[test]
 fn unavailable_underlay_stops_the_worker_without_any_physical_fallback() {
     let directory = tempfile::tempdir().unwrap();

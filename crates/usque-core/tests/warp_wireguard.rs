@@ -144,7 +144,7 @@ fn encrypted_results_page_by_endpoint_and_filter_observed_country() {
     let temp = tempfile::tempdir().unwrap();
     let cipher = FixtureCipher::default();
     let store = Store::new(temp.path(), &cipher);
-    let request = Request::parse(r#"{"action":"start"}"#).unwrap();
+    let request = Request::parse(r#"{"action":"start","mode":"full"}"#).unwrap();
     let mut job = Job::new(&request, "context".into()).unwrap();
     store.insert(&job).unwrap();
     for batch in 0..2 {
@@ -155,6 +155,10 @@ fn encrypted_results_page_by_endpoint_and_filter_observed_country() {
         store.checkpoint(&mut job, &mut rows).unwrap();
     }
     let reloaded = store.job(job.id).unwrap();
+    assert_eq!(reloaded.plan, ScanPlan::SinglePortV1);
+    assert_eq!(reloaded.endpoint(128), job.endpoint(128));
+    assert_eq!(reloaded.snapshot().completed, 128);
+    assert_eq!(reloaded.snapshot().total, 3584);
     let (page, next) = store.page(&reloaded, 0, None).unwrap();
     assert_eq!(page.len(), 100);
     assert_eq!(next, Some(100));
@@ -244,4 +248,6 @@ fn partial_checkpoints_reuse_chunks_and_record_failed_attempts() {
     }
     assert_eq!(attempted, 70);
     assert_eq!(failures, 35);
+    assert_eq!(job.snapshot().completed, 70);
+    assert_eq!(job.snapshot().total, 70);
 }

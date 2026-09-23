@@ -104,6 +104,11 @@ void main() {
         ('registration_create_http_403', false, 'registration_create_http_403'),
         ('registration_device_timeout', false, 'registration_device_timeout'),
         (
+          'scan_plan_changed',
+          false,
+          'The scan rules changed. Start a new scan; previous results are kept.',
+        ),
+        (
           'identity_required',
           true,
           'Select an account with a saved MASQUE identity first.',
@@ -202,6 +207,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(find.text(app.strings.warp('single_port_hint')), findsOneWidget);
         expect(tester.takeException(), isNull);
         await expectLater(
           find.byKey(boundary),

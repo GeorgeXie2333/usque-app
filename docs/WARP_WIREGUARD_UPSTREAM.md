@@ -26,10 +26,22 @@ MASQUE. The wgcf MIT notice is included in
 application license screen.
 
 The pinned data contains fourteen IPv4 /24 pools, two IPv6 /48 pools, four
-primary UDP ports and fifty alternate UDP ports. IPv4 full discovery tests
-193,536 distinct IP/port combinations. IPv6 discovery samples addresses; it
-does not enumerate a /48. Updating this data requires an explicit source
-change and review of the reference revision.
+primary UDP ports and fifty alternate UDP ports. Current discovery tests one
+common port per IP: 70 IPv4 or 10 IPv6 quick candidates, 3,584 full IPv4
+candidates, or one target candidate. Pool scans rotate 2408/500/1701/4500
+between addresses; a target uses 2408. The full port table remains only for
+interpreting older job cursors. IPv6 discovery does not enumerate a /48.
+Updating this data requires an explicit source change and review of the
+reference revision; saved plan versions must retain their port ordering.
+
+Upstream defaults differ from Usque's original exhaustive implementation:
+`flags.go` sets a two-second request timeout and ten ordinary tunnel workers;
+nesting (`-through`) defaults to one worker. `discovery.go` first samples
+reachable ports, and `tunnel.go` normally returns the first working port per IP.
+`-sweep-ports all` explicitly requests the exhaustive IP/port behavior.
+Usque's single-port rule is stricter: an unsuccessful IP is not retried on any
+other port. It still requires in-tunnel trace HTTPS and separately preserves
+IPv4/IPv6 Cloudflare metadata, with five-second request deadlines.
 
 Upstream's WARP-in-WARP documentation describes a WireGuard outer tunnel and
 warns about concurrent nested probes. Usque retains its MASQUE outer tunnel
