@@ -1,4 +1,10 @@
 //! Platform-independent arbitration for Android's bounded packet pump.
+mod ready_write;
+#[cfg(target_os = "android")]
+pub(super) use ready_write::{
+    ReadyDrainError, ReadyDrainStop, ReadyWriteEvent, drain_ready_packets,
+};
+
 use std::future::Future;
 use std::pin::Pin;
 

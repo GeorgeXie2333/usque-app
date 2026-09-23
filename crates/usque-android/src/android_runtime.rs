@@ -894,55 +894,49 @@ async fn run_session(
                 }
             }
         }
-        // L4 download only: drain already-ready packets without awaiting one
-        // direction. One existing pending slot owns any WouldBlock remainder.
-        if let (Some(tun), Some(io), Some(observer)) =
-            (tun.as_ref(), tun_io.as_mut(), write_observer.as_ref())
-        {
+        // Drain only ready packets; the existing pending slot retains a
+        // WouldBlock/budget remainder without combining distinct IP packets.
+        if let (Some(tun), Some(io)) = (tun.as_ref(), tun_io.as_mut()) {
+            use crate::session_pump::{
+                ReadyDrainError, ReadyDrainStop, ReadyWriteEvent, drain_ready_packets,
+            };
             let mut batch = crate::session_pump::ReadyBatch::new();
             if let Some(bytes) = completed_write {
                 batch.completed(bytes);
             }
-            loop {
-                if cancellation.is_cancelled() {
-                    break;
-                }
-                if pending_write.is_none() {
-                    match io.try_receive_packet() {
-                        Ok(Some(packet)) => {
-                            pending_write = Some(packet);
-                            write_sample = Some(observer.begin());
-                        }
-                        Ok(None) => break,
-                        Err(error) => {
-                            set_transport_error_on_path(&status, &error, tunnel.path());
-                            cancellation.cancel();
-                            break;
-                        }
-                    }
-                }
-                let packet = pending_write.as_ref().expect("pending packet");
-                if !batch.allows(packet.len()) {
-                    tokio::task::yield_now().await;
-                    break;
-                }
-                let result = tun.try_io(tokio::io::Interest::WRITABLE, |inner| {
-                    write_packet_once(inner, packet, Some(observer))
-                });
-                match result {
-                    Ok(()) => {
-                        batch.completed(packet.len());
-                        pending_write = None;
-                        if let Some(sample) = write_sample.take() {
+            let sample = &mut write_sample;
+            let observer = write_observer.as_ref().map(|observer| {
+                move |event| match event {
+                    ReadyWriteEvent::Started => *sample = Some(observer.begin()),
+                    ReadyWriteEvent::Finished => {
+                        if let Some(sample) = sample.take() {
                             observer.finish(sample);
                         }
                     }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(error) => {
-                        set_error(&status, format!("write Android TUN: {error}"));
-                        cancellation.cancel();
-                        break;
-                    }
+                }
+            });
+            let result = drain_ready_packets(
+                &mut pending_write,
+                &mut batch,
+                || cancellation.is_cancelled(),
+                || io.try_receive_packet(),
+                |packet| {
+                    tun.try_io(tokio::io::Interest::WRITABLE, |inner| {
+                        write_packet_once(inner, packet, write_observer.as_ref())
+                    })
+                },
+                observer,
+            );
+            match result {
+                Ok(ReadyDrainStop::Budget) => tokio::task::yield_now().await,
+                Ok(_) => {}
+                Err(ReadyDrainError::Receive(error)) => {
+                    set_transport_error_on_path(&status, &error, tunnel.path());
+                    cancellation.cancel();
+                }
+                Err(ReadyDrainError::Write(error)) => {
+                    set_error(&status, format!("write Android TUN: {error}"));
+                    cancellation.cancel();
                 }
             }
         }

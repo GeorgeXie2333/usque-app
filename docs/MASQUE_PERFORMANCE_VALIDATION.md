@@ -131,6 +131,38 @@ C1 checks completed with exit 0:
 The unchanged protobuf/GUI/Kotlin checks retain A's results. No device
 throughput or allocation/CPU improvement is claimed from unit tests alone.
 
+## C2 — Android ready TUN writes for MASQUE
+
+C1 source: `262f136fb29f3bdaeadc0580105bbcb128c5dbff`.
+The ready write loop now requires a TUN and packet I/O, with an optional L4
+observer. The same bounded loop is shared with host tests: one pending packet,
+at most 16 packets / 64 KiB / 200 microseconds, cancellation before each packet,
+and a retained pending packet on WouldBlock or budget exhaustion. Each TUN
+write remains one IP packet. Transport/write errors return to the session owner
+for existing stop handling. The main asynchronous readiness branches remain.
+
+Moving the former L4-only eligibility into the testable loop first reproduced
+four failures without an observer (50 Android crate tests passed, 4 failed).
+Removing that eligibility passed the same tests for both observer modes,
+WouldBlock recovery/order, packet/byte/time budgets, errors, per-packet
+cancellation, and pending-slot cleanup before a new simulated session. These
+are deterministic pump tests, not actual Android VPN lifecycle evidence.
+
+C2 checks completed with exit 0:
+
+- `cargo fmt --all --check`
+- `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy`
+- `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test`
+  (1,284 passed, 8 ignored, 0 failed)
+- `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy`
+  (compiles the real Android caller and its optional observer)
+- `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2`
+- `python tool/check_repository_policy.py` (verified executable listed above)
+- `git diff --check`
+
+The unchanged protobuf/GUI/Kotlin checks retain A's results. No device
+throughput improvement is claimed from host tests.
+
 ## Device and isolated evidence
 
 All candidate throughput, CPU, RSS, device lifecycle, and protected-runner
