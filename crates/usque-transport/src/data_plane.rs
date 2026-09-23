@@ -205,6 +205,10 @@ impl DataPlaneRuntime {
             http: false,
         };
         headless.proxy.system_proxy = false;
+        // Listener passwords are injected only into normal connection sessions.
+        // Headless tasks have no listener and must not require that vault secret.
+        headless.proxy.auth_username = None;
+        headless.proxy.auth_password = None;
         headless.geo_direct_countries.clear();
         headless.split_exclusions.clear();
         headless.canonicalize_mode();
@@ -1116,9 +1120,26 @@ mod tests {
     }
 
     async fn memory_warp() -> (DataPlaneRuntime, ExternalPacketChannels) {
+        memory_warp_with_profile(&Profile::default()).await
+    }
+
+    #[tokio::test]
+    async fn headless_discovery_ignores_unloaded_listener_credentials() {
+        let mut saved = Profile::default();
+        saved.proxy.auth_username = Some("protected-local-proxy".into());
+        assert!(saved.proxy.listener_credentials().is_err());
+        let (mut runtime, _packets) = memory_warp_with_profile(&saved).await;
+        assert!(runtime.listeners().is_empty());
+        assert!(saved.proxy.auth_username.is_some());
+        runtime.shutdown().await;
+    }
+
+    async fn memory_warp_with_profile(
+        profile: &Profile,
+    ) -> (DataPlaneRuntime, ExternalPacketChannels) {
         // Memory packet queues stand in for WARP. No OS tunnel or remote
         // connection is created, but the actual frontend shutdown runs.
-        let profile = DataPlaneRuntime::headless_profile(&Profile::default());
+        let profile = DataPlaneRuntime::headless_profile(profile);
         let path = RuntimePath {
             transport: usque_core::Transport::Http3,
             endpoint_family: usque_core::AddressFamily::Ipv4,

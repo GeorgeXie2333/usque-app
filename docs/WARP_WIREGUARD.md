@@ -98,6 +98,21 @@ endpoint switching, or guarantee of multiple countries is provided.
 现有 ip.sb 地理归属，显示国家也可能不同。查询失败不会断开健康连接；此功能
 不锁定国家、不自动更换端点，也不保证可选多个国家。
 
+## Registration failures / 注册失败
+
+Generation and the first scan both register a new WireGuard identity. If either
+fails, the message distinguishes missing account credentials, temporary MASQUE
+startup failure, and Cloudflare registration failure. A registration code such
+as `registration_create_http_403`, `registration_device_timeout` or
+`registration_create_tls` identifies the operation and HTTP/transport failure.
+Only bounded error codes are shown; tokens, private keys and server response
+bodies are excluded. Importing a configuration does not test registration.
+
+生成配置和首次扫描都需要注册 WireGuard 身份。失败提示会区分缺少账号凭据、
+临时 MASQUE 连接失败和 Cloudflare 注册失败。注册错误码会标明创建账号或读取
+设备配置的阶段，以及 HTTP 状态、超时或 TLS 等错误，可用于排查。界面不会显示
+访问令牌、私钥或服务端响应正文。能够导入配置并不代表注册服务已经可用。
+
 Technical provenance: [upstream reference](WARP_WIREGUARD_UPSTREAM.md).
 
 ## Implementation contract
@@ -132,6 +147,10 @@ Technical provenance: [upstream reference](WARP_WIREGUARD_UPSTREAM.md).
   20 seconds, followed by confirmed cleanup before the next candidate. A valid
   trace response over HTTPS is required for a usable endpoint; handshake success
   alone does not qualify. Metadata failure leaves the country unknown.
+- Registration requests have a separate 15-second budget, including up to
+  10 seconds for DNS/TCP/TLS setup. They do not use the endpoint probe's
+  five-second request limit. A temporary session has no listener credentials
+  dependency because it starts no local listener.
 - Registration uses a newly generated Curve25519 key and Cloudflare's service
   through the outer MASQUE network. Candidate DNS/HTTPS use the candidate's
   private userspace stack. Both bypass frontend direct rules; neither path has
@@ -139,3 +158,4 @@ Technical provenance: [upstream reference](WARP_WIREGUARD_UPSTREAM.md).
   WireGuard session remains in place while another identity is scanned.
 
 Validation and size measurements: [implementation validation](WARP_WIREGUARD_VALIDATION.md).
+Registration follow-up: [fix validation](WARP_WIREGUARD_REGISTRATION_FIX.md).

@@ -33,6 +33,11 @@ void main() {
       'WARPSCOUT endpoint data',
     ], await rootBundle.loadString('assets/licenses/warpscout.txt'));
   });
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
+      'wgcf registration protocol reference',
+    ], await rootBundle.loadString('assets/licenses/wgcf.txt'));
+  });
   // The Windows runner removes the native caption, so Flutter has to draw one.
   if (!kIsWeb && Platform.isWindows) {
     WindowFrame.instance.enable();

@@ -5,6 +5,17 @@ import org.json.JSONObject
 
 /** Metadata-only replies. Never forward arbitrary native JSON or secret fields. */
 internal object WarpWireguardFields {
+    // JNI exception text may contain configuration details. Forward only this
+    // fixed vocabulary; registration HTTP failures arrive in bounded metadata.
+    fun failureCode(code: String?): String =
+        when (code) {
+            "WARP_IDENTITY_REQUIRED", "identity_required" -> "identity_required"
+            "VPN_GATE_IDENTITY_INVALID", "identity_invalid" -> "identity_invalid"
+            "CHAIN_CRYPTO_UNAVAILABLE", "secure_storage_failed" -> "secure_storage_failed"
+            "VPN_GATE_REQUEST_INVALID", "WARP_SCAN_INVALID", "invalid_request" -> "invalid_request"
+            else -> "unavailable"
+        }
+
     private val keys =
         setOf(
             "job",

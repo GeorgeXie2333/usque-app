@@ -76,7 +76,58 @@ class WarpEngine extends ChainEngine implements WarpWireguardClient {
   }
 }
 
+class WarpFailureEngine extends WarpEngine {
+  WarpFailureEngine(this.failure, {this.platform = false});
+  final String failure;
+  final bool platform;
+  @override
+  Future<Map<Object?, Object?>> warpWireguard(
+    Map<String, Object?> request,
+  ) async {
+    if (platform) throw EngineException(failure, 'WARP request failed');
+    return {
+      'job': {
+        'id': 'job',
+        'kind': 'generate',
+        'state': 'failed',
+        'failure': failure,
+      },
+    };
+  }
+}
+
 void main() {
+  testWidgets(
+    'registration and Android identity failures remain distinct without exposing exception text',
+    (tester) async {
+      for (final (code, platform, expected) in [
+        ('registration_create_http_403', false, 'registration_create_http_403'),
+        ('registration_device_timeout', false, 'registration_device_timeout'),
+        (
+          'identity_required',
+          true,
+          'Select an account with a saved MASQUE identity first.',
+        ),
+        (
+          'underlay_start_failed',
+          false,
+          'The temporary MASQUE connection could not be established. Check the outer connection settings.',
+        ),
+      ]) {
+        await hostChain(tester, WarpFailureEngine(code, platform: platform));
+        await chooseSource(tester, ChainSource.warpWireguard);
+        expect(find.textContaining(expected), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+      await hostChain(
+        tester,
+        WarpFailureEngine('Bearer private-token', platform: true),
+      );
+      await chooseSource(tester, ChainSource.warpWireguard);
+      expect(find.textContaining('private-token'), findsNothing);
+    },
+  );
   setUpAll(() async {
     await (FontLoader(
       'MaterialIcons',

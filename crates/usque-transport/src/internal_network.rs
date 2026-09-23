@@ -19,6 +19,15 @@ use usque_core::vpngate::{
     approved_url,
 };
 
+trait HttpsIo: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin> HttpsIo for T {}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HttpsPurpose {
+    General,
+    #[cfg(feature = "wireguard")]
+    WarpRegistration,
+}
+
 #[derive(Clone)]
 pub struct InternalNetwork {
     dialer: Arc<dyn TcpDialer>,
@@ -35,6 +44,48 @@ pub(crate) struct InternalRequest<'a> {
     pub body: Bytes,
     pub limit: usize,
     pub ipv6: Option<bool>,
+}
+
+/// Stable, non-sensitive failures for private HTTPS callers. Never contains a
+/// URL, request/response body, bearer token, endpoint address or TLS error text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InternalHttpError {
+    Cancelled,
+    Timeout,
+    Dns,
+    Connect,
+    Tls,
+    Protocol,
+    SizeLimit,
+    Encoding,
+    HttpStatus(u16),
+}
+impl InternalHttpError {
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn code(self) -> String {
+        match self {
+            Self::Cancelled => "cancelled".into(),
+            Self::Timeout => "timeout".into(),
+            Self::Dns => "dns".into(),
+            Self::Connect => "connect".into(),
+            Self::Tls => "tls".into(),
+            Self::Protocol => "protocol".into(),
+            Self::SizeLimit => "size_limit".into(),
+            Self::Encoding => "encoding".into(),
+            Self::HttpStatus(status) => format!("http_{status}"),
+        }
+    }
+}
+impl From<InternalHttpError> for DirectoryError {
+    fn from(value: InternalHttpError) -> Self {
+        match value {
+            InternalHttpError::Cancelled => Self::Cancelled,
+            InternalHttpError::Timeout => Self::Timeout,
+            InternalHttpError::SizeLimit => Self::SizeLimit,
+            InternalHttpError::Encoding => Self::InvalidDirectory,
+            _ => Self::Request,
+        }
+    }
 }
 
 impl InternalNetwork {
@@ -265,19 +316,19 @@ impl InternalNetwork {
         cancel: &CancellationToken,
         deadline: Instant,
         ipv6: Option<bool>,
-    ) -> Result<TcpStream, DirectoryError> {
+    ) -> Result<TcpStream, InternalHttpError> {
         if self.cancellation.is_cancelled() || cancel.is_cancelled() {
-            return Err(DirectoryError::Cancelled);
+            return Err(InternalHttpError::Cancelled);
         }
         if let Some(resolver) = &self.resolver {
             let addresses = tokio::select! {
                 biased;
-                _ = self.cancellation.cancelled() => return Err(DirectoryError::Cancelled),
-                _ = cancel.cancelled() => return Err(DirectoryError::Cancelled),
+                _ = self.cancellation.cancelled() => return Err(InternalHttpError::Cancelled),
+                _ = cancel.cancelled() => return Err(InternalHttpError::Cancelled),
                 result = timeout_at(deadline, resolver.resolve(host)) =>
-                    result.map_err(|_| DirectoryError::Timeout)?.map_err(|_| DirectoryError::Request)?,
+                    result.map_err(|_| InternalHttpError::Timeout)?.map_err(|_| InternalHttpError::Dns)?,
             };
-            let mut failure = DirectoryError::Request;
+            let mut failure = InternalHttpError::Connect;
             for ip in addresses {
                 if ipv6.is_some_and(|v6| ip.is_ipv6() != v6) {
                     continue;
@@ -287,20 +338,20 @@ impl InternalNetwork {
                     .await
                 {
                     Ok(stream) => return Ok(stream),
-                    Err(DialError::Cancelled) => return Err(DirectoryError::Cancelled),
-                    Err(DialError::Timeout) => failure = DirectoryError::Timeout,
+                    Err(DialError::Cancelled) => return Err(InternalHttpError::Cancelled),
+                    Err(DialError::Timeout) => failure = InternalHttpError::Timeout,
                     Err(_) => {}
                 }
             }
             Err(failure)
         } else {
-            let target = TcpTarget::new(host, port).map_err(|_| DirectoryError::Request)?;
+            let target = TcpTarget::new(host, port).map_err(|_| InternalHttpError::Dns)?;
             self.connect(target, cancel, deadline)
                 .await
                 .map_err(|error| match error {
-                    DialError::Timeout => DirectoryError::Timeout,
-                    DialError::Cancelled => DirectoryError::Cancelled,
-                    _ => DirectoryError::Request,
+                    DialError::Timeout => InternalHttpError::Timeout,
+                    DialError::Cancelled => InternalHttpError::Cancelled,
+                    _ => InternalHttpError::Connect,
                 })
         }
     }
@@ -325,12 +376,31 @@ impl InternalNetwork {
             cancel,
         )
         .await
+        .map_err(DirectoryError::from)
     }
     pub(crate) async fn request_https(
         &self,
         options: InternalRequest<'_>,
         cancel: &CancellationToken,
-    ) -> Result<Vec<u8>, DirectoryError> {
+    ) -> Result<Vec<u8>, InternalHttpError> {
+        self.request_https_for(options, cancel, HttpsPurpose::General)
+            .await
+    }
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn request_warp_registration(
+        &self,
+        options: InternalRequest<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<u8>, InternalHttpError> {
+        self.request_https_for(options, cancel, HttpsPurpose::WarpRegistration)
+            .await
+    }
+    async fn request_https_for(
+        &self,
+        options: InternalRequest<'_>,
+        cancel: &CancellationToken,
+        purpose: HttpsPurpose,
+    ) -> Result<Vec<u8>, InternalHttpError> {
         let InternalRequest {
             url,
             method,
@@ -340,17 +410,28 @@ impl InternalNetwork {
             ipv6,
         } = options;
         if limit == 0 || limit > MAX_DIRECTORY_BYTES {
-            return Err(DirectoryError::SizeLimit);
+            return Err(InternalHttpError::SizeLimit);
         }
-        let uri: http::Uri = url.parse().map_err(|_| DirectoryError::Request)?;
+        let uri: http::Uri = url.parse().map_err(|_| InternalHttpError::Protocol)?;
         if uri.scheme_str() != Some("https")
             || uri.authority().is_none_or(|a| a.as_str().contains('@'))
         {
-            return Err(DirectoryError::Request);
+            return Err(InternalHttpError::Protocol);
         }
-        let host = uri.host().ok_or(DirectoryError::Request)?.to_owned();
+        let host = uri.host().ok_or(InternalHttpError::Protocol)?.to_owned();
         let port = uri.port_u16().unwrap_or(443);
-        let connect_deadline = Instant::now() + CONNECT_TIMEOUT;
+        #[cfg(feature = "wireguard")]
+        if purpose == HttpsPurpose::WarpRegistration
+            && (host != crate::warp_wireguard::registration_tls::HOST || port != 443)
+        {
+            return Err(InternalHttpError::Protocol);
+        }
+        let connect_budget = if purpose == HttpsPurpose::General {
+            CONNECT_TIMEOUT
+        } else {
+            std::time::Duration::from_secs(10)
+        };
+        let connect_deadline = Instant::now() + connect_budget;
         let request = async {
             let establish = async {
                 let stage_started = Instant::now();
@@ -362,6 +443,11 @@ impl InternalNetwork {
                     elapsed_us = stage_started.elapsed().as_micros(),
                     "Internal HTTPS timing"
                 );
+                #[cfg(feature = "wireguard")]
+                if purpose == HttpsPurpose::WarpRegistration {
+                    let stream = crate::warp_wireguard::registration_tls::connect(stream).await?;
+                    return Ok::<Box<dyn HttpsIo>, InternalHttpError>(Box::new(stream));
+                }
                 let roots = rustls::RootCertStore::from_iter(
                     webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
                 );
@@ -369,27 +455,27 @@ impl InternalNetwork {
                     .with_root_certificates(roots)
                     .with_no_client_auth();
                 let server_name = rustls::pki_types::ServerName::try_from(host.clone())
-                    .map_err(|_| DirectoryError::Request)?;
+                    .map_err(|_| InternalHttpError::Protocol)?;
                 let stage_started = Instant::now();
                 let result = tokio_rustls::TlsConnector::from(Arc::new(config))
                     .connect(server_name, stream)
                     .await
-                    .map_err(|_| DirectoryError::Request);
+                    .map_err(|_| InternalHttpError::Tls);
                 tracing::debug!(
                     probe_stage = "tls",
                     elapsed_us = stage_started.elapsed().as_micros(),
                     ok = result.is_ok(),
                     "Internal HTTPS timing"
                 );
-                result
+                result.map(|stream| Box::new(stream) as Box<dyn HttpsIo>)
             };
             let stream = timeout_at(connect_deadline, establish)
                 .await
-                .map_err(|_| DirectoryError::Timeout)??;
+                .map_err(|_| InternalHttpError::Timeout)??;
             let (mut sender, connection) =
                 hyper::client::conn::http1::handshake(TokioIo::new(stream))
                     .await
-                    .map_err(|_| DirectoryError::Request)?;
+                    .map_err(|_| InternalHttpError::Protocol)?;
             let _driver = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
                 let _ = connection.await;
             }));
@@ -398,35 +484,42 @@ impl InternalNetwork {
                 .uri(uri.path_and_query().map_or("/", |v| v.as_str()))
                 .header(
                     http::header::HOST,
-                    uri.authority().ok_or(DirectoryError::Request)?.as_str(),
+                    uri.authority().ok_or(InternalHttpError::Protocol)?.as_str(),
                 )
                 .header(http::header::ACCEPT_ENCODING, "identity")
-                .header(http::header::CONNECTION, "close");
+                .header(
+                    http::header::CONNECTION,
+                    if purpose == HttpsPurpose::General {
+                        "close"
+                    } else {
+                        "Keep-Alive"
+                    },
+                );
             for (name, value) in headers {
                 request = request.header(name, value);
             }
             let request = request
                 .body(Full::new(body))
-                .map_err(|_| DirectoryError::Request)?;
+                .map_err(|_| InternalHttpError::Protocol)?;
             let stage_started = Instant::now();
             let mut response = sender
                 .send_request(request)
                 .await
-                .map_err(|_| DirectoryError::Request)?;
+                .map_err(|_| InternalHttpError::Protocol)?;
             tracing::debug!(
                 probe_stage = "headers",
                 elapsed_us = stage_started.elapsed().as_micros(),
                 "Internal HTTPS timing"
             );
             if !response.status().is_success() {
-                return Err(DirectoryError::Request);
+                return Err(InternalHttpError::HttpStatus(response.status().as_u16()));
             }
             if response
                 .headers()
                 .get(http::header::CONTENT_ENCODING)
                 .is_some_and(|v| v != "identity")
             {
-                return Err(DirectoryError::InvalidDirectory);
+                return Err(InternalHttpError::Encoding);
             }
             if response
                 .headers()
@@ -435,14 +528,14 @@ impl InternalNetwork {
                 .and_then(|v| v.parse::<u64>().ok())
                 .is_some_and(|n| n > limit as u64)
             {
-                return Err(DirectoryError::SizeLimit);
+                return Err(InternalHttpError::SizeLimit);
             }
             let mut bytes = Vec::new();
             while let Some(frame) = response.body_mut().frame().await {
-                let frame = frame.map_err(|_| DirectoryError::Request)?;
+                let frame = frame.map_err(|_| InternalHttpError::Protocol)?;
                 if let Some(data) = frame.data_ref() {
                     if data.len() > limit.saturating_sub(bytes.len()) {
-                        return Err(DirectoryError::SizeLimit);
+                        return Err(InternalHttpError::SizeLimit);
                     }
                     bytes.extend_from_slice(data);
                 }
@@ -451,9 +544,9 @@ impl InternalNetwork {
         };
         tokio::select! {
             biased;
-            _ = cancel.cancelled() => Err(DirectoryError::Cancelled),
-            _ = self.cancellation.cancelled() => Err(DirectoryError::Cancelled),
-            result = tokio::time::timeout(RESPONSE_TIMEOUT, request) => result.map_err(|_| DirectoryError::Timeout)?,
+            _ = cancel.cancelled() => Err(InternalHttpError::Cancelled),
+            _ = self.cancellation.cancelled() => Err(InternalHttpError::Cancelled),
+            result = tokio::time::timeout(RESPONSE_TIMEOUT, request) => result.map_err(|_| InternalHttpError::Timeout)?,
         }
     }
 }

@@ -28,6 +28,7 @@ flutter:
     - assets/licenses/vpngate.txt
     - assets/licenses/boringtun.txt
     - assets/licenses/warpscout.txt
+    - assets/licenses/wgcf.txt
     - assets/icons/openvpn.svg
     - assets/icons/wireguard.svg
     - assets/icons/warp-wireguard.svg

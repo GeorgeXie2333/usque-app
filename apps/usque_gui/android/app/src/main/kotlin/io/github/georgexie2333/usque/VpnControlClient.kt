@@ -193,7 +193,7 @@ internal class VpnControlClient(
         if (request.json?.let { org.json.JSONObject(it).optString("command") } == "warp_wireguard") {
             val value = json?.let { runCatching { WarpWireguardFields.response(it) }.getOrNull() }
             if (value == null) {
-                request.result.error("WARP_SCAN_UNAVAILABLE", "WARP scan request failed.", null)
+                request.result.error(WarpWireguardFields.failureCode(error), "WARP scan request failed.", null)
             } else {
                 if (value["error"] == null) {
                     val history = value["history"] as? List<*> ?: emptyList<Any>()
@@ -1094,6 +1094,7 @@ internal class VpnControlClient(
         flushPendingRetry()
         flushPendingReconfigure()
         flushSettings()
+        flushVpnGate()
         flushLocale()
         flushPerApp()
     }

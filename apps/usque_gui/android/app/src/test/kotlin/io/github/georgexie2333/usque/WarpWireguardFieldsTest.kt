@@ -9,6 +9,15 @@ import org.junit.Test
 
 class WarpWireguardFieldsTest {
     @Test
+    fun nativeFailuresKeepSafeCodesWithoutExceptionDetails() {
+        assertEquals("identity_required", WarpWireguardFields.failureCode("WARP_IDENTITY_REQUIRED"))
+        assertEquals("identity_invalid", WarpWireguardFields.failureCode("VPN_GATE_IDENTITY_INVALID"))
+        assertEquals("secure_storage_failed", WarpWireguardFields.failureCode("CHAIN_CRYPTO_UNAVAILABLE"))
+        assertEquals("unavailable", WarpWireguardFields.failureCode("Bearer private-token"))
+        assertEquals("unavailable", WarpWireguardFields.failureCode(null))
+    }
+
+    @Test
     fun discoveryRepliesAllowOnlyBoundedMetadata() {
         val observation = JSONObject().put("country", "US").put("exit_ip", "104.28.1.1").put("private_key", "hidden")
         val row =

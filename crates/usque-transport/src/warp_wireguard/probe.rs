@@ -3,18 +3,13 @@ use crate::{
     NetworkQualityTelemetry, NoopSocketProtector, internal_network::InternalRequest,
     masque_runtime::MasqueRuntime, vpngate::GateDriver,
 };
-use base64::{Engine, engine::general_purpose::STANDARD};
-use boringtun::x25519::{PublicKey, StaticSecret};
 use bytes::Bytes;
 use http::Method;
-use p256::elliptic_curve::Generate;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use tokio::time::{Instant as TokioInstant, timeout};
 use uuid::Uuid;
-use zeroize::Zeroizing;
 
-const API: &str = "https://api.cloudflareclient.com/v0a4471/reg";
 const TRACE: &str = "https://www.cloudflare.com/cdn-cgi/trace";
 const META: &str = "https://speed.cloudflare.com/meta";
 
@@ -39,99 +34,8 @@ async fn http(
     tokio::select! {
         biased;
         _=cancel.cancelled()=>Err(error("cancelled")),
-        result=timeout(Duration::from_secs(5),network.request_https(request,cancel))=>result.map_err(|_| error("probe_timeout"))?.map_err(|_| error("request_failed")),
+        result=timeout(Duration::from_secs(5),network.request_https(request,cancel))=>result.map_err(|_| error("probe_timeout"))?.map_err(|failure| error(&format!("probe_{}", failure.code()))),
     }
-}
-pub(super) async fn register(
-    network: &InternalNetwork,
-    cancel: &CancellationToken,
-) -> Result<ImportSecrets, ImportError> {
-    let private = StaticSecret::from(<[u8; 32]>::generate());
-    let public = STANDARD.encode(PublicKey::from(&private).as_bytes());
-    let body=json!({"key":public,"key_type":"curve25519","tunnel_type":"wireguard","tos":now(),"install_id":"","fcm_token":"","model":"Usque","serial_number":Uuid::new_v4().to_string(),"os_version":"","locale":"en_US"}).to_string();
-    let headers = || {
-        vec![
-            ("Content-Type", "application/json"),
-            ("User-Agent", "okhttp/3.12.1"),
-            ("CF-Client-Version", "a-6.35-4471"),
-        ]
-    };
-    let response = Zeroizing::new(
-        http(
-            network,
-            InternalRequest {
-                url: API,
-                method: Method::POST,
-                headers: headers(),
-                body: Bytes::from(body),
-                limit: 64 * 1024,
-                ipv6: None,
-            },
-            cancel,
-        )
-        .await?,
-    );
-    let response: Value =
-        serde_json::from_slice(&response).map_err(|_| error("registration_invalid"))?;
-    let id = response["id"]
-        .as_str()
-        .filter(|s| {
-            !s.is_empty()
-                && s.len() <= 128
-                && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        })
-        .ok_or_else(|| error("registration_invalid"))?;
-    let token = response["token"]
-        .as_str()
-        .filter(|s| !s.is_empty() && s.len() <= 4096)
-        .ok_or_else(|| error("registration_invalid"))?;
-    let peer = response["config"]["peers"][0]["public_key"]
-        .as_str()
-        .ok_or_else(|| error("registration_invalid"))?;
-    let addresses = &response["config"]["interface"]["addresses"];
-    let v4 = addresses["v4"]
-        .as_str()
-        .and_then(|s| s.parse::<Ipv4Addr>().ok())
-        .ok_or_else(|| error("registration_invalid"))?;
-    let v6 = addresses["v6"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(|s| s.parse::<Ipv6Addr>())
-        .transpose()
-        .map_err(|_| error("registration_invalid"))?;
-    let endpoint = response["config"]["peers"][0]["endpoint"]["v4"]
-        .as_str()
-        .and_then(|s| s.parse::<std::net::SocketAddr>().ok())
-        .map_or_else(|| "162.159.192.1:2408".into(), |s| s.to_string());
-    let auth = Zeroizing::new(format!("Bearer {token}"));
-    let mut patch_headers = headers();
-    patch_headers.push(("Authorization", &auth));
-    http(
-        network,
-        InternalRequest {
-            url: &format!("{API}/{id}"),
-            method: Method::PATCH,
-            headers: patch_headers,
-            body: Bytes::from_static(br#"{"warp_enabled":true}"#),
-            limit: 64 * 1024,
-            ipv6: None,
-        },
-        cancel,
-    )
-    .await?;
-    let mut address = format!("{v4}/32");
-    let mut allowed = "0.0.0.0/0".to_owned();
-    if let Some(v6) = v6 {
-        address.push_str(&format!(", {v6}/128"));
-        allowed.push_str(", ::/0");
-    }
-    let configuration = format!(
-        "[Interface]\nPrivateKey = {}\nAddress = {address}\nDNS = 1.1.1.1, 1.0.0.1\nMTU = 1280\n\n[Peer]\nPublicKey = {peer}\nEndpoint = {endpoint}\nAllowedIPs = {allowed}\nPersistentKeepalive = 25\n",
-        STANDARD.encode(private.to_bytes())
-    );
-    let secrets = ImportSecrets::new(configuration);
-    ValidatedProfile::parse(ChainSource::WarpWireguard, &secrets)?;
-    Ok(secrets)
 }
 
 fn field<'a>(body: &'a str, name: &str) -> Option<&'a str> {

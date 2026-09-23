@@ -25,6 +25,9 @@ const _keys = [
   'unavailable',
   'hint',
   'full_hint',
+  'identity_required',
+  'underlay_failed',
+  'registration_failed',
 ];
 const kWarpCatalogs = <String, List<String>>{
   'en': [
@@ -50,6 +53,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Check your WARP account and MASQUE connection, then retry.',
     'Countries are Cloudflare observations from a separate scan identity. Your configuration is checked again when connected.',
     'A complete scan may take days. Progress is saved; resume it manually.',
+    "Select an account with a saved MASQUE identity first.",
+    "The temporary MASQUE connection could not be established. Check the outer connection settings.",
+    "Cloudflare WARP registration failed. The code below identifies the failed stage.",
   ],
   'zh_CN': [
     '生成 WARP 配置',
@@ -74,6 +80,9 @@ const kWarpCatalogs = <String, List<String>>{
     '请检查 WARP 账号和 MASQUE 连接后重试。',
     '国家信息来自独立扫描身份的 Cloudflare 观测。使用你的配置连接后会重新测量。',
     '完整扫描可能持续数天。进度会保存，之后可手动续扫。',
+    "请先选择已保存 MASQUE 凭据的账号。",
+    "无法建立临时 MASQUE 连接，请检查外层连接设置。",
+    "Cloudflare WARP 注册失败，下方错误码标明失败阶段。",
   ],
   'zh_HK': [
     '產生 WARP 設定',
@@ -98,6 +107,9 @@ const kWarpCatalogs = <String, List<String>>{
     '請檢查 WARP 帳戶和 MASQUE 連線後重試。',
     '國家資料來自獨立掃描身分的 Cloudflare 觀測。使用你的設定連線後會重新測量。',
     '完整掃描可能持續數天。進度會儲存，之後可手動繼續。',
+    "請先選擇已儲存 MASQUE 憑證的帳戶。",
+    "無法建立臨時 MASQUE 連線，請檢查外層連線設定。",
+    "Cloudflare WARP 註冊失敗，下方錯誤碼標明失敗階段。",
   ],
   'zh_TW': [
     '產生 WARP 設定',
@@ -122,6 +134,9 @@ const kWarpCatalogs = <String, List<String>>{
     '請檢查 WARP 帳號和 MASQUE 連線後重試。',
     '國家資訊來自獨立掃描身分的 Cloudflare 觀測。使用你的設定連線後會重新測量。',
     '完整掃描可能持續數天。進度會儲存，之後可手動繼續。',
+    "請先選擇已儲存 MASQUE 憑證的帳號。",
+    "無法建立暫時的 MASQUE 連線，請檢查外層連線設定。",
+    "Cloudflare WARP 註冊失敗，下方錯誤碼標示失敗階段。",
   ],
   'ja': [
     'WARP 設定を生成',
@@ -146,6 +161,9 @@ const kWarpCatalogs = <String, List<String>>{
     'WARP アカウントと MASQUE 接続を確認して再試行してください。',
     '国は専用スキャン ID に対する Cloudflare の観測です。接続時に自分の設定で再測定します。',
     '完全スキャンには数日かかる場合があります。進捗を保存し、手動で再開できます。',
+    "保存済みの MASQUE 認証情報を持つアカウントを選択してください。",
+    "一時的な MASQUE 接続を確立できません。外側の接続設定を確認してください。",
+    "Cloudflare WARP の登録に失敗しました。下のコードで失敗した段階を確認できます。",
   ],
   'ko': [
     'WARP 구성 생성',
@@ -170,6 +188,9 @@ const kWarpCatalogs = <String, List<String>>{
     'WARP 계정과 MASQUE 연결을 확인하고 다시 시도하세요.',
     '국가는 별도 검색 ID에 대한 Cloudflare 관측값입니다. 연결 시 사용자 구성으로 다시 측정합니다.',
     '전체 검색에는 며칠이 걸릴 수 있습니다. 진행 상황이 저장되며 수동으로 계속할 수 있습니다.',
+    "저장된 MASQUE 인증 정보가 있는 계정을 먼저 선택하세요.",
+    "임시 MASQUE 연결을 설정할 수 없습니다. 외부 연결 설정을 확인하세요.",
+    "Cloudflare WARP 등록에 실패했습니다. 아래 코드는 실패한 단계를 나타냅니다.",
   ],
   'de': [
     'WARP-Konfiguration erstellen',
@@ -194,6 +215,9 @@ const kWarpCatalogs = <String, List<String>>{
     'WARP-Konto und MASQUE-Verbindung prüfen und erneut versuchen.',
     'Länder sind Cloudflare-Beobachtungen einer separaten Scan-Identität. Beim Verbinden wird Ihre Konfiguration erneut geprüft.',
     'Die vollständige Suche kann Tage dauern. Der Fortschritt wird gespeichert und manuell fortgesetzt.',
+    "Wähle zuerst ein Konto mit gespeicherten MASQUE-Zugangsdaten.",
+    "Die temporäre MASQUE-Verbindung konnte nicht hergestellt werden. Prüfe die Einstellungen der äußeren Verbindung.",
+    "Die Cloudflare-WARP-Registrierung ist fehlgeschlagen. Der folgende Code zeigt den betroffenen Schritt.",
   ],
   'fr': [
     'Créer une configuration WARP',
@@ -218,6 +242,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Vérifiez votre compte WARP et la connexion MASQUE, puis réessayez.',
     'Les pays sont observés par Cloudflare avec une identité dédiée. Votre configuration est vérifiée à la connexion.',
     'Une recherche complète peut durer plusieurs jours. La progression est enregistrée ; reprenez manuellement.',
+    "Sélectionnez un compte avec des identifiants MASQUE enregistrés.",
+    "Impossible d’établir la connexion MASQUE temporaire. Vérifiez les paramètres de la connexion externe.",
+    "L’inscription Cloudflare WARP a échoué. Le code ci-dessous indique l’étape en échec.",
   ],
   'es': [
     'Generar configuración WARP',
@@ -242,6 +269,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Comprueba la cuenta WARP y la conexión MASQUE e inténtalo de nuevo.',
     'Los países son observaciones de Cloudflare con una identidad de búsqueda separada. Tu configuración se comprueba al conectar.',
     'La búsqueda completa puede tardar días. El progreso se guarda; reanuda manualmente.',
+    "Selecciona una cuenta con credenciales MASQUE guardadas.",
+    "No se pudo establecer la conexión MASQUE temporal. Revisa la configuración de la conexión externa.",
+    "Falló el registro de Cloudflare WARP. El código siguiente indica la etapa que falló.",
   ],
   'pt': [
     'Gerar configuração WARP',
@@ -266,6 +296,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Verifique a conta WARP e a ligação MASQUE e tente novamente.',
     'Os países são observações da Cloudflare com uma identidade de pesquisa separada. A configuração é verificada ao ligar.',
     'A pesquisa completa pode demorar dias. O progresso é guardado; retome manualmente.',
+    "Selecione uma conta com credenciais MASQUE salvas.",
+    "Não foi possível estabelecer a conexão MASQUE temporária. Verifique as configurações da conexão externa.",
+    "O registro do Cloudflare WARP falhou. O código abaixo indica a etapa que falhou.",
   ],
   'nl': [
     'WARP-configuratie maken',
@@ -290,6 +323,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Controleer uw WARP-account en MASQUE-verbinding en probeer opnieuw.',
     'Landen zijn Cloudflare-waarnemingen met een aparte scanidentiteit. Uw configuratie wordt bij verbinding opnieuw gemeten.',
     'Een volledige scan kan dagen duren. Voortgang wordt opgeslagen; hervat handmatig.',
+    "Selecteer eerst een account met opgeslagen MASQUE-inloggegevens.",
+    "De tijdelijke MASQUE-verbinding kon niet worden gemaakt. Controleer de instellingen van de buitenste verbinding.",
+    "Cloudflare WARP-registratie is mislukt. De onderstaande code geeft de mislukte stap aan.",
   ],
   'it': [
     'Genera configurazione WARP',
@@ -314,6 +350,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Controlla account WARP e connessione MASQUE, poi riprova.',
     'I paesi sono osservazioni Cloudflare con una identità di scansione separata. La configurazione viene verificata alla connessione.',
     'La scansione completa può richiedere giorni. I progressi sono salvati; riprendi manualmente.',
+    "Seleziona un account con credenziali MASQUE salvate.",
+    "Impossibile stabilire la connessione MASQUE temporanea. Controlla le impostazioni della connessione esterna.",
+    "La registrazione Cloudflare WARP non è riuscita. Il codice seguente indica la fase non riuscita.",
   ],
   'ru': [
     'Создать конфигурацию WARP',
@@ -338,6 +377,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Проверьте учётную запись WARP и соединение MASQUE и повторите попытку.',
     'Страны определяются Cloudflare для отдельной учётной записи сканирования. Ваша конфигурация проверяется при подключении.',
     'Полное сканирование может занять несколько дней. Прогресс сохраняется; продолжение вручную.',
+    "Сначала выберите аккаунт с сохранёнными учётными данными MASQUE.",
+    "Не удалось установить временное соединение MASQUE. Проверьте настройки внешнего соединения.",
+    "Регистрация Cloudflare WARP не удалась. Код ниже указывает этап сбоя.",
   ],
   'uk': [
     'Створити конфігурацію WARP',
@@ -362,6 +404,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Перевірте обліковий запис WARP і з’єднання MASQUE та спробуйте знову.',
     'Країни визначає Cloudflare для окремої особи сканування. Ваша конфігурація перевіряється під час підключення.',
     'Повне сканування може тривати кілька днів. Прогрес зберігається; продовження вручну.',
+    "Спочатку виберіть обліковий запис зі збереженими даними MASQUE.",
+    "Не вдалося встановити тимчасове з’єднання MASQUE. Перевірте налаштування зовнішнього з’єднання.",
+    "Реєстрація Cloudflare WARP не вдалася. Код нижче вказує етап збою.",
   ],
   'pl': [
     'Utwórz konfigurację WARP',
@@ -386,6 +431,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Sprawdź konto WARP i połączenie MASQUE, a następnie ponów próbę.',
     'Kraje są obserwowane przez Cloudflare z osobną tożsamością skanowania. Konfiguracja jest sprawdzana przy połączeniu.',
     'Pełne skanowanie może trwać kilka dni. Postęp jest zapisywany; wznów ręcznie.',
+    "Najpierw wybierz konto z zapisanymi danymi MASQUE.",
+    "Nie można nawiązać tymczasowego połączenia MASQUE. Sprawdź ustawienia połączenia zewnętrznego.",
+    "Rejestracja Cloudflare WARP nie powiodła się. Poniższy kod wskazuje etap błędu.",
   ],
   'tr': [
     'WARP yapılandırması oluştur',
@@ -410,6 +458,9 @@ const kWarpCatalogs = <String, List<String>>{
     'WARP hesabını ve MASQUE bağlantısını kontrol edip yeniden deneyin.',
     'Ülkeler ayrı bir tarama kimliğiyle alınan Cloudflare gözlemleridir. Bağlanırken yapılandırmanız yeniden ölçülür.',
     'Tam tarama günler sürebilir. İlerleme kaydedilir; elle sürdürebilirsiniz.',
+    "Önce kayıtlı MASQUE kimlik bilgileri olan bir hesap seçin.",
+    "Geçici MASQUE bağlantısı kurulamadı. Dış bağlantı ayarlarını kontrol edin.",
+    "Cloudflare WARP kaydı başarısız oldu. Aşağıdaki kod başarısız aşamayı gösterir.",
   ],
   'id': [
     'Buat konfigurasi WARP',
@@ -434,6 +485,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Periksa akun WARP dan koneksi MASQUE, lalu coba lagi.',
     'Negara berasal dari pengamatan Cloudflare dengan identitas pemindaian terpisah. Konfigurasi Anda diperiksa saat tersambung.',
     'Pemindaian lengkap dapat memakan waktu berhari-hari. Kemajuan disimpan; lanjutkan secara manual.',
+    "Pilih akun dengan kredensial MASQUE yang tersimpan terlebih dahulu.",
+    "Koneksi MASQUE sementara tidak dapat dibuat. Periksa pengaturan koneksi luar.",
+    "Pendaftaran Cloudflare WARP gagal. Kode di bawah menunjukkan tahap yang gagal.",
   ],
   'vi': [
     'Tạo cấu hình WARP',
@@ -458,6 +512,9 @@ const kWarpCatalogs = <String, List<String>>{
     'Kiểm tra tài khoản WARP và kết nối MASQUE rồi thử lại.',
     'Quốc gia là quan sát của Cloudflare qua danh tính quét riêng. Cấu hình của bạn được đo lại khi kết nối.',
     'Quét toàn bộ có thể mất nhiều ngày. Tiến độ được lưu; bạn có thể tiếp tục thủ công.',
+    "Trước tiên, hãy chọn tài khoản có thông tin xác thực MASQUE đã lưu.",
+    "Không thể thiết lập kết nối MASQUE tạm thời. Hãy kiểm tra cài đặt kết nối ngoài.",
+    "Đăng ký Cloudflare WARP thất bại. Mã bên dưới cho biết bước gặp lỗi.",
   ],
   'th': [
     'สร้างการตั้งค่า WARP',
@@ -482,6 +539,9 @@ const kWarpCatalogs = <String, List<String>>{
     'ตรวจสอบบัญชี WARP และการเชื่อมต่อ MASQUE แล้วลองอีกครั้ง',
     'ประเทศมาจากการตรวจสอบของ Cloudflare ด้วยข้อมูลประจำตัวแยกต่างหาก ระบบจะตรวจสอบการตั้งค่าของคุณอีกครั้งเมื่อเชื่อมต่อ',
     'การสแกนทั้งหมดอาจใช้เวลาหลายวัน ระบบบันทึกความคืบหน้าให้ดำเนินการต่อด้วยตนเอง',
+    "เลือกบัญชีที่มีข้อมูลรับรอง MASQUE บันทึกไว้ก่อน",
+    "ไม่สามารถสร้างการเชื่อมต่อ MASQUE ชั่วคราวได้ โปรดตรวจสอบการตั้งค่าการเชื่อมต่อภายนอก",
+    "ลงทะเบียน Cloudflare WARP ไม่สำเร็จ รหัสด้านล่างระบุขั้นตอนที่ล้มเหลว",
   ],
   'ar': [
     'إنشاء إعداد WARP',
@@ -506,6 +566,9 @@ const kWarpCatalogs = <String, List<String>>{
     'تحقق من حساب WARP واتصال MASQUE ثم أعد المحاولة.',
     'البلدان هي نتائج رصد Cloudflare بهوية فحص منفصلة. يعاد فحص إعدادك عند الاتصال.',
     'قد يستغرق الفحص الكامل أيامًا. يحفظ التقدم ويمكن استئنافه يدويًا.',
+    "اختر أولاً حساباً ببيانات اعتماد MASQUE محفوظة.",
+    "تعذر إنشاء اتصال MASQUE المؤقت. تحقق من إعدادات الاتصال الخارجي.",
+    "فشل تسجيل Cloudflare WARP. يحدد الرمز أدناه المرحلة التي فشلت.",
   ],
   'fa': [
     'ساخت پیکربندی WARP',
@@ -530,6 +593,9 @@ const kWarpCatalogs = <String, List<String>>{
     'حساب WARP و اتصال MASQUE را بررسی و دوباره تلاش کنید.',
     'کشورها مشاهده‌های Cloudflare با هویت پویش جداگانه هستند. پیکربندی شما هنگام اتصال دوباره سنجیده می‌شود.',
     'پویش کامل ممکن است چند روز طول بکشد. پیشرفت ذخیره می‌شود؛ دستی ادامه دهید.',
+    "ابتدا حسابی با اطلاعات احراز هویت ذخیره‌شدهٔ MASQUE انتخاب کنید.",
+    "اتصال موقت MASQUE برقرار نشد. تنظیمات اتصال بیرونی را بررسی کنید.",
+    "ثبت‌نام Cloudflare WARP ناموفق بود. کد زیر مرحلهٔ خطا را مشخص می‌کند.",
   ],
 };
 

@@ -13,6 +13,26 @@ import org.junit.Test
 
 class VpnControlClientTest {
     @Test
+    fun disconnectedWarpRequestsBindAndPreserveSafeNativeFailureCodes() {
+        for ((nativeError, expected) in listOf(
+            "identity_required" to "identity_required",
+            "secret-token" to "unavailable",
+        )) {
+            client.detachEndpointForTest()
+            val result = RecordingResult()
+            client.requestVpnGate("""{"command":"warp_wireguard","warp_wireguard":{"action":"generate"}}""", result)
+            assertEquals(0, result.completionCount)
+            val endpoint = RecordingEndpoint()
+            client.attachEndpointForTest(endpoint)
+            val request = endpoint.messages.single()
+            assertEquals(UsqueVpnService.MSG_VPN_GATE, request.what)
+            client.deliverVpnGateReply(request.requestId, null, nativeError)
+            assertEquals(expected, result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+    }
+
+    @Test
     fun retryWaitsForBindingAndDisconnectCancelsAnUnsentRetry() {
         val retry = RecordingResult()
         client.requestRetry(retry)

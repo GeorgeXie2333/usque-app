@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/chain_strings.dart';
 import '../core/warp_strings.dart';
 import '../models/app_models.dart';
+import '../services/engine_client.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
 
@@ -100,13 +101,26 @@ class WarpWireguardPanelState extends State<WarpWireguardPanel> {
     if (valid) widget.onEndpoint(ChainEndpoint(address.address, port));
   }
 
-  String _failure(String? code) => switch (code) {
-    'connect_ip_required' => _app.strings.chain('l4'),
-    'context_changed' => w('stale'),
-    'scan_busy' => w('running'),
-    'secure_storage_failed' => _app.strings.chain('secure_storage_failed'),
-    _ => w('unavailable'),
-  };
+  String _failure(String? code) {
+    // Only native codes from this fixed grammar are suitable for user-visible
+    // diagnostics. Never echo arbitrary platform exception text.
+    if (code != null &&
+        RegExp(
+          r'^registration_((create|device|activate)_(http_[345][0-9]{2}|timeout|dns|connect|tls|protocol|size_limit|encoding|cancelled)|response_invalid)$',
+        ).hasMatch(code)) {
+      return '${w('registration_failed')}\n$code';
+    }
+    return switch (code) {
+      'connect_ip_required' => _app.strings.chain('l4'),
+      'context_changed' => w('stale'),
+      'scan_busy' => w('running'),
+      'secure_storage_failed' => _app.strings.chain('secure_storage_failed'),
+      'identity_required' || 'identity_invalid' => w('identity_required'),
+      'underlay_unavailable' || 'underlay_start_failed' => w('underlay_failed'),
+      _ => w('unavailable'),
+    };
+  }
+
   Future<void> _command(String action) async {
     if (_busy) return;
     if (action == 'start' &&
@@ -146,6 +160,8 @@ class WarpWireguardPanelState extends State<WarpWireguardPanel> {
         _generated = generated;
         widget.onGenerated();
       }
+    } on EngineException catch (failure) {
+      if (mounted) setState(() => _error = _failure(failure.code));
     } on Exception {
       if (mounted) setState(() => _error = w('unavailable'));
     } finally {

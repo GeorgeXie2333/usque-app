@@ -285,10 +285,12 @@ class UsqueVpnService : VpnService() {
             var secret = ByteArray(0)
             var response: String? = null
             var errorCode: String? = null
+            var warpRequest = false
             try {
                 val raw = request.data.getString("vpn_gate_request") ?: error("Missing request")
                 require(raw.length <= 256 * 1024)
                 val query = JSONObject(raw)
+                warpRequest = query.optString("command") == "warp_wireguard"
                 require(query.optString("command") == "chain_profile" || raw.length <= 4096)
                 if ((
                         query.optString("command") == "warp_wireguard" &&
@@ -318,10 +320,13 @@ class UsqueVpnService : VpnService() {
                     ) {
                         secret = loadWarpSecret(id, profile.toString(), readOnly = true) ?: ByteArray(0)
                     }
+                    if (warpRequest && !nativeRuntimeActive.get() && secret.isEmpty()) {
+                        error("WARP_IDENTITY_REQUIRED")
+                    }
                 }
                 response = NativeEngine.vpnGate(settingsPath, raw, secret, this)
-            } catch (_: Exception) {
-                errorCode = "VPN_GATE_UNAVAILABLE"
+            } catch (error: Exception) {
+                errorCode = if (warpRequest) WarpWireguardFields.failureCode(error.message) else "VPN_GATE_UNAVAILABLE"
             } finally {
                 secret.fill(0)
             }

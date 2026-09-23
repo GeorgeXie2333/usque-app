@@ -1,6 +1,8 @@
 //! Discovery sessions have no frontend or host-network fallback. One scanner
 //! identity is used serially, separately from the user's live exit identity.
 mod probe;
+mod registration;
+pub(crate) mod registration_tls;
 #[cfg(test)]
 mod tests;
 pub(crate) async fn observe_exit(
@@ -299,7 +301,7 @@ impl Manager {
         job.outer = observed;
         self.store().save(job)?;
         if job.kind == "generate" {
-            let secrets = probe::register(&outer.network, cancel).await?;
+            let secrets = registration::register(&outer.network, cancel).await?;
             if cancel.is_cancelled() {
                 return Err(error("cancelled"));
             }
@@ -319,7 +321,7 @@ impl Manager {
         let secrets = match self.store().identity()? {
             Some(secrets) => secrets,
             None => {
-                let secrets = probe::register(&outer.network, cancel).await?;
+                let secrets = registration::register(&outer.network, cancel).await?;
                 self.store().save_identity(&secrets)?;
                 secrets
             }
@@ -442,7 +444,7 @@ impl Outer {
         let runtime = tokio::select! {
             biased;
             _=cancel.cancelled()=>return Err(error("cancelled")),
-            result=DataPlaneRuntime::start_with_geo_policy(&profile,identity,context.protector,context.refresher,Arc::new(GeoDirectPolicy::disabled()))=>result.map_err(|_| error("underlay_unavailable"))?,
+            result=DataPlaneRuntime::start_with_geo_policy(&profile,identity,context.protector,context.refresher,Arc::new(GeoDirectPolicy::disabled()))=>result.map_err(|_| error("underlay_start_failed"))?,
         };
         Ok(Self {
             network: runtime.warp_internal_network(),
