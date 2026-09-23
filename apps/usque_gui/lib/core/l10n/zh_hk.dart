@@ -522,6 +522,7 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 復原探測成功',
   'diag_event_recovery_probe_failed': 'H3 復原探測失敗',
   'diag_event_path_promoted': '候選路徑已啟用',
+  'diag_event_queue_backpressured': '傳送等待佇列容量',
   'diag_event_queue_saturated': '傳送佇列已達容量',
   'diag_event_disconnected': '連線已中斷',
   'diag_event_failed': '連線失敗',

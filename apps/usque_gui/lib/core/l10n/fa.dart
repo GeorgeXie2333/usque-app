@@ -588,6 +588,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'کاوش بازیابی H3 موفق بود',
   'diag_event_recovery_probe_failed': 'کاوش بازیابی H3 ناموفق بود',
   'diag_event_path_promoted': 'مسیر نامزد فعال شد',
+  'diag_event_queue_backpressured': 'انتظار ظرفیت صف ارسال',
   'diag_event_queue_saturated': 'صف ارسال به ظرفیت کامل رسید',
   'diag_event_disconnected': 'قطع شد',
   'diag_event_failed': 'اتصال ناموفق بود',

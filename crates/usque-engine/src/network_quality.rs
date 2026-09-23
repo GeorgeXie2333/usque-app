@@ -46,6 +46,7 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
                 dequeue_count: queue.dequeue_count,
                 closed: queue.closed,
                 cancelled: queue.cancelled,
+                backpressure: queue.backpressure.as_ref().map(backpressure_to_proto),
             }
         })
         .collect::<Vec<_>>();
@@ -75,6 +76,10 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
         .saturating_add(metric_raw_u64(&snapshot.loss.datagram_receive_drops));
 
     v1::NetworkQualitySnapshot {
+        transport_performance: snapshot
+            .transport_performance
+            .as_ref()
+            .map(performance_to_proto),
         udp_socket_receive: snapshot.socket_receive.as_ref().map(|socket| {
             v1::UdpSocketReceiveSnapshot {
                 receive_buffer_bytes: socket.receive_buffer_bytes,
@@ -342,7 +347,7 @@ fn quality_level(value: NetworkQualityLevel) -> v1::NetworkQualityLevel {
     }
 }
 
-fn queue_kind(value: QueueKind) -> v1::QueueKind {
+pub(crate) fn queue_kind(value: QueueKind) -> v1::QueueKind {
     match value {
         QueueKind::TunToTransport => v1::QueueKind::TunToTransport,
         QueueKind::ProxyToTransport => v1::QueueKind::ProxyToTransport,
@@ -418,6 +423,62 @@ fn direct_dns_reason(value: DirectDnsReasonCode) -> &'static str {
         DirectDnsReasonCode::QueryFailed => "query_failed",
         DirectDnsReasonCode::NetworkChanged => "network_changed",
         DirectDnsReasonCode::Unsupported => "unsupported",
+    }
+}
+
+fn backpressure_to_proto(
+    value: &usque_transport::QueueBackpressureSnapshot,
+) -> v1::QueueBackpressure {
+    v1::QueueBackpressure {
+        waits: value.waits,
+        active: value.active,
+        completed: value.completed,
+        cancelled: value.cancelled,
+        closed: value.closed,
+        errors: value.errors,
+        total_us: value.total_us,
+        max_us: value.max_us,
+        buckets: value.buckets.clone(),
+    }
+}
+fn h2_performance_to_proto(
+    value: &usque_transport::H2ReceivePerformance,
+) -> v1::H2ReceivePerformance {
+    v1::H2ReceivePerformance {
+        data_frames: value.data_frames,
+        data_bytes: value.data_bytes,
+        assembly_copy_bytes: value.assembly_copy_bytes,
+        batches: value.batches,
+        packets: value.packets,
+        packet_bytes: value.packet_bytes,
+    }
+}
+fn h3_performance_to_proto(value: &usque_transport::H3SendPerformance) -> v1::H3SendPerformance {
+    v1::H3SendPerformance {
+        application_batches: value.application_batches,
+        application_packets: value.application_packets,
+        application_bytes: value.application_bytes,
+        encode_pool_exhausted: value.encode_pool_exhausted,
+        datagram_queue_full: value.datagram_queue_full,
+        pmtu_deferred: value.pmtu_deferred,
+        wire_queue_full: value.wire_queue_full,
+        quantum_limited: value.quantum_limited,
+        quic_no_progress_with_backlog: value.quic_no_progress_with_backlog,
+        udp_would_block: value.udp_would_block,
+        udp_partial_sends: value.udp_partial_sends,
+        udp_message_too_large: value.udp_message_too_large,
+    }
+}
+fn performance_to_proto(
+    value: &usque_transport::TransportPerformanceSnapshot,
+) -> v1::TransportPerformance {
+    v1::TransportPerformance {
+        h2: value.h2.as_ref().map(h2_performance_to_proto),
+        h3: value.h3.as_ref().map(h3_performance_to_proto),
+        incoming_copy_bytes: value.incoming_copy_bytes,
+        send_timeouts: value.send_timeouts,
+        h2_batch_sizes: value.h2_batch_sizes.clone(),
+        h3_batch_sizes: value.h3_batch_sizes.clone(),
     }
 }
 

@@ -1342,6 +1342,7 @@ ConnectionTimeline _decodeConnectionTimeline(_ProtoReader reader) {
 }
 
 ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
+  String? queueKind;
   var sequence = 0;
   DateTime? timestamp;
   var elapsedMilliseconds = 0;
@@ -1379,11 +1380,24 @@ ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
         durationMilliseconds = value == 0 ? null : value;
       case 9:
         failure = _decodeTransportFailure(reader.message(field));
+      case 10:
+        queueKind = switch (reader.varint(field)) {
+          1 => 'tun_to_transport',
+          2 => 'proxy_to_transport',
+          3 => 'transport_outgoing',
+          4 => 'h3_datagram_send',
+          5 => 'h3_wire_send',
+          6 => 'transport_to_tun',
+          7 => 'transport_to_proxy',
+          8 => 'direct_dns',
+          _ => null,
+        };
       default:
         reader.skip(field);
     }
   }
   return ConnectionTimelineEvent(
+    queueKind: queueKind,
     sequence: sequence,
     timestamp: timestamp,
     elapsedMilliseconds: elapsedMilliseconds,
@@ -1391,7 +1405,10 @@ ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
     stage: stage,
     transport: transport,
     addressFamily: addressFamily,
-    durationMilliseconds: durationMilliseconds,
+    durationMilliseconds:
+        eventType == ConnectionTimelineEventType.queueBackpressured
+        ? durationMilliseconds ?? 0
+        : durationMilliseconds,
     failure: failure,
   );
 }
@@ -1417,6 +1434,7 @@ ConnectionTimelineEventType _decodeConnectionTimelineEventType(int wireValue) {
     17 => ConnectionTimelineEventType.recoveryProbeFailed,
     18 => ConnectionTimelineEventType.pathPromoted,
     19 => ConnectionTimelineEventType.queueSaturated,
+    31 => ConnectionTimelineEventType.queueBackpressured,
     20 => ConnectionTimelineEventType.disconnected,
     21 => ConnectionTimelineEventType.failed,
     22 => ConnectionTimelineEventType.migrationStarted,
@@ -1648,6 +1666,7 @@ NetworkSettingsState _decodeNetworkSettings(_ProtoReader reader) {
 }
 
 NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
+  TransportPerformanceSnapshot? transportPerformance;
   UdpSocketReceiveSnapshot? udpSocketReceive;
   DateTime? sampledAt;
   String? connectionInstanceId;
@@ -1695,11 +1714,16 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
         }
       case 10:
         udpSocketReceive = _decodeUdpSocketReceive(reader.message(field));
+      case 11:
+        transportPerformance = _decodeTransportPerformance(
+          reader.message(field),
+        );
       default:
         reader.skip(field);
     }
   }
   return NetworkQualitySnapshot(
+    transportPerformance: transportPerformance,
     udpSocketReceive: udpSocketReceive,
     sampledAt: sampledAt,
     connectionInstanceId: connectionInstanceId,
@@ -1993,6 +2017,7 @@ NetworkConnectionMetrics _decodeNetworkConnectionMetrics(_ProtoReader reader) {
 }
 
 NetworkQueueQuality _decodeNetworkQueueQuality(_ProtoReader reader) {
+  PerformanceCounters? backpressure;
   var kind = NetworkQueueKind.unknown;
   var availability = MetricAvailability.unknown;
   var currentItems = 0;
@@ -2044,11 +2069,18 @@ NetworkQueueQuality _decodeNetworkQueueQuality(_ProtoReader reader) {
         closed = reader.varint(field) != 0;
       case 16:
         cancelled = reader.varint(field) != 0;
+      case 17:
+        backpressure = _decodePerformanceCounters(
+          reader.message(field),
+          queueBackpressureFields,
+          bucketLimit: 32,
+        );
       default:
         reader.skip(field);
     }
   }
   return NetworkQueueQuality(
+    backpressure: backpressure,
     kind: kind,
     availability: availability,
     currentItems: currentItems,
@@ -3007,4 +3039,88 @@ Map<String, Object?> _decodeChainJson(_ProtoReader reader) {
     }
   }
   return result;
+}
+
+void _readBoundedBuckets(
+  _ProtoReader reader,
+  _ProtoField field,
+  List<int> output,
+  int limit,
+) {
+  if (field.wireType == 0) {
+    output.add(reader.varint(field));
+  } else {
+    final packed = reader.message(field);
+    while (!packed.isDone) {
+      output.add(packed._varint());
+      if (output.length > limit) {
+        throw const FormatException('Performance histogram exceeds bound');
+      }
+    }
+  }
+  if (output.length > limit) {
+    throw const FormatException('Performance histogram exceeds bound');
+  }
+}
+
+PerformanceCounters _decodePerformanceCounters(
+  _ProtoReader reader,
+  List<String> fields, {
+  int bucketLimit = 0,
+}) {
+  final values = <String, int>{for (final field in fields) field: 0};
+  final buckets = <int>[];
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number >= 1 && field.number <= fields.length) {
+      values[fields[field.number - 1]] = reader.varint(field);
+    } else if (bucketLimit > 0 && field.number == fields.length + 1) {
+      _readBoundedBuckets(reader, field, buckets, bucketLimit);
+    } else {
+      reader.skip(field);
+    }
+  }
+  return PerformanceCounters(
+    Map.unmodifiable(values),
+    buckets: List.unmodifiable(buckets),
+  );
+}
+
+TransportPerformanceSnapshot _decodeTransportPerformance(_ProtoReader reader) {
+  PerformanceCounters? h2, h3;
+  var copies = 0, timeouts = 0;
+  final h2Buckets = <int>[], h3Buckets = <int>[];
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        h2 = _decodePerformanceCounters(
+          reader.message(field),
+          h2PerformanceFields,
+        );
+      case 2:
+        h3 = _decodePerformanceCounters(
+          reader.message(field),
+          h3PerformanceFields,
+        );
+      case 3:
+        copies = reader.varint(field);
+      case 4:
+        timeouts = reader.varint(field);
+      case 5:
+        _readBoundedBuckets(reader, field, h2Buckets, 7);
+      case 6:
+        _readBoundedBuckets(reader, field, h3Buckets, 7);
+      default:
+        reader.skip(field);
+    }
+  }
+  return TransportPerformanceSnapshot(
+    h2: h2,
+    h3: h3,
+    incomingCopyBytes: copies,
+    sendTimeouts: timeouts,
+    h2BatchSizes: List.unmodifiable(h2Buckets),
+    h3BatchSizes: List.unmodifiable(h3Buckets),
+  );
 }

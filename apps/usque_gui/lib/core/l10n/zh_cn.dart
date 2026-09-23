@@ -521,6 +521,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 恢复探测成功',
   'diag_event_recovery_probe_failed': 'H3 恢复探测失败',
   'diag_event_path_promoted': '候选路径已激活',
+  'diag_event_queue_backpressured': '发送等待队列容量',
   'diag_event_queue_saturated': '发送队列已达到容量',
   'diag_event_disconnected': '连接已断开',
   'diag_event_failed': '连接失败',

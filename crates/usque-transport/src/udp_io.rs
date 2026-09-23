@@ -514,7 +514,13 @@ impl UdpBatchIo {
             });
             match result {
                 Ok(count) => return Ok(count),
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    crate::transport_performance::add(
+                        &self.quality.performance().h3.udp_would_block,
+                        1,
+                    );
+                    continue;
+                }
                 Err(error) if mode == UdpBatchMode::SendMmsgRecvMmsg => {
                     if let Some(reason) = batch_unavailable_reason(&error) {
                         self.switch_to_portable(reason);

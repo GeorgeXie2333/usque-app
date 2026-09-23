@@ -605,6 +605,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Sonda di ripristino H3 riuscita',
   'diag_event_recovery_probe_failed': 'Sonda di ripristino H3 non riuscita',
   'diag_event_path_promoted': 'Percorso candidato attivato',
+  'diag_event_queue_backpressured': 'Attesa di spazio nella coda di invio',
   'diag_event_queue_saturated': 'La coda di invio ha raggiunto la capacità',
   'diag_event_disconnected': 'Disconnesso',
   'diag_event_failed': 'Connessione non riuscita',

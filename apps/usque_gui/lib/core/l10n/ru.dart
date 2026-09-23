@@ -593,6 +593,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_event_recovery_probe_failed':
       'Зонд восстановления H3 завершился с ошибкой',
   'diag_event_path_promoted': 'Кандидатский путь активирован',
+  'diag_event_queue_backpressured': 'Ожидание места в очереди отправки',
   'diag_event_queue_saturated': 'Очередь отправки достигла предельной ёмкости',
   'diag_event_disconnected': 'Отключено',
   'diag_event_failed': 'Сбой соединения',

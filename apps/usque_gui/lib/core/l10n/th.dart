@@ -581,6 +581,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'โพรบกู้คืน H3 สำเร็จ',
   'diag_event_recovery_probe_failed': 'โพรบกู้คืน H3 ล้มเหลว',
   'diag_event_path_promoted': 'เปิดใช้งานเส้นทางที่ได้รับเลือกแล้ว',
+  'diag_event_queue_backpressured': 'รอพื้นที่ในคิวส่ง',
   'diag_event_queue_saturated': 'คิวส่งถึงขีดความจุแล้ว',
   'diag_event_disconnected': 'ตัดการเชื่อมต่อแล้ว',
   'diag_event_failed': 'การเชื่อมต่อล้มเหลว',

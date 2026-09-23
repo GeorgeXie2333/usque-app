@@ -139,6 +139,9 @@ fn event_to_proto(event: &ConnectionEvent) -> v1::ConnectionEvent {
             }
             ConnectionEventType::MigrationFailed => v1::ConnectionEventType::MigrationFailed as i32,
             ConnectionEventType::QueueSaturated => v1::ConnectionEventType::QueueSaturated as i32,
+            ConnectionEventType::QueueBackpressured => {
+                v1::ConnectionEventType::QueueBackpressured as i32
+            }
             ConnectionEventType::PmtuChanged => v1::ConnectionEventType::PmtuChanged as i32,
             ConnectionEventType::PmtuRevalidationStarted => {
                 v1::ConnectionEventType::PmtuRevalidationStarted as i32
@@ -166,6 +169,9 @@ fn event_to_proto(event: &ConnectionEvent) -> v1::ConnectionEvent {
             .to_owned(),
         duration_milliseconds: event.duration.map_or(0, duration_milliseconds),
         failure: event.failure.as_ref().map(transport_failure_to_proto),
+        queue_kind: event
+            .queue_kind
+            .map_or(0, |kind| crate::network_quality::queue_kind(kind) as i32),
     }
 }
 

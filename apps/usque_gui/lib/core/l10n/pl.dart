@@ -599,6 +599,8 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Sonda odzyskiwania H3 powiodła się',
   'diag_event_recovery_probe_failed': 'Sonda odzyskiwania H3 nie powiodła się',
   'diag_event_path_promoted': 'Ścieżka kandydująca została aktywowana',
+  'diag_event_queue_backpressured':
+      'Oczekiwanie na miejsce w kolejce wysyłania',
   'diag_event_queue_saturated': 'Kolejka wysyłania osiągnęła limit pojemności',
   'diag_event_disconnected': 'Rozłączono',
   'diag_event_failed': 'Połączenie nie powiodło się',

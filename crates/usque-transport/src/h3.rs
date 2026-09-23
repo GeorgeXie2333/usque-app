@@ -1134,7 +1134,10 @@ async fn drive_h3_actor(
                 && pending_batch.is_none()
                 && migration.allows_application_injection() => {
                 match batch {
-                    Some(batch) => pending_batch = Some(batch),
+                    Some(batch) => {
+                        observe_outgoing_batch(quality, &batch);
+                        pending_batch = Some(batch);
+                    },
                     None => return Ok(()),
                 }
             }
@@ -1569,6 +1572,7 @@ fn queue_pending_batch(
         // behind smaller packets without adding a queue or spinning on them.
         for _ in 0..outgoing.batch.len().min(UDP_ACTOR_DRAIN_LIMIT) {
             if connection.is_dgram_send_queue_full() {
+                crate::transport_performance::add(&quality.performance().h3.datagram_queue_full, 1);
                 break;
             }
             let Some(packet) = outgoing.batch.front() else {
@@ -1583,6 +1587,7 @@ fn queue_pending_batch(
                     && maximum_packet_size < crate::pmtu::IPV6_MINIMUM_INNER_MTU
                     && packet.first().is_some_and(|byte| byte >> 4 == 6)
                 {
+                    crate::transport_performance::add(&quality.performance().h3.pmtu_deferred, 1);
                     // A probing floor is not evidence that IPv6's minimum MTU
                     // is unavailable. Keep the original packet for a later
                     // probe ACK; a completed low PMTU still uses the existing
@@ -1606,6 +1611,10 @@ fn queue_pending_batch(
                 continue;
             }
             let Some(datagram) = encode_http_datagram(encode_pool, stream_id, packet)? else {
+                crate::transport_performance::add(
+                    &quality.performance().h3.encode_pool_exhausted,
+                    1,
+                );
                 break;
             };
             let datagram_len = datagram.as_ref().len();
@@ -1900,6 +1909,7 @@ fn generate_wire_datagrams(
         let packet_capacity =
             wire_payload_capacity.min(send_quantum.saturating_sub(generated_bytes));
         if packet_capacity < quiche::MIN_CLIENT_INITIAL_LEN {
+            crate::transport_performance::add(&quality.performance().h3.quantum_limited, 1);
             break;
         }
         let mut bytes = take_wire_buffer(free_buffers, wire_payload_capacity, quality);
@@ -1919,6 +1929,12 @@ fn generate_wire_datagrams(
                 });
             }
             Err(quiche::Error::Done) => {
+                if connection.dgram_send_queue_len() != 0 {
+                    crate::transport_performance::add(
+                        &quality.performance().h3.quic_no_progress_with_backlog,
+                        1,
+                    );
+                }
                 recycle_wire_buffer(free_buffers, bytes, quality);
                 break;
             }
@@ -1929,7 +1945,18 @@ fn generate_wire_datagrams(
             }
         }
     }
+    if pending.len() == MAX_PENDING_WIRE_DATAGRAMS {
+        crate::transport_performance::add(&quality.performance().h3.wire_queue_full, 1);
+    }
     Ok(())
+}
+
+fn observe_outgoing_batch(quality: &NetworkQualityTelemetry, batch: &OutgoingBatch) {
+    let counters = quality.performance();
+    crate::transport_performance::add(&counters.h3.application_batches, 1);
+    crate::transport_performance::add(&counters.h3.application_packets, batch.batch.len() as u64);
+    crate::transport_performance::add(&counters.h3.application_bytes, batch.batch.bytes() as u64);
+    crate::transport_performance::record_batch(&counters.h3_batch_sizes, batch.batch.len());
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1998,6 +2025,7 @@ async fn send_due_wire_datagrams(
     let sent = match send_result {
         Ok(sent) => sent,
         Err(error) if is_message_too_long(&error) => {
+            crate::transport_performance::add(&quality.performance().h3.udp_message_too_large, 1);
             discard_pending_wire_datagrams(pending, free_buffers, wire_queue, quality);
             return Ok(WireSendOutcome::MessageTooLarge);
         }
@@ -2009,6 +2037,7 @@ async fn send_due_wire_datagrams(
         ));
     }
     if sent < batch_len {
+        crate::transport_performance::add(&quality.performance().h3.udp_partial_sends, 1);
         quality.record_udp_partial_batch();
     }
     complete_wire_sends(pending, free_buffers, sent, wire_queue, quality);

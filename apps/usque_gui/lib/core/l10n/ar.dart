@@ -581,6 +581,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'نجح مجس استرداد H3',
   'diag_event_recovery_probe_failed': 'فشل مجس استرداد H3',
   'diag_event_path_promoted': 'فُعّل المسار المرشح',
+  'diag_event_queue_backpressured': 'انتظار سعة قائمة الإرسال',
   'diag_event_queue_saturated': 'بلغت قائمة الإرسال سعتها القصوى',
   'diag_event_disconnected': 'غير متصل',
   'diag_event_failed': 'فشل الاتصال',

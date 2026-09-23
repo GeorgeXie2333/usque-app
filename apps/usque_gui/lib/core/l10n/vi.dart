@@ -589,6 +589,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Đầu dò khôi phục H3 thành công',
   'diag_event_recovery_probe_failed': 'Đầu dò khôi phục H3 thất bại',
   'diag_event_path_promoted': 'Đường ứng viên đã được kích hoạt',
+  'diag_event_queue_backpressured': 'Chờ dung lượng hàng đợi gửi',
   'diag_event_queue_saturated': 'Hàng đợi gửi đã đạt giới hạn dung lượng',
   'diag_event_disconnected': 'Đã ngắt kết nối',
   'diag_event_failed': 'Kết nối thất bại',

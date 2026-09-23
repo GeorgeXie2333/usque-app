@@ -264,3 +264,43 @@ process-local random connection instance UUID. They do not contain socket addres
 endpoint names, QNAMEs, DNS server names or bootstrap IPs, SSID/BSSID, QUIC
 connection IDs, tokens, packet payloads, or free-form errors. Direct DNS and
 migration failures use closed reason-code enums.
+
+## MASQUE performance and capacity waits
+
+Optional `QueueQuality.backpressure` reports only async admissions whose first
+poll returned Pending. `waits` and `active` count started and ongoing waits;
+`completed`, `cancelled`, `closed`, and `errors` count exactly one terminal
+outcome each. Dropping a waiting future settles cancellation through RAII.
+Immediately admitted packets contribute no wait sample. `total_us`, `max_us`
+and the fixed 32-bin histogram measure completed waits in monotonic microseconds.
+Bin 0 contains zero microseconds; bin n covers [2^(n-1), 2^n), with the final
+bin including all larger durations. Queue drop counters retain their existing
+meaning; waiting by itself is not a dropped packet.
+
+The sampled `QueueBackpressured` timeline event carries the queue enum and the
+actual completed admission wait in milliseconds, without a transport failure.
+Successful waits are sampled at counts 1, 2, 4, 8, etc. across a telemetry
+lifetime. In-progress/cancelled/failed waits remain visible in the counters.
+Real rejected admissions retain their existing failure semantics. The event
+never clears or overwrites the most recent failure.
+
+Optional `transport_performance` carries H2 DATA frames/bytes, delivered batch
+packets/bytes, assembly-copy bytes, inbound mux copy bytes, and send timeouts.
+H3 adds application batches/packets/bytes and stop observations: encoding pool
+exhausted, DATAGRAM queue full, PMTU deferred, wire queue full, quantum reached,
+QUIC Done with queued DATAGRAMs, UDP WouldBlock, partial sends, and EMSGSIZE.
+A stop count is an observation, not a packet loss or a duration. In particular,
+QUIC Done with backlog does not establish congestion-window exhaustion;
+bytes-in-flight remains unavailable. Batch histograms have seven bins:
+1, 2–3, 4–7, 8–15, 16–31, 32–63, and 64 packets.
+
+Transport counters belong to the selected connection attempt. Queue counters
+belong to the registered queue lifetime, and mux copies/timeouts to the shared
+runtime telemetry lifetime; hot attachment changes can retain those counters.
+Use deltas from the same published connection instance; discard the comparison
+baseline on any instance change. Snapshots are relaxed atomic observations,
+not transactions across counters. Missing groups in older peers are unknown,
+not measured zero. H2 and H3 groups are only present for the corresponding
+active transport. Detailed fields are exported locally through existing
+diagnostics, with fixed numeric allowlists and bounded histograms on Android.
+No packet data, destinations, credentials, or automatic upload are added.

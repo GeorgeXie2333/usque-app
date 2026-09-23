@@ -593,6 +593,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 kurtarma sondası başarılı',
   'diag_event_recovery_probe_failed': 'H3 kurtarma sondası başarısız',
   'diag_event_path_promoted': 'Aday yol etkinleştirildi',
+  'diag_event_queue_backpressured': 'Gönderim kuyruğunda kapasite beklendi',
   'diag_event_queue_saturated': 'Gönderme kuyruğu kapasitesine ulaştı',
   'diag_event_disconnected': 'Bağlantı kesildi',
   'diag_event_failed': 'Bağlantı başarısız oldu',

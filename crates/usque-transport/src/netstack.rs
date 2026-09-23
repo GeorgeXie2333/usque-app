@@ -566,12 +566,15 @@ impl ManagedTunnelSender {
             .max_capacity()
             .saturating_sub(self.outgoing.capacity());
         self.telemetry.observe_queue_depth(queued);
-        if self.outgoing.capacity() == 0 {
-            self.telemetry.record_queue_saturated(queued);
-        }
         self.outgoing
-            .send(packet, packet_bytes)
+            .send_observed(packet, packet_bytes)
             .await
+            .map(|wait| {
+                if let Some(wait) = wait {
+                    self.telemetry
+                        .record_queue_backpressured(QueueKind::TransportOutgoingPackets, wait);
+                }
+            })
             .map_err(|error| match error.kind {
                 TrackedSendErrorKind::Closed
                 | TrackedSendErrorKind::Cancelled
@@ -2311,6 +2314,7 @@ async fn pump_active_tunnel(
                         ));
                     }
                     Err(_) => {
+                        crate::transport_performance::add(&telemetry.network_quality().performance().send_timeouts, 1);
                         break ActiveOutcome::Reconnect(
                             TransportFailure::new(
                                 TransportFailureCode::PacketSendTimeout,

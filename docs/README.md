@@ -77,6 +77,7 @@ Common terms in these references:
 | Record | Scope / 范围 |
 | --- | --- |
 | [Implementation baseline](implementation-baseline.md) | PR-00 source, toolchain, and unavailable-lab baseline / PR-00 基线 |
+| [MASQUE performance candidates](MASQUE_PERFORMANCE_VALIDATION.md) | Staged source candidates, checks, and unmeasured device results / 分阶段候选、检查与待测设备结果 |
 | [Network-quality acceptance](network-quality-acceptance.md) | PR-01–PR-12 implementation and test matrix, with later correction notice / 阶段验收及后续更正 |
 | [PMTU review and fixes](pmtu-path-fixes.md) | Candidate-specific defects, corrections, and regression results / 特定候选版本的修复记录 |
 | [Receive-buffer experiments](RECEIVE_BUFFER_EXPERIMENTS.md) | Retired Android A/B builds and production-default validation / 已结束的安卓对照试验与默认值验证记录 |

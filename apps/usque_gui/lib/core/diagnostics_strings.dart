@@ -132,6 +132,8 @@ String connectionEventLabel(
       'diag_event_recovery_probe_failed',
     ConnectionTimelineEventType.pathPromoted => 'diag_event_path_promoted',
     ConnectionTimelineEventType.queueSaturated => 'diag_event_queue_saturated',
+    ConnectionTimelineEventType.queueBackpressured =>
+      'diag_event_queue_backpressured',
     ConnectionTimelineEventType.disconnected => 'diag_event_disconnected',
     ConnectionTimelineEventType.failed => 'diag_event_failed',
     ConnectionTimelineEventType.migrationStarted =>

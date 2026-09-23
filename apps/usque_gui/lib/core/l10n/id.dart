@@ -589,6 +589,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Probe pemulihan H3 berhasil',
   'diag_event_recovery_probe_failed': 'Probe pemulihan H3 gagal',
   'diag_event_path_promoted': 'Jalur kandidat diaktifkan',
+  'diag_event_queue_backpressured': 'Menunggu kapasitas antrean kirim',
   'diag_event_queue_saturated': 'Antrean pengiriman mencapai kapasitas',
   'diag_event_disconnected': 'Terputus',
   'diag_event_failed': 'Koneksi gagal',

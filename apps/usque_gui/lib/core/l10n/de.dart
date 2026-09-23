@@ -604,6 +604,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_event_recovery_probe_failed':
       'H3-Wiederherstellungssonde fehlgeschlagen',
   'diag_event_path_promoted': 'Kandidatenpfad aktiviert',
+  'diag_event_queue_backpressured':
+      'Auf Kapazität der Sendewarteschlange gewartet',
   'diag_event_queue_saturated':
       'Sendewarteschlange hat ihre Kapazität erreicht',
   'diag_event_disconnected': 'Getrennt',

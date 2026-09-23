@@ -67,7 +67,7 @@ impl MasqueTunnel {
                 let (send, receive, driver, control) = tunnel.into_parts();
                 (
                     MasqueSendHalf::Http2(send),
-                    MasqueReceiveHalf::Http2(receive),
+                    MasqueReceiveHalf::Http2(Box::new(receive)),
                     MasqueDriver::Http2(driver),
                     Some(control),
                 )
@@ -99,7 +99,7 @@ impl MasqueSendHalf {
 
 pub(crate) enum MasqueReceiveHalf {
     Http3(H3ReceiveHalf),
-    Http2(H2ReceiveHalf),
+    Http2(Box<H2ReceiveHalf>),
 }
 
 impl MasqueReceiveHalf {

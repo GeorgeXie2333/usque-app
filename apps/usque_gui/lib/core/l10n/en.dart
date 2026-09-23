@@ -586,6 +586,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 recovery probe succeeded',
   'diag_event_recovery_probe_failed': 'H3 recovery probe failed',
   'diag_event_path_promoted': 'Candidate path activated',
+  'diag_event_queue_backpressured': 'Waited for send queue capacity',
   'diag_event_queue_saturated': 'Send queue reached capacity',
   'diag_event_disconnected': 'Disconnected',
   'diag_event_failed': 'Connection failed',

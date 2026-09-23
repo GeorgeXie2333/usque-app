@@ -955,7 +955,10 @@ async fn run_packet_mux(
                 while let Some(packet) = batch.pop_front() {
                     let mut packet = packet
                         .try_into_mut()
-                        .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
+                        .unwrap_or_else(|packet| {
+                            crate::transport_performance::add(&quality.performance().incoming_copy_bytes, packet.len() as u64);
+                            bytes::BytesMut::from(packet.as_ref())
+                        });
                     match flows.route_incoming(&mut packet) {
                         Some(PacketOrigin::Tunnel) => {
                             let packet = packet.freeze();

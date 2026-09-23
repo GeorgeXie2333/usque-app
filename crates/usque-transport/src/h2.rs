@@ -284,6 +284,7 @@ impl H2SendHalf {
 }
 
 pub struct H2ReceiveHalf {
+    quality: NetworkQualityTelemetry,
     stream: RecvStream,
     control: ConnectIpControlPlane,
     packets: VecDeque<Bytes>,
@@ -329,7 +330,7 @@ impl H2ReceiveHalf {
             while let Some(packet) = self.packets.pop_front() {
                 if let Err(packet) = batch.push_back(packet) {
                     self.packets.push_front(packet);
-                    return Ok(batch);
+                    return Ok(self.observed_batch(batch));
                 }
             }
             if !batch.can_accept(1) || frames == H2_RECEIVE_BATCH_MAX_FRAMES {
@@ -356,7 +357,16 @@ impl H2ReceiveHalf {
                 break;
             }
         }
-        Ok(batch)
+        Ok(self.observed_batch(batch))
+    }
+
+    fn observed_batch(&self, batch: PacketBatch) -> PacketBatch {
+        let counters = self.quality.performance();
+        crate::transport_performance::add(&counters.h2.batches, 1);
+        crate::transport_performance::add(&counters.h2.packets, batch.len() as u64);
+        crate::transport_performance::add(&counters.h2.packet_bytes, batch.bytes() as u64);
+        crate::transport_performance::record_batch(&counters.h2_batch_sizes, batch.len());
+        batch
     }
 
     fn buffer_data(&mut self, chunk: Bytes) -> Result<(), TransportError> {
@@ -364,6 +374,10 @@ impl H2ReceiveHalf {
             return Err(TransportError::CapsuleTooLarge);
         }
         let length = chunk.len();
+        let counters = &self.quality.performance().h2;
+        crate::transport_performance::add(&counters.data_frames, 1);
+        crate::transport_performance::add(&counters.data_bytes, length as u64);
+        crate::transport_performance::add(&counters.assembly_copy_bytes, length as u64);
         self.control.buffer.extend_from_slice(&chunk);
         self.stream.flow_control().release_capacity(length)?;
         Ok(())
@@ -868,6 +882,7 @@ fn h2_tunnel_from_streams(
             liveness_failed: connection.liveness_failed.clone(),
         },
         receive: H2ReceiveHalf {
+            quality: quality.clone(),
             stream: receive,
             control: ConnectIpControlPlane::new(control_tx),
             packets: VecDeque::new(),

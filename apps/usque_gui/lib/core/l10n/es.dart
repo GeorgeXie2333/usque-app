@@ -606,6 +606,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Sonda de recuperación H3 completada correctamente',
   'diag_event_recovery_probe_failed': 'Sonda de recuperación H3 fallida',
   'diag_event_path_promoted': 'Ruta candidata activada',
+  'diag_event_queue_backpressured': 'Espera de capacidad en la cola de envío',
   'diag_event_queue_saturated': 'La cola de envío alcanzó su capacidad',
   'diag_event_disconnected': 'Desconectado',
   'diag_event_failed': 'Conexión fallida',

@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'chain_exit_models.dart';
 import 'diagnostics_models.dart';
 import 'l4_performance.dart';
+import 'transport_performance.dart';
 import 'vpngate_models.dart';
 
 export 'chain_exit_models.dart';
 export 'l4_performance.dart';
+export 'transport_performance.dart';
 export 'vpngate_models.dart';
 
 enum AppSection { home, profiles, proxy, settings }
@@ -1354,6 +1356,7 @@ class NetworkConnectionMetrics {
 
 class NetworkQueueQuality {
   const NetworkQueueQuality({
+    this.backpressure,
     this.kind = NetworkQueueKind.unknown,
     this.availability = MetricAvailability.unknown,
     this.currentItems = 0,
@@ -1371,6 +1374,7 @@ class NetworkQueueQuality {
     this.cancelled = false,
   });
 
+  final PerformanceCounters? backpressure;
   final NetworkQueueKind kind;
   final MetricAvailability availability;
   final int currentItems;
@@ -1391,6 +1395,7 @@ class NetworkQueueQuality {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is NetworkQueueQuality &&
+          backpressure == other.backpressure &&
           kind == other.kind &&
           availability == other.availability &&
           currentItems == other.currentItems &&
@@ -1409,6 +1414,7 @@ class NetworkQueueQuality {
 
   @override
   int get hashCode => Object.hashAll(<Object?>[
+    backpressure,
     kind,
     availability,
     currentItems,
@@ -1605,6 +1611,7 @@ class NetworkQualitySample {
 
 class NetworkQualitySnapshot {
   const NetworkQualitySnapshot({
+    this.transportPerformance,
     this.udpSocketReceive,
     this.sampledAt,
     this.connectionInstanceId,
@@ -1627,6 +1634,7 @@ class NetworkQualitySnapshot {
   final DirectDnsQualityInfo directDns;
   final List<NetworkQualitySample> samples;
   final UdpSocketReceiveSnapshot? udpSocketReceive;
+  final TransportPerformanceSnapshot? transportPerformance;
 
   factory NetworkQualitySnapshot.fromMap(Map<Object?, Object?> map) {
     final metricsMap = _objectMap(map['metrics']);
@@ -1636,6 +1644,9 @@ class NetworkQualitySnapshot {
     final sampledAtMilliseconds = _mapInt(map, 'sampled_at_unix_ms');
     final connectionId = _mapString(map, 'connection_instance_id');
     return NetworkQualitySnapshot(
+      transportPerformance: TransportPerformanceSnapshot.from(
+        map['transport_performance'],
+      ),
       udpSocketReceive: UdpSocketReceiveSnapshot.from(
         map['udp_socket_receive'],
       ),
@@ -1809,6 +1820,11 @@ class NetworkQualitySnapshot {
             .map((raw) {
               final queue = Map<Object?, Object?>.from(raw);
               return NetworkQueueQuality(
+                backpressure: PerformanceCounters.from(
+                  queue['backpressure'],
+                  queueBackpressureFields,
+                  bucketLimit: 32,
+                ),
                 kind: _enumNameOr(
                   NetworkQueueKind.values,
                   queue['kind'],

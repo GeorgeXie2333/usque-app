@@ -165,3 +165,14 @@ encrypted capability is disabled, custom values remain read-only, and only an
 explicit user selection can switch to physical-system DNS.
 
 See [network-doctor.md](network-doctor.md) for Standard and Deep diagnostics.
+
+### MASQUE performance extension
+
+The append-only extension uses `QueueQuality.backpressure` (17),
+`NetworkQualitySnapshot.transport_performance` (11), timeline event
+`QueueBackpressured` (31), and `ConnectionEvent.queue_kind` (10). Older peers
+omit these fields; absent groups remain unknown. Histograms accept packed or
+unpacked protobuf values with fixed 32/7-bin bounds. Android keeps the existing
+16 KiB limit and fixed numeric allowlists. Performance counters are available
+in diagnostic exports, without a new settings panel. See
+[metric semantics and units](network-quality-metrics.md#masque-performance-and-capacity-waits).

@@ -598,6 +598,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3-herstelprobe geslaagd',
   'diag_event_recovery_probe_failed': 'H3-herstelprobe mislukt',
   'diag_event_path_promoted': 'Kandidaatpad geactiveerd',
+  'diag_event_queue_backpressured': 'Gewacht op ruimte in de verzendwachtrij',
   'diag_event_queue_saturated':
       'De verzendwachtrij heeft de capaciteit bereikt',
   'diag_event_disconnected': 'Verbinding verbroken',

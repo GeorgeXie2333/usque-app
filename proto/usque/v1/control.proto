@@ -745,6 +745,7 @@ enum ConnectionEventType {
   CONNECTION_EVENT_TYPE_PMTU_REVALIDATION_FAILED = 28;
   CONNECTION_EVENT_TYPE_DIRECT_DNS_DEGRADED = 29;
   CONNECTION_EVENT_TYPE_DIRECT_DNS_RECOVERED = 30;
+  CONNECTION_EVENT_TYPE_QUEUE_BACKPRESSURED = 31;
 }
 
 message ConnectionEvent {
@@ -757,6 +758,7 @@ message ConnectionEvent {
   string address_family = 7;
   uint64 duration_milliseconds = 8;
   TransportFailure failure = 9;
+  QueueKind queue_kind = 10;
 }
 
 message ConnectionMetrics {
@@ -874,6 +876,7 @@ message QueueQuality {
   uint64 dequeue_count = 14;
   bool closed = 15;
   bool cancelled = 16;
+  QueueBackpressure backpressure = 17;
 }
 
 message PmtuQuality {
@@ -920,6 +923,7 @@ message NetworkQualitySnapshot {
   // At most 16 real source observations; not interpolated or persisted.
   repeated NetworkQualitySample samples = 9;
   UdpSocketReceiveSnapshot udp_socket_receive = 10;
+  TransportPerformance transport_performance = 11;
 }
 
 message UdpSocketReceiveSnapshot {
@@ -1268,4 +1272,49 @@ message EventEnvelope {
     NetworkQualityUpdated network_quality_updated = 23;
     NetworkSettingsState network_settings_changed = 24;
   }
+}
+
+message QueueBackpressure {
+  uint64 waits = 1;
+  uint64 active = 2;
+  uint64 completed = 3;
+  uint64 cancelled = 4;
+  uint64 closed = 5;
+  uint64 errors = 6;
+  uint64 total_us = 7;
+  uint64 max_us = 8;
+  repeated uint64 buckets = 9;
+}
+
+message H2ReceivePerformance {
+  uint64 data_frames = 1;
+  uint64 data_bytes = 2;
+  uint64 assembly_copy_bytes = 3;
+  uint64 batches = 4;
+  uint64 packets = 5;
+  uint64 packet_bytes = 6;
+}
+
+message H3SendPerformance {
+  uint64 application_batches = 1;
+  uint64 application_packets = 2;
+  uint64 application_bytes = 3;
+  uint64 encode_pool_exhausted = 4;
+  uint64 datagram_queue_full = 5;
+  uint64 pmtu_deferred = 6;
+  uint64 wire_queue_full = 7;
+  uint64 quantum_limited = 8;
+  uint64 quic_no_progress_with_backlog = 9;
+  uint64 udp_would_block = 10;
+  uint64 udp_partial_sends = 11;
+  uint64 udp_message_too_large = 12;
+}
+
+message TransportPerformance {
+  H2ReceivePerformance h2 = 1;
+  H3SendPerformance h3 = 2;
+  uint64 incoming_copy_bytes = 3;
+  uint64 send_timeouts = 4;
+  repeated uint64 h2_batch_sizes = 5;
+  repeated uint64 h3_batch_sizes = 6;
 }

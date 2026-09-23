@@ -546,6 +546,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 復旧プローブが成功しました',
   'diag_event_recovery_probe_failed': 'H3 復旧プローブが失敗しました',
   'diag_event_path_promoted': '候補パスをアクティブにしました',
+  'diag_event_queue_backpressured': '送信キューの空きを待機',
   'diag_event_queue_saturated': '送信キューが容量に達しました',
   'diag_event_disconnected': '切断しました',
   'diag_event_failed': '接続に失敗しました',

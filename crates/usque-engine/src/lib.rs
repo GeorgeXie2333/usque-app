@@ -1013,6 +1013,7 @@ impl ControlService {
                         diagnostic_session,
                         maintenance::DiagnosticTransportContext {
                             timeline,
+                            network_quality: Some(self.network_quality_snapshot()),
                             socket_receive: self.network_quality_snapshot().socket_receive,
                             #[cfg(windows)]
                             platform_state: Some(recovery_diagnostics::capture().await),

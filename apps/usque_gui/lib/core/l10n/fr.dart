@@ -607,6 +607,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Sonde de récupération H3 réussie',
   'diag_event_recovery_probe_failed': 'Sonde de récupération H3 échouée',
   'diag_event_path_promoted': 'Chemin candidat activé',
+  'diag_event_queue_backpressured': 'Attente de capacité de la file d’envoi',
   'diag_event_queue_saturated': 'La file d’envoi a atteint sa capacité',
   'diag_event_disconnected': 'Déconnecté',
   'diag_event_failed': 'Échec de connexion',

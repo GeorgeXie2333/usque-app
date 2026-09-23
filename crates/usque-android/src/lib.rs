@@ -2660,6 +2660,7 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             .connection_id
             .map(|connection| connection.0.to_string())
             .unwrap_or_default(),
+        "transport_performance": snapshot.transport_performance.as_ref().map(usque_transport::TransportPerformanceSnapshot::to_json),
         "udp_socket_receive": snapshot.socket_receive.as_ref().map(|socket| serde_json::json!({
             "receive_buffer_bytes": socket.receive_buffer_bytes,
             "send_buffer_bytes": socket.send_buffer_bytes,
@@ -2732,6 +2733,7 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             ),
         },
         "queues": snapshot.queues.iter().map(|queue| serde_json::json!({
+            "backpressure": queue.backpressure.as_ref().map(usque_transport::QueueBackpressureSnapshot::to_json),
             "kind": native_queue_kind(queue.kind),
             "availability": native_availability(queue.availability),
             "current_items": queue.current_items,

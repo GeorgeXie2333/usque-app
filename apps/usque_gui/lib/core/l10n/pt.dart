@@ -596,6 +596,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Sonda de recuperação H3 bem-sucedida',
   'diag_event_recovery_probe_failed': 'Sonda de recuperação H3 falhou',
   'diag_event_path_promoted': 'Caminho candidato ativado',
+  'diag_event_queue_backpressured': 'Espera por capacidade na fila de envio',
   'diag_event_queue_saturated': 'A fila de envio atingiu a capacidade',
   'diag_event_disconnected': 'Desconectado',
   'diag_event_failed': 'Falha na conexão',

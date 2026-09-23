@@ -197,6 +197,7 @@ internal object NetworkQualityFields {
                             "availability" to token(value, "availability", availability, "unknown"),
                             "closed" to (value.opt("closed") == true),
                             "cancelled" to (value.opt("cancelled") == true),
+                            "backpressure" to value.optJSONObject("backpressure")?.let { backpressure(it) },
                         )
                 }.distinctBy { it["kind"] }
         val pmtu = source.optJSONObject("pmtu")
@@ -232,6 +233,7 @@ internal object NetworkQualityFields {
                     numbers(socket, setOf("receive_buffer_bytes", "send_buffer_bytes")) +
                         mapOf("observation" to observation)
                 },
+            "transport_performance" to source.optJSONObject("transport_performance")?.let { performance(it) },
             "samples" to sampleOutput,
             "sampled_at_unix_ms" to number(source, "sampled_at_unix_ms"),
             "connection_instance_id" to (source.opt("connection_instance_id") as? String)?.takeIf(instanceId::matches),
@@ -279,6 +281,65 @@ internal object NetworkQualityFields {
                 ),
         )
     }
+
+    private fun buckets(
+        source: JSONObject,
+        key: String,
+        limit: Int,
+    ): List<Long?> {
+        val array = source.optJSONArray(key) ?: return emptyList()
+        return (0 until minOf(array.length(), limit)).map { index ->
+            number(JSONObject().put("n", array.opt(index)), "n")
+        }
+    }
+
+    private fun backpressure(source: JSONObject): Map<String, Any?> =
+        numbers(
+            source,
+            setOf("waits", "active", "completed", "cancelled", "closed", "errors", "total_us", "max_us"),
+        ) +
+            mapOf("buckets" to buckets(source, "buckets", 32))
+
+    private fun performance(source: JSONObject): Map<String, Any?> =
+        numbers(source, setOf("incoming_copy_bytes", "send_timeouts")) +
+            mapOf(
+                "h2" to
+                    source.optJSONObject("h2")?.let {
+                        numbers(
+                            it,
+                            setOf(
+                                "data_frames",
+                                "data_bytes",
+                                "assembly_copy_bytes",
+                                "batches",
+                                "packets",
+                                "packet_bytes",
+                            ),
+                        )
+                    },
+                "h3" to
+                    source.optJSONObject("h3")?.let {
+                        numbers(
+                            it,
+                            setOf(
+                                "application_batches",
+                                "application_packets",
+                                "application_bytes",
+                                "encode_pool_exhausted",
+                                "datagram_queue_full",
+                                "pmtu_deferred",
+                                "wire_queue_full",
+                                "quantum_limited",
+                                "quic_no_progress_with_backlog",
+                                "udp_would_block",
+                                "udp_partial_sends",
+                                "udp_message_too_large",
+                            ),
+                        )
+                    },
+                "h2_batch_sizes" to buckets(source, "h2_batch_sizes", 7),
+                "h3_batch_sizes" to buckets(source, "h3_batch_sizes", 7),
+            )
 
     private fun numbers(
         source: JSONObject?,

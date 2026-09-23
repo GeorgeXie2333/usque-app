@@ -548,6 +548,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 복구 프로브 성공',
   'diag_event_recovery_probe_failed': 'H3 복구 프로브 실패',
   'diag_event_path_promoted': '후보 경로가 활성화됨',
+  'diag_event_queue_backpressured': '전송 큐 용량 대기',
   'diag_event_queue_saturated': '전송 큐가 용량에 도달함',
   'diag_event_disconnected': '연결 해제됨',
   'diag_event_failed': '연결 실패',

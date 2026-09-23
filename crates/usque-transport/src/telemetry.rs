@@ -36,6 +36,7 @@ pub enum ConnectionEventType {
     MigrationPromoted,
     MigrationFailed,
     QueueSaturated,
+    QueueBackpressured,
     PmtuChanged,
     PmtuRevalidationStarted,
     PmtuRevalidationFailed,
@@ -54,6 +55,7 @@ pub struct ConnectionEvent {
     pub address_family: Option<AddressFamily>,
     pub duration: Option<Duration>,
     pub failure: Option<TransportFailure>,
+    pub queue_kind: Option<crate::QueueKind>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -232,6 +234,22 @@ impl ConnectionTelemetry {
         duration: Option<Duration>,
         failure: Option<TransportFailure>,
     ) {
+        self.record_with_queue(event_type, stage, path, duration, failure, None);
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "typed queue context extends the existing bounded event envelope"
+    )]
+    fn record_with_queue(
+        &self,
+        event_type: ConnectionEventType,
+        stage: Option<TransportStage>,
+        path: ConnectionEventPath,
+        duration: Option<Duration>,
+        failure: Option<TransportFailure>,
+        queue_kind: Option<crate::QueueKind>,
+    ) {
         if event_type == ConnectionEventType::Disconnected {
             self.quality.end_connection();
         }
@@ -246,6 +264,7 @@ impl ConnectionTelemetry {
             address_family: path.address_family,
             duration,
             failure: failure.clone(),
+            queue_kind,
         };
         if state.events.len() == state.capacity {
             state.events.pop_front();
@@ -348,26 +367,21 @@ impl ConnectionTelemetry {
         );
     }
 
-    pub fn record_queue_saturated(&self, queue_depth: usize) {
+    pub fn record_queue_backpressured(&self, queue_kind: crate::QueueKind, duration: Duration) {
         let wait_count = self
             .send_queue_wait_count
             .fetch_add(1, Ordering::Relaxed)
             .saturating_add(1);
-        if !wait_count.is_power_of_two() {
-            return;
+        if wait_count.is_power_of_two() {
+            self.record_with_queue(
+                ConnectionEventType::QueueBackpressured,
+                Some(TransportStage::PacketSend),
+                ConnectionEventPath::default(),
+                Some(duration),
+                None,
+                Some(queue_kind),
+            );
         }
-        let failure = TransportFailure::new(
-            TransportFailureCode::SendQueueFull,
-            TransportStage::PacketSend,
-        )
-        .with_sanitized_detail(format!("queue depth {queue_depth}"));
-        self.record(
-            ConnectionEventType::QueueSaturated,
-            Some(TransportStage::PacketSend),
-            ConnectionEventPath::default(),
-            None,
-            Some(failure),
-        );
     }
 
     pub fn set_reconnect(&self, count: u32, failure: &TransportFailure) {
@@ -452,20 +466,45 @@ mod tests {
         telemetry.observe_queue_depth(3);
         telemetry.record_queue_drop();
         telemetry.record_queue_drop();
-        telemetry.record_queue_saturated(1_024);
-        telemetry.record_queue_saturated(1_024);
-        telemetry.record_queue_saturated(1_024);
+        telemetry.record_queue_backpressured(
+            crate::QueueKind::TransportOutgoingPackets,
+            Duration::from_millis(2),
+        );
+        telemetry.record_queue_backpressured(
+            crate::QueueKind::TransportOutgoingPackets,
+            Duration::from_millis(2),
+        );
+        telemetry.record_queue_backpressured(
+            crate::QueueKind::TransportOutgoingPackets,
+            Duration::from_millis(2),
+        );
 
         let snapshot = telemetry.snapshot();
         assert_eq!(snapshot.metrics.send_queue_high_watermark, 7);
         assert_eq!(snapshot.metrics.send_queue_drop_count, 2);
         assert_eq!(
+            snapshot.metrics.last_failure_code,
+            Some(TransportFailureCode::SendQueueFull)
+        );
+        for event in snapshot
+            .events
+            .iter()
+            .filter(|event| event.event_type == ConnectionEventType::QueueBackpressured)
+        {
+            assert!(event.failure.is_none());
+            assert_eq!(
+                event.queue_kind,
+                Some(crate::QueueKind::TransportOutgoingPackets)
+            );
+            assert_eq!(event.duration, Some(Duration::from_millis(2)));
+        }
+        assert_eq!(
             snapshot
                 .events
                 .iter()
-                .filter(|event| event.event_type == ConnectionEventType::QueueSaturated)
+                .filter(|event| event.event_type == ConnectionEventType::QueueBackpressured)
                 .count(),
-            4
+            2
         );
         let saturation_details = snapshot
             .events
@@ -474,10 +513,7 @@ mod tests {
             .filter_map(|event| event.failure.as_ref())
             .filter_map(|failure| failure.sanitized_detail.as_deref())
             .collect::<Vec<_>>();
-        assert_eq!(
-            saturation_details,
-            vec!["queue depth 1024", "queue depth 1024"]
-        );
+        assert_eq!(saturation_details, Vec::<&str>::new());
     }
 
     #[test]

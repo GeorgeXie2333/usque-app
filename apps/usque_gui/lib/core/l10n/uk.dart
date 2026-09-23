@@ -596,6 +596,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_event_recovery_probe_failed':
       'Зонд відновлення H3 завершився з помилкою',
   'diag_event_path_promoted': 'Шлях-кандидат активовано',
+  'diag_event_queue_backpressured': 'Очікування місця в черзі надсилання',
   'diag_event_queue_saturated':
       'Черга надсилання досягла максимальної місткості',
   'diag_event_disconnected': 'Від’єднано',

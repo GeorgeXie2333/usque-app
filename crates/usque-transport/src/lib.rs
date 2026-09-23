@@ -57,7 +57,12 @@ mod stack_tcp;
 mod tcp;
 mod tcp_candidates;
 mod telemetry;
+mod transport_performance;
 mod tunnel;
+pub use transport_performance::{
+    H2ReceivePerformance, H3SendPerformance, QueueBackpressureSnapshot,
+    TransportPerformanceSnapshot,
+};
 mod udp_io;
 mod udp_options;
 mod vpngate;

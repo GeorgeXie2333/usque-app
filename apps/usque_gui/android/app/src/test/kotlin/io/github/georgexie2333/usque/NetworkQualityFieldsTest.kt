@@ -11,6 +11,51 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 
 class NetworkQualityFieldsTest {
+    @Test fun transportPerformanceKeepsOnlyNumbersAndBoundedHistograms() {
+        val source =
+            JSONObject()
+                .put(
+                    "transport_performance",
+                    JSONObject()
+                        .put("h3", JSONObject().put("encode_pool_exhausted", 3).put("secret", "private"))
+                        .put("h3_batch_sizes", JSONArray(List(100) { 1 })),
+                ).put(
+                    "queues",
+                    JSONArray().put(
+                        JSONObject()
+                            .put("kind", "transportOutgoing")
+                            .put(
+                                "backpressure",
+                                JSONObject()
+                                    .put("waits", 4)
+                                    .put("total_us", 2500)
+                                    .put("buckets", JSONArray(List(100) { 1 }))
+                                    .put("payload", "private"),
+                            ),
+                    ),
+                )
+        val encoded = requireNotNull(NetworkQualityFields.encode(source))
+        assertFalse(encoded.contains("private"))
+        val safe = JSONObject(encoded)
+        val performance = safe.getJSONObject("transport_performance")
+        assertTrue(performance.isNull("h2"))
+        assertEquals(3L, performance.getJSONObject("h3").getLong("encode_pool_exhausted"))
+        assertEquals(7, performance.getJSONArray("h3_batch_sizes").length())
+        val wait = safe.getJSONArray("queues").getJSONObject(0).getJSONObject("backpressure")
+        assertEquals(2500L, wait.getLong("total_us"))
+        assertEquals(32, wait.getJSONArray("buckets").length())
+        assertTrue(
+            JSONObject(requireNotNull(NetworkQualityFields.encode(JSONObject()))).isNull("transport_performance"),
+        )
+        assertNotNullExport(source)
+    }
+
+    private fun assertNotNullExport(source: JSONObject) {
+        val exported = requireNotNull(NetworkQualityFields.diagnostic(source.toString(), false))
+        assertTrue(exported.has("transport_performance"))
+        assertFalse(exported.toString().contains("private"))
+    }
+
     @Test fun sharedCredentialCapabilityReachesTheFlutterBridge() {
         for (key in listOf("account_metadata_mutations", "shared_proxy_auth_application")) {
             assertEquals(true, NetworkQualityFields.capabilities("{\"$key\":true}")[key])
