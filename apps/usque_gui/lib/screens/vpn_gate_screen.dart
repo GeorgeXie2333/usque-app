@@ -7,6 +7,7 @@ import '../core/user_facing_errors.dart';
 import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
+import '../widgets/chain_editor_layout.dart';
 import '../widgets/common.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/unsaved_changes_guard.dart';
@@ -18,11 +19,13 @@ typedef _GateView = ({
   String catalogId,
   ConnectionPhase phase,
   VpnGateStatus gate,
+  ChainExitStatus chain,
   String? warning,
   String? error,
   bool tcpSupported,
   bool favoritesSupported,
   bool appliedEnabled,
+  String? networkMessage,
 });
 
 class VpnGateScreen extends StatefulWidget {
@@ -31,7 +34,7 @@ class VpnGateScreen extends StatefulWidget {
     this.active = true,
     this.leaveGuardKey,
     this.now = DateTime.now,
-    this.sourcePicker,
+    this.chainPageBuilder,
     this.initialDraft,
     this.initialServer,
     this.initialEnabled,
@@ -45,7 +48,7 @@ class VpnGateScreen extends StatefulWidget {
   final DateTime Function() now;
 
   /// Present when this view is one source on the chain proxy page.
-  final Widget? sourcePicker;
+  final ChainPageBuilder? chainPageBuilder;
 
   /// A draft retained by the chain page from an earlier visit to this source.
   final VpnGateSettings? initialDraft;
@@ -104,7 +107,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       _appResumed = true;
   bool get _foreground => _appResumed && widget.active;
   String? _fetchError, _saveError;
-  bool get _onChainPage => widget.sourcePicker != null;
+  bool get _onChainPage => widget.chainPageBuilder != null;
   VpnGateSettings get _stored => _onChainPage
       ? VpnGateScreen.chainBaseline(_controller.activeProfile)
       : _controller.activeProfile.vpnGate;
@@ -402,7 +405,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
         vpnGate: target.hasSelection
             ? target
             : stored.copyWith(enabled: target.enabled),
-        chainExit: widget.sourcePicker == null
+        chainExit: widget.chainPageBuilder == null
             ? null
             : ChainExitSettings(
                 enabled: target.enabled,
@@ -411,7 +414,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       ),
       changedFields: [
         'vpn_gate',
-        if (widget.sourcePicker != null) 'chain_exit',
+        if (widget.chainPageBuilder != null) 'chain_exit',
       ],
     );
     if (!mounted) return;
@@ -593,6 +596,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       catalogId: controller.strings.catalogId,
       phase: controller.snapshot.phase,
       gate: controller.snapshot.vpnGate,
+      chain: controller.snapshot.chainExit,
       warning: controller.snapshot.warning,
       error: controller.lastError,
       tcpSupported: controller.engineCapabilities?.vpnGateTcp ?? false,
@@ -601,6 +605,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       appliedEnabled:
           controller.networkSettings.state?.appliedProfile?.vpnGate.enabled ??
           false,
+      networkMessage: controller.networkSettingsMessage,
     ),
     builder: (context, _) {
       final strings = _controller.strings;
@@ -627,327 +632,382 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       final supported =
           (_controller.engineCapabilities?.vpnGateTcp ?? false) &&
           (_controller.engineCapabilities?.vpnGatePoolFavorites ?? false);
+      final onEnabledChanged = _saving || !supported
+          ? null
+          : (bool enabled) => setState(
+              () =>
+                  _updateDraft(_draft.copyWith(enabled: enabled), _draftServer),
+            );
+      final bottomBar = VpnGateSelectionBar(
+        strings: strings,
+        chainPage: _onChainPage,
+        statusLabel:
+            !_dirty ||
+                _controller.networkSettings.unconfirmed ||
+                _controller.networkSettings.saveError != null
+            ? _controller.networkSettingsMessage
+            : null,
+        draft: _draft,
+        savedEnabled: _baseline.enabled,
+        dirty: _dirty,
+        connected: snapshot.isConnected,
+        saving: _saving,
+        preparing: _nodeOperation != null,
+        actionKey: action,
+        server: _draftServer,
+        saveError: _saveError,
+        nodeError: _nodeError,
+        onCancel: _cancelNode,
+        onApply:
+            _saving ||
+                _nodeOperation != null ||
+                !_dirty ||
+                snapshot.isTransitional ||
+                _draft.enabled && (!_draft.hasSelection || !supported)
+            ? null
+            : _save,
+      );
+      final refreshAction = TextButton.icon(
+        onPressed: _nodeOperation != null || _cancellingRefresh
+            ? null
+            : refreshing
+            ? _cancelRefresh
+            : _refresh,
+        icon: Icon(refreshing ? LucideIcons.x : LucideIcons.refreshCw),
+        label: Text(strings.get(refreshing ? 'cancel' : 'gate_refresh')),
+      );
+      final slivers = <Widget>[
+        SliverToBoxAdapter(
+          child: FocusTraversalGroup(
+            child: Builder(
+              builder: (context) {
+                final onChainPage = widget.chainPageBuilder != null;
+                final toggle = SwitchListTile.adaptive(
+                  key: const ValueKey('vpn-gate-toggle'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    onChainPage ? strings.chain('enable') : 'WARP → VPN Gate',
+                  ),
+                  subtitle: Text(strings.get('gate_scope')),
+                  value: _draft.enabled,
+                  onChanged: _saving || !supported
+                      ? null
+                      : (enabled) => setState(
+                          () => _updateDraft(
+                            _draft.copyWith(enabled: enabled),
+                            _draftServer,
+                          ),
+                        ),
+                );
+                return PanelStack(
+                  spacing: onChainPage ? 20 : 28,
+                  children: [
+                    if (!supported && !onChainPage)
+                      WarningBanner(
+                        title: strings.get('error'),
+                        message: strings.vpnGateUnsupported,
+                      ),
+                    if (!onChainPage) toggle,
+                    if (!onChainPage)
+                      if (snapshot.chainExit.currentProfile case final current?)
+                        ContentSection(
+                          title: strings.chain('current'),
+                          children: [
+                            Text('${current.source.label} · ${current.name}'),
+                            Text(
+                              strings.get(
+                                snapshot.isConnected
+                                    ? 'connected'
+                                    : snapshot.isTransitional
+                                    ? 'connecting'
+                                    : snapshot.phase == ConnectionPhase.error
+                                    ? 'error'
+                                    : 'disconnected',
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        VpnGateConnectionSummary(
+                          strings: strings,
+                          view: view,
+                          error:
+                              snapshot.warning ??
+                              _controller.lastError ??
+                              snapshot.vpnGate.failure,
+                        ),
+                    ContentSection(
+                      key: const ValueKey('chain-gate-directory'),
+                      title: strings.get('gate_servers'),
+                      gap: onChainPage ? 12 : 16,
+                      subtitle:
+                          '${strings.get('gate_source_metrics')} ${strings.get('gate_tcp_scope')}',
+                      children: [
+                        if (onChainPage) ...[
+                          Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: OutlinedButton.icon(
+                              onPressed: refreshAction.onPressed,
+                              icon: Icon(
+                                refreshing
+                                    ? LucideIcons.x
+                                    : LucideIcons.refreshCw,
+                              ),
+                              label: Text(
+                                strings.get(
+                                  refreshing ? 'cancel' : 'gate_refresh',
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        if (_fetchError != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: WarningBanner(
+                              title: strings.get('error'),
+                              message: strings.get(_fetchError!),
+                              danger: true,
+                            ),
+                          ),
+                        VpnGateFilters(
+                          strings: strings,
+                          favoritesOnly: _favoritesOnly,
+                          favoriteCount: _directory.favoriteCount,
+                          country: _country,
+                          countries: _directory.countries,
+                          onScopeChanged: (favorites) {
+                            setState(() {
+                              _favoritesOnly = favorites;
+                              _country = 'ALL';
+                              _offset = 0;
+                            });
+                            unawaited(_load());
+                          },
+                          onCountryChanged: _saving
+                              ? null
+                              : (country) {
+                                  setState(() {
+                                    _country = country;
+                                    _offset = 0;
+                                  });
+                                  unawaited(_load());
+                                },
+                        ),
+                        if (_loading || refreshing)
+                          const LinearProgressIndicator(minHeight: 2),
+                        if (_directory.servers.isEmpty && !_loading)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 24),
+                            child: Text(
+                              strings.get(
+                                _favoritesOnly
+                                    ? 'gate_favorites_empty'
+                                    : 'gate_empty',
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+        SliverList.builder(
+          itemCount: _directory.servers.length,
+          findChildIndexCallback: (key) {
+            if (key is! ValueKey<(String, String)>) return null;
+            final index = _directory.servers.indexWhere(
+              (server) => (server.id, server.configSha256) == key.value,
+            );
+            return index < 0 ? null : index;
+          },
+          itemBuilder: (context, index) =>
+              _serverRow(_directory.servers[index], strings),
+        ),
+        SliverToBoxAdapter(
+          child: PanelStack(
+            spacing: 28,
+            children: [
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    strings
+                        .get('gate_paging')
+                        .replaceAll(
+                          '{current}',
+                          '${_directory.total == 0 ? 0 : _offset + 1}–${_offset + _directory.servers.length}',
+                        )
+                        .replaceAll('{total}', '${_directory.total}'),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: strings.get('gate_previous'),
+                        onPressed: _offset == 0 || _loading
+                            ? null
+                            : () {
+                                setState(
+                                  () => _offset = (_offset - 50).clamp(
+                                    0,
+                                    _directory.total,
+                                  ),
+                                );
+                                unawaited(_load());
+                              },
+                        icon: const Icon(LucideIcons.chevronLeft),
+                      ),
+                      IconButton(
+                        tooltip: strings.get('gate_next'),
+                        onPressed:
+                            _offset + _directory.servers.length >=
+                                    _directory.total ||
+                                _loading
+                            ? null
+                            : () {
+                                setState(() => _offset += 50);
+                                unawaited(_load());
+                              },
+                        icon: const Icon(LucideIcons.chevronRight),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              ContentSection(
+                title: strings.get('gate_directory'),
+                children: [
+                  Text(
+                    '${strings.get('gate_source_fetched')}: ${_time(_directory.sourceFetchedAt)}',
+                  ),
+                  if (_directory.sourceFetchedAt != null &&
+                      DateTime.now().difference(_directory.sourceFetchedAt!) >
+                          const Duration(hours: 3))
+                    Text(
+                      strings.get(
+                        DateTime.now().difference(_directory.sourceFetchedAt!) >
+                                const Duration(hours: 24)
+                            ? 'gate_source_very_old'
+                            : 'gate_source_old',
+                      ),
+                    ),
+                  ExpansionTile(
+                    key: const PageStorageKey<String>(
+                      'vpn-gate-source-details',
+                    ),
+                    title: Text(strings.get('technical_details')),
+                    expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+                    childrenPadding: const EdgeInsets.all(12),
+                    children: [
+                      Text(
+                        '${strings.get('gate_received')}: ${_directory.fetchedAt?.toLocal().toString().split('.').first ?? '—'}',
+                      ),
+                      PageStorage(
+                        bucket: _directoryTextStorage,
+                        child: SelectableText(
+                          '${strings.get('gate_source')}: ${_directory.sourceUrl ?? '—'}',
+                        ),
+                      ),
+                      Text(
+                        strings.get(
+                          _directory.fetchedAt == null
+                              ? 'gate_no_cache'
+                              : _directory.cached
+                              ? 'gate_cached'
+                              : 'gate_verified',
+                        ),
+                      ),
+                      Text(strings.get('gate_freshness')),
+                    ],
+                  ),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton(
+                      onPressed: () => showLicensePage(
+                        context: context,
+                        applicationName: 'Usque',
+                      ),
+                      child: Text(
+                        MaterialLocalizations.of(context).licensesPageTitle,
+                      ),
+                    ),
+                  ),
+                  if (_directory.failures.isNotEmpty)
+                    ExpansionTile(
+                      key: const PageStorageKey<String>(
+                        'vpn-gate-directory-failures',
+                      ),
+                      title: Text(strings.get('gate_fetch_error')),
+                      children: [
+                        for (final failure in _directory.failures)
+                          Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: PageStorage(
+                              bucket: _directoryTextStorage,
+                              child: SelectableText(failure),
+                            ),
+                          ),
+                      ],
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ];
+      final page =
+          widget.chainPageBuilder?.call(
+            enabled: _draft.enabled,
+            onEnabledChanged: onEnabledChanged,
+            bottomBar: bottomBar,
+            warning: !supported
+                ? WarningBanner(
+                    title: strings.get('error'),
+                    message: strings.vpnGateUnsupported,
+                  )
+                : null,
+            slivers: slivers,
+          ) ??
+          SubPage(
+            title: 'VPN Gate',
+            actions: [refreshAction],
+            subtitle: strings.get('gate_subtitle'),
+            backLabel: strings.get('back'),
+            contentWidth: 880,
+            bottomBar: bottomBar,
+            slivers: slivers,
+          );
       return UnsavedChangesGuard(
         key: widget.leaveGuardKey,
         strings: strings,
         dirty: _dirty || widget.otherPending,
         saving: _saving,
-        child: SubPage(
-          title: widget.sourcePicker == null
-              ? 'VPN Gate'
-              : strings.chain('title'),
-          subtitle: strings.get('gate_subtitle'),
-          backLabel: strings.get('back'),
-          contentWidth: 880,
-          bottomBar: VpnGateSelectionBar(
-            strings: strings,
-            draft: _draft,
-            savedEnabled: _baseline.enabled,
-            dirty: _dirty,
-            connected: snapshot.isConnected,
-            saving: _saving,
-            preparing: _nodeOperation != null,
-            actionKey: action,
-            server: _draftServer,
-            saveError: _saveError,
-            nodeError: _nodeError,
-            onCancel: _cancelNode,
-            onApply:
-                _saving ||
-                    _nodeOperation != null ||
-                    !_dirty ||
-                    snapshot.isTransitional ||
-                    _draft.enabled && (!_draft.hasSelection || !supported)
-                ? null
-                : _save,
-          ),
-          actions: [
-            TextButton.icon(
-              onPressed: _nodeOperation != null || _cancellingRefresh
-                  ? null
-                  : refreshing
-                  ? _cancelRefresh
-                  : _refresh,
-              icon: Icon(refreshing ? LucideIcons.x : LucideIcons.refreshCw),
-              label: Text(strings.get(refreshing ? 'cancel' : 'gate_refresh')),
-            ),
-          ],
-          slivers: [
-            SliverToBoxAdapter(
-              child: FocusTraversalGroup(
-                child: Builder(
-                  builder: (context) {
-                    final onChainPage = widget.sourcePicker != null;
-                    final toggle = SwitchListTile.adaptive(
-                      key: const ValueKey('vpn-gate-toggle'),
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        onChainPage
-                            ? strings.chain('enable')
-                            : 'WARP → VPN Gate',
-                      ),
-                      subtitle: Text(strings.get('gate_scope')),
-                      value: _draft.enabled,
-                      onChanged: _saving || !supported
-                          ? null
-                          : (enabled) => setState(
-                              () => _updateDraft(
-                                _draft.copyWith(enabled: enabled),
-                                _draftServer,
-                              ),
-                            ),
-                    );
-                    return PanelStack(
-                      spacing: onChainPage ? 20 : 28,
-                      children: [
-                        // On the chain page the switch leads, above the source
-                        // choices, as it does for the custom sources.
-                        if (onChainPage) ...[toggle, widget.sourcePicker!],
-                        if (!supported)
-                          WarningBanner(
-                            title: strings.get('error'),
-                            message: strings.vpnGateUnsupported,
-                          ),
-                        if (!onChainPage) toggle,
-                        if (snapshot.chainExit.currentProfile
-                            case final current?)
-                          ContentSection(
-                            title: strings.chain('current'),
-                            children: [
-                              Text('${current.source.label} · ${current.name}'),
-                              Text(
-                                strings.get(
-                                  snapshot.isConnected
-                                      ? 'connected'
-                                      : snapshot.isTransitional
-                                      ? 'connecting'
-                                      : snapshot.phase == ConnectionPhase.error
-                                      ? 'error'
-                                      : 'disconnected',
-                                ),
-                              ),
-                            ],
-                          )
-                        else
-                          VpnGateConnectionSummary(
-                            strings: strings,
-                            view: view,
-                            error:
-                                snapshot.warning ??
-                                _controller.lastError ??
-                                snapshot.vpnGate.failure,
-                          ),
-                        ContentSection(
-                          title: strings.get('gate_servers'),
-                          subtitle:
-                              '${strings.get('gate_source_metrics')} ${strings.get('gate_tcp_scope')}',
-                          children: [
-                            if (_fetchError != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 16),
-                                child: WarningBanner(
-                                  title: strings.get('error'),
-                                  message: strings.get(_fetchError!),
-                                  danger: true,
-                                ),
-                              ),
-                            VpnGateFilters(
-                              strings: strings,
-                              favoritesOnly: _favoritesOnly,
-                              favoriteCount: _directory.favoriteCount,
-                              country: _country,
-                              countries: _directory.countries,
-                              onScopeChanged: (favorites) {
-                                setState(() {
-                                  _favoritesOnly = favorites;
-                                  _country = 'ALL';
-                                  _offset = 0;
-                                });
-                                unawaited(_load());
-                              },
-                              onCountryChanged: _saving
-                                  ? null
-                                  : (country) {
-                                      setState(() {
-                                        _country = country;
-                                        _offset = 0;
-                                      });
-                                      unawaited(_load());
-                                    },
-                            ),
-                            if (_loading || refreshing)
-                              const LinearProgressIndicator(minHeight: 2),
-                            if (_directory.servers.isEmpty && !_loading)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 24,
-                                ),
-                                child: Text(
-                                  strings.get(
-                                    _favoritesOnly
-                                        ? 'gate_favorites_empty'
-                                        : 'gate_empty',
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
-                ),
+        child: !_onChainPage
+            ? page
+            : RadioGroup<(String, String)>(
+                groupValue: (_draft.serverId, _draft.configSha256),
+                onChanged: (value) {
+                  if (value == null ||
+                      !_draft.enabled ||
+                      _saving ||
+                      _nodeOperation != null) {
+                    return;
+                  }
+                  final server = _directory.servers
+                      .where(
+                        (server) => (server.id, server.configSha256) == value,
+                      )
+                      .firstOrNull;
+                  if (server != null) _selectServer(server);
+                },
+                child: page,
               ),
-            ),
-            SliverList.builder(
-              itemCount: _directory.servers.length,
-              findChildIndexCallback: (key) {
-                if (key is! ValueKey<(String, String)>) return null;
-                final index = _directory.servers.indexWhere(
-                  (server) => (server.id, server.configSha256) == key.value,
-                );
-                return index < 0 ? null : index;
-              },
-              itemBuilder: (context, index) =>
-                  _serverRow(_directory.servers[index], strings),
-            ),
-            SliverToBoxAdapter(
-              child: PanelStack(
-                spacing: 28,
-                children: [
-                  Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Text(
-                        strings
-                            .get('gate_paging')
-                            .replaceAll(
-                              '{current}',
-                              '${_directory.total == 0 ? 0 : _offset + 1}–${_offset + _directory.servers.length}',
-                            )
-                            .replaceAll('{total}', '${_directory.total}'),
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: strings.get('gate_previous'),
-                            onPressed: _offset == 0 || _loading
-                                ? null
-                                : () {
-                                    setState(
-                                      () => _offset = (_offset - 50).clamp(
-                                        0,
-                                        _directory.total,
-                                      ),
-                                    );
-                                    unawaited(_load());
-                                  },
-                            icon: const Icon(LucideIcons.chevronLeft),
-                          ),
-                          IconButton(
-                            tooltip: strings.get('gate_next'),
-                            onPressed:
-                                _offset + _directory.servers.length >=
-                                        _directory.total ||
-                                    _loading
-                                ? null
-                                : () {
-                                    setState(() => _offset += 50);
-                                    unawaited(_load());
-                                  },
-                            icon: const Icon(LucideIcons.chevronRight),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  ContentSection(
-                    title: strings.get('gate_directory'),
-                    children: [
-                      Text(
-                        '${strings.get('gate_source_fetched')}: ${_time(_directory.sourceFetchedAt)}',
-                      ),
-                      if (_directory.sourceFetchedAt != null &&
-                          DateTime.now().difference(
-                                _directory.sourceFetchedAt!,
-                              ) >
-                              const Duration(hours: 3))
-                        Text(
-                          strings.get(
-                            DateTime.now().difference(
-                                      _directory.sourceFetchedAt!,
-                                    ) >
-                                    const Duration(hours: 24)
-                                ? 'gate_source_very_old'
-                                : 'gate_source_old',
-                          ),
-                        ),
-                      ExpansionTile(
-                        key: const PageStorageKey<String>(
-                          'vpn-gate-source-details',
-                        ),
-                        title: Text(strings.get('technical_details')),
-                        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-                        childrenPadding: const EdgeInsets.all(12),
-                        children: [
-                          Text(
-                            '${strings.get('gate_received')}: ${_directory.fetchedAt?.toLocal().toString().split('.').first ?? '—'}',
-                          ),
-                          PageStorage(
-                            bucket: _directoryTextStorage,
-                            child: SelectableText(
-                              '${strings.get('gate_source')}: ${_directory.sourceUrl ?? '—'}',
-                            ),
-                          ),
-                          Text(
-                            strings.get(
-                              _directory.fetchedAt == null
-                                  ? 'gate_no_cache'
-                                  : _directory.cached
-                                  ? 'gate_cached'
-                                  : 'gate_verified',
-                            ),
-                          ),
-                          Text(strings.get('gate_freshness')),
-                        ],
-                      ),
-                      Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: TextButton(
-                          onPressed: () => showLicensePage(
-                            context: context,
-                            applicationName: 'Usque',
-                          ),
-                          child: Text(
-                            MaterialLocalizations.of(context).licensesPageTitle,
-                          ),
-                        ),
-                      ),
-                      if (_directory.failures.isNotEmpty)
-                        ExpansionTile(
-                          key: const PageStorageKey<String>(
-                            'vpn-gate-directory-failures',
-                          ),
-                          title: Text(strings.get('gate_fetch_error')),
-                          children: [
-                            for (final failure in _directory.failures)
-                              Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: PageStorage(
-                                  bucket: _directoryTextStorage,
-                                  child: SelectableText(failure),
-                                ),
-                              ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       );
     },
   );
@@ -963,15 +1023,21 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       strings: strings,
       now: widget.now(),
       selected: selected,
-      onSelect: !enabled
-          ? null
-          : () {
-              if (!selected) unawaited(_releaseDraft());
-              setState(() {
-                _updateDraft(_draft.copyWith(server: server), server);
-                _saveError = null;
-              });
-            },
+      chainLayout: _onChainPage,
+      saved:
+          _onChainPage &&
+          _controller.activeProfile.chainSource == ChainSource.vpnGate &&
+          _baseline.enabled &&
+          server.matches(_baseline),
+      current:
+          _onChainPage &&
+          _controller.snapshot.isConnected &&
+          _controller.snapshot.chainExit.currentProfile == null &&
+          _controller.snapshot.vpnGate.connected &&
+          _controller.snapshot.vpnGate.server?.id == server.id &&
+          _controller.snapshot.vpnGate.server?.configSha256 ==
+              server.configSha256,
+      onSelect: !enabled ? null : () => _selectServer(server),
       onFavorite:
           !supported ||
               (favorite == null && (_saving || _nodeOperation != null))
@@ -981,6 +1047,14 @@ class _VpnGateScreenState extends State<VpnGateScreen>
           ? null
           : () => _favorite(server, update: true),
     );
+  }
+
+  void _selectServer(VpnGateServer server) {
+    if (!server.matches(_draft)) unawaited(_releaseDraft());
+    setState(() {
+      _updateDraft(_draft.copyWith(server: server), server);
+      _saveError = null;
+    });
   }
 
   String _time(DateTime? value) =>

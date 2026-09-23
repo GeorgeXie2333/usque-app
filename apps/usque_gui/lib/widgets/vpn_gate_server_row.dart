@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/chain_strings.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
+import 'chain_editor_layout.dart';
+import 'common.dart';
 import 'country_flag.dart';
 
 /// A source observation's age, never a measurement of local connectivity.
@@ -34,6 +37,9 @@ class VpnGateServerRow extends StatefulWidget {
     this.onSelect,
     this.onFavorite,
     this.onUpdateFavorite,
+    this.chainLayout = false,
+    this.saved = false,
+    this.current = false,
     super.key,
   });
 
@@ -41,6 +47,7 @@ class VpnGateServerRow extends StatefulWidget {
   final AppStrings strings;
   final DateTime now;
   final bool selected;
+  final bool chainLayout, saved, current;
   final VoidCallback? onSelect, onFavorite, onUpdateFavorite;
 
   @override
@@ -163,69 +170,133 @@ class _VpnGateServerRowState extends State<VpnGateServerRow> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: ListTile(
-                  key: ValueKey('vpn-gate-node-${server.id}'),
-                  contentPadding: const EdgeInsetsDirectional.only(
-                    start: 16,
-                    end: 8,
+          if (widget.chainLayout)
+            ChainExitTile<(String, String)>(
+              tileKey: ValueKey('vpn-gate-node-${server.id}'),
+              value: (server.id, server.configSha256),
+              enabled: enabled,
+              selected: widget.selected,
+              title: Row(
+                children: [
+                  CountryFlag(
+                    countryCode: server.countryCode,
+                    enabled: enabled,
                   ),
-                  minLeadingWidth: 24,
-                  horizontalTitleGap: 16,
-                  minTileHeight: 72,
-                  minVerticalPadding: 8,
-                  titleAlignment: ListTileTitleAlignment.top,
-                  enabled: enabled,
-                  selected: widget.selected,
-                  leading: Icon(
-                    widget.selected
-                        ? LucideIcons.circleCheck
-                        : LucideIcons.circle,
-                    size: 24,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${server.countryCode ?? '—'} · ${server.ip}',
+                      style: const TextStyle(fontFamily: UsqueFonts.mono),
+                    ),
                   ),
-                  title: Row(
-                    children: [
-                      CountryFlag(
-                        countryCode: server.countryCode,
-                        enabled: enabled,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${server.countryCode ?? '—'} · ${server.ip}',
-                          style: const TextStyle(fontFamily: UsqueFonts.mono),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text(
+                ],
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
                     '${server.hostname}\n${strings.get('gate_score')}: ${server.score ?? '—'} · ${server.pingMs == null ? '—' : '${server.pingMs} ms'} · ${server.speedBps == null ? '—' : '${(server.speedBps! / 1000000).toStringAsFixed(1)} Mbps'}',
                   ),
-                  isThreeLine: true,
-                  onTap: widget.onSelect,
+                  if (widget.saved || widget.current)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 4,
+                        children: [
+                          if (widget.current)
+                            InlineStatus(
+                              label: strings.chain('current'),
+                              tone: StatusTone.success,
+                            ),
+                          if (widget.saved)
+                            InlineStatus(
+                              label: strings.chain('saved'),
+                              tone: StatusTone.brand,
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              trailing: IconButton(
+                key: ValueKey('vpn-gate-favorite-${server.id}'),
+                tooltip: strings.get(
+                  favorite == null
+                      ? 'gate_favorite_add'
+                      : 'gate_favorite_remove',
+                ),
+                isSelected: favorite != null,
+                onPressed: widget.onFavorite,
+                icon: Icon(
+                  favorite == null ? LucideIcons.star : LucideIcons.starOff,
                 ),
               ),
-              Padding(
-                padding: const EdgeInsetsDirectional.only(end: 8),
-                child: IconButton(
-                  key: ValueKey('vpn-gate-favorite-${server.id}'),
-                  tooltip: strings.get(
-                    favorite == null
-                        ? 'gate_favorite_add'
-                        : 'gate_favorite_remove',
-                  ),
-                  isSelected: favorite != null,
-                  onPressed: widget.onFavorite,
-                  icon: Icon(
-                    favorite == null ? LucideIcons.star : LucideIcons.starOff,
+            )
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ListTile(
+                    key: ValueKey('vpn-gate-node-${server.id}'),
+                    contentPadding: const EdgeInsetsDirectional.only(
+                      start: 16,
+                      end: 8,
+                    ),
+                    minLeadingWidth: 24,
+                    horizontalTitleGap: 16,
+                    minTileHeight: 72,
+                    minVerticalPadding: 8,
+                    titleAlignment: ListTileTitleAlignment.top,
+                    enabled: enabled,
+                    selected: widget.selected,
+                    leading: Icon(
+                      widget.selected
+                          ? LucideIcons.circleCheck
+                          : LucideIcons.circle,
+                      size: 24,
+                    ),
+                    title: Row(
+                      children: [
+                        CountryFlag(
+                          countryCode: server.countryCode,
+                          enabled: enabled,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${server.countryCode ?? '—'} · ${server.ip}',
+                            style: const TextStyle(fontFamily: UsqueFonts.mono),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text(
+                      '${server.hostname}\n${strings.get('gate_score')}: ${server.score ?? '—'} · ${server.pingMs == null ? '—' : '${server.pingMs} ms'} · ${server.speedBps == null ? '—' : '${(server.speedBps! / 1000000).toStringAsFixed(1)} Mbps'}',
+                    ),
+                    isThreeLine: true,
+                    onTap: widget.onSelect,
                   ),
                 ),
-              ),
-            ],
-          ),
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 8),
+                  child: IconButton(
+                    key: ValueKey('vpn-gate-favorite-${server.id}'),
+                    tooltip: strings.get(
+                      favorite == null
+                          ? 'gate_favorite_add'
+                          : 'gate_favorite_remove',
+                    ),
+                    isSelected: favorite != null,
+                    onPressed: widget.onFavorite,
+                    icon: Icon(
+                      favorite == null ? LucideIcons.star : LucideIcons.starOff,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           if (metadata != null || favorite?.latestConfigSha256 != null)
             Padding(
               // Matches ListTile's 16px inset + 24px leading + 16px title gap.
@@ -345,8 +416,8 @@ class _VpnGateServerRowState extends State<VpnGateServerRow> {
             ),
           Divider(
             height: 1,
-            indent: 16,
-            endIndent: 16,
+            indent: widget.chainLayout ? 0 : 16,
+            endIndent: widget.chainLayout ? 0 : 16,
             color: UsqueTokens.of(context).hairline,
           ),
         ],

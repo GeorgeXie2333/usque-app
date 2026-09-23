@@ -7,13 +7,13 @@ import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../state/app_controller.dart';
-import '../widgets/chain_source_icon.dart';
+import '../widgets/chain_current_connection.dart';
+import '../widgets/chain_editor_layout.dart';
 import '../widgets/chain_source_picker.dart';
 import '../widgets/common.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
-import '../widgets/vpn_gate_summary.dart';
 import 'vpn_gate_screen.dart';
 
 class ChainProxyScreen extends StatefulWidget {
@@ -148,17 +148,12 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final picker = ChainSourcePicker(
-      controller: _app,
-      source: _source,
-      onChanged: _switch,
-    );
     if (_source == ChainSource.vpnGate) {
       return VpnGateScreen(
         controller: _app,
         active: widget.active,
         leaveGuardKey: _guard,
-        sourcePicker: picker,
+        chainPageBuilder: _buildPage,
         initialDraft: _gateDraft?.copyWith(enabled: _enabled),
         initialServer: _gateServer,
         initialEnabled: _enabled,
@@ -170,20 +165,74 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
       key: ValueKey(_source),
       controller: _app,
       source: _source,
-      picker: picker,
+      pageBuilder: _buildPage,
       guard: _guard,
       initialDraft: _initialDraft(_source),
       onDraftChanged: _retain,
       otherPending: _otherPending(_source),
     );
   }
+
+  Widget _buildPage({
+    required bool enabled,
+    required ValueChanged<bool>? onEnabledChanged,
+    required Widget bottomBar,
+    required List<Widget> slivers,
+    Widget? warning,
+  }) => SubPage(
+    title: _app.strings.chain('title'),
+    subtitle: _app.strings.chain('subtitle'),
+    backLabel: _app.strings.get('back'),
+    contentWidth: 880,
+    bottomBar: ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * .45,
+      ),
+      child: SingleChildScrollView(primary: false, child: bottomBar),
+    ),
+    slivers: [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 20),
+          child: PanelStack(
+            spacing: 20,
+            children: [
+              SwitchListTile.adaptive(
+                key: ValueKey(
+                  _source == ChainSource.vpnGate
+                      ? 'vpn-gate-toggle'
+                      : 'chain-proxy-toggle',
+                ),
+                contentPadding: EdgeInsets.zero,
+                title: Text(_app.strings.chain('enable')),
+                subtitle: Text(_app.strings.chain('scope')),
+                value: enabled,
+                onChanged: onEnabledChanged,
+              ),
+              ChainSourcePicker(
+                controller: _app,
+                source: _source,
+                onChanged: _switch,
+              ),
+              ?warning,
+              ChainCurrentConnection(
+                controller: _app,
+                configuredEnabled: _app.activeProfile.chainEnabled,
+              ),
+            ],
+          ),
+        ),
+      ),
+      ...slivers,
+    ],
+  );
 }
 
 class _CustomChainEditor extends StatefulWidget {
   const _CustomChainEditor({
     required this.controller,
     required this.source,
-    required this.picker,
+    required this.pageBuilder,
     required this.guard,
     required this.initialDraft,
     required this.onDraftChanged,
@@ -192,7 +241,7 @@ class _CustomChainEditor extends StatefulWidget {
   });
   final AppController controller;
   final ChainSource source;
-  final Widget picker;
+  final ChainPageBuilder pageBuilder;
   final GlobalKey<UnsavedChangesGuardState> guard;
   final ChainExitSettings initialDraft;
   final ValueChanged<ChainExitSettings> onDraftChanged;
@@ -488,13 +537,22 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
       strings: strings,
       dirty: _dirty || widget.otherPending,
       saving: _saving,
-      child: SubPage(
-        title: strings.chain('title'),
-        subtitle: strings.chain('subtitle'),
-        backLabel: strings.get('back'),
-        contentWidth: 880,
+      child: widget.pageBuilder(
+        enabled: _draft.enabled,
+        onEnabledChanged: _saving || !_supported
+            ? null
+            : (value) =>
+                  setState(() => _setDraft(_draft.copyWith(enabled: value))),
+        warning: !_supported
+            ? WarningBanner(
+                title: widget.source.label,
+                message: strings.chain('unsupported'),
+              )
+            : null,
         bottomBar: SaveChangesBar(
           key: const ValueKey('chain-proxy-bar'),
+          contentWidth: 880,
+          matchPageGutter: true,
           strings: strings,
           dirty: _dirty || _modeConflict,
           saving: _saving,
@@ -545,32 +603,9 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
               ? () => unawaited(_apply(switchMode: _modeConflict))
               : null,
         ),
-        child: PanelStack(
-          spacing: 20,
-          children: [
-            SwitchListTile.adaptive(
-              key: const ValueKey('chain-proxy-toggle'),
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.chain('enable')),
-              subtitle: Text(strings.chain('scope')),
-              value: _draft.enabled,
-              onChanged: _saving || !_supported
-                  ? null
-                  : (value) => setState(
-                      () => _setDraft(_draft.copyWith(enabled: value)),
-                    ),
-            ),
-            widget.picker,
-            if (!_supported)
-              WarningBanner(
-                title: widget.source.label,
-                message: strings.chain('unsupported'),
-              ),
-            _CurrentConnection(
-              controller: _app,
-              configuredEnabled: _baseline.enabled,
-            ),
-            ContentSection(
+        slivers: [
+          SliverToBoxAdapter(
+            child: ContentSection(
               title: strings.chain('profiles'),
               gap: 12,
               children: [
@@ -677,141 +712,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                   ),
               ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Runtime state of the chain, independent of the draft being edited.
-class _CurrentConnection extends StatelessWidget {
-  const _CurrentConnection({
-    required this.controller,
-    required this.configuredEnabled,
-  });
-  final AppController controller;
-  final bool configuredEnabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = controller.strings;
-    final theme = Theme.of(context);
-    final snapshot = controller.snapshot;
-    final chain = snapshot.chainExit;
-    final current = chain.currentProfile;
-    final gateServer = snapshot.vpnGate.server;
-    final hasSession =
-        current != null || gateServer != null || snapshot.isTransitional;
-    final stateKey = !hasSession
-        ? configuredEnabled
-              ? 'disconnected'
-              : 'disabled'
-        : snapshot.phase == ConnectionPhase.disconnecting
-        ? 'disconnecting'
-        : chain.stage == 'connected' && snapshot.isConnected
-        ? 'connected'
-        : chain.stage == 'error'
-        ? 'error'
-        : snapshot.isTransitional
-        ? 'connecting'
-        : 'disconnected';
-    final tone = switch (stateKey) {
-      'connected' => StatusTone.success,
-      'error' => StatusTone.danger,
-      'connecting' || 'disconnecting' => StatusTone.brand,
-      _ => StatusTone.neutral,
-    };
-    final failure = chain.failure;
-    String reason(String value) {
-      final key = 'failure_$value';
-      final label = strings.chain(key);
-      return label == strings.chain('invalid_configuration') ? value : label;
-    }
-
-    return ContentSection(
-      key: const ValueKey('chain-current-connection'),
-      title: strings.chain('current'),
-      gap: 8,
-      child: PanelStack(
-        spacing: 6,
-        children: [
-          Semantics(
-            liveRegion: true,
-            child: InlineStatus(label: strings.chain(stateKey), tone: tone),
           ),
-          if (current != null)
-            Row(
-              children: [
-                ChainSourceIcon(
-                  source: current.source,
-                  size: 18,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('${current.source.label} · ${current.name}'),
-                ),
-              ],
-            )
-          else if (gateServer != null) ...[
-            Row(
-              children: [
-                Icon(
-                  LucideIcons.globe,
-                  size: 18,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                const Expanded(child: Text('VPN Gate')),
-              ],
-            ),
-            VpnGateNodeIdentity(server: gateServer),
-          ],
-          if (chain.attemptingEndpoint case final endpoint?)
-            ReadoutRow(
-              label: strings.chain('attempting'),
-              stackWhenNarrow: true,
-              value: MonoValue(
-                value:
-                    '${endpoint.label} (${chain.attemptCount}/${chain.candidateCount})',
-              ),
-            ),
-          if (chain.activeEndpoint case final endpoint?)
-            ReadoutRow(
-              label: strings.chain('actual_endpoint'),
-              stackWhenNarrow: true,
-              value: MonoValue(value: endpoint),
-            ),
-          if (chain.attemptFailures.isNotEmpty)
-            Text(
-              '${strings.chain('attempt_failures')}: ${chain.attemptFailures.map(reason).join(', ')}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          if (failure != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: WarningBanner(
-                key: const ValueKey('chain-failure'),
-                title: strings.chain('error'),
-                message: failure == 'authentication'
-                    ? strings.chain('authentication_failed')
-                    : strings
-                          .chain('failure_reason')
-                          .replaceAll('{reason}', reason(failure)),
-                danger: true,
-              ),
-            ),
-          if (chain.dnsUnavailable)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: WarningBanner(
-                title: strings.chain('dns_unavailable_title'),
-                message: strings.chain('dns_unavailable'),
-              ),
-            ),
         ],
       ),
     );
@@ -847,11 +748,11 @@ class _ProfileRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        RadioListTile<String>(
-          key: ValueKey('chain-profile-${profile.id}'),
+        ChainExitTile<String>(
+          tileKey: ValueKey('chain-profile-${profile.id}'),
           value: profile.id,
           enabled: enabled,
-          contentPadding: EdgeInsets.zero,
+          selected: selected,
           title: Text(profile.name),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -879,7 +780,7 @@ class _ProfileRow extends StatelessWidget {
                 ),
             ],
           ),
-          secondary: PopupMenuButton<String>(
+          trailing: PopupMenuButton<String>(
             key: ValueKey('chain-profile-menu-${profile.id}'),
             tooltip: strings.chain('menu'),
             enabled: !busy,
@@ -908,7 +809,15 @@ class _ProfileRow extends StatelessWidget {
               end: 8,
               bottom: 10,
             ),
-            child: _ProfileDetails(profile: profile, controller: controller),
+            child: ExpansionTile(
+              key: PageStorageKey('chain-profile-details-${profile.id}'),
+              tilePadding: EdgeInsets.zero,
+              title: Text(strings.get('technical_details')),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _ProfileDetails(profile: profile, controller: controller),
+              ],
+            ),
           ),
       ],
     );

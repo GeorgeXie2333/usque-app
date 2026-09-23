@@ -7,18 +7,38 @@ selector: three choices that always use this order:
 2. **WireGuard**
 3. **VPN Gate**
 
-The source names remain English in every locale. On phones and other narrow
-layouts each choice takes its own line; wider layouts keep the row. A source
-the running engine cannot provide is shown disabled with its reason. One exit
+The source names remain English in every locale. On phones and other layouts
+with less than 600 logical pixels of content width, the source heading stays
+above a compact selector showing the current source. Tap it to open a bottom
+sheet, then choose a source to close the sheet and show its configuration. The
+selector keeps the existing selected choice's size. Wider layouts keep all three
+choices visible, wrapping normally and stacking at large text. A source the
+running engine cannot provide is shown disabled with its reason. One exit
 is enabled at a time:
 `Application → WARP → selected chain exit → Internet`. System VPN, SOCKS5 and
 HTTP share the final exit while retaining their own protocol capabilities;
 HTTP CONNECT does not gain UDP support. Explicit direct rules still apply.
 
 打开 **代理 → 链式代理**，总开关在最上方，其下的来源名称和顺序固定为
-**OpenVPN**、**WireGuard**、**VPN Gate**；窄屏上每个来源单独占一行。每次启用
-一个出口，系统 VPN、SOCKS5 和 HTTP 共用最终出口，各入口保留自身协议能力，
-显式直连规则继续生效。
+**OpenVPN**、**WireGuard**、**VPN Gate**。手机和内容宽度小于 600 逻辑像素的
+窄屏上，“出口来源”标题独占一行，下方选择框显示当前来源，大小与原来的选中
+标签一致。点击选择框打开底部列表，选中来源后列表自动收起并显示对应配置。
+宽屏仍显示三个选项，通常横向排列并自动换行，大字号时竖排；不可用的来源会
+禁用并说明原因。每次启用一个出口，系统 VPN、SOCKS5 和 HTTP 共用最终出口，
+各入口保留自身协议能力，显式直连规则继续生效。
+
+All sources share the page heading, enable switch, **Current connection** section
+and apply bar. The current connection always describes the running exit, even
+while browsing a different source. Below it, custom sources provide import and
+paste actions with saved configurations; VPN Gate provides refresh, country and
+favorite filters with public nodes. Selection rows use the same radio controls
+and saved/current markers. VPN Gate observations remain labeled as remote data.
+
+三种来源共用页头、总开关、“当前连接”和底部应用栏。切换来源浏览时，“当前连接”
+仍显示正在使用的出口。下方内容随来源变化：OpenVPN／WireGuard 提供导入、粘贴
+和已保存配置，VPN Gate 提供刷新、国家／地区筛选、收藏和公共节点。两类列表
+使用相同的单选控件及“已保存的选择”“当前连接”标记；VPN Gate 的远端观测说明
+保持可见。
 
 ## Import, select and apply / 导入、选用与应用
 
@@ -41,7 +61,8 @@ Saving to the library neither selects the configuration nor starts a connection.
 Enable the page switch, select a saved configuration, then apply from the
 action bar. The list marks the saved selection, the configuration used by the
 current connection, and configurations that require CONNECT-IP. The selected
-configuration's details expand under its row. The action bar names the pending
+configuration's **Technical details** expand on request under its selected row.
+The action bar names the pending
 selection and states why a draft cannot be applied yet; while connected, its
 button reads **Apply and reconnect**. A disconnected connection stays
 disconnected; an active connection applies the new exit using the existing
@@ -64,13 +85,23 @@ of the selected WARP account.
 粘贴文本需点击**检查配置**。粘贴到错误来源的配置会在调用引擎前得到提示。
 检查后补充认证信息、命名（默认使用服务器主机名）并保存；保存不会选用配置
 或自动连接。打开总开关、选择配置，再在底栏应用。列表会标记已保存的选择、
-当前连接使用的配置以及需要 CONNECT-IP 的配置；所选配置的详情展开在其行下。
+当前连接使用的配置以及需要 CONNECT-IP 的配置；点击所选配置下的“技术详情”
+可展开详细信息。
 底栏说明待应用的选择及暂时不能应用的原因；已连接时按钮为**应用并重新连接**。
 切换出口来源只是浏览，不会弹出“放弃未应用的修改”提示；在某个来源下做出的
 选择会保留到切回时，直到应用为止。只有离开页面才会询问是否放弃未应用的修改。
 重命名和更新认证信息使用配置菜单；内容变化请重新导入。被选中、已保存或
 当前连接使用的配置不能删除，页面会直接说明原因。切换 WARP 账号不会丢失
 导入配置库。
+
+VPN Gate uses the same **Apply changes** and **Apply and reconnect** actions.
+Preparing a node configuration shows progress and **Cancel** in the apply bar;
+failed preparation or application keeps the requested selection available for
+review and retry. Refresh controls stay beside the public-node list.
+
+VPN Gate 同样使用“应用修改”和“应用并重新连接”。准备节点配置时，应用栏显示
+进度及“取消”；准备或应用失败后，保留待应用的选择供检查和重试。刷新操作位于
+公共节点列表区域。
 
 ## Compatibility / 兼容范围
 

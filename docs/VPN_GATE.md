@@ -10,8 +10,8 @@ Windows, Android and Android TV. Usque reaches that server through WARP.
 ## Set up an exit
 
 1. Open **Proxy → Chain proxy**, select **VPN Gate**, and turn on its switch. It is off by default.
-2. Refresh the directory, filter by country and select a TCP server.
-3. Save or apply the selection using the bottom bar. Selecting a row alone only
+2. Use **Refresh list** in the available-server section, filter by country and select a TCP server.
+3. Use **Apply changes** or **Apply and reconnect** in the shared bottom bar. Selecting a row alone only
    edits a draft; it does not reconnect.
 4. Check the live connection status to see which server is actually in use.
 
@@ -34,6 +34,12 @@ not change its saved configuration or disconnect an existing session.
 On wide layouts, VPN Gate stays inside the Proxy content area and the side
 navigation remains available. Selecting Proxy again returns to its overview;
 selecting another section leaves the subpage after its unsaved-change guard.
+The chain page shares its heading, enable switch, current connection and apply
+bar with the imported OpenVPN and WireGuard sources. Refresh and filtering live
+with the public-node list. Saved and currently connected nodes use the same
+markers as imported configurations; the current connection remains visible
+when another source is being browsed.
+
 Compact layouts keep the full-screen subpage and system Back behavior. Resizing
 preserves the subpage, draft, filters and scroll position. Connection status
 describes the live session; the persistent bottom bar describes the saved or

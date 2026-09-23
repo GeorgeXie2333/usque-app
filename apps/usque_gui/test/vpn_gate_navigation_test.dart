@@ -267,7 +267,10 @@ void main() {
           );
           await tester.pumpAndSettle();
         }
-        expect(tester.widget<ListTile>(node).selected, isTrue);
+        expect(
+          tester.widget<RadioListTile<(String, String)>>(node).selected,
+          isTrue,
+        );
         expect(
           find.byType(NavigationRail),
           width >= 760 ? findsOneWidget : findsNothing,

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,8 +14,11 @@ import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/chain_proxy_entry.dart';
 import 'package:usque/widgets/chain_source_icon.dart';
+import 'package:usque/widgets/chain_source_picker.dart';
+import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/save_changes_bar.dart';
 import 'ui_workflow_test.dart' show workflowHost, fieldWithLabel;
-import 'vpngate_test.dart' show GateEngine;
+import 'vpngate_test.dart' show GateEngine, server;
 
 const imported = ChainProfileSummary(
   id: 'imported',
@@ -125,6 +129,26 @@ Future<AppController> hostChain(
   );
   await tester.pumpAndSettle();
   return app;
+}
+
+Future<void> chooseSource(WidgetTester tester, ChainSource source) async {
+  final picker = find.byKey(const ValueKey('chain-source-picker'));
+  if (picker.evaluate().isNotEmpty) {
+    await tester.ensureVisible(picker);
+    await tester.pumpAndSettle();
+    await tester.tap(picker);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(ValueKey('chain-source-option-${source.wire}')),
+    );
+  } else {
+    await tester.ensureVisible(
+      find.byKey(ValueKey('chain-source-${source.wire}')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('chain-source-${source.wire}')));
+  }
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -368,6 +392,13 @@ void main() {
       await tester.tap(find.text('Office tunnel'));
       await tester.pumpAndSettle();
       expect(find.text('Pending selection: Office tunnel'), findsOneWidget);
+      expect(find.textContaining('AllowedIPs'), findsNothing);
+      await tester.tap(
+        find.byKey(
+          PageStorageKey<String>('chain-profile-details-${imported.id}'),
+        ),
+      );
+      await tester.pumpAndSettle();
       expect(find.textContaining('AllowedIPs'), findsOneWidget);
       expect(
         tester
@@ -575,6 +606,16 @@ void main() {
       }
       await loader.load();
     }
+    if (Platform.isWindows) {
+      await (FontLoader('Microsoft YaHei UI')..addFont(
+            Future.value(
+              ByteData.sublistView(
+                File(r'C:\Windows\Fonts\msyh.ttc').readAsBytesSync(),
+              ),
+            ),
+          ))
+          .load();
+    }
   });
 
   testWidgets('VPN Gate draft identifies the currently connected custom exit', (
@@ -660,6 +701,42 @@ void main() {
       );
     }
   }, tags: 'golden');
+  testWidgets(
+    'source selection sheet golden in light English and dark Chinese',
+    (tester) async {
+      final app = await hostChain(tester, ChainEngine(), width: 390);
+      tester.view.physicalSize = const Size(390, 844);
+      for (final dark in [false, true]) {
+        app.localePreference = dark
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english;
+        final boundary = GlobalKey();
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: workflowHost(
+              app,
+              dark: dark,
+              home: ChainProxyScreen(controller: app),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('chain-source-picker')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/chain_source_sheet_phone_${dark ? 'dark' : 'light'}.png',
+          ),
+        );
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+      }
+    },
+    tags: 'golden',
+  );
   test(
     'source names and order are locale independent and wire fields append',
     () {
@@ -732,80 +809,89 @@ void main() {
     },
   );
 
-  testWidgets(
-    'L4 draft requires explicit CONNECT-IP apply and survives a source switch',
-    (tester) async {
-      final engine = ChainEngine()..library = [imported];
-      final app = await hostChain(tester, engine, l4: true);
-      await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Office tunnel'));
-      await tester.pumpAndSettle();
-      expect(engine.saves, 0);
-      expect(app.activeProfile.dataPlane, DataPlaneMode.l4Proxy);
-      expect(find.text('Requires CONNECT-IP'), findsOneWidget);
-      // Switching sources is browsing: no discard prompt, and the page switch
-      // travels with the user.
-      await tester.tap(
-        find.byKey(const ValueKey('chain-source-openvpn_custom')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text(app.strings.get('discard_changes_title')), findsNothing);
-      expect(
-        tester
-            .widget<ChoiceChip>(
-              find.byKey(const ValueKey('chain-source-openvpn_custom')),
-            )
-            .selected,
-        isTrue,
-      );
-      expect(
-        tester
-            .widget<SwitchListTile>(
-              find.byKey(const ValueKey('chain-proxy-toggle')),
-            )
-            .value,
-        isTrue,
-      );
-      // Merely looking at another source is not an edit.
-      expect(
-        tester
-            .widget<FilledButton>(
-              find.widgetWithText(FilledButton, 'Apply changes'),
-            )
-            .onPressed,
-        isNull,
-      );
-      // Leaving the page still protects the selection made under WireGuard.
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(
-        find.text(app.strings.get('discard_changes_title')),
-        findsOneWidget,
-      );
-      await tester.tap(find.text(app.strings.get('keep_editing')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey('chain-source-wireguard_custom')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text(app.strings.get('discard_changes_title')), findsNothing);
-      expect(find.text('Requires CONNECT-IP'), findsOneWidget);
-      // The conflict and its resolution live in the action bar together.
-      expect(
-        find.text('This configuration requires CONNECT-IP.'),
-        findsOneWidget,
-      );
-      final apply = find.text('Switch to CONNECT-IP and apply');
-      expect(apply, findsOneWidget);
-      await tester.tap(apply);
-      await tester.pumpAndSettle();
-      expect(engine.saves, 1);
-      expect(app.activeProfile.dataPlane, DataPlaneMode.connectIp);
-      expect(app.activeProfile.chainExit!.profileId, imported.id);
-      expect(engine.fields, ['chain_exit', 'vpn_gate', 'data_plane']);
-    },
-  );
+  for (final width in [390.0, 980.0]) {
+    testWidgets(
+      'L4 draft requires explicit CONNECT-IP apply and survives a source switch at $width',
+      (tester) async {
+        final engine = ChainEngine()..library = [imported];
+        final app = await hostChain(tester, engine, l4: true, width: width);
+        await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Office tunnel'));
+        await tester.pumpAndSettle();
+        expect(engine.saves, 0);
+        expect(app.activeProfile.dataPlane, DataPlaneMode.l4Proxy);
+        expect(find.text('Requires CONNECT-IP'), findsOneWidget);
+        // Switching sources is browsing: no discard prompt, and the page switch
+        // travels with the user.
+        await chooseSource(tester, ChainSource.openvpnCustom);
+        expect(
+          find.text(app.strings.get('discard_changes_title')),
+          findsNothing,
+        );
+        expect(
+          tester
+              .widget<ChoiceChip>(
+                find.byKey(
+                  ValueKey(
+                    width < 600
+                        ? 'chain-source-picker'
+                        : 'chain-source-openvpn_custom',
+                  ),
+                ),
+              )
+              .selected,
+          isTrue,
+        );
+        expect(
+          tester
+              .widget<SwitchListTile>(
+                find.byKey(const ValueKey('chain-proxy-toggle')),
+              )
+              .value,
+          isTrue,
+        );
+        // Merely looking at another source is not an edit.
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Apply changes'),
+              )
+              .onPressed,
+          isNull,
+        );
+        // Leaving the page still protects the selection made under WireGuard.
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(
+          find.text(app.strings.get('discard_changes_title')),
+          findsOneWidget,
+        );
+        await tester.tap(find.text(app.strings.get('keep_editing')));
+        await tester.pumpAndSettle();
+        await chooseSource(tester, ChainSource.wireguardCustom);
+        expect(
+          find.text(app.strings.get('discard_changes_title')),
+          findsNothing,
+        );
+        expect(find.text('Requires CONNECT-IP'), findsOneWidget);
+        // The conflict and its resolution live in the action bar together.
+        expect(
+          find.text('This configuration requires CONNECT-IP.'),
+          findsOneWidget,
+        );
+        final apply = find.text('Switch to CONNECT-IP and apply');
+        expect(apply, findsOneWidget);
+        await tester.ensureVisible(apply);
+        await tester.tap(apply);
+        await tester.pumpAndSettle();
+        expect(engine.saves, 1);
+        expect(app.activeProfile.dataPlane, DataPlaneMode.connectIp);
+        expect(app.activeProfile.chainExit!.profileId, imported.id);
+        expect(engine.fields, ['chain_exit', 'vpn_gate', 'data_plane']);
+      },
+    );
+  }
 
   testWidgets(
     'the page switch is shared with VPN Gate and switching back never prompts',
@@ -851,17 +937,19 @@ void main() {
   );
 
   testWidgets(
-    'source choices stack on phones, keep their icons clear and follow the switch',
+    'narrow source picker keeps chip size below its heading and closes on selection',
     (tester) async {
-      final app = await hostChain(tester, ChainEngine(), width: 390);
+      final engine = ChainEngine();
+      final app = await hostChain(tester, engine);
+      final before = app.activeProfile.chainExit;
       final chips = [
         for (final source in ChainSource.values)
           find.byKey(ValueKey('chain-source-${source.wire}')),
       ];
-      final lefts = chips.map((chip) => tester.getTopLeft(chip).dx).toSet();
-      final tops = chips.map((chip) => tester.getTopLeft(chip).dy).toSet();
-      expect(lefts, hasLength(1));
-      expect(tops, hasLength(3));
+      expect(
+        chips.map((chip) => tester.getTopLeft(chip).dy).toSet(),
+        hasLength(1),
+      );
       expect(
         tester.getTopLeft(find.byKey(const ValueKey('chain-proxy-toggle'))).dy,
         lessThan(tester.getTopLeft(chips.first).dy),
@@ -883,16 +971,435 @@ void main() {
         ),
         findsNothing,
       );
-      tester.view.physicalSize = const Size(980, 1100);
-      await tester.pumpWidget(
-        workflowHost(app, home: ChainProxyScreen(controller: app)),
+      for (final source in ChainSource.values) {
+        await chooseSource(tester, source);
+        final selectedSize = tester.getSize(
+          find.byKey(ValueKey('chain-source-${source.wire}')),
+        );
+        tester.view.physicalSize = const Size(390, 1100);
+        await tester.pumpAndSettle();
+        final picker = find.byKey(const ValueKey('chain-source-picker'));
+        expect(tester.getSize(picker), selectedSize);
+        expect(tester.getSize(picker).height, greaterThanOrEqualTo(48));
+        expect(
+          find.descendant(
+            of: find.byType(ChainSourcePicker),
+            matching: find.byType(ChoiceChip),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: picker, matching: find.text(source.label)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: picker,
+            matching: find.byIcon(LucideIcons.chevronDown),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          tester.getTopLeft(picker).dy -
+              tester.getBottomLeft(find.text(app.strings.chain('source'))).dy,
+          10,
+        );
+        await tester.tap(picker);
+        await tester.pumpAndSettle();
+        final options = find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.byType(ListTile),
+        );
+        expect(options, findsNWidgets(3));
+        expect(
+          tester
+              .widgetList<ListTile>(options)
+              .where((option) => option.selected),
+          hasLength(1),
+        );
+        await tester.tap(
+          find.byKey(ValueKey('chain-source-option-${source.wire}')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(BottomSheet), findsNothing);
+        final nextSource = ChainSource.values[(source.index + 1) % 3];
+        await chooseSource(tester, nextSource);
+        expect(
+          find.descendant(of: picker, matching: find.text(nextSource.label)),
+          findsOneWidget,
+        );
+        expect(find.byType(BottomSheet), findsNothing);
+        tester.view.physicalSize = const Size(980, 1100);
+        await tester.pumpAndSettle();
+      }
+      expect(app.activeProfile.chainExit, before);
+      expect(engine.saves, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'source sheet disables unavailable choices and dismisses without editing',
+    (tester) async {
+      final engine = ChainEngine();
+      final app = await hostChain(tester, engine, width: 390);
+      app.engineCapabilities = const EngineCapabilities(
+        chainProfileImport: true,
       );
+      final picker = find.byKey(const ValueKey('chain-source-picker'));
+      await tester.tap(picker);
+      await tester.pumpAndSettle();
+      final gate = find.byKey(const ValueKey('chain-source-option-vpn_gate'));
+      expect(tester.widget<ListTile>(gate).enabled, isFalse);
+      expect(
+        find.descendant(
+          of: gate,
+          matching: find.text(app.strings.chain('unsupported')),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(gate);
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(
+        find.descendant(of: picker, matching: find.text('WireGuard')),
+        findsOneWidget,
+      );
+      expect(find.text(app.strings.get('discard_changes_title')), findsNothing);
+      expect(engine.saves, 0);
+    },
+  );
+
+  testWidgets(
+    'source sheet supports keyboard, semantics and large text in both locales',
+    (tester) async {
+      final engine = ChainEngine();
+      final app = await hostChain(tester, engine, width: 375);
+      tester.view.physicalSize = const Size(375, 640);
+      final semantics = tester.ensureSemantics();
+      try {
+        for (final locale in [
+          LocalePreference.english,
+          LocalePreference.simplifiedChinese,
+        ]) {
+          for (final dark in [false, true]) {
+            app.localePreference = locale;
+            await tester.pumpWidget(
+              workflowHost(
+                app,
+                dark: dark,
+                scale: 2,
+                home: ChainProxyScreen(controller: app),
+              ),
+            );
+            await tester.pumpAndSettle();
+            final picker = find.byKey(const ValueKey('chain-source-picker'));
+            await tester.ensureVisible(picker);
+            expect(
+              tester.getSemantics(picker),
+              isSemantics(
+                isButton: true,
+                isSelected: true,
+                hasSelectedState: true,
+                hasEnabledState: true,
+                isEnabled: true,
+                isFocusable: true,
+                hasTapAction: true,
+                label: 'WireGuard',
+                tooltip: app.strings.chain('source'),
+              ),
+            );
+            Focus.of(
+              tester.element(
+                find.descendant(of: picker, matching: find.text('WireGuard')),
+              ),
+            ).requestFocus();
+            await tester.pump();
+            await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+            await tester.pumpAndSettle();
+            expect(find.byType(BottomSheet), findsOneWidget);
+            final selected = find.byKey(
+              const ValueKey('chain-source-option-wireguard_custom'),
+            );
+            await tester.ensureVisible(selected);
+            Focus.of(
+              tester.element(
+                find.descendant(of: selected, matching: find.text('WireGuard')),
+              ),
+            ).requestFocus();
+            await tester.pump();
+            await tester.sendKeyEvent(LogicalKeyboardKey.select);
+            await tester.pumpAndSettle();
+            expect(find.byType(BottomSheet), findsNothing);
+            expect(tester.takeException(), isNull);
+          }
+        }
+        // Wide large-text layouts retain their three visible choices.
+        tester.view.physicalSize = const Size(980, 1100);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('chain-source-picker')), findsNothing);
+        final choices = find.descendant(
+          of: find.byType(ChainSourcePicker),
+          matching: find.byType(ChoiceChip),
+        );
+        expect(choices, findsNWidgets(3));
+        expect(
+          choices
+              .evaluate()
+              .map(
+                (element) =>
+                    tester.getTopLeft(find.byWidget(element.widget)).dy,
+              )
+              .toSet(),
+          hasLength(3),
+        );
+        expect(engine.saves, 0);
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'all sources share the heading, runtime section and apply geometry',
+    (tester) async {
+      final app = await hostChain(tester, ChainEngine());
+      for (final (size, scale, locale, dark) in [
+        (const Size(390, 844), 1.0, LocalePreference.simplifiedChinese, false),
+        (const Size(375, 640), 2.0, LocalePreference.english, true),
+        (const Size(980, 1100), 1.0, LocalePreference.english, false),
+        (const Size(980, 1100), 2.0, LocalePreference.simplifiedChinese, true),
+      ]) {
+        tester.view.physicalSize = size;
+        app.localePreference = locale;
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            scale: scale,
+            dark: dark,
+            home: ChainProxyScreen(controller: app),
+          ),
+        );
+        await tester.pumpAndSettle();
+        Size? barSize;
+        for (final source in ChainSource.values) {
+          await chooseSource(tester, source);
+          final page = tester.widget<SubPage>(find.byType(SubPage));
+          expect(page.title, app.strings.chain('title'));
+          expect(page.subtitle, app.strings.chain('subtitle'));
+          expect(page.actions, isEmpty);
+          expect(find.text(app.strings.chain('scope')), findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('chain-current-connection')),
+            findsOneWidget,
+          );
+          final bar = find.byType(SaveChangesBar);
+          expect(bar, findsOneWidget);
+          final currentSize = tester.getSize(bar);
+          barSize ??= currentSize;
+          expect(currentSize, barSize);
+          expect(
+            find.widgetWithText(FilledButton, app.strings.get('save_changes')),
+            findsOneWidget,
+          );
+          if (source == ChainSource.vpnGate) {
+            expect(
+              find.descendant(
+                of: find.byKey(const ValueKey('chain-gate-directory')),
+                matching: find.widgetWithText(
+                  OutlinedButton,
+                  app.strings.get('gate_refresh'),
+                ),
+              ),
+              findsOneWidget,
+            );
+          }
+          expect(tester.takeException(), isNull);
+        }
+      }
+    },
+  );
+
+  testWidgets(
+    'runtime exit stays independent of source browsing and pending Gate selection',
+    (tester) async {
+      final engine = ChainEngine()..library = [imported];
+      final app = await hostChain(tester, engine);
+      engine.current = const EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        chainExit: ChainExitStatus(
+          stage: 'connected',
+          currentProfile: imported,
+        ),
+      );
+      await app.refreshSnapshot();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
+      await tester.pumpAndSettle();
+      await chooseSource(tester, ChainSource.vpnGate);
+      await tester.tap(find.byKey(ValueKey('vpn-gate-node-${server.id}')));
+      await tester.pumpAndSettle();
+      final runtime = find.byKey(const ValueKey('chain-current-connection'));
+      final bar = find.byType(SaveChangesBar);
+      expect(
+        find.descendant(
+          of: runtime,
+          matching: find.text('WireGuard · Office tunnel'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: bar,
+          matching: find.text('Pending selection: VPN Gate'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: bar, matching: find.text('JP · ${server.ip}')),
+        findsOneWidget,
+      );
+      expect(
+        find.widgetWithText(FilledButton, 'Apply and reconnect'),
+        findsOneWidget,
+      );
+      await chooseSource(tester, ChainSource.openvpnCustom);
+      expect(
+        find.descendant(
+          of: runtime,
+          matching: find.text('WireGuard · Office tunnel'),
+        ),
+        findsOneWidget,
+      );
+      await chooseSource(tester, ChainSource.vpnGate);
+      expect(
+        tester
+            .widget<RadioListTile<(String, String)>>(
+              find.byKey(ValueKey('vpn-gate-node-${server.id}')),
+            )
+            .selected,
+        isTrue,
+      );
+      engine.current = const EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        vpnGate: VpnGateStatus(
+          stage: 'connected',
+          warpStage: 'connected',
+          server: server,
+        ),
+      );
+      await app.refreshSnapshot();
       await tester.pumpAndSettle();
       expect(
-        chips.map((chip) => tester.getTopLeft(chip).dy).toSet(),
-        hasLength(1),
+        find.descendant(of: runtime, matching: find.text('JP · ${server.ip}')),
+        findsOneWidget,
       );
+      await chooseSource(tester, ChainSource.wireguardCustom);
+      expect(
+        find.descendant(of: runtime, matching: find.text('JP · ${server.ip}')),
+        findsOneWidget,
+      );
+      expect(engine.saves, 0);
     },
+  );
+
+  testWidgets(
+    'shared Gate footer cancels preparation, retains failures and applies explicitly',
+    (tester) async {
+      final engine = ChainEngine()..holdPreparation = true;
+      final app = await hostChain(tester, engine, width: 390);
+      tester.view.physicalSize = const Size(390, 640);
+      await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
+      await tester.pumpAndSettle();
+      await chooseSource(tester, ChainSource.vpnGate);
+      final node = find.byKey(ValueKey('vpn-gate-node-${server.id}'));
+      await tester.scrollUntilVisible(
+        node,
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(CustomScrollView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.tap(node);
+      await tester.pumpAndSettle();
+      final apply = find.byKey(const ValueKey('vpn-gate-apply'));
+      await tester.tap(apply);
+      await tester.pump(const Duration(milliseconds: 100));
+      final cancel = find.byKey(const ValueKey('vpn-gate-cancel-node'));
+      expect(cancel.hitTestable(), findsOneWidget);
+      expect(tester.widget<FilledButton>(apply).onPressed, isNull);
+      await tester.tap(cancel);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(engine.saves, 0);
+      expect(
+        engine.nodeRequests.any((request) => request.action == 'cancel'),
+        isTrue,
+      );
+      engine.holdPreparation = false;
+      engine.failSave = true;
+      await tester.tap(apply);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(SaveChangesBar),
+          matching: find.text(app.strings.get('gate_select_again')),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Pending selection: VPN Gate'), findsOneWidget);
+      engine.failSave = false;
+      await tester.tap(apply);
+      await tester.pumpAndSettle();
+      expect(app.activeProfile.chainSource, ChainSource.vpnGate);
+      expect(app.activeProfile.chainEnabled, isTrue);
+      expect(engine.fields, ['vpn_gate', 'chain_exit']);
+      expect(app.snapshot.isConnected, isFalse);
+      expect(find.text('Pending selection: VPN Gate'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'shared chain layout golden for every source on a Chinese phone',
+    (tester) async {
+      final engine = ChainEngine()..library = [imported];
+      final app = await hostChain(tester, engine, width: 390);
+      tester.view.physicalSize = const Size(390, 844);
+      app.localePreference = LocalePreference.simplifiedChinese;
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(app, home: ChainProxyScreen(controller: app)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final source in ChainSource.values) {
+        await chooseSource(tester, source);
+        if (source == ChainSource.vpnGate) {
+          await tester.runAsync(
+            () => precacheImage(
+              const AssetImage('assets/flags/w80/jp.png'),
+              tester.element(find.byType(ChainProxyScreen)),
+            ),
+          );
+          await tester.pumpAndSettle();
+        }
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile('goldens/chain_shared_${source.wire}_phone.png'),
+        );
+      }
+    },
+    tags: 'golden',
   );
 
   testWidgets('cancelled file picker does not create a profile or draft', (

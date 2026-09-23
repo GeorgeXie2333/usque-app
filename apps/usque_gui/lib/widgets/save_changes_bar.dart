@@ -21,6 +21,10 @@ class SaveChangesBar extends StatelessWidget {
     this.onReconnect,
     this.saveLabel,
     this.summary,
+    this.activity,
+    this.saveButtonKey,
+    this.contentWidth = PageFrame.maxContentWidth,
+    this.matchPageGutter = false,
     super.key,
   });
 
@@ -38,6 +42,12 @@ class SaveChangesBar extends StatelessWidget {
 
   /// What the pending edit will do, shown above the status line.
   final Widget? summary;
+
+  /// Source-specific preparation progress or error details above the action.
+  final Widget? activity;
+  final Key? saveButtonKey;
+  final double contentWidth;
+  final bool matchPageGutter;
   final String? error;
 
   /// Current form validation takes precedence over an earlier engine result.
@@ -69,13 +79,18 @@ class SaveChangesBar extends StatelessWidget {
         child: SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            padding: EdgeInsets.symmetric(
+              horizontal: matchPageGutter
+                  ? MediaQuery.sizeOf(context).width < 600
+                        ? 16
+                        : 32
+                  : 20,
+              vertical: 12,
+            ),
             child: Center(
               heightFactor: 1,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: PageFrame.maxContentWidth,
-                ),
+                constraints: BoxConstraints(maxWidth: contentWidth),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final statusText = Semantics(
@@ -101,6 +116,7 @@ class SaveChangesBar extends StatelessWidget {
                             ],
                           );
                     final saveButton = FilledButton.icon(
+                      key: saveButtonKey,
                       onPressed: saving || (!dirty && error == null)
                           ? null
                           : onSave,
@@ -133,20 +149,35 @@ class SaveChangesBar extends StatelessWidget {
                               saveButton,
                             ],
                           );
+                    Widget withActivity(Widget controls) => activity == null
+                        ? controls
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              activity!,
+                              const SizedBox(height: 8),
+                              controls,
+                            ],
+                          );
                     if (constraints.maxWidth < 520 ||
                         MediaQuery.textScalerOf(context).scale(14) > 21) {
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [status, const SizedBox(height: 8), save],
+                      return withActivity(
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [status, const SizedBox(height: 8), save],
+                        ),
                       );
                     }
-                    return Row(
-                      children: [
-                        Expanded(child: status),
-                        const SizedBox(width: 16),
-                        save,
-                      ],
+                    return withActivity(
+                      Row(
+                        children: [
+                          Expanded(child: status),
+                          const SizedBox(width: 16),
+                          save,
+                        ],
+                      ),
                     );
                   },
                 ),
