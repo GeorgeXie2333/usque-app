@@ -75,6 +75,8 @@ void main() {
     final idle = status(phase: ConnectionPhase.disconnected);
     expect(idle.labelKey, 'enabled_idle');
     expect(idle.chainCatalog, isTrue);
+    expect(idle.drivesHome, isFalse);
+    expect(idle.showChainRow, isTrue);
     expect(idle.mode, RingMode.idle);
     expect(idle.label(strings), 'Enabled · not connected');
 
@@ -116,6 +118,7 @@ void main() {
       ChainExitSettings chain,
       String label, {
       int copies = 2,
+      List<String> present = const [],
       List<String> absent = const [],
       bool row = true,
     }) async {
@@ -132,6 +135,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text(label), findsNWidgets(copies), reason: '$size $label');
+      for (final other in present) {
+        expect(find.text(other), findsOneWidget, reason: '$size $other');
+      }
       for (final other in absent) {
         expect(find.text(other), findsNothing, reason: '$size $other');
       }
@@ -189,8 +195,9 @@ void main() {
         size,
         const EngineSnapshot(),
         vpnGate,
-        'Enabled · not connected',
-        absent: [strings.get('disconnected')],
+        strings.get('disconnected'),
+        copies: 1,
+        present: [strings.chain('enabled_idle')],
       );
       await expectStatus(
         size,

@@ -21,7 +21,8 @@ class ChainHomeStatus {
   });
 
   /// The headline and ring follow [labelKey]. Chain-off keeps the connection
-  /// phase, as does a connected or failed session whose chain payload is gone.
+  /// phase, as does an idle enabled chain or a connected or failed session
+  /// whose chain payload is gone.
   final bool drivesHome;
 
   /// The chain row is omitted when the chain is off and idle, and when a live
@@ -84,7 +85,9 @@ class ChainHomeStatus {
       hasSession: hasSession,
     );
     return ChainHomeStatus(
-      drivesHome: chainEnabled,
+      drivesHome:
+          chainEnabled &&
+          !(phase == ConnectionPhase.disconnected && resolved == 'disabled'),
       showChainRow: true,
       labelKey: status.labelKey,
       chainCatalog: status.chainCatalog,
