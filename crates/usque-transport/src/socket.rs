@@ -5,6 +5,40 @@ use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::sync::watch;
+
+/// A scheduling hint, never an authorization to bypass socket protection.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PhysicalNetworkAvailability {
+    #[default]
+    Unknown,
+    Offline,
+    Online {
+        ipv4: bool,
+        ipv6: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PhysicalNetworkSnapshot {
+    pub generation: u64,
+    pub availability: PhysicalNetworkAvailability,
+}
+
+impl PhysicalNetworkSnapshot {
+    /// None means lack of knowledge, not absence of a usable path.
+    pub fn usable_for(self, policy: usque_core::IpPolicy) -> Option<bool> {
+        match self.availability {
+            PhysicalNetworkAvailability::Unknown => None,
+            PhysicalNetworkAvailability::Offline => Some(false),
+            PhysicalNetworkAvailability::Online { ipv4, ipv6 } => Some(match policy {
+                usque_core::IpPolicy::Ipv4Only => ipv4,
+                usque_core::IpPolicy::Ipv6Only => ipv6,
+                _ => ipv4 || ipv6,
+            }),
+        }
+    }
+}
 
 /// Stable reason returned when exact-generation socket setup races a network
 /// change. Callers may retry only by taking a fresh generation snapshot.
@@ -152,6 +186,12 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for LeasedIo<T> {
 #[async_trait]
 pub trait SocketProtector: Send + Sync {
     fn protect(&self, socket: SocketHandle) -> Result<(), String>;
+
+    /// Latest-value observations for reconnect scheduling. Unsupported platforms
+    /// retain timed retries. Closing a subscription means Unknown, not Offline.
+    fn subscribe_physical_network(&self) -> Option<watch::Receiver<PhysicalNetworkSnapshot>> {
+        None
+    }
 
     /// Protects and, where required, binds a socket for one exact physical
     /// destination. The returned lease must outlive all socket I/O.

@@ -2314,6 +2314,9 @@ class UsqueVpnService : VpnService() {
     fun getUnderlyingNetworkGeneration(): Long = networkMonitor.generation()
 
     @Keep
+    fun getUnderlyingRecoverySnapshot(): LongArray = networkMonitor.recoverySnapshot()
+
+    @Keep
     fun bindSocketToUnderlyingGeneration(
         descriptor: Int,
         expectedGeneration: Long,

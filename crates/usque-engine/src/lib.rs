@@ -4193,6 +4193,16 @@ impl ControlServiceError {
     }
 
     fn as_structured_error(&self) -> StructuredError {
+        if let Self::Transport(error) = self {
+            let failure = error.failure(None, None);
+            if !failure.retryable {
+                return StructuredError {
+                    code: failure.code.as_str().to_owned(),
+                    message: failure.code.to_string(),
+                    retryable: false,
+                };
+            }
+        }
         let (code, retryable) = match self {
             Self::InvalidRequest(_) | Self::InvalidConfiguration(_) => ("INVALID_ARGUMENT", false),
             Self::InvalidDirectDnsConfiguration { code, .. } => (*code, false),
@@ -4314,6 +4324,16 @@ fn connection_error_wire_code(code: ErrorCode) -> String {
 }
 
 fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
+    if let ControlServiceError::Transport(error) = error {
+        let failure = error.failure(None, None);
+        if !failure.retryable {
+            return ConnectionError {
+                code: failure.code.legacy_error_code(),
+                message: failure.code.to_string(),
+                retryable: false,
+            };
+        }
+    }
     let code = match error {
         ControlServiceError::MissingCredential(_) => ErrorCode::MissingCredential,
         ControlServiceError::Transport(TransportError::EndpointPinMismatch) => {
@@ -5187,6 +5207,27 @@ fn location_to_proto(location: &usque_core::GeoLocation) -> v1::GeoLocation {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn terminal_transport_failure_is_consistent_in_snapshot_and_control_response() {
+        let error = ControlServiceError::Transport(TransportError::AllTransportsFailed {
+            h3: Box::new(
+                TransportError::TunnelClosed.failure(Some(usque_core::Transport::Http3), None),
+            ),
+            h2: Box::new(
+                TransportError::InvalidIdentity.failure(Some(usque_core::Transport::Http2), None),
+            ),
+        });
+        let response = error.as_structured_error();
+        assert_eq!(response.code, "IDENTITY_INVALID");
+        assert!(!response.retryable);
+        let snapshot = connection_error_for(&error);
+        assert_eq!(
+            snapshot.code,
+            usque_core::TransportFailureCode::IdentityInvalid.legacy_error_code()
+        );
+        assert!(!snapshot.retryable);
+    }
 
     #[test]
     fn omitted_false_profile_wire_fixture() {

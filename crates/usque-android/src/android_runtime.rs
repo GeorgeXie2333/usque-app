@@ -380,6 +380,7 @@ pub(super) fn notify_network_changed(generation: u64) {
     };
     if let Some(handle) = slot.as_ref() {
         super::publish_network_generation(&handle.protector.network_generation, generation);
+        handle.protector.refresh_recovery_network();
     }
 }
 

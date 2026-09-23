@@ -12,7 +12,7 @@
 #[cfg(any(test, target_os = "android"))]
 use std::sync::atomic::AtomicBool;
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicU64, Ordering},
 };
 #[cfg(any(test, target_os = "android"))]
@@ -26,7 +26,7 @@ use jni::{
     Env, EnvUnowned, JValue, JavaVM,
     errors::ThrowRuntimeExAndDefault,
     jni_sig, jni_str,
-    objects::{JByteArray, JClass, JObject, JObjectArray, JString},
+    objects::{JByteArray, JClass, JLongArray, JObject, JObjectArray, JString},
     refs::Global,
     strings::JNIString,
     sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring},
@@ -48,8 +48,8 @@ use usque_transport::{
     PmtuPhase, QueueKind, RuntimePath, TransportError,
 };
 use usque_transport::{
-    DirectEgressLease, DirectProtocol, MasqueTlsIdentity, STALE_GENERATION_REASON, SocketHandle,
-    SocketProtector,
+    DirectEgressLease, DirectProtocol, MasqueTlsIdentity, PhysicalNetworkAvailability,
+    PhysicalNetworkSnapshot, STALE_GENERATION_REASON, SocketHandle, SocketProtector,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
@@ -266,6 +266,7 @@ fn native_start<'local>(environment: &mut Env<'local>, request: NativeVpnStart<'
             service,
             policy: AndroidSocketRoutePolicy::Vpn,
             network_generation: AtomicU64::new(network_generation),
+            physical_watch: OnceLock::new(),
         }),
     )
 }
@@ -363,6 +364,7 @@ fn native_start_proxy<'local>(
             service,
             policy,
             network_generation: AtomicU64::new(network_generation),
+            physical_watch: OnceLock::new(),
         }),
     )
 }
@@ -919,6 +921,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeVpn
                         .map_err(|_| "VPN_GATE_UNAVAILABLE")?,
                     policy: AndroidSocketRoutePolicy::Proxy,
                     network_generation: AtomicU64::new(generation),
+                    physical_watch: OnceLock::new(),
                 });
                 Some(vpngate::FetchContext {
                     #[cfg(target_os = "android")]
@@ -2082,6 +2085,7 @@ struct AndroidSocketProtector {
     service: Global<JObject<'static>>,
     policy: AndroidSocketRoutePolicy,
     network_generation: AtomicU64,
+    physical_watch: OnceLock<tokio::sync::watch::Sender<PhysicalNetworkSnapshot>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2097,6 +2101,34 @@ impl AndroidSocketRoutePolicy {
 }
 
 impl AndroidSocketProtector {
+    fn refresh_recovery_network(&self) {
+        let Some(sender) = self.physical_watch.get() else {
+            return;
+        };
+        let fields = self
+            .java_vm
+            .attach_current_thread(|environment| -> jni::errors::Result<_> {
+                let array = environment
+                    .call_method(
+                        &self.service,
+                        jni_str!("getUnderlyingRecoverySnapshot"),
+                        jni_sig!("()[J"),
+                        &[],
+                    )?
+                    .l()?;
+                let array = environment.cast_local::<JLongArray>(array)?;
+                let mut fields = [-1i64; 3];
+                if array.len(environment)? == fields.len() {
+                    array.get_region(environment, 0, &mut fields)?;
+                }
+                Ok(fields)
+            })
+            .ok();
+        let next =
+            decode_recovery_snapshot(fields, self.network_generation.load(Ordering::Acquire));
+        publish_recovery_snapshot(&self.network_generation, sender, next);
+    }
+
     fn refresh_network_generation(&self) -> Result<u64, String> {
         let generation = self
             .java_vm
@@ -2113,10 +2145,9 @@ impl AndroidSocketProtector {
             .map_err(|_| "Android network generation is unavailable".to_owned())?;
         let generation = u64::try_from(generation)
             .map_err(|_| "Android network generation is invalid".to_owned())?;
-        Ok(publish_network_generation(
-            &self.network_generation,
-            generation,
-        ))
+        let generation = publish_network_generation(&self.network_generation, generation);
+        self.refresh_recovery_network();
+        Ok(generation)
     }
 
     fn bind_socket_for_generation(
@@ -2167,8 +2198,113 @@ fn publish_network_generation(cached: &AtomicU64, observed: u64) -> u64 {
     cached.fetch_max(observed, Ordering::AcqRel).max(observed)
 }
 
+fn publish_recovery_snapshot(
+    generation: &AtomicU64,
+    sender: &tokio::sync::watch::Sender<PhysicalNetworkSnapshot>,
+    next: PhysicalNetworkSnapshot,
+) {
+    let generation = publish_network_generation(generation, next.generation);
+    sender.send_if_modified(|current| {
+        if next.generation < generation || next.generation < current.generation || *current == next
+        {
+            false
+        } else {
+            *current = next;
+            true
+        }
+    });
+}
+
+fn decode_recovery_snapshot(fields: Option<[i64; 3]>, generation: u64) -> PhysicalNetworkSnapshot {
+    let Some([observed, known, mask]) = fields.filter(|fields| {
+        fields[0] >= 0 && matches!(fields[1], 0 | 1) && (0..=3).contains(&fields[2])
+    }) else {
+        return PhysicalNetworkSnapshot {
+            generation,
+            availability: PhysicalNetworkAvailability::Unknown,
+        };
+    };
+    PhysicalNetworkSnapshot {
+        generation: observed as u64,
+        availability: if known == 0 {
+            PhysicalNetworkAvailability::Unknown
+        } else if mask == 0 {
+            PhysicalNetworkAvailability::Offline
+        } else {
+            PhysicalNetworkAvailability::Online {
+                ipv4: mask & 1 != 0,
+                ipv6: mask & 2 != 0,
+            }
+        },
+    }
+}
+
+#[cfg(test)]
+mod recovery_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn missing_and_malformed_snapshots_are_unknown_not_offline() {
+        for fields in [None, Some([-1, 1, 0]), Some([5, 2, 0]), Some([5, 1, 4])] {
+            assert_eq!(
+                decode_recovery_snapshot(fields, 7),
+                PhysicalNetworkSnapshot {
+                    generation: 7,
+                    availability: PhysicalNetworkAvailability::Unknown,
+                }
+            );
+        }
+        assert_eq!(
+            decode_recovery_snapshot(Some([5, 1, 0]), 4).availability,
+            PhysicalNetworkAvailability::Offline
+        );
+        assert_eq!(
+            decode_recovery_snapshot(Some([5, 1, 2]), 4).availability,
+            PhysicalNetworkAvailability::Online {
+                ipv4: false,
+                ipv6: true
+            }
+        );
+    }
+
+    #[test]
+    fn stale_or_duplicate_callbacks_cannot_resurrect_a_network() {
+        let generation = AtomicU64::new(5);
+        let (sender, mut receiver) =
+            tokio::sync::watch::channel(decode_recovery_snapshot(Some([5, 1, 0]), 5));
+        publish_recovery_snapshot(
+            &generation,
+            &sender,
+            decode_recovery_snapshot(Some([4, 1, 3]), 5),
+        );
+        assert!(!receiver.has_changed().unwrap());
+        publish_recovery_snapshot(
+            &generation,
+            &sender,
+            decode_recovery_snapshot(Some([6, 1, 1]), 5),
+        );
+        assert_eq!(receiver.borrow_and_update().generation, 6);
+        assert_eq!(generation.load(Ordering::Acquire), 6);
+        publish_recovery_snapshot(
+            &generation,
+            &sender,
+            decode_recovery_snapshot(Some([6, 1, 1]), 6),
+        );
+        assert!(!receiver.has_changed().unwrap());
+    }
+}
+
 #[async_trait::async_trait]
 impl SocketProtector for AndroidSocketProtector {
+    fn subscribe_physical_network(
+        &self,
+    ) -> Option<tokio::sync::watch::Receiver<PhysicalNetworkSnapshot>> {
+        let sender = self
+            .physical_watch
+            .get_or_init(|| tokio::sync::watch::channel(PhysicalNetworkSnapshot::default()).0);
+        self.refresh_recovery_network();
+        Some(sender.subscribe())
+    }
     fn protect(&self, socket: SocketHandle) -> Result<(), String> {
         let expected_generation = self.network_generation.load(Ordering::Acquire);
         self.bind_socket_for_generation(socket, expected_generation)

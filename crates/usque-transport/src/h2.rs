@@ -61,6 +61,10 @@ const H2_PING_INTERVAL: Duration = Duration::from_secs(5);
 const H2_PING_DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const H2_PING_MIN_TIMEOUT: Duration = Duration::from_secs(2);
 const H2_PING_MAX_TIMEOUT: Duration = Duration::from_secs(10);
+const H2_PING_MIN_DEADLINE: Duration = Duration::from_secs(15);
+const H2_PING_MAX_DEADLINE: Duration = Duration::from_secs(30);
+const H2_SCHEDULING_GAP: Duration = Duration::from_secs(15);
+const H2_RESUME_GRACE: Duration = Duration::from_secs(5);
 const H2_CAPACITY_STALL_THRESHOLD: Duration = Duration::from_millis(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,6 +192,7 @@ struct H2Rejection {
 pub struct H2SendHalf {
     sender: Option<mpsc::Sender<H2Outgoing>>,
     _writer: AbortOnDropHandle<Result<(), TransportError>>,
+    liveness_failed: Arc<AtomicBool>,
 }
 
 impl H2SendHalf {
@@ -228,12 +233,15 @@ impl H2SendHalf {
     ) -> Pin<Box<dyn Future<Output = Result<PacketBatchResult, TransportError>> + Send + 'static>>
     {
         let sender = self.sender.clone();
+        let liveness_failed = self.liveness_failed.clone();
         Box::pin(async move {
             if batch.is_empty() {
                 return Ok(PacketBatchResult::default());
             }
             let (encoded, accepted_bytes) = encode_datagram_batch(&batch)?;
-            let accepted_bytes = Self::send_encoded(sender, encoded, accepted_bytes).await?;
+            let accepted_bytes = Self::send_encoded(sender, encoded, accepted_bytes)
+                .await
+                .map_err(|error| h2_termination_error(&liveness_failed, error))?;
             Ok(PacketBatchResult {
                 accepted_bytes,
                 oversized: Vec::new(),
@@ -242,7 +250,9 @@ impl H2SendHalf {
     }
 
     async fn send_capsule_inner(&self, capsule: Bytes) -> Result<(), TransportError> {
-        Self::send_encoded(self.sender.clone(), capsule, 0).await?;
+        Self::send_encoded(self.sender.clone(), capsule, 0)
+            .await
+            .map_err(|error| h2_termination_error(&self.liveness_failed, error))?;
         Ok(())
     }
 
@@ -280,12 +290,19 @@ pub struct H2ReceiveHalf {
     receive_error: Option<TransportError>,
     rejections: mpsc::Sender<H2Rejection>,
     rejection_bytes: Arc<Semaphore>,
+    liveness_failed: Arc<AtomicBool>,
 }
 
 impl H2ReceiveHalf {
     /// Receives the next raw IP packet, transparently handling capsules split
     /// across or coalesced within HTTP/2 DATA frames.
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
+        self.receive_packet_inner()
+            .await
+            .map_err(|error| h2_termination_error(&self.liveness_failed, error))
+    }
+
+    async fn receive_packet_inner(&mut self) -> Result<Bytes, TransportError> {
         if let Some(error) = self.receive_error.take() {
             return Err(error);
         }
@@ -404,7 +421,8 @@ impl H2ReceiveHalf {
 /// Drives the underlying HTTP/2 connection. Dropping or aborting this handle
 /// immediately tears down the transport.
 pub struct H2Driver {
-    task: Option<JoinHandle<Result<(), h2::Error>>>,
+    task: Option<JoinHandle<Result<(), TransportError>>>,
+    liveness_failed: Arc<AtomicBool>,
 }
 
 impl H2Driver {
@@ -416,7 +434,6 @@ impl H2Driver {
         AbortOnDropHandle::new(task)
             .await
             .map_err(|error| TransportError::Driver(error.to_string()))?
-            .map_err(TransportError::Http2)
     }
 
     pub fn abort(&self) {
@@ -548,12 +565,7 @@ pub(crate) async fn connect_h2_with_protector(
             "the HTTP/2 build does not expose protocol PING observation"
         );
     }
-    let task = AbortOnDropHandle::new(spawn_h2_driver(
-        connection,
-        ping_pong,
-        quality.clone(),
-        attempt.cloned(),
-    ));
+    let task = spawn_h2_driver(connection, ping_pong, quality.clone(), attempt.cloned());
     sender = sender.ready().await?;
     if let Some(attempt) = attempt {
         attempt.record(
@@ -577,14 +589,8 @@ pub(crate) async fn connect_h2_with_protector(
         );
     }
     let receive = response.into_body();
-    let mut tunnel = h2_tunnel_from_streams(
-        stream,
-        receive,
-        task.detach(),
-        quality,
-        flow_control,
-        ping_supported,
-    );
+    let mut tunnel =
+        h2_tunnel_from_streams(stream, receive, task, quality, flow_control, ping_supported);
     tunnel.attempt = attempt.cloned();
     Ok(tunnel)
 }
@@ -605,18 +611,40 @@ fn spawn_h2_driver<T>(
     ping_pong: Option<PingPong>,
     quality: NetworkQualityTelemetry,
     attempt: Option<ConnectionAttemptTelemetry>,
-) -> JoinHandle<Result<(), h2::Error>>
+) -> H2Driver
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    tokio::spawn(async move {
-        let ping_task = ping_pong.map(|ping_pong| {
-            AbortOnDropHandle::new(tokio::spawn(run_h2_ping(ping_pong, quality, attempt)))
-        });
-        let result = connection.await;
-        drop(ping_task);
+    let liveness_failed = Arc::new(AtomicBool::new(false));
+    let failure = liveness_failed.clone();
+    let task = tokio::spawn(async move {
+        let Some(ping_pong) = ping_pong else {
+            return connection.await.map_err(TransportError::Http2);
+        };
+        tokio::pin!(connection);
+        let result = tokio::select! {
+            biased;
+            result = &mut connection => result.map_err(TransportError::Http2),
+            result = run_h2_ping(ping_pong, quality, attempt) => result,
+        };
+        // Publish before dropping the connection closes receive/writer channels.
+        if matches!(result, Err(TransportError::H2LivenessTimeout)) {
+            failure.store(true, Ordering::Release);
+        }
         result
-    })
+    });
+    H2Driver {
+        task: Some(task),
+        liveness_failed,
+    }
+}
+
+fn h2_termination_error(failed: &AtomicBool, error: TransportError) -> TransportError {
+    if failed.load(Ordering::Acquire) {
+        TransportError::H2LivenessTimeout
+    } else {
+        error
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -662,6 +690,7 @@ impl H2RttEstimator {
         self.smoothed.map_or(H2_PING_DEFAULT_TIMEOUT, |smoothed| {
             smoothed
                 .saturating_mul(3)
+                .max(smoothed.saturating_add(self.variance.unwrap_or_default().saturating_mul(4)))
                 .clamp(H2_PING_MIN_TIMEOUT, H2_PING_MAX_TIMEOUT)
         })
     }
@@ -697,7 +726,7 @@ async fn run_h2_ping(
     mut ping_pong: PingPong,
     quality: NetworkQualityTelemetry,
     attempt: Option<ConnectionAttemptTelemetry>,
-) {
+) -> Result<(), TransportError> {
     let _task = H2PingTaskGuard::new(quality.clone());
     let mut estimator = H2RttEstimator::default();
     let mut ticker = interval_at(Instant::now() + H2_PING_INTERVAL, H2_PING_INTERVAL);
@@ -710,16 +739,22 @@ async fn run_h2_ping(
             .take_fault(crate::fault_injection::FaultPoint::H2Ping)
             .is_some()
         {
-            let _ = h2_ping_with_timeout(
+            await_h2_pong(
                 std::future::pending::<Result<(), h2::Error>>(),
                 estimator.timeout(),
+                &quality,
             )
-            .await;
-            quality.record_h2_ping_timeout();
+            .await?;
             continue;
         }
-        match h2_ping_with_timeout(ping_pong.ping(Ping::opaque()), estimator.timeout()).await {
-            Ok(Some(_)) => {
+        match await_h2_pong(
+            ping_pong.ping(Ping::opaque()),
+            estimator.timeout(),
+            &quality,
+        )
+        .await
+        {
+            Ok(true) => {
                 let sample = estimator.observe(started.elapsed());
                 if let Some(attempt) = &attempt {
                     attempt.observe_h2_rtt(
@@ -737,26 +772,67 @@ async fn run_h2_ping(
                     );
                 }
             }
-            Err(_) => {
+            Err(error) => {
                 quality.record_h2_ping_error();
-                return;
+                return Err(error);
             }
-            Ok(None) => {
-                quality.record_h2_ping_timeout();
-                // h2 0.4 permits only one outstanding user PING. The timed-out
-                // future has already sent it, so drain that eventual PONG before
-                // another interval can send a new opaque PING.
-                if std::future::poll_fn(|context| ping_pong.poll_pong(context))
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
-            }
+            Ok(false) => {} // A scheduling gap makes this RTT sample unusable.
         }
     }
 }
 
+/// Poll one and only one PING through both deadlines. The connection driver
+/// remains independently pollable, so even saturated application queues cannot
+/// prevent ACK processing. Returns whether the RTT sample is usable.
+async fn await_h2_pong<F, T>(
+    pong: F,
+    soft: Duration,
+    quality: &NetworkQualityTelemetry,
+) -> Result<bool, TransportError>
+where
+    F: Future<Output = Result<T, h2::Error>>,
+{
+    let started = Instant::now();
+    let soft_at = started + soft;
+    let mut hard_at = started
+        + soft
+            .saturating_mul(3)
+            .clamp(H2_PING_MIN_DEADLINE, H2_PING_MAX_DEADLINE);
+    let mut observed_at = started;
+    let mut grace_used = false;
+    let mut soft_reported = false;
+    let mut ticker = interval_at(started + H2_PING_INTERVAL, H2_PING_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    tokio::pin!(pong);
+    loop {
+        let now = Instant::now();
+        if now.saturating_duration_since(observed_at) > H2_SCHEDULING_GAP && !grace_used {
+            hard_at = hard_at.max(now + H2_RESUME_GRACE);
+            grace_used = true;
+        }
+        observed_at = now;
+        tokio::select! {
+            biased;
+            result = &mut pong => return result.map(|_| !grace_used && observed_at.elapsed() <= H2_SCHEDULING_GAP).map_err(TransportError::Http2),
+            _ = ticker.tick() => {},
+            _ = tokio::time::sleep_until(soft_at), if !soft_reported => {
+                quality.record_h2_ping_timeout();
+                soft_reported = true;
+            },
+            _ = tokio::time::sleep_until(hard_at) => {
+                let now = Instant::now();
+                if now.saturating_duration_since(observed_at) > H2_SCHEDULING_GAP && !grace_used {
+                    hard_at = now + H2_RESUME_GRACE;
+                    grace_used = true;
+                } else {
+                    return Err(TransportError::H2LivenessTimeout);
+                }
+            },
+        }
+    }
+}
+
+#[cfg(test)]
 async fn h2_ping_with_timeout<F, T, E>(future: F, limit: Duration) -> Result<Option<T>, E>
 where
     F: Future<Output = Result<T, E>>,
@@ -770,7 +846,7 @@ where
 fn h2_tunnel_from_streams(
     send: SendStream<Bytes>,
     receive: RecvStream,
-    connection: JoinHandle<Result<(), h2::Error>>,
+    connection: H2Driver,
     quality: NetworkQualityTelemetry,
     flow_control: H2FlowControlConfig,
     ping_supported: bool,
@@ -789,6 +865,7 @@ fn h2_tunnel_from_streams(
         send: H2SendHalf {
             sender: Some(outgoing_tx),
             _writer: writer,
+            liveness_failed: connection.liveness_failed.clone(),
         },
         receive: H2ReceiveHalf {
             stream: receive,
@@ -797,10 +874,9 @@ fn h2_tunnel_from_streams(
             receive_error: None,
             rejections: rejection_tx,
             rejection_bytes,
+            liveness_failed: connection.liveness_failed.clone(),
         },
-        driver: H2Driver {
-            task: Some(connection),
-        },
+        driver: connection,
         control: control_rx,
         flow_control,
         ping_supported,
@@ -1258,6 +1334,8 @@ pub enum TransportError {
     SendQueueFull,
     #[error("the tunnel packet send operation timed out")]
     SendTimeout,
+    #[error("the HTTP/2 PING acknowledgment deadline expired")]
+    H2LivenessTimeout,
     #[error("the HTTP/2 driver stopped: {0}")]
     Driver(String),
     #[error("a received HTTP capsule exceeded the safety limit")]
@@ -1288,6 +1366,22 @@ impl TransportError {
     ) -> TransportFailure {
         use TransportFailureCode as Code;
         use TransportStage as Stage;
+
+        if let Self::AllTransportsFailed { h3, h2 } = self {
+            // Never let the aggregate's generic retry metadata erase an
+            // authentication, protection or other terminal child failure.
+            if let Some(failure) = [h3.as_ref(), h2.as_ref()]
+                .into_iter()
+                .find(|failure| !failure.retryable && failure.code != Code::EndpointPinMismatch)
+                .or_else(|| {
+                    [h3.as_ref(), h2.as_ref()]
+                        .into_iter()
+                        .find(|failure| !failure.retryable)
+                })
+            {
+                return failure.clone();
+            }
+        }
 
         let (code, stage) = match self {
             Self::VpnGate(reason) => {
@@ -1374,6 +1468,7 @@ impl TransportError {
             },
             Self::SendQueueFull => (Code::SendQueueFull, Stage::PacketSend),
             Self::SendTimeout => (Code::PacketSendTimeout, Stage::PacketSend),
+            Self::H2LivenessTimeout => (Code::PacketReceiveStalled, Stage::PacketReceive),
             Self::Driver(_) | Self::Http2(_) => (Code::H2StreamClosed, Stage::PacketReceive),
             Self::CapsuleTooLarge | Self::InvalidVarint | Self::Protocol(_) | Self::Http(_) => {
                 (Code::ConnectIpRejected, Stage::PeerSettings)
@@ -1384,11 +1479,10 @@ impl TransportError {
             },
         };
 
-        let failure = TransportFailure::new(code, stage);
-        match (transport, family) {
-            (Some(transport), Some(family)) => failure.on_path(transport, family),
-            _ => failure,
-        }
+        let mut failure = TransportFailure::new(code, stage);
+        failure.transport = transport;
+        failure.address_family = family;
+        failure
     }
 
     pub fn exhausted_transport_failures(&self) -> Option<(&TransportFailure, &TransportFailure)> {
@@ -1789,6 +1883,7 @@ mod tests {
         quality: NetworkQualityTelemetry,
         _client_driver: H2Driver,
         _server: JoinHandle<Result<(), h2::Error>>,
+        server_paused: watch::Sender<bool>,
     }
 
     async fn connect_h2_loopback() -> H2Loopback {
@@ -1801,6 +1896,7 @@ mod tests {
 
         let (client_io, server_io) = tokio::io::duplex(1024 * 1024);
         let (streams_tx, streams_rx) = oneshot::channel();
+        let (server_paused, mut pause) = watch::channel(false);
         let server = tokio::spawn(async move {
             let mut connection = h2::server::handshake(server_io)
                 .await
@@ -1817,7 +1913,19 @@ mod tests {
             let send = respond.send_response(response, false).expect("send 200");
             let recv = request.into_body();
             let _ = streams_tx.send((send, recv));
-            while connection.accept().await.is_some() {}
+            loop {
+                if *pause.borrow_and_update() {
+                    if pause.changed().await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
+                tokio::select! {
+                    biased;
+                    result = pause.changed() => { if result.is_err() { break; } },
+                    stream = connection.accept() => { if stream.is_none() { break; } },
+                }
+            }
             Ok(())
         });
 
@@ -1830,12 +1938,7 @@ mod tests {
             .expect("client handshake");
         let ping_pong = connection.ping_pong();
         let ping_supported = ping_pong.is_some();
-        let driver = AbortOnDropHandle::new(spawn_h2_driver(
-            connection,
-            ping_pong,
-            quality.clone(),
-            None,
-        ));
+        let driver = spawn_h2_driver(connection, ping_pong, quality.clone(), None);
         sender = sender.ready().await.expect("client ready");
         let (response, send) = sender
             .send_request(connect_request().expect("CONNECT"), false)
@@ -1847,7 +1950,7 @@ mod tests {
         let tunnel = h2_tunnel_from_streams(
             send,
             receive,
-            driver.detach(),
+            driver,
             quality.clone(),
             config,
             ping_supported,
@@ -1863,7 +1966,167 @@ mod tests {
             quality,
             _client_driver: driver,
             _server: server,
+            server_paused,
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_ping_final_deadline_and_late_ack_use_the_same_pending_ping() {
+        for soft in [
+            Duration::from_secs(2),
+            Duration::from_secs(5),
+            Duration::from_secs(10),
+        ] {
+            let quality = NetworkQualityTelemetry::default();
+            quality.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+            let started = Instant::now();
+            let result = await_h2_pong(
+                std::future::pending::<Result<(), h2::Error>>(),
+                soft,
+                &quality,
+            )
+            .await;
+            assert!(matches!(result, Err(TransportError::H2LivenessTimeout)));
+            assert_eq!(
+                started.elapsed(),
+                soft.saturating_mul(3)
+                    .clamp(H2_PING_MIN_DEADLINE, H2_PING_MAX_DEADLINE)
+            );
+            assert_eq!(
+                NetworkQualitySampler::new(quality)
+                    .sample()
+                    .h2_flow_control
+                    .ping_timeout_count,
+                1
+            );
+        }
+        let quality = NetworkQualityTelemetry::default();
+        quality.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        assert!(
+            await_h2_pong(
+                async {
+                    tokio::time::sleep(Duration::from_secs(8)).await;
+                    Ok::<_, h2::Error>(())
+                },
+                Duration::from_secs(5),
+                &quality
+            )
+            .await
+            .unwrap()
+        );
+        assert_eq!(
+            NetworkQualitySampler::new(quality)
+                .sample()
+                .h2_flow_control
+                .ping_timeout_count,
+            1
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_scheduling_gap_gets_only_one_bounded_resume_grace() {
+        let task = tokio::spawn(async {
+            await_h2_pong(
+                std::future::pending::<Result<(), h2::Error>>(),
+                Duration::from_secs(5),
+                &NetworkQualityTelemetry::default(),
+            )
+            .await
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        tokio::time::advance(Duration::from_secs(4)).await;
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        // A second scheduling gap must not postpone termination indefinitely.
+        tokio::time::advance(Duration::from_secs(60)).await;
+        assert!(matches!(
+            task.await.unwrap(),
+            Err(TransportError::H2LivenessTimeout)
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn repeated_h2_cancellation_during_ack_grace_releases_the_heartbeat() {
+        for _ in 0..16 {
+            let loopback = connect_h2_loopback().await;
+            loopback.server_paused.send_replace(true);
+            let quality = loopback.quality.clone();
+            tokio::task::yield_now().await;
+            tokio::time::advance(H2_PING_INTERVAL).await;
+            tokio::task::yield_now().await;
+            tokio::time::advance(H2_PING_DEFAULT_TIMEOUT).await;
+            tokio::task::yield_now().await;
+            assert_eq!(quality.active_h2_ping_tasks(), 1);
+            loopback._client_driver.abort();
+            for _ in 0..4 {
+                tokio::task::yield_now().await;
+            }
+            assert_eq!(quality.active_h2_ping_tasks(), 0);
+            loopback._server.abort();
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_blackholed_peer_stops_driver_and_retains_cause_on_both_halves() {
+        for driver_first in [false, true] {
+            let mut loopback = connect_h2_loopback().await;
+            loopback.server_paused.send_replace(true);
+            tokio::task::yield_now().await;
+            let quality = loopback.quality.clone();
+            let started = Instant::now();
+            if driver_first {
+                assert!(matches!(
+                    loopback._client_driver.wait().await,
+                    Err(TransportError::H2LivenessTimeout)
+                ));
+                assert!(matches!(
+                    loopback.receive.receive_packet().await,
+                    Err(TransportError::H2LivenessTimeout)
+                ));
+            } else {
+                assert!(matches!(
+                    loopback.receive.receive_packet().await,
+                    Err(TransportError::H2LivenessTimeout)
+                ));
+                assert!(matches!(
+                    loopback._client_driver.wait().await,
+                    Err(TransportError::H2LivenessTimeout)
+                ));
+            }
+            assert_eq!(started.elapsed(), H2_PING_INTERVAL + H2_PING_MIN_DEADLINE);
+            assert!(matches!(
+                loopback
+                    .send
+                    .send_capsule(Bytes::from_static(b"test"))
+                    .await,
+                Err(TransportError::H2LivenessTimeout)
+            ));
+            assert_eq!(quality.active_h2_ping_tasks(), 0);
+            loopback._server.abort();
+        }
+    }
+
+    #[test]
+    fn aggregate_authentication_failure_cannot_become_retryable() {
+        let error = TransportError::AllTransportsFailed {
+            h3: Box::new(
+                TransportError::Http3("network failure".into())
+                    .failure(Some(Transport::Http3), Some(AddressFamily::Ipv6)),
+            ),
+            h2: Box::new(
+                TransportError::ConnectRejected(StatusCode::FORBIDDEN)
+                    .failure(Some(Transport::Http2), Some(AddressFamily::Ipv4)),
+            ),
+        };
+        let failure = error.failure(None, None);
+        assert_eq!(failure.code, TransportFailureCode::AuthenticationFailed);
+        assert_eq!(failure.transport, Some(Transport::Http2));
+        assert_eq!(failure.address_family, Some(AddressFamily::Ipv4));
+        assert!(!failure.retryable && !failure.fallback_allowed);
+        assert!(error.exhausted_transport_failures().is_some());
     }
 
     async fn peer_send_all(stream: &mut SendStream<Bytes>, mut encoded: Bytes) {
@@ -2142,6 +2405,9 @@ mod tests {
         assert_eq!(estimator.timeout(), Duration::from_secs(3));
         estimator.smoothed = Some(Duration::from_secs(4));
         assert_eq!(estimator.timeout(), Duration::from_secs(10));
+        estimator.smoothed = Some(Duration::from_secs(1));
+        estimator.variance = Some(Duration::from_secs(1));
+        assert_eq!(estimator.timeout(), Duration::from_secs(5));
     }
 
     #[tokio::test(start_paused = true)]

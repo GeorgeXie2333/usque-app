@@ -818,9 +818,7 @@ where
         }
         let interfaces = selected.into_values().collect::<Vec<_>>();
         if interfaces.is_empty() {
-            return Err(ServiceError::PhysicalNetwork(
-                "the prepared tunnel has no verified physical interface".to_owned(),
-            ));
+            return Err(ServiceError::PhysicalNetworkOffline);
         }
         let fingerprint = physical_network_fingerprint(&interfaces);
         let changed = state.fingerprint.is_some_and(|value| value != fingerprint);
@@ -2400,6 +2398,8 @@ enum ServiceError {
     Plan(String),
     #[error("physical network metadata is unavailable: {0}")]
     PhysicalNetwork(String),
+    #[error("the prepared tunnel has no verified physical interface")]
+    PhysicalNetworkOffline,
     #[error("direct egress is available only for the prepared or active tunnel")]
     DirectEgressState,
     #[error("direct egress operation owner does not match the authenticated Engine")]
@@ -2442,6 +2442,7 @@ impl ServiceError {
             Self::DirectEgressNotReady => ("AGENT_DIRECT_EGRESS_NOT_READY", true),
             Self::DirectEgressLimit => ("AGENT_DIRECT_EGRESS_LIMIT", true),
             Self::PhysicalNetwork(_) => ("AGENT_PHYSICAL_NETWORK_UNAVAILABLE", true),
+            Self::PhysicalNetworkOffline => ("AGENT_PHYSICAL_NETWORK_OFFLINE", true),
             Self::DirectEgress(wfp::WfpError::Windows { code, .. })
                 if *code == windows_sys::Win32::Foundation::FWP_E_PROVIDER_NOT_FOUND as u32 =>
             {
@@ -2677,6 +2678,10 @@ mod tests {
         assert_eq!(
             ServiceError::PhysicalNetwork("private network fixture".to_owned()).code(),
             ("AGENT_PHYSICAL_NETWORK_UNAVAILABLE", true)
+        );
+        assert_eq!(
+            ServiceError::PhysicalNetworkOffline.code(),
+            ("AGENT_PHYSICAL_NETWORK_OFFLINE", true)
         );
     }
 

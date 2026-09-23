@@ -63,6 +63,12 @@ Agents without device-reuse capability require a matching application/Agent
 update; new TUN requests cannot fall back to the old per-connection device path. Do not delete the
 recovery journal to bypass an error.
 
+Established CONNECT-IP reconnects reuse the physical-network observer described in
+[connection recovery](h3-client-reliability.md#established-connect-ip-recovery).
+The observer distinguishes confirmed `AGENT_PHYSICAL_NETWORK_OFFLINE` from failed
+queries and older Agents' generic errors. This does not relax the Agent's startup,
+exact-egress, cleanup or automatic-recovery checks.
+
 ## Upgrade ordering and payload replacement
 
 The newer-Agent-first ordering below was introduced in v0.2.5. It is retained
