@@ -267,10 +267,14 @@ migration failures use closed reason-code enums.
 
 ## MASQUE performance and capacity waits
 
-Optional `QueueQuality.backpressure` reports only async admissions whose first
-poll returned Pending. Only channels with measured async admission publish this
-group; manually accounted proxy/QUIC queue depth does not imply measured zero
-waits. `waits` and `active` count started and ongoing waits;
+Optional `QueueQuality.backpressure` starts a wait at the first capacity-blocked
+poll of an async admission. Tokio can also return Pending solely because the
+task exhausted its cooperative execution budget, even when all queue permits
+are available. Those yields retain their normal scheduling behavior but do not
+start a capacity wait. A later capacity-blocked poll starts its own timestamp.
+Only channels with measured async admission publish this group; manually
+accounted proxy/QUIC queue depth does not imply measured zero waits.
+`waits` and `active` count started and ongoing waits;
 `completed`, `cancelled`, `closed`, and `errors` count exactly one terminal
 outcome each. Dropping a waiting future settles cancellation through RAII.
 Immediately admitted packets contribute no wait sample. `total_us`, `max_us`
@@ -281,8 +285,13 @@ meaning; waiting by itself is not a dropped packet.
 
 The sampled `QueueBackpressured` timeline event carries the queue enum and the
 actual completed admission wait in milliseconds, without a transport failure.
+Sub-millisecond waits truncate to `0 ms` in the timeline; the microsecond
+counters and histogram retain finer resolution. `transport_outgoing` identifies
+the application-to-transport queue, not a particular QUIC stop reason.
 Successful waits are sampled at counts 1, 2, 4, 8, etc. across a telemetry
-lifetime. In-progress/cancelled/failed waits remain visible in the counters.
+lifetime, so increasing intervals between displayed events do not establish a
+falling wait rate. In-progress/cancelled/failed waits remain visible in the
+counters.
 Real rejected admissions retain their existing failure semantics. The event
 never clears or overwrites the most recent failure.
 

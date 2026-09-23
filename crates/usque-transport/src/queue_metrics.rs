@@ -515,7 +515,14 @@ impl<T> TrackedSender<T> {
         let mut sending = std::pin::pin!(self.send_unmeasured(value, bytes, cancellation));
         let result = poll_fn(|cx| match sending.as_mut().poll(cx) {
             Poll::Pending => {
-                wait.pending();
+                // Tokio checks its cooperative budget before polling each
+                // semaphore. Exhausting that budget can suspend a completely
+                // empty queue, including between our three permit acquisitions.
+                // Keep the yield and its waker, but only time a capacity wait
+                // once polling is allowed to reach the underlying semaphore.
+                if tokio::task::coop::has_budget_remaining() {
+                    wait.pending();
+                }
                 Poll::Pending
             }
             Poll::Ready(result) => Poll::Ready(result),
@@ -843,6 +850,92 @@ mod tests {
         assert_eq!(
             metrics.snapshot(Instant::now()).backpressure.unwrap().waits,
             0
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cooperative_yields_with_free_capacity_are_not_backpressure() {
+        use tokio::task::{consume_budget, coop::has_budget_remaining};
+
+        // Discover the runtime's budget rather than baking in Tokio's private
+        // budget size. Then exercise yielding before each of our three permits.
+        tokio::task::yield_now().await;
+        let mut budget = 0;
+        while has_budget_remaining() {
+            consume_budget().await;
+            budget += 1;
+        }
+        assert!(budget > 3);
+        for remaining in 0..3 {
+            tokio::task::yield_now().await;
+            for _ in 0..budget - remaining {
+                consume_budget().await;
+            }
+            let metrics = QueueMetrics::new(QueueKind::TransportOutgoingPackets, 1, 32);
+            let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+            let mut send = std::pin::pin!(sender.send_observed(1u8, 1));
+            assert!(
+                poll_fn(|cx| Poll::Ready(send.as_mut().poll(cx)))
+                    .await
+                    .is_pending()
+            );
+            assert_eq!(metrics.snapshot(Instant::now()).current_items, 0);
+            assert_eq!(
+                metrics.backpressure.snapshot().waits,
+                0,
+                "cooperative yield with {remaining} budget left is not a capacity wait"
+            );
+            assert_eq!(send.await.unwrap(), None);
+            assert_eq!(receiver.recv().await, Some(1));
+            let snapshot = metrics.backpressure.snapshot();
+            assert_eq!(
+                (
+                    snapshot.waits,
+                    snapshot.active,
+                    snapshot.completed,
+                    snapshot.cancelled
+                ),
+                (0, 0, 0, 0)
+            );
+            assert_eq!(snapshot.buckets.iter().sum::<u64>(), 0);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn real_capacity_wait_after_cooperative_yield_starts_when_capacity_is_polled() {
+        let metrics = QueueMetrics::new(QueueKind::TransportOutgoingPackets, 1, 32);
+        let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+        sender.send(1u8, 1).await.unwrap();
+        while tokio::task::coop::has_budget_remaining() {
+            tokio::task::consume_budget().await;
+        }
+        let mut send = std::pin::pin!(sender.send_observed(2u8, 1));
+        assert!(
+            poll_fn(|cx| Poll::Ready(send.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        assert_eq!(metrics.backpressure.snapshot().waits, 0);
+        advance(Duration::from_millis(7)).await;
+        assert!(
+            poll_fn(|cx| Poll::Ready(send.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        assert_eq!(metrics.backpressure.snapshot().active, 1);
+        advance(Duration::from_millis(5)).await;
+        assert_eq!(receiver.recv().await, Some(1));
+        assert_eq!(send.await.unwrap(), Some(Duration::from_millis(5)));
+        assert_eq!(receiver.recv().await, Some(2));
+        let snapshot = metrics.backpressure.snapshot();
+        assert_eq!(
+            (
+                snapshot.waits,
+                snapshot.active,
+                snapshot.completed,
+                snapshot.total_us
+            ),
+            (1, 0, 1, 5000)
         );
     }
 

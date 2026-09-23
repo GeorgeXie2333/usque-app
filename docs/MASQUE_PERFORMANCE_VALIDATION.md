@@ -244,3 +244,117 @@ Unknown CPU/RSS stays unknown. Throughput median must reach 95% of control;
 other measured budgets follow the existing performance policy. Claim a speedup
 only when repeated improvement exceeds variability. Keep correctness fixes;
 revert a performance subcommit with stable regression.
+
+## Follow-up — device feedback and cooperative-yield accounting
+
+Recorded 2026-09-24, based on source
+`4a57f9f650969281e74ee5766c444a9a659e805a`. Its transport source is D;
+the intervening commit changes the GUI disconnected headline. The user reports
+building the tested package from current HEAD; this is not independent artifact
+or device verification. The commit containing this follow-up identifies the
+subsequent diagnostic correction, not the package in the screenshots.
+
+| User observation | Download (Mbps) | Upload (Mbps) |
+| --- | ---: | ---: |
+| Earlier H2 | 308.7 | 586.2 |
+| Earlier H3/Cubic | 902.1 | 380.4 |
+| Current H2 | 539.6 | 395.5 |
+| Current H3/Cubic | 1,008.1 | 346.0 |
+
+These single measurements show higher download and lower upload than the
+earlier screenshots. They do not establish a causal gain or regression: there
+are no alternating repeated samples, CPU/RSS observations or paired diagnostic
+deltas, and the earlier and current pairs show different exits. The current
+H2/H3 screenshots use the same displayed exit and SmarTone test node. The user
+reports that H3's upload ramp is most pronounced after reconnect, less pronounced
+on subsequent tests, but still plateaus in the 300 Mbps range. All four tested
+H3 congestion choices previously gave similar upload rates. Treat startup and
+the sustained ceiling as separate unresolved observations.
+
+The new upload timeline shows `QueueBackpressured` on `transport_outgoing`,
+mostly `0 ms` and once `1 ms`. This is successful admission after a sampled
+wait, not `SEND_QUEUE_FULL` or evidence of packet loss. Integer milliseconds
+truncate sub-millisecond waits. Power-of-two sampling explains why visible
+events become further apart without proving that queue pressure subsided.
+
+Source inspection found an additional measurement defect. Locked Tokio 1.53.1
+checks its cooperative budget before polling a semaphore. Previously, the
+admission wrapper interpreted every Pending as exhausted queue capacity. An
+empty-queue regression first failed with one recorded wait instead of zero
+(525 library tests passed, one failed). The correction preserves the underlying
+future and its cooperative yield, and only starts timing when the poll retains
+budget to reach capacity acquisition. Tests cover exhaustion before each of
+the channel, item and byte permits, and a real capacity wait following an
+unrelated cooperative yield. Only the real wait contributes its duration;
+existing cancellation, closure, ordering and permit cleanup tests still pass.
+
+This correction changes diagnostics only. It does not remove cooperative
+fairness, enlarge buffers, alter sending or receiving, change congestion
+control, or establish a fix for the upload ceiling. No new fields or sensitive
+data are exported; the existing RAII settlement and failure semantics remain.
+
+Follow-up validation on the same pinned workstation toolchains:
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | exit 0; 1,293 passed, 8 ignored, 0 failed |
+| `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | exit 0; compile only |
+| `python tool/check_repository_policy.py` using the verified executable above | exit 0 |
+| `git diff --check` | exit 0 |
+
+Only transport Rust and these references change in this follow-up. Flutter,
+Kotlin, protobuf and aggregate multi-language checks are not rerun for it;
+historical results above remain attached to their original candidates. Device,
+isolated lifecycle, controlled performance, APK creation and installation are
+`not_run`. The screenshots remain user feedback, not a performance-lab pass.
+
+### Send-only mihomo reference
+
+The user reports higher mihomo MASQUE upload with HEAD and default settings.
+The source review is pinned to mihomo's Meta source branch at
+[`ab405bad5beeeac8b003bb01f60f134f6df54471`](https://github.com/MetaCubeX/mihomo/tree/ab405bad5beeeac8b003bb01f60f134f6df54471),
+whose module lock selects connect-ip-go `67ccdb0cf771` and quic-go
+`2548683b76f4`. The exact user binary is not independently identified. The
+comparison concerns sending only; no receive implementation is adopted.
+
+- The [MASQUE sender](https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/adapter/outbound/masque.go)
+  uses one long-lived goroutine and a reused read buffer, forwarding packets
+  directly to WritePacket. Its IP stack also originates proxied TCP connections;
+  this differs from forwarding Android TUN packets. The documented default
+  [IP stack mode](https://github.com/MetaCubeX/Meta-Docs/blob/main/docs/config/proxies/masque.md)
+  is auto, selecting gVisor when compiled in and MIPS otherwise. It is not an
+  identical inner TCP stack comparison.
+- The locked [DATAGRAM send queue](https://github.com/MetaCubeX/quic-go/blob/2548683b76f4/datagram_queue.go)
+  holds at most 32 frames. A full queue blocks admission until capacity or close;
+  enqueue wakes the QUIC sender. The reference offers no evidence that Usque
+  needs a larger application queue or encoding pool. Its
+  [CONNECT-IP encoder](https://github.com/MetaCubeX/connect-ip-go/blob/67ccdb0cf771/conn.go)
+  and [QUIC admission](https://github.com/MetaCubeX/quic-go/blob/2548683b76f4/connection.go)
+  still allocate and copy packet data, so its speed does not demonstrate an
+  entirely zero-copy send path.
+- With no outer congestion-controller override, mihomo's
+  [selection function](https://github.com/MetaCubeX/mihomo/blob/ab405bad5beeeac8b003bb01f60f134f6df54471/transport/tuic/common/congestion.go)
+  leaves the QUIC default in place. The locked
+  [packet handler](https://github.com/MetaCubeX/quic-go/blob/2548683b76f4/internal/ackhandler/sent_packet_handler.go)
+  constructs its CubicSender with `use Reno = true`. Default therefore does not
+  imply the same outer Cubic algorithm used in this Usque test.
+- quic-go separates packet construction from socket writes with a bounded
+  [send worker](https://github.com/MetaCubeX/quic-go/blob/2548683b76f4/send_queue.go)
+  and supports GSO where the socket/kernel/path allows it. Usque already has
+  Linux/Android sendmmsg batching; GSO is a different optimization, not proof
+  that the user's mihomo run used it. Keep it as a separately measured follow-up
+  if syscall/batch evidence points there, outside the initial no-GSO plan.
+
+The first candidate for further investigation is the cost of handing each
+uplink packet through Android, mux and transport admission. Check application
+batch sizes, queue wait/depth deltas, QUIC stop observations and UDP datagrams
+per syscall from the same connection instance before selecting a change. A
+bounded ready-send/drain path could amortize repeated select/admission work,
+but must preserve reverse progress, cancellation and packet order. Entering a
+new select round does not by itself prove a thread switch or an extra wakeup.
+No send scheduling change is made solely on this source comparison. The current
+snapshot's congestion window is not a historical per-second series, and bytes
+in flight remains unavailable; do not infer either from the timeline screenshot.
