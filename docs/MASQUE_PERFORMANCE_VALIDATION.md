@@ -163,6 +163,68 @@ C2 checks completed with exit 0:
 The unchanged protobuf/GUI/Kotlin checks retain A's results. No device
 throughput improvement is claimed from host tests.
 
+## D — bounded H3 send work
+
+C2 source: `f3469b245791b069875797bdcd724fd4d937e0bf`.
+Each synchronous application step prepares one fixed-size stack DATAGRAM header
+and queries the effective payload limit once. The private encoder accepts only
+packets validated by the batch admission boundary; public send methods still
+reject malformed IP input. Every next actor round recalculates the limits after
+network/path events. Header-copy and PMTU-defer counters are aggregated per step.
+A guarded try_recv claims at most one ready batch without waiting, while the
+existing recv branch still wakes an empty actor. Startup, pending-batch and
+migration injection barriers remain in force.
+
+Wait-group availability is also tightened: manually accounted queues without
+an instrumented admission publish no wait group. For A–C2 comparisons, ignore
+those queues' placeholder zero waits and use the measured TransportOutgoing
+admission group and actual queue-depth/drop counters.
+
+Application and wire steps now return typed progress and stop reasons, used by
+metrics and tests. QUIC Done with backlog remains an observation, not a diagnosis
+of insufficient congestion window. No queue/pool capacity, MTU, congestion
+algorithm, send quantum, pacing deadline, path generation, UDP partial-prefix
+handling, GSO, kernel parameter or vendored quiche algorithm is changed.
+
+A test-only thread-local query counter first reproduced 64 payload-limit lookups
+for one 64-packet batch (518 passed, 1 failed in the library run); it passes with
+one lookup after the change. Additional tests cover one-batch ready admission,
+startup/migration barriers, producer closure, pool exhaustion with zero/one/all
+buffers returned, DATAGRAM full/recovery, public malformed input, bounded wire
+progress, small quantum and Done with backlog. Existing PMTU regressions now
+also assert deferred/cancelled stop reasons. The full suite retains four-algorithm
+handshakes, future send times, migration generations, partial UDP completion
+(0/1/N), WouldBlock, portable fallback and EMSGSIZE coverage.
+
+D validation results:
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | exit 0; 1,291 passed, 8 ignored, 0 failed |
+| `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | exit 0; compile only |
+| `buf lint` | exit 0 |
+| `buf format --exit-code --diff` | exit 0 |
+| `buf breaking --against '.git#ref=d00dafb9f9d4e2e86ecd2ffb89d4d9b91f446543'` | exit 0 |
+| `pwsh -NoProfile -File tool/check_source.ps1` after Windows helper in same session | exit 0 |
+| `python tool/check_repository_policy.py` using the verified executable above | exit 0 |
+| `git diff --check` | exit 0 |
+
+The aggregate reruns Flutter analysis, Dart formatting, Kotlin ktlint, Ruff,
+PSScriptAnalyzer and Buf checks against the final source. The unchanged GUI's
+657 widget/golden tests, Windows Flutter release build, and Kotlin unit/lint
+suites retain A's results. The eight ignored Rust tests consist of two isolated
+Wintun-load tests, one optional supplied-profile test, four credential-dependent
+live proxy tests, and one controlled WireGuard memory benchmark; none is a pass.
+No benchmark or device performance result is inferred from these checks.
+
+Candidates are local source commits. No CI APK artifact has been produced by
+this task; candidate packages still come from the existing build workflow for
+the selected full SHA. These are mechanism/correctness results; real throughput
+gains remain unmeasured.
+
 ## Device and isolated evidence
 
 All candidate throughput, CPU, RSS, device lifecycle, and protected-runner

@@ -268,7 +268,9 @@ migration failures use closed reason-code enums.
 ## MASQUE performance and capacity waits
 
 Optional `QueueQuality.backpressure` reports only async admissions whose first
-poll returned Pending. `waits` and `active` count started and ongoing waits;
+poll returned Pending. Only channels with measured async admission publish this
+group; manually accounted proxy/QUIC queue depth does not imply measured zero
+waits. `waits` and `active` count started and ongoing waits;
 `completed`, `cancelled`, `closed`, and `errors` count exactly one terminal
 outcome each. Dropping a waiting future settles cancellation through RAII.
 Immediately admitted packets contribute no wait sample. `total_us`, `max_us`

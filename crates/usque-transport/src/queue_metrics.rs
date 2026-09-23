@@ -76,6 +76,7 @@ pub struct QueueMetricsSnapshot {
 #[derive(Debug)]
 pub struct QueueMetrics {
     backpressure: BackpressureCounters,
+    backpressure_measured: AtomicBool,
     kind: QueueKind,
     registered: bool,
     item_capacity: u64,
@@ -116,6 +117,7 @@ impl QueueMetrics {
             cancelled: AtomicBool::new(false),
             unordered_timestamps: None,
             backpressure: BackpressureCounters::default(),
+            backpressure_measured: AtomicBool::new(false),
         })
     }
 
@@ -164,6 +166,7 @@ impl QueueMetrics {
             cancelled: AtomicBool::new(false),
             unordered_timestamps: track_unordered_timestamps.then(|| Mutex::new(BTreeMap::new())),
             backpressure: BackpressureCounters::default(),
+            backpressure_measured: AtomicBool::new(false),
         })
     }
 
@@ -234,7 +237,10 @@ impl QueueMetrics {
             Some(now.saturating_duration_since(enqueued))
         };
         QueueMetricsSnapshot {
-            backpressure: self.registered.then(|| self.backpressure.snapshot()),
+            backpressure: self
+                .backpressure_measured
+                .load(Ordering::Relaxed)
+                .then(|| self.backpressure.snapshot()),
             kind: self.kind,
             registered: self.registered,
             current_items,
@@ -778,6 +784,7 @@ pub fn tracked_channel<T>(metrics: Arc<QueueMetrics>) -> (TrackedSender<T>, Trac
         byte_capacity <= u32::MAX as usize,
         "tracked queue byte capacity must fit Tokio semaphore permits"
     );
+    metrics.backpressure_measured.store(true, Ordering::Relaxed);
     let (sender, receiver) = mpsc::channel(item_capacity);
     let byte_budget = Arc::new(Semaphore::new(byte_capacity));
     let item_budget = Arc::new(Semaphore::new(item_capacity));
@@ -827,6 +834,17 @@ mod tests {
     use tokio::time::advance;
 
     use super::*;
+
+    #[test]
+    fn manual_queue_accounting_does_not_claim_measured_zero_waits() {
+        let metrics = QueueMetrics::new(QueueKind::TransportToProxy, 1, 32);
+        assert!(metrics.snapshot(Instant::now()).backpressure.is_none());
+        let (_sender, _receiver) = tracked_channel::<u8>(Arc::clone(&metrics));
+        assert_eq!(
+            metrics.snapshot(Instant::now()).backpressure.unwrap().waits,
+            0
+        );
+    }
 
     #[tokio::test(start_paused = true)]
     async fn capacity_wait_counts_only_pending_and_settles_once() {

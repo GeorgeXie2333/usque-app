@@ -1,3 +1,9 @@
+mod send_progress;
+use send_progress::{
+    BatchProgress, BatchStop, DatagramHeader, ReadyAdmission, WireProgress, WireStop,
+    claim_ready_batch,
+};
+
 use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
@@ -1039,6 +1045,19 @@ async fn drive_h3_actor(
             )?;
         }
 
+        // Claim at most one ready batch before generating this round's wire
+        // work. Empty channels still use the recv branch below for wakeups.
+        if claim_ready_batch(
+            &mut outgoing_rx,
+            &mut pending_batch,
+            ready && !is_l4 && request_stream_id.is_some(),
+            migration.allows_application_injection(),
+            quality,
+        ) == ReadyAdmission::Closed
+        {
+            return Ok(());
+        }
+
         if ready
             && migration.allows_application_injection()
             && let Some(stream_id) = request_stream_id
@@ -1554,7 +1573,7 @@ fn queue_pending_batch(
     quality: &NetworkQualityTelemetry,
     encode_pool: &DatagramEncodePool,
     profile_inner_mtu: usize,
-) -> Result<(), TransportError> {
+) -> Result<BatchProgress, TransportError> {
     if pending_batch
         .as_ref()
         .is_some_and(|outgoing| outgoing.completion.is_closed())
@@ -1562,32 +1581,40 @@ fn queue_pending_batch(
         // A send timeout/cancellation must release a batch waiting on PMTUD
         // and let the actor observe a closed producer without waiting for ACKs.
         pending_batch.take();
-        return Ok(());
+        return Ok(BatchProgress {
+            stop: BatchStop::ProducerCancelled,
+            ..Default::default()
+        });
     }
+    let mut progress = BatchProgress {
+        stop: BatchStop::DrainBudget,
+        ..Default::default()
+    };
+    let mut header_copies = 0;
     let completed = {
         let Some(outgoing) = pending_batch.as_mut() else {
-            return Ok(());
+            return Ok(BatchProgress::default());
         };
+        let header = DatagramHeader::new(stream_id)?;
+        let (maximum_packet_size, datagram_overhead) =
+            connect_ip_payload_limit_with_overhead(connection, header.len, profile_inner_mtu)?;
+        let awaiting_pmtu = quality.features().automatic_pmtu
+            && connection.pmtu().is_none()
+            && maximum_packet_size < crate::pmtu::IPV6_MINIMUM_INNER_MTU;
         // Visit each original entry at most once. Deferred IPv6 entries rotate
         // behind smaller packets without adding a queue or spinning on them.
         for _ in 0..outgoing.batch.len().min(UDP_ACTOR_DRAIN_LIMIT) {
             if connection.is_dgram_send_queue_full() {
-                crate::transport_performance::add(&quality.performance().h3.datagram_queue_full, 1);
+                progress.stop = BatchStop::DatagramFull;
                 break;
             }
             let Some(packet) = outgoing.batch.front() else {
                 break;
             };
             let packet_len = packet.len();
-            let (maximum_packet_size, datagram_overhead) =
-                connect_ip_payload_limit(connection, stream_id, profile_inner_mtu)?;
             if packet_len > maximum_packet_size {
-                if quality.features().automatic_pmtu
-                    && connection.pmtu().is_none()
-                    && maximum_packet_size < crate::pmtu::IPV6_MINIMUM_INNER_MTU
-                    && packet.first().is_some_and(|byte| byte >> 4 == 6)
-                {
-                    crate::transport_performance::add(&quality.performance().h3.pmtu_deferred, 1);
+                if awaiting_pmtu && packet.first().is_some_and(|byte| byte >> 4 == 6) {
+                    progress.deferred += 1;
                     // A probing floor is not evidence that IPv6's minimum MTU
                     // is unavailable. Keep the original packet for a later
                     // probe ACK; a completed low PMTU still uses the existing
@@ -1608,19 +1635,19 @@ fn queue_pending_batch(
                     .result
                     .oversized
                     .push((packet, maximum_packet_size));
+                progress.rejected += 1;
                 continue;
             }
-            let Some(datagram) = encode_http_datagram(encode_pool, stream_id, packet)? else {
-                crate::transport_performance::add(
-                    &quality.performance().h3.encode_pool_exhausted,
-                    1,
-                );
+            let Some(datagram) = encode_validated_http_datagram(encode_pool, &header, packet)?
+            else {
+                progress.stop = BatchStop::EncodePoolExhausted;
                 break;
             };
             let datagram_len = datagram.as_ref().len();
-            quality.record_datagram_header_copy(datagram_overhead);
+            header_copies += datagram_overhead;
             match connection.dgram_send_buf(datagram) {
                 Ok(()) => {
+                    progress.accepted += 1;
                     datagram_entries.push_back(datagram_queue.start_entry(datagram_len));
                     let packet = outgoing
                         .batch
@@ -1629,8 +1656,12 @@ fn queue_pending_batch(
                     outgoing.result.accepted_bytes =
                         outgoing.result.accepted_bytes.saturating_add(packet.len());
                 }
-                Err(quiche::Error::Done) => break,
+                Err(quiche::Error::Done) => {
+                    progress.stop = BatchStop::DatagramFull;
+                    break;
+                }
                 Err(quiche::Error::BufferTooShort) => {
+                    progress.rejected += 1;
                     let packet = outgoing
                         .batch
                         .pop_front()
@@ -1649,14 +1680,28 @@ fn queue_pending_batch(
         }
         outgoing.batch.is_empty()
     };
+    if header_copies != 0 {
+        quality.record_datagram_header_copy(header_copies);
+    }
     if completed {
+        progress.stop = BatchStop::Completed;
         let outgoing = pending_batch
             .take()
             .expect("completed outgoing batch remains present");
         let _ = outgoing.completion.send(outgoing.result);
     }
-    Ok(())
+    if progress.stop == BatchStop::DrainBudget && progress.deferred != 0 {
+        progress.stop = BatchStop::PmtuDeferred;
+    }
+    progress.observe(quality);
+    Ok(progress)
 }
+
+#[cfg(test)]
+thread_local! { static PAYLOAD_LIMIT_LOOKUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+#[path = "h3/send_progress_tests.rs"]
+mod send_progress_tests;
 
 fn connect_ip_payload_limit(
     connection: &H3QuicConnection,
@@ -1665,6 +1710,16 @@ fn connect_ip_payload_limit(
 ) -> Result<(usize, usize), TransportError> {
     let datagram_overhead = encoded_varint_len(stream_id / 4)?
         + encoded_varint_len(usque_protocol::DEFAULT_CONTEXT_ID)?;
+    connect_ip_payload_limit_with_overhead(connection, datagram_overhead, profile_inner_mtu)
+}
+
+fn connect_ip_payload_limit_with_overhead(
+    connection: &H3QuicConnection,
+    datagram_overhead: usize,
+    profile_inner_mtu: usize,
+) -> Result<(usize, usize), TransportError> {
+    #[cfg(test)]
+    PAYLOAD_LIMIT_LOOKUPS.with(|count| count.set(count.get() + 1));
     let maximum_datagram_size = connection.dgram_max_writable_len().ok_or_else(|| {
         TransportError::Http3("HTTP Datagram writable length became unavailable".to_owned())
     })?;
@@ -1899,8 +1954,10 @@ fn generate_wire_datagrams(
     wire_queue: &Arc<QueueMetrics>,
     quality: &NetworkQualityTelemetry,
     active: crate::path_socket::PathBinding,
-) -> Result<(), TransportError> {
+) -> Result<WireProgress, TransportError> {
     let mut generated_bytes = 0usize;
+    let initial_packets = pending.len();
+    let mut stop = WireStop::QueueFull;
     while pending.len() < MAX_PENDING_WIRE_DATAGRAMS {
         // The allocation ceiling is not the next packet's required size.
         // BBRv2 can budget one 1200-byte QUIC packet during the handshake or
@@ -1909,7 +1966,7 @@ fn generate_wire_datagrams(
         let packet_capacity =
             wire_payload_capacity.min(send_quantum.saturating_sub(generated_bytes));
         if packet_capacity < quiche::MIN_CLIENT_INITIAL_LEN {
-            crate::transport_performance::add(&quality.performance().h3.quantum_limited, 1);
+            stop = WireStop::Quantum;
             break;
         }
         let mut bytes = take_wire_buffer(free_buffers, wire_payload_capacity, quality);
@@ -1929,12 +1986,9 @@ fn generate_wire_datagrams(
                 });
             }
             Err(quiche::Error::Done) => {
-                if connection.dgram_send_queue_len() != 0 {
-                    crate::transport_performance::add(
-                        &quality.performance().h3.quic_no_progress_with_backlog,
-                        1,
-                    );
-                }
+                stop = WireStop::Done {
+                    backlog: connection.dgram_send_queue_len() != 0,
+                };
                 recycle_wire_buffer(free_buffers, bytes, quality);
                 break;
             }
@@ -1945,10 +1999,13 @@ fn generate_wire_datagrams(
             }
         }
     }
-    if pending.len() == MAX_PENDING_WIRE_DATAGRAMS {
-        crate::transport_performance::add(&quality.performance().h3.wire_queue_full, 1);
-    }
-    Ok(())
+    let progress = WireProgress {
+        packets: pending.len() - initial_packets,
+        bytes: generated_bytes,
+        stop,
+    };
+    progress.observe(quality);
+    Ok(progress)
 }
 
 fn observe_outgoing_batch(quality: &NetworkQualityTelemetry, batch: &OutgoingBatch) {
@@ -2117,18 +2174,27 @@ fn recycle_wire_buffer(
     }
 }
 
+#[cfg(test)]
 fn encode_http_datagram(
     pool: &DatagramEncodePool,
     stream_id: u64,
     packet: &[u8],
 ) -> Result<Option<PooledDatagramBuffer>, TransportError> {
     validate_ip_packet(packet)?;
+    encode_validated_http_datagram(pool, &DatagramHeader::new(stream_id)?, packet)
+}
+
+/// `packet` has passed H3SendHalf::start_owned_batch validation. Only the actor
+/// calls this path; network receives and public sends retain full validation.
+fn encode_validated_http_datagram(
+    pool: &DatagramEncodePool,
+    header: &DatagramHeader,
+    packet: &[u8],
+) -> Result<Option<PooledDatagramBuffer>, TransportError> {
     let Some(mut encoded) = pool.take() else {
         return Ok(None);
     };
-    let required = encoded_varint_len(stream_id / 4)?
-        .saturating_add(encoded_varint_len(usque_protocol::DEFAULT_CONTEXT_ID)?)
-        .saturating_add(packet.len());
+    let required = header.len.saturating_add(packet.len());
     if required > HTTP_DATAGRAM_BUFFER_CAPACITY {
         return Err(TransportError::Http3(
             "HTTP Datagram exceeded the bounded encode buffer".to_owned(),
@@ -2136,8 +2202,7 @@ fn encode_http_datagram(
     }
     let target = encoded.bytes_mut();
     debug_assert!(target.is_empty());
-    encode_varint(stream_id / 4, target)?;
-    encode_varint(usque_protocol::DEFAULT_CONTEXT_ID, target)?;
+    target.extend_from_slice(header.as_bytes());
     target.extend_from_slice(packet);
     Ok(Some(encoded))
 }
@@ -2186,6 +2251,7 @@ fn decode_varint(buffer: &[u8]) -> Result<Option<(u64, usize)>, TransportError> 
     Ok(Some((value, length)))
 }
 
+#[cfg(test)]
 fn encode_varint(value: u64, target: &mut Vec<u8>) -> Result<(), TransportError> {
     let length = encoded_varint_len(value)?;
     let prefix = match length {
