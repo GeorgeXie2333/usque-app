@@ -96,7 +96,10 @@ add_custom_command(
     ${PHONY_OUTPUT}
   COMMAND ${CMAKE_COMMAND} -E env
     ${FLUTTER_TOOL_ENVIRONMENT}
-    "${FLUTTER_ROOT}/packages/flutter_tools/bin/tool_backend.bat"
+    # The pinned SDK backend embeds literal quotes around TreeShakeIcons.
+    # Use our attributed adapter so assemble receives the exact boolean value.
+    "${FLUTTER_ROOT}/bin/cache/dart-sdk/bin/dart.exe"
+      "${CMAKE_CURRENT_SOURCE_DIR}/../../../../tool/flutter_windows_backend.dart"
       ${FLUTTER_TARGET_PLATFORM} $<CONFIG>
   VERBATIM
 )
