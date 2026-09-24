@@ -42,6 +42,10 @@ class NetworkQualityScreen extends StatelessWidget {
     final h3 = const <String>{'h3', 'http3', 'http/3'}.contains(transport);
     final tokens = UsqueTokens.of(context);
     final connected = controller.snapshot.isConnected;
+    final gateConnected =
+        connected &&
+        controller.snapshot.chainExit.currentProfile == null &&
+        controller.snapshot.vpnGate.connected;
     final supported = controller.engineCapabilities?.networkQuality ?? false;
     final doctorBusy =
         controller.diagnostics.isActive ||
@@ -105,11 +109,7 @@ class NetworkQualityScreen extends StatelessWidget {
       child: SubPage(
         title: s.get('network_quality'),
         backLabel: s.get('back'),
-        subtitle: s.get(
-          controller.snapshot.vpnGate.stage != 'disabled'
-              ? 'gate_quality_scope'
-              : 'nq_subtitle',
-        ),
+        subtitle: s.get(gateConnected ? 'gate_quality_scope' : 'nq_subtitle'),
         actions: <Widget>[
           FilledButton.icon(
             key: const ValueKey<String>('network-doctor-standard'),
