@@ -54,6 +54,8 @@ use crate::socket::{
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpReceivePool, is_message_too_long};
 
+#[cfg(test)]
+mod burst_fairness_tests;
 pub(crate) mod diagnostic;
 #[cfg(test)]
 mod diagnostic_tests;
@@ -1123,6 +1125,7 @@ async fn drive_h3_actor(
                     PathReceiveEvent::Batch { path_id, mut batch }
                         if path_sockets.contains(path_id) =>
                     {
+                        let mut incoming_fairness = IncomingBurstFairness::default();
                         for mut datagram in batch.drain() {
                             let source = datagram.source;
                             let destination = datagram.destination;
@@ -1135,6 +1138,14 @@ async fn drive_h3_actor(
                                 &mut incoming_batch,
                             )?;
                             record_inbound_queue_drops(dropped, &mut inbound_queue_drop_count);
+                            incoming_fairness
+                                .yield_once_if_blocked(
+                                    &mut connection,
+                                    request_stream_id.filter(|_| ready),
+                                    &incoming_tx,
+                                    &mut incoming_batch,
+                                )
+                                .await?;
                         }
                     }
                     PathReceiveEvent::Failed { path_id, error }
@@ -1866,6 +1877,43 @@ fn record_pmtu_change_if_needed(
 
 fn usize_to_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+#[derive(Default)]
+struct IncomingBurstFairness {
+    yielded: bool,
+}
+
+impl IncomingBurstFairness {
+    async fn yield_once_if_blocked(
+        &mut self,
+        connection: &mut H3QuicConnection,
+        ready_stream_id: Option<u64>,
+        incoming_tx: &mpsc::Sender<PacketBatch>,
+        incoming_batch: &mut PacketBatch,
+    ) -> Result<(), TransportError> {
+        let Some(stream_id) = ready_stream_id else {
+            return Ok(());
+        };
+        if self.yielded || connection.dgram_recv_front_len().is_none() {
+            return Ok(());
+        }
+        // The preceding drain leaves queued DATAGRAMs only when the retained
+        // application batch cannot be flushed. Give the consumer one chance
+        // before decoding more wire packets into the bounded QUIC receive queue.
+        // One yield per UDP batch bounds the delay to transmit/control work;
+        // permanent backpressure still uses the existing bounded drop policy.
+        self.yielded = true;
+        tokio::task::yield_now().await;
+        drain_received_datagrams_buffered(
+            connection,
+            stream_id,
+            true,
+            incoming_tx,
+            incoming_batch,
+            false,
+        )
+    }
 }
 
 fn receive_and_drain_quic_datagram(

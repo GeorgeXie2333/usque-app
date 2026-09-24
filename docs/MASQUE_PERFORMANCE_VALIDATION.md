@@ -774,3 +774,108 @@ No package installation, VPN/TUN creation, system proxy, DNS, route or WFP
 mutation was performed. Android device, isolated lifecycle/leak and controlled
 performance-lab validation remain `not_run`. No optimal configuration, blanket
 performance-budget pass or proven phone throughput improvement is claimed.
+
+## Follow-up — bounded H3 receive-burst fairness, 2026-09-24
+
+This change starts independently from
+`52ebb9de5bacb283ff5758ca7adb5d567a31e154` (the retained PTO/L4 compatibility
+fix). Retain the GREEN scheduling change after the numerical throughput
+retention screen and receive-overflow evidence below; a general throughput or
+CPU-efficiency gain remains unproven. Final retained-workspace gates are pending.
+
+After a ready CONNECT-IP drain leaves DATAGRAMs queued because the incoming
+application channel is full, the actor offers at most one `yield_now()` per
+bounded UDP batch and retries the same retained application batch before
+decoding the next wire packet. Queue capacities, MTU, Cubic, pacing and quantum
+stay unchanged. There is no channel-capacity await, new task or extra packet
+storage. L4/unaccepted streams take the fast path. One cooperative opportunity
+does not guarantee scheduler order or wall-clock latency; persistent pressure
+and overflow within one wire packet can still drop data.
+
+The RED debug fixture used 128 actual encrypted QUIC DATAGRAMs and failed for
+the intended reason: 64 drops versus expected zero (0 passed / 1 failed).
+GREEN scoped validation recorded 535 unit and 4 integration passes plus scoped
+Clippy success, including all five fairness fixtures:
+
+- transient-full consumer progress with exact-once ordered delivery;
+- persistent pressure yields once and returns to the actor;
+- available-capacity and unaccepted-stream fast paths do not yield;
+- receiver closure during the yield is detected before more wire input;
+- cancelling only the helper future retains the application batch/QUIC queue.
+
+Manual polling establishes those ownership/order properties, not a particular
+Tokio schedule. Scoped GREEN results do not replace the final workspace gates.
+
+Seven alternating physical-interface pairs (`701..707`) used H3/IPv4, Cubic,
+MTU 1280, two workers, process affinity `[0,2]`, and chain disabled. All 14
+endpoints verified interface-6 option/source membership, one quality connection,
+proxy use, exit 0, unchanged original configuration, closed listener and cleanup.
+No browser windows overlapped. Every pair had different observed WARP exits;
+those differences and all low results were retained rather than filtered.
+
+| Pair | Control down/up Mbps | GREEN down/up Mbps | Control/GREEN Rx endpoint delta |
+| --- | --- | --- | --- |
+| 701 | 795.3 / 515.0 | 918.1 / 493.8 | 0 / 0 |
+| 702 | 1086.6 / 550.4 | 998.7 / 566.1 | 303 / 0 |
+| 703 | 845.4 / 330.9 | 945.7 / 559.4 | 56 / 0 |
+| 704 | 711.7 / 363.4 | 1028.0 / 491.7 | 79 / 0 |
+| 705 | 957.1 / 438.6 | 1017.3 / 505.0 | 582 / 0 |
+| 706 | 1001.6 / 551.2 | 928.5 / 532.3 | 538 / 0 |
+| 707 | 1090.5 / 552.2 | 919.2 / 569.1 | 0 / 0 |
+
+Download median/MAD: control 957.1/129.5, GREEN 945.7/27.6 Mbps; upload:
+515.0/37.2 versus 532.3/33.8 Mbps. Ratios of medians are 0.988089/1.033592,
+meeting the 95% median-retention threshold. Paired-ratio median/MAD is
+1.062898/0.135882 download and 1.030605/0.071770 upload. Download pairs
+702/706/707 are individually below 95%. GREEN 707 jitter is 10 ms (control
+2 ms), retained despite both variants' 1 ms aggregate jitter median.
+
+Fresh combined DATAGRAM-drop endpoint differences were 1,558/0; available
+kind-4 send differences were zero, yielding inferred receive overflow 1,558/0.
+There were no observed counter resets/time reversals. Conservative DOM
+interiors account for control download 0/upload 265; 1,293 increments remain
+phase-unknown. Snapshot calls do not reveal exact phase boundaries. Startup,
+clock-agreement and sampling gaps keep complete contiguous-window and full
+phase totals unknown. Neither zero candidate endpoints nor upload-stage
+observations prove comprehensive losslessness or identify discarded TCP ACKs.
+
+Whole-browser CPU median/MAD is 0.813904/0.064552 versus 0.848727/0.067673
+cores; paired ratio median/MAD is 0.971456/0.137390. Inferred download/upload
+CPU paired medians are 1.002027/1.062374. H3 CPU/GiB remains unknown because
+the required attributed IP-byte denominator is unavailable.
+
+The source audit found no fixed Cubic 64 KiB/ms rate cap: send quantum is a
+per-drain byte budget, and Cubic pacing does not turn it into that claimed
+time-based limit. Observed source application batches were commonly about
+20–60 packets in the examined bulk intervals, not generally single packets.
+This does not characterize every downstream wire batch or prove a sender cap.
+
+Separate H2 observation `601` saw actual stream available credit
+4,186,609–4,194,304 bytes in all 37 samples, with sums of 4 MiB; this is local
+stream accounting, not peer send credit or the connection window. Separate
+physical TCP observation `801` retained 190.7/492.2 Mbps. Sustained download
+sampled a 524,280-byte receive buffer and 522,935–524,280-byte receive window,
+contradicting a persistent 64 KiB/zero-window explanation for those samples.
+Its approximately 0.791 all-thread CPU cores and 33.873 CPU-seconds/GiB of outer
+TCP input do not establish two-worker saturation or exclude a hot thread/short
+stall. About two H2 DATA frames per IP packet and 1.819 packets per receive
+batch identify receiver work, without measuring TLS/kernel copy cost. The
+remaining H2 bottleneck is unresolved; no new window/buffer tuning is retained.
+
+Control executable SHA-256:
+`62894f4d1914fae92bff45a580058d53308ad80cd903e04036ff0ee853b66b30`.
+GREEN physical-probe executable SHA-256:
+`f6f776ab16a06609c7ec8c710849824d1d286407a3fc85e6f18c9e638c6013e5`.
+Raw artifacts, the frozen three-pair report and separate seven-pair report stay
+local/ignored. Temporary socket/window diagnostics are excluded from GREEN.
+This Windows SOCKS screen is not device/lab acceptance or independent packet-egress proof.
+
+| Final retained-source check | Result |
+| --- | --- |
+| `cargo fmt --all --check` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | exit 0; 1,301 passed, 8 ignored |
+| `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | exit 0; compile only |
+| `python tool/check_repository_policy.py` using the verified Python executable above | exit 0 |
+| `git diff --check` | exit 0 |
