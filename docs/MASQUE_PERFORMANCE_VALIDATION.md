@@ -781,7 +781,8 @@ This change starts independently from
 `52ebb9de5bacb283ff5758ca7adb5d567a31e154` (the retained PTO/L4 compatibility
 fix). Retain the GREEN scheduling change after the numerical throughput
 retention screen and receive-overflow evidence below; a general throughput or
-CPU-efficiency gain remains unproven. Final retained-workspace gates are pending.
+CPU-efficiency gain remains unproven. Final retained-workspace checks completed;
+their results are recorded below.
 
 After a ready CONNECT-IP drain leaves DATAGRAMs queued because the incoming
 application channel is full, the actor offers at most one `yield_now()` per
@@ -879,3 +880,197 @@ This Windows SOCKS screen is not device/lab acceptance or independent packet-egr
 | `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | exit 0; compile only |
 | `python tool/check_repository_policy.py` using the verified Python executable above | exit 0 |
 | `git diff --check` | exit 0 |
+
+## Follow-up — physical H2 ciphertext buffering rejected, 2026-09-24
+
+Keep H2 unchanged. A seven-pair comparison without per-read instrumentation
+did not retain upload throughput or establish a CPU benefit. The separate
+instrumented screen showed why reducing read calls alone was insufficient
+evidence for a production change. These experiments start from
+`4f403855242fa3592d94f82872255b2027f24cc4`; their temporary probe changes and
+binaries remain local and ignored.
+
+Physical observation `901` recorded 246.6/611.2 Mbps, not an A/B improvement.
+In its strict sustained-download read-shape subset, 50.58% of positive raw
+AsyncRead completions were at most 64 bytes; their mean size was 332.43 bytes.
+Requested buffer space was unobserved in that probe. Sampled TCP/TLS/H2 CPU
+scopes overlap and cannot be added, subtracted as exclusive costs, extrapolated
+to total CPU, or converted from cycles to elapsed seconds. These observations
+do not establish thread saturation. Fresh readable-input queries were mostly
+zero, which does not exclude transient queues or bytes already in TLS/H2.
+
+Both subsequent cohorts compared a zero-capacity and 32 KiB ciphertext
+BufReader using one executable per cohort. Actual constructor capacity was
+checked in both ready and accepted-socket-owner records. H2, IPv4, Cubic,
+MTU 1280, two workers, affinity `[0,2]`, interface-6 socket binding and chain
+disabled remained fixed. No system networking settings changed. The source
+selects one configured literal IPv4 endpoint; actual remote endpoint equality
+was not independently observed. Provider exits differed in all three
+instrumented pairs and six lean pairs; lean pair 1107 had matching exits.
+
+The instrumented three-pair screen (`1001..1003`) added raw AsyncRead counters
+without per-poll clocks. Download medians were 139.6 versus 338.3 Mbps; upload
+422.0 versus 725.3 Mbps. Median paired ratios were 1.424292/1.557121.
+Raw polls per returned ciphertext GiB fell in all three pairs, with a median
+paired ratio of 0.134488. Requested/completed size pairs showed that almost all
+small control completions followed small requests. This measures AsyncRead
+polls, not OS syscalls or packets. Several atomic operations on each successful
+poll made observer cost larger for the high-call-count control. The 53 ms
+control jitter, low results and one upload regression were retained. This
+screen was not sufficient to accept buffering.
+
+The independent lean cohort (`1101..1107`) removed all per-read counters,
+branches and timing from the wrapper. Its `raw_read` field is absent, not zero.
+The same bounded, per-second native TCP observations remained on both sides.
+Native query timestamps define the CPU/byte comparisons. Sustained direction
+is inferred from adjacent byte-dominant intervals, separately from conservative
+browser-phase attribution; neither reconstructs exact test transitions.
+Instrumented and lean samples are not pooled.
+
+| Lean pair | Control down/up Mbps | Buffered down/up Mbps |
+| --- | --- | --- |
+| 1101 | 214.8 / 623.6 | 149.8 / 441.1 |
+| 1102 | 304.3 / 652.5 | 335.5 / 370.1 |
+| 1103 | 139.5 / 393.4 | 212.0 / 526.2 |
+| 1104 | 203.6 / 622.9 | 194.3 / 625.4 |
+| 1105 | 199.5 / 437.8 | 219.3 / 570.4 |
+| 1106 | 265.9 / 671.0 | 139.0 / 391.8 |
+| 1107 | 147.0 / 369.1 | 150.2 / 431.7 |
+
+Lean download median/MAD was 203.6/56.6 versus 194.3/44.1 Mbps, a ratio of
+medians of 0.954322. Upload was 622.9/48.1 versus 441.1/71.0 Mbps, ratio
+0.708139, below the 95% retention threshold. Download MAD/median was
+27.80%/22.70%; upload was 7.72%/16.10%. Both download groups and buffered
+upload exceed the 10% stability limit; no stable causal slowdown or optimal
+buffer size is claimed.
+
+At nominal timestamp alignment, whole-process CPU-seconds per directional
+outer-TCP GiB worsened in six of seven download pairs and all seven upload
+pairs. One upload pair crosses unity under the +/-0.25-second sensitivity
+shift. Median paired cost ratios were 1.37733 and 1.12998 respectively. This
+is a layer-specific proxy, not exclusive TLS cost or inner-packet CPU/bit.
+Upload sampled RSS maxima had
+medians 58.871/60.219 MiB; sampled maxima are not true peaks. Speedtest ping is
+not latency p95. No complete performance-budget or protected-lab pass is claimed.
+
+All six instrumented and fourteen lean sessions passed recorded capacity,
+owner, binding and cleanup checks, with exit 0, original configuration
+unchanged, listener closed and observer closed. No browser tests overlapped.
+Two reconstructed memory-only pinned-TLS tests passed: for 64 queued TLS
+records, raw successful reads fell from 128 to 2 while delivering the same
+plaintext; wrong pins, ALPN, read cancellation before plaintext delivery,
+fragmented recovery, bidirectional writes and clean EOF were also checked.
+Those tests establish component behavior, not WAN throughput.
+
+Scoped Windows helper Clippy completed with exit 0 for both compositions.
+After helper initialization and `RUSTFLAGS=-C target-cpu=x86-64-v2`,
+`cargo test --locked -p usque-transport --all-targets` passed 541 unit plus
+4 integration tests for the instrumented composition, and 540 plus 4 for lean.
+The corresponding locked release engine-example builds both exited 0. Exact
+guarded restores removed all temporary sources before their WAN tests.
+
+Instrumented executable SHA-256:
+`a56f4213ab0a406ace4e236f565b2425874b1dc225756a145c7f4934f9caae8c`.
+Lean executable SHA-256:
+`1d6d8362a82c404b6f8ec5fe36b88783be6c8a0ec71e6675490542a55dc42e17`.
+The candidate buffer/helper and test adaptation were not applied to the
+retained H2 implementation. Android-device throughput, isolated lifecycle/leak
+validation and controlled performance-lab validation remain `not_run`.
+
+## Follow-up — portable UDP send readiness contract, 2026-09-24
+
+Retain the independently tested send-side contract correction after the
+numerical throughput-retention screen below. This is not a claim of stable
+throughput or CPU-efficiency improvement. It starts from
+`4f403855242fa3592d94f82872255b2027f24cc4`, without the rejected H2 buffer.
+The earlier grouped revert did not establish which of its three changes caused
+the phone regression; this experiment does not reuse that group's acceptance.
+
+`UdpBatchIo::send_batch` retains its outer Tokio writability wait and `try_io`.
+The portable helper now borrows the same socket through `SockRef` and performs
+raw sends inside that callback, instead of consulting Tokio readiness again
+for every datagram. This follows the locked Tokio callback contract. Socket
+ownership, options, destination/path checks, 64-packet bound, quantum, PMTU,
+queue capacity and cancellation remain unchanged. Portable receive is unchanged.
+H2 does not use this sender; Android normally uses `sendmmsg`, so this change
+does not explain or establish a fix for the phone's dual-protocol slowdown.
+
+The new RED fixture enters an actual outer `try_io`, then deliberately
+invalidates its cached writable flag inside the admitted callback. The original
+sender fails immediately with `WouldBlock` (exit 101, 0 passed / 1 failed).
+GREEN sends the expected ordered datagrams on IPv4 and IPv6. This is explicitly
+a synthetic cache-transition test, not a naturally reproduced actor deadlock.
+A second real-loopback test covers empty batches, a successful prefix followed
+by actual OS EMSGSIZE, error on retry, pre-cancelled sending and valid-tail
+recovery, including send accounting and no false fallback. Scoped Clippy and
+537 unit plus 4 integration tests passed on GREEN.
+
+When raw WouldBlock follows a successful prefix, only that prefix is removed;
+the retained tail is eligible again in the next actor iteration. A subsequent
+WouldBlock with zero progress reaches outer Mio/Tokio handling and rearms the
+wait. The first hidden error may therefore add a retry counter compared with
+the old inner Tokio handling. Higher observed WouldBlock counts do not prove
+greater network congestion. The legacy send-call metric can count cached
+readiness rejection before OS I/O; neither version is syscall tracing.
+Natural kernel send-WouldBlock followed by cancellation was not reproduced
+deterministically by the new tests; the synthetic/pre-cancelled cases must not
+be presented as that coverage.
+
+Seven alternating physical H3 pairs (`1201..1207`) used Cubic, IPv4, MTU1280,
+two workers, affinity `[0,2]`, interface6 binding and chain disabled. The
+physical binding and probe entry were byte-identical to the retained fairness
+control; the only release-path candidate difference was the portable sender.
+All 14 sessions passed ready, ownership, socket-binding, proxy, exit0,
+configuration-preservation and listener/cleanup checks. Browser tests did not
+overlap. Four pairs had different observed provider exits; none were filtered.
+
+| Pair | Control down/up Mbps | Candidate down/up Mbps |
+| --- | --- | --- |
+| 1201 | 769.9 / 490.2 | 871.5 / 532.1 |
+| 1202 | 868.1 / 553.4 | 798.5 / 485.7 |
+| 1203 | 981.9 / 575.2 | 983.1 / 551.1 |
+| 1204 | 725.3 / 390.6 | 891.2 / 384.2 |
+| 1205 | 930.2 / 436.1 | 919.0 / 564.7 |
+| 1206 | 974.5 / 562.9 | 1030.1 / 577.4 |
+| 1207 | 805.2 / 429.1 | 966.8 / 562.6 |
+
+Download median/MAD was 868.1/98.2 versus 919.0/47.8 Mbps; upload was
+490.2/63.2 versus 551.1/19.0 Mbps. Ratios of medians, 1.05863 and 1.12424,
+meet the numerical 95% retention line. Median paired ratios were 1.05705 and
+1.02576, with MAD 0.07491 and 0.06766. Control MAD/median was 11.31% download
+and 12.89% upload, exceeding the 10% stability limit; candidate values were
+5.20%/3.45%. Stable causal speedup remains unproven. Candidate1201 ping14/
+jitter8 ms and control1206 jitter5 ms remain included; these are not latency p95.
+
+Whole-browser process CPU medians were 1.0084/1.08299 cores, with paired ratio
+1.06645. CPU/bit is unknown; higher CPU usage is not a demonstrated efficiency
+gain. Whole-browser sampled RSS maxima had medians 58.2422/51.7656 MiB, but the
+median paired maximum ratio was 1.00883; sampled maxima are not true peaks.
+Fresh receive-overflow endpoint differences summed to 3388/1640, with available
+kind4 send-drop differences zero. Of those increments, 2721/1365 were outside
+conservative DOM interiors. These are not complete loss/phase totals, and no
+ACK contents or exact browser-transition times were observed. No complete
+performance-budget or protected-lab pass is claimed.
+
+Control executable SHA-256:
+`f6f776ab16a06609c7ec8c710849824d1d286407a3fc85e6f18c9e638c6013e5`.
+Candidate executable SHA-256:
+`a627ade5630faab93f64e4e0c92597ea8ba46e8b823690c7565700d0c3c38059`.
+The locked probe build exited 0, and all eight temporary source targets were
+restored before WAN tests. Only the three-file sender/test change is retained;
+raw evidence, experimental probes and generated artifacts remain ignored.
+
+| Final retained-source check | Result |
+| --- | --- |
+| `cargo fmt --all --check` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | exit 0; 1,303 passed, 8 ignored, 0 failed |
+| `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | exit 0; compile only |
+| `python tool/check_repository_policy.py` using verified Python 3.12.14 | exit 0 |
+| `git diff --check` | exit 0 |
+
+Rust and technical records are the only retained changes. Flutter, Kotlin,
+protobuf and aggregate multi-language checks are not applicable. Android
+device, VPN/TUN, isolated lifecycle/leak and controlled performance-lab tests
+remain `not_run`; no installation or system-network mutation was performed.

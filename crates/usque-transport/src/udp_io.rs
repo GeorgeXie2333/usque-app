@@ -19,6 +19,8 @@ use tokio_util::sync::CancellationToken;
 use crate::network_quality::NetworkQualityTelemetry;
 
 mod portable;
+#[cfg(test)]
+mod portable_readiness_contract_tests;
 pub(crate) mod receive_observation;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 mod unix_batch;
