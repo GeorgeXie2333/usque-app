@@ -1,0 +1,2024 @@
+{
+  "date": "2026-09-25",
+  "source_commit": "8de7b46596fe7cbebaa06ec6867cf915fad0bb4e",
+  "scope": "Local compile and memory-only screening; not protected-lab, device or release performance evidence.",
+  "toolchains": {
+    "rust": "1.97.1",
+    "ndk": "29.0.14206865",
+    "sdk_cmake": "3.22.1"
+  },
+  "candidates": {
+    "A": {
+      "settings": {
+        "source_commit": "8de7b46596fe7cbebaa06ec6867cf915fad0bb4e",
+        "candidate": "A",
+        "lto": "thin",
+        "opt_level": "3",
+        "rustflags": "-C target-cpu=x86-64-v2",
+        "native_sections": false
+      },
+      "files": {
+        "native/usque-agent.exe": {
+          "bytes": 2546688,
+          "sha256": "3cd3dfa24afa28df63eb35044149915c5a667032d2eb8b8f925948334aa47ec9"
+        },
+        "native/usque-engine.exe": {
+          "bytes": 16623616,
+          "sha256": "63f9fb4f5f97fff8ef4ca02c13e3a202ee6f51f9fca8617dc01453971c69a86d"
+        },
+        "native/usque-uninstall.exe": {
+          "bytes": 296960,
+          "sha256": "dbfa8c15daccf10b3cef9ebff699e6e551ff18d7e08ef1e9ddb26f8cf5e8f84f"
+        },
+        "native/usque-update.exe": {
+          "bytes": 620032,
+          "sha256": "f5d8bd3b81ef2fc15e187e31b9a4ab60aed9d9986e70730fb2738727f6a4f5d9"
+        },
+        "android/libusque_android.so": {
+          "bytes": 13174864,
+          "sha256": "508602f69db8ba74d011063487a1d250ab01fa132c25d962ee5c317edf948bfb"
+        },
+        "transport-tests.exe": {
+          "bytes": 21411328,
+          "sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca"
+        }
+      }
+    },
+    "B": {
+      "settings": {
+        "source_commit": "8de7b46596fe7cbebaa06ec6867cf915fad0bb4e",
+        "candidate": "B",
+        "lto": "fat",
+        "opt_level": "3",
+        "rustflags": "-C target-cpu=x86-64-v2",
+        "native_sections": false
+      },
+      "files": {
+        "native/usque-agent.exe": {
+          "bytes": 2454528,
+          "sha256": "52b63cfde7eb5e85e17c3559b9a4c06f2227012094c605d28441771adc4c1c72"
+        },
+        "native/usque-engine.exe": {
+          "bytes": 15770624,
+          "sha256": "3bb4a7ccb439a76fbf4df9600365e154b8e690903688af25d34fb24b5bf0584a"
+        },
+        "native/usque-uninstall.exe": {
+          "bytes": 285184,
+          "sha256": "bedaec4a5bae680ce7c8e986aa240b562ae6ac1272147dbb1c2d2e7dd8ce7398"
+        },
+        "native/usque-update.exe": {
+          "bytes": 586240,
+          "sha256": "0ad20325c6d35fc6c07674aab94e70154fe7b01d4ddda04e622369348226bbbc"
+        },
+        "android/libusque_android.so": {
+          "bytes": 13174864,
+          "sha256": "f8f72ab943f49a8746aa1743df98ba6b072bdb2cb4253ea40fef4e4172b7a5f6"
+        },
+        "transport-tests.exe": {
+          "bytes": 20406272,
+          "sha256": "ce7d6120a4c14218798e828daa9058f89a132557589361ee721e1cc5cbb79e29"
+        }
+      }
+    },
+    "C": {
+      "settings": {
+        "source_commit": "8de7b46596fe7cbebaa06ec6867cf915fad0bb4e",
+        "candidate": "C",
+        "lto": "thin",
+        "opt_level": "s",
+        "rustflags": "-C target-cpu=x86-64-v2",
+        "native_sections": false
+      },
+      "files": {
+        "native/usque-agent.exe": {
+          "bytes": 1959936,
+          "sha256": "56b9e04534ae1aa72a6cc23dbfd339454d13db126a911f4c6cb883ed4427fd78"
+        },
+        "native/usque-engine.exe": {
+          "bytes": 11225088,
+          "sha256": "33d72dd17599e0d16f31d9e9534e20231ff3222199c6701a663f21452bd1472e"
+        },
+        "native/usque-uninstall.exe": {
+          "bytes": 280064,
+          "sha256": "4e733866a6c72bfc46b10b778d408497d46d308f33254829751cbbd75b377772"
+        },
+        "native/usque-update.exe": {
+          "bytes": 521216,
+          "sha256": "8807266079cd0add64f982639cf34e9c30a4f6f49a0839b635676803bb6f047f"
+        },
+        "android/libusque_android.so": {
+          "bytes": 11110632,
+          "sha256": "0946e7617dae596c8a0def24f22713ab3f87c3b62f54c439d8c087069b1052fe"
+        },
+        "transport-tests.exe": {
+          "bytes": 15879168,
+          "sha256": "eb1b3f005b5d2abc34234d2e5ff5f1ce8ad3a22bf0a92986dbc6b6d0603fa42b"
+        }
+      }
+    },
+    "E": {
+      "settings": {
+        "source_commit": "8de7b46596fe7cbebaa06ec6867cf915fad0bb4e",
+        "candidate": "E",
+        "lto": "thin",
+        "opt_level": "3",
+        "rustflags": "-C target-cpu=x86-64-v2",
+        "native_sections": true
+      },
+      "files": {
+        "native/usque-agent.exe": {
+          "bytes": 2546688,
+          "sha256": "3e864f7a7c640bcb2524b16bb4022fcd99efb0229014f4c46b8236d1fcf4f2b4"
+        },
+        "native/usque-engine.exe": {
+          "bytes": 16568320,
+          "sha256": "199fab535109767cc8fdc6e5645ff810c46b799c3fab666fc15409815ac3f011"
+        },
+        "native/usque-uninstall.exe": {
+          "bytes": 296960,
+          "sha256": "5a82366fce18192fb76eb69cb7aef899147e0d785998874b7fd1823ce3aeb1fa"
+        },
+        "native/usque-update.exe": {
+          "bytes": 620032,
+          "sha256": "94b9dd4f9dd8890bc8f2f13b82443194eb7a38c96c1dca89bb63a6f4fb751dc6"
+        },
+        "transport-tests.exe": {
+          "bytes": 21364224,
+          "sha256": "72e5478e977b59b3fdd148ded6034cd1ff05cdff0be367985d8c66de26dc2bc0"
+        }
+      }
+    }
+  },
+  "performance": {
+    "B": {
+      "paired_runs": 7,
+      "sample_scope": "unaltered socket-free WireGuard harness; drop each scenario warm-up round; no WAN/device claim",
+      "scenarios": [
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 1.0173692720140468,
+          "throughput_baseline_mad_ratio": 0.013837339660341352,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.9409326424870467,
+          "p95_latency_baseline_mad_ratio": 0.030475552578700604
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9918617843800972,
+          "throughput_baseline_mad_ratio": 0.0021778228483255433,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.0832018927444795,
+          "p95_latency_baseline_mad_ratio": 0.02288072018004501
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9940915989855993,
+          "throughput_baseline_mad_ratio": 0.0021742484354851403,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.003985147122255,
+          "p95_latency_baseline_mad_ratio": 0.009263463383808833
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 1.000724457783686,
+          "throughput_baseline_mad_ratio": 0.0025383812865473056,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9950277718270416,
+          "p95_latency_baseline_mad_ratio": 0.008090931388529258
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 1.0041349538983633,
+          "throughput_baseline_mad_ratio": 0.0014544438580425241,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9974524970573398,
+          "p95_latency_baseline_mad_ratio": 0.0014235842735128843
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.997247751502278,
+          "throughput_baseline_mad_ratio": 0.0010123478685317262,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0024861331011468,
+          "p95_latency_baseline_mad_ratio": 0.001266694522705394
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 1.0155380725265684,
+          "throughput_baseline_mad_ratio": 0.024800679586555484,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.9017204807918925,
+          "p95_latency_baseline_mad_ratio": 0.03994743758212878
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9876647486066071,
+          "throughput_baseline_mad_ratio": 0.07126327796941351,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.9545216022389365,
+          "p95_latency_baseline_mad_ratio": 0.2297268229726823
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9959449594843086,
+          "throughput_baseline_mad_ratio": 0.004737164675383933,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0017611346137048,
+          "p95_latency_baseline_mad_ratio": 0.002367938302571974
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.9948391937041102,
+          "throughput_baseline_mad_ratio": 0.002487394530022112,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9974454972029516,
+          "p95_latency_baseline_mad_ratio": 0.00583549159099105
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 0.9989025056118783,
+          "throughput_baseline_mad_ratio": 0.0008309321035215548,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0023063548387945,
+          "p95_latency_baseline_mad_ratio": 0.0012336100264788968
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.9974112310490212,
+          "throughput_baseline_mad_ratio": 0.002347305678158595,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0036907691502173,
+          "p95_latency_baseline_mad_ratio": 0.004069940031321755
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 1.0214218700634674,
+          "throughput_baseline_mad_ratio": 0.07149529438496194,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.8848601735776278,
+          "p95_latency_baseline_mad_ratio": 0.2493975903614458
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 1.043329206758492,
+          "throughput_baseline_mad_ratio": 0.03472368204917579,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.9629096146921138,
+          "p95_latency_baseline_mad_ratio": 0.21406382377859362
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9905628975885126,
+          "throughput_baseline_mad_ratio": 0.007494634830697559,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0109671947577314,
+          "p95_latency_baseline_mad_ratio": 0.005216275654102549
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 1.0007182285586698,
+          "throughput_baseline_mad_ratio": 0.0034761245279137576,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0058653191987468,
+          "p95_latency_baseline_mad_ratio": 0.00620784252725653
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 0.9980490704373554,
+          "throughput_baseline_mad_ratio": 0.003138859928798346,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9997972662005369,
+          "p95_latency_baseline_mad_ratio": 0.0035278415427362902
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.9987452246465285,
+          "throughput_baseline_mad_ratio": 0.0007541717202493405,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9998611792898503,
+          "p95_latency_baseline_mad_ratio": 0.0029995895796317987
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9061245705017051,
+          "throughput_baseline_mad_ratio": 0.014688567836879204,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.347392419492733,
+          "p95_latency_baseline_mad_ratio": 0.09226594301221167
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9587818525454537,
+          "throughput_baseline_mad_ratio": 0.08854450963049944,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.1004796163069543,
+          "p95_latency_baseline_mad_ratio": 0.33977300169041297
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9982123998167625,
+          "throughput_baseline_mad_ratio": 0.002571441540580941,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9983419902673892,
+          "p95_latency_baseline_mad_ratio": 0.006215845507391522
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 1.0028529793619798,
+          "throughput_baseline_mad_ratio": 0.0025098611940333883,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0000171865332574,
+          "p95_latency_baseline_mad_ratio": 0.002635076909651612
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 1.0001238326427166,
+          "throughput_baseline_mad_ratio": 0.0008393516868033365,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9978355703819305,
+          "p95_latency_baseline_mad_ratio": 0.0018545840376749097
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.998385327637509,
+          "throughput_baseline_mad_ratio": 0.0019463040420381842,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0017113459880336,
+          "p95_latency_baseline_mad_ratio": 0.0033917006678216015
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9858496963133636,
+          "throughput_baseline_mad_ratio": 0.016630143341383224,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.0989610846980102,
+          "p95_latency_baseline_mad_ratio": 0.08481848184818482
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 1.029966155400829,
+          "throughput_baseline_mad_ratio": 0.024265644440091272,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.852287166454892,
+          "p95_latency_baseline_mad_ratio": 0.13438485804416403
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9993362221412003,
+          "throughput_baseline_mad_ratio": 0.00258635691481803,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0048917145226464,
+          "p95_latency_baseline_mad_ratio": 0.00720272906007905
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.9990135660903562,
+          "throughput_baseline_mad_ratio": 0.0032962934221444935,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.996192796534261,
+          "p95_latency_baseline_mad_ratio": 0.007273254084098071
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 0.9995299284714158,
+          "throughput_baseline_mad_ratio": 0.0016174181283651946,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9981416585084971,
+          "p95_latency_baseline_mad_ratio": 0.0053585725603259695
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.998376668282638,
+          "throughput_baseline_mad_ratio": 0.0004488667450383178,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0023664845050104,
+          "p95_latency_baseline_mad_ratio": 0.0008081783229432203
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 1.0520659137524053,
+          "throughput_baseline_mad_ratio": 0.07641035666848339,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.8695273992461583,
+          "p95_latency_baseline_mad_ratio": 0.20089096308867205
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 1.0267030250353013,
+          "throughput_baseline_mad_ratio": 0.058920751759600876,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.8753854059609455,
+          "p95_latency_baseline_mad_ratio": 0.2476780185758514
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 1.0000595970698465,
+          "throughput_baseline_mad_ratio": 0.002507622714874403,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.002573423777936,
+          "p95_latency_baseline_mad_ratio": 0.001385089132906095
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.9981687161578956,
+          "throughput_baseline_mad_ratio": 0.0019327379980025562,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0104504465005724,
+          "p95_latency_baseline_mad_ratio": 0.0008682127933341246
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 1.0013501006296097,
+          "throughput_baseline_mad_ratio": 0.0018834711497327688,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.001304560383148,
+          "p95_latency_baseline_mad_ratio": 0.003920522329348083
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.9990297296867728,
+          "throughput_baseline_mad_ratio": 0.0008935140940307358,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0019125602666656,
+          "p95_latency_baseline_mad_ratio": 0.0020106107683581904
+        }
+      ],
+      "throughput_zero_rtt_geomean_ratio": 1.002284317132151,
+      "throughput_zero_rtt_ratio_range": [
+        0.9061245705017051,
+        1.0520659137524053
+      ],
+      "throughput_zero_rtt_baseline_mad_range": [
+        0.0021778228483255433,
+        0.08854450963049944
+      ],
+      "cpu_per_bit_zero_rtt_geomean_ratio": 1.0,
+      "cpu_per_bit_zero_rtt_ratio_range": [
+        1.0,
+        1.0
+      ],
+      "cpu_per_bit_zero_rtt_baseline_mad_range": [
+        0.0,
+        0.0
+      ],
+      "p95_latency_zero_rtt_geomean_ratio": 0.9805642661863334,
+      "p95_latency_zero_rtt_ratio_range": [
+        0.852287166454892,
+        1.347392419492733
+      ],
+      "p95_latency_zero_rtt_baseline_mad_range": [
+        0.02288072018004501,
+        0.33977300169041297
+      ],
+      "observed_peak_working_set_ratio": 0.994752951464801
+    },
+    "C": {
+      "paired_runs": 7,
+      "sample_scope": "unaltered socket-free WireGuard harness; drop each scenario warm-up round; no WAN/device claim",
+      "scenarios": [
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9610318367741733,
+          "throughput_baseline_mad_ratio": 0.011711772852746284,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.023851280252543,
+          "p95_latency_baseline_mad_ratio": 0.0687478077867415
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9788115831619024,
+          "throughput_baseline_mad_ratio": 0.009962832595113713,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.9477465708687133,
+          "p95_latency_baseline_mad_ratio": 0.02693930542031808
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 1.000293125227214,
+          "throughput_baseline_mad_ratio": 0.0030896880658903398,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9991318542817412,
+          "p95_latency_baseline_mad_ratio": 0.0010195594013618955
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.9998735198762544,
+          "throughput_baseline_mad_ratio": 0.0031965241599422253,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9948247679132509,
+          "p95_latency_baseline_mad_ratio": 0.001596503193006386
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 0.9957816231972161,
+          "throughput_baseline_mad_ratio": 0.004229748245019628,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0081380672458577,
+          "p95_latency_baseline_mad_ratio": 0.0035999339461661255
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.9975418547157399,
+          "throughput_baseline_mad_ratio": 0.0005320432456067611,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9995679475678744,
+          "p95_latency_baseline_mad_ratio": 0.004802842299059292
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9930821142863794,
+          "throughput_baseline_mad_ratio": 0.012947663968067036,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.8770714815730893,
+          "p95_latency_baseline_mad_ratio": 0.08221892025755324
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9339403109921124,
+          "throughput_baseline_mad_ratio": 0.005817568599401013,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.1020501138952163,
+          "p95_latency_baseline_mad_ratio": 0.028985507246376812
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9903337368364894,
+          "throughput_baseline_mad_ratio": 0.0038988775024044607,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.002786067168242,
+          "p95_latency_baseline_mad_ratio": 0.004573767602063499
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.9943836082189138,
+          "throughput_baseline_mad_ratio": 0.003247575794659518,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0009453167044948,
+          "p95_latency_baseline_mad_ratio": 0.0038753847803352968
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 0.9988446899663919,
+          "throughput_baseline_mad_ratio": 0.000853752949380579,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9972821228424179,
+          "p95_latency_baseline_mad_ratio": 0.0017703811480473414
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.9987124204897984,
+          "throughput_baseline_mad_ratio": 0.004034900159991583,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9966847931889268,
+          "p95_latency_baseline_mad_ratio": 0.006883132879746638
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9210943664178138,
+          "throughput_baseline_mad_ratio": 0.05569895707296049,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.1387713657133187,
+          "p95_latency_baseline_mad_ratio": 0.3069377990430622
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9218389233784122,
+          "throughput_baseline_mad_ratio": 0.06590081727599291,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.1761280931586608,
+          "p95_latency_baseline_mad_ratio": 0.2415193502150024
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9991696524576551,
+          "throughput_baseline_mad_ratio": 0.004305923567858702,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.00520044486109,
+          "p95_latency_baseline_mad_ratio": 0.005089697535014093
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 1.0031329319411244,
+          "throughput_baseline_mad_ratio": 0.0037080213709953323,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9879365128570764,
+          "p95_latency_baseline_mad_ratio": 0.006654060280880211
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 0.9990420350419476,
+          "throughput_baseline_mad_ratio": 0.003155904981884461,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0010744849445325,
+          "p95_latency_baseline_mad_ratio": 0.006979991669752915
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 1.0052271708775984,
+          "throughput_baseline_mad_ratio": 0.003559284168468688,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9947491733703103,
+          "p95_latency_baseline_mad_ratio": 0.003727218697882167
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9689373242399923,
+          "throughput_baseline_mad_ratio": 0.044024478629138025,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.0719829258828095,
+          "p95_latency_baseline_mad_ratio": 0.1711752671061605
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 1.0743372415430725,
+          "throughput_baseline_mad_ratio": 0.06335070514319922,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.6785777777777777,
+          "p95_latency_baseline_mad_ratio": 0.2354334438654666
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9982663282940762,
+          "throughput_baseline_mad_ratio": 0.001523524203248122,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9952830188679245,
+          "p95_latency_baseline_mad_ratio": 0.006398025858043608
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.999267648470129,
+          "throughput_baseline_mad_ratio": 0.005517493190337384,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0037962585360707,
+          "p95_latency_baseline_mad_ratio": 0.006622268489832484
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 1.00450793902736,
+          "throughput_baseline_mad_ratio": 0.0004884299419145289,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9966404394844026,
+          "p95_latency_baseline_mad_ratio": 0.00272693537247267
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 1.001567408684578,
+          "throughput_baseline_mad_ratio": 0.0023495985602846312,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.993368628221146,
+          "p95_latency_baseline_mad_ratio": 0.0013457015939378103
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9596002978355234,
+          "throughput_baseline_mad_ratio": 0.07881641653563164,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.03954802259887,
+          "p95_latency_baseline_mad_ratio": 0.30041964946926686
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9571507280659449,
+          "throughput_baseline_mad_ratio": 0.011579887424901672,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.033843300880853,
+          "p95_latency_baseline_mad_ratio": 0.03091721058055651
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9980208011184138,
+          "throughput_baseline_mad_ratio": 0.0027931512884329856,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9903959292524441,
+          "p95_latency_baseline_mad_ratio": 0.001919212656227643
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 1.003709477741818,
+          "throughput_baseline_mad_ratio": 0.0010928240458034364,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0023601328576095,
+          "p95_latency_baseline_mad_ratio": 0.00438370333895426
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 1.0017011492636985,
+          "throughput_baseline_mad_ratio": 0.0018340643079201749,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9953738554398259,
+          "p95_latency_baseline_mad_ratio": 0.00218716192886056
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 1.0009655163792925,
+          "throughput_baseline_mad_ratio": 0.0006841922769726826,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9903996263683451,
+          "p95_latency_baseline_mad_ratio": 0.0026366373962460974
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9914099011331309,
+          "throughput_baseline_mad_ratio": 0.03529146878934778,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.9205143191116306,
+          "p95_latency_baseline_mad_ratio": 0.12156633547632963
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 1.002868676082359,
+          "throughput_baseline_mad_ratio": 0.06728078207927086,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.9046703296703297,
+          "p95_latency_baseline_mad_ratio": 0.2315934065934066
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 1.0014202011455395,
+          "throughput_baseline_mad_ratio": 0.00033458695685045244,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9954860052084555,
+          "p95_latency_baseline_mad_ratio": 0.003109120137711881
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.998788716746356,
+          "throughput_baseline_mad_ratio": 0.003964158979819808,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9996401471190739,
+          "p95_latency_baseline_mad_ratio": 0.004874916030154505
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 1.000435734058164,
+          "throughput_baseline_mad_ratio": 0.0016103504337673504,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9983661206185258,
+          "p95_latency_baseline_mad_ratio": 0.004580222454438135
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 1.0068426140636237,
+          "throughput_baseline_mad_ratio": 0.0009165374602900203,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.993583581332343,
+          "p95_latency_baseline_mad_ratio": 0.002453490379033144
+        }
+      ],
+      "throughput_zero_rtt_geomean_ratio": 0.9712001084908922,
+      "throughput_zero_rtt_ratio_range": [
+        0.9210943664178138,
+        1.0743372415430725
+      ],
+      "throughput_zero_rtt_baseline_mad_range": [
+        0.005817568599401013,
+        0.07881641653563164
+      ],
+      "cpu_per_bit_zero_rtt_geomean_ratio": 1.0,
+      "cpu_per_bit_zero_rtt_ratio_range": [
+        1.0,
+        1.0
+      ],
+      "cpu_per_bit_zero_rtt_baseline_mad_range": [
+        0.0,
+        0.0
+      ],
+      "p95_latency_zero_rtt_geomean_ratio": 0.9833814737801797,
+      "p95_latency_zero_rtt_ratio_range": [
+        0.6785777777777777,
+        1.1761280931586608
+      ],
+      "p95_latency_zero_rtt_baseline_mad_range": [
+        0.02693930542031808,
+        0.3069377990430622
+      ],
+      "observed_peak_working_set_ratio": 1.0161783996501967
+    },
+    "E": {
+      "paired_runs": 7,
+      "sample_scope": "unaltered socket-free WireGuard harness; drop each scenario warm-up round; no WAN/device claim",
+      "scenarios": [
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9690000065752271,
+          "throughput_baseline_mad_ratio": 0.005927239466911038,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.0594530321046374,
+          "p95_latency_baseline_mad_ratio": 0.06900369003690036
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9721649358632249,
+          "throughput_baseline_mad_ratio": 0.011211991797442181,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.033715925394548,
+          "p95_latency_baseline_mad_ratio": 0.07317073170731707
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9998223356022367,
+          "throughput_baseline_mad_ratio": 0.004680891595280009,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9998862515523547,
+          "p95_latency_baseline_mad_ratio": 0.0010440397794738664
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 1.0016640382157562,
+          "throughput_baseline_mad_ratio": 0.0019197930196806852,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.007200348087003,
+          "p95_latency_baseline_mad_ratio": 0.0012456177046293896
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 0.995454023694931,
+          "throughput_baseline_mad_ratio": 0.0016529388217859492,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0096140671145466,
+          "p95_latency_baseline_mad_ratio": 0.002363069502912204
+        },
+        {
+          "ipv6": false,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 1.0057939677720011,
+          "throughput_baseline_mad_ratio": 0.0015037344568122537,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9966306238967576,
+          "p95_latency_baseline_mad_ratio": 0.00198084898344516
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9229927912954599,
+          "throughput_baseline_mad_ratio": 0.013581313030116346,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.1639955273947074,
+          "p95_latency_baseline_mad_ratio": 0.07400972897845726
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.97907512287791,
+          "throughput_baseline_mad_ratio": 0.040043345903577936,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.0553896280206354,
+          "p95_latency_baseline_mad_ratio": 0.23676350800977464
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9994689588781644,
+          "throughput_baseline_mad_ratio": 0.002433597737195653,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.00173142917645,
+          "p95_latency_baseline_mad_ratio": 0.0022623800300197432
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.9991379931091977,
+          "throughput_baseline_mad_ratio": 0.004333317468971233,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0121404650871648,
+          "p95_latency_baseline_mad_ratio": 0.002176716936231875
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 1.000395464441243,
+          "throughput_baseline_mad_ratio": 0.0011727260779445811,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0040016183713634,
+          "p95_latency_baseline_mad_ratio": 0.0028412220153334286
+        },
+        {
+          "ipv6": false,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.9986960280038646,
+          "throughput_baseline_mad_ratio": 0.001608603715274635,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0040323303001724,
+          "p95_latency_baseline_mad_ratio": 0.001314454580279603
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9660247064451603,
+          "throughput_baseline_mad_ratio": 0.026882692411463346,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.3057899330811755,
+          "p95_latency_baseline_mad_ratio": 0.04399748585795098
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 1.0377221908645866,
+          "throughput_baseline_mad_ratio": 0.06363230797020837,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.8403309837572785,
+          "p95_latency_baseline_mad_ratio": 0.22342995169082125
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9964948806653309,
+          "throughput_baseline_mad_ratio": 0.007225556569064522,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0132063367663278,
+          "p95_latency_baseline_mad_ratio": 0.004595861688834327
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.9997308761828867,
+          "throughput_baseline_mad_ratio": 0.0008088851129297323,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0069385015652697,
+          "p95_latency_baseline_mad_ratio": 0.0006994363825838776
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 0.9986969927197301,
+          "throughput_baseline_mad_ratio": 0.0009834373070911392,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0038843641297501,
+          "p95_latency_baseline_mad_ratio": 0.0005750013044255073
+        },
+        {
+          "ipv6": false,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 1.0005996855168569,
+          "throughput_baseline_mad_ratio": 0.0013312635686149213,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0039247111246565,
+          "p95_latency_baseline_mad_ratio": 0.0029876132722233013
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9645316850929269,
+          "throughput_baseline_mad_ratio": 0.01711821489071073,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.1640106241699868,
+          "p95_latency_baseline_mad_ratio": 0.06208499335989376
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9746318557274708,
+          "throughput_baseline_mad_ratio": 0.007142388876743366,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.2357836338418862,
+          "p95_latency_baseline_mad_ratio": 0.04296743873783149
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 1.001435290042264,
+          "throughput_baseline_mad_ratio": 0.005611311859422353,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0144804749545109,
+          "p95_latency_baseline_mad_ratio": 0.006242937942017947
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 1.0037013514957855,
+          "throughput_baseline_mad_ratio": 0.005256419250014388,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0021258510057092,
+          "p95_latency_baseline_mad_ratio": 0.0022573469442065865
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 0.9976855429371798,
+          "throughput_baseline_mad_ratio": 0.0026875544400748476,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0063661093627478,
+          "p95_latency_baseline_mad_ratio": 0.0013235330491201795
+        },
+        {
+          "ipv6": true,
+          "mtu": 1280,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.998813248491103,
+          "throughput_baseline_mad_ratio": 0.0035965091278992627,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 0.9973421246064682,
+          "p95_latency_baseline_mad_ratio": 0.004983880000922941
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.9359346522633493,
+          "throughput_baseline_mad_ratio": 0.05722018170194346,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.214787084698175,
+          "p95_latency_baseline_mad_ratio": 0.24895287958115184
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 1.0045198543931255,
+          "throughput_baseline_mad_ratio": 0.022306943527492993,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 0.9489655172413793,
+          "p95_latency_baseline_mad_ratio": 0.10554505356017643
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9982336067535585,
+          "throughput_baseline_mad_ratio": 0.001874694279638761,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0070142685275802,
+          "p95_latency_baseline_mad_ratio": 0.003266115805751238
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 0.9953862047504819,
+          "throughput_baseline_mad_ratio": 0.0041135405527014226,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0110461727500433,
+          "p95_latency_baseline_mad_ratio": 0.008670515739495994
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 1.0003124014577243,
+          "throughput_baseline_mad_ratio": 0.0019729705788028855,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0054228449524611,
+          "p95_latency_baseline_mad_ratio": 0.004324580578893308
+        },
+        {
+          "ipv6": true,
+          "mtu": 1420,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 0.9981897977242453,
+          "throughput_baseline_mad_ratio": 0.0017259305248068398,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.007379244163102,
+          "p95_latency_baseline_mad_ratio": 0.0037755211162098764
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 1,
+          "throughput_ratio": 0.883956774051086,
+          "throughput_baseline_mad_ratio": 0.023951508329259068,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.5549579831932774,
+          "p95_latency_baseline_mad_ratio": 0.12408536585365854
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 0,
+          "streams": 8,
+          "throughput_ratio": 0.9957918674006849,
+          "throughput_baseline_mad_ratio": 0.02300488244475617,
+          "cpu_per_bit_ratio": 1.0,
+          "cpu_per_bit_baseline_mad_ratio": 0.0,
+          "p95_latency_ratio": 1.0248155600268276,
+          "p95_latency_baseline_mad_ratio": 0.1532632608164263
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 1,
+          "throughput_ratio": 0.9958809918367086,
+          "throughput_baseline_mad_ratio": 0.0031487997344435137,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0065368760662616,
+          "p95_latency_baseline_mad_ratio": 0.0048605138658879025
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 20,
+          "streams": 8,
+          "throughput_ratio": 1.0015745413068975,
+          "throughput_baseline_mad_ratio": 0.002712891563821171,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0035760504648241,
+          "p95_latency_baseline_mad_ratio": 0.004064300313033624
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 1,
+          "throughput_ratio": 1.0006798060331283,
+          "throughput_baseline_mad_ratio": 0.0013063662303478964,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.002844334389153,
+          "p95_latency_baseline_mad_ratio": 0.003496394967421869
+        },
+        {
+          "ipv6": true,
+          "mtu": 1500,
+          "rtt_ms": 80,
+          "streams": 8,
+          "throughput_ratio": 1.0013483346938707,
+          "throughput_baseline_mad_ratio": 0.0024143558326826598,
+          "cpu_per_bit_ratio": null,
+          "cpu_per_bit_baseline_mad_ratio": null,
+          "p95_latency_ratio": 1.0027696252636293,
+          "p95_latency_baseline_mad_ratio": 0.0009162015770060305
+        }
+      ],
+      "throughput_zero_rtt_geomean_ratio": 0.9664417416531427,
+      "throughput_zero_rtt_ratio_range": [
+        0.883956774051086,
+        1.0377221908645866
+      ],
+      "throughput_zero_rtt_baseline_mad_range": [
+        0.005927239466911038,
+        0.06363230797020837
+      ],
+      "cpu_per_bit_zero_rtt_geomean_ratio": 1.0,
+      "cpu_per_bit_zero_rtt_ratio_range": [
+        1.0,
+        1.0
+      ],
+      "cpu_per_bit_zero_rtt_baseline_mad_range": [
+        0.0,
+        0.0
+      ],
+      "p95_latency_zero_rtt_geomean_ratio": 1.120122250540848,
+      "p95_latency_zero_rtt_ratio_range": [
+        0.8403309837572785,
+        1.5549579831932774
+      ],
+      "p95_latency_zero_rtt_baseline_mad_range": [
+        0.04296743873783149,
+        0.24895287958115184
+      ],
+      "observed_peak_working_set_ratio": 0.9995629370629371
+    }
+  },
+  "runs": [
+    {
+      "pair": "B",
+      "round": 1,
+      "candidate": "A",
+      "seconds": 63.0204344,
+      "observed_peak_working_set_bytes": 9388032,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-1-A.log"
+    },
+    {
+      "pair": "B",
+      "round": 1,
+      "candidate": "B",
+      "seconds": 63.2092761,
+      "observed_peak_working_set_bytes": 9347072,
+      "exe_sha256": "ce7d6120a4c14218798e828daa9058f89a132557589361ee721e1cc5cbb79e29",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-1-B.log"
+    },
+    {
+      "pair": "B",
+      "round": 2,
+      "candidate": "B",
+      "seconds": 63.042227,
+      "observed_peak_working_set_bytes": 9285632,
+      "exe_sha256": "ce7d6120a4c14218798e828daa9058f89a132557589361ee721e1cc5cbb79e29",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-2-B.log"
+    },
+    {
+      "pair": "B",
+      "round": 2,
+      "candidate": "A",
+      "seconds": 62.5892197,
+      "observed_peak_working_set_bytes": 9371648,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-2-A.log"
+    },
+    {
+      "pair": "B",
+      "round": 3,
+      "candidate": "A",
+      "seconds": 62.6371955,
+      "observed_peak_working_set_bytes": 9367552,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-3-A.log"
+    },
+    {
+      "pair": "B",
+      "round": 3,
+      "candidate": "B",
+      "seconds": 62.5484784,
+      "observed_peak_working_set_bytes": 9318400,
+      "exe_sha256": "ce7d6120a4c14218798e828daa9058f89a132557589361ee721e1cc5cbb79e29",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-3-B.log"
+    },
+    {
+      "pair": "B",
+      "round": 4,
+      "candidate": "B",
+      "seconds": 62.7425978,
+      "observed_peak_working_set_bytes": 9342976,
+      "exe_sha256": "ce7d6120a4c14218798e828daa9058f89a132557589361ee721e1cc5cbb79e29",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-4-B.log"
+    },
+    {
+      "pair": "B",
+      "round": 4,
+      "candidate": "A",
+      "seconds": 62.6637724,
+      "observed_peak_working_set_bytes": 9363456,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-4-A.log"
+    },
+    {
+      "pair": "B",
+      "round": 5,
+      "candidate": "A",
+      "seconds": 62.4319,
+      "observed_peak_working_set_bytes": 9359360,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-5-A.log"
+    },
+    {
+      "pair": "B",
+      "round": 5,
+      "candidate": "B",
+      "seconds": 62.4917917,
+      "observed_peak_working_set_bytes": 9310208,
+      "exe_sha256": "ce7d6120a4c14218798e828daa9058f89a132557589361ee721e1cc5cbb79e29",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-5-B.log"
+    },
+    {
+      "pair": "B",
+      "round": 6,
+      "candidate": "B",
+      "seconds": 62.6883156,
+      "observed_peak_working_set_bytes": 9293824,
+      "exe_sha256": "ce7d6120a4c14218798e828daa9058f89a132557589361ee721e1cc5cbb79e29",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-6-B.log"
+    },
+    {
+      "pair": "B",
+      "round": 6,
+      "candidate": "A",
+      "seconds": 62.7975216,
+      "observed_peak_working_set_bytes": 9388032,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-6-A.log"
+    },
+    {
+      "pair": "B",
+      "round": 7,
+      "candidate": "A",
+      "seconds": 62.5581557,
+      "observed_peak_working_set_bytes": 9363456,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-7-A.log"
+    },
+    {
+      "pair": "B",
+      "round": 7,
+      "candidate": "B",
+      "seconds": 62.510793,
+      "observed_peak_working_set_bytes": 9322496,
+      "exe_sha256": "ce7d6120a4c14218798e828daa9058f89a132557589361ee721e1cc5cbb79e29",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-B-7-B.log"
+    },
+    {
+      "pair": "C",
+      "round": 1,
+      "candidate": "A",
+      "seconds": 62.682026,
+      "observed_peak_working_set_bytes": 9359360,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-1-A.log"
+    },
+    {
+      "pair": "C",
+      "round": 1,
+      "candidate": "C",
+      "seconds": 63.0833008,
+      "observed_peak_working_set_bytes": 9498624,
+      "exe_sha256": "eb1b3f005b5d2abc34234d2e5ff5f1ce8ad3a22bf0a92986dbc6b6d0603fa42b",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-1-C.log"
+    },
+    {
+      "pair": "C",
+      "round": 2,
+      "candidate": "C",
+      "seconds": 62.588936,
+      "observed_peak_working_set_bytes": 9498624,
+      "exe_sha256": "eb1b3f005b5d2abc34234d2e5ff5f1ce8ad3a22bf0a92986dbc6b6d0603fa42b",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-2-C.log"
+    },
+    {
+      "pair": "C",
+      "round": 2,
+      "candidate": "A",
+      "seconds": 62.8980339,
+      "observed_peak_working_set_bytes": 9367552,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-2-A.log"
+    },
+    {
+      "pair": "C",
+      "round": 3,
+      "candidate": "A",
+      "seconds": 62.9986843,
+      "observed_peak_working_set_bytes": 9351168,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-3-A.log"
+    },
+    {
+      "pair": "C",
+      "round": 3,
+      "candidate": "C",
+      "seconds": 62.9053122,
+      "observed_peak_working_set_bytes": 9515008,
+      "exe_sha256": "eb1b3f005b5d2abc34234d2e5ff5f1ce8ad3a22bf0a92986dbc6b6d0603fa42b",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-3-C.log"
+    },
+    {
+      "pair": "C",
+      "round": 4,
+      "candidate": "C",
+      "seconds": 62.6247481,
+      "observed_peak_working_set_bytes": 9506816,
+      "exe_sha256": "eb1b3f005b5d2abc34234d2e5ff5f1ce8ad3a22bf0a92986dbc6b6d0603fa42b",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-4-C.log"
+    },
+    {
+      "pair": "C",
+      "round": 4,
+      "candidate": "A",
+      "seconds": 62.5684751,
+      "observed_peak_working_set_bytes": 9351168,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-4-A.log"
+    },
+    {
+      "pair": "C",
+      "round": 5,
+      "candidate": "A",
+      "seconds": 62.592848,
+      "observed_peak_working_set_bytes": 9363456,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-5-A.log"
+    },
+    {
+      "pair": "C",
+      "round": 5,
+      "candidate": "C",
+      "seconds": 62.8063269,
+      "observed_peak_working_set_bytes": 9531392,
+      "exe_sha256": "eb1b3f005b5d2abc34234d2e5ff5f1ce8ad3a22bf0a92986dbc6b6d0603fa42b",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-5-C.log"
+    },
+    {
+      "pair": "C",
+      "round": 6,
+      "candidate": "C",
+      "seconds": 62.6809237,
+      "observed_peak_working_set_bytes": 9506816,
+      "exe_sha256": "eb1b3f005b5d2abc34234d2e5ff5f1ce8ad3a22bf0a92986dbc6b6d0603fa42b",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-6-C.log"
+    },
+    {
+      "pair": "C",
+      "round": 6,
+      "candidate": "A",
+      "seconds": 62.5519098,
+      "observed_peak_working_set_bytes": 9359360,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-6-A.log"
+    },
+    {
+      "pair": "C",
+      "round": 7,
+      "candidate": "A",
+      "seconds": 62.7103198,
+      "observed_peak_working_set_bytes": 9367552,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-7-A.log"
+    },
+    {
+      "pair": "C",
+      "round": 7,
+      "candidate": "C",
+      "seconds": 62.6604488,
+      "observed_peak_working_set_bytes": 9519104,
+      "exe_sha256": "eb1b3f005b5d2abc34234d2e5ff5f1ce8ad3a22bf0a92986dbc6b6d0603fa42b",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-C-7-C.log"
+    },
+    {
+      "pair": "E",
+      "round": 1,
+      "candidate": "A",
+      "seconds": 62.5808417,
+      "observed_peak_working_set_bytes": 9388032,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-1-A.log"
+    },
+    {
+      "pair": "E",
+      "round": 1,
+      "candidate": "E",
+      "seconds": 62.6377596,
+      "observed_peak_working_set_bytes": 9367552,
+      "exe_sha256": "72e5478e977b59b3fdd148ded6034cd1ff05cdff0be367985d8c66de26dc2bc0",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-1-E.log"
+    },
+    {
+      "pair": "E",
+      "round": 2,
+      "candidate": "E",
+      "seconds": 62.3101957,
+      "observed_peak_working_set_bytes": 9351168,
+      "exe_sha256": "72e5478e977b59b3fdd148ded6034cd1ff05cdff0be367985d8c66de26dc2bc0",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-2-E.log"
+    },
+    {
+      "pair": "E",
+      "round": 2,
+      "candidate": "A",
+      "seconds": 62.6409589,
+      "observed_peak_working_set_bytes": 9367552,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-2-A.log"
+    },
+    {
+      "pair": "E",
+      "round": 3,
+      "candidate": "A",
+      "seconds": 62.4871543,
+      "observed_peak_working_set_bytes": 9326592,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-3-A.log"
+    },
+    {
+      "pair": "E",
+      "round": 3,
+      "candidate": "E",
+      "seconds": 62.7928389,
+      "observed_peak_working_set_bytes": 9363456,
+      "exe_sha256": "72e5478e977b59b3fdd148ded6034cd1ff05cdff0be367985d8c66de26dc2bc0",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-3-E.log"
+    },
+    {
+      "pair": "E",
+      "round": 4,
+      "candidate": "E",
+      "seconds": 62.9078022,
+      "observed_peak_working_set_bytes": 9310208,
+      "exe_sha256": "72e5478e977b59b3fdd148ded6034cd1ff05cdff0be367985d8c66de26dc2bc0",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-4-E.log"
+    },
+    {
+      "pair": "E",
+      "round": 4,
+      "candidate": "A",
+      "seconds": 62.4604898,
+      "observed_peak_working_set_bytes": 9367552,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-4-A.log"
+    },
+    {
+      "pair": "E",
+      "round": 5,
+      "candidate": "A",
+      "seconds": 62.5496709,
+      "observed_peak_working_set_bytes": 9355264,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-5-A.log"
+    },
+    {
+      "pair": "E",
+      "round": 5,
+      "candidate": "E",
+      "seconds": 62.5308196,
+      "observed_peak_working_set_bytes": 9363456,
+      "exe_sha256": "72e5478e977b59b3fdd148ded6034cd1ff05cdff0be367985d8c66de26dc2bc0",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-5-E.log"
+    },
+    {
+      "pair": "E",
+      "round": 6,
+      "candidate": "E",
+      "seconds": 63.0523069,
+      "observed_peak_working_set_bytes": 9347072,
+      "exe_sha256": "72e5478e977b59b3fdd148ded6034cd1ff05cdff0be367985d8c66de26dc2bc0",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-6-E.log"
+    },
+    {
+      "pair": "E",
+      "round": 6,
+      "candidate": "A",
+      "seconds": 62.5935603,
+      "observed_peak_working_set_bytes": 9326592,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-6-A.log"
+    },
+    {
+      "pair": "E",
+      "round": 7,
+      "candidate": "A",
+      "seconds": 62.5761146,
+      "observed_peak_working_set_bytes": 9371648,
+      "exe_sha256": "3807e4ce302f318689da9463c04894e13cef1e9d5781ca1cc9edaf36cdab2fca",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-7-A.log"
+    },
+    {
+      "pair": "E",
+      "round": 7,
+      "candidate": "E",
+      "seconds": 62.587982,
+      "observed_peak_working_set_bytes": 9367552,
+      "exe_sha256": "72e5478e977b59b3fdd148ded6034cd1ff05cdff0be367985d8c66de26dc2bc0",
+      "samples": 180,
+      "processor_affinity": "0x1",
+      "log_file": "bench-E-7-E.log"
+    }
+  ],
+  "benchmark_source_sha256": "dc5b6965f3ebae2fede97c9b375f3fdae78cc1e5522ee21ef601c963fbb70053",
+  "adopted_native_changes": [],
+  "not_run": [
+    "Windows ARM64 (C++ tools absent)",
+    "Android runtime performance",
+    "protected performance lab",
+    "live VPN or platform mutation"
+  ]
+}

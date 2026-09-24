@@ -81,6 +81,7 @@ Common terms in these references:
 | [MASQUE performance candidates](MASQUE_PERFORMANCE_VALIDATION.md) | Staged source candidates, checks, and unmeasured device results / 分阶段候选、检查与待测设备结果 |
 | [Network-quality acceptance](network-quality-acceptance.md) | PR-01–PR-12 implementation and test matrix, with later correction notice / 阶段验收及后续更正 |
 | [PMTU review and fixes](pmtu-path-fixes.md) | Candidate-specific defects, corrections, and regression results / 特定候选版本的修复记录 |
+| [Native size experiments](NATIVE_SIZE_EXPERIMENTS.md) | Compiler candidates, paired local measurements and retained defaults / 编译候选、配对本地测量与保留默认值 |
 | [Receive-buffer experiments](RECEIVE_BUFFER_EXPERIMENTS.md) | Retired Android A/B builds and production-default validation / 已结束的安卓对照试验与默认值验证记录 |
 | [Initial L4 validation](L4_VALIDATION.md) | Initial implementation checks and unavailable environments / 初始实现检查与未运行项目 |
 | [L4 backpressure fix](L4_BACKPRESSURE_FIX.md) | Reproduced stalls, stop handling and regression results / 阻塞复现、停止处理与回归结果 |
