@@ -327,8 +327,12 @@ dart format --output=none --set-exit-if-changed lib test
 flutter analyze --no-pub
 flutter test --no-pub
 & ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .
-flutter build windows --release --no-pub
+flutter build windows --release --no-pub --split-debug-info=build/symbols/windows
 ```
+
+Keep Dart symbols outside the installable payload and archive them with the exact
+source and binary identity as described in [Flutter release symbols](docs/FLUTTER_SYMBOLS.md).
+Run `--analyze-size` separately from `--split-debug-info`.
 
 The plugin-junction helper is part of the checked-in Windows build sequence.
 Application assembly and binary inspection are defined in

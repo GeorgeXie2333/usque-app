@@ -162,7 +162,18 @@ jobs:
         run: |
           flutter --suppress-analytics pub get --enforce-lockfile
           & "../../tool/prepare_windows_plugin_junctions.ps1" -FlutterProject "."
-          flutter --suppress-analytics build windows --release --no-pub
+          $symbolDirectory = Join-Path $env:RUNNER_TEMP "flutter-symbols-windows-${{ matrix.variant }}"
+          flutter --suppress-analytics build windows --release --no-pub --split-debug-info="$symbolDirectory"
+          if ($LASTEXITCODE -ne 0) { throw "Flutter Windows build failed." }
+          $version = ((Get-Content pubspec.yaml | Where-Object { $_ -match '^version: ' }) -replace '^version:\s*', '').Trim()
+          $sourceCommit = (git rev-parse HEAD).Trim()
+          python ../../tool/archive_flutter_symbols.py archive `
+            --artifact "build/windows/${{ matrix.flutter_arch }}/runner/Release/data/app.so" `
+            --symbols $symbolDirectory `
+            --output "$env:RUNNER_TEMP/flutter-symbol-archives" `
+            --version $version --source-commit $sourceCommit `
+            --platform windows --kind windows --architecture "windows-${{ matrix.flutter_arch }}"
+          if ($LASTEXITCODE -ne 0) { throw "Flutter symbol validation failed." }
 
       - name: Assemble unsigned application payload
         shell: pwsh
@@ -191,6 +202,14 @@ jobs:
             -Root $payload `
             -Architecture "${{ matrix.pe_arch }}"
           $payload | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "payload-path.txt")
+
+      - name: Preserve matching Windows Flutter symbols separately
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-flutter-symbols-windows-${{ matrix.variant }}
+          path: ${{ runner.temp }}/flutter-symbol-archives
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Import protected signing identity
         shell: pwsh
@@ -535,10 +554,12 @@ jobs:
             --release \
             --split-per-abi \
             --target-platform android-arm,android-arm64,android-x64 \
+            --split-debug-info="$RUNNER_TEMP/flutter-symbols-android/split" \
             --no-pub
           flutter --suppress-analytics build apk \
             --release \
             --target-platform android-arm,android-arm64,android-x64 \
+            --split-debug-info="$RUNNER_TEMP/flutter-symbols-android/universal" \
             --no-pub
 
       - name: Verify APK architectures and release hygiene
@@ -631,6 +652,37 @@ jobs:
             count=$((count + 1))
           done
           test "$count" -eq 4
+
+      - name: Archive matching Android Flutter symbols separately
+        working-directory: apps/usque_gui
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version: //p' pubspec.yaml | tr -d '\r')"
+          commit="$(git rev-parse HEAD)"
+          for abi in armeabi-v7a arm64-v8a x86_64; do
+            python ../../tool/archive_flutter_symbols.py archive \
+              --artifact "build/app/outputs/flutter-apk/app-$abi-release.apk" \
+              --symbols "$RUNNER_TEMP/flutter-symbols-android/split" \
+              --output "$RUNNER_TEMP/flutter-symbol-archives" \
+              --version "$version" --source-commit "$commit" \
+              --platform android --kind split --architecture "$abi"
+          done
+          python ../../tool/archive_flutter_symbols.py archive \
+            --artifact build/app/outputs/flutter-apk/app-release.apk \
+            --symbols "$RUNNER_TEMP/flutter-symbols-android/universal" \
+            --output "$RUNNER_TEMP/flutter-symbol-archives" \
+            --version "$version" --source-commit "$commit" \
+            --platform android --kind universal \
+            --architecture armeabi-v7a,arm64-v8a,x86_64
+
+      - name: Preserve matching Android Flutter symbols separately
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-flutter-symbols-android
+          path: ${{ runner.temp }}/flutter-symbol-archives
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Attest Android build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2

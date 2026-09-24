@@ -32,6 +32,7 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |
 | [Release process](RELEASE.md) | Candidate preparation, approval, signing, and publication / 候选包、审批、签名与发布 |
+| [Flutter release symbols](FLUTTER_SYMBOLS.md) | Separate and archive matching Dart symbols; restore stack traces / 分离、归档 Dart 符号与还原堆栈 |
 | [Code signing policy](CODE_SIGNING.md) | Official identities, key handling, and rotation / 官方签名身份、密钥管理与轮换 |
 | [GitHub governance](GITHUB_GOVERNANCE.md) | Repository checks, permissions, and maintainer rules / 仓库检查、权限与维护规则 |
 | [Reliability testing](RELIABILITY_TESTING.md) | Deterministic checks, isolated environments, and result requirements / 确定性检查、隔离环境与结果要求 |
