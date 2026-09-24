@@ -1,37 +1,6 @@
 // Included in h2::tests to reuse the in-memory HTTP/2 peer and its flow control.
 
 #[tokio::test]
-async fn split_envelope_retains_ip_storage_and_returns_each_data_capacity() {
-    let mut loopback = connect_h2_loopback().await;
-    let packet = sized_ipv4_packet(1280);
-    let capsule = encode_datagram_capsule(&packet).unwrap();
-    let header_len = capsule.len() - packet.len();
-    peer_send_all(&mut loopback.peer_send, capsule.slice(..header_len)).await;
-    let header = loopback.receive.stream.data().await.unwrap().unwrap();
-    loopback.receive.buffer_data(header).unwrap();
-    loopback.receive.drain_ready_capsules().unwrap();
-    assert_eq!(loopback.receive.stream.flow_control().used_capacity(), 0);
-    // Dropping a pending receive cannot discard the already parsed envelope.
-    assert!(std::future::poll_fn(|cx| Poll::Ready(
-        std::pin::pin!(loopback.receive.receive_packet()).poll(cx)
-    ))
-    .await
-    .is_pending());
-    peer_send_all(&mut loopback.peer_send, capsule.slice(header_len..)).await;
-    let data = loopback.receive.stream.data().await.unwrap().unwrap();
-    let pointer = data.as_ptr();
-    loopback.receive.buffer_data(data.clone()).unwrap();
-    let received = loopback.receive.receive_packet().await.unwrap();
-    assert_eq!(received, packet);
-    assert_eq!(received.as_ptr(), pointer);
-    assert_eq!(loopback.receive.stream.flow_control().used_capacity(), 0);
-    assert_eq!(
-        loopback.quality.performance().h2.snapshot().assembly_copy_bytes,
-        header_len as u64
-    );
-}
-
-#[tokio::test]
 async fn complete_capsule_retains_data_storage_without_assembly_copy() {
     let mut loopback = connect_h2_loopback().await;
     let packet = sized_ipv4_packet(1280);

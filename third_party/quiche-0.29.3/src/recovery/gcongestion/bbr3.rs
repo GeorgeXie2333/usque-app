@@ -726,7 +726,7 @@ impl CongestionControl for BBRv3 {
         }
         self.last_sent_packet = packet;
         self.cwnd_limited_in_round |=
-            self.is_cwnd_limited(inflight.saturating_add(bytes));
+            inflight.saturating_add(bytes) >= self.cwnd;
         self.sampler.on_packet_sent(
             now,
             packet,
@@ -883,7 +883,7 @@ impl CongestionControl for BBRv3 {
         self.recovery_end_packet.is_some()
     }
     fn is_cwnd_limited(&self, inflight: usize) -> bool {
-        super::window_limited(inflight, self.cwnd, self.mss)
+        inflight >= self.cwnd
     }
     fn pacing_rate(&self, _inflight: usize, _rtt: &RttStats) -> Bandwidth {
         self.pacing
@@ -907,7 +907,7 @@ impl CongestionControl for BBRv3 {
         self.cwnd = self.cwnd.max(4 * mss).min(self.max_cwnd);
     }
     fn on_app_limited(&mut self, inflight: usize) {
-        if !self.is_cwnd_limited(inflight) {
+        if inflight < self.cwnd {
             self.sampler.on_app_limited();
         }
     }

@@ -16,9 +16,8 @@ fixtures are retained. See [COPYING](COPYING) (BSD-2-Clause) and
 - All 87 published files were verified byte-for-byte against that archive
   before patching. The retained PMTU changes are in `src/lib.rs` and
   `src/path.rs`. The congestion-control additions are confined to `recovery/`,
-  its public C algorithm enum, and license/package metadata. The follow-up
-  DATAGRAM window classification changes BBRv2/BBRv3 as described below;
-  Reno and CUBIC algorithm implementations remain unchanged.
+  its public C algorithm enum, and license/package metadata. Original BBRv2,
+  Reno and CUBIC implementation files remain unchanged.
 - The root `[patch.crates-io]` selects this directory. The workspace lockfile
   changes only quiche's source/checksum entry; dependency versions and other
   lockfile edges are unchanged. The vendored crate is excluded from workspace
@@ -41,30 +40,6 @@ fixtures are retained. See [COPYING](COPYING) (BSD-2-Clause) and
    after processing losses. The existing too-large-queue-entry discard then
    prevents an old oversized head from blocking smaller DATAGRAMs after
    revalidation. The existing ordinary packetization cap is retained.
-4. Notify BBR of application-limited sending only when the DATAGRAM queue is
-   empty. A queued DATAGRAM that cannot fit the remaining congestion window
-   or output buffer is still application backlog. Marking that condition as
-   application-limited can suppress bandwidth samples. The packetizer check
-   changes neither BBR's algorithm nor its parameters. Four in-memory cases
-   cover BBRv2/BBRv3 with a partly consumed window or a short output buffer,
-   and verify that an empty queue still sends the notification. A test-only
-   counter observes these notifications independently of the existing
-   test-only `app_limited()` cwnd heuristic.
-5. Accumulate both recovery backends' per-path lost bytes when loss is declared.
-   All four algorithms previously exposed a permanently zero path counter even
-   though the connection's loss counter increased. The existing DATAGRAM loss test
-   now covers all four algorithms and compares path and connection counters.
-   PMTU probe bytes retain their exclusion from congestion loss accounting.
-6. Count a remaining congestion-window space smaller than the current path's
-   maximum datagram size as window-limited in BBRv2/BBRv3 model growth and
-   application-limited classification. DATAGRAMs cannot be split to fill that
-   tail; requiring byte-exact occupancy could prevent BBRv2 PROBE_UP from
-   raising `inflight_hi` after small-packet traffic. BBRv2 ACK aggregation
-   uses the same predicate, and BBRv3 records it for its probing round.
-   Exactly one full packet of free space remains non-limiting. This changes
-   classification only: packetization still enforces the original byte window,
-   send quantum and pacing deadlines, with no extra packet allowance. Tests
-   cover both sides of the boundary and a changed path MSS.
 
 Related upstream work, inspected on 2026-09-03:
 [runtime-path PMTUD PR #2573](https://github.com/cloudflare/quiche/pull/2573)
@@ -82,9 +57,8 @@ The independent `recovery/gcongestion/bbr3.rs` state machine follows
 (6 July 2026), sections 4 and 5. It reuses the existing delivery sampler, not
 BBRv2's state machine or tuning parameters. Its code and test adaptations are
 described in [the application contract](../../docs/congestion-control.md).
-The closed `BbrSender` enum routes `bbr3` to the new sender. BBRv2 retains its
-state machine and gains, with the DATAGRAM window classification above.
-Public algorithm value 5 is appended;
+The closed `BbrSender` enum keeps the existing BBRv2 sender and pacer behavior
+while routing `bbr3` to the new sender. Public algorithm value 5 is appended;
 removed values 2 and 3 are not reused. `bbr` still names BBRv2.
 
 The source includes a bounded virtual FIFO-link test harness with application
@@ -126,6 +100,5 @@ cargo test --locked -p usque-transport h3::pmtu_tests:: -- --test-threads=1
 The root workspace gates compile this dependency but do not run quiche's
 standalone upstream test suite. Remove this override only after a pinned
 upstream version satisfies the same migration, probe-isolation, DATAGRAM,
-handshake-override, DATAGRAM backlog/window classification, loss accounting and
-disabled-feature regression contracts on the supported
+handshake-override and disabled-feature regression contracts on the supported
 targets. Do not replace it with an unpinned Git dependency.

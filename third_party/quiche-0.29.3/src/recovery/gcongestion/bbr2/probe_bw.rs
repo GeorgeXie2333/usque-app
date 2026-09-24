@@ -598,7 +598,9 @@ impl ProbeBW {
             return;
         } else {
             // TODO(vlad): probe_up_simplify_inflight_hi?
-            if !congestion_event.is_cwnd_limited() {
+            if congestion_event.prior_bytes_in_flight <
+                congestion_event.prior_cwnd
+            {
                 // Not fully utilizing cwnd, so can't safely grow.
                 return;
             }
@@ -650,26 +652,6 @@ mod tests {
     use crate::recovery::gcongestion::bbr2::SendTimeState;
     use crate::recovery::gcongestion::bbr2::DEFAULT_PARAMS;
 
-    #[test]
-    fn datagram_window_tail_does_not_prevent_probe_up() {
-        for tail in [0, 1, 650, 1299, 1300, 2600] {
-            let params = &DEFAULT_PARAMS;
-            let mut model = BBRv2NetworkModel::new(params, Duration::from_millis(10));
-            model.set_inflight_hi(15_000);
-            let mut probe = ProbeBW { model, cycle: Cycle::default() };
-            probe.raise_inflight_high_slope(15_000);
-            let mut event = BBRv2CongestionEvent::new(
-                probe.cycle.start_time, 15_000, 15_000 - tail, true, DEFAULT_MSS,
-            );
-            event.bytes_acked = 15_000;
-            probe.probe_inflight_high_upward(&event, params);
-            // Packetization cannot split a DATAGRAM to occupy a sub-MSS tail.
-            // One full packet of free space, however, is not cwnd limiting.
-            assert_eq!(probe.model.inflight_hi() > 15_000, tail < DEFAULT_MSS,
-                "tail={tail}");
-        }
-    }
-
     #[rstest]
     fn probe_upward(#[values(100, 10_000, 65_536, 300_000)] step: usize) {
         let test_event =
@@ -678,7 +660,6 @@ mod tests {
                     event_time: probe_bw.cycle.start_time,
                     prior_cwnd: probe_bw.model.inflight_hi(),
                     prior_bytes_in_flight: probe_bw.model.inflight_hi(),
-                    max_datagram_size: DEFAULT_MSS,
                     bytes_in_flight: 0,
                     bytes_acked,
                     bytes_lost: 0,

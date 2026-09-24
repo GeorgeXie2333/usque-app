@@ -6,6 +6,10 @@ ownership/framing), C2 (Android ready writes), D (H3 bounded sending).
 Each candidate is a separate commit; the complete commit containing a stage's
 record identifies its tested source. Later records list previous full SHAs.
 
+Status update: the post-`b5eb520` transport changes were withdrawn after the
+Android regression reported on 2026-09-24. The workstation retention decision
+below is historical, superseded by the [device regression record](#device-regression-and-baseline-restoration-2026-09-24).
+
 ## A — measurement baseline
 
 Changes: append-only queue wait/performance metrics, typed non-failure timeline
@@ -485,3 +489,116 @@ All 44 proxy test sessions in this follow-up reported successful shutdown,
 closed listeners and unchanged original configuration hashes; no probe process
 remained. The two direct browser sessions were also closed. Existing user
 browser sessions were not modified.
+
+## Device regression and baseline restoration (2026-09-24)
+
+The user reported lower throughput in both directions with Cubic after
+`1122daa36735509badd6113d464da3ec23e3ad88`,
+`add8b6811215d5bff389bf01b873cbb53c56384b`, and
+`197b1f215e9c06a939055a2f0a6c05f766630305`:
+
+| Device feedback | Download Mbps | Upload Mbps |
+| --- | ---: | ---: |
+| H2 | 202.3 | 352.7 |
+| H3 / Cubic | 727.8 | 248.9 |
+
+The user measured approximately 1600 Mbps in both directions without the
+proxy, reinstalled the previous package, and observed the previous performance
+again. The user also reported that H3 upload no longer showed the earlier
+gradual ramp or obvious stalls. Smoothness and throughput are separate
+observations; the former does not offset the reported regression. These are
+device feedback, not an independently executed Android or performance-lab gate.
+
+Restore the complete transport implementation from
+`b5eb52047eade9ff7b62f2b7e873f0af0e42cd58` as a recovery candidate. This removes
+the three-commit experiment as a group rather than claiming a particular line
+has been proved responsible. Keep the earlier A-D work and cooperative-yield
+diagnostic correction, including mux reverse progress and cancellation,
+bounded H2 framing, whole-capsule zero-copy, and Android ready-write batching.
+The unrelated GUI changes in
+`d13616fafadc4fb850a7fe6132068290ca559a46` are preserved.
+
+This deliberately restores the older split-capsule assembly, DATAGRAM/BBR
+classification and portable UDP send behavior, including their known
+limitations. The per-path lost-byte accumulation change is also withdrawn:
+zero byte-loss values are not evidence of a lossless connection. Earlier BBRv2
+workstation gains and the reported smoother H3 upload cannot be promised for
+this recovery candidate. Reintroducing any part requires a separate candidate
+and relevant device comparison; the previous workstation results do not
+establish Android/Cubic acceptance.
+
+Source inspection did not identify one changed hot path common to H2 and
+H3/Cubic. The BBR model predicates are not used by Cubic, legacy Cubic's
+`on_app_limited` callback is empty, and Android normally uses sendmmsg rather
+than the portable send fallback. The H2 slice path can retain a DATA backing
+allocation longer, but its effect on the reported device is unmeasured. These
+facts bound the investigation; they do not invalidate the package rollback
+comparison or establish a root cause. A baseline restoration is a recovery
+step, not a claim that the source of the Android regression is resolved.
+
+### Repeated workstation comparison
+
+Run the same browser page and SmarTone node through fresh loopback SOCKS
+sessions with MTU 1280, chain disabled and Cubic selected. Each protocol has
+three adjacent old/new pairs; order is old/new, new/old, old/new. Reuse the
+previously recorded `b5eb520` and post-three-commit probe binaries, verifying
+their SHA-256 hashes before each run. The former's production Rust sources
+match this restoration; these tests do not execute a rebuilt Android package.
+
+| Protocol / direction | Runs per version | b5eb520 median Mbps | Three-commit median Mbps |
+| --- | ---: | ---: | ---: |
+| H2 download | 3 | 335.1 | 340.3 |
+| H2 upload | 3 | 798.2 | 767.4 |
+| H3 / Cubic download | 3 | 535.2 | 522.8 |
+| H3 / Cubic upload | 3 | 208.6 | 204.6 |
+
+H2 download ranges overlap (236.4–408.6 and 219.6–356.6 Mbps). The last H3
+pair's uploads fall to 150.8/146.9 Mbps; the new version's ping/jitter also
+reach 213/268 ms. Keep these observations rather than removing unfavorable
+samples. Only two of the six pairs report the same WARP exit. Direct download
+moves from 1153.7 to 1074.8 Mbps and upload from 1747.2 to 1764.5 Mbps. Stop
+performance comparisons after this screening: these data neither reproduce
+the device's four-direction regression reliably nor establish a passing
+throughput/latency/resource budget. No seven-pair speedup claim is made.
+
+All twelve proxy sessions report zero recorded queue drops and send timeouts,
+normal shutdown and unchanged original configurations. QUIC packet loss is
+nonzero; the old byte-loss counter is excluded from comparison. Queue waiting
+alone is not a packet-drop count. Raw diagnostics, browser snapshots and
+binary hashes remain in ignored local evidence. The two direct browser
+sessions are also closed. No workstation TUN/VPN or system-network mutation
+is performed.
+
+### Restoration checks
+
+The complete commit containing this record identifies the recovery candidate.
+The following safe checks run on its production source, not on an installed
+package:
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | exit 0; 1,293 passed, 8 ignored |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | exit 0; compile only |
+| `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -Package usque-core -CargoAction clippy` | first initialization exit 1; fresh-shell retry exit 0 |
+| `cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --config profile.dev.package.boring-sys.opt-level=1 --config profile.dev.package.boring-sys.debug=false` | exit 0; 1,068 passed |
+| `cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --features qlog --config profile.dev.package.boring-sys.opt-level=1 --config profile.dev.package.boring-sys.debug=false recovery::gcongestion::bbr3::` | exit 0; 20 passed |
+| `python tool/check_repository_policy.py` using the verified executable above | exit 0 |
+| `git diff --check` | exit 0 |
+| `git diff --exit-code b5eb52047eade9ff7b62f2b7e873f0af0e42cd58 -- crates third_party/quiche-0.29.3/src Cargo.toml Cargo.lock rust-toolchain.toml tool/build_android_rust.ps1` | exit 0; no source difference |
+
+Repeated `vcvars64.bat` initialization in one validation process reached the
+Windows command-line length limit. Run the scoped helper in a fresh shell
+before the standalone tests; it succeeds without changing the helper or
+relaxing any check. Preserve the initial failure in the local command log.
+
+The tests added with these three changes are reverted together with their
+implementations. Earlier correctness, malformed-input, property,
+queue/cancellation and PMTU tests remain in the full suites. No parser bound,
+authorization, TLS verification, cleanup or fail-closed policy is relaxed.
+This rollback changes Rust and technical records only; Flutter/Kotlin/protobuf
+and aggregate multi-language checks are not applicable. Android device runs,
+isolated lifecycle/leak testing and performance-lab validation remain
+`not_run`. No package is installed, signed, published or uploaded.

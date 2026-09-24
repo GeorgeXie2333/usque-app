@@ -50,12 +50,12 @@ The first interval, an interval with no sent packets, and a counter reset are
 `NotReady`. A new connection instance clears the delta baseline and short-term
 quality history.
 
-Per-path H3 lost bytes now accumulate in both quiche recovery backends when
-loss is declared, excluding PMTU probes. Older builds could report zero here
-while the connection's loss counter increased; treat those historical byte
-values as unavailable when comparing candidates. Packet-loss counts can also
-include packets without application DATAGRAMs, so neither a timeline wait nor
-the total lost-packet count alone measures dropped IP payloads.
+Known limitation after the 2026-09-24 transport rollback: the pinned recovery
+backends again leave per-path `lost_bytes` at zero even when packet loss is
+reported. Treat byte-loss observations from this candidate as unavailable for
+comparisons; a displayed zero does not establish absence of loss. Packet-loss
+counting is separate. The withdrawn accumulation fix and candidate scope are
+recorded in [MASQUE performance validation](MASQUE_PERFORMANCE_VALIDATION.md#device-regression-and-baseline-restoration-2026-09-24).
 
 ## Bounded queue map
 

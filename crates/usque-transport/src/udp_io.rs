@@ -782,49 +782,6 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn portable_send_uses_raw_io_without_nested_tokio_readiness() {
-        for address in ["127.0.0.1:0", "[::1]:0"] {
-            let sender = UdpSocket::bind(address).await.unwrap();
-            let receiver = UdpSocket::bind(address).await.unwrap();
-            sender.writable().await.unwrap();
-            // The portable helper is the raw operation inside try_io. Clear
-            // Tokio's cache without changing the kernel socket's writability:
-            // a nested try_send_to would now spuriously return WouldBlock.
-            let cleared: io::Result<()> =
-                sender.try_io(Interest::WRITABLE, || Err(io::ErrorKind::WouldBlock.into()));
-            assert_eq!(cleared.unwrap_err().kind(), io::ErrorKind::WouldBlock);
-            let quality = NetworkQualityTelemetry::default();
-            let payloads = [b"first".as_slice(), b"second"];
-            let batch: Vec<_> = payloads
-                .iter()
-                .map(|payload| {
-                    datagram(
-                        payload,
-                        sender.local_addr().unwrap(),
-                        receiver.local_addr().unwrap(),
-                        Instant::now(),
-                    )
-                })
-                .collect();
-            assert_eq!(
-                portable::try_send_batch(&sender, &batch, &quality).unwrap(),
-                2
-            );
-            for expected in payloads {
-                let mut bytes = [0; 32];
-                let (n, _) = timeout(Duration::from_secs(1), receiver.recv_from(&mut bytes))
-                    .await
-                    .unwrap()
-                    .unwrap();
-                assert_eq!(&bytes[..n], expected);
-            }
-            let snapshot = NetworkQualitySampler::new(quality).sample();
-            assert_eq!(snapshot.udp_io.send_syscalls, 2);
-            assert_eq!(snapshot.udp_io.sent_datagrams, 2);
-        }
-    }
-
     #[test]
     fn send_prefix_never_crosses_path_destination_or_future_deadline() {
         let source: SocketAddr = "127.0.0.1:10000".parse().unwrap();

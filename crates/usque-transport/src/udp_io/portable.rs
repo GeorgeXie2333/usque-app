@@ -77,13 +77,9 @@ pub(super) fn try_send_batch(
     batch: &[SendDatagram<'_>],
     quality: &NetworkQualityTelemetry,
 ) -> io::Result<usize> {
-    // UdpBatchIo owns Tokio readiness for the entire batch. Its try_io
-    // closure must perform raw I/O: nesting try_send_to repeats readiness
-    // handling for every packet and can clear the outer readiness flag.
-    let raw_socket = socket2::SockRef::from(socket);
     let mut sent = 0;
     for datagram in batch.iter().take(UDP_ACTOR_DRAIN_LIMIT) {
-        match raw_socket.send_to(datagram.payload, &datagram.destination.into()) {
+        match socket.try_send_to(datagram.payload, datagram.destination) {
             Ok(length) if length == datagram.payload.len() => {
                 quality.record_udp_send(1);
                 sent += 1;

@@ -458,10 +458,6 @@ impl LossThreshold {
 }
 
 pub struct GRecovery {
-    /// Packetizer notifications, distinct from the test-only cwnd heuristic.
-    #[cfg(test)]
-    pub(crate) app_limited_events: usize,
-
     epochs: [RecoveryEpoch; packet::Epoch::count()],
 
     loss_timer: LossDetectionTimer,
@@ -536,8 +532,6 @@ impl GRecovery {
         };
 
         Some(Self {
-            #[cfg(test)]
-            app_limited_events: 0,
             epochs: Default::default(),
             rtt_stats: RttStats::new(
                 recovery_config.initial_rtt,
@@ -605,7 +599,6 @@ impl GRecovery {
             self.pacer.on_packet_neutered(pkt);
         }
 
-        self.bytes_lost += lost_bytes as u64;
         (lost_bytes, lost_packets)
     }
 
@@ -1109,10 +1102,6 @@ impl RecoveryOps for GRecovery {
 
     // FIXME only used by gcongestion
     fn on_app_limited(&mut self) {
-        #[cfg(test)]
-        {
-            self.app_limited_events += 1;
-        }
         self.pacer.on_app_limited(self.bytes_in_flight.get())
     }
 

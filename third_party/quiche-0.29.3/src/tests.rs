@@ -8288,56 +8288,6 @@ fn dgram_send_app_limited(
 }
 
 #[rstest]
-fn queued_datagram_is_not_application_limited(
-    #[values("bbr2_gcongestion", "bbr3")] cc_algorithm_name: &str,
-    #[values(128, 1200)] output_size: usize,
-) {
-    let mut config = test_utils::Pipe::default_config(cc_algorithm_name).unwrap();
-    config.enable_dgram(true, 1000, 1000);
-    config.enable_pacing(false);
-    config.set_max_send_udp_payload_size(1200);
-    config.set_max_recv_udp_payload_size(1200);
-    let mut pipe = test_utils::Pipe::with_config(&mut config).unwrap();
-    pipe.handshake().unwrap();
-    let notifications = |conn: &Connection| {
-        let recovery::Recovery::GCongestion(recovery) =
-            &conn.paths.get_active().unwrap().recovery
-        else {
-            panic!("expected BBR recovery");
-        };
-        recovery.app_limited_events
-    };
-    for _ in 0..100 {
-        pipe.client.dgram_send(&[0xcf; 1000]).unwrap();
-    }
-    let before = notifications(&pipe.client);
-    let mut output = vec![0; output_size];
-    // With a normal output buffer, exhaust the flight without acknowledging it.
-    // With a short buffer, packetization itself cannot fit the queued DATAGRAM.
-    loop {
-        match pipe.client.send(&mut output) {
-            Ok(_) => (),
-            Err(Error::Done) => break,
-            Err(error) => panic!("unexpected send result: {error:?}"),
-        }
-    }
-    assert!(pipe.client.dgram_send_queue_len() > 0);
-    let available = pipe.client.paths.get_active().unwrap()
-        .recovery.cwnd_available();
-    assert!(available > frame::MAX_STREAM_OVERHEAD);
-    if output_size == 1200 {
-        assert!(available < 1000);
-    }
-    assert_eq!(notifications(&pipe.client), before);
-
-    // An actually empty application queue must still notify the sampler.
-    pipe.client.dgram_purge_outgoing(|_| true);
-    pipe.client.send_ack_eliciting().unwrap();
-    assert!(pipe.client.send(&mut output).is_ok());
-    assert!(notifications(&pipe.client) > before);
-}
-
-#[rstest]
 fn dgram_single_datagram(
     #[values("cubic", "bbr2_gcongestion")] cc_algorithm_name: &str,
 ) {
@@ -8698,7 +8648,7 @@ fn is_readable(
 /// declared lost.
 #[rstest]
 fn dgram_lost_stat(
-    #[values("reno", "cubic", "bbr2_gcongestion", "bbr3")] cc_algorithm_name: &str,
+    #[values("cubic", "bbr2_gcongestion")] cc_algorithm_name: &str,
 ) {
     let mut buf = [0; 65535];
 
@@ -8735,10 +8685,7 @@ fn dgram_lost_stat(
     pipe.client.send(&mut buf).unwrap();
 
     // Verify dgram_lost stat is incremented.
-    let path = pipe.client.path_stats().next().unwrap();
-    assert_eq!(path.dgram_lost, 1);
-    assert!(pipe.client.stats().lost_bytes > 0);
-    assert_eq!(path.lost_bytes, pipe.client.stats().lost_bytes);
+    assert_eq!(pipe.client.path_stats().next().unwrap().dgram_lost, 1);
 }
 
 #[rstest]
