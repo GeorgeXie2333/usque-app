@@ -336,9 +336,8 @@ impl BBRv2NetworkModel {
         );
 
         if sample.extra_acked == 0 {
-            self.cwnd_limited_before_aggregation_epoch = congestion_event
-                .prior_bytes_in_flight >=
-                congestion_event.prior_cwnd;
+            self.cwnd_limited_before_aggregation_epoch =
+                congestion_event.is_cwnd_limited();
         }
 
         if sample.last_packet_send_state.is_valid {

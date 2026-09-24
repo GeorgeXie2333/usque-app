@@ -1340,6 +1340,7 @@ mod tests {
         assert_eq!(r.bytes_in_flight_duration(), Duration::from_micros(11250));
 
         assert_eq!(r.lost_count(), 1);
+        assert_eq!(r.bytes_lost(), 1000);
 
         // Wait 1 RTT.
         now += r.rtt();
@@ -1350,6 +1351,7 @@ mod tests {
         );
 
         assert_eq!(r.sent_packets_len(packet::Epoch::Application), 0);
+        assert_eq!(r.bytes_lost(), 1000);
         if cc_algorithm_name == "reno" || cc_algorithm_name == "cubic" {
             assert!(r.startup_exit().is_some());
             assert_eq!(r.startup_exit().unwrap().reason, StartupExitReason::Loss);
@@ -2534,6 +2536,7 @@ mod tests {
         assert_eq!(r.cwnd(), 12000);
 
         assert_eq!(r.lost_count(), 0);
+        assert_eq!(r.bytes_lost(), 0);
 
         // Wait 1 RTT.
         now += r.rtt();
@@ -2548,6 +2551,7 @@ mod tests {
         assert_eq!(r.bytes_in_flight(), 0);
         assert_eq!(r.bytes_in_flight_duration(), Duration::from_micros(11250));
         assert_eq!(r.lost_count(), 0);
+        assert_eq!(r.bytes_lost(), 0);
         assert_eq!(r.startup_exit(), None);
     }
 

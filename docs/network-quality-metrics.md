@@ -50,6 +50,13 @@ The first interval, an interval with no sent packets, and a counter reset are
 `NotReady`. A new connection instance clears the delta baseline and short-term
 quality history.
 
+Per-path H3 lost bytes now accumulate in both quiche recovery backends when
+loss is declared, excluding PMTU probes. Older builds could report zero here
+while the connection's loss counter increased; treat those historical byte
+values as unavailable when comparing candidates. Packet-loss counts can also
+include packets without application DATAGRAMs, so neither a timeline wait nor
+the total lost-packet count alone measures dropped IP payloads.
+
 ## Bounded queue map
 
 Queue payloads are never copied for measurement. Tokio queues use tracked items

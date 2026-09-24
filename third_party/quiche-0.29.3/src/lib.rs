@@ -5326,8 +5326,12 @@ impl<F: BufFactory> Connection<F> {
 
         if !has_data &&
             !dgram_emitted &&
+            self.dgram_send_queue.is_empty() &&
             cwnd_available > frame::MAX_STREAM_OVERHEAD
         {
+            // A queued DATAGRAM can be larger than the remaining cwnd or
+            // output buffer. That is packetization/backpressure, not a lack
+            // of application data: do not suppress BBR bandwidth samples.
             path.recovery.on_app_limited();
         }
 

@@ -566,6 +566,7 @@ impl LegacyRecovery {
             .drain_acked_and_lost_packets(now - self.rtt_stats.rtt());
 
         self.congestion.lost_count += loss.lost_packets;
+        self.bytes_lost += loss.lost_bytes as u64;
 
         (loss.lost_packets, loss.lost_bytes)
     }

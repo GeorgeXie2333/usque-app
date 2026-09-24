@@ -4,6 +4,19 @@ use super::*;
 
 const MSS: usize = 1200;
 
+#[test]
+fn datagram_window_tail_counts_as_cwnd_limited() {
+    for mss in [MSS, 1472] {
+        for tail in [0, 1, mss / 2, mss - 1, mss, 2 * mss] {
+            let mut cc = BBRv3::new(10, 20_000, MSS, Duration::from_millis(50));
+            cc.update_mss(mss);
+            assert_eq!(cc.is_cwnd_limited(cc.cwnd - tail), tail < mss, "tail={tail}");
+            cc.on_packet_sent(cc.min_rtt_stamp, cc.cwnd - tail - mss, 1, mss, true);
+            assert_eq!(cc.cwnd_limited_in_round, tail < mss, "tail={tail}");
+        }
+    }
+}
+
 /// Deterministic FIFO bottleneck, real sender pacing and cwnd admission.
 /// All times advance virtually; no sockets or wall-clock sleeps are used.
 struct Link {

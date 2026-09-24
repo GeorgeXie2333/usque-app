@@ -91,3 +91,12 @@ The change adds no privileged networking operation, system-proxy mutation,
 TLS bypass, credential field, diagnostic upload or telemetry. Existing cleanup,
 generation ownership, certificate pinning, queue limits and fallback safety
 rules remain in force. No installers or release APKs are installed for testing.
+
+The DATAGRAM sender treats a sub-MSS remainder in the byte congestion window
+as window-limited for BBRv2/BBRv3 model growth. A complete DATAGRAM cannot fill
+that remainder through fragmentation. This does not admit bytes beyond cwnd
+or bypass pacing. A nonempty DATAGRAM queue is also not application-limited
+merely because its next entry cannot fit. The pinned patch and its regression
+tests document these transport adaptations; they do not establish a throughput
+improvement by themselves. Per-path lost-byte counters now accumulate in both
+recovery backends; older builds' zero values did not prove absence of loss.

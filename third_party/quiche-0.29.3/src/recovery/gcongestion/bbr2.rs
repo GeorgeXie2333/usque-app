@@ -447,6 +447,7 @@ struct BBRv2CongestionEvent {
     prior_cwnd: usize,
     /// Total bytes inflight before the processing of the ack/loss events.
     prior_bytes_in_flight: usize,
+    max_datagram_size: usize,
 
     /// Total bytes inflight after the processing of the ack/loss events.
     bytes_in_flight: usize,
@@ -478,12 +479,13 @@ struct BBRv2CongestionEvent {
 impl BBRv2CongestionEvent {
     fn new(
         event_time: Instant, prior_cwnd: usize, prior_bytes_in_flight: usize,
-        is_probing_for_bandwidth: bool,
+        is_probing_for_bandwidth: bool, max_datagram_size: usize,
     ) -> Self {
         BBRv2CongestionEvent {
             event_time,
             prior_cwnd,
             prior_bytes_in_flight,
+            max_datagram_size,
             is_probing_for_bandwidth,
             bytes_in_flight: 0,
             bytes_acked: 0,
@@ -493,6 +495,12 @@ impl BBRv2CongestionEvent {
             sample_max_bandwidth: None,
             sample_min_rtt: None,
         }
+    }
+
+    fn is_cwnd_limited(&self) -> bool {
+        super::window_limited(
+            self.prior_bytes_in_flight, self.prior_cwnd, self.max_datagram_size,
+        )
     }
 }
 
@@ -688,6 +696,7 @@ impl CongestionControl for BBRv2 {
             self.cwnd,
             prior_in_flight,
             self.mode.is_probing_for_bandwidth(),
+            self.mss,
         );
 
         let network_model = self.mode.network_model_mut();
@@ -750,7 +759,9 @@ impl CongestionControl for BBRv2 {
     }
 
     fn is_cwnd_limited(&self, bytes_in_flight: usize) -> bool {
-        bytes_in_flight >= self.get_congestion_window()
+        super::window_limited(
+            bytes_in_flight, self.get_congestion_window(), self.mss,
+        )
     }
 
     fn pacing_rate(
@@ -785,7 +796,7 @@ impl CongestionControl for BBRv2 {
     }
 
     fn on_app_limited(&mut self, bytes_in_flight: usize) {
-        if bytes_in_flight >= self.get_congestion_window() {
+        if self.is_cwnd_limited(bytes_in_flight) {
             return;
         }
 
@@ -842,6 +853,8 @@ mod tests {
         assert_eq!(bbr2.cwnd_limits.lo, NEW_CWND);
         assert_eq!(bbr2.cwnd_limits.hi, NEW_MAX_CWND);
         assert_eq!(bbr2.cwnd, NEW_CWND);
+        assert!(bbr2.is_cwnd_limited(NEW_CWND - NEW_PACKET_SIZE + 1));
+        assert!(!bbr2.is_cwnd_limited(NEW_CWND - NEW_PACKET_SIZE));
         let pacing_cwnd = if scale_pacing_rate_by_mss {
             NEW_CWND
         } else {

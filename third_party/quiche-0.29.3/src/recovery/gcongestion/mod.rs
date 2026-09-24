@@ -44,6 +44,13 @@ use crate::recovery::bandwidth::Bandwidth;
 use crate::recovery::rtt::RttStats;
 use crate::recovery::RecoveryStats;
 
+/// QUIC cannot fragment a DATAGRAM to fill the last bytes of cwnd. Treat a
+/// sub-packet remainder as window limited for model growth, without changing
+/// the packetizer's strict byte admission limit. Use the current path MSS.
+fn window_limited(inflight: usize, cwnd: usize, max_datagram_size: usize) -> bool {
+    cwnd.saturating_sub(inflight) < max_datagram_size
+}
+
 #[derive(Debug)]
 pub struct Lost {
     pub(super) packet_number: u64,
