@@ -358,3 +358,130 @@ new select round does not by itself prove a thread switch or an extra wakeup.
 No send scheduling change is made solely on this source comparison. The current
 snapshot's congestion window is not a historical per-second series, and bytes
 in flight remains unavailable; do not infer either from the timeline screenshot.
+
+## Workstation investigation after b5eb520 (2026-09-24)
+
+The follow-up baseline is
+`b5eb52047eade9ff7b62f2b7e873f0af0e42cd58`. Tests use a temporary,
+IPv4-loopback SOCKS listener, the existing account in a temporary configuration,
+and isolated Chrome sessions on the user's Speedtest Custom page with SmarTone
+Hong Kong selected. MTU is 1280; chain and direct splitting are disabled. No
+system proxy, TUN, WFP, route or DNS setting is changed. Each run stops its
+listener and browser and verifies that the original configuration is unchanged.
+Probe sources, binary hashes, per-second numeric observations and browser
+results stay in the ignored local evidence directory; no credentials or packet
+contents are recorded or committed.
+
+Earlier third-party HTTP CLI results were not a valid absolute-throughput
+baseline. The official Ookla CLI and the same browser page both demonstrated
+substantially faster direct upload. The follow-up uses the browser page for
+the comparisons below. Different WARP exits and an uncontrolled workstation
+remain confounders: these results are not Android TUN or performance-lab
+certification.
+
+### Reproduced defects and changes
+
+- The H2 framer copied a whole IP payload when the peer put its capsule header
+  in a separate DATA frame. A pointer-retention regression failed on the old
+  implementation. The candidate retains a contiguous DATAGRAM payload in its
+  DATA storage and reuses only the small header assembly buffer. Fragmented
+  payloads and control capsules keep the existing bounded parser; IP validation,
+  control ordering and per-DATA capacity return are unchanged. Tests include
+  non-minimal varint widths, every header split, randomized DATAGRAM chunking,
+  cancellation/resume and exact flow-control return.
+- quiche notified BBR of application-limited sending while a DATAGRAM was still
+  queued but could not fit the remaining window or output buffer. Four memory
+  tests reproduced the notification with BBRv2/BBRv3. Requiring an empty DATAGRAM
+  queue fixes that classification; this change alone did not remove the
+  workstation's low BBRv2 upload plateau.
+- BBR's byte-exact window-limited check did not account for an indivisible
+  DATAGRAM leaving a sub-packet tail. The old BBRv2 PROBE_UP regression could
+  not increase `inflight_hi` even with just one unused byte; BBRv3 also failed
+  to record that round as window-limited. Both now use the current path MSS for
+  this classification, including after PMTU changes. Exactly one MSS of free
+  space remains non-limiting. Actual packet admission, pacing, quantum, buffer
+  capacities and algorithm gains are unchanged.
+- Both quiche recovery backends left per-path lost bytes at zero. Loss tests
+  failed for all four algorithms while the connection counter was nonzero.
+  The counters now accumulate once per declared loss; repeat detection does
+  not double count, and PMTU probe losses remain excluded. Older byte-loss
+  observations are unavailable for comparisons, not evidence of no loss.
+- Temporary actor timing identified portable UDP sends as the largest measured
+  section during Cubic upload. These were wall-clock section timings, not a CPU
+  stack profile. The portable send callback nested Tokio `try_send_to` inside
+  `try_io`, contrary to that API's raw-I/O contract. An IPv4/IPv6 test first
+  failed with a cached `WouldBlock` although the kernel socket was writable.
+  Borrowing the same protected socket through `SockRef` leaves readiness to
+  the outer batch operation. Datagram boundaries, send order, partial prefixes,
+  cancellation, fallback and EMSGSIZE handling are retained. No GSO is added.
+
+### Follow-up validation
+
+The normal source includes no actor timing prints or temporary probe entrypoint.
+The changes do not add a privileged operation, weaken pinning or authorization,
+alter protocol field numbers, or upload diagnostics. The same socket ownership
+and bounded cleanup paths remain in use. Complete safe checks apply to the
+Rust changes; Flutter, Kotlin, protobuf and aggregate multi-language checks are
+not applicable to this follow-up. Their historical results above retain their
+original scope. Android device tests, controlled performance sampling and all
+isolated lifecycle/leak tests are `not_run`.
+
+The command results and completed browser comparisons are recorded below.
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | exit 0; 1,297 passed, 8 ignored |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | exit 0; compile only |
+| `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | exit 0 |
+| `cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --config profile.dev.package.boring-sys.opt-level=1 --config profile.dev.package.boring-sys.debug=false` | exit 0; 1,076 passed |
+| `cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --features qlog --config profile.dev.package.boring-sys.opt-level=1 --config profile.dev.package.boring-sys.debug=false recovery::gcongestion::bbr3::` | exit 0; 21 passed |
+| `cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --features qlog --config profile.dev.package.boring-sys.opt-level=1 --config profile.dev.package.boring-sys.debug=false queued_datagram_is_not_application_limited` | exit 0; 4 passed |
+| `python tool/check_repository_policy.py` using the verified executable above | exit 0 |
+| `git diff --check` | exit 0 |
+
+The standalone checks ran after the supported Windows helper initialized the
+native toolchain. The `profile.dev` overrides are the pinned dependency's
+documented Windows BoringSSL CRT requirements, not a relaxation of TLS checks.
+
+### Browser comparison and retention
+
+| Protocol / direction | Runs per version | Baseline median Mbps | Candidate median Mbps | Baseline / candidate MAD divided by median |
+| --- | ---: | ---: | ---: | ---: |
+| H2 download | 7 | 298.2 | 325.4 | 21.9% / 15.7% |
+| H2 upload | 7 | 571.7 | 570.2 | 9.0% / 12.0% |
+| H3 Cubic download | 3 | 583.0 | 559.8 | 0.4% / 0.1% |
+| H3 Cubic upload | 3 | 222.7 | 228.1 | 1.2% / 0.2% |
+| H3 BBRv2 download | 7 | 646.9 | 663.9 | 2.0% / 1.0% |
+| H3 BBRv2 upload | 7 | 37.3 | 271.7 | 16.9% / 3.5% |
+
+Direct browser calibration moved from 1497.9/2165.5 Mbps before the investigation
+to 1238.9/1927.7 Mbps afterward (download/upload). Measurement stopped after
+detecting this drift. This and the unstable H2 and BBR baseline samples prevent
+a controlled throughput acceptance claim or a precise speedup multiplier.
+Each BBRv2 candidate upload nevertheless exceeded every baseline upload in the
+seven adjacent comparisons: 239.5–294.0 versus 18.9–47.4 Mbps. Together with the
+memory regressions and restored window growth, this supports repairing the
+low-window defect; it does not establish the Android improvement or lab fairness.
+
+The H2 candidate reduced assembly copies from essentially all DATA bytes to
+less than 0.4%, while retaining payload ownership and flow-control correctness.
+Keep this copy reduction as a candidate with **unconfirmed throughput benefit**;
+the noisy measurements do not show a stable regression. Cubic's small observed
+change also remains unconfirmed, and its upload plateau is **not resolved**.
+Retain the independent UDP readiness and QUIC correctness fixes. No default
+algorithm, queue capacity, MTU, H2 window or encoding-pool capacity was changed.
+
+Recorded queue drops, send timeouts and mux incoming-copy bytes remained zero
+in these sessions. This does not mean the network was lossless: QUIC packet and
+byte losses were observed. Portable Windows UDP still uses one syscall per
+datagram. Exact CPU per bit, latency p95, true RSS peak, bytes in flight and
+thermal state were not obtained; process CPU time and sampled RSS cannot stand
+in for those acceptance metrics. No performance-lab report or passing budget
+status is synthesized from this workstation evidence.
+
+All 44 proxy test sessions in this follow-up reported successful shutdown,
+closed listeners and unchanged original configuration hashes; no probe process
+remained. The two direct browser sessions were also closed. Existing user
+browser sessions were not modified.
