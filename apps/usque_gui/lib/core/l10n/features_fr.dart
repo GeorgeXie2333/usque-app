@@ -398,7 +398,7 @@ const Map<String, String> kChainFr = <String, String>{
   'dns_fallback': 'DNS du tunnel (OpenVPN peut négocier le DNS)',
   'dns_unavailable_title': 'Pas de DNS par cette sortie',
   'dns_unavailable':
-      'Aucun serveur DNS n’est joignable par cette sortie. Utilisez des adresses IP ou réimportez une configuration avec un DNS joignable.',
+      'Aucun serveur DNS n’est joignable par cette sortie. Utilisez des adresses IP ou choisissez une autre sortie avec un DNS joignable.',
   'authentication_failed':
       'Échec de l’authentification. Mettez à jour les identifiants avant de vous reconnecter.',
   'profile_limit':

@@ -392,7 +392,7 @@ const Map<String, String> kChainPl = <String, String>{
   'dns_fallback': 'DNS tunelu (OpenVPN może negocjować DNS)',
   'dns_unavailable_title': 'Brak DNS przez to wyjście',
   'dns_unavailable':
-      'Przez to wyjście nie można osiągnąć żadnego serwera DNS. Użyj adresów IP albo zaimportuj ponownie konfigurację z osiągalnym DNS.',
+      'Przez to wyjście nie można osiągnąć żadnego serwera DNS. Użyj adresów IP albo wybierz inne wyjście z osiągalnym DNS.',
   'authentication_failed':
       'Uwierzytelnianie nie powiodło się. Zaktualizuj dane logowania przed ponownym połączeniem.',
   'profile_limit': 'Biblioteka konfiguracji jest pełna (128 profili).',

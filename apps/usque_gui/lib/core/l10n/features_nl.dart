@@ -397,7 +397,7 @@ const Map<String, String> kChainNl = <String, String>{
   'dns_fallback': 'Tunnel-DNS (OpenVPN kan DNS onderhandelen)',
   'dns_unavailable_title': 'Geen DNS via deze uitgang',
   'dns_unavailable':
-      'Er is geen DNS-server bereikbaar via deze uitgang. Gebruik IP-adressen of importeer opnieuw een configuratie met bereikbare DNS.',
+      'Er is geen DNS-server bereikbaar via deze uitgang. Gebruik IP-adressen of kies een andere uitgang met bereikbare DNS.',
   'authentication_failed':
       'Authenticatie mislukt. Werk de aanmeldgegevens bij voordat u opnieuw verbindt.',
   'profile_limit': 'De configuratiebibliotheek is vol (128 profielen).',

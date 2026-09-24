@@ -396,7 +396,7 @@ const Map<String, String> kChainEs = <String, String>{
   'dns_fallback': 'DNS del túnel (OpenVPN puede negociar el DNS)',
   'dns_unavailable_title': 'No hay DNS por esta salida',
   'dns_unavailable':
-      'Ningún servidor DNS es accesible por esta salida. Usa direcciones IP o vuelve a importar una configuración con DNS accesible.',
+      'Ningún servidor DNS es accesible por esta salida. Usa direcciones IP o elige otra salida con DNS accesible.',
   'authentication_failed':
       'Error de autenticación. Actualiza las credenciales antes de volver a conectar.',
   'profile_limit':

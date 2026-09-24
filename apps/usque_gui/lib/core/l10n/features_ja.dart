@@ -329,7 +329,7 @@ const Map<String, String> kChainJa = <String, String>{
   'dns_fallback': '既存のトンネル DNS（OpenVPN はサーバーと DNS を交渉できます）',
   'dns_unavailable_title': 'この出口に使える DNS がありません',
   'dns_unavailable':
-      'この出口から到達できる DNS サーバーがありません。IP アドレスを使うか、到達できる DNS を含む設定を読み込み直してください。',
+      'この出口から到達できる DNS サーバーがありません。IP アドレスを使うか、到達できる DNS がある別の出口を選んでください。',
   'authentication_failed': '認証に失敗しました。資格情報を更新してから、もう一度接続してください。',
   'profile_limit': '設定ライブラリはいっぱいです（最大 128 件）。',
   'metadata_limit': '設定ライブラリのメタデータが容量の上限に達しました。',

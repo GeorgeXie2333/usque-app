@@ -391,7 +391,7 @@ const Map<String, String> kChainPt = <String, String>{
   'dns_fallback': 'DNS do túnel (o OpenVPN pode negociar o DNS)',
   'dns_unavailable_title': 'Sem DNS por esta saída',
   'dns_unavailable':
-      'Nenhum servidor DNS é acessível por esta saída. Use endereços IP ou importe de novo uma configuração com DNS acessível.',
+      'Nenhum servidor DNS é acessível por esta saída. Use endereços IP ou escolha outra saída com DNS acessível.',
   'authentication_failed':
       'Falha na autenticação. Atualize as credenciais antes de conectar outra vez.',
   'profile_limit': 'A biblioteca de configurações está cheia (128 perfis).',

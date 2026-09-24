@@ -363,7 +363,7 @@ const Map<String, String> kChainTr = <String, String>{
   'dns_fallback': 'Tünel DNS (OpenVPN DNS görüşebilir)',
   'dns_unavailable_title': 'Bu çıkışta DNS yok',
   'dns_unavailable':
-      'Bu çıkış üzerinden erişilebilen bir DNS sunucusu yok. IP adresleri kullanın veya erişilebilir DNS içeren bir yapılandırmayı yeniden içe aktarın.',
+      'Bu çıkış üzerinden erişilebilen bir DNS sunucusu yok. IP adresleri kullanın veya erişilebilir DNS sunan başka bir çıkış seçin.',
   'authentication_failed':
       'Kimlik doğrulama başarısız. Yeniden bağlanmadan önce kimlik bilgilerini güncelleyin.',
   'profile_limit': 'Yapılandırma kitaplığı dolu (128 profil).',

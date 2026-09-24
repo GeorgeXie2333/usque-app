@@ -357,7 +357,7 @@ const Map<String, String> kChainVi = <String, String>{
   'dns_fallback': 'DNS đường hầm (OpenVPN có thể thương lượng DNS)',
   'dns_unavailable_title': 'Không có DNS qua lối ra này',
   'dns_unavailable':
-      'Không có máy chủ DNS nào tới được qua lối ra này. Hãy dùng địa chỉ IP hoặc nhập lại cấu hình có DNS tới được.',
+      'Không có máy chủ DNS nào tới được qua lối ra này. Hãy dùng địa chỉ IP hoặc chọn lối ra khác có DNS tới được.',
   'authentication_failed':
       'Xác thực thất bại. Hãy cập nhật thông tin đăng nhập trước khi kết nối lại.',
   'profile_limit': 'Thư viện cấu hình đã đầy (128 hồ sơ).',

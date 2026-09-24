@@ -306,7 +306,7 @@ const Map<String, String> kChainZhTw = <String, String>{
   'manage': '管理',
   'dns_fallback': '由通道提供（OpenVPN 伺服器可能會指派）',
   'dns_unavailable_title': '此出口沒有可用 DNS',
-  'dns_unavailable': '此出口沒有可達的 DNS 伺服器。請使用 IP 位址，或重新匯入包含可達 DNS 的設定。',
+  'dns_unavailable': '此出口沒有可達的 DNS 伺服器。請使用 IP 位址，或選擇有可達 DNS 的其他出口。',
   'authentication_failed': '驗證失敗，請更新驗證資訊後重新連線。',
   'profile_limit': '設定庫已滿（最多 128 份設定）。',
   'metadata_limit': '設定庫已無法容納更多項目。',

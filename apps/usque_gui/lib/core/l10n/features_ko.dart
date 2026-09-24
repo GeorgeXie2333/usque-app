@@ -333,7 +333,7 @@ const Map<String, String> kChainKo = <String, String>{
   'dns_fallback': '기존 터널 DNS(OpenVPN이 서버와 DNS를 협상할 수 있음)',
   'dns_unavailable_title': '이 출구에는 사용할 DNS가 없습니다',
   'dns_unavailable':
-      '이 출구를 통해 도달할 수 있는 DNS 서버가 없습니다. IP 주소를 사용하거나, 도달 가능한 DNS가 포함된 구성을 다시 가져오세요.',
+      '이 출구를 통해 도달할 수 있는 DNS 서버가 없습니다. IP 주소를 사용하거나 도달 가능한 DNS가 있는 다른 출구를 선택하세요.',
   'authentication_failed': '인증에 실패했습니다. 자격 증명을 업데이트한 뒤 다시 연결하세요.',
   'profile_limit': '구성 라이브러리가 가득 찼습니다(최대 128개).',
   'metadata_limit': '구성 라이브러리 메타데이터가 용량 한도에 도달했습니다.',

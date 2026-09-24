@@ -348,7 +348,7 @@ const Map<String, String> kChainAr = <String, String>{
   'dns_fallback': 'DNS النفق (قد يتفاوض OpenVPN على DNS)',
   'dns_unavailable_title': 'لا يوجد DNS عبر هذا المخرج',
   'dns_unavailable':
-      'لا يمكن الوصول إلى خادم DNS عبر هذا المخرج. استخدم عناوين IP أو أعد استيراد إعداد يتضمن DNS يمكن الوصول إليه.',
+      'لا يمكن الوصول إلى خادم DNS عبر هذا المخرج. استخدم عناوين IP أو اختر مخرجًا آخر يتيح الوصول إلى DNS.',
   'authentication_failed':
       'فشلت المصادقة. حدّث بيانات الاعتماد قبل الاتصال مرة أخرى.',
   'profile_limit': 'مكتبة الإعدادات ممتلئة (128 ملفًا).',

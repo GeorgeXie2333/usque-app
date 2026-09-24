@@ -402,7 +402,7 @@ const Map<String, String> kChainDe = <String, String>{
   'dns_fallback': 'Tunnel-DNS (OpenVPN kann DNS aushandeln)',
   'dns_unavailable_title': 'Kein DNS über diesen Ausgang',
   'dns_unavailable':
-      'Über diesen Ausgang ist kein DNS-Server erreichbar. Verwenden Sie IP-Adressen oder importieren Sie eine Konfiguration mit erreichbarem DNS erneut.',
+      'Über diesen Ausgang ist kein DNS-Server erreichbar. Verwenden Sie IP-Adressen oder wählen Sie einen anderen Ausgang mit erreichbarem DNS.',
   'authentication_failed':
       'Authentifizierung fehlgeschlagen. Aktualisieren Sie die Anmeldedaten, bevor Sie sich erneut verbinden.',
   'profile_limit': 'Die Konfigurationsbibliothek ist voll (128 Profile).',

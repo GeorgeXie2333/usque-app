@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/chain_strings.dart';
 import '../core/usque_theme.dart';
 import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
@@ -27,10 +28,12 @@ class VpnGateEntry extends StatelessWidget {
     required this.onOpen,
     super.key,
     this.title = 'VPN Gate',
+    this.chainEntry = false,
     this.entryKey = const ValueKey('proxy-vpn-gate-entry'),
   });
 
   final String title;
+  final bool chainEntry;
   final Key entryKey;
 
   final AppController controller;
@@ -53,6 +56,7 @@ class VpnGateEntry extends StatelessWidget {
       value: value,
       onOpen: onOpen,
       title: title,
+      chainEntry: chainEntry,
       entryKey: entryKey,
     ),
   );
@@ -64,6 +68,7 @@ class _EntryCard extends StatefulWidget {
     required this.value,
     required this.onOpen,
     required this.title,
+    required this.chainEntry,
     required this.entryKey,
   });
 
@@ -71,6 +76,7 @@ class _EntryCard extends StatefulWidget {
   final _EntrySelection value;
   final VoidCallback onOpen;
   final String title;
+  final bool chainEntry;
   final Key entryKey;
 
   @override
@@ -183,7 +189,9 @@ class _EntryCardState extends State<_EntryCard> {
           children: [
             Flexible(
               child: Text(
-                strings.get('gate_manage'),
+                widget.chainEntry
+                    ? strings.chain('manage')
+                    : strings.get('gate_manage'),
                 style: theme.textTheme.labelLarge?.copyWith(
                   color: theme.colorScheme.primary,
                 ),
@@ -235,7 +243,7 @@ class _EntryCardState extends State<_EntryCard> {
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(widget.title, style: theme.textTheme.titleLarge),
-                        if (widget.title != 'VPN Gate') const Text('VPN Gate'),
+                        if (widget.chainEntry) const Text('VPN Gate'),
                         Semantics(
                           liveRegion: true,
                           child: Container(
@@ -277,7 +285,9 @@ class _EntryCardState extends State<_EntryCard> {
                         ),
                     ] else
                       Text(
-                        strings.get('gate_subtitle'),
+                        widget.chainEntry
+                            ? strings.chain('subtitle')
+                            : strings.get('gate_subtitle'),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),

@@ -395,7 +395,7 @@ const Map<String, String> kChainIt = <String, String>{
   'dns_fallback': 'DNS del tunnel (OpenVPN può negoziare il DNS)',
   'dns_unavailable_title': 'Nessun DNS tramite questa uscita',
   'dns_unavailable':
-      'Nessun server DNS è raggiungibile tramite questa uscita. Usa indirizzi IP oppure importa di nuovo una configurazione con DNS raggiungibile.',
+      'Nessun server DNS è raggiungibile tramite questa uscita. Usa indirizzi IP oppure scegli un’altra uscita con DNS raggiungibile.',
   'authentication_failed':
       'Autenticazione non riuscita. Aggiorna le credenziali prima di riconnetterti.',
   'profile_limit': 'La raccolta di configurazioni è piena (128 profili).',

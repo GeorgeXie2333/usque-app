@@ -369,7 +369,7 @@ const Map<String, String> kChainId = <String, String>{
   'dns_fallback': 'DNS terowongan (OpenVPN dapat menegosiasikan DNS)',
   'dns_unavailable_title': 'Tidak ada DNS lewat pintu keluar ini',
   'dns_unavailable':
-      'Tidak ada peladen DNS yang dapat dijangkau lewat pintu keluar ini. Gunakan alamat IP atau impor ulang konfigurasi dengan DNS yang terjangkau.',
+      'Tidak ada peladen DNS yang dapat dijangkau lewat pintu keluar ini. Gunakan alamat IP atau pilih pintu keluar lain dengan DNS yang dapat dijangkau.',
   'authentication_failed':
       'Autentikasi gagal. Perbarui kredensial sebelum menghubungkan lagi.',
   'profile_limit': 'Pustaka konfigurasi penuh (128 profil).',

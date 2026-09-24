@@ -51,7 +51,7 @@ const kChainEn = <String, String>{
   'dns_fallback': 'Provided by the tunnel (OpenVPN servers may assign one)',
   'dns_unavailable_title': 'No DNS through this exit',
   'dns_unavailable':
-      'No DNS server is reachable through this exit. Use IP addresses or reimport a configuration with reachable DNS.',
+      'No DNS server is reachable through this exit. Use IP addresses or choose another exit with reachable DNS.',
   'authentication_failed':
       'Authentication failed. Update credentials before connecting again.',
   'profile_limit': 'The configuration library is full (128 profiles).',
@@ -178,7 +178,7 @@ const kChainZhCn = <String, String>{
 
   'dns_fallback': '由隧道提供（OpenVPN 服务器可能会下发）',
   'dns_unavailable_title': '此出口没有可用 DNS',
-  'dns_unavailable': '此出口没有可达的 DNS 服务器。请使用 IP 地址，或重新导入包含可达 DNS 的配置。',
+  'dns_unavailable': '此出口没有可达的 DNS 服务器。请使用 IP 地址，或选择有可达 DNS 的其他出口。',
   'authentication_failed': '认证失败，请更新认证信息后重新连接。',
   'profile_limit': '配置库已满（最多 128 份配置）。',
   'metadata_limit': '配置库已无法容纳更多条目。',

@@ -63,6 +63,7 @@ class ChainProxyEntry extends StatelessWidget {
           controller: controller,
           onOpen: onOpen,
           title: strings.chain('title'),
+          chainEntry: true,
           entryKey: const ValueKey('proxy-chain-proxy-entry'),
         );
       }

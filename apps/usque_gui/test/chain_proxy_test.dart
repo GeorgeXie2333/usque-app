@@ -115,6 +115,8 @@ Future<AppController> hostChain(
   ChainEngine engine, {
   bool l4 = false,
   double width = 980,
+  ChainSource source = ChainSource.wireguardCustom,
+  bool chainEnabled = false,
 }) async {
   SharedPreferences.setMockInitialValues({});
   tester.view.devicePixelRatio = 1;
@@ -123,7 +125,10 @@ Future<AppController> hostChain(
   addTearDown(tester.view.resetPhysicalSize);
   engine.legacyProfilesImported = true;
   engine.storedProfiles[0] = engine.storedProfiles[0].copyWith(
-    chainExit: const ChainExitSettings(source: ChainSource.wireguardCustom),
+    chainExit: ChainExitSettings(enabled: chainEnabled, source: source),
+    vpnGate: source == ChainSource.vpnGate
+        ? VpnGateSettings(enabled: chainEnabled)
+        : null,
     dataPlane: l4 ? DataPlaneMode.l4Proxy : DataPlaneMode.connectIp,
   );
   final app = AppController(engine);
@@ -176,6 +181,30 @@ void main() {
     expect(find.text('Not enabled'), findsOneWidget);
     expect(find.text('WireGuard'), findsNothing);
     expect(find.text('OpenVPN'), findsNothing);
+  });
+  testWidgets('VPN Gate chain entry uses chain actions and guidance', (
+    tester,
+  ) async {
+    final app = await hostChain(
+      tester,
+      ChainEngine(),
+      source: ChainSource.vpnGate,
+      chainEnabled: true,
+    );
+    await tester.pumpWidget(
+      workflowHost(
+        app,
+        home: Scaffold(
+          body: ChainProxyEntry(controller: app, onOpen: () {}),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Chain proxy'), findsOneWidget);
+    expect(find.text('VPN Gate'), findsOneWidget);
+    expect(find.text('Manage'), findsOneWidget);
+    expect(find.text('Manage servers'), findsNothing);
+    expect(find.text('Choose an exit reached through WARP.'), findsOneWidget);
   });
   testWidgets(
     'live and disconnecting sessions override a saved disabled selection',
