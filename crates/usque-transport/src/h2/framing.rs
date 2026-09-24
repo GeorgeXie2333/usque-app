@@ -40,6 +40,29 @@ impl H2CapsuleFramer {
             if self.data.is_empty() {
                 return Ok(None);
             }
+            if framed {
+                let (capsule_type, type_len) =
+                    decode_varint(&self.partial)?.expect("complete capsule header");
+                let (_, length_len) =
+                    decode_varint(&self.partial[type_len..])?.expect("complete capsule length");
+                // Peers can write the envelope and the IP packet as separate
+                // DATA frames. Keep the entire IP packet in the latter DATA's
+                // storage, even when the envelope itself was fragmented. Only
+                // DATAGRAM is opaque here; control payloads retain their shared
+                // validation and ordering through decode_frame.
+                if capsule_type == super::DATAGRAM_CAPSULE_TYPE
+                    && self.partial.len() == type_len + length_len
+                    && self.data.len() >= required - self.partial.len()
+                {
+                    let payload = self.data.split_to(required - self.partial.len());
+                    // Retain the small allocation for the next split envelope.
+                    self.partial.clear();
+                    return Ok(Some(ConnectIpCapsule::Unknown {
+                        capsule_type,
+                        payload,
+                    }));
+                }
+            }
             self.copy_prefix((required - self.partial.len()).min(self.data.len()));
         }
     }
@@ -86,6 +109,7 @@ mod tests {
     use proptest::prelude::*;
 
     fn varint(bytes: &mut Vec<u8>, value: u64, width: usize) {
+        assert!(value < (1_u64 << (width * 8 - 2)));
         let start = bytes.len();
         bytes.extend_from_slice(&value.to_be_bytes()[8 - width..]);
         bytes[start] |= (width.ilog2() as u8) << 6;
@@ -108,6 +132,48 @@ mod tests {
             panic!("unexpected capsule");
         };
         payload
+    }
+
+    #[test]
+    fn split_datagram_header_preserves_contiguous_payload_storage() {
+        for type_width in [1, 2, 4, 8] {
+            for length_width in [1, 2, 4, 8] {
+                for payload_len in [20, 1280] {
+                    if length_width == 1 && payload_len >= 64 {
+                        continue;
+                    }
+                    let expected = vec![0x45; payload_len];
+                    let mut header = Vec::new();
+                    varint(&mut header, super::super::DATAGRAM_CAPSULE_TYPE, type_width);
+                    varint(&mut header, payload_len as u64, length_width);
+                    // Include every header split, including a DATA containing just
+                    // the envelope followed by a DATA containing the entire IP packet.
+                    for split in 1..=header.len() {
+                        let mut framer = H2CapsuleFramer::default();
+                        framer.feed(Bytes::copy_from_slice(&header[..split]));
+                        assert!(framer.next().unwrap().is_none());
+                        let mut tail = header[split..].to_vec();
+                        tail.extend_from_slice(&expected);
+                        tail.extend_from_slice(&unknown(&[8; 13], 1, 1));
+                        let data = Bytes::from(tail);
+                        let pointer = data.as_ptr().wrapping_add(header.len() - split);
+                        framer.feed(data.clone());
+                        let ConnectIpCapsule::Unknown {
+                            capsule_type: 0,
+                            payload,
+                        } = framer.next().unwrap().unwrap()
+                        else {
+                            panic!("expected DATAGRAM capsule");
+                        };
+                        assert_eq!(payload.as_ref(), expected.as_slice());
+                        assert_eq!(payload.as_ptr(), pointer);
+                        assert_eq!(framer.take_copied_bytes(), header.len() as u64);
+                        assert_eq!(self::payload(framer.next().unwrap().unwrap()), &[8; 13][..]);
+                        assert!(framer.next().unwrap().is_none());
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -137,6 +203,34 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn random_chunking_preserves_datagrams(
+            contents in prop::collection::vec(any::<u8>(), 0..4096),
+            sizes in prop::collection::vec(1usize..2048, 1..30),
+        ) {
+            let mut encoded = Vec::new();
+            varint(&mut encoded, super::super::DATAGRAM_CAPSULE_TYPE, 8);
+            varint(&mut encoded, contents.len() as u64, 8);
+            encoded.extend_from_slice(&contents);
+            let bytes = Bytes::from(encoded);
+            let mut framer = H2CapsuleFramer::default();
+            let mut received = Vec::new();
+            let mut offset = 0;
+            for size in sizes.iter().cycle() {
+                if offset == bytes.len() { break; }
+                let end = (offset + size).min(bytes.len());
+                framer.feed(bytes.slice(offset..end));
+                while let Some(capsule) = framer.next().unwrap() {
+                    let ConnectIpCapsule::Unknown { capsule_type: 0, payload } = capsule
+                    else { panic!("unexpected capsule"); };
+                    received.push(payload);
+                }
+                prop_assert!(framer.partial.len() <= MAX_CAPSULE_PAYLOAD + 16);
+                offset = end;
+            }
+            prop_assert_eq!(received, vec![Bytes::from(contents)]);
+        }
+
         #[test]
         fn random_chunking_preserves_unknown_capsules(
             contents in prop::collection::vec(any::<u8>(), 0..2048),
