@@ -71,6 +71,16 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        // Direct APK downloads prioritize compressed size. Android extracts
+        // these libraries at install time; retain identical library contents.
+        val jniPackaging = variant.packaging.jniLibs
+        jniPackaging.useLegacyPackaging.set(true)
+        jniPackaging.useLegacyPackagingFromBundle.set(true)
+    }
+}
+
 gradle.taskGraph.whenReady {
     // Fail-closed for release *builds*. Ignore incidental task names that
     // contain "Release" (for example ktlint's *ReleaseSourceSet* checks).

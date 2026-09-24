@@ -215,6 +215,12 @@ build-only signing procedure in [Build](.github/workflows/build.yml), never
 official signing material on a development host. Do not install a release APK
 on a personal or shared device to validate it.
 
+Release APKs compress native libraries for direct downloads. Android extracts
+those libraries during installation, so APK bytes are not installed disk usage.
+Verify compression, native-library hashes, extraction settings, ELF/ZIP alignment
+and the build-only signer when comparing local packaging changes. Debug packaging
+retains its existing behavior.
+
 Kotlin compiler warnings and Android lint warnings are errors. ktlint is pinned through `org.jlleitschuh.gradle.ktlint` `14.2.0` and ktlint `1.8.0`.
 
 ### Python tooling
