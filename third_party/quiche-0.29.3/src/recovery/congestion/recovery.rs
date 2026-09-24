@@ -774,6 +774,7 @@ impl RecoveryOps for LegacyRecovery {
             return OnLossDetectionTimeoutOutcome {
                 lost_packets,
                 lost_bytes,
+                pto_expired: false,
             };
         }
 
@@ -837,6 +838,7 @@ impl RecoveryOps for LegacyRecovery {
         OnLossDetectionTimeoutOutcome {
             lost_packets: 0,
             lost_bytes: 0,
+            pto_expired: true,
         }
     }
 

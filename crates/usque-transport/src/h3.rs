@@ -1821,6 +1821,7 @@ fn check_pmtu_blackhole(
         lost: path.lost,
         lost_datagrams: path.dgram_lost,
         pto_count: path.total_pto_count,
+        loss_detection_timeout_count: path.loss_detection_timeout_count,
         rtt: path.rtt,
     };
     if let Some(observation) = pmtu.on_loss_sample(

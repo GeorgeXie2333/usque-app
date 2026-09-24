@@ -7109,6 +7109,7 @@ impl<F: BufFactory> Connection<F> {
                     let OnLossDetectionTimeoutOutcome {
                         lost_packets,
                         lost_bytes,
+                        ..
                     } = p.on_loss_detection_timeout(
                         handshake_status,
                         now,

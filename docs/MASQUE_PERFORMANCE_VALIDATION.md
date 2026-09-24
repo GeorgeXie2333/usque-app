@@ -602,3 +602,175 @@ This rollback changes Rust and technical records only; Flutter/Kotlin/protobuf
 and aggregate multi-language checks are not applicable. Android device runs,
 isolated lifecycle/leak testing and performance-lab validation remain
 `not_run`. No package is installed, signed, published or uploaded.
+
+## Post-restoration investigation and PTO correction — 2026-09-24
+
+Starting revision: `b33d59fa8d865116ddd9c2beb7162e78f9364dd3`.
+The complete commit containing this record identifies the retained source.
+The earlier Android package rollback remains evidence of a device regression;
+these Windows experiments do not establish Android recovery. A smoother H3
+upload curve and a higher upload rate are separate outcomes.
+
+### Retained correctness change
+
+The vendored QUIC path counter named `total_pto_count` previously incremented
+on every recovery timeout callback, including ordinary time-threshold loss
+detection. Both recovery implementations now identify actual PTO expiration;
+only that branch increments the cumulative PTO counter. ACK progress does not
+reset it. A separate cumulative `loss_detection_timeout_count` preserves the
+callback count, excluding ACK-driven loss detection. Rust path statistics gain
+that field; C FFI layout, protobuf and application settings are unchanged.
+
+CONNECT-IP PMTU revalidation now uses actual PTOs. A trigger probe recorded
+1,942 declared lost packets among 83,907 sent and four increments of the old
+counter in about three seconds. The 25% loss condition was false; the inflated
+PTO alternative admitted revalidation. The writable QUIC DATAGRAM payload then
+fell from 1,428 to 1,156 bytes before HTTP/3/context headers. These counters are
+not physical packet-loss rates, and the four increments do not prove four PTOs.
+This accounting defect is supported independently of WAN throughput results.
+
+L4 reliable-stream PMTU detection retains its previous callback-based trigger
+set through the separate counter. Changing that policy incidentally would have
+made low-loss timeout cases behave differently. Three additional policy tests
+cover L4 compatibility, DATAGRAM use of true PTOs, and counter reset; the
+compatibility red run had 17 passes and one expected failure before the fix.
+Twenty vendor cases cover Cubic, Reno, BBRv2 and BBRv3 across loss-only timers,
+actual PTO/ACK reset, mixed timers, PMTU probe loss and ACK-driven loss.
+
+A separate eight-second, socket-free STREAM probe dropped packets above 1,300
+bytes while allowing a small stream to progress. Both PTO-only and legacy-count
+variants delivered zero bulk bytes and performed zero revalidations: small
+ACKs detected loss before timeout callbacks. This exposes an existing L4
+policy blind spot, not a newly introduced regression or a blackhole-recovery
+pass. The final change preserves that policy; broader L4 detection is deferred.
+
+No congestion-control formula, MTU, receive window, queue/pool capacity,
+quantum, GSO setting or platform network setting changes in the retained fix.
+
+### Measurement controls and corrected route scope
+
+Workstation comparisons use the supplied Speedtest Custom page and SmarTone
+Hong Kong node, fresh loopback SOCKS sessions, Cubic, MTU 1280 and chain disabled.
+Later cohorts fix outer IPv4, two runtime workers and child-only CPU affinity.
+Builds and network workloads run serially; each completed session checks probe
+cleanup and preservation of the original application configuration.
+
+A later live idle H2 audit found the endpoint route selecting a pre-existing
+virtual Meta Tunnel interface with MTU 4064. The earlier H2 TCP_INFO diagnostic
+cohort reported MSS 4024 and minimum RTT as low as 19 microseconds. Application
+`chain=false` therefore did not establish an unmediated outer connection.
+Historical runs were not individually route-audited: do not assign that route
+to every old H3 session, or use their ratios as pure-MASQUE acceptance. Earlier
+“direct” browser results mean no temporary Usque SOCKS, not verified physical
+egress. The old numeric observations and failed runs remain preserved.
+
+A separate temporary probe binds only its own MASQUE socket and source to the
+physical 2.5GbE interface. Option readback and source membership are verified
+per session. An independent idle H2 source lookup agrees; its post-connect
+TCP_INFO reports MSS 1400 and RTT 3093 microseconds. These checks establish the
+socket configuration, not proof against all interception or per-packet egress.
+They do not change global routing or the user's existing tunnel.
+
+Windows SOCKS includes a userspace TCP stack absent from ordinary Android TUN.
+Browser goodput and transport IP-byte counters use different byte domains.
+The baseline path lost-byte counter is unreliable; zero is not evidence of no
+loss. Sampled RSS is not peak RSS, browser ping is not p95 latency, and absent
+CPU-per-accepted-byte measurements remain unknown.
+
+### Performance candidates not retained
+
+The WAN rows below precede the physical-socket cohort and retain that route
+limitation. They justify not shipping an unproved change, not a universal
+causal performance claim. Memory and loopback results have their own scopes.
+
+| Experiment | Observation | Decision |
+| --- | --- | --- |
+| Two versus sixteen runtime workers | Reversed H3 upload comparisons showed no repeatable gain | Keep runtime defaults |
+| Immediate mux admission polling | Memory TUN +0.4%, proxy +6.1%; both far above observed WAN rates | No demonstrated WAN bottleneck |
+| Connected UDP send | 2.6 million verified loopback datagrams; about 1–2% packet-rate gain, mixed CPU | No socket/migration rewrite |
+| H2 TLS ciphertext buffering | Fewer reads, inconsistent paired throughput | Restored |
+| H2 lookahead/release aggregation | Three-pair down/up medians 283.1/530.0 to 265.3/521.1 Mbps | Restored; no repeatable benefit |
+| H2 ready-read fairness | Paired download/upload median ratios 0.96235/0.85684; download CPU/GiB +16.9% | Rejected and restored |
+| Cubic loss-restoration heuristic | Seven-pair download/upload median ratios 0.9972/0.9962 | Rejected and restored |
+| Larger inner MTU | Both guarded 1280 runs aborted during PMTU revalidation; 1400 never ran | No MTU comparison or default change |
+| H3 memory send service | Verified pair throughput about 4.8 Gbit/s, sender service about 7.3 Gbit/s | Excludes actor, socket, WAN and device paths |
+
+The earlier seven-pair PTO-only cohort had paired down/up median ratios
+0.9662/1.0659 and sampled post-stable revalidation in 6/7 controls versus 0/7
+candidates. Its receive DATAGRAM local-drop totals were 931 versus 1373;
+unfavorable samples remain included. It predates explicit L4 compatibility
+and verified socket binding. It is historical attribution, not acceptance of
+the final candidate or proof of Android improvement.
+
+### Final compatibility candidate: separate physical-socket comparison
+
+Seven alternating pairs (501–507) complete, excluding calibration 401 and
+unbound pairs 101–107. Control restores the old unconditional PTO count while
+retaining the same L4 callback field and temporary binding; candidate uses true
+PTO. Neither instrumented executable is a stock APK. All 14 sessions verify
+binding, the expected settings, one connection, normal exit, listener closure
+and original-configuration SHA-256 preservation. All low results remain.
+
+| Direction | Control median (MAD), Mbps | Candidate median (MAD), Mbps | Median paired ratio (MAD) |
+| --- | ---: | ---: | ---: |
+| Download | 914.5 (31.1) | 935.0 (47.7) | 1.03207 (0.06772) |
+| Upload | 522.7 (16.0) | 509.4 (35.8) | 1.02028 (0.06029) |
+
+Five download pairs and four upload pairs improve. Group medians and paired
+ratios differ; these results do not establish a repeatable throughput gain.
+Neither group shows a sampled post-stability PMTU revalidation. Upload/download
+CPU paired medians are 1.00604/0.93370; normalized CPU/GiB remains unknown.
+Sampled RSS is not peak RSS, so no complete resource/latency budget passes.
+
+The exported combined DATAGRAM-drop delta totals 3,707 versus 5,638. Available
+send-queue drop deltas are zero throughout the covered fresh sample windows,
+allowing these totals to be attributed to the receive-overflow counter there.
+The overflow occurs in quiche's 64-entry receive queue; a full actor-to-mux
+channel preserves its application batch but can indirectly prevent draining.
+Telemetry-inferred upload intervals account for subtotals 2,886 versus 4,593;
+exact browser-phase totals are unknown because phase timestamps were not saved.
+This does not identify the dropped payloads as TCP ACKs or prove a speed limit.
+
+Control SHA-256: `8fcececa0b6249a51fc414cd3de5eafbd2d98aa678d068168c473f7f5debb921`.
+Candidate SHA-256: `62894f4d1914fae92bff45a580058d53308ad80cd903e04036ff0ee853b66b30`.
+An independent H2 diagnostic run (601) observes actual stream credit immediately
+after existing capacity releases, without changing the window or release count.
+All 37 samples over 51.227 seconds have available credit 4,186,609–4,194,304
+bytes and available-plus-used 4,194,304 bytes. There is one observer, verified
+physical-socket binding, MSS 1400, post-connect RTT 2884 microseconds, normal
+cleanup and unchanged configuration. Browser down/up is 177.1/635.1 Mbps.
+Thus the observed local stream credit exceeds the default 65,535-byte window;
+it does not measure peer receipt of WINDOW_UPDATE or connection-level credit.
+Separate getter reads are not atomic. Low-frequency observation can perturb
+timing, so this is a diagnostic run, not an uninstrumented performance result.
+
+### Validation of the retained PTO and L4 compatibility source
+
+Native tests use the supported Windows helper environment. The standalone
+vendor commands restore default Rust flags; all Cargo operations are locked.
+Counts below belong to the final compatibility source, not the older PTO-only
+run (1,293 workspace passes and 1,084 vendor passes). Ignored tests are not run.
+
+| Exact command from repository root | Result |
+| --- | --- |
+| `cargo fmt --all --check` | exit 0 after correcting one test-format discrepancy |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | exit 0 |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | exit 0; 1,296 passed, 8 ignored across 22 suites |
+| `cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --config profile.dev.package.boring-sys.opt-level=1 --config profile.dev.package.boring-sys.debug=false` | exit 0; 1,088 passed, including 20 new accounting cases |
+| `cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --features qlog --config profile.dev.package.boring-sys.opt-level=1 --config profile.dev.package.boring-sys.debug=false recovery::gcongestion::bbr3::` | exit 0; 20 passed |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | exit 0; compile only |
+| `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | exit 0 on final compatibility source |
+| `& 'C:/Users/George/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' tool/check_repository_policy.py` | exit 0; verified Python 3.12.14 |
+| `git diff --check` | exit 0 |
+
+Temporary probes and the engine example are removed; guarded restores verify
+the original source bytes before the production release build. Rust and technical records are
+the only retained changes; Flutter, Kotlin, protobuf and aggregate multi-language
+checks are not applicable. No parser, TLS, authorization or cleanup rule is
+relaxed. No packet contents, addresses or credentials enter the retained change;
+raw diagnostics and test binaries stay in ignored local evidence.
+
+No package installation, VPN/TUN creation, system proxy, DNS, route or WFP
+mutation was performed. Android device, isolated lifecycle/leak and controlled
+performance-lab validation remain `not_run`. No optimal configuration, blanket
+performance-budget pass or proven phone throughput improvement is claimed.
