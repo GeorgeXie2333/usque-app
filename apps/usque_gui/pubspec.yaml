@@ -11,7 +11,8 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  lucide_icons_flutter: ^3.1.19
+  lucide_icons_flutter:
+    path: ../../third_party/lucide_icons_flutter-3.1.19
   flutter_svg: 2.3.0
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.2

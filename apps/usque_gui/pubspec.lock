@@ -168,10 +168,9 @@ packages:
   lucide_icons_flutter:
     dependency: "direct main"
     description:
-      name: lucide_icons_flutter
-      sha256: "3d06144ccc67c29fd080704ee59b6e1927f67654a848443eceb130b2e425e080"
-      url: "https://pub.dev"
-    source: hosted
+      path: "../../third_party/lucide_icons_flutter-3.1.19"
+      relative: true
+    source: path
     version: "3.1.19"
   matcher:
     dependency: transitive

@@ -1,0 +1,16 @@
+name: lucide_icons_flutter
+description: Regular Lucide icons retained from the pinned upstream package.
+version: 3.1.19
+publish_to: none
+homepage: https://lucide.dev
+repository: https://github.com/vqh2602/lucide-flutter-main
+environment:
+  sdk: ^3.0.0
+dependencies:
+  flutter:
+    sdk: flutter
+flutter:
+  fonts:
+    - family: Lucide
+      fonts:
+        - asset: assets/lucide.ttf
