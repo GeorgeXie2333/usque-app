@@ -85,13 +85,16 @@ the package hash and from the certificate's usual SHA-1 `Thumbprint` field.
 [Microsoft's signature command reference](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/get-authenticodesignature)
 describes the signature information returned by the command.
 
-Pre-1.0 packages use the project's fixed self-signed certificate. Windows can
-report `NotTrusted` or show an unknown-publisher warning because that certificate
-is not in its trust stores. Only proceed with that expected trust warning when
-both the exact official package hash and the full certificate SHA-256 match.
-Do not accept an unsigned file, a hash mismatch, a different signer or another
-verification error. Do not import the certificate into Root or Trusted Publisher
-to hide the warning. The identity policy is in [Code signing](CODE_SIGNING.md).
+Pre-1.0 packages use the project's fixed self-signed certificate. Because that
+certificate is not in Windows trust stores, the expected `$signature.Status` is
+`UnknownError`; its `StatusMessage` reports that the certificate chain ends in a
+root certificate that is not trusted. Windows can also show an unknown-publisher
+warning. Only proceed with that expected result when the exact official package
+hash and the full certificate SHA-256 both match. Stop if the status is
+`NotTrusted`, `HashMismatch`, `NotSigned` or any other value, or if the signer
+certificate differs. Do not import the certificate into Root or Trusted
+Publisher to hide the warning. The identity policy is in
+[Code signing](CODE_SIGNING.md).
 
 ### Check the Android signer
 
@@ -171,9 +174,11 @@ The implementation and recovery ordering are documented in
 
 1. Open **Settings → Apps → Installed apps**, or **Programs and Features**, and
    choose Usque's uninstall action.
-2. Confirm removal. Leave **Delete user data** unchecked to retain your local
-   accounts, settings and credentials for a later reinstall. Selecting it
-   permanently deletes only the current Windows user's Usque data.
+2. Confirm removal. On **Uninstall options**, leave **Delete profiles,
+   settings, logs, caches, and WARP identities for this Windows user.**
+   unchecked to retain your local accounts, settings and credentials for a later
+   reinstall. Selecting it permanently deletes only the current Windows user's
+   Usque data.
 3. Allow Windows to complete removal. It may ask for administrator approval
    separately for the MSI and installer-bundle cleanup.
 
@@ -217,9 +222,11 @@ access resumes after the VPN ends.
 Open **Settings → System integration → Open Always-on VPN settings**. Enable
 both **Always-on VPN** and **Block connections without VPN**.
 
-For automatic startup after reboot, also enable **Start Usque after reboot**
+For automatic startup after reboot, also enable **Start Usque when you sign in**
 under System integration and **Connect the current account automatically on
-start** for the active account.
+start** for the active account. On Android this switch's description reads
+**Start Usque after reboot. Also enable automatic connect on start.** Windows
+shows the same switch title, which starts Usque when you sign in to Windows.
 
 ### Per-app proxy
 

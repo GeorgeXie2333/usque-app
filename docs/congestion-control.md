@@ -22,6 +22,13 @@ reconnection, QUIC migration, H3/H2 switching, hot frontend updates and internal
 reconnections caused by other settings. Merely reopening the GUI is not a new
 engine session. An active H2 connection reports that H3 control is not applied.
 
+The selector is disabled while a save is in progress, when the Engine advertises
+no H3 algorithms (hint: "Update Usque in Settings to use this option."), and
+when the draft uses CONNECT-IP with the HTTP/2 transport (hint: "This option
+only affects HTTP/3 connections."). The HTTP/2 hint also appears, with the
+selector still enabled, when the live connection uses HTTP/2. Algorithms that
+the Engine does not advertise stay listed but cannot be chosen.
+
 The selector shows the saved preference or unsaved draft, not a claim about the
 live connection. A mismatch with the internal session snapshot is pending until
 the next user session; the running algorithm is not displayed in settings.

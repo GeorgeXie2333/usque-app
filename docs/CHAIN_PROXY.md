@@ -106,7 +106,7 @@ Preparing a node configuration shows progress and **Cancel** in the apply bar;
 failed preparation or application keeps the requested selection available for
 review and retry. Refresh controls stay beside the public-node list.
 
-VPN Gate 同样使用“应用修改”和“应用并重新连接”。准备节点配置时，应用栏显示
+VPN Gate 同样使用“应用更改”和“应用并重新连接”。准备节点配置时，应用栏显示
 进度及“取消”；准备或应用失败后，保留待应用的选择供检查和重试。刷新操作位于
 公共节点列表区域。
 
@@ -117,6 +117,7 @@ VPN Gate 同样使用“应用修改”和“应用并重新连接”。准备�
 | OpenVPN, TCP | Supported | Supported |
 | OpenVPN, UDP | Supported | Cannot enable |
 | WireGuard, UDP | Supported | Cannot enable |
+| WARP via WireGuard, UDP | Supported | Cannot enable |
 | VPN Gate, directory TCP | Supported | Supported |
 
 L4 can store UDP and WireGuard imports. Enabling them requires the explicit
@@ -299,10 +300,13 @@ PersistentKeepalive = 25
 ## Storage, compatibility and dependencies
 
 Schema 17 migrates the previous VPN Gate switch and reference without changing
-favorites, cached configurations or pinned snapshots. Failed validation keeps the
-original settings file. Shared settings contain only the source and immutable
-configuration ID/revision. Older clients cannot replace a selected imported exit.
-IPC fields are appended; none of the old field numbers is reordered or reused.
+favorites, cached configurations or pinned snapshots. Schema 18 appends an
+optional endpoint override, an IP address and port accepted only with a selected
+**WARP via WireGuard** configuration. Failed validation keeps the original
+settings file. Shared settings contain only the source, immutable configuration
+ID/revision and that optional override. Older clients cannot replace a selected
+imported exit. IPC fields are appended; none of the old field numbers is
+reordered or reused.
 
 Each imported record, including credentials and metadata, is separately encrypted
 in `chain-profiles`: current-user DPAPI on Windows, AES-256-GCM with Android
@@ -316,19 +320,23 @@ The explicit clear-all-data workflow removes these objects after disconnecting.
 | Component | Pin / purpose | License |
 | --- | --- | --- |
 | [BoringTun](https://docs.rs/crate/boringtun/0.7.1) | `=0.7.1`, Rust protocol API, default features disabled | BSD-3-Clause |
-| OpenVPN 3 Core + Mbed TLS | Existing embedded native bridge; TCP and UDP | Existing [native source notices](VPN_GATE.md#sources-licenses-and-validation) |
+| OpenVPN 3 Core + Mbed TLS | Existing embedded native bridge; TCP and UDP | OpenVPN 3 Core used under MPL-2.0 (offered as AGPL-3.0-only or MPL-2.0); Mbed TLS used under Apache-2.0; see [native source notices](VPN_GATE.md#sources-licenses-and-validation) |
 | [flutter_svg](https://pub.dev/packages/flutter_svg/versions/2.3.0) | `2.3.0`, local SVG assets | MIT |
 | smoltcp | `=0.13.1`, existing stack with 16 KiB fragmentation buffer | 0BSD |
 
 Cargo and Flutter lockfiles contain transitive versions and checksums. BoringTun's
 CLI, OS tunnel/device layer, JNI and C FFI features are not enabled. The
 `wireguard` feature defaults on in both desktop and Android crates and can be
-disabled for native size comparison. The user-provided editable monochrome SVGs are
-`assets/icons/openvpn.svg` and `assets/icons/wireguard.svg`, with a 24×24 viewBox;
-VPN Gate retains its globe. OpenVPN's 32×32 path is scaled proportionally by 0.75;
-both assets use the current theme color without altering their silhouettes.
-BoringTun attribution is bundled in
-the app's license registry; Flutter handles its Dart-package notices.
+disabled for native size comparison. The editable monochrome SVGs in
+`apps/usque_gui/assets/icons/` were supplied by the project maintainer:
+`openvpn.svg` and `wireguard.svg` use a 24×24 viewBox, and `warp-wireguard.svg`
+keeps its original `viewBox="120 80 250 330"`. OpenVPN's 32×32 path is scaled
+proportionally by 0.75. All three use the current theme color without altering
+their silhouettes; VPN Gate retains its globe. The repository does not record an
+upstream source or license for these icon paths. The OpenVPN, WireGuard and WARP
+names and marks belong to their respective owners and identify the exit source
+only. BoringTun attribution is bundled in the app's license registry; Flutter
+handles its Dart-package notices.
 
 Read the original [validation and size evidence](CHAIN_PROXY_VALIDATION.md) and
 the later [fix validation record](CHAIN_PROXY_FIX_VALIDATION.md) for candidate-specific
@@ -338,10 +346,13 @@ for the workstation and isolated-runner boundaries.
 
 ## Imported record compatibility / 导入记录兼容
 
-Shared settings remain schema 17 and store only configuration references.
-Encrypted records are written as version 2, with a 192 KiB serialized plaintext
-limit and 256 KiB ciphertext limit. Version 1 is read without changing IDs,
-revisions or saved selections. Historical version 1 records between 192 and
+Shared settings are schema 18 and store only configuration references, plus the
+optional **WARP via WireGuard** endpoint override (`ChainExitSettings` IPC fields
+5/6). Encrypted records are written as version 3, which records the exit source
+explicitly, with a 192 KiB serialized plaintext limit and 256 KiB ciphertext
+limit. Versions 1 and 2 are read without changing IDs, revisions or saved
+selections; their source is recovered from the stored protocol, and a later edit
+rewrites the record as version 3. Historical version 1 records between 192 and
 256 KiB plaintext remain readable and deletable; a later edit must meet the new
 write limit and otherwise leaves the original record intact. Legacy incomplete
 authentication records can be listed/deleted but must be reimported with a valid
@@ -349,8 +360,10 @@ authentication mode before connecting. No automatic rewrite or batch deletion
 occurs. Windows selection commits and deletion hold the configuration transaction
 before the library lock, so concurrent operations cannot leave a dangling reference.
 
-共享设置仍为 schema 17，仅保存配置引用。加密对象写入版本 2，序列化明文最多
-192 KiB、密文最多 256 KiB。兼容读取版本 1，不改变 ID、版本引用或已保存选择；
+共享设置为 schema 18，仅保存配置引用，以及 **WARP via WireGuard** 可选的端点
+覆盖（IPC `ChainExitSettings` 字段 5/6）。加密对象写入版本 3，明确记录出口来源；
+序列化明文最多 192 KiB、密文最多 256 KiB。兼容读取版本 1 和 2，按保存的协议
+恢复来源，不改变 ID、版本引用或已保存选择；再次修改时改写为版本 3。
 历史较大记录可读取、删除，再次修改超限时保留原对象。旧版缺少认证方式的记录
 可管理，但必须重新导入有效配置后才能连接。Windows 删除与选用共用配置事务，
 避免并发操作留下失效引用。

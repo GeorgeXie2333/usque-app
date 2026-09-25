@@ -74,7 +74,8 @@ failures and two passes (disabled PMTUD and CUBIC invariants). With the patch,
 the first eleven tests passed. Eight follow-up tests cover the two review
 findings, IPv6 resume on initial ACK/revalidation/promotion, same-batch small
 packet progress, confirmed-low/fixed-low rejection and cancellation. All
-nineteen PMTU tests now pass. The original coverage is retained:
+nineteen PMTU tests passed in the 2026-09-03 validation below; this record is
+not a current test count. The original coverage is retained:
 
 - Initial unacknowledged probe: reject the oversized DATAGRAM; deliver the small one.
 - CONNECT-IP batch: preserve oversized inner input for PTB; deliver the small packet and reconcile queue accounting.

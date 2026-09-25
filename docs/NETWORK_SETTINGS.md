@@ -29,13 +29,14 @@ Proxy listener lists retain every address and port through desktop protobuf,
 Android JSON, edit-mask comparison and unrelated settings changes. Configurations
 that do not fit one IPv4 and one IPv6 address with a shared port use a multiline
 editor. Each line is an IP socket address; IPv6 uses brackets. The same native
-limits and duplicate checks still apply. Resetting Advanced defaults stages
-the listener and DNS defaults as well as the visible transport fields; Apply
-submits the complete changed-field mask and preserves listener credentials.
+limits and duplicate checks still apply. **Reset network defaults** in Advanced
+settings stages the listener and DNS defaults as well as the visible transport
+fields; **Apply changes** submits the complete changed-field mask and preserves
+listener credentials.
 
 代理页会完整保留每个监听地址及其端口。已有的多地址或不同端口配置按行显示，
-IPv6 地址使用方括号，例如 `[::1]:1080`。高级设置的“恢复默认值”会暂存监听
-和 DNS 默认值，点击“应用更改”后才保存；该操作保留已设置的代理用户名和密码。
+IPv6 地址使用方括号，例如 `[::1]:1080`。高级设置的“恢复网络默认值”会暂存
+监听和 DNS 默认值，点击“应用修改”后才保存；该操作保留已设置的代理用户名和密码。
 
 Per-app policy saves return an operation-specific persistence result. The picker
 keeps its draft on failure and prevents edits or duplicate submission while the
@@ -195,8 +196,8 @@ Desktop account commits preserve the latest network settings. Credential I/O,
 network requests, runtime shutdown, and TUN operations stay outside the store
 transaction.
 
-The current configuration schema is 16. Settings operation tracking does not
-add another schema version. Epochs, sequences, operation IDs, and application
+Settings operation tracking does not add a configuration schema version; the
+current schema is 18. Epochs, sequences, operation IDs, and application
 state are in memory and do not create a durable operation log. Passwords are
 removed from published profiles. This change does not relax Kill Switch, TUN retention,
 Agent journal, privileged cleanup, or isolated-runner requirements.

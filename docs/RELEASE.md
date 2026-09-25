@@ -73,7 +73,9 @@ The Windows bundle and MSI do not install the publisher certificate into the mac
 `.github/RELEASE_NOTES_TEMPLATE.md` is the publication source for the GitHub
 Release body. Before creating a new release tag, replace the **Highlights**
 items and version summary with that release's user-visible changes. Keep the
-upgrade notes and folded technical and DNS details in sync with that version. Every statement is written in
+upgrade notes and folded technical and DNS details in sync with that version,
+and recheck versioned facts such as configuration schema, Agent protocol, and
+recovery journal and export schema numbers against the source. Every statement is written in
 English first, followed immediately by its Simplified Chinese translation.
 Keep the standard sections for official downloads, installation requirements,
 signature and evidence verification, and issue feedback.

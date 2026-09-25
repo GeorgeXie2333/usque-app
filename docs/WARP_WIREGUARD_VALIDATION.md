@@ -73,7 +73,7 @@ Rust 1.97.1 and Flutter 3.44.7
 (`84fc5cbb223bc12f83d65b647ff8a56caf779ffd`) were verified against the pins.
 Android uses NDK 29.0.14206865 and SDK CMake 3.22.1. `flutter` and `dart` below
 denote the absolute executables under the SDK resolved from `local.properties`;
-the actual host used `C:/Users/George/.local/share/flutter-3.44.7/bin/`.
+the actual host used a Flutter 3.44.7 SDK at `<flutter-sdk>/bin`.
 Python was the verified bundled runtime. Commands are scoped as in
 [Contributing](../CONTRIBUTING.md); build outputs and logs remain ignored.
 

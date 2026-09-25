@@ -48,9 +48,13 @@ warns about concurrent nested probes. Usque retains its MASQUE outer tunnel
 and serializes discovery. It reports measured Cloudflare countries and does
 not promise that changing an inner endpoint changes the exit country.
 
-The following notice is also included in the application's license screen.
+## warpscout license
 
-## License
+The following is the MIT notice of vernette/warpscout, the endpoint-data
+reference above. It is also included in
+[`assets/licenses/warpscout.txt`](../apps/usque_gui/assets/licenses/warpscout.txt)
+and the application's license screen. The wgcf notice is the separate file
+described above.
 
 MIT License
 

@@ -61,8 +61,9 @@ numeric IP address.
 - Apps using their own encrypted DNS hide names from Usque, so country routing
   uses IP rules. The direct-DNS selector does not control those apps' resolvers.
 
-Other remote VPN queries use the final tunnel's DNS: WARP normally, VPN Gate
-when enabled. Explicit local DNS and proxy DNS settings keep their own scope.
+Other remote VPN queries use the final exit's DNS: WARP without a chain, or the
+active chain exit (custom OpenVPN or WireGuard, WARP via WireGuard, or VPN
+Gate). Explicit local DNS and proxy DNS settings keep their own scope.
 See the [direct DNS threat model](direct-dns-threat-model.md) for platform
 protection and diagnostic limits.
 
@@ -176,8 +177,10 @@ physical-system DNS. Users may explicitly change the Profile themselves.
 
 ### Privacy and validation limits
 
-#### Profile/config schema 13
+#### Profile/config schema 13 (introduction)
 
+Direct DNS was introduced in configuration schema 13; the current schema is 18,
+and later migrations keep these fields.
 `AppConfig.shared_network.direct_dns` is hydrated into each account's runtime
 Profile. Old schema-12 configurations and missing protobuf Profile field 17
 canonicalize to System. Shared settings, not per-account endpoint overlays,
@@ -193,9 +196,22 @@ of that list. See the deployment-specific [threat model](direct-dns-threat-model
 and [capability rollback](network-quality-rollback.md).
 
 Metrics contain only protocol/mode, fixed phase/reason codes, RTT, counters and
-queue pressure. No QNAME, wire message, configured name, bootstrap/answer IP,
-certificate or physical DNS server is added to logs, metrics or diagnostics.
-Geo fallback logs no longer include raw target/error text. Metrics stay local.
+queue pressure. Direct-DNS code adds no QNAME, wire message, configured name,
+bootstrap/answer IP, certificate or physical DNS server to logs, metrics or
+diagnostics. Split DNS and proxy Geo fallback log events carry fixed reason
+codes, not raw target or error text. Metrics stay local.
+
+The TUN direct gateway is narrower. Its debug-level events `could not create
+GEO direct flow; using tunnel` and `GEO direct flow ended` carry the error text
+and the flow's `remote` address, which can be a direct answer IP. At the
+default Info level they are not written. If a user selects Debug, the desktop
+Engine writes them to its local `engine.jsonl` only after its log sanitizer
+replaces `remote` and other sensitive keys with `[REDACTED]` and replaces
+IP-, socket-address-, URL- and host-name-like tokens in strings. Other error
+text remains. Diagnostic export applies the same sanitizer again. This
+redaction is pattern-based, so do not treat Debug logs as free of private
+network details. The Android library installs no Rust log subscriber, so these
+events are not recorded there.
 
 Workstation tests use in-memory test CA material and loopback fake DoH/DoT
 servers. They cover protocol/PKI rejection, concurrency, reuse/recycle/idle

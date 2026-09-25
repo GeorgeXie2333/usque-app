@@ -92,8 +92,8 @@ is claimed.
 
 ## Follow-up with the temporary SG configuration
 
-The user subsequently supplied `wg-SG-FREE-1.conf` and authorized testing before
-revoking its temporary key pair. The final test executable and unchanged candidate
+The user subsequently supplied a WireGuard configuration and authorized testing
+before revoking its temporary key pair. The final test executable and unchanged candidate
 source successfully established **SOCKS5 → WARP → WireGuard** with both outer H3
 and H2. This profile has one configured IPv4 DNS server. Each run completed five
 UDP queries, five TCP queries (reusing the TCP connection), and five SOCKS domain

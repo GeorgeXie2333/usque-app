@@ -213,11 +213,13 @@ and attestations for the exact candidate. A local binary cannot replace a
 failed GitHub Actions artifact.
 
 Protected Windows, Android, network-observer, and performance runs are opt-in
-supplemental validation, not publication prerequisites. Missing infrastructure
-or a `failed`/`not_run` result never becomes a pass and does not block
-publication. Any report presented as evidence must still pass exact-candidate,
-isolation, integrity, and completeness checks; forged or mismatched evidence
-is rejected. Broader per-artifact clean-machine coverage and numeric
-Go-oracle comparison targets remain outstanding.
+supplemental validation, not publication prerequisites. They run only in a
+private repository with `RUN_PROTECTED_RELEASE_VALIDATION` set to `true`; the
+public repository always skips them, and a skipped run counts as `not_run`.
+Missing infrastructure or a `failed`/`not_run` result never becomes a pass and
+does not block publication. Any report presented as evidence must still pass
+exact-candidate, isolation, integrity, and completeness checks; forged or
+mismatched evidence is rejected. Broader per-artifact clean-machine coverage
+and numeric Go-oracle comparison targets remain outstanding.
 
 How the current stable tag is built and published is in [RELEASE.md](RELEASE.md).

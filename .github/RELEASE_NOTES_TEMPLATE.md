@@ -1,27 +1,32 @@
 <!--
-Before each release, replace the highlights with the user-visible changes in
-that release. Keep English first and put the Simplified Chinese translation
-immediately below the matching English text.
+Before each release, replace the version summary and highlights with the
+user-visible changes in that release. Also recheck every versioned fact in the
+Technical changes block, such as the configuration schema, Agent protocol,
+recovery journal and recovery export schema numbers, against the source. Keep
+English first and put the Simplified Chinese translation immediately below the
+matching English text.
 -->
 
 ## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 
-Usque {{release_tag}} adds optional VPN Gate exits over WARP and improves connection recovery, server selection, and Windows and Android controls.
+Usque {{release_tag}} adds custom OpenVPN and WireGuard exits and a WARP via WireGuard exit to the chain proxy, adds an optional Disable QUIC setting, and improves reconnection after network changes.
 
-Usque {{release_tag}} 新增可选的 VPN Gate 出口，经 WARP 连接志愿服务器，并改进连接恢复、节点选择和 Windows、Android 上的操作体验。
+Usque {{release_tag}} 为链式代理新增自定义 OpenVPN、WireGuard 出口和 WARP via WireGuard 出口，新增可选的“禁用 QUIC”设置，并改进网络变化后的重新连接。
 
 ## Highlights / 更新亮点 ✨
 
-- **Optional VPN Gate exits** — Choose a volunteer server as the exit for your VPN, SOCKS5 and HTTP traffic, with the connection carried over WARP.
-  <br>**可选的 VPN Gate 出口** — 选择志愿服务器作为 VPN、SOCKS5 和 HTTP 流量的出口，通过 WARP 连接该服务器。
-- **Server selection and favorites** — Browse by country, save servers locally, and see which server is connected and which selection is waiting to be applied.
-  <br>**节点选择与收藏** — 按国家浏览并收藏服务器，区分当前连接的节点和等待应用的新选择。
-- **Windows disconnect and recovery** — Reuse Usque's virtual adapter between connections and improve cleanup and recovery after interruptions.
-  <br>**Windows 断开与恢复** — 重连时复用 Usque 的虚拟网卡，并改进连接中断后的清理与恢复流程。
-- **Android status and connection cleanup** — Restore status updates after returning from the background and improve cleanup when switching, stopping or failing to connect.
-  <br>**Android 状态更新与连接清理** — 修复返回前台后状态订阅未恢复的问题，并完善切换、停止 VPN 和连接失败时的资源清理。
-- **Clearer controls and feedback** — Improve proxy navigation, retry controls, input validation and screen-reader labels. Country flags are bundled for offline use.
-  <br>**更清晰的操作与反馈** — 改进代理导航、重试按钮、输入校验和屏幕阅读器标签，国家旗帜也可离线显示。
+- **Custom OpenVPN and WireGuard exits** — Import or paste your own configuration in Proxy → Chain proxy and use it as the exit for your VPN, SOCKS5 and HTTP traffic, with the connection carried over WARP. An OpenVPN configuration can list up to 16 servers to try while connecting.
+  <br>**自定义 OpenVPN 与 WireGuard 出口** — 在“代理 → 链式代理”中导入或粘贴自己的配置，作为 VPN、SOCKS5 和 HTTP 流量的出口，并通过 WARP 连接该服务器。OpenVPN 配置最多可列出 16 个服务器，建立连接时依次尝试。
+- **WARP via WireGuard exit** — Generate a separate WARP WireGuard configuration or import one, edit its endpoint, and look for working endpoints with a scan you can pause and resume.
+  <br>**WARP via WireGuard 出口** — 生成独立的 WARP WireGuard 配置或导入已有配置，可编辑端点，并通过可暂停、可继续的扫描查找可用端点。
+- **One page for every chain exit** — OpenVPN, WireGuard, WARP via WireGuard and VPN Gate share one page with the current connection and an apply bar. Home shows the active chain as WARP → exit name.
+  <br>**统一的链式出口页面** — OpenVPN、WireGuard、WARP via WireGuard 和 VPN Gate 共用同一页面，显示当前连接并提供应用栏。首页以“WARP → 出口名称”显示正在使用的链路。
+- **Optional Disable QUIC** — Block UDP/443 through the proxy or tunnel from Settings → Advanced network settings → Routing & protection. GEO direct traffic and Usque's own HTTP/3 connection are unaffected, and the change applies without reconnecting.
+  <br>**可选的禁用 QUIC** — 在“设置 → 高级网络设置 → 路由与保护”中拦截经代理或隧道转发的 UDP/443。GEO 直连和 Usque 自身的 HTTP/3 连接不受影响，应用后无需重连。
+- **Reconnection after network changes** — On Android and in Windows VPN mode, an established connection waits while the device is offline and reconnects once a usable network returns. A stalled HTTP/2 connection now ends within a bounded time so recovery can start.
+  <br>**网络变化后重新连接** — 在 Android 和 Windows VPN 模式下，已建立的连接会在设备离线时等待，并在可用网络恢复后重新连接。停滞的 HTTP/2 连接会在限定时间内结束，以便开始恢复。
+- **Smaller downloads** — Release APKs compress their native libraries, and the apps no longer bundle unused icon font variants.
+  <br>**更小的下载体积** — Release APK 压缩原生库，应用也不再附带未使用的图标字体变体。
 
 ## Download / 下载 📥
 
@@ -42,7 +47,7 @@ Windows 请下载上方的 EXE 安装程序。名称相近的 MSI 文件仅供�
 
 Use the package matching your device architecture. The universal APK contains all three Android ABIs and is larger; use it only when the device ABI is unknown.
 
-请优先下载与设备架构匹配的软件包。Universal APK 包含三种 Android ABI，文件更大，仅在无法确定设备架构 时使用。
+请优先下载与设备架构匹配的软件包。Universal APK 包含三种 Android ABI，文件更大，仅在无法确定设备架构时使用。
 
 For complete installation, upgrade, and uninstall guidance, see the [installation guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md).
 
@@ -50,45 +55,49 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 
 ## Before upgrading / 升级须知
 
-- **VPN Gate is off by default.** Select and save a server to use it. A terminal failure disconnects the whole chain. On Android, enable system Always-on VPN and Block connections without VPN if apps must stay blocked after the VPN ends. Your explicit direct rules still apply.
-  <br>**VPN Gate 默认关闭。** 选择并保存服务器后才能使用。VPN Gate 无法继续连接时，整条连接都会断开。Android 用户若需要在 VPN 结束后继续阻止应用联网，请开启系统的“始终开启的 VPN”和“阻止未使用 VPN 的连接”。手动设置的直连规则仍然生效。
+- **The chain proxy is off by default.** An existing VPN Gate choice carries over to the VPN Gate source. Select and apply one exit to use it. A terminal exit failure disconnects the whole chain; there is no automatic WARP-only fallback. On Android, enable system Always-on VPN and Block connections without VPN if apps must stay blocked after the VPN ends. Your explicit direct rules still apply.
+  <br>**链式代理默认关闭。** 已有的 VPN Gate 选择会保留为 VPN Gate 来源。选择并应用一个出口后才会使用。出口无法继续连接时，整条链路都会断开，不会自动退回仅使用 WARP。Android 用户若需要在 VPN 结束后继续阻止应用联网，请开启系统的“始终开启的 VPN”和“阻止未使用 VPN 的连接”。手动设置的直连规则仍然生效。
+- **UDP-based exits require CONNECT-IP.** OpenVPN over UDP, WireGuard and WARP via WireGuard cannot be enabled with experimental L4; the page offers Switch to CONNECT-IP and apply instead.
+  <br>**基于 UDP 的出口需要 CONNECT-IP。** OpenVPN UDP、WireGuard 和 WARP via WireGuard 不能在实验性 L4 下启用，页面会改为提供“切换为 CONNECT-IP 并应用”。
 - **The Windows virtual adapter can remain after disconnecting.** Usque restores the connection's network settings at disconnect, keeps the adapter for reuse, and attempts to remove it when you fully exit the app. Windows may take time to complete removal, which can affect an immediate restart.
   <br>**Windows 断开连接后可能仍显示虚拟网卡。** Usque 会恢复该连接修改的网络设置，保留网卡供下次连接复用，完全退出应用后再尝试移除。Windows 完成删除可能需要时间，因此立即重启应用仍可能受影响。
-- **Default connection settings are unchanged.** CONNECT-IP with Auto and CUBIC remain the defaults. L4 and BBRv3 are experimental; keep that in mind when choosing them.
-  <br>**默认连接设置保持不变。** 默认仍使用 CONNECT-IP、Auto 和 CUBIC。L4 与 BBRv3 仍为实验性选项，请按需选择。
+- **Default connection settings are unchanged.** CONNECT-IP with Auto and CUBIC remain the defaults, and Disable QUIC is off. L4 and BBRv3 are experimental; keep that in mind when choosing them. New installations turn on Allow local network; existing saved settings keep their value.
+  <br>**默认连接设置保持不变。** 默认仍使用 CONNECT-IP、Auto 和 CUBIC，“禁用 QUIC”默认关闭。L4 与 BBRv3 仍为实验性选项，请按需选择。新安装默认开启“允许访问局域网”；已保存的设置保持原值。
 
 <details>
 <summary>Technical changes / 技术改动详情</summary>
 
-- VPN Gate embeds an OpenVPN TCP session carried by the private WARP dialer, without a second OS VPN interface or an external OpenVPN process. The final tunnel supplies addresses, DNS and MTU; unsupported proxied IPv6 is blocked. One internal startup authentication retry reuses the same saved node only after the rejected worker stops. Cancellation closes admission, and an unconfirmed bounded stop remains pending rather than being reported as complete.
-  <br>VPN Gate 内嵌由私有 WARP 拨号器承载的 OpenVPN TCP 会话，不创建第二个系统 VPN 接口或外部 OpenVPN 进程。地址、DNS 与 MTU 来自最终隧道；不支持的代理 IPv6 会被阻止。启动认证仅内部重试一次，并且必须在被拒绝的工作线程停止后才复用同一已保存节点。取消后不再接收新流量；若未能在超时前确认工作线程已停止，状态仍记为待清理。
-- The cumulative directory validates pinned snapshots and configuration hashes before use. Local favorites, saved selections, drafts and in-flight preparations retain independent references. Refresh failures or disappearing nodes do not silently replace saved configurations. Traffic samples describe the final Gate channel, while RTT, loss and congestion observations describe the WARP underlay, not the full volunteer-exit path.
-  <br>累积目录在使用前验证固定快照和配置哈希。本地收藏、已保存选择、草稿与进行中的配置准备分别持有独立引用。刷新失败或节点消失不会静默替换已保存配置。流量采样描述最终 Gate 通道，而 RTT、丢包与拥塞观测描述 WARP 底层连接，并非经过志愿出口的完整路径。
-- Windows separates application-lifetime device leases from connection packet leases, joins packet waiters before replacement, and rejects stale ownership and generation results. Recovery journal schema 3 conservatively reads schema 2; failed retirement-record writes retry without repeating native deletion or restarting the connection recovery budget. Configuration schema stays at 15, Agent protocol is 3, and sanitized recovery exports remain schema 2. Sensitive identity and configuration data are excluded from diagnostic exports.
-  <br>Windows 分开管理应用持有的网卡和每次连接的数据包处理权限。替换连接前会等待旧的数据包线程结束，并拒绝旧连接返回的结果。恢复日志 schema 3 兼容读取 schema 2，并保留恢复检查；网卡移除记录写入失败会重试，但不会重复原生删除或重置连接恢复预算。配置 schema 保持 15，Agent 协议为 3，脱敏恢复导出仍为 schema 2。诊断导出排除敏感身份与配置数据。
-- Android restores status subscriptions after resume, binds exit probes to the final tunnel, and coordinates interface handoff and terminal cleanup. Ending a failed VPN restores ordinary network access outside Android Lockdown; in-process traffic admission is not an independent OS Kill Switch. UI changes improve proxy status cards, country filtering, local proxy controls, validation priority and appearance-picker accessibility.
-  <br>Android 在恢复后重新订阅状态，将出口探测绑定至最终隧道，并在更换 VPN 接口或结束连接时清理资源。未启用 Android 系统阻断设置时，VPN 结束后会恢复普通联网；应用进程内的流量检查无法替代系统断网保护。界面改进涵盖代理状态卡、国家筛选、本地代理控制、验证反馈优先级和外观选择器无障碍标签。
-- The multilingual Windows EXE installers introduced in v0.2.6 remain the user-facing packages; signed MSIs remain reserved for verified in-app updates. The newer-Agent-first upgrade bridge introduced in v0.2.5 remains in place for v0.2.4 upgrades. Dependency maintenance includes reviewed Rust, Flutter, Kotlin and Actions updates, with locked native source and license inventories included in release SBOMs. No measured performance improvement or real-machine upgrade result is claimed.
-  <br>v0.2.6 引入的多语言 Windows EXE 安装程序仍为用户安装入口；签名 MSI 仍仅供经过验证的应用内更新。v0.2.5 引入的新版 Agent 优先安装机制继续为 v0.2.4 升级提供兼容桥接。依赖维护包含经审查的 Rust、Flutter、Kotlin 和 Actions 更新，发布 SBOM 纳入锁定的原生源码与许可证清单。不宣称已测得性能提升或已完成真实机器升级验证。
+- Every chain exit connects through WARP, negotiates and authenticates, applies its final network configuration, and only then admits traffic. Exit endpoint names resolve inside WARP and protocol UDP uses WARP's private network stack, so Usque opens no physical socket to the exit server. OpenVPN moves to its next listed server only after DNS, dial, transport-close or timeout failures, within a 120-second candidate budget; authentication, certificate and configuration errors stop immediately. WireGuard accepts one peer and enforces partial AllowedIPs in both directions. With H3, UDP-based exits cap TCP MSS for the nested encapsulation.
+  <br>所有链式出口都先经 WARP 连接、完成协商与认证并应用最终网络配置，之后才接收流量。出口服务器域名在 WARP 内解析，协议 UDP 使用 WARP 私有网络栈，Usque 不会为出口服务器打开物理网络套接字。OpenVPN 仅在 DNS、拨号、传输关闭或超时失败时尝试下一个服务器，候选阶段总计最多 120 秒；认证、证书和配置错误会立即停止。WireGuard 支持单个 Peer，并在收发两个方向执行部分 AllowedIPs。使用 H3 时，基于 UDP 的出口会按嵌套封装开销限制 TCP MSS。
+- Imported configurations are encrypted per record with current-user DPAPI on Windows and Android Keystore AES-256-GCM on Android, and are shared by all accounts on the device. WARP via WireGuard registers a separate identity through the MASQUE tunnel and never converts the outer MASQUE identity. Endpoint scans use their own scan identity, test one candidate at a time, never probe over the physical network, and store encrypted progress and results.
+  <br>导入的配置逐条加密保存：Windows 使用当前用户 DPAPI，Android 使用 Android Keystore AES-256-GCM，并由设备上的所有账号共用。WARP via WireGuard 经 MASQUE 隧道注册独立身份，不会转换外层 MASQUE 身份。端点扫描使用独立的扫描身份，每次测试一个候选，不通过物理网络探测，进度与结果加密保存。
+- Final-exit DNS starts with UDP, adds an alternative after 250 ms, uses TCP when needed, and shares a four-second deadline per question. Remote DNS never falls back to physical DNS. Disable QUIC matches UDP destination port 443 after GEO direct routing and updates a running connection without reconnecting.
+  <br>最终出口的 DNS 查询先使用 UDP，250 ms 后启用备用候选，必要时改用 TCP，每个问题共用 4 秒期限。远端 DNS 不会回退到物理 DNS。“禁用 QUIC”在 GEO 直连判断之后按 UDP 目标端口 443 匹配，可在连接中更新而无需重连。
+- Established CONNECT-IP sessions stop automatic reconnection after authentication, identity, configuration, address-assignment and socket-protection failures. Ordinary network failures keep bounded backoff; Android and Windows VPN network observations pause attempts while the device is confirmed offline and start one shortly after a usable network appears. An HTTP/2 PING without a reply ends the session after a 15 to 30 second final deadline.
+  <br>已建立的 CONNECT-IP 会话遇到认证、身份、配置、地址分配或套接字保护失败时，停止自动重连。普通网络故障保留有上限的退避重试；Android 和 Windows VPN 的网络观测在确认设备离线时暂停尝试，并在出现可用网络后很快发起连接。HTTP/2 PING 长时间无回复时，会在 15 到 30 秒的最终期限后结束会话。
+- Configuration schema is 18: schema 16 adds Disable QUIC, schema 17 moves the VPN Gate switch into the chain exit setting, and schema 18 adds the optional WARP via WireGuard endpoint override. Agent protocol remains 3, the recovery journal remains schema 3, and sanitized recovery exports remain schema 2. IPC fields are appended only. Sensitive identity and configuration data are excluded from diagnostic exports.
+  <br>配置 schema 为 18：schema 16 新增“禁用 QUIC”，schema 17 将 VPN Gate 开关迁移到链式出口设置，schema 18 新增 WARP via WireGuard 可选端点覆盖。Agent 协议仍为 3，恢复日志仍为 schema 3，脱敏恢复导出仍为 schema 2。IPC 字段仅追加。诊断导出排除敏感身份与配置数据。
+- The multilingual Windows EXE installers introduced in v0.2.6 remain the user-facing packages; signed MSIs remain reserved for verified in-app updates. The newer-Agent-first upgrade bridge introduced in v0.2.5 remains in place for v0.2.4 upgrades. Release APKs compress native libraries, which Android extracts at installation, and Dart symbols are kept outside the installable packages. Dependency maintenance includes reviewed Rust, Flutter and Actions updates. No measured performance improvement or real-machine upgrade result is claimed.
+  <br>v0.2.6 引入的多语言 Windows EXE 安装程序仍为用户安装入口；签名 MSI 仍仅供经过验证的应用内更新。v0.2.5 引入的新版 Agent 优先安装机制继续为 v0.2.4 升级提供兼容桥接。Release APK 压缩原生库，Android 会在安装时解压；Dart 符号不放入安装包。依赖维护包含经审查的 Rust、Flutter 和 Actions 更新。不宣称已测得性能提升或已完成真实机器升级验证。
 
 </details>
 
 <details>
-<summary>DNS privacy, VPN Gate and L4 behavior / DNS 隐私、VPN Gate 与 L4 行为</summary>
+<summary>DNS privacy, chain exits and L4 behavior / DNS 隐私、链式出口与 L4 行为</summary>
 
 ### DNS privacy / DNS 隐私
 
-GeoSite-matched direct-country queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT exposes them to the configured encrypted resolver using numeric bootstrap and strict TLS, with no plaintext fallback. Other remote queries use the final tunnel's DNS: WARP normally, or VPN Gate when enabled. Explicit local/direct DNS choices remain in effect. Apps using their own encrypted DNS hide domains from Usque, so routing falls back to GeoIP classification.
+GeoSite-matched direct-country queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT exposes them to the configured encrypted resolver using numeric bootstrap and strict TLS, with no plaintext fallback. Other remote queries use the final tunnel's DNS: WARP, or the selected chain exit (OpenVPN, WireGuard, WARP via WireGuard, or VPN Gate) when the chain proxy is enabled. A WireGuard exit prefers the DNS servers in its configuration. Explicit local/direct DNS choices remain in effect. Apps using their own encrypted DNS hide domains from Usque, so routing falls back to GeoIP classification.
 
-与 GeoSite 匹配的直连国家规则查询会使用所选直连 DNS 模式。System（默认）会将查询发送给当前网络使用的 DNS 服务器。DoH 或 DoT 使用填写的 IP 地址连接加密 DNS 服务器，并校验其 TLS 身份；失败时不改用明文 DNS。其他远端查询使用最终隧道的 DNS：通常为 WARP，启用 VPN Gate 后则为 VPN Gate。显式本地或直连 DNS 选择仍然生效。应用自行使用加密 DNS 时，Usque 无法获知域名，路由会回退至 GeoIP 分类。
+与 GeoSite 匹配的直连国家规则查询会使用所选直连 DNS 模式。System（默认）会将查询发送给当前网络使用的 DNS 服务器。DoH 或 DoT 使用填写的 IP 地址连接加密 DNS 服务器，并校验其 TLS 身份；失败时不改用明文 DNS。其他远端查询使用最终隧道的 DNS：通常为 WARP，启用链式代理后则为所选出口（OpenVPN、WireGuard、WARP via WireGuard 或 VPN Gate）。WireGuard 出口优先使用其配置中的 DNS 服务器。显式本地或直连 DNS 选择仍然生效。应用自行使用加密 DNS 时，Usque 无法获知域名，路由会回退至 GeoIP 分类。
 
-VPN Gate directory services learn directory requests, the WARP provider carries the OpenVPN connection, and the selected volunteer provides final egress and can observe traffic leaving that tunnel subject to application encryption. Existing Geo, CIDR, LAN, system-proxy bypass and Android application exceptions retain their direct behavior. Public node scores and TCP observations are not local end-to-end measurements or promises of availability. No automatic telemetry or diagnostic upload is added. See the [VPN Gate guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/VPN_GATE.md) for the complete boundaries.
+With the chain proxy enabled, the WARP provider carries the exit connection and the selected exit server provides final egress; its operator can observe traffic leaving that tunnel subject to application encryption. VPN Gate directory services also learn directory requests, and VPN Gate exits are public volunteer servers. Existing Geo, CIDR, LAN, system-proxy bypass and Android application exceptions retain their direct behavior. Public node scores, endpoint scan results and TCP observations are not local end-to-end measurements or promises of availability. No automatic telemetry or diagnostic upload is added. See the [chain proxy guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/CHAIN_PROXY.md) and the [VPN Gate guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/VPN_GATE.md) for the complete boundaries.
 
-VPN Gate 目录服务可见目录请求，WARP 提供商承载 OpenVPN 连接，所选志愿节点提供最终出口，并可以看到从该出口发出的流量，但 HTTPS 等应用层加密仍保护其加密内容。已有 Geo、CIDR、LAN、系统代理绕过及 Android 应用例外保留直连行为。公共节点评分与 TCP 观测不是本地端到端测量，也不保证可用性。不新增自动遥测或诊断上传。完整边界请参阅 [VPN Gate 指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/VPN_GATE.md)。
+启用链式代理后，WARP 提供商承载出口连接，所选出口服务器提供最终出口，其运营方可以看到从该出口发出的流量，但 HTTPS 等应用层加密仍保护其加密内容。VPN Gate 目录服务还可见目录请求，VPN Gate 出口为公共志愿服务器。已有 Geo、CIDR、LAN、系统代理绕过及 Android 应用例外保留直连行为。公共节点评分、端点扫描结果与 TCP 观测不是本地端到端测量，也不保证可用性。不新增自动遥测或诊断上传。完整边界请参阅[链式代理指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/CHAIN_PROXY.md)和 [VPN Gate 指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/VPN_GATE.md)。
 
-Without VPN Gate, experimental L4 remains TCP-only: valid tunneled UDP/53 queries are converted to TCP DNS and preserve the application-selected resolver IP. EdgeResolved for L4 SOCKS5/HTTP sends hostnames to the CONNECT edge without a local lookup; it cannot recover names from TUN IP traffic. VPN Gate can carry business UDP as IP packets inside its OpenVPN TCP channel. Neither mode silently converts failed proxied traffic into direct traffic.
+Without a chain exit, experimental L4 remains TCP-only: valid tunneled UDP/53 queries are converted to TCP DNS and preserve the application-selected resolver IP. EdgeResolved for L4 SOCKS5/HTTP sends hostnames to the CONNECT edge without a local lookup; it cannot recover names from TUN IP traffic. An OpenVPN-over-TCP exit, either a custom OpenVPN TCP configuration or a VPN Gate node, can carry application UDP as IP packets inside its OpenVPN TCP connection. Neither mode silently converts failed proxied traffic into direct traffic.
 
-未启用 VPN Gate 时，实验性 L4 仍仅支持 TCP：有效的隧道 UDP/53 查询转换为 TCP DNS，并保留应用指定的解析器 IP。L4 SOCKS5/HTTP 的 EdgeResolved 会将域名发送至 CONNECT 边缘节点而不进行本地查询，不能从 TUN IP 流量还原域名。VPN Gate 可将应用的 UDP 流量 作为 IP 数据包承载于其 OpenVPN TCP 通道。两种模式都不会静默将失败的代理流量转为直连。
+未启用链式出口时，实验性 L4 仍仅支持 TCP：有效的隧道 UDP/53 查询转换为 TCP DNS，并保留应用指定的解析器 IP。L4 SOCKS5/HTTP 的 EdgeResolved 会将域名发送至 CONNECT 边缘节点而不进行本地查询，不能从 TUN IP 流量还原域名。基于 OpenVPN TCP 的出口（自定义 OpenVPN TCP 配置或 VPN Gate 节点）可将应用的 UDP 流量作为 IP 数据包承载于其 OpenVPN TCP 连接。两种模式都不会静默将失败的代理流量转为直连。
 
 </details>
 

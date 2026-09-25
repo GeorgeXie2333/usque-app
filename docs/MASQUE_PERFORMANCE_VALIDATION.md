@@ -6,9 +6,16 @@ ownership/framing), C2 (Android ready writes), D (H3 bounded sending).
 Each candidate is a separate commit; the complete commit containing a stage's
 record identifies its tested source. Later records list previous full SHAs.
 
-Status update: the post-`b5eb520` transport changes were withdrawn after the
-Android regression reported on 2026-09-24. The workstation retention decision
-below is historical, superseded by the [device regression record](#device-regression-and-baseline-restoration-2026-09-24).
+Status update: after the Android regression reported on 2026-09-24, `b33d59f`
+withdrew the three post-`b5eb520` transport commits as a group: `1122daa`
+(DATAGRAM window growth and loss accounting), `add8b68` (H2 split-capsule
+payload retention) and `197b1f2` (portable UDP nested readiness). Later records
+add separately tested changes: `52ebb9d` (PTO correction), `4f40385` (H3
+receive-burst fairness) and `9957329`, which reintroduces the portable UDP
+sender change from `197b1f2` as its own candidate. `9957329` was compared only
+with Windows physical-interface H3 SOCKS pairs; its Android device comparison
+is `not_run`. The workstation retention decision below is historical,
+superseded by the [device regression record](#device-regression-and-baseline-restoration-2026-09-24).
 
 ## A — measurement baseline
 
@@ -50,8 +57,8 @@ Validation on Windows x64, pinned Rust 1.97.1, Flutter 3.44.7
 | `python tool/check_repository_policy.py` using the verified executable below | exit 0 |
 | `git diff --check` | exit 0 |
 
-Python uses the verified 3.12.14 runtime executable at
-`C:/Users/George/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe`.
+Python uses a verified Python 3.12.14 executable; its workstation path is
+omitted, and later records write it as `<python>`.
 SDK paths resolve from uncommitted `local.properties`; Flutter commands use that
 SDK explicitly. Logs stay in the local temporary directory. Initial failures
 (an exception-type test expectation and Kotlin line length) were fixed and the
@@ -525,7 +532,10 @@ zero byte-loss values are not evidence of a lossless connection. Earlier BBRv2
 workstation gains and the reported smoother H3 upload cannot be promised for
 this recovery candidate. Reintroducing any part requires a separate candidate
 and relevant device comparison; the previous workstation results do not
-establish Android/Cubic acceptance.
+establish Android/Cubic acceptance. Later note: `9957329` reintroduced the
+portable UDP sender change as a separate candidate with a Windows workstation
+comparison only. Its device comparison is `not_run`; see
+[the portable UDP follow-up](#follow-up--portable-udp-send-readiness-contract-2026-09-24).
 
 Source inspection did not identify one changed hot path common to H2 and
 H3/Cubic. The BBR model predicates are not used by Cubic, legacy Cubic's
@@ -760,7 +770,7 @@ run (1,293 workspace passes and 1,084 vendor passes). Ignored tests are not run.
 | `cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --features qlog --config profile.dev.package.boring-sys.opt-level=1 --config profile.dev.package.boring-sys.debug=false recovery::gcongestion::bbr3::` | exit 0; 20 passed |
 | `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | exit 0; compile only |
 | `& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | exit 0 on final compatibility source |
-| `& 'C:/Users/George/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' tool/check_repository_policy.py` | exit 0; verified Python 3.12.14 |
+| `& '<python>' tool/check_repository_policy.py` | exit 0; verified Python 3.12.14 |
 | `git diff --check` | exit 0 |
 
 Temporary probes and the engine example are removed; guarded restores verify
@@ -1074,3 +1084,6 @@ Rust and technical records are the only retained changes. Flutter, Kotlin,
 protobuf and aggregate multi-language checks are not applicable. Android
 device, VPN/TUN, isolated lifecycle/leak and controlled performance-lab tests
 remain `not_run`; no installation or system-network mutation was performed.
+This change reintroduces the sender change withdrawn with `197b1f2`. The
+device comparison that the baseline-restoration record requires for a
+reintroduction is `not_run`; the Windows SOCKS pairs above do not replace it.

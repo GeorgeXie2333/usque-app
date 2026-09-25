@@ -7,6 +7,8 @@ from pathlib import Path
 
 import release_contract
 
+CJK = re.compile("[\\u3400-\\u9fff]")
+
 
 class ReleaseContractTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -93,20 +95,31 @@ class ReleaseNotesContractTests(unittest.TestCase):
 
     def test_notes_preserve_download_badges_and_folded_bilingual_structure(self) -> None:
         rendered = self.render()
-        headings = (
-            "## Highlights / 更新亮点",
-            "## Download / 下载",
-            "## Before upgrading / 升级须知",
-            "<summary>Technical changes / 技术改动详情</summary>",
-            "<summary>DNS privacy, VPN Gate and L4 behavior / DNS 隐私、VPN Gate 与 L4 行为</summary>",
-            "## Verify before installing / 安装前验证",
-            "## Feedback / 问题反馈",
-        )
+        # Release-specific prose changes every release; assert only the structure.
+        headings = release_contract.RELEASE_NOTES_REQUIRED_HEADINGS
         positions = [rendered.index(heading) for heading in headings]
         self.assertEqual(positions, sorted(positions))
-        self.assertEqual(rendered.count("<details>"), 2)
-        self.assertEqual(rendered.count("</details>"), 2)
-        download = rendered[positions[1] : positions[2]]
+        download_start = rendered.index("## Download / 下载")
+        download_end = rendered.index("\n## ", download_start)
+        verify_start = rendered.index("## Verify before installing / 安装前验证")
+        details = [match.start() for match in re.finditer("<details>", rendered)]
+        closings = [match.start() for match in re.finditer("</details>", rendered)]
+        self.assertTrue(details)
+        self.assertEqual(len(details), len(closings))
+        for start, end in zip(details, closings, strict=True):
+            self.assertLess(download_end, start)
+            self.assertLess(start, end)
+            self.assertLess(end, verify_start)
+            block = rendered[start:end]
+            summaries = re.findall(r"<summary>([^<]+)</summary>", block)
+            self.assertEqual(len(summaries), 1, block[:80])
+            english, separator, chinese = summaries[0].partition(" / ")
+            self.assertTrue(separator and english.strip(), summaries[0])
+            self.assertRegex(chinese, CJK)
+            self.assertNotRegex(english, CJK)
+        for start, end in zip(closings, details[1:], strict=False):
+            self.assertLess(start, end)
+        download = rendered[download_start:download_end]
         expected = release_contract.expected_artifact_names("v9.8.7-beta.3")
         installers = {name for name in expected if not name.endswith(".msi")}
         linked = re.findall(r"/releases/download/v9\.8\.7-beta\.3/(usque-[^)]+)", download)
@@ -128,10 +141,21 @@ class ReleaseNotesContractTests(unittest.TestCase):
         for index, line in enumerate(lines):
             if line.startswith("- ") and " / " not in line:
                 self.assertTrue(lines[index + 1].startswith("  <br>"), line)
-        self.assertLess(
-            rendered.index("Usque v9.8.7-beta.3 adds optional VPN Gate exits"),
-            rendered.index("Usque v9.8.7-beta.3 新增可选的 VPN Gate 出口"),
-        )
+
+    def test_version_summary_puts_each_english_paragraph_before_its_chinese(self) -> None:
+        rendered = self.render()
+        title = "## Usque v9.8.7-beta.3 official release / Usque v9.8.7-beta.3 正式版发布"
+        self.assertEqual(rendered.count(title), 1)
+        summary_start = rendered.index(title) + len(title)
+        summary = rendered[summary_start : rendered.index("## Highlights / 更新亮点")]
+        paragraphs = [part.strip() for part in summary.split("\n\n") if part.strip()]
+        self.assertTrue(paragraphs)
+        self.assertEqual(len(paragraphs) % 2, 0, paragraphs)
+        for english, chinese in zip(paragraphs[::2], paragraphs[1::2], strict=True):
+            self.assertTrue(english.startswith("Usque v9.8.7-beta.3 "), english)
+            self.assertNotRegex(english, CJK)
+            self.assertTrue(chinese.startswith("Usque v9.8.7-beta.3 "), chinese)
+            self.assertRegex(chinese, CJK)
 
     def test_rejects_missing_or_unknown_template_tokens(self) -> None:
         invalid = Path(self.temporary.name) / "invalid.md"

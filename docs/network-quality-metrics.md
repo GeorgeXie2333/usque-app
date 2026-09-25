@@ -26,8 +26,8 @@ Every metric carries one of four states:
 A numeric zero is therefore never used as a substitute for unsupported,
 not-ready, or stale data. H2 loss, congestion window, bytes in flight, and PMTU
 are `Unsupported`. H2 PING RTT is `NotReady` before the first PONG, `Available`
-after a valid PONG, and `Stale` after its adaptive deadline. If the locked h2
-build cannot provide `PingPong`, H2 RTT is explicitly `Unsupported` while the
+after a valid PONG, and `Stale` after its adaptive soft deadline. If the locked
+h2 build cannot provide `PingPong`, H2 RTT is explicitly `Unsupported` while the
 tunnel remains usable. The locked quiche 0.29.3 `PathStats` exposes smoothed RTT,
 minimum RTT, variance, loss, congestion window, delivery rate, and PMTU, but not
 latest RTT or current bytes in flight. Those two fields are explicitly
@@ -73,7 +73,7 @@ oldest age, close, and cancellation state are process-local numeric data.
 | `H3WireSend` | Pacing-aware QUIC wire deque | 64 datagrams and a family-specific bound: 94,208 bytes for IPv4 or 92,928 for IPv6; entries complete only after a full UDP send |
 | `TransportToTun` | Managed/final TUN batch sink | 16 batches and 4 MiB; a re-attach atomically replaces the old tracked sink |
 | `TransportToProxy` | Packet mux into the smoltcp proxy pipe | Existing 1,024-packet pipe; logical actor handoff time and bytes are tracked for the same locked-dependency reason |
-| `DirectDnsRequests` | Active GeoSite direct DNS queries | 512 requests and 32 MiB; semaphore rejection is a queue drop and returns SERVFAIL |
+| `DirectDnsRequests` | Active GeoSite direct DNS queries | System mode: 512 requests and 33,553,920 bytes (512 × 65,535). DoH/DoT: 64 requests and 4,194,240 bytes (64 × 65,535). Semaphore rejection is a queue drop and returns SERVFAIL |
 
 Packet queues keep the oldest timestamp in their FIFO head metadata and do not
 take a mutex in the packet path. Direct DNS requests can complete out of order,
@@ -176,9 +176,11 @@ resource guarantees, not measured throughput or device lifecycle results.
 
 CONNECT-IP uses an explicit h2 client Builder with a 4 MiB stream receive
 window, an 8 MiB connection receive window, and server push disabled. These
-settings affect only the peer-to-client CONNECT-IP data path. Registration and
-future encrypted-DNS control clients keep independent small default Builders;
-the send-buffer limit is unchanged.
+settings affect only the peer-to-client CONNECT-IP data path. The registration
+control client keeps h2's small default Builder. The DoH direct-DNS client uses
+its own explicit Builder: a 65,535-byte stream window, a 256 KiB connection
+window, a 16 KiB header-list limit, and server push disabled. The send-buffer
+limit is unchanged.
 
 H2 receive batches span already-ready DATA frames, up to the common 64-packet
 or 256 KiB limit. After the first packet, a batch polls at most 64 additional
@@ -192,12 +194,20 @@ per consumed frame, and a lookahead failure is reported on the next receive
 after delivering the already-completed batch.
 
 One protocol PING may be outstanding at a time. The interval is five seconds.
-The deadline is five seconds before the first sample, then three times smoothed
-RTT clamped to two through ten seconds. Smoothed RTT and variance use an integer
-EWMA with alpha 1/8; minimum RTT is monotonic for the connection. A timeout
-marks retained RTT stale and increments a bounded counter but never closes the
-tunnel. Three consecutive failures may classify quality as `Poor`; the existing
-connection driver alone decides whether the transport has failed.
+The soft deadline is five seconds before the first sample, then
+`max(3 * smoothed RTT, smoothed RTT + 4 * RTT variation)` clamped to two through
+ten seconds. Smoothed RTT and variance use an integer EWMA with alpha 1/8;
+minimum RTT is monotonic for the connection. A soft timeout marks retained RTT
+stale, increments the timeout and consecutive-failure counters, and keeps
+waiting for the same PONG. The hard liveness deadline, measured from that
+PING's start, is three times the soft deadline clamped to 15–30 seconds. If it
+expires, the PING task records an error and the H2 driver fails with
+`H2LivenessTimeout`, reported as `PACKET_RECEIVE_STALLED`; see
+[HTTP/2 liveness](h3-client-reliability.md#http2-liveness). A usable RTT sample
+resets the consecutive-failure counter. The classifier returns `Poor` when that
+counter reaches three, but a blackholed PING normally counts only its soft
+timeout and terminal error before the driver fails, so this rule is rarely
+reached.
 
 Each `reserve_capacity`/`poll_capacity` wait is measured with an actor-local
 monotonic timestamp. A successful wait longer than one millisecond increments
@@ -253,7 +263,8 @@ metrics are unsupported.
 - `Fair`: RTT below 150 ms, H3 loss below 2%, every registered queue below 80%,
   and no sustained drop.
 - `Poor`: a threshold is exceeded, drops are sustained, PMTU is degraded, a new
-  migration failure is observed, or three consecutive H2 PINGs fail.
+  migration failure is observed, or the H2 consecutive PING-failure counter
+  (soft timeouts plus PING errors) reaches three.
 - `Disconnected`: there is no current connection instance.
 
 ## Privacy
@@ -261,8 +272,8 @@ metrics are unsupported.
 The UI retains at most sixty one-second slots and 300 raw points per local
 connection instance. Missing/stale/disconnected samples are gaps, not zero;
 counter baselines reset on a new instance. H2 loss/congestion/PMTU/migration
-are Unsupported, pending H2 PING is NotReady, and three failed PINGs retain the
-last measured RTT as Stale. Metrics are not persistence or upload inputs.
+are Unsupported, pending H2 PING is NotReady, and a soft PING timeout retains
+the last measured RTT as Stale. Metrics are not persistence or upload inputs.
 The internal metrics rollback stops quality publication and its capability,
 not transport work or safety counters. See [rollback](network-quality-rollback.md).
 

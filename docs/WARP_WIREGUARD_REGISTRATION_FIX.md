@@ -81,7 +81,7 @@ configured ABIs; those generated libraries remain untracked.
 Commands follow [Contributing](../CONTRIBUTING.md). Rust is 1.97.1; Flutter is
 3.44.7 (`84fc5cbb223bc12f83d65b647ff8a56caf779ffd`), resolved from
 `local.properties`. `flutter` and `dart` below mean the absolute executables
-under `C:/Users/George/.local/share/flutter-3.44.7/bin/`. Python denotes the
+under the Flutter 3.44.7 SDK's `<flutter-sdk>/bin`. Python denotes the
 bundled verified runtime, invoked with `-X utf8`. Logs and artifacts remain
 under ignored build paths.
 

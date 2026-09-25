@@ -83,7 +83,7 @@ is bounded to trace/metadata for the two available families within one tunnel.
 | Flutter locked resolution, format and analysis | Passed |
 | Flutter complete Windows widget/golden suite | 654 passed |
 | Windows Flutter release build and Android debug configuration | Passed; compile/configuration only |
-| Android Kotlin unit tests, ktlint and lint | Passed; 223 JVM test results accepted as up-to-date, no failures/errors/skips |
+| Android Kotlin unit tests, ktlint and lint | Completed without failures; Gradle reused 223 up-to-date JVM test results rather than re-executing them, with no failures/errors/skips |
 | Aggregate source checks, including Buf lint/format | Passed |
 | Repository policy and diff whitespace | Passed |
 

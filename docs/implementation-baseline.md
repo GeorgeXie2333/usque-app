@@ -163,7 +163,7 @@ fail-closed: `failed`, `not_run`, missing, duplicate, unknown, wrong-runner, or
 wrong-candidate evidence cannot produce a validated summary. Protected results
 remain supplemental and do not gate publication.
 
-The current required gate IDs are:
+The required gate IDs at baseline commit `3a032e7a56ed` were:
 
 ```text
 windows.clean_install
@@ -191,6 +191,10 @@ network.route_leak
 network.direct_rule_scope
 performance.informational_baseline
 ```
+
+Note: later work retired `performance.informational_baseline` and replaced it
+with seven `performance.*` gates. The current list is `REQUIRED_GATES` in
+`tool/reliability_gate.py`; see [Reliability testing](RELIABILITY_TESTING.md).
 
 ## Pre-change performance evidence
 

@@ -10,7 +10,9 @@ The implemented sources are **OpenVPN**, **WireGuard**,
 **VPN Gate**, in that order. [The guide](CHAIN_PROXY.md) documents the import
 workflow, compatibility, encrypted storage, DNS and lifecycle boundaries.
 The two icons use the SVG paths supplied by the user, with theme colors and
-OpenVPN's proportional 32×32-to-24×24 scaling.
+OpenVPN's proportional 32×32-to-24×24 scaling. Later note: the repository does
+not record an upstream source or license for these paths; see the
+[current guide](CHAIN_PROXY.md#storage-compatibility-and-dependencies).
 
 ## Checks
 

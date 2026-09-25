@@ -1,8 +1,10 @@
 # Network quality IPC contract
 
-Schema 13 adds the process-local network quality path without changing or
-reusing any established protobuf tag or enum value. Older profiles normalize
-to canonical physical-system direct DNS, preserving schema-12 behavior.
+Configuration schema 13 introduced the process-local network quality path
+without changing or reusing any established protobuf tag or enum value. Older
+profiles normalize to canonical physical-system direct DNS, preserving
+schema-12 behavior. The current configuration schema is 18; fields added after
+schema 13 below follow the same append-only rule.
 
 ## Append-only fields
 
@@ -22,7 +24,11 @@ to canonical physical-system direct DNS, preserving schema-12 behavior.
   `NetworkQualitySample` tags 1-7 are sequence, UTC sampling timestamp,
   connection-local monotonic milliseconds, optional cumulative downloaded and
   uploaded bytes, optional available RTT milliseconds, and optional available
-  interval loss basis points. Optional zero is a measurement; absence is not.
+  interval loss basis points. The RTT is the latest available sample, falling
+  back to available smoothed RTT. H2 therefore reports its latest PING RTT.
+  H3 always reports smoothed RTT because quiche does not expose latest RTT.
+  Stale or not-ready RTT is omitted. Optional zero is a measurement; absence is
+  not.
 - `NetworkQualitySnapshot.udp_socket_receive = 10` adds optional raw receive/send
   buffer sizes and a bounded socket observation. Its policy target is separate
   from a setter invocation and actual capacity; see the

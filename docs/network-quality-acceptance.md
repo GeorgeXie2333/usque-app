@@ -19,6 +19,14 @@ PR-10 `121abf0`, and PR-11 `1558ebf`. **PR-12** below means the integration
 commit containing this document, flags, fault hooks, native timeline and final
 cross-language checks. The execution report records its full final SHA.
 
+History note: these commits, the PR-12 commit that added this document
+(`e15b5b0e`, 2026-09-02) and the later-reviewed `423d99c` (2026-09-03) were on
+a pre-squash branch. None is an ancestor of `main` or `dev`, so the short SHAs
+may not resolve in a fresh clone. The work landed as squash commit `ff3768a6`
+(2026-09-04, tag `v0.2.4`). That squash also contains later changes, including
+the PMTU corrections linked above, so its tree is not identical to any evidence
+commit.
+
 “Ordinary” means unit/property/in-memory/loopback tests or compile-only checks,
 not a device claim. Every protected artifact in this run is `not_run`: no
 snapshot VM, dedicated Android device, independent network observer or
@@ -29,6 +37,11 @@ There was no installation, live VPN, platform-network mutation, release APK,
 MSI packaging, official signing, upload, tag movement or publication.
 
 ## Final ordinary matrix
+
+The counts below were recorded for PR-12 (`e15b5b0e`, 2026-09-02). They are
+not counts for `ff3768a6` or the current tree. The execution report that
+identifies the exact tested tree is not checked in, so this record cannot
+state that limit more precisely.
 
 | Check | Result / scope |
 | --- | --- |

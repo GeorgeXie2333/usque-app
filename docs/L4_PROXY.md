@@ -17,9 +17,12 @@ traffic requirements. With L4 alone:
 - Switching modes or changing TUN use reconnects and ends existing application
   connections.
 
-An enabled [VPN Gate exit](VPN_GATE.md) can carry application UDP inside its
-additional OpenVPN TCP connection. That does not make the L4 transport itself
-UDP-capable. Existing explicit direct and platform bypass rules retain their scope.
+An enabled OpenVPN-over-TCP chain exit, either a custom **OpenVPN** TCP
+configuration or a [VPN Gate](VPN_GATE.md) node, can carry application UDP inside
+its additional OpenVPN TCP connection. That does not make the L4 transport itself
+UDP-capable. Chain exits that require UDP cannot be enabled with L4; see
+[chain proxy compatibility](CHAIN_PROXY.md#compatibility--兼容范围). Existing
+explicit direct and platform bypass rules retain their scope.
 
 ## Using it
 
@@ -174,7 +177,8 @@ scope. Account replacement stops the old scope rather than reusing its work.
 
 ### Observability and safety
 
-Schema 15 appends the data-plane setting; schema 14 migrates to CONNECT-IP.
+Schema 15 appends the data-plane setting; migrating any configuration older
+than schema 15 sets it to CONNECT-IP.
 The protobuf/JNI additions report mode, capabilities, CONNECT verification,
 stream and DNS counters, buffer pressure, TUN/half-open counts and migration
 ownership. Unknown status is not success. CONNECT-IP payload and DATAGRAM

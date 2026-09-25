@@ -57,6 +57,7 @@ Publication and optional protected-runner validation are explained in
 | [Network settings](NETWORK_SETTINGS.md) | Field updates, saved settings and active-session changes / 字段修改、设置保存与会话生效规则 |
 | [Windows lifecycle](windows-lifecycle.md) | Service recovery, upgrade ordering and quiet uninstall / 服务恢复、升级顺序与静默卸载 |
 | [Direct DNS threat model](direct-dns-threat-model.md) | Scoped trust boundaries, assumptions, and review evidence / 专题信任边界、假设与审查依据 |
+| [WARP WireGuard upstream](WARP_WIREGUARD_UPSTREAM.md) | Pinned warpscout/wgcf references, endpoint data, registration contract and notices / 固定的上游版本、端点数据、注册协议与许可声明 |
 
 Use these pages when changing an implementation. Keep behavior descriptions in
 sync with executable sources, preserve protobuf numbers and invariant identifiers,

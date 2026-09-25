@@ -17,7 +17,8 @@ the app.
 
 The interactive installer:
 
-- asks for administrator approval to install the `usque-agent` service;
+- asks for administrator approval to install the Agent service (`usque-agent.exe`,
+  service name `UsqueAgent`, display name "Usque Agent");
 - lets you choose the install directory;
 - installs the GUI, unprivileged engine, Agent, official Wintun DLL, and Start Menu shortcut;
 - keeps that directory on a major upgrade;

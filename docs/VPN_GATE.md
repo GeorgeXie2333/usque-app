@@ -1,15 +1,16 @@
 # WARP → VPN Gate
 
-VPN Gate is the third source in [Chain proxy](CHAIN_PROXY.md), after
-**OpenVPN** and **WireGuard**. This reference describes the
-VPN Gate catalogue, trust restrictions and shared OpenVPN driver.
+VPN Gate is the fourth source in [Chain proxy](CHAIN_PROXY.md), after
+**OpenVPN**, **WireGuard** and **WARP via WireGuard**. This reference describes
+the VPN Gate catalogue, trust restrictions and shared OpenVPN driver.
 
 VPN Gate lets you choose a volunteer server as the final Internet exit on
 Windows, Android and Android TV. Usque reaches that server through WARP.
 
 ## Set up an exit
 
-1. Open **Proxy → Chain proxy**, select **VPN Gate**, and turn on its switch. It is off by default.
+1. Open **Proxy → Chain proxy**, select **VPN Gate**, and turn on the shared **Enable chain proxy**
+   switch. It is off by default.
 2. Use **Refresh list** in the available-server section, filter by country and select a TCP server.
 3. Use **Apply changes** or **Apply and reconnect** in the shared bottom bar. Selecting a row alone only
    edits a draft; it does not reconnect.
@@ -20,7 +21,7 @@ network access resumes after the VPN ends unless system blocking is enabled.
 To keep apps blocked, enable both **Always-on VPN** and **Block connections
 without VPN** as described in [Android setup](INSTALLATION.md#keep-apps-blocked-when-the-vpn-ends).
 Your explicit direct-routing exceptions continue to apply.
-Server selection is available only while the page's VPN Gate switch is on.
+Server selection is available only while **Enable chain proxy** is on.
 With the switch off, the directory remains browsable and existing selections
 are retained.
 
@@ -35,10 +36,10 @@ On wide layouts, VPN Gate stays inside the Proxy content area and the side
 navigation remains available. Selecting Proxy again returns to its overview;
 selecting another section leaves the subpage after its unsaved-change guard.
 The chain page shares its heading, enable switch, current connection and apply
-bar with the imported OpenVPN and WireGuard sources. Refresh and filtering live
-with the public-node list. Saved and currently connected nodes use the same
-markers as imported configurations; the current connection remains visible
-when another source is being browsed.
+bar with the OpenVPN, WireGuard and WARP via WireGuard sources. Refresh and
+filtering live with the public-node list. Saved and currently connected nodes use
+the same markers as imported configurations; the current connection remains
+visible when another source is being browsed.
 
 Compact layouts keep the full-screen subpage and system Back behavior. Resizing
 preserves the subpage, draft, filters and scroll position. Connection status
@@ -313,10 +314,12 @@ suppressed. No new automatic telemetry or diagnostic upload is introduced.
 
 ## Sources, licenses and validation
 
-OpenVPN Core uses MPL-2.0; Mbed TLS uses Apache-2.0; Asio uses BSL-1.0; LZ4
-and xxHash use BSD-2-Clause. The selected sources and original license texts
-are vendored. [The source lock](../tool/openvpn_sources.json) pins archives,
-original file hashes and reviewed patch hashes. Run
+OpenVPN Core is offered under AGPL-3.0-only or MPL-2.0 and is used under
+MPL-2.0; Mbed TLS is offered under Apache-2.0 or GPL-2.0-or-later and is used
+under Apache-2.0; Asio uses BSL-1.0; LZ4 and xxHash use BSD-2-Clause. The
+selected sources and original license texts are vendored.
+[The source lock](../tool/openvpn_sources.json) pins archives, original file
+hashes and reviewed patch hashes. Run
 `python tool/check_openvpn_sources.py`; it also verifies the license asset
 available from the VPN Gate page. Release SPDX generation includes these native
 packages, which Cargo/Gradle inventories alone do not discover.
