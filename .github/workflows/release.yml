@@ -836,9 +836,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Raw lab evidence inherits repository read access. A runner label or an
+  # artifact name is not an access control; public repositories must skip it.
   windows-reliability:
     name: Windows snapshot VM lifecycle and recovery
-    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
+    if: ${{ github.event.repository.private == true && vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
     needs: stage-candidate
     runs-on: [self-hosted, Windows, X64, usque-snapshot-vm]
     timeout-minutes: 180
@@ -888,7 +890,7 @@ jobs:
 
   android-reliability:
     name: Android physical-device lifecycle
-    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
+    if: ${{ github.event.repository.private == true && vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
     needs: stage-candidate
     runs-on: [self-hosted, Linux, ARM64, usque-android-device]
     timeout-minutes: 180
@@ -933,7 +935,7 @@ jobs:
 
   network-leak-reliability:
     name: Independent IPv4, IPv6, DNS, route, and Kill Switch observer
-    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
+    if: ${{ github.event.repository.private == true && vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
     needs: stage-candidate
     runs-on: [self-hosted, Linux, X64, usque-network-observer]
     timeout-minutes: 180
@@ -978,7 +980,7 @@ jobs:
 
   performance-reliability:
     name: Controlled performance gates v2
-    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
+    if: ${{ github.event.repository.private == true && vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
     needs: stage-candidate
     runs-on: [self-hosted, Linux, X64, usque-performance-lab]
     timeout-minutes: 120
@@ -1062,7 +1064,7 @@ jobs:
 
   protected-reliability-summary:
     name: Validate optional protected reliability evidence
-    if: ${{ always() && vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' && needs.windows-reliability.result == 'success' && needs.android-reliability.result == 'success' && needs.network-leak-reliability.result == 'success' && needs.performance-reliability.result == 'success' }}
+    if: ${{ always() && github.event.repository.private == true && vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' && needs.windows-reliability.result == 'success' && needs.android-reliability.result == 'success' && needs.network-leak-reliability.result == 'success' && needs.performance-reliability.result == 'success' }}
     needs:
       - stage-candidate
       - windows-reliability

@@ -173,7 +173,7 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
         assert match is not None
         return match.group(0)
 
-    def test_protected_validation_is_explicitly_opt_in(self) -> None:
+    def test_protected_validation_requires_a_private_repository_and_opt_in(self) -> None:
         for name in (
             "windows-reliability",
             "android-reliability",
@@ -181,9 +181,44 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
             "performance-reliability",
         ):
             self.assertIn(
-                "if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}",
+                "if: ${{ github.event.repository.private == true && "
+                "vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}",
                 self.job(name),
             )
+
+    def test_every_lab_artifact_upload_is_guarded_by_repository_privacy(self) -> None:
+        jobs = re.findall(
+            r"(?ms)^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+            self.workflow,
+        )
+        guarded_jobs = set()
+        for name, job in jobs:
+            # Reports and raw performance samples also require the same boundary.
+            if not re.search(
+                r"name: usque-(?:restricted-|reliability-report-|performance-raw-|"
+                r"protected-validation-summary)",
+                job,
+            ):
+                continue
+            condition = re.search(r"^    if: (.+)$", job, re.MULTILINE)
+            self.assertIsNotNone(condition, f"lab artifact job lacks a guard: {name}")
+            assert condition is not None
+            self.assertRegex(
+                condition.group(1),
+                r"^\$\{\{ (?:always\(\) && )?github\.event\.repository\.private == true && ",
+            )
+            self.assertNotIn("||", condition.group(1), f"privacy guard can be bypassed: {name}")
+            guarded_jobs.add(name)
+        self.assertEqual(
+            guarded_jobs,
+            {
+                "windows-reliability",
+                "android-reliability",
+                "network-leak-reliability",
+                "performance-reliability",
+                "protected-reliability-summary",
+            },
+        )
 
     def test_publication_depends_on_staged_candidate_not_protected_runners(self) -> None:
         publish = self.job("publish")

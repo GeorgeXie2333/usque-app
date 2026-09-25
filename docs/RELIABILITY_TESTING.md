@@ -249,10 +249,12 @@ connected maintenance shutdown, and injected installation/recovery failure.
 Rollback must restore A's matching files and registration; profiles and secrets
 must survive. These scenarios are `not_run` without isolated infrastructure.
 
-After the exact signed candidate has been staged, the public release workflow
-selects four explicitly labelled self-hosted runners only when repository
-variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`. Publication does
-not wait for these supplemental jobs:
+After the exact signed candidate has been staged, the release workflow selects
+four explicitly labelled self-hosted runners only in a private repository and
+when repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`.
+The public repository always skips these jobs, including the evidence summary;
+enabling the variable alone cannot start them. Record this as `not_run`, not a
+pass. Publication does not wait for these supplemental jobs:
 
 | Runner label | Required isolation | Scope |
 | --- | --- | --- |
@@ -292,10 +294,17 @@ mismatches, empty files, and oversized files fail closed.
 duplicates, missing or forged evidence, candidate digest mismatches, `failed`,
 `unstable`, and `not_run`. It emits the validated `reliability-report.json` and
 `device-matrix.md` only when all required gates pass. The release workflow keeps
-that validated summary as a protected Actions artifact; missing or failed
-optional runs produce no summary and do not block publication. PCAPs stay in
-restricted CI artifacts and are never copied into the public diagnostic bundle
-or GitHub release.
+that validated summary in the private execution context; missing or failed
+optional runs produce no summary and do not block publication. Actions artifacts
+inherit repository read access: a `restricted` name, runner label, environment
+approval, or short retention period does not make a public artifact private.
+PCAPs, raw lab evidence, reports, and performance samples must remain in a
+private repository or another store with equivalent access controls. They are
+never copied into the public diagnostic bundle or GitHub release. Running
+supplemental validation for a public release requires a separately configured
+private execution context bound to the exact signed candidate. Any future
+public summary export must rebuild an allowlisted, sanitized summary inside
+that context; the public workflow does not currently import such summaries.
 
 The performance-lab report replaces the old
 `performance.informational_baseline` result with these required results:
