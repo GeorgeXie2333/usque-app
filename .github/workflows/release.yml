@@ -244,6 +244,10 @@ jobs:
             throw "PFX does not contain one private code-signing identity."
           }
 
+          # Record cleanup state before fingerprint or SignTool checks can fail.
+          "USQUE_CERT_THUMBPRINT=$($certificate.Thumbprint)" |
+            Out-File $env:GITHUB_ENV -Append
+
           $sha = [Security.Cryptography.SHA256]::Create()
           try {
             $rawFingerprint = (
@@ -274,8 +278,6 @@ jobs:
           if ($null -eq $signTool) { throw "SignTool was not found." }
 
           "USQUE_PFX_PATH=$pfx" | Out-File $env:GITHUB_ENV -Append
-          "USQUE_CERT_THUMBPRINT=$($certificate.Thumbprint)" |
-            Out-File $env:GITHUB_ENV -Append
           "USQUE_SIGNTOOL=$($signTool.FullName)" |
             Out-File $env:GITHUB_ENV -Append
 
@@ -450,16 +452,20 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $thumbprint = $env:USQUE_CERT_THUMBPRINT
-          if (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
-            $path = "Cert:\CurrentUser\My\$thumbprint"
-            if (Test-Path -LiteralPath $path) {
-              Remove-Item -LiteralPath $path -Force
+          try {
+            $thumbprint = $env:USQUE_CERT_THUMBPRINT
+            if (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
+              $path = "Cert:\CurrentUser\My\$thumbprint"
+              if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -DeleteKey -Force
+              }
             }
-          }
-          $pfx = Join-Path $env:RUNNER_TEMP "usque-signing.pfx"
-          if (Test-Path -LiteralPath $pfx) {
-            Remove-Item -LiteralPath $pfx -Force
+          } finally {
+            # Still remove the PFX if certificate/key removal fails; the job fails.
+            $pfx = Join-Path $env:RUNNER_TEMP "usque-signing.pfx"
+            if (Test-Path -LiteralPath $pfx) {
+              Remove-Item -LiteralPath $pfx -Force
+            }
           }
 
   android:

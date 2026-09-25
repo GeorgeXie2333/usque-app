@@ -238,6 +238,16 @@ Security-rule suppressions such as `S603` or `S607` must be per-line and include
 
 Every script in `tool/` must declare `[CmdletBinding()]`, call `Set-StrictMode -Version Latest`, and set `$ErrorActionPreference = 'Stop'`.
 
+For release signing cleanup changes, also run:
+
+```shell
+pwsh -NoProfile -File tool/test_windows_release_signing.ps1
+```
+
+This executes the workflow's import and cleanup steps with inert certificate
+doubles, including failed fingerprint, missing SignTool, and cleanup-error
+paths. It never accesses a certificate store or real signing material.
+
 ```shell
 Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
 Invoke-ScriptAnalyzer -Path tool -Recurse -Settings tool/PSScriptAnalyzerSettings.psd1

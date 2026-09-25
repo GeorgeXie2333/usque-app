@@ -535,6 +535,9 @@ jobs:
         run: |
           & ./tool/test_windows_wix_arguments.ps1 -Variant "${{ matrix.variant }}"
 
+      - name: Verify signing identity cleanup with inert certificate doubles
+        run: pwsh -NoProfile -File tool/test_windows_release_signing.ps1
+
       - name: Compile multilingual MSI and bundle authoring
         shell: pwsh
         run: |

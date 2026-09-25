@@ -53,7 +53,7 @@ These non-secret variables come from the repository or the same environments:
 
 Keep encrypted offline backups of both signing identities. Pre-1.0 packages use these fixed self-signed identities. A v1.0.0 signing change is a separate release.
 
-The Windows job imports the private identity only into the runner user's personal certificate store. It does not add the certificate to Root or TrustedPublisher. Verification accepts the expected untrusted-root result and checks the DER SHA-256 fingerprint. An `always()` step removes the private identity. The workflow never re-signs the official Wintun DLL. The Android job deletes its temporary keystore the same way.
+The Windows job imports the private identity only into the runner user's personal certificate store. It does not add the certificate to Root or TrustedPublisher. It records the imported identity before checking the fingerprint or locating SignTool, so those failures still reach cleanup. Verification accepts the expected untrusted-root result and checks the DER SHA-256 fingerprint. An `always()` step removes both the certificate and its private key with `-DeleteKey`; its `finally` block deletes the temporary PFX even if certificate removal fails. Cleanup errors fail the job. The workflow never re-signs the official Wintun DLL. The Android job deletes its temporary keystore afterward.
 
 Android builds verify the Gradle 9.5.1 distribution against its published SHA-256, use the checked-in `app/gradle.lockfile`, and check resolved artifacts against `gradle/verification-metadata.xml`. Updating an Android dependency means reviewing and regenerating both files by hand. CI and release jobs must not use `--write-locks` or `--write-verification-metadata`.
 
