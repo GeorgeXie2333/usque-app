@@ -235,7 +235,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_dns_bootstrap_help':
       'Nhập 1–8 địa chỉ IP do nhà cung cấp DNS cung cấp, mỗi địa chỉ một dòng. Ví dụ: 1.1.1.1. Các địa chỉ này cho phép kết nối trực tiếp mà không cần tra cứu tên máy chủ trước.',
   'nq_dns_no_fallback':
-      'Nếu DNS trực tiếp mã hóa thất bại, truy vấn thất bại. Không bao giờ quay về DNS hệ thống hoặc DNS không mã hóa (plaintext).',
+      'Nếu DNS mã hóa không khả dụng, truy vấn sẽ thất bại thay vì chuyển sang DNS không mã hóa.',
   'nq_dns_system_privacy':
       'Nhà cung cấp DNS của mạng hiện tại có thể thấy các tên miền được truy vấn cho lưu lượng trực tiếp.',
   'nq_dns_scope':
@@ -393,7 +393,7 @@ const Map<String, String> kChainVi = <String, String>{
   'select_required': 'Hãy chọn một cấu hình đã lưu trước khi áp dụng.',
   'pending_disable': 'Đang chờ: tắt proxy chuỗi',
   'apply_reconnect': 'Áp dụng và kết nối lại',
-  'requires_connect_ip': 'Cần CONNECT-IP',
+  'requires_connect_ip': 'Không dùng được với L4',
   'menu': 'Thao tác cấu hình',
   'preview': 'Kiểm tra cấu hình',
   'save_import': 'Lưu cấu hình',
@@ -426,8 +426,8 @@ const Map<String, String> kChainVi = <String, String>{
   'connecting': 'Đang kết nối',
   'error': 'Kết nối thất bại',
   'no_selection': 'Chưa chọn cấu hình',
-  'l4': 'Cấu hình này cần chế độ CONNECT-IP.',
-  'switch_mode': 'Chuyển sang CONNECT-IP và áp dụng',
+  'l4': 'Cấu hình này cần UDP, nhưng L4 không hỗ trợ.',
+  'switch_mode': 'Tắt L4 và áp dụng',
   'unsupported': 'Bộ máy này không hỗ trợ nguồn lối ra này.',
   'scope':
       'Các quy tắc đi thẳng đã chỉ định vẫn có hiệu lực. Lưu lượng còn lại dùng lối ra đã chọn.',

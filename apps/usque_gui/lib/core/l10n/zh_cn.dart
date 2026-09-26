@@ -3,7 +3,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'disable_quic': "禁用 QUIC",
   'disable_quic_help':
       "拦截经代理或隧道转发的 UDP/443，包括该端口的其他协议。GEO 直连和 Usque 自身 HTTP/3 连接不受影响；其他端口的 QUIC 不拦截。应用后无需重连。",
-  'disable_quic_unsupported': '请退出并重新打开 Usque 后重试；若仍无法使用，请在“设置”中检查更新。',
+  'disable_quic_unsupported': '当前无法禁用 QUIC。请重启 Usque；若仍无法使用，请在“设置”中检查更新。',
   'technical_details': '技术详情',
   'diag_skip_disconnected': '请先连接，再运行此检查。',
   'diag_skip_disabled': '此功能已关闭。',
@@ -138,7 +138,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'output_disabled_in_profile': '已在设置中关闭',
   'auto_connect': '启动时自动连接当前账号',
   'lan_warning': '代理已暴露到局域网',
-  'lan_warning_body': 'Usque 不会添加用户名/密码认证。任何能访问此监听地址的人都可能使用它。',
+  'lan_warning_body': '尚未设置用户名和密码，能访问此地址的任何设备都能使用此代理。',
   'lan_warning_body_authenticated': '局域网内的其他设备可使用此代理，连接时需要输入你设置的用户名和密码。',
   'proxy_auth': '代理用户名和密码',
   'proxy_auth_help': '为 SOCKS5 和 HTTP 代理设置登录要求。密码会安全保存在此设备上。',
@@ -194,7 +194,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'open_release': '打开发布页面',
   'update_startup_description': '启动 Usque 时自动检查更新。',
   'update_checking': '正在检查更新…',
-  'update_downloading': '正在下载已验证的更新包…',
+  'update_downloading': '正在下载更新…',
   'update_verifying': '正在验证更新包…',
   'update_ready': '更新已准备好安装。',
   'update_installing': '更新已交给系统安装程序。',
@@ -243,8 +243,9 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'always_on': '始终开启 VPN',
   'lockdown': '无 VPN 时拦截',
   'not_used_proxy': '代理模式不适用',
-  'kill_switch_help':
-      '连接、重连或连接服务发生故障时拦截流量。Android 上仅在 VPN 服务运行期间生效；应用被终止后的防护，需在系统设置中开启始终开启 VPN 和“无 VPN 时拦截连接”。',
+  'kill_switch_help': '连接、重连期间以及连接服务出错时拦截流量。',
+  'kill_switch_help_android':
+      '连接、重连期间以及连接服务出错时拦截流量。仅在 VPN 服务运行时有效；如需在 Usque 停止后继续防护，请在系统设置中开启“始终开启 VPN”和“无 VPN 时拦截连接”。',
   'start_on_boot_android': '开机后启动 Usque。还需要打开启动时自动连接。',
   'add_quick_settings_tile_help':
       '在 Android 13 或更高版本固定 Usque 磁贴。更低版本请在快捷设置中手动添加。',
@@ -254,7 +255,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'per_app_proxy_off': '全部应用走 VPN',
   'per_app_proxy_on': '已代理 {count} 个应用',
   'per_app_proxy_enable': '仅代理选中的应用',
-  'per_app_proxy_help': '只有勾选的应用走 VPN。之后新安装的应用不会自动进隧道，除非再次勾选。全选不会关闭分应用代理。',
+  'per_app_proxy_help': '只有勾选的应用使用 VPN。新安装的应用需要勾选后才会使用。',
   'per_app_proxy_lockdown_help':
       '若系统开启了始终开启 VPN 和“无 VPN 时拦截连接”，未选中的应用会被拦截，而不是直连。',
   'per_app_proxy_tunnel_hint': '在打开 VPN 输出后生效。仅 SOCKS5/HTTP 模式不会按应用过滤。',
@@ -521,7 +522,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 恢复探测成功',
   'diag_event_recovery_probe_failed': 'H3 恢复探测失败',
   'diag_event_path_promoted': '候选路径已激活',
-  'diag_event_queue_backpressured': '发送等待队列容量',
+  'diag_event_queue_backpressured': '发送队列出现积压',
   'diag_event_queue_saturated': '发送队列已达到容量',
   'diag_event_disconnected': '连接已断开',
   'diag_event_failed': '连接失败',

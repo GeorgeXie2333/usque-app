@@ -4,7 +4,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'disable_quic_help':
       "Bloqueia UDP/443 pelo proxy ou túnel, incluindo outros protocolos nessa porta. O tráfego direto GEO e a ligação HTTP/3 do Usque não são afetados. QUIC noutras portas continua permitido. Aplica-se sem voltar a ligar.",
   'disable_quic_unsupported':
-      'Reabra o Usque e tente novamente. Se a opção continuar indisponível, procure atualizações em Configurações.',
+      'O bloqueio de QUIC não está disponível no momento. Reinicie o Usque; se continuar indisponível, procure atualizações em Configurações.',
   'technical_details': 'Detalhes técnicos',
   'diag_skip_disconnected': 'Conecte-se para executar esta verificação.',
   'diag_skip_disabled': 'Este recurso está desativado.',
@@ -158,7 +158,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'auto_connect': 'Conectar a conta atual automaticamente ao iniciar',
   'lan_warning': 'Proxy exposto à rede local',
   'lan_warning_body':
-      'O Usque não adiciona autenticação de usuário/senha. Qualquer pessoa que alcançar este ouvinte poderá usá-lo.',
+      'Nenhum usuário ou senha foi definido. Qualquer dispositivo que alcance este endereço pode usar o proxy.',
   'lan_warning_body_authenticated':
       'Outros dispositivos da rede local podem usar este proxy com o usuário e a senha que você definiu.',
   'proxy_auth': 'Usuário e senha do proxy',
@@ -219,7 +219,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'open_release': 'Abrir página da versão',
   'update_startup_description': 'Verificar atualizações ao iniciar o Usque.',
   'update_checking': 'Procurando uma atualização…',
-  'update_downloading': 'Baixando o pacote de atualização verificado…',
+  'update_downloading': 'Baixando a atualização…',
   'update_verifying': 'Verificando o pacote de atualização…',
   'update_ready': 'A atualização está pronta para instalar.',
   'update_installing': 'A atualização foi entregue ao instalador do sistema.',
@@ -273,7 +273,9 @@ const Map<String, String> kPtCatalog = <String, String>{
   'lockdown': 'Bloquear sem VPN',
   'not_used_proxy': 'Não usado no modo proxy',
   'kill_switch_help':
-      'Bloqueia o tráfego durante conexão, reconexão ou recuperação de falha do serviço. No Android, funciona apenas enquanto o serviço VPN está ativo. Para manter a proteção após o encerramento do aplicativo, ative VPN sempre ativa e Bloquear conexões sem VPN nas configurações do sistema.',
+      'Bloqueia o tráfego durante a conexão ou reconexão, ou se o serviço de conexão falhar.',
+  'kill_switch_help_android':
+      'Bloqueia o tráfego durante a conexão ou reconexão, ou se o serviço de conexão falhar. Funciona apenas enquanto o serviço VPN está ativo. Para continuar protegido depois que o Usque parar, ative VPN sempre ativada e Bloquear conexões sem VPN nas configurações do sistema.',
   'start_on_boot_android':
       'Inicie o Usque após a reinicialização. Ative também a conexão automática ao iniciar.',
   'add_quick_settings_tile_help':
@@ -286,7 +288,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'per_app_proxy_on': 'Aplicando proxy a {count} aplicativos',
   'per_app_proxy_enable': 'Aplicar proxy somente aos aplicativos selecionados',
   'per_app_proxy_help':
-      'Somente os aplicativos marcados usam a VPN. Aplicativos recém-instalados permanecem fora do túnel até você selecioná-los. Selecionar tudo não desativa esta opção.',
+      'Somente os aplicativos marcados usam a VPN. Aplicativos recém-instalados precisam ser marcados para usá-la.',
   'per_app_proxy_lockdown_help':
       'Se VPN sempre ativada e Bloquear conexões sem VPN estiverem ativados, os aplicativos que você não selecionar serão bloqueados, não enviados para fora do túnel.',
   'per_app_proxy_tunnel_hint':
@@ -596,7 +598,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Sonda de recuperação H3 bem-sucedida',
   'diag_event_recovery_probe_failed': 'Sonda de recuperação H3 falhou',
   'diag_event_path_promoted': 'Caminho candidato ativado',
-  'diag_event_queue_backpressured': 'Espera por capacidade na fila de envio',
+  'diag_event_queue_backpressured': 'Fila de envio congestionada',
   'diag_event_queue_saturated': 'A fila de envio atingiu a capacidade',
   'diag_event_disconnected': 'Desconectado',
   'diag_event_failed': 'Falha na conexão',

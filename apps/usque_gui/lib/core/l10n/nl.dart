@@ -4,7 +4,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'disable_quic_help':
       "Blokkeert UDP/443 via de proxy of tunnel, inclusief andere protocollen op die poort. Direct GEO-verkeer en Usques HTTP/3-verbinding blijven ongewijzigd. QUIC op andere poorten blijft toegestaan. Toepassen zonder opnieuw te verbinden.",
   'disable_quic_unsupported':
-      'Sluit Usque en open het opnieuw. Blijft de optie onbeschikbaar, controleer dan op updates bij Instellingen.',
+      'QUIC blokkeren is nu niet beschikbaar. Start Usque opnieuw; blijft het onbeschikbaar, controleer dan op updates bij Instellingen.',
   'technical_details': 'Technische details',
   'diag_skip_disconnected': 'Maak verbinding om deze controle uit te voeren.',
   'diag_skip_disabled': 'Deze functie is uitgeschakeld.',
@@ -157,7 +157,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'auto_connect': 'Het huidige account bij het starten automatisch verbinden',
   'lan_warning': 'Proxy is blootgesteld aan het lokale netwerk',
   'lan_warning_body':
-      'Usque voegt geen authenticatie met gebruikersnaam/wachtwoord toe. Iedereen die deze listener kan bereiken, kan deze gebruiken.',
+      'Er is geen gebruikersnaam of wachtwoord ingesteld. Elk apparaat dat dit adres kan bereiken, kan de proxy gebruiken.',
   'lan_warning_body_authenticated':
       'Andere apparaten op je lokale netwerk kunnen deze proxy gebruiken met de ingestelde gebruikersnaam en het wachtwoord.',
   'proxy_auth': 'Proxygebruikersnaam en wachtwoord',
@@ -219,7 +219,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'open_release': 'Releasepagina openen',
   'update_startup_description': 'Controleer op updates wanneer Usque start.',
   'update_checking': 'Controleren op een update…',
-  'update_downloading': 'Geverifieerd updatepakket downloaden…',
+  'update_downloading': 'Update downloaden…',
   'update_verifying': 'Updatepakket verifiëren…',
   'update_ready': 'De update kan worden geïnstalleerd.',
   'update_installing':
@@ -274,7 +274,9 @@ const Map<String, String> kNlCatalog = <String, String>{
   'lockdown': 'Blokkeren zonder VPN',
   'not_used_proxy': 'Niet gebruikt in proxymodus',
   'kill_switch_help':
-      'Blokkeert verkeer tijdens verbinden, opnieuw verbinden of herstel van de verbindingsdienst. Op Android werkt dit alleen zolang de VPN-dienst draait. Zet Altijd-aan-VPN en Verbindingen zonder VPN blokkeren aan in de systeeminstellingen voor bescherming nadat de app is gestopt.',
+      'Blokkeert verkeer tijdens verbinden of opnieuw verbinden, of als de verbindingsdienst uitvalt.',
+  'kill_switch_help_android':
+      'Blokkeert verkeer tijdens verbinden of opnieuw verbinden, of als de verbindingsdienst uitvalt. Dit werkt alleen zolang de VPN-dienst draait. Zet Altijd-aan-VPN en Verbindingen zonder VPN blokkeren aan in de systeeminstellingen om beschermd te blijven nadat Usque is gestopt.',
   'start_on_boot_android':
       'Start Usque na het opnieuw opstarten. Schakel ook automatisch verbinden bij het starten in.',
   'add_quick_settings_tile_help':
@@ -287,7 +289,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'per_app_proxy_on': 'Proxy voor {count} apps',
   'per_app_proxy_enable': 'Alleen geselecteerde apps via proxy',
   'per_app_proxy_help':
-      'Alleen aangevinkte apps gebruiken de VPN. Nieuw geïnstalleerde apps blijven buiten de tunnel totdat u ze selecteert. Alles selecteren schakelt dit niet uit.',
+      'Alleen aangevinkte apps gebruiken de VPN. Nieuw geïnstalleerde apps moet u eerst aanvinken voordat ze de VPN gebruiken.',
   'per_app_proxy_lockdown_help':
       'Als Altijd-aan-VPN en Verbindingen zonder VPN blokkeren zijn ingeschakeld, worden apps die u niet selecteert geblokkeerd, niet buiten de tunnel gestuurd.',
   'per_app_proxy_tunnel_hint':
@@ -598,7 +600,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3-herstelprobe geslaagd',
   'diag_event_recovery_probe_failed': 'H3-herstelprobe mislukt',
   'diag_event_path_promoted': 'Kandidaatpad geactiveerd',
-  'diag_event_queue_backpressured': 'Gewacht op ruimte in de verzendwachtrij',
+  'diag_event_queue_backpressured': 'Achterstand in verzendwachtrij',
   'diag_event_queue_saturated':
       'De verzendwachtrij heeft de capaciteit bereikt',
   'diag_event_disconnected': 'Verbinding verbroken',

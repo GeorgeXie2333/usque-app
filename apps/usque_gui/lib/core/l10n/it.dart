@@ -4,7 +4,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'disable_quic_help':
       "Blocca UDP/443 tramite proxy o tunnel, inclusi gli altri protocolli su quella porta. Il traffico diretto GEO e la connessione HTTP/3 di Usque restano invariati. QUIC su altre porte rimane consentito. Si applica senza riconnettere.",
   'disable_quic_unsupported':
-      'Chiudi e riapri Usque, poi riprova. Se l’opzione resta indisponibile, cerca aggiornamenti in Impostazioni.',
+      'Il blocco di QUIC non è disponibile al momento. Riavvia Usque; se resta indisponibile, cerca aggiornamenti in Impostazioni.',
   'technical_details': 'Dettagli tecnici',
   'diag_skip_disconnected': 'Connettiti per eseguire questo controllo.',
   'diag_skip_disabled': 'Questa funzione è disattivata.',
@@ -159,7 +159,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'auto_connect': 'Connetti automaticamente l’account corrente all’avvio',
   'lan_warning': 'Proxy esposto alla rete locale',
   'lan_warning_body':
-      'Usque non aggiunge autenticazione con nome utente e password. Chiunque possa raggiungere questo listener può usarlo.',
+      'Nessun nome utente o password impostati. Qualsiasi dispositivo che raggiunge questo indirizzo può usare il proxy.',
   'lan_warning_body_authenticated':
       'Gli altri dispositivi della rete locale possono usare questo proxy con il nome utente e la password che hai impostato.',
   'proxy_auth': 'Nome utente e password del proxy',
@@ -221,7 +221,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'update_startup_description':
       'Controlla gli aggiornamenti all’avvio di Usque.',
   'update_checking': 'Ricerca di un aggiornamento…',
-  'update_downloading': 'Download del pacchetto di aggiornamento verificato…',
+  'update_downloading': 'Download dell’aggiornamento…',
   'update_verifying': 'Verifica del pacchetto di aggiornamento…',
   'update_ready': 'L’aggiornamento è pronto per l’installazione.',
   'update_installing':
@@ -276,7 +276,9 @@ const Map<String, String> kItCatalog = <String, String>{
   'lockdown': 'Blocca senza VPN',
   'not_used_proxy': 'Non usato in modalità proxy',
   'kill_switch_help':
-      'Blocca il traffico durante connessione, riconnessione o ripristino del servizio. Su Android funziona solo mentre il servizio VPN è attivo. Per restare protetto dopo la chiusura dell’app, attiva VPN sempre attiva e Blocca connessioni senza VPN nelle impostazioni di sistema.',
+      'Blocca il traffico durante la connessione o la riconnessione, o in caso di errore del servizio di connessione.',
+  'kill_switch_help_android':
+      'Blocca il traffico durante la connessione o la riconnessione, o in caso di errore del servizio di connessione. Funziona solo mentre il servizio VPN è attivo. Per restare protetto dopo l’arresto di Usque, attiva VPN sempre attiva e Blocca connessioni senza VPN nelle impostazioni di sistema.',
   'start_on_boot_android':
       'Avvia Usque dopo il riavvio. Abilitare anche la connessione automatica all’avvio.',
   'add_quick_settings_tile_help':
@@ -289,7 +291,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'per_app_proxy_on': 'Proxy di {count} app',
   'per_app_proxy_enable': 'Usa il proxy solo per le app selezionate',
   'per_app_proxy_help':
-      'Solo le app selezionate usano la VPN. Le app appena installate restano fuori dal tunnel finché non le si seleziona. La selezione di tutte le app non disattiva questa opzione.',
+      'Solo le app selezionate usano la VPN. Le app appena installate devono essere selezionate per usarla.',
   'per_app_proxy_lockdown_help':
       'Se VPN sempre attiva e Blocca le connessioni senza VPN sono attive, le app non selezionate vengono bloccate, non inviate fuori dal tunnel.',
   'per_app_proxy_tunnel_hint':
@@ -605,7 +607,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Sonda di ripristino H3 riuscita',
   'diag_event_recovery_probe_failed': 'Sonda di ripristino H3 non riuscita',
   'diag_event_path_promoted': 'Percorso candidato attivato',
-  'diag_event_queue_backpressured': 'Attesa di spazio nella coda di invio',
+  'diag_event_queue_backpressured': 'Coda di invio congestionata',
   'diag_event_queue_saturated': 'La coda di invio ha raggiunto la capacità',
   'diag_event_disconnected': 'Disconnesso',
   'diag_event_failed': 'Connessione non riuscita',

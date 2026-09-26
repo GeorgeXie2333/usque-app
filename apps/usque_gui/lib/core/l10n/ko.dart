@@ -4,7 +4,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'disable_quic_help':
       "프록시 또는 터널을 통과하는 UDP/443을 해당 포트의 다른 프로토콜과 함께 차단합니다. GEO 직접 연결과 Usque 자체 HTTP/3 연결에는 영향이 없습니다. 다른 포트의 QUIC은 허용됩니다. 재연결 없이 적용됩니다.",
   'disable_quic_unsupported':
-      'Usque를 종료했다가 다시 열어 보세요. 이 설정을 계속 사용할 수 없다면 설정에서 Usque 업데이트를 확인하세요.',
+      '지금은 QUIC을 차단할 수 없습니다. Usque를 다시 시작하고, 그래도 안 되면 설정에서 업데이트를 확인하세요.',
   'technical_details': '기술 세부 정보',
   'diag_skip_disconnected': '먼저 연결한 후 이 검사를 실행하세요.',
   'diag_skip_disabled': '이 기능은 꺼져 있습니다.',
@@ -149,7 +149,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'auto_connect': '시작 시 현재 계정을 자동으로 연결합니다',
   'lan_warning': '프록시가 로컬 네트워크에 노출되어 있습니다',
   'lan_warning_body':
-      'Usque는 사용자 이름/비밀번호 인증을 추가하지 않습니다. 이 리스너에 도달할 수 있는 누구나 사용할 수 있습니다.',
+      '사용자 이름과 비밀번호가 설정되지 않았습니다. 이 주소에 접속할 수 있는 모든 기기가 프록시를 사용할 수 있습니다.',
   'lan_warning_body_authenticated':
       '같은 로컬 네트워크의 다른 기기도 설정한 사용자 이름과 비밀번호로 이 프록시를 사용할 수 있습니다.',
   'proxy_auth': '프록시 사용자 이름과 비밀번호',
@@ -208,7 +208,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'open_release': '릴리스 페이지 열기',
   'update_startup_description': 'Usque 시작 시 업데이트를 확인합니다.',
   'update_checking': '업데이트를 확인하는 중…',
-  'update_downloading': '검증된 업데이트 패키지를 다운로드하는 중…',
+  'update_downloading': '업데이트를 다운로드하는 중…',
   'update_verifying': '업데이트 패키지를 검증하는 중…',
   'update_ready': '업데이트를 설치할 준비가 되었습니다.',
   'update_installing': '업데이트를 시스템 설치 프로그램에 전달했습니다.',
@@ -257,8 +257,9 @@ const Map<String, String> kKoCatalog = <String, String>{
   'always_on': '항상 사용 VPN',
   'lockdown': 'VPN 없이 차단',
   'not_used_proxy': '프록시 모드에서는 사용하지 않습니다',
-  'kill_switch_help':
-      '연결, 재연결 또는 연결 서비스 장애 복구 중 트래픽을 차단합니다. Android에서는 VPN 서비스가 실행되는 동안에만 작동합니다. 앱 종료 후에도 보호하려면 시스템 설정에서 항상 켜짐 VPN과 VPN 없이 연결 차단을 켜세요.',
+  'kill_switch_help': '연결 또는 재연결 중이거나 연결 서비스에 오류가 발생하면 트래픽을 차단합니다.',
+  'kill_switch_help_android':
+      '연결 또는 재연결 중이거나 연결 서비스에 오류가 발생하면 트래픽을 차단합니다. VPN 서비스가 실행 중일 때만 작동합니다. Usque가 중지된 후에도 보호하려면 시스템 설정에서 ‘항상 사용 VPN’과 ‘VPN 없이 연결 차단’을 켜세요.',
   'start_on_boot_android': '재부팅 후 Usque를 시작합니다. 시작 시 자동 연결도 함께 사용해야 합니다.',
   'add_quick_settings_tile_help':
       'Android 13 이상에서는 Usque 타일을 고정합니다. 이전 버전에서는 빠른 설정에서 추가합니다.',
@@ -269,8 +270,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'per_app_proxy_off': '모든 앱이 VPN을 사용합니다',
   'per_app_proxy_on': '{count}개 앱을 프록시합니다',
   'per_app_proxy_enable': '선택한 앱만 프록시',
-  'per_app_proxy_help':
-      '선택한 앱만 VPN을 사용합니다. 새로 설치한 앱은 선택할 때까지 터널을 사용하지 않습니다. 모두 선택해도 이 기능은 꺼지지 않습니다.',
+  'per_app_proxy_help': '선택한 앱만 VPN을 사용합니다. 새로 설치한 앱은 선택해야 VPN을 사용합니다.',
   'per_app_proxy_lockdown_help':
       '항상 사용 VPN과 VPN 없이 연결 차단이 켜져 있으면, 선택하지 않은 앱은 터널 밖으로 나가지 않고 차단됩니다.',
   'per_app_proxy_tunnel_hint':
@@ -548,7 +548,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 복구 프로브 성공',
   'diag_event_recovery_probe_failed': 'H3 복구 프로브 실패',
   'diag_event_path_promoted': '후보 경로가 활성화됨',
-  'diag_event_queue_backpressured': '전송 큐 용량 대기',
+  'diag_event_queue_backpressured': '전송 대기열 적체',
   'diag_event_queue_saturated': '전송 큐가 용량에 도달함',
   'diag_event_disconnected': '연결 해제됨',
   'diag_event_failed': '연결 실패',

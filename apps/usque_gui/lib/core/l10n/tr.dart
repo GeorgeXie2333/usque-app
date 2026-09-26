@@ -4,7 +4,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'disable_quic_help':
       "Proxy veya tünel üzerinden UDP/443 trafiğini, bu porttaki diğer protokollerle birlikte engeller. GEO doğrudan trafiği ve Usque’nin HTTP/3 bağlantısı etkilenmez. Diğer portlarda QUIC serbesttir. Yeniden bağlanmadan uygulanır.",
   'disable_quic_unsupported':
-      'Usque’yi tamamen kapatıp yeniden açın. Bu seçenek hâlâ kullanılamıyorsa Ayarlar’dan Usque’yi güncelleyin.',
+      'QUIC engelleme şu anda kullanılamıyor. Usque’yi yeniden başlatın; hâlâ kullanılamıyorsa Ayarlar’dan güncellemeleri denetleyin.',
   'technical_details': 'Teknik ayrıntılar',
   'diag_skip_disconnected': 'Bu kontrolü çalıştırmak için bağlanın.',
   'diag_skip_disabled': 'Bu özellik kapalı.',
@@ -158,7 +158,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'auto_connect': 'Başlangıçta geçerli hesaba otomatik bağlan',
   'lan_warning': 'Proxy yerel ağa açık',
   'lan_warning_body':
-      'Usque kullanıcı adı/parola kimlik doğrulaması eklemez. Bu dinleyiciye ulaşabilen herkes onu kullanabilir.',
+      'Kullanıcı adı veya parola ayarlanmadı. Bu adrese erişebilen her cihaz proxy’yi kullanabilir.',
   'lan_warning_body_authenticated':
       'Yerel ağdaki diğer cihazlar, ayarladığınız kullanıcı adı ve parolayla bu proxy’yi kullanabilir.',
   'proxy_auth': 'Proxy kullanıcı adı ve parolası',
@@ -220,7 +220,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'open_release': 'Sürüm sayfasını aç',
   'update_startup_description': 'Usque başlatıldığında güncellemeleri denetle.',
   'update_checking': 'Güncelleme denetleniyor…',
-  'update_downloading': 'Doğrulanmış güncelleme paketi indiriliyor…',
+  'update_downloading': 'Güncelleme indiriliyor…',
   'update_verifying': 'Güncelleme paketi doğrulanıyor…',
   'update_ready': 'Güncelleme yüklenmeye hazır.',
   'update_installing': 'Güncelleme sistem yükleyicisine aktarıldı.',
@@ -273,7 +273,9 @@ const Map<String, String> kTrCatalog = <String, String>{
   'lockdown': 'VPN olmadan engelle',
   'not_used_proxy': 'Proxy modunda kullanılmaz',
   'kill_switch_help':
-      'Bağlanırken, yeniden bağlanırken ve bağlantı hizmeti kurtarılırken trafiği engeller. Android’de yalnızca VPN hizmeti çalışırken etkindir. Uygulama durduktan sonra da korunmak için sistem ayarlarında Her zaman açık VPN ve VPN’siz bağlantıları engelle seçeneklerini açın.',
+      'Bağlanırken, yeniden bağlanırken veya bağlantı hizmeti hata verdiğinde trafiği engeller.',
+  'kill_switch_help_android':
+      'Bağlanırken, yeniden bağlanırken veya bağlantı hizmeti hata verdiğinde trafiği engeller. Yalnızca VPN hizmeti çalışırken etkindir. Usque durduktan sonra da korunmak için sistem ayarlarında “Her zaman açık VPN” ve “VPN olmadan bağlantıları engelle” seçeneklerini açın.',
   'start_on_boot_android':
       'Yeniden başlatmanın ardından Usque’yi başlatın. Ayrıca başlangıçta otomatik bağlanmayı etkinleştirin.',
   'add_quick_settings_tile_help':
@@ -286,7 +288,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'per_app_proxy_on': '{count} uygulama proxy’leniyor',
   'per_app_proxy_enable': 'Yalnızca seçilen uygulamaları proxy’le',
   'per_app_proxy_help':
-      'Yalnızca işaretli uygulamalar VPN kullanır. Yeni yüklenen uygulamalar siz seçene kadar tünelin dışında kalır. Tümünü seç bunu kapatmaz.',
+      'Yalnızca işaretli uygulamalar VPN kullanır. Yeni yüklenen uygulamaların VPN kullanabilmesi için işaretlenmesi gerekir.',
   'per_app_proxy_lockdown_help':
       'Her zaman açık VPN ve VPN olmadan bağlantıları engelle açıksa, seçmediğiniz uygulamalar tünelin dışına gönderilmez; engellenir.',
   'per_app_proxy_tunnel_hint':
@@ -593,7 +595,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 kurtarma sondası başarılı',
   'diag_event_recovery_probe_failed': 'H3 kurtarma sondası başarısız',
   'diag_event_path_promoted': 'Aday yol etkinleştirildi',
-  'diag_event_queue_backpressured': 'Gönderim kuyruğunda kapasite beklendi',
+  'diag_event_queue_backpressured': 'Gönderim kuyruğunda birikme',
   'diag_event_queue_saturated': 'Gönderme kuyruğu kapasitesine ulaştı',
   'diag_event_disconnected': 'Bağlantı kesildi',
   'diag_event_failed': 'Bağlantı başarısız oldu',

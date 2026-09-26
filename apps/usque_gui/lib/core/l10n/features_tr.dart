@@ -241,7 +241,7 @@ const kNetworkQualityTr = <String, String>{
   'nq_dns_bootstrap_help':
       'DNS sağlayıcınızın verdiği 1–8 IP adresini, her satıra bir adres gelecek şekilde girin. Örnek: 1.1.1.1. Bu adreslerle sunucu adı önceden çözümlenmeden doğrudan bağlantı kurulur.',
   'nq_dns_no_fallback':
-      'Şifreli doğrudan DNS başarısız olursa sorgu başarısız olur. Sistem veya düz metin DNS’ine asla geri dönmez.',
+      'Şifreli DNS kullanılamazsa sorgular şifresiz DNS’e geçmek yerine başarısız olur.',
   'nq_dns_system_privacy':
       'Mevcut ağın DNS sağlayıcısı, doğrudan bağlantı trafiğinde sorgulanan alan adlarını görebilir.',
   'nq_dns_scope':
@@ -399,7 +399,7 @@ const Map<String, String> kChainTr = <String, String>{
   'select_required': 'Uygulamadan önce kayıtlı bir yapılandırma seçin.',
   'pending_disable': 'Bekliyor: zincir proxy’yi kapat',
   'apply_reconnect': 'Uygula ve yeniden bağlan',
-  'requires_connect_ip': 'CONNECT-IP gerekir',
+  'requires_connect_ip': 'L4 ile kullanılamaz',
   'menu': 'Yapılandırma işlemleri',
   'preview': 'Yapılandırmayı denetle',
   'save_import': 'Yapılandırmayı kaydet',
@@ -432,8 +432,8 @@ const Map<String, String> kChainTr = <String, String>{
   'connecting': 'Bağlanıyor',
   'error': 'Bağlantı başarısız',
   'no_selection': 'Yapılandırma seçilmedi',
-  'l4': 'Bu yapılandırma CONNECT-IP modunu gerektirir.',
-  'switch_mode': 'CONNECT-IP’ye geç ve uygula',
+  'l4': 'Bu yapılandırma UDP gerektirir; L4 UDP’yi desteklemez.',
+  'switch_mode': 'L4’ü kapat ve uygula',
   'unsupported': 'Bu motor bu çıkış kaynağını desteklemiyor.',
   'scope':
       'Var olan açık doğrudan kurallar geçerli kalır. Diğer trafik seçilen çıkışı kullanır.',

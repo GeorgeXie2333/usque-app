@@ -4,7 +4,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'disable_quic_help':
       "يحظر UDP/443 عبر الوكيل أو النفق، بما في ذلك البروتوكولات الأخرى على هذا المنفذ. لا يتأثر اتصال GEO المباشر ولا اتصال HTTP/3 الخاص بـ Usque. يبقى QUIC مسموحاً على المنافذ الأخرى. يُطبّق دون إعادة الاتصال.",
   'disable_quic_unsupported':
-      'أغلق Usque تمامًا ثم افتحه مجددًا. إذا ظل هذا الخيار غير متاح، فحدّث Usque من الإعدادات.',
+      'حظر QUIC غير متاح حاليًا. أعد تشغيل Usque؛ وإذا ظل غير متاح، فتحقق من وجود تحديثات في الإعدادات.',
   'technical_details': 'التفاصيل التقنية',
   'diag_skip_disconnected': 'اتصل لتشغيل هذا الفحص.',
   'diag_skip_disabled': 'هذه الميزة متوقفة.',
@@ -156,7 +156,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'auto_connect': 'الاتصال بالحساب الحالي تلقائيًا عند البدء',
   'lan_warning': 'الوكيل مكشوف للشبكة المحلية',
   'lan_warning_body':
-      'لا يضيف Usque مصادقة باسم المستخدم/كلمة المرور. أي شخص يصل إلى هذا المستمع يمكنه استخدامه.',
+      'لم يُعيَّن اسم مستخدم أو كلمة مرور. يمكن لأي جهاز يصل إلى هذا العنوان استخدام الوكيل.',
   'lan_warning_body_authenticated':
       'يمكن للأجهزة الأخرى على الشبكة المحلية استخدام هذا الوكيل باسم المستخدم وكلمة المرور اللذين حددتهما.',
   'proxy_auth': 'اسم المستخدم وكلمة مرور الوكيل',
@@ -216,7 +216,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'open_release': 'فتح صفحة الإصدار',
   'update_startup_description': 'التحقق من التحديثات عند بدء Usque.',
   'update_checking': 'جارٍ التحقق من وجود تحديث…',
-  'update_downloading': 'جارٍ تنزيل حزمة التحديث الموثقة…',
+  'update_downloading': 'جارٍ تنزيل التحديث…',
   'update_verifying': 'جارٍ التحقق من حزمة التحديث…',
   'update_ready': 'التحديث جاهز للتثبيت.',
   'update_installing': 'تم تسليم التحديث إلى مُثبّت النظام.',
@@ -268,7 +268,9 @@ const Map<String, String> kArCatalog = <String, String>{
   'lockdown': 'الحظر دون VPN',
   'not_used_proxy': 'غير مستخدم في وضع الوكيل',
   'kill_switch_help':
-      'يمنع حركة البيانات أثناء الاتصال وإعادة الاتصال واستعادة خدمة الاتصال. على Android، يعمل فقط أثناء تشغيل خدمة VPN. لاستمرار الحماية بعد توقف التطبيق، فعّل VPN الدائم وحظر الاتصالات بدون VPN في إعدادات النظام.',
+      'يمنع حركة البيانات أثناء الاتصال أو إعادة الاتصال، أو عند تعطل خدمة الاتصال.',
+  'kill_switch_help_android':
+      'يمنع حركة البيانات أثناء الاتصال أو إعادة الاتصال، أو عند تعطل خدمة الاتصال. يعمل هذا فقط أثناء تشغيل خدمة VPN. لاستمرار الحماية بعد توقف Usque، فعّل «VPN دائم التشغيل» و«حظر الاتصالات دون VPN» في إعدادات النظام.',
   'start_on_boot_android':
       'تشغيل Usque بعد إعادة التشغيل. فعّل أيضًا الاتصال التلقائي عند البدء.',
   'add_quick_settings_tile_help':
@@ -281,7 +283,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'per_app_proxy_on': 'عدد التطبيقات عبر الوكيل: {count}',
   'per_app_proxy_enable': 'توكيل التطبيقات المحددة فقط',
   'per_app_proxy_help':
-      'التطبيقات المحدَّدة فقط تستخدم VPN. تبقى التطبيقات المثبتة حديثًا خارج النفق حتى تحددها. تحديد الكل لا يعطّل هذا الخيار.',
+      'التطبيقات المحدَّدة فقط تستخدم VPN. يجب تحديد التطبيقات المثبتة حديثًا قبل أن تستخدمه.',
   'per_app_proxy_lockdown_help':
       'إذا كان VPN دائم التشغيل وحظر الاتصالات دون VPN مفعَّلين، تُحظر التطبيقات التي لا تحددها، ولا تُرسل خارج النفق.',
   'per_app_proxy_tunnel_hint':
@@ -581,7 +583,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'نجح مجس استرداد H3',
   'diag_event_recovery_probe_failed': 'فشل مجس استرداد H3',
   'diag_event_path_promoted': 'فُعّل المسار المرشح',
-  'diag_event_queue_backpressured': 'انتظار سعة قائمة الإرسال',
+  'diag_event_queue_backpressured': 'تكدّس في قائمة الإرسال',
   'diag_event_queue_saturated': 'بلغت قائمة الإرسال سعتها القصوى',
   'diag_event_disconnected': 'غير متصل',
   'diag_event_failed': 'فشل الاتصال',

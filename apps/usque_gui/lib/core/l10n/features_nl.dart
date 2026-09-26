@@ -261,8 +261,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_dns_bootstrap_help':
       'Voer 1–8 IP-adressen van je DNS-aanbieder in, één per regel, zoals 1.1.1.1. Usque verbindt rechtstreeks met deze adressen zonder eerst de servernaam op te zoeken.',
   'nq_dns_no_fallback':
-      'Als versleutelde directe DNS mislukt, mislukt de query. Er wordt nooit '
-      'teruggevallen op systeem- of platte DNS.',
+      'Als versleutelde DNS niet beschikbaar is, mislukken aanvragen in plaats van over te schakelen naar onversleutelde DNS.',
   'nq_dns_system_privacy':
       'De DNS-aanbieder van je huidige netwerk kan domeinen van direct verkeer zien.',
   'nq_dns_scope':
@@ -433,7 +432,7 @@ const Map<String, String> kChainNl = <String, String>{
   'select_required': 'Selecteer een opgeslagen configuratie om toe te passen.',
   'pending_disable': 'In afwachting: ketenproxy uitschakelen',
   'apply_reconnect': 'Toepassen en opnieuw verbinden',
-  'requires_connect_ip': 'Vereist CONNECT-IP',
+  'requires_connect_ip': 'Niet beschikbaar met L4',
   'menu': 'Configuratieacties',
   'preview': 'Configuratie controleren',
   'save_import': 'Configuratie opslaan',
@@ -466,8 +465,8 @@ const Map<String, String> kChainNl = <String, String>{
   'connecting': 'Verbinden',
   'error': 'Verbinding mislukt',
   'no_selection': 'Geen configuratie geselecteerd',
-  'l4': 'Deze configuratie vereist de modus CONNECT-IP.',
-  'switch_mode': 'Overschakelen naar CONNECT-IP en toepassen',
+  'l4': 'Deze configuratie vereist UDP, wat L4 niet ondersteunt.',
+  'switch_mode': 'L4 uitschakelen en toepassen',
   'unsupported': 'Deze engine ondersteunt deze uitgangsbron niet.',
   'scope':
       'Bestaande expliciete directe regels blijven gelden. Overig verkeer gebruikt de gekozen uitgang.',

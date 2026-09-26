@@ -262,8 +262,7 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
   'nq_dns_bootstrap_help':
       'Saisissez 1 à 8 IP fournies par votre service DNS, une par ligne, par exemple 1.1.1.1. Usque s’y connecte directement sans rechercher d’abord le nom du serveur.',
   'nq_dns_no_fallback':
-      'Si le DNS direct chiffré échoue, la requête échoue. Il n’y a jamais de '
-      'repli vers le DNS système ou en clair.',
+      'Si le DNS chiffré est indisponible, les requêtes échouent au lieu de passer au DNS non chiffré.',
   'nq_dns_system_privacy':
       'Le fournisseur DNS du réseau actuel peut voir les domaines demandés par le trafic direct.',
   'nq_dns_scope':
@@ -438,7 +437,7 @@ const Map<String, String> kChainFr = <String, String>{
       'Choisissez une configuration enregistrée avant de l’appliquer.',
   'pending_disable': 'En attente : désactiver le proxy en chaîne',
   'apply_reconnect': 'Appliquer et reconnecter',
-  'requires_connect_ip': 'Nécessite CONNECT-IP',
+  'requires_connect_ip': 'Indisponible avec L4',
   'menu': 'Actions de la configuration',
   'preview': 'Vérifier la configuration',
   'save_import': 'Enregistrer la configuration',
@@ -472,8 +471,8 @@ const Map<String, String> kChainFr = <String, String>{
   'connecting': 'Connexion en cours',
   'error': 'Échec de la connexion',
   'no_selection': 'Aucune configuration sélectionnée',
-  'l4': 'Cette configuration nécessite le mode CONNECT-IP.',
-  'switch_mode': 'Passer à CONNECT-IP et appliquer',
+  'l4': 'Cette configuration nécessite UDP, que L4 ne prend pas en charge.',
+  'switch_mode': 'Désactiver L4 et appliquer',
   'unsupported': 'Ce moteur ne prend pas en charge cette source de sortie.',
   'scope':
       'Les règles directes explicites restent en vigueur. Le reste du trafic utilise la sortie choisie.',

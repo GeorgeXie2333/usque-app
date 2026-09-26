@@ -4,7 +4,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'disable_quic_help':
       "プロキシまたはトンネル経由の UDP/443 を、同じポートの他のプロトコルも含めて遮断します。GEO 直接接続と Usque 自身の HTTP/3 接続には影響しません。他のポートの QUIC は許可されます。再接続せずに適用します。",
   'disable_quic_unsupported':
-      'Usque を終了して開き直し、再試行してください。使えない場合は「設定」で更新を確認してください。',
+      '現在 QUIC をブロックできません。Usque を再起動し、それでも使えない場合は「設定」で更新を確認してください。',
   'technical_details': '技術情報',
   'diag_skip_disconnected': '接続してからこのチェックを実行してください。',
   'diag_skip_disabled': 'この機能はオフになっています。',
@@ -149,7 +149,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'output_disabled_in_profile': '設定で無効',
   'auto_connect': '起動時に現在のアカウントへ自動接続',
   'lan_warning': 'プロキシがローカルネットワークに公開されています',
-  'lan_warning_body': 'Usque はユーザー名/パスワード認証を追加しません。このリスナーに到達できる人は誰でも使用できます。',
+  'lan_warning_body': 'ユーザー名とパスワードが設定されていません。このアドレスに接続できるすべての端末がプロキシを使用できます。',
   'lan_warning_body_authenticated':
       '同じローカルネットワーク内の他の端末は、設定したユーザー名とパスワードでこのプロキシを利用できます。',
   'proxy_auth': 'プロキシのユーザー名とパスワード',
@@ -208,7 +208,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'open_release': 'リリースページを開く',
   'update_startup_description': 'Usque の起動時に更新を確認します。',
   'update_checking': '更新を確認しています…',
-  'update_downloading': '検証済みの更新パッケージをダウンロードしています…',
+  'update_downloading': '更新をダウンロードしています…',
   'update_verifying': '更新パッケージを検証しています…',
   'update_ready': '更新をインストールできます。',
   'update_installing': '更新をシステムインストーラーに渡しました。',
@@ -257,8 +257,9 @@ const Map<String, String> kJaCatalog = <String, String>{
   'always_on': '常時オン VPN',
   'lockdown': 'VPN なしではブロック',
   'not_used_proxy': 'プロキシモードでは使用しません',
-  'kill_switch_help':
-      '接続中、再接続中、接続サービスの障害復旧中は通信を遮断します。Android では VPN サービスの動作中のみ有効です。アプリ終了後も保護するには、システム設定の「常時接続 VPN」と「VPN なしの接続をブロック」を有効にしてください。',
+  'kill_switch_help': '接続中、再接続中、または接続サービスの障害時に通信を遮断します。',
+  'kill_switch_help_android':
+      '接続中、再接続中、または接続サービスの障害時に通信を遮断します。VPN サービスの動作中のみ有効です。Usque の停止後も保護するには、システム設定で「常時オン VPN」と「VPN なしでは接続をブロック」を有効にしてください。',
   'start_on_boot_android': '再起動後に Usque を起動します。起動時の自動接続も有効にしてください。',
   'add_quick_settings_tile_help':
       'Android 13 以降では Usque タイルをピン留めできます。旧バージョンではクイック設定から追加してください。',
@@ -270,7 +271,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'per_app_proxy_on': '{count} 個のアプリをプロキシしています',
   'per_app_proxy_enable': '選択したアプリのみプロキシ',
   'per_app_proxy_help':
-      'チェックしたアプリのみが VPN を使用します。新しくインストールしたアプリは、選択するまでトンネルの外に留まります。「すべて選択」しても、この設定はオフになりません。',
+      'チェックしたアプリのみが VPN を使用します。新しくインストールしたアプリは、チェックするまで VPN を使用しません。',
   'per_app_proxy_lockdown_help':
       '常時オン VPN と「VPN なしでは接続をブロック」がオンの場合、選択していないアプリはトンネルの外には送られず、ブロックされます。',
   'per_app_proxy_tunnel_hint':
@@ -546,7 +547,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 復旧プローブが成功しました',
   'diag_event_recovery_probe_failed': 'H3 復旧プローブが失敗しました',
   'diag_event_path_promoted': '候補パスをアクティブにしました',
-  'diag_event_queue_backpressured': '送信キューの空きを待機',
+  'diag_event_queue_backpressured': '送信キューが滞留',
   'diag_event_queue_saturated': '送信キューが容量に達しました',
   'diag_event_disconnected': '切断しました',
   'diag_event_failed': '接続に失敗しました',

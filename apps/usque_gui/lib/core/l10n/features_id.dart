@@ -245,7 +245,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_dns_bootstrap_help':
       'Masukkan 1–8 IP dari penyedia DNS, satu per baris, misalnya 1.1.1.1. Usque langsung menghubungi alamat ini tanpa mencari nama server terlebih dahulu.',
   'nq_dns_no_fallback':
-      'Jika DNS langsung terenkripsi gagal, kueri gagal. Tidak pernah kembali ke DNS sistem atau teks biasa.',
+      'Jika DNS terenkripsi tidak tersedia, kueri gagal alih-alih beralih ke DNS tanpa enkripsi.',
   'nq_dns_system_privacy':
       'Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta oleh lalu lintas langsung.',
   'nq_dns_scope':
@@ -405,7 +405,7 @@ const Map<String, String> kChainId = <String, String>{
   'select_required': 'Pilih konfigurasi tersimpan sebelum menerapkan.',
   'pending_disable': 'Menunggu: nonaktifkan proksi berantai',
   'apply_reconnect': 'Terapkan dan hubungkan ulang',
-  'requires_connect_ip': 'Memerlukan CONNECT-IP',
+  'requires_connect_ip': 'Tidak tersedia dengan L4',
   'menu': 'Tindakan konfigurasi',
   'preview': 'Periksa konfigurasi',
   'save_import': 'Simpan konfigurasi',
@@ -438,8 +438,8 @@ const Map<String, String> kChainId = <String, String>{
   'connecting': 'Menghubungkan',
   'error': 'Koneksi gagal',
   'no_selection': 'Belum ada konfigurasi yang dipilih',
-  'l4': 'Konfigurasi ini memerlukan mode CONNECT-IP.',
-  'switch_mode': 'Beralih ke CONNECT-IP dan terapkan',
+  'l4': 'Konfigurasi ini memerlukan UDP, yang tidak didukung L4.',
+  'switch_mode': 'Nonaktifkan L4 dan terapkan',
   'unsupported': 'Mesin ini tidak mendukung sumber pintu keluar ini.',
   'scope':
       'Aturan langsung eksplisit yang sudah ada tetap berlaku. Lalu lintas lain memakai pintu keluar yang dipilih.',

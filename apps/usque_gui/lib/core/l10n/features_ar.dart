@@ -233,7 +233,7 @@ const kNetworkQualityAr = <String, String>{
   'nq_dns_bootstrap_help':
       'أدخل من عنوان IP واحد إلى 8 عناوين يوفّرها مزوّد DNS، كل عنوان في سطر. مثال: 1.1.1.1. تتيح هذه العناوين الاتصال مباشرة دون الحاجة أولًا إلى معرفة العنوان من اسم الخادم.',
   'nq_dns_no_fallback':
-      'إذا فشل DNS المباشر المشفّر، يفشل الاستعلام. ولا يعود أبدًا إلى DNS النظام أو النص الواضح.',
+      'إذا لم يتوفر DNS المشفّر، تفشل الاستعلامات بدلًا من التحول إلى DNS غير مشفّر.',
   'nq_dns_system_privacy':
       'قد يرى مزوّد DNS للشبكة الحالية النطاقات المطلوبة لحركة الاتصال المباشر.',
   'nq_dns_scope':
@@ -384,7 +384,7 @@ const Map<String, String> kChainAr = <String, String>{
   'select_required': 'اختر إعدادًا محفوظًا قبل التطبيق.',
   'pending_disable': 'بانتظار التطبيق: إيقاف الوكيل المتسلسل',
   'apply_reconnect': 'تطبيق وإعادة الاتصال',
-  'requires_connect_ip': 'يتطلب CONNECT-IP',
+  'requires_connect_ip': 'غير متاح مع L4',
   'menu': 'إجراءات الإعداد',
   'preview': 'فحص الإعداد',
   'save_import': 'حفظ الإعداد',
@@ -417,8 +417,8 @@ const Map<String, String> kChainAr = <String, String>{
   'connecting': 'جارٍ الاتصال',
   'error': 'فشل الاتصال',
   'no_selection': 'لم يُختر إعداد',
-  'l4': 'يتطلب هذا الإعداد وضع CONNECT-IP.',
-  'switch_mode': 'التبديل إلى CONNECT-IP والتطبيق',
+  'l4': 'يتطلب هذا الإعداد UDP، وهو ما لا يدعمه L4.',
+  'switch_mode': 'إيقاف L4 والتطبيق',
   'unsupported': 'لا يدعم هذا المحرك مصدر المخرج هذا.',
   'scope':
       'تبقى قواعد الاتصال المباشر الصريحة سارية. تستخدم بقية الحركة المخرج المختار.',

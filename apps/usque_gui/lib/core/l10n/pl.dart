@@ -4,7 +4,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'disable_quic_help':
       "Blokuje UDP/443 przez serwer proxy lub tunel, także inne protokoły na tym porcie. Ruch bezpośredni GEO i połączenie HTTP/3 Usque pozostają bez zmian. QUIC na innych portach jest dozwolony. Stosowanie bez ponownego łączenia.",
   'disable_quic_unsupported':
-      'Zamknij i otwórz ponownie Usque. Jeśli opcja nadal jest niedostępna, sprawdź aktualizacje w Ustawieniach.',
+      'Blokowanie QUIC jest teraz niedostępne. Uruchom ponownie Usque; jeśli nadal jest niedostępne, sprawdź aktualizacje w Ustawieniach.',
   'technical_details': 'Szczegóły techniczne',
   'diag_skip_disconnected': 'Połącz się, aby uruchomić ten test.',
   'diag_skip_disabled': 'Ta funkcja jest wyłączona.',
@@ -156,7 +156,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'auto_connect': 'Łącz automatycznie bieżące konto przy uruchomieniu',
   'lan_warning': 'Proxy wystawione na sieć lokalną',
   'lan_warning_body':
-      'Usque nie dodaje uwierzytelniania nazwą użytkownika i hasłem. Każdy, kto dotrze do tego nasłuchu, może go użyć.',
+      'Nie ustawiono nazwy użytkownika ani hasła. Każde urządzenie, które ma dostęp do tego adresu, może korzystać z proxy.',
   'lan_warning_body_authenticated':
       'Inne urządzenia w sieci lokalnej mogą używać tego proxy z ustawioną nazwą użytkownika i hasłem.',
   'proxy_auth': 'Nazwa użytkownika i hasło proxy',
@@ -218,7 +218,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'update_startup_description':
       'Sprawdzaj aktualizacje przy uruchamianiu Usque.',
   'update_checking': 'Sprawdzanie aktualizacji…',
-  'update_downloading': 'Pobieranie zweryfikowanego pakietu aktualizacji…',
+  'update_downloading': 'Pobieranie aktualizacji…',
   'update_verifying': 'Weryfikowanie pakietu aktualizacji…',
   'update_ready': 'Aktualizacja jest gotowa do instalacji.',
   'update_installing':
@@ -273,7 +273,9 @@ const Map<String, String> kPlCatalog = <String, String>{
   'lockdown': 'Blokuj bez VPN',
   'not_used_proxy': 'Nieużywane w trybie proxy',
   'kill_switch_help':
-      'Blokuje ruch podczas łączenia, ponownego łączenia i przywracania usługi po awarii. W Androidzie działa tylko przy uruchomionej usłudze VPN. Aby zachować ochronę po zatrzymaniu aplikacji, włącz Zawsze aktywna sieć VPN i Blokuj połączenia bez VPN w ustawieniach systemu.',
+      'Blokuje ruch podczas łączenia i ponownego łączenia oraz w razie awarii usługi połączenia.',
+  'kill_switch_help_android':
+      'Blokuje ruch podczas łączenia i ponownego łączenia oraz w razie awarii usługi połączenia. Działa tylko przy uruchomionej usłudze VPN. Aby zachować ochronę po zatrzymaniu Usque, włącz w ustawieniach systemu „Zawsze włączony VPN” i „Blokuj połączenia bez VPN”.',
   'start_on_boot_android':
       'Uruchamiaj Usque po restarcie. Włącz też automatyczne łączenie przy starcie.',
   'add_quick_settings_tile_help':
@@ -286,7 +288,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'per_app_proxy_on': 'Proxy dla {count} aplikacji',
   'per_app_proxy_enable': 'Proxy tylko dla wybranych aplikacji',
   'per_app_proxy_help':
-      'Tylko zaznaczone aplikacje korzystają z VPN. Nowo zainstalowane aplikacje pozostają poza tunelem, dopóki nie zostaną wybrane. Zaznaczenie wszystkich nie wyłącza tej opcji.',
+      'Tylko zaznaczone aplikacje korzystają z VPN. Nowo zainstalowane aplikacje trzeba zaznaczyć, zanim zaczną z niego korzystać.',
   'per_app_proxy_lockdown_help':
       'Jeśli włączone są Zawsze włączony VPN i Blokuj połączenia bez VPN, niewybrane aplikacje są blokowane, a nie wysyłane poza tunel.',
   'per_app_proxy_tunnel_hint':
@@ -599,8 +601,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Sonda odzyskiwania H3 powiodła się',
   'diag_event_recovery_probe_failed': 'Sonda odzyskiwania H3 nie powiodła się',
   'diag_event_path_promoted': 'Ścieżka kandydująca została aktywowana',
-  'diag_event_queue_backpressured':
-      'Oczekiwanie na miejsce w kolejce wysyłania',
+  'diag_event_queue_backpressured': 'Zator w kolejce wysyłania',
   'diag_event_queue_saturated': 'Kolejka wysyłania osiągnęła limit pojemności',
   'diag_event_disconnected': 'Rozłączono',
   'diag_event_failed': 'Połączenie nie powiodło się',

@@ -260,8 +260,7 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
   'nq_dns_bootstrap_help':
       'Introduce de 1 a 8 IP del proveedor DNS, una por línea; por ejemplo, 1.1.1.1. Usque conecta directamente a estas direcciones sin consultar antes el nombre del servidor.',
   'nq_dns_no_fallback':
-      'Si el DNS directo cifrado falla, la consulta falla. Nunca se recurre '
-      'al DNS del sistema ni al DNS en texto plano.',
+      'Si el DNS cifrado no está disponible, las consultas fallan en lugar de pasar a DNS sin cifrar.',
   'nq_dns_system_privacy':
       'El proveedor DNS de tu red puede ver los dominios solicitados por el tráfico directo.',
   'nq_dns_scope':
@@ -435,7 +434,7 @@ const Map<String, String> kChainEs = <String, String>{
   'select_required': 'Elige una configuración guardada para aplicarla.',
   'pending_disable': 'Pendiente: desactivar el proxy en cadena',
   'apply_reconnect': 'Aplicar y reconectar',
-  'requires_connect_ip': 'Requiere CONNECT-IP',
+  'requires_connect_ip': 'No disponible con L4',
   'menu': 'Acciones de la configuración',
   'preview': 'Comprobar configuración',
   'save_import': 'Guardar configuración',
@@ -468,8 +467,8 @@ const Map<String, String> kChainEs = <String, String>{
   'connecting': 'Conectando',
   'error': 'Error de conexión',
   'no_selection': 'Ninguna configuración seleccionada',
-  'l4': 'Esta configuración requiere el modo CONNECT-IP.',
-  'switch_mode': 'Cambiar a CONNECT-IP y aplicar',
+  'l4': 'Esta configuración necesita UDP, que L4 no admite.',
+  'switch_mode': 'Desactivar L4 y aplicar',
   'unsupported': 'Este motor no admite este origen de salida.',
   'scope':
       'Las reglas directas explícitas siguen vigentes. El resto del tráfico usa la salida elegida.',

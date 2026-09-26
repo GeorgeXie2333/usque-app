@@ -255,8 +255,7 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
   'nq_dns_bootstrap_help':
       'Informe de 1 a 8 IPs fornecidos pelo serviço DNS, um por linha, como 1.1.1.1. O Usque conecta diretamente a esses endereços sem consultar primeiro o nome do servidor.',
   'nq_dns_no_fallback':
-      'Se o DNS direto criptografado falhar, a consulta falha. Nunca há '
-      'fallback para o DNS do sistema ou em texto simples.',
+      'Se o DNS criptografado estiver indisponível, as consultas falham em vez de passar para DNS não criptografado.',
   'nq_dns_system_privacy':
       'O provedor DNS da rede atual pode ver os domínios consultados pelo tráfego direto.',
   'nq_dns_scope':
@@ -427,7 +426,7 @@ const Map<String, String> kChainPt = <String, String>{
   'select_required': 'Selecione uma configuração salva para aplicar.',
   'pending_disable': 'Pendente: desativar o proxy em cadeia',
   'apply_reconnect': 'Aplicar e reconectar',
-  'requires_connect_ip': 'Exige CONNECT-IP',
+  'requires_connect_ip': 'Indisponível com L4',
   'menu': 'Ações da configuração',
   'preview': 'Verificar configuração',
   'save_import': 'Salvar configuração',
@@ -460,8 +459,8 @@ const Map<String, String> kChainPt = <String, String>{
   'connecting': 'Conectando',
   'error': 'Falha na conexão',
   'no_selection': 'Nenhuma configuração selecionada',
-  'l4': 'Esta configuração exige o modo CONNECT-IP.',
-  'switch_mode': 'Mudar para CONNECT-IP e aplicar',
+  'l4': 'Esta configuração precisa de UDP, que o L4 não suporta.',
+  'switch_mode': 'Desativar L4 e aplicar',
   'unsupported': 'Este mecanismo não aceita esta origem de saída.',
   'scope':
       'As regras diretas explícitas continuam valendo. O restante do tráfego usa a saída escolhida.',

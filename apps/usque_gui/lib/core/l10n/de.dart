@@ -4,7 +4,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'disable_quic_help':
       "Blockiert UDP/443 über Proxy oder Tunnel, auch andere Protokolle auf diesem Port. GEO-Direktverkehr und Usques HTTP/3-Verbindung bleiben unbeeinflusst. QUIC auf anderen Ports bleibt erlaubt. Anwendung ohne Neuverbindung.",
   'disable_quic_unsupported':
-      'Beende und öffne Usque erneut. Bleibt die Option gesperrt, suche unter Einstellungen nach Updates.',
+      'QUIC-Blockierung ist derzeit nicht verfügbar. Starten Sie Usque neu; falls sie weiterhin nicht verfügbar ist, suchen Sie unter Einstellungen nach Updates.',
   'technical_details': 'Technische Details',
   'diag_skip_disconnected': 'Verbinde dich, um diese Prüfung auszuführen.',
   'diag_skip_disabled': 'Diese Funktion ist ausgeschaltet.',
@@ -159,7 +159,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'auto_connect': 'Aktuelles Konto beim Start automatisch verbinden',
   'lan_warning': 'Proxy im lokalen Netzwerk erreichbar',
   'lan_warning_body':
-      'Usque fügt keine Authentifizierung mit Benutzername und Passwort hinzu. Jeder, der diesen Listener erreichen kann, darf ihn nutzen.',
+      'Es ist kein Benutzername oder Passwort festgelegt. Jedes Gerät, das diese Adresse erreichen kann, kann den Proxy nutzen.',
   'lan_warning_body_authenticated':
       'Andere Geräte im lokalen Netzwerk können diesen Proxy mit dem festgelegten Benutzernamen und Passwort nutzen.',
   'proxy_auth': 'Proxy-Benutzername und Passwort',
@@ -221,7 +221,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'open_release': 'Release-Seite öffnen',
   'update_startup_description': 'Beim Start von Usque nach Updates suchen.',
   'update_checking': 'Suche nach einem Update…',
-  'update_downloading': 'Verifiziertes Update-Paket wird heruntergeladen…',
+  'update_downloading': 'Update wird heruntergeladen…',
   'update_verifying': 'Update-Paket wird geprüft…',
   'update_ready': 'Das Update ist installationsbereit.',
   'update_installing':
@@ -276,7 +276,9 @@ const Map<String, String> kDeCatalog = <String, String>{
   'lockdown': 'Ohne VPN blockieren',
   'not_used_proxy': 'Im Proxy-Modus nicht verwendet',
   'kill_switch_help':
-      'Blockiert Datenverkehr beim Verbinden, Wiederverbinden und Wiederherstellen des Verbindungsdienstes. Unter Android gilt dies nur bei laufendem VPN-Dienst. Für Schutz nach dem Beenden der App aktiviere Immer aktives VPN und Verbindungen ohne VPN blockieren in den Systemeinstellungen.',
+      'Blockiert Datenverkehr beim Verbinden und Wiederverbinden sowie bei einem Ausfall des Verbindungsdienstes.',
+  'kill_switch_help_android':
+      'Blockiert Datenverkehr beim Verbinden und Wiederverbinden sowie bei einem Ausfall des Verbindungsdienstes. Dies funktioniert nur, solange der VPN-Dienst läuft. Um auch nach dem Beenden von Usque geschützt zu bleiben, aktivieren Sie in den Systemeinstellungen Immer aktives VPN und Verbindungen ohne VPN blockieren.',
   'start_on_boot_android':
       'Usque nach dem Neustart starten. Aktivieren Sie außerdem das automatische Verbinden beim Start.',
   'add_quick_settings_tile_help':
@@ -289,7 +291,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'per_app_proxy_on': 'Proxy für {count} Apps',
   'per_app_proxy_enable': 'Nur ausgewählte Apps über Proxy',
   'per_app_proxy_help':
-      'Nur markierte Apps nutzen das VPN. Neu installierte Apps bleiben außerhalb des Tunnels, bis Sie sie auswählen. Alle auswählen schaltet dies nicht aus.',
+      'Nur markierte Apps nutzen das VPN. Neu installierte Apps müssen erst markiert werden, bevor sie es nutzen.',
   'per_app_proxy_lockdown_help':
       'Wenn Immer aktives VPN und Verbindungen ohne VPN blockieren aktiviert sind, werden nicht ausgewählte Apps blockiert und nicht am Tunnel vorbeigeführt.',
   'per_app_proxy_tunnel_hint':
@@ -604,8 +606,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_event_recovery_probe_failed':
       'H3-Wiederherstellungssonde fehlgeschlagen',
   'diag_event_path_promoted': 'Kandidatenpfad aktiviert',
-  'diag_event_queue_backpressured':
-      'Auf Kapazität der Sendewarteschlange gewartet',
+  'diag_event_queue_backpressured': 'Rückstau in der Sendewarteschlange',
   'diag_event_queue_saturated':
       'Sendewarteschlange hat ihre Kapazität erreicht',
   'diag_event_disconnected': 'Getrennt',

@@ -265,8 +265,7 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_dns_bootstrap_help':
       'Gib 1–8 IP-Adressen deines DNS-Anbieters ein, eine pro Zeile, etwa 1.1.1.1. Usque verbindet sich direkt damit, ohne vorher den Servernamen aufzulösen.',
   'nq_dns_no_fallback':
-      'Wenn verschlüsseltes direktes DNS fehlschlägt, schlägt die Anfrage '
-      'fehl. Es erfolgt kein Rückfall auf System- oder Klartext-DNS.',
+      'Ist verschlüsseltes DNS nicht verfügbar, schlagen Anfragen fehl, statt auf unverschlüsseltes DNS auszuweichen.',
   'nq_dns_system_privacy':
       'Der DNS-Anbieter des aktuellen Netzwerks kann Domains von Direktverbindungen sehen.',
   'nq_dns_scope':
@@ -440,7 +439,7 @@ const Map<String, String> kChainDe = <String, String>{
       'Wählen Sie eine gespeicherte Konfiguration aus, bevor Sie sie anwenden.',
   'pending_disable': 'Ausstehend: Kettenproxy deaktivieren',
   'apply_reconnect': 'Anwenden und neu verbinden',
-  'requires_connect_ip': 'Erfordert CONNECT-IP',
+  'requires_connect_ip': 'Mit L4 nicht verfügbar',
   'menu': 'Konfigurationsaktionen',
   'preview': 'Konfiguration prüfen',
   'save_import': 'Konfiguration speichern',
@@ -473,8 +472,8 @@ const Map<String, String> kChainDe = <String, String>{
   'connecting': 'Verbindung wird hergestellt',
   'error': 'Verbindung fehlgeschlagen',
   'no_selection': 'Keine Konfiguration ausgewählt',
-  'l4': 'Diese Konfiguration erfordert den CONNECT-IP-Modus.',
-  'switch_mode': 'Zu CONNECT-IP wechseln und anwenden',
+  'l4': 'Diese Konfiguration benötigt UDP, das L4 nicht unterstützt.',
+  'switch_mode': 'L4 ausschalten und anwenden',
   'unsupported': 'Diese Engine unterstützt diese Ausgangsart nicht.',
   'scope':
       'Bestehende ausdrückliche Direktregeln bleiben gültig. Übriger Datenverkehr nutzt den gewählten Ausgang.',

@@ -899,7 +899,7 @@ void main() {
 
   for (final width in [390.0, 980.0]) {
     testWidgets(
-      'L4 draft requires explicit CONNECT-IP apply and survives a source switch at $width',
+      'L4 draft requires explicit L4 turn-off and survives a source switch at $width',
       (tester) async {
         final engine = ChainEngine()..library = [imported];
         final app = await hostChain(tester, engine, l4: true, width: width);
@@ -909,7 +909,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(engine.saves, 0);
         expect(app.activeProfile.dataPlane, DataPlaneMode.l4Proxy);
-        expect(find.text('Requires CONNECT-IP'), findsOneWidget);
+        expect(find.text('Not available with L4'), findsOneWidget);
         // Switching sources is browsing: no discard prompt, and the page switch
         // travels with the user.
         await chooseSource(tester, ChainSource.openvpnCustom);
@@ -962,13 +962,13 @@ void main() {
           find.text(app.strings.get('discard_changes_title')),
           findsNothing,
         );
-        expect(find.text('Requires CONNECT-IP'), findsOneWidget);
+        expect(find.text('Not available with L4'), findsOneWidget);
         // The conflict and its resolution live in the action bar together.
         expect(
-          find.text('This configuration requires CONNECT-IP.'),
+          find.text('This configuration needs UDP, which L4 does not support.'),
           findsOneWidget,
         );
-        final apply = find.text('Switch to CONNECT-IP and apply');
+        final apply = find.text('Turn off L4 and apply');
         expect(apply, findsOneWidget);
         await tester.ensureVisible(apply);
         await tester.tap(apply);

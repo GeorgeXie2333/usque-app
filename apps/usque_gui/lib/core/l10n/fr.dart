@@ -4,7 +4,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'disable_quic_help':
       "Bloque UDP/443 via le proxy ou le tunnel, y compris les autres protocoles sur ce port. Le trafic direct GEO et la connexion HTTP/3 d’Usque restent inchangés. QUIC sur les autres ports reste autorisé. Application sans reconnexion.",
   'disable_quic_unsupported':
-      'Fermez puis rouvrez Usque et réessayez. Si l’option reste indisponible, recherchez une mise à jour dans Paramètres.',
+      'Le blocage de QUIC est indisponible pour le moment. Redémarrez Usque ; s’il reste indisponible, recherchez une mise à jour dans Paramètres.',
   'technical_details': 'Détails techniques',
   'diag_skip_disconnected': 'Connectez-vous pour effectuer cette vérification.',
   'diag_skip_disabled': 'Cette fonction est désactivée.',
@@ -161,7 +161,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'auto_connect': 'Connecter automatiquement le compte actuel au démarrage',
   'lan_warning': 'Proxy exposé au réseau local',
   'lan_warning_body':
-      'Usque n’ajoute pas d’authentification par nom d’utilisateur/mot de passe. Toute personne pouvant atteindre cet écouteur peut l’utiliser.',
+      'Aucun nom d’utilisateur ni mot de passe n’est défini. Tout appareil pouvant atteindre cette adresse peut utiliser le proxy.',
   'lan_warning_body_authenticated':
       'Les autres appareils du réseau local peuvent utiliser ce proxy avec le nom d’utilisateur et le mot de passe que vous avez définis.',
   'proxy_auth': 'Nom d’utilisateur et mot de passe du proxy',
@@ -224,7 +224,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'update_startup_description':
       'Rechercher les mises à jour au démarrage de Usque.',
   'update_checking': 'Recherche d’une mise à jour…',
-  'update_downloading': 'Téléchargement du paquet de mise à jour vérifié…',
+  'update_downloading': 'Téléchargement de la mise à jour…',
   'update_verifying': 'Vérification du paquet de mise à jour…',
   'update_ready': 'La mise à jour est prête à être installée.',
   'update_installing':
@@ -280,7 +280,9 @@ const Map<String, String> kFrCatalog = <String, String>{
   'lockdown': 'Bloquer sans VPN',
   'not_used_proxy': 'Non utilisé en mode proxy',
   'kill_switch_help':
-      'Bloque le trafic pendant la connexion, la reconnexion ou le rétablissement du service. Sur Android, cela ne fonctionne que lorsque le service VPN tourne. Pour rester protégé après l’arrêt de l’application, activez VPN permanent et Bloquer les connexions sans VPN dans les paramètres système.',
+      'Bloque le trafic pendant la connexion ou la reconnexion, ou en cas de défaillance du service de connexion.',
+  'kill_switch_help_android':
+      'Bloque le trafic pendant la connexion ou la reconnexion, ou en cas de défaillance du service de connexion. Cela ne fonctionne que lorsque le service VPN est actif. Pour rester protégé après l’arrêt d’Usque, activez VPN toujours actif et Bloquer les connexions sans VPN dans les paramètres système.',
   'start_on_boot_android':
       'Démarrer Usque après le redémarrage. Activez aussi la connexion automatique au démarrage.',
   'add_quick_settings_tile_help':
@@ -294,7 +296,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'per_app_proxy_enable':
       'Proxy uniquement pour les applications sélectionnées',
   'per_app_proxy_help':
-      'Seules les applications cochées utilisent le VPN. Les applications nouvellement installées restent hors du tunnel jusqu’à ce que vous les sélectionniez. Tout sélectionner ne désactive pas cette option.',
+      'Seules les applications cochées utilisent le VPN. Les applications nouvellement installées doivent être cochées pour l’utiliser.',
   'per_app_proxy_lockdown_help':
       'Si VPN toujours actif et Bloquer les connexions sans VPN sont activés, les applications non sélectionnées sont bloquées, et non envoyées hors du tunnel.',
   'per_app_proxy_tunnel_hint':
@@ -607,7 +609,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Sonde de récupération H3 réussie',
   'diag_event_recovery_probe_failed': 'Sonde de récupération H3 échouée',
   'diag_event_path_promoted': 'Chemin candidat activé',
-  'diag_event_queue_backpressured': 'Attente de capacité de la file d’envoi',
+  'diag_event_queue_backpressured': 'File d’envoi saturée',
   'diag_event_queue_saturated': 'La file d’envoi a atteint sa capacité',
   'diag_event_disconnected': 'Déconnecté',
   'diag_event_failed': 'Échec de connexion',

@@ -207,7 +207,7 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'nq_dns_bootstrap': 'DNS 伺服器 IP 地址',
   'nq_dns_bootstrap_help':
       '請輸入 DNS 服務供應商提供的 1–8 個 IP 地址，每行一個，例如 1.1.1.1。這些地址可用來直接連接，不必先查詢伺服器的網域名稱。',
-  'nq_dns_no_fallback': '加密直連 DNS 失敗時，查詢會失敗；絕不回退到系統或明文 DNS。',
+  'nq_dns_no_fallback': '加密 DNS 無法使用時，查詢會直接失敗，不會改用未加密的 DNS。',
   'nq_dns_system_privacy': '目前網絡的 DNS 服務供應商可能看見直接連接流量查詢的網域名稱。',
   'nq_dns_scope': '僅影響符合國家／地區直接連接規則的流量，不會變更 VPN 流量的 DNS。',
   'nq_dns_no_capability':
@@ -336,7 +336,7 @@ const Map<String, String> kChainZhHk = <String, String>{
   'select_required': '請先選擇一份已儲存的設定再套用。',
   'pending_disable': '待套用：關閉鏈式代理',
   'apply_reconnect': '套用並重新連線',
-  'requires_connect_ip': '需要 CONNECT-IP',
+  'requires_connect_ip': '不支援 L4',
   'menu': '設定操作',
   'preview': '檢查設定',
   'save_import': '儲存設定',
@@ -369,8 +369,8 @@ const Map<String, String> kChainZhHk = <String, String>{
   'connecting': '正在連線',
   'error': '連線失敗',
   'no_selection': '尚未選擇設定',
-  'l4': '此設定需要 CONNECT-IP 模式。',
-  'switch_mode': '切換為 CONNECT-IP 並套用',
+  'l4': '此設定需要 UDP，L4 模式不支援。',
+  'switch_mode': '關閉 L4 並套用',
   'unsupported': '此版本的 Usque 無法使用此出口來源，請在「設定」中檢查更新。',
   'scope': '已設定的直連規則不受影響，其餘流量都經由所選出口。',
   'allowed': '允許存取的目標',

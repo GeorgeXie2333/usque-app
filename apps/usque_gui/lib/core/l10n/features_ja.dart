@@ -216,8 +216,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_dns_bootstrap': 'DNS サーバーの IP アドレス',
   'nq_dns_bootstrap_help':
       'DNS 提供元の IP アドレスを 1～8 個、1行に1つ入力してください。例：1.1.1.1。サーバー名を先に調べず、このアドレスに直接接続します。',
-  'nq_dns_no_fallback':
-      '暗号化された直接 DNS が失敗すると、クエリは失敗します。システム DNS や平文 DNS へはフォールバックしません。',
+  'nq_dns_no_fallback': '暗号化 DNS が使えない場合、暗号化されていない DNS には切り替えず、クエリは失敗します。',
   'nq_dns_system_privacy': '直接接続の問い合わせ先ドメインは、現在のネットワークの DNS 提供元に見える場合があります。',
   'nq_dns_scope': '直接接続する国のルールに一致する通信に使います。VPN 通信の DNS は変わりません。',
   'nq_dns_no_capability':
@@ -363,7 +362,7 @@ const Map<String, String> kChainJa = <String, String>{
   'select_required': '適用する前に、保存した設定を一つ選んでください。',
   'pending_disable': '適用待ち: チェーンプロキシを無効にする',
   'apply_reconnect': '適用して再接続',
-  'requires_connect_ip': 'CONNECT-IP が必要です',
+  'requires_connect_ip': 'L4 では利用不可',
   'menu': '設定の操作',
   'preview': '設定を確認',
   'save_import': '設定を保存',
@@ -396,8 +395,8 @@ const Map<String, String> kChainJa = <String, String>{
   'connecting': '接続しています',
   'error': '接続に失敗しました',
   'no_selection': '設定が選択されていません',
-  'l4': 'この設定には CONNECT-IP モードが必要です。',
-  'switch_mode': 'CONNECT-IP に切り替えて適用',
+  'l4': 'この設定には UDP が必要ですが、L4 は UDP に対応していません。',
+  'switch_mode': 'L4 をオフにして適用',
   'unsupported': 'このエンジンはこの出口の種類に対応していません。',
   'scope': '既存の明示的な直結ルールはそのまま適用されます。それ以外の通信は選んだ出口を使います。',
   'allowed': '許可する宛先',

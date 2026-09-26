@@ -205,7 +205,7 @@ const kNetworkQualityEn = <String, String>{
   'nq_dns_bootstrap_help':
       'Enter 1–8 IP addresses supplied by your DNS provider, one per line, such as 1.1.1.1. Usque connects to these addresses directly without first looking up the server name.',
   'nq_dns_no_fallback':
-      'If encrypted direct DNS fails, the query fails. It never falls back to system or plaintext DNS.',
+      'If encrypted DNS is unavailable, queries fail instead of switching to unencrypted DNS.',
   'nq_dns_system_privacy':
       'Your current network’s DNS provider may see the domains requested by direct traffic.',
   'nq_dns_scope':
@@ -381,7 +381,7 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_dns_bootstrap': 'DNS 服务器 IP 地址',
   'nq_dns_bootstrap_help':
       '填写 DNS 服务商提供的 1–8 个 IP 地址，每行一个，例如 1.1.1.1。Usque 会直接连接这些地址，无需先查询服务器域名。',
-  'nq_dns_no_fallback': '加密直连 DNS 失败时，查询会失败；绝不回退到系统或明文 DNS。',
+  'nq_dns_no_fallback': '加密 DNS 不可用时，查询会直接失败，不会改用未加密的 DNS。',
   'nq_dns_system_privacy': '直连流量查询的域名可能对当前网络的 DNS 服务商可见。',
   'nq_dns_scope': '用于匹配直连国家规则的流量，不影响 VPN 流量的 DNS。',
   'nq_dns_no_capability':

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -360,4 +360,33 @@ void main() {
     await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox());
   });
+
+  for (final android in [false, true]) {
+    testWidgets('Kill Switch help matches the platform (android: $android)', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = android
+          ? TargetPlatform.android
+          : TargetPlatform.windows;
+      try {
+        final app = appFor(FormEngine());
+        await tester.pumpWidget(
+          workflowHost(app, home: AdvancedSettingsScreen(controller: app)),
+        );
+        await tester.pumpAndSettle();
+
+        final help = find.textContaining(
+          'Block traffic while connecting or reconnecting',
+          skipOffstage: false,
+        );
+        expect(help, findsOneWidget);
+        expect(
+          tester.widget<Text>(help).data!.contains('Always-on VPN'),
+          android,
+        );
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
 }

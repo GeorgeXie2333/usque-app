@@ -461,7 +461,13 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(strings.get('kill_switch')),
-                        subtitle: Text(strings.get('kill_switch_help')),
+                        subtitle: Text(
+                          strings.get(
+                            defaultTargetPlatform == TargetPlatform.android
+                                ? 'kill_switch_help_android'
+                                : 'kill_switch_help',
+                          ),
+                        ),
                         value: _killSwitch,
                         onChanged: _saving
                             ? null

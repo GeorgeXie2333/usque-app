@@ -4,7 +4,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'disable_quic_help':
       "Blokir UDP/443 melalui proksi atau terowongan, termasuk protokol lain pada port tersebut. Lalu lintas langsung GEO dan koneksi HTTP/3 Usque tidak terpengaruh. QUIC pada port lain tetap diizinkan. Berlaku tanpa menghubungkan ulang.",
   'disable_quic_unsupported':
-      'Tutup lalu buka kembali Usque dan coba lagi. Jika opsi tetap tidak tersedia, periksa pembaruan di Pengaturan.',
+      'Pemblokiran QUIC saat ini tidak tersedia. Mulai ulang Usque; jika masih tidak tersedia, periksa pembaruan di Pengaturan.',
   'technical_details': 'Detail teknis',
   'diag_skip_disconnected': 'Hubungkan untuk menjalankan pemeriksaan ini.',
   'diag_skip_disabled': 'Fitur ini dinonaktifkan.',
@@ -156,7 +156,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'auto_connect': 'Sambungkan akun saat ini secara otomatis saat mulai',
   'lan_warning': 'Proksi terpapar ke jaringan lokal',
   'lan_warning_body':
-      'Usque tidak menambahkan autentikasi nama pengguna/kata sandi. Siapa pun yang dapat menjangkau listener ini dapat menggunakannya.',
+      'Nama pengguna atau kata sandi belum diatur. Perangkat apa pun yang dapat menjangkau alamat ini dapat menggunakan proksi.',
   'lan_warning_body_authenticated':
       'Perangkat lain di jaringan lokal dapat memakai proksi ini dengan nama pengguna dan kata sandi yang Anda tetapkan.',
   'proxy_auth': 'Nama pengguna dan kata sandi proksi',
@@ -217,7 +217,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'open_release': 'Buka halaman rilis',
   'update_startup_description': 'Periksa pembaruan saat Usque dimulai.',
   'update_checking': 'Memeriksa pembaruan…',
-  'update_downloading': 'Mengunduh paket pembaruan terverifikasi…',
+  'update_downloading': 'Mengunduh pembaruan…',
   'update_verifying': 'Memverifikasi paket pembaruan…',
   'update_ready': 'Pembaruan siap dipasang.',
   'update_installing': 'Pembaruan diserahkan ke pemasang sistem.',
@@ -271,7 +271,9 @@ const Map<String, String> kIdCatalog = <String, String>{
   'lockdown': 'Blokir tanpa VPN',
   'not_used_proxy': 'Tidak digunakan dalam mode proksi',
   'kill_switch_help':
-      'Blokir lalu lintas saat menyambung, menyambung ulang, atau memulihkan layanan koneksi yang gagal. Di Android, perlindungan hanya berlaku saat layanan VPN berjalan. Agar tetap terlindungi setelah aplikasi berhenti, aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN di pengaturan sistem.',
+      'Blokir lalu lintas saat menyambung atau menyambung ulang, atau jika layanan koneksi gagal.',
+  'kill_switch_help_android':
+      'Blokir lalu lintas saat menyambung atau menyambung ulang, atau jika layanan koneksi gagal. Ini hanya berlaku saat layanan VPN berjalan. Agar tetap terlindungi setelah Usque berhenti, aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN di pengaturan sistem.',
   'start_on_boot_android':
       'Jalankan Usque setelah mulai ulang. Aktifkan juga sambungan otomatis saat mulai.',
   'add_quick_settings_tile_help':
@@ -284,7 +286,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'per_app_proxy_on': 'Memproksi {count} aplikasi',
   'per_app_proxy_enable': 'Proksi hanya aplikasi yang dipilih',
   'per_app_proxy_help':
-      'Hanya aplikasi yang dicentang yang menggunakan VPN. Aplikasi yang baru diinstal tetap di luar terowongan sampai Anda memilihnya. Pilih semua tidak menonaktifkan opsi ini.',
+      'Hanya aplikasi yang dicentang yang menggunakan VPN. Aplikasi yang baru diinstal harus dicentang agar dapat menggunakannya.',
   'per_app_proxy_lockdown_help':
       'Jika VPN selalu aktif dan Blokir koneksi tanpa VPN aktif, aplikasi yang tidak Anda pilih diblokir, bukan dikirim ke luar terowongan.',
   'per_app_proxy_tunnel_hint':
@@ -589,7 +591,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Probe pemulihan H3 berhasil',
   'diag_event_recovery_probe_failed': 'Probe pemulihan H3 gagal',
   'diag_event_path_promoted': 'Jalur kandidat diaktifkan',
-  'diag_event_queue_backpressured': 'Menunggu kapasitas antrean kirim',
+  'diag_event_queue_backpressured': 'Antrean kirim menumpuk',
   'diag_event_queue_saturated': 'Antrean pengiriman mencapai kapasitas',
   'diag_event_disconnected': 'Terputus',
   'diag_event_failed': 'Koneksi gagal',

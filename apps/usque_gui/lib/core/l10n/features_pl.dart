@@ -255,9 +255,7 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_dns_bootstrap_help':
       'Wpisz 1–8 IP od dostawcy DNS, po jednym w wierszu, np. 1.1.1.1. Usque łączy się z nimi bezpośrednio, bez wcześniejszego wyszukiwania nazwy serwera.',
   'nq_dns_no_fallback':
-      'Jeśli szyfrowany DNS bezpośredni zawiedzie, zapytanie kończy się '
-      'niepowodzeniem. Nigdy nie następuje przełączenie na systemowy ani '
-      'nieszyfrowany DNS.',
+      'Jeśli szyfrowany DNS jest niedostępny, zapytania kończą się błędem zamiast przełączenia na nieszyfrowany DNS.',
   'nq_dns_system_privacy':
       'Dostawca DNS bieżącej sieci może widzieć domeny żądane przez ruch bezpośredni.',
   'nq_dns_scope':
@@ -428,7 +426,7 @@ const Map<String, String> kChainPl = <String, String>{
   'select_required': 'Wybierz zapisaną konfigurację, zanim ją zastosujesz.',
   'pending_disable': 'Oczekuje: wyłączenie proxy łańcuchowego',
   'apply_reconnect': 'Zastosuj i połącz ponownie',
-  'requires_connect_ip': 'Wymaga CONNECT-IP',
+  'requires_connect_ip': 'Niedostępne z L4',
   'menu': 'Działania konfiguracji',
   'preview': 'Sprawdź konfigurację',
   'save_import': 'Zapisz konfigurację',
@@ -461,8 +459,8 @@ const Map<String, String> kChainPl = <String, String>{
   'connecting': 'Łączenie',
   'error': 'Połączenie nie powiodło się',
   'no_selection': 'Nie wybrano konfiguracji',
-  'l4': 'Ta konfiguracja wymaga trybu CONNECT-IP.',
-  'switch_mode': 'Przełącz na CONNECT-IP i zastosuj',
+  'l4': 'Ta konfiguracja wymaga UDP, którego L4 nie obsługuje.',
+  'switch_mode': 'Wyłącz L4 i zastosuj',
   'unsupported': 'Ten silnik nie obsługuje tego źródła wyjścia.',
   'scope':
       'Istniejące jawne reguły bezpośrednie nadal obowiązują. Pozostały ruch używa wybranego wyjścia.',

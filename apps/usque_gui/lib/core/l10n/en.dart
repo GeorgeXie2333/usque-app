@@ -4,7 +4,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'disable_quic_help':
       "Block UDP/443 through the proxy or tunnel, including other protocols on that port. GEO direct traffic and Usque’s HTTP/3 connection are unaffected. QUIC on other ports is allowed. Applies without reconnecting.",
   'disable_quic_unsupported':
-      'Restart Usque and try again. If this setting is still unavailable, update Usque from Settings.',
+      'QUIC blocking is unavailable right now. Restart Usque; if it is still unavailable, check for updates in Settings.',
   'technical_details': 'Technical details',
   'diag_skip_disconnected': 'Connect to run this check.',
   'diag_skip_disabled': 'This feature is turned off.',
@@ -154,7 +154,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'auto_connect': 'Connect the current account automatically on start',
   'lan_warning': 'Proxy exposed to the local network',
   'lan_warning_body':
-      'Usque does not add username/password authentication. Anyone who can reach this listener may use it.',
+      'No username or password is set. Any device that can reach this address can use the proxy.',
   'lan_warning_body_authenticated':
       'Other devices on your local network can use this proxy with the username and password you set.',
   'proxy_auth': 'Proxy username and password',
@@ -214,7 +214,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'open_release': 'Open release page',
   'update_startup_description': 'Check for updates when Usque starts.',
   'update_checking': 'Checking for an update…',
-  'update_downloading': 'Downloading the verified update package…',
+  'update_downloading': 'Downloading the update…',
   'update_verifying': 'Verifying the update package…',
   'update_ready': 'The update is ready to install.',
   'update_installing': 'The update was handed to the system installer.',
@@ -268,7 +268,9 @@ const Map<String, String> kEnCatalog = <String, String>{
   'lockdown': 'Block without VPN',
   'not_used_proxy': 'Not used in proxy mode',
   'kill_switch_help':
-      'Block traffic while connecting, reconnecting, or recovering from a connection service failure. On Android this lasts while the VPN service is running; enable Always-on VPN and Block connections without VPN in system settings for protection after the app is stopped.',
+      'Block traffic while connecting or reconnecting, or if the connection service fails.',
+  'kill_switch_help_android':
+      'Block traffic while connecting or reconnecting, or if the connection service fails. This works only while the VPN service runs. To stay protected after Usque stops, turn on Always-on VPN and Block connections without VPN in system settings.',
   'start_on_boot_android':
       'Start Usque after reboot. Also enable automatic connect on start.',
   'add_quick_settings_tile_help':
@@ -281,7 +283,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'per_app_proxy_on': 'Proxying {count} apps',
   'per_app_proxy_enable': 'Proxy only selected apps',
   'per_app_proxy_help':
-      'Only checked apps use the VPN. Newly installed apps stay off the tunnel until you select them. Select all does not turn this off.',
+      'Only checked apps use the VPN. Newly installed apps must be checked before they use it.',
   'per_app_proxy_lockdown_help':
       'If Always-on VPN and Block connections without VPN are on, apps you do not select are blocked, not sent outside the tunnel.',
   'per_app_proxy_tunnel_hint':
@@ -586,7 +588,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'H3 recovery probe succeeded',
   'diag_event_recovery_probe_failed': 'H3 recovery probe failed',
   'diag_event_path_promoted': 'Candidate path activated',
-  'diag_event_queue_backpressured': 'Waited for send queue capacity',
+  'diag_event_queue_backpressured': 'Send queue backed up',
   'diag_event_queue_saturated': 'Send queue reached capacity',
   'diag_event_disconnected': 'Disconnected',
   'diag_event_failed': 'Connection failed',

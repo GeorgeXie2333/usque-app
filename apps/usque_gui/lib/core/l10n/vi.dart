@@ -4,7 +4,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'disable_quic_help':
       "Chặn UDP/443 qua proxy hoặc đường hầm, gồm cả giao thức khác trên cổng này. Lưu lượng trực tiếp GEO và kết nối HTTP/3 của Usque không bị ảnh hưởng. QUIC trên cổng khác vẫn được phép. Áp dụng mà không kết nối lại.",
   'disable_quic_unsupported':
-      'Thoát hoàn toàn Usque rồi mở lại. Nếu vẫn không dùng được tùy chọn này, hãy cập nhật Usque trong Cài đặt.',
+      'Hiện không thể chặn QUIC. Hãy khởi động lại Usque; nếu vẫn không được, hãy kiểm tra bản cập nhật trong Cài đặt.',
   'technical_details': 'Chi tiết kỹ thuật',
   'diag_skip_disconnected': 'Kết nối để chạy kiểm tra này.',
   'diag_skip_disabled': 'Tính năng này đã tắt.',
@@ -155,7 +155,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'auto_connect': 'Tự kết nối tài khoản hiện tại khi khởi động',
   'lan_warning': 'Proxy đang mở ra mạng cục bộ',
   'lan_warning_body':
-      'Usque không thêm xác thực tên người dùng/mật khẩu. Bất kỳ ai truy cập được trình lắng nghe này đều có thể dùng.',
+      'Chưa đặt tên người dùng hoặc mật khẩu. Bất kỳ thiết bị nào truy cập được địa chỉ này đều có thể dùng proxy.',
   'lan_warning_body_authenticated':
       'Thiết bị khác trong mạng nội bộ có thể dùng proxy này với tên người dùng và mật khẩu bạn đã đặt.',
   'proxy_auth': 'Tên người dùng và mật khẩu proxy',
@@ -215,7 +215,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'open_release': 'Mở trang phát hành',
   'update_startup_description': 'Kiểm tra bản cập nhật khi khởi động Usque.',
   'update_checking': 'Đang kiểm tra bản cập nhật…',
-  'update_downloading': 'Đang tải gói cập nhật đã xác minh…',
+  'update_downloading': 'Đang tải bản cập nhật…',
   'update_verifying': 'Đang xác minh gói cập nhật…',
   'update_ready': 'Bản cập nhật đã sẵn sàng để cài đặt.',
   'update_installing':
@@ -268,7 +268,9 @@ const Map<String, String> kViCatalog = <String, String>{
   'lockdown': 'Chặn khi không có VPN',
   'not_used_proxy': 'Không dùng ở chế độ proxy',
   'kill_switch_help':
-      'Chặn lưu lượng khi đang kết nối, kết nối lại và khôi phục dịch vụ kết nối. Trên Android, chỉ hoạt động khi dịch vụ VPN đang chạy. Để tiếp tục được bảo vệ sau khi ứng dụng dừng, hãy bật VPN luôn bật và chặn kết nối không dùng VPN trong cài đặt hệ thống.',
+      'Chặn lưu lượng khi đang kết nối hoặc kết nối lại, hoặc khi dịch vụ kết nối gặp lỗi.',
+  'kill_switch_help_android':
+      'Chặn lưu lượng khi đang kết nối hoặc kết nối lại, hoặc khi dịch vụ kết nối gặp lỗi. Chỉ hoạt động khi dịch vụ VPN đang chạy. Để tiếp tục được bảo vệ sau khi Usque dừng, hãy bật VPN luôn bật và Chặn kết nối khi không có VPN trong cài đặt hệ thống.',
   'start_on_boot_android':
       'Khởi chạy Usque sau khi khởi động lại. Đồng thời bật tự kết nối khi khởi động.',
   'add_quick_settings_tile_help':
@@ -281,7 +283,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'per_app_proxy_on': 'Đang proxy {count} ứng dụng',
   'per_app_proxy_enable': 'Chỉ proxy các ứng dụng đã chọn',
   'per_app_proxy_help':
-      'Chỉ ứng dụng được đánh dấu mới dùng VPN. Ứng dụng mới cài sẽ ở ngoài đường hầm cho đến khi bạn chọn. Chọn tất cả không tắt tính năng này.',
+      'Chỉ ứng dụng được đánh dấu mới dùng VPN. Ứng dụng mới cài cần được đánh dấu thì mới dùng VPN.',
   'per_app_proxy_lockdown_help':
       'Nếu VPN luôn bật và Chặn kết nối khi không có VPN đang bật, ứng dụng bạn không chọn sẽ bị chặn, không bị gửi ra ngoài đường hầm.',
   'per_app_proxy_tunnel_hint':
@@ -589,7 +591,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded': 'Đầu dò khôi phục H3 thành công',
   'diag_event_recovery_probe_failed': 'Đầu dò khôi phục H3 thất bại',
   'diag_event_path_promoted': 'Đường ứng viên đã được kích hoạt',
-  'diag_event_queue_backpressured': 'Chờ dung lượng hàng đợi gửi',
+  'diag_event_queue_backpressured': 'Hàng đợi gửi bị ùn tắc',
   'diag_event_queue_saturated': 'Hàng đợi gửi đã đạt giới hạn dung lượng',
   'diag_event_disconnected': 'Đã ngắt kết nối',
   'diag_event_failed': 'Kết nối thất bại',

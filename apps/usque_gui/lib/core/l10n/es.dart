@@ -4,7 +4,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'disable_quic_help':
       "Bloquea UDP/443 por el proxy o túnel, incluidos otros protocolos en ese puerto. El tráfico directo GEO y la conexión HTTP/3 de Usque no se ven afectados. QUIC en otros puertos sigue permitido. Se aplica sin reconectar.",
   'disable_quic_unsupported':
-      'Reinicia Usque y vuelve a intentarlo. Si la opción sigue sin estar disponible, busca actualizaciones en Ajustes.',
+      'El bloqueo de QUIC no está disponible ahora. Reinicia Usque; si sigue sin estar disponible, busca actualizaciones en Ajustes.',
   'technical_details': 'Detalles técnicos',
   'diag_skip_disconnected': 'Conéctate para ejecutar esta comprobación.',
   'diag_skip_disabled': 'Esta función está desactivada.',
@@ -160,7 +160,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'auto_connect': 'Conectar la cuenta actual automáticamente al iniciar',
   'lan_warning': 'Proxy expuesto a la red local',
   'lan_warning_body':
-      'Usque no añade autenticación con nombre de usuario y contraseña. Cualquiera que pueda alcanzar esta escucha puede usarla.',
+      'No se ha configurado usuario ni contraseña. Cualquier dispositivo que pueda acceder a esta dirección puede usar el proxy.',
   'lan_warning_body_authenticated':
       'Otros dispositivos de tu red local pueden usar este proxy con el nombre de usuario y la contraseña que has configurado.',
   'proxy_auth': 'Usuario y contraseña del proxy',
@@ -222,7 +222,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'open_release': 'Abrir la página de la versión',
   'update_startup_description': 'Buscar actualizaciones al iniciar Usque.',
   'update_checking': 'Buscando una actualización…',
-  'update_downloading': 'Descargando el paquete de actualización verificado…',
+  'update_downloading': 'Descargando la actualización…',
   'update_verifying': 'Verificando el paquete de actualización…',
   'update_ready': 'La actualización está lista para instalarse.',
   'update_installing': 'La actualización se entregó al instalador del sistema.',
@@ -276,7 +276,9 @@ const Map<String, String> kEsCatalog = <String, String>{
   'lockdown': 'Bloquear sin VPN',
   'not_used_proxy': 'No se usa en modo proxy',
   'kill_switch_help':
-      'Bloquea el tráfico durante la conexión, reconexión o recuperación de un fallo del servicio. En Android solo actúa mientras se ejecuta el servicio VPN. Para mantener la protección tras cerrar la aplicación, activa VPN siempre activa y Bloquear conexiones sin VPN en los ajustes del sistema.',
+      'Bloquea el tráfico durante la conexión o la reconexión, o si falla el servicio de conexión.',
+  'kill_switch_help_android':
+      'Bloquea el tráfico durante la conexión o la reconexión, o si falla el servicio de conexión. Solo actúa mientras se ejecuta el servicio VPN. Para mantener la protección cuando Usque se detenga, active VPN siempre activada y Bloquear conexiones sin VPN en los ajustes del sistema.',
   'start_on_boot_android':
       'Inicie Usque después de reiniciar. Active también la conexión automática al iniciar.',
   'add_quick_settings_tile_help':
@@ -289,7 +291,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'per_app_proxy_on': 'Proxy de {count} aplicaciones',
   'per_app_proxy_enable': 'Usar proxy solo en las aplicaciones seleccionadas',
   'per_app_proxy_help':
-      'Solo las aplicaciones marcadas usan la VPN. Las aplicaciones recién instaladas permanecen fuera del túnel hasta que las seleccione. Seleccionar todas no desactiva esta opción.',
+      'Solo las aplicaciones marcadas usan la VPN. Las aplicaciones recién instaladas deben marcarse para usarla.',
   'per_app_proxy_lockdown_help':
       'Si VPN siempre activada y Bloquear conexiones sin VPN están activados, las aplicaciones que no seleccione se bloquean; no se envían fuera del túnel.',
   'per_app_proxy_tunnel_hint':
@@ -606,7 +608,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Sonda de recuperación H3 completada correctamente',
   'diag_event_recovery_probe_failed': 'Sonda de recuperación H3 fallida',
   'diag_event_path_promoted': 'Ruta candidata activada',
-  'diag_event_queue_backpressured': 'Espera de capacidad en la cola de envío',
+  'diag_event_queue_backpressured': 'Cola de envío saturada',
   'diag_event_queue_saturated': 'La cola de envío alcanzó su capacidad',
   'diag_event_disconnected': 'Desconectado',
   'diag_event_failed': 'Conexión fallida',

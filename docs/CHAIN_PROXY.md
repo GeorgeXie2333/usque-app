@@ -83,7 +83,7 @@ Saving to the library neither selects the configuration nor starts a connection.
 
 Enable the page switch, select a saved configuration, then apply from the
 action bar. The list marks the saved selection, the configuration used by the
-current connection, and configurations that require CONNECT-IP. The selected
+current connection, and configurations marked **Not available with L4**. The selected
 configuration's **Technical details** expand on request under its selected row.
 The action bar names the pending
 selection and states why a draft cannot be applied yet; while connected, its
@@ -117,7 +117,7 @@ of the selected WARP account.
 粘贴文本需点击**检查配置**。粘贴到错误来源的配置会在调用引擎前得到提示。
 检查后补充认证信息、命名（默认使用服务器主机名）并保存；保存不会选用配置
 或自动连接。打开总开关、选择配置，再在底栏应用。列表会标记已保存的选择、
-当前连接使用的配置以及需要 CONNECT-IP 的配置；点击所选配置下的“技术详情”
+当前连接使用的配置以及标记为**不支持 L4** 的配置；点击所选配置下的“技术详情”
 可展开详细信息。
 底栏说明待应用的选择及暂时不能应用的原因；已连接时按钮为**应用并重新连接**。
 切换出口来源只是浏览，不会弹出“放弃未应用的修改”提示；在某个来源下做出的
@@ -146,7 +146,7 @@ VPN Gate 同样使用“应用更改”和“应用并重新连接”。准备�
 | VPN Gate, directory TCP | Supported | Supported |
 
 L4 can store UDP and WireGuard imports. Enabling them requires the explicit
-**Switch to CONNECT-IP and apply** action, which replaces the action bar's
+**Turn off L4 and apply** action, which replaces the action bar's
 button while the conflict exists. Capability discovery prevents enabling
 WireGuard when the native binary was compiled without it. Such a binary rejects
 an existing enabled WireGuard selection; it never ignores that selection.
@@ -195,7 +195,7 @@ for a valid private-network tunnel without failing the connection. Idle
 WireGuard key expiry alone does not disconnect a healthy idle session.
 
 L4 可以保存 OpenVPN UDP 和 WireGuard 配置，但不能直接启用。存在冲突时底栏
-按钮直接变为**切换为 CONNECT-IP 并应用**。OpenVPN 支持最多 16 个同为 TCP 或同为 UDP 的
+按钮直接变为**关闭 L4 并应用**。OpenVPN 支持最多 16 个同为 TCP 或同为 UDP 的
 remote 候选；保留各端点的地址族限制。默认按文件顺序尝试，`remote-random`
 为每次连接生成一次随机顺序。只在建立连接时切换候选；认证、证书、配置及未知
 致命协议错误立即停止，错误密码不会在备用端点重复尝试。候选阶段总计最多
