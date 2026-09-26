@@ -1639,16 +1639,19 @@ mod tests {
             Bytes::from(packet)
         }
 
-        let server = tokio::net::UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 2), 443))
+        let server = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
             .await
             .unwrap();
+        let direct_port = server.local_addr().unwrap().port();
         let (mut tunnel, mut inner_rx, managed_incoming) =
             ManagedTunnelRuntime::packet_mux_test_channels(8);
         let (mut io, raw_rx, incoming) = test_tun_io(8, 8);
         let (tun_sink, _watch) = watch::channel(Some(incoming));
         let (proxy_pipe, _proxy_client) = WakingPipe::bounded(4);
         let cancellation = CancellationToken::new();
-        let policy = Arc::new(crate::application_traffic::ApplicationTrafficPolicy::default());
+        let policy = Arc::new(
+            crate::application_traffic::ApplicationTrafficPolicy::for_loopback_quic(direct_port),
+        );
         let geo = Arc::new(GeoDirectPolicy::with_classifier(
             Arc::new(LocalGeo),
             [usque_geo::CountryCode::parse("JP").unwrap()],
@@ -1681,9 +1684,15 @@ mod tests {
         let mut original_peer = None;
         for blocked in [false, true, false, true] {
             policy.set_disable_quic(blocked);
-            io.send_owned_packet(wire([127, 0, 0, 2], 50000, 443, false))
-                .await
-                .unwrap();
+            assert_eq!(policy.blocks_udp(direct_port), blocked);
+            io.send_owned_packet(wire(
+                Ipv4Addr::LOCALHOST.octets(),
+                50000,
+                direct_port,
+                false,
+            ))
+            .await
+            .unwrap();
             let mut bytes = [0u8; 32];
             let (_, peer) = timeout(Duration::from_secs(2), server.recv_from(&mut bytes))
                 .await

@@ -342,6 +342,11 @@ pub(crate) fn bind_tcp_listener(address: SocketAddr) -> std::io::Result<tokio::n
         Domain::IPV6
     };
     let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+    // Unix needs this on both the old and new listener to rebind after an
+    // accepted connection enters TIME_WAIT during frontend reconfiguration.
+    // Do not enable it on Windows, where it allows competing live binds.
+    #[cfg(unix)]
+    socket.set_reuse_address(true)?;
     if address.is_ipv6() {
         socket.set_only_v6(true)?;
     }
@@ -444,6 +449,44 @@ mod tests {
         fn network_generation(&self) -> Option<u64> {
             Some(self.generation.load(Ordering::Acquire))
         }
+    }
+
+    #[tokio::test]
+    async fn tcp_listener_rejects_a_competing_live_bind() {
+        let listener = bind_tcp_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+        let address = listener.local_addr().unwrap();
+        assert_eq!(
+            bind_tcp_listener(address).unwrap_err().kind(),
+            std::io::ErrorKind::AddrInUse
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn tcp_listener_rebinds_after_server_initiated_close() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let listener = bind_tcp_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+            let address = listener.local_addr().unwrap();
+            let mut client = tokio::net::TcpStream::connect(address).await.unwrap();
+            let (mut accepted, _) = listener.accept().await.unwrap();
+            // Force the server to send the first FIN, so its local port is
+            // held in TIME_WAIT after the client's FIN is acknowledged.
+            accepted.shutdown().await.unwrap();
+            assert_eq!(client.read(&mut [0]).await.unwrap(), 0);
+            client.shutdown().await.unwrap();
+            assert_eq!(accepted.read(&mut [0]).await.unwrap(), 0);
+            drop(accepted);
+            drop(client);
+            drop(listener);
+
+            let replacement = bind_tcp_listener(address).expect("rebind despite TIME_WAIT");
+            let _client = tokio::net::TcpStream::connect(address).await.unwrap();
+            replacement.accept().await.unwrap();
+        })
+        .await
+        .expect("loopback close and rebind must finish");
     }
 
     #[tokio::test]

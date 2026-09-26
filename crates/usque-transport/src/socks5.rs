@@ -1550,16 +1550,20 @@ mod tests {
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             IpAddr::V6(Ipv6Addr::LOCALHOST),
         ] {
-            let server = TokioUdpSocket::bind(SocketAddr::new(ip, 443))
-                .await
-                .unwrap();
+            let server = TokioUdpSocket::bind(SocketAddr::new(ip, 0)).await.unwrap();
+            let direct_port = server.local_addr().unwrap().port();
             let protector = Arc::new(TestProtector {
                 resolved: server.local_addr().unwrap(),
                 reject: false,
                 protect_calls: AtomicUsize::new(0),
                 resolve_calls: AtomicUsize::new(0),
             });
-            let (context, tunnel, _, tasks) = test_socks_context(protector.clone()).await;
+            let (mut context, tunnel, _, tasks) = test_socks_context(protector.clone()).await;
+            context.traffic_policy = Arc::new(
+                crate::application_traffic::ApplicationTrafficPolicy::for_loopback_quic(
+                    direct_port,
+                ),
+            );
             let direct = DirectUdpSockets::new(protector.as_ref());
             let (tx, mut rx) = mpsc::channel(4);
             let cancel = CancellationToken::new();
@@ -1576,11 +1580,12 @@ mod tests {
             let mut original_peer = None;
             for blocked in [false, true, false, true] {
                 context.traffic_policy.set_disable_quic(blocked);
+                assert_eq!(context.traffic_policy.blocks_udp(direct_port), blocked);
                 for target in [Target::Domain("direct.test".into()), Target::Address(ip)] {
                     send_udp_routed(
                         &context,
                         &target,
-                        443,
+                        direct_port,
                         b"quic",
                         &direct,
                         TunnelUdpSockets {
@@ -1609,6 +1614,7 @@ mod tests {
                         .unwrap()
                         .unwrap();
                     assert_eq!(response.route, GeoRoute::Direct);
+                    assert_eq!(response.source, server.local_addr().unwrap());
                     assert!(!response.blocked_by(&context.traffic_policy));
                     assert_eq!(&response.payload[..], b"reply");
                 }
