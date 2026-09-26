@@ -195,16 +195,28 @@ abstract interface class WarpWireguardClient {
   Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request);
 }
 
-abstract interface class ChainProfileClient {
-  Future<ChainProfileResult> chainProfile(Map<String, Object?> request);
-  Future<String?> pickChainConfiguration();
+/// A document read once by the platform picker. Never contains a path or URI.
+class ChainConfigurationFile {
+  const ChainConfigurationFile({
+    required this.name,
+    this.configuration,
+    this.errorCode,
+  });
+  final String name;
+  final String? configuration;
+  final String? errorCode;
 }
 
-Future<String?> pickChainConfigurationFile() async {
+abstract interface class ChainProfileClient {
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request);
+  Future<List<ChainConfigurationFile>> pickChainConfigurations();
+}
+
+Future<List<ChainConfigurationFile>> pickChainConfigurationFiles() async {
   const channel = MethodChannel('io.github.georgexie2333.usque/engine');
-  Uint8List? bytes;
+  List<Object?>? files;
   try {
-    bytes = await channel.invokeMethod<Uint8List>('readChainConfiguration');
+    files = await channel.invokeListMethod<Object?>('readChainConfigurations');
   } on MissingPluginException {
     throw const EngineException(
       'CHAIN_FILE_UNAVAILABLE',
@@ -213,38 +225,57 @@ Future<String?> pickChainConfigurationFile() async {
   } on PlatformException catch (error) {
     final code = switch (error.code) {
       'CHAIN_FILE_UNAVAILABLE' ||
-      'CHAIN_FILE_TOO_LARGE' ||
-      'CHAIN_FILE_BUSY' => error.code,
+      'CHAIN_FILE_BUSY' ||
+      'CHAIN_FILE_COUNT_LIMIT' => error.code,
       _ => 'CHAIN_FILE_READ_FAILED',
     };
-    throw EngineException(code, 'Configuration file could not be read.');
+    throw EngineException(code, 'Configuration files could not be read.');
   }
-  if (bytes == null) return null;
-  if (bytes.length > 128 * 1024) {
+  if (files == null) return const [];
+  if (files.length > 128) {
     throw const EngineException(
-      'CHAIN_FILE_TOO_LARGE',
-      'Configuration size limit.',
+      'CHAIN_FILE_COUNT_LIMIT',
+      'Select at most 128 files.',
     );
   }
-  if (bytes.isEmpty) {
-    throw const EngineException(
-      'CHAIN_FILE_READ_FAILED',
-      'The configuration file is empty.',
-    );
-  }
-  // Platform replies belong to the engine and may be immutable. Only wipe an
-  // owned mutable copy; cleanup must never override the decoded result.
-  final owned = Uint8List.fromList(bytes);
-  try {
-    return utf8.decode(owned);
-  } on FormatException {
-    throw const EngineException(
-      'CHAIN_FILE_ENCODING_INVALID',
-      'Use UTF-8 configuration text.',
-    );
-  } finally {
-    owned.fillRange(0, owned.length, 0);
-  }
+  return files
+      .map((entry) {
+        final file = entry as Map<Object?, Object?>;
+        final name = file['name'] as String? ?? '';
+        final error = file['error'] as String?;
+        if (error != null) {
+          return ChainConfigurationFile(name: name, errorCode: error);
+        }
+        final bytes = file['bytes'] as Uint8List?;
+        if (bytes == null || bytes.isEmpty) {
+          return ChainConfigurationFile(
+            name: name,
+            errorCode: 'CHAIN_FILE_READ_FAILED',
+          );
+        }
+        if (bytes.length > 128 * 1024) {
+          return ChainConfigurationFile(
+            name: name,
+            errorCode: 'CHAIN_FILE_TOO_LARGE',
+          );
+        }
+        // Platform replies may be immutable. Wipe only our own mutable copy.
+        final owned = Uint8List.fromList(bytes);
+        try {
+          return ChainConfigurationFile(
+            name: name,
+            configuration: utf8.decode(owned),
+          );
+        } on FormatException {
+          return ChainConfigurationFile(
+            name: name,
+            errorCode: 'CHAIN_FILE_ENCODING_INVALID',
+          );
+        } finally {
+          owned.fillRange(0, owned.length, 0);
+        }
+      })
+      .toList(growable: false);
 }
 
 class MethodChannelEngineClient
@@ -266,7 +297,8 @@ class MethodChannelEngineClient
             const {},
       );
   @override
-  Future<String?> pickChainConfiguration() => pickChainConfigurationFile();
+  Future<List<ChainConfigurationFile>> pickChainConfigurations() =>
+      pickChainConfigurationFiles();
   @override
   Future<VpnGateDirectory> listVpnGate({
     String? countryCode,

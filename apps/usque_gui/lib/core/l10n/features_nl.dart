@@ -366,6 +366,19 @@ const Map<String, String> kNetworkSettingsNl = <String, String>{
 };
 
 const Map<String, String> kChainNl = <String, String>{
+  "batch_title": "Configuraties importeren",
+  "batch_counts":
+      "Gereed: {ready} · Onvolledig: {pending} · Mislukt: {failed} · Opgeslagen: {saved}",
+  "batch_ready": "Klaar om te importeren",
+  "batch_pending": "Vul de naam of inloggegevens aan",
+  "batch_saved": "Geïmporteerd",
+  "batch_close": "Sluiten",
+  "batch_import": "Geldige items importeren ({count})",
+  "batch_checking": "Controleren: {done} van {total}",
+  "batch_saving": "Configuraties opslaan…",
+  "batch_uncertain":
+      "Opslaan onderbroken. Sluit en controleer de bibliotheek voordat u opnieuw importeert; sommige items zijn mogelijk al opgeslagen.",
+  "file_count_limit": "Selecteer maximaal 128 bestanden tegelijk.",
   'duplicate_directive': 'Deze richtlijn mag maar één keer voorkomen.',
   'mixed_protocols':
       'Alle remote-eindpunten moeten hetzelfde TCP- of UDP-transport gebruiken.',

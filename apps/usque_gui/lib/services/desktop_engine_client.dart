@@ -58,7 +58,8 @@ class DesktopEngineClient
             ));
       });
   @override
-  Future<String?> pickChainConfiguration() => pickChainConfigurationFile();
+  Future<List<ChainConfigurationFile>> pickChainConfigurations() =>
+      pickChainConfigurationFiles();
   @override
   Future<VpnGateDirectory> listVpnGate({
     String? countryCode,

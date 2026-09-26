@@ -18,6 +18,8 @@ import '../widgets/usque_dialog.dart';
 import '../widgets/warp_wireguard_panel.dart';
 import 'vpn_gate_screen.dart';
 
+part 'chain_batch_import.dart';
+
 class ChainProxyScreen extends StatefulWidget {
   const ChainProxyScreen({
     required this.controller,
@@ -256,7 +258,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   final _warpPanel = GlobalKey<WarpWireguardPanelState>();
   late ChainExitSettings _baseline, _draft;
   List<ChainProfileSummary> _profiles = const [];
-  bool _loading = true, _saving = false;
+  bool _loading = true, _saving = false, _importing = false;
   bool _warpEndpointValid = true;
   bool _wasSupported = false;
 
@@ -366,10 +368,40 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   }
 
   Future<void> _import(bool file) async {
+    if (_importing) return;
+    setState(() => _importing = true);
+    try {
+      await _importFilesOrText(file);
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  Future<void> _importFilesOrText(bool file) async {
     String? text;
     if (file) {
       try {
-        text = await _app.pickChainConfiguration();
+        final files = await _app.pickChainConfigurations();
+        if (!mounted || files.isEmpty) return;
+        if (files.length > 1) {
+          setState(() => _libraryError = null);
+          await showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => _BatchImportDialog(
+              controller: _app,
+              source: widget.source,
+              files: files,
+            ),
+          );
+          if (mounted) await _load();
+          return;
+        }
+        final picked = files.single;
+        if (picked.errorCode case final code?) {
+          throw EngineException(code, 'Configuration file could not be read.');
+        }
+        text = picked.configuration;
       } catch (error) {
         if (mounted) {
           final key = switch (error) {
@@ -380,6 +412,8 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
             EngineException(code: 'CHAIN_FILE_ENCODING_INVALID') =>
               'file_encoding_invalid',
             EngineException(code: 'CHAIN_FILE_BUSY') => 'file_busy',
+            EngineException(code: 'CHAIN_FILE_COUNT_LIMIT') =>
+              'file_count_limit',
             _ => 'file_read_failed',
           };
           setState(() => _libraryError = _app.strings.chain(key));
@@ -632,14 +666,14 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                         label: Text(strings.warp('generate')),
                       ),
                     OutlinedButton.icon(
-                      onPressed: _supported && !_saving
+                      onPressed: _supported && !_saving && !_importing
                           ? () => unawaited(_import(true))
                           : null,
                       icon: const Icon(LucideIcons.fileUp),
                       label: Text(strings.chain('import_file')),
                     ),
                     OutlinedButton.icon(
-                      onPressed: _supported && !_saving
+                      onPressed: _supported && !_saving && !_importing
                           ? () => unawaited(_import(false))
                           : null,
                       icon: const Icon(LucideIcons.clipboard),
@@ -987,34 +1021,6 @@ class _ImportDialogState extends State<_ImportDialog> {
     super.dispose();
   }
 
-  /// A cheap structural check that catches a file pasted under the wrong
-  /// source before the engine reports an unhelpful parse error.
-  String? _sourceMismatch(String text) {
-    final lines = text
-        .split('\n')
-        .map((line) => line.trim().toLowerCase())
-        .where((line) => line.isNotEmpty && !line.startsWith('#'))
-        .toList();
-    final wireguard = lines.any(
-      (line) => line == '[interface]' || line == '[peer]',
-    );
-    final openvpn = lines.any(
-      (line) =>
-          line == 'client' ||
-          line.startsWith('remote ') ||
-          line.startsWith('dev ') ||
-          line.startsWith('<ca>'),
-    );
-    return switch (widget.source) {
-      ChainSource.openvpnCustom when wireguard && !openvpn =>
-        'looks_like_wireguard',
-      ChainSource.wireguardCustom || ChainSource.warpWireguard
-          when openvpn && !wireguard =>
-        'looks_like_openvpn',
-      _ => null,
-    };
-  }
-
   Future<void> _submit(bool save) async {
     final s = widget.controller.strings;
     if (_busy) return;
@@ -1023,7 +1029,7 @@ class _ImportDialogState extends State<_ImportDialog> {
       return;
     }
     if (widget.credentialsFor == null) {
-      final mismatch = _sourceMismatch(_configuration.text);
+      final mismatch = _chainSourceMismatch(widget.source, _configuration.text);
       if (mismatch != null) {
         setState(() => _error = s.chain(mismatch));
         return;
@@ -1285,4 +1291,32 @@ class _ImportDialogState extends State<_ImportDialog> {
       ),
     );
   }
+}
+
+/// A cheap structural check that catches a file pasted under the wrong
+/// source before the engine reports an unhelpful parse error.
+String? _chainSourceMismatch(ChainSource source, String text) {
+  final lines = text
+      .split('\n')
+      .map((line) => line.trim().toLowerCase())
+      .where((line) => line.isNotEmpty && !line.startsWith('#'))
+      .toList();
+  final wireguard = lines.any(
+    (line) => line == '[interface]' || line == '[peer]',
+  );
+  final openvpn = lines.any(
+    (line) =>
+        line == 'client' ||
+        line.startsWith('remote ') ||
+        line.startsWith('dev ') ||
+        line.startsWith('<ca>'),
+  );
+  return switch (source) {
+    ChainSource.openvpnCustom when wireguard && !openvpn =>
+      'looks_like_wireguard',
+    ChainSource.wireguardCustom || ChainSource.warpWireguard
+        when openvpn && !wireguard =>
+      'looks_like_openvpn',
+    _ => null,
+  };
 }

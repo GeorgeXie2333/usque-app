@@ -361,6 +361,19 @@ const Map<String, String> kNetworkSettingsPl = <String, String>{
 };
 
 const Map<String, String> kChainPl = <String, String>{
+  "batch_title": "Importuj konfiguracje",
+  "batch_counts":
+      "Gotowe: {ready} · Niepełne: {pending} · Błędy: {failed} · Zapisane: {saved}",
+  "batch_ready": "Gotowa do importu",
+  "batch_pending": "Uzupełnij nazwę lub dane logowania",
+  "batch_saved": "Zaimportowano",
+  "batch_close": "Zamknij",
+  "batch_import": "Importuj poprawne wpisy ({count})",
+  "batch_checking": "Sprawdzanie {done} z {total}",
+  "batch_saving": "Zapisywanie konfiguracji…",
+  "batch_uncertain":
+      "Zapisywanie przerwano. Zamknij i sprawdź bibliotekę przed ponownym importem; część wpisów mogła już zostać zapisana.",
+  "file_count_limit": "Wybierz najwyżej 128 plików naraz.",
   'duplicate_directive': 'Ta dyrektywa może wystąpić tylko raz.',
   'mixed_protocols':
       'Wszystkie punkty remote muszą używać tego samego transportu TCP albo UDP.',

@@ -371,6 +371,19 @@ const Map<String, String> kNetworkSettingsDe = <String, String>{
 };
 
 const Map<String, String> kChainDe = <String, String>{
+  "batch_title": "Konfigurationen importieren",
+  "batch_counts":
+      "Bereit: {ready} · Unvollständig: {pending} · Fehler: {failed} · Gespeichert: {saved}",
+  "batch_ready": "Bereit zum Import",
+  "batch_pending": "Name oder Anmeldedaten ergänzen",
+  "batch_saved": "Importiert",
+  "batch_close": "Schließen",
+  "batch_import": "Gültige Einträge importieren ({count})",
+  "batch_checking": "Prüfung {done} von {total}",
+  "batch_saving": "Konfigurationen werden gespeichert…",
+  "batch_uncertain":
+      "Speichern unterbrochen. Schließen Sie den Dialog und prüfen Sie vor einem erneuten Import die Bibliothek; einige Einträge könnten bereits gespeichert sein.",
+  "file_count_limit": "Wählen Sie höchstens 128 Dateien gleichzeitig.",
   'duplicate_directive': 'Diese Direktive darf nur einmal vorkommen.',
   'mixed_protocols':
       'Alle remote-Endpunkte müssen denselben TCP- oder UDP-Transport verwenden.',

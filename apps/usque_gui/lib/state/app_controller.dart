@@ -37,10 +37,10 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  Future<String?> pickChainConfiguration() {
+  Future<List<ChainConfigurationFile>> pickChainConfigurations() {
     final engine = _engine;
     if (engine is ChainProfileClient) {
-      return (engine as ChainProfileClient).pickChainConfiguration();
+      return (engine as ChainProfileClient).pickChainConfigurations();
     }
     throw const EngineException(
       'CHAIN_PROFILE_UNAVAILABLE',

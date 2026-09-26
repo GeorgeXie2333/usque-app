@@ -22,6 +22,19 @@ import 'features_zh_tw.dart';
 // live in features_*.dart. ChainStrings reads this table directly: keys such
 // as title and save would collide with the main catalog if get() consulted it.
 const kChainEn = <String, String>{
+  "batch_title": "Import configurations",
+  "batch_counts":
+      "Ready: {ready} · Incomplete: {pending} · Failed: {failed} · Saved: {saved}",
+  "batch_ready": "Ready to import",
+  "batch_pending": "Complete the name or credentials",
+  "batch_saved": "Imported",
+  "batch_close": "Close",
+  "batch_import": "Import valid items ({count})",
+  "batch_checking": "Checking {done} of {total}",
+  "batch_saving": "Saving configurations…",
+  "batch_uncertain":
+      "Saving was interrupted. Close and check the library before importing again; some items may already be saved.",
+  "file_count_limit": "Select no more than 128 files at a time.",
   'duplicate_directive': 'This directive may appear only once.',
   'mixed_protocols':
       'All remote endpoints must use the same TCP or UDP transport.',
@@ -153,6 +166,17 @@ const kChainEn = <String, String>{
 };
 
 const kChainZhCn = <String, String>{
+  "batch_title": "批量导入配置",
+  "batch_counts": "可导入：{ready} · 待补充：{pending} · 失败：{failed} · 已保存：{saved}",
+  "batch_ready": "可导入",
+  "batch_pending": "请补充名称或凭据",
+  "batch_saved": "已导入",
+  "batch_close": "关闭",
+  "batch_import": "导入合格项（{count}）",
+  "batch_checking": "正在检查 {done}/{total}",
+  "batch_saving": "正在保存配置…",
+  "batch_uncertain": "保存中断。请关闭并核对配置库后再导入，部分项目可能已保存。",
+  "file_count_limit": "每次最多选择 128 个文件。",
   'duplicate_directive': '此指令只能出现一次。',
   'mixed_protocols': '所有 remote 端点必须统一使用 TCP 或 UDP。',
   'conflicting_protocol': 'remote 与全局传输协议设置冲突。',

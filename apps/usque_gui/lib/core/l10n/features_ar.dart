@@ -322,6 +322,19 @@ const Map<String, String> kNetworkSettingsAr = <String, String>{
 };
 
 const Map<String, String> kChainAr = <String, String>{
+  "batch_title": "استيراد الإعدادات",
+  "batch_counts":
+      "جاهزة: {ready} · ناقصة: {pending} · فاشلة: {failed} · محفوظة: {saved}",
+  "batch_ready": "جاهزة للاستيراد",
+  "batch_pending": "أكمل الاسم أو بيانات الاعتماد",
+  "batch_saved": "تم الاستيراد",
+  "batch_close": "إغلاق",
+  "batch_import": "استيراد العناصر الصالحة ({count})",
+  "batch_checking": "جارٍ التحقق من {done} من {total}",
+  "batch_saving": "جارٍ حفظ الإعدادات…",
+  "batch_uncertain":
+      "توقف الحفظ. أغلق وتحقق من المكتبة قبل الاستيراد مجدداً؛ قد تكون بعض العناصر محفوظة بالفعل.",
+  "file_count_limit": "اختر 128 ملفاً كحد أقصى في المرة الواحدة.",
   'duplicate_directive': 'لا يجوز أن يظهر هذا التوجيه إلا مرة واحدة.',
   'mixed_protocols': 'يجب أن تستخدم كل نقاط remote النقل نفسه، إما TCP أو UDP.',
   'conflicting_protocol': 'يتعارض remote مع إعداد النقل العام.',

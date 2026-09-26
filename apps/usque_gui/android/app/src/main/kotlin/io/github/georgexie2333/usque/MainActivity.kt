@@ -70,59 +70,30 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingDiagnosticsResult: MethodChannel.Result? = null
     private var pendingChainFileResult: MethodChannel.Result? = null
     private val chainFilePicker =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             val result = pendingChainFileResult
-            pendingChainFileResult = null
             if (result != null) {
-                if (uri == null) {
-                    result.success(null)
+                if (uris.size > ChainConfigurationFiles.MAX_FILES) {
+                    pendingChainFileResult = null
+                    result.error("CHAIN_FILE_COUNT_LIMIT", "Select at most 128 files.", null)
                 } else {
-                    identityExecutor.execute {
-                        val buffer = ByteArray(128 * 1024 + 1)
-                        try {
-                            val count =
-                                contentResolver.openInputStream(uri)?.use { input ->
-                                    var total = 0
-                                    while (total < buffer.size) {
-                                        val read = input.read(buffer, total, buffer.size - total)
-                                        if (read < 0) break
-                                        if (read == 0) error("No file progress")
-                                        total += read
-                                    }
-                                    total
-                                } ?: error("File unavailable")
-                            if (count > 128 * 1024) {
-                                runOnUiThread {
-                                    if (!isDestroyed) {
-                                        result.error(
-                                            "CHAIN_FILE_TOO_LARGE",
-                                            "Configuration size limit.",
-                                            null,
-                                        )
-                                    }
-                                }
-                                return@execute
-                            }
-                            require(count > 0)
-                            val bytes = buffer.copyOf(count)
+                    try {
+                        identityExecutor.execute {
+                            val files = uris.map { ChainConfigurationFiles.read(contentResolver, it) }
                             runOnUiThread {
                                 try {
-                                    if (!isDestroyed) result.success(bytes)
+                                    if (!isDestroyed && pendingChainFileResult === result) {
+                                        pendingChainFileResult = null
+                                        result.success(files)
+                                    }
                                 } finally {
-                                    bytes.fill(0)
+                                    ChainConfigurationFiles.clear(files)
                                 }
                             }
-                        } catch (_: Exception) {
-                            runOnUiThread {
-                                result.error(
-                                    "CHAIN_FILE_READ_FAILED",
-                                    "Unable to read configuration file.",
-                                    null,
-                                )
-                            }
-                        } finally {
-                            buffer.fill(0)
                         }
+                    } catch (_: RejectedExecutionException) {
+                        pendingChainFileResult = null
+                        result.error("CHAIN_FILE_READ_FAILED", "Unable to read configuration files.", null)
                     }
                 }
             }
@@ -406,7 +377,7 @@ class MainActivity : FlutterFragmentActivity() {
         ensureEngineComponents()
         engineMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         engineMethodChannel?.setMethodCallHandler { call, result ->
-            if (call.method == "readChainConfiguration") {
+            if (call.method == "readChainConfigurations") {
                 if (pendingChainFileResult != null) {
                     result.error("CHAIN_FILE_BUSY", "A file picker is already open.", null)
                 } else {

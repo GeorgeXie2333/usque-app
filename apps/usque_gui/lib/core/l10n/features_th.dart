@@ -322,6 +322,19 @@ const Map<String, String> kNetworkSettingsTh = <String, String>{
 };
 
 const Map<String, String> kChainTh = <String, String>{
+  "batch_title": "นำเข้าการกำหนดค่า",
+  "batch_counts":
+      "พร้อม: {ready} · ต้องเติมข้อมูล: {pending} · ล้มเหลว: {failed} · บันทึกแล้ว: {saved}",
+  "batch_ready": "พร้อมนำเข้า",
+  "batch_pending": "กรอกชื่อหรือข้อมูลรับรองให้ครบ",
+  "batch_saved": "นำเข้าแล้ว",
+  "batch_close": "ปิด",
+  "batch_import": "นำเข้ารายการที่ถูกต้อง ({count})",
+  "batch_checking": "กำลังตรวจสอบ {done}/{total}",
+  "batch_saving": "กำลังบันทึกการกำหนดค่า…",
+  "batch_uncertain":
+      "การบันทึกถูกขัดจังหวะ ปิดและตรวจสอบคลังก่อนนำเข้าอีกครั้ง บางรายการอาจบันทึกแล้ว",
+  "file_count_limit": "เลือกได้ไม่เกิน 128 ไฟล์ต่อครั้ง",
   'duplicate_directive': 'คำสั่งนี้ใช้ได้เพียงครั้งเดียว',
   'mixed_protocols':
       'ปลายทาง remote ทั้งหมดต้องใช้การส่งเดียวกัน เป็น TCP หรือ UDP',

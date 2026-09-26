@@ -282,6 +282,17 @@ const Map<String, String> kNetworkSettingsZhTw = <String, String>{
 };
 
 const Map<String, String> kChainZhTw = <String, String>{
+  "batch_title": "批次匯入設定",
+  "batch_counts": "可匯入：{ready} · 待補充：{pending} · 失敗：{failed} · 已儲存：{saved}",
+  "batch_ready": "可匯入",
+  "batch_pending": "請補充名稱或認證資訊",
+  "batch_saved": "已匯入",
+  "batch_close": "關閉",
+  "batch_import": "匯入有效項目（{count}）",
+  "batch_checking": "正在檢查 {done}/{total}",
+  "batch_saving": "正在儲存設定…",
+  "batch_uncertain": "儲存中斷。請關閉並核對設定庫後再匯入，部分項目可能已儲存。",
+  "file_count_limit": "每次最多選取 128 個檔案。",
   'duplicate_directive': '此指令只能出現一次。',
   'mixed_protocols': '所有 remote 端點必須統一使用 TCP 或 UDP。',
   'conflicting_protocol': 'remote 與全域傳輸協定設定衝突。',

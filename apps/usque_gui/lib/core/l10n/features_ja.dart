@@ -304,6 +304,18 @@ const Map<String, String> kNetworkSettingsJa = <String, String>{
 };
 
 const Map<String, String> kChainJa = <String, String>{
+  "batch_title": "設定を一括インポート",
+  "batch_counts": "有効：{ready} · 要入力：{pending} · 失敗：{failed} · 保存済み：{saved}",
+  "batch_ready": "インポート可能",
+  "batch_pending": "名前または認証情報を入力してください",
+  "batch_saved": "インポート済み",
+  "batch_close": "閉じる",
+  "batch_import": "有効な項目をインポート（{count}）",
+  "batch_checking": "確認中 {done}/{total}",
+  "batch_saving": "設定を保存中…",
+  "batch_uncertain":
+      "保存が中断されました。閉じてライブラリを確認してから再度インポートしてください。一部の項目は保存済みの可能性があります。",
+  "file_count_limit": "一度に選択できるファイルは 128 個までです。",
   'duplicate_directive': 'このディレクティブは一度だけ指定できます。',
   'mixed_protocols': 'すべての remote エンドポイントは TCP か UDP のどちらかに揃えてください。',
   'conflicting_protocol': 'remote と全体のトランスポート設定が矛盾しています。',

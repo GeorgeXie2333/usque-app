@@ -334,6 +334,19 @@ const Map<String, String> kNetworkSettingsTr = <String, String>{
 };
 
 const Map<String, String> kChainTr = <String, String>{
+  "batch_title": "Yapılandırmaları içe aktar",
+  "batch_counts":
+      "Hazır: {ready} · Eksik: {pending} · Başarısız: {failed} · Kaydedilen: {saved}",
+  "batch_ready": "İçe aktarmaya hazır",
+  "batch_pending": "Adı veya kimlik bilgilerini tamamlayın",
+  "batch_saved": "İçe aktarıldı",
+  "batch_close": "Kapat",
+  "batch_import": "Geçerli öğeleri içe aktar ({count})",
+  "batch_checking": "Denetleniyor: {done}/{total}",
+  "batch_saving": "Yapılandırmalar kaydediliyor…",
+  "batch_uncertain":
+      "Kaydetme kesildi. Yeniden içe aktarmadan önce kapatıp kitaplığı kontrol edin; bazı öğeler kaydedilmiş olabilir.",
+  "file_count_limit": "Bir seferde en fazla 128 dosya seçin.",
   'duplicate_directive': 'Bu yönerge yalnızca bir kez geçebilir.',
   'mixed_protocols':
       'Tüm remote uç noktaları aynı TCP veya UDP aktarımını kullanmalıdır.',

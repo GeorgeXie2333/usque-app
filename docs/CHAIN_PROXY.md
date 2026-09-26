@@ -50,11 +50,27 @@ WARP via WireGuard 支持生成／导入配置、编辑端点和可恢复扫描�
 ## Import, select and apply / 导入、选用与应用
 
 Choose a custom source, then **Import file** or **Paste configuration**. Use
-UTF-8 text up to 128 KiB. Windows opens its native picker; Android uses the
-system document provider. Android TV devices without a document provider can
+UTF-8 text up to 128 KiB. Windows opens its native multi-file picker; Android uses the
+system multi-document provider. Select up to 128 files from the current source
+at once; the library still holds at most 128 configurations. Android TV devices without a document provider can
 use pasted text. Usque reads the document once and does not retain a dependency
 on its path or document-provider permissions. An imported file is checked as
 soon as the dialog opens; pasted text is checked with **Check configuration**.
+For multiple files, a batch list automatically checks every file offline and
+shows ready, incomplete, failed and saved counts. Expand an entry to review its
+details, change its name or supply its individual credentials. Names default to
+the endpoint host, including when filenames differ. Incorrect encoding, empty
+or oversized files, unsupported configurations and source mismatches are reported
+per file; validation does not test connectivity. **Import valid items** saves
+only entries that passed validation and have the required name and credentials.
+You can complete remaining entries and save them afterward. Already imported
+entries are not submitted again. Canceling the initial check saves nothing.
+
+Saving keeps successful entries even if another fails. If communication is
+interrupted, further saves stop: close the dialog and inspect the library before
+importing again, because the interrupted entry may already have been saved.
+Files with identical names or content create separate entries; they do not
+replace existing configurations.
 Text that structurally belongs to the other source is reported before the
 engine runs.
 
@@ -88,7 +104,16 @@ page says so instead of hiding the action. Imports are device-wide, independent
 of the selected WARP account.
 
 选择自定义来源后，可导入文件或粘贴配置。两种入口共用 Rust 校验流程，限制为
-128 KiB UTF-8 文本。TV 没有系统文件选择器时请粘贴文本。导入文件后立即检查；
+每个文件 128 KiB UTF-8 文本。Windows 和 Android 均支持多选，每次最多选择
+128 个当前来源的文件，配置库总量仍限制为 128 条。TV 没有系统文件选择器时请粘贴文本。
+单文件沿用原有对话框；多文件自动逐项离线预检，显示可导入、待补充、失败和已保存数量。
+展开项目可检查详情、修改名称并逐项填写凭据，默认名称仍为服务器主机名。
+空文件、超限、编码错误、来源不符或不受支持的配置逐项报错，不进行连通性探测。
+点击**导入合格项**仅保存校验通过且名称与凭据齐全的项目；其余项目可补充后继续保存，
+已导入项目不会再次提交。预检期间取消不会保存配置。
+保存失败不回滚其他成功项；通信中断则停止后续提交，请关闭并核对配置库后再导入，
+因为中断的项目可能已经保存。同名或相同内容仍作为独立新配置导入，不覆盖已有配置。
+导入文件后立即检查；
 粘贴文本需点击**检查配置**。粘贴到错误来源的配置会在调用引擎前得到提示。
 检查后补充认证信息、命名（默认使用服务器主机名）并保存；保存不会选用配置
 或自动连接。打开总开关、选择配置，再在底栏应用。列表会标记已保存的选择、

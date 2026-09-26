@@ -44,6 +44,7 @@ class ChainEngine extends GateEngine
   final actions = <String>[];
   final names = <String>[];
   String? picked;
+  List<ChainConfigurationFile>? pickedFiles;
   EngineException? pickerError;
   bool multiEndpoint = true;
   ChainProfileSummary previewProfile = imported;
@@ -59,11 +60,15 @@ class ChainEngine extends GateEngine
     chainOpenvpnMultiEndpoint: multiEndpoint,
   );
   @override
-  Future<String?> pickChainConfiguration() async {
+  Future<List<ChainConfigurationFile>> pickChainConfigurations() async {
     if (pickerError case final error?) {
       throw error;
     }
-    return picked;
+    return pickedFiles ??
+        [
+          if (picked != null)
+            ChainConfigurationFile(name: 'test.conf', configuration: picked),
+        ];
   }
 
   @override
@@ -708,6 +713,52 @@ void main() {
       expect(state.vpnGate.connected, isTrue);
     }
   });
+
+  testWidgets('batch import golden on phone and desktop', (tester) async {
+    final engine = ChainEngine()
+      ..pickedFiles = const [
+        ChainConfigurationFile(
+          name: 'Office.conf',
+          configuration: '[Interface]',
+        ),
+        ChainConfigurationFile(name: 'Home.conf', configuration: '[Interface]'),
+        ChainConfigurationFile(
+          name: 'Broken.conf',
+          errorCode: 'CHAIN_FILE_ENCODING_INVALID',
+        ),
+      ];
+    final app = await hostChain(tester, engine);
+    for (final width in [390.0, 1100.0]) {
+      tester.view.physicalSize = Size(width, 900);
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: width > 500,
+            home: ChainProxyScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Import file'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Ready: 2 · Incomplete: 0 · Failed: 1 · Saved: 0'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile(
+          'goldens/chain_batch_${width > 500 ? 'desktop' : 'phone'}.png',
+        ),
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+    }
+  }, tags: 'golden');
 
   testWidgets('custom configuration page golden on phone and desktop', (
     tester,

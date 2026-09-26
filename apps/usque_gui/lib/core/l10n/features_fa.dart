@@ -328,6 +328,19 @@ const Map<String, String> kNetworkSettingsFa = <String, String>{
 };
 
 const Map<String, String> kChainFa = <String, String>{
+  "batch_title": "وارد کردن پیکربندی‌ها",
+  "batch_counts":
+      "آماده: {ready} · ناقص: {pending} · ناموفق: {failed} · ذخیره‌شده: {saved}",
+  "batch_ready": "آماده برای ورود",
+  "batch_pending": "نام یا اطلاعات ورود را تکمیل کنید",
+  "batch_saved": "وارد شد",
+  "batch_close": "بستن",
+  "batch_import": "وارد کردن موارد معتبر ({count})",
+  "batch_checking": "در حال بررسی {done} از {total}",
+  "batch_saving": "در حال ذخیره پیکربندی‌ها…",
+  "batch_uncertain":
+      "ذخیره‌سازی قطع شد. پیش از ورود دوباره، پنجره را ببندید و کتابخانه را بررسی کنید؛ ممکن است برخی موارد ذخیره شده باشند.",
+  "file_count_limit": "هر بار حداکثر ۱۲۸ فایل انتخاب کنید.",
   'duplicate_directive': 'این دستور فقط یک بار می‌تواند بیاید.',
   'mixed_protocols':
       'همهٔ نقطه‌های remote باید از یک انتقال TCP یا UDP استفاده کنند.',

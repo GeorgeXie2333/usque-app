@@ -60,6 +60,7 @@ class FlutterWindow : public Win32Window {
   std::shared_ptr<std::atomic_bool> engine_event_active_;
   uint64_t engine_event_generation_ = 0;
   bool start_hidden_ = false;
+  bool chain_picker_busy_ = false;
   bool close_to_tray_ = true;
   bool force_exit_ = false;
   bool exit_pending_ = false;

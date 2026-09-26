@@ -338,6 +338,19 @@ const Map<String, String> kNetworkSettingsId = <String, String>{
 };
 
 const Map<String, String> kChainId = <String, String>{
+  "batch_title": "Impor konfigurasi",
+  "batch_counts":
+      "Siap: {ready} · Belum lengkap: {pending} · Gagal: {failed} · Tersimpan: {saved}",
+  "batch_ready": "Siap diimpor",
+  "batch_pending": "Lengkapi nama atau kredensial",
+  "batch_saved": "Diimpor",
+  "batch_close": "Tutup",
+  "batch_import": "Impor entri valid ({count})",
+  "batch_checking": "Memeriksa {done} dari {total}",
+  "batch_saving": "Menyimpan konfigurasi…",
+  "batch_uncertain":
+      "Penyimpanan terputus. Tutup dan periksa pustaka sebelum mengimpor ulang; beberapa entri mungkin sudah tersimpan.",
+  "file_count_limit": "Pilih maksimal 128 berkas sekaligus.",
   'duplicate_directive': 'Direktif ini hanya boleh muncul sekali.',
   'mixed_protocols':
       'Semua titik akhir remote harus memakai angkutan TCP atau UDP yang sama.',

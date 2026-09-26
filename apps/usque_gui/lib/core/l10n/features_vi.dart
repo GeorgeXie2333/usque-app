@@ -328,6 +328,19 @@ const Map<String, String> kNetworkSettingsVi = <String, String>{
 };
 
 const Map<String, String> kChainVi = <String, String>{
+  "batch_title": "Nhập cấu hình",
+  "batch_counts":
+      "Sẵn sàng: {ready} · Cần bổ sung: {pending} · Lỗi: {failed} · Đã lưu: {saved}",
+  "batch_ready": "Sẵn sàng nhập",
+  "batch_pending": "Bổ sung tên hoặc thông tin xác thực",
+  "batch_saved": "Đã nhập",
+  "batch_close": "Đóng",
+  "batch_import": "Nhập mục hợp lệ ({count})",
+  "batch_checking": "Đang kiểm tra {done}/{total}",
+  "batch_saving": "Đang lưu cấu hình…",
+  "batch_uncertain":
+      "Lưu bị gián đoạn. Đóng và kiểm tra thư viện trước khi nhập lại; một số mục có thể đã được lưu.",
+  "file_count_limit": "Chọn tối đa 128 tệp mỗi lần.",
   'duplicate_directive': 'Chỉ thị này chỉ được xuất hiện một lần.',
   'mixed_protocols':
       'Mọi điểm cuối remote phải dùng cùng một giao vận TCP hoặc UDP.',

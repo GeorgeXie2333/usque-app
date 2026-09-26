@@ -357,6 +357,19 @@ const Map<String, String> kNetworkSettingsUk = <String, String>{
 };
 
 const Map<String, String> kChainUk = <String, String>{
+  "batch_title": "Імпорт конфігурацій",
+  "batch_counts":
+      "Готові: {ready} · Неповні: {pending} · Помилки: {failed} · Збережені: {saved}",
+  "batch_ready": "Готова до імпорту",
+  "batch_pending": "Заповніть назву або облікові дані",
+  "batch_saved": "Імпортовано",
+  "batch_close": "Закрити",
+  "batch_import": "Імпортувати коректні ({count})",
+  "batch_checking": "Перевірка {done} із {total}",
+  "batch_saving": "Збереження конфігурацій…",
+  "batch_uncertain":
+      "Збереження перервано. Закрийте вікно та перевірте бібліотеку перед повторним імпортом: деякі записи могли зберегтися.",
+  "file_count_limit": "Виберіть не більше 128 файлів за раз.",
   'duplicate_directive': 'Ця директива може траплятися лише один раз.',
   'mixed_protocols':
       'Усі кінцеві точки remote мають використовувати один транспорт: TCP або UDP.',

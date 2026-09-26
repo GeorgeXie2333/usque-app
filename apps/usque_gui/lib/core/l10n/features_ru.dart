@@ -360,6 +360,19 @@ const Map<String, String> kNetworkSettingsRu = <String, String>{
 };
 
 const Map<String, String> kChainRu = <String, String>{
+  "batch_title": "Импорт конфигураций",
+  "batch_counts":
+      "Готово: {ready} · Неполные: {pending} · Ошибки: {failed} · Сохранено: {saved}",
+  "batch_ready": "Готово к импорту",
+  "batch_pending": "Заполните имя или учётные данные",
+  "batch_saved": "Импортировано",
+  "batch_close": "Закрыть",
+  "batch_import": "Импортировать корректные ({count})",
+  "batch_checking": "Проверка {done} из {total}",
+  "batch_saving": "Сохранение конфигураций…",
+  "batch_uncertain":
+      "Сохранение прервано. Закройте окно и проверьте библиотеку перед повторным импортом: некоторые записи могли сохраниться.",
+  "file_count_limit": "Выберите не более 128 файлов за раз.",
   'duplicate_directive': 'Эта директива может встречаться только один раз.',
   'mixed_protocols':
       'Все конечные точки remote должны использовать один транспорт: TCP или UDP.',

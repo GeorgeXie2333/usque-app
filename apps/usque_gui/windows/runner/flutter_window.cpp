@@ -23,9 +23,57 @@
 
 namespace {
 
-std::optional<std::vector<uint8_t>> ReadChainConfiguration(HWND owner,
-                                                        bool& cancelled,
-                                                        std::string& error) {
+constexpr size_t kMaxChainFiles = 128;
+constexpr DWORD kMaxChainFileBytes = 128 * 1024;
+
+flutter::EncodableMap ReadChainFile(IShellItem* item) {
+  using flutter::EncodableValue;
+  flutter::EncodableMap result;
+  PWSTR path = nullptr;
+  if (item != nullptr) item->GetDisplayName(SIGDN_FILESYSPATH, &path);
+  if (path == nullptr) {
+    result[EncodableValue("name")] = EncodableValue("");
+    result[EncodableValue("error")] = EncodableValue("CHAIN_FILE_READ_FAILED");
+    return result;
+  }
+  const std::wstring full_path(path);
+  const auto separator = full_path.find_last_of(L"\\/");
+  result[EncodableValue("name")] = EncodableValue(Utf8FromUtf16(
+      full_path.substr(separator == std::wstring::npos ? 0 : separator + 1).c_str()));
+  HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  CoTaskMemFree(path);
+  if (file == INVALID_HANDLE_VALUE) {
+    result[EncodableValue("error")] = EncodableValue("CHAIN_FILE_READ_FAILED");
+    return result;
+  }
+  std::vector<uint8_t> bytes(kMaxChainFileBytes + 1);
+  DWORD count = 0;
+  bool ok = true;
+  while (count < bytes.size()) {
+    DWORD read = 0;
+    if (!ReadFile(file, bytes.data() + count,
+                  static_cast<DWORD>(bytes.size()) - count, &read, nullptr)) {
+      ok = false;
+      break;
+    }
+    if (read == 0) break;
+    count += read;
+  }
+  CloseHandle(file);
+  if (!ok || count == 0 || count > kMaxChainFileBytes) {
+    result[EncodableValue("error")] = EncodableValue(
+        count > kMaxChainFileBytes ? "CHAIN_FILE_TOO_LARGE" : "CHAIN_FILE_READ_FAILED");
+    SecureZeroMemory(bytes.data(), bytes.size());
+  } else {
+    bytes.resize(count);
+    result[EncodableValue("bytes")] = EncodableValue(std::move(bytes));
+  }
+  return result;
+}
+
+std::optional<flutter::EncodableList> ReadChainConfigurations(
+    HWND owner, bool& cancelled, std::string& error) {
   cancelled = false;
   error = "CHAIN_FILE_READ_FAILED";
   IFileOpenDialog* dialog = nullptr;
@@ -37,32 +85,31 @@ std::optional<std::vector<uint8_t>> ReadChainConfiguration(HWND owner,
   const COMDLG_FILTERSPEC filters[] = {
       {L"VPN configuration", L"*.ovpn;*.conf"}, {L"All files", L"*.*"}};
   dialog->SetFileTypes(2, filters);
-  dialog->SetOptions(FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM);
+  dialog->SetOptions(FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST |
+                    FOS_FORCEFILESYSTEM | FOS_ALLOWMULTISELECT);
   const HRESULT shown = dialog->Show(owner);
   if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED)) cancelled = true;
-  IShellItem* item = nullptr;
-  PWSTR path = nullptr;
-  if (SUCCEEDED(shown)) dialog->GetResult(&item);
-  if (item != nullptr) item->GetDisplayName(SIGDN_FILESYSPATH, &path);
+  IShellItemArray* items = nullptr;
+  if (SUCCEEDED(shown)) dialog->GetResults(&items);
   dialog->Release();
-  if (item != nullptr) item->Release();
-  if (path == nullptr) return std::nullopt;
-  HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr,
-                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-  CoTaskMemFree(path);
-  if (file == INVALID_HANDLE_VALUE) return std::nullopt;
-  std::vector<uint8_t> bytes(128 * 1024 + 1);
+  if (items == nullptr) return std::nullopt;
   DWORD count = 0;
-  const BOOL read = ReadFile(file, bytes.data(), static_cast<DWORD>(bytes.size()),
-                            &count, nullptr);
-  CloseHandle(file);
-  if (!read || count == 0 || count > 128 * 1024) {
-    if (count > 128 * 1024) error = "CHAIN_FILE_TOO_LARGE";
-    SecureZeroMemory(bytes.data(), bytes.size());
+  const HRESULT counted = items->GetCount(&count);
+  if (FAILED(counted) || count > kMaxChainFiles) {
+    if (count > kMaxChainFiles) error = "CHAIN_FILE_COUNT_LIMIT";
+    items->Release();
     return std::nullopt;
   }
-  bytes.resize(count);
-  return bytes;
+  flutter::EncodableList files;
+  files.reserve(count);
+  for (DWORD i = 0; i < count; ++i) {
+    IShellItem* item = nullptr;
+    items->GetItemAt(i, &item);
+    files.emplace_back(ReadChainFile(item));
+    if (item != nullptr) item->Release();
+  }
+  items->Release();
+  return files;
 }
 
 constexpr UINT kEngineIpcComplete = WM_APP + 17;
@@ -269,15 +316,27 @@ bool FlutterWindow::OnCreate() {
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) {
-        if (call.method_name() == "readChainConfiguration") {
+        if (call.method_name() == "readChainConfigurations") {
+          if (chain_picker_busy_) {
+            result->Error("CHAIN_FILE_BUSY", "A file picker is already open.");
+            return;
+          }
+          chain_picker_busy_ = true;
           bool cancelled = false;
           std::string error;
-          auto bytes = ReadChainConfiguration(GetHandle(), cancelled, error);
-          if (bytes) {
-            flutter::EncodableValue value(std::move(*bytes));
+          auto files = ReadChainConfigurations(GetHandle(), cancelled, error);
+          chain_picker_busy_ = false;
+          if (files) {
+            flutter::EncodableValue value(std::move(*files));
             result->Success(value);
-            auto& data = std::get<std::vector<uint8_t>>(value);
-            SecureZeroMemory(data.data(), data.size());
+            for (auto& entry : std::get<flutter::EncodableList>(value)) {
+              auto& fields = std::get<flutter::EncodableMap>(entry);
+              const auto found = fields.find(flutter::EncodableValue("bytes"));
+              if (found != fields.end()) {
+                auto& data = std::get<std::vector<uint8_t>>(found->second);
+                SecureZeroMemory(data.data(), data.size());
+              }
+            }
           } else if (cancelled) {
             result->Success();
           } else {

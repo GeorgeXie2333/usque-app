@@ -308,6 +308,19 @@ const Map<String, String> kNetworkSettingsKo = <String, String>{
 };
 
 const Map<String, String> kChainKo = <String, String>{
+  "batch_title": "설정 일괄 가져오기",
+  "batch_counts":
+      "준비됨: {ready} · 입력 필요: {pending} · 실패: {failed} · 저장됨: {saved}",
+  "batch_ready": "가져오기 가능",
+  "batch_pending": "이름 또는 인증 정보를 입력하세요",
+  "batch_saved": "가져옴",
+  "batch_close": "닫기",
+  "batch_import": "유효한 항목 가져오기 ({count})",
+  "batch_checking": "확인 중 {done}/{total}",
+  "batch_saving": "설정 저장 중…",
+  "batch_uncertain":
+      "저장이 중단되었습니다. 닫고 목록을 확인한 후 다시 가져오세요. 일부 항목은 이미 저장되었을 수 있습니다.",
+  "file_count_limit": "한 번에 최대 128개 파일을 선택하세요.",
   'duplicate_directive': '이 지시문은 한 번만 사용할 수 있습니다.',
   'mixed_protocols': '모든 remote 엔드포인트는 TCP 또는 UDP 중 하나로 통일해야 합니다.',
   'conflicting_protocol': 'remote와 전역 전송 설정이 충돌합니다.',
