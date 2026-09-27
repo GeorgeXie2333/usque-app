@@ -188,8 +188,7 @@ const Map<String, String> kNetworkQualityIt = <String, String>{
   'nq_timeouts': 'Timeout scaduti',
   'nq_last_rtt': 'Ultimo RTT',
   'nq_dns_redacted':
-      'I nomi dei resolver e gli indirizzi di bootstrap sono mostrati solo in '
-      'Impostazioni.',
+      'I nomi e gli indirizzi IP dei server DNS sono mostrati solo in Impostazioni.',
   'nq_queues': 'Pressione delle code',
   'nq_queue_details': 'Code di basso livello',
   'nq_queue_empty': 'Nessuna misurazione delle code per ora.',
@@ -442,7 +441,7 @@ const Map<String, String> kChainIt = <String, String>{
   'delete': 'Elimina',
   'cancel': 'Annulla',
   'save': 'Salva',
-  'apply': 'Applica modifiche',
+  'apply': 'Applica le modifiche',
   'clear': 'Cancella selezione',
   'current': 'Connessione attuale',
   'saved': 'Selezione salvata',
@@ -466,7 +465,7 @@ const Map<String, String> kChainIt = <String, String>{
   'allowed': 'Destinazioni consentite',
   'dns': 'DNS',
   'addresses': 'Indirizzi del tunnel',
-  'address_family': 'Famiglia di indirizzi',
+  'address_family': 'Versione IP',
   'transport': 'Trasporto',
   'endpoint': 'Nodo server',
   'restricted':

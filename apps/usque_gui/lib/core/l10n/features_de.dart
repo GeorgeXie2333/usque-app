@@ -193,8 +193,7 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_timeouts': 'Zeitüberschreitungen',
   'nq_last_rtt': 'Letzte RTT',
   'nq_dns_redacted':
-      'Resolver-Namen und Bootstrap-Adressen werden nur in den Einstellungen '
-      'angezeigt.',
+      'Domains und IP-Adressen der DNS-Server werden nur in den Einstellungen angezeigt.',
   'nq_queues': 'Warteschlangendruck',
   'nq_queue_details': 'Warteschlangen auf niedriger Ebene',
   'nq_queue_empty': 'Noch keine Warteschlangenmessungen.',
@@ -474,7 +473,7 @@ const Map<String, String> kChainDe = <String, String>{
   'allowed': 'Zulässige Ziele',
   'dns': 'DNS',
   'addresses': 'Tunneladressen',
-  'address_family': 'Adressfamilie',
+  'address_family': 'IP-Version',
   'transport': 'Übertragung',
   'endpoint': 'Zielserver',
   'restricted':

@@ -169,7 +169,7 @@ const kNetworkQualityFa = <String, String>{
   'nq_timeouts': 'پایان‌مهلت‌ها',
   'nq_last_rtt': 'آخرین RTT',
   'nq_dns_redacted':
-      'نام حل‌کننده‌ها و نشانی‌های راه‌انداز فقط در تنظیمات نشان داده می‌شود.',
+      'نام دامنهٔ سرورهای DNS و نشانی‌های IP فقط در تنظیمات نشان داده می‌شوند.',
   'nq_queues': 'فشار صف',
   'nq_queue_details': 'صف‌های سطح پایین',
   'nq_queue_empty': 'هنوز اندازه‌گیری صفی نیست.',
@@ -431,7 +431,7 @@ const Map<String, String> kChainFa = <String, String>{
   'allowed': 'مقصدهای مجاز',
   'dns': 'DNS',
   'addresses': 'نشانی‌های تونل',
-  'address_family': 'خانوادهٔ نشانی',
+  'address_family': 'نسخهٔ IP',
   'transport': 'انتقال',
   'endpoint': 'کارساز',
   'restricted': 'مقصدهای بیرون از AllowedIPs در مسیر پروکسی مسدود می‌شوند.',

@@ -184,8 +184,7 @@ const kNetworkQualityUk = <String, String>{
   'nq_timeouts': 'Перевищення часу',
   'nq_last_rtt': 'Остання затримка',
   'nq_dns_redacted':
-      'Назви резолверів і адреси bootstrap видно лише в '
-      'налаштуваннях.',
+      'Домени та IP-адреси DNS-серверів видно лише в налаштуваннях.',
   'nq_queues': 'Тиск на чергу',
   'nq_queue_details': 'Черги нижчого рівня',
   'nq_queue_empty': 'Вимірювань черги ще немає.',
@@ -459,7 +458,7 @@ const Map<String, String> kChainUk = <String, String>{
   'allowed': 'Дозволені призначення',
   'dns': 'DNS',
   'addresses': 'Адреси тунелю',
-  'address_family': 'Родина адрес',
+  'address_family': 'Версія IP',
   'transport': 'Транспорт',
   'endpoint': 'Сервер',
   'restricted': 'Призначення поза AllowedIPs блокуються на шляху проксі.',

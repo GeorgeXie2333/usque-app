@@ -191,8 +191,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_timeouts': 'Time-outs',
   'nq_last_rtt': 'Laatste RTT',
   'nq_dns_redacted':
-      'Resolver-namen en bootstrap-adressen worden alleen in Instellingen '
-      'getoond.',
+      'Domeinnamen en IP-adressen van DNS-servers worden alleen in Instellingen getoond.',
   'nq_queues': 'Wachtrijdruk',
   'nq_queue_details': 'Wachtrijen op laag niveau',
   'nq_queue_empty': 'Nog geen wachtrijmetingen.',
@@ -364,7 +363,7 @@ const Map<String, String> kChainNl = <String, String>{
   "batch_counts":
       "Gereed: {ready} · Onvolledig: {pending} · Mislukt: {failed} · Opgeslagen: {saved}",
   "batch_ready": "Klaar om te importeren",
-  "batch_pending": "Vul de naam of inloggegevens aan",
+  "batch_pending": "Vul de naam of aanmeldgegevens aan",
   "batch_saved": "Geïmporteerd",
   "batch_close": "Sluiten",
   "batch_import": "Geldige items importeren ({count})",
@@ -468,7 +467,7 @@ const Map<String, String> kChainNl = <String, String>{
   'allowed': 'Toegestane bestemmingen',
   'dns': 'DNS',
   'addresses': 'Tunneladressen',
-  'address_family': 'Adresfamilie',
+  'address_family': 'IP-versie',
   'transport': 'Overdracht',
   'endpoint': 'Doelserver',
   'restricted':

@@ -179,7 +179,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_timeouts': 'Habis waktu',
   'nq_last_rtt': 'RTT terakhir',
   'nq_dns_redacted':
-      'Nama resolver dan alamat bootstrap hanya ditampilkan di Setelan.',
+      'Nama server DNS dan alamat IP hanya ditampilkan di Setelan.',
   'nq_queues': 'Tekanan antrean',
   'nq_queue_details': 'Antrean tingkat rendah',
   'nq_queue_empty': 'Belum ada pengukuran antrean.',
@@ -443,7 +443,7 @@ const Map<String, String> kChainId = <String, String>{
   'allowed': 'Tujuan yang diizinkan',
   'dns': 'DNS',
   'addresses': 'Alamat terowongan',
-  'address_family': 'Keluarga alamat',
+  'address_family': 'Versi IP',
   'transport': 'Angkutan',
   'endpoint': 'Peladen',
   'restricted': 'Tujuan di luar AllowedIPs diblokir pada jalur proksi.',

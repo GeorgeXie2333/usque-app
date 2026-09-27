@@ -1542,7 +1542,7 @@ void main() {
           AppStrings(LocalePreference.english),
           'H3_HANDSHAKE_TIMEOUT',
         ),
-        'H3 handshake timeout',
+        'HTTP/3 handshake timeout',
       );
       expect(
         diagnosticCheckLabel(
@@ -1671,8 +1671,8 @@ void main() {
     expect(tw.get('close_to_tray'), contains('系統匣'));
     expect(hk.get('geo_direct_help'), contains('網絡'));
     expect(tw.get('geo_direct_help'), contains('網路'));
-    expect(hk.get('diag_family'), '地址族');
-    expect(tw.get('diag_family'), '位址族');
+    expect(hk.get('diag_family'), 'IP 版本');
+    expect(tw.get('diag_family'), 'IP 版本');
   });
 
   testWidgets('Persian and Arabic locales select RTL directionality', (

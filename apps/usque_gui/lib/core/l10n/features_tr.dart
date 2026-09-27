@@ -175,7 +175,7 @@ const kNetworkQualityTr = <String, String>{
   'nq_timeouts': 'Zaman aşımları',
   'nq_last_rtt': 'Son RTT',
   'nq_dns_redacted':
-      'Çözümleyici adları ve önyükleme adresleri yalnızca ayarlarda gösterilir.',
+      'DNS sunucusu alan adları ve IP adresleri yalnızca ayarlarda gösterilir.',
   'nq_queues': 'Kuyruk baskısı',
   'nq_queue_details': 'Düşük düzey kuyruklar',
   'nq_queue_empty': 'Henüz kuyruk ölçümü yok.',
@@ -437,7 +437,7 @@ const Map<String, String> kChainTr = <String, String>{
   'allowed': 'İzin verilen hedefler',
   'dns': 'DNS',
   'addresses': 'Tünel adresleri',
-  'address_family': 'Adres ailesi',
+  'address_family': 'IP sürümü',
   'transport': 'Aktarım',
   'endpoint': 'Sunucu',
   'restricted': 'AllowedIPs dışındaki hedefler proxy yolunda engellenir.',

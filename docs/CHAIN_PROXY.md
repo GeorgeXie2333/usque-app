@@ -74,7 +74,7 @@ replace existing configurations.
 Text that structurally belongs to the other source is reported before the
 engine runs.
 
-The check displays the endpoint, transport, address family, addresses, DNS,
+The check displays the endpoint, transport, IP version, addresses, DNS,
 AllowedIPs and MTU where available. OpenVPN addresses and DNS may be negotiated
 by the server. The name defaults to the endpoint host. Supply the requested
 username, password or encrypted private-key password and **Save configuration**.

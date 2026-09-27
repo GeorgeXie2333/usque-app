@@ -184,8 +184,7 @@ const kNetworkQualityRu = <String, String>{
   'nq_timeouts': 'Тайм-ауты',
   'nq_last_rtt': 'Последний RTT',
   'nq_dns_redacted':
-      'Имена резолверов и адреса bootstrap показываются только в '
-      'настройках.',
+      'Домены и IP-адреса DNS-серверов показываются только в настройках.',
   'nq_queues': 'Нагрузка на очередь',
   'nq_queue_details': 'Низкоуровневые очереди',
   'nq_queue_empty': 'Замеров очереди пока нет.',
@@ -461,7 +460,7 @@ const Map<String, String> kChainRu = <String, String>{
   'allowed': 'Разрешённые назначения',
   'dns': 'DNS',
   'addresses': 'Адреса туннеля',
-  'address_family': 'Семейство адресов',
+  'address_family': 'Версия IP',
   'transport': 'Транспорт',
   'endpoint': 'Сервер',
   'restricted': 'Назначения вне AllowedIPs блокируются на пути прокси.',

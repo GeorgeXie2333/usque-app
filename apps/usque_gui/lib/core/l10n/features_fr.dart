@@ -191,8 +191,7 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
   'nq_timeouts': 'Délais dépassés',
   'nq_last_rtt': 'Dernier RTT',
   'nq_dns_redacted':
-      'Les noms des résolveurs et les adresses de bootstrap ne sont affichés '
-      'que dans Paramètres.',
+      'Les domaines et adresses IP des serveurs DNS ne sont affichés que dans Paramètres.',
   'nq_queues': 'Pression des files',
   'nq_queue_details': 'Files de bas niveau',
   'nq_queue_empty': 'Pas encore de mesures de file.',
@@ -473,7 +472,7 @@ const Map<String, String> kChainFr = <String, String>{
   'allowed': 'Destinations autorisées',
   'dns': 'DNS',
   'addresses': 'Adresses du tunnel',
-  'address_family': 'Famille d’adresses',
+  'address_family': 'Version IP',
   'transport': 'Acheminement',
   'endpoint': 'Serveur',
   'restricted':

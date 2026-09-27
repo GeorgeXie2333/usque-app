@@ -421,7 +421,7 @@ void main() {
       expect(check, findsOneWidget);
       tester.semantics.tap(check);
       await tester.pumpAndSettle();
-      expect(find.text('H3 handshake timeout'), findsOneWidget);
+      expect(find.text('HTTP/3 handshake timeout'), findsOneWidget);
       expect(tester.takeException(), isNull);
       app.dispose();
     },

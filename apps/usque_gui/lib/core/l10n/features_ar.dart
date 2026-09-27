@@ -166,7 +166,8 @@ const kNetworkQualityAr = <String, String>{
   'nq_degraded': 'متدهور',
   'nq_timeouts': 'المهلات',
   'nq_last_rtt': 'آخر RTT',
-  'nq_dns_redacted': 'تُعرض أسماء المحللات وعناوين التمهيد في الإعدادات فقط.',
+  'nq_dns_redacted':
+      'تُعرض أسماء نطاقات خوادم DNS وعناوين IP في الإعدادات فقط.',
   'nq_queues': 'ضغط قائمة الانتظار',
   'nq_queue_details': 'قوائم منخفضة المستوى',
   'nq_queue_empty': 'لا توجد قياسات للقوائم بعد.',
@@ -421,7 +422,7 @@ const Map<String, String> kChainAr = <String, String>{
   'allowed': 'الوجهات المسموح بها',
   'dns': 'DNS',
   'addresses': 'عناوين النفق',
-  'address_family': 'عائلة العناوين',
+  'address_family': 'إصدار IP',
   'transport': 'النقل',
   'endpoint': 'الخادم',
   'restricted': 'تُحظر الوجهات خارج AllowedIPs على مسار الوكيل.',

@@ -140,7 +140,7 @@ const kNetworkQualityEn = <String, String>{
   'nq_timeouts': 'Timeouts',
   'nq_last_rtt': 'Last RTT',
   'nq_dns_redacted':
-      'Resolver names and bootstrap addresses are shown only in settings.',
+      'DNS server names and IP addresses are shown only in settings.',
   'nq_queues': 'Queue pressure',
   'nq_queue_details': 'Low-level queues',
   'nq_queue_empty': 'No queue measurements yet.',
@@ -327,7 +327,7 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_degraded': '异常',
   'nq_timeouts': '超时',
   'nq_last_rtt': '最近时延',
-  'nq_dns_redacted': '解析器名称和 bootstrap 地址仅在设置中显示。',
+  'nq_dns_redacted': 'DNS 服务器域名和 IP 地址仅在设置中显示。',
   'nq_queues': '队列压力',
   'nq_queue_details': '底层队列',
   'nq_queue_empty': '暂无队列测量数据。',

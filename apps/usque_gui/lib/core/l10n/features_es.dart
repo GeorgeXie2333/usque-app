@@ -189,8 +189,7 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
   'nq_timeouts': 'Tiempos de espera',
   'nq_last_rtt': 'Último RTT',
   'nq_dns_redacted':
-      'Los nombres del resolvedor y las direcciones bootstrap se muestran '
-      'solo en Ajustes.',
+      'Los nombres de los servidores DNS y sus direcciones IP solo se muestran en Ajustes.',
   'nq_queues': 'Presión de cola',
   'nq_queue_details': 'Colas de bajo nivel',
   'nq_queue_empty': 'Aún no hay mediciones de cola.',
@@ -469,7 +468,7 @@ const Map<String, String> kChainEs = <String, String>{
   'allowed': 'Destinos permitidos',
   'dns': 'DNS',
   'addresses': 'Direcciones del túnel',
-  'address_family': 'Familia de direcciones',
+  'address_family': 'Versión de IP',
   'transport': 'Transporte',
   'endpoint': 'Servidor',
   'restricted':

@@ -129,7 +129,7 @@ const kChainEn = <String, String>{
   'allowed': 'Allowed destinations',
   'dns': 'DNS',
   'addresses': 'Tunnel addresses',
-  'address_family': 'Address family',
+  'address_family': 'IP version',
   'transport': 'Transport',
   'endpoint': 'Server',
   'restricted':
@@ -169,7 +169,7 @@ const kChainZhCn = <String, String>{
   "batch_title": "批量导入配置",
   "batch_counts": "可导入：{ready} · 待补充：{pending} · 失败：{failed} · 已保存：{saved}",
   "batch_ready": "可导入",
-  "batch_pending": "请补充名称或凭据",
+  "batch_pending": "请补充名称或认证信息",
   "batch_saved": "已导入",
   "batch_close": "关闭",
   "batch_import": "导入合格项（{count}）",
@@ -238,7 +238,7 @@ const kChainZhCn = <String, String>{
   'delete': '删除',
   'cancel': '取消',
   'save': '保存',
-  'apply': '应用更改',
+  'apply': '应用修改',
   'clear': '清除选择',
   'current': '当前连接',
   'saved': '已保存的选择',
@@ -261,7 +261,7 @@ const kChainZhCn = <String, String>{
   'allowed': '允许访问的目标',
   'dns': 'DNS',
   'addresses': '隧道地址',
-  'address_family': '地址族',
+  'address_family': 'IP 版本',
   'transport': '传输协议',
   'endpoint': '服务器',
   'restricted': '不在 AllowedIPs 范围内的目标无法经由此出口访问。',
@@ -283,7 +283,7 @@ const kChainZhCn = <String, String>{
   'invalid_name': '名称须为 1 到 64 个字符，且不能包含控制字符。',
   'invalid_key': '密钥必须是有效的 32 字节 Base64 密钥。',
   'checking': '正在检查配置…',
-  'changed': '更改已保存',
+  'changed': '修改已保存',
 };
 
 const Map<String, Map<String, String>> kChainCatalogs =

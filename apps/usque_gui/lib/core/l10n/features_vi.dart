@@ -169,7 +169,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_timeouts': 'Hết thời gian',
   'nq_last_rtt': 'RTT gần nhất',
   'nq_dns_redacted':
-      'Tên bộ phân giải và địa chỉ bootstrap chỉ hiện trong cài đặt.',
+      'Tên miền và địa chỉ IP của máy chủ DNS chỉ hiển thị trong cài đặt.',
   'nq_queues': 'Áp lực hàng đợi',
   'nq_queue_details': 'Hàng đợi tầng thấp',
   'nq_queue_empty': 'Chưa có phép đo hàng đợi.',
@@ -329,7 +329,7 @@ const Map<String, String> kChainVi = <String, String>{
   "batch_counts":
       "Sẵn sàng: {ready} · Cần bổ sung: {pending} · Lỗi: {failed} · Đã lưu: {saved}",
   "batch_ready": "Sẵn sàng nhập",
-  "batch_pending": "Bổ sung tên hoặc thông tin xác thực",
+  "batch_pending": "Bổ sung tên hoặc thông tin đăng nhập",
   "batch_saved": "Đã nhập",
   "batch_close": "Đóng",
   "batch_import": "Nhập mục hợp lệ ({count})",
@@ -431,7 +431,7 @@ const Map<String, String> kChainVi = <String, String>{
   'allowed': 'Đích được phép',
   'dns': 'DNS',
   'addresses': 'Địa chỉ đường hầm',
-  'address_family': 'Họ địa chỉ',
+  'address_family': 'Phiên bản IP',
   'transport': 'Giao vận',
   'endpoint': 'Máy chủ',
   'restricted': 'Đích nằm ngoài AllowedIPs bị chặn trên đường proxy.',
