@@ -21,7 +21,7 @@ const Map<String, String> kUiWorkflowZhHk = <String, String>{
   'keep_editing': '繼續編輯',
   'discard_changes': '放棄修改',
   'invalid_port': '請輸入 1–65535 之間的連接埠。',
-  'listener_exposure': '接聽地址允許區域網絡存取',
+  'listener_exposure': '監聽地址允許區域網絡存取',
   'invalid_ipv4': '請輸入有效的 IPv4 地址，例如 127.0.0.1。',
   'invalid_ipv6': '請輸入有效的 IPv6 地址，例如 ::1。',
   'output_running': '執行中',
@@ -49,7 +49,7 @@ const Map<String, String> kUiWorkflowZhHk = <String, String>{
   'connection_protection_group': '連線與保護',
   'proxy_routing_group': '代理與分流',
   'application_group': '應用程式',
-  'proxy_settings_link': '接聽地址、連接埠、認證及 DNS。',
+  'proxy_settings_link': '監聽地址、連接埠、認證及 DNS。',
   'reset_draft_hint': '預設值會填入此表單，按「套用修改」後才會生效。',
 };
 
@@ -109,7 +109,7 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'nq_unavailable': '無法使用',
   'nq_not_ready': '尚未就緒',
   'nq_unsupported': '不支援',
-  'nq_capability_missing': '此版本無法顯示連接品質，仍可連接和中斷連接。請在「設定」中更新 Usque。',
+  'nq_capability_missing': '此版本無法顯示連接質素，仍可連接和中斷連接。請在「設定」中更新 Usque。',
   'nq_empty': '連線後顯示測量結果。',
   'nq_stale_help': '更新已暫停，目前顯示上次讀數。',
   'nq_rtt': '往返時延',
@@ -210,7 +210,7 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'nq_dns_system_privacy': '目前網絡的 DNS 服務供應商可能看見直接連接流量查詢的網域名稱。',
   'nq_dns_scope': '僅影響符合國家／地區直接連接規則的流量，不會變更 VPN 流量的 DNS。',
   'nq_dns_no_capability':
-      '請更新 Usque，以便為直接連接使用加密 DNS。已儲存的設定會保留。若您接受隱私影響，也可自行選擇「目前網絡的 DNS」。',
+      '請更新 Usque，以便為直接連接使用加密 DNS。已儲存的設定會保留。若你接受隱私影響，也可自行選擇「目前網絡的 DNS」。',
   'nq_dns_invalid_name': '請輸入網域名稱，例如 dns.example.com，不要包含 https://、連接埠或空白。',
   'nq_dns_invalid_path': '請輸入 /dns-query 之類的路徑，最多 256 個字元，不含空白或帶有 ? 或 # 的部分。',
   'nq_dns_invalid_bootstrap': '請輸入 1–8 個 DNS 伺服器 IP 地址。',

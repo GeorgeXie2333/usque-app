@@ -405,7 +405,7 @@ const Map<String, String> kChainEs = <String, String>{
   'authentication_failed':
       'Error de autenticación. Actualiza las credenciales antes de volver a conectar.',
   'profile_limit':
-      'La biblioteca de configuraciones está llena (128 perfiles).',
+      'La biblioteca de configuraciones está llena (128 configuraciones).',
   'metadata_limit':
       'Los metadatos de la biblioteca de configuraciones están llenos.',
   'title': 'Proxy en cadena',
@@ -462,7 +462,8 @@ const Map<String, String> kChainEs = <String, String>{
   'no_selection': 'Ninguna configuración seleccionada',
   'l4': 'Esta configuración necesita UDP, que L4 no admite.',
   'switch_mode': 'Desactivar L4 y aplicar',
-  'unsupported': 'Este motor no admite este origen de salida.',
+  'unsupported':
+      'Esta versión de Usque no puede usar este origen de salida. Busca actualizaciones en Ajustes.',
   'scope':
       'Las reglas directas explícitas siguen vigentes. El resto del tráfico usa la salida elegida.',
   'allowed': 'Destinos permitidos',

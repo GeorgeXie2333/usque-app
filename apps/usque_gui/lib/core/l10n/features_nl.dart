@@ -406,7 +406,7 @@ const Map<String, String> kChainNl = <String, String>{
       'Er is geen DNS-server bereikbaar via deze uitgang. Gebruik IP-adressen of kies een andere uitgang met bereikbare DNS.',
   'authentication_failed':
       'Authenticatie mislukt. Werk de aanmeldgegevens bij voordat u opnieuw verbindt.',
-  'profile_limit': 'De configuratiebibliotheek is vol (128 profielen).',
+  'profile_limit': 'De configuratiebibliotheek is vol (128 configuraties).',
   'metadata_limit': 'De metadata van de configuratiebibliotheek is vol.',
   'title': 'Ketenproxy',
   'subtitle': 'Kies een uitgang die via WARP wordt bereikt.',
@@ -461,7 +461,8 @@ const Map<String, String> kChainNl = <String, String>{
   'no_selection': 'Geen configuratie geselecteerd',
   'l4': 'Deze configuratie vereist UDP, wat L4 niet ondersteunt.',
   'switch_mode': 'L4 uitschakelen en toepassen',
-  'unsupported': 'Deze engine ondersteunt deze uitgangsbron niet.',
+  'unsupported':
+      'Deze versie van Usque kan deze uitgangsbron niet gebruiken. Controleer bij Instellingen op updates.',
   'scope':
       'Bestaande expliciete directe regels blijven gelden. Overig verkeer gebruikt de gekozen uitgang.',
   'allowed': 'Toegestane bestemmingen',

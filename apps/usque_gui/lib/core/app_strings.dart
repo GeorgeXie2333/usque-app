@@ -60,8 +60,8 @@ class AppStrings {
 
   /// Feature-table keys whose English value may be reused.
   ///
-  /// Protocol names, product names, and placeholder-only templates stay in
-  /// English when the target language uses the same spelling.
+  /// Protocol names, product names, placeholder-only templates, and loanwords
+  /// that the main catalog also spells in English.
   @visibleForTesting
   static const Set<String> kFeatureEnglishAllowlist = <String>{
     'nq_doh',
@@ -71,6 +71,7 @@ class AppStrings {
     'home_kill_switch',
     'dns',
     'error_field',
+    'password',
   };
 
   @visibleForTesting

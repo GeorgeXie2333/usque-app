@@ -399,7 +399,8 @@ const Map<String, String> kChainPt = <String, String>{
       'Nenhum servidor DNS é acessível por esta saída. Use endereços IP ou escolha outra saída com DNS acessível.',
   'authentication_failed':
       'Falha na autenticação. Atualize as credenciais antes de conectar outra vez.',
-  'profile_limit': 'A biblioteca de configurações está cheia (128 perfis).',
+  'profile_limit':
+      'A biblioteca de configurações está cheia (128 configurações).',
   'metadata_limit': 'Os metadados da biblioteca de configurações estão cheios.',
   'title': 'Proxy em cadeia',
   'subtitle': 'Escolha uma saída alcançada pelo WARP.',
@@ -454,7 +455,8 @@ const Map<String, String> kChainPt = <String, String>{
   'no_selection': 'Nenhuma configuração selecionada',
   'l4': 'Esta configuração precisa de UDP, que o L4 não suporta.',
   'switch_mode': 'Desativar L4 e aplicar',
-  'unsupported': 'Este mecanismo não aceita esta origem de saída.',
+  'unsupported':
+      'Esta versão do Usque não pode usar esta origem de saída. Procure atualizações em Configurações.',
   'scope':
       'As regras diretas explícitas continuam valendo. O restante do tráfego usa a saída escolhida.',
   'allowed': 'Destinos permitidos',

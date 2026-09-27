@@ -410,7 +410,8 @@ const Map<String, String> kChainDe = <String, String>{
       'Über diesen Ausgang ist kein DNS-Server erreichbar. Verwenden Sie IP-Adressen oder wählen Sie einen anderen Ausgang mit erreichbarem DNS.',
   'authentication_failed':
       'Authentifizierung fehlgeschlagen. Aktualisieren Sie die Anmeldedaten, bevor Sie sich erneut verbinden.',
-  'profile_limit': 'Die Konfigurationsbibliothek ist voll (128 Profile).',
+  'profile_limit':
+      'Die Konfigurationsbibliothek ist voll (128 Konfigurationen).',
   'metadata_limit': 'Die Metadaten der Konfigurationsbibliothek sind voll.',
   'title': 'Kettenproxy',
   'subtitle': 'Wählen Sie einen über WARP erreichten Ausgang.',
@@ -467,7 +468,8 @@ const Map<String, String> kChainDe = <String, String>{
   'no_selection': 'Keine Konfiguration ausgewählt',
   'l4': 'Diese Konfiguration benötigt UDP, das L4 nicht unterstützt.',
   'switch_mode': 'L4 ausschalten und anwenden',
-  'unsupported': 'Diese Engine unterstützt diese Ausgangsart nicht.',
+  'unsupported':
+      'Diese Version von Usque kann diese Ausgangsart nicht verwenden. Suchen Sie unter Einstellungen nach Updates.',
   'scope':
       'Bestehende ausdrückliche Direktregeln bleiben gültig. Übriger Datenverkehr nutzt den gewählten Ausgang.',
   'allowed': 'Zulässige Ziele',

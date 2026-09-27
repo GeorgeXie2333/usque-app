@@ -114,7 +114,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'create': 'Tạo',
   'cancel': 'Hủy',
   'active': 'Đang dùng',
-  'set_active': 'Đặt làm hồ sơ dùng',
+  'set_active': 'Đặt làm hiện tại',
   'edit': 'Sửa',
   'delete': 'Xóa',
   'delete_profile': 'Xóa tài khoản?',

@@ -399,7 +399,7 @@ const Map<String, String> kChainKo = <String, String>{
   'no_selection': '구성을 선택하지 않음',
   'l4': '이 구성에는 UDP가 필요하지만 L4는 UDP를 지원하지 않습니다.',
   'switch_mode': 'L4 끄고 적용',
-  'unsupported': '이 엔진은 이 출구 소스를 지원하지 않습니다.',
+  'unsupported': '이 버전의 Usque에서는 이 출구 소스를 사용할 수 없습니다. 설정에서 업데이트를 확인하세요.',
   'scope': '기존의 명시적 직접 연결 규칙은 그대로 적용됩니다. 그 밖의 트래픽은 선택한 출구를 사용합니다.',
   'allowed': '허용된 대상',
   'dns': 'DNS',

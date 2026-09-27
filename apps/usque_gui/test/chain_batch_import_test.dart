@@ -263,7 +263,7 @@ void main() {
         'three.example',
       ]);
       expect(
-        find.text('The configuration library is full (128 profiles).'),
+        find.text('The configuration library is full (128 configurations).'),
         findsOneWidget,
       );
       expect(

@@ -382,7 +382,7 @@ const Map<String, String> kChainId = <String, String>{
       'Tidak ada peladen DNS yang dapat dijangkau lewat pintu keluar ini. Gunakan alamat IP atau pilih pintu keluar lain dengan DNS yang dapat dijangkau.',
   'authentication_failed':
       'Autentikasi gagal. Perbarui kredensial sebelum menghubungkan lagi.',
-  'profile_limit': 'Pustaka konfigurasi penuh (128 profil).',
+  'profile_limit': 'Pustaka konfigurasi penuh (128 konfigurasi).',
   'metadata_limit': 'Metadata pustaka konfigurasi sudah penuh.',
   'title': 'Proksi berantai',
   'subtitle': 'Pilih pintu keluar yang dicapai melalui WARP.',
@@ -437,7 +437,8 @@ const Map<String, String> kChainId = <String, String>{
   'no_selection': 'Belum ada konfigurasi yang dipilih',
   'l4': 'Konfigurasi ini memerlukan UDP, yang tidak didukung L4.',
   'switch_mode': 'Nonaktifkan L4 dan terapkan',
-  'unsupported': 'Mesin ini tidak mendukung sumber pintu keluar ini.',
+  'unsupported':
+      'Versi Usque ini tidak dapat menggunakan sumber pintu keluar ini. Periksa pembaruan di Pengaturan.',
   'scope':
       'Aturan langsung eksplisit yang sudah ada tetap berlaku. Lalu lintas lain memakai pintu keluar yang dipilih.',
   'allowed': 'Tujuan yang diizinkan',

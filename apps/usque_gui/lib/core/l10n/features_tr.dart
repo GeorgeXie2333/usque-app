@@ -376,7 +376,7 @@ const Map<String, String> kChainTr = <String, String>{
       'Bu çıkış üzerinden erişilebilen bir DNS sunucusu yok. IP adresleri kullanın veya erişilebilir DNS sunan başka bir çıkış seçin.',
   'authentication_failed':
       'Kimlik doğrulama başarısız. Yeniden bağlanmadan önce kimlik bilgilerini güncelleyin.',
-  'profile_limit': 'Yapılandırma kitaplığı dolu (128 profil).',
+  'profile_limit': 'Yapılandırma kitaplığı dolu (128 yapılandırma).',
   'metadata_limit': 'Yapılandırma kitaplığının üst verisi dolu.',
   'title': 'Zincir proxy',
   'subtitle': 'WARP üzerinden ulaşılan bir çıkış seçin.',
@@ -431,7 +431,8 @@ const Map<String, String> kChainTr = <String, String>{
   'no_selection': 'Yapılandırma seçilmedi',
   'l4': 'Bu yapılandırma UDP gerektirir; L4 UDP’yi desteklemez.',
   'switch_mode': 'L4’ü kapat ve uygula',
-  'unsupported': 'Bu motor bu çıkış kaynağını desteklemiyor.',
+  'unsupported':
+      'Usque’nin bu sürümü bu çıkış kaynağını kullanamıyor. Ayarlar’dan güncellemeleri denetleyin.',
   'scope':
       'Var olan açık doğrudan kurallar geçerli kalır. Diğer trafik seçilen çıkışı kullanır.',
   'allowed': 'İzin verilen hedefler',

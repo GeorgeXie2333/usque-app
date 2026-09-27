@@ -403,7 +403,8 @@ const Map<String, String> kChainIt = <String, String>{
       'Nessun server DNS è raggiungibile tramite questa uscita. Usa indirizzi IP oppure scegli un’altra uscita con DNS raggiungibile.',
   'authentication_failed':
       'Autenticazione non riuscita. Aggiorna le credenziali prima di riconnetterti.',
-  'profile_limit': 'La raccolta di configurazioni è piena (128 profili).',
+  'profile_limit':
+      'La raccolta di configurazioni è piena (128 configurazioni).',
   'metadata_limit': 'I metadati della raccolta di configurazioni sono pieni.',
   'title': 'Proxy a catena',
   'subtitle': 'Scegli un’uscita raggiunta tramite WARP.',
@@ -432,10 +433,10 @@ const Map<String, String> kChainIt = <String, String>{
   'configuration': 'Testo della configurazione',
   'file_loaded': 'Configurazione caricata dal file ({lines} righe).',
   'username': 'Nome utente',
-  'password': 'Parola d’ordine',
-  'key_password': 'Parola d’ordine della chiave privata',
-  'show_password': 'Mostra la parola d’ordine',
-  'hide_password': 'Nascondi la parola d’ordine',
+  'password': 'Password',
+  'key_password': 'Password della chiave privata',
+  'show_password': 'Mostra la password',
+  'hide_password': 'Nascondi la password',
   'credentials': 'Aggiorna credenziali',
   'rename': 'Rinomina',
   'delete': 'Elimina',
@@ -459,7 +460,8 @@ const Map<String, String> kChainIt = <String, String>{
   'no_selection': 'Nessuna configurazione selezionata',
   'l4': 'Questa configurazione richiede UDP, che L4 non supporta.',
   'switch_mode': 'Disattiva L4 e applica',
-  'unsupported': 'Questo motore non supporta questa origine di uscita.',
+  'unsupported':
+      'Questa versione di Usque non può usare questa origine di uscita. Cerca aggiornamenti in Impostazioni.',
   'scope':
       'Le regole dirette esplicite restano attive. Il resto del traffico usa l’uscita scelta.',
   'allowed': 'Destinazioni consentite',

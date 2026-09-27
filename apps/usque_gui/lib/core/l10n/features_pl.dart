@@ -399,7 +399,7 @@ const Map<String, String> kChainPl = <String, String>{
       'Przez to wyjście nie można osiągnąć żadnego serwera DNS. Użyj adresów IP albo wybierz inne wyjście z osiągalnym DNS.',
   'authentication_failed':
       'Uwierzytelnianie nie powiodło się. Zaktualizuj dane logowania przed ponownym połączeniem.',
-  'profile_limit': 'Biblioteka konfiguracji jest pełna (128 profili).',
+  'profile_limit': 'Biblioteka konfiguracji jest pełna (128 konfiguracji).',
   'metadata_limit': 'Metadane biblioteki konfiguracji są pełne.',
   'title': 'Proxy łańcuchowe',
   'subtitle': 'Wybierz wyjście osiągane przez WARP.',
@@ -454,7 +454,8 @@ const Map<String, String> kChainPl = <String, String>{
   'no_selection': 'Nie wybrano konfiguracji',
   'l4': 'Ta konfiguracja wymaga UDP, którego L4 nie obsługuje.',
   'switch_mode': 'Wyłącz L4 i zastosuj',
-  'unsupported': 'Ten silnik nie obsługuje tego źródła wyjścia.',
+  'unsupported':
+      'Ta wersja Usque nie może używać tego źródła wyjścia. Sprawdź aktualizacje w Ustawieniach.',
   'scope':
       'Istniejące jawne reguły bezpośrednie nadal obowiązują. Pozostały ruch używa wybranego wyjścia.',
   'allowed': 'Dozwolone miejsca docelowe',

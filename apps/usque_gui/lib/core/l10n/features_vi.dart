@@ -370,7 +370,7 @@ const Map<String, String> kChainVi = <String, String>{
       'Không có máy chủ DNS nào tới được qua lối ra này. Hãy dùng địa chỉ IP hoặc chọn lối ra khác có DNS tới được.',
   'authentication_failed':
       'Xác thực thất bại. Hãy cập nhật thông tin đăng nhập trước khi kết nối lại.',
-  'profile_limit': 'Thư viện cấu hình đã đầy (128 hồ sơ).',
+  'profile_limit': 'Thư viện cấu hình đã đầy (128 cấu hình).',
   'metadata_limit': 'Siêu dữ liệu của thư viện cấu hình đã đầy.',
   'title': 'Proxy chuỗi',
   'subtitle': 'Chọn lối ra đi qua WARP.',
@@ -425,7 +425,8 @@ const Map<String, String> kChainVi = <String, String>{
   'no_selection': 'Chưa chọn cấu hình',
   'l4': 'Cấu hình này cần UDP, nhưng L4 không hỗ trợ.',
   'switch_mode': 'Tắt L4 và áp dụng',
-  'unsupported': 'Bộ máy này không hỗ trợ nguồn lối ra này.',
+  'unsupported':
+      'Phiên bản Usque này không dùng được nguồn lối ra này. Hãy kiểm tra bản cập nhật trong Cài đặt.',
   'scope':
       'Các quy tắc đi thẳng đã chỉ định vẫn có hiệu lực. Lưu lượng còn lại dùng lối ra đã chọn.',
   'allowed': 'Đích được phép',

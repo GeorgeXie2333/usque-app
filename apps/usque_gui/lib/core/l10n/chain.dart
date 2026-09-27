@@ -67,7 +67,7 @@ const kChainEn = <String, String>{
       'No DNS server is reachable through this exit. Use IP addresses or choose another exit with reachable DNS.',
   'authentication_failed':
       'Authentication failed. Update credentials before connecting again.',
-  'profile_limit': 'The configuration library is full (128 profiles).',
+  'profile_limit': 'The configuration library is full (128 configurations).',
   'metadata_limit': 'The configuration library has no room for more entries.',
   'title': 'Chain proxy',
   'subtitle': 'Choose an exit reached through WARP.',

@@ -210,7 +210,7 @@ const Map<String, String> kNetworkQualityZhTw = <String, String>{
   'nq_dns_system_privacy': '目前網路的 DNS 服務供應商可能看見直接連線流量查詢的網域名稱。',
   'nq_dns_scope': '僅影響符合國家／地區直接連線規則的流量，不會變更 VPN 流量的 DNS。',
   'nq_dns_no_capability':
-      '請更新 Usque，以便為直接連線使用加密 DNS。已儲存的設定會保留。若您接受隱私影響，也可自行選擇「目前網路的 DNS」。',
+      '請更新 Usque，以便為直接連線使用加密 DNS。已儲存的設定會保留。若你接受隱私影響，也可自行選擇「目前網路的 DNS」。',
   'nq_dns_invalid_name': '請輸入網域名稱，例如 dns.example.com，不要包含 https://、連接埠或空白。',
   'nq_dns_invalid_path': '請輸入 /dns-query 之類的路徑，最多 256 個字元，不含空白或帶有 ? 或 # 的部分。',
   'nq_dns_invalid_bootstrap': '請輸入 1–8 個 DNS 伺服器 IP 位址。',
