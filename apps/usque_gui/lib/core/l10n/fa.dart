@@ -142,7 +142,6 @@ const Map<String, String> kFaCatalog = <String, String>{
   'listen_ipv4': 'شنود IPv4',
   'listen_ipv6': 'شنود IPv6',
   'port': 'پورت',
-  'remote_dns': 'حل نام از راه دور',
   'proxy_dns_mode': 'حل DNS پروکسی',
   'proxy_dns_subtitle': 'نحوهٔ حل نام دامنه در پراکسی‌های SOCKS5 و HTTP.',
   'proxy_dns_remote': 'از راه دور از طریق تونل',
@@ -171,9 +170,6 @@ const Map<String, String> kFaCatalog = <String, String>{
       'نام کاربری و گذرواژه را بررسی کنید و دوباره تلاش کنید.',
   'proxy_auth_saved': 'نام کاربری و گذرواژهٔ پروکسی ذخیره شد.',
   'proxy_auth_cleared': 'محافظت پروکسی با گذرواژه برداشته شد.',
-  'lan_warning_authenticated': 'شنوندهٔ احرازشدهٔ شبکه محلی',
-  'lan_warning_authenticated_body':
-      'این شنونده در شبکهٔ محلی در دسترس است و به نام کاربری و رمز عبوری که تنظیم کرده‌اید نیاز دارد.',
   'proxy_password_set':
       'رمز عبور تنظیم شده است. برای جایگزینی، رمز جدیدی وارد کنید.',
   'proxy_auth_clear': 'برداشتن محافظت با گذرواژه',
@@ -322,8 +318,6 @@ const Map<String, String> kFaCatalog = <String, String>{
   'logs': 'گزارش‌های محلی',
   'export_diagnostics': 'صادر کردن بستهٔ عیب‌یابی',
   'diagnostics_saved': 'بستهٔ عیب‌یابی در این مسیر ذخیره شد:',
-  'export_help':
-      'پیش از ذخیره، محتویات را بررسی خواهید کرد. رازها، توکن‌ها، کلیدهای خصوصی و نشانی‌های حساس کامل کنار گذاشته می‌شوند.',
   'source_code': 'کد منبع',
   'license': 'مجوز',
   'clear_all_data': 'پاک کردن همهٔ داده‌ها',

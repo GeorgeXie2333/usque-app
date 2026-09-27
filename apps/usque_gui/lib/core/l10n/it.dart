@@ -145,7 +145,6 @@ const Map<String, String> kItCatalog = <String, String>{
   'listen_ipv4': 'Ascolto IPv4',
   'listen_ipv6': 'Ascolto IPv6',
   'port': 'Porta',
-  'remote_dns': 'Risolvi i nomi in remoto',
   'proxy_dns_mode': 'Risoluzione DNS del proxy',
   'proxy_dns_subtitle':
       'Come i proxy SOCKS5 e HTTP risolvono i nomi di dominio.',
@@ -174,9 +173,6 @@ const Map<String, String> kItCatalog = <String, String>{
   'proxy_auth_invalid': 'Controlla nome utente e password, poi riprova.',
   'proxy_auth_saved': 'Nome utente e password del proxy salvati.',
   'proxy_auth_cleared': 'Protezione con password del proxy rimossa.',
-  'lan_warning_authenticated': 'Listener LAN autenticato',
-  'lan_warning_authenticated_body':
-      'Questo listener è raggiungibile sulla rete locale e richiede il nome utente e la password impostati.',
   'proxy_password_set':
       'La password è impostata. Immettere una nuova password per sostituirla.',
   'proxy_auth_clear': 'Rimuovi protezione con password',
@@ -328,8 +324,6 @@ const Map<String, String> kItCatalog = <String, String>{
   'logs': 'Log locali',
   'export_diagnostics': 'Esporta pacchetto diagnostico',
   'diagnostics_saved': 'Pacchetto diagnostico salvato in',
-  'export_help':
-      'Il contenuto verrà esaminato prima del salvataggio. Segreti, token, chiavi private e indirizzi sensibili completi sono esclusi.',
   'source_code': 'Codice sorgente',
   'license': 'Licenza',
   'clear_all_data': 'Cancella tutti i dati',

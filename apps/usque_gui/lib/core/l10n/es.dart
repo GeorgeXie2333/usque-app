@@ -145,7 +145,6 @@ const Map<String, String> kEsCatalog = <String, String>{
   'listen_ipv4': 'Escuchar IPv4',
   'listen_ipv6': 'Escuchar IPv6',
   'port': 'Puerto',
-  'remote_dns': 'Resolver nombres de forma remota',
   'proxy_dns_mode': 'Resolución DNS del proxy',
   'proxy_dns_subtitle':
       'Cómo resuelven los nombres de dominio los proxies SOCKS5 y HTTP.',
@@ -175,9 +174,6 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Revisa el usuario y la contraseña e inténtalo de nuevo.',
   'proxy_auth_saved': 'Usuario y contraseña del proxy guardados.',
   'proxy_auth_cleared': 'Protección por contraseña del proxy eliminada.',
-  'lan_warning_authenticated': 'Escucha autenticada de red local',
-  'lan_warning_authenticated_body':
-      'Esta escucha es accesible en la red local y requiere el nombre de usuario y la contraseña que haya establecido.',
   'proxy_password_set':
       'La contraseña está establecida. Introduzca una nueva para reemplazarla.',
   'proxy_auth_clear': 'Quitar protección por contraseña',
@@ -327,8 +323,6 @@ const Map<String, String> kEsCatalog = <String, String>{
   'logs': 'Registros locales',
   'export_diagnostics': 'Exportar paquete de diagnóstico',
   'diagnostics_saved': 'Paquete de diagnóstico guardado en',
-  'export_help':
-      'Podrá revisar su contenido antes de guardar. Se excluyen secretos, tokens, claves privadas y las direcciones sensibles completas.',
   'source_code': 'Código fuente',
   'license': 'Licencia',
   'clear_all_data': 'Borrar todos los datos',

@@ -144,7 +144,6 @@ const Map<String, String> kPtCatalog = <String, String>{
   'listen_ipv4': 'Escutar IPv4',
   'listen_ipv6': 'Escutar IPv6',
   'port': 'Porta',
-  'remote_dns': 'Resolver nomes remotamente',
   'proxy_dns_mode': 'Resolução DNS do proxy',
   'proxy_dns_subtitle':
       'Como os proxies SOCKS5 e HTTP resolvem nomes de domínio.',
@@ -173,9 +172,6 @@ const Map<String, String> kPtCatalog = <String, String>{
   'proxy_auth_invalid': 'Confira o usuário e a senha e tente novamente.',
   'proxy_auth_saved': 'Usuário e senha do proxy salvos.',
   'proxy_auth_cleared': 'Proteção por senha do proxy removida.',
-  'lan_warning_authenticated': 'Ouvinte LAN autenticado',
-  'lan_warning_authenticated_body':
-      'Este ouvinte é acessível na rede local e exige o nome de usuário e a senha que você definiu.',
   'proxy_password_set':
       'A senha está definida. Insira uma nova para substituí-la.',
   'proxy_auth_clear': 'Remover proteção por senha',
@@ -325,8 +321,6 @@ const Map<String, String> kPtCatalog = <String, String>{
   'logs': 'Logs locais',
   'export_diagnostics': 'Exportar pacote de diagnóstico',
   'diagnostics_saved': 'Pacote de diagnóstico salvo em',
-  'export_help':
-      'Você revisará o conteúdo antes de salvar. Segredos, tokens, chaves privadas e endereços sensíveis completos são excluídos.',
   'source_code': 'Código-fonte',
   'license': 'Licença',
   'clear_all_data': 'Limpar todos os dados',

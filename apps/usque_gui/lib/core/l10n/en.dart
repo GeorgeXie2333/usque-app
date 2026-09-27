@@ -140,7 +140,6 @@ const Map<String, String> kEnCatalog = <String, String>{
   'listen_ipv4': 'Listen IPv4',
   'listen_ipv6': 'Listen IPv6',
   'port': 'Port',
-  'remote_dns': 'Resolve names remotely',
   'proxy_dns_mode': 'Proxy DNS resolution',
   'proxy_dns_subtitle': 'How SOCKS5 and HTTP proxies resolve domain names.',
   'proxy_dns_remote': 'Remote through tunnel',
@@ -168,9 +167,6 @@ const Map<String, String> kEnCatalog = <String, String>{
   'proxy_auth_invalid': 'Check the username and password, then try again.',
   'proxy_auth_saved': 'Proxy username and password saved.',
   'proxy_auth_cleared': 'Proxy password protection removed.',
-  'lan_warning_authenticated': 'Authenticated LAN listener',
-  'lan_warning_authenticated_body':
-      'This listener is reachable on the local network and requires the username and password you set.',
   'proxy_password_set': 'Password is set. Enter a new one to replace it.',
   'proxy_auth_clear': 'Remove password protection',
   'general': 'General',
@@ -319,8 +315,6 @@ const Map<String, String> kEnCatalog = <String, String>{
   'logs': 'Local logs',
   'export_diagnostics': 'Export diagnostic bundle',
   'diagnostics_saved': 'Diagnostic bundle saved to',
-  'export_help':
-      'You will review its contents before saving. Secrets, tokens, private keys, and full sensitive addresses are excluded.',
   'source_code': 'Source code',
   'license': 'License',
   'clear_all_data': 'Clear all data',

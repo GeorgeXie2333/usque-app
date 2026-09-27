@@ -143,7 +143,6 @@ const Map<String, String> kNlCatalog = <String, String>{
   'listen_ipv4': 'Luisteren op IPv4',
   'listen_ipv6': 'Luisteren op IPv6',
   'port': 'Poort',
-  'remote_dns': 'Namen op afstand omzetten',
   'proxy_dns_mode': 'DNS-omzetting via proxy',
   'proxy_dns_subtitle': 'Hoe SOCKS5- en HTTP-proxy’s domeinnamen omzetten.',
   'proxy_dns_remote': 'Op afstand via de tunnel',
@@ -172,9 +171,6 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Controleer de gebruikersnaam en het wachtwoord en probeer opnieuw.',
   'proxy_auth_saved': 'Proxygebruikersnaam en wachtwoord opgeslagen.',
   'proxy_auth_cleared': 'Wachtwoordbeveiliging van de proxy verwijderd.',
-  'lan_warning_authenticated': 'Geauthenticeerde LAN-listener',
-  'lan_warning_authenticated_body':
-      'Deze listener is bereikbaar op het lokale netwerk en vereist de gebruikersnaam en het wachtwoord die u hebt ingesteld.',
   'proxy_password_set':
       'Wachtwoord is ingesteld. Voer een nieuw wachtwoord in om het te vervangen.',
   'proxy_auth_clear': 'Wachtwoordbeveiliging verwijderen',
@@ -324,8 +320,6 @@ const Map<String, String> kNlCatalog = <String, String>{
   'logs': 'Lokale logboeken',
   'export_diagnostics': 'Diagnostisch pakket exporteren',
   'diagnostics_saved': 'Diagnostisch pakket opgeslagen in',
-  'export_help':
-      'U bekijkt de inhoud voordat u opslaat. Geheimen, tokens, privésleutels en volledige gevoelige adressen worden uitgesloten.',
   'source_code': 'Broncode',
   'license': 'Licentie',
   'clear_all_data': 'Alle gegevens wissen',

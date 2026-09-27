@@ -140,7 +140,6 @@ const Map<String, String> kThCatalog = <String, String>{
   'listen_ipv4': 'รับฟัง IPv4',
   'listen_ipv6': 'รับฟัง IPv6',
   'port': 'พอร์ต',
-  'remote_dns': 'แปลงชื่อจากระยะไกล',
   'proxy_dns_mode': 'การแปลงชื่อ DNS ของพร็อกซี',
   'proxy_dns_subtitle': 'วิธีที่พร็อกซี SOCKS5 และ HTTP แปลงชื่อโดเมน',
   'proxy_dns_remote': 'ระยะไกลผ่านอุโมงค์',
@@ -168,9 +167,6 @@ const Map<String, String> kThCatalog = <String, String>{
   'proxy_auth_invalid': 'ตรวจสอบชื่อผู้ใช้และรหัสผ่าน แล้วลองอีกครั้ง',
   'proxy_auth_saved': 'บันทึกชื่อผู้ใช้และรหัสผ่านพร็อกซีแล้ว',
   'proxy_auth_cleared': 'ยกเลิกการป้องกันพร็อกซีด้วยรหัสผ่านแล้ว',
-  'lan_warning_authenticated': 'ตัวรับฟังเครือข่ายภายในที่ต้องยืนยันตัวตน',
-  'lan_warning_authenticated_body':
-      'ตัวรับฟังนี้เข้าถึงได้จากเครือข่ายภายใน และต้องใช้ชื่อผู้ใช้กับรหัสผ่านที่คุณตั้งไว้',
   'proxy_password_set': 'ตั้งรหัสผ่านแล้ว กรอกรหัสใหม่เพื่อแทนที่',
   'proxy_auth_clear': 'ยกเลิกการป้องกันด้วยรหัสผ่าน',
   'general': 'ทั่วไป',
@@ -318,8 +314,6 @@ const Map<String, String> kThCatalog = <String, String>{
   'logs': 'บันทึกในเครื่อง',
   'export_diagnostics': 'ส่งออกชุดการวินิจฉัย',
   'diagnostics_saved': 'บันทึกชุดการวินิจฉัยไปที่',
-  'export_help':
-      'คุณจะตรวจเนื้อหาก่อนบันทึก ความลับ โทเค็น คีย์ส่วนตัว และที่อยู่ที่ละเอียดอ่อนฉบับเต็มจะถูกตัดออก',
   'source_code': 'ซอร์สโค้ด',
   'license': 'ใบอนุญาต',
   'clear_all_data': 'ล้างข้อมูลทั้งหมด',

@@ -147,7 +147,6 @@ const Map<String, String> kFrCatalog = <String, String>{
   'listen_ipv4': 'Écoute IPv4',
   'listen_ipv6': 'Écoute IPv6',
   'port': 'Port',
-  'remote_dns': 'Résoudre les noms à distance',
   'proxy_dns_mode': 'Résolution DNS du proxy',
   'proxy_dns_subtitle':
       'Comment les proxys SOCKS5 et HTTP résolvent les noms de domaine.',
@@ -177,9 +176,6 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Vérifiez le nom d’utilisateur et le mot de passe, puis réessayez.',
   'proxy_auth_saved': 'Nom d’utilisateur et mot de passe du proxy enregistrés.',
   'proxy_auth_cleared': 'Protection du proxy par mot de passe supprimée.',
-  'lan_warning_authenticated': 'Écouteur LAN authentifié',
-  'lan_warning_authenticated_body':
-      'Cet écouteur est accessible sur le réseau local et exige le nom d’utilisateur et le mot de passe que vous avez définis.',
   'proxy_password_set':
       'Le mot de passe est défini. Saisissez-en un nouveau pour le remplacer.',
   'proxy_auth_clear': 'Supprimer la protection par mot de passe',
@@ -332,8 +328,6 @@ const Map<String, String> kFrCatalog = <String, String>{
   'logs': 'Journaux locaux',
   'export_diagnostics': 'Exporter l’archive de diagnostics',
   'diagnostics_saved': 'Archive de diagnostics enregistrée dans',
-  'export_help':
-      'Vous en examinerez le contenu avant l’enregistrement. Les secrets, jetons, clés privées et adresses sensibles complètes sont exclus.',
   'source_code': 'Code source',
   'license': 'Licence',
   'clear_all_data': 'Effacer toutes les données',

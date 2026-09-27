@@ -142,7 +142,6 @@ const Map<String, String> kArCatalog = <String, String>{
   'listen_ipv4': 'الاستماع على IPv4',
   'listen_ipv6': 'الاستماع على IPv6',
   'port': 'المنفذ',
-  'remote_dns': 'حل الأسماء عن بُعد',
   'proxy_dns_mode': 'حل DNS للوكيل',
   'proxy_dns_subtitle': 'كيف يحلّ وكيلا SOCKS5 وHTTP أسماء النطاقات.',
   'proxy_dns_remote': 'عن بُعد عبر النفق',
@@ -170,9 +169,6 @@ const Map<String, String> kArCatalog = <String, String>{
   'proxy_auth_invalid': 'تحقق من اسم المستخدم وكلمة المرور وحاول مجددًا.',
   'proxy_auth_saved': 'تم حفظ اسم المستخدم وكلمة مرور الوكيل.',
   'proxy_auth_cleared': 'أُزيلت حماية الوكيل بكلمة مرور.',
-  'lan_warning_authenticated': 'مستمع شبكة محلية بمصادقة',
-  'lan_warning_authenticated_body':
-      'يمكن الوصول إلى هذا المستمع على الشبكة المحلية ويتطلب اسم المستخدم وكلمة المرور اللذين عيّنتهما.',
   'proxy_password_set': 'كلمة المرور معيَّنة. أدخل كلمة جديدة لاستبدالها.',
   'proxy_auth_clear': 'إزالة الحماية بكلمة مرور',
   'general': 'عام',
@@ -319,8 +315,6 @@ const Map<String, String> kArCatalog = <String, String>{
   'logs': 'السجلات المحلية',
   'export_diagnostics': 'تصدير حزمة التشخيص',
   'diagnostics_saved': 'تم حفظ حزمة التشخيص في',
-  'export_help':
-      'ستراجع محتوياتها قبل الحفظ. تُستبعد الأسرار والرموز المميزة والمفاتيح الخاصة والعناوين الحساسة الكاملة.',
   'source_code': 'الشفرة المصدرية',
   'license': 'الترخيص',
   'clear_all_data': 'مسح جميع البيانات',

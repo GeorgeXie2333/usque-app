@@ -141,7 +141,6 @@ const Map<String, String> kViCatalog = <String, String>{
   'listen_ipv4': 'Lắng nghe IPv4',
   'listen_ipv6': 'Lắng nghe IPv6',
   'port': 'Cổng',
-  'remote_dns': 'Phân giải tên từ xa',
   'proxy_dns_mode': 'Phân giải DNS qua proxy',
   'proxy_dns_subtitle': 'Cách proxy SOCKS5 và HTTP phân giải tên miền.',
   'proxy_dns_remote': 'Từ xa qua đường hầm',
@@ -169,9 +168,6 @@ const Map<String, String> kViCatalog = <String, String>{
   'proxy_auth_invalid': 'Kiểm tra tên người dùng và mật khẩu rồi thử lại.',
   'proxy_auth_saved': 'Đã lưu tên người dùng và mật khẩu proxy.',
   'proxy_auth_cleared': 'Đã bỏ bảo vệ proxy bằng mật khẩu.',
-  'lan_warning_authenticated': 'Trình lắng nghe LAN đã xác thực',
-  'lan_warning_authenticated_body':
-      'Trình lắng nghe này truy cập được trên mạng cục bộ và yêu cầu tên người dùng cùng mật khẩu bạn đã đặt.',
   'proxy_password_set': 'Đã đặt mật khẩu. Nhập mật khẩu mới để thay thế.',
   'proxy_auth_clear': 'Bỏ bảo vệ bằng mật khẩu',
   'general': 'Chung',
@@ -318,8 +314,6 @@ const Map<String, String> kViCatalog = <String, String>{
   'logs': 'Nhật ký cục bộ',
   'export_diagnostics': 'Xuất gói chẩn đoán',
   'diagnostics_saved': 'Đã lưu gói chẩn đoán vào',
-  'export_help':
-      'Bạn sẽ xem nội dung trước khi lưu. Bí mật, token, khóa riêng và địa chỉ nhạy cảm đầy đủ được loại trừ.',
   'source_code': 'Mã nguồn',
   'license': 'Giấy phép',
   'clear_all_data': 'Xóa toàn bộ dữ liệu',

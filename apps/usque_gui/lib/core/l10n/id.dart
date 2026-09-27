@@ -142,7 +142,6 @@ const Map<String, String> kIdCatalog = <String, String>{
   'listen_ipv4': 'Dengarkan pada IPv4',
   'listen_ipv6': 'Dengarkan pada IPv6',
   'port': 'Port',
-  'remote_dns': 'Selesaikan nama dari jarak jauh',
   'proxy_dns_mode': 'Resolusi DNS proksi',
   'proxy_dns_subtitle':
       'Cara proksi SOCKS5 dan HTTP menyelesaikan nama domain.',
@@ -171,9 +170,6 @@ const Map<String, String> kIdCatalog = <String, String>{
   'proxy_auth_invalid': 'Periksa nama pengguna dan kata sandi lalu coba lagi.',
   'proxy_auth_saved': 'Nama pengguna dan kata sandi proksi disimpan.',
   'proxy_auth_cleared': 'Perlindungan kata sandi proksi dihapus.',
-  'lan_warning_authenticated': 'Listener LAN terautentikasi',
-  'lan_warning_authenticated_body':
-      'Listener ini dapat dijangkau di jaringan lokal dan memerlukan nama pengguna serta kata sandi yang Anda tetapkan.',
   'proxy_password_set':
       'Kata sandi sudah diatur. Masukkan yang baru untuk menggantinya.',
   'proxy_auth_clear': 'Hapus perlindungan kata sandi',
@@ -322,8 +318,6 @@ const Map<String, String> kIdCatalog = <String, String>{
   'logs': 'Log lokal',
   'export_diagnostics': 'Ekspor bundel diagnostik',
   'diagnostics_saved': 'Bundel diagnostik disimpan ke',
-  'export_help':
-      'Anda akan meninjau isinya sebelum menyimpan. Rahasia, token, kunci privat, dan alamat sensitif lengkap dikecualikan.',
   'source_code': 'Kode sumber',
   'license': 'Lisensi',
   'clear_all_data': 'Hapus semua data',

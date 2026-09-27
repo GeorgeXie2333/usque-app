@@ -143,7 +143,6 @@ const Map<String, String> kTrCatalog = <String, String>{
   'listen_ipv4': 'IPv4’te dinle',
   'listen_ipv6': 'IPv6’da dinle',
   'port': 'Port',
-  'remote_dns': 'Adları uzaktan çözümle',
   'proxy_dns_mode': 'Proxy DNS çözümlemesi',
   'proxy_dns_subtitle':
       'SOCKS5 ve HTTP proxy’lerinin alan adlarını nasıl çözümleyeceği.',
@@ -173,9 +172,6 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Kullanıcı adı ve parolayı kontrol edip yeniden deneyin.',
   'proxy_auth_saved': 'Proxy kullanıcı adı ve parolası kaydedildi.',
   'proxy_auth_cleared': 'Proxy parola koruması kaldırıldı.',
-  'lan_warning_authenticated': 'Kimliği doğrulanmış LAN dinleyicisi',
-  'lan_warning_authenticated_body':
-      'Bu dinleyici yerel ağdan erişilebilir ve ayarladığınız kullanıcı adı ile parolayı gerektirir.',
   'proxy_password_set':
       'Parola ayarlandı. Değiştirmek için yeni bir parola girin.',
   'proxy_auth_clear': 'Parola korumasını kaldır',
@@ -324,8 +320,6 @@ const Map<String, String> kTrCatalog = <String, String>{
   'logs': 'Yerel günlükler',
   'export_diagnostics': 'Tanılama paketini dışa aktar',
   'diagnostics_saved': 'Tanılama paketi şuraya kaydedildi',
-  'export_help':
-      'Kaydetmeden önce içeriğini inceleyeceksiniz. Gizli bilgiler, belirteçler, özel anahtarlar ve tam hassas adresler hariç tutulur.',
   'source_code': 'Kaynak kodu',
   'license': 'Lisans',
   'clear_all_data': 'Tüm verileri temizle',

@@ -142,7 +142,6 @@ const Map<String, String> kRuCatalog = <String, String>{
   'listen_ipv4': 'Прослушивание IPv4',
   'listen_ipv6': 'Прослушивание IPv6',
   'port': 'Порт',
-  'remote_dns': 'Разрешать имена удалённо',
   'proxy_dns_mode': 'Разрешение DNS прокси',
   'proxy_dns_subtitle': 'Как прокси SOCKS5 и HTTP разрешают доменные имена.',
   'proxy_dns_remote': 'Удалённо через туннель',
@@ -171,9 +170,6 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Проверьте имя пользователя и пароль и повторите попытку.',
   'proxy_auth_saved': 'Имя пользователя и пароль прокси сохранены.',
   'proxy_auth_cleared': 'Защита прокси паролем отключена.',
-  'lan_warning_authenticated': 'Прослушиватель LAN с аутентификацией',
-  'lan_warning_authenticated_body':
-      'Этот прослушиватель доступен в локальной сети и требует заданные вами имя пользователя и пароль.',
   'proxy_password_set': 'Пароль задан. Введите новый, чтобы заменить его.',
   'proxy_auth_clear': 'Отключить защиту паролем',
   'general': 'Основные',
@@ -322,8 +318,6 @@ const Map<String, String> kRuCatalog = <String, String>{
   'logs': 'Локальные журналы',
   'export_diagnostics': 'Экспортировать диагностический пакет',
   'diagnostics_saved': 'Диагностический пакет сохранён в',
-  'export_help':
-      'Перед сохранением вы просмотрите его содержимое. Секреты, токены, закрытые ключи и полные чувствительные адреса исключены.',
   'source_code': 'Исходный код',
   'license': 'Лицензия',
   'clear_all_data': 'Очистить все данные',

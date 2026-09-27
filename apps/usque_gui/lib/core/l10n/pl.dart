@@ -142,7 +142,6 @@ const Map<String, String> kPlCatalog = <String, String>{
   'listen_ipv4': 'Nasłuch IPv4',
   'listen_ipv6': 'Nasłuch IPv6',
   'port': 'Port',
-  'remote_dns': 'Rozwiązuj nazwy zdalnie',
   'proxy_dns_mode': 'Rozwiązywanie DNS przez proxy',
   'proxy_dns_subtitle': 'Jak proxy SOCKS5 i HTTP rozwiązują nazwy domen.',
   'proxy_dns_remote': 'Zdalnie przez tunel',
@@ -171,9 +170,6 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Sprawdź nazwę użytkownika i hasło, a następnie spróbuj ponownie.',
   'proxy_auth_saved': 'Zapisano nazwę użytkownika i hasło proxy.',
   'proxy_auth_cleared': 'Usunięto ochronę proxy hasłem.',
-  'lan_warning_authenticated': 'Uwierzytelniony nasłuch LAN',
-  'lan_warning_authenticated_body':
-      'Ten nasłuch jest osiągalny w sieci lokalnej i wymaga ustawionej nazwy użytkownika oraz hasła.',
   'proxy_password_set': 'Hasło jest ustawione. Wpisz nowe, aby je zastąpić.',
   'proxy_auth_clear': 'Usuń ochronę hasłem',
   'general': 'Ogólne',
@@ -323,8 +319,6 @@ const Map<String, String> kPlCatalog = <String, String>{
   'logs': 'Dzienniki lokalne',
   'export_diagnostics': 'Eksportuj pakiet diagnostyczny',
   'diagnostics_saved': 'Pakiet diagnostyczny zapisano w',
-  'export_help':
-      'Przed zapisaniem można przejrzeć zawartość. Sekrety, tokeny, klucze prywatne i pełne wrażliwe adresy są wykluczone.',
   'source_code': 'Kod źródłowy',
   'license': 'Licencja',
   'clear_all_data': 'Wyczyść wszystkie dane',

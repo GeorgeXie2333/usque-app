@@ -145,7 +145,6 @@ const Map<String, String> kDeCatalog = <String, String>{
   'listen_ipv4': 'An IPv4 lauschen',
   'listen_ipv6': 'An IPv6 lauschen',
   'port': 'Port',
-  'remote_dns': 'Namen remote auflösen',
   'proxy_dns_mode': 'Proxy-DNS-Auflösung',
   'proxy_dns_subtitle': 'Wie SOCKS5- und HTTP-Proxys Domainnamen auflösen.',
   'proxy_dns_remote': 'Remote über den Tunnel',
@@ -174,9 +173,6 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Prüfe Benutzername und Passwort und versuche es erneut.',
   'proxy_auth_saved': 'Proxy-Benutzername und Passwort gespeichert.',
   'proxy_auth_cleared': 'Passwortschutz des Proxys entfernt.',
-  'lan_warning_authenticated': 'Authentifizierter LAN-Listener',
-  'lan_warning_authenticated_body':
-      'Dieser Listener ist im lokalen Netzwerk erreichbar und erfordert den von Ihnen festgelegten Benutzernamen und das Passwort.',
   'proxy_password_set':
       'Passwort ist gesetzt. Geben Sie ein neues ein, um es zu ersetzen.',
   'proxy_auth_clear': 'Passwortschutz entfernen',
@@ -327,8 +323,6 @@ const Map<String, String> kDeCatalog = <String, String>{
   'logs': 'Lokale Protokolle',
   'export_diagnostics': 'Diagnosepaket exportieren',
   'diagnostics_saved': 'Diagnosepaket gespeichert unter',
-  'export_help':
-      'Sie prüfen den Inhalt vor dem Speichern. Geheimnisse, Token, private Schlüssel und vollständige sensible Adressen sind ausgeschlossen.',
   'source_code': 'Quellcode',
   'license': 'Lizenz',
   'clear_all_data': 'Alle Daten löschen',

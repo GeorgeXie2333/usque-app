@@ -143,7 +143,6 @@ const Map<String, String> kUkCatalog = <String, String>{
   'listen_ipv4': 'Прослуховування IPv4',
   'listen_ipv6': 'Прослуховування IPv6',
   'port': 'Порт',
-  'remote_dns': 'Розпізнавати імена віддалено',
   'proxy_dns_mode': 'Розпізнавання DNS проксі',
   'proxy_dns_subtitle': 'Як проксі SOCKS5 і HTTP розпізнають доменні імена.',
   'proxy_dns_remote': 'Віддалено через тунель',
@@ -173,9 +172,6 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Перевірте ім’я користувача та пароль і спробуйте ще раз.',
   'proxy_auth_saved': 'Ім’я користувача та пароль проксі збережено.',
   'proxy_auth_cleared': 'Захист проксі паролем вимкнено.',
-  'lan_warning_authenticated': 'Автентифікований слухач локальної мережі',
-  'lan_warning_authenticated_body':
-      'Цей слухач доступний у локальній мережі та потребує імені користувача й пароля, які ви задали.',
   'proxy_password_set': 'Пароль установлено. Введіть новий, щоб замінити його.',
   'proxy_auth_clear': 'Вимкнути захист паролем',
   'general': 'Загальні',
@@ -323,8 +319,6 @@ const Map<String, String> kUkCatalog = <String, String>{
   'logs': 'Локальні журнали',
   'export_diagnostics': 'Експортувати діагностичний пакет',
   'diagnostics_saved': 'Діагностичний пакет збережено до',
-  'export_help':
-      'Перед збереженням ви переглянете його вміст. Секрети, токени, закриті ключі та повні конфіденційні адреси виключено.',
   'source_code': 'Вихідний код',
   'license': 'Ліцензія',
   'clear_all_data': 'Очистити всі дані',
