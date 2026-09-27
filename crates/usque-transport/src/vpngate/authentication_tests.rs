@@ -1,6 +1,28 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+async fn with_authentication_retries<T, F, Fut>(
+    cancel: &CancellationToken,
+    mut connect: F,
+) -> Result<T, TransportError>
+where
+    F: FnMut(u8) -> Fut,
+    Fut: std::future::Future<Output = Result<T, TransportError>>,
+{
+    with_startup_retries(
+        cancel,
+        Instant::now() + Duration::from_secs(180),
+        StartupAttempt::Authentication(0),
+        |attempt| {
+            let StartupAttempt::Authentication(attempt) = attempt else {
+                panic!("unexpected startup policy");
+            };
+            connect(attempt)
+        },
+    )
+    .await
+}
+
 #[tokio::test(start_paused = true)]
 async fn authentication_retries_can_succeed_without_visible_errors_or_added_backoff() {
     for rejections in 0..=AUTHENTICATION_RETRIES {
@@ -22,7 +44,11 @@ async fn authentication_retries_can_succeed_without_visible_errors_or_added_back
                 // attempt must not consume the next attempt's time allowance.
                 tokio::time::sleep(Duration::from_secs(20)).await;
                 if attempt < rejections {
-                    publish_failure(status, GateFailure::Authentication, Some(attempt));
+                    publish_failure(
+                        status,
+                        GateFailure::Authentication,
+                        Some(StartupAttempt::Authentication(attempt)),
+                    );
                     assert!(!observed.has_changed().unwrap());
                     assert_eq!(observed.borrow().stage, GateStage::Negotiating);
                     assert_eq!(observed.borrow().failure, None);
@@ -53,7 +79,11 @@ async fn second_authentication_rejection_is_terminal_and_visible() {
     });
     let result = with_authentication_retries(&CancellationToken::new(), |attempt| {
         calls.fetch_add(1, Ordering::SeqCst);
-        publish_failure(&status, event_failure("AUTH_FAILED"), Some(attempt));
+        publish_failure(
+            &status,
+            event_failure("AUTH_FAILED"),
+            Some(StartupAttempt::Authentication(attempt)),
+        );
         if attempt < AUTHENTICATION_RETRIES {
             assert!(!observed.has_changed().unwrap());
         }
@@ -83,7 +113,11 @@ async fn other_failures_do_not_receive_authentication_retries() {
         let (status, observed) = watch::channel(GateStatus::default());
         let result = with_authentication_retries(&CancellationToken::new(), |attempt| {
             calls.fetch_add(1, Ordering::SeqCst);
-            publish_failure(&status, reason, Some(attempt));
+            publish_failure(
+                &status,
+                reason,
+                Some(StartupAttempt::Authentication(attempt)),
+            );
             std::future::ready(Err::<(), _>(TransportError::VpnGate(reason)))
         })
         .await;

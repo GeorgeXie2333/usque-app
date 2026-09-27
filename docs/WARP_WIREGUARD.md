@@ -37,6 +37,24 @@ MASQUE 隧道。保存配置不会自动选用或连接，私钥使用现有平�
 配置端点。修改进入草稿，通过**应用更改**或**应用并重新连接**生效；未连接时
 应用只保存设置。原始私钥配置不会因修改端点而被重写。
 
+## Connection retries / 连接重试
+
+After the MASQUE tunnel is established, **WARP via WireGuard** waits up to
+3 seconds for the first WireGuard connection attempt. If it fails, Usque retries
+up to five times, with respective limits of 4, 5, 5, 5 and 5 seconds. Each failed
+session is cleaned up before the next attempt; success stops the retries.
+Reconnection after a disconnect starts the same sequence again. Custom
+WireGuard exits keep their existing behavior. Cancellation and the overall
+connection deadline still apply. Exhausting the attempts stops the chain;
+there is no automatic MASQUE-only fallback.
+
+MASQUE 隧道建立后，**WARP via WireGuard** 首次等待 WireGuard 连接最长
+3 秒；失败后最多重试 5 次，等待上限依次为 4、5、5、5、5 秒。每次失败的
+会话清理完成后才开始下一次，连接成功即停止重试。断线后的重新建连也从
+3 秒开始采用同一序列。自定义 WireGuard 出口保留原有行为。主动取消与
+整条连接的总截止时间仍然有效；尝试耗尽后停止链式连接，不会自动退化为
+仅使用 MASQUE。
+
 ## Generation status / 生成状态
 
 Generation reuses the connected MASQUE outer network. When disconnected, it
