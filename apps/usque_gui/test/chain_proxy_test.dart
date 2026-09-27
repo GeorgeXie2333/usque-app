@@ -510,7 +510,7 @@ void main() {
       findsOneWidget,
     );
     final name = fieldWithLabel('Name');
-    expect(tester.widget<TextField>(name).controller!.text, 'vpn.example');
+    expect(tester.widget<TextField>(name).controller!.text, 'test');
     expect(find.textContaining('PrivateKey'), findsNothing);
     await tester.enterText(name, 'Office exit');
     await tester.tap(find.text('Save configuration'));
@@ -520,6 +520,35 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
     expect(find.text('Office exit'), findsOneWidget);
   });
+
+  for (final entry in {
+    'Office.conf': 'Office',
+    '办公.exit.ovpn': '办公.exit',
+    'Home': 'Home',
+    '.office': '.office',
+  }.entries) {
+    testWidgets('file import saves the default name for ${entry.key}', (
+      tester,
+    ) async {
+      final engine = ChainEngine()
+        ..pickedFiles = [
+          ChainConfigurationFile(
+            name: entry.key,
+            configuration: '[Interface]\nPrivateKey = fixture',
+          ),
+        ];
+      await hostChain(tester, engine);
+      await tester.tap(find.text('Import file'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(fieldWithLabel('Name')).controller!.text,
+        entry.value,
+      );
+      await tester.tap(find.text('Save configuration'));
+      await tester.pumpAndSettle();
+      expect(engine.library.single.name, entry.value);
+    });
+  }
 
   testWidgets('an empty name is refused only when saving', (tester) async {
     final engine = ChainEngine()..picked = '[Interface]\nPrivateKey = fixture';

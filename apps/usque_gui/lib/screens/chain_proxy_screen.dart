@@ -379,6 +379,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
 
   Future<void> _importFilesOrText(bool file) async {
     String? text;
+    String? defaultName;
     if (file) {
       try {
         final files = await _app.pickChainConfigurations();
@@ -402,6 +403,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
           throw EngineException(code, 'Configuration file could not be read.');
         }
         text = picked.configuration;
+        defaultName = _chainFileDefaultName(picked.name);
       } catch (error) {
         if (mounted) {
           final key = switch (error) {
@@ -430,6 +432,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
         controller: _app,
         source: widget.source,
         configuration: text,
+        defaultName: defaultName,
       ),
     );
     if (!mounted || result == null) return;
@@ -969,11 +972,13 @@ class _ImportDialog extends StatefulWidget {
     required this.controller,
     required this.source,
     this.configuration,
+    this.defaultName,
     this.credentialsFor,
   });
   final AppController controller;
   final ChainSource source;
   final String? configuration;
+  final String? defaultName;
   final ChainProfileSummary? credentialsFor;
   @override
   State<_ImportDialog> createState() => _ImportDialogState();
@@ -1094,7 +1099,10 @@ class _ImportDialogState extends State<_ImportDialog> {
         setState(() {
           _preview = result.preview;
           if (!_nameEdited && _name.text.trim().isEmpty) {
-            _name.text = result.preview?.host ?? widget.source.label;
+            _name.text =
+                widget.defaultName ??
+                result.preview?.host ??
+                widget.source.label;
           }
         });
       }
@@ -1291,6 +1299,11 @@ class _ImportDialogState extends State<_ImportDialog> {
       ),
     );
   }
+}
+
+String _chainFileDefaultName(String filename) {
+  final extension = filename.lastIndexOf('.');
+  return extension > 0 ? filename.substring(0, extension) : filename;
 }
 
 /// A cheap structural check that catches a file pasted under the wrong

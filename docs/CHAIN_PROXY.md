@@ -58,8 +58,8 @@ on its path or document-provider permissions. An imported file is checked as
 soon as the dialog opens; pasted text is checked with **Check configuration**.
 For multiple files, a batch list automatically checks every file offline and
 shows ready, incomplete, failed and saved counts. Expand an entry to review its
-details, change its name or supply its individual credentials. Names default to
-the endpoint host, including when filenames differ. Incorrect encoding, empty
+details, change its name or supply its individual credentials. File imports default
+to the filename without its final extension. Incorrect encoding, empty
 or oversized files, unsupported configurations and source mismatches are reported
 per file; validation does not test connectivity. **Import valid items** saves
 only entries that passed validation and have the required name and credentials.
@@ -76,7 +76,8 @@ engine runs.
 
 The check displays the endpoint, transport, IP version, addresses, DNS,
 AllowedIPs and MTU where available. OpenVPN addresses and DNS may be negotiated
-by the server. The name defaults to the endpoint host. Supply the requested
+by the server. Single-file imports also default to the filename without its final
+extension; pasted configurations default to the endpoint host. Supply the requested
 username, password or encrypted private-key password and **Save configuration**.
 Errors identify a field and line without reproducing configuration values.
 Saving to the library neither selects the configuration nor starts a connection.
@@ -107,7 +108,7 @@ of the selected WARP account.
 每个文件 128 KiB UTF-8 文本。Windows 和 Android 均支持多选，每次最多选择
 128 个当前来源的文件，配置库总量仍限制为 128 条。TV 没有系统文件选择器时请粘贴文本。
 单文件沿用原有对话框；多文件自动逐项离线预检，显示可导入、待补充、失败和已保存数量。
-展开项目可检查详情、修改名称并逐项填写凭据，默认名称仍为服务器主机名。
+展开项目可检查详情、修改名称并逐项填写凭据，默认名称为去掉最后一个后缀的文件名。
 空文件、超限、编码错误、来源不符或不受支持的配置逐项报错，不进行连通性探测。
 点击**导入合格项**仅保存校验通过且名称与凭据齐全的项目；其余项目可补充后继续保存，
 已导入项目不会再次提交。预检期间取消不会保存配置。
@@ -115,7 +116,8 @@ of the selected WARP account.
 因为中断的项目可能已经保存。同名或相同内容仍作为独立新配置导入，不覆盖已有配置。
 导入文件后立即检查；
 粘贴文本需点击**检查配置**。粘贴到错误来源的配置会在调用引擎前得到提示。
-检查后补充认证信息、命名（默认使用服务器主机名）并保存；保存不会选用配置
+检查后补充认证信息、命名（单文件导入默认使用不含后缀的文件名，粘贴导入默认使用
+服务器主机名）并保存；保存不会选用配置
 或自动连接。打开总开关、选择配置，再在底栏应用。列表会标记已保存的选择、
 当前连接使用的配置以及标记为**不支持 L4** 的配置；点击所选配置下的“技术详情”
 可展开详细信息。

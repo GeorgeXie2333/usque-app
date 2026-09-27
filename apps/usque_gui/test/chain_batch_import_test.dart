@@ -88,7 +88,11 @@ void main() {
     (tester) async {
       final engine = BatchEngine()
         ..pickedFiles = [
-          ...files(['one', 'invalid', 'two']),
+          const ChainConfigurationFile(
+            name: '办公.exit.conf',
+            configuration: 'one',
+          ),
+          ...files(['invalid', 'two']),
           const ChainConfigurationFile(
             name: 'unreadable.conf',
             errorCode: 'CHAIN_FILE_READ_FAILED',
@@ -117,14 +121,14 @@ void main() {
       await expand(tester, 0);
       expect(
         tester.widget<TextField>(field(0, 'Name')).controller!.text,
-        'one.example',
+        '办公.exit',
       );
       await tester.enterText(field(0, 'Name'), 'Office');
       await tester.pumpAndSettle();
       await tester.ensureVisible(save);
       await tester.tap(save);
       await tester.pumpAndSettle();
-      expect(engine.library.map((p) => p.name), ['Office', 'two.example']);
+      expect(engine.library.map((p) => p.name), ['Office', 'two']);
       expect(
         find.text('Ready: 0 · Incomplete: 0 · Failed: 3 · Saved: 2'),
         findsOneWidget,
@@ -253,15 +257,12 @@ void main() {
     (tester) async {
       final engine = BatchEngine()
         ..pickedFiles = files(['one', 'two', 'three'])
-        ..failName = 'two.example';
+        ..failName = 'two';
       await hostChain(tester, engine);
       await open(tester);
       await tester.tap(save);
       await tester.pumpAndSettle();
-      expect(engine.library.map((p) => p.name), [
-        'one.example',
-        'three.example',
-      ]);
+      expect(engine.library.map((p) => p.name), ['one', 'three']);
       expect(
         find.text('The configuration library is full (128 configurations).'),
         findsOneWidget,
@@ -276,11 +277,7 @@ void main() {
       await tester.ensureVisible(save);
       await tester.tap(save);
       await tester.pumpAndSettle();
-      expect(engine.library.map((p) => p.name), [
-        'one.example',
-        'three.example',
-        'renamed',
-      ]);
+      expect(engine.library.map((p) => p.name), ['one', 'three', 'renamed']);
       expect(engine.savesAttempted, 4);
     },
   );

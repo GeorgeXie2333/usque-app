@@ -105,7 +105,7 @@ class _BatchImportDialogState extends State<_BatchImportDialog> {
               item.error = _text('multi_endpoint_unavailable');
             } else {
               item.preview = preview;
-              item.name.text = preview.host;
+              item.name.text = _chainFileDefaultName(file.name);
             }
           } else {
             item.error = _text('invalid_configuration');
