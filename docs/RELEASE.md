@@ -79,6 +79,12 @@ recovery journal and export schema numbers against the source. Every statement i
 English first, followed immediately by its Simplified Chinese translation.
 Keep the standard sections for official downloads, installation requirements,
 signature and evidence verification, and issue feedback.
+Keep the version summary, highlights, download table, official-source warning,
+and Windows EXE guidance visible. Put supplementary installation guidance,
+upgrade notes, technical and DNS details, verification instructions and evidence,
+and feedback guidance in separate, default-collapsed `details` blocks with
+English-first bilingual summaries. Keep the standard section headings outside
+the blocks so readers can find them without expanding the content.
 
 The release renderer accepts only the version, official repository URL, and
 the two validated signer fingerprints as template values. It rejects missing

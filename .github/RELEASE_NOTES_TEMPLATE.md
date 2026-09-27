@@ -45,6 +45,9 @@ reserved for Usque's verified in-app update flow.
 
 Windows 请下载上方的 EXE 安装程序。名称相近的 MSI 文件仅供应用内更新使用。
 
+<details>
+<summary>Package selection and installation guide / 软件包选择与安装指南</summary>
+
 Use the package matching your device architecture. The universal APK contains all three Android ABIs and is larger; use it only when the device ABI is unknown.
 
 请优先下载与设备架构匹配的软件包。Universal APK 包含三种 Android ABI，文件更大，仅在无法确定设备架构时使用。
@@ -53,16 +56,23 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 
 完整的安装、升级和卸载说明请参阅[安装指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md)。
 
+</details>
+
 ## Before upgrading / 升级须知
+
+<details>
+<summary>Upgrade behavior and compatibility / 升级行为与兼容性</summary>
 
 - **The chain proxy is off by default.** An existing VPN Gate choice carries over to the VPN Gate source. Select and apply one exit to use it. A terminal exit failure disconnects the whole chain; there is no automatic WARP-only fallback. On Android, enable system Always-on VPN and Block connections without VPN if apps must stay blocked after the VPN ends. Your explicit direct rules still apply.
   <br>**链式代理默认关闭。** 已有的 VPN Gate 选择会保留为 VPN Gate 来源。选择并应用一个出口后才会使用。出口无法继续连接时，整条链路都会断开，不会自动退回仅使用 WARP。Android 用户若需要在 VPN 结束后继续阻止应用联网，请开启系统的“始终开启的 VPN”和“阻止未使用 VPN 的连接”。手动设置的直连规则仍然生效。
-- **UDP-based exits require CONNECT-IP.** OpenVPN over UDP, WireGuard and WARP via WireGuard cannot be enabled with experimental L4; the page offers Switch to CONNECT-IP and apply instead.
-  <br>**基于 UDP 的出口需要 CONNECT-IP。** OpenVPN UDP、WireGuard 和 WARP via WireGuard 不能在实验性 L4 下启用，页面会改为提供“切换为 CONNECT-IP 并应用”。
+- **UDP-based exits require non-L4 mode.** OpenVPN over UDP, WireGuard and WARP via WireGuard cannot be enabled with experimental L4; the page prompts you to switch to non-L4 mode and apply.
+  <br>**基于 UDP 的出口需要非 L4 模式。** OpenVPN UDP、WireGuard 和 WARP via WireGuard 不能在实验性 L4 下启用，页面会提示切换为非 L4 模式并应用。
 - **The Windows virtual adapter can remain after disconnecting.** Usque restores the connection's network settings at disconnect, keeps the adapter for reuse, and attempts to remove it when you fully exit the app. Windows may take time to complete removal, which can affect an immediate restart.
   <br>**Windows 断开连接后可能仍显示虚拟网卡。** Usque 会恢复该连接修改的网络设置，保留网卡供下次连接复用，完全退出应用后再尝试移除。Windows 完成删除可能需要时间，因此立即重启应用仍可能受影响。
 - **Default connection settings are unchanged.** CONNECT-IP with Auto and CUBIC remain the defaults, and Disable QUIC is off. L4 and BBRv3 are experimental; keep that in mind when choosing them. New installations turn on Allow local network; existing saved settings keep their value.
   <br>**默认连接设置保持不变。** 默认仍使用 CONNECT-IP、Auto 和 CUBIC，“禁用 QUIC”默认关闭。L4 与 BBRv3 仍为实验性选项，请按需选择。新安装默认开启“允许访问局域网”；已保存的设置保持原值。
+
+</details>
 
 <details>
 <summary>Technical changes / 技术改动详情</summary>
@@ -103,6 +113,9 @@ Without a chain exit, experimental L4 remains TCP-only: valid tunneled UDP/53 qu
 
 ## Verify before installing / 安装前验证 🔐
 
+<details>
+<summary>Signature checks and release evidence / 签名校验与发布验证材料</summary>
+
 1. Compare the package SHA-256 with both [SHA256SUMS](https://github.com/{{repository}}/releases/download/{{release_tag}}/SHA256SUMS) and the digest displayed by GitHub.
    <br>将软件包 SHA-256 同时与 [SHA256SUMS](https://github.com/{{repository}}/releases/download/{{release_tag}}/SHA256SUMS) 及 GitHub 显示的摘要进行比对。
 2. Verify that the package signer matches the fingerprint below. The [installation guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#verify-before-installing) has commands and expected fields.
@@ -122,7 +135,12 @@ Release evidence: [manifest](https://github.com/{{repository}}/releases/download
 
 发布验证材料：[清单](https://github.com/{{repository}}/releases/download/{{release_tag}}/release-manifest.json) · [SHA-256 校验和](https://github.com/{{repository}}/releases/download/{{release_tag}}/SHA256SUMS) · 此 Release 附带的逐包 SPDX SBOM
 
+</details>
+
 ## Feedback / 问题反馈 💬
+
+<details>
+<summary>Reporting guidelines and links / 反馈指南与入口</summary>
 
 Detailed, reproducible reports are prioritized. Include the exact version, platform, expected result, actual result, and minimal reproduction steps. Remove credentials, tokens, device identifiers, endpoint pins, and personal addresses from logs and attachments.
 
@@ -131,3 +149,5 @@ Detailed, reproducible reports are prioritized. Include the exact version, platf
 - Bug report / 错误反馈: [Open the bug form / 打开错误反馈表单](https://github.com/{{repository}}/issues/new?template=bug.yml)
 - Feature request / 功能建议: [Open the feature form / 打开功能建议表单](https://github.com/{{repository}}/issues/new?template=feature.yml)
 - Security issue / 安全问题: [Report privately / 私密报告](https://github.com/{{repository}}/security/advisories/new)
+
+</details>

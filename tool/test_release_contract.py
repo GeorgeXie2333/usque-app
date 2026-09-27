@@ -100,16 +100,16 @@ class ReleaseNotesContractTests(unittest.TestCase):
         positions = [rendered.index(heading) for heading in headings]
         self.assertEqual(positions, sorted(positions))
         download_start = rendered.index("## Download / 下载")
-        download_end = rendered.index("\n## ", download_start)
-        verify_start = rendered.index("## Verify before installing / 安装前验证")
-        details = [match.start() for match in re.finditer("<details>", rendered)]
+        download_end = rendered.index("\n<details>", download_start)
+        detail_tags = list(re.finditer(r"<details\b[^>]*>", rendered))
+        self.assertTrue(all(match.group() == "<details>" for match in detail_tags))
+        details = [match.start() for match in detail_tags]
         closings = [match.start() for match in re.finditer("</details>", rendered)]
         self.assertTrue(details)
         self.assertEqual(len(details), len(closings))
         for start, end in zip(details, closings, strict=True):
             self.assertLess(download_end, start)
             self.assertLess(start, end)
-            self.assertLess(end, verify_start)
             block = rendered[start:end]
             summaries = re.findall(r"<summary>([^<]+)</summary>", block)
             self.assertEqual(len(summaries), 1, block[:80])
