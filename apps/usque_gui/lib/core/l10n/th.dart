@@ -118,7 +118,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'delete': 'ลบ',
   'delete_profile': 'ลบบัญชีหรือไม่?',
   'delete_profile_body':
-      "ลบบัญชีนี้และข้อมูลเข้าสู่ระบบ WARP ที่บันทึกไว้บนอุปกรณ์นี้หรือไม่ หากมีใบอนุญาตที่เกี่ยวข้อง ระบบจะพยายามยกเลิกการผูกใบอนุญาตด้วย",
+      "ลบบัญชีนี้และข้อมูลเข้าสู่ระบบ WARP ของบัญชีออกจากอุปกรณ์นี้หรือไม่ หากผูก License Key ไว้ Usque จะพยายามยกเลิกการผูกด้วย",
   'delete_zero_trust_profile_body':
       'บัญชีและข้อมูลเข้าสู่ระบบนี้จะถูกลบจากอุปกรณ์ หากต้องการยกเลิกการลงทะเบียนอุปกรณ์ใน Zero Trust ขององค์กร ให้ติดต่อผู้ดูแลระบบ',
   'license_not_applicable': 'บัญชีองค์กร · ทดลอง',
@@ -217,18 +217,18 @@ const Map<String, String> kThCatalog = <String, String>{
   'update_downloading': 'กำลังดาวน์โหลดอัปเดต…',
   'update_verifying': 'กำลังตรวจสอบแพ็กเกจอัปเดต…',
   'update_ready': 'การอัปเดตพร้อมติดตั้งแล้ว',
-  'update_installing': 'ส่งการอัปเดตไปยังตัวติดตั้งของระบบแล้ว',
+  'update_installing': 'เปิดตัวติดตั้งของระบบแล้ว',
   'update_restart_install': 'เริ่มใหม่และอัปเดต',
   'update_install_android': 'ติดตั้งการอัปเดต',
   'update_confirm_title': 'ติดตั้งการอัปเดตนี้หรือไม่',
   'update_confirm_body':
       'การเชื่อมต่อ VPN และพร็อกซีจะหยุดชั่วคราวระหว่างการติดตั้ง',
   'update_package_unavailable':
-      'ไม่มีแพ็กเกจที่ตรวจสอบแล้วสำหรับอุปกรณ์นี้ โปรดเปิดหน้ารุ่น',
+      'ไม่มีตัวติดตั้งสำหรับอุปกรณ์นี้ โปรดดาวน์โหลดจากหน้าเผยแพร่',
   'notice': 'เสร็จแล้ว',
   'identity': 'บัญชี WARP',
   'identity_and_license': 'บัญชีและใบอนุญาต',
-  'license_cleanup_pending': 'การลงทะเบียนอุปกรณ์ WARP เก่ากำลังรอการนำออก',
+  'license_cleanup_pending': 'ยังไม่ได้นำการลงทะเบียนอุปกรณ์ WARP เก่าออก',
   'copy_license': 'คัดลอก License Key',
   'change_license': 'เปลี่ยน License Key',
   'unbind_license': 'กลับไปใช้ WARP Free',
@@ -271,9 +271,9 @@ const Map<String, String> kThCatalog = <String, String>{
   'kill_switch_help_android':
       'บล็อกการรับส่งข้อมูลระหว่างเชื่อมต่อหรือเชื่อมต่อใหม่ หรือเมื่อบริการเชื่อมต่อขัดข้อง ทำงานเฉพาะขณะที่บริการ VPN ทำงาน หากต้องการการป้องกันต่อหลัง Usque หยุดทำงาน ให้เปิด VPN แบบเปิดตลอดเวลาและบล็อกการเชื่อมต่อที่ไม่มี VPN ในการตั้งค่าระบบ',
   'start_on_boot_android':
-      'เริ่ม Usque หลังเริ่มระบบใหม่ และเปิดการเชื่อมต่ออัตโนมัติเมื่อเริ่มต้นด้วย',
+      'เริ่ม Usque หลังอุปกรณ์เริ่มระบบใหม่ หากต้องการเชื่อมต่ออัตโนมัติ ให้เปิด “เชื่อมต่อบัญชีปัจจุบันโดยอัตโนมัติเมื่อเริ่มต้น” ด้วย',
   'add_quick_settings_tile_help':
-      'ปักหมุดไทล์ Usque บน Android 13 ขึ้นไป บนรุ่นเก่าให้เพิ่มจาก การตั้งค่าด่วน',
+      'เพิ่มไทล์ Usque บน Android 13 ขึ้นไป สำหรับรุ่นเก่า ให้เพิ่มเองจากการตั้งค่าด่วน',
   'always_on_vpn': 'เปิดการตั้งค่า VPN แบบเปิดตลอดเวลา',
   'always_on_vpn_help':
       'เปิด VPN แบบเปิดตลอดเวลา และบล็อกการเชื่อมต่อเมื่อไม่มี VPN เพื่อป้องกันการรั่วหลังแอปถูกปิด',
@@ -286,7 +286,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'หากเปิด VPN แบบเปิดตลอดเวลา และบล็อกการเชื่อมต่อเมื่อไม่มี VPN แอปที่ไม่ได้เลือกจะถูกบล็อก ไม่ถูกส่งออกนอกอุโมงค์',
   'per_app_proxy_tunnel_hint':
-      'มีผลครั้งถัดไปที่เปิดเอาต์พุต VPN โหมด SOCKS5/HTTP อย่างเดียวไม่กรองแอป',
+      'มีผลเมื่อเปิด VPN พร็อกซี SOCKS5 และ HTTP ไม่กรองตามแอป',
   'per_app_search': 'ค้นหาแอป',
   'per_app_show_system': 'แสดงแอประบบ',
   'per_app_select_visible': 'เลือกที่แสดงอยู่',
@@ -338,7 +338,7 @@ const Map<String, String> kThCatalog = <String, String>{
       'ต้องได้รับสิทธิ์จากระบบเพื่อส่งข้อมูลของแอปผ่าน VPN อาจมีการเปลี่ยน DNS เส้นทางเครือข่าย ไฟร์วอลล์ หรือพร็อกซีระบบด้วย ขึ้นอยู่กับโหมดที่เลือก',
   'terms_title': 'ข้อกำหนดของ Cloudflare',
   'terms_body':
-      'Usque เป็นไคลเอนต์อิสระ การใช้ Consumer WARP หรือการลงทะเบียน Zero Trust แบบทดลองยังอยู่ภายใต้ข้อกำหนดและนโยบายความเป็นส่วนตัวที่เกี่ยวข้องของ Cloudflare',
+      'Usque เป็นไคลเอนต์อิสระ การใช้ WARP ส่วนบุคคลหรือการลงทะเบียน Zero Trust แบบทดลองยังอยู่ภายใต้ข้อกำหนดและนโยบายความเป็นส่วนตัวของ Cloudflare',
   'terms_accept': 'เข้าใจและยอมรับเงื่อนไขเหล่านี้',
   'identity_title': 'ตั้งค่าบัญชี WARP ส่วนตัว',
   'register_new': 'สร้างบัญชี WARP ฟรี',
@@ -523,7 +523,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'การคืนค่า DNS ไม่ครบ',
   'diag_fail_SYSTEM_PROXY_STALE': 'ยังไม่ได้ล้างสถานะพร็อกซีระบบของ Usque',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'กำลังรอการกู้คืนสถานะเครือข่ายของแพลตฟอร์ม',
+      'ยังไม่ได้คืนค่าการตั้งค่าเครือข่ายของระบบ',
   'diag_fail_PACKET_SEND_FAILED': 'การส่งแพ็กเก็ตล้มเหลว',
   'diag_fail_PACKET_SEND_TIMEOUT': 'การส่งแพ็กเก็ตหมดเวลา',
   'diag_fail_PACKET_RECEIVE_FAILED': 'การรับแพ็กเก็ตล้มเหลว',
@@ -551,13 +551,13 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'ในการวินิจฉัย เลือก “เชิงลึก” แล้วเริ่มตรวจสอบ อาจมีการส่งข้อมูลทดสอบ และอาจข้ามบางรายการขณะเชื่อมต่ออยู่',
   'diag_fix_run_release_leak_gate':
-      'ส่งออกชุดวินิจฉัยที่ลบข้อมูลละเอียดอ่อนแล้วสำหรับฝ่ายสนับสนุน',
+      'ส่งออกชุดวินิจฉัยแล้วส่งให้ฝ่ายสนับสนุน ระบบจะลบข้อมูลละเอียดอ่อนออก',
   'diag_fix_inspect_platform_state':
       'ดูรายการที่ตรวจไม่ผ่านในการวินิจฉัย → การป้องกันระบบ หากยังมีปัญหา ให้ส่งออกบันทึก',
   'diag_fix_generate_tunnel_traffic':
       'เปิดหน้าเว็บผ่านการเชื่อมต่อ Usque แล้วตรวจสอบอีกครั้ง',
   'diag_fix_export_diagnostics':
-      'ส่งออกชุดวินิจฉัยที่ลบข้อมูลละเอียดอ่อนแล้วสำหรับฝ่ายสนับสนุน',
+      'ส่งออกชุดวินิจฉัยแล้วส่งให้ฝ่ายสนับสนุน ระบบจะลบข้อมูลละเอียดอ่อนออก',
   'diag_fix_retry': 'ลองใหม่ในอีกสักครู่',
   'diag_fix_none': 'ไม่ต้องดำเนินการ',
   'diag_fix_default':
@@ -579,7 +579,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'เริ่มโพรบกู้คืน H3 แล้ว',
   'diag_event_recovery_probe_succeeded': 'โพรบกู้คืน H3 สำเร็จ',
   'diag_event_recovery_probe_failed': 'โพรบกู้คืน H3 ล้มเหลว',
-  'diag_event_path_promoted': 'เปิดใช้งานเส้นทางที่ได้รับเลือกแล้ว',
+  'diag_event_path_promoted': 'สลับไปใช้เส้นทางเครือข่ายใหม่แล้ว',
   'diag_event_queue_backpressured': 'คิวส่งค้าง',
   'diag_event_queue_saturated': 'คิวส่งถึงขีดความจุแล้ว',
   'diag_event_disconnected': 'ตัดการเชื่อมต่อแล้ว',

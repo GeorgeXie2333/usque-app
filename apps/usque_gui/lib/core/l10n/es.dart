@@ -123,7 +123,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'delete': 'Eliminar',
   'delete_profile': '¿Eliminar cuenta?',
   'delete_profile_body':
-      "¿Eliminar esta cuenta y sus datos de acceso a WARP guardados en este dispositivo? También se intentará desvincular la licencia cuando corresponda.",
+      "¿Eliminar esta cuenta y sus datos de inicio de sesión de WARP de este dispositivo? Si hay una License Key vinculada, Usque también intentará desvincularla.",
   'delete_zero_trust_profile_body':
       'Se borrarán la cuenta y sus datos de acceso de este dispositivo. Pide al administrador que elimine también el registro del dispositivo en el panel Zero Trust de la organización.',
   'license_not_applicable': 'Cuenta de organización · Experimental',
@@ -225,19 +225,19 @@ const Map<String, String> kEsCatalog = <String, String>{
   'update_downloading': 'Descargando la actualización…',
   'update_verifying': 'Verificando el paquete de actualización…',
   'update_ready': 'La actualización está lista para instalarse.',
-  'update_installing': 'La actualización se entregó al instalador del sistema.',
+  'update_installing': 'Se ha iniciado el instalador del sistema.',
   'update_restart_install': 'Reiniciar y actualizar',
   'update_install_android': 'Instalar actualización',
   'update_confirm_title': '¿Instalar esta actualización?',
   'update_confirm_body':
       'Las conexiones VPN y proxy se desconectarán temporalmente durante la instalación.',
   'update_package_unavailable':
-      'No hay un paquete verificado para este dispositivo. Abra la página de la versión para continuar.',
+      'No hay un instalador disponible para este dispositivo. Descárguelo desde la página de la versión.',
   'notice': 'Completado',
   'identity': 'Cuenta WARP',
   'identity_and_license': 'Cuenta y licencia',
   'license_cleanup_pending':
-      'Hay un registro antiguo de dispositivo WARP pendiente de eliminación.',
+      'El registro antiguo del dispositivo WARP aún no se ha eliminado.',
   'copy_license': 'Copiar License Key',
   'change_license': 'Cambiar License Key',
   'unbind_license': 'Volver a WARP gratuito',
@@ -280,9 +280,9 @@ const Map<String, String> kEsCatalog = <String, String>{
   'kill_switch_help_android':
       'Bloquea el tráfico durante la conexión o la reconexión, o si falla el servicio de conexión. Solo actúa mientras se ejecuta el servicio VPN. Para mantener la protección cuando Usque se detenga, active VPN siempre activada y Bloquear conexiones sin VPN en los ajustes del sistema.',
   'start_on_boot_android':
-      'Inicie Usque después de reiniciar. Active también la conexión automática al iniciar.',
+      'Inicie Usque cuando el dispositivo se reinicie. Para conectarse automáticamente, active también “Conectar la cuenta actual automáticamente al iniciar”.',
   'add_quick_settings_tile_help':
-      'Fije el acceso de Usque en Android 13 o posterior. En versiones anteriores, añádalo desde Ajustes rápidos.',
+      'Añada el acceso de Usque en Android 13 o posterior. En versiones anteriores, añádalo manualmente desde Ajustes rápidos.',
   'always_on_vpn': 'Abrir ajustes de VPN siempre activada',
   'always_on_vpn_help':
       'Active VPN siempre activada y Bloquear conexiones sin VPN para protegerse de fugas tras la detención forzada de la aplicación.',
@@ -295,7 +295,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Si VPN siempre activada y Bloquear conexiones sin VPN están activados, las aplicaciones que no seleccione se bloquean; no se envían fuera del túnel.',
   'per_app_proxy_tunnel_hint':
-      'Esto se aplica la próxima vez que la salida VPN esté activada. El modo solo SOCKS5/HTTP no filtra aplicaciones.',
+      'Se aplica cuando la VPN está activada. Los proxies SOCKS5 y HTTP no filtran por aplicación.',
   'per_app_search': 'Buscar aplicaciones',
   'per_app_show_system': 'Mostrar aplicaciones del sistema',
   'per_app_select_visible': 'Seleccionar visibles',
@@ -347,7 +347,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Usque necesita permiso para enviar el tráfico de las aplicaciones por la VPN. Según el modo, también configura DNS, rutas de red, protección del cortafuegos o el proxy del sistema.',
   'terms_title': 'Términos de Cloudflare',
   'terms_body':
-      'Usque es un cliente independiente. El uso de Consumer WARP o del registro experimental de Zero Trust sigue sujeto a los términos aplicables y a la política de privacidad de Cloudflare.',
+      'Usque es un cliente independiente. El uso de WARP personal o del registro experimental de Zero Trust sigue sujeto a los términos y la política de privacidad de Cloudflare.',
   'terms_accept': 'Entiendo y acepto estas condiciones.',
   'identity_title': 'Configurar una cuenta WARP personal',
   'register_new': 'Crear cuenta WARP gratuita',
@@ -547,7 +547,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_fail_SYSTEM_PROXY_STALE':
       'El estado del proxy del sistema de Usque no se limpió',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Esperando a que se restaure el estado de red de la plataforma',
+      'Ajustes de red del sistema aún sin restaurar',
   'diag_fail_PACKET_SEND_FAILED': 'Falló el envío de paquetes',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Tiempo de espera al enviar paquetes',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Falló la recepción de paquetes',
@@ -577,13 +577,13 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'En Diagnóstico, elige Profundo e inicia las comprobaciones. Pueden enviar tráfico de prueba; algunas se omiten mientras estás conectado.',
   'diag_fix_run_release_leak_gate':
-      'Exporte un paquete de diagnóstico sin datos sensibles para soporte.',
+      'Exporte un paquete de diagnóstico y envíelo al soporte. La información sensible se elimina.',
   'diag_fix_inspect_platform_state':
       'En Diagnóstico, revisa los fallos de Protección del sistema. Si persisten, exporta un paquete de diagnóstico para solicitar ayuda.',
   'diag_fix_generate_tunnel_traffic':
       'Abre una página web a través de Usque y repite la comprobación.',
   'diag_fix_export_diagnostics':
-      'Exporte un paquete de diagnóstico sin datos sensibles para soporte.',
+      'Exporte un paquete de diagnóstico y envíelo al soporte. La información sensible se elimina.',
   'diag_fix_retry': 'Vuelva a intentarlo en breve.',
   'diag_fix_none': 'No se requiere ninguna acción.',
   'diag_fix_default':
@@ -606,7 +606,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_event_recovery_probe_succeeded':
       'Sonda de recuperación H3 completada correctamente',
   'diag_event_recovery_probe_failed': 'Sonda de recuperación H3 fallida',
-  'diag_event_path_promoted': 'Ruta candidata activada',
+  'diag_event_path_promoted': 'Cambiado a una nueva ruta de red',
   'diag_event_queue_backpressured': 'Cola de envío saturada',
   'diag_event_queue_saturated': 'La cola de envío alcanzó su capacidad',
   'diag_event_disconnected': 'Desconectado',

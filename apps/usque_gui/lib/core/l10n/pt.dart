@@ -122,7 +122,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'delete': 'Excluir',
   'delete_profile': 'Remover conta?',
   'delete_profile_body':
-      "Remover esta conta e os dados de acesso ao WARP salvos neste dispositivo? Também será tentada a desvinculação da licença, quando aplicável.",
+      "Remover esta conta e os dados de login do WARP deste dispositivo? Se houver uma License Key vinculada, o Usque também tentará desvinculá-la.",
   'delete_zero_trust_profile_body':
       'Apaga a conta e seus dados de login deste dispositivo. Peça ao administrador que também remova o registro do dispositivo no painel Zero Trust da organização.',
   'license_not_applicable': 'Conta da organização · Experimental',
@@ -223,19 +223,19 @@ const Map<String, String> kPtCatalog = <String, String>{
   'update_downloading': 'Baixando a atualização…',
   'update_verifying': 'Verificando o pacote de atualização…',
   'update_ready': 'A atualização está pronta para instalar.',
-  'update_installing': 'A atualização foi entregue ao instalador do sistema.',
+  'update_installing': 'O instalador do sistema foi iniciado.',
   'update_restart_install': 'Reiniciar e atualizar',
   'update_install_android': 'Instalar atualização',
   'update_confirm_title': 'Instalar esta atualização?',
   'update_confirm_body':
       'As conexões VPN e proxy serão desconectadas temporariamente durante a instalação.',
   'update_package_unavailable':
-      'Não há pacote verificado para este dispositivo. Abra a página da versão.',
+      'Não há instalador disponível para este dispositivo. Baixe-o na página da versão.',
   'notice': 'Concluído',
   'identity': 'Conta WARP',
   'identity_and_license': 'Conta e licença',
   'license_cleanup_pending':
-      'Um registro antigo de dispositivo WARP aguarda remoção.',
+      'O registro antigo do dispositivo WARP ainda não foi removido.',
   'copy_license': 'Copiar License Key',
   'change_license': 'Alterar License Key',
   'unbind_license': 'Voltar ao WARP Free',
@@ -278,9 +278,9 @@ const Map<String, String> kPtCatalog = <String, String>{
   'kill_switch_help_android':
       'Bloqueia o tráfego durante a conexão ou reconexão, ou se o serviço de conexão falhar. Funciona apenas enquanto o serviço VPN está ativo. Para continuar protegido depois que o Usque parar, ative VPN sempre ativada e Bloquear conexões sem VPN nas configurações do sistema.',
   'start_on_boot_android':
-      'Inicie o Usque após a reinicialização. Ative também a conexão automática ao iniciar.',
+      'Inicie o Usque quando o dispositivo reiniciar. Para conectar automaticamente, ative também “Conectar a conta atual automaticamente ao iniciar”.',
   'add_quick_settings_tile_help':
-      'Fixe o bloco do Usque no Android 13 ou posterior. Nas versões anteriores, adicione-o em Configurações rápidas.',
+      'Adicione o bloco do Usque no Android 13 ou posterior. Em versões anteriores, adicione-o manualmente nas Configurações rápidas.',
   'always_on_vpn': 'Abrir configurações de VPN sempre ativada',
   'always_on_vpn_help':
       'Ative VPN sempre ativada e Bloquear conexões sem VPN para proteção contra vazamentos depois que o aplicativo for encerrado.',
@@ -293,7 +293,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Se VPN sempre ativada e Bloquear conexões sem VPN estiverem ativados, os aplicativos que você não selecionar serão bloqueados, não enviados para fora do túnel.',
   'per_app_proxy_tunnel_hint':
-      'Isso se aplica na próxima vez que a saída VPN estiver ativada. O modo somente SOCKS5/HTTP não filtra aplicativos.',
+      'Entra em vigor quando a VPN está ativada. Os proxies SOCKS5 e HTTP não filtram por aplicativo.',
   'per_app_search': 'Pesquisar aplicativos',
   'per_app_show_system': 'Mostrar aplicativos do sistema',
   'per_app_select_visible': 'Selecionar visíveis',
@@ -345,7 +345,7 @@ const Map<String, String> kPtCatalog = <String, String>{
       'O Usque precisa de permissão para encaminhar o tráfego dos aplicativos pela VPN. Conforme o modo de conexão, também configura DNS, rotas de rede, proteção do firewall ou proxy do sistema.',
   'terms_title': 'Termos da Cloudflare',
   'terms_body':
-      'O Usque é um cliente independente. Seu uso do Consumer WARP ou do registro experimental do Zero Trust permanece sujeito aos termos e à política de privacidade aplicáveis da Cloudflare.',
+      'O Usque é um cliente independente. O uso do WARP pessoal ou do registro experimental do Zero Trust continua sujeito aos termos e à política de privacidade da Cloudflare.',
   'terms_accept': 'Eu entendo e aceito estas condições.',
   'identity_title': 'Configurar conta WARP pessoal',
   'register_new': 'Criar conta WARP gratuita',
@@ -540,7 +540,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_fail_SYSTEM_PROXY_STALE':
       'O estado do proxy do sistema do Usque não foi limpo',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Aguardando a restauração do estado de rede da plataforma',
+      'Configurações de rede do sistema ainda não restauradas',
   'diag_fail_PACKET_SEND_FAILED': 'Falha no envio de pacote',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Tempo esgotado no envio de pacote',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Falha no recebimento de pacote',
@@ -569,13 +569,13 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Em Diagnósticos, escolha Aprofundado e inicie as verificações. Elas podem enviar tráfego de teste; algumas são ignoradas durante a conexão.',
   'diag_fix_run_release_leak_gate':
-      'Exporte um pacote de diagnóstico sem dados sensíveis para o suporte.',
+      'Exporte um pacote de diagnóstico e envie ao suporte. As informações sensíveis são removidas.',
   'diag_fix_inspect_platform_state':
       'Em Diagnósticos, veja as falhas de Proteção do sistema. Se persistirem, exporte um pacote de diagnóstico para pedir ajuda.',
   'diag_fix_generate_tunnel_traffic':
       'Abra uma página pela conexão do Usque e repita a verificação.',
   'diag_fix_export_diagnostics':
-      'Exporte um pacote de diagnóstico sem dados sensíveis para o suporte.',
+      'Exporte um pacote de diagnóstico e envie ao suporte. As informações sensíveis são removidas.',
   'diag_fix_retry': 'Tente novamente em breve.',
   'diag_fix_none': 'Nenhuma ação é necessária.',
   'diag_fix_default':
@@ -597,7 +597,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'Sonda de recuperação H3 iniciada',
   'diag_event_recovery_probe_succeeded': 'Sonda de recuperação H3 bem-sucedida',
   'diag_event_recovery_probe_failed': 'Sonda de recuperação H3 falhou',
-  'diag_event_path_promoted': 'Caminho candidato ativado',
+  'diag_event_path_promoted': 'Mudou para um novo caminho de rede',
   'diag_event_queue_backpressured': 'Fila de envio congestionada',
   'diag_event_queue_saturated': 'A fila de envio atingiu a capacidade',
   'diag_event_disconnected': 'Desconectado',

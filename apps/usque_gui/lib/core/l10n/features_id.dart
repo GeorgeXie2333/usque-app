@@ -289,7 +289,7 @@ const String kWindowsAdapterCleanupId =
 const Map<String, String> kL4Id = <String, String>{
   'l4_quic_not_ready': 'Menyiapkan koneksi L4',
   'l4_unsupported_packets': 'Paket tidak didukung atau rusak ditolak',
-  'l4_budget_rejections': 'Penerimaan sumber daya ditolak',
+  'l4_budget_rejections': 'Koneksi ditolak karena kekurangan sumber daya',
   'l4_not_applicable': 'Tidak berlaku (L4)',
   'l4_mode': 'L4 (eksperimental)',
   'l4_transport_hint':
@@ -301,7 +301,7 @@ const Map<String, String> kL4Id = <String, String>{
   'l4_sni_identity':
       'Diatur otomatis oleh akun. Nama server mode koneksi lain tetap disimpan.',
   'l4_edge_requires_l4':
-      'DNS yang diselesaikan di tepi memerlukan L4. Pilih mode DNS proksi lain sebelum beralih ke Auto, H3, atau H2.',
+      'DNS yang diselesaikan di tepi hanya berfungsi dengan L4. Pilih mode DNS proksi lain sebelum beralih ke Otomatis, HTTP/3, atau HTTP/2.',
   'proxy_dns_edge_resolved':
       'Tepi Cloudflare (hanya L4; tanpa pencarian lokal)',
   'l4_verified': 'L4 telah berhasil membuat koneksi aplikasi',
@@ -310,14 +310,14 @@ const Map<String, String> kL4Id = <String, String>{
   'l4_sessions': 'Sesi / pengosongan',
   'l4_flows': 'Aliran aktif / menunggu',
   'l4_connect': 'CONNECT berhasil / gagal / habis waktu',
-  'l4_buffers': 'Anggaran penyangga aplikasi yang terpakai (byte)',
+  'l4_buffers': 'Penggunaan penyangga (byte)',
   'l4_backpressure': 'Tekanan balik kirim / terima',
   'l4_tun_flows': 'TUN TCP / setengah terbuka',
   'l4_udp': 'Paket UDP yang ditolak',
   'l4_dns': 'Konversi DNS berhasil / gagal / habis waktu',
   'l4_migration': 'Aliran dipertahankan migrasi / diakhiri pembangunan ulang',
   'l4_na':
-      'Kontrol alamat CONNECT-IP, antrean DATAGRAM, MTU muatan dalam, dan batas waktu UDP: tidak berlaku di L4.',
+      'Metrik penetapan alamat, antrean datagram, MTU, dan batas waktu UDP tidak berlaku di mode L4.',
 };
 
 const Map<String, String> kNetworkSettingsId = <String, String>{

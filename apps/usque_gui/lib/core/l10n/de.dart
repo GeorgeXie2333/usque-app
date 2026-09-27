@@ -123,7 +123,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'delete': 'Löschen',
   'delete_profile': 'Konto entfernen?',
   'delete_profile_body':
-      "Dieses Konto und seine gespeicherten WARP-Anmeldedaten von diesem Gerät entfernen? Gegebenenfalls wird auch versucht, die Lizenzverknüpfung aufzuheben.",
+      "Dieses Konto und seine WARP-Anmeldedaten von diesem Gerät entfernen? Ist ein License Key verknüpft, versucht Usque auch, die Verknüpfung aufzuheben.",
   'delete_zero_trust_profile_body':
       'Löscht das Konto und seine Anmeldedaten von diesem Gerät. Bitte die Administration, auch den Geräteeintrag im Zero-Trust-Dashboard der Organisation zu entfernen.',
   'license_not_applicable': 'Organisationskonto · Experimentell',
@@ -224,20 +224,19 @@ const Map<String, String> kDeCatalog = <String, String>{
   'update_downloading': 'Update wird heruntergeladen…',
   'update_verifying': 'Update-Paket wird geprüft…',
   'update_ready': 'Das Update ist installationsbereit.',
-  'update_installing':
-      'Das Update wurde an das Systeminstallationsprogramm übergeben.',
+  'update_installing': 'Das Systeminstallationsprogramm wurde gestartet.',
   'update_restart_install': 'Neu starten und aktualisieren',
   'update_install_android': 'Update installieren',
   'update_confirm_title': 'Dieses Update installieren?',
   'update_confirm_body':
       'VPN- und Proxyverbindungen werden während der Installation vorübergehend getrennt.',
   'update_package_unavailable':
-      'Für dieses Gerät ist kein verifiziertes Paket verfügbar. Öffnen Sie die Release-Seite.',
+      'Für dieses Gerät ist kein Installationspaket verfügbar. Laden Sie es von der Release-Seite herunter.',
   'notice': 'Abgeschlossen',
   'identity': 'WARP-Konto',
   'identity_and_license': 'Konto und Lizenz',
   'license_cleanup_pending':
-      'Eine alte WARP-Geräteregistrierung wartet auf die Entfernung.',
+      'Die alte WARP-Geräteregistrierung wurde noch nicht entfernt.',
   'copy_license': 'License Key kopieren',
   'change_license': 'License Key ändern',
   'unbind_license': 'Zu WARP Free zurückkehren',
@@ -280,9 +279,9 @@ const Map<String, String> kDeCatalog = <String, String>{
   'kill_switch_help_android':
       'Blockiert Datenverkehr beim Verbinden und Wiederverbinden sowie bei einem Ausfall des Verbindungsdienstes. Dies funktioniert nur, solange der VPN-Dienst läuft. Um auch nach dem Beenden von Usque geschützt zu bleiben, aktivieren Sie in den Systemeinstellungen Immer aktives VPN und Verbindungen ohne VPN blockieren.',
   'start_on_boot_android':
-      'Usque nach dem Neustart starten. Aktivieren Sie außerdem das automatische Verbinden beim Start.',
+      'Usque nach einem Neustart des Geräts starten. Für automatisches Verbinden aktivieren Sie außerdem „Aktuelles Konto beim Start automatisch verbinden“.',
   'add_quick_settings_tile_help':
-      'Heften Sie die Usque-Kachel unter Android 13 oder neuer an. Bei älteren Versionen fügen Sie sie über die Schnelleinstellungen hinzu.',
+      'Fügen Sie die Usque-Kachel unter Android 13 oder neuer hinzu. Bei älteren Versionen fügen Sie sie manuell über die Schnelleinstellungen hinzu.',
   'always_on_vpn': 'Einstellungen für Immer aktives VPN öffnen',
   'always_on_vpn_help':
       'Aktivieren Sie Immer aktives VPN und Verbindungen ohne VPN blockieren für Schutz vor Datenlecks, nachdem die App beendet wurde.',
@@ -295,7 +294,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Wenn Immer aktives VPN und Verbindungen ohne VPN blockieren aktiviert sind, werden nicht ausgewählte Apps blockiert und nicht am Tunnel vorbeigeführt.',
   'per_app_proxy_tunnel_hint':
-      'Dies gilt beim nächsten Aktivieren der VPN-Ausgabe. Der reine SOCKS5/HTTP-Modus filtert keine Apps.',
+      'Wirkt bei eingeschaltetem VPN. SOCKS5- und HTTP-Proxys filtern nicht nach App.',
   'per_app_search': 'Apps durchsuchen',
   'per_app_show_system': 'System-Apps anzeigen',
   'per_app_select_visible': 'Sichtbare auswählen',
@@ -348,7 +347,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Usque benötigt die Erlaubnis, App-Datenverkehr durch das VPN zu leiten. Je nach Modus werden auch DNS, Netzwerkrouten, Firewall-Schutz oder Systemproxy eingerichtet.',
   'terms_title': 'Cloudflare-Bedingungen',
   'terms_body':
-      'Usque ist ein unabhängiger Client. Ihre Nutzung von Consumer WARP oder der experimentellen Zero-Trust-Registrierung unterliegt weiterhin den geltenden Bedingungen und der Datenschutzrichtlinie von Cloudflare.',
+      'Usque ist ein unabhängiger Client. Für die Nutzung von persönlichem WARP oder der experimentellen Zero-Trust-Registrierung gelten weiterhin die Bedingungen und die Datenschutzrichtlinie von Cloudflare.',
   'terms_accept': 'Ich verstehe und akzeptiere diese Bedingungen.',
   'identity_title': 'Persönliches WARP-Konto einrichten',
   'register_new': 'Kostenloses WARP-Konto erstellen',
@@ -544,7 +543,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'DNS-Wiederherstellung unvollständig',
   'diag_fail_SYSTEM_PROXY_STALE': 'Usque-Systemproxy-Zustand nicht bereinigt',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Warten auf die Wiederherstellung des Plattform-Netzwerkzustands',
+      'Netzwerkeinstellungen des Systems noch nicht wiederhergestellt',
   'diag_fail_PACKET_SEND_FAILED': 'Paketsendung fehlgeschlagen',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Zeitüberschreitung beim Senden von Paketen',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Paketempfang fehlgeschlagen',
@@ -573,13 +572,13 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Wähle unter Diagnose die Option Tiefgehend und starte die Prüfungen. Sie können Testverkehr senden; bei aktiver Verbindung werden einige übersprungen.',
   'diag_fix_run_release_leak_gate':
-      'Ein Diagnosepaket mit entfernten sensiblen Daten für den Support exportieren.',
+      'Exportieren Sie ein Diagnosepaket und senden Sie es an den Support. Sensible Daten werden entfernt.',
   'diag_fix_inspect_platform_state':
       'Prüfe unter Diagnose die Fehler im Systemschutz. Bleiben sie bestehen, exportiere ein Diagnosepaket für den Support.',
   'diag_fix_generate_tunnel_traffic':
       'Öffne über Usque eine Webseite und wiederhole die Prüfung.',
   'diag_fix_export_diagnostics':
-      'Ein Diagnosepaket mit entfernten sensiblen Daten für den Support exportieren.',
+      'Exportieren Sie ein Diagnosepaket und senden Sie es an den Support. Sensible Daten werden entfernt.',
   'diag_fix_retry': 'In Kürze erneut versuchen.',
   'diag_fix_none': 'Keine Aktion erforderlich.',
   'diag_fix_default':
@@ -603,7 +602,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'H3-Wiederherstellungssonde erfolgreich',
   'diag_event_recovery_probe_failed':
       'H3-Wiederherstellungssonde fehlgeschlagen',
-  'diag_event_path_promoted': 'Kandidatenpfad aktiviert',
+  'diag_event_path_promoted': 'Zu neuem Netzwerkpfad gewechselt',
   'diag_event_queue_backpressured': 'Rückstau in der Sendewarteschlange',
   'diag_event_queue_saturated':
       'Sendewarteschlange hat ihre Kapazität erreicht',

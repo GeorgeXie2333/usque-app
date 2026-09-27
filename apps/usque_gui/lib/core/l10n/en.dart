@@ -118,7 +118,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'delete': 'Delete',
   'delete_profile': 'Remove account?',
   'delete_profile_body':
-      "Remove this account and its saved WARP sign-in data from this device? Any applicable license unlink will also be attempted.",
+      "Remove this account and its WARP sign-in information from this device? If a License Key is bound, Usque also tries to unbind it.",
   'delete_zero_trust_profile_body':
       'This removes the account and its login information from this device. Ask your administrator to also remove this device from the organization’s Zero Trust dashboard.',
   'license_not_applicable': 'Organization account · Experimental',
@@ -217,19 +217,19 @@ const Map<String, String> kEnCatalog = <String, String>{
   'update_downloading': 'Downloading the update…',
   'update_verifying': 'Verifying the update package…',
   'update_ready': 'The update is ready to install.',
-  'update_installing': 'The update was handed to the system installer.',
+  'update_installing': 'The system installer has started.',
   'update_restart_install': 'Restart and update',
   'update_install_android': 'Install update',
   'update_confirm_title': 'Install this update?',
   'update_confirm_body':
       'VPN and proxy connections will disconnect temporarily while the update is installed.',
   'update_package_unavailable':
-      'No verified package is available for this device. Open the release page to continue.',
+      'No installer is available for this device. Download it from the release page.',
   'notice': 'Completed',
   'identity': 'WARP account',
   'identity_and_license': 'Account and license',
   'license_cleanup_pending':
-      'An old WARP device registration is awaiting removal.',
+      'The old WARP device registration has not been removed yet.',
   'copy_license': 'Copy License Key',
   'change_license': 'Change License Key',
   'unbind_license': 'Return to free WARP',
@@ -272,9 +272,9 @@ const Map<String, String> kEnCatalog = <String, String>{
   'kill_switch_help_android':
       'Block traffic while connecting or reconnecting, or if the connection service fails. This works only while the VPN service runs. To stay protected after Usque stops, turn on Always-on VPN and Block connections without VPN in system settings.',
   'start_on_boot_android':
-      'Start Usque after reboot. Also enable automatic connect on start.',
+      'Start Usque after the device restarts. To connect automatically, also turn on “Connect the current account automatically on start”.',
   'add_quick_settings_tile_help':
-      'Pin the Usque tile on Android 13 or later. On older versions add it from Quick Settings.',
+      'Add the Usque tile on Android 13 or later. On older versions, add it manually from Quick Settings.',
   'always_on_vpn': 'Open Always-on VPN settings',
   'always_on_vpn_help':
       'Enable Always-on VPN and Block connections without VPN for leak protection after the app is killed.',
@@ -287,7 +287,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'If Always-on VPN and Block connections without VPN are on, apps you do not select are blocked, not sent outside the tunnel.',
   'per_app_proxy_tunnel_hint':
-      'This applies the next time VPN output is on. SOCKS5/HTTP-only mode does not filter apps.',
+      'Takes effect when VPN is on. SOCKS5 and HTTP proxies do not filter by app.',
   'per_app_search': 'Search apps',
   'per_app_show_system': 'Show system apps',
   'per_app_select_visible': 'Select visible',
@@ -339,7 +339,7 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Usque needs permission to route app traffic through the VPN. Depending on the connection mode, it also sets DNS, network routes, firewall protection or the system proxy.',
   'terms_title': 'Cloudflare terms',
   'terms_body':
-      'Usque is an independent client. Your use of Consumer WARP or experimental Zero Trust enrollment remains subject to Cloudflare’s applicable terms and privacy policy.',
+      'Usque is an independent client. Using personal WARP or experimental Zero Trust enrollment is still subject to Cloudflare’s terms and privacy policy.',
   'terms_accept': 'I understand and accept these conditions.',
   'identity_title': 'Set up a personal WARP account',
   'register_new': 'Create a free WARP account',
@@ -530,7 +530,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'DNS restore incomplete',
   'diag_fail_SYSTEM_PROXY_STALE': 'Usque system-proxy state was not cleaned up',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Waiting to restore platform network state',
+      'System network settings not yet restored',
   'diag_fail_PACKET_SEND_FAILED': 'Packet send failed',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Packet send timeout',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Packet receive failed',
@@ -558,13 +558,13 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'In Diagnostics, select Deep and start the checks. They may send test traffic; some checks are skipped while connected.',
   'diag_fix_run_release_leak_gate':
-      'Export a diagnostic bundle with sensitive information removed for support.',
+      'Export a diagnostic bundle and send it to support. Sensitive information is removed.',
   'diag_fix_inspect_platform_state':
       'Open Diagnostics and review the System protection checks. If they still fail, export a diagnostic package for support.',
   'diag_fix_generate_tunnel_traffic':
       'Open a web page through Usque, then run this check again.',
   'diag_fix_export_diagnostics':
-      'Export a diagnostic bundle with sensitive information removed for support.',
+      'Export a diagnostic bundle and send it to support. Sensitive information is removed.',
   'diag_fix_retry': 'Try again shortly.',
   'diag_fix_none': 'No action is required.',
   'diag_fix_default':
@@ -586,7 +586,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'H3 recovery probe started',
   'diag_event_recovery_probe_succeeded': 'H3 recovery probe succeeded',
   'diag_event_recovery_probe_failed': 'H3 recovery probe failed',
-  'diag_event_path_promoted': 'Candidate path activated',
+  'diag_event_path_promoted': 'Switched to new network path',
   'diag_event_queue_backpressured': 'Send queue backed up',
   'diag_event_queue_saturated': 'Send queue reached capacity',
   'diag_event_disconnected': 'Disconnected',

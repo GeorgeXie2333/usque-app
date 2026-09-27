@@ -280,7 +280,7 @@ const String kWindowsAdapterCleanupFa =
 const Map<String, String> kL4Fa = <String, String>{
   'l4_quic_not_ready': 'در حال آماده‌سازی اتصال L4',
   'l4_unsupported_packets': 'بسته‌های پشتیبانی‌نشده یا معیوب رد شدند',
-  'l4_budget_rejections': 'رد پذیرش منابع',
+  'l4_budget_rejections': 'اتصال‌های ردشده به دلیل کمبود منابع',
   'l4_not_applicable': 'اعمال نمی‌شود (L4)',
   'l4_mode': 'L4 (آزمایشی)',
   'l4_transport_hint':
@@ -292,7 +292,7 @@ const Map<String, String> kL4Fa = <String, String>{
   'l4_sni_identity':
       'نام سرور را حساب به‌طور خودکار تعیین می‌کند. نام سرور ذخیره‌شده برای حالت‌های دیگر اتصال حفظ می‌شود.',
   'l4_edge_requires_l4':
-      'DNS حل‌شده در لبه به L4 نیاز دارد. پیش از رفتن به Auto، H3 یا H2 حالت DNS پیشکار دیگری را انتخاب کنید.',
+      'DNS حل‌شده در لبه فقط با L4 کار می‌کند. پیش از رفتن به «خودکار»، HTTP/3 یا HTTP/2، حالت دیگری برای DNS پراکسی انتخاب کنید.',
   'proxy_dns_edge_resolved': 'لبه Cloudflare (فقط L4؛ بدون جستجوی محلی)',
   'l4_verified': 'یک اتصال برنامه از طریق L4 برقرار شد',
   'l4_unverified': 'به سرور متصل شد؛ اتصال برنامه هنوز تأیید نشده است',
@@ -300,14 +300,14 @@ const Map<String, String> kL4Fa = <String, String>{
   'l4_sessions': 'نشست‌ها / تخلیه',
   'l4_flows': 'جریان‌های فعال / در انتظار',
   'l4_connect': 'CONNECT موفقیت / شکست / مهلت',
-  'l4_buffers': 'بودجهٔ بافر برنامهٔ استفاده‌شده (بایت)',
+  'l4_buffers': 'مصرف بافر (بایت)',
   'l4_backpressure': 'فشار معکوس ارسال / دریافت',
   'l4_tun_flows': 'TUN TCP / نیمه‌باز',
   'l4_udp': 'بسته‌های UDP ردشده',
   'l4_dns': 'تبدیل DNS موفقیت / شکست / مهلت',
   'l4_migration': 'جریان‌های حفظ‌شده با مهاجرت / پایان‌یافته با بازسازی',
   'l4_na':
-      'کنترل نشانی CONNECT-IP، صف‌های DATAGRAM، MTU بار داخلی و مهلت UDP: در L4 اعمال نمی‌شود.',
+      'معیارهای تخصیص نشانی، صف دیتاگرام، MTU و مهلت UDP در حالت L4 کاربرد ندارند.',
 };
 
 const Map<String, String> kNetworkSettingsFa = <String, String>{

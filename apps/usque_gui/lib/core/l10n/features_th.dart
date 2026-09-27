@@ -274,7 +274,7 @@ const String kWindowsAdapterCleanupTh =
 const Map<String, String> kL4Th = <String, String>{
   'l4_quic_not_ready': 'กำลังเตรียมการเชื่อมต่อ L4',
   'l4_unsupported_packets': 'ปฏิเสธแพ็กเก็ตที่ไม่รองรับหรือผิดรูปแบบ',
-  'l4_budget_rejections': 'จำนวนครั้งที่ปฏิเสธการรับทรัพยากร',
+  'l4_budget_rejections': 'การเชื่อมต่อที่ถูกปฏิเสธเพราะทรัพยากรไม่พอ',
   'l4_not_applicable': 'ไม่ใช้ได้ (L4)',
   'l4_mode': 'L4 (ทดลอง)',
   'l4_transport_hint':
@@ -285,7 +285,7 @@ const Map<String, String> kL4Th = <String, String>{
   'l4_sni_identity':
       'บัญชีจะกำหนดชื่อเซิร์ฟเวอร์ให้อัตโนมัติ โดยเก็บชื่อเซิร์ฟเวอร์ที่บันทึกไว้สำหรับโหมดเชื่อมต่ออื่นไว้ตามเดิม',
   'l4_edge_requires_l4':
-      'DNS ที่แปลงที่ขอบต้องใช้ L4 เลือกโหมด DNS พร็อกซีอื่นก่อนสลับเป็น Auto, H3 หรือ H2',
+      'DNS ที่แปลงที่ขอบใช้ได้กับ L4 เท่านั้น เลือกโหมด DNS พร็อกซีอื่นก่อนสลับเป็น อัตโนมัติ, HTTP/3 หรือ HTTP/2',
   'proxy_dns_edge_resolved': 'ขอบ Cloudflare (เฉพาะ L4 ไม่ค้นหาในเครื่อง)',
   'l4_verified': 'เชื่อมต่อแอปผ่าน L4 สำเร็จแล้ว',
   'l4_unverified': 'เชื่อมต่อเซิร์ฟเวอร์แล้ว แต่ยังไม่ยืนยันการเชื่อมต่อของแอป',
@@ -293,14 +293,14 @@ const Map<String, String> kL4Th = <String, String>{
   'l4_sessions': 'เซสชัน / กำลังระบาย',
   'l4_flows': 'สตรีมที่ใช้งาน / ที่รอ',
   'l4_connect': 'CONNECT สำเร็จ / ล้มเหลว / หมดเวลา',
-  'l4_buffers': 'งบประมาณบัฟเฟอร์แอปที่ใช้ (ไบต์)',
+  'l4_buffers': 'การใช้บัฟเฟอร์ (ไบต์)',
   'l4_backpressure': 'แรงดันย้อนส่ง / รับ',
   'l4_tun_flows': 'TUN TCP / เปิดครึ่งหนึ่ง',
   'l4_udp': 'แพ็กเก็ต UDP ที่ปฏิเสธ',
   'l4_dns': 'การแปลง DNS สำเร็จ / ล้มเหลว / หมดเวลา',
   'l4_migration': 'สตรีมที่โยกย้ายเก็บไว้ / ที่สร้างใหม่แล้วจบ',
   'l4_na':
-      'การควบคุมที่อยู่ CONNECT-IP, คิว DATAGRAM, MTU ของส่วนข้อมูลชั้นใน และหมดเวลา UDP: ไม่ใช้ได้ใน L4',
+      'ตัวชี้วัดการกำหนดที่อยู่ คิวดาตาแกรม MTU และหมดเวลา UDP ไม่ใช้กับโหมด L4',
 };
 
 const Map<String, String> kNetworkSettingsTh = <String, String>{

@@ -120,7 +120,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'delete': 'حذف',
   'delete_profile': 'حساب حذف شود؟',
   'delete_profile_body':
-      "این حساب و اطلاعات ورود WARP ذخیره‌شده در این دستگاه حذف شود؟ در صورت لزوم، لغو اتصال مجوز نیز انجام خواهد شد.",
+      "این حساب و اطلاعات ورود WARP آن از این دستگاه حذف شود؟ اگر License Key پیوند داده شده باشد، Usque تلاش می‌کند پیوند آن را نیز لغو کند.",
   'delete_zero_trust_profile_body':
       'این حساب و اطلاعات ورود آن از این دستگاه حذف می‌شود. برای لغو ثبت دستگاه در Zero Trust سازمان، با مدیر سازمان تماس بگیرید.',
   'license_not_applicable': 'حساب سازمانی · آزمایشی',
@@ -221,18 +221,18 @@ const Map<String, String> kFaCatalog = <String, String>{
   'update_downloading': 'در حال دریافت به‌روزرسانی…',
   'update_verifying': 'در حال تأیید بستهٔ به‌روزرسانی…',
   'update_ready': 'به‌روزرسانی آمادهٔ نصب است.',
-  'update_installing': 'به‌روزرسانی به نصب‌کنندهٔ سیستم تحویل شد.',
+  'update_installing': 'نصب‌کنندهٔ سیستم اجرا شد.',
   'update_restart_install': 'راه‌اندازی دوباره و به‌روزرسانی',
   'update_install_android': 'نصب به‌روزرسانی',
   'update_confirm_title': 'این به‌روزرسانی نصب شود؟',
   'update_confirm_body':
       'هنگام نصب، اتصال‌های VPN و پراکسی موقتاً قطع می‌شوند.',
   'update_package_unavailable':
-      'بستهٔ تأییدشده‌ای برای این دستگاه نیست. صفحهٔ انتشار را باز کنید.',
+      'نصب‌کننده‌ای برای این دستگاه موجود نیست. آن را از صفحهٔ انتشار دریافت کنید.',
   'notice': 'انجام شد',
   'identity': 'حساب WARP',
   'identity_and_license': 'حساب و مجوز',
-  'license_cleanup_pending': 'یک ثبت قدیمی دستگاه WARP در انتظار حذف است.',
+  'license_cleanup_pending': 'ثبت قدیمی دستگاه WARP هنوز حذف نشده است.',
   'copy_license': 'کپی License Key',
   'change_license': 'تغییر License Key',
   'unbind_license': 'بازگشت به WARP رایگان',
@@ -275,9 +275,9 @@ const Map<String, String> kFaCatalog = <String, String>{
   'kill_switch_help_android':
       'هنگام اتصال یا اتصال دوباره، یا اگر سرویس اتصال از کار بیفتد، ترافیک را مسدود می‌کند. این فقط تا زمانی کار می‌کند که سرویس VPN در حال اجرا باشد. برای ادامهٔ محافظت پس از توقف Usque، «VPN همیشه روشن» و «مسدود کردن اتصال‌های بدون VPN» را در تنظیمات سیستم روشن کنید.',
   'start_on_boot_android':
-      'پس از راه‌اندازی مجدد، Usque را اجرا کنید. اتصال خودکار هنگام شروع را نیز فعال کنید.',
+      'Usque را پس از راه‌اندازی مجدد دستگاه اجرا می‌کند. برای اتصال خودکار، «اتصال خودکار حساب جاری هنگام شروع» را نیز روشن کنید.',
   'add_quick_settings_tile_help':
-      'کاشی Usque را در Android 13 یا جدیدتر سنجاق کنید. در نسخه‌های قدیمی‌تر آن را از تنظیمات سریع اضافه کنید.',
+      'کاشی Usque را در Android 13 یا جدیدتر اضافه کنید. در نسخه‌های قدیمی‌تر آن را دستی از تنظیمات سریع اضافه کنید.',
   'always_on_vpn': 'باز کردن تنظیمات VPN همیشه روشن',
   'always_on_vpn_help':
       'برای جلوگیری از نشت پس از بسته شدن برنامه، VPN همیشه روشن و مسدودسازی اتصالات بدون VPN را فعال کنید.',
@@ -290,7 +290,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'اگر VPN همیشه روشن و مسدودسازی اتصالات بدون VPN فعال باشد، برنامه‌هایی که انتخاب نکنید مسدود می‌شوند، نه اینکه بیرون از تونل ارسال شوند.',
   'per_app_proxy_tunnel_hint':
-      'این تنظیم دفعهٔ بعد که خروجی VPN روشن باشد اعمال می‌شود. حالت فقط SOCKS5/HTTP برنامه‌ها را فیلتر نمی‌کند.',
+      'با روشن بودن VPN اعمال می‌شود. پراکسی‌های SOCKS5 و HTTP بر اساس برنامه فیلتر نمی‌کنند.',
   'per_app_search': 'جستجوی برنامه‌ها',
   'per_app_show_system': 'نمایش برنامه‌های سیستم',
   'per_app_select_visible': 'انتخاب موارد نمایان',
@@ -342,7 +342,7 @@ const Map<String, String> kFaCatalog = <String, String>{
       'برای عبور ترافیک برنامه‌ها از VPN به اجازهٔ سیستم نیاز است. بسته به حالت انتخاب‌شده، ممکن است DNS، مسیرهای شبکه، دیوارهٔ آتش یا پروکسی سیستم نیز تغییر کند.',
   'terms_title': 'شرایط Cloudflare',
   'terms_body':
-      'Usque یک کلاینت مستقل است. استفادهٔ شما از Consumer WARP یا ثبت‌نام آزمایشی Zero Trust همچنان مشمول شرایط و سیاست حریم خصوصی قابل‌اجرای Cloudflare است.',
+      'Usque یک کلاینت مستقل است. استفاده از WARP شخصی یا ثبت‌نام آزمایشی Zero Trust همچنان تابع شرایط و سیاست حریم خصوصی Cloudflare است.',
   'terms_accept': 'این شرایط را می‌فهمم و می‌پذیرم.',
   'identity_title': 'راه‌اندازی حساب شخصی WARP',
   'register_new': 'ایجاد حساب رایگان WARP',
@@ -531,7 +531,8 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'بازیابی مسیر ناقص است',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'بازیابی DNS ناقص است',
   'diag_fail_SYSTEM_PROXY_STALE': 'وضعیت پروکسی سیستم Usque پاک‌سازی نشده است',
-  'diag_fail_PLATFORM_RECOVERY_PENDING': 'در انتظار بازیابی وضعیت شبکهٔ بستر',
+  'diag_fail_PLATFORM_RECOVERY_PENDING':
+      'تنظیمات شبکهٔ سیستم هنوز بازگردانده نشده است',
   'diag_fail_PACKET_SEND_FAILED': 'ارسال بسته ناموفق بود',
   'diag_fail_PACKET_SEND_TIMEOUT': 'مهلت ارسال بسته به پایان رسید',
   'diag_fail_PACKET_RECEIVE_FAILED': 'دریافت بسته ناموفق بود',
@@ -559,13 +560,13 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'در عیب‌یابی، «عمیق» را انتخاب و بررسی را شروع کنید. ممکن است ترافیک آزمایشی ارسال شود؛ هنگام اتصال، برخی بررسی‌ها ممکن است انجام نشوند.',
   'diag_fix_run_release_leak_gate':
-      'برای پشتیبانی بستهٔ عیب‌یابی را پس از حذف اطلاعات حساس صادر کنید.',
+      'بستهٔ عیب‌یابی را صادر کنید و برای پشتیبانی بفرستید. اطلاعات حساس حذف می‌شود.',
   'diag_fix_inspect_platform_state':
       'در عیب‌یابی، بخش حفاظت سامانه را باز کنید و بررسی‌های ناموفق را ببینید. اگر مشکل ادامه داشت، گزارش‌ها را خروجی بگیرید.',
   'diag_fix_generate_tunnel_traffic':
       'یک صفحهٔ وب را از طریق اتصال Usque باز کنید، سپس بررسی را دوباره اجرا کنید.',
   'diag_fix_export_diagnostics':
-      'برای پشتیبانی بستهٔ عیب‌یابی را پس از حذف اطلاعات حساس صادر کنید.',
+      'بستهٔ عیب‌یابی را صادر کنید و برای پشتیبانی بفرستید. اطلاعات حساس حذف می‌شود.',
   'diag_fix_retry': 'کمی بعد دوباره تلاش کنید.',
   'diag_fix_none': 'اقدامی لازم نیست.',
   'diag_fix_default':
@@ -587,7 +588,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'کاوش بازیابی H3 آغاز شد',
   'diag_event_recovery_probe_succeeded': 'کاوش بازیابی H3 موفق بود',
   'diag_event_recovery_probe_failed': 'کاوش بازیابی H3 ناموفق بود',
-  'diag_event_path_promoted': 'مسیر نامزد فعال شد',
+  'diag_event_path_promoted': 'به مسیر شبکهٔ جدید منتقل شد',
   'diag_event_queue_backpressured': 'انباشت در صف ارسال',
   'diag_event_queue_saturated': 'صف ارسال به ظرفیت کامل رسید',
   'diag_event_disconnected': 'قطع شد',

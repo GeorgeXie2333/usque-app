@@ -304,7 +304,7 @@ const String kWindowsAdapterCleanupPl =
 const Map<String, String> kL4Pl = <String, String>{
   'l4_quic_not_ready': 'Przygotowywanie połączenia L4',
   'l4_unsupported_packets': 'Odrzucono nieobsługiwane lub uszkodzone pakiety',
-  'l4_budget_rejections': 'Odrzucone przyjęcia zasobów',
+  'l4_budget_rejections': 'Połączenia odrzucone z braku zasobów',
   'l4_not_applicable': 'Nie dotyczy (L4)',
   'l4_mode': 'L4 (eksperymentalny)',
   'l4_transport_hint':
@@ -316,7 +316,7 @@ const Map<String, String> kL4Pl = <String, String>{
   'l4_sni_identity':
       'Ustawiane automatycznie przez konto. Nazwa serwera dla innych trybów połączenia pozostaje zachowana.',
   'l4_edge_requires_l4':
-      'DNS rozwiązywany na brzegu wymaga L4. Wybierz inny tryb DNS proxy przed przełączeniem na Auto, H3 lub H2.',
+      'DNS rozwiązywany na brzegu działa tylko z L4. Przed przełączeniem na „Auto”, HTTP/3 lub HTTP/2 wybierz inny tryb DNS proxy.',
   'proxy_dns_edge_resolved':
       'Brzeg Cloudflare (tylko L4; bez lokalnego wyszukiwania)',
   'l4_verified': 'L4 pomyślnie nawiązało połączenie aplikacji',
@@ -326,7 +326,7 @@ const Map<String, String> kL4Pl = <String, String>{
   'l4_sessions': 'Sesje / opróżnianie',
   'l4_flows': 'Aktywne / oczekujące strumienie',
   'l4_connect': 'CONNECT sukcesy / błędy / przekroczenia czasu',
-  'l4_buffers': 'Zużyty budżet bufora aplikacji (bajty)',
+  'l4_buffers': 'Użycie bufora (bajty)',
   'l4_backpressure': 'Przeciwciśnienie wysyłania / odbierania',
   'l4_tun_flows': 'TUN TCP / półotwarte',
   'l4_udp': 'Odrzucone pakiety UDP',
@@ -334,7 +334,7 @@ const Map<String, String> kL4Pl = <String, String>{
   'l4_migration':
       'Strumienie zachowane przez migrację / zakończone przez przebudowę',
   'l4_na':
-      'Sterowanie adresem CONNECT-IP, kolejki DATAGRAM, MTU ładunku wewnętrznego i limit czasu UDP: nie dotyczy w L4.',
+      'Metryki przydziału adresów, kolejki datagramów, MTU i limitu czasu UDP nie dotyczą trybu L4.',
 };
 
 const Map<String, String> kNetworkSettingsPl = <String, String>{

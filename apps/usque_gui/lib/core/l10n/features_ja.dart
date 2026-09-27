@@ -262,7 +262,7 @@ const String kWindowsAdapterCleanupJa =
 const Map<String, String> kL4Ja = <String, String>{
   'l4_quic_not_ready': 'L4 接続を準備しています',
   'l4_unsupported_packets': '未対応または不正なパケットを拒否しました',
-  'l4_budget_rejections': 'リソース受付の拒否回数',
+  'l4_budget_rejections': 'リソース不足で拒否した接続',
   'l4_not_applicable': '対象外（L4）',
   'l4_mode': 'L4（実験的）',
   'l4_transport_hint': 'TCP のみ対応。UDP が必要なアプリは動作しない場合があります。自動モードでは L4 を選びません。',
@@ -271,7 +271,7 @@ const Map<String, String> kL4Ja = <String, String>{
   'l4_unsupported': 'このバージョンの Usque では L4 を使えません。「設定」で更新を確認してください。',
   'l4_sni_identity': 'アカウントが自動設定します。変更は不要です。他の接続モードのサーバー名は保持されます。',
   'l4_edge_requires_l4':
-      'エッジ解決 DNS は L4 専用です。Auto、H3、H2 に切り替える前に、別のプロキシ DNS モードを選んでください。',
+      'エッジ解決 DNS は L4 専用です。「自動」、HTTP/3、HTTP/2 に切り替える前に、別のプロキシ DNS モードを選んでください。',
   'proxy_dns_edge_resolved': 'Cloudflare エッジ（L4 のみ、ローカル検索なし）',
   'l4_verified': 'L4 でアプリの接続に成功しました',
   'l4_unverified': 'サーバー接続済み。アプリが接続できるかは未確認です',
@@ -279,13 +279,13 @@ const Map<String, String> kL4Ja = <String, String>{
   'l4_sessions': 'セッション / 排出中',
   'l4_flows': '稼働中 / 待機中のストリーム',
   'l4_connect': 'CONNECT 成功 / 失敗 / タイムアウト',
-  'l4_buffers': 'アプリ緩衝予算の使用量（バイト）',
+  'l4_buffers': 'バッファ使用量（バイト）',
   'l4_backpressure': '送信 / 受信の背圧',
   'l4_tun_flows': 'TUN TCP / 半開',
   'l4_udp': '拒否した UDP パケット',
   'l4_dns': 'DNS 変換の成功 / 失敗 / タイムアウト',
   'l4_migration': '移行で保持したストリーム / 再構築で終了したストリーム',
-  'l4_na': 'CONNECT-IP アドレス制御、DATAGRAM キュー、内側ペイロード MTU、UDP タイムアウトは L4 では対象外です。',
+  'l4_na': 'L4 モードでは、アドレス割り当て、データグラムキュー、MTU、UDP タイムアウトの指標は対象外です。',
 };
 
 const Map<String, String> kNetworkSettingsJa = <String, String>{

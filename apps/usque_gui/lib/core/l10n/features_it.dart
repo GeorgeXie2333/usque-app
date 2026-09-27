@@ -310,7 +310,7 @@ const String kWindowsAdapterCleanupIt =
 const Map<String, String> kL4It = <String, String>{
   'l4_quic_not_ready': 'Preparazione della connessione L4',
   'l4_unsupported_packets': 'Pacchetti non supportati o non validi rifiutati',
-  'l4_budget_rejections': 'Ammissioni di risorse rifiutate',
+  'l4_budget_rejections': 'Connessioni rifiutate per risorse insufficienti',
   'l4_not_applicable': 'Non applicabile (L4)',
   'l4_mode': 'L4 (sperimentale)',
   'l4_transport_hint':
@@ -322,7 +322,7 @@ const Map<String, String> kL4It = <String, String>{
   'l4_sni_identity':
       'Impostato automaticamente dall’account. Il nome del server delle altre modalità resta invariato.',
   'l4_edge_requires_l4':
-      'Il DNS risolto all’edge richiede L4. Seleziona un altro modo DNS del proxy prima di passare ad Auto, H3 o H2.',
+      'Il DNS risolto all’edge funziona solo con L4. Seleziona un’altra modalità DNS del proxy prima di passare ad Auto, HTTP/3 o HTTP/2.',
   'proxy_dns_edge_resolved':
       'Edge Cloudflare (solo L4; nessuna ricerca locale)',
   'l4_verified': 'L4 ha stabilito una connessione di un’app',
@@ -332,7 +332,7 @@ const Map<String, String> kL4It = <String, String>{
   'l4_sessions': 'Sessioni / svuotamento',
   'l4_flows': 'Flussi attivi / in attesa',
   'l4_connect': 'CONNECT successi / errori / timeout',
-  'l4_buffers': 'Budget buffer applicazione usato (byte)',
+  'l4_buffers': 'Utilizzo buffer (byte)',
   'l4_backpressure': 'Contropressione invio / ricezione',
   'l4_tun_flows': 'TUN TCP / semiaperto',
   'l4_udp': 'Pacchetti UDP rifiutati',
@@ -340,7 +340,7 @@ const Map<String, String> kL4It = <String, String>{
   'l4_migration':
       'Flussi conservati dalla migrazione / terminati dalla ricostruzione',
   'l4_na':
-      'Controllo indirizzi CONNECT-IP, code DATAGRAM, MTU del payload interno e timeout UDP: non applicabile in L4.',
+      'Le metriche di assegnazione indirizzi, coda datagrammi, MTU e timeout UDP non si applicano in modalità L4.',
 };
 
 const Map<String, String> kNetworkSettingsIt = <String, String>{

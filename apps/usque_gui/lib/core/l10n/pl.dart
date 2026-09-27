@@ -120,7 +120,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'delete': 'Usuń',
   'delete_profile': 'Usunąć konto?',
   'delete_profile_body':
-      "Usunąć to konto i zapisane na tym urządzeniu dane logowania WARP? W razie potrzeby nastąpi również próba odłączenia licencji.",
+      "Usunąć to konto i jego dane logowania WARP z tego urządzenia? Jeśli powiązano License Key, Usque spróbuje go też odłączyć.",
   'delete_zero_trust_profile_body':
       'Usuwa konto i dane logowania z tego urządzenia. Poproś administratora o usunięcie również wpisu urządzenia z panelu Zero Trust organizacji.',
   'license_not_applicable': 'Konto organizacji · Eksperymentalne',
@@ -221,20 +221,19 @@ const Map<String, String> kPlCatalog = <String, String>{
   'update_downloading': 'Pobieranie aktualizacji…',
   'update_verifying': 'Weryfikowanie pakietu aktualizacji…',
   'update_ready': 'Aktualizacja jest gotowa do instalacji.',
-  'update_installing':
-      'Aktualizacja została przekazana instalatorowi systemowemu.',
+  'update_installing': 'Uruchomiono instalator systemowy.',
   'update_restart_install': 'Uruchom ponownie i zaktualizuj',
   'update_install_android': 'Zainstaluj aktualizację',
   'update_confirm_title': 'Zainstalować tę aktualizację?',
   'update_confirm_body':
       'Podczas instalacji połączenia VPN i proxy zostaną tymczasowo rozłączone.',
   'update_package_unavailable':
-      'Brak zweryfikowanego pakietu dla tego urządzenia. Otwórz stronę wydania.',
+      'Brak instalatora dla tego urządzenia. Pobierz go ze strony wydania.',
   'notice': 'Zakończono',
   'identity': 'Konto WARP',
   'identity_and_license': 'Konto i licencja',
   'license_cleanup_pending':
-      'Stara rejestracja urządzenia WARP oczekuje na usunięcie.',
+      'Stara rejestracja urządzenia WARP nie została jeszcze usunięta.',
   'copy_license': 'Kopiuj License Key',
   'change_license': 'Zmień License Key',
   'unbind_license': 'Wróć do WARP Free',
@@ -277,9 +276,9 @@ const Map<String, String> kPlCatalog = <String, String>{
   'kill_switch_help_android':
       'Blokuje ruch podczas łączenia i ponownego łączenia oraz w razie awarii usługi połączenia. Działa tylko przy uruchomionej usłudze VPN. Aby zachować ochronę po zatrzymaniu Usque, włącz w ustawieniach systemu „Zawsze włączony VPN” i „Blokuj połączenia bez VPN”.',
   'start_on_boot_android':
-      'Uruchamiaj Usque po restarcie. Włącz też automatyczne łączenie przy starcie.',
+      'Uruchamiaj Usque po ponownym uruchomieniu urządzenia. Aby łączyć się automatycznie, włącz też „Łącz automatycznie bieżące konto przy uruchomieniu”.',
   'add_quick_settings_tile_help':
-      'Przypnij kafelek Usque w systemie Android 13 lub nowszym. W starszych wersjach dodaj go z Szybkich ustawień.',
+      'Dodaj kafelek Usque w systemie Android 13 lub nowszym. W starszych wersjach dodaj go ręcznie w Szybkich ustawieniach.',
   'always_on_vpn': 'Otwórz ustawienia Zawsze włączony VPN',
   'always_on_vpn_help':
       'Włącz Zawsze włączony VPN i Blokuj połączenia bez VPN, aby chronić przed wyciekami po wymuszonym zamknięciu aplikacji.',
@@ -292,7 +291,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Jeśli włączone są Zawsze włączony VPN i Blokuj połączenia bez VPN, niewybrane aplikacje są blokowane, a nie wysyłane poza tunel.',
   'per_app_proxy_tunnel_hint':
-      'Zastosuje się przy następnym włączeniu wyjścia VPN. Tryb tylko SOCKS5/HTTP nie filtruje aplikacji.',
+      'Działa, gdy VPN jest włączony. Proxy SOCKS5 i HTTP nie filtrują ruchu według aplikacji.',
   'per_app_search': 'Szukaj aplikacji',
   'per_app_show_system': 'Pokaż aplikacje systemowe',
   'per_app_select_visible': 'Zaznacz widoczne',
@@ -345,7 +344,7 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Usque wymaga uprawnień do kierowania ruchu aplikacji przez VPN. Zależnie od trybu ustawia też DNS, trasy sieciowe, ochronę zapory lub proxy systemowe.',
   'terms_title': 'Warunki Cloudflare',
   'terms_body':
-      'Usque jest niezależnym klientem. Korzystanie z Consumer WARP lub eksperymentalnej rejestracji Zero Trust nadal podlega obowiązującym warunkom i polityce prywatności Cloudflare.',
+      'Usque jest niezależnym klientem. Korzystanie z osobistego WARP lub eksperymentalnej rejestracji Zero Trust nadal podlega warunkom i polityce prywatności Cloudflare.',
   'terms_accept': 'Rozumiem i akceptuję te warunki.',
   'identity_title': 'Skonfiguruj osobiste konto WARP',
   'register_new': 'Utwórz bezpłatne konto WARP',
@@ -540,7 +539,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_fail_SYSTEM_PROXY_STALE':
       'Nie wyczyszczono stanu systemowego proxy Usque',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Oczekiwanie na przywrócenie stanu sieci platformy',
+      'Systemowe ustawienia sieci nie zostały jeszcze przywrócone',
   'diag_fail_PACKET_SEND_FAILED': 'Wysyłanie pakietu nie powiodło się',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Limit czasu wysyłania pakietu',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Odbiór pakietu nie powiódł się',
@@ -570,13 +569,13 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'W Diagnostyce wybierz Głęboka i uruchom kontrole. Mogą wysyłać ruch testowy; niektóre są pomijane podczas połączenia.',
   'diag_fix_run_release_leak_gate':
-      'Wyeksportuj pakiet diagnostyczny z usuniętymi wrażliwymi danymi dla wsparcia.',
+      'Wyeksportuj pakiet diagnostyczny i wyślij go do pomocy technicznej. Wrażliwe dane są usuwane.',
   'diag_fix_inspect_platform_state':
       'W Diagnostyce sprawdź błędy w Ochronie systemu. Jeśli nie znikną, wyeksportuj pakiet diagnostyczny, aby uzyskać pomoc.',
   'diag_fix_generate_tunnel_traffic':
       'Otwórz stronę przez Usque i powtórz kontrolę.',
   'diag_fix_export_diagnostics':
-      'Wyeksportuj pakiet diagnostyczny z usuniętymi wrażliwymi danymi dla wsparcia.',
+      'Wyeksportuj pakiet diagnostyczny i wyślij go do pomocy technicznej. Wrażliwe dane są usuwane.',
   'diag_fix_retry': 'Spróbuj ponownie za chwilę.',
   'diag_fix_none': 'Nie jest wymagane żadne działanie.',
   'diag_fix_default':
@@ -598,7 +597,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'Rozpoczęto sondę odzyskiwania H3',
   'diag_event_recovery_probe_succeeded': 'Sonda odzyskiwania H3 powiodła się',
   'diag_event_recovery_probe_failed': 'Sonda odzyskiwania H3 nie powiodła się',
-  'diag_event_path_promoted': 'Ścieżka kandydująca została aktywowana',
+  'diag_event_path_promoted': 'Przełączono na nową ścieżkę sieciową',
   'diag_event_queue_backpressured': 'Zator w kolejce wysyłania',
   'diag_event_queue_saturated': 'Kolejka wysyłania osiągnęła limit pojemności',
   'diag_event_disconnected': 'Rozłączono',

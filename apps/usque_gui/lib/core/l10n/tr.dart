@@ -121,7 +121,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'delete': 'Sil',
   'delete_profile': 'Hesap kaldırılsın mı?',
   'delete_profile_body':
-      "Bu hesap ve cihazda kayıtlı WARP oturum açma bilgileri kaldırılsın mı? Geçerliyse lisans bağlantısının kaldırılması da denenecek.",
+      "Bu hesap ve WARP oturum açma bilgileri bu cihazdan kaldırılsın mı? License Key bağlıysa Usque bu bağlantıyı da kaldırmayı dener.",
   'delete_zero_trust_profile_body':
       'Bu hesap ve oturum açma bilgileri bu cihazdan silinir. Cihazın kuruluşun Zero Trust kaydını kaldırmak için yöneticinize başvurun.',
   'license_not_applicable': 'Kuruluş hesabı · Deneysel',
@@ -223,18 +223,18 @@ const Map<String, String> kTrCatalog = <String, String>{
   'update_downloading': 'Güncelleme indiriliyor…',
   'update_verifying': 'Güncelleme paketi doğrulanıyor…',
   'update_ready': 'Güncelleme yüklenmeye hazır.',
-  'update_installing': 'Güncelleme sistem yükleyicisine aktarıldı.',
+  'update_installing': 'Sistem yükleyicisi başlatıldı.',
   'update_restart_install': 'Yeniden başlat ve güncelle',
   'update_install_android': 'Güncellemeyi yükle',
   'update_confirm_title': 'Bu güncelleme yüklensin mi?',
   'update_confirm_body':
       'Yükleme sırasında VPN ve proxy bağlantıları geçici olarak kesilir.',
   'update_package_unavailable':
-      'Bu cihaz için doğrulanmış paket yok. Sürüm sayfasını açın.',
+      'Bu cihaz için yükleyici yok. Sürüm sayfasından indirin.',
   'notice': 'Tamamlandı',
   'identity': 'WARP hesabı',
   'identity_and_license': 'Hesap ve lisans',
-  'license_cleanup_pending': 'Eski WARP cihaz kaydı kaldırılmayı bekliyor.',
+  'license_cleanup_pending': 'Eski WARP cihaz kaydı henüz kaldırılmadı.',
   'copy_license': 'License Key’i kopyala',
   'change_license': 'License Key’i değiştir',
   'unbind_license': 'Ücretsiz WARP’a dön',
@@ -277,9 +277,9 @@ const Map<String, String> kTrCatalog = <String, String>{
   'kill_switch_help_android':
       'Bağlanırken, yeniden bağlanırken veya bağlantı hizmeti hata verdiğinde trafiği engeller. Yalnızca VPN hizmeti çalışırken etkindir. Usque durduktan sonra da korunmak için sistem ayarlarında “Her zaman açık VPN” ve “VPN olmadan bağlantıları engelle” seçeneklerini açın.',
   'start_on_boot_android':
-      'Yeniden başlatmanın ardından Usque’yi başlatın. Ayrıca başlangıçta otomatik bağlanmayı etkinleştirin.',
+      'Cihaz yeniden başladıktan sonra Usque’yi başlatır. Otomatik bağlanmak için “Başlangıçta geçerli hesaba otomatik bağlan” seçeneğini de açın.',
   'add_quick_settings_tile_help':
-      'Android 13 veya sonraki sürümlerde Usque kutucuğunu sabitleyin. Daha eski sürümlerde Hızlı Ayarlar’dan ekleyin.',
+      'Android 13 veya sonraki sürümlerde Usque kutucuğunu ekleyin. Daha eski sürümlerde Hızlı Ayarlar’dan elle ekleyin.',
   'always_on_vpn': 'Her zaman açık VPN ayarlarını aç',
   'always_on_vpn_help':
       'Uygulama sonlandırıldıktan sonra sızıntı koruması için Her zaman açık VPN ve VPN olmadan bağlantıları engelle seçeneklerini etkinleştirin.',
@@ -292,7 +292,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Her zaman açık VPN ve VPN olmadan bağlantıları engelle açıksa, seçmediğiniz uygulamalar tünelin dışına gönderilmez; engellenir.',
   'per_app_proxy_tunnel_hint':
-      'Bu, VPN çıkışı bir sonraki kez açık olduğunda uygulanır. Yalnızca SOCKS5/HTTP modu uygulamaları filtrelemez.',
+      'VPN açıkken geçerlidir. SOCKS5 ve HTTP proxy’leri uygulamaya göre filtreleme yapmaz.',
   'per_app_search': 'Uygulama ara',
   'per_app_show_system': 'Sistem uygulamalarını göster',
   'per_app_select_visible': 'Görünenleri seç',
@@ -344,7 +344,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Uygulama trafiğini VPN üzerinden yönlendirmek için sistem izni gerekir. Seçilen moda bağlı olarak DNS, ağ yolları, güvenlik duvarı veya sistem proxy ayarları da değiştirilebilir.',
   'terms_title': 'Cloudflare koşulları',
   'terms_body':
-      'Usque bağımsız bir istemcidir. Consumer WARP veya deneysel Zero Trust kaydı kullanımınız Cloudflare’ın geçerli koşullarına ve gizlilik politikasına tabidir.',
+      'Usque bağımsız bir istemcidir. Kişisel WARP veya deneysel Zero Trust kaydı kullanımı yine de Cloudflare’ın koşullarına ve gizlilik politikasına tabidir.',
   'terms_accept': 'Bu koşulları anlıyorum ve kabul ediyorum.',
   'identity_title': 'Kişisel WARP hesabını ayarla',
   'register_new': 'Ücretsiz WARP hesabı oluştur',
@@ -537,7 +537,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'DNS geri yükleme eksik',
   'diag_fail_SYSTEM_PROXY_STALE': 'Usque sistem proxy durumu temizlenmedi',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Platform ağ durumunun geri yüklenmesi bekleniyor',
+      'Sistem ağ ayarları henüz geri yüklenmedi',
   'diag_fail_PACKET_SEND_FAILED': 'Paket gönderme başarısız',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Paket gönderme zaman aşımı',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Paket alma başarısız',
@@ -565,13 +565,13 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Tanılama’da Derin seçeneğini seçip başlatın. Test trafiği gönderilebilir; bağlantı açıkken bazı denetimler atlanabilir.',
   'diag_fix_run_release_leak_gate':
-      'Hassas bilgileri kaldırılmış tanılama paketini destek için dışa aktarın.',
+      'Tanılama paketini dışa aktarıp desteğe gönderin. Hassas bilgiler kaldırılır.',
   'diag_fix_inspect_platform_state':
       'Tanılama → Sistem koruması bölümündeki başarısız denetimleri inceleyin. Sorun sürerse günlükleri dışa aktarın.',
   'diag_fix_generate_tunnel_traffic':
       'Usque bağlantısı üzerinden bir web sayfası açıp denetimi yeniden çalıştırın.',
   'diag_fix_export_diagnostics':
-      'Hassas bilgileri kaldırılmış tanılama paketini destek için dışa aktarın.',
+      'Tanılama paketini dışa aktarıp desteğe gönderin. Hassas bilgiler kaldırılır.',
   'diag_fix_retry': 'Kısa süre sonra yeniden deneyin.',
   'diag_fix_none': 'İşlem gerekmez.',
   'diag_fix_default':
@@ -593,7 +593,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'H3 kurtarma sondası başladı',
   'diag_event_recovery_probe_succeeded': 'H3 kurtarma sondası başarılı',
   'diag_event_recovery_probe_failed': 'H3 kurtarma sondası başarısız',
-  'diag_event_path_promoted': 'Aday yol etkinleştirildi',
+  'diag_event_path_promoted': 'Yeni ağ yoluna geçildi',
   'diag_event_queue_backpressured': 'Gönderim kuyruğunda birikme',
   'diag_event_queue_saturated': 'Gönderme kuyruğu kapasitesine ulaştı',
   'diag_event_disconnected': 'Bağlantı kesildi',

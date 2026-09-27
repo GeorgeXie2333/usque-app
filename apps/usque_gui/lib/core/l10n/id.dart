@@ -120,7 +120,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'delete': 'Hapus',
   'delete_profile': 'Hapus akun?',
   'delete_profile_body':
-      "Hapus akun ini dan data masuk WARP yang tersimpan di perangkat ini? Pelepasan lisensi juga akan dicoba jika berlaku.",
+      "Hapus akun ini dan informasi masuk WARP-nya dari perangkat ini? Jika License Key terikat, Usque juga mencoba melepaskannya.",
   'delete_zero_trust_profile_body':
       'Akun dan informasi masuk dihapus dari perangkat ini. Minta administrator menghapus juga catatan perangkat di dasbor Zero Trust organisasi.',
   'license_not_applicable': 'Akun organisasi · Eksperimental',
@@ -221,19 +221,18 @@ const Map<String, String> kIdCatalog = <String, String>{
   'update_downloading': 'Mengunduh pembaruan…',
   'update_verifying': 'Memverifikasi paket pembaruan…',
   'update_ready': 'Pembaruan siap dipasang.',
-  'update_installing': 'Pembaruan diserahkan ke pemasang sistem.',
+  'update_installing': 'Pemasang sistem telah dimulai.',
   'update_restart_install': 'Mulai ulang dan perbarui',
   'update_install_android': 'Pasang pembaruan',
   'update_confirm_title': 'Pasang pembaruan ini?',
   'update_confirm_body':
       'Koneksi VPN dan proksi akan terputus sementara selama pemasangan.',
   'update_package_unavailable':
-      'Tidak ada paket terverifikasi untuk perangkat ini. Buka halaman rilis.',
+      'Tidak ada pemasang untuk perangkat ini. Unduh dari halaman rilis.',
   'notice': 'Selesai',
   'identity': 'Akun WARP',
   'identity_and_license': 'Akun dan lisensi',
-  'license_cleanup_pending':
-      'Pendaftaran perangkat WARP lama menunggu penghapusan.',
+  'license_cleanup_pending': 'Pendaftaran perangkat WARP lama belum dihapus.',
   'copy_license': 'Salin License Key',
   'change_license': 'Ubah License Key',
   'unbind_license': 'Kembali ke WARP Free',
@@ -276,9 +275,9 @@ const Map<String, String> kIdCatalog = <String, String>{
   'kill_switch_help_android':
       'Blokir lalu lintas saat menyambung atau menyambung ulang, atau jika layanan koneksi gagal. Ini hanya berlaku saat layanan VPN berjalan. Agar tetap terlindungi setelah Usque berhenti, aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN di pengaturan sistem.',
   'start_on_boot_android':
-      'Jalankan Usque setelah mulai ulang. Aktifkan juga sambungan otomatis saat mulai.',
+      'Jalankan Usque setelah perangkat dimulai ulang. Untuk menyambung otomatis, aktifkan juga “Sambungkan akun saat ini secara otomatis saat mulai”.',
   'add_quick_settings_tile_help':
-      'Sematkan ubin Usque di Android 13 atau yang lebih baru. Pada versi yang lebih lama, tambahkan dari Setelan Cepat.',
+      'Tambahkan ubin Usque di Android 13 atau yang lebih baru. Pada versi lama, tambahkan secara manual dari Setelan Cepat.',
   'always_on_vpn': 'Buka pengaturan VPN selalu aktif',
   'always_on_vpn_help':
       'Aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN untuk perlindungan kebocoran setelah aplikasi dihentikan.',
@@ -291,7 +290,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Jika VPN selalu aktif dan Blokir koneksi tanpa VPN aktif, aplikasi yang tidak Anda pilih diblokir, bukan dikirim ke luar terowongan.',
   'per_app_proxy_tunnel_hint':
-      'Ini berlaku saat keluaran VPN aktif berikutnya. Mode hanya SOCKS5/HTTP tidak memfilter aplikasi.',
+      'Berlaku saat VPN aktif. Proksi SOCKS5 dan HTTP tidak memfilter per aplikasi.',
   'per_app_search': 'Cari aplikasi',
   'per_app_show_system': 'Tampilkan aplikasi sistem',
   'per_app_select_visible': 'Pilih yang terlihat',
@@ -343,7 +342,7 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Usque memerlukan izin untuk meneruskan lalu lintas aplikasi melalui VPN. Sesuai mode koneksi, Usque juga mengatur DNS, rute jaringan, perlindungan firewall, atau proksi sistem.',
   'terms_title': 'Ketentuan Cloudflare',
   'terms_body':
-      'Usque adalah klien independen. Penggunaan Consumer WARP atau pendaftaran Zero Trust eksperimental tetap tunduk pada ketentuan dan kebijakan privasi Cloudflare yang berlaku.',
+      'Usque adalah klien independen. Penggunaan WARP pribadi atau pendaftaran Zero Trust eksperimental tetap tunduk pada ketentuan dan kebijakan privasi Cloudflare.',
   'terms_accept': 'Saya memahami dan menerima ketentuan ini.',
   'identity_title': 'Siapkan akun WARP pribadi',
   'register_new': 'Buat akun WARP gratis',
@@ -533,7 +532,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fail_SYSTEM_PROXY_STALE':
       'Status proksi sistem Usque tidak dibersihkan',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Menunggu pemulihan status jaringan platform',
+      'Pengaturan jaringan sistem belum dipulihkan',
   'diag_fail_PACKET_SEND_FAILED': 'Pengiriman paket gagal',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Waktu pengiriman paket habis',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Penerimaan paket gagal',
@@ -561,13 +560,13 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Di Diagnostik, pilih Mendalam lalu mulai. Pemeriksaan mungkin mengirim lalu lintas uji; beberapa dilewati saat terhubung.',
   'diag_fix_run_release_leak_gate':
-      'Ekspor bundel diagnostik yang telah dibersihkan dari informasi sensitif untuk dukungan.',
+      'Ekspor bundel diagnostik dan kirim ke dukungan. Informasi sensitif dihapus.',
   'diag_fix_inspect_platform_state':
       'Di Diagnostik, lihat kegagalan pada Perlindungan sistem. Jika berlanjut, ekspor paket diagnostik untuk meminta bantuan.',
   'diag_fix_generate_tunnel_traffic':
       'Buka halaman web melalui Usque, lalu ulangi pemeriksaan ini.',
   'diag_fix_export_diagnostics':
-      'Ekspor bundel diagnostik yang telah dibersihkan dari informasi sensitif untuk dukungan.',
+      'Ekspor bundel diagnostik dan kirim ke dukungan. Informasi sensitif dihapus.',
   'diag_fix_retry': 'Coba lagi sebentar lagi.',
   'diag_fix_none': 'Tidak ada tindakan yang diperlukan.',
   'diag_fix_default':
@@ -589,7 +588,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'Probe pemulihan H3 dimulai',
   'diag_event_recovery_probe_succeeded': 'Probe pemulihan H3 berhasil',
   'diag_event_recovery_probe_failed': 'Probe pemulihan H3 gagal',
-  'diag_event_path_promoted': 'Jalur kandidat diaktifkan',
+  'diag_event_path_promoted': 'Beralih ke jalur jaringan baru',
   'diag_event_queue_backpressured': 'Antrean kirim menumpuk',
   'diag_event_queue_saturated': 'Antrean pengiriman mencapai kapasitas',
   'diag_event_disconnected': 'Terputus',

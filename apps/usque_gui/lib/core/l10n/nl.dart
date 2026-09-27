@@ -121,7 +121,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'delete': 'Verwijderen',
   'delete_profile': 'Account verwijderen?',
   'delete_profile_body':
-      "Dit account en de opgeslagen WARP-aanmeldgegevens van dit apparaat verwijderen? Indien van toepassing wordt ook geprobeerd de licentie te ontkoppelen.",
+      "Dit account en de WARP-aanmeldgegevens van dit apparaat verwijderen? Als er een License Key is gekoppeld, probeert Usque die ook te ontkoppelen.",
   'delete_zero_trust_profile_body':
       'Verwijdert het account en de aanmeldgegevens van dit apparaat. Vraag de beheerder ook het apparaat uit het Zero Trust-dashboard van de organisatie te verwijderen.',
   'license_not_applicable': 'Organisatieaccount · Experimenteel',
@@ -222,20 +222,19 @@ const Map<String, String> kNlCatalog = <String, String>{
   'update_downloading': 'Update downloaden…',
   'update_verifying': 'Updatepakket verifiëren…',
   'update_ready': 'De update kan worden geïnstalleerd.',
-  'update_installing':
-      'De update is aan het systeeminstallatieprogramma overgedragen.',
+  'update_installing': 'Het systeeminstallatieprogramma is gestart.',
   'update_restart_install': 'Herstarten en bijwerken',
   'update_install_android': 'Update installeren',
   'update_confirm_title': 'Deze update installeren?',
   'update_confirm_body':
       'VPN- en proxyverbindingen worden tijdens de installatie tijdelijk verbroken.',
   'update_package_unavailable':
-      'Er is geen geverifieerd pakket voor dit apparaat. Open de releasepagina.',
+      'Er is geen installatiebestand voor dit apparaat. Download het via de releasepagina.',
   'notice': 'Voltooid',
   'identity': 'WARP-account',
   'identity_and_license': 'Account en licentie',
   'license_cleanup_pending':
-      'Een oude WARP-apparaatregistratie wacht op verwijdering.',
+      'De oude WARP-apparaatregistratie is nog niet verwijderd.',
   'copy_license': 'License Key kopiëren',
   'change_license': 'License Key wijzigen',
   'unbind_license': 'Terugkeren naar WARP Free',
@@ -278,9 +277,9 @@ const Map<String, String> kNlCatalog = <String, String>{
   'kill_switch_help_android':
       'Blokkeert verkeer tijdens verbinden of opnieuw verbinden, of als de verbindingsdienst uitvalt. Dit werkt alleen zolang de VPN-dienst draait. Zet Altijd-aan-VPN en Verbindingen zonder VPN blokkeren aan in de systeeminstellingen om beschermd te blijven nadat Usque is gestopt.',
   'start_on_boot_android':
-      'Start Usque na het opnieuw opstarten. Schakel ook automatisch verbinden bij het starten in.',
+      'Start Usque nadat het apparaat opnieuw is opgestart. Zet ook “Het huidige account bij het starten automatisch verbinden” aan om automatisch te verbinden.',
   'add_quick_settings_tile_help':
-      'Zet de Usque-tegel vast op Android 13 of later. Op oudere versies voegt u deze toe via Snelle instellingen.',
+      'Voeg de Usque-tegel toe op Android 13 of later. Op oudere versies voegt u deze handmatig toe via Snelle instellingen.',
   'always_on_vpn': 'Instellingen voor Altijd-aan-VPN openen',
   'always_on_vpn_help':
       'Schakel Altijd-aan-VPN en Verbindingen zonder VPN blokkeren in voor lekbescherming nadat de app is beëindigd.',
@@ -293,7 +292,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Als Altijd-aan-VPN en Verbindingen zonder VPN blokkeren zijn ingeschakeld, worden apps die u niet selecteert geblokkeerd, niet buiten de tunnel gestuurd.',
   'per_app_proxy_tunnel_hint':
-      'Dit geldt de volgende keer dat de VPN-uitgang is ingeschakeld. De modus alleen SOCKS5/HTTP filtert geen apps.',
+      'Geldt als de VPN aan staat. SOCKS5- en HTTP-proxy’s filteren niet per app.',
   'per_app_search': 'Apps zoeken',
   'per_app_show_system': 'Systeemapps tonen',
   'per_app_select_visible': 'Zichtbare apps selecteren',
@@ -345,7 +344,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Usque heeft toestemming nodig om appverkeer door de VPN te sturen. Afhankelijk van de modus stelt het ook DNS, netwerkroutes, firewallbeveiliging of de systeemproxy in.',
   'terms_title': 'Cloudflare-voorwaarden',
   'terms_body':
-      'Usque is een onafhankelijke client. Uw gebruik van Consumer WARP of de experimentele Zero Trust-registratie blijft onderworpen aan de toepasselijke voorwaarden en het privacybeleid van Cloudflare.',
+      'Usque is een onafhankelijke client. Voor het gebruik van persoonlijke WARP of de experimentele Zero Trust-registratie gelden nog steeds de voorwaarden en het privacybeleid van Cloudflare.',
   'terms_accept': 'Ik begrijp deze voorwaarden en ga ermee akkoord.',
   'identity_title': 'Persoonlijk WARP-account instellen',
   'register_new': 'Gratis WARP-account maken',
@@ -541,7 +540,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_fail_SYSTEM_PROXY_STALE':
       'Status van de Usque-systeemproxy niet opgeschoond',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Wachten op herstel van de netwerkstatus van het platform',
+      'Netwerkinstellingen van het systeem nog niet hersteld',
   'diag_fail_PACKET_SEND_FAILED': 'Pakketverzending mislukt',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Time-out bij pakketverzending',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Pakketontvangst mislukt',
@@ -570,13 +569,13 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Kies Diepgaand bij Diagnostiek en start de controles. Ze kunnen testverkeer sturen; sommige worden overgeslagen tijdens een verbinding.',
   'diag_fix_run_release_leak_gate':
-      'Exporteer een diagnostisch pakket waaruit gevoelige gegevens zijn verwijderd voor ondersteuning.',
+      'Exporteer een diagnostisch pakket en stuur het naar ondersteuning. Gevoelige gegevens worden verwijderd.',
   'diag_fix_inspect_platform_state':
       'Bekijk bij Diagnostiek de fouten in Systeembescherming. Exporteer een diagnosepakket voor hulp als ze blijven bestaan.',
   'diag_fix_generate_tunnel_traffic':
       'Open via Usque een webpagina en voer deze controle opnieuw uit.',
   'diag_fix_export_diagnostics':
-      'Exporteer een diagnostisch pakket waaruit gevoelige gegevens zijn verwijderd voor ondersteuning.',
+      'Exporteer een diagnostisch pakket en stuur het naar ondersteuning. Gevoelige gegevens worden verwijderd.',
   'diag_fix_retry': 'Probeer het binnenkort opnieuw.',
   'diag_fix_none': 'Geen actie vereist.',
   'diag_fix_default':
@@ -598,7 +597,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'H3-herstelprobe gestart',
   'diag_event_recovery_probe_succeeded': 'H3-herstelprobe geslaagd',
   'diag_event_recovery_probe_failed': 'H3-herstelprobe mislukt',
-  'diag_event_path_promoted': 'Kandidaatpad geactiveerd',
+  'diag_event_path_promoted': 'Overgeschakeld naar nieuw netwerkpad',
   'diag_event_queue_backpressured': 'Achterstand in verzendwachtrij',
   'diag_event_queue_saturated':
       'De verzendwachtrij heeft de capaciteit bereikt',

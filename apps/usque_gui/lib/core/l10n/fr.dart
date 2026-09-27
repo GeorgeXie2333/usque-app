@@ -125,7 +125,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'delete': 'Supprimer',
   'delete_profile': 'Supprimer le compte ?',
   'delete_profile_body':
-      "Supprimer ce compte et ses données de connexion WARP enregistrées sur cet appareil ? La dissociation de la licence sera aussi tentée si nécessaire.",
+      "Supprimer ce compte et ses informations de connexion WARP de cet appareil ? Si une License Key est associée, Usque tentera aussi de la dissocier.",
   'delete_zero_trust_profile_body':
       'Le compte et ses informations de connexion seront supprimés de cet appareil. Demandez aussi à l’administrateur de retirer l’appareil du tableau de bord Zero Trust de l’organisation.',
   'license_not_applicable': 'Compte d’organisation · Expérimental',
@@ -228,20 +228,19 @@ const Map<String, String> kFrCatalog = <String, String>{
   'update_downloading': 'Téléchargement de la mise à jour…',
   'update_verifying': 'Vérification du paquet de mise à jour…',
   'update_ready': 'La mise à jour est prête à être installée.',
-  'update_installing':
-      'La mise à jour a été transmise au programme d’installation système.',
+  'update_installing': 'Le programme d’installation système a démarré.',
   'update_restart_install': 'Redémarrer et mettre à jour',
   'update_install_android': 'Installer la mise à jour',
   'update_confirm_title': 'Installer cette mise à jour ?',
   'update_confirm_body':
       'Les connexions VPN et proxy seront temporairement interrompues pendant l’installation.',
   'update_package_unavailable':
-      'Aucun paquet vérifié n’est disponible pour cet appareil. Ouvrez la page de version.',
+      'Aucun programme d’installation n’est disponible pour cet appareil. Téléchargez-le depuis la page de version.',
   'notice': 'Terminé',
   'identity': 'Compte WARP',
   'identity_and_license': 'Compte et licence',
   'license_cleanup_pending':
-      'Un ancien enregistrement d’appareil WARP est en attente de suppression.',
+      'L’ancien enregistrement d’appareil WARP n’a pas encore été supprimé.',
   'copy_license': 'Copier la License Key',
   'change_license': 'Changer la License Key',
   'unbind_license': 'Revenir à WARP Free',
@@ -285,9 +284,9 @@ const Map<String, String> kFrCatalog = <String, String>{
   'kill_switch_help_android':
       'Bloque le trafic pendant la connexion ou la reconnexion, ou en cas de défaillance du service de connexion. Cela ne fonctionne que lorsque le service VPN est actif. Pour rester protégé après l’arrêt d’Usque, activez VPN toujours actif et Bloquer les connexions sans VPN dans les paramètres système.',
   'start_on_boot_android':
-      'Démarrer Usque après le redémarrage. Activez aussi la connexion automatique au démarrage.',
+      'Démarrer Usque après le redémarrage de l’appareil. Pour vous connecter automatiquement, activez aussi « Connecter automatiquement le compte actuel au démarrage ».',
   'add_quick_settings_tile_help':
-      'Épinglez la tuile Usque sur Android 13 ou version ultérieure. Sur les versions plus anciennes, ajoutez-la depuis les Paramètres rapides.',
+      'Ajoutez la tuile Usque sur Android 13 ou version ultérieure. Sur les versions plus anciennes, ajoutez-la manuellement depuis les Paramètres rapides.',
   'always_on_vpn': 'Ouvrir les paramètres VPN toujours actif',
   'always_on_vpn_help':
       'Activez VPN toujours actif et Bloquer les connexions sans VPN pour une protection contre les fuites après l’arrêt forcé de l’application.',
@@ -301,7 +300,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Si VPN toujours actif et Bloquer les connexions sans VPN sont activés, les applications non sélectionnées sont bloquées, et non envoyées hors du tunnel.',
   'per_app_proxy_tunnel_hint':
-      'Cela s’applique à la prochaine activation de la sortie VPN. Le mode SOCKS5/HTTP uniquement ne filtre pas les applications.',
+      'S’applique quand le VPN est activé. Les proxys SOCKS5 et HTTP ne filtrent pas par application.',
   'per_app_search': 'Rechercher des applications',
   'per_app_show_system': 'Afficher les applications système',
   'per_app_select_visible': 'Sélectionner les visibles',
@@ -354,7 +353,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Usque a besoin d’une autorisation pour faire passer le trafic des applications par le VPN. Selon le mode choisi, il configure aussi le DNS, les routes réseau, la protection du pare-feu ou le proxy système.',
   'terms_title': 'Conditions Cloudflare',
   'terms_body':
-      'Usque est un client indépendant. Votre utilisation de Consumer WARP ou de l’inscription expérimentale Zero Trust reste soumise aux conditions et à la politique de confidentialité applicables de Cloudflare.',
+      'Usque est un client indépendant. L’utilisation de WARP personnel ou de l’inscription expérimentale Zero Trust reste soumise aux conditions et à la politique de confidentialité de Cloudflare.',
   'terms_accept': 'Je comprends et j’accepte ces conditions.',
   'identity_title': 'Configurer un compte WARP personnel',
   'register_new': 'Créer un compte WARP gratuit',
@@ -551,7 +550,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Restauration DNS incomplète',
   'diag_fail_SYSTEM_PROXY_STALE': 'État du proxy système d’Usque non nettoyé',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'En attente de la restauration de l’état réseau de la plateforme',
+      'Paramètres réseau système pas encore restaurés',
   'diag_fail_PACKET_SEND_FAILED': 'Échec d’envoi de paquet',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Délai d’attente d’envoi de paquet dépassé',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Échec de réception de paquet',
@@ -580,13 +579,13 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Dans Diagnostics, choisissez Approfondi puis lancez les contrôles. Ils peuvent envoyer du trafic de test ; certains sont ignorés pendant une connexion.',
   'diag_fix_run_release_leak_gate':
-      'Exportez une archive de diagnostic dont les données sensibles ont été supprimées pour l’assistance.',
+      'Exportez une archive de diagnostic et envoyez-la à l’assistance. Les données sensibles sont supprimées.',
   'diag_fix_inspect_platform_state':
       'Dans Diagnostics, consultez les échecs de Protection système. S’ils persistent, exportez un paquet de diagnostic pour obtenir de l’aide.',
   'diag_fix_generate_tunnel_traffic':
       'Ouvrez une page web via Usque, puis relancez ce contrôle.',
   'diag_fix_export_diagnostics':
-      'Exportez une archive de diagnostic dont les données sensibles ont été supprimées pour l’assistance.',
+      'Exportez une archive de diagnostic et envoyez-la à l’assistance. Les données sensibles sont supprimées.',
   'diag_fix_retry': 'Réessayez sous peu.',
   'diag_fix_none': 'Aucune action n’est requise.',
   'diag_fix_default':
@@ -608,7 +607,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'Sonde de récupération H3 démarrée',
   'diag_event_recovery_probe_succeeded': 'Sonde de récupération H3 réussie',
   'diag_event_recovery_probe_failed': 'Sonde de récupération H3 échouée',
-  'diag_event_path_promoted': 'Chemin candidat activé',
+  'diag_event_path_promoted': 'Passage au nouveau chemin réseau',
   'diag_event_queue_backpressured': 'File d’envoi saturée',
   'diag_event_queue_saturated': 'La file d’envoi a atteint sa capacité',
   'diag_event_disconnected': 'Déconnecté',

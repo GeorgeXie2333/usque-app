@@ -113,7 +113,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'delete': '삭제',
   'delete_profile': '계정을 삭제할까요?',
   'delete_profile_body':
-      "이 계정과 기기에 저장된 WARP 로그인 정보를 삭제할까요? 해당하는 경우 라이선스 연결 해제도 시도합니다.",
+      "이 기기에서 이 계정과 WARP 로그인 정보를 삭제할까요? License Key가 연결되어 있으면 연결 해제도 시도합니다.",
   'delete_zero_trust_profile_body':
       '이 기기의 계정과 로그인 정보를 삭제합니다. 조직의 Zero Trust 관리 화면에 남은 기기 기록도 삭제하도록 관리자에게 요청하세요.',
   'license_not_applicable': '조직 계정 · 실험적',
@@ -211,16 +211,16 @@ const Map<String, String> kKoCatalog = <String, String>{
   'update_downloading': '업데이트를 다운로드하는 중…',
   'update_verifying': '업데이트 패키지를 검증하는 중…',
   'update_ready': '업데이트를 설치할 준비가 되었습니다.',
-  'update_installing': '업데이트를 시스템 설치 프로그램에 전달했습니다.',
+  'update_installing': '시스템 설치 프로그램이 시작되었습니다.',
   'update_restart_install': '다시 시작하고 업데이트',
   'update_install_android': '업데이트 설치',
   'update_confirm_title': '이 업데이트를 설치할까요?',
   'update_confirm_body': '업데이트 설치 중 VPN 및 프록시 연결이 잠시 끊어집니다.',
-  'update_package_unavailable': '이 기기에 맞는 검증된 패키지가 없습니다. 릴리스 페이지를 여세요.',
+  'update_package_unavailable': '이 기기에 맞는 설치 파일이 없습니다. 릴리스 페이지에서 다운로드하세요.',
   'notice': '완료됨',
   'identity': 'WARP 계정',
   'identity_and_license': '계정 및 라이선스',
-  'license_cleanup_pending': '이전 WARP 기기 등록이 제거를 기다리고 있습니다.',
+  'license_cleanup_pending': '이전 WARP 기기 등록이 아직 제거되지 않았습니다.',
   'copy_license': 'License Key 복사',
   'change_license': 'License Key 변경',
   'unbind_license': 'WARP Free로 돌아가기',
@@ -260,9 +260,10 @@ const Map<String, String> kKoCatalog = <String, String>{
   'kill_switch_help': '연결 또는 재연결 중이거나 연결 서비스에 오류가 발생하면 트래픽을 차단합니다.',
   'kill_switch_help_android':
       '연결 또는 재연결 중이거나 연결 서비스에 오류가 발생하면 트래픽을 차단합니다. VPN 서비스가 실행 중일 때만 작동합니다. Usque가 중지된 후에도 보호하려면 시스템 설정에서 ‘항상 사용 VPN’과 ‘VPN 없이 연결 차단’을 켜세요.',
-  'start_on_boot_android': '재부팅 후 Usque를 시작합니다. 시작 시 자동 연결도 함께 사용해야 합니다.',
+  'start_on_boot_android':
+      '기기를 다시 시작한 뒤 Usque를 시작합니다. 자동으로 연결하려면 ‘시작 시 현재 계정을 자동으로 연결합니다’도 켜세요.',
   'add_quick_settings_tile_help':
-      'Android 13 이상에서는 Usque 타일을 고정합니다. 이전 버전에서는 빠른 설정에서 추가합니다.',
+      'Android 13 이상에서 Usque 타일을 추가합니다. 이전 버전에서는 빠른 설정에서 직접 추가하세요.',
   'always_on_vpn': '항상 사용 VPN 설정 열기',
   'always_on_vpn_help':
       '앱이 종료된 뒤의 누출 방지를 위해 항상 사용 VPN과 VPN 없이 연결 차단을 사용해야 합니다.',
@@ -274,7 +275,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       '항상 사용 VPN과 VPN 없이 연결 차단이 켜져 있으면, 선택하지 않은 앱은 터널 밖으로 나가지 않고 차단됩니다.',
   'per_app_proxy_tunnel_hint':
-      '다음에 VPN 출력이 켜질 때 적용됩니다. SOCKS5/HTTP 전용 모드는 앱을 필터링하지 않습니다.',
+      'VPN이 켜져 있을 때 적용됩니다. SOCKS5 및 HTTP 프록시는 앱별로 구분하지 않습니다.',
   'per_app_search': '앱 검색',
   'per_app_show_system': '시스템 앱 표시',
   'per_app_select_visible': '표시된 항목 선택',
@@ -324,7 +325,7 @@ const Map<String, String> kKoCatalog = <String, String>{
       '앱 트래픽을 VPN으로 전달하려면 시스템 권한이 필요합니다. 연결 모드에 따라 DNS, 네트워크 경로, 방화벽 보호 또는 시스템 프록시도 설정합니다.',
   'terms_title': 'Cloudflare 약관',
   'terms_body':
-      'Usque는 독립 클라이언트입니다. Consumer WARP 또는 실험적 Zero Trust 등록 사용은 계속해서 Cloudflare의 해당 약관과 개인정보 처리방침의 적용을 받습니다.',
+      'Usque는 독립 클라이언트입니다. 개인용 WARP 또는 실험적 Zero Trust 등록을 사용할 때는 Cloudflare의 약관과 개인정보 처리방침이 계속 적용됩니다.',
   'terms_accept': '이 조건을 이해하고 동의합니다.',
   'identity_title': '개인 WARP 계정 설정',
   'register_new': '무료 WARP 계정 만들기',
@@ -442,7 +443,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_check_physical_ipv4_route': '물리 IPv4 경로',
   'diag_check_physical_ipv6_route': '물리 IPv6 경로',
   'diag_check_physical_dns_available': '물리 DNS',
-  'diag_check_physical_network_generation': '현재 네트워크 변경',
+  'diag_check_physical_network_generation': '네트워크 전환',
   'diag_check_transport_h3_connect': 'HTTP/3 연결',
   'diag_check_transport_h3_datagram': 'HTTP/3 데이터그램',
   'diag_check_transport_h2_tcp': 'HTTP/2 TCP',
@@ -497,7 +498,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': '경로 복원이 불완전함',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'DNS 복원이 불완전함',
   'diag_fail_SYSTEM_PROXY_STALE': 'Usque 시스템 프록시 상태가 정리되지 않음',
-  'diag_fail_PLATFORM_RECOVERY_PENDING': '플랫폼 네트워크 상태 복구 대기 중',
+  'diag_fail_PLATFORM_RECOVERY_PENDING': '시스템 네트워크 설정이 아직 복원되지 않음',
   'diag_fail_PACKET_SEND_FAILED': '패킷 전송 실패',
   'diag_fail_PACKET_SEND_TIMEOUT': '패킷 전송 시간 초과',
   'diag_fail_PACKET_RECEIVE_FAILED': '패킷 수신 실패',
@@ -521,11 +522,11 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_fix_resolve_dependency': '목록에서 실패한 검사부터 해결한 뒤 다시 진단하세요.',
   'diag_fix_run_deep_diagnostics':
       '진단에서 심층을 선택하고 검사를 시작하세요. 테스트 트래픽을 보낼 수 있으며 연결 중에는 일부 검사를 건너뜁니다.',
-  'diag_fix_run_release_leak_gate': '민감 정보가 제거된 진단 번들을 내보내 지원에 제공하세요.',
+  'diag_fix_run_release_leak_gate': '진단 번들을 내보내 지원팀에 보내세요. 민감 정보는 제거됩니다.',
   'diag_fix_inspect_platform_state':
       '진단의 시스템 보호에서 실패한 항목을 확인하세요. 문제가 계속되면 진단 패키지를 내보내 지원을 요청하세요.',
   'diag_fix_generate_tunnel_traffic': 'Usque를 통해 웹페이지를 연 뒤 이 검사를 다시 실행하세요.',
-  'diag_fix_export_diagnostics': '민감 정보가 제거된 진단 번들을 내보내 지원에 제공하세요.',
+  'diag_fix_export_diagnostics': '진단 번들을 내보내 지원팀에 보내세요. 민감 정보는 제거됩니다.',
   'diag_fix_retry': '잠시 후 다시 시도하세요.',
   'diag_fix_none': '필요한 작업이 없습니다.',
   'diag_fix_default': '다시 시도하세요. 문제가 계속되면 진단에서 진단 패키지를 내보내 지원을 요청하세요.',
@@ -546,7 +547,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'H3 복구 프로브 시작',
   'diag_event_recovery_probe_succeeded': 'H3 복구 프로브 성공',
   'diag_event_recovery_probe_failed': 'H3 복구 프로브 실패',
-  'diag_event_path_promoted': '후보 경로가 활성화됨',
+  'diag_event_path_promoted': '새 네트워크 경로로 전환됨',
   'diag_event_queue_backpressured': '전송 대기열 적체',
   'diag_event_queue_saturated': '전송 큐가 용량에 도달함',
   'diag_event_disconnected': '연결 해제됨',

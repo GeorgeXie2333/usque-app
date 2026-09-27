@@ -313,7 +313,7 @@ const Map<String, String> kL4Nl = <String, String>{
   'l4_quic_not_ready': 'L4-verbinding voorbereiden',
   'l4_unsupported_packets':
       'Niet-ondersteunde of ongeldige pakketten geweigerd',
-  'l4_budget_rejections': 'Afgewezen resourcetoelatingen',
+  'l4_budget_rejections': 'Verbindingen geweigerd wegens gebrek aan resources',
   'l4_not_applicable': 'Niet van toepassing (L4)',
   'l4_mode': 'L4 (experimenteel)',
   'l4_transport_hint':
@@ -325,7 +325,7 @@ const Map<String, String> kL4Nl = <String, String>{
   'l4_sni_identity':
       'Automatisch ingesteld door je account. De servernaam voor andere verbindingsmodi blijft bewaard.',
   'l4_edge_requires_l4':
-      'Aan de rand omgezette DNS vereist L4. Kies een andere proxy-DNS-modus voordat u naar Auto, H3 of H2 schakelt.',
+      'Aan de rand omgezette DNS werkt alleen met L4. Kies een andere proxy-DNS-modus voordat u overschakelt naar Automatisch, HTTP/3 of HTTP/2.',
   'proxy_dns_edge_resolved':
       'Cloudflare-rand (alleen L4; geen lokale opzoeking)',
   'l4_verified': 'L4 heeft een appverbinding gemaakt',
@@ -334,14 +334,14 @@ const Map<String, String> kL4Nl = <String, String>{
   'l4_sessions': 'Sessies / leegloop',
   'l4_flows': 'Actieve / wachtende streams',
   'l4_connect': 'CONNECT geslaagd / mislukt / time-out',
-  'l4_buffers': 'Gebruikt applicatiebufferbudget (bytes)',
+  'l4_buffers': 'Buffergebruik (bytes)',
   'l4_backpressure': 'Verzend- / ontvangsttegendruk',
   'l4_tun_flows': 'TUN TCP / halfopen',
   'l4_udp': 'Geweigerde UDP-pakketten',
   'l4_dns': 'DNS-omzettingen geslaagd / mislukt / time-out',
   'l4_migration': 'Streams behouden door migratie / beëindigd door herbouw',
   'l4_na':
-      'CONNECT-IP-adresbeheer, DATAGRAM-wachtrijen, binnenste payload-MTU en UDP-time-out: niet van toepassing in L4.',
+      'Metingen voor adrestoewijzing, datagramwachtrij, MTU en UDP-time-out gelden niet in de L4-modus.',
 };
 
 const Map<String, String> kNetworkSettingsNl = <String, String>{

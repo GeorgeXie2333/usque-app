@@ -119,7 +119,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'delete': 'Xóa',
   'delete_profile': 'Xóa tài khoản?',
   'delete_profile_body':
-      "Xóa tài khoản này và dữ liệu đăng nhập WARP đã lưu trên thiết bị? Hệ thống cũng sẽ thử hủy liên kết giấy phép nếu áp dụng.",
+      "Xóa tài khoản này và thông tin đăng nhập WARP của nó khỏi thiết bị này? Nếu đã liên kết License Key, Usque cũng sẽ thử hủy liên kết.",
   'delete_zero_trust_profile_body':
       'Tài khoản và thông tin đăng nhập này sẽ bị xóa khỏi thiết bị. Để hủy đăng ký thiết bị trong Zero Trust của tổ chức, hãy liên hệ quản trị viên.',
   'license_not_applicable': 'Tài khoản tổ chức · Thử nghiệm',
@@ -218,18 +218,17 @@ const Map<String, String> kViCatalog = <String, String>{
   'update_downloading': 'Đang tải bản cập nhật…',
   'update_verifying': 'Đang xác minh gói cập nhật…',
   'update_ready': 'Bản cập nhật đã sẵn sàng để cài đặt.',
-  'update_installing':
-      'Bản cập nhật đã được chuyển cho trình cài đặt hệ thống.',
+  'update_installing': 'Trình cài đặt hệ thống đã khởi chạy.',
   'update_restart_install': 'Khởi động lại và cập nhật',
   'update_install_android': 'Cài đặt bản cập nhật',
   'update_confirm_title': 'Cài đặt bản cập nhật này?',
   'update_confirm_body': 'Kết nối VPN và proxy sẽ tạm ngắt trong khi cài đặt.',
   'update_package_unavailable':
-      'Không có gói đã xác minh cho thiết bị này. Hãy mở trang phát hành.',
+      'Không có trình cài đặt cho thiết bị này. Hãy tải xuống từ trang phát hành.',
   'notice': 'Hoàn tất',
   'identity': 'Tài khoản WARP',
   'identity_and_license': 'Tài khoản và giấy phép',
-  'license_cleanup_pending': 'Đăng ký thiết bị WARP cũ đang chờ được gỡ bỏ.',
+  'license_cleanup_pending': 'Đăng ký thiết bị WARP cũ chưa được gỡ bỏ.',
   'copy_license': 'Sao chép License Key',
   'change_license': 'Đổi License Key',
   'unbind_license': 'Quay lại WARP Free',
@@ -272,9 +271,9 @@ const Map<String, String> kViCatalog = <String, String>{
   'kill_switch_help_android':
       'Chặn lưu lượng khi đang kết nối hoặc kết nối lại, hoặc khi dịch vụ kết nối gặp lỗi. Chỉ hoạt động khi dịch vụ VPN đang chạy. Để tiếp tục được bảo vệ sau khi Usque dừng, hãy bật VPN luôn bật và Chặn kết nối khi không có VPN trong cài đặt hệ thống.',
   'start_on_boot_android':
-      'Khởi chạy Usque sau khi khởi động lại. Đồng thời bật tự kết nối khi khởi động.',
+      'Khởi chạy Usque sau khi thiết bị khởi động lại. Để tự kết nối, hãy bật thêm “Tự kết nối tài khoản hiện tại khi khởi động”.',
   'add_quick_settings_tile_help':
-      'Ghim ô Usque trên Android 13 trở lên. Trên phiên bản cũ hơn, thêm từ Cài đặt nhanh.',
+      'Thêm ô Usque trên Android 13 trở lên. Trên phiên bản cũ hơn, hãy thêm thủ công từ Cài đặt nhanh.',
   'always_on_vpn': 'Mở cài đặt VPN luôn bật',
   'always_on_vpn_help':
       'Bật VPN luôn bật và Chặn kết nối khi không có VPN để chống rò rỉ sau khi ứng dụng bị buộc dừng.',
@@ -287,7 +286,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Nếu VPN luôn bật và Chặn kết nối khi không có VPN đang bật, ứng dụng bạn không chọn sẽ bị chặn, không bị gửi ra ngoài đường hầm.',
   'per_app_proxy_tunnel_hint':
-      'Áp dụng lần sau khi bật đầu ra VPN. Chế độ chỉ SOCKS5/HTTP không lọc ứng dụng.',
+      'Có hiệu lực khi bật VPN. Proxy SOCKS5 và HTTP không lọc theo ứng dụng.',
   'per_app_search': 'Tìm ứng dụng',
   'per_app_show_system': 'Hiện ứng dụng hệ thống',
   'per_app_select_visible': 'Chọn mục đang hiện',
@@ -339,7 +338,7 @@ const Map<String, String> kViCatalog = <String, String>{
       'Cần có quyền hệ thống để truyền dữ liệu của ứng dụng qua VPN. Tùy chế độ đã chọn, DNS, tuyến mạng, tường lửa hoặc proxy hệ thống cũng có thể được thay đổi.',
   'terms_title': 'Điều khoản Cloudflare',
   'terms_body':
-      'Usque là ứng dụng độc lập. Việc bạn dùng Consumer WARP hoặc đăng ký Zero Trust thử nghiệm vẫn tuân theo điều khoản và chính sách quyền riêng tư hiện hành của Cloudflare.',
+      'Usque là ứng dụng độc lập. Việc dùng WARP cá nhân hoặc đăng ký Zero Trust thử nghiệm vẫn tuân theo điều khoản và chính sách quyền riêng tư của Cloudflare.',
   'terms_accept': 'Tôi hiểu và chấp nhận các điều kiện này.',
   'identity_title': 'Thiết lập tài khoản WARP cá nhân',
   'register_new': 'Tạo tài khoản WARP miễn phí',
@@ -531,8 +530,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Khôi phục DNS chưa đủ',
   'diag_fail_SYSTEM_PROXY_STALE':
       'Trạng thái proxy hệ thống của Usque chưa được dọn',
-  'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Đang chờ khôi phục trạng thái mạng nền tảng',
+  'diag_fail_PLATFORM_RECOVERY_PENDING': 'Chưa khôi phục cài đặt mạng hệ thống',
   'diag_fail_PACKET_SEND_FAILED': 'Gửi gói thất bại',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Hết thời gian gửi gói',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Nhận gói thất bại',
@@ -560,13 +558,13 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Trong Chẩn đoán, chọn “Sâu” rồi bắt đầu. Quá trình này có thể gửi lưu lượng thử nghiệm; một số mục có thể bị bỏ qua khi đang kết nối.',
   'diag_fix_run_release_leak_gate':
-      'Xuất gói chẩn đoán đã loại bỏ thông tin nhạy cảm để hỗ trợ.',
+      'Xuất gói chẩn đoán và gửi cho bộ phận hỗ trợ. Thông tin nhạy cảm sẽ được loại bỏ.',
   'diag_fix_inspect_platform_state':
       'Xem các mục kiểm tra thất bại trong Chẩn đoán → Bảo vệ hệ thống. Nếu vẫn gặp lỗi, hãy xuất nhật ký.',
   'diag_fix_generate_tunnel_traffic':
       'Mở một trang web qua kết nối Usque rồi chạy lại kiểm tra.',
   'diag_fix_export_diagnostics':
-      'Xuất gói chẩn đoán đã loại bỏ thông tin nhạy cảm để hỗ trợ.',
+      'Xuất gói chẩn đoán và gửi cho bộ phận hỗ trợ. Thông tin nhạy cảm sẽ được loại bỏ.',
   'diag_fix_retry': 'Thử lại sau một lúc.',
   'diag_fix_none': 'Không cần thao tác.',
   'diag_fix_default':
@@ -588,7 +586,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'Đã bắt đầu đầu dò khôi phục H3',
   'diag_event_recovery_probe_succeeded': 'Đầu dò khôi phục H3 thành công',
   'diag_event_recovery_probe_failed': 'Đầu dò khôi phục H3 thất bại',
-  'diag_event_path_promoted': 'Đường ứng viên đã được kích hoạt',
+  'diag_event_path_promoted': 'Đã chuyển sang đường mạng mới',
   'diag_event_queue_backpressured': 'Hàng đợi gửi bị ùn tắc',
   'diag_event_queue_saturated': 'Hàng đợi gửi đã đạt giới hạn dung lượng',
   'diag_event_disconnected': 'Đã ngắt kết nối',

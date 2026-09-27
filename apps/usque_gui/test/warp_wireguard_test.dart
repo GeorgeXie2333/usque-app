@@ -111,7 +111,7 @@ void main() {
         (
           'identity_required',
           true,
-          'Select an account with a saved MASQUE identity first.',
+          'First select an account that has been set up.',
         ),
         (
           'underlay_start_failed',

@@ -77,7 +77,7 @@ const kVpnGateEn = <String, String>{
   'gate_cached': 'Using the saved server list',
   'gate_verified': 'Server list download checked',
   'gate_freshness':
-      'The list may have been collected before you downloaded it. Use the collection time to judge how current it is.',
+      'The list may be older than its download time. Check when it was collected.',
   'gate_fetch_error': 'Could not refresh the server list',
   "gate_select_again":
       "This configuration is no longer available. Refresh and select again.",
@@ -166,7 +166,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_source": "来源地址",
     'gate_cached': '正在使用已保存的服务器列表',
     'gate_verified': '服务器列表已通过下载校验',
-    'gate_freshness': '列表可能在下载之前就已采集，请根据采集时间判断数据是否过旧。',
+    'gate_freshness': '列表的实际生成时间可能早于下载时间，请参考采集时间。',
     'gate_fetch_error': '无法刷新服务器列表',
     "gate_select_again": "该配置已失效，请刷新并重新选择。",
     'gate_score': '评分',
@@ -250,7 +250,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_source": "來源網址",
     'gate_cached': '正在使用已儲存的伺服器清單',
     'gate_verified': '已檢查伺服器清單下載結果',
-    'gate_freshness': '清單可能在下載前就已收集。請依收集時間判斷資料是否過時。',
+    'gate_freshness': '清單內容可能比下載時間更舊，請以收集時間為準。',
     'gate_fetch_error': '無法重新整理伺服器清單',
     "gate_select_again": "此設定已失效，請重新整理並再次選擇。",
     'gate_score': '評分',
@@ -334,7 +334,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_source": "取得元 URL",
     'gate_cached': '保存済みのサーバー一覧を使用中',
     'gate_verified': 'サーバー一覧のダウンロードを確認済み',
-    'gate_freshness': '一覧はダウンロード前に収集された場合があります。収集時刻で情報の新しさを確認してください。',
+    'gate_freshness': '一覧はダウンロード時刻より古い場合があります。収集時刻を確認してください。',
     'gate_fetch_error': 'サーバー一覧を更新できませんでした',
     "gate_select_again": "この設定は利用できません。更新して選び直してください。",
     'gate_score': '評価',
@@ -419,8 +419,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_source": "원본 URL",
     'gate_cached': '저장된 서버 목록 사용 중',
     'gate_verified': '서버 목록 다운로드 확인 완료',
-    'gate_freshness':
-        '목록은 다운로드 전에 수집되었을 수 있습니다. 수집 시간으로 데이터가 얼마나 오래되었는지 확인하세요.',
+    'gate_freshness': '목록은 다운로드 시간보다 오래되었을 수 있습니다. 수집 시간을 확인하세요.',
     'gate_fetch_error': '서버 목록을 새로 고치지 못했습니다',
     "gate_select_again": "이 설정을 사용할 수 없습니다. 새로고침 후 다시 선택하세요.",
     'gate_score': '평점',
@@ -509,7 +508,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Usando la lista de servidores guardada',
     'gate_verified': 'Descarga de la lista verificada',
     'gate_freshness':
-        'La lista puede haberse recopilado antes de descargarla. Usa la fecha de recopilación para comprobar su antigüedad.',
+        'La lista puede ser anterior a su fecha de descarga. Consulta la fecha de recopilación.',
     'gate_fetch_error': 'No se pudo actualizar la lista de servidores',
     "gate_select_again":
         "Esta configuración ya no está disponible. Actualiza y vuelve a elegir.",
@@ -600,7 +599,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Usando a lista de servidores salva',
     'gate_verified': 'Download da lista verificado',
     'gate_freshness':
-        'A lista pode ter sido coletada antes do download. Use o horário da coleta para avaliar a idade dos dados.',
+        'A lista pode ser mais antiga que o horário do download. Confira o horário da coleta.',
     'gate_fetch_error': 'Não foi possível atualizar a lista de servidores',
     "gate_select_again":
         "Esta configuração já não está disponível. Atualize e selecione novamente.",
@@ -691,7 +690,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Utilisation de la liste enregistrée',
     'gate_verified': 'Téléchargement de la liste vérifié',
     'gate_freshness':
-        'La liste a pu être collectée avant son téléchargement. Consultez la date de collecte pour évaluer son ancienneté.',
+        'La liste peut être plus ancienne que sa date de téléchargement. Vérifiez sa date de collecte.',
     'gate_fetch_error': 'Impossible d’actualiser la liste des serveurs',
     "gate_select_again":
         "Cette configuration est indisponible. Actualisez et choisissez à nouveau.",
@@ -783,7 +782,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Opgeslagen serverlijst wordt gebruikt',
     'gate_verified': 'Download van serverlijst gecontroleerd',
     'gate_freshness':
-        'De lijst kan vóór het downloaden verzameld zijn. Kijk naar de verzameltijd om te bepalen hoe actueel de gegevens zijn.',
+        'De lijst kan ouder zijn dan het downloadtijdstip. Kijk naar de verzameltijd.',
     'gate_fetch_error': 'Serverlijst kon niet worden vernieuwd',
     "gate_select_again":
         "Deze configuratie is niet meer beschikbaar. Vernieuw en kies opnieuw.",
@@ -874,7 +873,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Kayıtlı sunucu listesi kullanılıyor',
     'gate_verified': 'İndirilen sunucu listesi denetlendi',
     'gate_freshness':
-        'Liste indirilmeden önce toplanmış olabilir. Güncelliğini değerlendirmek için toplanma zamanına bakın.',
+        'Liste, indirme zamanından daha eski olabilir. Toplanma zamanına bakın.',
     'gate_fetch_error': 'Sunucu listesi yenilenemedi',
     "gate_select_again":
         "Bu yapılandırma artık kullanılamıyor. Yenileyip tekrar seçin.",
@@ -964,7 +963,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Используется сохранённый список серверов',
     'gate_verified': 'Загрузка списка проверена',
     'gate_freshness':
-        'Список мог быть собран раньше, чем загружен. Оценивайте свежесть по времени сбора.',
+        'Список может быть старше времени загрузки. Проверьте время сбора.',
     'gate_fetch_error': 'Не удалось обновить список серверов',
     "gate_select_again":
         "Эта конфигурация недоступна. Обновите список и выберите заново.",
@@ -1057,7 +1056,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Gespeicherte Serverliste wird verwendet',
     'gate_verified': 'Download der Serverliste geprüft',
     'gate_freshness':
-        'Die Liste wurde möglicherweise schon vor dem Download erfasst. Prüfe ihr Alter anhand der Erfassungszeit.',
+        'Die Liste kann älter sein als ihr Download. Prüfen Sie die Erfassungszeit.',
     'gate_fetch_error': 'Serverliste konnte nicht aktualisiert werden',
     "gate_select_again":
         "Diese Konfiguration ist nicht mehr verfügbar. Aktualisieren und erneut auswählen.",
@@ -1148,7 +1147,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Memakai daftar server tersimpan',
     'gate_verified': 'Unduhan daftar server telah diperiksa',
     'gate_freshness':
-        'Daftar mungkin dikumpulkan sebelum diunduh. Gunakan waktu pengumpulan untuk menilai umur datanya.',
+        'Daftar bisa lebih lama dari waktu unduhnya. Periksa waktu pengumpulannya.',
     'gate_fetch_error': 'Daftar server tidak dapat diperbarui',
     "gate_select_again":
         "Konfigurasi ini tidak tersedia lagi. Segarkan dan pilih kembali.",
@@ -1239,7 +1238,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Uso dell’elenco di server salvato',
     'gate_verified': 'Download dell’elenco verificato',
     'gate_freshness':
-        'L’elenco potrebbe essere stato raccolto prima del download. Usa la data di raccolta per valutarne l’aggiornamento.',
+        'L’elenco potrebbe essere più vecchio della data di download. Controlla la data di raccolta.',
     'gate_fetch_error': 'Impossibile aggiornare l’elenco dei server',
     "gate_select_again":
         "Questa configurazione non è disponibile. Aggiorna e scegli di nuovo.",
@@ -1330,7 +1329,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Używana jest zapisana lista serwerów',
     'gate_verified': 'Pobranie listy serwerów sprawdzone',
     'gate_freshness':
-        'Lista mogła zostać zebrana przed pobraniem. Oceń aktualność danych według czasu zebrania.',
+        'Lista może być starsza niż czas pobrania. Sprawdź czas zebrania.',
     'gate_fetch_error': 'Nie udało się odświeżyć listy serwerów',
     "gate_select_again":
         "Ta konfiguracja jest niedostępna. Odśwież i wybierz ponownie.",
@@ -1421,7 +1420,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Використовується збережений список серверів',
     'gate_verified': 'Завантаження списку серверів перевірено',
     'gate_freshness':
-        'Список міг бути зібраний раніше, ніж завантажений. Оцінюйте його актуальність за часом збирання.',
+        'Список може бути старшим за час завантаження. Перевірте час збирання.',
     'gate_fetch_error': 'Не вдалося оновити список серверів',
     "gate_select_again":
         "Ця конфігурація недоступна. Оновіть список і виберіть знову.",
@@ -1512,7 +1511,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Đang dùng danh sách máy chủ đã lưu',
     'gate_verified': 'Đã kiểm tra việc tải danh sách máy chủ',
     'gate_freshness':
-        'Danh sách có thể được thu thập trước khi tải xuống. Hãy dựa vào thời điểm thu thập để đánh giá độ mới của dữ liệu.',
+        'Danh sách có thể cũ hơn thời điểm tải xuống. Hãy xem thời điểm thu thập.',
     'gate_fetch_error': 'Không thể làm mới danh sách máy chủ',
     "gate_select_again":
         "Cấu hình này không còn khả dụng. Hãy làm mới và chọn lại.",
@@ -1600,8 +1599,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_source": "URL แหล่งข้อมูล",
     'gate_cached': 'กำลังใช้รายการเซิร์ฟเวอร์ที่บันทึกไว้',
     'gate_verified': 'ตรวจสอบการดาวน์โหลดรายการเซิร์ฟเวอร์แล้ว',
-    'gate_freshness':
-        'รายการอาจรวบรวมไว้ก่อนดาวน์โหลด ให้ใช้เวลารวบรวมเพื่อพิจารณาว่าข้อมูลเก่าแค่ไหน',
+    'gate_freshness': 'รายการอาจเก่ากว่าเวลาดาวน์โหลด โปรดดูเวลารวบรวม',
     'gate_fetch_error': 'รีเฟรชรายการเซิร์ฟเวอร์ไม่ได้',
     "gate_select_again": "การกำหนดค่านี้ใช้ไม่ได้แล้ว โปรดรีเฟรชและเลือกใหม่",
     'gate_score': 'คะแนน',
@@ -1689,7 +1687,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'تُستخدم قائمة الخوادم المحفوظة',
     'gate_verified': 'تم فحص تنزيل قائمة الخوادم',
     'gate_freshness':
-        'قد تكون القائمة جُمعت قبل تنزيلها. استخدم وقت الجمع لتقدير مدى حداثتها.',
+        'قد تكون القائمة أقدم من وقت تنزيلها. تحقّق من وقت جمعها.',
     'gate_fetch_error': 'تعذّر تحديث قائمة الخوادم',
     "gate_select_again":
         "لم يعد هذا التكوين متاحًا. حدّث القائمة واختر مجددًا.",
@@ -1779,7 +1777,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'فهرست ذخیره‌شدهٔ سرورها در حال استفاده است',
     'gate_verified': 'بارگیری فهرست سرورها بررسی شد',
     'gate_freshness':
-        'ممکن است فهرست پیش از بارگیری گردآوری شده باشد. برای سنجش تازگی آن، زمان گردآوری را ببینید.',
+        'ممکن است فهرست قدیمی‌تر از زمان بارگیری‌اش باشد. زمان گردآوری آن را بررسی کنید.',
     'gate_fetch_error': 'فهرست سرورها تازه‌سازی نشد',
     "gate_select_again":
         "این پیکربندی دیگر در دسترس نیست. تازه‌سازی کنید و دوباره انتخاب کنید.",
@@ -1864,7 +1862,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_source": "來源網址",
     'gate_cached': '正在使用已儲存的伺服器清單',
     'gate_verified': '已檢查伺服器清單下載結果',
-    'gate_freshness': '清單可能在下載前就已收集。請依收集時間判斷資料是否過時。',
+    'gate_freshness': '清單內容可能比下載時間更舊，請參考收集時間。',
     'gate_fetch_error': '無法重新整理伺服器清單',
     "gate_select_again": "此設定已失效，請重新整理並再次選擇。",
     'gate_score': '評分',

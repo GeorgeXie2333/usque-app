@@ -225,12 +225,12 @@ both **Always-on VPN** and **Block connections without VPN**.
 For automatic startup after reboot, also enable **Start Usque when you sign in**
 under System integration and **Connect the current account automatically on
 start** for the active account. On Android this switch's description reads
-**Start Usque after reboot. Also enable automatic connect on start.** Windows
+**Start Usque after the device restarts. To connect automatically, also turn on “Connect the current account automatically on start”.** Windows
 shows the same switch title, which starts Usque when you sign in to Windows.
 
 ### Per-app proxy
 
-This setting is shared across accounts and applies only while VPN output is on.
+This setting is shared across accounts and takes effect when the VPN is on.
 When off, every app uses the VPN. When on, only checked apps use it; newly
 installed apps must be selected. **Select all** checks the apps currently shown
 and does not disable the filter. Usque itself is not listed.

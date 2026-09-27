@@ -120,7 +120,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'delete': 'حذف',
   'delete_profile': 'إزالة الحساب؟',
   'delete_profile_body':
-      "هل تريد إزالة هذا الحساب وبيانات تسجيل الدخول إلى WARP المحفوظة على هذا الجهاز؟ ستتم أيضاً محاولة إلغاء ربط الترخيص إن كان ذلك منطبقاً.",
+      "هل تريد إزالة هذا الحساب وبيانات تسجيل الدخول إلى WARP الخاصة به من هذا الجهاز؟ إذا كان License Key مربوطًا، فسيحاول Usque أيضًا إلغاء ربطه.",
   'delete_zero_trust_profile_body':
       'سيُحذف هذا الحساب ومعلومات دخوله من هذا الجهاز. لإلغاء تسجيل الجهاز في Zero Trust لدى المؤسسة، تواصل مع المسؤول.',
   'license_not_applicable': 'حساب مؤسسة · تجريبي',
@@ -219,17 +219,17 @@ const Map<String, String> kArCatalog = <String, String>{
   'update_downloading': 'جارٍ تنزيل التحديث…',
   'update_verifying': 'جارٍ التحقق من حزمة التحديث…',
   'update_ready': 'التحديث جاهز للتثبيت.',
-  'update_installing': 'تم تسليم التحديث إلى مُثبّت النظام.',
+  'update_installing': 'بدأ مُثبّت النظام.',
   'update_restart_install': 'إعادة التشغيل والتحديث',
   'update_install_android': 'تثبيت التحديث',
   'update_confirm_title': 'تثبيت هذا التحديث؟',
   'update_confirm_body': 'ستنقطع اتصالات VPN والوكيل مؤقتًا أثناء التثبيت.',
   'update_package_unavailable':
-      'لا توجد حزمة موثقة لهذا الجهاز. افتح صفحة الإصدار.',
+      'لا يتوفر مُثبّت لهذا الجهاز. نزّله من صفحة الإصدار.',
   'notice': 'اكتمل',
   'identity': 'حساب WARP',
   'identity_and_license': 'الحساب والترخيص',
-  'license_cleanup_pending': 'تسجيل جهاز WARP قديم بانتظار الإزالة.',
+  'license_cleanup_pending': 'لم تتم إزالة تسجيل جهاز WARP القديم بعد.',
   'copy_license': 'نسخ License Key',
   'change_license': 'تغيير License Key',
   'unbind_license': 'العودة إلى WARP المجاني',
@@ -272,9 +272,9 @@ const Map<String, String> kArCatalog = <String, String>{
   'kill_switch_help_android':
       'يمنع حركة البيانات أثناء الاتصال أو إعادة الاتصال، أو عند تعطل خدمة الاتصال. يعمل هذا فقط أثناء تشغيل خدمة VPN. لاستمرار الحماية بعد توقف Usque، فعّل «VPN دائم التشغيل» و«حظر الاتصالات دون VPN» في إعدادات النظام.',
   'start_on_boot_android':
-      'تشغيل Usque بعد إعادة التشغيل. فعّل أيضًا الاتصال التلقائي عند البدء.',
+      'يشغّل Usque بعد إعادة تشغيل الجهاز. للاتصال تلقائيًا، فعّل أيضًا «الاتصال بالحساب الحالي تلقائيًا عند البدء».',
   'add_quick_settings_tile_help':
-      'ثبّت بلاطة Usque على Android 13 أو أحدث. في الإصدارات الأقدم أضفها من الإعدادات السريعة.',
+      'أضف بلاطة Usque على Android 13 أو أحدث. في الإصدارات الأقدم، أضفها يدويًا من الإعدادات السريعة.',
   'always_on_vpn': 'فتح إعدادات VPN دائم التشغيل',
   'always_on_vpn_help':
       'فعّل VPN دائم التشغيل وحظر الاتصالات دون VPN للحماية من التسريب بعد إنهاء التطبيق.',
@@ -287,7 +287,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'إذا كان VPN دائم التشغيل وحظر الاتصالات دون VPN مفعَّلين، تُحظر التطبيقات التي لا تحددها، ولا تُرسل خارج النفق.',
   'per_app_proxy_tunnel_hint':
-      'يُطبَّق هذا في المرة التالية التي يكون فيها مخرج VPN قيد التشغيل. وضع SOCKS5/HTTP فقط لا يصفّي التطبيقات.',
+      'يسري عند تشغيل VPN. لا يصفّي وكيلا SOCKS5 وHTTP حسب التطبيق.',
   'per_app_search': 'البحث في التطبيقات',
   'per_app_show_system': 'إظهار تطبيقات النظام',
   'per_app_select_visible': 'تحديد الظاهر',
@@ -339,7 +339,7 @@ const Map<String, String> kArCatalog = <String, String>{
       'يلزم إذن النظام لتمرير حركة التطبيقات عبر VPN. وقد تتغير أيضًا إعدادات DNS أو مسارات الشبكة أو جدار الحماية أو وكيل النظام، حسب الوضع المحدد.',
   'terms_title': 'شروط Cloudflare',
   'terms_body':
-      'Usque عميل مستقل. يبقى استخدامك لـ Consumer WARP أو تسجيل Zero Trust التجريبي خاضعًا لشروط Cloudflare المعمول بها ولسياسة الخصوصية.',
+      'Usque عميل مستقل. يبقى استخدام WARP الشخصي أو تسجيل Zero Trust التجريبي خاضعًا لشروط Cloudflare وسياسة الخصوصية الخاصة بها.',
   'terms_accept': 'أفهم هذه الشروط وأقبلها.',
   'identity_title': 'إعداد حساب WARP شخصي',
   'register_new': 'إنشاء حساب WARP مجاني',
@@ -524,7 +524,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'استعادة المسارات غير مكتملة',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'استعادة DNS غير مكتملة',
   'diag_fail_SYSTEM_PROXY_STALE': 'لم تُنظَّف حالة وكيل النظام الخاصة بـ Usque',
-  'diag_fail_PLATFORM_RECOVERY_PENDING': 'في انتظار استعادة حالة شبكة المنصة',
+  'diag_fail_PLATFORM_RECOVERY_PENDING': 'لم تُستعد إعدادات شبكة النظام بعد',
   'diag_fail_PACKET_SEND_FAILED': 'فشل إرسال الرزمة',
   'diag_fail_PACKET_SEND_TIMEOUT': 'انتهت مهلة إرسال الرزمة',
   'diag_fail_PACKET_RECEIVE_FAILED': 'فشل استقبال الرزمة',
@@ -552,13 +552,13 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'في التشخيص، اختر «عميق» وابدأ الفحص. قد يرسل حركة اختبار، وقد تُتخطى بعض الفحوص أثناء الاتصال.',
   'diag_fix_run_release_leak_gate':
-      'صدّر للدعم حزمة تشخيص أُزيلت منها المعلومات الحساسة.',
+      'صدّر حزمة تشخيص وأرسلها إلى الدعم. تُزال المعلومات الحساسة.',
   'diag_fix_inspect_platform_state':
       'راجع الفحوص الفاشلة في قسم حماية النظام ضمن التشخيص. إذا استمرت المشكلة، فصدّر السجلات.',
   'diag_fix_generate_tunnel_traffic':
       'افتح صفحة ويب عبر اتصال Usque ثم أعد الفحص.',
   'diag_fix_export_diagnostics':
-      'صدّر للدعم حزمة تشخيص أُزيلت منها المعلومات الحساسة.',
+      'صدّر حزمة تشخيص وأرسلها إلى الدعم. تُزال المعلومات الحساسة.',
   'diag_fix_retry': 'حاول مجددًا بعد قليل.',
   'diag_fix_none': 'لا يلزم أي إجراء.',
   'diag_fix_default':
@@ -580,7 +580,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'بدأ مجس استرداد H3',
   'diag_event_recovery_probe_succeeded': 'نجح مجس استرداد H3',
   'diag_event_recovery_probe_failed': 'فشل مجس استرداد H3',
-  'diag_event_path_promoted': 'فُعّل المسار المرشح',
+  'diag_event_path_promoted': 'تم التبديل إلى مسار شبكة جديد',
   'diag_event_queue_backpressured': 'تكدّس في قائمة الإرسال',
   'diag_event_queue_saturated': 'بلغت قائمة الإرسال سعتها القصوى',
   'diag_event_disconnected': 'غير متصل',

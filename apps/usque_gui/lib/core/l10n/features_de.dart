@@ -317,7 +317,7 @@ const Map<String, String> kL4De = <String, String>{
   'l4_quic_not_ready': 'L4-Verbindung wird vorbereitet',
   'l4_unsupported_packets':
       'Nicht unterstützte oder fehlerhafte Pakete abgelehnt',
-  'l4_budget_rejections': 'Abgelehnte Ressourcenzulassungen',
+  'l4_budget_rejections': 'Wegen Ressourcenmangel abgelehnte Verbindungen',
   'l4_not_applicable': 'Nicht zutreffend (L4)',
   'l4_mode': 'L4 (experimentell)',
   'l4_transport_hint':
@@ -329,7 +329,7 @@ const Map<String, String> kL4De = <String, String>{
   'l4_sni_identity':
       'Wird vom Konto automatisch festgelegt. Der Servername anderer Verbindungsmodi bleibt erhalten.',
   'l4_edge_requires_l4':
-      'Am Rand aufgelöstes DNS erfordert L4. Wählen Sie vor dem Wechsel zu Auto, H3 oder H2 einen anderen Proxy-DNS-Modus.',
+      'Am Rand aufgelöstes DNS funktioniert nur mit L4. Wählen Sie einen anderen Proxy-DNS-Modus, bevor Sie zu Auto, HTTP/3 oder HTTP/2 wechseln.',
   'proxy_dns_edge_resolved': 'Cloudflare-Rand (nur L4; keine lokale Abfrage)',
   'l4_verified': 'L4 hat eine App-Verbindung hergestellt',
   'l4_unverified': 'Server verbunden; App-Verbindung noch nicht bestätigt',
@@ -337,7 +337,7 @@ const Map<String, String> kL4De = <String, String>{
   'l4_sessions': 'Sitzungen / Abbau',
   'l4_flows': 'Aktive / wartende Streams',
   'l4_connect': 'CONNECT Erfolg / Fehler / Zeitüberschreitung',
-  'l4_buffers': 'Verbrauchtes Anwendungspufferbudget (Byte)',
+  'l4_buffers': 'Puffernutzung (Byte)',
   'l4_backpressure': 'Sende- / Empfangsgegendruck',
   'l4_tun_flows': 'TUN-TCP / halboffen',
   'l4_udp': 'Abgelehnte UDP-Pakete',
@@ -345,7 +345,7 @@ const Map<String, String> kL4De = <String, String>{
   'l4_migration':
       'Durch Migration erhaltene / durch Neuaufbau beendete Streams',
   'l4_na':
-      'CONNECT-IP-Adresssteuerung, DATAGRAM-Warteschlangen, inneres Nutzlast-MTU und UDP-Timeout: in L4 nicht zutreffend.',
+      'Kennzahlen zu Adresszuweisung, Datagramm-Warteschlange, MTU und UDP-Timeout gelten im L4-Modus nicht.',
 };
 
 const Map<String, String> kNetworkSettingsDe = <String, String>{

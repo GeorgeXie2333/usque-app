@@ -310,7 +310,7 @@ const String kWindowsAdapterCleanupEs =
 const Map<String, String> kL4Es = <String, String>{
   'l4_quic_not_ready': 'Preparando conexión L4',
   'l4_unsupported_packets': 'Paquetes no compatibles o malformados rechazados',
-  'l4_budget_rejections': 'Admisiones de recursos rechazadas',
+  'l4_budget_rejections': 'Conexiones rechazadas por falta de recursos',
   'l4_not_applicable': 'No aplicable (L4)',
   'l4_mode': 'L4 (en fase experimental)',
   'l4_transport_hint':
@@ -322,7 +322,7 @@ const Map<String, String> kL4Es = <String, String>{
   'l4_sni_identity':
       'La cuenta lo configura automáticamente. Se conserva el nombre del servidor de los demás modos de conexión.',
   'l4_edge_requires_l4':
-      'El DNS resuelto en el borde requiere L4. Elija otro modo de DNS del proxy antes de pasar a Auto, H3 o H2.',
+      'El DNS resuelto en el borde solo funciona con L4. Elija otro modo de DNS del proxy antes de pasar a Auto, HTTP/3 o HTTP/2.',
   'proxy_dns_edge_resolved':
       'Borde de Cloudflare (solo L4; sin consulta local)',
   'l4_verified': 'L4 ha establecido una conexión de aplicación',
@@ -332,7 +332,7 @@ const Map<String, String> kL4Es = <String, String>{
   'l4_sessions': 'Sesiones / vaciado',
   'l4_flows': 'Flujos activos / en espera',
   'l4_connect': 'CONNECT aciertos / fallos / tiempos de espera',
-  'l4_buffers': 'Presupuesto de búfer de aplicación usado (bytes)',
+  'l4_buffers': 'Uso de búfer (bytes)',
   'l4_backpressure': 'Contrapresión de envío / recepción',
   'l4_tun_flows': 'TUN TCP / semiabierto',
   'l4_udp': 'Paquetes UDP rechazados',
@@ -340,7 +340,7 @@ const Map<String, String> kL4Es = <String, String>{
   'l4_migration':
       'Flujos conservados por migración / terminados por reconstrucción',
   'l4_na':
-      'Control de direcciones CONNECT-IP, colas DATAGRAM, MTU de carga interior y tiempo de espera UDP: no aplicable en L4.',
+      'Las métricas de asignación de direcciones, cola de datagramas, MTU y tiempo de espera UDP no se aplican en el modo L4.',
 };
 
 const Map<String, String> kNetworkSettingsEs = <String, String>{

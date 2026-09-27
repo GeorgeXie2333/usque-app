@@ -280,7 +280,7 @@ const String kWindowsAdapterCleanupVi =
 const Map<String, String> kL4Vi = <String, String>{
   'l4_quic_not_ready': 'Đang chuẩn bị kết nối L4',
   'l4_unsupported_packets': 'Đã từ chối gói không hỗ trợ hoặc sai định dạng',
-  'l4_budget_rejections': 'Số lần từ chối cấp tài nguyên',
+  'l4_budget_rejections': 'Kết nối bị từ chối do thiếu tài nguyên',
   'l4_not_applicable': 'Không áp dụng (L4)',
   'l4_mode': 'L4 (thử nghiệm)',
   'l4_transport_hint':
@@ -292,7 +292,7 @@ const Map<String, String> kL4Vi = <String, String>{
   'l4_sni_identity':
       'Tên máy chủ được tài khoản tự động đặt. Tên máy chủ đã lưu cho các chế độ kết nối khác vẫn được giữ lại.',
   'l4_edge_requires_l4':
-      'DNS phân giải ở biên yêu cầu L4. Hãy chọn chế độ DNS proxy khác trước khi chuyển sang Auto, H3 hoặc H2.',
+      'DNS phân giải ở biên chỉ hoạt động với L4. Hãy chọn chế độ DNS proxy khác trước khi chuyển sang Tự động, HTTP/3 hoặc HTTP/2.',
   'proxy_dns_edge_resolved': 'Biên Cloudflare (chỉ L4; không tra cứu cục bộ)',
   'l4_verified': 'Đã thiết lập kết nối ứng dụng qua L4',
   'l4_unverified': 'Đã kết nối máy chủ; chưa xác nhận kết nối ứng dụng',
@@ -300,14 +300,14 @@ const Map<String, String> kL4Vi = <String, String>{
   'l4_sessions': 'Phiên / đang xả',
   'l4_flows': 'Luồng đang chạy / đang chờ',
   'l4_connect': 'CONNECT thành công / thất bại / hết hạn',
-  'l4_buffers': 'Ngân sách bộ đệm ứng dụng đã dùng (byte)',
+  'l4_buffers': 'Bộ đệm đã dùng (byte)',
   'l4_backpressure': 'Áp lực ngược gửi / nhận',
   'l4_tun_flows': 'TUN TCP / nửa mở',
   'l4_udp': 'Gói UDP bị từ chối',
   'l4_dns': 'Chuyển DNS thành công / thất bại / hết hạn',
   'l4_migration': 'Luồng giữ nhờ chuyển đường / kết thúc do dựng lại',
   'l4_na':
-      'Điều khiển địa chỉ CONNECT-IP, hàng đợi DATAGRAM, MTU tải trọng trong và thời hạn UDP: không áp dụng ở L4.',
+      'Các chỉ số cấp phát địa chỉ, hàng đợi datagram, MTU và thời hạn UDP không áp dụng ở chế độ L4.',
 };
 
 const Map<String, String> kNetworkSettingsVi = <String, String>{

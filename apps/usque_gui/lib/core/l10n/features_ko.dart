@@ -263,7 +263,7 @@ const String kWindowsAdapterCleanupKo =
 const Map<String, String> kL4Ko = <String, String>{
   'l4_quic_not_ready': 'L4 연결 준비 중',
   'l4_unsupported_packets': '지원되지 않거나 잘못된 패킷을 거부함',
-  'l4_budget_rejections': '리소스 수락 거부 횟수',
+  'l4_budget_rejections': '리소스 부족으로 거부된 연결',
   'l4_not_applicable': '해당 없음(L4)',
   'l4_mode': 'L4(실험적)',
   'l4_transport_hint':
@@ -273,7 +273,7 @@ const Map<String, String> kL4Ko = <String, String>{
   'l4_unsupported': '이 Usque 버전은 L4를 사용할 수 없습니다. 설정에서 업데이트를 확인하세요.',
   'l4_sni_identity': '계정에서 자동으로 설정하므로 수정할 필요가 없습니다. 다른 연결 모드의 서버 이름은 유지됩니다.',
   'l4_edge_requires_l4':
-      '에지 확인 DNS는 L4 전용입니다. Auto, H3, H2로 바꾸기 전에 다른 프록시 DNS 모드를 선택하세요.',
+      '에지 확인 DNS는 L4 전용입니다. ‘자동’, HTTP/3, HTTP/2로 바꾸기 전에 다른 프록시 DNS 모드를 선택하세요.',
   'proxy_dns_edge_resolved': 'Cloudflare 에지(L4 전용, 로컬 조회 없음)',
   'l4_verified': 'L4에서 앱 연결에 성공한 적이 있습니다',
   'l4_unverified': '서버에 연결했지만 앱 연결 가능 여부는 아직 확인되지 않았습니다',
@@ -281,14 +281,13 @@ const Map<String, String> kL4Ko = <String, String>{
   'l4_sessions': '세션 / 종료 중',
   'l4_flows': '활성 / 대기 스트림',
   'l4_connect': 'CONNECT 성공 / 실패 / 시간 초과',
-  'l4_buffers': '앱 버퍼 예산 사용량(바이트)',
+  'l4_buffers': '버퍼 사용량(바이트)',
   'l4_backpressure': '송신 / 수신 배압',
   'l4_tun_flows': 'TUN TCP / 반열림',
   'l4_udp': '거부된 UDP 패킷',
   'l4_dns': 'DNS 변환 성공 / 실패 / 시간 초과',
   'l4_migration': '마이그레이션으로 유지된 스트림 / 재구축으로 종료된 스트림',
-  'l4_na':
-      'CONNECT-IP 주소 제어, DATAGRAM 대기열, 내부 페이로드 MTU, UDP 시간 초과는 L4에서 해당 없습니다.',
+  'l4_na': 'L4 모드에서는 주소 할당, 데이터그램 대기열, MTU, UDP 시간 초과 지표가 적용되지 않습니다.',
 };
 
 const Map<String, String> kNetworkSettingsKo = <String, String>{

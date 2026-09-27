@@ -275,7 +275,7 @@ const String kWindowsAdapterCleanupAr =
 const Map<String, String> kL4Ar = <String, String>{
   'l4_quic_not_ready': 'جارٍ تجهيز اتصال L4',
   'l4_unsupported_packets': 'رُفضت الحزم غير المدعومة أو التالفة',
-  'l4_budget_rejections': 'رفض قبول الموارد',
+  'l4_budget_rejections': 'اتصالات مرفوضة لنقص الموارد',
   'l4_not_applicable': 'غير منطبق (L4)',
   'l4_mode': 'L4 (تجريبي)',
   'l4_transport_hint':
@@ -286,7 +286,7 @@ const Map<String, String> kL4Ar = <String, String>{
   'l4_sni_identity':
       'يحدد الحساب اسم الخادم تلقائيًا. يُحتفظ باسم الخادم المحفوظ لأوضاع الاتصال الأخرى.',
   'l4_edge_requires_l4':
-      'يتطلب DNS المحلول عند الحافة وضع L4. اختر وضع DNS وكيل آخر قبل التبديل إلى Auto أو H3 أو H2.',
+      'يعمل DNS المحلول عند الحافة مع L4 فقط. اختر وضع DNS وكيل آخر قبل التبديل إلى «تلقائي» أو HTTP/3 أو HTTP/2.',
   'proxy_dns_edge_resolved': 'حافة Cloudflare (L4 فقط؛ بلا بحث محلي)',
   'l4_verified': 'تم إنشاء اتصال لتطبيق عبر L4',
   'l4_unverified': 'تم الاتصال بالخادم؛ لم يُؤكَّد اتصال التطبيق بعد',
@@ -294,14 +294,14 @@ const Map<String, String> kL4Ar = <String, String>{
   'l4_sessions': 'الجلسات / التفريغ',
   'l4_flows': 'التدفقات النشطة / المنتظرة',
   'l4_connect': 'نجاح / فشل / مهلة CONNECT',
-  'l4_buffers': 'ميزانية المخزن المؤقت للتطبيق المستخدمة (بايت)',
+  'l4_buffers': 'استخدام المخزن المؤقت (بايت)',
   'l4_backpressure': 'ضغط الإرسال / الاستقبال الخلفي',
   'l4_tun_flows': 'TUN TCP / شبه مفتوح',
   'l4_udp': 'حزم UDP المرفوضة',
   'l4_dns': 'تحويلات DNS نجاح / فشل / مهلة',
   'l4_migration': 'تدفقات حفظها الترحيل / أنهى إعادة البناء',
   'l4_na':
-      'التحكم في عنوان CONNECT-IP وطوابير DATAGRAM وMTU الحمولة الداخلية ومهلة UDP: غير منطبق في L4.',
+      'لا تنطبق مقاييس تخصيص العناوين وطابور مخططات البيانات وMTU ومهلة UDP في وضع L4.',
 };
 
 const Map<String, String> kNetworkSettingsAr = <String, String>{

@@ -305,7 +305,7 @@ const String kWindowsAdapterCleanupPt =
 const Map<String, String> kL4Pt = <String, String>{
   'l4_quic_not_ready': 'Preparando conexão L4',
   'l4_unsupported_packets': 'Pacotes incompatíveis ou malformados rejeitados',
-  'l4_budget_rejections': 'Admissões de recurso rejeitadas',
+  'l4_budget_rejections': 'Conexões rejeitadas por falta de recursos',
   'l4_not_applicable': 'Não aplicável (L4)',
   'l4_mode': 'L4 (em fase experimental)',
   'l4_transport_hint':
@@ -317,7 +317,7 @@ const Map<String, String> kL4Pt = <String, String>{
   'l4_sni_identity':
       'Definido automaticamente pela conta. O nome do servidor dos outros modos de conexão é mantido.',
   'l4_edge_requires_l4':
-      'O DNS resolvido na borda exige L4. Selecione outro modo de DNS do proxy antes de mudar para Auto, H3 ou H2.',
+      'O DNS resolvido na borda só funciona com L4. Selecione outro modo de DNS do proxy antes de mudar para Automático, HTTP/3 ou HTTP/2.',
   'proxy_dns_edge_resolved':
       'Borda Cloudflare (somente L4; sem consulta local)',
   'l4_verified': 'L4 já estabeleceu uma conexão de aplicativo',
@@ -328,7 +328,7 @@ const Map<String, String> kL4Pt = <String, String>{
   'l4_sessions': 'Sessões / esvaziamento',
   'l4_flows': 'Fluxos ativos / em espera',
   'l4_connect': 'CONNECT êxitos / falhas / tempos esgotados',
-  'l4_buffers': 'Orçamento de buffer do aplicativo usado (bytes)',
+  'l4_buffers': 'Uso de buffer (bytes)',
   'l4_backpressure': 'Contrapressão de envio / recebimento',
   'l4_tun_flows': 'TUN TCP / meio aberto',
   'l4_udp': 'Pacotes UDP rejeitados',
@@ -336,7 +336,7 @@ const Map<String, String> kL4Pt = <String, String>{
   'l4_migration':
       'Fluxos preservados pela migração / encerrados pela reconstrução',
   'l4_na':
-      'Controle de endereço CONNECT-IP, filas DATAGRAM, MTU da carga interna e tempo limite UDP: não aplicável no L4.',
+      'As métricas de atribuição de endereço, fila de datagramas, MTU e tempo limite UDP não se aplicam no modo L4.',
 };
 
 const Map<String, String> kNetworkSettingsPt = <String, String>{

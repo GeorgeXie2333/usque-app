@@ -114,7 +114,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'delete': '削除',
   'delete_profile': 'アカウントを削除しますか？',
   'delete_profile_body':
-      "このアカウントと端末に保存された WARP ログイン情報を削除しますか？該当する場合はライセンスの解除も試みます。",
+      "このアカウントと WARP ログイン情報をこの端末から削除しますか？License Key が紐付けられている場合は、その解除も試みます。",
   'delete_zero_trust_profile_body':
       'この端末のアカウントとログイン情報を削除します。組織の Zero Trust 管理画面にも端末記録が残るため、管理者に削除を依頼してください。',
   'license_not_applicable': '組織アカウント · 試験的',
@@ -211,16 +211,16 @@ const Map<String, String> kJaCatalog = <String, String>{
   'update_downloading': '更新をダウンロードしています…',
   'update_verifying': '更新パッケージを検証しています…',
   'update_ready': '更新をインストールできます。',
-  'update_installing': '更新をシステムインストーラーに渡しました。',
+  'update_installing': 'システムのインストーラーを起動しました。',
   'update_restart_install': '再起動して更新',
   'update_install_android': '更新をインストール',
   'update_confirm_title': 'この更新をインストールしますか？',
   'update_confirm_body': '更新のインストール中、VPN とプロキシ接続は一時的に切断されます。',
-  'update_package_unavailable': 'この端末用の検証済みパッケージがありません。リリースページを開いてください。',
+  'update_package_unavailable': 'この端末用のインストーラーがありません。リリースページからダウンロードしてください。',
   'notice': '完了',
   'identity': 'WARP アカウント',
   'identity_and_license': 'アカウントとライセンス',
-  'license_cleanup_pending': '古い WARP デバイス登録が削除を待っています。',
+  'license_cleanup_pending': '古い WARP デバイス登録はまだ削除されていません。',
   'copy_license': 'License Key をコピー',
   'change_license': 'License Key を変更',
   'unbind_license': 'WARP Free に戻す',
@@ -260,9 +260,10 @@ const Map<String, String> kJaCatalog = <String, String>{
   'kill_switch_help': '接続中、再接続中、または接続サービスの障害時に通信を遮断します。',
   'kill_switch_help_android':
       '接続中、再接続中、または接続サービスの障害時に通信を遮断します。VPN サービスの動作中のみ有効です。Usque の停止後も保護するには、システム設定で「常時オン VPN」と「VPN なしでは接続をブロック」を有効にしてください。',
-  'start_on_boot_android': '再起動後に Usque を起動します。起動時の自動接続も有効にしてください。',
+  'start_on_boot_android':
+      '端末の再起動後に Usque を起動します。自動で接続するには、「起動時に現在のアカウントへ自動接続」もオンにしてください。',
   'add_quick_settings_tile_help':
-      'Android 13 以降では Usque タイルをピン留めできます。旧バージョンではクイック設定から追加してください。',
+      'Android 13 以降では Usque タイルを追加できます。それ以前のバージョンでは、クイック設定から手動で追加してください。',
   'always_on_vpn': '常時オン VPN の設定を開く',
   'always_on_vpn_help':
       'アプリが強制終了された後の漏洩防止のため、常時オン VPN と「VPN なしでは接続をブロック」を有効にしてください。',
@@ -275,7 +276,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       '常時オン VPN と「VPN なしでは接続をブロック」がオンの場合、選択していないアプリはトンネルの外には送られず、ブロックされます。',
   'per_app_proxy_tunnel_hint':
-      'VPN 出力がオンになった次のタイミングで適用されます。SOCKS5/HTTP のみのモードではアプリをフィルタしません。',
+      'VPN がオンのときに有効です。SOCKS5 と HTTP プロキシはアプリごとに区別しません。',
   'per_app_search': 'アプリを検索',
   'per_app_show_system': 'システムアプリを表示',
   'per_app_select_visible': '表示中を選択',
@@ -324,7 +325,7 @@ const Map<String, String> kJaCatalog = <String, String>{
       'アプリの通信を VPN に通すため、システムの許可が必要です。接続モードに応じて DNS、ネットワーク経路、ファイアウォール保護、システムプロキシも設定します。',
   'terms_title': 'Cloudflare の利用規約',
   'terms_body':
-      'Usque は独立したクライアントです。Consumer WARP または試験的な Zero Trust 登録の利用は、引き続き Cloudflare の該当する利用規約とプライバシーポリシーの対象となります。',
+      'Usque は独立したクライアントです。個人向け WARP や試験的な Zero Trust 登録の利用には、引き続き Cloudflare の利用規約とプライバシーポリシーが適用されます。',
   'terms_accept': 'これらの条件を理解し、同意します。',
   'identity_title': '個人用 WARP アカウントを設定',
   'register_new': '無料の WARP アカウントを作成',
@@ -441,7 +442,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'diag_check_physical_ipv4_route': '物理 IPv4 ルート',
   'diag_check_physical_ipv6_route': '物理 IPv6 ルート',
   'diag_check_physical_dns_available': '物理 DNS',
-  'diag_check_physical_network_generation': '現在のネットワークの変化',
+  'diag_check_physical_network_generation': 'ネットワークの切り替え',
   'diag_check_transport_h3_connect': 'HTTP/3 接続',
   'diag_check_transport_h3_datagram': 'HTTP/3 データグラム',
   'diag_check_transport_h2_tcp': 'HTTP/2 TCP',
@@ -496,7 +497,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'ルートの復元が不完全です',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'DNS の復元が不完全です',
   'diag_fail_SYSTEM_PROXY_STALE': 'Usque のシステムプロキシ状態がクリーンアップされていません',
-  'diag_fail_PLATFORM_RECOVERY_PENDING': 'プラットフォームのネットワーク状態の復元待ちです',
+  'diag_fail_PLATFORM_RECOVERY_PENDING': 'システムのネットワーク設定が未復元',
   'diag_fail_PACKET_SEND_FAILED': 'パケット送信に失敗しました',
   'diag_fail_PACKET_SEND_TIMEOUT': 'パケット送信がタイムアウトしました',
   'diag_fail_PACKET_RECEIVE_FAILED': 'パケット受信に失敗しました',
@@ -521,11 +522,11 @@ const Map<String, String> kJaCatalog = <String, String>{
   'diag_fix_resolve_dependency': '一覧の失敗した検査を先に解決してから、再度診断してください。',
   'diag_fix_run_deep_diagnostics':
       '「診断」で「詳細」を選んで開始してください。テスト通信を行う場合があり、接続中は一部の検査を省略します。',
-  'diag_fix_run_release_leak_gate': '機密情報を削除した診断バンドルをサポート用にエクスポートしてください。',
+  'diag_fix_run_release_leak_gate': '診断バンドルをエクスポートしてサポートに送ってください。機密情報は削除されます。',
   'diag_fix_inspect_platform_state':
       '「診断」の「システム保護」で失敗した項目を確認してください。解決しない場合は診断パッケージを出力して相談してください。',
   'diag_fix_generate_tunnel_traffic': 'Usque 経由でウェブページを開いてから、再度検査してください。',
-  'diag_fix_export_diagnostics': '機密情報を削除した診断バンドルをサポート用にエクスポートしてください。',
+  'diag_fix_export_diagnostics': '診断バンドルをエクスポートしてサポートに送ってください。機密情報は削除されます。',
   'diag_fix_retry': 'しばらくしてから再試行してください。',
   'diag_fix_none': '操作は不要です。',
   'diag_fix_default': '再試行してください。解決しない場合は「診断」で診断パッケージを出力し、サポートに相談してください。',
@@ -546,7 +547,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'H3 復旧プローブを開始しました',
   'diag_event_recovery_probe_succeeded': 'H3 復旧プローブが成功しました',
   'diag_event_recovery_probe_failed': 'H3 復旧プローブが失敗しました',
-  'diag_event_path_promoted': '候補パスをアクティブにしました',
+  'diag_event_path_promoted': '新しいネットワーク経路に切り替えました',
   'diag_event_queue_backpressured': '送信キューが滞留',
   'diag_event_queue_saturated': '送信キューが容量に達しました',
   'diag_event_disconnected': '切断しました',

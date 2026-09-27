@@ -304,7 +304,7 @@ const String kWindowsAdapterCleanupUk =
 const Map<String, String> kL4Uk = <String, String>{
   'l4_quic_not_ready': 'Підготовка з’єднання L4',
   'l4_unsupported_packets': 'Відхилено непідтримувані або пошкоджені пакети',
-  'l4_budget_rejections': 'Відмови в допуску ресурсів',
+  'l4_budget_rejections': 'З’єднання, відхилені через брак ресурсів',
   'l4_not_applicable': 'Не застосовується (L4)',
   'l4_mode': 'L4 (експериментальний)',
   'l4_transport_hint':
@@ -315,7 +315,7 @@ const Map<String, String> kL4Uk = <String, String>{
   'l4_sni_identity':
       'Ім’я сервера автоматично задає обліковий запис. Ім’я, збережене для інших режимів з’єднання, залишається без змін.',
   'l4_edge_requires_l4':
-      'DNS, який розвʼязується на межі, потребує L4. Виберіть інший режим DNS проксі перед перемиканням на Auto, H3 або H2.',
+      'DNS із розвʼязанням на межі працює лише з L4. Перед перемиканням на «Авто», HTTP/3 або HTTP/2 виберіть інший режим DNS проксі.',
   'proxy_dns_edge_resolved': 'Межа Cloudflare (лише L4; без локального запиту)',
   'l4_verified': 'Через L4 установлено з’єднання програми',
   'l4_unverified':
@@ -324,14 +324,14 @@ const Map<String, String> kL4Uk = <String, String>{
   'l4_sessions': 'Сеанси / завершення',
   'l4_flows': 'Активні / очікувальні потоки',
   'l4_connect': 'CONNECT успіхи / збої / тайм-аути',
-  'l4_buffers': 'Використаний бюджет буфера програми (байти)',
+  'l4_buffers': 'Використання буфера (байти)',
   'l4_backpressure': 'Зворотний тиск надсилання / приймання',
   'l4_tun_flows': 'TUN TCP / напіввідкриті',
   'l4_udp': 'Відхилені пакети UDP',
   'l4_dns': 'Перетворення DNS успіхи / збої / тайм-аути',
   'l4_migration': 'Потоки, збережені міграцією / завершені перезбиранням',
   'l4_na':
-      'Керування адресою CONNECT-IP, черги DATAGRAM, MTU внутрішнього навантаження і тайм-аут UDP: у L4 не застосовується.',
+      'Показники призначення адрес, черги датаграм, MTU і тайм-ауту UDP у режимі L4 не застосовуються.',
 };
 
 const Map<String, String> kNetworkSettingsUk = <String, String>{

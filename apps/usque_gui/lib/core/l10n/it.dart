@@ -123,7 +123,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'delete': 'Elimina',
   'delete_profile': 'Rimuovere l’account?',
   'delete_profile_body':
-      "Rimuovere questo account e i dati di accesso WARP salvati sul dispositivo? Se applicabile, verrà anche tentato lo scollegamento della licenza.",
+      "Rimuovere questo account e i relativi dati di accesso WARP da questo dispositivo? Se è associata una License Key, Usque proverà anche a scollegarla.",
   'delete_zero_trust_profile_body':
       'Cancella l’account e i dati di accesso da questo dispositivo. Chiedi all’amministratore di rimuovere anche il dispositivo dal pannello Zero Trust dell’organizzazione.',
   'license_not_applicable': 'Account dell’organizzazione · Sperimentale',
@@ -226,19 +226,19 @@ const Map<String, String> kItCatalog = <String, String>{
   'update_verifying': 'Verifica del pacchetto di aggiornamento…',
   'update_ready': 'L’aggiornamento è pronto per l’installazione.',
   'update_installing':
-      'L’aggiornamento è stato affidato al programma di installazione di sistema.',
+      'Il programma di installazione di sistema è stato avviato.',
   'update_restart_install': 'Riavvia e aggiorna',
   'update_install_android': 'Installa aggiornamento',
   'update_confirm_title': 'Installare questo aggiornamento?',
   'update_confirm_body':
       'Le connessioni VPN e proxy verranno interrotte temporaneamente durante l’installazione.',
   'update_package_unavailable':
-      'Nessun pacchetto verificato per questo dispositivo. Apri la pagina della versione.',
+      'Nessun pacchetto di installazione disponibile per questo dispositivo. Scaricalo dalla pagina della versione.',
   'notice': 'Completato',
   'identity': 'Account WARP',
   'identity_and_license': 'Account e licenza',
   'license_cleanup_pending':
-      'Una vecchia registrazione del dispositivo WARP è in attesa di rimozione.',
+      'La vecchia registrazione del dispositivo WARP non è ancora stata rimossa.',
   'copy_license': 'Copia License Key',
   'change_license': 'Cambia License Key',
   'unbind_license': 'Torna a WARP Free',
@@ -281,9 +281,9 @@ const Map<String, String> kItCatalog = <String, String>{
   'kill_switch_help_android':
       'Blocca il traffico durante la connessione o la riconnessione, o in caso di errore del servizio di connessione. Funziona solo mentre il servizio VPN è attivo. Per restare protetto dopo l’arresto di Usque, attiva VPN sempre attiva e Blocca connessioni senza VPN nelle impostazioni di sistema.',
   'start_on_boot_android':
-      'Avvia Usque dopo il riavvio. Abilitare anche la connessione automatica all’avvio.',
+      'Avvia Usque dopo il riavvio del dispositivo. Per connetterti automaticamente, attiva anche “Connetti automaticamente l’account corrente all’avvio”.',
   'add_quick_settings_tile_help':
-      'Aggiungere il riquadro Usque su Android 13 o successivo. Nelle versioni precedenti, aggiungerlo da Impostazioni rapide.',
+      'Aggiungi il riquadro Usque su Android 13 o versioni successive. Nelle versioni precedenti, aggiungilo manualmente da Impostazioni rapide.',
   'always_on_vpn': 'Apri le impostazioni VPN sempre attiva',
   'always_on_vpn_help':
       'Abilitare VPN sempre attiva e Blocca le connessioni senza VPN per proteggersi dalle fughe dopo la chiusura dell’app.',
@@ -296,7 +296,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       'Se VPN sempre attiva e Blocca le connessioni senza VPN sono attive, le app non selezionate vengono bloccate, non inviate fuori dal tunnel.',
   'per_app_proxy_tunnel_hint':
-      'Si applica alla prossima attivazione dell’uscita VPN. La modalità solo SOCKS5/HTTP non filtra le app.',
+      'Ha effetto quando la VPN è attiva. I proxy SOCKS5 e HTTP non filtrano per app.',
   'per_app_search': 'Cerca app',
   'per_app_show_system': 'Mostra le app di sistema',
   'per_app_select_visible': 'Seleziona le app visibili',
@@ -349,7 +349,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Usque richiede il permesso di instradare il traffico delle app nella VPN. In base alla modalità, imposta anche DNS, percorsi di rete, protezione firewall o proxy di sistema.',
   'terms_title': 'Termini Cloudflare',
   'terms_body':
-      'Usque è un client indipendente. L’uso di Consumer WARP o della registrazione sperimentale Zero Trust resta soggetto ai termini applicabili e all’informativa sulla privacy di Cloudflare.',
+      'Usque è un client indipendente. L’uso di WARP personale o della registrazione sperimentale Zero Trust resta soggetto ai termini e all’informativa sulla privacy di Cloudflare.',
   'terms_accept': 'Ho compreso e accetto queste condizioni.',
   'identity_title': 'Configura account WARP personale',
   'register_new': 'Crea account WARP gratuito',
@@ -550,7 +550,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fail_SYSTEM_PROXY_STALE':
       'Stato del proxy di sistema di Usque non rimosso',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'In attesa del ripristino dello stato di rete della piattaforma',
+      'Impostazioni di rete di sistema non ancora ripristinate',
   'diag_fail_PACKET_SEND_FAILED': 'Invio pacchetto non riuscito',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Timeout invio pacchetto',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Ricezione pacchetto non riuscita',
@@ -579,13 +579,13 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'In Diagnostica scegli Approfondita e avvia i controlli. Possono inviare traffico di prova; alcuni vengono saltati durante la connessione.',
   'diag_fix_run_release_leak_gate':
-      'Esporta un pacchetto diagnostico privo di dati sensibili per il supporto.',
+      'Esporta un pacchetto diagnostico e invialo al supporto. Le informazioni sensibili vengono rimosse.',
   'diag_fix_inspect_platform_state':
       'In Diagnostica controlla gli errori in Protezione di sistema. Se persistono, esporta un pacchetto diagnostico per chiedere assistenza.',
   'diag_fix_generate_tunnel_traffic':
       'Apri una pagina web tramite Usque, poi ripeti questo controllo.',
   'diag_fix_export_diagnostics':
-      'Esporta un pacchetto diagnostico privo di dati sensibili per il supporto.',
+      'Esporta un pacchetto diagnostico e invialo al supporto. Le informazioni sensibili vengono rimosse.',
   'diag_fix_retry': 'Riprova tra poco.',
   'diag_fix_none': 'Nessuna azione richiesta.',
   'diag_fix_default':
@@ -607,7 +607,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_event_recovery_probe_started': 'Sonda di ripristino H3 avviata',
   'diag_event_recovery_probe_succeeded': 'Sonda di ripristino H3 riuscita',
   'diag_event_recovery_probe_failed': 'Sonda di ripristino H3 non riuscita',
-  'diag_event_path_promoted': 'Percorso candidato attivato',
+  'diag_event_path_promoted': 'Passato a un nuovo percorso di rete',
   'diag_event_queue_backpressured': 'Coda di invio congestionata',
   'diag_event_queue_saturated': 'La coda di invio ha raggiunto la capacità',
   'diag_event_disconnected': 'Disconnesso',

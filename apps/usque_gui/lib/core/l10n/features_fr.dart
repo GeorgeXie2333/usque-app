@@ -312,7 +312,7 @@ const String kWindowsAdapterCleanupFr =
 const Map<String, String> kL4Fr = <String, String>{
   'l4_quic_not_ready': 'Préparation de la connexion L4',
   'l4_unsupported_packets': 'Paquets non pris en charge ou mal formés rejetés',
-  'l4_budget_rejections': 'Admissions de ressources refusées',
+  'l4_budget_rejections': 'Connexions refusées faute de ressources',
   'l4_not_applicable': 'Sans objet (L4)',
   'l4_mode': 'L4 (expérimental)',
   'l4_transport_hint':
@@ -324,7 +324,7 @@ const Map<String, String> kL4Fr = <String, String>{
   'l4_sni_identity':
       'Défini automatiquement par le compte. Le nom de serveur des autres modes de connexion est conservé.',
   'l4_edge_requires_l4':
-      'Le DNS résolu en bordure exige L4. Choisissez un autre mode DNS proxy avant de passer à Auto, H3 ou H2.',
+      'Le DNS résolu en bordure fonctionne uniquement avec L4. Choisissez un autre mode DNS proxy avant de passer à Auto, HTTP/3 ou HTTP/2.',
   'proxy_dns_edge_resolved':
       'Bordure Cloudflare (L4 uniquement ; pas de requête locale)',
   'l4_verified': 'L4 a réussi à établir une connexion d’application',
@@ -334,14 +334,14 @@ const Map<String, String> kL4Fr = <String, String>{
   'l4_sessions': 'Sessions / vidage',
   'l4_flows': 'Flux actifs / en attente',
   'l4_connect': 'CONNECT réussites / échecs / délais dépassés',
-  'l4_buffers': 'Budget de tampon applicatif utilisé (octets)',
+  'l4_buffers': 'Utilisation des tampons (octets)',
   'l4_backpressure': 'Contre-pression d’envoi / de réception',
   'l4_tun_flows': 'TUN TCP / semi-ouvert',
   'l4_udp': 'Paquets UDP rejetés',
   'l4_dns': 'Conversions DNS réussites / échecs / délais dépassés',
   'l4_migration': 'Flux conservés par migration / terminés par reconstruction',
   'l4_na':
-      'Contrôle d’adresse CONNECT-IP, files DATAGRAM, MTU de charge utile interne et délai UDP : sans objet en L4.',
+      'Les indicateurs d’attribution d’adresses, de file de datagrammes, de MTU et de délai UDP ne s’appliquent pas en mode L4.',
 };
 
 const Map<String, String> kNetworkSettingsFr = <String, String>{

@@ -286,7 +286,7 @@ const String kWindowsAdapterCleanupTr =
 const Map<String, String> kL4Tr = <String, String>{
   'l4_quic_not_ready': 'L4 bağlantısı hazırlanıyor',
   'l4_unsupported_packets': 'Desteklenmeyen veya bozuk paketler reddedildi',
-  'l4_budget_rejections': 'Kaynak kabulleri reddedildi',
+  'l4_budget_rejections': 'Kaynak yetersizliğinden reddedilen bağlantılar',
   'l4_not_applicable': 'Uygulanamaz (L4)',
   'l4_mode': 'L4 (deneysel)',
   'l4_transport_hint':
@@ -298,7 +298,7 @@ const Map<String, String> kL4Tr = <String, String>{
   'l4_sni_identity':
       'Sunucu adı hesap tarafından otomatik belirlenir. Diğer bağlantı modları için kaydedilen sunucu adı korunur.',
   'l4_edge_requires_l4':
-      'Kenarda çözülen DNS L4 gerektirir. Auto, H3 veya H2’ye geçmeden önce başka bir vekil DNS kipi seçin.',
+      'Kenarda çözümlenen DNS yalnızca L4 ile çalışır. “Otomatik”, HTTP/3 veya HTTP/2’ye geçmeden önce başka bir proxy DNS modu seçin.',
   'proxy_dns_edge_resolved': 'Cloudflare kenarı (yalnızca L4; yerel arama yok)',
   'l4_verified': 'L4 üzerinden bir uygulama bağlantısı kuruldu',
   'l4_unverified':
@@ -307,14 +307,14 @@ const Map<String, String> kL4Tr = <String, String>{
   'l4_sessions': 'Oturumlar / boşaltma',
   'l4_flows': 'Etkin / bekleyen akışlar',
   'l4_connect': 'CONNECT başarı / hata / zaman aşımı',
-  'l4_buffers': 'Kullanılan uygulama tampon bütçesi (bayt)',
+  'l4_buffers': 'Tampon kullanımı (bayt)',
   'l4_backpressure': 'Gönderme / alma geri basıncı',
   'l4_tun_flows': 'TUN TCP / yarı açık',
   'l4_udp': 'Reddedilen UDP paketleri',
   'l4_dns': 'DNS dönüşümleri başarı / hata / zaman aşımı',
   'l4_migration': 'Göçle korunan / yeniden kurulumla biten akışlar',
   'l4_na':
-      'CONNECT-IP adres denetimi, DATAGRAM kuyrukları, iç yük MTU’su ve UDP zaman aşımı: L4’te uygulanamaz.',
+      'Adres atama, datagram kuyruğu, MTU ve UDP zaman aşımı ölçümleri L4 modunda geçerli değildir.',
 };
 
 const Map<String, String> kNetworkSettingsTr = <String, String>{

@@ -243,7 +243,7 @@ const String kWindowsAdapterCleanupZhTw =
 const Map<String, String> kL4ZhTw = <String, String>{
   'l4_quic_not_ready': '正在準備 L4 連線',
   'l4_unsupported_packets': '已拒絕不支援或格式錯誤的封包',
-  'l4_budget_rejections': '資源准入拒絕次數',
+  'l4_budget_rejections': '因資源不足而拒絕的連線',
   'l4_not_applicable': '不適用（L4）',
   'l4_mode': 'L4（實驗性）',
   'l4_transport_hint': '僅支援 TCP，需要 UDP 的應用程式可能無法使用。自動模式不包含 L4。',
@@ -251,7 +251,8 @@ const Map<String, String> kL4ZhTw = <String, String>{
       'L4 透過 HTTP/3 傳輸 TCP 流量，可用於 VPN、SOCKS5 和 HTTP 代理。VPN 的 DNS 查詢會轉成 TCP。不支援其他 UDP 流量、遠端 Ping、IP 分片或延伸標頭，因此部分應用程式可能無法使用。',
   'l4_unsupported': '此版本不支援 L4，請在「設定」中更新 Usque。',
   'l4_sni_identity': '伺服器名稱由帳號自動設定。其他連線模式儲存的伺服器名稱會保留。',
-  'l4_edge_requires_l4': '邊緣解析 DNS 僅適用於 L4。切換 Auto、H3 或 H2 前，請先選擇其他代理 DNS 模式。',
+  'l4_edge_requires_l4':
+      '邊緣解析 DNS 僅適用於 L4。切換到「自動」、HTTP/3 或 HTTP/2 前，請先選擇其他代理 DNS 模式。',
   'proxy_dns_edge_resolved': 'Cloudflare 邊緣解析（僅 L4，不在本機解析）',
   'l4_verified': '已透過 L4 建立應用程式連線',
   'l4_unverified': '已連上伺服器，尚未確認應用程式連線',
@@ -259,13 +260,13 @@ const Map<String, String> kL4ZhTw = <String, String>{
   'l4_sessions': '工作階段／排空中',
   'l4_flows': '作用中／等待中的串流',
   'l4_connect': 'CONNECT 成功／失敗／逾時',
-  'l4_buffers': '應用程式緩衝預算用量（位元組）',
+  'l4_buffers': '緩衝區使用量（位元組）',
   'l4_backpressure': '傳送／接收背壓',
   'l4_tun_flows': 'TUN TCP／半開連線',
   'l4_udp': '已拒絕的 UDP 封包',
   'l4_dns': 'DNS 轉換成功／失敗／逾時',
   'l4_migration': '遷移保留的串流／重建終止的串流',
-  'l4_na': 'CONNECT-IP 位址控制、DATAGRAM 佇列、內層承載 MTU 與 UDP 逾時：在 L4 下不適用。',
+  'l4_na': 'L4 模式不提供位址分配、資料報佇列、MTU 與 UDP 逾時指標。',
 };
 
 const Map<String, String> kNetworkSettingsZhTw = <String, String>{
