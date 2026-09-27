@@ -213,6 +213,19 @@ WireGuard 首版支持标准单 Peer 和部分 AllowedIPs；范围之外的代�
 
 ## DNS, MTU and failures / DNS、MTU 与故障
 
+On Android, a physical-network change during an established chain connection
+rebuilds the whole chain after native cleanup is confirmed. The existing VPN
+interface remains blocking until the replacement final network is attached.
+Recovery waits while no usable physical network is selected and coalesces rapid
+changes. Disconnect cancels recovery. Authentication, certificate, configuration
+and unconfirmed-cleanup failures still stop the connection; ordinary WARP mode
+keeps its existing native migration/reconnect behavior.
+
+Android 上已建立的链式连接遇到物理网络变化时，会在确认原生实例清理完成后
+重建整条链。新出口网络接管前保留用于阻断流量的 VPN 接口；没有可用物理网络
+时等待恢复，连续变化会合并处理。主动断开会取消恢复。认证、证书、配置错误
+或清理未确认仍停止连接；普通 WARP 模式保留原有原生迁移和重连行为。
+
 Endpoint names resolve inside the current WARP session. Protocol UDP uses the
 private WARP network stack, bypassing the business-traffic “disable QUIC” filter.
 Neither protocol opens a physical socket to its VPN server.
