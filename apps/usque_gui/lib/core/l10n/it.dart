@@ -2,7 +2,7 @@
 const Map<String, String> kItCatalog = <String, String>{
   'disable_quic': "Disattiva QUIC",
   'disable_quic_help':
-      "Blocca UDP/443 tramite proxy o tunnel, inclusi gli altri protocolli su quella porta. Il traffico diretto GEO e la connessione HTTP/3 di Usque restano invariati. QUIC su altre porte rimane consentito. Si applica senza riconnettere.",
+      "Blocca il traffico UDP sulla porta 443 inoltrato da Usque, perlopiù QUIC, così le app passano a TCP. Il traffico diretto e la connessione di Usque non sono interessati. Ha effetto immediato.",
   'disable_quic_unsupported':
       'Il blocco di QUIC non è disponibile al momento. Riavvia Usque; se resta indisponibile, cerca aggiornamenti in Impostazioni.',
   'technical_details': 'Dettagli tecnici',
@@ -147,7 +147,8 @@ const Map<String, String> kItCatalog = <String, String>{
   'port': 'Porta',
   'remote_dns': 'Risolvi i nomi in remoto',
   'proxy_dns_mode': 'Risoluzione DNS del proxy',
-  'proxy_dns_subtitle': 'Dove i client SOCKS5 e HTTP risolvono i nomi.',
+  'proxy_dns_subtitle':
+      'Come i proxy SOCKS5 e HTTP risolvono i nomi di dominio.',
   'proxy_dns_remote': 'Remoto tramite il tunnel',
   'proxy_dns_configured': 'Server DNS personalizzati',
   'proxy_dns_system': 'DNS di sistema',
@@ -387,7 +388,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'geo_update_failed':
       'Alcune regole non sono state aggiornate ({current}). Controlla la rete e riprova.',
   'diagnostics_page_subtitle':
-      'Ispeziona connessione, protezione della piattaforma e stato di ripristino. I risultati restano sul dispositivo.',
+      'Verifica i problemi di connessione. I risultati restano su questo dispositivo.',
   'diag_refresh_timeline': 'Aggiorna cronologia',
   'diag_operation_failed': 'Operazione di diagnostica non riuscita',
   'diag_event_stream_degraded': 'Flusso eventi di diagnostica interrotto',
@@ -403,7 +404,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'L’archivio viene scritto solo nella posizione scelta e non viene mai caricato automaticamente.',
   'diag_run_title': 'Esegui diagnostica di rete',
   'diag_run_subtitle':
-      'I controlli standard leggono solo lo stato: non inviano traffico di prova né modificano impostazioni.',
+      'I controlli standard non inviano traffico né modificano le impostazioni.',
   'diag_mode_standard': 'Standard',
   'diag_mode_deep': 'Approfondita',
   'diag_deep_title': 'Informazioni sulla diagnostica approfondita',
@@ -424,9 +425,9 @@ const Map<String, String> kItCatalog = <String, String>{
       'Avvia la diagnosi per verificare la connessione.',
   'diag_timeline': 'Cronologia di connessione',
   'diag_timeline_subtitle':
-      'Vengono conservati solo i cambiamenti di stato più recenti; i contenuti dei pacchetti e gli indirizzi completi non vengono mai registrati.',
+      'Cambiamenti recenti dello stato della connessione.',
   'diag_logs_subtitle':
-      'Esporta la sessione, la cronologia, il riepilogo dello stato della piattaforma e i log privi di dati sensibili.',
+      'Esporta un pacchetto diagnostico privo di informazioni sensibili.',
   'diag_session_pending': 'In attesa',
   'diag_session_running': 'In esecuzione',
   'diag_session_cancelling': 'Annullamento',

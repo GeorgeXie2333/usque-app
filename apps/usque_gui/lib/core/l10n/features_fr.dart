@@ -2,8 +2,7 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowFr = <String, String>{
   'local_proxy_settings': 'Paramètres du proxy local',
-  'proxy_switches_hint':
-      'Les interrupteurs sont enregistrés automatiquement. Validez les modifications d’écoute et DNS avec Appliquer les modifications.',
+  'proxy_switches_hint': 'Les interrupteurs prennent effet immédiatement.',
   'cc_label': 'Contrôle de congestion HTTP/3',
   'cc_help': 'S’applique à votre prochaine connexion manuelle.',
   'cc_upgrade':
@@ -16,7 +15,7 @@ const Map<String, String> kUiWorkflowFr = <String, String>{
   'unsaved_changes': 'Modifications non appliquées',
   'changes_applied': 'Modifications appliquées',
   'changes_apply_hint':
-      'Les modifications ne prennent effet qu’après les avoir appliquées.',
+      'Les modifications prennent effet quand vous sélectionnez « Appliquer les modifications ».',
   'changes_failed':
       'Impossible d’appliquer les modifications. Vérifiez les valeurs '
       'enregistrées, puis réessayez.',
@@ -24,9 +23,7 @@ const Map<String, String> kUiWorkflowFr = <String, String>{
       'Vérifiez les champs mis en évidence avant d’appliquer les '
       'modifications.',
   'discard_changes_title': 'Abandonner les modifications non appliquées ?',
-  'discard_changes_body':
-      'Vos modifications n’ont pas été appliquées. Continuez à modifier pour '
-      'les enregistrer, ou abandonnez-les pour quitter.',
+  'discard_changes_body': 'Les modifications non appliquées seront perdues.',
   'keep_editing': 'Continuer la modification',
   'discard_changes': 'Abandonner les modifications',
   'invalid_port': 'Saisissez un port compris entre 1 et 65535.',
@@ -62,8 +59,6 @@ const Map<String, String> kUiWorkflowFr = <String, String>{
   'application_group': 'L’application',
   'proxy_settings_link':
       'Adresses des écouteurs, ports, authentification et DNS.',
-  'proxy_auth_separate':
-      'Utilisez Enregistrer le nom et le mot de passe ci-dessous pour appliquer ces modifications.',
   'reset_draft_hint':
       'Les valeurs par défaut seront chargées dans ce formulaire. Appliquez '
       'les modifications pour qu’elles prennent effet.',
@@ -128,12 +123,11 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
       'Reconnectez-vous pour appliquer la configuration enregistrée.',
   'nav_network_quality': 'Qualité',
   'network_quality': 'Qualité du réseau',
-  'nq_subtitle': 'Observez la connexion, pas seulement le débit.',
+  'nq_subtitle': 'Latence, perte de paquets et débit.',
   'nq_local_only': 'Mesures locales uniquement. Rien n’est envoyé.',
   'nq_doctor': 'Lancer le diagnostic réseau',
   'nq_doctor_help':
-      'Les contrôles standard ne lisent que l’état local. Ils n’ouvrent pas de '
-      'connexions externes et ne modifient pas vos paramètres.',
+      'Les contrôles standard n’envoient pas de trafic et ne modifient pas les paramètres.',
   'nq_live': 'En direct',
   'nq_stale': 'Lectures périmées',
   'nq_updated': 'Dernier échantillon',
@@ -183,7 +177,7 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
       'Il s’agit de la taille des paquets que le chemin réseau peut transporter. Usque la vérifie automatiquement pour réduire les pertes. Ce contrôle n’augmente pas la MTU du VPN définie dans Paramètres réseau avancés.',
   'nq_migration': 'Migration réseau',
   'nq_migration_help':
-      'Usque essaie de maintenir la connexion lors d’un changement de réseau, par exemple du Wi-Fi aux données mobiles. Les deux réseaux doivent utiliser la même version IP, IPv4 ou IPv6. Un seul réseau transporte le trafic à la fois ; leurs débits ne s’additionnent pas.',
+      'Usque essaie de maintenir la connexion lors d’un changement de réseau, par exemple du Wi-Fi aux données mobiles. Les deux réseaux doivent utiliser la même version IP, IPv4 ou IPv6.',
   'nq_attempts': 'Tentatives',
   'nq_successes': 'Réussies',
   'nq_failures': 'Échouées',
@@ -324,7 +318,7 @@ const Map<String, String> kL4Fr = <String, String>{
   'l4_transport_hint':
       'TCP uniquement. Les applications nécessitant UDP peuvent ne pas fonctionner. Le mode automatique exclut L4.',
   'l4_explanation':
-      'L4 transporte le trafic TCP via HTTP/3 et fonctionne avec le VPN et les proxys SOCKS5 et HTTP. Les requêtes DNS du VPN sont converties en TCP. Les applications ayant besoin d’autres flux UDP, de Ping distant, de fragments IP ou d’en-têtes d’extension peuvent ne pas fonctionner. Choisissez L4 manuellement ; le mode automatique ne le sélectionne pas.',
+      'L4 transporte le trafic TCP via HTTP/3 et fonctionne avec le VPN et les proxys SOCKS5 et HTTP. Les requêtes DNS du VPN sont converties en TCP. Les applications ayant besoin d’autres flux UDP, de Ping distant, de fragments IP ou d’en-têtes d’extension peuvent ne pas fonctionner.',
   'l4_unsupported':
       'L4 n’est pas disponible dans cette version d’Usque. Recherchez une mise à jour dans Paramètres.',
   'l4_sni_identity':

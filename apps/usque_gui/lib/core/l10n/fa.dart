@@ -2,7 +2,7 @@
 const Map<String, String> kFaCatalog = <String, String>{
   'disable_quic': "غیرفعال کردن QUIC",
   'disable_quic_help':
-      "ترافیک UDP/443 از پراکسی یا تونل، از جمله پروتکل‌های دیگر روی این درگاه را مسدود می‌کند. ترافیک مستقیم GEO و اتصال HTTP/3 خود Usque تغییری نمی‌کند. QUIC روی درگاه‌های دیگر مجاز است. بدون اتصال مجدد اعمال می‌شود.",
+      "ترافیک UDP 443 عبوری از Usque (بیشتر QUIC) را مسدود می‌کند تا برنامه‌ها به TCP برگردند. ترافیک مستقیم و اتصال خود Usque تغییری نمی‌کند. بلافاصله اعمال می‌شود.",
   'disable_quic_unsupported':
       'مسدودسازی QUIC در حال حاضر در دسترس نیست. Usque را دوباره راه‌اندازی کنید؛ اگر همچنان در دسترس نبود، در تنظیمات به‌روزرسانی‌ها را بررسی کنید.',
   'technical_details': 'جزئیات فنی',
@@ -144,7 +144,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'port': 'پورت',
   'remote_dns': 'حل نام از راه دور',
   'proxy_dns_mode': 'حل DNS پروکسی',
-  'proxy_dns_subtitle': 'کلاینت‌های SOCKS5 و HTTP نام‌ها را کجا حل می‌کنند.',
+  'proxy_dns_subtitle': 'نحوهٔ حل نام دامنه در پراکسی‌های SOCKS5 و HTTP.',
   'proxy_dns_remote': 'از راه دور از طریق تونل',
   'proxy_dns_configured': 'سرورهای DNS سفارشی',
   'proxy_dns_system': 'DNS سیستم',
@@ -381,7 +381,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'geo_update_failed':
       'برخی قوانین به‌روز نشدند ({current}). اتصال شبکه را بررسی کنید و دوباره تلاش کنید.',
   'diagnostics_page_subtitle':
-      'اتصال، حفاظت بستر و وضعیت بازیابی را بررسی کنید. نتایج فقط روی این دستگاه می‌ماند.',
+      'مشکلات اتصال را بررسی کنید. نتایج فقط روی این دستگاه می‌ماند.',
   'diag_refresh_timeline': 'بازخوانی خط زمانی',
   'diag_operation_failed': 'عملیات تشخیص ناموفق بود',
   'diag_event_stream_degraded': 'جریان رویداد تشخیص قطع شد',
@@ -396,7 +396,7 @@ const Map<String, String> kFaCatalog = <String, String>{
       'بایگانی فقط در مکانی که انتخاب می‌کنید نوشته می‌شود و هرگز به‌طور خودکار بارگذاری نمی‌شود.',
   'diag_run_title': 'اجرای تشخیص شبکه',
   'diag_run_subtitle':
-      'بررسی استاندارد فقط وضعیت را می‌خواند؛ ترافیک آزمایشی نمی‌فرستد و تنظیمات را تغییر نمی‌دهد.',
+      'بررسی‌های استاندارد ترافیکی نمی‌فرستند و تنظیمات را تغییر نمی‌دهند.',
   'diag_mode_standard': 'استاندارد',
   'diag_mode_deep': 'عمیق',
   'diag_deep_title': 'درباره تشخیص عمیق',
@@ -415,10 +415,8 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_check_results': 'نتایج بررسی',
   'diag_check_results_empty': 'برای بررسی اتصال، عیب‌یابی را شروع کنید.',
   'diag_timeline': 'خط زمانی اتصال',
-  'diag_timeline_subtitle':
-      'فقط تغییرهای اخیر وضعیت نگه داشته می‌شوند؛ محتوای بسته‌ها و نشانی‌های کامل هرگز ثبت نمی‌شوند.',
-  'diag_logs_subtitle':
-      'نشست، خط زمانی، خلاصهٔ سلامت بستر و گزارش‌هایی را که اطلاعات حساسشان حذف شده است صادر کنید.',
+  'diag_timeline_subtitle': 'تغییرهای اخیر وضعیت اتصال.',
+  'diag_logs_subtitle': 'بستهٔ عیب‌یابی را با حذف اطلاعات حساس صادر کنید.',
   'diag_session_pending': 'در انتظار',
   'diag_session_running': 'در حال اجرا',
   'diag_session_cancelling': 'در حال لغو',

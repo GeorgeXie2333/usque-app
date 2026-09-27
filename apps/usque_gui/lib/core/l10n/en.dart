@@ -2,7 +2,7 @@
 const Map<String, String> kEnCatalog = <String, String>{
   'disable_quic': "Disable QUIC",
   'disable_quic_help':
-      "Block UDP/443 through the proxy or tunnel, including other protocols on that port. GEO direct traffic and Usque’s HTTP/3 connection are unaffected. QUIC on other ports is allowed. Applies without reconnecting.",
+      "Block UDP port 443 traffic forwarded by Usque, mostly QUIC, so apps fall back to TCP. Direct traffic and Usque’s own connection are unaffected. Takes effect immediately.",
   'disable_quic_unsupported':
       'QUIC blocking is unavailable right now. Restart Usque; if it is still unavailable, check for updates in Settings.',
   'technical_details': 'Technical details',
@@ -142,7 +142,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'port': 'Port',
   'remote_dns': 'Resolve names remotely',
   'proxy_dns_mode': 'Proxy DNS resolution',
-  'proxy_dns_subtitle': 'Where SOCKS5 and HTTP clients resolve names.',
+  'proxy_dns_subtitle': 'How SOCKS5 and HTTP proxies resolve domain names.',
   'proxy_dns_remote': 'Remote through tunnel',
   'proxy_dns_configured': 'Custom DNS servers',
   'proxy_dns_system': 'System DNS',
@@ -378,7 +378,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'geo_update_failed':
       'Some rules could not be updated ({current}). Check your network and try again.',
   'diagnostics_page_subtitle':
-      'Inspect connection, platform protection, and recovery state. Results remain local.',
+      'Check connection problems. Results stay on this device.',
   'diag_refresh_timeline': 'Refresh timeline',
   'diag_operation_failed': 'Diagnostics operation failed',
   'diag_event_stream_degraded': 'Diagnostics event stream interrupted',
@@ -393,7 +393,7 @@ const Map<String, String> kEnCatalog = <String, String>{
       'The archive is written only to the location you choose and is never uploaded automatically.',
   'diag_run_title': 'Run network diagnostics',
   'diag_run_subtitle':
-      'Standard checks read connection status without sending test traffic or changing settings.',
+      'Standard checks do not send traffic or change settings.',
   'diag_mode_standard': 'Standard',
   'diag_mode_deep': 'Deep',
   'diag_deep_title': 'About deep diagnostics',
@@ -412,10 +412,9 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_check_results': 'Check results',
   'diag_check_results_empty': 'Start diagnostics to check your connection.',
   'diag_timeline': 'Connection timeline',
-  'diag_timeline_subtitle':
-      'Only recent state changes are kept; packet contents and full addresses are never recorded.',
+  'diag_timeline_subtitle': 'Recent connection state changes.',
   'diag_logs_subtitle':
-      'Export the session, timeline, platform-health summary, and logs with sensitive information removed.',
+      'Export a diagnostic bundle with sensitive information removed.',
   'diag_session_pending': 'Pending',
   'diag_session_running': 'Running',
   'diag_session_cancelling': 'Cancelling',

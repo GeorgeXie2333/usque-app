@@ -2,7 +2,7 @@
 const Map<String, String> kPlCatalog = <String, String>{
   'disable_quic': "Wyłącz QUIC",
   'disable_quic_help':
-      "Blokuje UDP/443 przez serwer proxy lub tunel, także inne protokoły na tym porcie. Ruch bezpośredni GEO i połączenie HTTP/3 Usque pozostają bez zmian. QUIC na innych portach jest dozwolony. Stosowanie bez ponownego łączenia.",
+      "Blokuje przekazywany przez Usque ruch UDP 443, głównie QUIC, aby aplikacje przeszły na TCP. Ruch bezpośredni i własne połączenie Usque pozostają bez zmian. Działa od razu.",
   'disable_quic_unsupported':
       'Blokowanie QUIC jest teraz niedostępne. Uruchom ponownie Usque; jeśli nadal jest niedostępne, sprawdź aktualizacje w Ustawieniach.',
   'technical_details': 'Szczegóły techniczne',
@@ -144,7 +144,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'port': 'Port',
   'remote_dns': 'Rozwiązuj nazwy zdalnie',
   'proxy_dns_mode': 'Rozwiązywanie DNS przez proxy',
-  'proxy_dns_subtitle': 'Gdzie klienci SOCKS5 i HTTP rozwiązują nazwy.',
+  'proxy_dns_subtitle': 'Jak proxy SOCKS5 i HTTP rozwiązują nazwy domen.',
   'proxy_dns_remote': 'Zdalnie przez tunel',
   'proxy_dns_configured': 'Niestandardowe serwery DNS',
   'proxy_dns_system': 'Systemowy DNS',
@@ -383,7 +383,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'geo_update_failed':
       'Niektórych reguł nie udało się zaktualizować ({current}). Sprawdź sieć i spróbuj ponownie.',
   'diagnostics_page_subtitle':
-      'Sprawdź połączenie, ochronę platformy i stan odzyskiwania. Wyniki pozostają lokalne.',
+      'Diagnozuj problemy z połączeniem. Wyniki pozostają na tym urządzeniu.',
   'diag_refresh_timeline': 'Odśwież oś czasu',
   'diag_operation_failed': 'Operacja diagnostyki nie powiodła się',
   'diag_event_stream_degraded': 'Strumień zdarzeń diagnostyki przerwany',
@@ -398,7 +398,7 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Archiwum jest zapisywane tylko w wybranym miejscu i nigdy nie jest wysyłane automatycznie.',
   'diag_run_title': 'Uruchom diagnostykę sieci',
   'diag_run_subtitle':
-      'Standardowe kontrole tylko odczytują stan połączenia, bez ruchu testowego i zmian ustawień.',
+      'Standardowe kontrole nie wysyłają ruchu ani nie zmieniają ustawień.',
   'diag_mode_standard': 'Standardowa',
   'diag_mode_deep': 'Głęboka',
   'diag_deep_title': 'Informacje o głębokiej diagnostyce',
@@ -417,10 +417,8 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_check_results': 'Wyniki sprawdzeń',
   'diag_check_results_empty': 'Uruchom diagnostykę, aby sprawdzić połączenie.',
   'diag_timeline': 'Oś czasu połączenia',
-  'diag_timeline_subtitle':
-      'Tylko najnowsze zmiany stanu; treść pakietów i pełne adresy nigdy nie są zapisywane.',
-  'diag_logs_subtitle':
-      'Eksportuj sesję, oś czasu, podsumowanie kondycji platformy i dzienniki z usuniętymi wrażliwymi danymi.',
+  'diag_timeline_subtitle': 'Ostatnie zmiany stanu połączenia.',
+  'diag_logs_subtitle': 'Eksportuj pakiet diagnostyczny bez wrażliwych danych.',
   'diag_session_pending': 'Oczekuje',
   'diag_session_running': 'W toku',
   'diag_session_cancelling': 'Anulowanie',

@@ -2,7 +2,7 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowKo = <String, String>{
   'local_proxy_settings': '로컬 프록시 설정',
-  'proxy_switches_hint': '스위치 변경은 자동 저장됩니다. 수신 주소와 DNS 편집은 변경 사항 적용으로 반영하세요.',
+  'proxy_switches_hint': '스위치 변경은 즉시 적용됩니다.',
   'cc_label': 'HTTP/3 혼잡 제어',
   'cc_help': '다음 수동 연결 시 적용됩니다.',
   'cc_upgrade': '이 옵션을 사용하려면 설정에서 Usque를 업데이트하세요.',
@@ -13,12 +13,11 @@ const Map<String, String> kUiWorkflowKo = <String, String>{
   'saving_changes': '변경 사항을 적용하는 중…',
   'unsaved_changes': '적용되지 않은 변경 사항',
   'changes_applied': '변경 사항이 적용됨',
-  'changes_apply_hint': '편집 내용은 적용한 뒤에만 반영됩니다.',
+  'changes_apply_hint': '편집 내용은 ‘변경 적용’을 선택하면 적용됩니다.',
   'changes_failed': '변경 사항을 적용하지 못했습니다. 저장된 값을 확인한 뒤 다시 시도하세요.',
   'form_errors': '강조된 필드를 수정한 다음 변경 사항을 적용하세요.',
   'discard_changes_title': '적용되지 않은 변경 사항을 취소할까요?',
-  'discard_changes_body':
-      '편집 내용이 아직 적용되지 않았습니다. 계속 편집하면 유지되고, 취소하면 이 화면을 떠납니다.',
+  'discard_changes_body': '적용하지 않은 편집 내용은 사라집니다.',
   'keep_editing': '계속 편집',
   'discard_changes': '변경 취소',
   'invalid_port': '1–65535 범위의 포트를 입력하세요.',
@@ -51,7 +50,6 @@ const Map<String, String> kUiWorkflowKo = <String, String>{
   'proxy_routing_group': '프록시 및 라우팅',
   'application_group': '앱',
   'proxy_settings_link': '리스너 주소, 포트, 인증, DNS.',
-  'proxy_auth_separate': '아래의 사용자 이름과 비밀번호 저장을 눌러 이 항목의 변경을 적용하세요.',
   'reset_draft_hint': '기본값이 이 양식에 로드됩니다. 적용해야 반영됩니다.',
 };
 
@@ -95,10 +93,10 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'diag_fix_nq_reconnect': '다시 연결하여 저장된 구성을 적용하세요.',
   'nav_network_quality': '품질',
   'network_quality': '네트워크 품질',
-  'nq_subtitle': '속도만이 아니라 연결 자체를 확인합니다.',
+  'nq_subtitle': '지연 시간, 패킷 손실, 처리량.',
   'nq_local_only': '측정값은 기기에만 남습니다. 업로드되지 않습니다.',
   'nq_doctor': '네트워크 진단 실행',
-  'nq_doctor_help': '표준 검사는 로컬 상태만 읽습니다. 외부 연결을 열거나 설정을 바꾸지 않습니다.',
+  'nq_doctor_help': '표준 검사는 트래픽을 보내거나 설정을 바꾸지 않습니다.',
   'nq_live': '실시간',
   'nq_stale': '오래된 측정값',
   'nq_updated': '최근 샘플',
@@ -146,7 +144,7 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
       '현재 네트워크 경로가 전달할 수 있는 패킷 크기입니다. Usque가 패킷 손실을 줄이기 위해 자동으로 확인합니다. 이 검사는 고급 네트워크 설정의 VPN MTU를 높이지 않습니다.',
   'nq_migration': '네트워크 마이그레이션',
   'nq_migration_help':
-      'Wi-Fi와 모바일 데이터 등 네트워크를 바꿀 때 연결 유지를 시도합니다. 두 네트워크는 같은 IP 버전(IPv4 또는 IPv6)을 사용해야 합니다. 한 번에 한 네트워크만 사용하며 속도를 합치지 않습니다.',
+      'Wi-Fi와 모바일 데이터 등 네트워크를 바꿀 때 Usque가 연결 유지를 시도합니다. 두 네트워크는 같은 IP 버전(IPv4 또는 IPv6)을 사용해야 합니다.',
   'nq_attempts': '시도',
   'nq_successes': '성공',
   'nq_failures': '실패',
@@ -271,7 +269,7 @@ const Map<String, String> kL4Ko = <String, String>{
   'l4_transport_hint':
       'TCP만 지원합니다. UDP가 필요한 앱은 작동하지 않을 수 있습니다. 자동 모드에는 L4가 포함되지 않습니다.',
   'l4_explanation':
-      'L4는 HTTP/3로 TCP 트래픽을 전달하며 VPN, SOCKS5 및 HTTP 프록시에서 사용할 수 있습니다. VPN의 DNS 질의는 TCP로 변환됩니다. 다른 UDP 트래픽, 원격 Ping, IP 조각 또는 확장 헤더가 필요한 앱은 작동하지 않을 수 있습니다. L4는 수동으로 선택하세요. 자동 모드는 L4를 선택하지 않습니다.',
+      'L4는 HTTP/3로 TCP 트래픽을 전달하며 VPN, SOCKS5 및 HTTP 프록시에서 사용할 수 있습니다. VPN의 DNS 질의는 TCP로 변환됩니다. 다른 UDP 트래픽, 원격 Ping, IP 조각 또는 확장 헤더가 필요한 앱은 작동하지 않을 수 있습니다.',
   'l4_unsupported': '이 Usque 버전은 L4를 사용할 수 없습니다. 설정에서 업데이트를 확인하세요.',
   'l4_sni_identity': '계정에서 자동으로 설정하므로 수정할 필요가 없습니다. 다른 연결 모드의 서버 이름은 유지됩니다.',
   'l4_edge_requires_l4':

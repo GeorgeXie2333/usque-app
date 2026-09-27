@@ -2,7 +2,7 @@
 const Map<String, String> kNlCatalog = <String, String>{
   'disable_quic': "QUIC uitschakelen",
   'disable_quic_help':
-      "Blokkeert UDP/443 via de proxy of tunnel, inclusief andere protocollen op die poort. Direct GEO-verkeer en Usques HTTP/3-verbinding blijven ongewijzigd. QUIC op andere poorten blijft toegestaan. Toepassen zonder opnieuw te verbinden.",
+      "Blokkeert door Usque doorgestuurd verkeer op UDP-poort 443, vooral QUIC, zodat apps terugvallen op TCP. Direct verkeer en de eigen verbinding van Usque blijven ongemoeid. Werkt meteen.",
   'disable_quic_unsupported':
       'QUIC blokkeren is nu niet beschikbaar. Start Usque opnieuw; blijft het onbeschikbaar, controleer dan op updates bij Instellingen.',
   'technical_details': 'Technische details',
@@ -145,7 +145,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'port': 'Poort',
   'remote_dns': 'Namen op afstand omzetten',
   'proxy_dns_mode': 'DNS-omzetting via proxy',
-  'proxy_dns_subtitle': 'Waar SOCKS5- en HTTP-clients namen omzetten.',
+  'proxy_dns_subtitle': 'Hoe SOCKS5- en HTTP-proxy’s domeinnamen omzetten.',
   'proxy_dns_remote': 'Op afstand via de tunnel',
   'proxy_dns_configured': 'Aangepaste DNS-servers',
   'proxy_dns_system': 'Systeem-DNS',
@@ -384,7 +384,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'geo_update_failed':
       'Sommige regels konden niet worden bijgewerkt ({current}). Controleer het netwerk en probeer opnieuw.',
   'diagnostics_page_subtitle':
-      'Inspecteer verbinding, platformbescherming en herstelstatus. Resultaten blijven lokaal.',
+      'Controleer verbindingsproblemen. Resultaten blijven op dit apparaat.',
   'diag_refresh_timeline': 'Tijdlijn vernieuwen',
   'diag_operation_failed': 'Diagnostische bewerking mislukt',
   'diag_event_stream_degraded': 'Diagnostische gebeurtenisstroom onderbroken',
@@ -399,7 +399,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Het archief wordt alleen naar de gekozen locatie geschreven en nooit automatisch geüpload.',
   'diag_run_title': 'Netwerkdiagnostiek uitvoeren',
   'diag_run_subtitle':
-      'Standaardcontroles lezen alleen de verbindingsstatus, zonder testverkeer of wijzigingen aan instellingen.',
+      'Standaardcontroles versturen geen verkeer en wijzigen geen instellingen.',
   'diag_mode_standard': 'Standaard',
   'diag_mode_deep': 'Diepgaand',
   'diag_deep_title': 'Over diepgaande diagnostiek',
@@ -419,10 +419,9 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_check_results_empty':
       'Start de diagnose om je verbinding te controleren.',
   'diag_timeline': 'Verbindingstijdlijn',
-  'diag_timeline_subtitle':
-      'Alleen de meest recente statuswijzigingen worden bewaard; pakketinhoud en volledige adressen worden nooit vastgelegd.',
+  'diag_timeline_subtitle': 'Recente wijzigingen in de verbindingsstatus.',
   'diag_logs_subtitle':
-      'Exporteer de sessie, tijdlijn, samenvatting van de platformstatus en logboeken waaruit gevoelige gegevens zijn verwijderd.',
+      'Exporteer een diagnostisch pakket waaruit gevoelige gegevens zijn verwijderd.',
   'diag_session_pending': 'In behandeling',
   'diag_session_running': 'Bezig',
   'diag_session_cancelling': 'Annuleren',

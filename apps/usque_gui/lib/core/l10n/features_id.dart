@@ -2,8 +2,7 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowId = <String, String>{
   'local_proxy_settings': 'Pengaturan proksi lokal',
-  'proxy_switches_hint':
-      'Perubahan sakelar disimpan otomatis. Terapkan perubahan alamat pendengar dan DNS dengan Terapkan perubahan.',
+  'proxy_switches_hint': 'Sakelar langsung berlaku.',
   'cc_label': 'Kontrol kongesti HTTP/3',
   'cc_help': 'Berlaku pada koneksi manual berikutnya.',
   'cc_upgrade': 'Perbarui Usque di Pengaturan untuk memakai opsi ini.',
@@ -14,13 +13,13 @@ const Map<String, String> kUiWorkflowId = <String, String>{
   'saving_changes': 'Menerapkan perubahan…',
   'unsaved_changes': 'Perubahan belum diterapkan',
   'changes_applied': 'Perubahan diterapkan',
-  'changes_apply_hint': 'Suntingan baru berlaku setelah Anda menerapkannya.',
+  'changes_apply_hint':
+      'Suntingan berlaku setelah Anda memilih “Terapkan perubahan”.',
   'changes_failed':
       'Perubahan tidak dapat diterapkan. Tinjau nilai tersimpan, lalu coba lagi.',
   'form_errors': 'Periksa kolom yang disorot sebelum menerapkan perubahan.',
   'discard_changes_title': 'Buang perubahan yang belum diterapkan?',
-  'discard_changes_body':
-      'Suntingan Anda belum diterapkan. Lanjutkan mengedit untuk menyimpannya, atau buang untuk keluar.',
+  'discard_changes_body': 'Suntingan yang belum diterapkan akan hilang.',
   'keep_editing': 'Lanjutkan mengedit',
   'discard_changes': 'Buang perubahan',
   'invalid_port': 'Masukkan port dari 1 sampai 65535.',
@@ -53,8 +52,6 @@ const Map<String, String> kUiWorkflowId = <String, String>{
   'proxy_routing_group': 'Proksi & perutean',
   'application_group': 'Aplikasi',
   'proxy_settings_link': 'Alamat listener, port, autentikasi, dan DNS.',
-  'proxy_auth_separate':
-      'Gunakan Simpan nama pengguna dan kata sandi di bawah untuk menerapkan perubahan ini.',
   'reset_draft_hint':
       'Nilai default akan dimuat ke formulir ini. Terapkan perubahan agar berlaku.',
 };
@@ -114,12 +111,12 @@ const Map<String, String> kNetworkQualityId = <String, String>{
       'Sambungkan ulang untuk menerapkan konfigurasi tersimpan.',
   'nav_network_quality': 'Kualitas',
   'network_quality': 'Kualitas jaringan',
-  'nq_subtitle': 'Baca koneksinya, bukan hanya kecepatannya.',
+  'nq_subtitle': 'Latensi, kehilangan paket, dan throughput.',
   'nq_local_only':
       'Pengukuran hanya di perangkat ini. Tidak ada yang diunggah.',
   'nq_doctor': 'Jalankan Network Doctor',
   'nq_doctor_help':
-      'Pemeriksaan standar hanya membaca status lokal. Tidak membuka koneksi eksternal atau mengubah setelan Anda.',
+      'Pemeriksaan standar tidak mengirim lalu lintas atau mengubah pengaturan.',
   'nq_live': 'Langsung',
   'nq_stale': 'Bacaan kedaluwarsa',
   'nq_updated': 'Sampel terakhir',
@@ -168,7 +165,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
       'Ini adalah ukuran paket yang dapat dibawa jalur jaringan. Usque memeriksanya otomatis untuk mengurangi paket hilang. Pemeriksaan tidak menaikkan MTU VPN di Pengaturan jaringan lanjutan.',
   'nq_migration': 'Migrasi jaringan',
   'nq_migration_help':
-      'Usque mencoba mempertahankan koneksi saat berpindah jaringan, misalnya dari Wi-Fi ke seluler. Keduanya harus memakai versi IP yang sama, IPv4 atau IPv6. Hanya satu jaringan digunakan setiap saat; kecepatannya tidak digabung.',
+      'Usque mencoba mempertahankan koneksi saat berpindah jaringan, misalnya dari Wi-Fi ke data seluler. Keduanya harus memakai versi IP yang sama, IPv4 atau IPv6.',
   'nq_attempts': 'Percobaan',
   'nq_successes': 'Berhasil',
   'nq_failures': 'Gagal',
@@ -298,7 +295,7 @@ const Map<String, String> kL4Id = <String, String>{
   'l4_transport_hint':
       'Hanya TCP. Aplikasi yang memerlukan UDP mungkin tidak berfungsi. Mode otomatis tidak memilih L4.',
   'l4_explanation':
-      'L4 meneruskan TCP lewat HTTP/3 dan mendukung VPN serta proksi SOCKS5 dan HTTP. Kueri DNS VPN diubah menjadi TCP. Aplikasi yang membutuhkan UDP lain, Ping jarak jauh, fragmen IP, atau header ekstensi mungkin tidak berfungsi. Pilih L4 manual; mode otomatis tidak memilihnya.',
+      'L4 meneruskan TCP lewat HTTP/3 dan mendukung VPN serta proksi SOCKS5 dan HTTP. Kueri DNS VPN diubah menjadi TCP. Aplikasi yang membutuhkan UDP lain, Ping jarak jauh, fragmen IP, atau header ekstensi mungkin tidak berfungsi.',
   'l4_unsupported':
       'Versi Usque ini tidak mendukung L4. Periksa pembaruan di Pengaturan.',
   'l4_sni_identity':

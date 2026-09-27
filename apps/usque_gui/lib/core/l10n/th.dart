@@ -2,7 +2,7 @@
 const Map<String, String> kThCatalog = <String, String>{
   'disable_quic': "ปิดใช้งาน QUIC",
   'disable_quic_help':
-      "บล็อก UDP/443 ผ่านพร็อกซีหรืออุโมงค์ รวมถึงโปรโตคอลอื่นบนพอร์ตนี้ โดยไม่กระทบทราฟฟิก GEO โดยตรงหรือการเชื่อมต่อ HTTP/3 ของ Usque ยังคงอนุญาต QUIC บนพอร์ตอื่น ใช้ได้โดยไม่ต้องเชื่อมต่อใหม่",
+      "บล็อกทราฟฟิก UDP พอร์ต 443 ที่ Usque ส่งต่อ ซึ่งส่วนใหญ่เป็น QUIC เพื่อให้แอปกลับไปใช้ TCP ไม่กระทบทราฟฟิกโดยตรงและการเชื่อมต่อของ Usque เอง มีผลทันที",
   'disable_quic_unsupported':
       'ขณะนี้บล็อก QUIC ไม่ได้ ให้เริ่ม Usque ใหม่ หากยังใช้ไม่ได้ ให้ตรวจหาอัปเดตในการตั้งค่า',
   'technical_details': 'รายละเอียดทางเทคนิค',
@@ -142,7 +142,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'port': 'พอร์ต',
   'remote_dns': 'แปลงชื่อจากระยะไกล',
   'proxy_dns_mode': 'การแปลงชื่อ DNS ของพร็อกซี',
-  'proxy_dns_subtitle': 'ตำแหน่งที่ไคลเอนต์ SOCKS5 และ HTTP แปลงชื่อ',
+  'proxy_dns_subtitle': 'วิธีที่พร็อกซี SOCKS5 และ HTTP แปลงชื่อโดเมน',
   'proxy_dns_remote': 'ระยะไกลผ่านอุโมงค์',
   'proxy_dns_configured': 'เซิร์ฟเวอร์ DNS ที่กำหนดเอง',
   'proxy_dns_system': 'DNS ของระบบ',
@@ -376,7 +376,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'geo_update_failed':
       'อัปเดตกฎบางรายการไม่สำเร็จ ({current}) ตรวจสอบเครือข่ายแล้วลองอีกครั้ง',
   'diagnostics_page_subtitle':
-      'ตรวจสอบการเชื่อมต่อ การป้องกันแพลตฟอร์ม และสถานะการกู้คืน ผลลัพธ์เก็บไว้ในเครื่องเท่านั้น',
+      'ตรวจสอบปัญหาการเชื่อมต่อ ผลลัพธ์เก็บไว้ในอุปกรณ์นี้เท่านั้น',
   'diag_refresh_timeline': 'รีเฟรชไทม์ไลน์',
   'diag_operation_failed': 'การดำเนินการวินิจฉัยล้มเหลว',
   'diag_event_stream_degraded': 'สตรีมเหตุการณ์วินิจฉัยถูกขัดจังหวะ',
@@ -390,8 +390,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_export_local_only':
       'ไฟล์เก็บถาวรถูกเขียนไปยังตำแหน่งที่คุณเลือกเท่านั้น และไม่ถูกอัปโหลดโดยอัตโนมัติ',
   'diag_run_title': 'เรียกใช้การวินิจฉัยเครือข่าย',
-  'diag_run_subtitle':
-      'การตรวจสอบมาตรฐานอ่านสถานะเท่านั้น ไม่ส่งข้อมูลทดสอบหรือเปลี่ยนการตั้งค่า',
+  'diag_run_subtitle': 'การตรวจสอบมาตรฐานไม่ส่งทราฟฟิกและไม่เปลี่ยนการตั้งค่า',
   'diag_mode_standard': 'มาตรฐาน',
   'diag_mode_deep': 'เชิงลึก',
   'diag_deep_title': 'เกี่ยวกับการวินิจฉัยเชิงลึก',
@@ -409,10 +408,8 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_check_results': 'ผลการตรวจ',
   'diag_check_results_empty': 'เริ่มการวินิจฉัยเพื่อตรวจสอบปัญหาการเชื่อมต่อ',
   'diag_timeline': 'ไทม์ไลน์การเชื่อมต่อ',
-  'diag_timeline_subtitle':
-      'บันทึกเฉพาะการเปลี่ยนแปลงสถานะล่าสุด เนื้อหาแพ็กเก็ตและที่อยู่เต็มจะไม่ถูกบันทึก',
-  'diag_logs_subtitle':
-      'ส่งออกเซสชัน ไทม์ไลน์ สรุปสุขภาพแพลตฟอร์ม และบันทึกที่ลบข้อมูลละเอียดอ่อนแล้ว',
+  'diag_timeline_subtitle': 'การเปลี่ยนแปลงสถานะการเชื่อมต่อล่าสุด',
+  'diag_logs_subtitle': 'ส่งออกชุดวินิจฉัยที่ลบข้อมูลละเอียดอ่อนแล้ว',
   'diag_session_pending': 'รอดำเนินการ',
   'diag_session_running': 'กำลังทำงาน',
   'diag_session_cancelling': 'กำลังยกเลิก',

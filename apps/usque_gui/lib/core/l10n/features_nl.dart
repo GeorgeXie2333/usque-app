@@ -2,8 +2,7 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowNl = <String, String>{
   'local_proxy_settings': 'Lokale proxyinstellingen',
-  'proxy_switches_hint':
-      'Schakelaars worden automatisch opgeslagen. Bevestig wijzigingen aan luisteradressen en DNS met Wijzigingen toepassen.',
+  'proxy_switches_hint': 'Schakelaars werken meteen.',
   'cc_label': 'HTTP/3-congestiecontrole',
   'cc_help': 'Wordt bij de volgende handmatige verbinding toegepast.',
   'cc_upgrade': 'Werk Usque bij via Instellingen om deze optie te gebruiken.',
@@ -14,16 +13,15 @@ const Map<String, String> kUiWorkflowNl = <String, String>{
   'saving_changes': 'Wijzigingen worden toegepast…',
   'unsaved_changes': 'Niet-toegepaste wijzigingen',
   'changes_applied': 'Wijzigingen toegepast',
-  'changes_apply_hint': 'Bewerkingen worden pas van kracht nadat u ze toepast.',
+  'changes_apply_hint':
+      'Bewerkingen worden van kracht nadat u “Wijzigingen toepassen” kiest.',
   'changes_failed':
       'Wijzigingen konden niet worden toegepast. Controleer de opgeslagen '
       'waarden en probeer het opnieuw.',
   'form_errors':
       'Controleer de gemarkeerde velden voordat u de wijzigingen toepast.',
   'discard_changes_title': 'Niet-toegepaste wijzigingen verwerpen?',
-  'discard_changes_body':
-      'Uw bewerkingen zijn nog niet toegepast. Blijf bewerken om ze op te '
-      'slaan, of verwerp ze om te vertrekken.',
+  'discard_changes_body': 'Niet-toegepaste bewerkingen gaan verloren.',
   'keep_editing': 'Blijven bewerken',
   'discard_changes': 'Wijzigingen verwerpen',
   'invalid_port': 'Voer een poort van 1 tot 65535 in.',
@@ -58,8 +56,6 @@ const Map<String, String> kUiWorkflowNl = <String, String>{
   'proxy_routing_group': 'Proxy en routering',
   'application_group': 'Applicatie',
   'proxy_settings_link': 'Listeneradressen, poorten, authenticatie en DNS.',
-  'proxy_auth_separate':
-      'Gebruik hieronder Gebruikersnaam en wachtwoord opslaan om deze wijzigingen toe te passen.',
   'reset_draft_hint':
       'Standaardwaarden worden in dit formulier geladen. Pas de wijzigingen '
       'toe om ze door te voeren.',
@@ -127,12 +123,11 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
       'Maak opnieuw verbinding om de opgeslagen configuratie toe te passen.',
   'nav_network_quality': 'Kwaliteit',
   'network_quality': 'Netwerkkwaliteit',
-  'nq_subtitle': 'Bekijk de verbinding, niet alleen de snelheid.',
+  'nq_subtitle': 'Latentie, pakketverlies en doorvoer.',
   'nq_local_only': 'Alleen lokale metingen. Er wordt niets geüpload.',
   'nq_doctor': 'Netwerkcontrole uitvoeren',
   'nq_doctor_help':
-      'Standaardcontroles lezen alleen de lokale status. Ze openen geen '
-      'externe verbindingen en wijzigen uw instellingen niet.',
+      'Standaardcontroles versturen geen verkeer en wijzigen geen instellingen.',
   'nq_live': 'Actueel',
   'nq_stale': 'Verouderde metingen',
   'nq_updated': 'Laatste meting',
@@ -182,7 +177,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
       'Dit is de pakketgrootte die het netwerkpad aankan. Usque controleert die automatisch om pakketverlies te beperken. Dit verhoogt niet de VPN-MTU in Geavanceerde netwerkinstellingen.',
   'nq_migration': 'Netwerkmigratie',
   'nq_migration_help':
-      'Usque probeert de verbinding te behouden bij een wissel, bijvoorbeeld van wifi naar mobiele data. Beide netwerken moeten dezelfde IP-versie gebruiken: IPv4 of IPv6. Er wordt één netwerk tegelijk gebruikt; de snelheden worden niet opgeteld.',
+      'Usque probeert de verbinding te behouden als u van netwerk wisselt, bijvoorbeeld van wifi naar mobiele data. Beide netwerken moeten dezelfde IP-versie gebruiken: IPv4 of IPv6.',
   'nq_attempts': 'Pogingen',
   'nq_successes': 'Geslaagd',
   'nq_failures': 'Mislukt',
@@ -324,7 +319,7 @@ const Map<String, String> kL4Nl = <String, String>{
   'l4_transport_hint':
       'Alleen TCP. Apps die UDP nodig hebben werken mogelijk niet. De automatische modus kiest geen L4.',
   'l4_explanation':
-      'L4 vervoert TCP via HTTP/3 en werkt met VPN, SOCKS5- en HTTP-proxy’s. DNS-aanvragen van de VPN worden omgezet naar TCP. Apps die ander UDP-verkeer, externe Ping, IP-fragmenten of uitbreidingsheaders nodig hebben, werken mogelijk niet. Kies L4 handmatig; Automatisch kiest het niet.',
+      'L4 vervoert TCP via HTTP/3 en werkt met VPN, SOCKS5- en HTTP-proxy’s. DNS-aanvragen van de VPN worden omgezet naar TCP. Apps die ander UDP-verkeer, externe Ping, IP-fragmenten of uitbreidingsheaders nodig hebben, werken mogelijk niet.',
   'l4_unsupported':
       'L4 is niet beschikbaar in deze Usque-versie. Controleer op updates bij Instellingen.',
   'l4_sni_identity':

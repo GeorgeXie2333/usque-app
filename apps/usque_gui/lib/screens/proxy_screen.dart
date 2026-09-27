@@ -657,8 +657,6 @@ class _AuthPanelState extends State<_AuthPanel> {
       subtitle: strings.get('proxy_auth_help'),
       gap: 20,
       children: <Widget>[
-        Text(strings.get('proxy_auth_separate')),
-        const SizedBox(height: 12),
         LayoutBuilder(
           builder: (context, constraints) {
             final username = TextField(

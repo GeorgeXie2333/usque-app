@@ -2,7 +2,7 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowJa = <String, String>{
   'local_proxy_settings': 'ローカルプロキシ設定',
-  'proxy_switches_hint': 'スイッチの変更は自動保存されます。リスナーと DNS の編集は「変更を適用」で反映します。',
+  'proxy_switches_hint': 'スイッチの変更はすぐに反映されます。',
   'cc_label': 'HTTP/3 輻輳制御',
   'cc_help': '次回の手動接続時に適用されます。',
   'cc_upgrade': 'この項目を使うには「設定」で Usque を更新してください。',
@@ -13,11 +13,11 @@ const Map<String, String> kUiWorkflowJa = <String, String>{
   'saving_changes': '変更を適用しています…',
   'unsaved_changes': '未適用の変更',
   'changes_applied': '変更を適用しました',
-  'changes_apply_hint': '編集は適用するまで反映されません。',
+  'changes_apply_hint': '編集内容は「変更を適用」を選択すると反映されます。',
   'changes_failed': '変更を適用できませんでした。保存済みの値を確認して、もう一度お試しください。',
   'form_errors': '強調表示されている項目を直してから、変更を適用してください。',
   'discard_changes_title': '未適用の変更を破棄しますか？',
-  'discard_changes_body': '編集内容はまだ適用されていません。編集を続けると内容を残せます。破棄するとこの画面を離れます。',
+  'discard_changes_body': '適用していない編集内容は失われます。',
   'keep_editing': '編集を続ける',
   'discard_changes': '変更を破棄',
   'invalid_port': '1～65535 のポートを入力してください。',
@@ -50,7 +50,6 @@ const Map<String, String> kUiWorkflowJa = <String, String>{
   'proxy_routing_group': 'プロキシとルーティング',
   'application_group': 'アプリ',
   'proxy_settings_link': 'リスナーアドレス、ポート、認証、DNS。',
-  'proxy_auth_separate': '下の「ユーザー名とパスワードを保存」で、この欄の変更を反映してください。',
   'reset_draft_hint': '既定値がこのフォームに読み込まれます。適用すると反映されます。',
 };
 
@@ -94,10 +93,10 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'diag_fix_nq_reconnect': '再接続して、保存済みの設定を適用してください。',
   'nav_network_quality': '品質',
   'network_quality': 'ネットワーク品質',
-  'nq_subtitle': '速度だけでなく、接続そのものを読み取ります。',
+  'nq_subtitle': '遅延、パケットロス、スループット。',
   'nq_local_only': '測定は端末内のみです。アップロードはしません。',
   'nq_doctor': 'ネットワーク診断を実行',
-  'nq_doctor_help': '標準検査はローカル状態のみを読み取ります。外部接続を開いたり、設定を変更したりしません。',
+  'nq_doctor_help': '標準検査では通信の送信や設定の変更は行いません。',
   'nq_live': 'ライブ',
   'nq_stale': '古い測定値',
   'nq_updated': '最新サンプル',
@@ -144,7 +143,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
       '現在のネットワーク経路が運べるパケットサイズです。Usque はパケットロスを減らすため自動で確認します。この確認で「高度なネットワーク設定」の VPN MTU が大きくなることはありません。',
   'nq_migration': 'ネットワーク移行',
   'nq_migration_help':
-      'Wi-Fi とモバイル回線などの切り替え時に、接続の維持を試みます。両方が同じ IP バージョン（IPv4 または IPv6）を使う必要があります。一度に使うネットワークは1つで、速度は合算しません。',
+      'Wi-Fi とモバイル回線などの切り替え時に、Usque は接続の維持を試みます。両方が同じ IP バージョン（IPv4 または IPv6）を使う必要があります。',
   'nq_attempts': '試行',
   'nq_successes': '成功',
   'nq_failures': '失敗',
@@ -268,7 +267,7 @@ const Map<String, String> kL4Ja = <String, String>{
   'l4_mode': 'L4（実験的）',
   'l4_transport_hint': 'TCP のみ対応。UDP が必要なアプリは動作しない場合があります。自動モードでは L4 を選びません。',
   'l4_explanation':
-      'L4 は HTTP/3 で TCP 通信を転送し、VPN、SOCKS5、HTTP プロキシで使えます。VPN の DNS 問い合わせは TCP に変換します。他の UDP 通信、リモート Ping、IP 分割、拡張ヘッダーが必要なアプリは動かない場合があります。L4 は手動で選んでください。「自動」では選びません。',
+      'L4 は HTTP/3 で TCP 通信を転送し、VPN、SOCKS5、HTTP プロキシで使えます。VPN の DNS 問い合わせは TCP に変換します。他の UDP 通信、リモート Ping、IP 分割、拡張ヘッダーが必要なアプリは動かない場合があります。',
   'l4_unsupported': 'このバージョンの Usque では L4 を使えません。「設定」で更新を確認してください。',
   'l4_sni_identity': 'アカウントが自動設定します。変更は不要です。他の接続モードのサーバー名は保持されます。',
   'l4_edge_requires_l4':

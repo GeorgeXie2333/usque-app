@@ -2,7 +2,7 @@
 const Map<String, String> kPtCatalog = <String, String>{
   'disable_quic': "Desativar QUIC",
   'disable_quic_help':
-      "Bloqueia UDP/443 pelo proxy ou túnel, incluindo outros protocolos nessa porta. O tráfego direto GEO e a ligação HTTP/3 do Usque não são afetados. QUIC noutras portas continua permitido. Aplica-se sem voltar a ligar.",
+      "Bloqueia o tráfego UDP na porta 443 encaminhado pelo Usque, principalmente QUIC, para que os aplicativos passem a usar TCP. O tráfego direto e a própria conexão do Usque não são afetados. Entra em vigor imediatamente.",
   'disable_quic_unsupported':
       'O bloqueio de QUIC não está disponível no momento. Reinicie o Usque; se continuar indisponível, procure atualizações em Configurações.',
   'technical_details': 'Detalhes técnicos',
@@ -146,7 +146,8 @@ const Map<String, String> kPtCatalog = <String, String>{
   'port': 'Porta',
   'remote_dns': 'Resolver nomes remotamente',
   'proxy_dns_mode': 'Resolução DNS do proxy',
-  'proxy_dns_subtitle': 'Onde os clientes SOCKS5 e HTTP resolvem nomes.',
+  'proxy_dns_subtitle':
+      'Como os proxies SOCKS5 e HTTP resolvem nomes de domínio.',
   'proxy_dns_remote': 'Remoto pelo túnel',
   'proxy_dns_configured': 'Servidores DNS personalizados',
   'proxy_dns_system': 'DNS do sistema',
@@ -383,7 +384,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'geo_update_failed':
       'Algumas regras não foram atualizadas ({current}). Verifique a rede e tente novamente.',
   'diagnostics_page_subtitle':
-      'Inspecione a conexão, a proteção da plataforma e o estado de recuperação. Os resultados permanecem neste dispositivo.',
+      'Verifique problemas de conexão. Os resultados ficam neste dispositivo.',
   'diag_refresh_timeline': 'Atualizar linha do tempo',
   'diag_operation_failed': 'Falha na operação de diagnóstico',
   'diag_event_stream_degraded': 'Fluxo de eventos de diagnóstico interrompido',
@@ -398,7 +399,7 @@ const Map<String, String> kPtCatalog = <String, String>{
       'O arquivo é gravado apenas no local que você escolher e nunca é enviado automaticamente.',
   'diag_run_title': 'Executar diagnóstico de rede',
   'diag_run_subtitle':
-      'As verificações padrão apenas leem o status da conexão, sem enviar tráfego de teste ou alterar configurações.',
+      'As verificações padrão não enviam tráfego nem alteram configurações.',
   'diag_mode_standard': 'Padrão',
   'diag_mode_deep': 'Aprofundado',
   'diag_deep_title': 'Sobre o diagnóstico aprofundado',
@@ -418,10 +419,9 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_check_results_empty':
       'Inicie o diagnóstico para verificar sua conexão.',
   'diag_timeline': 'Linha do tempo da conexão',
-  'diag_timeline_subtitle':
-      'Somente as mudanças de estado mais recentes são mantidas; o conteúdo dos pacotes e os endereços completos nunca são registrados.',
+  'diag_timeline_subtitle': 'Mudanças recentes no estado da conexão.',
   'diag_logs_subtitle':
-      'Exporte a sessão, a linha do tempo, o resumo do estado da plataforma e os logs sem dados sensíveis.',
+      'Exporte um pacote de diagnóstico sem informações sensíveis.',
   'diag_session_pending': 'Pendente',
   'diag_session_running': 'Em execução',
   'diag_session_cancelling': 'Cancelando',

@@ -361,7 +361,6 @@ void main() {
 
         await showPage(ProxyScreen(controller: app));
         await verifyReadable(strings.get('proxy_auth_help'));
-        await verifyReadable(strings.get('proxy_auth_separate'));
         await verifyReadable(strings.get('proxy_auth_apply'));
         expect(
           find.byKey(const ValueKey('proxy-auth-apply')).hitTestable(),

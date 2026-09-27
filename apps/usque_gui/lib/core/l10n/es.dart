@@ -2,7 +2,7 @@
 const Map<String, String> kEsCatalog = <String, String>{
   'disable_quic': "Desactivar QUIC",
   'disable_quic_help':
-      "Bloquea UDP/443 por el proxy o túnel, incluidos otros protocolos en ese puerto. El tráfico directo GEO y la conexión HTTP/3 de Usque no se ven afectados. QUIC en otros puertos sigue permitido. Se aplica sin reconectar.",
+      "Bloquea el tráfico UDP del puerto 443 reenviado por Usque, principalmente QUIC, para que las aplicaciones pasen a TCP. El tráfico directo y la conexión propia de Usque no se ven afectados. Se aplica al instante.",
   'disable_quic_unsupported':
       'El bloqueo de QUIC no está disponible ahora. Reinicia Usque; si sigue sin estar disponible, busca actualizaciones en Ajustes.',
   'technical_details': 'Detalles técnicos',
@@ -148,7 +148,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'remote_dns': 'Resolver nombres de forma remota',
   'proxy_dns_mode': 'Resolución DNS del proxy',
   'proxy_dns_subtitle':
-      'Dónde resuelven los nombres los clientes SOCKS5 y HTTP.',
+      'Cómo resuelven los nombres de dominio los proxies SOCKS5 y HTTP.',
   'proxy_dns_remote': 'Remoto a través del túnel',
   'proxy_dns_configured': 'Servidores DNS personalizados',
   'proxy_dns_system': 'DNS del sistema',
@@ -386,7 +386,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'geo_update_failed':
       'No se pudieron actualizar algunas reglas ({current}). Revisa la red y vuelve a intentarlo.',
   'diagnostics_page_subtitle':
-      'Inspeccione la conexión, la protección de la plataforma y el estado de recuperación. Los resultados permanecen en el dispositivo.',
+      'Compruebe problemas de conexión. Los resultados permanecen en este dispositivo.',
   'diag_refresh_timeline': 'Actualizar cronología',
   'diag_operation_failed': 'Error en la operación de diagnóstico',
   'diag_event_stream_degraded': 'Flujo de eventos de diagnóstico interrumpido',
@@ -401,7 +401,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'El archivo se escribe solo en la ubicación que elija y nunca se carga automáticamente.',
   'diag_run_title': 'Ejecutar diagnóstico de red',
   'diag_run_subtitle':
-      'Las comprobaciones estándar solo leen el estado: no envían tráfico de prueba ni cambian ajustes.',
+      'Las comprobaciones estándar no envían tráfico ni cambian ajustes.',
   'diag_mode_standard': 'Estándar',
   'diag_mode_deep': 'Profundo',
   'diag_deep_title': 'Acerca del diagnóstico profundo',
@@ -421,10 +421,9 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_check_results_empty':
       'Inicia el diagnóstico para comprobar la conexión.',
   'diag_timeline': 'Cronología de conexión',
-  'diag_timeline_subtitle':
-      'Solo se conservan los cambios de estado más recientes; nunca se registran contenidos de paquetes ni direcciones completas.',
+  'diag_timeline_subtitle': 'Cambios recientes en el estado de la conexión.',
   'diag_logs_subtitle':
-      'Exporte la sesión, la cronología, el resumen del estado de la plataforma y los registros sin datos sensibles.',
+      'Exporte un paquete de diagnóstico sin información sensible.',
   'diag_session_pending': 'Pendiente',
   'diag_session_running': 'En ejecución',
   'diag_session_cancelling': 'Cancelando',

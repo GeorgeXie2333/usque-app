@@ -2,7 +2,7 @@
 const Map<String, String> kIdCatalog = <String, String>{
   'disable_quic': "Nonaktifkan QUIC",
   'disable_quic_help':
-      "Blokir UDP/443 melalui proksi atau terowongan, termasuk protokol lain pada port tersebut. Lalu lintas langsung GEO dan koneksi HTTP/3 Usque tidak terpengaruh. QUIC pada port lain tetap diizinkan. Berlaku tanpa menghubungkan ulang.",
+      "Blokir lalu lintas UDP port 443 yang diteruskan Usque, sebagian besar QUIC, agar aplikasi beralih ke TCP. Lalu lintas langsung dan koneksi Usque sendiri tidak terpengaruh. Langsung berlaku.",
   'disable_quic_unsupported':
       'Pemblokiran QUIC saat ini tidak tersedia. Mulai ulang Usque; jika masih tidak tersedia, periksa pembaruan di Pengaturan.',
   'technical_details': 'Detail teknis',
@@ -144,7 +144,8 @@ const Map<String, String> kIdCatalog = <String, String>{
   'port': 'Port',
   'remote_dns': 'Selesaikan nama dari jarak jauh',
   'proxy_dns_mode': 'Resolusi DNS proksi',
-  'proxy_dns_subtitle': 'Tempat klien SOCKS5 dan HTTP menyelesaikan nama.',
+  'proxy_dns_subtitle':
+      'Cara proksi SOCKS5 dan HTTP menyelesaikan nama domain.',
   'proxy_dns_remote': 'Jarak jauh melalui terowongan',
   'proxy_dns_configured': 'Server DNS kustom',
   'proxy_dns_system': 'DNS sistem',
@@ -380,7 +381,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'geo_update_failed':
       'Beberapa aturan gagal diperbarui ({current}). Periksa jaringan dan coba lagi.',
   'diagnostics_page_subtitle':
-      'Periksa koneksi, perlindungan platform, dan status pemulihan. Hasil tetap di perangkat ini.',
+      'Periksa masalah koneksi. Hasil tetap di perangkat ini.',
   'diag_refresh_timeline': 'Segarkan linimasa',
   'diag_operation_failed': 'Operasi diagnostik gagal',
   'diag_event_stream_degraded': 'Aliran peristiwa diagnostik terputus',
@@ -395,7 +396,7 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Arsip hanya ditulis ke lokasi yang Anda pilih dan tidak pernah diunggah otomatis.',
   'diag_run_title': 'Jalankan diagnostik jaringan',
   'diag_run_subtitle':
-      'Pemeriksaan standar hanya membaca status, tanpa mengirim lalu lintas uji atau mengubah pengaturan.',
+      'Pemeriksaan standar tidak mengirim lalu lintas atau mengubah pengaturan.',
   'diag_mode_standard': 'Standar',
   'diag_mode_deep': 'Mendalam',
   'diag_deep_title': 'Tentang diagnostik mendalam',
@@ -414,10 +415,8 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_check_results': 'Hasil pemeriksaan',
   'diag_check_results_empty': 'Mulai diagnosis untuk memeriksa koneksi Anda.',
   'diag_timeline': 'Linimasa koneksi',
-  'diag_timeline_subtitle':
-      'Hanya perubahan status terbaru; isi paket dan alamat lengkap tidak pernah dicatat.',
-  'diag_logs_subtitle':
-      'Ekspor sesi, linimasa, ringkasan kesehatan platform, dan log yang telah dihapus informasi sensitifnya.',
+  'diag_timeline_subtitle': 'Perubahan status koneksi terbaru.',
+  'diag_logs_subtitle': 'Ekspor bundel diagnostik tanpa informasi sensitif.',
   'diag_session_pending': 'Tertunda',
   'diag_session_running': 'Berjalan',
   'diag_session_cancelling': 'Membatalkan',

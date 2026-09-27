@@ -2,7 +2,7 @@
 const Map<String, String> kTrCatalog = <String, String>{
   'disable_quic': "QUIC’i devre dışı bırak",
   'disable_quic_help':
-      "Proxy veya tünel üzerinden UDP/443 trafiğini, bu porttaki diğer protokollerle birlikte engeller. GEO doğrudan trafiği ve Usque’nin HTTP/3 bağlantısı etkilenmez. Diğer portlarda QUIC serbesttir. Yeniden bağlanmadan uygulanır.",
+      "Usque’nin ilettiği UDP 443 trafiğini (çoğunlukla QUIC) engeller; böylece uygulamalar TCP’ye geçer. Doğrudan trafik ve Usque’nin kendi bağlantısı etkilenmez. Hemen uygulanır.",
   'disable_quic_unsupported':
       'QUIC engelleme şu anda kullanılamıyor. Usque’yi yeniden başlatın; hâlâ kullanılamıyorsa Ayarlar’dan güncellemeleri denetleyin.',
   'technical_details': 'Teknik ayrıntılar',
@@ -146,7 +146,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'remote_dns': 'Adları uzaktan çözümle',
   'proxy_dns_mode': 'Proxy DNS çözümlemesi',
   'proxy_dns_subtitle':
-      'SOCKS5 ve HTTP istemcilerinin adları nerede çözümleyeceği.',
+      'SOCKS5 ve HTTP proxy’lerinin alan adlarını nasıl çözümleyeceği.',
   'proxy_dns_remote': 'Tünel üzerinden uzak DNS çözümlemesi',
   'proxy_dns_configured': 'Özel DNS sunucuları',
   'proxy_dns_system': 'Sistem DNS',
@@ -383,7 +383,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'geo_update_failed':
       'Bazı kurallar güncellenemedi ({current}). Ağ bağlantınızı kontrol edip yeniden deneyin.',
   'diagnostics_page_subtitle':
-      'Bağlantıyı, platform korumasını ve kurtarma durumunu katman katman inceleyin. Sonuçlar bu cihazda kalır.',
+      'Bağlantı sorunlarını inceleyin. Sonuçlar bu cihazda kalır.',
   'diag_refresh_timeline': 'Zaman çizelgesini yenile',
   'diag_operation_failed': 'Tanılama işlemi başarısız',
   'diag_event_stream_degraded': 'Tanılama olay akışı kesildi',
@@ -398,7 +398,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Arşiv yalnızca seçtiğiniz konuma yazılır ve hiçbir zaman otomatik yüklenmez.',
   'diag_run_title': 'Ağ tanılamasını çalıştır',
   'diag_run_subtitle':
-      'Standart denetim yalnızca durumu okur. Test trafiği göndermez ve ayarları değiştirmez.',
+      'Standart denetimler trafik göndermez ve ayarları değiştirmez.',
   'diag_mode_standard': 'Standart',
   'diag_mode_deep': 'Derin',
   'diag_deep_title': 'Derin tanılama hakkında',
@@ -418,10 +418,9 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_check_results_empty':
       'Bağlantınızı kontrol etmek için tanılamayı başlatın.',
   'diag_timeline': 'Bağlantı zaman çizelgesi',
-  'diag_timeline_subtitle':
-      'Yalnızca son durum değişiklikleri; paket içeriği ve tam adresler asla kaydedilmez.',
+  'diag_timeline_subtitle': 'Son bağlantı durumu değişiklikleri.',
   'diag_logs_subtitle':
-      'Oturumu, zaman çizelgesini, platform sağlık özetini ve hassas bilgiler kaldırılmış günlükleri dışa aktarın.',
+      'Hassas bilgileri kaldırılmış bir tanılama paketini dışa aktarın.',
   'diag_session_pending': 'Beklemede',
   'diag_session_running': 'Çalışıyor',
   'diag_session_cancelling': 'İptal ediliyor',

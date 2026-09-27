@@ -2,8 +2,7 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowVi = <String, String>{
   'local_proxy_settings': 'Cài đặt proxy cục bộ',
-  'proxy_switches_hint':
-      'Thay đổi công tắc được lưu tự động. Dùng Áp dụng thay đổi để lưu chỉnh sửa địa chỉ lắng nghe và DNS.',
+  'proxy_switches_hint': 'Công tắc có hiệu lực ngay.',
   'cc_label': 'Kiểm soát tắc nghẽn HTTP/3',
   'cc_help': 'Có hiệu lực ở lần kết nối thủ công tiếp theo.',
   'cc_upgrade': 'Cập nhật Usque trong Cài đặt.',
@@ -14,13 +13,13 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
   'saving_changes': 'Đang áp dụng thay đổi…',
   'unsaved_changes': 'Thay đổi chưa áp dụng',
   'changes_applied': 'Đã áp dụng thay đổi',
-  'changes_apply_hint': 'Chỉnh sửa chỉ có hiệu lực sau khi bạn áp dụng.',
+  'changes_apply_hint':
+      'Chỉnh sửa có hiệu lực sau khi bạn chọn “Áp dụng thay đổi”.',
   'changes_failed':
       'Không thể áp dụng thay đổi. Hãy xem lại giá trị đã lưu rồi thử lại.',
   'form_errors': 'Kiểm tra các trường được tô sáng trước khi áp dụng thay đổi.',
   'discard_changes_title': 'Bỏ các thay đổi chưa áp dụng?',
-  'discard_changes_body':
-      'Chỉnh sửa của bạn chưa được áp dụng. Tiếp tục sửa để lưu, hoặc bỏ chúng để rời đi.',
+  'discard_changes_body': 'Các chỉnh sửa chưa áp dụng sẽ bị mất.',
   'keep_editing': 'Tiếp tục chỉnh sửa',
   'discard_changes': 'Bỏ thay đổi',
   'invalid_port': 'Nhập cổng từ 1 đến 65535.',
@@ -53,8 +52,6 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
   'proxy_routing_group': 'Proxy & định tuyến',
   'application_group': 'Ứng dụng',
   'proxy_settings_link': 'Địa chỉ trình lắng nghe, cổng, xác thực và DNS.',
-  'proxy_auth_separate':
-      'Dùng nút “Lưu tên người dùng và mật khẩu” bên dưới để áp dụng các thay đổi này.',
   'reset_draft_hint':
       'Giá trị mặc định sẽ được nạp vào biểu mẫu này. Áp dụng thay đổi để chúng có hiệu lực.',
 };
@@ -106,11 +103,11 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'diag_fix_nq_reconnect': 'Kết nối lại để áp dụng cấu hình đã lưu.',
   'nav_network_quality': 'Chất lượng',
   'network_quality': 'Chất lượng mạng',
-  'nq_subtitle': 'Đọc kết nối, không chỉ tốc độ.',
+  'nq_subtitle': 'Độ trễ, mất gói và thông lượng.',
   'nq_local_only': 'Chỉ đo cục bộ. Không tải gì lên.',
   'nq_doctor': 'Chạy Network Doctor',
   'nq_doctor_help':
-      'Kiểm tra chuẩn chỉ đọc trạng thái cục bộ. Chúng không mở kết nối ngoài hay đổi cài đặt của bạn.',
+      'Kiểm tra tiêu chuẩn không gửi lưu lượng hay thay đổi cài đặt.',
   'nq_live': 'Trực tiếp',
   'nq_stale': 'Số liệu đã cũ',
   'nq_updated': 'Mẫu gần nhất',
@@ -158,7 +155,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
       'Kích thước gói tin mà đường truyền có thể chuyển được. Kiểm tra tự động giúp giảm mất gói và không tăng MTU của VPN đã đặt trong cài đặt mạng nâng cao.',
   'nq_migration': 'Chuyển mạng',
   'nq_migration_help':
-      'Cố gắng giữ kết nối khi chuyển giữa Wi-Fi và dữ liệu di động. Hai mạng phải dùng cùng phiên bản IP, tức IPv4 hoặc IPv6. Mỗi lần chỉ dùng một đường truyền, không cộng gộp tốc độ của các mạng.',
+      'Cố gắng giữ kết nối khi chuyển giữa Wi-Fi và dữ liệu di động. Hai mạng phải dùng cùng phiên bản IP, tức IPv4 hoặc IPv6.',
   'nq_attempts': 'Lần thử',
   'nq_successes': 'Thành công',
   'nq_failures': 'Thất bại',
@@ -289,7 +286,7 @@ const Map<String, String> kL4Vi = <String, String>{
   'l4_transport_hint':
       'Chỉ hỗ trợ TCP. Ứng dụng cần UDP có thể không hoạt động. Chế độ tự động không chọn L4.',
   'l4_explanation':
-      'L4 truyền lưu lượng TCP qua HTTP/3 và dùng được với VPN, proxy SOCKS5 và HTTP. Truy vấn DNS của VPN được chuyển sang TCP. Không hỗ trợ lưu lượng UDP khác, Ping từ xa, các mảnh và phần mở rộng IP; một số ứng dụng có thể không hoạt động. Bạn cần tự chọn L4, ứng dụng không tự bật chế độ này.',
+      'L4 truyền lưu lượng TCP qua HTTP/3 và dùng được với VPN, proxy SOCKS5 và HTTP. Truy vấn DNS của VPN được chuyển sang TCP. Không hỗ trợ lưu lượng UDP khác, Ping từ xa, các mảnh và phần mở rộng IP; một số ứng dụng có thể không hoạt động.',
   'l4_unsupported':
       'Phiên bản này không hỗ trợ L4. Cập nhật Usque trong Cài đặt.',
   'l4_sni_identity':

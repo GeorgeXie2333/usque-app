@@ -2,7 +2,7 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowZhHk = <String, String>{
   'local_proxy_settings': '本機代理設定',
-  'proxy_switches_hint': '開關變更會自動儲存；監聽位址、連接埠與 DNS 的修改須按「套用修改」。',
+  'proxy_switches_hint': '開關變更即時生效。',
   'cc_label': 'HTTP/3 擁塞控制',
   'cc_help': '下次手動連線時生效。',
   'cc_upgrade': '請在「設定」中更新 Usque。',
@@ -13,11 +13,11 @@ const Map<String, String> kUiWorkflowZhHk = <String, String>{
   'saving_changes': '正在套用修改…',
   'unsaved_changes': '有未套用的修改',
   'changes_applied': '修改已生效',
-  'changes_apply_hint': '編輯後必須按「套用修改」才會生效。',
+  'changes_apply_hint': '編輯後按「套用修改」才會生效。',
   'changes_failed': '未能套用修改，請檢查已儲存的值後重試。',
   'form_errors': '請先修正標示的欄位，再套用修改。',
   'discard_changes_title': '放棄未套用的修改？',
-  'discard_changes_body': '這些修改尚未生效。繼續編輯可保留內容，放棄後將離開此頁。',
+  'discard_changes_body': '未套用的修改將會遺失。',
   'keep_editing': '繼續編輯',
   'discard_changes': '放棄修改',
   'invalid_port': '請輸入 1–65535 之間的連接埠。',
@@ -50,7 +50,6 @@ const Map<String, String> kUiWorkflowZhHk = <String, String>{
   'proxy_routing_group': '代理與分流',
   'application_group': '應用程式',
   'proxy_settings_link': '接聽地址、連接埠、認證及 DNS。',
-  'proxy_auth_separate': '請按下方「儲存用戶名稱和密碼」以套用這些變更。',
   'reset_draft_hint': '預設值會填入此表單，按「套用修改」後才會生效。',
 };
 
@@ -92,10 +91,10 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'diag_fix_nq_reconnect': '重新連線以套用已儲存的設定。',
   'nav_network_quality': '質素',
   'network_quality': '網絡質素',
-  'nq_subtitle': '了解連線狀況，而不只看速度。',
+  'nq_subtitle': '延遲、封包遺失及吞吐量。',
   'nq_local_only': '量度只保存在本機，不會上載。',
   'nq_doctor': '執行網絡診斷',
-  'nq_doctor_help': '標準檢查只讀取本機狀態，不新建外部連線，亦不修改設定。',
+  'nq_doctor_help': '標準檢查不會傳送流量，亦不會變更設定。',
   'nq_live': '實況',
   'nq_stale': '讀數已過時',
   'nq_updated': '最近取樣',
@@ -141,7 +140,7 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'nq_pmtu_help': '網絡路徑可傳輸的封包大小。自動檢查有助減少封包遺失，不會提高「進階網絡設定」中設定的 VPN MTU。',
   'nq_migration': '網絡遷移',
   'nq_migration_help':
-      '在 Wi-Fi 與流動網絡之間切換時，嘗試保持連接。兩個網絡須使用相同 IP 版本（IPv4 或 IPv6）。同一時間只使用一條網絡路徑，不會合併網絡速度。',
+      '在 Wi-Fi 與流動網絡之間切換時，Usque 會嘗試保持連接。兩個網絡須使用相同 IP 版本（IPv4 或 IPv6）。',
   'nq_attempts': '嘗試',
   'nq_successes': '成功',
   'nq_failures': '失敗',
@@ -249,7 +248,7 @@ const Map<String, String> kL4ZhHk = <String, String>{
   'l4_mode': 'L4（實驗性）',
   'l4_transport_hint': '只支援 TCP，需要 UDP 的應用程式可能無法使用。自動模式不包括 L4。',
   'l4_explanation':
-      'L4 透過 HTTP/3 傳輸 TCP 流量，可用於 VPN、SOCKS5 和 HTTP 代理。VPN 的 DNS 查詢會轉成 TCP。不支援其他 UDP 流量、遠端 Ping、IP 分片或延伸標頭，因此部分應用程式可能無法使用。須手動選擇 L4，不會自動啟用。',
+      'L4 透過 HTTP/3 傳輸 TCP 流量，可用於 VPN、SOCKS5 和 HTTP 代理。VPN 的 DNS 查詢會轉成 TCP。不支援其他 UDP 流量、遠端 Ping、IP 分片或延伸標頭，因此部分應用程式可能無法使用。',
   'l4_unsupported': '此版本不支援 L4，請在「設定」中更新 Usque。',
   'l4_sni_identity': '伺服器名稱由帳戶自動設定。其他連接模式儲存的伺服器名稱會保留。',
   'l4_edge_requires_l4': '邊緣解析 DNS 僅適用於 L4。切換 Auto、H3 或 H2 前，請先選擇其他代理 DNS 模式。',

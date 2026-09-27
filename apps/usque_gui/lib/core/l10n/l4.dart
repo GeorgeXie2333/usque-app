@@ -29,7 +29,7 @@ const kL4En = <String, String>{
   'l4_transport_hint':
       'TCP only. Apps that need UDP may not work. Auto excludes L4.',
   'l4_explanation':
-      'L4 carries TCP traffic through HTTP/3 and works with VPN, SOCKS5 and HTTP proxies. DNS requests from the VPN are converted to TCP. Apps needing other UDP traffic, remote ping, IP fragments or extension headers may not work. Select L4 manually; Automatic does not choose it.',
+      'L4 carries TCP traffic through HTTP/3 and works with VPN, SOCKS5 and HTTP proxies. DNS requests from the VPN are converted to TCP. Apps needing other UDP traffic, remote ping, IP fragments or extension headers may not work.',
   'l4_unsupported':
       'L4 is unavailable in this version of Usque. Check for updates in Settings.',
   'l4_sni_identity':
@@ -61,7 +61,7 @@ const kL4ZhCn = <String, String>{
   'l4_mode': 'L4（实验性）',
   'l4_transport_hint': '仅支持 TCP，需要 UDP 的应用可能无法使用。自动模式不包含 L4。',
   'l4_explanation':
-      'L4 通过 HTTP/3 转发 TCP 流量，可用于 VPN、SOCKS5 和 HTTP 代理。VPN 的 DNS 查询会自动改用 TCP。需要其他 UDP 流量、远端 Ping、IP 分片或扩展头的应用可能无法使用。请手动选择 L4，“自动”不会选用此模式。',
+      'L4 通过 HTTP/3 转发 TCP 流量，可用于 VPN、SOCKS5 和 HTTP 代理。VPN 的 DNS 查询会自动改用 TCP。需要其他 UDP 流量、远端 Ping、IP 分片或扩展头的应用可能无法使用。',
   'l4_unsupported': '此版本的 Usque 无法使用 L4，请在“设置”中检查更新。',
   'l4_sni_identity': '由账号自动设置，无需修改。其他连接模式的服务器名称会保留。',
   'l4_edge_requires_l4': '边缘解析 DNS 仅适用于 L4。切换 Auto、H3 或 H2 前，请先选择其他代理 DNS 模式。',

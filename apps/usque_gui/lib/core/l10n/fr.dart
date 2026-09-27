@@ -2,7 +2,7 @@
 const Map<String, String> kFrCatalog = <String, String>{
   'disable_quic': "Désactiver QUIC",
   'disable_quic_help':
-      "Bloque UDP/443 via le proxy ou le tunnel, y compris les autres protocoles sur ce port. Le trafic direct GEO et la connexion HTTP/3 d’Usque restent inchangés. QUIC sur les autres ports reste autorisé. Application sans reconnexion.",
+      "Bloque le trafic UDP 443 transmis par Usque, principalement QUIC, pour que les applications repassent en TCP. Le trafic direct et la connexion propre d’Usque ne sont pas concernés. Prend effet immédiatement.",
   'disable_quic_unsupported':
       'Le blocage de QUIC est indisponible pour le moment. Redémarrez Usque ; s’il reste indisponible, recherchez une mise à jour dans Paramètres.',
   'technical_details': 'Détails techniques',
@@ -149,7 +149,8 @@ const Map<String, String> kFrCatalog = <String, String>{
   'port': 'Port',
   'remote_dns': 'Résoudre les noms à distance',
   'proxy_dns_mode': 'Résolution DNS du proxy',
-  'proxy_dns_subtitle': 'Où les clients SOCKS5 et HTTP résolvent les noms.',
+  'proxy_dns_subtitle':
+      'Comment les proxys SOCKS5 et HTTP résolvent les noms de domaine.',
   'proxy_dns_remote': 'Distant via le tunnel',
   'proxy_dns_configured': 'Serveurs DNS personnalisés',
   'proxy_dns_system': 'DNS système',
@@ -392,7 +393,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'geo_update_failed':
       'Certaines règles n’ont pas été mises à jour ({current}). Vérifiez le réseau et réessayez.',
   'diagnostics_page_subtitle':
-      'Inspectez la connexion, la protection de la plateforme et l’état de récupération. Les résultats restent locaux.',
+      'Vérifiez les problèmes de connexion. Les résultats restent sur cet appareil.',
   'diag_refresh_timeline': 'Actualiser la chronologie',
   'diag_operation_failed': 'Échec de l’opération de diagnostic',
   'diag_event_stream_degraded': 'Flux d’événements de diagnostic interrompu',
@@ -408,7 +409,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'L’archive n’est écrite qu’à l’emplacement que vous choisissez et n’est jamais envoyée automatiquement.',
   'diag_run_title': 'Lancer le diagnostic réseau',
   'diag_run_subtitle':
-      'Les contrôles standard lisent seulement l’état de connexion, sans trafic de test ni modification des paramètres.',
+      'Les contrôles standard n’envoient pas de trafic et ne modifient pas les paramètres.',
   'diag_mode_standard': 'Standard',
   'diag_mode_deep': 'Approfondi',
   'diag_deep_title': 'À propos du diagnostic approfondi',
@@ -428,10 +429,9 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_check_results_empty':
       'Lancez le diagnostic pour vérifier votre connexion.',
   'diag_timeline': 'Chronologie de connexion',
-  'diag_timeline_subtitle':
-      'Seules les transitions d’état récentes sont conservées ; le contenu des paquets et les adresses complètes ne sont jamais enregistrés.',
+  'diag_timeline_subtitle': 'Changements récents de l’état de la connexion.',
   'diag_logs_subtitle':
-      'Exportez la session, la chronologie, le résumé de l’état de la plateforme et les journaux dont les données sensibles ont été supprimées.',
+      'Exportez une archive de diagnostic dont les données sensibles ont été supprimées.',
   'diag_session_pending': 'En attente',
   'diag_session_running': 'En cours',
   'diag_session_cancelling': 'Annulation',

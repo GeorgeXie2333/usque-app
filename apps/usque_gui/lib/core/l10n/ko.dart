@@ -2,7 +2,7 @@
 const Map<String, String> kKoCatalog = <String, String>{
   'disable_quic': "QUIC 비활성화",
   'disable_quic_help':
-      "프록시 또는 터널을 통과하는 UDP/443을 해당 포트의 다른 프로토콜과 함께 차단합니다. GEO 직접 연결과 Usque 자체 HTTP/3 연결에는 영향이 없습니다. 다른 포트의 QUIC은 허용됩니다. 재연결 없이 적용됩니다.",
+      "Usque가 전달하는 UDP 443 포트 트래픽(주로 QUIC)을 차단해 앱이 TCP를 사용하도록 합니다. 직접 연결 트래픽과 Usque 자체 연결에는 영향이 없습니다. 즉시 적용됩니다.",
   'disable_quic_unsupported':
       '지금은 QUIC을 차단할 수 없습니다. Usque를 다시 시작하고, 그래도 안 되면 설정에서 업데이트를 확인하세요.',
   'technical_details': '기술 세부 정보',
@@ -137,7 +137,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'port': '포트',
   'remote_dns': '이름을 원격에서 확인',
   'proxy_dns_mode': '프록시 DNS 확인',
-  'proxy_dns_subtitle': 'SOCKS5 및 HTTP 클라이언트가 이름을 확인하는 위치입니다.',
+  'proxy_dns_subtitle': 'SOCKS5 및 HTTP 프록시가 도메인 이름을 확인하는 방식입니다.',
   'proxy_dns_remote': '터널을 통해 원격에서 이름 확인',
   'proxy_dns_configured': '사용자 지정 DNS 서버',
   'proxy_dns_system': '시스템 DNS',
@@ -358,8 +358,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'geo_download_first': '사용하기 전에 해당 국가의 지리 데이터를 다운로드하세요.',
   'geo_update_complete': '지리 데이터: {updated}개 업데이트됨, {current}개는 이미 최신입니다.',
   'geo_update_failed': '규칙 {current}개를 업데이트하지 못했습니다. 네트워크를 확인하고 다시 시도하세요.',
-  'diagnostics_page_subtitle':
-      '연결, 플랫폼 보호, 복구 상태를 계층별로 검사합니다. 결과는 이 기기에만 남습니다.',
+  'diagnostics_page_subtitle': '연결 문제를 확인합니다. 결과는 이 기기에만 남습니다.',
   'diag_refresh_timeline': '타임라인 새로고침',
   'diag_operation_failed': '진단 작업 실패',
   'diag_event_stream_degraded': '진단 이벤트 스트림이 중단됨',
@@ -370,7 +369,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_export_excluded_body': '키, 토큰, 프로필 이름, 전체 주소, SSID, 앱 목록, 사용자 경로',
   'diag_export_local_only': '보관 파일은 선택한 위치에만 기록되며 자동으로 업로드되지 않습니다.',
   'diag_run_title': '네트워크 진단 실행',
-  'diag_run_subtitle': '표준 검사는 연결 상태만 읽으며 테스트 트래픽을 보내거나 설정을 바꾸지 않습니다.',
+  'diag_run_subtitle': '표준 검사는 트래픽을 보내거나 설정을 바꾸지 않습니다.',
   'diag_mode_standard': '표준',
   'diag_mode_deep': '심층',
   'diag_deep_title': '심층 진단 안내',
@@ -387,8 +386,8 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_check_results': '검사 결과',
   'diag_check_results_empty': '진단을 시작하여 연결 문제를 확인하세요.',
   'diag_timeline': '연결 타임라인',
-  'diag_timeline_subtitle': '최근 상태 변화만 보관하며 패킷 내용과 전체 주소는 기록하지 않습니다.',
-  'diag_logs_subtitle': '세션, 타임라인, 플랫폼 상태 요약, 민감 정보가 제거된 로그를 내보냅니다.',
+  'diag_timeline_subtitle': '최근 연결 상태 변화입니다.',
+  'diag_logs_subtitle': '민감 정보를 제거한 진단 번들을 내보냅니다.',
   'diag_session_pending': '대기 중',
   'diag_session_running': '실행 중',
   'diag_session_cancelling': '취소 중',

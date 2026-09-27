@@ -2,8 +2,7 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowTr = <String, String>{
   'local_proxy_settings': 'Yerel proxy ayarları',
-  'proxy_switches_hint':
-      'Anahtar değişiklikleri otomatik kaydedilir. Dinleme ve DNS düzenlemeleri için Değişiklikleri uygula seçeneğini kullanın.',
+  'proxy_switches_hint': 'Anahtarlar hemen uygulanır.',
   'cc_label': 'HTTP/3 tıkanıklık denetimi',
   'cc_help': 'Sonraki manuel bağlantınızda uygulanır.',
   'cc_upgrade': 'Ayarlar’dan Usque’yi güncelleyin.',
@@ -14,14 +13,14 @@ const Map<String, String> kUiWorkflowTr = <String, String>{
   'saving_changes': 'Değişiklikler uygulanıyor…',
   'unsaved_changes': 'Uygulanmamış değişiklikler',
   'changes_applied': 'Değişiklikler uygulandı',
-  'changes_apply_hint': 'Düzenlemeler ancak uyguladıktan sonra geçerli olur.',
+  'changes_apply_hint':
+      'Düzenlemeler, “Değişiklikleri uygula” seçildikten sonra geçerli olur.',
   'changes_failed':
       'Değişiklikler uygulanamadı. Kayıtlı değerleri gözden geçirip yeniden deneyin.',
   'form_errors':
       'Değişiklikleri uygulamadan önce vurgulanan alanları kontrol edin.',
   'discard_changes_title': 'Uygulanmamış değişiklikler atılsın mı?',
-  'discard_changes_body':
-      'Düzenlemeleriniz henüz uygulanmadı. Kaydetmek için düzenlemeye devam edin veya çıkmak için atın.',
+  'discard_changes_body': 'Uygulanmamış düzenlemeler kaybolacak.',
   'keep_editing': 'Düzenlemeye devam et',
   'discard_changes': 'Değişiklikleri at',
   'invalid_port': '1 ile 65535 arasında bir port girin.',
@@ -55,8 +54,6 @@ const Map<String, String> kUiWorkflowTr = <String, String>{
   'application_group': 'Uygulama',
   'proxy_settings_link':
       'Dinleyici adresleri, portlar, kimlik doğrulama ve DNS.',
-  'proxy_auth_separate':
-      'Bu değişiklikleri uygulamak için aşağıdaki “Kullanıcı adı ve parolayı kaydet” düğmesini kullanın.',
   'reset_draft_hint':
       'Varsayılanlar bu forma yüklenecek. Geçerli olmaları için değişiklikleri uygulayın.',
 };
@@ -112,11 +109,11 @@ const kNetworkQualityTr = <String, String>{
       'Kayıtlı yapılandırmayı uygulamak için yeniden bağlanın.',
   'nav_network_quality': 'Kalite',
   'network_quality': 'Ağ kalitesi',
-  'nq_subtitle': 'Yalnızca hıza değil, bağlantıya bakın.',
+  'nq_subtitle': 'Gecikme, paket kaybı ve aktarım hızı.',
   'nq_local_only': 'Yalnızca yerel ölçümler. Hiçbir şey yüklenmez.',
   'nq_doctor': 'Ağ tanılmasını çalıştır',
   'nq_doctor_help':
-      'Standart denetimler yalnızca yerel durumu okur. Dış bağlantı açmaz ve ayarlarınızı değiştirmez.',
+      'Standart denetimler trafik göndermez ve ayarları değiştirmez.',
   'nq_live': 'Canlı',
   'nq_stale': 'Eski okumalar',
   'nq_updated': 'Son örnek',
@@ -164,7 +161,7 @@ const kNetworkQualityTr = <String, String>{
       'Ağ yolunun taşıyabildiği paket boyutudur. Otomatik denetimler paket kaybını azaltmaya yardımcı olur ve gelişmiş ağ ayarlarındaki VPN MTU değerini artırmaz.',
   'nq_migration': 'Ağ taşıması',
   'nq_migration_help':
-      'Wi-Fi ile mobil veri arasında geçişte bağlantıyı korumayı dener. Her iki ağ da aynı IP sürümünü (IPv4 veya IPv6) kullanmalıdır. Aynı anda tek ağ yolu kullanılır; ağların hızları birleştirilmez.',
+      'Usque, Wi-Fi ile mobil veri arasında geçişte bağlantıyı korumayı dener. Her iki ağ da aynı IP sürümünü (IPv4 veya IPv6) kullanmalıdır.',
   'nq_attempts': 'Denemeler',
   'nq_successes': 'Başarılı',
   'nq_failures': 'Başarısız',
@@ -295,7 +292,7 @@ const Map<String, String> kL4Tr = <String, String>{
   'l4_transport_hint':
       'Yalnızca TCP. UDP gerektiren uygulamalar çalışmayabilir. Otomatik mod L4 içermez.',
   'l4_explanation':
-      'L4, TCP trafiğini HTTP/3 üzerinden taşır ve VPN, SOCKS5 ile HTTP proxy’lerinde kullanılabilir. VPN’in DNS sorguları TCP’ye dönüştürülür. Diğer UDP trafiği, uzak Ping, IP parçaları ve uzantıları desteklenmez; bazı uygulamalar çalışmayabilir. L4’ü kendiniz seçmeniz gerekir; otomatik olarak açılmaz.',
+      'L4, TCP trafiğini HTTP/3 üzerinden taşır ve VPN, SOCKS5 ile HTTP proxy’lerinde kullanılabilir. VPN’in DNS sorguları TCP’ye dönüştürülür. Diğer UDP trafiği, uzak Ping, IP parçaları ve uzantı başlıkları desteklenmez; bazı uygulamalar çalışmayabilir.',
   'l4_unsupported':
       'Bu sürüm L4’ü desteklemiyor. Ayarlar’dan Usque’yi güncelleyin.',
   'l4_sni_identity':

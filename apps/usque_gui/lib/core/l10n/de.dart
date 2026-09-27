@@ -2,7 +2,7 @@
 const Map<String, String> kDeCatalog = <String, String>{
   'disable_quic': "QUIC deaktivieren",
   'disable_quic_help':
-      "Blockiert UDP/443 über Proxy oder Tunnel, auch andere Protokolle auf diesem Port. GEO-Direktverkehr und Usques HTTP/3-Verbindung bleiben unbeeinflusst. QUIC auf anderen Ports bleibt erlaubt. Anwendung ohne Neuverbindung.",
+      "Blockiert von Usque weitergeleiteten Verkehr auf UDP-Port 443, meist QUIC, sodass Apps auf TCP ausweichen. Direktverkehr und die eigene Verbindung von Usque sind nicht betroffen. Wirkt sofort.",
   'disable_quic_unsupported':
       'QUIC-Blockierung ist derzeit nicht verfügbar. Starten Sie Usque neu; falls sie weiterhin nicht verfügbar ist, suchen Sie unter Einstellungen nach Updates.',
   'technical_details': 'Technische Details',
@@ -147,7 +147,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'port': 'Port',
   'remote_dns': 'Namen remote auflösen',
   'proxy_dns_mode': 'Proxy-DNS-Auflösung',
-  'proxy_dns_subtitle': 'Wo SOCKS5- und HTTP-Clients Namen auflösen.',
+  'proxy_dns_subtitle': 'Wie SOCKS5- und HTTP-Proxys Domainnamen auflösen.',
   'proxy_dns_remote': 'Remote über den Tunnel',
   'proxy_dns_configured': 'Eigene DNS-Server',
   'proxy_dns_system': 'System-DNS',
@@ -387,7 +387,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'geo_update_failed':
       'Einige Regeln konnten nicht aktualisiert werden ({current}). Prüfe das Netzwerk und versuche es erneut.',
   'diagnostics_page_subtitle':
-      'Verbindung, Plattformschutz und Wiederherstellungszustand schichtweise prüfen. Ergebnisse bleiben lokal.',
+      'Verbindungsprobleme prüfen. Ergebnisse bleiben auf diesem Gerät.',
   'diag_refresh_timeline': 'Zeitlinie aktualisieren',
   'diag_operation_failed': 'Diagnosevorgang fehlgeschlagen',
   'diag_event_stream_degraded': 'Diagnose-Ereignisstrom unterbrochen',
@@ -403,7 +403,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Das Archiv wird nur an den von Ihnen gewählten Ort geschrieben und niemals automatisch hochgeladen.',
   'diag_run_title': 'Netzwerkdiagnose ausführen',
   'diag_run_subtitle':
-      'Standardprüfungen lesen nur den Verbindungsstatus. Sie senden keinen Testverkehr und ändern keine Einstellungen.',
+      'Standardprüfungen senden keinen Datenverkehr und ändern keine Einstellungen.',
   'diag_mode_standard': 'Standard',
   'diag_mode_deep': 'Tiefgehend',
   'diag_deep_title': 'Hinweise zur tiefen Diagnose',
@@ -423,10 +423,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_check_results_empty':
       'Starte die Diagnose, um deine Verbindung zu prüfen.',
   'diag_timeline': 'Verbindungszeitachse',
-  'diag_timeline_subtitle':
-      'Nur die neuesten Zustandsänderungen werden gespeichert; Paketinhalte und vollständige Adressen werden nie aufgezeichnet.',
-  'diag_logs_subtitle':
-      'Sitzung, Zeitachse, Plattformzustandsübersicht und Protokolle ohne sensible Daten exportieren.',
+  'diag_timeline_subtitle': 'Letzte Änderungen des Verbindungsstatus.',
+  'diag_logs_subtitle': 'Diagnosepaket ohne sensible Daten exportieren.',
   'diag_session_pending': 'Ausstehend',
   'diag_session_running': 'Läuft',
   'diag_session_cancelling': 'Wird abgebrochen',

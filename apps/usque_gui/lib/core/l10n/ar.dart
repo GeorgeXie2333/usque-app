@@ -2,7 +2,7 @@
 const Map<String, String> kArCatalog = <String, String>{
   'disable_quic': "تعطيل QUIC",
   'disable_quic_help':
-      "يحظر UDP/443 عبر الوكيل أو النفق، بما في ذلك البروتوكولات الأخرى على هذا المنفذ. لا يتأثر اتصال GEO المباشر ولا اتصال HTTP/3 الخاص بـ Usque. يبقى QUIC مسموحاً على المنافذ الأخرى. يُطبّق دون إعادة الاتصال.",
+      "يحظر حركة UDP 443 التي يمررها Usque، ومعظمها QUIC، لتعود التطبيقات إلى TCP. لا تتأثر حركة البيانات المباشرة ولا اتصال Usque نفسه. يسري فورًا.",
   'disable_quic_unsupported':
       'حظر QUIC غير متاح حاليًا. أعد تشغيل Usque؛ وإذا ظل غير متاح، فتحقق من وجود تحديثات في الإعدادات.',
   'technical_details': 'التفاصيل التقنية',
@@ -144,7 +144,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'port': 'المنفذ',
   'remote_dns': 'حل الأسماء عن بُعد',
   'proxy_dns_mode': 'حل DNS للوكيل',
-  'proxy_dns_subtitle': 'حيث يحلّ عملاء SOCKS5 وHTTP الأسماء.',
+  'proxy_dns_subtitle': 'كيف يحلّ وكيلا SOCKS5 وHTTP أسماء النطاقات.',
   'proxy_dns_remote': 'عن بُعد عبر النفق',
   'proxy_dns_configured': 'خوادم DNS مخصصة',
   'proxy_dns_system': 'DNS النظام',
@@ -377,7 +377,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'geo_update_failed':
       'تعذّر تحديث بعض القواعد ({current}). تحقق من الشبكة وحاول مجددًا.',
   'diagnostics_page_subtitle':
-      'افحص الاتصال وحماية المنصة وحالة الاسترداد. تبقى النتائج على هذا الجهاز.',
+      'افحص مشكلات الاتصال. تبقى النتائج على هذا الجهاز.',
   'diag_refresh_timeline': 'تحديث الخط الزمني',
   'diag_operation_failed': 'فشلت عملية التشخيص',
   'diag_event_stream_degraded': 'انقطع بث أحداث التشخيص',
@@ -392,7 +392,7 @@ const Map<String, String> kArCatalog = <String, String>{
       'يُكتب الأرشيف فقط في الموقع الذي تختاره ولا يُرفع تلقائيًا أبدًا.',
   'diag_run_title': 'تشغيل تشخيص الشبكة',
   'diag_run_subtitle':
-      'يقرأ الفحص القياسي الحالة فقط. لا يرسل حركة اختبار ولا يغيّر الإعدادات.',
+      'لا ترسل الفحوصات القياسية أي حركة بيانات ولا تغيّر الإعدادات.',
   'diag_mode_standard': 'قياسي',
   'diag_mode_deep': 'عميق',
   'diag_deep_title': 'حول التشخيص العميق',
@@ -409,10 +409,8 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_check_results': 'نتائج الفحص',
   'diag_check_results_empty': 'ابدأ التشخيص لفحص اتصالك.',
   'diag_timeline': 'الخط الزمني للاتصال',
-  'diag_timeline_subtitle':
-      'لا يُحتفظ إلا بتغيرات الحالة الحديثة؛ ولا تُسجَّل محتويات الرزم أو العناوين الكاملة.',
-  'diag_logs_subtitle':
-      'صدّر الجلسة والخط الزمني وملخص صحة المنصة والسجلات بعد إزالة المعلومات الحساسة منها.',
+  'diag_timeline_subtitle': 'تغيّرات حالة الاتصال الأخيرة.',
+  'diag_logs_subtitle': 'صدّر حزمة تشخيص بعد إزالة المعلومات الحساسة.',
   'diag_session_pending': 'قيد الانتظار',
   'diag_session_running': 'قيد التشغيل',
   'diag_session_cancelling': 'جارٍ الإلغاء',

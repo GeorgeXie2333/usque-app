@@ -2,7 +2,7 @@
 const Map<String, String> kViCatalog = <String, String>{
   'disable_quic': "Tắt QUIC",
   'disable_quic_help':
-      "Chặn UDP/443 qua proxy hoặc đường hầm, gồm cả giao thức khác trên cổng này. Lưu lượng trực tiếp GEO và kết nối HTTP/3 của Usque không bị ảnh hưởng. QUIC trên cổng khác vẫn được phép. Áp dụng mà không kết nối lại.",
+      "Chặn lưu lượng UDP cổng 443 do Usque chuyển tiếp, chủ yếu là QUIC, để ứng dụng chuyển sang TCP. Lưu lượng trực tiếp và kết nối riêng của Usque không bị ảnh hưởng. Có hiệu lực ngay.",
   'disable_quic_unsupported':
       'Hiện không thể chặn QUIC. Hãy khởi động lại Usque; nếu vẫn không được, hãy kiểm tra bản cập nhật trong Cài đặt.',
   'technical_details': 'Chi tiết kỹ thuật',
@@ -143,7 +143,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'port': 'Cổng',
   'remote_dns': 'Phân giải tên từ xa',
   'proxy_dns_mode': 'Phân giải DNS qua proxy',
-  'proxy_dns_subtitle': 'Nơi máy khách SOCKS5 và HTTP phân giải tên.',
+  'proxy_dns_subtitle': 'Cách proxy SOCKS5 và HTTP phân giải tên miền.',
   'proxy_dns_remote': 'Từ xa qua đường hầm',
   'proxy_dns_configured': 'Máy chủ DNS tùy chỉnh',
   'proxy_dns_system': 'DNS hệ thống',
@@ -378,7 +378,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'geo_update_failed':
       'Không thể cập nhật một số quy tắc ({current}). Kiểm tra mạng rồi thử lại.',
   'diagnostics_page_subtitle':
-      'Kiểm tra kết nối, bảo vệ nền tảng và trạng thái khôi phục. Kết quả chỉ lưu trên thiết bị này.',
+      'Kiểm tra sự cố kết nối. Kết quả chỉ lưu trên thiết bị này.',
   'diag_refresh_timeline': 'Làm mới dòng thời gian',
   'diag_operation_failed': 'Thao tác chẩn đoán thất bại',
   'diag_event_stream_degraded': 'Luồng sự kiện chẩn đoán bị gián đoạn',
@@ -393,7 +393,7 @@ const Map<String, String> kViCatalog = <String, String>{
       'Tệp lưu trữ chỉ được ghi vào vị trí bạn chọn và không bao giờ tự tải lên.',
   'diag_run_title': 'Chạy chẩn đoán mạng',
   'diag_run_subtitle':
-      'Kiểm tra tiêu chuẩn chỉ đọc trạng thái, không gửi lưu lượng thử nghiệm hay thay đổi cài đặt.',
+      'Kiểm tra tiêu chuẩn không gửi lưu lượng hay thay đổi cài đặt.',
   'diag_mode_standard': 'Chuẩn',
   'diag_mode_deep': 'Sâu',
   'diag_deep_title': 'Về chẩn đoán sâu',
@@ -412,10 +412,8 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_check_results': 'Kết quả kiểm tra',
   'diag_check_results_empty': 'Bắt đầu chẩn đoán để kiểm tra kết nối.',
   'diag_timeline': 'Dòng thời gian kết nối',
-  'diag_timeline_subtitle':
-      'Chỉ ghi các thay đổi trạng thái gần đây; nội dung gói và địa chỉ đầy đủ không bao giờ được ghi.',
-  'diag_logs_subtitle':
-      'Xuất phiên, dòng thời gian, tóm tắt sức khỏe nền tảng và nhật ký đã loại bỏ thông tin nhạy cảm.',
+  'diag_timeline_subtitle': 'Các thay đổi trạng thái kết nối gần đây.',
+  'diag_logs_subtitle': 'Xuất gói chẩn đoán đã loại bỏ thông tin nhạy cảm.',
   'diag_session_pending': 'Đang chờ',
   'diag_session_running': 'Đang chạy',
   'diag_session_cancelling': 'Đang hủy',
