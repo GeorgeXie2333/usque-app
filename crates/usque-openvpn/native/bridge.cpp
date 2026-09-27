@@ -586,6 +586,25 @@ extern "C" int usque_ovpn_pop_filtered(usque_ovpn_session *session, usque_ovpn_e
 extern "C" size_t usque_ovpn_event_size(void) { return sizeof(usque_ovpn_event); }
 
 #ifdef USQUE_INTEROP_TEST
+// Finished, worker-free output fixture: packet readers can close while the
+// lifecycle reader still has the terminal authentication result to consume.
+extern "C" usque_ovpn_session *usque_test_finished_outputs(usque_ovpn_notify notify,
+                                                           void *context, int auth_failure) {
+    try {
+        auto session = std::make_unique<usque_ovpn_session>("192.0.2.1", 1194, notify, context);
+        if (auth_failure) {
+            Message message;
+            message.event.kind = STATE;
+            message.event.code = 1;
+            const std::string name = "AUTH_FAILED";
+            message.bytes.assign(name.begin(), name.end());
+            if (!session->shared.emit(std::move(message))) return nullptr;
+        }
+        session->shared.finished.store(true);
+        return session.release();
+    } catch (...) { return nullptr; }
+}
+
 // Exercise capacity wakeups without timing the protocol worker or opening I/O.
 extern "C" int usque_test_input_capacity_wakeup(void) {
     size_t notifications = 0;

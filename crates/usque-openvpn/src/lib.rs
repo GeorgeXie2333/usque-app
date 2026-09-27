@@ -327,6 +327,8 @@ impl Session {
 
 /// A single reader owns its reusable native copy buffer. Native pop is atomic;
 /// abandoning a pending wait never consumes a packet from another reader.
+/// `Stopped` means this reader is drained and the worker has finished. Other
+/// split readers may still hold packets or the terminal lifecycle error.
 pub struct Output {
     native: Arc<Native>,
     mask: u32,

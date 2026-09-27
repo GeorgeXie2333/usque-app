@@ -12,6 +12,11 @@ const CLIENT_KEY: &str = include_str!("../tests/fixtures/client.key");
 pub(super) static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 unsafe extern "C" {
+    fn usque_test_finished_outputs(
+        notify: extern "C" fn(*mut c_void),
+        context: *mut c_void,
+        auth_failure: i32,
+    ) -> *mut c_void;
     fn usque_test_input_capacity_wakeup() -> i32;
     fn usque_test_peer_create(
         ca: *const c_char,
@@ -488,7 +493,9 @@ async fn password_only_and_split_outputs_preserve_mss_zero_and_reject_wrong_cred
             true,
         )
         .unwrap();
-        let (mut transport, mut packets) = session.split_packet_outputs().unwrap();
+        let (transport, packets) = session.split_packet_outputs().unwrap();
+        let mut transport = Some(transport);
+        let mut packets = Some(packets);
         let mut payload = vec![0; 44];
         payload[0] = 0x45;
         payload[2..4].copy_from_slice(&44u16.to_be_bytes());
@@ -510,13 +517,15 @@ async fn password_only_and_split_outputs_preserve_mss_zero_and_reject_wrong_cred
                         .await
                         .unwrap();
                 }
-                let event = tokio::select! {
-                    event = session.next_event() => event,
-                    event = transport.next_event() => event,
-                    event = packets.next_event() => event,
-                    _ = tokio::time::sleep(Duration::from_millis(2)) => continue,
-                }
-                .unwrap();
+                let Ok(event) = timeout(
+                    Duration::from_millis(2),
+                    next_split_event(&mut session, &mut transport, &mut packets),
+                )
+                .await
+                else {
+                    continue;
+                };
+                let event = event.unwrap();
                 match event {
                     Event::Dial { generation: next } => {
                         generation = next;
@@ -546,7 +555,10 @@ async fn password_only_and_split_outputs_preserve_mss_zero_and_reject_wrong_cred
                         assert_eq!(&packet[..], &payload);
                         break;
                     }
-                    Event::Stopped => panic!("stopped before expected result"),
+                    Event::Stopped => panic!(
+                        "lifecycle stopped before expected result: udp={udp}, tls_crypt={tls_crypt}, expect_auth_failure={}",
+                        password == "wrong"
+                    ),
                     _ => {}
                 }
             }
@@ -554,7 +566,7 @@ async fn password_only_and_split_outputs_preserve_mss_zero_and_reject_wrong_cred
         .await
         .unwrap();
         let _ = session.shutdown().await;
-        for mut output in [transport, packets] {
+        for mut output in [transport, packets].into_iter().flatten() {
             timeout(Duration::from_secs(1), async {
                 loop {
                     match output.next_event().await {
@@ -567,6 +579,78 @@ async fn password_only_and_split_outputs_preserve_mss_zero_and_reject_wrong_cred
             .await
             .expect("all split readers finish after queued packets are drained");
         }
+    }
+}
+
+// Prefer packet outputs deliberately so tests exercise the adverse ordering
+// when a terminal lifecycle event and closed packet outputs are all ready.
+async fn next_split_event(
+    session: &mut Session,
+    transport: &mut Option<Output>,
+    packets: &mut Option<Output>,
+) -> Result<Event, Error> {
+    loop {
+        let (output, event) = tokio::select! {
+            biased;
+            event = async { packets.as_mut().unwrap().next_event().await }, if packets.is_some() => (&mut *packets, event),
+            event = async { transport.as_mut().unwrap().next_event().await }, if transport.is_some() => (&mut *transport, event),
+            event = session.next_event() => return event,
+        };
+        match event? {
+            // A packet reader can finish before the lifecycle reader delivers
+            // AUTH_FAILED. Retire only that reader, avoiding a ready-loop.
+            Event::Stopped => *output = None,
+            event => return Ok(event),
+        }
+    }
+}
+
+#[tokio::test]
+async fn split_output_completion_preserves_terminal_authentication_result() {
+    let _serial = SERIAL.lock().await;
+    for auth_failure in [true, false] {
+        let notify = Box::new(Notify::new());
+        let context = (&*notify as *const Notify).cast_mut().cast::<c_void>();
+        // SAFETY: The fixture creates an exclusively owned, finished session
+        // without a worker or I/O. Native retains the callback through destroy.
+        let pointer =
+            unsafe { usque_test_finished_outputs(wake, context, i32::from(auth_failure)) };
+        let native = Arc::new(Native {
+            pointer: NonNull::new(pointer).expect("finished native fixture"),
+            notify,
+            stopped: AtomicBool::new(false),
+        });
+        let mut session = Session {
+            output: Output::new(native.clone(), u32::MAX),
+            native,
+            worker: None,
+            split: false,
+        };
+        let (transport, packets) = session.split_packet_outputs().unwrap();
+        let mut transport = Some(transport);
+        let mut packets = Some(packets);
+        let event = timeout(
+            Duration::from_secs(1),
+            next_split_event(&mut session, &mut transport, &mut packets),
+        )
+        .await
+        .expect("closed packet outputs must not spin or hide lifecycle events")
+        .unwrap();
+        if auth_failure {
+            assert!(
+                matches!(event, Event::State { name, error: true, .. } if name == "AUTH_FAILED")
+            );
+            assert!(matches!(
+                session.next_event().await.unwrap(),
+                Event::Stopped
+            ));
+        } else {
+            // Unexpected lifecycle termination must still reach the caller;
+            // closing packet streams must never manufacture an auth result.
+            assert!(matches!(event, Event::Stopped));
+        }
+        assert!(transport.is_none());
+        assert!(packets.is_none());
     }
 }
 
