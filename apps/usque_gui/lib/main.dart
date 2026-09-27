@@ -30,11 +30,6 @@ void main() {
   });
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(const [
-      'WARPSCOUT endpoint data',
-    ], await rootBundle.loadString('assets/licenses/warpscout.txt'));
-  });
-  LicenseRegistry.addLicense(() async* {
-    yield LicenseEntryWithLineBreaks(const [
       'wgcf registration protocol reference',
     ], await rootBundle.loadString('assets/licenses/wgcf.txt'));
   });

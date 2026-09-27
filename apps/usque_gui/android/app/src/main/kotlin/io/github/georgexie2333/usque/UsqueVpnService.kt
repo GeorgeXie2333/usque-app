@@ -322,8 +322,7 @@ class UsqueVpnService : VpnService() {
                 require(query.optString("command") == "chain_profile" || raw.length <= 4096)
                 if ((
                         query.optString("command") == "warp_wireguard" &&
-                            query.optJSONObject("warp_wireguard")?.optString("action") in
-                            setOf("generate", "start", "resume")
+                            query.optJSONObject("warp_wireguard")?.optString("action") == "generate"
                     ) ||
                     (query.optString("command") == "refresh" && !query.optBoolean("cancel")) ||
                     (

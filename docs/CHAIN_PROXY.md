@@ -41,10 +41,10 @@ and saved/current markers. VPN Gate observations remain labeled as remote data.
 使用相同的单选控件及“已保存的选择”“当前连接”标记；VPN Gate 的远端观测说明
 保持可见。
 
-WARP via WireGuard supports generated/imported configurations, editable endpoints
-and resumable scans. See [WARP via WireGuard](WARP_WIREGUARD.md).
+WARP via WireGuard supports generated/imported configurations and editable
+endpoints. See [WARP via WireGuard](WARP_WIREGUARD.md).
 
-WARP via WireGuard 支持生成／导入配置、编辑端点和可恢复扫描，详见
+WARP via WireGuard 支持生成／导入配置和编辑端点，详见
 [使用指南](WARP_WIREGUARD.md)。
 
 ## Import, select and apply / 导入、选用与应用

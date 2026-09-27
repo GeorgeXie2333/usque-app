@@ -1,6 +1,4 @@
 use super::*;
-use crate::RuntimePath;
-use usque_core::{AddressFamily, Transport};
 use zeroize::Zeroizing;
 
 struct MetadataFixture;
@@ -22,176 +20,106 @@ fn context(profile: Profile) -> Context {
         allow_physical: false,
     }
 }
+fn manager(path: &std::path::Path) -> Arc<Manager> {
+    Arc::new(Manager::new(
+        path.join("profiles-v2.json"),
+        Arc::new(MetadataFixture),
+    ))
+}
+
+fn track(manager: &Manager, job: Job, done: bool) -> CancellationToken {
+    let cancel = CancellationToken::new();
+    *manager.running.lock().unwrap() = Some(Running {
+        job: Arc::new(Mutex::new(job)),
+        cancel: cancel.clone(),
+        done: Arc::new(AtomicBool::new(done)),
+    });
+    cancel
+}
+
 #[test]
-fn restart_requires_manual_resume_and_terminal_jobs_cannot_resume() {
+fn generation_status_is_process_local_and_never_reads_old_disk_state() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("profiles-v2.json");
-    let profile = Profile::default();
-    let request = Request::parse(r#"{"action":"start"}"#).unwrap();
-    let job = Job::new(
-        &request,
-        usque_core::warp_wireguard::context(&profile).unwrap(),
-    )
-    .unwrap();
-    Store::new(directory.path(), &MetadataFixture)
-        .insert(&job)
-        .unwrap();
-    let manager = Arc::new(Manager::new(path, Arc::new(MetadataFixture)));
-    let recovered = manager
+    let path = directory.path().join("warp-wireguard");
+    std::fs::write(&path, b"opaque old data").unwrap();
+    let first = manager(directory.path());
+    let mut job = Job::generation();
+    let id = job.id;
+    job.state = "completed".into();
+    track(&first, job, true);
+    let response = first
         .command(Request::parse(r#"{"action":"get"}"#).unwrap(), None)
         .unwrap();
-    assert_eq!(recovered.job.unwrap().state, "paused");
-    assert!(manager.running.lock().unwrap().is_none());
-    let cancel =
-        Request::parse(&format!(r#"{{"action":"cancel","job_id":"{}"}}"#, job.id)).unwrap();
-    assert_eq!(
-        manager.command(cancel, None).unwrap().job.unwrap().state,
-        "cancelled"
-    );
-    let resume =
-        Request::parse(&format!(r#"{{"action":"resume","job_id":"{}"}}"#, job.id)).unwrap();
-    assert_eq!(
-        manager
-            .command(resume, Some(context(profile)))
-            .err()
+    assert_eq!(response.job.unwrap().id, id);
+    let second = manager(directory.path());
+    assert!(
+        second
+            .command(Request::parse(r#"{"action":"get"}"#).unwrap(), None)
             .unwrap()
-            .reason,
-        "cannot_resume"
+            .job
+            .is_none()
     );
+    for action in ["get", "cancel"] {
+        let request =
+            Request::parse(&format!(r#"{{"action":"{action}","job_id":"{id}"}}"#)).unwrap();
+        assert_eq!(
+            second.command(request, None).err().unwrap().reason,
+            "job_not_found"
+        );
+    }
+    assert_eq!(std::fs::read(path).unwrap(), b"opaque old data");
 }
 
 #[test]
-fn terminal_failure_never_commits_volatile_progress() {
+fn cancellation_targets_only_the_current_generation_and_duplicate_generation_is_blocked() {
     let directory = tempfile::tempdir().unwrap();
-    let manager = Manager::new(
-        directory.path().join("profiles-v2.json"),
-        Arc::new(MetadataFixture),
-    );
-    let request = Request::parse(r#"{"action":"start"}"#).unwrap();
-    let mut job = Job::new(&request, "context".into()).unwrap();
-    manager.store().insert(&job).unwrap();
-    job.next = 64;
-    job.working = 64;
-    manager.record_failure(&mut job, "failed", "secure_storage_failed");
-    assert_eq!(job.next, 0);
-    let saved = manager.store().job(job.id).unwrap();
-    assert_eq!(saved.next, 0);
-    assert_eq!(saved.state, "failed");
-}
-
-#[test]
-fn legacy_scan_results_stay_readable_but_cannot_resume_a_port_sweep() {
-    let directory = tempfile::tempdir().unwrap();
-    let profile = Profile::default();
-    let mut job = Job::new(
-        &Request::parse(r#"{"action":"start"}"#).unwrap(),
-        usque_core::warp_wireguard::context(&profile).unwrap(),
-    )
+    let manager = manager(directory.path());
+    let job = Job::generation();
+    let id = job.id;
+    let cancel = track(&manager, job, false);
+    let wrong = Request::parse(&format!(
+        r#"{{"action":"cancel","job_id":"{}"}}"#,
+        uuid::Uuid::new_v4()
+    ))
     .unwrap();
-    job.plan = ScanPlan::LegacyPorts;
-    job.state = "paused".into();
-    let row = ProbeResult {
-        index: 0,
-        endpoint: job.endpoint(0).unwrap(),
-        checked_at: now(),
-        ipv4: Some(Observation {
-            exit_ip: Some("104.28.1.1".parse().unwrap()),
-            country: Some("SG".into()),
-            ..Default::default()
-        }),
-        ipv6: None,
-        failure: None,
-    };
-    let store = Store::new(directory.path(), &MetadataFixture);
-    store.insert(&job).unwrap();
-    job.next = 1;
-    store.checkpoint(&mut job, &mut vec![row.clone()]).unwrap();
-    let manager = Arc::new(Manager::new(
-        directory.path().join("profiles-v2.json"),
-        Arc::new(MetadataFixture),
-    ));
-    let response = manager
-        .command(Request::parse(r#"{"action":"get"}"#).unwrap(), None)
-        .unwrap();
-    assert_eq!(response.job.unwrap().total, 280);
-    assert_eq!(response.results.len(), 1);
-    assert_eq!(response.results[0].endpoint, row.endpoint);
-    assert_eq!(response.results[0].ipv4, row.ipv4);
-    let error = manager
-        .command(
-            Request::parse(&format!(r#"{{"action":"resume","job_id":"{}"}}"#, job.id)).unwrap(),
-            Some(context(profile)),
-        )
-        .err()
-        .unwrap();
-    assert_eq!(error.reason, "scan_plan_changed");
-    assert!(manager.running.lock().unwrap().is_none());
-    let saved = store.job(job.id).unwrap();
-    assert_eq!(saved.next, 1);
-    assert_eq!(saved.state, "paused");
-}
-#[test]
-fn unavailable_underlay_stops_the_worker_without_any_physical_fallback() {
-    let directory = tempfile::tempdir().unwrap();
-    let manager = Arc::new(Manager::new(
-        directory.path().join("profiles-v2.json"),
-        Arc::new(MetadataFixture),
-    ));
-    let response = manager
-        .command(
-            Request::parse(r#"{"action":"start"}"#).unwrap(),
-            Some(context(Profile::default())),
-        )
-        .unwrap();
-    assert!(response.job.is_some());
-    assert!(manager.stop_blocking());
-    let response = manager
-        .command(Request::parse(r#"{"action":"get"}"#).unwrap(), None)
-        .unwrap();
-    assert_ne!(response.job.unwrap().state, "running");
-    assert!(response.results.is_empty());
-    let id = response.history[0].id;
-    let cancelled = manager
+    assert_eq!(
+        manager.command(wrong, None).err().unwrap().reason,
+        "job_not_found"
+    );
+    assert!(!cancel.is_cancelled());
+    let generate = Request::parse(r#"{"action":"generate"}"#).unwrap();
+    assert_eq!(
+        manager.command(generate, None).err().unwrap().reason,
+        "generation_busy"
+    );
+    manager
         .command(
             Request::parse(&format!(r#"{{"action":"cancel","job_id":"{id}"}}"#)).unwrap(),
             None,
         )
         .unwrap();
-    assert_eq!(cancelled.job.unwrap().state, "cancelled");
+    assert!(cancel.is_cancelled());
+    assert!(directory.path().read_dir().unwrap().next().is_none());
 }
-#[tokio::test(start_paused = true)]
-async fn repeated_healthy_notifications_are_ignored_but_reconnections_invalidate_scan() {
-    let baseline = RuntimeHealth::Connected {
-        path: RuntimePath {
-            transport: Transport::Http2,
-            endpoint_family: AddressFamily::Ipv4,
-            ipv4_available: true,
-            ipv6_available: true,
-        },
-        reconnect_count: 0,
-    };
-    let (sender, mut receiver) = tokio::sync::watch::channel(baseline.clone());
-    sender.send_replace(baseline.clone());
-    assert!(
-        tokio::time::timeout(
-            Duration::from_millis(5),
-            underlay_changed(&mut receiver, &baseline)
+
+#[test]
+fn unavailable_underlay_stops_generation_without_any_physical_fallback() {
+    let directory = tempfile::tempdir().unwrap();
+    let manager = manager(directory.path());
+    let response = manager
+        .command(
+            Request::parse(r#"{"action":"generate"}"#).unwrap(),
+            Some(context(Profile::default())),
         )
-        .await
-        .is_err()
-    );
-    sender.send_modify(|health| {
-        if let RuntimeHealth::Connected {
-            reconnect_count, ..
-        } = health
-        {
-            *reconnect_count += 1;
-        }
-    });
-    tokio::time::timeout(
-        Duration::from_secs(1),
-        underlay_changed(&mut receiver, &baseline),
-    )
-    .await
-    .unwrap();
+        .unwrap();
+    assert!(response.job.is_some());
+    assert!(manager.stop_blocking());
+    let job = manager
+        .command(Request::parse(r#"{"action":"get"}"#).unwrap(), None)
+        .unwrap()
+        .job
+        .unwrap();
+    assert!(matches!(job.state.as_str(), "failed" | "cancelled"));
+    assert!(job.profile_id.is_none());
+    assert!(directory.path().read_dir().unwrap().next().is_none());
 }

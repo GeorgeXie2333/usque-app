@@ -226,7 +226,6 @@ class ChainExitStatus {
     this.attemptCount = 0,
     this.candidateCount = 0,
     this.attemptFailures = const [],
-    this.warpObservation,
   });
   final String stage;
   final int generation;
@@ -237,7 +236,6 @@ class ChainExitStatus {
   final String? activeEndpoint;
   final int attemptCount, candidateCount;
   final List<String> attemptFailures;
-  final Map<Object?, Object?>? warpObservation;
   factory ChainExitStatus.fromMap(Map<Object?, Object?> map) => ChainExitStatus(
     stage: map['stage'] as String? ?? 'disabled',
     generation: map['generation'] as int? ?? 0,
@@ -250,7 +248,6 @@ class ChainExitStatus {
         ? ChainEndpoint.fromMap(map['attempting_endpoint'] as Map)
         : null,
     activeEndpoint: map['active_endpoint'] as String?,
-    warpObservation: map['warp_observation'] as Map<Object?, Object?>?,
     attemptCount: map['attempt_count'] as int? ?? 0,
     candidateCount: map['candidate_count'] as int? ?? 0,
     attemptFailures: (map['attempt_failures'] as List? ?? const [])
@@ -266,7 +263,6 @@ class ChainExitStatus {
       dnsUnavailable == other.dnsUnavailable &&
       attemptingEndpoint == other.attemptingEndpoint &&
       activeEndpoint == other.activeEndpoint &&
-      mapEquals(warpObservation, other.warpObservation) &&
       attemptCount == other.attemptCount &&
       candidateCount == other.candidateCount &&
       listEquals(attemptFailures, other.attemptFailures);

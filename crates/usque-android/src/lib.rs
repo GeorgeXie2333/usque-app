@@ -1409,7 +1409,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             | AndroidConfigCommand::BeginIdentityReplacement { .. }
     ) && !warp_wireguard::stop()
     {
-        return Err("WARP_SCAN_CLEANUP_PENDING".into());
+        return Err("WARP_GENERATION_CLEANUP_PENDING".into());
     }
     let clear_all_data = matches!(&command, AndroidConfigCommand::ClearAllData);
     let store = ConfigStore::new(config_path);

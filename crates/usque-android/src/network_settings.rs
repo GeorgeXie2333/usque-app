@@ -56,7 +56,7 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
         serde_json::from_str(request).map_err(|_| "invalid network settings message")?;
     #[cfg(feature = "wireguard")]
     if matches!(&command, Command::Save { .. } | Command::Reset) && !crate::warp_wireguard::stop() {
-        return Err("WARP_SCAN_CLEANUP_PENDING".into());
+        return Err("WARP_GENERATION_CLEANUP_PENDING".into());
     }
     let store = ConfigStore::new(path);
     let mut state = STATE

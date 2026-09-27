@@ -21,8 +21,8 @@ class AppController extends ChangeNotifier {
       return (engine as WarpWireguardClient).warpWireguard(request);
     }
     throw const EngineException(
-      'WARP_SCAN_UNAVAILABLE',
-      'WARP discovery unavailable.',
+      'WARP_GENERATION_UNAVAILABLE',
+      'WARP configuration generation unavailable.',
     );
   }
 

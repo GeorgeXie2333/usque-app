@@ -1,4 +1,3 @@
-use std::sync::Mutex;
 use usque_core::{
     Profile,
     chain_exit::{store::*, *},
@@ -9,15 +8,10 @@ use zeroize::Zeroizing;
 
 // Authenticated deterministic fixture, only for storage transaction tests.
 #[derive(Default)]
-struct FixtureCipher {
-    fail: Mutex<Option<Uuid>>,
-}
+struct FixtureCipher;
 impl ProfileCipher for FixtureCipher {
     fn seal(&self, id: Uuid, value: &[u8]) -> Result<Vec<u8>, ImportError> {
         use sha2::{Digest, Sha256};
-        if *self.fail.lock().unwrap() == Some(id) {
-            return Err(warp::error("injected_write_failure"));
-        }
         let mut bytes = id.as_bytes().to_vec();
         bytes.extend(Sha256::digest(value));
         bytes.extend(value.iter().map(|b| b ^ 0xa5));
@@ -45,29 +39,9 @@ fn secrets() -> ImportSecrets {
 }
 
 #[test]
-fn only_outer_settings_invalidate_scan_context() {
-    let original = Profile::default();
-    let mut changed = original.clone();
-    changed.name = "Renamed account".into();
-    changed.chain_exit = Some(ChainExitSettings {
-        source: ChainSource::WarpWireguard,
-        ..Default::default()
-    });
-    changed.proxy.system_proxy = !changed.proxy.system_proxy;
-    assert_eq!(
-        warp::context(&original).unwrap(),
-        warp::context(&changed).unwrap()
-    );
-    changed.endpoint.port = 8443;
-    assert_ne!(
-        warp::context(&original).unwrap(),
-        warp::context(&changed).unwrap()
-    );
-}
-#[test]
 fn warp_source_and_endpoint_override_leave_credentials_and_revision_unchanged() {
     let temp = tempfile::tempdir().unwrap();
-    let cipher = FixtureCipher::default();
+    let cipher = FixtureCipher;
     let store = ChainProfileStore::new(temp.path(), &cipher);
     let summary = store
         .import(ChainSource::WarpWireguard, "WARP", secrets())
@@ -100,7 +74,7 @@ fn warp_source_and_endpoint_override_leave_credentials_and_revision_unchanged() 
 #[test]
 fn old_wireguard_records_recover_their_source_without_reidentification() {
     let temp = tempfile::tempdir().unwrap();
-    let cipher = FixtureCipher::default();
+    let cipher = FixtureCipher;
     let store = ChainProfileStore::new(temp.path(), &cipher);
     let summary = store
         .import(ChainSource::WireguardCustom, "Legacy", secrets())
@@ -125,129 +99,75 @@ fn old_wireguard_records_recover_their_source_without_reidentification() {
     let (migrated, _, _) = store.load(&summary.selection()).unwrap();
     assert_eq!(migrated, summary);
 }
-fn row(job: &Job, index: usize) -> ProbeResult {
-    ProbeResult {
-        index,
-        endpoint: job.endpoint(index).unwrap(),
-        checked_at: now(),
-        ipv4: Some(Observation {
-            country: Some(if index.is_multiple_of(2) { "US" } else { "SG" }.into()),
-            exit_ip: Some("104.28.1.1".parse().unwrap()),
-            ..Default::default()
-        }),
-        ipv6: None,
-        failure: None,
-    }
-}
 #[test]
-fn encrypted_results_page_by_endpoint_and_filter_observed_country() {
-    let temp = tempfile::tempdir().unwrap();
-    let cipher = FixtureCipher::default();
-    let store = Store::new(temp.path(), &cipher);
-    let request = Request::parse(r#"{"action":"start","mode":"full"}"#).unwrap();
-    let mut job = Job::new(&request, "context".into()).unwrap();
-    store.insert(&job).unwrap();
-    for batch in 0..2 {
-        let mut rows = (batch * 64..(batch + 1) * 64)
-            .map(|i| row(&job, i))
-            .collect::<Vec<_>>();
-        job.next = (batch + 1) * 64;
-        store.checkpoint(&mut job, &mut rows).unwrap();
+fn generation_commands_reject_removed_scans_and_invalid_input() {
+    for action in ["start", "resume", "pause", "unknown"] {
+        let failure = Request::parse(&format!(r#"{{"action":"{action}"}}"#)).unwrap_err();
+        assert_eq!(failure.reason, "invalid_request");
     }
-    let reloaded = store.job(job.id).unwrap();
-    assert_eq!(reloaded.plan, ScanPlan::SinglePortV1);
-    assert_eq!(reloaded.endpoint(128), job.endpoint(128));
-    assert_eq!(reloaded.snapshot().completed, 128);
-    assert_eq!(reloaded.snapshot().total, 3584);
-    let (page, next) = store.page(&reloaded, 0, None).unwrap();
-    assert_eq!(page.len(), 100);
-    assert_eq!(next, Some(100));
-    assert_eq!(store.page(&reloaded, 100, None).unwrap().0.len(), 28);
-    assert_eq!(store.page(&reloaded, 0, Some("SG")).unwrap().0.len(), 64);
-    assert!(store.page(&reloaded, 0, Some("DE")).unwrap().0.is_empty());
-    store.save_identity(&secrets()).unwrap();
-    assert_eq!(
-        store.identity().unwrap().unwrap().configuration,
-        secrets().configuration
+    for extra in [
+        r#""mode":"quick""#,
+        r#""target":"162.159.192.1""#,
+        r#""ipv6":true"#,
+        r#""cursor":0"#,
+        r#""country":"US""#,
+    ] {
+        assert!(Request::parse(&format!(r#"{{"action":"generate",{extra}}}"#)).is_err());
+    }
+    assert!(Request::parse(r#"{"action":"cancel"}"#).is_err());
+    assert!(Request::parse(&" ".repeat(4097)).is_err());
+    assert!(
+        Request::parse(
+            &serde_json::json!({"action":"generate", "name":"x".repeat(65)}).to_string()
+        )
+        .is_err()
     );
-    for entry in std::fs::read_dir(temp.path().join("warp-wireguard")).unwrap() {
-        let data = std::fs::read(entry.unwrap().path()).unwrap();
-        assert!(
-            !data
-                .windows(b"PrivateKey".len())
-                .any(|v| v == b"PrivateKey")
-        );
-    }
-    warp::clear(temp.path()).unwrap();
-    assert!(store.jobs().unwrap().is_empty());
-    assert!(store.identity().unwrap().is_none());
-}
-#[test]
-fn interrupted_checkpoint_never_exposes_uncommitted_rows() {
-    let temp = tempfile::tempdir().unwrap();
-    let cipher = FixtureCipher::default();
-    let store = Store::new(temp.path(), &cipher);
-    let request = Request::parse(r#"{"action":"start"}"#).unwrap();
-    let mut job = Job::new(&request, "context".into()).unwrap();
-    store.insert(&job).unwrap();
-    let mut rows = vec![row(&job, 0)];
-    job.next = 1;
-    *cipher.fail.lock().unwrap() = Some(job.id);
-    assert!(store.checkpoint(&mut job, &mut rows).is_err());
-    assert_eq!(rows.len(), 1);
-    assert_eq!(job.chunks, 0);
-    let mut recovered = store.job(job.id).unwrap();
-    assert_eq!(recovered.next, 0);
-    assert!(store.page(&recovered, 0, None).unwrap().0.is_empty());
-    *cipher.fail.lock().unwrap() = None;
-    let mut rows = vec![row(&recovered, 0)];
-    recovered.next = 1;
-    store.checkpoint(&mut recovered, &mut rows).unwrap();
-    assert_eq!(
-        store
-            .page(&store.job(job.id).unwrap(), 0, None)
+    assert!(Request::parse(r#"{"action":"generate","name":"a\nb"}"#).is_err());
+    assert!(
+        Request::parse(r#"{"action":"generate"}"#)
             .unwrap()
-            .0
-            .len(),
-        1
+            .needs_network()
+    );
+    assert!(
+        !Request::parse(r#"{"action":"get"}"#)
+            .unwrap()
+            .needs_network()
+    );
+    assert!(
+        !Request::parse(&format!(
+            r#"{{"action":"cancel","job_id":"{}"}}"#,
+            Uuid::new_v4()
+        ))
+        .unwrap()
+        .needs_network()
     );
 }
 
 #[test]
-fn partial_checkpoints_reuse_chunks_and_record_failed_attempts() {
+fn explicit_clear_removes_only_owned_encrypted_sidecars() {
     let temp = tempfile::tempdir().unwrap();
-    let cipher = FixtureCipher::default();
-    let store = Store::new(temp.path(), &cipher);
-    let request = Request::parse(r#"{"action":"start"}"#).unwrap();
-    let mut job = Job::new(&request, "context".into()).unwrap();
-    store.insert(&job).unwrap();
-    for index in 0..70 {
-        let mut result = row(&job, index);
-        if index.is_multiple_of(2) {
-            result.failure = Some("no_tunnel_data".into());
-            result.ipv4 = None;
-        }
-        job.next = index + 1;
-        store.checkpoint(&mut job, &mut vec![result]).unwrap();
-    }
-    assert_eq!(job.chunks, 2);
-    assert_eq!(store.page(&job, 0, None).unwrap().0.len(), 35);
-    assert_eq!(store.page(&job, 64, None).unwrap().0.len(), 3);
-    let mut attempted = 0;
-    let mut failures = 0;
-    for entry in std::fs::read_dir(temp.path().join("warp-wireguard")).unwrap() {
-        let entry = entry.unwrap();
-        let id = Uuid::parse_str(entry.path().file_stem().unwrap().to_str().unwrap()).unwrap();
-        let plain = cipher
-            .open(id, &std::fs::read(entry.path()).unwrap())
-            .unwrap();
-        if let Ok(rows) = serde_json::from_slice::<Vec<ProbeResult>>(&plain) {
-            attempted += rows.len();
-            failures += rows.iter().filter(|r| r.failure.is_some()).count();
-        }
-    }
-    assert_eq!(attempted, 70);
-    assert_eq!(failures, 35);
-    assert_eq!(job.snapshot().completed, 70);
-    assert_eq!(job.snapshot().total, 70);
+    let directory = temp.path().join("warp-wireguard");
+    std::fs::create_dir(&directory).unwrap();
+    let owned = directory.join(format!("{}.sealed", Uuid::new_v4()));
+    std::fs::write(&owned, b"opaque encrypted sidecar").unwrap();
+    let pending = directory.join(".warp-pending");
+    std::fs::write(&pending, b"pending write").unwrap();
+    let foreign = directory.join("keep.txt");
+    std::fs::write(&foreign, b"unrelated").unwrap();
+    let nested = directory.join(format!("{}.sealed", Uuid::new_v4()));
+    std::fs::create_dir(&nested).unwrap();
+    clear_library(temp.path()).unwrap();
+    assert!(!owned.exists());
+    assert!(!pending.exists());
+    assert!(nested.is_dir());
+    assert_eq!(std::fs::read(foreign).unwrap(), b"unrelated");
+}
+
+#[test]
+fn explicit_clear_rejects_non_directory_sidecar_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("warp-wireguard");
+    std::fs::write(&path, b"unrelated").unwrap();
+    assert!(clear_library(temp.path()).is_err());
+    assert_eq!(std::fs::read(path).unwrap(), b"unrelated");
 }

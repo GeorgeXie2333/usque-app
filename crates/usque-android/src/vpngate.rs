@@ -159,11 +159,11 @@ pub(crate) fn command(
         #[cfg(feature = "wireguard")]
         return crate::warp_wireguard::command(
             path,
-            request.warp_wireguard.ok_or("WARP_SCAN_INVALID")?,
+            request.warp_wireguard.ok_or("WARP_GENERATION_INVALID")?,
             fetch,
         );
         #[cfg(not(feature = "wireguard"))]
-        return Err("WARP_SCAN_UNAVAILABLE".into());
+        return Err("WARP_GENERATION_UNAVAILABLE".into());
     }
     if request.command == "chain_profile" {
         return crate::chain_exit::command(

@@ -33,7 +33,7 @@ pub(crate) fn command(
         let mut slot = MANAGER
             .get_or_init(|| Mutex::new(None))
             .lock()
-            .map_err(|_| "WARP_SCAN_UNAVAILABLE")?;
+            .map_err(|_| "WARP_GENERATION_UNAVAILABLE")?;
         if slot.is_none() {
             *slot = Some((
                 path.into(),
@@ -43,18 +43,18 @@ pub(crate) fn command(
                 )),
             ));
         }
-        let (current, manager) = slot.as_ref().ok_or("WARP_SCAN_UNAVAILABLE")?;
+        let (current, manager) = slot.as_ref().ok_or("WARP_GENERATION_UNAVAILABLE")?;
         if current != path {
-            return Err("WARP_SCAN_UNAVAILABLE".into());
+            return Err("WARP_GENERATION_UNAVAILABLE".into());
         }
         manager.clone()
     };
     let context = if request.needs_network() {
-        let fetch = fetch.ok_or("WARP_SCAN_UNAVAILABLE")?;
+        let fetch = fetch.ok_or("WARP_GENERATION_UNAVAILABLE")?;
         Some(Context {
             profile: ConfigStore::new(path)
                 .load()
-                .map_err(|_| "WARP_SCAN_UNAVAILABLE")?
+                .map_err(|_| "WARP_GENERATION_UNAVAILABLE")?
                 .active_profile()
                 .ok_or("WARP_IDENTITY_REQUIRED")?,
             existing: fetch.networks.map(|(_, warp)| warp),
@@ -72,5 +72,5 @@ pub(crate) fn command(
             error: Some(e.reason),
             ..Default::default()
         });
-    serde_json::to_string(&response).map_err(|_| "WARP_SCAN_UNAVAILABLE".into())
+    serde_json::to_string(&response).map_err(|_| "WARP_GENERATION_UNAVAILABLE".into())
 }

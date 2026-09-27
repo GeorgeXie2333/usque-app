@@ -33,45 +33,25 @@ class WarpEngine extends ChainEngine implements WarpWireguardClient {
     if (request['action'] == 'generate') {
       library = [warpProfile];
       return {
-        'job': {
-          'id': 'job',
-          'kind': 'generate',
-          'state': 'completed',
-          'mode': 'quick',
-          'profile_id': 'warp',
-          'countries': <String>[],
-          'created_at': '2026-09-23T00:00:00Z',
-        },
-        'history': <Object?>[],
-        'results': <Object?>[],
+        'job': {'id': 'job', 'state': 'completed', 'profile_id': 'warp'},
       };
     }
+    return {};
+  }
+}
+
+class WarpPendingEngine extends WarpEngine {
+  bool cancelled = false;
+  bool available = true;
+  @override
+  Future<Map<Object?, Object?>> warpWireguard(
+    Map<String, Object?> request,
+  ) async {
+    commands.add(request);
+    if (!available) return {};
+    if (request['action'] == 'cancel') cancelled = true;
     return {
-      'job': {
-        'id': 'job',
-        'kind': 'start',
-        'state': 'completed',
-        'mode': 'quick',
-        'countries': ['US'],
-        'created_at': '2026-09-23T00:00:00Z',
-        'completed': 1,
-        'total': 1,
-        'working': 1,
-      },
-      'history': <Object?>[],
-      'results': [
-        {
-          'index': 0,
-          'endpoint': {'host': '188.114.98.1', 'port': 500},
-          'checked_at': '2026-09-23T00:00:00Z',
-          'ipv4': {
-            'country': 'US',
-            'exit_ip': '104.28.1.1',
-            'colo': 'FRA',
-            'response_ms': 42,
-          },
-        },
-      ],
+      'job': {'id': 'job', 'state': cancelled ? 'cancelled' : 'running'},
     };
   }
 }
@@ -86,12 +66,7 @@ class WarpFailureEngine extends WarpEngine {
   ) async {
     if (platform) throw EngineException(failure, 'WARP request failed');
     return {
-      'job': {
-        'id': 'job',
-        'kind': 'generate',
-        'state': 'failed',
-        'failure': failure,
-      },
+      'job': {'id': 'job', 'state': 'failed', 'failure': failure},
     };
   }
 }
@@ -103,11 +78,6 @@ void main() {
       for (final (code, platform, expected) in [
         ('registration_create_http_403', false, 'registration_create_http_403'),
         ('registration_device_timeout', false, 'registration_device_timeout'),
-        (
-          'scan_plan_changed',
-          false,
-          'The scan rules changed. Start a new scan; previous results are kept.',
-        ),
         (
           'identity_required',
           true,
@@ -133,6 +103,79 @@ void main() {
       expect(find.textContaining('private-token'), findsNothing);
     },
   );
+  testWidgets('generation polls and can be cancelled without saving settings', (
+    tester,
+  ) async {
+    final engine = WarpPendingEngine();
+    final app = await hostChain(tester, engine);
+    await tester.pumpWidget(
+      workflowHost(
+        app,
+        home: Scaffold(
+          body: WarpWireguardPanel(
+            controller: app,
+            endpoint: null,
+            overrideEndpoint: null,
+            onEndpoint: (_) {},
+            onValid: (_) {},
+            onGenerated: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    final cancel = find.widgetWithText(TextButton, 'Cancel');
+    await tester.ensureVisible(cancel);
+    await tester.tap(cancel);
+    await tester.pumpAndSettle();
+    expect(engine.commands.last, {'action': 'cancel', 'job_id': 'job'});
+    expect(engine.saves, 0);
+    final count = engine.commands.length;
+    await tester.pump(const Duration(seconds: 4));
+    expect(engine.commands.length, count);
+  });
+  testWidgets(
+    'engine restart clears process-local generation status and polling',
+    (tester) async {
+      final engine = WarpPendingEngine();
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: WarpWireguardPanel(
+              controller: app,
+              endpoint: null,
+              overrideEndpoint: null,
+              onEndpoint: (_) {},
+              onValid: (_) {},
+              onGenerated: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+      expect(engine.commands.last, {'action': 'get'});
+      engine.available = false;
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextButton, 'Cancel'), findsNothing);
+      final count = engine.commands.length;
+      await tester.pump(const Duration(seconds: 4));
+      expect(engine.commands.length, count);
+    },
+  );
+  testWidgets('idle generation status does not keep polling', (tester) async {
+    final engine = WarpEngine();
+    await hostChain(tester, engine);
+    await chooseSource(tester, ChainSource.warpWireguard);
+    final count = engine.commands.length;
+    await tester.pump(const Duration(seconds: 4));
+    expect(engine.commands.length, count);
+    expect(find.widgetWithText(TextButton, 'Cancel'), findsNothing);
+  });
   setUpAll(() async {
     await (FontLoader(
       'MaterialIcons',
@@ -166,7 +209,7 @@ void main() {
     }
   });
   testWidgets(
-    'WARP discovery panel renders measured countries and endpoint drafts',
+    'WARP endpoint editor renders light English and dark Chinese drafts',
     (tester) async {
       final app = await hostChain(tester, WarpEngine(), width: 390);
       for (final dark in [false, true]) {
@@ -207,12 +250,13 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.text(app.strings.warp('single_port_hint')), findsOneWidget);
+        expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+        expect(find.byType(TextField), findsNWidgets(2));
         expect(tester.takeException(), isNull);
         await expectLater(
           find.byKey(boundary),
           matchesGoldenFile(
-            'goldens/warp_discovery_${dark ? 'dark_zh' : 'light_en'}.png',
+            'goldens/warp_endpoint_${dark ? 'dark_zh' : 'light_en'}.png',
           ),
         );
       }
@@ -220,7 +264,7 @@ void main() {
     tags: 'golden',
   );
 
-  test('every supported locale includes the full scanner vocabulary', () {
+  test('every supported locale includes generation statuses and errors', () {
     expect(kWarpCatalogs.keys.toSet(), kChainCatalogs.keys.toSet());
     for (final values in kWarpCatalogs.values) {
       expect(values.length, kWarpCatalogs['en']!.length);
@@ -287,12 +331,20 @@ void main() {
       expect(app.activeProfile.chainExit, before);
       expect(engine.saves, 0);
       expect(engine.commands.any((r) => r['action'] == 'generate'), isTrue);
+      expect(
+        engine.commands.every(
+          (r) => r.keys.every((k) => ['action', 'job_id'].contains(k)),
+        ),
+        isTrue,
+      );
+      expect(find.text('Scan endpoints'), findsNothing);
+      expect(find.text('Scan history'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
       expect(engine.commands.any((r) => r['action'] == 'cancel'), isFalse);
     },
   );
   testWidgets(
-    'scanner supports 200 percent text and remote selection on phone and TV',
+    'endpoint editor supports 200 percent text and keyboard reset on phone and TV',
     (tester) async {
       final app = await hostChain(tester, WarpEngine());
       for (final (size, locale) in [
@@ -312,9 +364,10 @@ void main() {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: WarpWireguardPanel(
+                    key: ValueKey(locale),
                     controller: app,
                     endpoint: const ChainEndpoint('162.159.192.1', 2408),
-                    overrideEndpoint: null,
+                    overrideEndpoint: const ChainEndpoint('188.114.98.1', 500),
                     onEndpoint: (value) => selected = value,
                     onValid: (_) {},
                     onGenerated: () {},
@@ -325,65 +378,71 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final candidate = find.text('188.114.98.1:500');
+        await tester.enterText(
+          fieldWithLabel('Endpoint IP'),
+          '2606:4700:d0::99',
+        );
+        expect(selected, const ChainEndpoint('2606:4700:d0::99', 500));
+        final candidate = find.text(app.strings.get('reset'));
         await tester.ensureVisible(candidate);
         Focus.of(tester.element(candidate)).requestFocus();
         await tester.pump();
         await tester.sendKeyEvent(LogicalKeyboardKey.select);
         await tester.pumpAndSettle();
-        expect(selected, const ChainEndpoint('188.114.98.1', 500));
+        expect(selected, isNull);
         expect(tester.takeException(), isNull);
       }
     },
   );
-  testWidgets(
-    'manual endpoint and scanned selection remain drafts and invalid ports block apply',
-    (tester) async {
-      final engine = WarpEngine()..library = [warpProfile];
-      final app = await hostChain(tester, engine);
-      await chooseSource(tester, ChainSource.warpWireguard);
-      await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
-      await tester.pumpAndSettle();
-      final row = find.text('WARP test');
-      await tester.scrollUntilVisible(
-        row,
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(row);
-      await tester.pumpAndSettle();
-      final ip = fieldWithLabel('Endpoint IP');
-      await tester.ensureVisible(ip);
-      await tester.enterText(ip, '2606:4700:d0::99');
-      final port = fieldWithLabel('Port');
-      await tester.enterText(port, '65536');
-      await tester.pumpAndSettle();
-      expect(engine.saves, 0);
-      expect(app.activeProfile.chainExit?.endpointOverride, isNull);
-      expect(tester.widget<TextField>(port).decoration!.errorText, isNotNull);
-      await tester.enterText(port, '4500');
-      await tester.pumpAndSettle();
-      expect(tester.widget<TextField>(port).decoration!.errorText, isNull);
-      final panel = tester.widget<WarpWireguardPanel>(
-        find.byType(WarpWireguardPanel),
-      );
-      expect(
-        panel.overrideEndpoint,
-        const ChainEndpoint('2606:4700:d0::99', 4500),
-      );
-      final candidate = find.text('188.114.98.1:500');
-      await tester.ensureVisible(candidate);
-      await tester.tap(candidate);
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<WarpWireguardPanel>(find.byType(WarpWireguardPanel))
-            .overrideEndpoint,
-        const ChainEndpoint('188.114.98.1', 500),
-      );
-      expect(engine.saves, 0);
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('manual endpoint remains a draft and invalid ports block apply', (
+    tester,
+  ) async {
+    final engine = WarpEngine()..library = [warpProfile];
+    final app = await hostChain(tester, engine);
+    await chooseSource(tester, ChainSource.warpWireguard);
+    await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
+    await tester.pumpAndSettle();
+    final row = find.text('WARP test');
+    await tester.scrollUntilVisible(
+      row,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    final ip = fieldWithLabel('Endpoint IP');
+    await tester.ensureVisible(ip);
+    await tester.enterText(ip, '2606:4700:d0::99');
+    final port = fieldWithLabel('Port');
+    await tester.enterText(port, '65536');
+    await tester.pumpAndSettle();
+    expect(engine.saves, 0);
+    expect(app.activeProfile.chainExit?.endpointOverride, isNull);
+    expect(tester.widget<TextField>(port).decoration!.errorText, isNotNull);
+    await tester.enterText(port, '4500');
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(port).decoration!.errorText, isNull);
+    final panel = tester.widget<WarpWireguardPanel>(
+      find.byType(WarpWireguardPanel),
+    );
+    expect(
+      panel.overrideEndpoint,
+      const ChainEndpoint('2606:4700:d0::99', 4500),
+    );
+    final reset = find.widgetWithText(TextButton, app.strings.get('reset'));
+    await tester.ensureVisible(reset);
+    await tester.tap(reset);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<WarpWireguardPanel>(find.byType(WarpWireguardPanel))
+          .overrideEndpoint,
+      isNull,
+    );
+    expect(tester.widget<TextField>(ip).controller!.text, '162.159.192.1');
+    expect(tester.widget<TextField>(port).controller!.text, '2408');
+    expect(engine.saves, 0);
+    expect(tester.takeException(), isNull);
+  });
 }

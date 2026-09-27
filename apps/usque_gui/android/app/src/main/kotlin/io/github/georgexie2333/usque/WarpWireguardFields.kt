@@ -1,6 +1,5 @@
 package io.github.georgexie2333.usque
 
-import org.json.JSONArray
 import org.json.JSONObject
 
 /** Metadata-only replies. Never forward arbitrary native JSON or secret fields. */
@@ -12,86 +11,33 @@ internal object WarpWireguardFields {
             "WARP_IDENTITY_REQUIRED", "identity_required" -> "identity_required"
             "VPN_GATE_IDENTITY_INVALID", "identity_invalid" -> "identity_invalid"
             "CHAIN_CRYPTO_UNAVAILABLE", "secure_storage_failed" -> "secure_storage_failed"
-            "VPN_GATE_REQUEST_INVALID", "WARP_SCAN_INVALID", "invalid_request" -> "invalid_request"
+            "VPN_GATE_REQUEST_INVALID", "WARP_GENERATION_INVALID", "invalid_request" -> "invalid_request"
             else -> "unavailable"
         }
 
-    private val keys =
-        setOf(
-            "job",
-            "history",
-            "results",
-            "next_cursor",
-            "error",
-            "id",
-            "kind",
-            "state",
-            "mode",
-            "ipv6",
-            "completed",
-            "total",
-            "working",
-            "countries",
-            "created_at",
-            "failure",
-            "profile_id",
-            "index",
-            "endpoint",
-            "host",
-            "port",
-            "checked_at",
-            "ipv4",
-            "exit_ip",
-            "country",
-            "colo",
-            "response_ms",
-        )
+    private val jobKeys = setOf("id", "state", "failure", "profile_id")
 
     fun response(raw: String): Map<String, Any?> {
-        require(raw.length <= 256 * 1024)
-        return objectValue(JSONObject(raw), 0)
+        require(raw.length <= 4096)
+        val source = JSONObject(raw)
+        val job = source.opt("job")
+        require(job == null || job == JSONObject.NULL || job is JSONObject)
+        val status =
+            (job as? JSONObject)?.let { value ->
+                require(boundedString(value, "id")?.isNotBlank() == true)
+                require(boundedString(value, "state") in setOf("running", "completed", "cancelled", "failed"))
+                jobKeys.associateWith { boundedString(value, it) }
+            }
+        return mapOf("error" to boundedString(source, "error"), "job" to status)
     }
 
-    private fun objectValue(
+    private fun boundedString(
         source: JSONObject,
-        depth: Int,
-    ): Map<String, Any?> {
-        require(depth <= 4)
-        return source
-            .keys()
-            .asSequence()
-            .filter { it in keys }
-            .associateWith { value(source.opt(it), depth + 1) }
+        key: String,
+    ): String? {
+        val value = source.opt(key)
+        if (value == null || value == JSONObject.NULL) return null
+        require(value is String && value.length <= 512)
+        return value
     }
-
-    private fun value(
-        source: Any?,
-        depth: Int,
-    ): Any? =
-        when (source) {
-            null, JSONObject.NULL -> {
-                null
-            }
-
-            is JSONObject -> {
-                objectValue(source, depth)
-            }
-
-            is JSONArray -> {
-                require(source.length() <= 256 && depth <= 4)
-                List(source.length()) { value(source.opt(it), depth + 1) }
-            }
-
-            is String -> {
-                source.also { require(it.length <= 512) }
-            }
-
-            is Number, is Boolean -> {
-                source
-            }
-
-            else -> {
-                null
-            }
-        }
 }

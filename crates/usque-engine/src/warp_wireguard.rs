@@ -9,13 +9,13 @@ impl ControlService {
     pub(crate) async fn cancel_warp_jobs(&self) -> Result<(), ControlServiceError> {
         #[cfg(all(windows, feature = "wireguard"))]
         {
-            let manager = self.warp_scanner.clone();
+            let manager = self.warp_generator.clone();
             if !tokio::task::spawn_blocking(move || manager.stop_blocking())
                 .await
                 .unwrap_or(false)
             {
                 return Err(ControlServiceError::InvalidRequest(
-                    "WARP scanner cleanup pending".into(),
+                    "WARP configuration generation cleanup pending".into(),
                 ));
             }
         }
@@ -32,7 +32,8 @@ impl ControlService {
             let _lifecycle = if request.needs_network() {
                 Some(self.mutation_lock.clone().try_lock_owned().map_err(|_| {
                     ControlServiceError::InvalidRequest(
-                        "WARP scanner unavailable during a connection change".into(),
+                        "WARP configuration generation unavailable during a connection change"
+                            .into(),
                     )
                 })?)
             } else {
@@ -79,11 +80,13 @@ impl ControlService {
             } else {
                 None
             };
-            let manager = self.warp_scanner.clone();
+            let manager = self.warp_generator.clone();
             let response = tokio::task::spawn_blocking(move || manager.command(request, context))
                 .await
                 .map_err(|_| {
-                    ControlServiceError::InvalidRequest("WARP scanner worker failed".into())
+                    ControlServiceError::InvalidRequest(
+                        "WARP configuration generation worker failed".into(),
+                    )
                 })?;
             let response = response.unwrap_or_else(|e| usque_core::warp_wireguard::Response {
                 error: Some(e.reason),

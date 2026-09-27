@@ -262,7 +262,7 @@ internal class AndroidEngineMethodHandler(
         call: MethodCall,
         result: MethodChannel.Result,
     ) {
-        if ((controlClient.vpnGateRefreshPending || controlClient.warpScanPending) && call.method in
+        if ((controlClient.vpnGateRefreshPending || controlClient.warpGenerationPending) && call.method in
             setOf(
                 "setActiveProfile",
                 "deleteProfile",

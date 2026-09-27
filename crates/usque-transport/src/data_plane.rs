@@ -42,8 +42,6 @@ pub struct VpnGateStart {
 }
 pub type ChainExitStart = VpnGateStart;
 struct GateRuntime {
-    #[cfg(feature = "wireguard")]
-    warp_probe: Option<tokio_util::task::AbortOnDropHandle<()>>,
     frontend: MasqueRuntime,
     driver: crate::vpngate::GateDriver,
     network: FinalNetworkParameters,
@@ -296,8 +294,6 @@ impl DataPlaneRuntime {
             return Err(TransportError::TunnelClosed);
         }
         self.gate = Some(Box::new(GateRuntime {
-            #[cfg(feature = "wireguard")]
-            warp_probe: None,
             frontend,
             driver,
             network,
@@ -471,27 +467,6 @@ impl DataPlaneRuntime {
             loop {
                 match status.borrow().stage {
                     usque_core::vpngate::GateStage::Connected => {
-                        #[cfg(feature = "wireguard")]
-                        if gate.warp_probe.is_none()
-                            && status.borrow().current_profile.as_ref().is_some_and(|p| {
-                                p.source == usque_core::chain_exit::ChainSource::WarpWireguard
-                            })
-                        {
-                            let network = gate.frontend.internal_network();
-                            let sink = gate.driver.observation_sink();
-                            gate.warp_probe = Some(tokio_util::task::AbortOnDropHandle::new(
-                                tokio::spawn(async move {
-                                    let observation =
-                                        crate::warp_wireguard::observe_exit(&network).await;
-                                    sink.send_modify(|status| {
-                                        if status.stage == usque_core::vpngate::GateStage::Connected
-                                        {
-                                            status.warp_observation = Some(Box::new(observation));
-                                        }
-                                    });
-                                }),
-                            ));
-                        }
                         self.activation_deadline = None;
                         return Ok(());
                     }

@@ -1,6 +1,5 @@
 package io.github.georgexie2333.usque
 
-import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,20 +17,29 @@ class WarpWireguardFieldsTest {
     }
 
     @Test
-    fun discoveryRepliesAllowOnlyBoundedMetadata() {
-        val observation = JSONObject().put("country", "US").put("exit_ip", "104.28.1.1").put("private_key", "hidden")
-        val row =
+    fun generationRepliesAllowOnlyBoundedStatusFields() {
+        val job =
             JSONObject()
-                .put(
-                    "ipv4",
-                    observation,
-                ).put("endpoint", JSONObject().put("host", "162.159.192.1").put("port", 500))
-        val source = JSONObject().put("results", JSONArray().put(row)).put("token", "hidden")
+                .put("id", "job")
+                .put("state", "completed")
+                .put("profile_id", "saved")
+                .put("private_key", "hidden")
+        val source =
+            JSONObject()
+                .put("job", job)
+                .put("token", "hidden")
+                .put("results", "discarded")
+                .put("history", "discarded")
         val result = WarpWireguardFields.response(source.toString())
+        assertEquals(setOf("job", "error"), result.keys)
         assertFalse(result.toString().contains("hidden"))
-        assertTrue(result.toString().contains("104.28.1.1"))
-        source.put("results", JSONArray(List(257) { row }))
+        assertFalse(result.toString().contains("discarded"))
+        assertEquals("saved", (result["job"] as Map<*, *>)["profile_id"])
+        job.put("profile_id", "a".repeat(513))
         assertTrue(runCatching { WarpWireguardFields.response(source.toString()) }.isFailure)
+        job.put("profile_id", JSONObject())
+        assertTrue(runCatching { WarpWireguardFields.response(source.toString()) }.isFailure)
+        assertTrue(runCatching { WarpWireguardFields.response(" ".repeat(4097)) }.isFailure)
     }
 
     @Test

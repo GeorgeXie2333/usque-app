@@ -13,6 +13,33 @@ import org.junit.Test
 
 class VpnControlClientTest {
     @Test
+    fun generationPendingFollowsCurrentJobUntilCompletion() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.requestVpnGate(
+            """{"command":"warp_wireguard","warp_wireguard":{"action":"generate"}}""",
+            RecordingResult(),
+        )
+        assertTrue(client.warpGenerationPending)
+        client.deliverVpnGateReply(
+            endpoint.messages.last().requestId,
+            """{"job":{"id":"job","state":"running"}}""",
+            null,
+        )
+        assertTrue(client.warpGenerationPending)
+        client.requestVpnGate(
+            """{"command":"warp_wireguard","warp_wireguard":{"action":"get","job_id":"job"}}""",
+            RecordingResult(),
+        )
+        client.deliverVpnGateReply(
+            endpoint.messages.last().requestId,
+            """{"job":{"id":"job","state":"completed","profile_id":"saved"}}""",
+            null,
+        )
+        assertFalse(client.warpGenerationPending)
+    }
+
+    @Test
     fun disconnectedWarpRequestsBindAndPreserveSafeNativeFailureCodes() {
         for ((nativeError, expected) in listOf(
             "identity_required" to "identity_required",

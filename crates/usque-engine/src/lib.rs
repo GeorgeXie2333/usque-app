@@ -115,7 +115,7 @@ pub struct ControlServiceState {
     gate_directory: usque_core::vpngate::DirectoryDownloader,
     gate_fetch_task: Mutex<Option<vpngate::FetchTask>>,
     #[cfg(all(windows, feature = "wireguard"))]
-    warp_scanner: Arc<usque_transport::warp_wireguard::Manager>,
+    warp_generator: Arc<usque_transport::warp_wireguard::Manager>,
     gate_status: watch::Sender<usque_core::vpngate::GateStatus>,
     gate_supervisor: Mutex<Option<AbortOnDropHandle<()>>>,
     gate_startup_cancel: Mutex<tokio_util::sync::CancellationToken>,
@@ -428,7 +428,7 @@ impl ControlService {
                 maintenance: maintenance::Maintenance::new(store.path()),
                 diagnostics: diagnostics::DiagnosticsManager::new(),
                 #[cfg(all(windows, feature = "wireguard"))]
-                warp_scanner: Arc::new(usque_transport::warp_wireguard::Manager::new(
+                warp_generator: Arc::new(usque_transport::warp_wireguard::Manager::new(
                     store.path().to_path_buf(),
                     Arc::new(usque_core::chain_exit::store::WindowsProfileCipher),
                 )),

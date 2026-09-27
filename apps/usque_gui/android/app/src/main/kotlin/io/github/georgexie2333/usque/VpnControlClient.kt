@@ -118,7 +118,7 @@ internal class VpnControlClient(
     private val pendingVpnGate = mutableMapOf<Int, SettingsRequest>()
     var vpnGateRefreshPending = false
         private set
-    var warpScanPending = false
+    var warpGenerationPending = false
         private set
 
     fun requestVpnGate(
@@ -132,9 +132,9 @@ internal class VpnControlClient(
         val id = allocateRequestId()
         val request = org.json.JSONObject(json)
         if (request.optString("command") == "warp_wireguard" &&
-            request.optJSONObject("warp_wireguard")?.optString("action") in setOf("start", "resume", "generate")
+            request.optJSONObject("warp_wireguard")?.optString("action") == "generate"
         ) {
-            warpScanPending = true
+            warpGenerationPending = true
         }
         if ((request.optString("command") == "refresh" && !request.optBoolean("cancel")) ||
             (
@@ -193,12 +193,14 @@ internal class VpnControlClient(
         if (request.json?.let { org.json.JSONObject(it).optString("command") } == "warp_wireguard") {
             val value = json?.let { runCatching { WarpWireguardFields.response(it) }.getOrNull() }
             if (value == null) {
-                request.result.error(WarpWireguardFields.failureCode(error), "WARP scan request failed.", null)
+                request.result.error(
+                    WarpWireguardFields.failureCode(error),
+                    "WARP configuration generation request failed.",
+                    null,
+                )
             } else {
                 if (value["error"] == null) {
-                    val history = value["history"] as? List<*> ?: emptyList<Any>()
-                    warpScanPending = (value["job"] as? Map<*, *>)?.get("state") == "running" ||
-                        history.any { (it as? Map<*, *>)?.get("state") == "running" }
+                    warpGenerationPending = (value["job"] as? Map<*, *>)?.get("state") == "running"
                 }
                 request.result.success(value)
             }
@@ -213,7 +215,7 @@ internal class VpnControlClient(
                 org.json.JSONObject(request.json.orEmpty()).optBoolean("cancel")
             ) {
                 vpnGateRefreshPending = false
-                if (org.json.JSONObject(request.json.orEmpty()).optBoolean("cancel")) warpScanPending = false
+                if (org.json.JSONObject(request.json.orEmpty()).optBoolean("cancel")) warpGenerationPending = false
             }
             request.result.success(parsed)
         }

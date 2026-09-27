@@ -15,7 +15,7 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
 | [Network Doctor](network-doctor.md) | Run checks, read results, and export a local report / 运行检查、理解结果与导出诊断 |
 | [Direct DNS](encrypted-direct-dns.md) | Choose System, DoH or DoT and fill in resolver settings / 选择直连 DNS 模式与填写服务器配置 |
-| [WARP via WireGuard](WARP_WIREGUARD.md) | Generate/import WARP configurations and scan endpoints / 生成、导入 WARP 配置与扫描端点 |
+| [WARP via WireGuard](WARP_WIREGUARD.md) | Generate/import WARP configurations and edit endpoints / 生成、导入 WARP 配置与编辑端点 |
 | [Chain proxy](CHAIN_PROXY.md) | OpenVPN, WireGuard, WARP via WireGuard, VPN Gate: import, select and apply / 导入、选用与应用 |
 | [VPN Gate directory](VPN_GATE.md) | Manage the volunteer directory and favorites / 管理志愿服务器目录与收藏 |
 | [Experimental L4](L4_PROXY.md) | Enable TCP proxy mode and understand its traffic limits / 启用 TCP 代理模式及了解限制 |
@@ -57,7 +57,7 @@ Publication and optional protected-runner validation are explained in
 | [Network settings](NETWORK_SETTINGS.md) | Field updates, saved settings and active-session changes / 字段修改、设置保存与会话生效规则 |
 | [Windows lifecycle](windows-lifecycle.md) | Service recovery, upgrade ordering and quiet uninstall / 服务恢复、升级顺序与静默卸载 |
 | [Direct DNS threat model](direct-dns-threat-model.md) | Scoped trust boundaries, assumptions, and review evidence / 专题信任边界、假设与审查依据 |
-| [WARP WireGuard upstream](WARP_WIREGUARD_UPSTREAM.md) | Pinned warpscout/wgcf references, endpoint data, registration contract and notices / 固定的上游版本、端点数据、注册协议与许可声明 |
+| [WARP WireGuard upstream](WARP_WIREGUARD_UPSTREAM.md) | Pinned wgcf reference, registration contract and notice / 固定的上游版本、注册协议与许可声明 |
 
 Use these pages when changing an implementation. Keep behavior descriptions in
 sync with executable sources, preserve protobuf numbers and invariant identifiers,

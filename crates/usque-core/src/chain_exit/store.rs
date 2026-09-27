@@ -17,31 +17,43 @@ pub trait ProfileCipher: Send + Sync {
 /// Called only by the explicit clear-all-data flow after connection cleanup.
 /// Enumerates only this library's regular files; never follows linked paths.
 pub fn clear_library(parent: &Path) -> Result<(), ImportError> {
-    crate::warp_wireguard::clear(parent)?;
-    let directory = parent.join("chain-profiles");
-    if !directory.exists() {
-        return Ok(());
-    }
-    let meta = fs::symlink_metadata(&directory).map_err(|_| storage_error())?;
-    if !meta.is_dir() || meta.file_type().is_symlink() {
-        return Err(storage_error());
-    }
-    let _guard = crate::storage::ConfigStore::new(directory.join("catalog.json"))
-        .lock_exclusive()
-        .map_err(|_| storage_error())?;
-    for entry in fs::read_dir(directory).map_err(|_| storage_error())? {
-        let entry = entry.map_err(|_| storage_error())?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
+    // Explicit data removal also covers retired encrypted sidecars without
+    // decoding them or retaining any runtime dependency on their format.
+    for (name, prefix, suffix) in [
+        ("warp-wireguard", ".warp-", ".sealed"),
+        ("chain-profiles", ".chain-", ".profile"),
+    ] {
+        let directory = parent.join(name);
+        if !directory.exists() {
             continue;
+        }
+        let meta = fs::symlink_metadata(&directory).map_err(|_| storage_error())?;
+        if !meta.is_dir() || meta.file_type().is_symlink() {
+            return Err(storage_error());
+        }
+        let _guard = if name == "chain-profiles" {
+            Some(
+                crate::storage::ConfigStore::new(directory.join("catalog.json"))
+                    .lock_exclusive()
+                    .map_err(|_| storage_error())?,
+            )
+        } else {
+            None
         };
-        if (name.starts_with(".chain-")
-            || name
-                .strip_suffix(".profile")
-                .is_some_and(|s| Uuid::parse_str(s).is_ok()))
-            && entry.file_type().map_err(|_| storage_error())?.is_file()
-        {
-            fs::remove_file(entry.path()).map_err(|_| storage_error())?;
+        for entry in fs::read_dir(directory).map_err(|_| storage_error())? {
+            let entry = entry.map_err(|_| storage_error())?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if (name.starts_with(prefix)
+                || name
+                    .strip_suffix(suffix)
+                    .is_some_and(|s| Uuid::parse_str(s).is_ok()))
+                && entry.file_type().map_err(|_| storage_error())?.is_file()
+            {
+                fs::remove_file(entry.path()).map_err(|_| storage_error())?;
+            }
         }
     }
     Ok(())
