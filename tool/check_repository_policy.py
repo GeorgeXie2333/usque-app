@@ -12,6 +12,8 @@ from urllib.parse import unquote
 REQUIRED_FILES = (
     "README.md",
     "README.zh-CN.md",
+    "README.ru.md",
+    "README.fa.md",
     "LICENSE.md",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",

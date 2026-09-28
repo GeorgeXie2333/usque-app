@@ -3,7 +3,13 @@
 </p>
 
 <p align="center">
+  English
+  ·
   <a href="README.zh-CN.md">简体中文</a>
+  ·
+  <a href="README.ru.md">Русский</a>
+  ·
+  <a href="README.fa.md">فارسی</a>
 </p>
 
 <p align="center">

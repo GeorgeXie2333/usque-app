@@ -4,6 +4,12 @@
 
 <p align="center">
   <a href="README.md">English</a>
+  ·
+  简体中文
+  ·
+  <a href="README.ru.md">Русский</a>
+  ·
+  <a href="README.fa.md">فارسی</a>
 </p>
 
 <p align="center">
