@@ -585,8 +585,9 @@ jobs:
           for name in "${!expected_abis[@]}"; do
             apk="$source_dir/$name"
             test -s "$apk"
+            read -r -a package_abis <<< "${expected_abis[$name]}"
             python tool/verify_android_apk.py --apk "$apk" \
-              --abis ${expected_abis[$name]} \
+              --abis "${package_abis[@]}" \
               --aapt2 "$android_sdk/build-tools/36.0.0/aapt2" \
               --zipalign "$android_sdk/build-tools/36.0.0/zipalign"
             entries="$RUNNER_TEMP/$name.entries"

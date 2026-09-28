@@ -178,7 +178,8 @@ class ApkPackagingTests(unittest.TestCase):
         for workflow in ("build.yml", "release.yml"):
             source = (workflows / workflow).read_text(encoding="utf-8")
             self.assertIn("python tool/verify_android_apk.py", source)
-            self.assertIn("--abis ${expected_abis[$name]}", source)
+            self.assertIn('read -r -a package_abis <<< "${expected_abis[$name]}"', source)
+            self.assertIn('--abis "${package_abis[@]}"', source)
 
 
 if __name__ == "__main__":
