@@ -117,7 +117,7 @@ def verify_manifest(text: str) -> None:
                 applications += 1
         if application_indent is not None and indent == application_indent + 2:
             match = re.fullmatch(
-                r"\s*A: (?:android|http://schemas.android.com/apk/res/android):"
+                r"\s*A: (?:android|http://schemas\.android\.com/apk/res/android):"
                 r"extractNativeLibs(?:\(0x[0-9a-fA-F]+\))?="
                 r"(true|false|\(type 0x12\)0x[0-9a-fA-F]+)\s*",
                 line,

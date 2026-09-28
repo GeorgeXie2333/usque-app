@@ -146,6 +146,9 @@ class ApkPackagingTests(unittest.TestCase):
         verify_manifest(actual_aapt2)
         with self.assertRaises(ValueError):
             verify_manifest(actual_aapt2.replace("=true", "=false"))
+        for spoof in ("schemasXandroid.com", "schemas.androidXcom", "schemasXandroidYcom"):
+            with self.assertRaises(ValueError):
+                verify_manifest(actual_aapt2.replace("schemas.android.com", spoof))
         for invalid in (
             "",
             MANIFEST.replace("0xffffffff", "0x0"),
