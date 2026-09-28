@@ -145,11 +145,12 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 
 ## 文档与开发
 
-从[文档索引](docs/README.md)选择需要的内容。技术文档目前以英文为主。
+从 [Wiki 使用指南](https://github.com/GeorgeXie2333/usque-app/wiki/Home-zh-CN)开始，查找设置步骤与实用教程；完整参考见[文档索引](docs/README.md)，技术文档目前以英文为主。
 
 | 需要了解 | 阅读文档 |
 | --- | --- |
 | 安装、更新、卸载与恢复 | [安装指南](docs/INSTALLATION.md) |
+| 通过 WARP 连接 Proton VPN | [WireGuard over MASQUE 教程](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE-zh-CN) |
 | 本地网络质量检查 | [Network Doctor](docs/network-doctor.md) |
 | 安全地构建和测试改动 | [贡献指南](CONTRIBUTING.md) |
 | 实现与验证状态 | [实现进度](docs/IMPLEMENTATION.md) |

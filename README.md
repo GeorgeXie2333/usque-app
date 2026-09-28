@@ -169,11 +169,12 @@ system TCP. See [HTTP/3 congestion control](docs/congestion-control.md).
 
 ## Documentation and development
 
-Start with the [documentation index](docs/README.md). Most technical documents are in English.
+Start with the [Wiki](https://github.com/GeorgeXie2333/usque-app/wiki/Home) for setup and practical tutorials. Use the [documentation index](docs/README.md) for the complete reference; most technical documents are in English.
 
 | Need | Read |
 | --- | --- |
 | Install, update, uninstall, or recover | [Installation](docs/INSTALLATION.md) |
+| Connect to Proton VPN through WARP | [WireGuard over MASQUE tutorial](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) |
 | Understand local quality checks | [Network Doctor](docs/network-doctor.md) |
 | Build and test changes safely | [Contributing](CONTRIBUTING.md) |
 | Understand implementation and verification status | [Implementation](docs/IMPLEMENTATION.md) |
