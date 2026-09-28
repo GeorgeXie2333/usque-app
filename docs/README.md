@@ -8,6 +8,10 @@ overview is available in [English](../README.md) and
 Release 的说明及标签下文档。历史验收记录只适用于其注明的提交，不代表当前版本
 已经通过相同测试。
 
+For setup and practical tutorials, start with the Wiki: [English](https://github.com/GeorgeXie2333/usque-app/wiki/Home) / [简体中文](https://github.com/GeorgeXie2333/usque-app/wiki/Home-zh-CN).
+
+设置步骤与实用教程见上述 Wiki 入口，中英文分别独立成页。
+
 ## Use Usque / 使用指南
 
 | Document | Read it for / 用途 |
@@ -17,6 +21,7 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | [Direct DNS](encrypted-direct-dns.md) | Choose System, DoH or DoT and fill in resolver settings / 选择直连 DNS 模式与填写服务器配置 |
 | [WARP via WireGuard](WARP_WIREGUARD.md) | Generate/import WARP configurations and edit endpoints / 生成、导入 WARP 配置与编辑端点 |
 | [Chain proxy](CHAIN_PROXY.md) | OpenVPN, WireGuard, WARP via WireGuard, VPN Gate: import, select and apply / 导入、选用与应用 |
+| Proton VPN over MASQUE: [English](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) / [简体中文](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE-zh-CN) | Download a WireGuard configuration, import, apply, verify the exit and troubleshoot / 下载 WireGuard 配置、导入、应用、验证出口与排障 |
 | [VPN Gate directory](VPN_GATE.md) | Manage the volunteer directory and favorites / 管理志愿服务器目录与收藏 |
 | [Experimental L4](L4_PROXY.md) | Enable TCP proxy mode and understand its traffic limits / 启用 TCP 代理模式及了解限制 |
 | [Experimental Zero Trust](ZERO_TRUST_EXPERIMENTAL.md) | Enrollment, unsupported features, and validation requirements / 实验性注册、限制与验证要求 |
