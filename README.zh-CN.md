@@ -39,7 +39,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 
 ## 下载与安装
 
-本文对应 **v0.2.7** 的源码和功能。已发布版本请查看 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)。安装包共六种，另外提供两个仅供应用内更新使用的 Windows MSI 文件：
+本文对应 **v0.2.8** 的源码和功能。已发布版本请查看 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)。安装包共六种，另外提供两个仅供应用内更新使用的 Windows MSI 文件：
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |

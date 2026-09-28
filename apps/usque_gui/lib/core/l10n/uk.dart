@@ -315,7 +315,7 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Перевірте проблеми зі з’єднанням, експортуйте журнали та керуйте локальними даними.',
   'engine_status': 'Відомості про з’єднання',
   'version': 'Версія',
-  'app_version': 'Usque 0.2.7',
+  'app_version': 'Usque 0.2.8',
   'logs': 'Локальні журнали',
   'export_diagnostics': 'Експортувати діагностичний пакет',
   'diagnostics_saved': 'Діагностичний пакет збережено до',

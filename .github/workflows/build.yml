@@ -337,6 +337,10 @@ jobs:
           for name in "${!expected_abis[@]}"; do
             apk="$source_dir/$name"
             test -s "$apk"
+            python tool/verify_android_apk.py --apk "$apk" \
+              --abis ${expected_abis[$name]} \
+              --aapt2 "$android_sdk/build-tools/36.0.0/aapt2" \
+              --zipalign "$android_sdk/build-tools/36.0.0/zipalign"
             entries="$RUNNER_TEMP/$name.entries"
             unzip -Z1 "$apk" > "$entries"
             actual_abis="$(

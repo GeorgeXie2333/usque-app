@@ -39,7 +39,7 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Download and install
 
-This checkout describes **v0.2.7**. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) for published versions. The package set has six installers; two additional Windows MSI files are reserved for in-app updates:
+This checkout describes **v0.2.8**. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) for published versions. The package set has six installers; two additional Windows MSI files are reserved for in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |

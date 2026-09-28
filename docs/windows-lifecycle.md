@@ -102,7 +102,7 @@ unsupported. The setting is not a request to run an MSI repair.
 
 This ordering is also the supported bridge from `v0.2.4`, whose Agent could
 mistake asynchronous Wintun device removal for a permanent cleanup failure. A
-user whose `v0.2.4` uninstall failed should use a verified official `v0.2.7`
+user whose `v0.2.4` uninstall failed should use a verified official `v0.2.8`
 Windows package containing this bridge, then uninstall the newer version if
 removal was the original goal. If recovery still fails, stop and report the
 failure with sanitized diagnostics; development artifacts are not substitutes

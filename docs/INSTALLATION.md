@@ -5,7 +5,7 @@ Download packages from this repository's
 
 ## Version scope
 
-This guide describes the current v0.2.7 source checkout. Development branches can
+This guide describes the current v0.2.8 source checkout. Development branches can
 include changes that are not yet published. For an installed release, use its
 release notes and the guide at the matching Git tag.
 
@@ -22,17 +22,17 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Official package names (v0.2.7)
+### Official package names (v0.2.8)
 
-- `usque-v0.2.7-windows-x64-v2.exe`
-- `usque-v0.2.7-windows-arm64.exe`
-- `usque-v0.2.7-android-arm64-v8a.apk`
-- `usque-v0.2.7-android-x86_64.apk`
-- `usque-v0.2.7-android-armeabi-v7a.apk`
-- `usque-v0.2.7-android-universal.apk`
+- `usque-v0.2.8-windows-x64-v2.exe`
+- `usque-v0.2.8-windows-arm64.exe`
+- `usque-v0.2.8-android-arm64-v8a.apk`
+- `usque-v0.2.8-android-x86_64.apk`
+- `usque-v0.2.8-android-armeabi-v7a.apk`
+- `usque-v0.2.8-android-universal.apk`
 
-The release also provides `usque-v0.2.7-windows-x64-v2.msi` and
-`usque-v0.2.7-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The release also provides `usque-v0.2.8-windows-x64-v2.msi` and
+`usque-v0.2.8-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation.
 
 Each release includes `SHA256SUMS`, `release-manifest.json` and a software
@@ -42,7 +42,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use v0.2.7; substitute the exact filename and tag you downloaded. These commands
+use v0.2.8; substitute the exact filename and tag you downloaded. These commands
 inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -50,7 +50,7 @@ inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.2.7-windows-x64-v2.exe'
+$package = '.\usque-v0.2.8-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -105,7 +105,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.2.7-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.2.8-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -119,7 +119,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.2.7 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.2.8 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 ```
 
 This checks the file against the repository, source tag and release workflow
@@ -159,7 +159,7 @@ caches and recovery records. Downgrades are rejected. Same-version replacement
 also replaces equal-version and unversioned application files together, so the
 GUI, Engine and Agent stay in sync.
 
-If v0.2.4 cannot uninstall, upgrade with a verified official v0.2.7 Windows
+If v0.2.4 cannot uninstall, upgrade with a verified official v0.2.8 Windows
 package, then uninstall the newer version if removal is your goal. The newer
 Agent can recover state that the older package could not clean up. If recovery
 still fails, stop and report the error with sanitized diagnostics. Do not delete

@@ -3,7 +3,7 @@ name: Public release
 on:
   push:
     tags:
-      - "v0.2.7"
+      - "v0.2.8"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,8 +17,8 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.2.7
-  ANDROID_VERSION_CODE: "21"
+  RELEASE_TAG: v0.2.8
+  ANDROID_VERSION_CODE: "22"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -573,6 +573,8 @@ jobs:
         run: |
           set -euo pipefail
           source_dir="apps/usque_gui/build/app/outputs/flutter-apk"
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$android_sdk"
           declare -A expected_abis=(
             [app-arm64-v8a-release.apk]="arm64-v8a"
             [app-armeabi-v7a-release.apk]="armeabi-v7a"
@@ -583,6 +585,10 @@ jobs:
           for name in "${!expected_abis[@]}"; do
             apk="$source_dir/$name"
             test -s "$apk"
+            python tool/verify_android_apk.py --apk "$apk" \
+              --abis ${expected_abis[$name]} \
+              --aapt2 "$android_sdk/build-tools/36.0.0/aapt2" \
+              --zipalign "$android_sdk/build-tools/36.0.0/zipalign"
             entries="$RUNNER_TEMP/$name.entries"
             unzip -Z1 "$apk" > "$entries"
             actual_abis="$(

@@ -314,7 +314,7 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Проверяйте проблемы подключения, экспортируйте журналы и управляйте локальными данными.',
   'engine_status': 'Сведения о подключении',
   'version': 'Версия',
-  'app_version': 'Usque 0.2.7',
+  'app_version': 'Usque 0.2.8',
   'logs': 'Локальные журналы',
   'export_diagnostics': 'Экспортировать диагностический пакет',
   'diagnostics_saved': 'Диагностический пакет сохранён в',

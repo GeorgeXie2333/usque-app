@@ -282,7 +282,7 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'diagnostics_subtitle': '檢查連接問題、匯出紀錄及管理本機資料。',
   'engine_status': '連接資料',
   'version': '版本',
-  'app_version': 'Usque 0.2.7',
+  'app_version': 'Usque 0.2.8',
   'logs': '本機日誌',
   'export_diagnostics': '匯出診斷套件',
   'diagnostics_saved': '診斷套件已儲存至',
