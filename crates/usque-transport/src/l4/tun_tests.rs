@@ -133,8 +133,19 @@ async fn bridge() -> (TunBridge, Arc<MemoryDialer>, Arc<L4Metrics>) {
 }
 
 async fn bridge_with_mtu(mtu: u16) -> (TunBridge, Arc<MemoryDialer>, Arc<L4Metrics>) {
+    bridge_with_udp(mtu, false).await
+}
+
+async fn bridge_with_udp(
+    mtu: u16,
+    enable_udp: bool,
+) -> (TunBridge, Arc<MemoryDialer>, Arc<L4Metrics>) {
     let profile = super::test_options::TestOptions::TunMtu(mtu).profile(Profile {
-        data_plane: DataPlaneMode::L4Proxy,
+        data_plane: if enable_udp {
+            DataPlaneMode::ConnectIp
+        } else {
+            DataPlaneMode::L4Proxy
+        },
         ..Profile::default()
     });
     let dialer = Arc::new(MemoryDialer::default());
@@ -165,7 +176,7 @@ async fn bridge_with_mtu(mtu: u16) -> (TunBridge, Arc<MemoryDialer>, Arc<L4Metri
         traffic_policy: Arc::default(),
         admission: None,
         dialer: dialer.clone(),
-        udp: None,
+        udp: enable_udp.then(|| Arc::new(EchoFactory) as Arc<dyn crate::proxy_udp::UdpFactory>),
         resolver: Resolver::for_streams(
             dns.clone(),
             profile.dns_servers.clone(),
@@ -175,8 +186,6 @@ async fn bridge_with_mtu(mtu: u16) -> (TunBridge, Arc<MemoryDialer>, Arc<L4Metri
         protector,
         geo_policy: Arc::default(),
         counters: Arc::default(),
-        ipv4: "192.0.2.2".parse().unwrap(),
-        ipv6: "fd00::2".parse().unwrap(),
         cancellation,
         health,
     };
@@ -191,6 +200,70 @@ async fn bridge_with_mtu(mtu: u16) -> (TunBridge, Arc<MemoryDialer>, Arc<L4Metri
     .await
     .unwrap();
     (bridge, dialer, metrics)
+}
+
+struct EchoFactory;
+struct EchoAssociation {
+    tx: tokio::sync::mpsc::Sender<(TcpTarget, bytes::Bytes)>,
+    rx: tokio::sync::Mutex<tokio::sync::mpsc::Receiver<(TcpTarget, bytes::Bytes)>>,
+}
+#[async_trait]
+impl crate::proxy_udp::UdpFactory for EchoFactory {
+    async fn open(
+        &self,
+        _cancel: &CancellationToken,
+        _deadline: Instant,
+    ) -> Result<Arc<dyn crate::proxy_udp::UdpAssociation>, DialError> {
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        Ok(Arc::new(EchoAssociation {
+            tx,
+            rx: tokio::sync::Mutex::new(rx),
+        }))
+    }
+}
+#[async_trait]
+impl crate::proxy_udp::UdpAssociation for EchoAssociation {
+    async fn send(&self, target: &TcpTarget, payload: &[u8]) -> Result<(), DialError> {
+        self.tx
+            .send((target.clone(), bytes::Bytes::copy_from_slice(payload)))
+            .await
+            .map_err(|_| DialError::Closed)
+    }
+    async fn recv(&self) -> Result<(TcpTarget, bytes::Bytes), DialError> {
+        self.rx.lock().await.recv().await.ok_or(DialError::Closed)
+    }
+}
+#[tokio::test]
+async fn final_proxy_tun_udp_restores_each_application_and_valid_checksums() {
+    let (mut bridge, dialer, _) = bridge_with_udp(1280, true).await;
+    let mut io = bridge.attach().unwrap();
+    for (source, destination) in [
+        ("192.0.2.1:40001", "203.0.113.1:9000"),
+        ("192.0.2.1:40002", "203.0.113.1:9000"),
+        ("[2001:db8::1]:40001", "[2001:db8::2]:9000"),
+    ] {
+        let source: SocketAddr = source.parse().unwrap();
+        let destination: SocketAddr = destination.parse().unwrap();
+        io.send_owned_packet(udp(source, destination, b"hello"))
+            .await
+            .unwrap();
+        let reply = timeout(Duration::from_secs(1), io.receive_packet())
+            .await
+            .unwrap()
+            .unwrap();
+        let meta = NatPacket::parse(&reply).unwrap();
+        assert_eq!(SocketAddr::new(meta.source, meta.source_port), destination);
+        assert_eq!(
+            SocketAddr::new(meta.destination, meta.destination_port),
+            source
+        );
+        assert!(valid_transport(&reply, &meta));
+        assert_eq!(&reply[meta.transport_offset + 8..], b"hello");
+    }
+    assert!(dialer.targets.lock().unwrap().is_empty());
+    timeout(Duration::from_secs(1), bridge.shutdown())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

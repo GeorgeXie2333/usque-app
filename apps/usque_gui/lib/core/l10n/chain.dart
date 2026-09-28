@@ -22,6 +22,16 @@ import 'features_zh_tw.dart';
 // live in features_*.dart. ChainStrings reads this table directly: keys such
 // as title and save would collide with the main catalog if get() consulted it.
 const kChainEn = <String, String>{
+  "add_proxy": "Add proxy",
+  "proxy_hint":
+      "Connect through WARP. HTTP carries TCP; SOCKS5 can also carry UDP with H3/H2.",
+  "dns_inherit": "Leave blank to inherit network DNS. Queries use this exit.",
+  "proxy_ready": "Ready · TCP forwarding not verified",
+  "proxy_verified": "TCP forwarding verified",
+  "udp_unknown": "UDP: not verified",
+  "udp_available": "UDP association available",
+  "udp_unavailable": "UDP unavailable",
+
   "batch_title": "Import configurations",
   "batch_counts":
       "Ready: {ready} · Incomplete: {pending} · Failed: {failed} · Saved: {saved}",
@@ -166,6 +176,15 @@ const kChainEn = <String, String>{
 };
 
 const kChainZhCn = <String, String>{
+  "add_proxy": "添加代理",
+  "proxy_hint": "通过 WARP 连接。HTTP 支持 TCP；SOCKS5 在 H3/H2 下还可支持 UDP。",
+  "dns_inherit": "留空继承网络 DNS，查询经此出口发送。",
+  "proxy_ready": "已就绪 · TCP 转发尚未验证",
+  "proxy_verified": "TCP 转发已验证",
+  "udp_unknown": "UDP：尚未验证",
+  "udp_available": "UDP 关联可用",
+  "udp_unavailable": "UDP 不可用",
+
   "batch_title": "批量导入配置",
   "batch_counts": "可导入：{ready} · 待补充：{pending} · 失败：{failed} · 已保存：{saved}",
   "batch_ready": "可导入",

@@ -1939,6 +1939,8 @@ class EngineCapabilities {
     this.chainOpenvpnUdp = false,
     this.chainWireguard = false,
     this.chainWarpWireguard = false,
+    this.chainHttpProxy = false,
+    this.chainSocks5Proxy = false,
     this.chainOpenvpnMultiEndpoint = false,
     this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
@@ -1962,6 +1964,8 @@ class EngineCapabilities {
         chainOpenvpnUdp: map['chain_openvpn_udp'] == true,
         chainWireguard: map['chain_wireguard'] == true,
         chainWarpWireguard: map['chain_warp_wireguard'] == true,
+        chainHttpProxy: map['chain_http_proxy'] == true,
+        chainSocks5Proxy: map['chain_socks5_proxy'] == true,
         chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
         vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
@@ -1993,6 +1997,8 @@ class EngineCapabilities {
       chainOpenvpnUdp,
       chainWireguard,
       chainWarpWireguard,
+      chainHttpProxy,
+      chainSocks5Proxy,
       chainOpenvpnMultiEndpoint;
   final bool vpnGatePoolFavorites;
   final bool networkSettingsApplication;
@@ -2017,6 +2023,8 @@ class EngineCapabilities {
           chainOpenvpnUdp == other.chainOpenvpnUdp &&
           chainWireguard == other.chainWireguard &&
           chainWarpWireguard == other.chainWarpWireguard &&
+          chainHttpProxy == other.chainHttpProxy &&
+          chainSocks5Proxy == other.chainSocks5Proxy &&
           chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
@@ -2045,7 +2053,7 @@ class EngineCapabilities {
     chainProfileImport,
     chainOpenvpnUdp,
     chainWireguard,
-    chainWarpWireguard,
+    Object.hash(chainWarpWireguard, chainHttpProxy, chainSocks5Proxy),
     chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites,
     l4Tcp,

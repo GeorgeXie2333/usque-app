@@ -76,8 +76,8 @@ Network settings are shared by all accounts.
 
 - Optional [chain proxy](docs/CHAIN_PROXY.md): open **Proxy → Chain proxy** for
   **OpenVPN**, **WireGuard**, [**WARP via WireGuard**](docs/WARP_WIREGUARD.md),
-  or **VPN Gate**, in that order.
-  Import files or paste configurations, save several, then select and apply one.
+  **VPN Gate**, **HTTP**, and **SOCKS5**, in that order.
+  Import VPN configurations or add proxy servers, then select and apply one.
   VPN, SOCKS5 and HTTP share the exit; explicit direct rules still apply. Off by default.
 - Opt-in [experimental L4 mode](docs/L4_PROXY.md) proxies TCP over HTTP/3.
   Without an OpenVPN TCP chain, it does not forward ordinary UDP; applications that need UDP

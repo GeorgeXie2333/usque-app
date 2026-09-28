@@ -42,6 +42,7 @@ class ChainEngine extends GateEngine
   ) async => const {};
   List<ChainProfileSummary> library = [];
   final actions = <String>[];
+  Map<String, Object?>? lastRequest;
   final names = <String>[];
   String? picked;
   List<ChainConfigurationFile>? pickedFiles;
@@ -57,6 +58,8 @@ class ChainEngine extends GateEngine
     chainOpenvpnUdp: true,
     chainWireguard: true,
     chainWarpWireguard: true,
+    chainHttpProxy: true,
+    chainSocks5Proxy: true,
     chainOpenvpnMultiEndpoint: multiEndpoint,
   );
   @override
@@ -73,6 +76,7 @@ class ChainEngine extends GateEngine
 
   @override
   Future<ChainProfileResult> chainProfile(Map<String, Object?> request) async {
+    lastRequest = Map.of(request);
     final action = request['action'] as String;
     actions.add(action);
     if (action == 'preview' || action == 'import') {
@@ -105,6 +109,8 @@ extension on ChainProfileSummary {
     editRevision: editRevision,
     name: name ?? this.name,
     protocol: protocol,
+    source: source,
+    requiresAuth: requiresAuth,
     host: host,
     port: port,
     addresses: addresses,
@@ -148,6 +154,19 @@ Future<AppController> hostChain(
 }
 
 Future<void> chooseSource(WidgetTester tester, ChainSource source) async {
+  if (find.byType(ChainSourcePicker).evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      find.byType(ChainSourcePicker),
+      -300,
+      scrollable: find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+  }
   final picker = find.byKey(const ValueKey('chain-source-picker'));
   if (picker.evaluate().isNotEmpty) {
     await tester.ensureVisible(picker);
@@ -170,6 +189,118 @@ Future<void> chooseSource(WidgetTester tester, ChainSource source) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final source in [ChainSource.httpProxy, ChainSource.socks5Proxy]) {
+    testWidgets(
+      'manual ${source.label} saves structured fields without selecting or connecting',
+      (tester) async {
+        final engine = ChainEngine()
+          ..previewProfile = ChainProfileSummary(
+            id: 'proxy',
+            revision: 'r1',
+            editRevision: 'e1',
+            name: 'Proxy',
+            protocol: source == ChainSource.httpProxy
+                ? 'http_connect'
+                : 'socks5',
+            source: source,
+            host: 'proxy.example',
+            port: 1080,
+          );
+        final app = await hostChain(tester, engine, source: source);
+        final before = app.activeProfile.chainExit;
+        expect(find.text('Import file'), findsNothing);
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Add proxy'));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('chain-proxy-port')), findsOneWidget);
+        await tester.enterText(
+          find.byKey(const ValueKey('chain-proxy-host')),
+          'proxy.example',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('chain-proxy-name')),
+          'Office proxy',
+        );
+        await tester.tap(find.byKey(const ValueKey('chain-proxy-save')));
+        await tester.pumpAndSettle();
+        expect(engine.actions, contains('import'));
+        expect(engine.library.single.source, source);
+        expect(engine.library.single.requiresUdp, isFalse);
+        expect(app.activeProfile.chainExit, before);
+        expect(engine.saves, 0);
+        expect(find.text('Office proxy'), findsOneWidget);
+      },
+    );
+  }
+  test('older engines cannot enable new proxy sources', () {
+    const capabilities = EngineCapabilities(chainProfileImport: true);
+    expect(
+      ChainSourcePicker.available(capabilities, ChainSource.httpProxy),
+      isFalse,
+    );
+    expect(ChainSourcePicker.available(null, ChainSource.socks5Proxy), isFalse);
+  });
+  testWidgets('proxy form golden on phone and desktop with credentials', (
+    tester,
+  ) async {
+    final engine = ChainEngine();
+    final app = await hostChain(
+      tester,
+      engine,
+      source: ChainSource.socks5Proxy,
+    );
+    for (final (width, dark, locale) in [
+      (390.0, false, LocalePreference.english),
+      (980.0, true, LocalePreference.simplifiedChinese),
+    ]) {
+      tester.view.physicalSize = Size(width, 900);
+      app.localePreference = locale;
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: dark,
+            home: ChainProxyScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(SwitchListTile),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('chain-proxy-password')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('chain-proxy-password')),
+            )
+            .obscureText,
+        isTrue,
+      );
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile(
+          'goldens/chain_proxy_form_${width < 600 ? 'phone' : 'desktop'}.png',
+        ),
+      );
+      await tester.tap(find.text(app.strings.chain('cancel')));
+      await tester.pumpAndSettle();
+      expect(engine.actions, isNot(contains('import')));
+    }
+  }, tags: 'golden');
   testWidgets('disabled chain entry shows status without a default protocol', (
     tester,
   ) async {
@@ -861,6 +992,8 @@ void main() {
         'WireGuard',
         'WARP via WireGuard',
         'VPN Gate',
+        'HTTP',
+        'SOCKS5',
       ]);
       const codec = ControlCodec();
       final payload = (ControlPayloadWriter()..string(1, 'list')).takeBytes();
@@ -1065,7 +1198,7 @@ void main() {
       ];
       expect(
         chips.map((chip) => tester.getTopLeft(chip).dy).toSet(),
-        hasLength(1),
+        hasLength(lessThanOrEqualTo(2)),
       );
       expect(
         tester.getTopLeft(find.byKey(const ValueKey('chain-proxy-toggle'))).dy,
@@ -1127,7 +1260,7 @@ void main() {
           of: find.byType(BottomSheet),
           matching: find.byType(ListTile),
         );
-        expect(options, findsNWidgets(4));
+        expect(options, findsNWidgets(6));
         expect(
           tester
               .widgetList<ListTile>(options)
@@ -1255,7 +1388,7 @@ void main() {
             expect(tester.takeException(), isNull);
           }
         }
-        // Wide large-text layouts retain their four visible choices.
+        // Wide large-text layouts retain their six visible choices.
         tester.view.physicalSize = const Size(980, 1100);
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('chain-source-picker')), findsNothing);
@@ -1263,7 +1396,7 @@ void main() {
           of: find.byType(ChainSourcePicker),
           matching: find.byType(ChoiceChip),
         );
-        expect(choices, findsNWidgets(4));
+        expect(choices, findsNWidgets(6));
         expect(
           choices
               .evaluate()
@@ -1272,7 +1405,7 @@ void main() {
                     tester.getTopLeft(find.byWidget(element.widget)).dy,
               )
               .toSet(),
-          hasLength(4),
+          hasLength(6),
         );
         expect(engine.saves, 0);
       } finally {
@@ -1587,7 +1720,7 @@ void main() {
     'SVGs render at 18 20 24 32 with selected disabled and focus colors',
     (tester) async {
       tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(800, 420);
+      tester.view.physicalSize = const Size(800, 600);
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
       final app = AppController(ChainEngine());

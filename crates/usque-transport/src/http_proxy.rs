@@ -388,7 +388,8 @@ async fn handle_request(
         return Ok(response);
     }
 
-    if matches!(&*context.health.borrow(), RuntimeHealth::Failed { .. })
+    if !context.dialer.is_ready()
+        || matches!(&*context.health.borrow(), RuntimeHealth::Failed { .. })
         || (!context.l4 && !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }))
     {
         return Ok(error_response(

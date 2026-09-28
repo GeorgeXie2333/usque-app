@@ -217,6 +217,22 @@ impl InternalNetwork {
     pub(crate) fn health(&self) -> watch::Receiver<RuntimeHealth> {
         self.health.clone()
     }
+    pub(crate) fn supports_udp(&self) -> bool {
+        self.packet_channel.is_some()
+    }
+    pub(crate) fn session_generation(&self) -> Option<u64> {
+        self.dialer.session_generation()
+    }
+    #[cfg(test)]
+    pub(crate) fn with_test_packets(
+        mut self,
+        channel: Channel,
+        ipv4: Ipv4Addr,
+        ipv6: Ipv6Addr,
+    ) -> Self {
+        self.packet_channel = Some((channel, ipv4, ipv6));
+        self
+    }
     pub(crate) fn with_resolver(mut self, resolver: Resolver) -> Self {
         self.resolver = Some(resolver);
         self

@@ -14,7 +14,7 @@ pub(crate) fn packet_budget(protocol: ChainProtocol, endpoint_ipv6: bool) -> Opt
     match protocol {
         ChainProtocol::Wireguard => Some((udp_payload - 32) / 16 * 16),
         ChainProtocol::OpenvpnUdp => Some(udp_payload - 128),
-        ChainProtocol::OpenvpnTcp => None,
+        ChainProtocol::OpenvpnTcp | ChainProtocol::HttpConnect | ChainProtocol::Socks5 => None,
     }
 }
 

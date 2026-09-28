@@ -1,5 +1,6 @@
 //! User-owned chained exits. Secrets never belong in settings or status.
 mod openvpn;
+mod proxy;
 pub mod store;
 #[cfg(test)]
 mod tests;
@@ -11,6 +12,7 @@ use std::net::{IpAddr, SocketAddr};
 use uuid::Uuid;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+pub use proxy::{ProxyAuthMode, ProxyExitConfiguration, ProxyProfile};
 pub use wireguard::WireGuardProfile;
 pub const MAX_CONFIG_BYTES: usize = 128 * 1024;
 pub const MAX_IMPORTED_PROFILES: usize = 128;
@@ -23,16 +25,23 @@ pub enum ChainSource {
     WireguardCustom,
     WarpWireguard,
     VpnGate,
+    HttpProxy,
+    Socks5Proxy,
 }
 impl ChainSource {
-    pub const DISPLAY_ORDER: [Self; 4] = [
+    pub const DISPLAY_ORDER: [Self; 6] = [
         Self::OpenvpnCustom,
         Self::WireguardCustom,
         Self::WarpWireguard,
         Self::VpnGate,
+        Self::HttpProxy,
+        Self::Socks5Proxy,
     ];
     pub const fn is_wireguard(self) -> bool {
         matches!(self, Self::WireguardCustom | Self::WarpWireguard)
+    }
+    pub const fn is_proxy(self) -> bool {
+        matches!(self, Self::HttpProxy | Self::Socks5Proxy)
     }
     pub const fn label(self) -> &'static str {
         match self {
@@ -40,6 +49,8 @@ impl ChainSource {
             Self::WireguardCustom => "WireGuard",
             Self::WarpWireguard => "WARP via WireGuard",
             Self::VpnGate => "VPN Gate",
+            Self::HttpProxy => "HTTP",
+            Self::Socks5Proxy => "SOCKS5",
         }
     }
 }
@@ -80,15 +91,19 @@ pub enum ChainProtocol {
     OpenvpnTcp,
     OpenvpnUdp,
     Wireguard,
+    HttpConnect,
+    Socks5,
 }
 impl ChainProtocol {
     pub const fn requires_udp(self) -> bool {
-        !matches!(self, Self::OpenvpnTcp)
+        matches!(self, Self::OpenvpnUdp | Self::Wireguard)
     }
     pub const fn source(self) -> ChainSource {
         match self {
             Self::OpenvpnTcp | Self::OpenvpnUdp => ChainSource::OpenvpnCustom,
             Self::Wireguard => ChainSource::WireguardCustom,
+            Self::HttpConnect => ChainSource::HttpProxy,
+            Self::Socks5 => ChainSource::Socks5Proxy,
         }
     }
 }
@@ -149,6 +164,9 @@ impl Endpoint {
 /// Persist only after platform encryption; never include in diagnostics/Debug.
 #[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct ImportSecrets {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[zeroize(skip)]
+    pub proxy: Option<ProxyExitConfiguration>,
     #[serde(default)]
     pub configuration: String,
     #[serde(default)]
@@ -166,6 +184,7 @@ impl fmt::Debug for ImportSecrets {
 impl ImportSecrets {
     pub fn new(configuration: String) -> Self {
         Self {
+            proxy: None,
             configuration,
             username: String::new(),
             password: String::new(),
@@ -173,7 +192,8 @@ impl ImportSecrets {
         }
     }
     pub fn validate(&self) -> Result<(), ImportError> {
-        if self.configuration.is_empty()
+        if (self.configuration.is_empty() && self.proxy.is_none())
+            || (self.proxy.is_some() && !self.configuration.is_empty())
             || self.configuration.len() > MAX_CONFIG_BYTES
             || self
                 .configuration
@@ -308,6 +328,7 @@ pub enum MssModifier {
 pub enum ValidatedProfile {
     OpenVpn(OpenVpnProfile),
     WireGuard(WireGuardProfile),
+    Proxy(ProxyProfile),
 }
 impl fmt::Debug for ValidatedProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -317,12 +338,19 @@ impl fmt::Debug for ValidatedProfile {
 impl ValidatedProfile {
     pub fn parse(source: ChainSource, secrets: &ImportSecrets) -> Result<Self, ImportError> {
         secrets.validate()?;
+        if source.is_proxy() {
+            return proxy::parse(source, secrets).map(Self::Proxy);
+        }
+        if secrets.proxy.is_some() {
+            return Err(ImportError::new(0, "proxy", "source_mismatch"));
+        }
         match source {
             ChainSource::OpenvpnCustom => openvpn::parse(&secrets.configuration).map(Self::OpenVpn),
             ChainSource::WireguardCustom | ChainSource::WarpWireguard => {
                 wireguard::parse(&secrets.configuration).map(Self::WireGuard)
             }
             ChainSource::VpnGate => Err(ImportError::new(0, "source", "directory_only")),
+            ChainSource::HttpProxy | ChainSource::Socks5Proxy => unreachable!("handled above"),
         }
     }
     pub fn summary(
@@ -357,6 +385,13 @@ impl ValidatedProfile {
             remote_random: false,
         };
         match self {
+            Self::Proxy(p) => {
+                result.protocol = p.protocol;
+                result.source = p.protocol.source();
+                result.endpoint = p.endpoint.clone();
+                result.dns_servers = p.dns_servers.clone();
+                result.requires_auth = p.auth_mode == ProxyAuthMode::UsernamePassword;
+            }
             Self::OpenVpn(p) => {
                 result.protocol = p.protocol;
                 result.endpoint = p.endpoint.clone();

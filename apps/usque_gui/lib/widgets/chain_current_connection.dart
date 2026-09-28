@@ -148,6 +148,14 @@ class ChainCurrentConnection extends StatelessWidget {
             ),
             VpnGateNodeIdentity(server: gateServer),
           ],
+          if (current?.source.isProxy == true) ...[
+            Text(
+              strings.chain(
+                chain.tcpConnectVerified ? 'proxy_verified' : 'proxy_ready',
+              ),
+            ),
+            Text(strings.chain('udp_${chain.proxyUdp ?? 'unknown'}')),
+          ],
           if (chain.attemptingEndpoint case final endpoint?)
             ReadoutRow(
               label: strings.chain('attempting'),

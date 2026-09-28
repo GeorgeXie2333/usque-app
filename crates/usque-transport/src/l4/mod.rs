@@ -17,6 +17,7 @@ pub(crate) mod test_options;
 mod tun;
 #[cfg(test)]
 mod tun_tests;
+mod tun_udp;
 mod tun_wire;
 
 pub(crate) use actor::{L4Actor, SessionHandle};

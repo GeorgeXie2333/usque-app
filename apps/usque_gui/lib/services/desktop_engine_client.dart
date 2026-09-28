@@ -51,6 +51,16 @@ class DesktopEngineClient
           ..string(7, request['username'] as String? ?? '')
           ..string(8, request['password'] as String? ?? '')
           ..string(9, request['private_key_password'] as String? ?? '');
+        if (request['proxy'] case final Map<String, Object?> proxy) {
+          final nested = ControlPayloadWriter()
+            ..string(1, proxy['host'] as String)
+            ..unsigned(2, proxy['port'] as int)
+            ..string(3, proxy['auth_mode'] as String);
+          for (final server in proxy['dns_servers'] as List? ?? const []) {
+            nested.string(4, server as String);
+          }
+          payload.message(10, nested.takeBytes());
+        }
         return (await _request(47, payload.takeBytes())).chainProfiles ??
             (throw const EngineException(
               'CHAIN_PROFILE_UNAVAILABLE',

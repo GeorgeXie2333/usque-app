@@ -319,6 +319,17 @@ const Map<String, String> kNetworkSettingsAr = <String, String>{
 };
 
 const Map<String, String> kChainAr = <String, String>{
+  "add_proxy": "إضافة وكيل",
+  "proxy_hint":
+      "الاتصال عبر WARP. ينقل HTTP حركة TCP؛ ويمكن لـ SOCKS5 نقل UDP أيضًا مع H3/H2.",
+  "dns_inherit":
+      "اتركه فارغًا لاستخدام DNS الشبكة. تمر الاستعلامات عبر هذا المخرج.",
+  "proxy_ready": "جاهز · لم يتم التحقق من تمرير TCP",
+  "proxy_verified": "تم التحقق من تمرير TCP",
+  "udp_unknown": "UDP: لم يتم التحقق",
+  "udp_available": "ارتباط UDP متاح",
+  "udp_unavailable": "UDP غير متاح",
+
   "batch_title": "استيراد الإعدادات",
   "batch_counts":
       "جاهزة: {ready} · ناقصة: {pending} · فاشلة: {failed} · محفوظة: {saved}",

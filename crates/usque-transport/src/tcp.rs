@@ -52,6 +52,16 @@ impl TcpTarget {
     pub(crate) fn authority(&self) -> &str {
         &self.authority
     }
+    pub(crate) fn socket_address(&self) -> Option<SocketAddr> {
+        self.address
+    }
+    pub(crate) fn host_port(&self) -> (&str, u16) {
+        let (host, port) = self.authority.rsplit_once(':').expect("validated target");
+        (
+            host.trim_start_matches('[').trim_end_matches(']'),
+            port.parse().expect("validated port"),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -134,6 +144,9 @@ pub(crate) enum FlowClass {
 
 #[async_trait]
 pub(crate) trait TcpDialer: Send + Sync {
+    fn is_ready(&self) -> bool {
+        true
+    }
     fn session_generation(&self) -> Option<u64> {
         None
     }
@@ -186,19 +199,17 @@ impl TcpDialer for StackDialer {
     }
 }
 
-/// Shared frontend context; UDP is present only on the CONNECT-IP backend.
+/// Shared frontend context; an optional factory owns each final UDP association.
 #[derive(Clone)]
 pub(crate) struct ProxyServices {
     pub(crate) traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
     pub(crate) admission: Option<Arc<FrontendAdmission>>,
     pub(crate) dialer: Arc<dyn TcpDialer>,
-    pub(crate) udp: Option<Channel>,
+    pub(crate) udp: Option<Arc<dyn crate::proxy_udp::UdpFactory>>,
     pub(crate) resolver: crate::dns::Resolver,
     pub(crate) protector: Arc<dyn crate::socket::SocketProtector>,
     pub(crate) geo_policy: Arc<crate::geo_direct::GeoDirectPolicy>,
     pub(crate) counters: Arc<crate::netstack::TrafficCounters>,
-    pub(crate) ipv4: Ipv4Addr,
-    pub(crate) ipv6: Ipv6Addr,
     pub(crate) cancellation: CancellationToken,
     pub(crate) health: tokio::sync::watch::Receiver<crate::netstack::RuntimeHealth>,
 }
@@ -223,7 +234,11 @@ impl ProxyServices {
                 ipv4,
                 ipv6,
             }),
-            udp: Some(stack.channel.clone()),
+            udp: Some(crate::proxy_udp::StackFactory::shared(
+                stack.channel.clone(),
+                ipv4,
+                ipv6,
+            )),
             resolver: crate::dns::Resolver::new(
                 stack.channel.clone(),
                 ipv4,
@@ -236,8 +251,6 @@ impl ProxyServices {
             protector: Arc::clone(&stack.protector),
             geo_policy: Arc::clone(&stack.geo_policy),
             counters: Arc::clone(&stack.counters),
-            ipv4,
-            ipv6,
             cancellation: stack.cancellation.clone(),
             health: stack.subscribe_health(),
         }

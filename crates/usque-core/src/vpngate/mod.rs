@@ -138,6 +138,10 @@ impl GateFailure {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GateStatus {
+    #[serde(default)]
+    pub tcp_connect_verified: bool,
+    #[serde(default)]
+    pub proxy_udp: Option<String>,
     pub stage: GateStage,
     pub generation: u64,
     pub current_server: Option<ServerSummary>,

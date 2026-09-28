@@ -23,7 +23,9 @@ class ChainSourceIcon extends StatelessWidget {
       ChainSource.openvpnCustom => 'openvpn',
       ChainSource.wireguardCustom => 'wireguard',
       ChainSource.warpWireguard => 'warp-wireguard',
-      ChainSource.vpnGate => null,
+      ChainSource.vpnGate ||
+      ChainSource.httpProxy ||
+      ChainSource.socks5Proxy => null,
     };
     if (asset == null) {
       return Icon(LucideIcons.globe, size: size, color: tint);

@@ -4,11 +4,14 @@ enum ChainSource {
   openvpnCustom('openvpn_custom', 'OpenVPN'),
   wireguardCustom('wireguard_custom', 'WireGuard'),
   warpWireguard('warp_wireguard', 'WARP via WireGuard'),
-  vpnGate('vpn_gate', 'VPN Gate');
+  vpnGate('vpn_gate', 'VPN Gate'),
+  httpProxy('http_proxy', 'HTTP'),
+  socks5Proxy('socks5_proxy', 'SOCKS5');
 
   const ChainSource(this.wire, this.label);
   final String wire;
   final String label;
+  bool get isProxy => this == httpProxy || this == socks5Proxy;
   bool get isWireguard => this == wireguardCustom || this == warpWireguard;
   static ChainSource parse(Object? value) => ChainSource.values.firstWhere(
     (source) => source.wire == value,
@@ -143,8 +146,12 @@ class ChainProfileSummary {
       (protocol == 'wireguard'
           ? ChainSource.wireguardCustom
           : ChainSource.openvpnCustom);
-  bool get requiresUdp => protocol != 'openvpn_tcp';
-  String get transportLabel => protocol == 'openvpn_tcp' ? 'TCP' : 'UDP';
+  bool get requiresUdp => protocol == 'openvpn_udp' || protocol == 'wireguard';
+  String get transportLabel => protocol == 'socks5'
+      ? 'TCP / UDP'
+      : requiresUdp
+      ? 'UDP'
+      : 'TCP';
   factory ChainProfileSummary.fromMap(Map<Object?, Object?> map) {
     final endpoint = map['endpoint'] as Map? ?? const {};
     return ChainProfileSummary(
@@ -216,6 +223,8 @@ class ChainProfileResult {
 @immutable
 class ChainExitStatus {
   const ChainExitStatus({
+    this.tcpConnectVerified = false,
+    this.proxyUdp,
     this.stage = 'disabled',
     this.generation = 0,
     this.currentProfile,
@@ -227,6 +236,8 @@ class ChainExitStatus {
     this.candidateCount = 0,
     this.attemptFailures = const [],
   });
+  final bool tcpConnectVerified;
+  final String? proxyUdp;
   final String stage;
   final int generation;
   final ChainProfileSummary? currentProfile;
@@ -237,6 +248,8 @@ class ChainExitStatus {
   final int attemptCount, candidateCount;
   final List<String> attemptFailures;
   factory ChainExitStatus.fromMap(Map<Object?, Object?> map) => ChainExitStatus(
+    tcpConnectVerified: map['tcp_connect_verified'] == true,
+    proxyUdp: map['proxy_udp'] as String?,
     stage: map['stage'] as String? ?? 'disabled',
     generation: map['generation'] as int? ?? 0,
     currentProfile: map['current_profile'] is Map
@@ -256,6 +269,8 @@ class ChainExitStatus {
   @override
   bool operator ==(Object other) =>
       other is ChainExitStatus &&
+      tcpConnectVerified == other.tcpConnectVerified &&
+      proxyUdp == other.proxyUdp &&
       stage == other.stage &&
       generation == other.generation &&
       currentProfile == other.currentProfile &&
@@ -268,6 +283,8 @@ class ChainExitStatus {
       listEquals(attemptFailures, other.attemptFailures);
   @override
   int get hashCode => Object.hash(
+    tcpConnectVerified,
+    proxyUdp,
     stage,
     generation,
     currentProfile,

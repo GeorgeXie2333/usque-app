@@ -27,7 +27,9 @@ class ChainSourcePicker extends StatelessWidget {
   static const double compactBelowWidth = 600;
 
   static bool available(EngineCapabilities? capabilities, ChainSource source) {
-    if (capabilities == null) return source != ChainSource.warpWireguard;
+    if (capabilities == null) {
+      return source != ChainSource.warpWireguard && !source.isProxy;
+    }
     return switch (source) {
       ChainSource.openvpnCustom => capabilities.chainProfileImport,
       ChainSource.wireguardCustom =>
@@ -37,6 +39,10 @@ class ChainSourcePicker extends StatelessWidget {
             capabilities.chainWireguard &&
             capabilities.chainWarpWireguard,
       ChainSource.vpnGate => capabilities.vpnGateTcp,
+      ChainSource.httpProxy =>
+        capabilities.chainProfileImport && capabilities.chainHttpProxy,
+      ChainSource.socks5Proxy =>
+        capabilities.chainProfileImport && capabilities.chainSocks5Proxy,
     };
   }
 

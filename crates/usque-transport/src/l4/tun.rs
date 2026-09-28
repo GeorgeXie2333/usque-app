@@ -1,5 +1,5 @@
-//! TCP-only TUN bridge. Unhandled traffic is consumed, never returned to a
-//! packet tunnel or a physical UDP socket. DNS is parsed before any dial.
+//! Flow-based TUN bridge with optional final-exit datagrams. Unsupported proxy
+//! traffic is consumed without fallback. DNS is parsed before any dial.
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::Ordering;
@@ -267,7 +267,10 @@ impl TunBridge {
         let pump_metrics = metrics.clone();
         let flow_tasks = tokio_util::task::TaskTracker::new();
         let tracked_flows = flow_tasks.clone();
+        let udp_idle = profile.proxy.udp_idle_timeout_seconds;
+        let udp_enabled = profile.data_plane != usque_core::DataPlaneMode::L4Proxy;
         let task = tokio::spawn(async move {
+            let mut udp_flows = super::tun_udp::UdpFlows::new(udp_idle);
             let mut jobs = JoinSet::new();
             let dns_permits = Arc::new(Semaphore::new(80));
             let tcp_permits = Arc::new(Semaphore::new(limits.active));
@@ -291,6 +294,9 @@ impl TunBridge {
                     pump_metrics.update(|m| m.unsupported_packets += 1);
                     continue;
                 };
+                if !services.dialer.is_ready() {
+                    continue;
+                }
                 if !valid_transport(&packet, &meta) || !reply_allowed(&meta) {
                     pump_metrics.update(|m| m.unsupported_packets += 1);
                     continue;
@@ -317,6 +323,22 @@ impl TunBridge {
                             let wire = udp_response(&meta, &response);
                             tokio::select! { _ = cancel.cancelled() => {}, _ = replies.send(wire) => {} }
                         }));
+                    } else if udp_enabled
+                        && (services.udp.is_some()
+                            || services.geo_policy.route_ip(meta.destination) == GeoRoute::Direct)
+                        && udp_flows.enqueue(
+                            meta,
+                            packet.clone(),
+                            &services,
+                            &response_tx,
+                            &tcp_permits,
+                            &budget,
+                            &tracked_flows,
+                            &task_cancel,
+                            mtu,
+                        )
+                    {
+                        // The bounded worker owns this datagram until relay completion.
                     } else {
                         pump_metrics.update(|m| m.udp_rejected += 1);
                         if icmp_window.elapsed() >= Duration::from_secs(1) {

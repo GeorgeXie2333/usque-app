@@ -349,6 +349,17 @@ const Map<String, String> kNetworkSettingsUk = <String, String>{
 };
 
 const Map<String, String> kChainUk = <String, String>{
+  "add_proxy": "Додати проксі",
+  "proxy_hint":
+      "З’єднання через WARP. HTTP передає TCP; SOCKS5 також підтримує UDP з H3/H2.",
+  "dns_inherit":
+      "Залиште порожнім для DNS мережі. Запити йдуть через цей вихід.",
+  "proxy_ready": "Готово · передавання TCP не перевірено",
+  "proxy_verified": "Передавання TCP перевірено",
+  "udp_unknown": "UDP: не перевірено",
+  "udp_available": "UDP-асоціація доступна",
+  "udp_unavailable": "UDP недоступний",
+
   "batch_title": "Імпорт конфігурацій",
   "batch_counts":
       "Готові: {ready} · Неповні: {pending} · Помилки: {failed} · Збережені: {saved}",

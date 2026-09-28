@@ -195,7 +195,7 @@ async fn shared_session_serves_parallel_connects_socks_http_and_half_close_witho
             let dns = Arc::new(StreamDns::new(client.clone(), protector.clone(), cancel.clone(), client.metrics.clone()));
             let services = ProxyServices { traffic_policy: Arc::default(), admission: None, dialer: client.clone(), udp: None,
                 resolver: Resolver::for_streams(dns, vec![], ProxyDnsMode::EdgeResolved, protector.clone()),
-                protector, geo_policy: Arc::default(), counters, ipv4: "172.16.0.2".parse().unwrap(), ipv6: "2001:db8::2".parse().unwrap(), cancellation: cancel.clone(), health: client.health.clone() };
+                protector, geo_policy: Arc::default(), counters, cancellation: cancel.clone(), health: client.health.clone() };
             let socks_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let socks_address = socks_listener.local_addr().unwrap();
             let mut socks = crate::socks5::Socks5Frontend::activate_services(&profile, services.clone(), vec![socks_listener]).unwrap();

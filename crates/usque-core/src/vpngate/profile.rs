@@ -45,7 +45,8 @@ impl PreparedProfile {
         });
         let content = match &custom {
             crate::chain_exit::ValidatedProfile::OpenVpn(p) => p.content.clone(),
-            crate::chain_exit::ValidatedProfile::WireGuard(_) => Zeroizing::new(String::new()),
+            crate::chain_exit::ValidatedProfile::WireGuard(_)
+            | crate::chain_exit::ValidatedProfile::Proxy(_) => Zeroizing::new(String::new()),
         };
         Self {
             remote,

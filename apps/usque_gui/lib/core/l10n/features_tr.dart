@@ -331,6 +331,17 @@ const Map<String, String> kNetworkSettingsTr = <String, String>{
 };
 
 const Map<String, String> kChainTr = <String, String>{
+  "add_proxy": "Proxy ekle",
+  "proxy_hint":
+      "WARP üzerinden bağlanır. HTTP TCP taşır; SOCKS5 H3/H2 ile UDP de taşıyabilir.",
+  "dns_inherit":
+      "Ağ DNS ayarını kullanmak için boş bırakın. Sorgular bu çıkıştan gider.",
+  "proxy_ready": "Hazır · TCP iletimi doğrulanmadı",
+  "proxy_verified": "TCP iletimi doğrulandı",
+  "udp_unknown": "UDP: doğrulanmadı",
+  "udp_available": "UDP bağlantısı kullanılabilir",
+  "udp_unavailable": "UDP kullanılamıyor",
+
   "batch_title": "Yapılandırmaları içe aktar",
   "batch_counts":
       "Hazır: {ready} · Eksik: {pending} · Başarısız: {failed} · Kaydedilen: {saved}",

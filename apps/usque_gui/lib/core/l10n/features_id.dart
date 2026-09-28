@@ -335,6 +335,17 @@ const Map<String, String> kNetworkSettingsId = <String, String>{
 };
 
 const Map<String, String> kChainId = <String, String>{
+  "add_proxy": "Tambah proksi",
+  "proxy_hint":
+      "Terhubung melalui WARP. HTTP membawa TCP; SOCKS5 juga dapat membawa UDP dengan H3/H2.",
+  "dns_inherit":
+      "Kosongkan untuk memakai DNS jaringan. Kueri melalui jalur keluar ini.",
+  "proxy_ready": "Siap · penerusan TCP belum diverifikasi",
+  "proxy_verified": "Penerusan TCP terverifikasi",
+  "udp_unknown": "UDP: belum diverifikasi",
+  "udp_available": "Asosiasi UDP tersedia",
+  "udp_unavailable": "UDP tidak tersedia",
+
   "batch_title": "Impor konfigurasi",
   "batch_counts":
       "Siap: {ready} · Belum lengkap: {pending} · Gagal: {failed} · Tersimpan: {saved}",

@@ -318,6 +318,16 @@ const Map<String, String> kNetworkSettingsTh = <String, String>{
 };
 
 const Map<String, String> kChainTh = <String, String>{
+  "add_proxy": "เพิ่มพร็อกซี",
+  "proxy_hint":
+      "เชื่อมต่อผ่าน WARP โดย HTTP รองรับ TCP ส่วน SOCKS5 รองรับ UDP ได้ด้วยเมื่อใช้ H3/H2",
+  "dns_inherit": "เว้นว่างเพื่อใช้ DNS ของเครือข่าย คำขอจะผ่านทางออกนี้",
+  "proxy_ready": "พร้อม · ยังไม่ยืนยันการส่งต่อ TCP",
+  "proxy_verified": "ยืนยันการส่งต่อ TCP แล้ว",
+  "udp_unknown": "UDP: ยังไม่ยืนยัน",
+  "udp_available": "ใช้การเชื่อมโยง UDP ได้",
+  "udp_unavailable": "ไม่สามารถใช้ UDP",
+
   "batch_title": "นำเข้าการกำหนดค่า",
   "batch_counts":
       "พร้อม: {ready} · ต้องเติมข้อมูล: {pending} · ล้มเหลว: {failed} · บันทึกแล้ว: {saved}",

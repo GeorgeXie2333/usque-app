@@ -42,14 +42,173 @@ pub struct VpnGateStart {
 }
 pub type ChainExitStart = VpnGateStart;
 struct GateRuntime {
-    frontend: MasqueRuntime,
-    driver: crate::vpngate::GateDriver,
+    frontend: GateFrontend,
+    driver: ExitDriver,
     network: FinalNetworkParameters,
     server: ServerSummary,
 }
 enum RuntimeInner {
     ConnectIp(Box<MasqueRuntime>),
     L4(Box<L4Runtime>),
+}
+
+enum ExitDriver {
+    Vpn(crate::vpngate::GateDriver),
+    Proxy(Arc<crate::proxy_exit::ProxyDialer>),
+}
+impl ExitDriver {
+    fn status(&self) -> watch::Receiver<GateStatus> {
+        match self {
+            Self::Vpn(d) => d.status.clone(),
+            Self::Proxy(d) => d.status.subscribe(),
+        }
+    }
+    fn cancel(&self) {
+        match self {
+            Self::Vpn(d) => d.cancel(),
+            Self::Proxy(d) => d.cancellation.cancel(),
+        }
+    }
+    fn admit(&self) {
+        match self {
+            Self::Vpn(d) => d.admit(),
+            Self::Proxy(d) => {
+                if !d.cancellation.is_cancelled() {
+                    d.admitted.store(true, std::sync::atomic::Ordering::Release);
+                    d.status
+                        .send_modify(|s| s.stage = usque_core::vpngate::GateStage::Connected);
+                }
+            }
+        }
+    }
+    fn fail(&self, reason: GateFailure) {
+        match self {
+            Self::Vpn(d) => d.fail(reason),
+            Self::Proxy(d) => d.fail(reason),
+        }
+    }
+    async fn shutdown(&mut self) -> bool {
+        match self {
+            Self::Vpn(d) => d.shutdown().await,
+            Self::Proxy(d) => {
+                d.cancellation.cancel();
+                true
+            }
+        }
+    }
+}
+
+enum GateFrontend {
+    Packet(Box<MasqueRuntime>),
+    Stream(Box<L4Runtime>),
+}
+impl GateFrontend {
+    fn update_traffic_policy(&self, disabled: bool) {
+        match self {
+            Self::Packet(r) => r.update_traffic_policy(disabled),
+            Self::Stream(r) => r.update_traffic_policy(disabled),
+        }
+    }
+    fn internal_network(&self) -> crate::InternalNetwork {
+        match self {
+            Self::Packet(r) => r.internal_network(),
+            Self::Stream(r) => r.internal_network(),
+        }
+    }
+    fn monitor(&self) -> ManagedTunnelMonitor {
+        match self {
+            Self::Packet(r) => r.monitor(),
+            Self::Stream(r) => r.monitor.clone(),
+        }
+    }
+    fn diagnostic_dns_context(&self) -> (Arc<dyn SocketProtector>, CancellationToken) {
+        match self {
+            Self::Packet(r) => r.diagnostic_dns_context(),
+            Self::Stream(r) => r.diagnostic_dns_context(),
+        }
+    }
+    fn performance(&self) -> ProxyPerformanceSnapshot {
+        match self {
+            Self::Packet(r) => r.performance(),
+            Self::Stream(r) => r.performance(),
+        }
+    }
+    fn failure(&self) -> Option<String> {
+        match self {
+            Self::Packet(r) => r.failure(),
+            Self::Stream(r) => r.failure(),
+        }
+    }
+    fn listeners(&self) -> &[SocketAddr] {
+        match self {
+            Self::Packet(r) => r.listeners(),
+            Self::Stream(r) => r.listeners(),
+        }
+    }
+    fn socks5_listeners(&self) -> &[SocketAddr] {
+        match self {
+            Self::Packet(r) => r.socks5_listeners(),
+            Self::Stream(r) => r.socks5_listeners(),
+        }
+    }
+    fn http_listeners(&self) -> &[SocketAddr] {
+        match self {
+            Self::Packet(r) => r.http_listeners(),
+            Self::Stream(r) => r.http_listeners(),
+        }
+    }
+    async fn reconfigure_frontends(&mut self, p: &Profile) -> Result<(), TransportError> {
+        match self {
+            Self::Packet(r) => r.reconfigure_frontends(p).await,
+            Self::Stream(r) => r.reconfigure_frontends(p).await,
+        }
+    }
+    fn attach_tun(&mut self) -> Result<TunIoInner, TransportError> {
+        match self {
+            Self::Packet(r) => r.attach_tun().map(TunIoInner::ConnectIp),
+            Self::Stream(r) => r
+                .bridge
+                .as_mut()
+                .ok_or(TransportError::UnsupportedOperatingMode)?
+                .attach()
+                .map(TunIoInner::L4),
+        }
+    }
+    fn detach_tun(&mut self) {
+        match self {
+            Self::Packet(r) => r.detach_tun(),
+            Self::Stream(r) => {
+                if let Some(b) = &r.bridge {
+                    b.cancel();
+                }
+            }
+        }
+    }
+    async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+        match self {
+            Self::Packet(r) => r.send_owned_packet(packet).await,
+            Self::Stream(r) => r
+                .bridge
+                .as_ref()
+                .ok_or(TransportError::TunnelClosed)?
+                .outgoing
+                .send(packet)
+                .await
+                .map_err(|_| TransportError::TunnelClosed),
+        }
+    }
+    fn cancel_immediately(&mut self) {
+        match self {
+            Self::Packet(r) => r.cancel_immediately(),
+            Self::Stream(r) => r.cancel_immediately(),
+        }
+    }
+    async fn shutdown(&mut self) {
+        match self {
+            Self::Packet(r) => r.shutdown().await,
+            Self::Stream(r) => r.shutdown().await,
+        }
+    }
 }
 
 impl DataPlaneRuntime {
@@ -138,6 +297,9 @@ impl DataPlaneRuntime {
         }
         let mut underlay_profile = profile.clone();
         underlay_profile.disable_chain();
+        if underlay_profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved {
+            underlay_profile.proxy.dns_mode = usque_core::ProxyDnsMode::Remote;
+        }
         // The final MTU belongs to the exit. Keep WARP's private packet stack
         // at the IPv6 minimum so encapsulated UDP fits its bounded fragments.
         underlay_profile.mtu = crate::chain_mss::WARP_MTU;
@@ -248,6 +410,52 @@ impl DataPlaneRuntime {
         if !matches {
             return Err(TransportError::VpnGate(GateFailure::Configuration));
         }
+        if let Some(usque_core::chain_exit::ValidatedProfile::Proxy(config)) =
+            prepared.custom.as_deref()
+        {
+            let mut network = self.warp_network.clone();
+            network.mtu = profile.mtu;
+            if !config.dns_servers.is_empty() {
+                network.dns_servers = config.dns_servers.clone();
+            }
+            let effective = final_profile(profile, &network);
+            let mut frontend = L4Runtime::start_proxy(
+                &effective,
+                &prepared,
+                self.warp_internal_network(),
+                (
+                    network.ipv4.unwrap_or(Ipv4Addr::UNSPECIFIED),
+                    network.ipv6.unwrap_or(Ipv6Addr::UNSPECIFIED),
+                ),
+                protector,
+                policy,
+                status,
+                &cancellation,
+                deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(180)),
+            )
+            .await?;
+            if cancellation.is_cancelled() {
+                frontend.shutdown().await;
+                return Err(TransportError::TunnelClosed);
+            }
+            let driver = frontend
+                .client
+                .proxy
+                .clone()
+                .ok_or(TransportError::VpnGate(GateFailure::Configuration))?;
+            driver.status.send_modify(|s| {
+                s.network = Some(network.clone());
+                s.dns_unavailable = network.dns_servers.is_empty();
+            });
+            self.gate = Some(Box::new(GateRuntime {
+                frontend: GateFrontend::Stream(Box::new(frontend)),
+                driver: ExitDriver::Proxy(driver),
+                network,
+                server,
+            }));
+            self.final_blocked = false;
+            return Ok(());
+        }
         let (mut driver, tunnel, mut network) = crate::vpngate::GateDriver::start(
             &prepared,
             self.warp_internal_network(),
@@ -294,8 +502,8 @@ impl DataPlaneRuntime {
             return Err(TransportError::TunnelClosed);
         }
         self.gate = Some(Box::new(GateRuntime {
-            frontend,
-            driver,
+            frontend: GateFrontend::Packet(Box::new(frontend)),
+            driver: ExitDriver::Vpn(driver),
             network,
             server,
         }));
@@ -462,7 +670,7 @@ impl DataPlaneRuntime {
             self.transition_status = GateStatus::default();
         }
         if let Some(gate) = &mut self.gate {
-            let mut status = gate.driver.status.clone();
+            let mut status = gate.driver.status();
             gate.driver.admit();
             loop {
                 match status.borrow().stage {
@@ -496,7 +704,7 @@ impl DataPlaneRuntime {
             self.transition_status.clone()
         } else {
             self.gate.as_ref().map_or_else(GateStatus::default, |gate| {
-                let mut status = gate.driver.status.borrow().clone();
+                let mut status = gate.driver.status().borrow().clone();
                 status.current_server = Some(gate.server.clone());
                 if matches!(
                     status.stage,
@@ -729,7 +937,7 @@ impl DataPlaneRuntime {
         }
         if let Some(gate) = &mut self.gate {
             return Ok(TunPacketIo {
-                inner: TunIoInner::ConnectIp(gate.frontend.attach_tun()?),
+                inner: gate.frontend.attach_tun()?,
             });
         }
         let inner = match &mut self.inner {
@@ -854,13 +1062,16 @@ fn final_mtu(profile: &Profile, negotiated: u16) -> u16 {
 }
 fn final_profile(profile: &Profile, network: &FinalNetworkParameters) -> Profile {
     let mut final_profile = profile.clone();
-    final_profile.data_plane = DataPlaneMode::ConnectIp;
+    if !profile.custom_chain().is_some_and(|c| c.source.is_proxy()) {
+        final_profile.data_plane = DataPlaneMode::ConnectIp;
+    }
     final_profile.mtu = final_mtu(profile, network.mtu);
     if profile.dns_mode == usque_core::DnsMode::Tunnel || profile.custom_chain().is_some() {
         final_profile.dns_servers = network.dns_servers.clone();
     }
-    if profile.custom_chain().is_some()
-        || final_profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved
+    if !profile.custom_chain().is_some_and(|c| c.source.is_proxy())
+        && (profile.custom_chain().is_some()
+            || final_profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved)
     {
         final_profile.proxy.dns_mode = usque_core::ProxyDnsMode::Remote;
     }

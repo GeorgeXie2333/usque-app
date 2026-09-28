@@ -1525,6 +1525,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
       chainOpenvpnUdp = false,
       chainWireguard = false,
       chainWarpWireguard = false,
+      chainHttpProxy = false,
+      chainSocks5Proxy = false,
       chainOpenvpnMultiEndpoint = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
@@ -1555,6 +1557,10 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainProfileImport = reader.varint(field) != 0;
       case 35:
         chainOpenvpnUdp = reader.varint(field) != 0;
+      case 39:
+        chainHttpProxy = reader.varint(field) != 0;
+      case 40:
+        chainSocks5Proxy = reader.varint(field) != 0;
       case 38:
         chainWarpWireguard = reader.varint(field) != 0;
       case 36:
@@ -1602,6 +1608,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     chainOpenvpnUdp: chainOpenvpnUdp,
     chainWireguard: chainWireguard,
     chainWarpWireguard: chainWarpWireguard,
+    chainHttpProxy: chainHttpProxy,
+    chainSocks5Proxy: chainSocks5Proxy,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),

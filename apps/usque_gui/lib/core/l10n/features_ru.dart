@@ -352,6 +352,16 @@ const Map<String, String> kNetworkSettingsRu = <String, String>{
 };
 
 const Map<String, String> kChainRu = <String, String>{
+  "add_proxy": "Добавить прокси",
+  "proxy_hint":
+      "Подключение через WARP. HTTP передаёт TCP; SOCKS5 также поддерживает UDP при H3/H2.",
+  "dns_inherit": "Оставьте пустым для DNS сети. Запросы идут через этот выход.",
+  "proxy_ready": "Готово · передача TCP не проверена",
+  "proxy_verified": "Передача TCP проверена",
+  "udp_unknown": "UDP: не проверен",
+  "udp_available": "UDP-ассоциация доступна",
+  "udp_unavailable": "UDP недоступен",
+
   "batch_title": "Импорт конфигураций",
   "batch_counts":
       "Готово: {ready} · Неполные: {pending} · Ошибки: {failed} · Сохранено: {saved}",

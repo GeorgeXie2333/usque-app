@@ -359,6 +359,17 @@ const Map<String, String> kNetworkSettingsNl = <String, String>{
 };
 
 const Map<String, String> kChainNl = <String, String>{
+  "add_proxy": "Proxy toevoegen",
+  "proxy_hint":
+      "Verbinding via WARP. HTTP ondersteunt TCP; SOCKS5 kan met H3/H2 ook UDP gebruiken.",
+  "dns_inherit":
+      "Laat leeg om netwerk-DNS te gebruiken. Vragen gaan via deze uitgang.",
+  "proxy_ready": "Gereed · TCP-doorgifte niet geverifieerd",
+  "proxy_verified": "TCP-doorgifte geverifieerd",
+  "udp_unknown": "UDP: niet geverifieerd",
+  "udp_available": "UDP-associatie beschikbaar",
+  "udp_unavailable": "UDP niet beschikbaar",
+
   "batch_title": "Configuraties importeren",
   "batch_counts":
       "Gereed: {ready} · Onvolledig: {pending} · Mislukt: {failed} · Opgeslagen: {saved}",

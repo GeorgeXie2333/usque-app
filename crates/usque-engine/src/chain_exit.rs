@@ -50,6 +50,8 @@ fn source(value: &str) -> Result<ChainSource, ControlServiceError> {
         "wireguard_custom" => Ok(ChainSource::WireguardCustom),
         "warp_wireguard" => Ok(ChainSource::WarpWireguard),
         "vpn_gate" => Ok(ChainSource::VpnGate),
+        "http_proxy" => Ok(ChainSource::HttpProxy),
+        "socks5_proxy" => Ok(ChainSource::Socks5Proxy),
         _ => Err(ControlServiceError::InvalidRequest(
             "Unknown chain source".into(),
         )),
@@ -61,6 +63,8 @@ fn source_name(value: ChainSource) -> &'static str {
         ChainSource::WireguardCustom => "wireguard_custom",
         ChainSource::WarpWireguard => "warp_wireguard",
         ChainSource::VpnGate => "vpn_gate",
+        ChainSource::HttpProxy => "http_proxy",
+        ChainSource::Socks5Proxy => "socks5_proxy",
     }
 }
 fn uuid(value: &str) -> Result<Option<uuid::Uuid>, ControlServiceError> {
@@ -88,6 +92,13 @@ impl ControlService {
                 profile_id: uuid(&request.profile_id)?,
                 revision: uuid(&request.revision)?,
                 secrets: ImportSecrets {
+                    proxy: request.proxy.map(|p| {
+                        serde_json::from_value(serde_json::json!({
+                            "host": p.host, "port": p.port,
+                            "auth_mode": if p.auth_mode.is_empty() { "none" } else { &p.auth_mode },
+                            "dns_servers": p.dns_servers,
+                        })).map_err(|_| ControlServiceError::InvalidRequest("Invalid proxy configuration".into()))
+                    }).transpose()?,
                     configuration: String::from_utf8(request.configuration).map_err(|_| {
                         ControlServiceError::InvalidRequest("Invalid configuration encoding".into())
                     })?,

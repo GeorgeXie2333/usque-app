@@ -113,7 +113,8 @@ impl<'a> ChainProfileStore<'a> {
             return Err(storage_error());
         }
         let mut record: Record = serde_json::from_slice(&plaintext).map_err(|_| storage_error())?;
-        if !matches!(record.version, 1..=3)
+        if !matches!(record.version, 1..=4)
+            || record.summary.source.is_proxy() && record.version != 4
             || record.summary.id != id
             || record.version >= 2 && plaintext.len() > MAX_RECORD_PLAINTEXT_BYTES
         {
@@ -212,6 +213,9 @@ impl<'a> ChainProfileStore<'a> {
         secrets: ImportSecrets,
     ) -> Result<ChainProfileSummary, ImportError> {
         let parsed = ValidatedProfile::parse(source, &secrets)?;
+        if let ValidatedProfile::Proxy(p) = &parsed {
+            super::proxy::validate_credentials(source, p.auth_mode, &secrets, true)?;
+        }
         let mut summary = parsed.summary(name, Uuid::new_v4(), Uuid::new_v4())?;
         summary.source = source;
         let _guard = self.lock()?;
@@ -219,7 +223,7 @@ impl<'a> ChainProfileStore<'a> {
             return Err(ImportError::new(0, "profiles", "profile_limit"));
         }
         self.write(&Record {
-            version: 3,
+            version: if source.is_proxy() { 4 } else { 3 },
             summary: summary.clone(),
             secrets,
         })?;
@@ -236,7 +240,14 @@ impl<'a> ChainProfileStore<'a> {
         )?;
         expected.edit_revision = record.summary.edit_revision;
         expected.source = record.summary.source;
-        if record.version != 3 || expected != record.summary {
+        if record.version
+            != if record.summary.source.is_proxy() {
+                4
+            } else {
+                3
+            }
+            || expected != record.summary
+        {
             return Err(storage_error());
         }
         // Binder carries UTF-16 strings. Bound the complete metadata catalogue
@@ -310,7 +321,11 @@ impl<'a> ChainProfileStore<'a> {
         record.summary = parsed.summary(name, id, record.summary.revision)?;
         record.summary.source = source;
         record.summary.edit_revision = Uuid::new_v4();
-        record.version = 3;
+        record.version = if record.summary.source.is_proxy() {
+            4
+        } else {
+            3
+        };
         self.write(&record)?;
         Ok(record.summary)
     }
@@ -342,8 +357,22 @@ impl<'a> ChainProfileStore<'a> {
             .private_key_password
             .clone_from(&credentials.private_key_password);
         record.secrets.validate()?;
+        if let ValidatedProfile::Proxy(p) =
+            ValidatedProfile::parse(record.summary.source, &record.secrets)?
+        {
+            super::proxy::validate_credentials(
+                record.summary.source,
+                p.auth_mode,
+                &record.secrets,
+                true,
+            )?;
+        }
         record.summary.edit_revision = Uuid::new_v4();
-        record.version = 3;
+        record.version = if record.summary.source.is_proxy() {
+            4
+        } else {
+            3
+        };
         // Running sessions retain their own zeroizing credential snapshot.
         self.write(&record)?;
         Ok(record.summary)

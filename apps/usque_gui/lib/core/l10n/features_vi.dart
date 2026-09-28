@@ -325,6 +325,16 @@ const Map<String, String> kNetworkSettingsVi = <String, String>{
 };
 
 const Map<String, String> kChainVi = <String, String>{
+  "add_proxy": "Thêm proxy",
+  "proxy_hint":
+      "Kết nối qua WARP. HTTP truyền TCP; SOCKS5 còn có thể truyền UDP với H3/H2.",
+  "dns_inherit": "Để trống để dùng DNS mạng. Truy vấn đi qua đầu ra này.",
+  "proxy_ready": "Sẵn sàng · chưa xác minh chuyển tiếp TCP",
+  "proxy_verified": "Đã xác minh chuyển tiếp TCP",
+  "udp_unknown": "UDP: chưa xác minh",
+  "udp_available": "Liên kết UDP khả dụng",
+  "udp_unavailable": "UDP không khả dụng",
+
   "batch_title": "Nhập cấu hình",
   "batch_counts":
       "Sẵn sàng: {ready} · Cần bổ sung: {pending} · Lỗi: {failed} · Đã lưu: {saved}",

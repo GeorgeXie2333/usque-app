@@ -21,9 +21,9 @@ use crate::socks5::Socks5Frontend;
 use crate::tcp::{ProxyServices, TcpDialer};
 use crate::telemetry::ConnectionTelemetry;
 
-/// One account-bound, TCP-only runtime shared by TUN and local proxy listeners.
+/// Account-bound stream frontends, shared by L4 and final HTTP/SOCKS5 exits.
 pub(crate) struct L4Runtime {
-    pub(crate) client: Arc<L4Client>,
+    pub(crate) client: Arc<crate::stream_client::StreamClient>,
     pub(crate) monitor: ManagedTunnelMonitor,
     pub(crate) bridge: Option<TunBridge>,
     pub(crate) assigned_ipv4: Ipv4Addr,
@@ -80,16 +80,6 @@ impl L4Runtime {
             .proxy
             .listener_credentials()
             .map_err(|_| TransportError::InvalidIdentity)?;
-        let socks_bound = profile
-            .frontends
-            .socks5
-            .then(|| Socks5Frontend::prebind(profile))
-            .transpose()?;
-        let http_bound = profile
-            .frontends
-            .http
-            .then(|| HttpProxyFrontend::prebind(profile))
-            .transpose()?;
         let cancellation = CancellationToken::new();
         let startup_guard = cancellation.clone().drop_guard();
         let telemetry = ConnectionTelemetry::default();
@@ -124,6 +114,47 @@ impl L4Runtime {
         )
         .await
         .map_err(super::transport_error)?;
+        let client = crate::stream_client::StreamClient::l4(client);
+        let runtime = Self::finish(
+            profile,
+            client,
+            (ipv4, ipv6),
+            protector,
+            geo_policy,
+            cancellation,
+            telemetry,
+            counters,
+        )
+        .await?;
+        startup_guard.disarm();
+        Ok(runtime)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "shared frontend construction retains exact runtime ownership"
+    )]
+    async fn finish(
+        profile: &Profile,
+        client: Arc<crate::stream_client::StreamClient>,
+        (ipv4, ipv6): (Ipv4Addr, Ipv6Addr),
+        protector: Arc<dyn SocketProtector>,
+        geo_policy: Arc<GeoDirectPolicy>,
+        cancellation: CancellationToken,
+        telemetry: ConnectionTelemetry,
+        counters: Arc<TrafficCounters>,
+    ) -> Result<Self, TransportError> {
+        let quality = telemetry.network_quality();
+        let socks_bound = profile
+            .frontends
+            .socks5
+            .then(|| Socks5Frontend::prebind(profile))
+            .transpose()?;
+        let http_bound = profile
+            .frontends
+            .http
+            .then(|| HttpProxyFrontend::prebind(profile))
+            .transpose()?;
         let (quality_rx, sampler) =
             crate::network_quality::spawn_network_quality_sampler_with_counters(
                 quality.clone(),
@@ -161,7 +192,26 @@ impl L4Runtime {
                 super::Limits::platform().active + super::Limits::platform().pending,
             ))),
             dialer,
-            udp: None,
+            udp: client
+                .proxy
+                .as_ref()
+                .filter(|p| {
+                    p.network.supports_udp()
+                        && p.config.protocol == usque_core::chain_exit::ChainProtocol::Socks5
+                })
+                .map(|p| {
+                    Arc::new(crate::proxy_udp::SocksFactory(p.clone()))
+                        as Arc<dyn crate::proxy_udp::UdpFactory>
+                })
+                .or_else(|| {
+                    (client.proxy.is_some()
+                        && profile.data_plane != usque_core::DataPlaneMode::L4Proxy
+                        && geo_policy.is_enabled())
+                    .then(|| {
+                        Arc::new(crate::proxy_udp::DirectOnly)
+                            as Arc<dyn crate::proxy_udp::UdpFactory>
+                    })
+                }),
             resolver: Resolver::for_streams(
                 dns.clone(),
                 servers,
@@ -171,8 +221,6 @@ impl L4Runtime {
             protector,
             geo_policy,
             counters: counters.clone(),
-            ipv4,
-            ipv6,
             cancellation: cancellation.clone(),
             health: client.health.clone(),
         };
@@ -227,7 +275,80 @@ impl L4Runtime {
             tasks: vec![sampler.detach(), pool_maintenance.detach()],
         };
         runtime.refresh_listeners();
-        startup_guard.disarm();
+        Ok(runtime)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "final proxy startup carries its underlay, credentials and admission deadline"
+    )]
+    pub(crate) async fn start_proxy(
+        profile: &Profile,
+        prepared: &usque_core::vpngate::PreparedProfile,
+        network: crate::InternalNetwork,
+        assigned: (Ipv4Addr, Ipv6Addr),
+        protector: Arc<dyn SocketProtector>,
+        geo_policy: Arc<GeoDirectPolicy>,
+        status: Option<tokio::sync::watch::Sender<usque_core::vpngate::GateStatus>>,
+        startup_cancel: &CancellationToken,
+        deadline: tokio::time::Instant,
+    ) -> Result<Self, TransportError> {
+        let cancellation = CancellationToken::new();
+        let guard = cancellation.clone().drop_guard();
+        let telemetry = ConnectionTelemetry::default();
+        let counters = Arc::new(TrafficCounters::default());
+        let metrics = Arc::new(super::L4Metrics::default());
+        let budget = Arc::new(super::BufferBudget::new(
+            super::Limits::platform().buffers,
+            metrics.clone(),
+            Arc::new(tokio::sync::Notify::new()),
+        ));
+        let proxy = tokio::select! {
+            _ = startup_cancel.cancelled() => return Err(TransportError::TunnelClosed),
+            result = crate::proxy_exit::ProxyDialer::start(prepared, network.clone(), status, cancellation.clone(), budget.clone(), counters.clone(), deadline) => result.map_err(|e| TransportError::VpnGate(match e {
+                crate::tcp::DialError::Rejected(407) => usque_core::vpngate::GateFailure::Authentication,
+                crate::tcp::DialError::Protocol => usque_core::vpngate::GateFailure::Protocol,
+                crate::tcp::DialError::InvalidTarget => usque_core::vpngate::GateFailure::Configuration,
+                _ => usque_core::vpngate::GateFailure::Transport,
+            }))?,
+        };
+        let client = Arc::new(crate::stream_client::StreamClient {
+            l4: None,
+            proxy: Some(proxy.clone()),
+            budget,
+            metrics,
+            health: network.health(),
+        });
+        let mut runtime = Self::finish(
+            profile,
+            client,
+            assigned,
+            protector,
+            geo_policy,
+            cancellation,
+            telemetry,
+            counters,
+        )
+        .await?;
+        let mut health = network.health();
+        let generation = network.session_generation();
+        runtime.tasks.push(tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+            loop {
+                tokio::select! {
+                    _ = proxy.cancellation.cancelled() => break,
+                    changed = health.changed() => if changed.is_err() { break; },
+                    _ = tick.tick() => {},
+                }
+                if !matches!(*health.borrow(), RuntimeHealth::Connected { .. })
+                    || generation != network.session_generation()
+                {
+                    proxy.fail(usque_core::vpngate::GateFailure::Transport);
+                    break;
+                }
+            }
+        }));
+        guard.disarm();
         Ok(runtime)
     }
 

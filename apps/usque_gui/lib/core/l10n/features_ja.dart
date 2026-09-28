@@ -302,6 +302,15 @@ const Map<String, String> kNetworkSettingsJa = <String, String>{
 };
 
 const Map<String, String> kChainJa = <String, String>{
+  "add_proxy": "プロキシを追加",
+  "proxy_hint": "WARP 経由で接続します。HTTP は TCP、SOCKS5 は H3/H2 で UDP にも対応します。",
+  "dns_inherit": "空欄の場合はネットワーク DNS を継承し、この出口経由で問い合わせます。",
+  "proxy_ready": "準備完了 · TCP 転送は未検証",
+  "proxy_verified": "TCP 転送を検証済み",
+  "udp_unknown": "UDP：未検証",
+  "udp_available": "UDP 関連付けが利用可能",
+  "udp_unavailable": "UDP は利用不可",
+
   "batch_title": "設定を一括インポート",
   "batch_counts": "有効：{ready} · 要入力：{pending} · 失敗：{failed} · 保存済み：{saved}",
   "batch_ready": "インポート可能",

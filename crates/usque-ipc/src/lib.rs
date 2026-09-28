@@ -281,6 +281,29 @@ mod tests {
     }
 
     #[test]
+    fn proxy_exit_fields_are_append_only() {
+        let capabilities = v1::Capabilities {
+            chain_http_proxy: true,
+            chain_socks5_proxy: true,
+            ..Default::default()
+        };
+        assert_eq!(capabilities.encode_to_vec(), [0xb8, 0x02, 1, 0xc0, 0x02, 1]);
+        let request = v1::ChainProfileRequest {
+            proxy: Some(v1::ProxyExitConfiguration {
+                host: "p".into(),
+                port: 80,
+                auth_mode: "none".into(),
+                dns_servers: vec![],
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            request.encode_to_vec(),
+            [82, 11, 10, 1, b'p', 16, 80, 26, 4, b'n', b'o', b'n', b'e']
+        );
+    }
+
+    #[test]
     fn warp_wireguard_control_and_capability_append_without_changing_existing_fields() {
         let request = ControlRequest {
             payload: Some(control_request::Payload::WarpWireguard(

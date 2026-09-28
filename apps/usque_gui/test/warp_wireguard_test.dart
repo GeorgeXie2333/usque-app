@@ -299,6 +299,8 @@ void main() {
       'wireguard_custom',
       'warp_wireguard',
       'vpn_gate',
+      'http_proxy',
+      'socks5_proxy',
     ]);
     final body = ControlPayloadWriter()
       ..string(1, 'warp-cap')

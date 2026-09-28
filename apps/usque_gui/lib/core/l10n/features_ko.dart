@@ -304,6 +304,15 @@ const Map<String, String> kNetworkSettingsKo = <String, String>{
 };
 
 const Map<String, String> kChainKo = <String, String>{
+  "add_proxy": "프록시 추가",
+  "proxy_hint": "WARP를 통해 연결합니다. HTTP는 TCP를, SOCKS5는 H3/H2에서 UDP도 지원합니다.",
+  "dns_inherit": "비워 두면 네트워크 DNS를 사용하며 쿼리는 이 출구를 통과합니다.",
+  "proxy_ready": "준비됨 · TCP 전달 미검증",
+  "proxy_verified": "TCP 전달 검증됨",
+  "udp_unknown": "UDP: 미검증",
+  "udp_available": "UDP 연결 사용 가능",
+  "udp_unavailable": "UDP 사용 불가",
+
   "batch_title": "설정 일괄 가져오기",
   "batch_counts":
       "준비됨: {ready} · 입력 필요: {pending} · 실패: {failed} · 저장됨: {saved}",

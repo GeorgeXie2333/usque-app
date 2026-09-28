@@ -357,6 +357,17 @@ const Map<String, String> kNetworkSettingsEs = <String, String>{
 };
 
 const Map<String, String> kChainEs = <String, String>{
+  "add_proxy": "Añadir proxy",
+  "proxy_hint":
+      "Conexión mediante WARP. HTTP transporta TCP; SOCKS5 también puede transportar UDP con H3/H2.",
+  "dns_inherit":
+      "Déjelo vacío para heredar el DNS de red. Las consultas usan esta salida.",
+  "proxy_ready": "Listo · reenvío TCP sin verificar",
+  "proxy_verified": "Reenvío TCP verificado",
+  "udp_unknown": "UDP: sin verificar",
+  "udp_available": "Asociación UDP disponible",
+  "udp_unavailable": "UDP no disponible",
+
   "batch_title": "Importar configuraciones",
   "batch_counts":
       "Listas: {ready} · Incompletas: {pending} · Fallidas: {failed} · Guardadas: {saved}",

@@ -1,5 +1,109 @@
 use super::*;
 
+fn proxy_fixture(_source: ChainSource, auth: bool) -> ImportSecrets {
+    ImportSecrets {
+        proxy: Some(ProxyExitConfiguration {
+            host: "proxy.example".into(),
+            port: 1080,
+            auth_mode: if auth {
+                ProxyAuthMode::UsernamePassword
+            } else {
+                ProxyAuthMode::None
+            },
+            dns_servers: vec!["1.1.1.1".parse().unwrap()],
+        }),
+        username: if auth { "user".into() } else { String::new() },
+        password: if auth {
+            "PROXY_SECRET_SENTINEL".into()
+        } else {
+            String::new()
+        },
+        configuration: String::new(),
+        private_key_password: String::new(),
+    }
+}
+
+#[test]
+fn proxy_configuration_and_storage_preserve_secrets_and_immutable_selection() {
+    for source in [ChainSource::HttpProxy, ChainSource::Socks5Proxy] {
+        let parent = tempfile::tempdir().unwrap();
+        let store = store::ChainProfileStore::new(parent.path(), &TestCipher);
+        let secret = proxy_fixture(source, true);
+        assert!(!format!("{secret:?}").contains("SENTINEL"));
+        let summary = store.import(source, "Proxy", secret).unwrap();
+        assert!(!summary.protocol.requires_udp());
+        assert!(summary.requires_auth);
+        assert!(
+            !serde_json::to_string(&summary)
+                .unwrap()
+                .contains("SENTINEL")
+        );
+        let selected = summary.selection();
+        let (_, parsed, _) = store.load(&selected).unwrap();
+        assert!(matches!(parsed, ValidatedProfile::Proxy(_)));
+        let renamed = store
+            .rename(summary.id, summary.edit_revision, "Renamed")
+            .unwrap();
+        assert_eq!(renamed.revision, summary.revision);
+        assert!(
+            store
+                .rename(summary.id, summary.edit_revision, "Stale")
+                .is_err()
+        );
+        assert!(
+            store
+                .remove(summary.id, renamed.edit_revision, &[summary.id])
+                .is_err()
+        );
+        let mut update = ImportSecrets::default();
+        update.username = "changed".into();
+        update.password = "new secret".into();
+        let updated = store
+            .update_credentials(summary.id, renamed.edit_revision, update)
+            .unwrap();
+        assert_eq!(updated.revision, summary.revision);
+        assert_eq!(store.load(&selected).unwrap().2.username, "changed");
+        assert!(
+            store
+                .update_credentials(summary.id, updated.edit_revision, ImportSecrets::default())
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn proxy_validation_rejects_mixed_formats_and_invalid_credentials() {
+    for source in [ChainSource::HttpProxy, ChainSource::Socks5Proxy] {
+        let mut secret = proxy_fixture(source, false);
+        assert!(ValidatedProfile::parse(source, &secret).is_ok());
+        assert!(ValidatedProfile::parse(ChainSource::OpenvpnCustom, &secret).is_err());
+        secret.configuration = "client".into();
+        assert!(ValidatedProfile::parse(source, &secret).is_err());
+        secret.configuration.clear();
+        for host in [
+            "127.0.0.1",
+            "::",
+            "http://proxy.example",
+            "user:pass@proxy.example",
+            "a\r\nb",
+        ] {
+            secret.proxy.as_mut().unwrap().host = host.into();
+            assert!(ValidatedProfile::parse(source, &secret).is_err());
+        }
+        secret = proxy_fixture(source, true);
+        secret.username = if source == ChainSource::HttpProxy {
+            "user:name".into()
+        } else {
+            "界".repeat(86)
+        };
+        assert!(ValidatedProfile::parse(source, &secret).is_err());
+        secret.username = "user".into();
+        secret.password = "secret\nvalue".into();
+        let error = ValidatedProfile::parse(source, &secret).unwrap_err();
+        assert!(!format!("{error:?}").contains("secret"));
+    }
+}
+
 fn ovpn(extra: &str) -> ImportSecrets {
     let auth = if extra.contains("auth-user-pass") {
         ""
@@ -19,7 +123,14 @@ fn wg(extra: &str) -> ImportSecrets {
 fn labels_and_protocol_capabilities_are_explicit() {
     assert_eq!(
         ChainSource::DISPLAY_ORDER.map(ChainSource::label),
-        ["OpenVPN", "WireGuard", "WARP via WireGuard", "VPN Gate"]
+        [
+            "OpenVPN",
+            "WireGuard",
+            "WARP via WireGuard",
+            "VPN Gate",
+            "HTTP",
+            "SOCKS5"
+        ]
     );
     assert!(!ChainProtocol::OpenvpnTcp.requires_udp());
     assert!(ChainProtocol::OpenvpnUdp.requires_udp());

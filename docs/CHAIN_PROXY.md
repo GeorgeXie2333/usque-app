@@ -1,18 +1,20 @@
 # Chain proxy / 链式代理
 
 Open **Proxy → Chain proxy**. The page switch comes first, then the source
-selector: four choices that always use this order:
+selector: six choices that always use this order:
 
 1. **OpenVPN**
 2. **WireGuard**
 3. **WARP via WireGuard**
 4. **VPN Gate**
+5. **HTTP**
+6. **SOCKS5**
 
 The source names remain English in every locale. On phones and other layouts
 with less than 600 logical pixels of content width, the source heading stays
 above a compact selector showing the current source. Tap it to open a bottom
 sheet, then choose a source to close the sheet and show its configuration. The
-selector keeps the existing selected choice's size. Wider layouts keep all four
+selector keeps the existing selected choice's size. Wider layouts keep all six
 choices visible, wrapping normally and stacking at large text. A source the
 running engine cannot provide is shown disabled with its reason. One exit
 is enabled at a time:
@@ -21,10 +23,10 @@ HTTP share the final exit while retaining their own protocol capabilities;
 HTTP CONNECT does not gain UDP support. Explicit direct rules still apply.
 
 打开 **代理 → 链式代理**，总开关在最上方，其下的来源名称和顺序固定为
-**OpenVPN**、**WireGuard**、**WARP via WireGuard**、**VPN Gate**。手机和内容宽度小于 600 逻辑像素的
+**OpenVPN**、**WireGuard**、**WARP via WireGuard**、**VPN Gate**、**HTTP**、**SOCKS5**。手机和内容宽度小于 600 逻辑像素的
 窄屏上，“出口来源”标题独占一行，下方选择框显示当前来源，大小与原来的选中
 标签一致。点击选择框打开底部列表，选中来源后列表自动收起并显示对应配置。
-宽屏仍显示四个选项，通常横向排列并自动换行，大字号时竖排；不可用的来源会
+宽屏仍显示六个选项，通常横向排列并自动换行，大字号时竖排；不可用的来源会
 禁用并说明原因。每次启用一个出口，系统 VPN、SOCKS5 和 HTTP 共用最终出口，
 各入口保留自身协议能力，显式直连规则继续生效。
 
@@ -35,7 +37,7 @@ paste actions with saved configurations; VPN Gate provides refresh, country and
 favorite filters with public nodes. Selection rows use the same radio controls
 and saved/current markers. VPN Gate observations remain labeled as remote data.
 
-四种来源共用页头、总开关、“当前连接”和底部应用栏。切换来源浏览时，“当前连接”
+六种来源共用页头、总开关、“当前连接”和底部应用栏。切换来源浏览时，“当前连接”
 仍显示正在使用的出口。下方内容随来源变化：OpenVPN／WireGuard 提供导入、粘贴
 和已保存配置，VPN Gate 提供刷新、国家／地区筛选、收藏和公共节点。两类列表
 使用相同的单选控件及“已保存的选择”“当前连接”标记；VPN Gate 的远端观测说明
@@ -137,6 +139,64 @@ VPN Gate 同样使用“应用更改”和“应用并重新连接”。准备�
 进度及“取消”；准备或应用失败后，保留待应用的选择供检查和重试。刷新操作位于
 公共节点列表区域。
 
+## HTTP and SOCKS5 exits / HTTP 与 SOCKS5 出口
+
+Choose **HTTP** or **SOCKS5**, then **Add proxy**. Enter a name, server hostname
+or IPv4/IPv6 address and port (HTTP defaults to 8080, SOCKS5 to 1080). Enable
+username/password authentication when required. HTTP uses Basic authentication;
+SOCKS5 uses RFC 1929. The server field accepts an address, not a URL or embedded
+credentials. Optional DNS entries are numeric IP addresses, separated by spaces,
+commas or newlines. Blank DNS inherits the current network DNS at connection time.
+
+Save the configuration, enable chain proxy, select it and apply. Saving alone
+does not select or connect. Rename and credential changes retain the existing
+selection; credentials take effect on the next connection. Add a replacement
+configuration to change the server, DNS or authentication mode.
+
+HTTP means HTTP/1.1 CONNECT, not a TLS connection to the proxy. HTTPS application
+traffic retains its own end-to-end TLS. HTTP Basic and SOCKS5 passwords are not
+encrypted by those proxy protocols on the WARP-to-proxy leg. Credentials remain
+encrypted at rest and are excluded from settings, summaries and diagnostics.
+
+Both exits carry TCP with H3, H2 and L4. SOCKS5 additionally uses UDP ASSOCIATE
+with H3/H2 when the server accepts it. L4 remains TCP-only for these exits.
+HTTP CONNECT does not carry ordinary UDP. Unsupported proxied UDP is rejected;
+there is no WARP-only or physical-network fallback. Existing explicit direct
+rules remain applicable. SOCKS fragmentation is unsupported; relay packets,
+including the SOCKS header, are limited to 16336 bytes. TUN replies must fit its
+MTU; IP options, IP fragments, IPv6 extension headers and remote ICMP Echo retain
+the stream bridge's existing restrictions.
+
+**Ready** confirms proxy endpoint reachability (and SOCKS authentication).
+**TCP forwarding verified** requires a successful real CONNECT. UDP availability
+confirms acceptance of UDP ASSOCIATE, not end-to-end delivery. Individual target
+failures affect that flow; authentication failure closes the chain.
+
+Remote DNS travels through the final proxy using TCP. Valid TUN UDP/53 queries
+are converted to TCP DNS at the application's chosen resolver. If the proxy
+refuses CONNECT to port 53, DNS fails explicitly. For local HTTP/SOCKS clients,
+**Edge resolved** sends target domain names to the final proxy; it cannot recover
+names from TUN IP packets. Explicit local/direct DNS policies retain their
+existing semantics. No DoH or physical DNS fallback is added.
+
+选择 **HTTP** 或 **SOCKS5**，点击**添加代理**，填写名称、服务器域名或 IPv4/IPv6
+地址和端口；默认端口分别为 8080、1080。按需启用用户名／密码认证。地址栏不接受
+URL 或嵌入凭据。可选 DNS 填写数值 IP，以空格、逗号或换行分隔；留空表示连接时
+继承当前网络 DNS。保存后仍需启用链式代理、选用配置并应用。修改凭据在下次连接
+生效；修改服务器、DNS 或认证模式时新增替代配置。
+
+两种出口在 H3/H2/L4 下均支持 TCP；SOCKS5 在 H3/H2 下可按需使用服务器提供的 UDP
+关联。HTTP 及 L4 下的普通代理 UDP 不可用，失败不会退回仅 WARP 或物理直连。
+“已就绪”不代表目标转发已验证；实际 CONNECT 成功后才显示“TCP 转发已验证”。
+UDP 关联可用不等于已验证端到端数据可达。仅支持 FRAG=0，含 SOCKS 头的 relay 包
+上限为 16336 字节；TUN 回包须符合 MTU，原有 IP 包限制继续适用。
+
+远程 DNS 经最终代理的 TCP 连接发送。代理不允许连接 DNS 端口时明确失败；本地
+HTTP/SOCKS 客户端可选 Edge resolved 将域名交最终代理解析，TUN 不推测原始域名。
+HTTP 出口未使用到代理服务器的 TLS；HTTP Basic 和 SOCKS5 认证在 WARP 到代理
+这一段不提供额外加密，应用自身的 HTTPS 加密继续有效。凭据仅在设备加密库保存，
+不会进入设置、摘要或诊断。
+
 ## Compatibility / 兼容范围
 
 | Source and transport | CONNECT-IP H3/H2 | L4 |
@@ -146,6 +206,8 @@ VPN Gate 同样使用“应用更改”和“应用并重新连接”。准备�
 | WireGuard, UDP | Supported | Cannot enable |
 | WARP via WireGuard, UDP | Supported | Cannot enable |
 | VPN Gate, directory TCP | Supported | Supported |
+| HTTP CONNECT | TCP | TCP |
+| SOCKS5 | TCP; UDP when accepted by server | TCP |
 
 L4 can store UDP and WireGuard imports. Enabling them requires the explicit
 **Turn off L4 and apply** action, which replaces the action bar's
@@ -276,7 +338,7 @@ Protocol UDP larger than this uses IPv4 fragmentation or the private IPv6 UDP
 fragment/reassembly path; its buffers and queues are bounded. An existing WARP
 session with another MTU is reconnected when first enabling a chain.
 
-All sources use WARP connection, authenticated protocol negotiation, final
+VPN protocol sources use WARP connection, authenticated protocol negotiation, final
 platform-network configuration, then traffic admission. Applying another exit
 closes old final traffic and destroys its protocol session first. Terminal
 failures stop the entire chain and retain the requested selection and error.
@@ -388,7 +450,7 @@ for the workstation and isolated-runner boundaries.
 
 Shared settings are schema 18 and store only configuration references, plus the
 optional **WARP via WireGuard** endpoint override (`ChainExitSettings` IPC fields
-5/6). Encrypted records are written as version 3, which records the exit source
+5/6). HTTP/SOCKS5 records use version 4; VPN records are written as version 3, which records the exit source
 explicitly, with a 192 KiB serialized plaintext limit and 256 KiB ciphertext
 limit. Versions 1 and 2 are read without changing IDs, revisions or saved
 selections; their source is recovered from the stored protocol, and a later edit
@@ -401,7 +463,7 @@ occurs. Windows selection commits and deletion hold the configuration transactio
 before the library lock, so concurrent operations cannot leave a dangling reference.
 
 共享设置为 schema 18，仅保存配置引用，以及 **WARP via WireGuard** 可选的端点
-覆盖（IPC `ChainExitSettings` 字段 5/6）。加密对象写入版本 3，明确记录出口来源；
+覆盖（IPC `ChainExitSettings` 字段 5/6）。HTTP/SOCKS5 加密对象写入版本 4，VPN 对象仍写入版本 3，明确记录出口来源；
 序列化明文最多 192 KiB、密文最多 256 KiB。兼容读取版本 1 和 2，按保存的协议
 恢复来源，不改变 ID、版本引用或已保存选择；再次修改时改写为版本 3。
 历史较大记录可读取、删除，再次修改超限时保留原对象。旧版缺少认证方式的记录

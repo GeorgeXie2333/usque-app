@@ -701,7 +701,9 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       return;
     }
     if (_dataPlane == DataPlaneMode.connectIp &&
-        _proxy.dnsMode == ProxyDnsMode.edgeResolved) {
+        _proxy.dnsMode == ProxyDnsMode.edgeResolved &&
+        !(widget.controller.activeProfile.chainExit?.enabled == true &&
+            widget.controller.activeProfile.chainSource.isProxy)) {
       setState(
         () => _validationError = widget.controller.strings.get(
           'l4_edge_requires_l4',

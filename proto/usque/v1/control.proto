@@ -219,6 +219,14 @@ message ChainProfileRequest {
   string username = 7;
   string password = 8;
   string private_key_password = 9;
+  ProxyExitConfiguration proxy = 10;
+}
+
+message ProxyExitConfiguration {
+  string host = 1;
+  uint32 port = 2;
+  string auth_mode = 3;
+  repeated string dns_servers = 4;
 }
 
 // Metadata-only JSON shared with the Android JNI and Flutter model boundary.
@@ -443,6 +451,8 @@ message Capabilities {
   bool chain_wireguard = 36;
   bool chain_openvpn_multi_endpoint = 37;
   bool chain_warp_wireguard = 38;
+  bool chain_http_proxy = 39;
+  bool chain_socks5_proxy = 40;
 }
 
 message FrontendStatus {

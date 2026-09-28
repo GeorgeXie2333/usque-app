@@ -138,6 +138,8 @@ internal object NetworkQualityFields {
             "chain_openvpn_udp",
             "chain_wireguard",
             "chain_warp_wireguard",
+            "chain_http_proxy",
+            "chain_socks5_proxy",
             "chain_openvpn_multi_endpoint",
             "application_quic_blocking",
             "account_metadata_mutations",

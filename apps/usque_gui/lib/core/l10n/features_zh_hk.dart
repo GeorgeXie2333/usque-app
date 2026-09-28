@@ -282,6 +282,15 @@ const Map<String, String> kNetworkSettingsZhHk = <String, String>{
 };
 
 const Map<String, String> kChainZhHk = <String, String>{
+  "add_proxy": "新增代理",
+  "proxy_hint": "透過 WARP 連線。HTTP 支援 TCP；SOCKS5 在 H3/H2 下亦可支援 UDP。",
+  "dns_inherit": "留空以沿用網絡 DNS，查詢經此出口傳送。",
+  "proxy_ready": "已就緒 · TCP 轉發尚未驗證",
+  "proxy_verified": "TCP 轉發已驗證",
+  "udp_unknown": "UDP：尚未驗證",
+  "udp_available": "UDP 關聯可用",
+  "udp_unavailable": "UDP 不可用",
+
   "batch_title": "批量匯入設定",
   "batch_counts": "可匯入：{ready} · 待補充：{pending} · 失敗：{failed} · 已儲存：{saved}",
   "batch_ready": "可匯入",

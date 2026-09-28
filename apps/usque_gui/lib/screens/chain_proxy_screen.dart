@@ -19,6 +19,7 @@ import '../widgets/warp_wireguard_panel.dart';
 import 'vpn_gate_screen.dart';
 
 part 'chain_batch_import.dart';
+part 'chain_proxy_form.dart';
 
 class ChainProxyScreen extends StatefulWidget {
   const ChainProxyScreen({
@@ -270,6 +271,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   AppController get _app => widget.controller;
   bool get _dirty => _chainPending(_baseline, _draft);
   bool get _supported =>
+      ChainSourcePicker.available(_app.engineCapabilities, widget.source) &&
       (_app.engineCapabilities?.chainProfileImport ?? false) &&
       (widget.source != ChainSource.warpWireguard ||
           (_app.engineCapabilities?.chainWarpWireguard ?? false)) &&
@@ -365,6 +367,14 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
         });
       }
     }
+  }
+
+  Future<void> _addProxy() async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => _ProxyDialog(controller: _app, source: widget.source),
+    );
+    if (mounted) await _load();
   }
 
   Future<void> _import(bool file) async {
@@ -668,20 +678,28 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                         icon: const Icon(LucideIcons.plus),
                         label: Text(strings.warp('generate')),
                       ),
-                    OutlinedButton.icon(
-                      onPressed: _supported && !_saving && !_importing
-                          ? () => unawaited(_import(true))
-                          : null,
-                      icon: const Icon(LucideIcons.fileUp),
-                      label: Text(strings.chain('import_file')),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _supported && !_saving && !_importing
-                          ? () => unawaited(_import(false))
-                          : null,
-                      icon: const Icon(LucideIcons.clipboard),
-                      label: Text(strings.chain('paste')),
-                    ),
+                    if (widget.source.isProxy)
+                      OutlinedButton.icon(
+                        onPressed: _supported && !_saving ? _addProxy : null,
+                        icon: const Icon(LucideIcons.plus),
+                        label: Text(strings.chain('add_proxy')),
+                      ),
+                    if (!widget.source.isProxy)
+                      OutlinedButton.icon(
+                        onPressed: _supported && !_saving && !_importing
+                            ? () => unawaited(_import(true))
+                            : null,
+                        icon: const Icon(LucideIcons.fileUp),
+                        label: Text(strings.chain('import_file')),
+                      ),
+                    if (!widget.source.isProxy)
+                      OutlinedButton.icon(
+                        onPressed: _supported && !_saving && !_importing
+                            ? () => unawaited(_import(false))
+                            : null,
+                        icon: const Icon(LucideIcons.clipboard),
+                        label: Text(strings.chain('paste')),
+                      ),
                   ],
                 ),
                 BannerSlot(
@@ -702,16 +720,19 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     spacing: 4,
                     children: [
-                      Text(strings.chain('empty')),
+                      if (!widget.source.isProxy) Text(strings.chain('empty')),
                       Text(
                         strings.chain(
-                          widget.source.isWireguard
+                          widget.source.isProxy
+                              ? 'proxy_hint'
+                              : widget.source.isWireguard
                               ? 'empty_hint_wireguard'
                               : 'empty_hint_openvpn',
                         ),
                         style: mutedStyle,
                       ),
-                      Text(strings.chain('import_limits'), style: mutedStyle),
+                      if (!widget.source.isProxy)
+                        Text(strings.chain('import_limits'), style: mutedStyle),
                     ],
                   ),
                 if (profiles.isNotEmpty && !_draft.enabled && _supported)
@@ -870,7 +891,8 @@ class _ProfileRow extends StatelessWidget {
                 value: 'rename',
                 child: Text(strings.chain('rename')),
               ),
-              if (profile.source == ChainSource.openvpnCustom)
+              if (profile.source == ChainSource.openvpnCustom ||
+                  profile.source.isProxy && profile.requiresAuth)
                 PopupMenuItem(
                   value: 'credentials',
                   child: Text(strings.chain('credentials')),
@@ -950,7 +972,7 @@ class _ProfileDetails extends StatelessWidget {
             label: s.chain('dns'),
             stackWhenNarrow: true,
             value: Text(
-              s.chain('dns_fallback'),
+              s.chain(profile.source.isProxy ? 'dns_inherit' : 'dns_fallback'),
               textAlign: TextAlign.end,
               style: theme.textTheme.bodyMedium,
             ),

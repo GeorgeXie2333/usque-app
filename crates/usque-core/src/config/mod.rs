@@ -609,6 +609,9 @@ impl Profile {
         self.proxy.validate()?;
         if self.proxy.dns_mode == ProxyDnsMode::EdgeResolved
             && self.data_plane != DataPlaneMode::L4Proxy
+            && !self
+                .custom_chain()
+                .is_some_and(|c| c.enabled && c.source.is_proxy())
         {
             return Err(ConfigError::EdgeDnsRequiresL4);
         }
@@ -710,7 +713,7 @@ impl Default for FrontendSettings {
     }
 }
 
-fn invalid_vpn_dns_address(address: IpAddr) -> bool {
+pub(crate) fn invalid_vpn_dns_address(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(address) => {
             address.is_unspecified()

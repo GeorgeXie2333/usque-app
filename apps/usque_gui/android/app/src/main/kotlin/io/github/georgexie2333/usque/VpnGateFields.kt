@@ -80,6 +80,8 @@ internal object VpnGateFields {
                     "failure",
                     "warp_stage",
                     "dns_unavailable",
+                    "tcp_connect_verified",
+                    "proxy_udp",
                     "active_endpoint",
                     "attempt_count",
                     "candidate_count",

@@ -1,0 +1,5 @@
+{
+  "http_success": "HTTP/1.1 200 Connection Established\r\n\r\n",
+  "http_authentication_rejected": 407,
+  "socks5_udp_unsupported": 7
+}

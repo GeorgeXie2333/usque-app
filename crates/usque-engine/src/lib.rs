@@ -4968,6 +4968,8 @@ fn current_capabilities() -> v1::Capabilities {
         chain_openvpn_udp: cfg!(windows),
         chain_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
         chain_warp_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
+        chain_http_proxy: cfg!(windows),
+        chain_socks5_proxy: cfg!(windows),
         chain_openvpn_multi_endpoint: cfg!(windows),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,

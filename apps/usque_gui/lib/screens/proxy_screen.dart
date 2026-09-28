@@ -348,16 +348,21 @@ class _ProxyScreenState extends State<ProxyScreen> {
                                   (mode) =>
                                       mode != ProxyDnsMode.edgeResolved ||
                                       mode == _dnsMode ||
-                                      profile.dataPlane ==
-                                          DataPlaneMode.l4Proxy,
+                                      (profile.dataPlane ==
+                                              DataPlaneMode.l4Proxy ||
+                                          profile.chainExit?.enabled == true &&
+                                              profile.chainSource.isProxy),
                                 )
                                 .map(
                                   (mode) => DropdownMenuItem(
                                     value: mode,
                                     enabled:
                                         mode != ProxyDnsMode.edgeResolved ||
-                                        profile.dataPlane ==
-                                            DataPlaneMode.l4Proxy,
+                                        (profile.dataPlane ==
+                                                DataPlaneMode.l4Proxy ||
+                                            profile.chainExit?.enabled ==
+                                                    true &&
+                                                profile.chainSource.isProxy),
                                     child: Text(
                                       strings.get(switch (mode) {
                                         ProxyDnsMode.remote =>
@@ -571,7 +576,9 @@ class _ProxyScreenState extends State<ProxyScreen> {
 
   bool get _invalidDnsMode =>
       _dnsMode == ProxyDnsMode.edgeResolved &&
-      widget.controller.activeProfile.dataPlane != DataPlaneMode.l4Proxy;
+      widget.controller.activeProfile.dataPlane != DataPlaneMode.l4Proxy &&
+      !(widget.controller.activeProfile.chainExit?.enabled == true &&
+          widget.controller.activeProfile.chainSource.isProxy);
 
   List<String> _listenerValues(int index) => _listeners[index].text
       .split(RegExp(r'\r?\n'))

@@ -324,6 +324,17 @@ const Map<String, String> kNetworkSettingsFa = <String, String>{
 };
 
 const Map<String, String> kChainFa = <String, String>{
+  "add_proxy": "افزودن پراکسی",
+  "proxy_hint":
+      "اتصال از طریق WARP. پروتکل HTTP از TCP و SOCKS5 با H3/H2 از UDP نیز پشتیبانی می‌کند.",
+  "dns_inherit":
+      "برای استفاده از DNS شبکه خالی بگذارید. پرس‌وجوها از این خروجی عبور می‌کنند.",
+  "proxy_ready": "آماده · ارسال TCP تأیید نشده",
+  "proxy_verified": "ارسال TCP تأیید شد",
+  "udp_unknown": "UDP: تأیید نشده",
+  "udp_available": "ارتباط UDP در دسترس است",
+  "udp_unavailable": "UDP در دسترس نیست",
+
   "batch_title": "وارد کردن پیکربندی‌ها",
   "batch_counts":
       "آماده: {ready} · ناقص: {pending} · ناموفق: {failed} · ذخیره‌شده: {saved}",
