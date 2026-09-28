@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::{Instant, timeout_at};
 use tokio_util::sync::CancellationToken;
-use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
 use ts_netstack_smoltcp::netsock::TcpStream as StackTcpStream;
 
@@ -177,7 +176,7 @@ impl TcpDialer for StackDialer {
         let local = SocketAddr::new(ip, crate::port_allocator::next_tcp_port());
         tokio::select! {
             _ = cancellation.cancelled() => Err(DialError::Cancelled),
-            result = timeout_at(deadline, self.channel.tcp_connect(local, remote)) => match result {
+            result = timeout_at(deadline, crate::stack_tcp::StackTcpStream::connect(self.channel.clone(), local, remote)) => match result {
                 Ok(Ok(stream)) => Ok(Box::new(stream)),
                 Ok(Err(error)) if error.is_tcp_buffer_budget_exhausted() => Err(DialError::Budget),
                 Ok(Err(_)) => Err(DialError::Refused),
@@ -190,6 +189,7 @@ impl TcpDialer for StackDialer {
 /// Shared frontend context; UDP is present only on the CONNECT-IP backend.
 #[derive(Clone)]
 pub(crate) struct ProxyServices {
+    pub(crate) traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
     pub(crate) admission: Option<Arc<FrontendAdmission>>,
     pub(crate) dialer: Arc<dyn TcpDialer>,
     pub(crate) udp: Option<Channel>,
@@ -217,6 +217,7 @@ impl ProxyServices {
         };
         Self {
             admission: None,
+            traffic_policy: Arc::clone(&stack.traffic_policy),
             dialer: Arc::new(StackDialer {
                 channel: stack.channel.clone(),
                 ipv4,
@@ -230,7 +231,8 @@ impl ProxyServices {
                 servers,
                 profile.proxy.dns_mode,
                 Arc::clone(&stack.protector),
-            ),
+            )
+            .with_final_exit(profile.chain_enabled(), stack.cancellation.clone()),
             protector: Arc::clone(&stack.protector),
             geo_policy: Arc::clone(&stack.geo_policy),
             counters: Arc::clone(&stack.counters),

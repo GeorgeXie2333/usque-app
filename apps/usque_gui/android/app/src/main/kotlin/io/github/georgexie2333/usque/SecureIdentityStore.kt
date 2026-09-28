@@ -7,9 +7,11 @@ import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.security.KeyStore
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -50,6 +52,13 @@ internal class SecureIdentityStore(
         File(context.applicationContext.noBackupFilesDir, IDENTITY_DIRECTORY).apply {
             check(isDirectory || mkdirs()) { "Encrypted identity directory could not be created" }
         }
+
+    fun <T> withProxyLock(action: () -> T): T {
+        val file = File(identityDirectory, "proxy-auth.lock")
+        return synchronized(proxyLocks.computeIfAbsent(file.canonicalPath) { Any() }) {
+            RandomAccessFile(file, "rw").use { stream -> stream.channel.lock().use { action() } }
+        }
+    }
 
     @SuppressLint("ApplySharedPref", "UseKtx")
     fun put(
@@ -178,7 +187,7 @@ internal class SecureIdentityStore(
     @SuppressLint("ApplySharedPref", "UseKtx")
     fun clearAll() {
         identityDirectory.listFiles()?.forEach { file ->
-            if (file.isFile) AtomicFile(file).delete()
+            if (file.isFile && file.name != "proxy-auth.lock") AtomicFile(file).delete()
         }
         check(legacyPreferences.edit().clear().commit()) {
             "Encrypted identity preferences could not be cleared"
@@ -232,6 +241,7 @@ internal class SecureIdentityStore(
             }
 
     private companion object {
+        val proxyLocks = ConcurrentHashMap<String, Any>()
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val KEY_ALIAS = "io.github.georgexie2333.usque.identity.v1"
         const val PREFERENCES_NAME = "usque_identity_v1"

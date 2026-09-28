@@ -72,6 +72,15 @@ void main() {
         expect(find.text(failure), findsOneWidget);
         expect(storage.readState(page.context), beforeExpansion);
 
+        final sourceDetails = find.byKey(
+          const PageStorageKey<String>('vpn-gate-source-details'),
+        );
+        expect(find.text('${app.strings.get('gate_source')}: —'), findsNothing);
+        await tester.ensureVisible(sourceDetails);
+        await tester.tap(sourceDetails);
+        await tester.pumpAndSettle();
+        final afterSourceExpansion = page.position.pixels;
+
         // Text selection can scroll its internal viewport. It must not save
         // over either the page offset or the enclosing tile's expansion flag.
         for (final text in [
@@ -86,7 +95,7 @@ void main() {
           );
           textScroll.position.jumpTo(1);
           await tester.pumpAndSettle();
-          expect(storage.readState(page.context), beforeExpansion);
+          expect(storage.readState(page.context), afterSourceExpansion);
         }
 
         await tester.ensureVisible(details);

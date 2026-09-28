@@ -42,6 +42,8 @@ pub(crate) enum ActiveRuntime {
 
 #[cfg(test)]
 pub(crate) struct HarnessRuntime {
+    pub(crate) disable_quic: bool,
+    pub(crate) traffic_policy_updates: u32,
     pub(crate) path: RuntimePath,
     pub(crate) reconnect_count: u32,
     pub(crate) vpn: bool,
@@ -84,6 +86,8 @@ impl HarnessRuntime {
                 ipv6_available: true,
             },
             reconnect_count,
+            disable_quic: profile.disable_quic,
+            traffic_policy_updates: 0,
             vpn,
             listeners,
             socks5_listeners,
@@ -125,7 +129,7 @@ impl HarnessRuntime {
     pub(crate) fn replace_gate(&mut self, profile: &Profile) {
         self.gate_replace_count += 1;
         self.gate_status = usque_core::vpngate::GateStatus {
-            stage: if profile.vpn_gate.enabled {
+            stage: if profile.chain_enabled() {
                 usque_core::vpngate::GateStage::Connected
             } else {
                 usque_core::vpngate::GateStage::Disabled
@@ -476,6 +480,25 @@ impl ActiveRuntime {
                 Ok(())
             }
         }
+    }
+
+    pub(crate) fn update_traffic_policy(
+        &mut self,
+        disable_quic: bool,
+    ) -> Result<(), ControlServiceError> {
+        match self {
+            Self::Proxy(runtime) => runtime.runtime.update_traffic_policy(disable_quic),
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime
+                .update_traffic_policy(disable_quic)
+                .map_err(map_windows_vpn_error)?,
+            #[cfg(test)]
+            Self::Harness(runtime) => {
+                runtime.disable_quic = disable_quic;
+                runtime.traffic_policy_updates += 1;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) async fn reconfigure_frontends(

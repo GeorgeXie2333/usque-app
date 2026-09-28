@@ -1,5 +1,7 @@
 package io.github.georgexie2333.usque
 
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -8,6 +10,24 @@ import java.net.Inet6Address
 import java.net.InetAddress
 
 class AndroidVpnConfigurationTest {
+    @Test
+    fun customExitKeepsSyntheticDnsEvenWithoutUsableUpstreams() {
+        val configured = profile("automatic").copy(vpnGateEnabled = true, customChain = true, dnsMode = "system")
+        assertTrue(configured.splitDnsEnabled)
+        val network =
+            VpnGateNetwork.parse(
+                JSONObject()
+                    .put(
+                        "ipv4",
+                        "10.8.0.2",
+                    ).put("ipv6", JSONObject.NULL)
+                    .put("mtu", 1280)
+                    .put("dns_servers", JSONArray()),
+            )
+        assertTrue(network.dns.isEmpty())
+        assertTrue(configured.dnsServers.isNotEmpty())
+    }
+
     @Test
     fun gateRemoteDnsUsesInternalRoutesAndPreservesExplicitLocalDns() {
         val gate = profile("automatic").copy(vpnGateEnabled = true, allowLan = true)

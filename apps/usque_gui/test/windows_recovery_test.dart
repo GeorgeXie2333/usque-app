@@ -44,7 +44,12 @@ void main() {
         )..localePreference = locale;
         addTearDown(controller.dispose);
         await controller.retry();
-        expect(controller.lastError, contains('Wintun'));
+        expect(
+          controller.lastError,
+          contains(
+            kWindowsAdapterCleanupCatalogs[controller.strings.catalogId]!,
+          ),
+        );
         expect(controller.lastError, isNot(contains('private-token')));
         expect(controller.lastError, isNot(contains('192.0.2.1')));
         final expected = controller.lastError;

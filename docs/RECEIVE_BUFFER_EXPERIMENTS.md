@@ -54,10 +54,8 @@ Formal socket diagnostics and append-only protobuf fields are retained. Raw
 diagnostic ZIPs, screenshots, device identifiers, business data, APKs and signing
 material do not belong in Git. Local manifests, checksums and README records
 remain alongside the former APK locations in ignored `dist/android` directories.
-The consolidation moved only the three temporary packaging scripts and five
-experimental APKs to the Windows Recycle Bin, where they can be restored until
-it is emptied. Unrelated historical builds, build caches, JNI output and local
-SDK configuration were not cleanup targets.
+The five experimental APKs and three temporary packaging scripts are no longer
+kept there; only those manifests and checksums identify the tested binaries.
 
 ## Historical workstation checks
 

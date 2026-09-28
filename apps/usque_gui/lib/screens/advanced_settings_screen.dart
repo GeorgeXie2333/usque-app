@@ -10,6 +10,7 @@ import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/context_help_button.dart';
 import '../widgets/direct_dns_editor.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
@@ -40,7 +41,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late IpPolicy _ipPolicy;
   late bool _killSwitch;
   late bool _allowLan;
+  late bool _disableQuic;
   late DirectDnsSettings _directDns;
+  late DnsMode _dnsMode;
+  late ProxySettings _proxy;
   final _directDnsKey = GlobalKey<DirectDnsEditorState>();
   bool _saving = false;
   String? _saveError;
@@ -54,7 +58,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     8,
     (_) => GlobalKey<FormFieldState<String>>(),
   );
-  final _focus = List.generate(8, (_) => FocusNode());
+  final _focus = List.generate(9, (_) => FocusNode());
 
   List<Object> get _values => [
     _endpointV4.text,
@@ -71,7 +75,15 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _ipPolicy,
     _killSwitch,
     _allowLan,
+    _disableQuic,
     _directDns,
+    _dnsMode,
+    _proxy.socksListeners.join('\n'),
+    _proxy.httpListeners.join('\n'),
+    _proxy.dnsMode,
+    _proxy.dnsIpv4,
+    _proxy.dnsIpv6,
+    _proxy.systemProxy,
   ];
   bool get _dirty => !listEquals(_values, _baseline);
   void _edited() {
@@ -119,7 +131,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _ipPolicy = profile.ipPolicy;
     _killSwitch = profile.killSwitch;
     _allowLan = profile.allowLan;
+    _disableQuic = profile.disableQuic;
     _directDns = profile.directDns;
+    _dnsMode = profile.dnsMode;
+    _proxy = profile.proxy;
     if (baseline) {
       _baseline = _values;
       _editingAccountId = profile.id;
@@ -270,10 +285,22 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                             ),
                       ),
                       if (_dataPlane == DataPlaneMode.l4Proxy) ...[
-                        Semantics(
-                          key: const ValueKey('l4-transport-hint'),
-                          liveRegion: true,
-                          child: Text(strings.get('l4_transport_hint')),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Expanded(
+                              child: Semantics(
+                                key: const ValueKey('l4-transport-hint'),
+                                liveRegion: true,
+                                child: Text(strings.get('l4_transport_hint')),
+                              ),
+                            ),
+                            ContextHelpButton(
+                              title: strings.get('l4_mode'),
+                              message: strings.get('l4_explanation'),
+                              strings: strings,
+                            ),
+                          ],
                         ),
                         if (!l4Available) Text(strings.get('l4_unsupported')),
                       ],
@@ -331,6 +358,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               decoration: InputDecoration(
                                 labelText: strings.get('sni'),
                                 helperText: strings.get('l4_sni_identity'),
+                                helperMaxLines: 6,
                               ),
                             )
                           else
@@ -433,7 +461,13 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(strings.get('kill_switch')),
-                        subtitle: Text(strings.get('kill_switch_help')),
+                        subtitle: Text(
+                          strings.get(
+                            defaultTargetPlatform == TargetPlatform.android
+                                ? 'kill_switch_help_android'
+                                : 'kill_switch_help',
+                          ),
+                        ),
                         value: _killSwitch,
                         onChanged: _saving
                             ? null
@@ -446,6 +480,36 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                         onChanged: _saving
                             ? null
                             : (value) => setState(() => _allowLan = value),
+                      ),
+                      SwitchListTile(
+                        key: const ValueKey('disable-quic-switch'),
+                        focusNode: _focus[8],
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(strings.get('disable_quic')),
+                        subtitle: Text(
+                          widget
+                                      .controller
+                                      .engineCapabilities
+                                      ?.applicationQuicBlocking ==
+                                  true
+                              ? strings.get('disable_quic_help')
+                              : strings.get('disable_quic_unsupported'),
+                        ),
+                        value: _disableQuic,
+                        onChanged:
+                            _saving ||
+                                widget
+                                        .controller
+                                        .engineCapabilities
+                                        ?.applicationQuicBlocking !=
+                                    true
+                            ? null
+                            : (value) => setState(() {
+                                _disableQuic = value;
+                                _saved = false;
+                                _validationError = null;
+                                _saveError = null;
+                              }),
                       ),
                       const SizedBox(height: 14),
                       TextFormField(
@@ -637,8 +701,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       return;
     }
     if (_dataPlane == DataPlaneMode.connectIp &&
-        widget.controller.activeProfile.proxy.dnsMode ==
-            ProxyDnsMode.edgeResolved) {
+        _proxy.dnsMode == ProxyDnsMode.edgeResolved) {
       setState(
         () => _validationError = widget.controller.strings.get(
           'l4_edge_requires_l4',
@@ -685,7 +748,15 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'ip_policy',
       'kill_switch',
       'allow_lan',
+      'disable_quic',
       'direct_dns',
+      'dns_mode',
+      'proxy.socks5_listeners',
+      'proxy.http_listeners',
+      'proxy.dns_mode',
+      'proxy.dns_servers',
+      'proxy.dns_servers',
+      'proxy.system_proxy',
     ];
     final changedFields = <String>{
       for (var i = 0; i < paths.length; i++)
@@ -712,7 +783,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         dnsIpv6: _dnsV6.text.trim(),
         killSwitch: _killSwitch,
         allowLan: _allowLan,
+        disableQuic: _disableQuic,
         directDns: _directDns,
+        dnsMode: _dnsMode,
+        proxy: _proxy.copyWith(authUsername: profile.proxy.authUsername),
         bypassCidrs: _bypass.text
             .split(RegExp(r'\r?\n'))
             .map((line) => line.trim())

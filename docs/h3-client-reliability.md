@@ -88,7 +88,63 @@ for a typed PMTU, authentication, identity, or protection failure. Shutdown
 resolution remains cancellable and uses the existing ten-second packet-operation
 budget. If cleanup stalls past that budget, it reports the non-fallback-eligible
 `PacketReceiveStalled` failure and aborts the owned driver; it never invents a
-network failure to enable H2. H2 channel handling is unchanged.
+network failure to enable H2.
+
+## Established CONNECT-IP recovery
+
+The established-session supervisor classifies driver exits and failed replacement
+attempts using the same failure contract. Authentication, identity, configuration,
+address-assignment and socket-protection failures stop automatic attempts. Address
+family races cancel remaining candidates after an observed terminal error;
+H3/H2 aggregate errors cannot erase a terminal child cause. An endpoint pin mismatch
+retains the existing single protected enrollment refresh, with unchanged address
+assignment and pin verification. Initial connection failures still return to the
+caller rather than starting an unlimited background retry loop.
+
+Ordinary network failures retain the 1/2/4/8/15/30-second retry delays with 20%
+jitter. A connection lasting at least 60 seconds resets this backoff. An optional
+latest-value physical-network subscription distinguishes Unknown, Offline and
+Online address families. Offline waits do not start handshakes or advance the
+backoff/count. Unknown or a closed observation channel retains timed retry. A usable
+new network resets the old backoff after 250 milliseconds of settling; event-driven
+attempts start no more than once per second. A newer observation cancels an obsolete
+handshake, and cancellation takes precedence over both ready success and recovery.
+Waiting and connecting continue draining bounded outgoing packet queues; they do
+not retain an unbounded backlog or recreate local proxy listeners.
+
+Android publishes an immutable generation/availability/family snapshot through
+JNI. Windows VPN reuses the existing 500-millisecond Agent observations. The new
+`AGENT_PHYSICAL_NETWORK_OFFLINE` code means the Agent confirmed there was no usable
+physical interface. Older Agents' generic errors, invalid observations and failed
+queries mean Unknown. Windows pure proxy mode has no physical subscription and
+keeps timed retries. These are scheduling hints, never authorization to bypass
+exact-generation socket protection. L4 demand-driven replacement, downstream chain
+recovery and platform-service recovery retain their separate policies.
+
+## HTTP/2 liveness
+
+H2 retains its five-second PING cadence and permits only one outstanding PING.
+The soft deadline is five seconds before any RTT sample, otherwise
+`max(3 * smoothed RTT, smoothed RTT + 4 * RTT variation)`, clamped to 2–10 seconds.
+It records one timeout and continues polling the same PONG. The final deadline,
+measured from this PING's start, is three times the soft timeout, clamped to
+15–30 seconds. A PONG before that deadline preserves the connection. A permanent
+blackhole therefore ends the old driver within this deadline plus at most one
+PING interval under normal scheduling.
+
+A scheduling gap exceeding 15 seconds permits one five-second resume grace for
+the current PING; it cannot repeatedly extend the deadline, and its RTT sample is
+discarded. Driver completion, explicit cancellation and network replacement remain
+independently interruptible. Final timeout reports `PACKET_RECEIVE_STALLED` on the
+H2 path. The cause is published before connection teardown, so send/receive EOF
+cannot hide it. Ordinary stream resets still fail immediately. The driver owns
+the heartbeat future and closes its socket/egress lease when it exits.
+
+These policies add no saved settings or GUI phases. Waiting remains Reconnecting;
+terminal failures use existing failure codes. No extra identifiers or packet
+content are recorded. Actual device suspension, physical recovery latency, leak
+behavior and energy use require their respective isolated environments; virtual
+clock and in-memory H2 regressions are not evidence of those platform outcomes.
 
 ## Safety and validation
 

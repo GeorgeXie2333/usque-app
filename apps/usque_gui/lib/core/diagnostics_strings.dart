@@ -28,15 +28,19 @@ String diagnosticCategoryLabel(
 }
 
 String diagnosticCheckLabel(AppStrings strings, String checkId) {
-  return _catalogOrHumanize(
+  return _catalogOrFallback(
     strings,
     'diag_check_${checkId.replaceAll('.', '_')}',
-    checkId.split('.').last,
+    strings.get('diagnostics'),
   );
 }
 
 String diagnosticFailureTitle(AppStrings strings, String code) {
-  return _catalogOrHumanize(strings, 'diag_fail_$code', code);
+  return _catalogOrFallback(
+    strings,
+    'diag_fail_$code',
+    strings.get('operation_failed'),
+  );
 }
 
 String diagnosticRemediation(AppStrings strings, String key) {
@@ -65,6 +69,18 @@ String diagnosticFindingSummary(AppStrings strings, DiagnosticFinding finding) {
     DiagnosticCheckStatus.running => 'diag_finding_running',
     DiagnosticCheckStatus.pending => 'diag_finding_pending',
   });
+}
+
+String diagnosticSkipReason(AppStrings strings, DiagnosticFinding finding) {
+  final key = switch (finding.dependencyReason) {
+    'no_active_tunnel' || 'no_transport_handshake' => 'diag_skip_disconnected',
+    'not_configured' => 'diag_skip_disabled',
+    'platform_capability_unavailable' => 'diag_skip_unsupported',
+    'no_application_traffic' => 'diag_skip_traffic',
+    'run_deep_diagnostics' => 'diag_skip_deep',
+    _ => 'diag_finding_skipped',
+  };
+  return strings.get(key);
 }
 
 String diagnosticSessionStateLabel(
@@ -116,6 +132,8 @@ String connectionEventLabel(
       'diag_event_recovery_probe_failed',
     ConnectionTimelineEventType.pathPromoted => 'diag_event_path_promoted',
     ConnectionTimelineEventType.queueSaturated => 'diag_event_queue_saturated',
+    ConnectionTimelineEventType.queueBackpressured =>
+      'diag_event_queue_backpressured',
     ConnectionTimelineEventType.disconnected => 'diag_event_disconnected',
     ConnectionTimelineEventType.failed => 'diag_event_failed',
     ConnectionTimelineEventType.migrationStarted =>
@@ -138,18 +156,10 @@ String connectionEventLabel(
   });
 }
 
-String _catalogOrHumanize(AppStrings strings, String key, String fallback) {
+String _catalogOrFallback(AppStrings strings, String key, String fallback) {
   final value = strings.get(key);
   if (value == key) {
-    return _humanize(fallback);
+    return fallback;
   }
   return value;
-}
-
-String _humanize(String value) {
-  final words = value.replaceAll(RegExp(r'[_\-.]+'), ' ').trim().toLowerCase();
-  if (words.isEmpty) {
-    return value;
-  }
-  return '${words[0].toUpperCase()}${words.substring(1)}';
 }

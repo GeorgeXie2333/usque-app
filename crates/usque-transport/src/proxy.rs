@@ -22,6 +22,9 @@ pub struct ProxyRuntime {
 }
 
 impl ProxyRuntime {
+    pub fn update_traffic_policy(&mut self, disable_quic: bool) {
+        self.inner_mut().update_traffic_policy(disable_quic);
+    }
     pub fn quiesce_final(&mut self) {
         self.inner_mut().quiesce_final();
     }

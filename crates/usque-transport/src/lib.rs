@@ -4,6 +4,11 @@
 //! Desktop proxy modes can therefore be exercised without changing the host's
 //! network configuration.
 
+mod application_traffic;
+mod chain_mss;
+mod chain_raw;
+mod chain_session;
+mod chain_udp;
 mod connect_ip_control;
 mod data_plane;
 mod diagnostic_probe;
@@ -12,6 +17,7 @@ mod dns;
 mod dns_stream;
 mod encrypted_dns;
 mod feature_flags;
+mod final_dns;
 mod geo_direct;
 mod h2;
 mod h3;
@@ -24,6 +30,15 @@ mod masque_runtime;
 mod migration_barrier;
 mod netstack;
 mod network_quality;
+mod outbound_packet;
+#[cfg(feature = "wireguard")]
+pub mod warp_wireguard;
+#[cfg(feature = "wireguard")]
+mod wireguard;
+// Compile the actual Android slab producer in memory-only transport tests.
+#[cfg(test)]
+#[path = "../../usque-android/src/tun_read_slab.rs"]
+mod android_tun_read_slab;
 mod packet_batch;
 mod packet_mux;
 mod packet_pipe;
@@ -38,9 +53,16 @@ mod relay;
 mod socket;
 mod socks5;
 mod split_dns;
+mod stack_tcp;
 mod tcp;
+mod tcp_candidates;
 mod telemetry;
+mod transport_performance;
 mod tunnel;
+pub use transport_performance::{
+    H2ReceivePerformance, H3SendPerformance, QueueBackpressureSnapshot,
+    TransportPerformanceSnapshot,
+};
 mod udp_io;
 mod udp_options;
 mod vpngate;
@@ -51,7 +73,7 @@ mod fault_injection;
 #[cfg(all(feature = "fault-injection", not(debug_assertions), not(test)))]
 compile_error!("fault-injection is restricted to test/debug lab builds");
 
-pub use data_plane::{DataPlaneRuntime, TunPacketIo, VpnGateStart};
+pub use data_plane::{ChainExitStart, DataPlaneRuntime, TunPacketIo, VpnGateStart};
 pub use diagnostic_probe::{
     NetworkProbeResult, h3_probe_endpoints, probe_encrypted_dns, probe_h3_handshake,
     probe_h3_handshake_candidates,
@@ -87,8 +109,8 @@ pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_
 pub use proxy::ProxyRuntime;
 pub use queue_metrics::QueueKind;
 pub use socket::{
-    DirectEgressLease, DirectProtocol, NoopSocketProtector, STALE_GENERATION_REASON, SocketHandle,
-    SocketProtector,
+    DirectEgressLease, DirectProtocol, NoopSocketProtector, PhysicalNetworkAvailability,
+    PhysicalNetworkSnapshot, STALE_GENERATION_REASON, SocketHandle, SocketProtector,
 };
 pub use socks5::Socks5Runtime;
 pub use split_dns::resolve_physical_host;

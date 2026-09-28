@@ -29,6 +29,7 @@ enum Command {
         session_id: String,
     },
     Get,
+    Reset,
     Observe {
         profile: Option<AndroidProfile>,
         session_id: String,
@@ -53,6 +54,10 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
     }
     let command: Command =
         serde_json::from_str(request).map_err(|_| "invalid network settings message")?;
+    #[cfg(feature = "wireguard")]
+    if matches!(&command, Command::Save { .. } | Command::Reset) && !crate::warp_wireguard::stop() {
+        return Err("WARP_GENERATION_CLEANUP_PENDING".into());
+    }
     let store = ConfigStore::new(path);
     let mut state = STATE
         .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
@@ -76,7 +81,9 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                 changed_fields,
             };
             let commit = store.update(|config| {
-                if patch.changed_fields.iter().any(|f| f == "vpn_gate") {
+                if patch.values.custom_chain().is_none()
+                    && patch.changed_fields.iter().any(|f| f == "vpn_gate")
+                {
                     crate::vpngate::pin_settings(
                         path,
                         &patch.values.vpn_gate,
@@ -84,14 +91,37 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                     )
                     .map_err(StoreError::NetworkSettings)?;
                 }
-                merge_patch(config, &patch)
-                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))
+                let profile = merge_patch(config, &patch)
+                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
+                if profile.chain_enabled() && profile.custom_chain().is_some() {
+                    crate::chain_exit::prepare(
+                        path.parent().ok_or_else(|| {
+                            StoreError::NetworkSettings("Invalid storage path".into())
+                        })?,
+                        &profile,
+                    )
+                    .map_err(StoreError::NetworkSettings)?;
+                }
+                Ok(profile)
             });
             let stored = match commit {
-                Ok((_, profile)) => profile,
+                Ok((config, profile)) => {
+                    state.shared_network_profile = Some(
+                        config
+                            .network
+                            .hydrate(&usque_core::config::Account::default_account()),
+                    );
+                    profile
+                }
                 Err(StoreError::CommitUncertain(_)) => {
-                    state.stored_profile =
-                        store.load().ok().and_then(|config| config.active_profile());
+                    if let Ok(config) = store.load() {
+                        state.shared_network_profile = Some(
+                            config
+                                .network
+                                .hydrate(&usque_core::config::Account::default_account()),
+                        );
+                        state.stored_profile = config.active_profile();
+                    }
                     state.operation_id = Some(operation_id);
                     state.persisted = None;
                     state.apply_status = ApplyStatus::Unknown;
@@ -131,14 +161,22 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                 }
             }
         }
+        Command::Reset => {
+            *state = NetworkSettingsState::default();
+        }
         Command::Get => {
             let _lock = store
                 .lock_exclusive()
                 .map_err(|_| "NETWORK_SETTINGS_UNCONFIRMED")?;
-            state.stored_profile = store
+            let config = store
                 .load_or_default()
-                .map_err(|_| "NETWORK_SETTINGS_UNCONFIRMED")?
-                .active_profile();
+                .map_err(|_| "NETWORK_SETTINGS_UNCONFIRMED")?;
+            state.stored_profile = config.active_profile();
+            state.shared_network_profile = Some(
+                config
+                    .network
+                    .hydrate(&usque_core::config::Account::default_account()),
+            );
         }
         Command::Observe {
             profile,
@@ -188,6 +226,11 @@ fn encode(
     target: Option<&usque_core::Profile>,
 ) -> Result<String, String> {
     let mut result = serde_json::to_value(state).map_err(|_| "network settings encoding failed")?;
+    result["shared_network_profile"] = state
+        .shared_network_profile
+        .as_ref()
+        .map(profile_value)
+        .unwrap_or(Value::Null);
     result["stored_profile"] = state
         .stored_profile
         .as_ref()

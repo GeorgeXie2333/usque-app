@@ -49,6 +49,7 @@ pub(super) fn is_running() -> bool {
 enum RuntimeCommand {
     Reconfigure {
         profile: Profile,
+        deadline: Instant,
         reply: std::sync::mpsc::SyncSender<i32>,
         cancelled: Arc<AtomicBool>,
     },
@@ -73,6 +74,7 @@ struct EngineHandle {
     status: Arc<Mutex<NativeSnapshot>>,
     protector: Arc<AndroidSocketProtector>,
     commands: tokio::sync::mpsc::UnboundedSender<RuntimeCommand>,
+    connection_deadline: Arc<Mutex<Option<Instant>>>,
     // A retained, shared join owner keeps ENGINE occupied while stopping.
     // Starts remain fail-closed, without holding ENGINE across a blocking wait.
     thread: Arc<Mutex<Option<JoinHandle<()>>>>,
@@ -119,6 +121,11 @@ fn spawn_runtime(
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> i32 {
+    let connection_deadline = Arc::new(Mutex::new(
+        profile
+            .chain_enabled()
+            .then(|| Instant::now() + Duration::from_secs(180)),
+    ));
     clear_last_start_error();
     let engine = ENGINE.get_or_init(|| Mutex::new(None));
     let mut slot = match engine.lock() {
@@ -156,12 +163,10 @@ fn spawn_runtime(
             return START_TRANSPORT_FAILURE;
         }
     };
-    let selected_gate = if profile.vpn_gate.enabled {
-        let selected = profile.vpn_gate.selection.as_ref().and_then(|selection| {
-            usque_core::vpngate::CatalogueStore::new(&geo_cache_dir)
-                .load_selection(selection)
-                .ok()
-        });
+    let selected_gate = if profile.chain_enabled() {
+        let selected = super::chain_exit::prepare(&geo_cache_dir, &profile)
+            .ok()
+            .flatten();
         let Some(selected) = selected else {
             return START_INVALID_PROFILE;
         };
@@ -187,6 +192,7 @@ fn spawn_runtime(
     let status = Arc::new(Mutex::new(initial_status));
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
     let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+    let thread_deadline = connection_deadline.clone();
     let thread_cancel = cancellation.clone();
     let thread_status = Arc::clone(&status);
     let handle_protector = Arc::clone(&protector);
@@ -222,6 +228,7 @@ fn spawn_runtime(
                 thread_status,
                 started_tx,
                 command_rx,
+                thread_deadline,
             ));
         });
     let thread = match thread {
@@ -233,17 +240,25 @@ fn spawn_runtime(
         status: Arc::clone(&status),
         protector: handle_protector,
         commands: command_tx,
+        connection_deadline: connection_deadline.clone(),
         thread: Arc::new(Mutex::new(Some(thread))),
     });
     drop(slot);
 
-    let result = match started_rx.recv_timeout(Duration::from_secs(90)) {
+    let wait = connection_deadline
+        .lock()
+        .ok()
+        .and_then(|value| *value)
+        .map_or(Duration::from_secs(195), |deadline| {
+            deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(15)
+        });
+    let result = match started_rx.recv_timeout(wait) {
         Ok(result) => result,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             set_error_with_code(
                 &status,
                 "ANDROID_START_TIMEOUT",
-                "The Android native runtime did not start within 90 seconds.".to_owned(),
+                "The Android native runtime did not start within 195 seconds.".to_owned(),
             );
             START_TRANSPORT_FAILURE
         }
@@ -365,6 +380,7 @@ pub(super) fn notify_network_changed(generation: u64) {
     };
     if let Some(handle) = slot.as_ref() {
         super::publish_network_generation(&handle.protector.network_generation, generation);
+        handle.protector.refresh_recovery_network();
     }
 }
 
@@ -384,6 +400,7 @@ pub(super) fn snapshot() -> NativeSnapshot {
 pub(super) fn reconfigure(profile: Profile) -> i32 {
     send_command(|reply, cancelled| RuntimeCommand::Reconfigure {
         profile,
+        deadline: Instant::now() + Duration::from_secs(180),
         reply,
         cancelled,
     })
@@ -422,24 +439,35 @@ fn send_command(
     let Some(engine) = ENGINE.get() else {
         return RECONFIGURE_NOT_RUNNING;
     };
-    let commands = {
+    let (commands, connection_deadline) = {
         let Ok(slot) = engine.lock() else {
             return START_PLATFORM_FAILURE;
         };
         let Some(handle) = slot.as_ref() else {
             return RECONFIGURE_NOT_RUNNING;
         };
-        handle.commands.clone()
+        (handle.commands.clone(), handle.connection_deadline.clone())
     };
     let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
     let cancelled = Arc::new(AtomicBool::new(false));
-    if commands
-        .send(build(reply_tx, Arc::clone(&cancelled)))
-        .is_err()
-    {
+    let command = build(reply_tx, Arc::clone(&cancelled));
+    let wait = match &command {
+        RuntimeCommand::Reconfigure { deadline, .. } => {
+            deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(15)
+        }
+        RuntimeCommand::AttachTun { .. } => connection_deadline
+            .lock()
+            .ok()
+            .and_then(|value| *value)
+            .map_or(Duration::from_secs(30), |deadline| {
+                deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(15)
+            }),
+        _ => Duration::from_secs(30),
+    };
+    if commands.send(command).is_err() {
         return RECONFIGURE_NOT_RUNNING;
     }
-    super::wait_jni_command_reply(reply_rx, &cancelled, Duration::from_secs(90))
+    super::wait_jni_command_reply(reply_rx, &cancelled, wait)
 }
 
 fn clear_last_start_error() {
@@ -481,6 +509,7 @@ async fn run(
     status: Arc<Mutex<NativeSnapshot>>,
     started: std::sync::mpsc::SyncSender<i32>,
     commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
+    connection_deadline: Arc<Mutex<Option<Instant>>>,
 ) {
     let tun = match tun {
         Some(fd) => match AsyncFd::new(TunFd(fd)) {
@@ -535,6 +564,11 @@ async fn run(
                 selected: selected_gate,
                 status: Some(gate_tx.clone()),
                 cancellation: cancellation.clone(),
+                deadline: connection_deadline
+                    .lock()
+                    .ok()
+                    .and_then(|value| *value)
+                    .map(tokio::time::Instant::from_std),
             },
         ));
         tokio::pin!(startup);
@@ -566,6 +600,11 @@ async fn run(
         let _ = started.send(START_TRANSPORT_FAILURE);
         return;
     }
+    if !profile.frontends.tunnel
+        && let Ok(mut deadline) = connection_deadline.lock()
+    {
+        *deadline = None;
+    }
     update_health(&status, &tunnel);
     update_frontends(&status, &tunnel);
     let _ = started.send(START_OK);
@@ -575,6 +614,7 @@ async fn run(
         snapshot: status.clone(),
         cancellation: cancellation.clone(),
         exit_probe: ExitProbeTask::default(),
+        connection_deadline,
     };
     spawn_exit_probe(&gate_context, &tunnel, &profile);
 
@@ -605,7 +645,7 @@ async fn run(
 
 fn spawn_exit_probe(context: &GateContext, tunnel: &DataPlaneRuntime, profile: &Profile) {
     let cancellation = context.exit_probe.begin(&context.cancellation);
-    if profile.vpn_gate.enabled && !matches!(tunnel.health(), RuntimeHealth::Connected { .. }) {
+    if profile.chain_enabled() && !matches!(tunnel.health(), RuntimeHealth::Connected { .. }) {
         return;
     }
     // Keep both WARP and Gate diagnostics inside the selected final session.
@@ -614,8 +654,7 @@ fn spawn_exit_probe(context: &GateContext, tunnel: &DataPlaneRuntime, profile: &
     let network = tunnel.internal_network();
     let status = Arc::clone(&context.snapshot);
     let gate_generation = profile
-        .vpn_gate
-        .enabled
+        .chain_enabled()
         .then(|| tunnel.gate_status().generation);
     tokio::spawn(async move {
         if let Some(Ok(exit)) = run_probe(&cancellation, network.probe_exit()).await
@@ -646,6 +685,7 @@ struct GateContext {
     snapshot: Arc<Mutex<NativeSnapshot>>,
     cancellation: CancellationToken,
     exit_probe: ExitProbeTask,
+    connection_deadline: Arc<Mutex<Option<Instant>>>,
 }
 
 struct PendingPacketIo<'a, F> {
@@ -741,7 +781,7 @@ async fn run_session(
             command = commands.recv() => {
                 let Some(command) = command else { break; };
                 if matches!(&command, RuntimeCommand::AttachTun { .. } | RuntimeCommand::DetachTun { .. } | RuntimeCommand::RejectFinalNetwork { .. })
-                    || matches!(&command, RuntimeCommand::Reconfigure { profile: next, .. } if next.frontends.tunnel != profile.frontends.tunnel || next.vpn_gate != profile.vpn_gate)
+                    || matches!(&command, RuntimeCommand::Reconfigure { profile: next, .. } if next.frontends.tunnel != profile.frontends.tunnel || (next.vpn_gate != profile.vpn_gate || next.chain_exit != profile.chain_exit))
                 {
                     pending_send.set(None);
                     pending_write = None;
@@ -757,7 +797,7 @@ async fn run_session(
                 )
                 .await;
                 if tunnel.gate_status().stage == usque_core::vpngate::GateStage::Error
-                    || (profile.vpn_gate.enabled && status.lock().is_ok_and(|s| s.phase == "error"))
+                    || (profile.chain_enabled() && status.lock().is_ok_and(|s| s.phase == "error"))
                 {
                     break;
                 }
@@ -811,7 +851,7 @@ async fn run_session(
                             break;
                         }
                     };
-                    pending_send.set(Some(io.start_send_owned_packet(packet)));
+                    pending_send.set(Some(io.start_send_mut_packet(packet)));
                 }
                 SessionDataEvent::TunnelReceive(received) => {
                     let Some(received) = received else { continue; };
@@ -854,55 +894,49 @@ async fn run_session(
                 }
             }
         }
-        // L4 download only: drain already-ready packets without awaiting one
-        // direction. One existing pending slot owns any WouldBlock remainder.
-        if let (Some(tun), Some(io), Some(observer)) =
-            (tun.as_ref(), tun_io.as_mut(), write_observer.as_ref())
-        {
+        // Drain only ready packets; the existing pending slot retains a
+        // WouldBlock/budget remainder without combining distinct IP packets.
+        if let (Some(tun), Some(io)) = (tun.as_ref(), tun_io.as_mut()) {
+            use crate::session_pump::{
+                ReadyDrainError, ReadyDrainStop, ReadyWriteEvent, drain_ready_packets,
+            };
             let mut batch = crate::session_pump::ReadyBatch::new();
             if let Some(bytes) = completed_write {
                 batch.completed(bytes);
             }
-            loop {
-                if cancellation.is_cancelled() {
-                    break;
-                }
-                if pending_write.is_none() {
-                    match io.try_receive_packet() {
-                        Ok(Some(packet)) => {
-                            pending_write = Some(packet);
-                            write_sample = Some(observer.begin());
-                        }
-                        Ok(None) => break,
-                        Err(error) => {
-                            set_transport_error_on_path(&status, &error, tunnel.path());
-                            cancellation.cancel();
-                            break;
-                        }
-                    }
-                }
-                let packet = pending_write.as_ref().expect("pending packet");
-                if !batch.allows(packet.len()) {
-                    tokio::task::yield_now().await;
-                    break;
-                }
-                let result = tun.try_io(tokio::io::Interest::WRITABLE, |inner| {
-                    write_packet_once(inner, packet, Some(observer))
-                });
-                match result {
-                    Ok(()) => {
-                        batch.completed(packet.len());
-                        pending_write = None;
-                        if let Some(sample) = write_sample.take() {
+            let sample = &mut write_sample;
+            let observer = write_observer.as_ref().map(|observer| {
+                move |event| match event {
+                    ReadyWriteEvent::Started => *sample = Some(observer.begin()),
+                    ReadyWriteEvent::Finished => {
+                        if let Some(sample) = sample.take() {
                             observer.finish(sample);
                         }
                     }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(error) => {
-                        set_error(&status, format!("write Android TUN: {error}"));
-                        cancellation.cancel();
-                        break;
-                    }
+                }
+            });
+            let result = drain_ready_packets(
+                &mut pending_write,
+                &mut batch,
+                || cancellation.is_cancelled(),
+                || io.try_receive_packet(),
+                |packet| {
+                    tun.try_io(tokio::io::Interest::WRITABLE, |inner| {
+                        write_packet_once(inner, packet, write_observer.as_ref())
+                    })
+                },
+                observer,
+            );
+            match result {
+                Ok(ReadyDrainStop::Budget) => tokio::task::yield_now().await,
+                Ok(_) => {}
+                Err(ReadyDrainError::Receive(error)) => {
+                    set_transport_error_on_path(&status, &error, tunnel.path());
+                    cancellation.cancel();
+                }
+                Err(ReadyDrainError::Write(error)) => {
+                    set_error(&status, format!("write Android TUN: {error}"));
+                    cancellation.cancel();
                 }
             }
         }
@@ -934,7 +968,7 @@ async fn handle_runtime_command(
     let status = &gate_context.snapshot;
     match command {
         RuntimeCommand::RejectFinalNetwork { reply, cancelled } => {
-            if !super::jni_command_abandoned(&cancelled) && profile.vpn_gate.enabled {
+            if !super::jni_command_abandoned(&cancelled) && profile.chain_enabled() {
                 gate_context.exit_probe.cancel();
                 detach_tun_locked(tunnel, tun, tun_io);
                 tunnel
@@ -947,6 +981,7 @@ async fn handle_runtime_command(
         }
         RuntimeCommand::Reconfigure {
             profile: mut next,
+            deadline,
             reply,
             cancelled,
         } => {
@@ -956,14 +991,22 @@ async fn handle_runtime_command(
                 let _ = reply.send(START_PLATFORM_FAILURE);
                 return;
             }
-            if next.proxy.listener_auth_username().is_some() && next.proxy.auth_password.is_none() {
-                next.proxy.auth_password = profile.proxy.auth_password.clone();
+            if next.proxy.listener_credentials().is_err() {
+                let _ = reply.send(START_INVALID_PROFILE);
+                return;
             }
             let code = match classify_reconfigure(profile, &next) {
+                ReconfigureClass::HotTrafficPolicy => {
+                    *profile = next;
+                    RECONFIGURE_OK
+                }
                 ReconfigureClass::PersistOnly => RECONFIGURE_OK,
                 ReconfigureClass::Reject => START_INVALID_PROFILE,
                 ReconfigureClass::ColdReconnect => RECONFIGURE_NEED_COLD,
                 ReconfigureClass::HotVpnGate => {
+                    if let Ok(mut saved) = gate_context.connection_deadline.lock() {
+                        *saved = Some(deadline);
+                    }
                     gate_context.exit_probe.cancel();
                     tunnel.quiesce_final();
                     detach_tun_locked(tunnel, tun, tun_io);
@@ -976,21 +1019,20 @@ async fn handle_runtime_command(
                         snapshot.exit_country_code = None;
                         snapshot.exit_flag_svg = None;
                     }
-                    let selected = next.vpn_gate.selection.as_ref().and_then(|selection| {
-                        usque_core::vpngate::CatalogueStore::new(&gate_context.cache_dir)
-                            .load_selection(selection)
-                            .ok()
-                    });
+                    let selected = super::chain_exit::prepare(&gate_context.cache_dir, &next)
+                        .ok()
+                        .flatten();
                     let policy = load_geo_direct_policy(&next, &gate_context.cache_dir);
                     let result = match (selected, policy) {
-                        (selected, Ok(policy)) if selected.is_some() || !next.vpn_gate.enabled => {
+                        (selected, Ok(policy)) if selected.is_some() || !next.chain_enabled() => {
                             tunnel
-                                .replace_gate(
+                                .replace_gate_before(
                                     &next,
                                     selected,
                                     Arc::new(policy),
                                     gate_context.status.clone(),
                                     &gate_context.cancellation,
+                                    tokio::time::Instant::from_std(deadline),
                                 )
                                 .await
                         }
@@ -1017,6 +1059,11 @@ async fn handle_runtime_command(
                         } else {
                             match tunnel.activate_final().await {
                                 Ok(()) => {
+                                    if let Ok(mut deadline) =
+                                        gate_context.connection_deadline.lock()
+                                    {
+                                        *deadline = None;
+                                    }
                                     update_frontends(status, tunnel);
                                     spawn_exit_probe(gate_context, tunnel, profile);
                                     RECONFIGURE_OK
@@ -1063,6 +1110,9 @@ async fn handle_runtime_command(
                     }
                 }
             };
+            if code == RECONFIGURE_OK {
+                tunnel.update_traffic_policy(profile.disable_quic);
+            }
             let _ = reply.send(code);
         }
         RuntimeCommand::AttachTun {
@@ -1105,8 +1155,9 @@ async fn handle_runtime_command(
                     return;
                 }
             };
-            if next.proxy.listener_auth_username().is_some() && next.proxy.auth_password.is_none() {
-                next.proxy.auth_password = profile.proxy.auth_password.clone();
+            if next.proxy.listener_credentials().is_err() {
+                let _ = reply.send(START_INVALID_PROFILE);
+                return;
             }
             if let Err(error) = tunnel.reconfigure_frontends(&next).await {
                 tunnel.detach_tun();
@@ -1119,6 +1170,7 @@ async fn handle_runtime_command(
                 let _ = reply.send(START_PLATFORM_FAILURE);
                 return;
             }
+            tunnel.update_traffic_policy(next.disable_quic);
             *tun = Some(attached);
             *tun_io = Some(io);
             if let Err(error) = tunnel.activate_final().await {
@@ -1126,6 +1178,9 @@ async fn handle_runtime_command(
                 set_transport_error_on_path(status, &error, tunnel.path());
                 let _ = reply.send(START_TRANSPORT_FAILURE);
                 return;
+            }
+            if let Ok(mut deadline) = gate_context.connection_deadline.lock() {
+                *deadline = None;
             }
             if super::jni_command_abandoned(&cancelled) || reply.send(RECONFIGURE_OK).is_err() {
                 detach_tun_locked(tunnel, tun, tun_io);

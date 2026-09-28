@@ -13,6 +13,8 @@ use ts_netstack_smoltcp::netcore::{
     Channel, HasChannel, Response, TcpListenerHandle, smoltcp::iface::SocketHandle, tcp,
 };
 
+const COMMAND_CHUNK_SIZE: usize = 32 * 1024;
+
 type CommandFuture =
     Pin<Box<dyn Future<Output = Result<Response, ts_netstack_smoltcp::netcore::Error>> + Send>>;
 
@@ -45,7 +47,7 @@ impl OnceListener {
         }
     }
 
-    pub(crate) async fn accept(mut self, expected: SocketAddr) -> io::Result<TunStream> {
+    pub(crate) async fn accept(mut self, expected: SocketAddr) -> io::Result<StackTcpStream> {
         let result = self
             .channel
             .request(
@@ -59,8 +61,8 @@ impl OnceListener {
         match result {
             Response::TcpListen(tcp::listen::Response::Accepted { handle, remote }) => {
                 self.transferred = true;
-                let stream = TunStream {
-                    listener: self.handle,
+                let stream = StackTcpStream {
+                    listener: Some(self.handle),
                     channel: self.channel.clone(),
                     handle,
                     local: self.local,
@@ -94,7 +96,7 @@ impl Drop for OnceListener {
     }
 }
 
-fn cleanup(
+pub(crate) fn cleanup(
     channel: &Channel,
     handle: Option<SocketHandle>,
     command: impl Fn() -> ts_netstack_smoltcp::netcore::Command + Send + 'static,
@@ -116,8 +118,8 @@ fn cleanup(
     }
 }
 
-pub(crate) struct TunStream {
-    listener: TcpListenerHandle,
+pub(crate) struct StackTcpStream {
+    listener: Option<TcpListenerHandle>,
     channel: Channel,
     handle: SocketHandle,
     local: SocketAddr,
@@ -126,12 +128,45 @@ pub(crate) struct TunStream {
     shutdown: Option<CommandFuture>,
     buffer: Bytes,
     write_closed: bool,
-    performance: Option<Arc<super::performance::Performance>>,
+    performance: Option<Arc<crate::l4::performance::Performance>>,
     write_size: usize,
 }
 
-impl TunStream {
-    pub(crate) fn observe(&mut self, performance: Arc<super::performance::Performance>) {
+impl StackTcpStream {
+    pub(crate) async fn connect(
+        channel: Channel,
+        local: SocketAddr,
+        remote: SocketAddr,
+    ) -> Result<Self, ts_netstack_smoltcp::netcore::Error> {
+        match channel
+            .request(
+                None,
+                tcp::stream::Command::Connect {
+                    local_endpoint: local,
+                    remote_endpoint: remote,
+                },
+            )
+            .await?
+        {
+            Response::TcpStream(tcp::stream::Response::Connected { handle }) => Ok(Self {
+                listener: None,
+                channel,
+                handle,
+                local,
+                read: None,
+                write: None,
+                shutdown: None,
+                buffer: Bytes::new(),
+                write_closed: false,
+                performance: None,
+                write_size: 0,
+            }),
+            Response::Error(error) => Err(error),
+            _ => Err(ts_netstack_smoltcp::netcore::Error::wrong_type()),
+        }
+    }
+
+    pub(crate) fn observe(&mut self, performance: Arc<crate::l4::performance::Performance>) {
         self.performance = Some(performance);
     }
     fn start_write(&mut self, bytes: Bytes) {
@@ -177,7 +212,7 @@ impl TunStream {
     }
 }
 
-impl crate::tcp::OwnedTcpWrite for TunStream {
+impl crate::tcp::OwnedTcpWrite for StackTcpStream {
     fn poll_write_owned(&mut self, cx: &mut Context<'_>, bytes: &Bytes) -> Poll<io::Result<usize>> {
         if self.write_closed {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
@@ -187,19 +222,19 @@ impl crate::tcp::OwnedTcpWrite for TunStream {
         }
         if self.write.is_none() {
             // Clones only the reference-counted handle, never the payload.
-            self.start_write(bytes.slice(..bytes.len().min(super::CHUNK_SIZE)));
+            self.start_write(bytes.slice(..bytes.len().min(COMMAND_CHUNK_SIZE)));
         }
         self.poll_sent(cx)
     }
 }
 
-impl crate::tcp::TcpIo for TunStream {
+impl crate::tcp::TcpIo for StackTcpStream {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok(self.local)
     }
 }
 
-impl AsyncRead for TunStream {
+impl AsyncRead for StackTcpStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -212,7 +247,7 @@ impl AsyncRead for TunStream {
             if self.read.is_none() {
                 let channel = self.channel.clone();
                 let handle = self.handle;
-                let size = out.remaining().min(super::CHUNK_SIZE);
+                let size = out.remaining().min(COMMAND_CHUNK_SIZE);
                 self.read = Some(Box::pin(async move {
                     channel
                         .request(
@@ -242,7 +277,7 @@ impl AsyncRead for TunStream {
     }
 }
 
-impl AsyncWrite for TunStream {
+impl AsyncWrite for StackTcpStream {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -255,7 +290,7 @@ impl AsyncWrite for TunStream {
             return Poll::Ready(Ok(0));
         }
         if self.write.is_none() {
-            let bytes = Bytes::copy_from_slice(&bytes[..bytes.len().min(super::CHUNK_SIZE)]);
+            let bytes = Bytes::copy_from_slice(&bytes[..bytes.len().min(COMMAND_CHUNK_SIZE)]);
             if let Some(p) = &self.performance {
                 p.adapter_copied_bytes
                     .fetch_add(bytes.len() as u64, Ordering::Relaxed);
@@ -298,15 +333,20 @@ impl AsyncWrite for TunStream {
     }
 }
 
-impl Drop for TunStream {
+impl Drop for StackTcpStream {
     fn drop(&mut self) {
         self.read.take();
         self.write.take();
         self.shutdown.take();
-        let handle = self.listener;
-        cleanup(&self.channel, None, move || {
-            tcp::listen::Command::Close { handle }.into()
-        });
+        if let Some(handle) = self.listener {
+            cleanup(&self.channel, None, move || {
+                tcp::listen::Command::Close { handle }.into()
+            });
+        } else if !self.write_closed {
+            cleanup(&self.channel, Some(self.handle), || {
+                tcp::stream::Command::Abort.into()
+            });
+        }
     }
 }
 
@@ -315,14 +355,206 @@ mod tests {
     use super::*;
     use crate::tcp::OwnedTcpWrite;
     use ts_netstack_smoltcp::netcore::{
-        Config, Netstack, Request, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier, flume,
-        stack_control, try_request_nonblocking,
+        Config, Netstack, NetstackControl, Request, TcpBufferMetrics, TcpBufferPolicy,
+        TcpBufferTier, flume, stack_control, try_request_nonblocking,
     };
+
+    #[tokio::test]
+    async fn connected_tcp_loser_releases_buffers_after_a_full_command_queue() {
+        use std::time::Duration;
+        let (mut config, metrics) =
+            crate::netstack::direct_netstack_config(&usque_core::Profile::default());
+        config.command_channel_capacity = Some(1);
+        let (client, mut client_pipe) = crate::netstack::bounded_piped(config);
+        let (server, mut server_pipe) = crate::netstack::bounded_piped(Config::default());
+        let client_channel = client.command_channel();
+        let server_channel = server.command_channel();
+        let _client = tokio_util::task::AbortOnDropHandle::new(client.spawn_tokio());
+        let _server = tokio_util::task::AbortOnDropHandle::new(server.spawn_tokio());
+        client_channel
+            .set_ips(["10.0.0.1".parse().unwrap()])
+            .await
+            .unwrap();
+        server_channel
+            .set_ips(["10.0.0.2".parse().unwrap()])
+            .await
+            .unwrap();
+        let stop_forwarding = tokio_util::sync::CancellationToken::new();
+        let paused = stop_forwarding.clone();
+        let _pump = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = paused.cancelled() => std::future::pending::<()>().await,
+                    Some(packet) = client_pipe.rx.recv_async() => { server_pipe.tx.send_owned_async(packet).await; },
+                    Some(packet) = server_pipe.rx.recv_async() => { client_pipe.tx.send_owned_async(packet).await; },
+                    else => break,
+                }
+            }
+        }));
+        let local: SocketAddr = "10.0.0.1:40001".parse().unwrap();
+        let remote: SocketAddr = "10.0.0.2:53".parse().unwrap();
+        let listener = OnceListener::bind(server_channel, remote).await.unwrap();
+        let (stream, accepted) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(
+                StackTcpStream::connect(client_channel.clone(), local, remote),
+                listener.accept(local)
+            )
+        })
+        .await
+        .unwrap();
+        let stream = stream.unwrap();
+        let _accepted = accepted.unwrap();
+        assert!(metrics.snapshot().total_bytes > 0);
+        stop_forwarding.cancel(); // Keep device owners alive, but stop all TCP I/O.
+        try_request_nonblocking(
+            &client_channel,
+            None,
+            stack_control::Command::SetIps {
+                new_ips: vec![local.ip()],
+            },
+        )
+        .unwrap();
+        // This current-thread test has not yielded: the command queue is full
+        // at precisely the point a cancelled DNS candidate drops its owner.
+        drop(stream);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while metrics.snapshot().total_bytes != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled TCP candidate must release its allocation");
+    }
+
+    #[tokio::test]
+    async fn graceful_tcp_drop_preserves_buffered_tail_and_fin() {
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (mut config, metrics) =
+            crate::netstack::direct_netstack_config(&usque_core::Profile::default());
+        config.command_channel_capacity = Some(1);
+        let (client, mut client_pipe) = crate::netstack::bounded_piped(config);
+        let (server, mut server_pipe) = crate::netstack::bounded_piped(Config::default());
+        let client_channel = client.command_channel();
+        let server_channel = server.command_channel();
+        let _client = tokio_util::task::AbortOnDropHandle::new(client.spawn_tokio());
+        let _server = tokio_util::task::AbortOnDropHandle::new(server.spawn_tokio());
+        client_channel
+            .set_ips(["10.0.0.1".parse().unwrap()])
+            .await
+            .unwrap();
+        server_channel
+            .set_ips(["10.0.0.2".parse().unwrap()])
+            .await
+            .unwrap();
+        let paused = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let resume = Arc::new(tokio::sync::Notify::new());
+        let pump_paused = paused.clone();
+        let pump_resume = resume.clone();
+        let _pump = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            loop {
+                while pump_paused.load(Ordering::SeqCst) {
+                    pump_resume.notified().await;
+                }
+                tokio::select! {
+                    Some(packet) = client_pipe.rx.recv_async() => { server_pipe.tx.send_owned_async(packet).await; },
+                    Some(packet) = server_pipe.rx.recv_async() => { client_pipe.tx.send_owned_async(packet).await; },
+                    else => break,
+                }
+            }
+        }));
+        let local: SocketAddr = "10.0.0.1:40001".parse().unwrap();
+        let remote: SocketAddr = "10.0.0.2:53".parse().unwrap();
+        let listener = OnceListener::bind(server_channel, remote).await.unwrap();
+        let (stream, accepted) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(
+                StackTcpStream::connect(client_channel.clone(), local, remote),
+                listener.accept(local)
+            )
+        })
+        .await
+        .unwrap();
+        let mut stream = stream.unwrap();
+        let mut accepted = accepted.unwrap();
+        paused.store(true, Ordering::SeqCst);
+        let expected = vec![0x5a; 32 * 1024];
+        stream.write_all(&expected).await.unwrap();
+        stream.shutdown().await.unwrap();
+        drop(stream);
+        // Let queued cleanup run while transmission is paused: an Abort here
+        // discards the buffered tail before the peer is allowed to receive it.
+        tokio::task::yield_now().await;
+        paused.store(false, Ordering::SeqCst);
+        resume.notify_one();
+        let mut received = Vec::new();
+        tokio::time::timeout(Duration::from_secs(3), accepted.read_to_end(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(received, expected);
+        accepted.shutdown().await.unwrap();
+        assert!(metrics.snapshot().total_bytes > 0);
+    }
+
+    #[tokio::test]
+    async fn mismatched_accepted_peer_reclaims_the_one_shot_socket() {
+        use std::time::Duration;
+        use ts_netstack_smoltcp::CreateSocket;
+        let (config, metrics) =
+            crate::netstack::direct_netstack_config(&usque_core::Profile::default());
+        let (server, mut server_pipe) = crate::netstack::bounded_piped(config);
+        let (client, mut client_pipe) = crate::netstack::bounded_piped(Config::default());
+        let server_channel = server.command_channel();
+        let client_channel = client.command_channel();
+        let _server = tokio_util::task::AbortOnDropHandle::new(server.spawn_tokio());
+        let _client = tokio_util::task::AbortOnDropHandle::new(client.spawn_tokio());
+        server_channel
+            .set_ips(["10.0.0.2".parse().unwrap()])
+            .await
+            .unwrap();
+        client_channel
+            .set_ips(["10.0.0.1".parse().unwrap()])
+            .await
+            .unwrap();
+        let _pump = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    packet = server_pipe.rx.recv_async() => {
+                        let Some(packet) = packet else { break; };
+                        client_pipe.tx.send_async(&packet).await;
+                    }
+                    packet = client_pipe.rx.recv_async() => {
+                        let Some(packet) = packet else { break; };
+                        server_pipe.tx.send_async(&packet).await;
+                    }
+                }
+            }
+        }));
+        let local: SocketAddr = "10.0.0.2:443".parse().unwrap();
+        let listener = OnceListener::bind(server_channel, local).await.unwrap();
+        let (_, accepted) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(
+                client_channel.tcp_connect("10.0.0.1:50000".parse().unwrap(), local),
+                listener.accept("10.0.0.1:50001".parse().unwrap()),
+            )
+        })
+        .await
+        .unwrap();
+        assert!(accepted.is_err());
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while metrics.snapshot().total_bytes != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("mismatched accepted owner must be released");
+    }
 
     #[tokio::test]
     async fn owned_partial_commands_retain_allocation_and_remove_repeated_adapter_copies() {
         for owned in [false, true] {
-            let metrics = Arc::new(super::super::performance::Performance::default());
+            let metrics = Arc::new(crate::l4::performance::Performance::default());
             let mut stack = Netstack::new(
                 Config::default(),
                 ts_netstack_smoltcp::netcore::smoltcp::time::Instant::from_millis(0),
@@ -355,8 +587,8 @@ mod tests {
                     ),
                 );
             let (tx, rx) = flume::bounded::<Request>(1);
-            let mut stream = TunStream {
-                listener,
+            let mut stream = StackTcpStream {
+                listener: Some(listener),
                 handle,
                 local,
                 channel: tx.downgrade(),

@@ -219,7 +219,7 @@ internal object AndroidMaintenance {
         }
         AndroidLogStore(context).clear()
         FlagSvgCache(context).clear()
-        PerAppProxyStore.clear(context)
+        AndroidPolicyStore.clear(context)
     }
 
     internal fun parseUpdateResult(json: String): Map<String, Any?> {
@@ -372,6 +372,22 @@ internal object AndroidMaintenance {
             }
             safeEnum(event["address_family"], ADDRESS_FAMILIES, null)?.let { family ->
                 output.put("address_family", family)
+            }
+            safeEnum(
+                event["queue_kind"],
+                setOf(
+                    "tun_to_transport",
+                    "proxy_to_transport",
+                    "transport_outgoing",
+                    "h3_datagram_send",
+                    "h3_wire_send",
+                    "transport_to_tun",
+                    "transport_to_proxy",
+                    "direct_dns",
+                ),
+                null,
+            )?.let {
+                output.put("queue_kind", it)
             }
             (event["duration_milliseconds"] as? Number)?.let { duration ->
                 output.put("duration_milliseconds", safeCounter(duration))
@@ -600,6 +616,7 @@ internal object AndroidMaintenance {
             "pmtu_revalidation_started",
             "pmtu_revalidation_failed",
             "queue_saturated",
+            "queue_backpressured",
             "disconnected",
             "failed",
         )

@@ -2,11 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/app_strings.dart';
+import '../core/user_facing_errors.dart';
+import '../models/app_models.dart';
 import '../models/diagnostics_models.dart';
 import '../services/engine_client.dart';
 
 class DiagnosticsController extends ChangeNotifier {
   DiagnosticsController(this._engine);
+
+  AppStrings Function() resolveStrings = () =>
+      AppStrings(LocalePreference.system);
 
   static const Duration _activeRefreshInterval = Duration(milliseconds: 750);
 
@@ -17,6 +23,11 @@ class DiagnosticsController extends ChangeNotifier {
   bool _cancelRequestedDuringStart = false;
   bool _startRequestInFlight = false;
   bool _disposed = false;
+  bool _resetting = false;
+  bool _acceptUnownedEvents = true;
+  int _dataGeneration = 0;
+  Object? _startToken;
+  final Map<String, DiagnosticSession> _startEvents = {};
   DiagnosticMode? _requestedMode;
 
   DiagnosticsControllerState state = DiagnosticsControllerState.idle;
@@ -36,19 +47,27 @@ class DiagnosticsController extends ChangeNotifier {
     if (current != null) {
       return current;
     }
-    final restore = _restore(silent: silent);
-    _restoreInFlight = restore;
-    return restore.whenComplete(() {
+    late final Future<void> restore;
+    restore = _restore(silent: silent).whenComplete(() {
       if (identical(_restoreInFlight, restore)) {
         _restoreInFlight = null;
       }
     });
+    _restoreInFlight = restore;
+    return restore;
   }
 
   Future<void> _restore({required bool silent}) async {
+    final generation = _dataGeneration;
+    final operation = _operationGeneration;
+    if (_resetting || _startRequestInFlight) return;
     try {
       final recovered = await _engine.getDiagnostics();
-      if (_disposed) {
+      if (_disposed ||
+          _resetting ||
+          generation != _dataGeneration ||
+          operation != _operationGeneration ||
+          _startRequestInFlight) {
         return;
       }
       if (recovered == null) {
@@ -62,8 +81,12 @@ class DiagnosticsController extends ChangeNotifier {
       }
       await loadTimeline(silent: true);
     } on EngineException catch (error) {
-      if (!silent && !_disposed) {
-        lastError = '${error.code}: ${error.message}';
+      if (!silent &&
+          !_disposed &&
+          generation == _dataGeneration &&
+          operation == _operationGeneration &&
+          !_startRequestInFlight) {
+        lastError = userFacingError(resolveStrings(), error);
         state = DiagnosticsControllerState.failed;
         notifyListeners();
       }
@@ -71,13 +94,20 @@ class DiagnosticsController extends ChangeNotifier {
   }
 
   Future<void> start(DiagnosticMode mode) async {
-    if (_startRequestInFlight ||
+    if (_resetting ||
+        _startRequestInFlight ||
         state == DiagnosticsControllerState.starting ||
         state == DiagnosticsControllerState.cancelling ||
         isActive) {
       return;
     }
     final generation = ++_operationGeneration;
+    _restoreInFlight = null;
+    _stopActiveRefresh();
+    session = null;
+    _startEvents.clear();
+    final startToken = Object();
+    _startToken = startToken;
     _startRequestInFlight = true;
     _cancelRequestedDuringStart = false;
     _requestedMode = mode;
@@ -86,10 +116,11 @@ class DiagnosticsController extends ChangeNotifier {
     lastExportPath = null;
     notifyListeners();
     try {
-      final started = await _engine.startDiagnostics(mode);
+      final reply = await _engine.startDiagnostics(mode);
       if (_disposed || generation != _operationGeneration) {
         return;
       }
+      final started = _startEvents[reply.sessionId] ?? reply;
       if (_cancelRequestedDuringStart && started.isActive) {
         _cancelRequestedDuringStart = false;
         _requestedMode = null;
@@ -107,27 +138,34 @@ class DiagnosticsController extends ChangeNotifier {
         return;
       }
       _requestedMode = null;
-      lastError = '${error.code}: ${error.message}';
+      lastError = userFacingError(resolveStrings(), error);
       state = DiagnosticsControllerState.failed;
       notifyListeners();
     } finally {
-      _startRequestInFlight = false;
+      if (identical(_startToken, startToken)) {
+        _startRequestInFlight = false;
+        _startToken = null;
+        _startEvents.clear();
+      }
     }
   }
 
   Future<void> cancel() async {
-    if (state == DiagnosticsControllerState.starting && session == null) {
+    if (_resetting) return;
+    if (_startRequestInFlight) {
       _cancelRequestedDuringStart = true;
       state = DiagnosticsControllerState.cancelling;
       lastError = null;
       notifyListeners();
       return;
     }
+    if (state == DiagnosticsControllerState.cancelling) return;
     final current = session;
     if (current == null || !current.isActive) {
       return;
     }
     final generation = ++_operationGeneration;
+    _restoreInFlight = null;
     state = DiagnosticsControllerState.cancelling;
     lastError = null;
     notifyListeners();
@@ -149,7 +187,7 @@ class DiagnosticsController extends ChangeNotifier {
       if (_disposed || generation != _operationGeneration) {
         return;
       }
-      lastError = '${error.code}: ${error.message}';
+      lastError = userFacingError(resolveStrings(), error);
       state = DiagnosticsControllerState.failed;
       _startActiveRefresh();
       notifyListeners();
@@ -157,14 +195,26 @@ class DiagnosticsController extends ChangeNotifier {
   }
 
   void handleEngineEvent(EngineSnapshotEvent event) {
-    if (_disposed || !event.diagnosticsChanged) {
+    if (_disposed || _resetting || !event.diagnosticsChanged) {
       return;
     }
     eventStreamDegraded = false;
     final next = event.diagnosticSession;
+    if (_startRequestInFlight) {
+      // The start reply identifies the session owned by this request. Keep
+      // early progress without adopting an older session or losing cancel.
+      if (next != null) {
+        if (_startEvents.length >= 8) {
+          _startEvents.remove(_startEvents.keys.first);
+        }
+        _startEvents[next.sessionId] = next;
+      }
+      return;
+    }
     if (next != null) {
       final currentId = session?.sessionId;
-      if (currentId == null || currentId == next.sessionId) {
+      if ((currentId == null && _acceptUnownedEvents) ||
+          currentId == next.sessionId) {
         _applySession(next);
         if (!next.isActive) {
           unawaited(loadTimeline(silent: true));
@@ -187,6 +237,8 @@ class DiagnosticsController extends ChangeNotifier {
   }
 
   Future<void> loadTimeline({bool silent = false}) async {
+    final generation = _dataGeneration;
+    if (_resetting) return;
     if (timelineLoading) {
       return;
     }
@@ -196,15 +248,15 @@ class DiagnosticsController extends ChangeNotifier {
     }
     try {
       final next = await _engine.getConnectionTimeline();
-      if (!_disposed) {
+      if (!_disposed && generation == _dataGeneration) {
         timeline = next;
       }
     } on EngineException catch (error) {
-      if (!silent && !_disposed) {
-        lastError = '${error.code}: ${error.message}';
+      if (!silent && !_disposed && generation == _dataGeneration) {
+        lastError = userFacingError(resolveStrings(), error);
       }
     } finally {
-      if (!_disposed) {
+      if (!_disposed && generation == _dataGeneration) {
         timelineLoading = false;
         notifyListeners();
       }
@@ -212,6 +264,8 @@ class DiagnosticsController extends ChangeNotifier {
   }
 
   Future<String?> export() async {
+    final generation = _dataGeneration;
+    if (_resetting) return null;
     if (exporting) {
       return null;
     }
@@ -222,21 +276,62 @@ class DiagnosticsController extends ChangeNotifier {
       final destination = await _engine.exportDiagnostics(
         diagnosticSessionId: session?.sessionId,
       );
-      if (!_disposed && destination != null) {
+      if (!_disposed && generation == _dataGeneration && destination != null) {
         lastExportPath = destination;
       }
       return destination;
-    } on EngineException catch (error) {
-      if (!_disposed) {
-        lastError = '${error.code}: ${error.message}';
+    } on Object catch (error) {
+      if (!_disposed && generation == _dataGeneration) {
+        lastError = userFacingError(resolveStrings(), error);
       }
       return null;
     } finally {
-      if (!_disposed) {
+      if (!_disposed && generation == _dataGeneration) {
         exporting = false;
         notifyListeners();
       }
     }
+  }
+
+  void suspendForReset() {
+    _dataGeneration++;
+    _operationGeneration++;
+    _resetting = true;
+    _stopActiveRefresh();
+    _restoreInFlight = null;
+  }
+
+  void resumeAfterReset() {
+    _resetting = false;
+    _startRequestInFlight = false;
+    _startToken = null;
+    _startEvents.clear();
+    _cancelRequestedDuringStart = false;
+    _requestedMode = null;
+    exporting = false;
+    timelineLoading = false;
+    _startActiveRefresh();
+  }
+
+  void reset() {
+    if (_disposed) return;
+    suspendForReset();
+    _startRequestInFlight = false;
+    _startToken = null;
+    _startEvents.clear();
+    _cancelRequestedDuringStart = false;
+    _requestedMode = null;
+    session = null;
+    timeline = const ConnectionTimeline();
+    state = DiagnosticsControllerState.idle;
+    lastError = null;
+    lastExportPath = null;
+    exporting = false;
+    timelineLoading = false;
+    eventStreamDegraded = false;
+    _acceptUnownedEvents = false;
+    _resetting = false;
+    notifyListeners();
   }
 
   void clearError() {

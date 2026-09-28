@@ -17,9 +17,12 @@ traffic requirements. With L4 alone:
 - Switching modes or changing TUN use reconnects and ends existing application
   connections.
 
-An enabled [VPN Gate exit](VPN_GATE.md) can carry application UDP inside its
-additional OpenVPN TCP connection. That does not make the L4 transport itself
-UDP-capable. Existing explicit direct and platform bypass rules retain their scope.
+An enabled OpenVPN-over-TCP chain exit, either a custom **OpenVPN** TCP
+configuration or a [VPN Gate](VPN_GATE.md) node, can carry application UDP inside
+its additional OpenVPN TCP connection. That does not make the L4 transport itself
+UDP-capable. Chain exits that require UDP cannot be enabled with L4; see
+[chain proxy compatibility](CHAIN_PROXY.md#compatibility--兼容范围). Existing
+explicit direct and platform bypass rules retain their scope.
 
 ## Using it
 
@@ -110,6 +113,10 @@ retained by application queues or quiche zero-copy send buffers, including
 retained slices until ACK/drop. Frontend admission is bounded before parsing
 and authentication. Local TCP listeners, half-opens and accepted sockets share
 the allocator; a one-shot listener does not allocate a spare accept socket.
+The internal `stack_tcp` adapter owns the listener and accepted stream together;
+FIN, abort and deferred cleanup retain that ownership even when the command
+queue is full. L4 uses this shared adapter with its existing buffer tiers and
+performance observer.
 
 The local packet device reserves a bounded TX slot for every packet before
 handing smoltcp a transmit token. It never performs a blocking queue send or
@@ -147,6 +154,14 @@ has a 10-second overall dial budget; QUIC establishment uses the existing
 8-second bound and 250-ms address-family racing. Healthy MAX_STREAMS exhaustion
 waits within the original deadline, without rebuilding the session.
 
+For locally resolved HTTP/SOCKS5 targets, this ten-second deadline includes
+DNS. Each family becomes usable as soon as its answer arrives. Target dialing
+allows two attempts and 16 candidates, with 250 ms between launches and immediate
+replacement after a fast failure. The unresolved alternative family retains
+the second slot. Only losing attempts are cancelled; the winner remains owned
+by its session's cancellation token. Edge-resolved CONNECT keeps server-side
+resolution.
+
 Session failures use jittered 1/2/4/8/15/30-second backoff. Active flows retain
 the 30-second keepalive baseline. Idle sessions may expire and reconnect on
 the next request. Only an undelivered CONNECT can be retried; accepted TCP bytes
@@ -162,7 +177,8 @@ scope. Account replacement stops the old scope rather than reusing its work.
 
 ### Observability and safety
 
-Schema 15 appends the data-plane setting; schema 14 migrates to CONNECT-IP.
+Schema 15 appends the data-plane setting; migrating any configuration older
+than schema 15 sets it to CONNECT-IP.
 The protobuf/JNI additions report mode, capabilities, CONNECT verification,
 stream and DNS counters, buffer pressure, TUN/half-open counts and migration
 ownership. Unknown status is not success. CONNECT-IP payload and DATAGRAM

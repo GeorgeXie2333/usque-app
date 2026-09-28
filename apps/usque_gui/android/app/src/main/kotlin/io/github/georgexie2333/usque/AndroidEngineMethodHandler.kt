@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Flutter engine method dispatch: argument validation and coordination of
@@ -28,6 +29,9 @@ internal class AndroidEngineMethodHandler(
     companion object {
         const val DEFAULT_IDENTITY_PROFILE = "8c30b771-9ebd-457a-b67b-bbc74a1ddba6"
     }
+
+    private val connectionIntent = AtomicLong(0)
+    private val dataGeneration = AtomicLong(0)
 
     private val diagnosticsCoordinator =
         AndroidDiagnosticsCoordinator(
@@ -117,6 +121,8 @@ internal class AndroidEngineMethodHandler(
      * Identity vault surface — injectable for JVM tests.
      */
     interface IdentityStore {
+        fun <T> withProxyLock(action: () -> T): T = action()
+
         fun put(
             profileId: String,
             record: SecureIdentityStore.Record,
@@ -210,6 +216,8 @@ internal class AndroidEngineMethodHandler(
     internal class SecureIdentityStoreAdapter(
         private val store: SecureIdentityStore,
     ) : IdentityStore {
+        override fun <T> withProxyLock(action: () -> T): T = store.withProxyLock(action)
+
         override fun put(
             profileId: String,
             record: SecureIdentityStore.Record,
@@ -235,7 +243,7 @@ internal class AndroidEngineMethodHandler(
         }
 
         override fun clearAll() {
-            store.clearAll()
+            store.withProxyLock { store.clearAll() }
         }
     }
 
@@ -254,7 +262,7 @@ internal class AndroidEngineMethodHandler(
         call: MethodCall,
         result: MethodChannel.Result,
     ) {
-        if (controlClient.vpnGateRefreshPending && call.method in
+        if ((controlClient.vpnGateRefreshPending || controlClient.warpGenerationPending) && call.method in
             setOf(
                 "setActiveProfile",
                 "deleteProfile",
@@ -290,6 +298,24 @@ internal class AndroidEngineMethodHandler(
             return
         }
         when (call.method) {
+            "warpWireguard" -> {
+                val request =
+                    JSONObject()
+                        .put("command", "warp_wireguard")
+                        .put("warp_wireguard", JSONObject(flutterValueToJson(call.arguments)))
+                controlClient.requestVpnGate(request.toString(), result)
+            }
+
+            "chainProfile" -> {
+                val request =
+                    JSONObject()
+                        .put(
+                            "command",
+                            "chain_profile",
+                        ).put("chain_profile", JSONObject(flutterValueToJson(call.arguments)))
+                controlClient.requestVpnGate(request.toString(), result)
+            }
+
             "listVpnGate", "refreshVpnGate", "vpnGateNode" -> {
                 val values =
                     (call.arguments as? Map<*, *>)
@@ -343,11 +369,16 @@ internal class AndroidEngineMethodHandler(
             }
 
             "startDiagnostics" -> {
+                val generation = dataGeneration.get()
                 val mode = call.argument<String>("mode")
                 if (mode == null) {
                     result.error("INVALID_ARGUMENT", "The diagnostic mode is missing.", null)
                 } else {
                     controlClient.probeSnapshot { probe ->
+                        if (generation != dataGeneration.get()) {
+                            result.error("ENGINE_REQUEST_CANCELLED", "Diagnostics were cancelled by data reset.", null)
+                            return@probeSnapshot
+                        }
                         runDiagnosticsCommand(result) {
                             diagnosticsCoordinator.start(
                                 mode = mode,
@@ -377,13 +408,23 @@ internal class AndroidEngineMethodHandler(
             }
 
             "getConnectionTimeline" -> {
+                val generation = dataGeneration.get()
                 controlClient.requestTimeline { timeline ->
+                    if (generation != dataGeneration.get()) {
+                        result.error(
+                            "ENGINE_REQUEST_CANCELLED",
+                            "The timeline request was cancelled by data reset.",
+                            null,
+                        )
+                        return@requestTimeline
+                    }
                     diagnosticsCoordinator.observeNativeTimeline(timeline)
                     result.success(diagnosticsCoordinator.timeline())
                 }
             }
 
             "disconnect" -> {
+                connectionIntent.incrementAndGet()
                 activityCommands.cancelPendingVpnConnection(
                     "VPN_PERMISSION_CANCELLED",
                     "The VPN connection request was cancelled.",
@@ -392,6 +433,11 @@ internal class AndroidEngineMethodHandler(
             }
 
             "retry" -> {
+                connectionIntent.incrementAndGet()
+                activityCommands.cancelPendingVpnConnection(
+                    "VPN_PERMISSION_CANCELLED",
+                    "A newer connection was requested.",
+                )
                 controlClient.requestRetry(result)
             }
 
@@ -413,6 +459,10 @@ internal class AndroidEngineMethodHandler(
 
             "upsertProfile" -> {
                 upsertProfile(call, result)
+            }
+
+            "renameProfile" -> {
+                renameProfile(call, result)
             }
 
             "deleteProfile" -> {
@@ -651,7 +701,7 @@ internal class AndroidEngineMethodHandler(
         }
         try {
             val saved = activityCommands.savePerAppProxy(enabled, packageNames)
-            controlClient.notifyApplyPerApp()
+            controlClient.notifyApplyPerApp((saved["revision"] as? Number)?.toLong() ?: 0L)
             result.success(saved)
         } catch (error: PerAppProxyStoreException) {
             val message =
@@ -684,8 +734,10 @@ internal class AndroidEngineMethodHandler(
                     """{"command":"clear_all_data"}""",
                 ) ?: throw IllegalStateException("Rust did not reset the Profile store")
                 maintenanceBridge.clearLocalState()
+                diagnosticsCoordinator.clear()
                 mainScheduler.post {
                     if (!controlClient.takeClaimedClearAll(result)) return@post
+                    controlClient.resetAfterClear()
                     result.success(null)
                 }
             } catch (error: Exception) {
@@ -747,6 +799,23 @@ internal class AndroidEngineMethodHandler(
                     "profile" to profile,
                 ),
             ),
+            result,
+        )
+    }
+
+    private fun renameProfile(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val id = call.argument<String>("profile_id")
+        val name = call.argument<String>("name")
+        if (id == null || name == null) {
+            result.error("INVALID_ARGUMENT", "The account name is missing.", null)
+            return
+        }
+        if (!requireProfileEngine(result)) return
+        runProfileCommand(
+            flutterValueToJson(mapOf("command" to "rename_profile", "profile_id" to id, "name" to name)),
             result,
         )
     }
@@ -905,18 +974,76 @@ internal class AndroidEngineMethodHandler(
         }
         identityExecutor.execute {
             try {
-                if (username.isEmpty()) {
-                    identityStore.delete(profileId, SecureIdentityStore.Record.PROXY_PASSWORD)
-                } else {
-                    identityStore.put(profileId, SecureIdentityStore.Record.PROXY_PASSWORD, passwordBytes)
+                val catalog =
+                    JSONObject(
+                        requireNotNull(
+                            engineBridge.applyProfileCommand(profileConfigPath, "{\"command\":\"list_profiles\"}"),
+                        ),
+                    )
+                check(profileId in SharedProxyCredentials.accountIds(catalog)) { "Account no longer exists" }
+                SharedProxyCredentials.save(identityStore, catalog, passwordBytes) {
+                    requireNotNull(
+                        engineBridge.applyProfileCommand(
+                            profileConfigPath,
+                            JSONObject()
+                                .put("command", "set_proxy_username")
+                                .put("profile_id", profileId)
+                                .put("username", username)
+                                .toString(),
+                        ),
+                    )
                 }
-                mainScheduler.post { result.success(null) }
+                mainScheduler.post {
+                    controlClient.requestReconfigure(
+                        "{}",
+                        object : MethodChannel.Result {
+                            override fun success(value: Any?) {
+                                result.success(null)
+                            }
+
+                            override fun error(
+                                code: String,
+                                message: String?,
+                                details: Any?,
+                            ) {
+                                result.error(code, message, details)
+                            }
+
+                            override fun notImplemented() {
+                                result.notImplemented()
+                            }
+                        },
+                        authOnly = true,
+                    )
+                }
             } catch (error: Exception) {
                 mainScheduler.post {
-                    result.error(
-                        "CONFIGURATION_INVALID",
-                        error.message ?: "Listener credentials could not be saved.",
-                        null,
+                    controlClient.requestDisconnect(
+                        object : MethodChannel.Result {
+                            private fun failed() {
+                                result.error(
+                                    "PROXY_AUTH_SAVE_FAILED",
+                                    "Credentials could not be fully saved. Retry saving before reconnecting.",
+                                    null,
+                                )
+                            }
+
+                            override fun success(value: Any?) {
+                                failed()
+                            }
+
+                            override fun error(
+                                code: String,
+                                message: String?,
+                                details: Any?,
+                            ) {
+                                failed()
+                            }
+
+                            override fun notImplemented() {
+                                failed()
+                            }
+                        },
                     )
                 }
             } finally {
@@ -1153,6 +1280,7 @@ internal class AndroidEngineMethodHandler(
                     engineBridge.applyProfileCommand(profileConfigPath, commandJson)
                         ?: throw IllegalStateException("Rust returned no profile catalog")
                 var responseObject = JSONObject(response)
+                SharedProxyCredentials.read(identityStore, responseObject)?.fill(0)
                 responseObject = recoverPendingIdentityReplacements(responseObject)
                 response = responseObject.toString()
                 val pending = responseObject.optJSONArray("pending_identity_deletions")
@@ -1422,6 +1550,8 @@ internal class AndroidEngineMethodHandler(
             )
             return
         }
+        connectionIntent.incrementAndGet()
+        dataGeneration.incrementAndGet()
         activityCommands.cancelPendingVpnConnection(
             "VPN_PERMISSION_CANCELLED",
             "The VPN connection request was cancelled while clearing local data.",
@@ -2448,6 +2578,7 @@ internal class AndroidEngineMethodHandler(
             return
         }
         val requested = flutterValueToJson(arguments)
+        val intent = connectionIntent.incrementAndGet()
         identityExecutor.execute {
             try {
                 val catalog =
@@ -2457,7 +2588,13 @@ internal class AndroidEngineMethodHandler(
                 val profileJson = NetworkSettingsFields.savedProfile(requested, catalog)
                 val tunnel = VpnReconfigure.tunnelFrontendEnabled(profileJson)
                 val mode = VpnReconfigure.canonicalMode(tunnel)
-                mainScheduler.post { activityCommands.connectAfterValidation(profileJson, mode, result) }
+                mainScheduler.post {
+                    if (intent != connectionIntent.get() || controlClient.isClosed) {
+                        result.error("ENGINE_REQUEST_CANCELLED", "The connection request was cancelled.", null)
+                    } else {
+                        activityCommands.connectAfterValidation(profileJson, mode, result)
+                    }
+                }
             } catch (_: Exception) {
                 mainScheduler.post {
                     result.error(

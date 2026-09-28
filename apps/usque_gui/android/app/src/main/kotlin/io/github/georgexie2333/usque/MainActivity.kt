@@ -68,6 +68,36 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private val pendingVpnConnection = VpnPermissionRequestQueue()
     private var pendingDiagnosticsResult: MethodChannel.Result? = null
+    private var pendingChainFileResult: MethodChannel.Result? = null
+    private val chainFilePicker =
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            val result = pendingChainFileResult
+            if (result != null) {
+                if (uris.size > ChainConfigurationFiles.MAX_FILES) {
+                    pendingChainFileResult = null
+                    result.error("CHAIN_FILE_COUNT_LIMIT", "Select at most 128 files.", null)
+                } else {
+                    try {
+                        identityExecutor.execute {
+                            val files = uris.map { ChainConfigurationFiles.read(contentResolver, it) }
+                            runOnUiThread {
+                                try {
+                                    if (!isDestroyed && pendingChainFileResult === result) {
+                                        pendingChainFileResult = null
+                                        result.success(files)
+                                    }
+                                } finally {
+                                    ChainConfigurationFiles.clear(files)
+                                }
+                            }
+                        }
+                    } catch (_: RejectedExecutionException) {
+                        pendingChainFileResult = null
+                        result.error("CHAIN_FILE_READ_FAILED", "Unable to read configuration files.", null)
+                    }
+                }
+            }
+        }
     private var pendingDiagnosticsPayload: AndroidEngineMethodHandler.DiagnosticExportPayload? = null
     private var pendingWarpSecretResult: MethodChannel.Result? = null
     private var pendingWarpSecretProfileId: String? = null
@@ -160,11 +190,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
 
             override fun platformPreferences(): Map<String, Any?> {
-                val preferences =
-                    createDeviceProtectedStorageContext().getSharedPreferences(
-                        UsqueVpnService.RECOVERY_PREFERENCES,
-                        MODE_PRIVATE,
-                    )
+                val preferences = AndroidPolicyStore.startup(this@MainActivity)
                 return mapOf(
                     "start_on_boot" to
                         preferences.getBoolean(UsqueVpnService.START_ON_BOOT, false),
@@ -173,8 +199,8 @@ class MainActivity : FlutterFragmentActivity() {
             }
 
             override fun setStartOnBoot(enabled: Boolean) {
-                createDeviceProtectedStorageContext()
-                    .getSharedPreferences(UsqueVpnService.RECOVERY_PREFERENCES, MODE_PRIVATE)
+                AndroidPolicyStore
+                    .startup(this@MainActivity)
                     .edit { putBoolean(UsqueVpnService.START_ON_BOOT, enabled) }
             }
 
@@ -201,7 +227,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .save(
                         this@MainActivity,
                         PerAppProxySettings(enabled = enabled, packageNames = packageNames),
-                    ).toMap()
+                    ).toMap() + mapOf("revision" to PerAppProxyStore.preferences(this@MainActivity).revision())
 
             override fun getUpdateCacheDirectory(): String {
                 updateInstaller.prepareCache()
@@ -351,7 +377,19 @@ class MainActivity : FlutterFragmentActivity() {
         ensureEngineComponents()
         engineMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         engineMethodChannel?.setMethodCallHandler { call, result ->
-            if (call.method == "updatePlatformLocale") {
+            if (call.method == "readChainConfigurations") {
+                if (pendingChainFileResult != null) {
+                    result.error("CHAIN_FILE_BUSY", "A file picker is already open.", null)
+                } else {
+                    pendingChainFileResult = result
+                    try {
+                        chainFilePicker.launch(arrayOf("*/*"))
+                    } catch (_: Exception) {
+                        pendingChainFileResult = null
+                        result.error("CHAIN_FILE_UNAVAILABLE", "Paste the configuration text instead.", null)
+                    }
+                }
+            } else if (call.method == "updatePlatformLocale") {
                 updatePlatformLocale(call.argument<String>("catalog_id"), result)
             } else {
                 methodHandler.handle(call, result)
@@ -418,6 +456,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        pendingChainFileResult?.success(null)
+        pendingChainFileResult = null
         pendingVpnConnection.cancel(
             "VPN_PERMISSION_CANCELLED",
             "The Android UI closed before VPN permission was granted.",
@@ -745,9 +785,9 @@ class MainActivity : FlutterFragmentActivity() {
                     payload.diagnosticSession,
                     payload.connectionTimeline,
                 )
-                mainHandler.post { result.success(destination.toString()) }
+                runOnUiThread { result.success(destination.toString()) }
             } catch (error: Exception) {
-                mainHandler.post {
+                runOnUiThread {
                     result.error(
                         "DIAGNOSTICS_EXPORT_FAILED",
                         "Android could not write the diagnostic bundle.",
@@ -843,9 +883,9 @@ class MainActivity : FlutterFragmentActivity() {
                     output.write(secret)
                     output.flush()
                 }
-                mainHandler.post { result.success(destination.toString()) }
+                runOnUiThread { result.success(destination.toString()) }
             } catch (error: Exception) {
-                mainHandler.post {
+                runOnUiThread {
                     result.error(
                         "SENSITIVE_OUTPUT_FAILED",
                         "Android could not save the WARP Secret.",

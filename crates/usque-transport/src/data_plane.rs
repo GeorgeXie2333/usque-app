@@ -10,10 +10,12 @@ use crate::netstack::{
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::SocketProtector;
 use crate::{ConnectionTimelineSnapshot, NetworkQualitySnapshot};
-use bytes::Bytes;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use bytes::{Bytes, BytesMut};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::watch;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use usque_core::vpngate::{
     FinalNetworkParameters, GateFailure, GateStatus, PreparedProfile, ServerSummary,
@@ -28,6 +30,7 @@ pub struct DataPlaneRuntime {
     stopped: bool,
     transition_status: GateStatus,
     pending_frontends: Option<Profile>,
+    activation_deadline: Option<Instant>,
 }
 #[derive(Default)]
 pub struct VpnGateStart {
@@ -35,7 +38,9 @@ pub struct VpnGateStart {
     pub status: Option<watch::Sender<GateStatus>>,
     /// Cancels startup only; the established OpenVPN worker owns its lifetime.
     pub cancellation: CancellationToken,
+    pub deadline: Option<Instant>,
 }
+pub type ChainExitStart = VpnGateStart;
 struct GateRuntime {
     frontend: MasqueRuntime,
     driver: crate::vpngate::GateDriver,
@@ -48,6 +53,21 @@ enum RuntimeInner {
 }
 
 impl DataPlaneRuntime {
+    /// Only the final application frontend observes this policy. The outer
+    /// transport and an optional WARP underlay remain untouched.
+    pub fn update_traffic_policy(&mut self, disable_quic: bool) {
+        if let Some(pending) = &mut self.pending_frontends {
+            pending.disable_quic = disable_quic;
+        }
+        if let Some(gate) = &self.gate {
+            gate.frontend.update_traffic_policy(disable_quic);
+        } else {
+            match &self.inner {
+                RuntimeInner::ConnectIp(runtime) => runtime.update_traffic_policy(disable_quic),
+                RuntimeInner::L4(runtime) => runtime.update_traffic_policy(disable_quic),
+            }
+        }
+    }
     pub async fn start_with_geo_policy(
         profile: &Profile,
         identity: MasqueTlsIdentity,
@@ -55,7 +75,7 @@ impl DataPlaneRuntime {
         refresher: Option<Arc<dyn EndpointPinRefresher>>,
         policy: Arc<GeoDirectPolicy>,
     ) -> Result<Self, TransportError> {
-        if profile.vpn_gate.enabled {
+        if profile.chain_enabled() {
             // Every caller must supply a validated pinned profile explicitly.
             return Err(TransportError::VpnGate(GateFailure::Configuration));
         }
@@ -84,6 +104,7 @@ impl DataPlaneRuntime {
             stopped: false,
             transition_status: GateStatus::default(),
             pending_frontends: None,
+            activation_deadline: None,
         })
     }
 
@@ -99,35 +120,48 @@ impl DataPlaneRuntime {
             selected,
             status,
             cancellation,
+            deadline,
         } = gate;
-        if !profile.vpn_gate.enabled {
+        if !profile.chain_enabled() {
             return Self::start_with_geo_policy(profile, identity, protector, refresher, policy)
                 .await;
         }
+        let deadline = deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(180));
         let selected = selected.ok_or(TransportError::VpnGate(GateFailure::Configuration))?;
         if let Some(status) = &status {
             status.send_replace(GateStatus {
                 stage: usque_core::vpngate::GateStage::ConnectingWarp,
                 current_server: Some(selected.0.clone()),
+                current_profile: selected.1.summary.clone(),
                 ..Default::default()
             });
         }
         let mut underlay_profile = profile.clone();
-        underlay_profile.vpn_gate.enabled = false;
+        underlay_profile.disable_chain();
+        // The final MTU belongs to the exit. Keep WARP's private packet stack
+        // at the IPv6 minimum so encapsulated UDP fits its bounded fragments.
+        underlay_profile.mtu = crate::chain_mss::WARP_MTU;
+        underlay_profile.disable_quic = false;
         underlay_profile.frontends.socks5 = false;
         underlay_profile.frontends.http = false;
         underlay_profile.proxy.system_proxy = false;
         underlay_profile.canonicalize_mode();
-        let mut runtime = Self::start_with_geo_policy(
-            &underlay_profile,
-            identity,
-            protector.clone(),
-            refresher,
-            policy.clone(),
+        let mut runtime = tokio::time::timeout_at(
+            deadline,
+            Self::start_with_geo_policy(
+                &underlay_profile,
+                identity,
+                protector.clone(),
+                refresher,
+                policy.clone(),
+            ),
         )
-        .await?;
+        .await
+        .map_err(|_| TransportError::VpnGate(GateFailure::Transport))??;
+        runtime.activation_deadline = Some(deadline);
         runtime.quiesce_final();
         runtime.transition_status.current_server = Some(selected.0.clone());
+        runtime.transition_status.current_profile = selected.1.summary.clone();
         let status_copy = status.clone();
         if let Err(error) = runtime
             .install_gate(
@@ -138,6 +172,7 @@ impl DataPlaneRuntime {
                     selected: Some(selected),
                     status,
                     cancellation,
+                    deadline: Some(deadline),
                 },
             )
             .await
@@ -160,13 +195,18 @@ impl DataPlaneRuntime {
     }
     pub fn headless_profile(profile: &Profile) -> Profile {
         let mut headless = profile.clone();
-        headless.vpn_gate.enabled = false;
+        headless.disable_chain();
+        headless.disable_quic = false;
         headless.frontends = usque_core::FrontendSettings {
             tunnel: false,
             socks5: false,
             http: false,
         };
         headless.proxy.system_proxy = false;
+        // Listener passwords are injected only into normal connection sessions.
+        // Headless tasks have no listener and must not require that vault secret.
+        headless.proxy.auth_username = None;
+        headless.proxy.auth_password = None;
         headless.geo_direct_countries.clear();
         headless.split_exclusions.clear();
         headless.canonicalize_mode();
@@ -183,34 +223,51 @@ impl DataPlaneRuntime {
             selected,
             status,
             cancellation,
+            deadline,
         } = gate;
         let selected = selected.ok_or(TransportError::VpnGate(GateFailure::Configuration))?;
         let (server, prepared) = selected;
-        if profile.vpn_gate.selection.as_ref().is_none_or(|selection| {
-            selection.server_id != server.id || selection.config_sha256 != server.config_sha256
-        }) {
+        let matches = if let Some(chain) = profile.custom_chain() {
+            prepared.summary.as_ref().is_some_and(|summary| {
+                Some(summary.id) == chain.profile_id
+                    && Some(summary.revision) == chain.revision
+                    && summary.source == chain.source
+                    && !(summary.protocol.requires_udp()
+                        && profile.data_plane == DataPlaneMode::L4Proxy)
+            })
+        } else {
+            profile
+                .vpn_gate
+                .selection
+                .as_ref()
+                .is_some_and(|selection| {
+                    selection.server_id == server.id
+                        && selection.config_sha256 == server.config_sha256
+                })
+        };
+        if !matches {
             return Err(TransportError::VpnGate(GateFailure::Configuration));
         }
         let (mut driver, tunnel, mut network) = crate::vpngate::GateDriver::start(
             &prepared,
             self.warp_internal_network(),
             self.underlay_monitor().network_quality_telemetry(),
-            status,
+            status.clone(),
             &cancellation,
+            deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(180)),
         )
         .await?;
-        network.mtu = profile.mtu.min(network.mtu);
-        if network.dns_servers.is_empty() {
-            network.dns_servers = profile
-                .dns_servers
-                .iter()
-                .copied()
-                .filter(|ip| network.supports(*ip))
-                .collect();
-        }
-        if network.dns_servers.is_empty() {
-            driver.shutdown().await;
-            return Err(TransportError::VpnGate(GateFailure::Configuration));
+        network.mtu = final_mtu(profile, network.mtu);
+        filter_final_dns(
+            &mut network,
+            &profile.dns_servers,
+            prepared.custom.as_deref(),
+        );
+        if let Some(status) = &status {
+            status.send_modify(|s| {
+                s.dns_unavailable = network.dns_servers.is_empty();
+                s.network = Some(network.clone());
+            });
         }
         let effective = final_profile(profile, &network);
         let mut frontend = match MasqueRuntime::start_over_tunnel(
@@ -256,9 +313,33 @@ impl DataPlaneRuntime {
         status: watch::Sender<GateStatus>,
         cancellation: &CancellationToken,
     ) -> Result<(), TransportError> {
+        self.replace_gate_before(
+            profile,
+            selected,
+            policy,
+            status,
+            cancellation,
+            Instant::now() + Duration::from_secs(180),
+        )
+        .await
+    }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a replacement carries the same absolute deadline through platform preparation and admission"
+    )]
+    pub async fn replace_gate_before(
+        &mut self,
+        profile: &Profile,
+        selected: Option<(ServerSummary, PreparedProfile)>,
+        policy: Arc<GeoDirectPolicy>,
+        status: watch::Sender<GateStatus>,
+        cancellation: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<(), TransportError> {
         if self.stopped {
             return Err(TransportError::TunnelClosed);
         }
+        self.activation_deadline = Some(deadline);
         self.quiesce_final();
         let protector = match &self.inner {
             RuntimeInner::ConnectIp(runtime) => runtime.diagnostic_dns_context().0,
@@ -266,7 +347,9 @@ impl DataPlaneRuntime {
         };
         if let Some(gate) = &mut self.gate {
             gate.frontend.shutdown().await;
-            gate.driver.shutdown().await;
+            if !gate.driver.shutdown().await {
+                return Err(TransportError::VpnGate(GateFailure::Cleanup));
+            }
         }
         match &mut self.inner {
             RuntimeInner::ConnectIp(runtime) => runtime.suspend_frontends().await,
@@ -275,10 +358,13 @@ impl DataPlaneRuntime {
         self.transition_status = GateStatus {
             stage: usque_core::vpngate::GateStage::ConnectingServer,
             current_server: selected.as_ref().map(|(server, _)| server.clone()),
+            current_profile: selected
+                .as_ref()
+                .and_then(|(_, prepared)| prepared.summary.clone()),
             ..Default::default()
         };
         status.send_replace(self.transition_status.clone());
-        let result = if profile.vpn_gate.enabled {
+        let result = if profile.chain_enabled() {
             match selected {
                 Some(selected) => {
                     Box::pin(self.install_gate(
@@ -289,6 +375,7 @@ impl DataPlaneRuntime {
                             selected: Some(selected),
                             status: Some(status.clone()),
                             cancellation: cancellation.clone(),
+                            deadline: self.activation_deadline,
                         },
                     ))
                     .await
@@ -348,6 +435,13 @@ impl DataPlaneRuntime {
     /// Called after platform address/DNS/route application and packet attach.
     /// Until then local proxy requests and outbound final packets are blocked.
     pub async fn activate_final(&mut self) -> Result<(), TransportError> {
+        if self
+            .activation_deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            self.fail_gate(GateFailure::Transport).await;
+            return Err(TransportError::VpnGate(GateFailure::Transport));
+        }
         if self.final_blocked && self.pending_frontends.is_none() {
             return Err(TransportError::VpnGate(
                 self.transition_status
@@ -367,12 +461,15 @@ impl DataPlaneRuntime {
             self.final_blocked = false;
             self.transition_status = GateStatus::default();
         }
-        if let Some(gate) = &self.gate {
+        if let Some(gate) = &mut self.gate {
             let mut status = gate.driver.status.clone();
             gate.driver.admit();
             loop {
                 match status.borrow().stage {
-                    usque_core::vpngate::GateStage::Connected => return Ok(()),
+                    usque_core::vpngate::GateStage::Connected => {
+                        self.activation_deadline = None;
+                        return Ok(());
+                    }
                     usque_core::vpngate::GateStage::Error => {
                         return Err(TransportError::VpnGate(
                             status.borrow().failure.unwrap_or(GateFailure::Transport),
@@ -386,6 +483,7 @@ impl DataPlaneRuntime {
                     .map_err(|_| TransportError::VpnGate(GateFailure::Transport))?;
             }
         }
+        self.activation_deadline = None;
         Ok(())
     }
     pub fn network_parameters(&self) -> FinalNetworkParameters {
@@ -588,7 +686,10 @@ impl DataPlaneRuntime {
     }
     pub async fn reconfigure_frontends(&mut self, profile: &Profile) -> Result<(), TransportError> {
         if let Some(pending) = &mut self.pending_frontends {
-            if profile.data_plane != pending.data_plane || profile.vpn_gate != pending.vpn_gate {
+            if profile.data_plane != pending.data_plane
+                || profile.vpn_gate != pending.vpn_gate
+                || profile.chain_exit != pending.chain_exit
+            {
                 return Err(TransportError::VpnGate(GateFailure::Configuration));
             }
             // Android reconfigures frontends between attaching the replacement
@@ -709,14 +810,58 @@ impl DataPlaneRuntime {
     }
 }
 
+fn filter_final_dns(
+    network: &mut FinalNetworkParameters,
+    fallback: &[IpAddr],
+    custom: Option<&usque_core::chain_exit::ValidatedProfile>,
+) {
+    use usque_core::chain_exit::ValidatedProfile;
+    let configured = match custom {
+        Some(ValidatedProfile::WireGuard(wg)) => !wg.dns_servers.is_empty(),
+        _ => !network.dns_servers.is_empty(),
+    };
+    if !configured {
+        network.dns_servers = fallback.to_vec();
+    }
+    let ipv4 = network.ipv4.is_some();
+    let ipv6 = network.ipv6.is_some();
+    network.dns_servers.retain(|ip| {
+        (if ip.is_ipv4() { ipv4 } else { ipv6 })
+            && !ip.is_unspecified()
+            && !ip.is_loopback()
+            && !ip.is_multicast()
+            && !matches!(ip, IpAddr::V4(address) if address.is_broadcast())
+            && match custom {
+                Some(ValidatedProfile::WireGuard(wg)) => wg.allows(*ip),
+                _ => true,
+            }
+    });
+    let mut seen = std::collections::HashSet::new();
+    network.dns_servers.retain(|ip| seen.insert(*ip));
+}
+
+fn final_mtu(profile: &Profile, negotiated: u16) -> u16 {
+    if profile
+        .custom_chain()
+        .is_some_and(|c| c.source.is_wireguard())
+    {
+        // The imported WireGuard MTU describes the inner interface, separately
+        // from the WARP MTU. Its parser has already enforced 1280..=9000.
+        negotiated
+    } else {
+        profile.mtu.min(negotiated)
+    }
+}
 fn final_profile(profile: &Profile, network: &FinalNetworkParameters) -> Profile {
     let mut final_profile = profile.clone();
     final_profile.data_plane = DataPlaneMode::ConnectIp;
-    final_profile.mtu = profile.mtu.min(network.mtu);
-    if profile.dns_mode == usque_core::DnsMode::Tunnel {
+    final_profile.mtu = final_mtu(profile, network.mtu);
+    if profile.dns_mode == usque_core::DnsMode::Tunnel || profile.custom_chain().is_some() {
         final_profile.dns_servers = network.dns_servers.clone();
     }
-    if final_profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved {
+    if profile.custom_chain().is_some()
+        || final_profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved
+    {
         final_profile.proxy.dns_mode = usque_core::ProxyDnsMode::Remote;
     }
     final_profile
@@ -730,6 +875,27 @@ enum TunIoInner {
     L4(L4TunIo),
 }
 impl TunPacketIo {
+    /// Retains a disjoint mutable slab view through CONNECT-IP header edits.
+    /// L4 continues to receive its existing immutable packet representation.
+    pub fn start_send_mut_packet(
+        &self,
+        packet: BytesMut,
+    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send + use<> {
+        enum BackendSend<C, L> {
+            ConnectIp(C),
+            L4(L),
+        }
+        let send = match &self.inner {
+            TunIoInner::ConnectIp(io) => BackendSend::ConnectIp(io.start_send_mut_packet(packet)),
+            TunIoInner::L4(io) => BackendSend::L4(io.start_send_owned_packet(packet.freeze())),
+        };
+        async move {
+            match send {
+                BackendSend::ConnectIp(send) => send.await,
+                BackendSend::L4(send) => send.await,
+            }
+        }
+    }
     /// Present only for a data plane that supports stream performance sampling.
     pub fn write_observer(&self) -> Option<crate::TunWriteObserver> {
         match &self.inner {
@@ -793,10 +959,162 @@ mod tests {
     use crate::netstack::{ExternalPacketChannels, ManagedTunnelRuntime};
     use usque_core::vpngate::GateStage;
 
+    #[test]
+    fn final_dns_filters_each_candidate_without_replacing_explicit_unreachable_dns() {
+        use usque_core::chain_exit::{ChainSource, ImportSecrets, ValidatedProfile};
+        let text = "[Interface]\nPrivateKey = AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=\nAddress = 10.8.0.2/32\nDNS = 1.1.1.1, 10.8.0.1\n[Peer]\nPublicKey = AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=\nEndpoint = vpn.example:51820\nAllowedIPs = 10.8.0.0/24\n";
+        let parsed = ValidatedProfile::parse(
+            ChainSource::WireguardCustom,
+            &ImportSecrets::new(text.into()),
+        )
+        .unwrap();
+        let mut network = FinalNetworkParameters {
+            ipv4: Some("10.8.0.2".parse().unwrap()),
+            ipv6: None,
+            dns_servers: vec!["1.1.1.1".parse().unwrap(), "10.8.0.1".parse().unwrap()],
+            mtu: 1280,
+        };
+        filter_final_dns(&mut network, &["10.8.0.3".parse().unwrap()], Some(&parsed));
+        assert_eq!(
+            network.dns_servers,
+            vec!["10.8.0.1".parse::<IpAddr>().unwrap()]
+        );
+        network.dns_servers = vec!["1.1.1.1".parse().unwrap()];
+        filter_final_dns(&mut network, &["10.8.0.3".parse().unwrap()], Some(&parsed));
+        assert!(network.dns_servers.is_empty());
+        let no_dns = ValidatedProfile::parse(
+            ChainSource::WireguardCustom,
+            &ImportSecrets::new(text.replace("DNS = 1.1.1.1, 10.8.0.1\n", "")),
+        )
+        .unwrap();
+        filter_final_dns(
+            &mut network,
+            &["1.1.1.1".parse().unwrap(), "10.8.0.3".parse().unwrap()],
+            Some(&no_dns),
+        );
+        assert_eq!(
+            network.dns_servers,
+            vec!["10.8.0.3".parse::<IpAddr>().unwrap()]
+        );
+    }
+
+    #[test]
+    fn wireguard_inner_mtu_is_independent_of_the_warp_interface_mtu() {
+        let profile = Profile {
+            mtu: 1280,
+            chain_exit: Some(usque_core::chain_exit::ChainExitSettings {
+                source: usque_core::chain_exit::ChainSource::WireguardCustom,
+                endpoint_override: None,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let network = FinalNetworkParameters {
+            ipv4: Some("10.8.0.2".parse().unwrap()),
+            ipv6: None,
+            dns_servers: vec!["10.8.0.1".parse().unwrap()],
+            mtu: 1420,
+        };
+        assert_eq!(final_profile(&profile, &network).mtu, 1420);
+        assert_eq!(final_profile(&Profile::default(), &network).mtu, 1280);
+    }
+
+    fn slab_udp(slab: &mut crate::android_tun_read_slab::TunReadSlab, mtu: usize) -> BytesMut {
+        let packet = [
+            0x45, 0, 0, 28, 0, 0, 0, 0, 64, 17, 0, 0, 172, 16, 0, 2, 198, 51, 100, 1, 0xc3, 0x50,
+            1, 0xbb, 0, 8, 0, 0,
+        ];
+        slab.prepare(mtu).unwrap();
+        slab.read_buffer()[..packet.len()].copy_from_slice(&packet);
+        slab.take_packet(packet.len()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn mutable_tun_api_rejects_the_old_attachment_and_preserves_external_ttl() {
+        let (mut runtime, mut channels) = memory_warp().await;
+        let mut slab = crate::android_tun_read_slab::TunReadSlab::new();
+        let old = runtime.attach_tun().unwrap();
+        let old_send = old.start_send_mut_packet(slab_udp(&mut slab, 1280));
+        runtime.detach_tun();
+        let current = runtime.attach_tun().unwrap();
+        assert!(matches!(old_send.await, Err(TransportError::TunnelClosed)));
+        let packet = slab_udp(&mut slab, 1500);
+        let pointer = packet.as_ptr() as usize;
+        current.start_send_mut_packet(packet).await.unwrap();
+        let packet = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            channels.outgoing.as_mut().unwrap().recv(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(matches!(
+            packet,
+            crate::outbound_packet::OutboundPacket::Mutable(_)
+        ));
+        // Same conversion used at the VPN Gate native boundary: no second
+        // forwarding mutation is introduced into the external packet path.
+        let packet = packet.freeze();
+        assert_eq!(packet.as_ptr() as usize, pointer);
+        assert_eq!(packet[8], 64);
+        assert!(channels.outgoing.as_mut().unwrap().try_recv().is_err());
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn mutable_tun_api_keeps_l4_delivery_mtu_and_cancellation_behavior() {
+        let (l4, mut outgoing) = L4TunIo::memory_test_io();
+        let io = TunPacketIo {
+            inner: TunIoInner::L4(l4),
+        };
+        let mut slab = crate::android_tun_read_slab::TunReadSlab::new();
+        let packet = slab_udp(&mut slab, 1280);
+        let pointer = packet.as_ptr() as usize;
+        let sibling = slab_udp(&mut slab, 1280);
+        io.start_send_mut_packet(packet).await.unwrap();
+        let delivered = outgoing.recv().await.unwrap().into_bytes();
+        assert_eq!(delivered.as_ptr() as usize, pointer);
+        assert_eq!(delivered[8], 64);
+        assert_eq!(sibling[8], 64);
+        let mut oversized = BytesMut::zeroed(1281);
+        oversized[0] = 0x45;
+        oversized[2..4].copy_from_slice(&1281_u16.to_be_bytes());
+        io.start_send_mut_packet(oversized).await.unwrap();
+        assert!(outgoing.try_recv().is_err());
+        io.start_send_mut_packet(sibling).await.unwrap();
+        let mut waiting = Box::pin(io.start_send_mut_packet(slab_udp(&mut slab, 1280)));
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        drop(io);
+        assert!(matches!(waiting.await, Err(TransportError::TunnelClosed)));
+        assert!(outgoing.recv().await.is_some());
+        assert!(outgoing.try_recv().is_err());
+    }
+
     async fn memory_warp() -> (DataPlaneRuntime, ExternalPacketChannels) {
+        memory_warp_with_profile(&Profile::default()).await
+    }
+
+    #[tokio::test]
+    async fn headless_discovery_ignores_unloaded_listener_credentials() {
+        let mut saved = Profile::default();
+        saved.proxy.auth_username = Some("protected-local-proxy".into());
+        assert!(saved.proxy.listener_credentials().is_err());
+        let (mut runtime, _packets) = memory_warp_with_profile(&saved).await;
+        assert!(runtime.listeners().is_empty());
+        assert!(saved.proxy.auth_username.is_some());
+        runtime.shutdown().await;
+    }
+
+    async fn memory_warp_with_profile(
+        profile: &Profile,
+    ) -> (DataPlaneRuntime, ExternalPacketChannels) {
         // Memory packet queues stand in for WARP. No OS tunnel or remote
         // connection is created, but the actual frontend shutdown runs.
-        let profile = DataPlaneRuntime::headless_profile(&Profile::default());
+        let profile = DataPlaneRuntime::headless_profile(profile);
         let path = RuntimePath {
             transport: usque_core::Transport::Http3,
             endpoint_family: usque_core::AddressFamily::Ipv4,
@@ -838,6 +1156,7 @@ mod tests {
                 ..Default::default()
             },
             pending_frontends: None,
+            activation_deadline: None,
         };
         (runtime, channels)
     }

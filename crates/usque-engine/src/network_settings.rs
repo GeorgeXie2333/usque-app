@@ -13,10 +13,18 @@ use crate::{
 impl ControlService {
     pub(crate) async fn network_settings_state(&self) -> v1::NetworkSettingsState {
         let _submission = self.settings_submission.lock().await;
-        let stored = self.config.read().await.active_profile();
+        let config = self.config.read().await;
+        let stored = config.active_profile();
+        let shared = Some(
+            config
+                .network
+                .hydrate(&usque_core::config::Account::default_account()),
+        );
+        drop(config);
         let mut state = self.settings.lock().await;
-        if state.stored_profile != stored {
+        if state.stored_profile != stored || state.shared_network_profile != shared {
             state.stored_profile = stored;
+            state.shared_network_profile = shared;
             state.advance();
         }
         to_proto(&state)
@@ -78,17 +86,32 @@ impl ControlService {
             })?)?,
             changed_fields: request.changed_fields,
         };
-        if patch.changed_fields.iter().any(|field| field == "vpn_gate") {
+        if patch.values.custom_chain().is_none()
+            && patch.changed_fields.iter().any(|field| field == "vpn_gate")
+        {
             self.pin_gate_settings(&patch.values.vpn_gate).await?;
+        }
+        if patch
+            .changed_fields
+            .iter()
+            .any(|field| field == "chain_exit" || field == "data_plane")
+        {
+            self.validate_chain_selection(&patch.values)?;
         }
         // Only local read/modify/write work holds the configuration guard.
         let mut config = self.config.write().await;
         let store = self.store.clone();
         let edit = patch.clone();
+        let chain_parent = self.cache_dir.clone();
         let commit = tokio::task::spawn_blocking(move || {
             store.update(|latest| {
-                merge_patch(latest, &edit)
-                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))
+                let merged = merge_patch(latest, &edit)
+                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
+                // Validate the committed combination, including fields omitted
+                // by old clients, while holding the configuration transaction.
+                ControlService::validate_chain_selection_at(&chain_parent, &merged)
+                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
+                Ok(merged)
             })
         })
         .await
@@ -101,6 +124,10 @@ impl ControlService {
                 let mut state = self.settings.lock().await;
                 if let Ok(Ok(next)) = observed {
                     state.stored_profile = next.active_profile();
+                    state.shared_network_profile = Some(
+                        next.network
+                            .hydrate(&usque_core::config::Account::default_account()),
+                    );
                     *config = next;
                 }
                 state.operation_id = Some(patch.operation_id);
@@ -113,6 +140,9 @@ impl ControlService {
             }
             Err(error) => return Err(error.into()),
         };
+        let shared = next
+            .network
+            .hydrate(&usque_core::config::Account::default_account());
         *config = next;
         drop(config);
 
@@ -133,6 +163,7 @@ impl ControlService {
         state.operation_id = Some(patch.operation_id);
         state.persisted = Some(true);
         state.stored_profile = Some(stored);
+        state.shared_network_profile = Some(shared);
         state.error_code = None;
         if let Some((profile, generation, _)) = &runtime
             && confirmed
@@ -242,7 +273,9 @@ impl ControlService {
                                 operation_id,
                                 journal_generation,
                             } => {
-                                let recovery_target = if target.vpn_gate == previous.vpn_gate {
+                                let recovery_target = if target.vpn_gate == previous.vpn_gate
+                                    && target.chain_exit == previous.chain_exit
+                                {
                                     &previous
                                 } else {
                                     &target
@@ -293,6 +326,7 @@ impl ControlService {
         intent: u64,
     ) -> Result<(), ControlServiceError> {
         match class {
+            ReconfigureClass::HotTrafficPolicy => {}
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(target).await?,
             ReconfigureClass::HotSystemProxy => self.hot_apply_system_proxy(target).await?,
             ReconfigureClass::HotTunnelAttach => self.hot_tunnel_attach(target).await?,
@@ -308,7 +342,8 @@ impl ControlService {
                 *self.session_profile.lock().await = Some(target.clone());
                 if let Err(error) = self.connect_locked(target.id).await {
                     if self.settings_intent.load(Ordering::SeqCst) == intent
-                        && previous.vpn_gate == target.vpn_gate
+                        && (previous.vpn_gate == target.vpn_gate
+                            && previous.chain_exit == target.chain_exit)
                     {
                         *self.session_profile.lock().await = Some(previous.clone());
                         let _ = self.connect_locked(previous.id).await;
@@ -318,6 +353,7 @@ impl ControlService {
             }
             ReconfigureClass::PersistOnly | ReconfigureClass::Reject => {}
         }
+        self.hot_update_traffic_policy(target).await?;
         self.apply_hot_profile_state(target).await;
         Ok(())
     }
@@ -356,6 +392,7 @@ fn to_proto(state: &NetworkSettingsState) -> v1::NetworkSettingsState {
             .unwrap_or_default(),
         session_id: state.session_id.clone().unwrap_or_default(),
         stored_profile: state.stored_profile.as_ref().map(profile_to_proto),
+        shared_network_profile: state.shared_network_profile.as_ref().map(profile_to_proto),
         applied_profile: state.applied_profile.as_ref().map(profile_to_proto),
         apply_status: match state.apply_status {
             ApplyStatus::NotRequired => 1,
@@ -395,6 +432,89 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn configuration_selection_and_library_deletion_share_one_transaction() {
+        use usque_core::chain_exit::{
+            ChainSource, ImportSecrets,
+            store::{ChainProfileStore, WindowsProfileCipher},
+        };
+        for select_first in [false, true] {
+            let (_directory, service) = service();
+            let summary = ChainProfileStore::new(&service.cache_dir, &WindowsProfileCipher).import(
+                ChainSource::OpenvpnCustom, "Race fixture", ImportSecrets::new("client\ndev tun\nproto tcp\nremote vpn.example 1194\nauth-user-pass\n<ca>\nTEST\n</ca>\n".into())
+            ).unwrap();
+            let mut profile = service.config_snapshot().await.active_profile().unwrap();
+            let mut selection = summary.selection();
+            selection.enabled = false;
+            profile.chain_exit = Some(selection);
+            let save = request(&profile, &["chain_exit"]);
+            let remove = v1::ChainProfileRequest {
+                action: "remove".into(),
+                profile_id: summary.id.to_string(),
+                revision: summary.edit_revision.to_string(),
+                ..Default::default()
+            };
+            let transaction = service.store.lock_exclusive().unwrap();
+            let first = service.clone();
+            let saving;
+            let deleting;
+            if select_first {
+                saving = tokio::spawn(async move { first.save_network_settings(save).await });
+                tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                    while service.config.try_read().is_ok() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                let second = service.clone();
+                deleting = tokio::spawn(async move { second.chain_profile_command(remove).await });
+            } else {
+                deleting = tokio::spawn(async move { first.chain_profile_command(remove).await });
+                tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                    while service.config.try_read().is_ok() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                let second = service.clone();
+                saving = tokio::spawn(async move { second.save_network_settings(save).await });
+            }
+            drop(transaction);
+            let (saved, removed) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                tokio::join!(saving, deleting)
+            })
+            .await
+            .unwrap();
+            let saved = saved.unwrap();
+            let removed: serde_json::Value =
+                serde_json::from_str(&removed.unwrap().unwrap().metadata_json).unwrap();
+            let library = ChainProfileStore::new(&service.cache_dir, &WindowsProfileCipher)
+                .list()
+                .unwrap();
+            if select_first {
+                assert_eq!(saved.unwrap().persisted, Some(true));
+                assert_eq!(removed["error"]["reason"], "profile_in_use");
+                assert_eq!(library.len(), 1);
+            } else {
+                assert!(saved.is_err());
+                assert!(removed["error"].is_null());
+                assert!(library.is_empty());
+            }
+            let latest = service.store.load().unwrap();
+            if let Some(id) = latest
+                .network
+                .chain_exit
+                .as_ref()
+                .and_then(|value| value.profile_id)
+            {
+                assert!(library.iter().any(|item| item.id == id));
+            }
+        }
+    }
+
     #[tokio::test]
     async fn saving_does_not_join_the_connection_executor() {
         let (_directory, service) = service();
@@ -413,6 +533,69 @@ mod tests {
         assert!(service.data_plane.lock().await.is_none());
         assert_eq!(service.store.load().unwrap().network.mtu, 1400);
         drop(lifecycle);
+    }
+
+    #[tokio::test]
+    async fn quic_hot_save_keeps_session_listeners_and_platform_leases() {
+        let (_directory, service) = service();
+        let country = usque_geo::CountryCode::parse("CN").unwrap();
+        let geoip = usque_geo::geoip_cache_path(&service.cache_dir, &country);
+        let geosite = usque_geo::geosite_cache_path(&service.cache_dir, &country);
+        std::fs::create_dir_all(geoip.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(geosite.parent().unwrap()).unwrap();
+        std::fs::write(
+            geoip,
+            include_bytes!("../../usque-geo/tests/fixtures/geoip-cn.dat"),
+        )
+        .unwrap();
+        std::fs::write(
+            geosite,
+            include_bytes!("../../usque-geo/tests/fixtures/geosite-cn.txt"),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.geo_direct_countries = vec!["CN".into()];
+        service
+            .install_test_session(profile.clone(), true, 3)
+            .await
+            .unwrap();
+        let (generation, connected_at) = {
+            let active = service.data_plane.lock().await;
+            let active = active.as_ref().unwrap();
+            (active.session_generation, active.connected_at)
+        };
+        for enabled in [true, false, true] {
+            profile.disable_quic = enabled;
+            let response = service
+                .save_network_settings(request(&profile, &["disable_quic"]))
+                .await
+                .unwrap();
+            assert_eq!(response.persisted, Some(true));
+            let _finished = service.mutation_lock.lock().await;
+            let state = service.network_settings_state().await;
+            assert_eq!(state.apply_status, 3);
+            assert_eq!(state.applied_profile.unwrap().disable_quic, enabled);
+            assert_eq!(service.store.load().unwrap().network.disable_quic, enabled);
+            let active = service.data_plane.lock().await;
+            let active = active.as_ref().unwrap();
+            assert_eq!(active.session_generation, generation);
+            assert_eq!(active.connected_at, connected_at);
+            assert_eq!(active.profile.geo_direct_countries, ["CN"]);
+            let crate::active_runtime::ActiveRuntime::Harness(harness) = &active.runtime else {
+                panic!("harness")
+            };
+            assert_eq!(harness.disable_quic, enabled);
+            assert_eq!(
+                (
+                    harness.reconnect_count,
+                    harness.reconfigure_count,
+                    harness.attach_count,
+                    harness.detach_count,
+                    harness.system_proxy_apply_count
+                ),
+                (3, 0, 0, 0, 0)
+            );
+        }
     }
 
     #[tokio::test]

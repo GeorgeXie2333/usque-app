@@ -127,6 +127,8 @@ pub enum GateFailure {
     Certificate,
     Configuration,
     AddressChanged,
+    Protocol,
+    Cleanup,
 }
 impl GateFailure {
     pub fn retryable(self) -> bool {
@@ -143,6 +145,20 @@ pub struct GateStatus {
     pub failure: Option<GateFailure>,
     #[serde(default)]
     pub warp_stage: Option<String>,
+    #[serde(default)]
+    pub current_profile: Option<Box<crate::chain_exit::ChainProfileSummary>>,
+    #[serde(default)]
+    pub dns_unavailable: bool,
+    #[serde(default)]
+    pub attempting_endpoint: Option<crate::chain_exit::Endpoint>,
+    #[serde(default)]
+    pub active_endpoint: Option<std::net::SocketAddr>,
+    #[serde(default)]
+    pub attempt_count: u32,
+    #[serde(default)]
+    pub candidate_count: u32,
+    #[serde(default)]
+    pub attempt_failures: Vec<GateFailure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

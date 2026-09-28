@@ -174,13 +174,17 @@ pub struct Path {
     /// Total number of packets sent with data retransmitted from this path.
     pub retrans_count: usize,
 
-    /// Total number of times PTO (probe timeout) fired.
+    /// Cumulative number of actual PTO (probe timeout) expirations.
     ///
-    /// Loss usually happens in a burst so the number of packets lost will
-    /// depend on the volume of inflight packets at the time of loss (which
-    /// can be arbitrary). PTO count measures the number of loss events and
-    /// provides a normalized loss metric.
+    /// A PTO can fire without packet loss. This is not a count of all loss
+    /// events, and ACK progress does not reset this cumulative counter.
     pub total_pto_count: usize,
+
+    /// Cumulative number of recovery loss-detection timeout callbacks.
+    ///
+    /// Includes loss-time and PTO callbacks, but not ACK-driven loss detection.
+    /// Unlike consecutive PTO counts, this does not reset after an ACK.
+    pub loss_detection_timeout_count: usize,
 
     /// Number of DATAGRAM frames sent on this path.
     pub dgram_sent_count: usize,
@@ -278,6 +282,7 @@ impl Path {
             recv_count: 0,
             retrans_count: 0,
             total_pto_count: 0,
+            loss_detection_timeout_count: 0,
             dgram_sent_count: 0,
             dgram_lost_count: 0,
             dgram_recv_count: 0,
@@ -525,8 +530,13 @@ impl Path {
             }
         }
 
-        // Track PTO timeout event
-        self.total_pto_count += 1;
+        self.loss_detection_timeout_count += 1;
+
+        // Loss-time and PTO expiry share this callback. Only the latter is
+        // a PTO event; time-threshold loss detection must not inflate it.
+        if outcome.pto_expired {
+            self.total_pto_count += 1;
+        }
 
         outcome
     }
@@ -568,6 +578,7 @@ impl Path {
             lost: self.recovery.lost_count(),
             retrans: self.retrans_count,
             total_pto_count: self.total_pto_count,
+            loss_detection_timeout_count: self.loss_detection_timeout_count,
             dgram_recv: self.dgram_recv_count,
             dgram_sent: self.dgram_sent_count,
             dgram_lost: self.dgram_lost_count,
@@ -963,13 +974,17 @@ pub struct PathStats {
     /// The number of sent QUIC packets with retransmitted data.
     pub retrans: usize,
 
-    /// The number of times PTO (probe timeout) fired.
+    /// Cumulative number of actual PTO (probe timeout) expirations.
     ///
-    /// Loss usually happens in a burst so the number of packets lost will
-    /// depend on the volume of inflight packets at the time of loss (which
-    /// can be arbitrary). PTO count measures the number of loss events and
-    /// provides a normalized loss metric.
+    /// A PTO can fire without packet loss. This is not a count of all loss
+    /// events, and ACK progress does not reset this cumulative counter.
     pub total_pto_count: usize,
+
+    /// Cumulative number of recovery loss-detection timeout callbacks.
+    ///
+    /// Includes loss-time and PTO callbacks, but not ACK-driven loss detection.
+    /// Unlike consecutive PTO counts, this does not reset after an ACK.
+    pub loss_detection_timeout_count: usize,
 
     /// The number of DATAGRAM frames received.
     pub dgram_recv: usize,
@@ -1063,6 +1078,10 @@ impl std::fmt::Debug for PathStats {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "path_pto_tests.rs"]
+mod pto_accounting_tests;
 
 #[cfg(test)]
 mod tests {

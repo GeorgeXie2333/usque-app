@@ -9,6 +9,22 @@ import java.util.ArrayDeque
 import java.util.concurrent.Executor
 
 class AndroidDiagnosticsCoordinatorTest {
+    @Test
+    fun clearDropsSessionsAndTimelineAndRejectsOldWorkerCompletion() {
+        val executor = QueuedExecutor()
+        var sequence = 0
+        val coordinator = AndroidDiagnosticsCoordinator(executor = executor, newSessionId = { "s${++sequence}" })
+        coordinator.start("standard", snapshot(), true, true, true, true)
+        coordinator.clear()
+        assertEquals(null, coordinator.current())
+        assertEquals(emptyList<Any>(), coordinator.timeline()["events"])
+        val fresh = coordinator.start("standard", snapshot(), true, true, true, true)
+        executor.runAll()
+        assertEquals(fresh["session_id"], coordinator.current()?.get("session_id"))
+        coordinator.clear()
+        assertEquals(null, coordinator.current())
+    }
+
     private class QueuedExecutor : Executor {
         private val tasks = ArrayDeque<Runnable>()
 

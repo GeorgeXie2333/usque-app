@@ -366,6 +366,7 @@ enum ConnectionTimelineEventType {
   recoveryProbeFailed,
   pathPromoted,
   queueSaturated,
+  queueBackpressured,
   disconnected,
   failed,
   migrationStarted,
@@ -391,6 +392,7 @@ class ConnectionTimelineEvent {
     this.transport,
     this.addressFamily,
     this.durationMilliseconds,
+    this.queueKind,
     this.failure,
   });
 
@@ -402,6 +404,7 @@ class ConnectionTimelineEvent {
   final String? transport;
   final String? addressFamily;
   final int? durationMilliseconds;
+  final String? queueKind;
   final TransportFailureInfo? failure;
 
   @override
@@ -415,6 +418,7 @@ class ConnectionTimelineEvent {
             stage == other.stage &&
             transport == other.transport &&
             addressFamily == other.addressFamily &&
+            queueKind == other.queueKind &&
             durationMilliseconds == other.durationMilliseconds &&
             failure == other.failure;
   }
@@ -429,6 +433,7 @@ class ConnectionTimelineEvent {
     transport,
     addressFamily,
     durationMilliseconds,
+    queueKind,
     failure,
   );
 }
@@ -508,6 +513,7 @@ ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
               stage: event['stage'] as String?,
               transport: event['transport'] as String?,
               addressFamily: event['address_family'] as String?,
+              queueKind: event['queue_kind'] as String?,
               durationMilliseconds: (event['duration_milliseconds'] as num?)
                   ?.toInt(),
               failure: failure is Map

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/services.dart';
@@ -61,6 +62,8 @@ abstract interface class EngineClient {
   );
 
   Future<void> upsertProfile(UsqueProfile profile);
+
+  Future<void> renameProfile(String profileId, String name);
 
   Future<void> deleteProfile(String profileId);
 
@@ -188,7 +191,114 @@ abstract interface class VpnGateClient {
   Future<void> vpnGateNode(VpnGateNodeRequest request);
 }
 
-class MethodChannelEngineClient implements EngineClient, VpnGateClient {
+abstract interface class WarpWireguardClient {
+  Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request);
+}
+
+/// A document read once by the platform picker. Never contains a path or URI.
+class ChainConfigurationFile {
+  const ChainConfigurationFile({
+    required this.name,
+    this.configuration,
+    this.errorCode,
+  });
+  final String name;
+  final String? configuration;
+  final String? errorCode;
+}
+
+abstract interface class ChainProfileClient {
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request);
+  Future<List<ChainConfigurationFile>> pickChainConfigurations();
+}
+
+Future<List<ChainConfigurationFile>> pickChainConfigurationFiles() async {
+  const channel = MethodChannel('io.github.georgexie2333.usque/engine');
+  List<Object?>? files;
+  try {
+    files = await channel.invokeListMethod<Object?>('readChainConfigurations');
+  } on MissingPluginException {
+    throw const EngineException(
+      'CHAIN_FILE_UNAVAILABLE',
+      'File picker unavailable.',
+    );
+  } on PlatformException catch (error) {
+    final code = switch (error.code) {
+      'CHAIN_FILE_UNAVAILABLE' ||
+      'CHAIN_FILE_BUSY' ||
+      'CHAIN_FILE_COUNT_LIMIT' => error.code,
+      _ => 'CHAIN_FILE_READ_FAILED',
+    };
+    throw EngineException(code, 'Configuration files could not be read.');
+  }
+  if (files == null) return const [];
+  if (files.length > 128) {
+    throw const EngineException(
+      'CHAIN_FILE_COUNT_LIMIT',
+      'Select at most 128 files.',
+    );
+  }
+  return files
+      .map((entry) {
+        final file = entry as Map<Object?, Object?>;
+        final name = file['name'] as String? ?? '';
+        final error = file['error'] as String?;
+        if (error != null) {
+          return ChainConfigurationFile(name: name, errorCode: error);
+        }
+        final bytes = file['bytes'] as Uint8List?;
+        if (bytes == null || bytes.isEmpty) {
+          return ChainConfigurationFile(
+            name: name,
+            errorCode: 'CHAIN_FILE_READ_FAILED',
+          );
+        }
+        if (bytes.length > 128 * 1024) {
+          return ChainConfigurationFile(
+            name: name,
+            errorCode: 'CHAIN_FILE_TOO_LARGE',
+          );
+        }
+        // Platform replies may be immutable. Wipe only our own mutable copy.
+        final owned = Uint8List.fromList(bytes);
+        try {
+          return ChainConfigurationFile(
+            name: name,
+            configuration: utf8.decode(owned),
+          );
+        } on FormatException {
+          return ChainConfigurationFile(
+            name: name,
+            errorCode: 'CHAIN_FILE_ENCODING_INVALID',
+          );
+        } finally {
+          owned.fillRange(0, owned.length, 0);
+        }
+      })
+      .toList(growable: false);
+}
+
+class MethodChannelEngineClient
+    implements
+        EngineClient,
+        VpnGateClient,
+        ChainProfileClient,
+        WarpWireguardClient {
+  @override
+  Future<Map<Object?, Object?>> warpWireguard(
+    Map<String, Object?> request,
+  ) async =>
+      await _invoke<Map<Object?, Object?>>('warpWireguard', request) ??
+      const {};
+  @override
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request) async =>
+      ChainProfileResult.fromMap(
+        await _invoke<Map<Object?, Object?>>('chainProfile', request) ??
+            const {},
+      );
+  @override
+  Future<List<ChainConfigurationFile>> pickChainConfigurations() =>
+      pickChainConfigurationFiles();
   @override
   Future<VpnGateDirectory> listVpnGate({
     String? countryCode,
@@ -381,6 +491,11 @@ class MethodChannelEngineClient implements EngineClient, VpnGateClient {
       );
     }
     return ProfileCatalog(
+      sharedNetwork: map['shared_network_profile'] is Map
+          ? UsqueProfile.fromMap(
+              Map<String, Object?>.from(map['shared_network_profile'] as Map),
+            )
+          : null,
       profiles: decodedProfiles,
       activeProfileId: active,
       identityStates: _identityStatesFromMap(map),
@@ -462,6 +577,10 @@ class MethodChannelEngineClient implements EngineClient, VpnGateClient {
   @override
   Future<void> upsertProfile(UsqueProfile profile) =>
       _invoke<void>('upsertProfile', profile.toMap());
+
+  @override
+  Future<void> renameProfile(String profileId, String name) =>
+      _invoke<void>('renameProfile', {'profile_id': profileId, 'name': name});
 
   @override
   Future<void> deleteProfile(String profileId) =>
@@ -547,7 +666,13 @@ class MethodChannelEngineClient implements EngineClient, VpnGateClient {
     required String username,
     required String password,
     bool confirmed = true,
-  }) {
+  }) async {
+    if ((await getCapabilities())?.sharedProxyAuthApplication != true) {
+      throw const EngineException(
+        'PROXY_AUTH_UNSUPPORTED',
+        'Update the Engine before saving shared credentials.',
+      );
+    }
     return _invoke<void>('updateProxyAuth', <String, Object>{
       'profile_id': profileId,
       'username': username,

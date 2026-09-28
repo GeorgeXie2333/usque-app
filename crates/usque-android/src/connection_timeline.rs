@@ -55,6 +55,7 @@ fn to_value(snapshot: &ConnectionTimelineSnapshot) -> Value {
             "timestamp_unix_milliseconds": millis(event.timestamp.duration_since(UNIX_EPOCH).unwrap_or_default()),
             "elapsed_from_attempt_start_milliseconds": millis(event.elapsed_from_attempt_start),
             "event_type": event_type(event.event_type),
+            "queue_kind": event.queue_kind.map(usque_transport::QueueKind::as_str),
             "stage": event.stage.map(|stage| stage.as_str()),
             "transport": event.transport.map(|transport| match transport { Transport::Http2 => "http2", Transport::Http3 => "http3" }),
             "address_family": event.address_family.map(|family| match family { AddressFamily::Ipv4 => "ipv4", AddressFamily::Ipv6 => "ipv6" }),
@@ -106,6 +107,7 @@ fn event_type(event: ConnectionEventType) -> &'static str {
         ConnectionEventType::MigrationPromoted => "migration_promoted",
         ConnectionEventType::MigrationFailed => "migration_failed",
         ConnectionEventType::QueueSaturated => "queue_saturated",
+        ConnectionEventType::QueueBackpressured => "queue_backpressured",
         ConnectionEventType::PmtuChanged => "pmtu_changed",
         ConnectionEventType::PmtuRevalidationStarted => "pmtu_revalidation_started",
         ConnectionEventType::PmtuRevalidationFailed => "pmtu_revalidation_failed",
@@ -128,6 +130,7 @@ mod tests {
         );
         failure.sanitized_detail = Some("private.example 192.0.2.1 SSID=private".to_owned());
         let event = ConnectionEvent {
+            queue_kind: None,
             sequence: 1,
             timestamp: UNIX_EPOCH + Duration::from_secs(1),
             elapsed_from_attempt_start: Duration::from_millis(8),

@@ -2,12 +2,11 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowPl = <String, String>{
   'local_proxy_settings': 'Ustawienia lokalnego proxy',
-  'proxy_switches_hint':
-      'Zmiany przełączników są zapisywane automatycznie. Zmiany nasłuchu i DNS zatwierdź przyciskiem Zastosuj zmiany.',
+  'proxy_switches_hint': 'Przełączniki działają od razu.',
   'cc_label': 'Kontrola przeciążenia HTTP/3',
   'cc_help': 'Zacznie obowiązywać przy następnym ręcznym połączeniu.',
-  'cc_upgrade': 'Wymagana aktualizacja Engine.',
-  'cc_h2': 'HTTP/2 korzysta z systemowego TCP.',
+  'cc_upgrade': 'Zaktualizuj Usque w Ustawieniach, aby użyć tej opcji.',
+  'cc_h2': 'Ta opcja dotyczy tylko połączeń HTTP/3.',
   'cc_saved': 'Zapisano',
   'cc_pending': 'Oczekuje na następne ręczne połączenie.',
   'save_changes': 'Zastosuj zmiany',
@@ -15,15 +14,13 @@ const Map<String, String> kUiWorkflowPl = <String, String>{
   'unsaved_changes': 'Niezastosowane zmiany',
   'changes_applied': 'Zastosowano zmiany',
   'changes_apply_hint':
-      'Zmiany zaczną obowiązywać dopiero po ich zastosowaniu.',
+      'Zmiany zaczną obowiązywać po wybraniu „Zastosuj zmiany”.',
   'changes_failed':
       'Nie można zastosować zmian. Sprawdź zapisane wartości i spróbuj '
       'ponownie.',
   'form_errors': 'Sprawdź podświetlone pola przed zastosowaniem zmian.',
   'discard_changes_title': 'Odrzucić niezastosowane zmiany?',
-  'discard_changes_body':
-      'Twoje zmiany nie zostały zastosowane. Kontynuuj edycję, aby je '
-      'zapisać, albo odrzuć je, aby wyjść.',
+  'discard_changes_body': 'Niezastosowane zmiany zostaną utracone.',
   'keep_editing': 'Kontynuuj edycję',
   'discard_changes': 'Odrzuć zmiany',
   'invalid_port': 'Wpisz port z zakresu 1–65535.',
@@ -46,19 +43,16 @@ const Map<String, String> kUiWorkflowPl = <String, String>{
   'home_kill_switch': 'Kill Switch',
   'home_traffic': 'Ruch',
   'home_traffic_window': 'Ostatnie 60 sekund',
-  'home_traffic_idle': 'Zaczyna się po połączeniu',
-  'home_traffic_waiting': 'Oczekiwanie na próbki',
-  'home_traffic_unavailable': 'Historia niedostępna',
-  'home_traffic_stale': 'Próbki opóźnione',
-  'home_outputs_next': 'Wyjścia włączane po połączeniu',
-  'home_outputs_retry': 'Wyjścia skonfigurowane na następną próbę',
+  'home_traffic_idle': 'Ruch pojawi się po połączeniu',
+  'home_traffic_waiting': 'Oczekiwanie na dane ruchu',
+  'home_traffic_unavailable': 'Brak historii ruchu',
+  'home_traffic_stale': 'Aktualizacja ruchu opóźniona',
+  'home_outputs_next': 'Dostępne po połączeniu',
+  'home_outputs_retry': 'VPN i proxy przy następnym połączeniu',
   'connection_protection_group': 'Połączenie i ochrona',
   'proxy_routing_group': 'Proxy i trasowanie',
   'application_group': 'Aplikacja',
   'proxy_settings_link': 'Adresy nasłuchu, porty, uwierzytelnianie i DNS.',
-  'proxy_auth_separate':
-      'Poświadczenia są zapisywane osobno przyciskiem Zapisz '
-      'poświadczenia.',
   'reset_draft_hint':
       'W tym formularzu zostaną wczytane wartości domyślne. Zastosuj '
       'zmiany, aby zaczęły obowiązywać.',
@@ -82,47 +76,34 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_finding_invalid_configuration':
       'Niestandardowa konfiguracja DNS jest nieprawidłowa.',
   'nq_finding_dns_system':
-      'Wybrano fizyczny systemowy DNS; sprawdzenia szyfrowanego DNS nie '
-      'mają zastosowania.',
+      'Używany jest DNS bieżącej sieci; kontrole szyfrowanego DNS nie mają zastosowania.',
   'nq_finding_unsupported':
-      'Szyfrowany DNS jest niedostępny w tym Engine; przełączenie na '
-      'nieszyfrowany DNS nie jest dozwolone.',
+      'Zaktualizuj Usque, aby używać szyfrowanego DNS. Zapytania nie przejdą na nieszyfrowany DNS.',
   'nq_finding_dns_custom_valid':
       'Niestandardowa konfiguracja szyfrowanego DNS jest prawidłowa. '
       'Przełączenie na nieszyfrowany DNS jest wyłączone.',
   'nq_finding_stale':
       'Odczyt jest nieaktualny albo sieć fizyczna uległa zmianie.',
   'nq_finding_rtt_high': 'Zmierzony czas rundy jest podwyższony.',
-  'nq_finding_healthy':
-      'Dostępny pomiar lokalny mieści się w oczekiwanym zakresie.',
+  'nq_finding_healthy': 'Dostępne pomiary połączenia mieszczą się w normie.',
   'nq_finding_loss_high': 'Utrata pakietów w interwale jest podwyższona.',
   'nq_finding_queue_pressure':
-      'Kolejka jest obciążona albo zarejestrowała odrzucenia podczas tego '
-      'połączenia.',
-  'nq_finding_pmtu_degraded': 'Weryfikacja MTU ścieżki jest pogorszona.',
+      'Ruch czeka na wysłanie lub podczas tego połączenia odrzucono część danych.',
+  'nq_finding_pmtu_degraded':
+      'Usque nie zdołało potwierdzić odpowiedniego rozmiaru pakietów dla tego połączenia.',
   'nq_finding_migration_reconnect':
-      'Migracja jest niedostępna na tej ścieżce; zmiana sieci powoduje '
-      'pełne ponowne połączenie.',
+      'Przy zmianie sieci to połączenie musi zostać nawiązane ponownie.',
   'nq_finding_dns_changed':
       'Zapisany tryb DNS różni się od trybu działającego połączenia.',
-  'nq_finding_dns_runtime':
-      'Szyfrowany DNS zakończył się powodzeniem. Stan lokalny nie jest '
-      'zewnętrznym dowodem braku wycieków.',
+  'nq_finding_dns_runtime': 'Szyfrowany DNS działa.',
   'nq_finding_dns_degraded':
-      'Szyfrowany DNS jest pogorszony; nieudane zapytania bezpośrednie nie '
-      'przełączają się na systemowy DNS.',
-  'nq_finding_probe_unsafe':
-      'Pominięto sondę: wymagany bezpieczny stan lub zapisana tożsamość '
-      'jest niedostępna. Aktywny tunel nigdy nie jest duplikowany.',
-  'nq_finding_probe_success':
-      'Uwierzytelniona sonda została ukończona. To nie jest zewnętrzny '
-      'test wycieku pakietów.',
-  'nq_finding_probe_cancelled': 'Sonda anulowana i zażądano czyszczenia.',
+      'Szyfrowany DNS ma problemy. Nieudane zapytania nie zostaną wysłane do nieszyfrowanego DNS sieci.',
+  'nq_finding_probe_unsafe': 'Ten pomiar jest niedostępny w bieżącym stanie.',
+  'nq_finding_probe_success': 'To sprawdzenie zakończyło się powodzeniem.',
+  'nq_finding_probe_cancelled': 'To sprawdzenie zostało anulowane.',
   'nq_finding_probe_timeout':
-      'Ograniczona sonda nie zakończyła się przed terminem.',
-  'nq_finding_probe_failed':
-      'Uwierzytelniona sonda nie powiodła się; nie próbowano '
-      'niebezpiecznego przełączenia.',
+      'Sprawdzenie diagnostyki przekroczyło limit czasu',
+  'nq_finding_probe_failed': 'To sprawdzenie nie powiodło się.',
   'diag_fix_nq_profile':
       'Przejrzyj niestandardowe pola DNS i nazwę certyfikatu. Nie wyłączaj '
       'weryfikacji TLS.',
@@ -134,12 +115,11 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
       'Połącz ponownie, aby zastosować zapisaną konfigurację.',
   'nav_network_quality': 'Jakość',
   'network_quality': 'Jakość sieci',
-  'nq_subtitle': 'Odczytaj połączenie, nie tylko prędkość.',
+  'nq_subtitle': 'Opóźnienie, utrata pakietów i przepustowość.',
   'nq_local_only': 'Tylko pomiary lokalne. Nic nie jest wysyłane.',
   'nq_doctor': 'Uruchom diagnostę sieci',
   'nq_doctor_help':
-      'Sprawdzenia standardowe odczytują tylko stan lokalny. Nie otwierają '
-      'połączeń zewnętrznych ani nie zmieniają ustawień.',
+      'Standardowe kontrole nie wysyłają ruchu ani nie zmieniają ustawień.',
   'nq_live': 'Na żywo',
   'nq_stale': 'Nieaktualne odczyty',
   'nq_updated': 'Ostatnia próbka',
@@ -155,14 +135,10 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_not_ready': 'Niegotowe',
   'nq_unsupported': 'Nieobsługiwane',
   'nq_capability_missing':
-      'Ten Engine nie udostępnia jakości sieci. Istniejące elementy '
-      'sterowania połączeniem nadal działają.',
-  'nq_empty':
-      'Połącz, aby zobaczyć pomiary. Nieznane wartości nie są pokazywane '
-      'jako zero.',
+      'Ta wersja nie pokazuje jakości połączenia. Łączenie i rozłączanie nadal działają. Sprawdź aktualizacje w Ustawieniach.',
+  'nq_empty': 'Połącz się, aby zobaczyć pomiary.',
   'nq_stale_help':
-      'Źródło przestało się aktualizować. To poprzednie odczyty; luki '
-      'pozostają lukami.',
+      'Aktualizacje są wstrzymane. Wyświetlane są ostatnie odczyty.',
   'nq_rtt': 'Czas rundy',
   'nq_latest': 'Najnowszy',
   'nq_smoothed': 'Wygładzony',
@@ -190,17 +166,17 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_pmtu': 'MTU ścieżki',
   'nq_outer_pmtu': 'Limit ładunku UDP zewnętrznego',
   'nq_inner_payload': 'Limit ładunku CONNECT-IP',
-  'nq_pmtu_help': 'Wykrywanie ścieżki nie zwiększa MTU TUN urządzenia.',
+  'nq_pmtu_help':
+      'To rozmiar pakietu obsługiwany przez ścieżkę sieciową. Usque sprawdza go automatycznie, aby ograniczać straty. Kontrola nie zwiększa MTU VPN z Zaawansowanych ustawień sieci.',
   'nq_migration': 'Migracja sieci',
   'nq_migration_help':
-      'Jedno połączenie, jedna ścieżka danych. Tylko ta sama rodzina IP; '
-      'to nie wielościeżkowość.',
+      'Usque próbuje utrzymać połączenie przy zmianie sieci, np. z Wi-Fi na komórkową. Obie muszą używać tej samej wersji IP, IPv4 lub IPv6.',
   'nq_attempts': 'Próby',
   'nq_successes': 'Udane',
   'nq_failures': 'Nieudane',
   'nq_last_duration': 'Ostatni czas trwania',
   'nq_direct_dns': 'DNS bezpośredni',
-  'nq_system_dns': 'Fizyczny systemowy DNS',
+  'nq_system_dns': 'DNS bieżącej sieci',
   'nq_doh': 'DNS over HTTPS',
   'nq_dot': 'DNS over TLS',
   'nq_ready': 'Gotowe',
@@ -208,8 +184,7 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_timeouts': 'Przekroczenia czasu',
   'nq_last_rtt': 'Ostatni RTT',
   'nq_dns_redacted':
-      'Nazwy resolvera i adresy bootstrap są pokazywane tylko w '
-      'ustawieniach.',
+      'Domeny i adresy IP serwerów DNS są widoczne tylko w ustawieniach.',
   'nq_queues': 'Obciążenie kolejki',
   'nq_queue_details': 'Kolejki niskiego poziomu',
   'nq_queue_empty': 'Brak jeszcze pomiarów kolejki.',
@@ -244,78 +219,62 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_phase_unknown': 'Niegotowe',
   'nq_phase_unsupported': 'Nieobsługiwane',
   'nq_reason_family_unavailable':
-      'Bieżąca rodzina IP jest niedostępna; używane jest pełne ponowne '
-      'połączenie.',
+      'Nowa sieć nie obsługuje tej samej wersji IP. Należy połączyć się ponownie.',
   'nq_reason_socket_protect_failed':
-      'Nie można przygotować chronionego gniazda kandydującego.',
+      'Usque nie mogło bezpiecznie użyć nowej sieci. Jeśli połączenie nie wróci, połącz się ręcznie.',
   'nq_reason_generation_changed_during_setup':
       'Sieć zmieniła się ponownie podczas przygotowania.',
   'nq_reason_peer_cid_unavailable':
-      'Druga strona nie ma zapasowego identyfikatora połączenia.',
+      'Serwer nie utrzymał połączenia w nowej sieci. W razie potrzeby połącz się ręcznie.',
   'nq_reason_local_cid_unavailable':
-      'Lokalny identyfikator połączenia jest niedostępny.',
+      'Usque nie utrzymało połączenia w nowej sieci. W razie potrzeby połącz się ręcznie.',
   'nq_reason_path_probe_rejected':
-      'Nie można zweryfikować ścieżki kandydującej.',
+      'Nowa sieć nie przeszła kontroli połączenia. Sprawdź jej dostęp do Internetu.',
   'nq_reason_path_validation_timeout':
-      'Weryfikacja ścieżki przekroczyła limit czasu; dostępne jest ponowne '
-      'połączenie.',
-  'nq_reason_superseded': 'Nowsza zmiana sieci zastąpiła tę próbę.',
+      'Nowa sieć nie odpowiedziała na czas. Sprawdź ją i w razie potrzeby połącz się ponownie.',
+  'nq_reason_superseded':
+      'Sieć zmieniła się ponownie przed zakończeniem przełączania.',
   'nq_reason_promotion_failed':
-      'Nie można bezpiecznie dokończyć przełączenia ścieżki.',
+      'Usque nie zakończyło bezpiecznie zmiany sieci. Jeśli połączenie nie wróci, połącz się ręcznie.',
   'nq_reason_connection_closed':
-      'Połączenie zostało zamknięte podczas migracji.',
+      'Połączenie zamknięto podczas zmiany sieci. Połącz się ponownie.',
   'nq_reason_unsupported': 'Migracja jest niedostępna w tym połączeniu.',
   'nq_reason_unknown': 'Brak dostępnego obsługiwanego powodu.',
   'nq_dns_custom': 'Niestandardowy szyfrowany resolver',
-  'nq_dns_server': 'Nazwa serwera TLS',
+  'nq_dns_server': 'Domena serwera DNS',
   'nq_dns_path': 'Ścieżka HTTPS',
   'nq_dns_port': 'Port (0 używa wartości domyślnej)',
-  'nq_dns_bootstrap': 'Adresy IP bootstrap',
+  'nq_dns_bootstrap': 'Adresy IP serwera DNS',
   'nq_dns_bootstrap_help':
-      'Wpisz 1–8 numerycznych adresów IP, po jednym w wierszu. Nazwy '
-      'hostów nie są rozwiązywane.',
+      'Wpisz 1–8 IP od dostawcy DNS, po jednym w wierszu, np. 1.1.1.1. Usque łączy się z nimi bezpośrednio, bez wcześniejszego wyszukiwania nazwy serwera.',
   'nq_dns_no_fallback':
-      'Jeśli szyfrowany DNS bezpośredni zawiedzie, zapytanie kończy się '
-      'niepowodzeniem. Nigdy nie następuje przełączenie na systemowy ani '
-      'nieszyfrowany DNS.',
+      'Jeśli szyfrowany DNS jest niedostępny, zapytania kończą się błędem zamiast przełączenia na nieszyfrowany DNS.',
   'nq_dns_system_privacy':
-      'Fizyczny systemowy DNS może ujawnić nazwy zapytań bezpośrednich '
-      'dostawcy DNS sieci fizycznej.',
+      'Dostawca DNS bieżącej sieci może widzieć domeny żądane przez ruch bezpośredni.',
   'nq_dns_scope':
-      'Używane tylko do zapytań bezpośrednich wybranych przez Geo. DNS '
-      'tunelu pozostaje bez zmian.',
+      'Dotyczy ruchu pasującego do reguł krajów połączeń bezpośrednich. DNS ruchu VPN pozostaje bez zmian.',
   'nq_dns_no_capability':
-      'Ten Engine nie może używać szyfrowanego DNS bezpośredniego. '
-      'Zapisane ustawienia zostaną zachowane. Możesz jawnie wybrać '
-      'systemowy DNS.',
+      'Zaktualizuj Usque, aby używać szyfrowanego DNS dla ruchu bezpośredniego. Ustawienia zostaną zachowane. Możesz wybrać DNS bieżącej sieci, jeśli akceptujesz wpływ na prywatność.',
   'nq_dns_invalid_name':
-      'Wpisz nazwę DNS bez spacji, składni URL ani symboli wieloznacznych.',
+      'Wpisz domenę, np. dns.example.com, bez https://, portu i spacji.',
   'nq_dns_invalid_path':
-      'Użyj ścieżki zaczynającej się od / o długości do 256 znaków, bez '
-      'zapytania, fragmentu ani spacji.',
-  'nq_dns_invalid_bootstrap':
-      'Użyj 1–8 unikatowych adresów IP unicast; bez adresu nieokreślonego, '
-      'multicast, broadcast ani IPv6 link-local.',
-  'nq_dns_invalid_port': 'Wpisz wartość 0–65535.',
+      'Wpisz ścieżkę, np. /dns-query, do 256 znaków. Usuń spacje i części zaczynające się od ? lub #.',
+  'nq_dns_invalid_bootstrap': 'Wpisz od 1 do 8 adresów IP serwera.',
+  'nq_dns_invalid_port': 'Wpisz port od 1 do 65535 lub 0, aby użyć domyślnego.',
   'nq_dns_invalid_mode': 'Wybierz obsługiwany tryb DNS.',
   'nq_doctor_deep_title': 'Uruchomić głębokie sprawdzenia sieci?',
   'nq_doctor_deep_body':
-      'Głębokie sprawdzenia mogą wysłać testowe zapytanie DNS do '
-      'skonfigurowanego resolvera i zweryfikować chronioną ścieżkę QUIC. '
-      'Trwają najwyżej 15 sekund, można je anulować, nigdy nie tworzą '
-      'drugiego tunelu przenoszącego dane i nigdy nie zmieniają DNS, tras, '
-      'profilu ani transportu.',
+      'Testy mogą wysyłać ruch próbny. Trwają do 15 sekund i można je anulować. Ustawienia połączenia nie ulegną zmianie.',
   'nq_doctor_deep_run': 'Uruchom głębokie sprawdzenia',
   'nq_doctor_evidence':
-      'Lokalne sprawdzenia opisują konfigurację i zaobserwowany stan. Nie '
-      'stanowią zewnętrznego dowodu braku wycieków DNS.',
+      'Te testy nie pozwalają potwierdzić, czy występują wycieki DNS.',
 };
 
 const Map<String, String> kWindowsRecoveryPl = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      "Zaktualizuj jednocześnie aplikację i Windows Agent, aby ponownie używać urządzenia TUN. Nie rozpoczęto nowego połączenia VPN.",
+      'Składniki połączenia Usque wymagają wspólnej aktualizacji. Sprawdź aktualizacje w Ustawieniach. Nie uruchomiono nowego połączenia VPN.',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      "Poprzednie urządzenie TUN nadal wymaga odzyskania. Całkowicie zamknij Usque i otwórz ponownie, aby spróbować jeszcze raz, lub sprawdź diagnostykę lokalną.",
+      'Czyszczenie poprzedniego połączenia VPN nie zostało zakończone. Całkowicie zamknij Usque i otwórz ponownie. Jeśli to nie pomoże, otwórz Diagnostykę.',
   'WINDOWS_RECOVERY_FAILED':
       'Nie można w pełni przywrócić poprzedniego stanu sieci VPN. Nie '
       'rozpoczęto nowego połączenia VPN. Ponów połączenie albo sprawdź '
@@ -325,10 +284,7 @@ const Map<String, String> kWindowsRecoveryPl = <String, String>{
       'automatycznych próbach. Ponów, gdy będziesz gotowy, albo sprawdź '
       'lokalną diagnostykę.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Automatyczna naprawa została zatrzymana, ponieważ poprzedniego '
-      'stanu sieci Windows nie można było bezpiecznie zweryfikować. '
-      'Uruchom ponownie Agent albo zaktualizuj Usque, a następnie sprawdź '
-      'lokalną diagnostykę.',
+      'Automatyczną naprawę zatrzymano, ponieważ nie potwierdzono bezpiecznego przywrócenia poprzednich ustawień VPN. Sprawdź aktualizacje w Ustawieniach; jeśli problem pozostanie, wyeksportuj pakiet diagnostyczny.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Odzyskiwanie sieci Windows trwa dłużej niż oczekiwano. Nie '
       'rozpoczęto nowego połączenia VPN. Poczekaj na zakończenie '
@@ -338,39 +294,38 @@ const Map<String, String> kWindowsRecoveryPl = <String, String>{
       'Automatyczne odzyskiwanie zostało zatrzymane, aby chronić aktywne '
       'połączenie.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'Ten Agent systemu Windows nie obsługuje bezpiecznego automatycznego '
-      'odzyskiwania. Zaktualizuj aplikację i Agent razem, a następnie '
-      'ponów.',
+      'Ta instalacja nie przywraca automatycznie poprzednich ustawień VPN. Zaktualizuj Usque w Ustawieniach i spróbuj ponownie.',
 };
 
 const String kWindowsAdapterCleanupPl =
-    'Nie można usunąć poprzedniego adaptera Wintun albo nie można '
-    'potwierdzić jego usunięcia. Nie rozpoczęto nowego połączenia VPN.';
+    'Nie udało się usunąć wirtualnej karty sieciowej poprzedniego połączenia lub potwierdzić jej usunięcia. Nie uruchomiono nowego połączenia VPN.';
 
 const Map<String, String> kL4Pl = <String, String>{
-  'l4_quic_not_ready': 'Oczekiwanie na gotową sesję QUIC',
+  'l4_quic_not_ready': 'Przygotowywanie połączenia L4',
   'l4_unsupported_packets': 'Odrzucono nieobsługiwane lub uszkodzone pakiety',
-  'l4_budget_rejections': 'Odrzucone przyjęcia zasobów',
+  'l4_budget_rejections': 'Połączenia odrzucone z braku zasobów',
   'l4_not_applicable': 'Nie dotyczy (L4)',
   'l4_mode': 'L4 (eksperymentalny)',
-  'l4_transport_hint': 'Tylko TCP; DNS TUN używa TCP. Auto nie obejmuje L4.',
+  'l4_transport_hint':
+      'Tylko TCP. Aplikacje wymagające UDP mogą nie działać. Tryb automatyczny nie wybiera L4.',
   'l4_explanation':
-      'Tylko TCP przez HTTP/3. Obsługuje VPN/TUN, SOCKS5 i HTTP; DNS TUN jest zamieniany na TCP. Auto nigdy nie wybiera L4. Inne UDP, zdalny ping, fragmenty IP i nagłówki rozszerzeń nie są obsługiwane; niektóre aplikacje mogą nie działać.',
+      'L4 przenosi TCP przez HTTP/3 i działa z VPN oraz proxy SOCKS5 i HTTP. Zapytania DNS z VPN są zamieniane na TCP. Aplikacje wymagające innego ruchu UDP, zdalnego Ping, fragmentów IP lub nagłówków rozszerzeń mogą nie działać.',
   'l4_unsupported':
-      'Ten silnik nie zadeklarował pełnej obsługi L4. Nie można włączyć L4.',
+      'L4 jest niedostępne w tej wersji Usque. Sprawdź aktualizacje w Ustawieniach.',
   'l4_sni_identity':
-      'Tylko do odczytu: pochodzi z wczytanej tożsamości konta. Istniejący SNI CONNECT-IP zostaje zachowany.',
+      'Ustawiane automatycznie przez konto. Nazwa serwera dla innych trybów połączenia pozostaje zachowana.',
   'l4_edge_requires_l4':
-      'DNS rozwiązywany na brzegu wymaga L4. Wybierz inny tryb DNS proxy przed przełączeniem na Auto, H3 lub H2.',
+      'DNS rozwiązywany na brzegu działa tylko z L4. Przed przełączeniem na „Auto”, HTTP/3 lub HTTP/2 wybierz inny tryb DNS proxy.',
   'proxy_dns_edge_resolved':
       'Brzeg Cloudflare (tylko L4; bez lokalnego wyszukiwania)',
-  'l4_verified': 'L4 CONNECT zweryfikowany',
-  'l4_unverified': 'QUIC gotowy; L4 CONNECT jeszcze niezweryfikowany',
-  'l4_status_unknown': 'Stan weryfikacji L4 nieznany',
+  'l4_verified': 'L4 pomyślnie nawiązało połączenie aplikacji',
+  'l4_unverified':
+      'Serwer połączony; połączenie aplikacji jeszcze niepotwierdzone',
+  'l4_status_unknown': 'Nie można potwierdzić stanu połączenia aplikacji',
   'l4_sessions': 'Sesje / opróżnianie',
   'l4_flows': 'Aktywne / oczekujące strumienie',
   'l4_connect': 'CONNECT sukcesy / błędy / przekroczenia czasu',
-  'l4_buffers': 'Zużyty budżet bufora aplikacji (bajty)',
+  'l4_buffers': 'Użycie bufora (bajty)',
   'l4_backpressure': 'Przeciwciśnienie wysyłania / odbierania',
   'l4_tun_flows': 'TUN TCP / półotwarte',
   'l4_udp': 'Odrzucone pakiety UDP',
@@ -378,7 +333,7 @@ const Map<String, String> kL4Pl = <String, String>{
   'l4_migration':
       'Strumienie zachowane przez migrację / zakończone przez przebudowę',
   'l4_na':
-      'Sterowanie adresem CONNECT-IP, kolejki DATAGRAM, MTU ładunku wewnętrznego i limit czasu UDP: nie dotyczy w L4.',
+      'Metryki przydziału adresów, kolejki datagramów, MTU i limitu czasu UDP nie dotyczą trybu L4.',
 };
 
 const Map<String, String> kNetworkSettingsPl = <String, String>{
@@ -390,8 +345,155 @@ const Map<String, String> kNetworkSettingsPl = <String, String>{
   'settings_unknown': 'Wynik jeszcze niepotwierdzony',
   'settings_saved': 'Zapisano',
   'settings_unsupported':
-      'Uruchom ponownie lub zaktualizuj Engine, aby zapisać ustawienia sieci.',
+      'Całkowicie zamknij Usque, otwórz ponownie i zapisz jeszcze raz. Jeśli to nie pomoże, sprawdź aktualizacje w Ustawieniach.',
   'settings_save_failed':
       'Nie udało się zapisać ustawień. Twoje zmiany zostały zachowane.',
   'settings_reconnect': 'Połącz ponownie',
+};
+
+const Map<String, String> kChainPl = <String, String>{
+  "batch_title": "Importuj konfiguracje",
+  "batch_counts":
+      "Gotowe: {ready} · Niepełne: {pending} · Błędy: {failed} · Zapisane: {saved}",
+  "batch_ready": "Gotowa do importu",
+  "batch_pending": "Uzupełnij nazwę lub dane logowania",
+  "batch_saved": "Zaimportowano",
+  "batch_close": "Zamknij",
+  "batch_import": "Importuj poprawne wpisy ({count})",
+  "batch_checking": "Sprawdzanie {done} z {total}",
+  "batch_saving": "Zapisywanie konfiguracji…",
+  "batch_uncertain":
+      "Zapisywanie przerwano. Zamknij i sprawdź bibliotekę przed ponownym importem; część wpisów mogła już zostać zapisana.",
+  "file_count_limit": "Wybierz najwyżej 128 plików naraz.",
+  'duplicate_directive': 'Ta dyrektywa może wystąpić tylko raz.',
+  'mixed_protocols':
+      'Wszystkie punkty remote muszą używać tego samego transportu TCP albo UDP.',
+  'conflicting_protocol':
+      'Wartość remote koliduje z globalnym ustawieniem transportu.',
+  'too_many_endpoints': 'Użyj najwyżej 16 punktów remote.',
+  'conflicting_authentication':
+      'CLIENT_CERT koliduje z osadzonym certyfikatem albo trybem uwierzytelniania.',
+  'serialized_size_limit':
+      'Zaszyfrowany rekord przekroczyłby limit rozmiaru przechowywania.',
+  'multi_endpoint_unavailable':
+      'Zaktualizuj silnik, aby używać konfiguracji z wieloma punktami.',
+  'candidates': 'Punkty startowe',
+  'random_order':
+      'Punkty są próbowane w nowej kolejności losowej przy każdym połączeniu.',
+  'file_order': 'Punkty są próbowane w kolejności z pliku.',
+  'attempting': 'Próbowany punkt',
+  'actual_endpoint': 'Połączony punkt',
+  'attempt_failures': 'Nieudane próby',
+  'failure_transport': 'transport zamknięty',
+  'failure_authentication': 'uwierzytelnianie',
+  'failure_certificate': 'certyfikat',
+  'failure_configuration': 'konfiguracja',
+  'failure_address_changed': 'zmiana adresu',
+  'failure_protocol': 'protokół',
+  'failure_cleanup': 'czyszczenie',
+  'failure_reason': 'Przyczyna: {reason}.',
+  'manage': 'Zarządzaj',
+  'dns_fallback': 'DNS tunelu (OpenVPN może negocjować DNS)',
+  'dns_unavailable_title': 'Brak DNS przez to wyjście',
+  'dns_unavailable':
+      'Przez to wyjście nie można osiągnąć żadnego serwera DNS. Użyj adresów IP albo wybierz inne wyjście z osiągalnym DNS.',
+  'authentication_failed':
+      'Uwierzytelnianie nie powiodło się. Zaktualizuj dane logowania przed ponownym połączeniem.',
+  'profile_limit': 'Biblioteka konfiguracji jest pełna (128 konfiguracji).',
+  'metadata_limit': 'Metadane biblioteki konfiguracji są pełne.',
+  'title': 'Proxy łańcuchowe',
+  'subtitle': 'Wybierz wyjście osiągane przez WARP.',
+  'source': 'Źródło wyjścia',
+  'enable': 'Włącz proxy łańcuchowe',
+  'import_file': 'Importuj plik',
+  'paste': 'Wklej konfigurację',
+  'profiles': 'Zapisane konfiguracje',
+  'empty': 'Zaimportuj konfigurację, aby wybrać wyjście.',
+  'empty_hint_openvpn':
+      'Zaimportuj plik .ovpn albo wklej jego treść. Obsługiwane są punkty TCP i UDP, osadzone certyfikaty oraz nazwa użytkownika i hasło.',
+  'empty_hint_wireguard':
+      'Zaimportuj plik .conf albo wklej jego treść. Obsługiwana jest jedna sekcja [Interface] i jedna [Peer].',
+  'import_limits':
+      'Konfiguracje muszą być tekstem UTF-8 do 128 KiB. Bez wyboru pliku wklej tekst.',
+  'enable_to_choose': 'Włącz proxy łańcuchowe, aby wybrać konfigurację.',
+  'select_required': 'Wybierz zapisaną konfigurację, zanim ją zastosujesz.',
+  'pending_disable': 'Oczekuje: wyłączenie proxy łańcuchowego',
+  'apply_reconnect': 'Zastosuj i połącz ponownie',
+  'requires_connect_ip': 'Niedostępne z L4',
+  'menu': 'Działania konfiguracji',
+  'preview': 'Sprawdź konfigurację',
+  'save_import': 'Zapisz konfigurację',
+  'name': 'Nazwa',
+  'configuration': 'Tekst konfiguracji',
+  'file_loaded': 'Konfiguracja wczytana z pliku ({lines} wierszy).',
+  'username': 'Nazwa użytkownika',
+  'password': 'Hasło',
+  'key_password': 'Hasło klucza prywatnego',
+  'show_password': 'Pokaż hasło',
+  'hide_password': 'Ukryj hasło',
+  'credentials': 'Zaktualizuj dane logowania',
+  'rename': 'Zmień nazwę',
+  'delete': 'Usuń',
+  'cancel': 'Anuluj',
+  'save': 'Zapisz',
+  'apply': 'Zastosuj zmiany',
+  'clear': 'Wyczyść wybór',
+  'current': 'Bieżące połączenie',
+  'saved': 'Zapisany wybór',
+  'draft': 'Wybór oczekujący',
+  'disconnected': 'Niepołączony',
+  'disabled': 'Niewłączony',
+  'enabled_idle': 'Włączony · niepołączony',
+  'disconnecting': 'Rozłączanie',
+  'file_read_failed': 'Nie udało się odczytać pliku konfiguracji.',
+  'file_encoding_invalid': 'Plik konfiguracji musi być tekstem UTF-8.',
+  'file_busy': 'Wybór pliku jest już otwarty.',
+  'connected': 'Połączono',
+  'connecting': 'Łączenie',
+  'error': 'Połączenie nie powiodło się',
+  'no_selection': 'Nie wybrano konfiguracji',
+  'l4': 'Ta konfiguracja wymaga UDP, którego L4 nie obsługuje.',
+  'switch_mode': 'Wyłącz L4 i zastosuj',
+  'unsupported':
+      'Ta wersja Usque nie może używać tego źródła wyjścia. Sprawdź aktualizacje w Ustawieniach.',
+  'scope':
+      'Istniejące jawne reguły bezpośrednie nadal obowiązują. Pozostały ruch używa wybranego wyjścia.',
+  'allowed': 'Dozwolone miejsca docelowe',
+  'dns': 'DNS',
+  'addresses': 'Adresy tunelu',
+  'address_family': 'Wersja IP',
+  'transport': 'Protokół transportowy',
+  'endpoint': 'Serwer',
+  'restricted':
+      'Miejsca docelowe poza AllowedIPs są blokowane na ścieżce proxy.',
+  'delete_confirm':
+      'Usunąć tę zapisaną konfigurację? Oryginalny zaimportowany plik pozostaje bez zmian.',
+  'profile_in_use':
+      'Wybierz inną konfigurację albo wyczyść zapisany wybór, zanim usuniesz tę konfigurację.',
+  'stale_revision':
+      'Konfiguracja się zmieniła. Odśwież listę i spróbuj ponownie.',
+  'secure_storage_failed':
+      'Nie udało się odczytać ani zapisać zaszyfrowanej konfiguracji.',
+  'invalid_configuration':
+      'Konfiguracja jest nieprawidłowa albo zawiera nieobsługiwane opcje.',
+  'looks_like_wireguard':
+      'To wygląda na konfigurację WireGuard. Przełącz źródło wyjścia na WireGuard.',
+  'looks_like_openvpn':
+      'To wygląda na konfigurację OpenVPN. Przełącz źródło wyjścia na OpenVPN.',
+  'error_location': '{message} ({field}, wiersz {line})',
+  'error_field': '{message} ({field})',
+  'file_unavailable': 'Wybór pliku jest niedostępny. Wklej tekst konfiguracji.',
+  'invalid_size_or_encoding': 'Użyj konfiguracji UTF-8 o rozmiarze do 128 KiB.',
+  'unsupported_directive': 'Ta dyrektywa OpenVPN nie jest obsługiwana.',
+  'unsupported_or_duplicate_field':
+      'To pole jest nieobsługiwane albo powtórzone.',
+  'unsupported_or_duplicate_section':
+      'Użyj jednej sekcji Interface i jednej sekcji Peer.',
+  'missing_field': 'Brakuje wymaganego pola.',
+  'invalid_name':
+      'Użyj nazwy o długości od 1 do 64 znaków bez znaków sterujących.',
+  'invalid_key':
+      'Klucz musi być prawidłowym kluczem Base64 o długości 32 bajtów.',
+  'checking': 'Sprawdzanie konfiguracji…',
+  'changed': 'Zmiany zapisane',
 };

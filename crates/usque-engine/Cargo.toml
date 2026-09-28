@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["wireguard"]
+wireguard = ["usque-transport/wireguard"]
+
 [[bin]]
 name = "usque-engine"
 path = "src/main.rs"

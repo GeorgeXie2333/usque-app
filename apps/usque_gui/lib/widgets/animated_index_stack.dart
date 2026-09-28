@@ -124,13 +124,16 @@ class _Section extends StatelessWidget {
     // paint, hit testing, and semantics, matching IndexedStack semantics.
     return Offstage(
       offstage: !visible,
-      child: TickerMode(
-        enabled: interactive,
-        child: IgnorePointer(
-          ignoring: !interactive,
-          child: FadeTransition(
-            opacity: opacity,
-            child: SlideTransition(position: offset, child: child),
+      child: ExcludeFocus(
+        excluding: !interactive,
+        child: TickerMode(
+          enabled: interactive,
+          child: IgnorePointer(
+            ignoring: !interactive,
+            child: FadeTransition(
+              opacity: opacity,
+              child: SlideTransition(position: offset, child: child),
+            ),
           ),
         ),
       ),

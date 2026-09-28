@@ -2,12 +2,12 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowDe = <String, String>{
   'local_proxy_settings': 'Lokale Proxy-Einstellungen',
-  'proxy_switches_hint':
-      'Schalter werden automatisch gespeichert. Änderungen an Listenern und DNS mit Änderungen anwenden übernehmen.',
+  'proxy_switches_hint': 'Schalter wirken sofort.',
   'cc_label': 'HTTP/3-Überlastkontrolle',
   'cc_help': 'Wird bei der nächsten manuellen Verbindung wirksam.',
-  'cc_upgrade': 'Ein Update der Engine ist erforderlich.',
-  'cc_h2': 'HTTP/2 verwendet das System-TCP.',
+  'cc_upgrade':
+      'Aktualisiere Usque unter Einstellungen, um diese Option zu nutzen.',
+  'cc_h2': 'Diese Option betrifft nur HTTP/3-Verbindungen.',
   'cc_saved': 'Gespeichert',
   'cc_pending': 'Wartet auf die nächste manuelle Verbindung.',
   'save_changes': 'Änderungen anwenden',
@@ -15,7 +15,7 @@ const Map<String, String> kUiWorkflowDe = <String, String>{
   'unsaved_changes': 'Nicht angewendete Änderungen',
   'changes_applied': 'Änderungen angewendet',
   'changes_apply_hint':
-      'Bearbeitungen werden erst wirksam, nachdem Sie sie anwenden.',
+      'Bearbeitungen werden wirksam, sobald Sie „Änderungen anwenden“ auswählen.',
   'changes_failed':
       'Änderungen konnten nicht angewendet werden. Prüfen Sie die '
       'gespeicherten Werte und versuchen Sie es erneut.',
@@ -23,9 +23,7 @@ const Map<String, String> kUiWorkflowDe = <String, String>{
       'Prüfen Sie die hervorgehobenen Felder, bevor Sie die Änderungen '
       'anwenden.',
   'discard_changes_title': 'Nicht angewendete Änderungen verwerfen?',
-  'discard_changes_body':
-      'Ihre Bearbeitungen wurden noch nicht angewendet. Bearbeiten Sie weiter, '
-      'um sie zu speichern, oder verwerfen Sie sie, um die Seite zu verlassen.',
+  'discard_changes_body': 'Nicht angewendete Bearbeitungen gehen verloren.',
   'keep_editing': 'Weiter bearbeiten',
   'discard_changes': 'Änderungen verwerfen',
   'invalid_port': 'Geben Sie einen Port von 1 bis 65535 ein.',
@@ -51,18 +49,16 @@ const Map<String, String> kUiWorkflowDe = <String, String>{
   'home_kill_switch': 'Kill Switch',
   'home_traffic': 'Datenverkehr',
   'home_traffic_window': 'Letzte 60 Sekunden',
-  'home_traffic_idle': 'Beginnt nach dem Verbinden',
-  'home_traffic_waiting': 'Warten auf Messwerte',
-  'home_traffic_unavailable': 'Verlauf nicht verfügbar',
-  'home_traffic_stale': 'Messwerte verzögert',
-  'home_outputs_next': 'Ausgaben werden nach dem Verbinden aktiviert',
-  'home_outputs_retry': 'Ausgaben für den nächsten Versuch konfiguriert',
+  'home_traffic_idle': 'Verkehr wird nach dem Verbinden angezeigt',
+  'home_traffic_waiting': 'Warten auf Verkehrsdaten',
+  'home_traffic_unavailable': 'Kein Verkehrsverlauf verfügbar',
+  'home_traffic_stale': 'Verkehrsdaten werden verzögert aktualisiert',
+  'home_outputs_next': 'Nach dem Verbinden verfügbar',
+  'home_outputs_retry': 'VPN und Proxys für die nächste Verbindung',
   'connection_protection_group': 'Verbindung & Schutz',
   'proxy_routing_group': 'Proxy & Weiterleitung',
   'application_group': 'Anwendung',
   'proxy_settings_link': 'Listener-Adressen, Ports, Authentifizierung und DNS.',
-  'proxy_auth_separate':
-      'Anmeldedaten werden separat mit „Anmeldedaten speichern“ gespeichert.',
   'reset_draft_hint':
       'Standardwerte werden in dieses Formular geladen. Wenden Sie die '
       'Änderungen an, damit sie wirksam werden.',
@@ -87,11 +83,9 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_finding_invalid_configuration':
       'Die eigene DNS-Konfiguration ist ungültig.',
   'nq_finding_dns_system':
-      'Physisches System-DNS ist ausgewählt; Prüfungen für verschlüsseltes DNS '
-      'gelten nicht.',
+      'DNS des aktuellen Netzwerks wird verwendet; Prüfungen für verschlüsseltes DNS entfallen.',
   'nq_finding_unsupported':
-      'Verschlüsseltes DNS ist in dieser Engine nicht verfügbar; ein '
-      'Klartext-Rückfall ist nicht zulässig.',
+      'Aktualisiere Usque für verschlüsseltes DNS. Anfragen wechseln nicht zu unverschlüsseltem DNS.',
   'nq_finding_dns_custom_valid':
       'Die eigene Konfiguration für verschlüsseltes DNS ist gültig. '
       'Klartext-Rückfall ist deaktiviert.',
@@ -100,40 +94,26 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
       'geändert.',
   'nq_finding_rtt_high': 'Die gemessene Umlaufzeit ist erhöht.',
   'nq_finding_healthy':
-      'Die verfügbare lokale Messung liegt im erwarteten Bereich.',
+      'Die verfügbaren Verbindungsmesswerte liegen im normalen Bereich.',
   'nq_finding_loss_high': 'Der Paketverlust im Intervall ist erhöht.',
   'nq_finding_queue_pressure':
-      'Eine Warteschlange steht unter Druck oder hat während dieser Verbindung '
-      'Verwürfe aufgezeichnet.',
+      'Daten warten auf den Versand oder wurden während dieser Verbindung verworfen.',
   'nq_finding_pmtu_degraded':
-      'Die Validierung der Pfad-MTU ist beeinträchtigt.',
+      'Usque konnte keine geeignete Paketgröße für diese Verbindung bestätigen.',
   'nq_finding_migration_reconnect':
-      'Migration ist auf diesem Pfad nicht verfügbar; bei einem '
-      'Netzwerkwechsel wird vollständig neu verbunden.',
+      'Beim Netzwerkwechsel muss diese Verbindung neu aufgebaut werden.',
   'nq_finding_dns_changed':
       'Der gespeicherte DNS-Modus unterscheidet sich von der laufenden '
       'Verbindung.',
-  'nq_finding_dns_runtime':
-      'Verschlüsseltes DNS war erfolgreich. Der lokale Zustand ist kein '
-      'externer Nachweis gegen Lecks.',
+  'nq_finding_dns_runtime': 'Verschlüsseltes DNS funktioniert.',
   'nq_finding_dns_degraded':
-      'Verschlüsseltes DNS ist beeinträchtigt; fehlgeschlagene direkte '
-      'Abfragen fallen nicht auf System-DNS zurück.',
+      'Verschlüsseltes DNS hat Probleme. Fehlgeschlagene Anfragen verwenden nicht das unverschlüsselte DNS des Netzwerks.',
   'nq_finding_probe_unsafe':
-      'Sonde übersprungen: Der erforderliche sichere Zustand oder die '
-      'gespeicherte Identität ist nicht verfügbar. Ein aktiver Tunnel wird '
-      'niemals dupliziert.',
-  'nq_finding_probe_success':
-      'Die authentifizierte Sonde wurde abgeschlossen. Dies ist kein externer '
-      'Test auf Paketlecks.',
-  'nq_finding_probe_cancelled':
-      'Sonde abgebrochen und Bereinigung angefordert.',
-  'nq_finding_probe_timeout':
-      'Die zeitlich begrenzte Sonde wurde nicht vor Ablauf der Frist '
-      'abgeschlossen.',
-  'nq_finding_probe_failed':
-      'Die authentifizierte Sonde ist fehlgeschlagen; es wurde kein unsicherer '
-      'Rückfall versucht.',
+      'Diese Messung ist im aktuellen Zustand nicht verfügbar.',
+  'nq_finding_probe_success': 'Diese Prüfung wurde bestanden.',
+  'nq_finding_probe_cancelled': 'Diese Prüfung wurde abgebrochen.',
+  'nq_finding_probe_timeout': 'Zeitüberschreitung bei der Diagnoseprüfung',
+  'nq_finding_probe_failed': 'Diese Prüfung ist fehlgeschlagen.',
   'diag_fix_nq_profile':
       'Prüfen Sie die eigenen DNS-Felder und den Zertifikatsnamen. '
       'Deaktivieren Sie die TLS-Prüfung nicht.',
@@ -146,12 +126,11 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
       'Verbinden Sie erneut, um die gespeicherte Konfiguration anzuwenden.',
   'nav_network_quality': 'Qualität',
   'network_quality': 'Netzwerkqualität',
-  'nq_subtitle': 'Die Verbindung beurteilen, nicht nur die Geschwindigkeit.',
+  'nq_subtitle': 'Latenz, Paketverlust und Durchsatz.',
   'nq_local_only': 'Nur lokale Messungen. Es wird nichts hochgeladen.',
   'nq_doctor': 'Netzwerkdiagnose starten',
   'nq_doctor_help':
-      'Standardprüfungen lesen nur den lokalen Zustand. Sie öffnen keine '
-      'externen Verbindungen und ändern Ihre Einstellungen nicht.',
+      'Standardprüfungen senden keinen Datenverkehr und ändern keine Einstellungen.',
   'nq_live': 'Echtzeit',
   'nq_stale': 'Veraltete Messwerte',
   'nq_updated': 'Letzte Messung',
@@ -167,14 +146,10 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_not_ready': 'Nicht bereit',
   'nq_unsupported': 'Nicht unterstützt',
   'nq_capability_missing':
-      'Diese Engine liefert keine Netzwerkqualität. Ihre vorhandenen '
-      'Verbindungssteuerungen funktionieren weiterhin.',
-  'nq_empty':
-      'Verbinden Sie sich, um Messwerte zu sehen. Unbekannte Werte werden '
-      'nicht als 0 angezeigt.',
+      'Diese Version zeigt keine Verbindungsqualität. Verbinden und Trennen bleiben möglich. Suche unter Einstellungen nach Updates.',
+  'nq_empty': 'Verbinde dich, um Messwerte zu sehen.',
   'nq_stale_help':
-      'Die Quelle hat die Aktualisierung eingestellt. Dies sind frühere '
-      'Messwerte; Lücken bleiben Lücken.',
+      'Aktualisierungen wurden angehalten. Die letzten Messwerte werden angezeigt.',
   'nq_rtt': 'Umlaufzeit',
   'nq_latest': 'Aktuell',
   'nq_smoothed': 'Geglättet',
@@ -200,17 +175,17 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_pmtu': 'Pfad-MTU',
   'nq_outer_pmtu': 'Äußeres UDP-Nutzlastlimit',
   'nq_inner_payload': 'CONNECT-IP-Nutzlastlimit',
-  'nq_pmtu_help': 'Die Pfadermittlung erhöht die TUN-MTU des Geräts nicht.',
+  'nq_pmtu_help':
+      'Dies ist die Paketgröße, die der Netzwerkpfad transportieren kann. Usque prüft sie automatisch, um Paketverluste zu reduzieren. Die Prüfung erhöht nicht die VPN-MTU aus Erweiterte Netzwerkeinstellungen.',
   'nq_migration': 'Netzwerkmigration',
   'nq_migration_help':
-      'Eine Verbindung, ein Datenpfad. Nur dieselbe IP-Familie; kein '
-      'Multipfad.',
+      'Usque versucht, die Verbindung beim Netzwerkwechsel zu erhalten, etwa von WLAN zu mobilen Daten. Beide Netzwerke müssen dieselbe IP-Version nutzen, IPv4 oder IPv6.',
   'nq_attempts': 'Versuche',
   'nq_successes': 'Erfolgreich',
   'nq_failures': 'Fehlgeschlagen',
   'nq_last_duration': 'Letzte Dauer',
   'nq_direct_dns': 'Direktes DNS',
-  'nq_system_dns': 'Physisches System-DNS',
+  'nq_system_dns': 'DNS des aktuellen Netzwerks',
   'nq_doh': 'DNS over HTTPS',
   'nq_dot': 'DNS over TLS',
   'nq_ready': 'Bereit',
@@ -218,8 +193,7 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_timeouts': 'Zeitüberschreitungen',
   'nq_last_rtt': 'Letzte RTT',
   'nq_dns_redacted':
-      'Resolver-Namen und Bootstrap-Adressen werden nur in den Einstellungen '
-      'angezeigt.',
+      'Domains und IP-Adressen der DNS-Server werden nur in den Einstellungen angezeigt.',
   'nq_queues': 'Warteschlangendruck',
   'nq_queue_details': 'Warteschlangen auf niedriger Ebene',
   'nq_queue_empty': 'Noch keine Warteschlangenmessungen.',
@@ -254,79 +228,64 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_phase_unknown': 'Nicht bereit',
   'nq_phase_unsupported': 'Nicht unterstützt',
   'nq_reason_family_unavailable':
-      'Die aktuelle IP-Familie ist nicht verfügbar; es wird vollständig neu '
-      'verbunden.',
+      'Das neue Netzwerk kann dieselbe IP-Version nicht nutzen. Eine neue Verbindung ist erforderlich.',
   'nq_reason_socket_protect_failed':
-      'Ein geschützter Kandidaten-Socket konnte nicht vorbereitet werden.',
+      'Usque konnte das neue Netzwerk nicht sicher nutzen. Verbinde dich manuell erneut, falls die Verbindung nicht zurückkehrt.',
   'nq_reason_generation_changed_during_setup':
       'Das Netzwerk hat sich während der Vorbereitung erneut geändert.',
   'nq_reason_peer_cid_unavailable':
-      'Der Peer hat keine Ersatz-Verbindungskennung.',
+      'Der Server konnte die Verbindung im neuen Netzwerk nicht erhalten. Verbinde dich bei Bedarf manuell erneut.',
   'nq_reason_local_cid_unavailable':
-      'Eine lokale Verbindungskennung ist nicht verfügbar.',
+      'Usque konnte die Verbindung im neuen Netzwerk nicht erhalten. Verbinde dich bei Bedarf manuell erneut.',
   'nq_reason_path_probe_rejected':
-      'Der Kandidatenpfad konnte nicht validiert werden.',
+      'Das neue Netzwerk hat die Verbindungsprüfung nicht bestanden. Prüfe seinen Internetzugang.',
   'nq_reason_path_validation_timeout':
-      'Die Pfadvalidierung ist abgelaufen; eine Neuverbindung ist möglich.',
+      'Das neue Netzwerk hat nicht rechtzeitig geantwortet. Prüfe es und verbinde dich bei Bedarf erneut.',
   'nq_reason_superseded':
-      'Eine neuere Netzwerkänderung hat diesen Versuch ersetzt.',
+      'Das Netzwerk änderte sich erneut, bevor der Wechsel abgeschlossen war.',
   'nq_reason_promotion_failed':
-      'Der Pfadwechsel konnte nicht sicher abgeschlossen werden.',
+      'Usque konnte den Netzwerkwechsel nicht sicher abschließen. Verbinde dich bei Bedarf manuell erneut.',
   'nq_reason_connection_closed':
-      'Die Verbindung wurde während der Migration geschlossen.',
+      'Die Verbindung wurde beim Netzwerkwechsel geschlossen. Verbinde dich erneut.',
   'nq_reason_unsupported':
       'Migration ist auf dieser Verbindung nicht verfügbar.',
   'nq_reason_unknown': 'Kein unterstützter Grund ist verfügbar.',
   'nq_dns_custom': 'Eigener verschlüsselter Resolver',
-  'nq_dns_server': 'TLS-Servername',
+  'nq_dns_server': 'Domain des DNS-Servers',
   'nq_dns_path': 'HTTPS-Pfad',
   'nq_dns_port': 'Port (0 verwendet den Standard)',
-  'nq_dns_bootstrap': 'Bootstrap-IP-Adressen',
+  'nq_dns_bootstrap': 'IP-Adressen des DNS-Servers',
   'nq_dns_bootstrap_help':
-      'Geben Sie 1–8 numerische IP-Adressen ein, eine pro Zeile. Es wird keine '
-      'Hostnamensauflösung verwendet.',
+      'Gib 1–8 IP-Adressen deines DNS-Anbieters ein, eine pro Zeile, etwa 1.1.1.1. Usque verbindet sich direkt damit, ohne vorher den Servernamen aufzulösen.',
   'nq_dns_no_fallback':
-      'Wenn verschlüsseltes direktes DNS fehlschlägt, schlägt die Anfrage '
-      'fehl. Es erfolgt kein Rückfall auf System- oder Klartext-DNS.',
+      'Ist verschlüsseltes DNS nicht verfügbar, schlagen Anfragen fehl, statt auf unverschlüsseltes DNS auszuweichen.',
   'nq_dns_system_privacy':
-      'Physisches System-DNS kann Namen direkter Abfragen gegenüber dem '
-      'DNS-Anbieter des physischen Netzwerks offenlegen.',
+      'Der DNS-Anbieter des aktuellen Netzwerks kann Domains von Direktverbindungen sehen.',
   'nq_dns_scope':
-      'Wird nur für Geo-ausgewählte direkte Abfragen verwendet. Das Tunnel-DNS '
-      'bleibt unverändert.',
+      'Gilt für Verkehr passend zu den Direktverbindungsregeln nach Land. Das DNS für VPN-Verkehr bleibt unverändert.',
   'nq_dns_no_capability':
-      'Diese Engine kann kein verschlüsseltes direktes DNS verwenden. '
-      'Gespeicherte Einstellungen bleiben erhalten. Sie können ausdrücklich '
-      'System-DNS wählen.',
+      'Aktualisiere Usque für verschlüsseltes DNS bei Direktverbindungen. Einstellungen bleiben erhalten. Du kannst DNS des aktuellen Netzwerks wählen, wenn du die Datenschutzfolgen akzeptierst.',
   'nq_dns_invalid_name':
-      'Geben Sie einen DNS-Namen ohne Leerzeichen, URL-Syntax oder Platzhalter '
-      'ein.',
+      'Gib eine Domain wie dns.example.com ohne https://, Port oder Leerzeichen ein.',
   'nq_dns_invalid_path':
-      'Verwenden Sie einen mit / beginnenden Pfad mit höchstens 256 Zeichen, '
-      'ohne Query, Fragment oder Leerzeichen.',
-  'nq_dns_invalid_bootstrap':
-      'Verwenden Sie 1–8 eindeutige Unicast-IPs; keine unspezifizierten, '
-      'Multicast-, Broadcast- oder IPv6-Link-Local-Adressen.',
-  'nq_dns_invalid_port': 'Geben Sie 0–65535 ein.',
+      'Gib einen Pfad wie /dns-query mit höchstens 256 Zeichen ein. Entferne Leerzeichen und Teile ab ? oder #.',
+  'nq_dns_invalid_bootstrap': 'Gib 1–8 Server-IP-Adressen ein.',
+  'nq_dns_invalid_port':
+      'Gib einen Port von 1 bis 65535 oder 0 für den Standardwert ein.',
   'nq_dns_invalid_mode': 'Wählen Sie einen unterstützten DNS-Modus.',
   'nq_doctor_deep_title': 'Tiefe Netzwerkprüfungen ausführen?',
   'nq_doctor_deep_body':
-      'Tiefe Prüfungen können eine DNS-Testabfrage an Ihren konfigurierten '
-      'Resolver senden und einen geschützten QUIC-Pfad validieren. Sie dauern '
-      'höchstens 15 Sekunden, können abgebrochen werden, erzeugen niemals '
-      'einen zweiten datentragenden Tunnel und ändern niemals DNS, Route, '
-      'Profil oder Transport.',
+      'Prüfungen können Testdaten senden. Sie dauern bis zu 15 Sekunden und lassen sich abbrechen. Deine Verbindungseinstellungen bleiben unverändert.',
   'nq_doctor_deep_run': 'Tiefe Prüfungen ausführen',
   'nq_doctor_evidence':
-      'Lokale Prüfungen beschreiben Konfiguration und beobachteten Zustand. '
-      'Sie sind kein externer Nachweis, dass es keine DNS-Lecks gibt.',
+      'Diese Prüfungen können nicht feststellen, ob DNS-Lecks auftreten.',
 };
 
 const Map<String, String> kWindowsRecoveryDe = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      "Aktualisiere die Anwendung und den Windows Agent gemeinsam, um das TUN-Gerät wiederzuverwenden. Es wurde keine neue VPN-Verbindung gestartet.",
+      'Usques Verbindungskomponenten müssen gemeinsam aktualisiert werden. Suche unter Einstellungen nach Updates. Es wurde keine neue VPN-Verbindung gestartet.',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      "Das bisherige TUN-Gerät muss noch wiederhergestellt werden. Beende Usque vollständig und öffne es erneut, oder prüfe die lokale Diagnose.",
+      'Die vorherige VPN-Verbindung ist noch nicht vollständig bereinigt. Beende Usque vollständig und öffne es erneut. Hilft das nicht, öffne Diagnose.',
   'WINDOWS_RECOVERY_FAILED':
       'Der vorherige VPN-Netzwerkzustand konnte nicht vollständig '
       'wiederhergestellt werden. Es wurde keine neue VPN-Verbindung gestartet. '
@@ -337,10 +296,7 @@ const Map<String, String> kWindowsRecoveryDe = <String, String>{
       'automatischen Versuchen nicht wiederherstellen. Versuchen Sie es '
       'erneut, wenn Sie bereit sind, oder prüfen Sie die lokale Diagnose.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Die automatische Reparatur wurde gestoppt, weil der vorherige '
-      'Windows-Netzwerkzustand nicht sicher überprüft werden konnte. Starten '
-      'Sie den Agent neu oder aktualisieren Sie Usque, und prüfen Sie '
-      'anschließend die lokale Diagnose.',
+      'Die automatische Reparatur wurde gestoppt, weil die sichere Wiederherstellung der vorherigen VPN-Einstellungen nicht bestätigt werden konnte. Suche unter Einstellungen nach Updates; exportiere bei anhaltenden Problemen ein Diagnosepaket.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Die Wiederherstellung des Windows-Netzwerks dauert länger als erwartet. '
       'Es wurde keine neue VPN-Verbindung gestartet. Warten Sie, bis die '
@@ -350,40 +306,37 @@ const Map<String, String> kWindowsRecoveryDe = <String, String>{
       'Sitzung verwendet. Die automatische Wiederherstellung wurde gestoppt, '
       'um die aktive Verbindung zu schützen.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'Dieser Windows-Agent unterstützt keine sichere automatische '
-      'Wiederherstellung. Aktualisieren Sie die Anwendung und den Agent '
-      'gemeinsam, und versuchen Sie es anschließend erneut.',
+      'Diese Installation kann die vorherigen VPN-Einstellungen nicht automatisch wiederherstellen. Aktualisiere Usque unter Einstellungen und versuche es erneut.',
 };
 
 const String kWindowsAdapterCleanupDe =
-    'Der vorherige Wintun-Adapter konnte nicht entfernt werden, oder die '
-    'Entfernung konnte nicht bestätigt werden. Es wurde keine neue '
-    'VPN-Verbindung gestartet.';
+    'Der virtuelle Netzwerkadapter der vorherigen Verbindung konnte nicht entfernt oder seine Entfernung nicht bestätigt werden. Es wurde keine neue VPN-Verbindung gestartet.';
 
 const Map<String, String> kL4De = <String, String>{
-  'l4_quic_not_ready': 'Warten auf eine bereite QUIC-Sitzung',
+  'l4_quic_not_ready': 'L4-Verbindung wird vorbereitet',
   'l4_unsupported_packets':
       'Nicht unterstützte oder fehlerhafte Pakete abgelehnt',
-  'l4_budget_rejections': 'Abgelehnte Ressourcenzulassungen',
+  'l4_budget_rejections': 'Wegen Ressourcenmangel abgelehnte Verbindungen',
   'l4_not_applicable': 'Nicht zutreffend (L4)',
   'l4_mode': 'L4 (experimentell)',
-  'l4_transport_hint': 'Nur TCP; TUN-DNS über TCP. Auto enthält kein L4.',
+  'l4_transport_hint':
+      'Nur TCP. Apps, die UDP benötigen, funktionieren möglicherweise nicht. Der automatische Modus wählt kein L4.',
   'l4_explanation':
-      'Nur TCP über HTTP/3. Unterstützt VPN/TUN, SOCKS5 und HTTP; TUN-DNS wird in TCP umgewandelt. Auto wählt L4 nie. Anderes UDP, Remote-Ping, IP-Fragmente und Erweiterungsköpfe sind nicht unterstützt; manche Apps funktionieren möglicherweise nicht.',
+      'L4 überträgt TCP über HTTP/3 und funktioniert mit VPN, SOCKS5- und HTTP-Proxys. DNS-Anfragen des VPN werden in TCP umgewandelt. Apps mit anderem UDP-Verkehr, entferntem Ping, IP-Fragmenten oder Erweiterungsheadern funktionieren möglicherweise nicht.',
   'l4_unsupported':
-      'Diese Engine hat keine vollständige L4-Unterstützung erklärt. L4 kann nicht aktiviert werden.',
+      'Diese Usque-Version unterstützt L4 nicht. Suche unter Einstellungen nach Updates.',
   'l4_sni_identity':
-      'Schreibgeschützt: aus der geladenen Kontoidentität abgeleitet. Die vorhandene CONNECT-IP-SNI bleibt erhalten.',
+      'Wird vom Konto automatisch festgelegt. Der Servername anderer Verbindungsmodi bleibt erhalten.',
   'l4_edge_requires_l4':
-      'Am Rand aufgelöstes DNS erfordert L4. Wählen Sie vor dem Wechsel zu Auto, H3 oder H2 einen anderen Proxy-DNS-Modus.',
+      'Am Rand aufgelöstes DNS funktioniert nur mit L4. Wählen Sie einen anderen Proxy-DNS-Modus, bevor Sie zu Auto, HTTP/3 oder HTTP/2 wechseln.',
   'proxy_dns_edge_resolved': 'Cloudflare-Rand (nur L4; keine lokale Abfrage)',
-  'l4_verified': 'L4 CONNECT bestätigt',
-  'l4_unverified': 'QUIC bereit; L4 CONNECT noch nicht bestätigt',
-  'l4_status_unknown': 'L4-Prüfstatus unbekannt',
+  'l4_verified': 'L4 hat eine App-Verbindung hergestellt',
+  'l4_unverified': 'Server verbunden; App-Verbindung noch nicht bestätigt',
+  'l4_status_unknown': 'Status der App-Verbindung nicht verfügbar',
   'l4_sessions': 'Sitzungen / Abbau',
   'l4_flows': 'Aktive / wartende Streams',
   'l4_connect': 'CONNECT Erfolg / Fehler / Zeitüberschreitung',
-  'l4_buffers': 'Verbrauchtes Anwendungspufferbudget (Byte)',
+  'l4_buffers': 'Puffernutzung (Byte)',
   'l4_backpressure': 'Sende- / Empfangsgegendruck',
   'l4_tun_flows': 'TUN-TCP / halboffen',
   'l4_udp': 'Abgelehnte UDP-Pakete',
@@ -391,7 +344,7 @@ const Map<String, String> kL4De = <String, String>{
   'l4_migration':
       'Durch Migration erhaltene / durch Neuaufbau beendete Streams',
   'l4_na':
-      'CONNECT-IP-Adresssteuerung, DATAGRAM-Warteschlangen, inneres Nutzlast-MTU und UDP-Timeout: in L4 nicht zutreffend.',
+      'Kennzahlen zu Adresszuweisung, Datagramm-Warteschlange, MTU und UDP-Timeout gelten im L4-Modus nicht.',
 };
 
 const Map<String, String> kNetworkSettingsDe = <String, String>{
@@ -403,8 +356,160 @@ const Map<String, String> kNetworkSettingsDe = <String, String>{
   'settings_unknown': 'Ergebnis noch nicht bestätigt',
   'settings_saved': 'Gespeichert',
   'settings_unsupported':
-      'Starten Sie die Engine neu oder aktualisieren Sie sie, um Netzwerkeinstellungen zu speichern.',
+      'Beende Usque vollständig, öffne es erneut und speichere nochmals. Suche bei weiteren Fehlern unter Einstellungen nach Updates.',
   'settings_save_failed':
       'Einstellungen konnten nicht gespeichert werden. Ihre Änderungen bleiben erhalten.',
   'settings_reconnect': 'Erneut verbinden',
+};
+
+const Map<String, String> kChainDe = <String, String>{
+  "batch_title": "Konfigurationen importieren",
+  "batch_counts":
+      "Bereit: {ready} · Unvollständig: {pending} · Fehler: {failed} · Gespeichert: {saved}",
+  "batch_ready": "Bereit zum Import",
+  "batch_pending": "Name oder Anmeldedaten ergänzen",
+  "batch_saved": "Importiert",
+  "batch_close": "Schließen",
+  "batch_import": "Gültige Einträge importieren ({count})",
+  "batch_checking": "Prüfung {done} von {total}",
+  "batch_saving": "Konfigurationen werden gespeichert…",
+  "batch_uncertain":
+      "Speichern unterbrochen. Schließen Sie den Dialog und prüfen Sie vor einem erneuten Import die Bibliothek; einige Einträge könnten bereits gespeichert sein.",
+  "file_count_limit": "Wählen Sie höchstens 128 Dateien gleichzeitig.",
+  'duplicate_directive': 'Diese Direktive darf nur einmal vorkommen.',
+  'mixed_protocols':
+      'Alle remote-Endpunkte müssen denselben TCP- oder UDP-Transport verwenden.',
+  'conflicting_protocol':
+      'Die remote-Angabe widerspricht der globalen Transporteinstellung.',
+  'too_many_endpoints': 'Verwenden Sie höchstens 16 remote-Endpunkte.',
+  'conflicting_authentication':
+      'CLIENT_CERT widerspricht dem eingebetteten Zertifikat oder dem Authentifizierungsmodus.',
+  'serialized_size_limit':
+      'Der verschlüsselte Datensatz würde die Speichergrenze überschreiten.',
+  'multi_endpoint_unavailable':
+      'Aktualisieren Sie die Engine, um Konfigurationen mit mehreren Endpunkten zu verwenden.',
+  'candidates': 'Start-Endpunkte',
+  'random_order':
+      'Endpunkte werden bei jeder Verbindung in einer neuen Zufallsreihenfolge versucht.',
+  'file_order': 'Endpunkte werden in der Dateireihenfolge versucht.',
+  'attempting': 'Endpunkt wird versucht',
+  'actual_endpoint': 'Verbundener Endpunkt',
+  'attempt_failures': 'Fehlgeschlagene Versuche',
+  'failure_transport': 'Transport getrennt',
+  'failure_authentication': 'Authentifizierung',
+  'failure_certificate': 'Zertifikat',
+  'failure_configuration': 'Konfiguration',
+  'failure_address_changed': 'Adresse geändert',
+  'failure_protocol': 'Protokoll',
+  'failure_cleanup': 'Aufräumen',
+  'failure_reason': 'Fehlerursache: {reason}.',
+  'manage': 'Verwalten',
+  'dns_fallback': 'Tunnel-DNS (OpenVPN kann DNS aushandeln)',
+  'dns_unavailable_title': 'Kein DNS über diesen Ausgang',
+  'dns_unavailable':
+      'Über diesen Ausgang ist kein DNS-Server erreichbar. Verwenden Sie IP-Adressen oder wählen Sie einen anderen Ausgang mit erreichbarem DNS.',
+  'authentication_failed':
+      'Authentifizierung fehlgeschlagen. Aktualisieren Sie die Anmeldedaten, bevor Sie sich erneut verbinden.',
+  'profile_limit':
+      'Die Konfigurationsbibliothek ist voll (128 Konfigurationen).',
+  'metadata_limit': 'Die Metadaten der Konfigurationsbibliothek sind voll.',
+  'title': 'Kettenproxy',
+  'subtitle': 'Wählen Sie einen über WARP erreichten Ausgang.',
+  'source': 'Ausgangsart',
+  'enable': 'Kettenproxy aktivieren',
+  'import_file': 'Datei importieren',
+  'paste': 'Konfiguration einfügen',
+  'profiles': 'Gespeicherte Konfigurationen',
+  'empty': 'Importieren Sie eine Konfiguration, um einen Ausgang zu wählen.',
+  'empty_hint_openvpn':
+      'Importieren Sie eine .ovpn-Datei oder fügen Sie ihren Text ein. TCP- und UDP-Endpunkte, eingebettete Zertifikate sowie Benutzername und Passwort werden unterstützt.',
+  'empty_hint_wireguard':
+      'Importieren Sie eine .conf-Datei oder fügen Sie ihren Text ein. Je ein Abschnitt [Interface] und [Peer] wird unterstützt.',
+  'import_limits':
+      'Konfigurationen müssen UTF-8-Text bis 128 KiB sein. Geräte ohne Dateiauswahl können den Text einfügen.',
+  'enable_to_choose':
+      'Aktivieren Sie den Kettenproxy, um eine Konfiguration zu wählen.',
+  'select_required':
+      'Wählen Sie eine gespeicherte Konfiguration aus, bevor Sie sie anwenden.',
+  'pending_disable': 'Ausstehend: Kettenproxy deaktivieren',
+  'apply_reconnect': 'Anwenden und neu verbinden',
+  'requires_connect_ip': 'Mit L4 nicht verfügbar',
+  'menu': 'Konfigurationsaktionen',
+  'preview': 'Konfiguration prüfen',
+  'save_import': 'Konfiguration speichern',
+  'name': 'Bezeichnung',
+  'configuration': 'Konfigurationstext',
+  'file_loaded': 'Konfiguration aus Datei geladen ({lines} Zeilen).',
+  'username': 'Benutzername',
+  'password': 'Passwort',
+  'key_password': 'Passwort des privaten Schlüssels',
+  'show_password': 'Passwort anzeigen',
+  'hide_password': 'Passwort verbergen',
+  'credentials': 'Anmeldedaten aktualisieren',
+  'rename': 'Umbenennen',
+  'delete': 'Löschen',
+  'cancel': 'Abbrechen',
+  'save': 'Speichern',
+  'apply': 'Änderungen anwenden',
+  'clear': 'Auswahl aufheben',
+  'current': 'Aktuelle Verbindung',
+  'saved': 'Gespeicherte Auswahl',
+  'draft': 'Ausstehende Auswahl',
+  'disconnected': 'Nicht verbunden',
+  'disabled': 'Nicht aktiviert',
+  'enabled_idle': 'Aktiviert · nicht verbunden',
+  'disconnecting': 'Verbindung wird getrennt',
+  'file_read_failed': 'Die Konfigurationsdatei konnte nicht gelesen werden.',
+  'file_encoding_invalid': 'Die Konfigurationsdatei muss UTF-8-Text sein.',
+  'file_busy': 'Eine Dateiauswahl ist bereits geöffnet.',
+  'connected': 'Verbunden',
+  'connecting': 'Verbindung wird hergestellt',
+  'error': 'Verbindung fehlgeschlagen',
+  'no_selection': 'Keine Konfiguration ausgewählt',
+  'l4': 'Diese Konfiguration benötigt UDP, das L4 nicht unterstützt.',
+  'switch_mode': 'L4 ausschalten und anwenden',
+  'unsupported':
+      'Diese Version von Usque kann diese Ausgangsart nicht verwenden. Suchen Sie unter Einstellungen nach Updates.',
+  'scope':
+      'Bestehende ausdrückliche Direktregeln bleiben gültig. Übriger Datenverkehr nutzt den gewählten Ausgang.',
+  'allowed': 'Zulässige Ziele',
+  'dns': 'DNS',
+  'addresses': 'Tunneladressen',
+  'address_family': 'IP-Version',
+  'transport': 'Übertragung',
+  'endpoint': 'Zielserver',
+  'restricted':
+      'Ziele außerhalb von AllowedIPs werden auf dem Proxy-Pfad blockiert.',
+  'delete_confirm':
+      'Diese gespeicherte Konfiguration löschen? Die ursprünglich importierte Datei bleibt unverändert.',
+  'profile_in_use':
+      'Wählen Sie eine andere Konfiguration oder heben Sie die gespeicherte Auswahl auf, bevor Sie diese Konfiguration löschen.',
+  'stale_revision':
+      'Die Konfiguration hat sich geändert. Aktualisieren Sie die Liste und versuchen Sie es erneut.',
+  'secure_storage_failed':
+      'Die verschlüsselte Konfiguration konnte nicht gelesen oder gespeichert werden.',
+  'invalid_configuration':
+      'Die Konfiguration ist ungültig oder enthält nicht unterstützte Optionen.',
+  'looks_like_wireguard':
+      'Das sieht nach einer WireGuard-Konfiguration aus. Stellen Sie die Ausgangsart auf WireGuard um.',
+  'looks_like_openvpn':
+      'Das sieht nach einer OpenVPN-Konfiguration aus. Stellen Sie die Ausgangsart auf OpenVPN um.',
+  'error_location': '{message} ({field}, Zeile {line})',
+  'error_field': '{message} ({field})',
+  'file_unavailable':
+      'Keine Dateiauswahl verfügbar. Fügen Sie den Konfigurationstext ein.',
+  'invalid_size_or_encoding':
+      'Verwenden Sie eine UTF-8-Konfiguration von höchstens 128 KiB.',
+  'unsupported_directive': 'Diese OpenVPN-Direktive wird nicht unterstützt.',
+  'unsupported_or_duplicate_field':
+      'Dieses Feld wird nicht unterstützt oder ist doppelt.',
+  'unsupported_or_duplicate_section':
+      'Verwenden Sie je einen Abschnitt Interface und Peer.',
+  'missing_field': 'Ein erforderliches Feld fehlt.',
+  'invalid_name':
+      'Verwenden Sie einen Namen mit 1 bis 64 Zeichen ohne Steuerzeichen.',
+  'invalid_key':
+      'Der Schlüssel muss ein gültiger 32-Byte-Base64-Schlüssel sein.',
+  'checking': 'Konfiguration wird geprüft…',
+  'changed': 'Änderungen gespeichert',
 };

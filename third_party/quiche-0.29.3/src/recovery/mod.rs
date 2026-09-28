@@ -180,6 +180,7 @@ pub struct OnAckReceivedOutcome {
 pub struct OnLossDetectionTimeoutOutcome {
     pub lost_packets: usize,
     pub lost_bytes: usize,
+    pub pto_expired: bool,
 }
 
 #[enum_dispatch::enum_dispatch]

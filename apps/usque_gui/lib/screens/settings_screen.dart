@@ -1,12 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/external_link.dart';
 import '../widgets/usque_dialog.dart';
 import 'advanced_settings_screen.dart';
 import 'diagnostics_screen.dart';
@@ -418,10 +418,8 @@ class _UpdateActions extends StatelessWidget {
               ),
             if (offerRelease)
               FilledButton.tonalIcon(
-                onPressed: () => launchUrl(
-                  Uri.parse(update.releaseUrl!),
-                  mode: LaunchMode.externalApplication,
-                ),
+                onPressed: () =>
+                    openExternalLink(context, strings, update.releaseUrl!),
                 icon: const Icon(LucideIcons.externalLink),
                 label: Text(strings.get('open_release')),
               ),

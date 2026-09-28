@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/chain_home_status.dart';
 import '../core/connection_presentation.dart';
 import '../core/frontend_presentation.dart';
 import '../core/usque_motion.dart';
@@ -17,9 +18,9 @@ import '../widgets/live_duration.dart';
 import '../widgets/mobile_home_panels.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
+import 'chain_proxy_screen.dart';
 import 'diagnostics_screen.dart';
 import 'network_quality_screen.dart';
-import 'vpn_gate_screen.dart';
 
 /// The instrument panel: one connection control, one status readout, and the
 /// live numbers that prove the tunnel is doing something.
@@ -58,7 +59,7 @@ class HomeScreen extends StatelessWidget {
                 onOpenVpnGate ??
                 () => Navigator.of(context).push<void>(
                   MaterialPageRoute(
-                    builder: (_) => VpnGateScreen(controller: controller),
+                    builder: (_) => ChainProxyScreen(controller: controller),
                   ),
                 ),
           ),
@@ -170,113 +171,128 @@ class _VpnGateReadout extends StatelessWidget {
   final VoidCallback onOpen;
 
   @override
-  Widget build(
-    BuildContext context,
-  ) => ControllerSelector<({bool enabled, VpnGateStatus status})>(
-    controller: controller,
-    active: (app) => app.section == AppSection.home,
-    selector: (app) => (
-      enabled: app.activeProfile.vpnGate.enabled,
-      status: app.snapshot.vpnGate,
-    ),
-    builder: (context, view) {
-      if (!view.enabled && view.status.stage == 'disabled') {
-        return const SizedBox.shrink();
-      }
-      final status = view.status;
-      final phaseKey = switch (status.stage) {
-        'connecting_warp' => 'gate_connecting_warp',
-        'connecting_server' => 'gate_connecting_server',
-        'negotiating' => 'gate_negotiating',
-        'configuring_network' => 'gate_configuring_network',
-        'connected' => 'connected',
-        'reconnecting' => 'reconnecting',
-        'error' => 'error',
-        _ => 'disconnected',
-      };
-      final server = status.server;
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 24),
-        child: Semantics(
-          container: true,
-          liveRegion: true,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: TextButton(
-                  key: const ValueKey('home-vpn-gate-settings'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Theme.of(context).colorScheme.onSurface,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+  Widget build(BuildContext context) =>
+      ControllerSelector<
+        ({
+          bool enabled,
+          ConnectionPhase phase,
+          VpnGateStatus status,
+          ChainExitStatus chain,
+          ChainSource source,
+        })
+      >(
+        controller: controller,
+        active: (app) => app.section == AppSection.home,
+        selector: (app) => (
+          enabled: app.activeProfile.chainEnabled,
+          phase: app.snapshot.phase,
+          status: app.snapshot.vpnGate,
+          chain: app.snapshot.chainExit,
+          source: app.activeProfile.chainSource,
+        ),
+        builder: (context, view) {
+          final homeStatus = ChainHomeStatus.of(
+            phase: view.phase,
+            chainEnabled: view.enabled,
+            chainStage: view.chain.stage,
+            gateStage: view.status.stage,
+            hasCurrentProfile: view.chain.currentProfile != null,
+            hasGateServer: view.status.server != null,
+          );
+          if (!homeStatus.showChainRow) {
+            return const SizedBox.shrink();
+          }
+          final status = view.status;
+          final server = status.server;
+          final phaseLabel = homeStatus.label(strings);
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: Semantics(
+              container: true,
+              liveRegion: true,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
                     alignment: AlignmentDirectional.centerStart,
-                  ),
-                  onPressed: onOpen,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'WARP → VPN Gate',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              strings.get(phaseKey),
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
-                            ),
-                          ],
-                        ),
+                    child: TextButton(
+                      key: const ValueKey('home-vpn-gate-settings'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Theme.of(
+                          context,
+                        ).colorScheme.onSurface,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        alignment: AlignmentDirectional.centerStart,
                       ),
-                      const SizedBox(width: 12),
-                      const Icon(LucideIcons.chevronRight, size: 18),
-                    ],
-                  ),
-                ),
-              ),
-              if (status.warpStage != null || server != null)
-                const SizedBox(height: 8),
-              if (status.warpStage != null)
-                Text(
-                  'WARP: ${strings.get(status.warpStage == 'connected'
-                      ? 'connected'
-                      : status.warpStage == 'reconnecting'
-                      ? 'reconnecting'
-                      : status.warpStage == 'error'
-                      ? 'error'
-                      : status.warpStage == 'disconnected'
-                      ? 'disconnected'
-                      : 'connecting')}',
-                ),
-              if (server != null)
-                Row(
-                  children: [
-                    CountryFlag(countryCode: server.countryCode),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${strings.get(status.connected ? 'gate_current' : 'gate_draft')}: ${server.countryCode ?? '—'} · ${server.ip}',
-                        style: const TextStyle(fontFamily: UsqueFonts.mono),
+                      onPressed: onOpen,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'WARP → ${view.chain.currentProfile?.name ?? view.source.label}',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  phaseLabel,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Icon(LucideIcons.chevronRight, size: 18),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-            ],
-          ),
-        ),
+                  ),
+                  if (status.warpStage != null || server != null)
+                    const SizedBox(height: 8),
+                  if (status.warpStage != null)
+                    Text(
+                      'WARP: ${strings.get(status.warpStage == 'connected'
+                          ? 'connected'
+                          : status.warpStage == 'reconnecting'
+                          ? 'reconnecting'
+                          : status.warpStage == 'error'
+                          ? 'error'
+                          : status.warpStage == 'disconnected'
+                          ? 'disconnected'
+                          : 'connecting')}',
+                    ),
+                  if (view.chain.currentProfile case final current?)
+                    Text(current.source.label),
+                  if (server != null && view.chain.currentProfile == null)
+                    Row(
+                      children: [
+                        CountryFlag(countryCode: server.countryCode),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${strings.get(status.connected ? 'gate_current' : 'gate_draft')}: ${server.countryCode ?? '—'} · ${server.ip}',
+                            style: const TextStyle(fontFamily: UsqueFonts.mono),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
       );
-    },
-  );
 }
 
 class _ErrorSlot extends StatelessWidget {
@@ -315,6 +331,11 @@ typedef _HeroView = ({
   bool systemProxy,
   String geoDirect,
   _OutputPhases runtime,
+  bool chainEnabled,
+  String chainStage,
+  String gateStage,
+  bool chainProfile,
+  bool gateServer,
 });
 
 /// Runtime phase of each output, flattened so the hero compares by value and
@@ -356,6 +377,11 @@ _HeroView _heroView(AppController controller) => (
   systemProxy: controller.activeProfile.proxy.systemProxy,
   geoDirect: controller.activeProfile.geoDirectCountries.join(','),
   runtime: _outputPhases(controller.snapshot),
+  chainEnabled: controller.activeProfile.chainEnabled,
+  chainStage: controller.snapshot.chainExit.stage,
+  gateStage: controller.snapshot.vpnGate.stage,
+  chainProfile: controller.snapshot.chainExit.currentProfile != null,
+  gateServer: controller.snapshot.vpnGate.server != null,
 );
 
 class _ConnectionHero extends StatelessWidget {
@@ -382,8 +408,18 @@ class _ConnectionHero extends StatelessWidget {
 
   Widget _buildHero(BuildContext context, _HeroView view) {
     final theme = Theme.of(context);
-    final presentation = ConnectionPresentation.of(view.phase);
-    final status = strings.get(presentation.labelKey);
+    final connection = ConnectionPresentation.of(view.phase);
+    final chainStatus = ChainHomeStatus.of(
+      phase: view.phase,
+      chainEnabled: view.chainEnabled,
+      chainStage: view.chainStage,
+      gateStage: view.gateStage,
+      hasCurrentProfile: view.chainProfile,
+      hasGateServer: view.gateServer,
+    );
+    final status = chainStatus.drivesHome
+        ? chainStatus.label(strings)
+        : strings.get(connection.labelKey);
     final error = view.phase == ConnectionPhase.error;
     final recoveryBlocked =
         error && view.errorCode == 'WINDOWS_RECOVERY_BLOCKED';
@@ -393,7 +429,7 @@ class _ConnectionHero extends StatelessWidget {
           ? 'retry'
           : error && !recoveryBlocked && !view.identityReady
           ? 'configure_identity'
-          : presentation.actionKey,
+          : connection.actionKey,
     );
     final canAct =
         (!view.busy ||
@@ -405,6 +441,9 @@ class _ConnectionHero extends StatelessWidget {
         !recoveryBlocked;
     Widget ring(double size) => ConnectionRing(
       phase: view.phase,
+      presentation: chainStatus.drivesHome
+          ? chainStatus.presentation(connection)
+          : null,
       busy: view.busy,
       actionLabel: action,
       semanticLabel: '${strings.get('connection_status')}: $status',
@@ -442,7 +481,9 @@ class _ConnectionHero extends StatelessWidget {
       child: FadeThroughSwitcher(
         child: Text(
           status,
-          key: ValueKey(view.phase),
+          key: ValueKey(
+            chainStatus.drivesHome ? chainStatus.labelKey : view.phase,
+          ),
           textAlign: TextAlign.center,
           style: theme.textTheme.headlineSmall,
         ),
@@ -515,7 +556,7 @@ class _ConnectionHero extends StatelessWidget {
             statusText(),
             const SizedBox(height: 10),
             _ErrorSlot(controller: controller, strings: strings),
-            if (presentation.recoverable && !error) ...[
+            if (connection.recoverable && !error) ...[
               Center(
                 child: OutlinedButton.icon(
                   onPressed: view.busy ? null : controller.retry,
@@ -547,7 +588,7 @@ class _ConnectionHero extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Center(child: statusText()),
-          if (presentation.recoverable) ...[
+          if (connection.recoverable) ...[
             const SizedBox(height: 16),
             recovery(),
           ],
@@ -593,13 +634,31 @@ class _FrontendStatuses extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final configured = <FrontendKind, FrontendPhase?>{
-      if (view.frontends.tunnel) FrontendKind.tunnel: view.runtime.tunnel,
-      if (view.frontends.socks5) FrontendKind.socks5: view.runtime.socks5,
-      if (view.frontends.http) FrontendKind.http: view.runtime.http,
-      if (view.systemProxy) FrontendKind.systemProxy: view.runtime.systemProxy,
+    final outputs = <FrontendKind, ({bool desired, FrontendPhase? runtime})>{
+      FrontendKind.tunnel: (
+        desired: view.frontends.tunnel,
+        runtime: view.runtime.tunnel,
+      ),
+      FrontendKind.socks5: (
+        desired: view.frontends.socks5,
+        runtime: view.runtime.socks5,
+      ),
+      FrontendKind.http: (
+        desired: view.frontends.http,
+        runtime: view.runtime.http,
+      ),
+      FrontendKind.systemProxy: (
+        desired: view.systemProxy,
+        runtime: view.runtime.systemProxy,
+      ),
     };
-    final enabled = configured.entries.toList(growable: false);
+    bool observed(FrontendPhase? runtime) =>
+        view.phase != ConnectionPhase.disconnected &&
+        runtime != null &&
+        runtime != FrontendPhase.disabled;
+    final enabled = outputs.entries
+        .where((entry) => entry.value.desired || observed(entry.value.runtime))
+        .toList(growable: false);
     if (enabled.isEmpty) {
       return Text(
         strings.get('channel_only_warning'),
@@ -612,7 +671,7 @@ class _FrontendStatuses extends StatelessWidget {
       final state = FrontendPresentation.of(
         configured: true,
         connection: view.phase,
-        runtime: entry.value,
+        runtime: entry.value.runtime,
       );
       final name = switch (entry.key) {
         FrontendKind.tunnel => strings.tunnelOutputLabel(defaultTargetPlatform),

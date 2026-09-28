@@ -1,6 +1,9 @@
+use crate::transport_performance::{BackpressureCounters, QueueBackpressureSnapshot, add};
 use std::collections::BTreeMap;
+use std::future::{Future, poll_fn};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::task::Poll;
 use std::time::Duration;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
@@ -19,6 +22,21 @@ pub enum QueueKind {
     DirectDnsRequests,
 }
 
+impl QueueKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::TunToTransport => "tun_to_transport",
+            Self::ProxyToTransport => "proxy_to_transport",
+            Self::TransportOutgoingPackets => "transport_outgoing",
+            Self::H3DatagramSend => "h3_datagram_send",
+            Self::H3WireSend => "h3_wire_send",
+            Self::TransportToTun => "transport_to_tun",
+            Self::TransportToProxy => "transport_to_proxy",
+            Self::DirectDnsRequests => "direct_dns",
+        }
+    }
+}
+
 pub const ALL_QUEUE_KINDS: [QueueKind; 8] = [
     QueueKind::TunToTransport,
     QueueKind::ProxyToTransport,
@@ -32,6 +50,7 @@ pub const ALL_QUEUE_KINDS: [QueueKind; 8] = [
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueueMetricsSnapshot {
+    pub backpressure: Option<QueueBackpressureSnapshot>,
     pub kind: QueueKind,
     pub registered: bool,
     pub current_items: u64,
@@ -56,6 +75,8 @@ pub struct QueueMetricsSnapshot {
 /// never allocate and snapshotting never inspects a payload.
 #[derive(Debug)]
 pub struct QueueMetrics {
+    backpressure: BackpressureCounters,
+    backpressure_measured: AtomicBool,
     kind: QueueKind,
     registered: bool,
     item_capacity: u64,
@@ -95,6 +116,8 @@ impl QueueMetrics {
             closed: AtomicBool::new(false),
             cancelled: AtomicBool::new(false),
             unordered_timestamps: None,
+            backpressure: BackpressureCounters::default(),
+            backpressure_measured: AtomicBool::new(false),
         })
     }
 
@@ -142,6 +165,8 @@ impl QueueMetrics {
             closed: AtomicBool::new(false),
             cancelled: AtomicBool::new(false),
             unordered_timestamps: track_unordered_timestamps.then(|| Mutex::new(BTreeMap::new())),
+            backpressure: BackpressureCounters::default(),
+            backpressure_measured: AtomicBool::new(false),
         })
     }
 
@@ -212,6 +237,10 @@ impl QueueMetrics {
             Some(now.saturating_duration_since(enqueued))
         };
         QueueMetricsSnapshot {
+            backpressure: self
+                .backpressure_measured
+                .load(Ordering::Relaxed)
+                .then(|| self.backpressure.snapshot()),
             kind: self.kind,
             registered: self.registered,
             current_items,
@@ -454,7 +483,56 @@ impl<T> TrackedSender<T> {
         self.inner.max_capacity()
     }
 
+    pub(crate) async fn send_observed(
+        &self,
+        value: T,
+        bytes: usize,
+    ) -> Result<Option<Duration>, TrackedSendError> {
+        self.send_measured(value, bytes, None).await
+    }
+
     async fn send_inner(
+        &self,
+        value: T,
+        bytes: usize,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<(), TrackedSendError> {
+        self.send_measured(value, bytes, cancellation)
+            .await
+            .map(|_| ())
+    }
+
+    async fn send_measured(
+        &self,
+        value: T,
+        bytes: usize,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<Option<Duration>, TrackedSendError> {
+        let mut wait = CapacityWait {
+            counters: &self.metrics.backpressure,
+            started: None,
+        };
+        let mut sending = std::pin::pin!(self.send_unmeasured(value, bytes, cancellation));
+        let result = poll_fn(|cx| match sending.as_mut().poll(cx) {
+            Poll::Pending => {
+                // Tokio checks its cooperative budget before polling each
+                // semaphore. Exhausting that budget can suspend a completely
+                // empty queue, including between our three permit acquisitions.
+                // Keep the yield and its waker, but only time a capacity wait
+                // once polling is allowed to reach the underlying semaphore.
+                if tokio::task::coop::has_budget_remaining() {
+                    wait.pending();
+                }
+                Poll::Pending
+            }
+            Poll::Ready(result) => Poll::Ready(result),
+        })
+        .await;
+        let duration = wait.finish(result.as_ref().err().map(|e| e.kind));
+        result.map(|()| duration)
+    }
+
+    async fn send_unmeasured(
         &self,
         value: T,
         bytes: usize,
@@ -472,6 +550,7 @@ impl<T> TrackedSender<T> {
         tokio::pin!(reserve);
         let item_permit = if let Some(cancellation) = cancellation {
             tokio::select! {
+                biased;
                 _ = cancellation.cancelled() => {
                     self.metrics.record_rejected(bytes);
                     drop(value);
@@ -500,6 +579,7 @@ impl<T> TrackedSender<T> {
         tokio::pin!(slot);
         let slot = if let Some(cancellation) = cancellation {
             tokio::select! {
+                biased;
                 _ = cancellation.cancelled() => {
                     self.metrics.record_rejected(bytes);
                     drop(value);
@@ -522,6 +602,7 @@ impl<T> TrackedSender<T> {
         tokio::pin!(acquire);
         let byte_permit = if let Some(cancellation) = cancellation {
             tokio::select! {
+                biased;
                 _ = cancellation.cancelled() => {
                     self.metrics.record_rejected(bytes);
                     drop(value);
@@ -543,6 +624,12 @@ impl<T> TrackedSender<T> {
                 });
             }
         };
+        if cancellation.is_some_and(CancellationToken::is_cancelled) {
+            self.metrics.record_rejected(bytes);
+            return Err(TrackedSendError {
+                kind: TrackedSendErrorKind::Cancelled,
+            });
+        }
         item_permit.send(TrackedItem {
             value: Some(value),
             entry: Some(self.metrics.start_entry(bytes)),
@@ -557,6 +644,44 @@ impl<T> TrackedSender<T> {
             return Err(TrackedSendErrorKind::ByteLimit);
         }
         u32::try_from(bytes).map_err(|_| TrackedSendErrorKind::ByteLimit)
+    }
+}
+
+struct CapacityWait<'a> {
+    counters: &'a BackpressureCounters,
+    started: Option<Instant>,
+}
+impl CapacityWait<'_> {
+    fn pending(&mut self) {
+        if self.started.is_none() {
+            self.started = Some(Instant::now());
+            add(&self.counters.waits, 1);
+            self.counters.active.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    fn finish(&mut self, error: Option<TrackedSendErrorKind>) -> Option<Duration> {
+        let elapsed = self.started.take()?.elapsed();
+        self.counters.active.fetch_sub(1, Ordering::Relaxed);
+        let outcome = match error {
+            None => &self.counters.completed,
+            Some(TrackedSendErrorKind::Cancelled) => &self.counters.cancelled,
+            Some(TrackedSendErrorKind::Closed) => &self.counters.closed,
+            Some(_) => &self.counters.errors,
+        };
+        add(outcome, 1);
+        let micros = elapsed.as_micros().min(u128::from(u64::MAX)) as u64;
+        add(&self.counters.total_us, micros);
+        self.counters.max_us.fetch_max(micros, Ordering::Relaxed);
+        add(
+            &self.counters.buckets[(64 - micros.leading_zeros()).min(31) as usize],
+            1,
+        );
+        Some(elapsed)
+    }
+}
+impl Drop for CapacityWait<'_> {
+    fn drop(&mut self) {
+        self.finish(Some(TrackedSendErrorKind::Cancelled));
     }
 }
 
@@ -666,6 +791,7 @@ pub fn tracked_channel<T>(metrics: Arc<QueueMetrics>) -> (TrackedSender<T>, Trac
         byte_capacity <= u32::MAX as usize,
         "tracked queue byte capacity must fit Tokio semaphore permits"
     );
+    metrics.backpressure_measured.store(true, Ordering::Relaxed);
     let (sender, receiver) = mpsc::channel(item_capacity);
     let byte_budget = Arc::new(Semaphore::new(byte_capacity));
     let item_budget = Arc::new(Semaphore::new(item_capacity));
@@ -715,6 +841,183 @@ mod tests {
     use tokio::time::advance;
 
     use super::*;
+
+    #[test]
+    fn manual_queue_accounting_does_not_claim_measured_zero_waits() {
+        let metrics = QueueMetrics::new(QueueKind::TransportToProxy, 1, 32);
+        assert!(metrics.snapshot(Instant::now()).backpressure.is_none());
+        let (_sender, _receiver) = tracked_channel::<u8>(Arc::clone(&metrics));
+        assert_eq!(
+            metrics.snapshot(Instant::now()).backpressure.unwrap().waits,
+            0
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cooperative_yields_with_free_capacity_are_not_backpressure() {
+        use tokio::task::{consume_budget, coop::has_budget_remaining};
+
+        // Discover the runtime's budget rather than baking in Tokio's private
+        // budget size. Then exercise yielding before each of our three permits.
+        tokio::task::yield_now().await;
+        let mut budget = 0;
+        while has_budget_remaining() {
+            consume_budget().await;
+            budget += 1;
+        }
+        assert!(budget > 3);
+        for remaining in 0..3 {
+            tokio::task::yield_now().await;
+            for _ in 0..budget - remaining {
+                consume_budget().await;
+            }
+            let metrics = QueueMetrics::new(QueueKind::TransportOutgoingPackets, 1, 32);
+            let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+            let mut send = std::pin::pin!(sender.send_observed(1u8, 1));
+            assert!(
+                poll_fn(|cx| Poll::Ready(send.as_mut().poll(cx)))
+                    .await
+                    .is_pending()
+            );
+            assert_eq!(metrics.snapshot(Instant::now()).current_items, 0);
+            assert_eq!(
+                metrics.backpressure.snapshot().waits,
+                0,
+                "cooperative yield with {remaining} budget left is not a capacity wait"
+            );
+            assert_eq!(send.await.unwrap(), None);
+            assert_eq!(receiver.recv().await, Some(1));
+            let snapshot = metrics.backpressure.snapshot();
+            assert_eq!(
+                (
+                    snapshot.waits,
+                    snapshot.active,
+                    snapshot.completed,
+                    snapshot.cancelled
+                ),
+                (0, 0, 0, 0)
+            );
+            assert_eq!(snapshot.buckets.iter().sum::<u64>(), 0);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn real_capacity_wait_after_cooperative_yield_starts_when_capacity_is_polled() {
+        let metrics = QueueMetrics::new(QueueKind::TransportOutgoingPackets, 1, 32);
+        let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+        sender.send(1u8, 1).await.unwrap();
+        while tokio::task::coop::has_budget_remaining() {
+            tokio::task::consume_budget().await;
+        }
+        let mut send = std::pin::pin!(sender.send_observed(2u8, 1));
+        assert!(
+            poll_fn(|cx| Poll::Ready(send.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        assert_eq!(metrics.backpressure.snapshot().waits, 0);
+        advance(Duration::from_millis(7)).await;
+        assert!(
+            poll_fn(|cx| Poll::Ready(send.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        assert_eq!(metrics.backpressure.snapshot().active, 1);
+        advance(Duration::from_millis(5)).await;
+        assert_eq!(receiver.recv().await, Some(1));
+        assert_eq!(send.await.unwrap(), Some(Duration::from_millis(5)));
+        assert_eq!(receiver.recv().await, Some(2));
+        let snapshot = metrics.backpressure.snapshot();
+        assert_eq!(
+            (
+                snapshot.waits,
+                snapshot.active,
+                snapshot.completed,
+                snapshot.total_us
+            ),
+            (1, 0, 1, 5000)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn capacity_wait_counts_only_pending_and_settles_once() {
+        let metrics = QueueMetrics::new(QueueKind::TransportOutgoingPackets, 1, 32);
+        let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+        assert_eq!(sender.send_observed(1, 1).await.unwrap(), None);
+        assert_eq!(metrics.backpressure.snapshot().waits, 0);
+        let mut next = std::pin::pin!(sender.send_observed(2, 1));
+        for _ in 0..3 {
+            assert!(
+                poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx)))
+                    .await
+                    .is_pending()
+            );
+        }
+        let pending = metrics.backpressure.snapshot();
+        assert_eq!(
+            (pending.waits, pending.active, pending.completed),
+            (1, 1, 0)
+        );
+        advance(Duration::from_millis(5)).await;
+        assert_eq!(receiver.recv().await, Some(1));
+        assert_eq!(next.await.unwrap(), Some(Duration::from_millis(5)));
+        assert_eq!(receiver.recv().await, Some(2));
+        let done = metrics.backpressure.snapshot();
+        assert_eq!((done.waits, done.active, done.completed), (1, 0, 1));
+        assert_eq!(
+            (done.total_us, done.max_us, done.buckets.iter().sum::<u64>()),
+            (5_000, 5_000, 1)
+        );
+        assert_eq!(metrics.snapshot(Instant::now()).drop_items, 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn capacity_wait_drop_cancel_and_closed_have_separate_outcomes() {
+        let metrics = QueueMetrics::new(QueueKind::TunToTransport, 1, 32);
+        let (sender, receiver) = tracked_channel(Arc::clone(&metrics));
+        sender.send(1, 1).await.unwrap();
+        {
+            let mut pending = std::pin::pin!(sender.send(2, 1));
+            assert!(
+                poll_fn(|cx| Poll::Ready(pending.as_mut().poll(cx)))
+                    .await
+                    .is_pending()
+            );
+            advance(Duration::from_millis(1)).await;
+        }
+        let cancel = CancellationToken::new();
+        let mut pending = std::pin::pin!(sender.send_cancellable(3, 1, &cancel));
+        assert!(
+            poll_fn(|cx| Poll::Ready(pending.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        cancel.cancel();
+        assert_eq!(
+            pending.await.unwrap_err().kind,
+            TrackedSendErrorKind::Cancelled
+        );
+        let mut pending = std::pin::pin!(sender.send(4, 1));
+        assert!(
+            poll_fn(|cx| Poll::Ready(pending.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        drop(receiver);
+        assert_eq!(
+            pending.await.unwrap_err().kind,
+            TrackedSendErrorKind::Closed
+        );
+        let done = metrics.backpressure.snapshot();
+        assert_eq!(
+            (done.waits, done.active, done.cancelled, done.closed),
+            (3, 0, 2, 1)
+        );
+        assert_eq!(done.completed, 0);
+        assert_eq!(done.buckets.iter().sum::<u64>(), 3);
+        assert_eq!(sender.byte_budget.available_permits(), 32);
+        assert_eq!(sender.item_budget.available_permits(), 1);
+    }
 
     #[tokio::test]
     async fn enqueue_dequeue_drop_and_close_zero_items_and_bytes() {

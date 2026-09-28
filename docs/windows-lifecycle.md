@@ -17,7 +17,8 @@ the app.
 
 The interactive installer:
 
-- asks for administrator approval to install the `usque-agent` service;
+- asks for administrator approval to install the Agent service (`usque-agent.exe`,
+  service name `UsqueAgent`, display name "Usque Agent");
 - lets you choose the install directory;
 - installs the GUI, unprivileged engine, Agent, official Wintun DLL, and Start Menu shortcut;
 - keeps that directory on a major upgrade;
@@ -63,6 +64,12 @@ Agents without device-reuse capability require a matching application/Agent
 update; new TUN requests cannot fall back to the old per-connection device path. Do not delete the
 recovery journal to bypass an error.
 
+Established CONNECT-IP reconnects reuse the physical-network observer described in
+[connection recovery](h3-client-reliability.md#established-connect-ip-recovery).
+The observer distinguishes confirmed `AGENT_PHYSICAL_NETWORK_OFFLINE` from failed
+queries and older Agents' generic errors. This does not relax the Agent's startup,
+exact-egress, cleanup or automatic-recovery checks.
+
 ## Upgrade ordering and payload replacement
 
 The newer-Agent-first ordering below was introduced in v0.2.5. It is retained
@@ -95,7 +102,7 @@ unsupported. The setting is not a request to run an MSI repair.
 
 This ordering is also the supported bridge from `v0.2.4`, whose Agent could
 mistake asynchronous Wintun device removal for a permanent cleanup failure. A
-user whose `v0.2.4` uninstall failed should use a verified official `v0.2.7`
+user whose `v0.2.4` uninstall failed should use a verified official `v0.2.8`
 Windows package containing this bridge, then uninstall the newer version if
 removal was the original goal. If recovery still fails, stop and report the
 failure with sanitized diagnostics; development artifacts are not substitutes

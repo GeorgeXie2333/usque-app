@@ -1,6 +1,6 @@
 use std::io;
 
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 
 const ANDROID_TUN_SLAB_PACKETS: usize = 8;
 
@@ -49,15 +49,16 @@ impl TunReadSlab {
         &mut self.storage[..self.slot_size]
     }
 
-    pub(crate) fn take_packet(&mut self, length: usize) -> io::Result<Bytes> {
+    pub(crate) fn take_packet(&mut self, length: usize) -> io::Result<BytesMut> {
         if length == 0 || length > self.slot_size || self.storage.len() < self.slot_size {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Android TUN returned an invalid packet length",
             ));
         }
-        let slot = self.storage.split_to(self.slot_size).freeze();
-        Ok(slot.slice(..length))
+        let mut slot = self.storage.split_to(self.slot_size);
+        slot.truncate(length);
+        Ok(slot)
     }
 
     #[cfg(test)]
@@ -86,13 +87,23 @@ mod tests {
         for (marker, packet) in (0_u8..16).zip(&packets) {
             assert_eq!(packet.as_ref(), &[marker; 20]);
         }
-        let clone = packets[0].clone();
-        assert!(packets.remove(0).try_into_mut().is_err());
-        assert_eq!(clone.as_ref(), &[0; 20]);
+        for i in 0..packets.len() {
+            if i % 8 != 0 {
+                assert_eq!(
+                    packets[i].as_ptr() as usize - packets[i - 1].as_ptr() as usize,
+                    1280
+                );
+            }
+            packets[i][0] = 255 - i as u8;
+        }
+        for (i, packet) in packets.iter().enumerate() {
+            assert_eq!(packet[0], 255 - i as u8);
+            assert_eq!(&packet[1..], &[i as u8; 19]);
+        }
     }
 
     #[test]
-    fn mtu_change_uses_a_new_slab_and_keeps_old_packets_immutable() {
+    fn mtu_change_uses_a_new_slab_and_keeps_old_packets_independent() {
         let mut slab = TunReadSlab::new();
         slab.prepare(1_280).unwrap();
         slab.read_buffer()[..20].fill(1);

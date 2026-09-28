@@ -15,7 +15,9 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
 | [Network Doctor](network-doctor.md) | Run checks, read results, and export a local report / 运行检查、理解结果与导出诊断 |
 | [Direct DNS](encrypted-direct-dns.md) | Choose System, DoH or DoT and fill in resolver settings / 选择直连 DNS 模式与填写服务器配置 |
-| [WARP → VPN Gate](VPN_GATE.md) | Select an exit, manage favorites, and understand connection failures / 选择出口、管理收藏与处理连接失败 |
+| [WARP via WireGuard](WARP_WIREGUARD.md) | Generate/import WARP configurations and edit endpoints / 生成、导入 WARP 配置与编辑端点 |
+| [Chain proxy](CHAIN_PROXY.md) | OpenVPN, WireGuard, WARP via WireGuard, VPN Gate: import, select and apply / 导入、选用与应用 |
+| [VPN Gate directory](VPN_GATE.md) | Manage the volunteer directory and favorites / 管理志愿服务器目录与收藏 |
 | [Experimental L4](L4_PROXY.md) | Enable TCP proxy mode and understand its traffic limits / 启用 TCP 代理模式及了解限制 |
 | [Experimental Zero Trust](ZERO_TRUST_EXPERIMENTAL.md) | Enrollment, unsupported features, and validation requirements / 实验性注册、限制与验证要求 |
 | [Security policy](../SECURITY.md) | Private vulnerability reporting and supported versions / 私密漏洞报告与支持范围 |
@@ -30,6 +32,7 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |
 | [Release process](RELEASE.md) | Candidate preparation, approval, signing, and publication / 候选包、审批、签名与发布 |
+| [Flutter release symbols](FLUTTER_SYMBOLS.md) | Separate and archive matching Dart symbols; restore stack traces / 分离、归档 Dart 符号与还原堆栈 |
 | [Code signing policy](CODE_SIGNING.md) | Official identities, key handling, and rotation / 官方签名身份、密钥管理与轮换 |
 | [GitHub governance](GITHUB_GOVERNANCE.md) | Repository checks, permissions, and maintainer rules / 仓库检查、权限与维护规则 |
 | [Reliability testing](RELIABILITY_TESTING.md) | Deterministic checks, isolated environments, and result requirements / 确定性检查、隔离环境与结果要求 |
@@ -54,6 +57,7 @@ Publication and optional protected-runner validation are explained in
 | [Network settings](NETWORK_SETTINGS.md) | Field updates, saved settings and active-session changes / 字段修改、设置保存与会话生效规则 |
 | [Windows lifecycle](windows-lifecycle.md) | Service recovery, upgrade ordering and quiet uninstall / 服务恢复、升级顺序与静默卸载 |
 | [Direct DNS threat model](direct-dns-threat-model.md) | Scoped trust boundaries, assumptions, and review evidence / 专题信任边界、假设与审查依据 |
+| [WARP WireGuard upstream](WARP_WIREGUARD_UPSTREAM.md) | Pinned wgcf reference, registration contract and notice / 固定的上游版本、注册协议与许可声明 |
 
 Use these pages when changing an implementation. Keep behavior descriptions in
 sync with executable sources, preserve protobuf numbers and invariant identifiers,
@@ -75,13 +79,22 @@ Common terms in these references:
 | Record | Scope / 范围 |
 | --- | --- |
 | [Implementation baseline](implementation-baseline.md) | PR-00 source, toolchain, and unavailable-lab baseline / PR-00 基线 |
+| [MASQUE performance candidates](MASQUE_PERFORMANCE_VALIDATION.md) | Staged source candidates, checks, and unmeasured device results / 分阶段候选、检查与待测设备结果 |
 | [Network-quality acceptance](network-quality-acceptance.md) | PR-01–PR-12 implementation and test matrix, with later correction notice / 阶段验收及后续更正 |
 | [PMTU review and fixes](pmtu-path-fixes.md) | Candidate-specific defects, corrections, and regression results / 特定候选版本的修复记录 |
+| [Package size optimization](PACKAGE_SIZE_OPTIMIZATION.md) | Six-batch changes, exact package/payload measurements and validation limits / 分批优化、包体与载荷实测及验证限制 |
+| [Native size experiments](NATIVE_SIZE_EXPERIMENTS.md) | Compiler candidates, paired local measurements and retained defaults / 编译候选、配对本地测量与保留默认值 |
 | [Receive-buffer experiments](RECEIVE_BUFFER_EXPERIMENTS.md) | Retired Android A/B builds and production-default validation / 已结束的安卓对照试验与默认值验证记录 |
 | [Initial L4 validation](L4_VALIDATION.md) | Initial implementation checks and unavailable environments / 初始实现检查与未运行项目 |
 | [L4 backpressure fix](L4_BACKPRESSURE_FIX.md) | Reproduced stalls, stop handling and regression results / 阻塞复现、停止处理与回归结果 |
 | [L4 download optimization](L4_DOWNLOAD_OPTIMIZATION.md) | Copy/allocation changes and their original measurements / 拷贝、分配优化及当时的检查记录 |
 | [VPN Gate validation](VPN_GATE_VALIDATION.md) | Local implementation and follow-up checks / 本地实现与后续修复检查 |
+| [Chain proxy validation](CHAIN_PROXY_VALIDATION.md) | Native builds, protocol/UI tests and size comparisons / 原生编译、协议与界面测试、体积对照 |
+| [Chain proxy fixes](CHAIN_PROXY_FIX_VALIDATION.md) | Import, DNS, queues, authentication, multiple endpoints and candidate-specific regressions / 导入、DNS、队列、认证、多端点修复与回归 |
+| [Chain DNS follow-up](CHAIN_DNS_VALIDATION.md) | DNS receive cancellation, TCP alternatives, and explicitly authorized SOCKS-only measurements / DNS 接收竞态、TCP 备用及无 TUN 代理实测 |
+| [WARP WireGuard validation](WARP_WIREGUARD_VALIDATION.md) | Discovery, storage, platform checks and artifact sizes / 扫描、存储、平台检查与产物体积 |
+| [WARP WireGuard registration fix](WARP_WIREGUARD_REGISTRATION_FIX.md) | wgcf registration compatibility, endpoint parsing, disconnected tasks and regression results / 注册兼容、端点解析、未连接任务与回归验证 |
+| [WARP single-port scan](WARP_WIREGUARD_SCAN_VALIDATION.md) | One port per IP, saved-job compatibility, overlapping HTTPS and validation limits / 每 IP 单端口、任务兼容、并行 HTTPS 与验证边界 |
 
 Historical results apply only to the recorded candidate and environment. Some
 records identify a baseline plus uncommitted work rather than a reproducible

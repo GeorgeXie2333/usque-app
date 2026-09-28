@@ -226,6 +226,7 @@ fn run_probe(
         .max(0) as u64;
     let service = environment.new_global_ref(service).ok()?;
     let protector: Arc<dyn SocketProtector> = Arc::new(ProbeProtector(AndroidSocketProtector {
+        physical_watch: std::sync::OnceLock::new(),
         java_vm,
         service,
         policy: if vpn {

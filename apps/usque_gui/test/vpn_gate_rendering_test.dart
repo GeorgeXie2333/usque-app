@@ -187,7 +187,9 @@ void main() {
         maxScrolls: 60,
       );
       final next = find.byTooltip(app.strings.get('gate_next'));
-      await tester.ensureVisible(next);
+      // The shorter copy can leave pagination outside the lazy viewport.
+      // Scroll until the button is built before bringing it into view.
+      await tester.scrollUntilVisible(next, 200, scrollable: scrollable);
       await tester.pumpAndSettle();
       await tester.tap(next);
       await tester.pumpAndSettle();

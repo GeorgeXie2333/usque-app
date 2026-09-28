@@ -218,6 +218,15 @@ class _TimelineRow extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (event.eventType ==
+                        ConnectionTimelineEventType
+                            .queueBackpressured) ...<Widget>[
+                      const SizedBox(height: 3),
+                      Text(
+                        '${event.queueKind ?? ''} · ${event.durationMilliseconds ?? 0} ms',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ],
                     if (event.failure != null) ...<Widget>[
                       const SizedBox(height: 3),
                       Text(

@@ -8,12 +8,13 @@ use crate::{ControlService, ControlServiceError, profile_to_proto};
 impl ControlService {
     pub(crate) async fn reconfigure_active_profile(
         &self,
-        profile: Profile,
+        mut profile: Profile,
     ) -> Result<v1::ReconfigureResult, ControlServiceError> {
         profile
             .validate()
             .map_err(ControlServiceError::profile_configuration)?;
         let _mutation = self.mutation_lock.lock().await;
+        self.attach_proxy_auth(&mut profile).await?;
         let active_profile_id = self
             .data_plane
             .lock()
@@ -34,7 +35,17 @@ impl ControlService {
             .ok_or(ControlServiceError::ProfileNotFound(profile.id))?;
 
         let class = classify_reconfigure(&previous, &profile);
-        if previous.vpn_gate != profile.vpn_gate {
+        if previous
+            .custom_chain()
+            .is_some_and(|s| s.profile_id.is_some())
+            && profile.chain_exit.is_none()
+        {
+            return Err(ControlServiceError::InvalidRequest(
+                "chain_exit capability is required".into(),
+            ));
+        }
+        self.validate_chain_selection(&profile)?;
+        if profile.custom_chain().is_none() && previous.vpn_gate != profile.vpn_gate {
             self.pin_gate_settings(&profile.vpn_gate).await?;
         }
         match class {
@@ -53,6 +64,7 @@ impl ControlService {
                 ));
             }
             ReconfigureClass::HotFrontends
+            | ReconfigureClass::HotTrafficPolicy
             | ReconfigureClass::HotSystemProxy
             | ReconfigureClass::HotVpnGate
             | ReconfigureClass::HotTunnelAttach => {
@@ -100,6 +112,7 @@ impl ControlService {
         let session_algorithm = previous.congestion_control;
         let applied = self.upsert_profile_locked(profile).await?;
         let applied_result = match class {
+            ReconfigureClass::HotTrafficPolicy => Ok(()),
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(&applied).await,
             ReconfigureClass::HotSystemProxy => self.hot_apply_system_proxy(&applied).await,
             ReconfigureClass::HotTunnelAttach => self.hot_tunnel_attach(&applied).await,
@@ -156,6 +169,7 @@ impl ControlService {
             }
             return Err(error);
         }
+        self.hot_update_traffic_policy(&applied).await?;
         self.apply_hot_profile_state(&applied).await;
         let mut confirmed = applied.clone();
         confirmed.congestion_control = session_algorithm;
@@ -174,6 +188,20 @@ impl ControlService {
             profile: Some(profile_to_proto(&applied)),
             snapshot: Some(self.snapshot_with_quality_to_proto(&snapshot)),
         })
+    }
+
+    pub(crate) async fn hot_update_traffic_policy(
+        &self,
+        profile: &Profile,
+    ) -> Result<(), ControlServiceError> {
+        let mut data_plane = self.data_plane.lock().await;
+        let active = data_plane
+            .as_mut()
+            .filter(|active| active.profile_id == profile.id)
+            .ok_or_else(|| {
+                ControlServiceError::InvalidRequest("a connected session is required".into())
+            })?;
+        active.runtime.update_traffic_policy(profile.disable_quic)
     }
 
     pub(crate) async fn hot_reconfigure_frontends(

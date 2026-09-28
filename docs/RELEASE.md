@@ -5,13 +5,13 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The workflow currently accepts only `v0.2.7` and requires that tag to point at
+The workflow currently accepts only `v0.2.8` and requires that tag to point at
 the current `main` commit when its gate runs. The tag is maintainer-only.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
 local bundle, MSI, or APK cannot replace a failed Actions build.
 
-The v0.2.7 candidate retains the newer-Agent-first Windows upgrade sequence
+The v0.2.8 candidate retains the newer-Agent-first Windows upgrade sequence
 and complete payload replacement introduced in v0.2.5. Those fixes are not part
 of the original v0.2.4 release. The multilingual EXE installer and hidden-bundle
 uninstall lifecycle are new in v0.2.6, not the original v0.2.5 MSI-only release.
@@ -25,7 +25,7 @@ Which signatures count as official, how fingerprints are published, and what hap
 
 ## Before signing starts
 
-- The tag must be `v0.2.7` and must point at the current `main` commit.
+- The tag must be `v0.2.8` and must point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
@@ -53,7 +53,7 @@ These non-secret variables come from the repository or the same environments:
 
 Keep encrypted offline backups of both signing identities. Pre-1.0 packages use these fixed self-signed identities. A v1.0.0 signing change is a separate release.
 
-The Windows job imports the private identity only into the runner user's personal certificate store. It does not add the certificate to Root or TrustedPublisher. Verification accepts the expected untrusted-root result and checks the DER SHA-256 fingerprint. An `always()` step removes the private identity. The workflow never re-signs the official Wintun DLL. The Android job deletes its temporary keystore the same way.
+The Windows job imports the private identity only into the runner user's personal certificate store. It does not add the certificate to Root or TrustedPublisher. It records the imported identity before checking the fingerprint or locating SignTool, so those failures still reach cleanup. Verification accepts the expected untrusted-root result and checks the DER SHA-256 fingerprint. An `always()` step removes both the certificate and its private key with `-DeleteKey`; its `finally` block deletes the temporary PFX even if certificate removal fails. Cleanup errors fail the job. The workflow never re-signs the official Wintun DLL. The Android job deletes its temporary keystore afterward.
 
 Android builds verify the Gradle 9.5.1 distribution against its published SHA-256, use the checked-in `app/gradle.lockfile`, and check resolved artifacts against `gradle/verification-metadata.xml`. Updating an Android dependency means reviewing and regenerating both files by hand. CI and release jobs must not use `--write-locks` or `--write-verification-metadata`.
 
@@ -63,20 +63,38 @@ The Windows bundle and MSI do not install the publisher certificate into the mac
 
 1. The tag job builds signed x64-v2 and ARM64 installer bundles, their signed update MSIs, and signed arm64-v8a, x86_64, armeabi-v7a, and universal APKs in the signing environment.
 2. Each platform job checks the certificate identity and creates GitHub build provenance.
+   Both Build and Release use the shared read-only APK packaging validator:
+   native libraries must be compressed, the application must explicitly enable
+   extraction, 64-bit ELF LOAD segments must support 16 KiB alignment, and ZIP
+   alignment must pass. Wrong ABIs, duplicate entries, shipped symbols and native
+   debug information are rejected before candidate upload. No APK is installed.
 3. A staging job downloads those artifacts, rejects missing or extra EXE/MSI/APK files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
 4. The publish job rechecks every primary package against the immutable manifest, calculates final package checksums, and creates the GitHub release with six user-facing installers, two update-only MSIs, the manifest, checksums, and per-package SBOMs.
-5. When repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`, four protected self-hosted runner classes separately exercise the staged candidate: a Windows snapshot VM, a dedicated Android device, an independent network observer, and a controlled performance lab.
-6. Protected validation is supplemental and does not gate publication. The aggregator emits `reliability-report.json` and `device-matrix.md` as a protected Actions artifact only when every required report and evidence file passes its exact-candidate and isolation checks. Missing infrastructure, `failed`, and `not_run` remain visible non-passes and never become release approval.
+   Separately retain the three matching Flutter symbol artifacts for the
+   supported lifetime of this release, following [Flutter release symbols](FLUTTER_SYMBOLS.md).
+   Verify their source SHA, version, AOT/build-ID and symbol hashes against the
+   actual packages. Symbols stay outside the 18 public Release assets and must
+   not be deleted with temporary package-verification downloads.
+5. Only in a private repository, and when repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`, four protected self-hosted runner classes separately exercise the staged candidate: a Windows snapshot VM, a dedicated Android device, an independent network observer, and a controlled performance lab. The public repository skips these jobs even if the variable is enabled; its Actions artifacts cannot provide a restricted evidence store.
+6. Protected validation is supplemental and does not gate publication. In the private execution context, the aggregator emits `reliability-report.json` and `device-matrix.md` only when every required report and evidence file passes its exact-candidate and isolation checks. These artifacts inherit the private repository's read permissions. Skipped or unavailable validation is `not_run`, not a pass. Missing infrastructure, `failed`, and `not_run` never become release approval.
 
 ## Release-note format
 
 `.github/RELEASE_NOTES_TEMPLATE.md` is the publication source for the GitHub
 Release body. Before creating a new release tag, replace the **Highlights**
 items and version summary with that release's user-visible changes. Keep the
-upgrade notes and folded technical and DNS details in sync with that version. Every statement is written in
+upgrade notes and folded technical and DNS details in sync with that version,
+and recheck versioned facts such as configuration schema, Agent protocol, and
+recovery journal and export schema numbers against the source. Every statement is written in
 English first, followed immediately by its Simplified Chinese translation.
 Keep the standard sections for official downloads, installation requirements,
 signature and evidence verification, and issue feedback.
+Keep the version summary, highlights, download table, official-source warning,
+and Windows EXE guidance visible. Put supplementary installation guidance,
+upgrade notes, technical and DNS details, verification instructions and evidence,
+and feedback guidance in separate, default-collapsed `details` blocks with
+English-first bilingual summaries. Keep the standard section headings outside
+the blocks so readers can find them without expanding the content.
 
 The release renderer accepts only the version, official repository URL, and
 the two validated signer fingerprints as template values. It rejects missing
@@ -95,14 +113,14 @@ Keep the four required bilingual section names; decorative emoji may follow them
 
 Primary files:
 
-- `usque-v0.2.7-windows-x64-v2.exe`
-- `usque-v0.2.7-windows-arm64.exe`
-- `usque-v0.2.7-windows-x64-v2.msi`
-- `usque-v0.2.7-windows-arm64.msi`
-- `usque-v0.2.7-android-arm64-v8a.apk`
-- `usque-v0.2.7-android-x86_64.apk`
-- `usque-v0.2.7-android-armeabi-v7a.apk`
-- `usque-v0.2.7-android-universal.apk`
+- `usque-v0.2.8-windows-x64-v2.exe`
+- `usque-v0.2.8-windows-arm64.exe`
+- `usque-v0.2.8-windows-x64-v2.msi`
+- `usque-v0.2.8-windows-arm64.msi`
+- `usque-v0.2.8-android-arm64-v8a.apk`
+- `usque-v0.2.8-android-x86_64.apk`
+- `usque-v0.2.8-android-armeabi-v7a.apk`
+- `usque-v0.2.8-android-universal.apk`
 
 The two EXEs and four APKs are the user-facing installers; the two MSIs are
 update payloads consumed by the signed Windows updater. In addition to these
@@ -115,7 +133,7 @@ documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
 
-These rules describe the v0.2.7 authoring and verification code. The Agent
+These rules describe the v0.2.8 authoring and verification code. The Agent
 file-version check and late related-product removal sequence were added after
 the original v0.2.4 tag; they must not be presented as properties already
 verified in that older package. User-facing applicability is recorded in
@@ -128,7 +146,7 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.2.7` is therefore MSI ProductVersion `0.2.799`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (`0.2.799.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.2.8` is therefore MSI ProductVersion `0.2.899`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (`0.2.899.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
 
 The user-facing Windows artifact is a WiX Internal UI Bootstrapper Application
 bundle. It contains the signed English MSI plus 20 language transforms and

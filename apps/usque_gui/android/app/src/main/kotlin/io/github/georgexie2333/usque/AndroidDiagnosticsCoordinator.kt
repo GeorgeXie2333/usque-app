@@ -37,6 +37,23 @@ internal class AndroidDiagnosticsCoordinator(
     private var droppedTimelineEvents = 0L
     private var nativeTimeline: Map<String, Any?>? = null
 
+    fun clear() {
+        synchronized(lock) {
+            generation++
+            session = null
+            latestSnapshot = emptyMap()
+            timeline.clear()
+            nextSequence = 1L
+            attemptStartedAtMillis = null
+            lastTimelineFingerprint = null
+            lastObservedPhase = null
+            lastNetworkGeneration = null
+            observedNetworkChanges = 0L
+            droppedTimelineEvents = 0L
+            nativeTimeline = null
+        }
+    }
+
     fun observeNativeTimeline(value: Map<String, Any?>?) {
         synchronized(lock) { nativeTimeline = value?.toMap() }
     }

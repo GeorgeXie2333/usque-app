@@ -241,6 +241,80 @@ mod tests {
     }
 
     #[test]
+    fn chain_exit_fields_are_append_only_wire_snapshots() {
+        let request = ControlRequest {
+            request_id: String::new(),
+            payload: Some(control_request::Payload::ChainProfile(Box::default())),
+        };
+        assert_eq!(request.encode_to_vec(), [0xfa, 0x02, 0]); // request field 47
+        let response = v1::ControlResponse {
+            payload: Some(v1::control_response::Payload::ChainProfiles(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(response.encode_to_vec(), [0xc2, 0x01, 0]); // response field 24
+        let profile = v1::Profile {
+            chain_exit: Some(Default::default()),
+            ..Default::default()
+        };
+        assert_eq!(profile.encode_to_vec(), [0xb2, 0x01, 0]); // profile field 22
+        let capability = v1::Capabilities {
+            chain_profile_import: true,
+            chain_openvpn_udp: true,
+            chain_wireguard: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            capability.encode_to_vec(),
+            [0x90, 0x02, 1, 0x98, 0x02, 1, 0xa0, 0x02, 1]
+        );
+    }
+
+    #[test]
+    fn multi_endpoint_capability_is_append_only() {
+        let value = v1::Capabilities {
+            chain_openvpn_multi_endpoint: true,
+            ..Default::default()
+        };
+        assert_eq!(value.encode_to_vec(), [0xa8, 0x02, 1]);
+    }
+
+    #[test]
+    fn warp_wireguard_control_and_capability_append_without_changing_existing_fields() {
+        let request = ControlRequest {
+            payload: Some(control_request::Payload::WarpWireguard(
+                v1::WarpWireguardRequest {
+                    command_json: "{}".into(),
+                },
+            )),
+            ..Default::default()
+        };
+        assert_eq!(request.encode_to_vec(), [0x82, 0x03, 4, 10, 2, b'{', b'}']);
+        let response = v1::ControlResponse {
+            payload: Some(v1::control_response::Payload::WarpWireguard(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(response.encode_to_vec(), [0xca, 0x01, 0]);
+        let capability = v1::Capabilities {
+            chain_warp_wireguard: true,
+            ..Default::default()
+        };
+        assert_eq!(capability.encode_to_vec(), [0xb0, 0x02, 1]);
+        let settings = v1::ChainExitSettings {
+            endpoint_override_ip: Some("::1".into()),
+            endpoint_override_port: Some(500),
+            ..Default::default()
+        };
+        assert_eq!(
+            settings.encode_to_vec(),
+            [42, 3, b':', b':', b'1', 48, 0xf4, 3]
+        );
+    }
+
+    #[test]
     fn privileged_agent_v1_wire_snapshot_is_stable() {
         let decoded: AgentRequest = decode_frame(Bytes::from_static(AGENT_CAPABILITIES_V1_FRAME))
             .expect("decode agent snapshot");
@@ -944,6 +1018,36 @@ mod tests {
         assert_eq!(
             encode_frame(&decoded).expect("re-encode").as_ref(),
             CREATE_PROFILE_WITH_IDENTITY_V1_FRAME
+        );
+    }
+
+    #[test]
+    fn quic_policy_and_capability_use_appended_wire_numbers() {
+        let profile = Profile {
+            disable_quic: true,
+            ..Profile::default()
+        };
+        assert_eq!(profile.encode_to_vec(), [0xa8, 0x01, 0x01]);
+        assert!(
+            Profile::decode(&*profile.encode_to_vec())
+                .unwrap()
+                .disable_quic
+        );
+        assert!(!Profile::decode(&[][..]).unwrap().disable_quic);
+        let capabilities = crate::v1::Capabilities {
+            application_quic_blocking: true,
+            ..Default::default()
+        };
+        assert_eq!(capabilities.encode_to_vec(), [0xf8, 0x01, 0x01]);
+        assert!(
+            crate::v1::Capabilities::decode(&*capabilities.encode_to_vec())
+                .unwrap()
+                .application_quic_blocking
+        );
+        assert!(
+            !crate::v1::Capabilities::decode(&[][..])
+                .unwrap()
+                .application_quic_blocking
         );
     }
 

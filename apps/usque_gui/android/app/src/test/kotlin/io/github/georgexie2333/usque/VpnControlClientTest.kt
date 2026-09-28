@@ -12,6 +12,83 @@ import org.junit.Before
 import org.junit.Test
 
 class VpnControlClientTest {
+    @Test
+    fun generationPendingFollowsCurrentJobUntilCompletion() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.requestVpnGate(
+            """{"command":"warp_wireguard","warp_wireguard":{"action":"generate"}}""",
+            RecordingResult(),
+        )
+        assertTrue(client.warpGenerationPending)
+        client.deliverVpnGateReply(
+            endpoint.messages.last().requestId,
+            """{"job":{"id":"job","state":"running"}}""",
+            null,
+        )
+        assertTrue(client.warpGenerationPending)
+        client.requestVpnGate(
+            """{"command":"warp_wireguard","warp_wireguard":{"action":"get","job_id":"job"}}""",
+            RecordingResult(),
+        )
+        client.deliverVpnGateReply(
+            endpoint.messages.last().requestId,
+            """{"job":{"id":"job","state":"completed","profile_id":"saved"}}""",
+            null,
+        )
+        assertFalse(client.warpGenerationPending)
+    }
+
+    @Test
+    fun disconnectedWarpRequestsBindAndPreserveSafeNativeFailureCodes() {
+        for ((nativeError, expected) in listOf(
+            "identity_required" to "identity_required",
+            "secret-token" to "unavailable",
+        )) {
+            client.detachEndpointForTest()
+            val result = RecordingResult()
+            client.requestVpnGate("""{"command":"warp_wireguard","warp_wireguard":{"action":"generate"}}""", result)
+            assertEquals(0, result.completionCount)
+            val endpoint = RecordingEndpoint()
+            client.attachEndpointForTest(endpoint)
+            val request = endpoint.messages.single()
+            assertEquals(UsqueVpnService.MSG_VPN_GATE, request.what)
+            client.deliverVpnGateReply(request.requestId, null, nativeError)
+            assertEquals(expected, result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+    }
+
+    @Test
+    fun retryWaitsForBindingAndDisconnectCancelsAnUnsentRetry() {
+        val retry = RecordingResult()
+        client.requestRetry(retry)
+        assertEquals(0, retry.completionCount)
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        assertEquals(UsqueVpnService.MSG_RETRY, endpoint.messages.single().what)
+        client.deliverSnapshotReply(endpoint.messages.single().requestId, null, null, mapOf("phase" to "preparing"))
+        assertEquals(1, retry.completionCount)
+
+        client.detachEndpointForTest()
+        val cancelled = RecordingResult()
+        client.requestRetry(cancelled)
+        client.requestDisconnect(RecordingResult())
+        assertEquals("ENGINE_REQUEST_CANCELLED", cancelled.errorCode)
+        val next = RecordingEndpoint()
+        client.attachEndpointForTest(next)
+        assertEquals(UsqueVpnService.MSG_DISCONNECT, next.messages.single().what)
+    }
+
+    @Test
+    fun anUnboundRetryTimesOutWithoutClaimingDisconnection() {
+        val result = RecordingResult()
+        client.requestRetry(result)
+        scheduler.fireAllDelayed()
+        assertEquals("ENGINE_IPC_TIMEOUT", result.errorCode)
+        assertEquals(1, result.completionCount)
+    }
+
     private lateinit var scheduler: FakeMainScheduler
     private lateinit var binder: RecordingServiceBinder
     private lateinit var client: VpnControlClient
@@ -330,14 +407,29 @@ class VpnControlClientTest {
     }
 
     @Test
-    fun notifyApplyPerAppSendsWhenBoundAndIsIgnoredWhenUnbound() {
-        client.notifyApplyPerApp()
-        assertEquals(0, binder.bindCount)
+    fun notifyApplyPerAppRetainsNewestRevisionUntilBound() {
+        client.notifyApplyPerApp(2)
+        client.notifyApplyPerApp(3)
+        assertEquals(1, binder.bindCount)
 
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)
-        client.notifyApplyPerApp()
         assertEquals(UsqueVpnService.MSG_APPLY_PER_APP, endpoint.messages.single().what)
+        assertEquals(
+            3L,
+            endpoint.messages
+                .single()
+                .extras
+                ?.get("revision"),
+        )
+        client.notifyApplyPerApp(4)
+        assertEquals(
+            4L,
+            endpoint.messages
+                .last()
+                .extras
+                ?.get("revision"),
+        )
     }
 
     @Test

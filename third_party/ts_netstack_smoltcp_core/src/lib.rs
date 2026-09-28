@@ -27,6 +27,7 @@ use smoltcp::{
 
 mod command;
 mod config;
+mod creation;
 mod pipe;
 mod socket_impl;
 mod stack_control_impl;
@@ -63,6 +64,9 @@ pub struct Netstack {
     /// Commands pending in a wouldblock state: to be processed again in the future for
     /// completion.
     blocked_commands: VecDeque<Request>,
+
+    /// Newly allocated sockets whose response has not yet been consumed.
+    unclaimed_creations: Vec<creation::UnclaimedCreation>,
 
     /// Set of TCP socket handles that are expected to close in the future, held onto for
     /// graceful shutdown.
@@ -122,6 +126,7 @@ impl Netstack {
             command_rx: rx,
             config: ns_config,
             blocked_commands: Default::default(),
+            unclaimed_creations: Default::default(),
             pending_tcp_closes: Default::default(),
             tcp_buffer_allocations: Default::default(),
             tcp_buffer_usage: Default::default(),
@@ -217,7 +222,21 @@ impl Netstack {
             resp,
         }: Request,
     ) {
+        self.reap_unclaimed_creations();
+        if command.creates_socket() {
+            if handle.is_none() {
+                self.reap_cancelled_commands();
+            }
+            if resp.is_disconnected() {
+                self.cancel_creation(&command, handle);
+                return;
+            }
+        }
         let cmd_resp = match command {
+            Command::ReapCancelled => {
+                self.reap_cancelled_commands();
+                Response::Ok
+            }
             Command::StackControl(cmd) => self.process_stack_control(cmd),
             Command::Udp(udp) => self.process_udp(udp, handle),
             Command::TcpStream(tcp) => self.process_tcp_stream(tcp, handle),
@@ -239,26 +258,25 @@ impl Netstack {
                     tracing::debug!(error = %e, "command error");
                 }
 
+                let creation = creation::CreatedSocket::from_response(&otherwise);
+                let tracker = creation.map(|socket| creation::UnclaimedCreation {
+                    response: resp.clone(),
+                    socket,
+                });
                 if let Err(resp) = resp.send(otherwise) {
                     tracing::debug!(resp = ?resp.0, "response channel closed");
-                    // Ownership never reached the caller. Reclaim one-shot
-                    // listeners/accepted streams just as an explicit drop would.
-                    match resp.0 {
-                        Response::TcpListen(tcp::listen::Response::Listening { handle }) => {
-                            drop(
-                                self.process_tcp_listen(
-                                    tcp::listen::Command::Close { handle },
-                                    None,
-                                ),
-                            );
-                        }
-                        Response::TcpListen(tcp::listen::Response::Accepted { handle, .. }) => {
-                            drop(
-                                self.process_tcp_stream(tcp::stream::Command::Abort, Some(handle)),
-                            );
-                        }
-                        _ => {}
+                    // Ownership never reached the caller.
+                    if let Some(creation) = creation {
+                        self.reclaim_creation(creation);
+                    } else if let Response::TcpListen(tcp::listen::Response::Accepted {
+                        handle,
+                        ..
+                    }) = resp.0
+                    {
+                        drop(self.process_tcp_stream(tcp::stream::Command::Abort, Some(handle)));
                     }
+                } else if let Some(tracker) = tracker {
+                    self.unclaimed_creations.push(tracker);
                 }
             }
         }
@@ -479,6 +497,7 @@ impl Netstack {
     /// Calls [`Netstack::pump_blocked_commands`] and [`Netstack::pump_tcp_accept`].
     #[tracing::instrument(skip_all, level = "trace")]
     fn pump_waiters(&mut self) {
+        self.reap_unclaimed_creations();
         // Pump accept first, then commands: blocked commands will have tried to run once, so they
         // will have created any listeners already (i.e. they can't affect the TCP accept loop).
         // Accepts however can unblock waiting commands.
@@ -505,6 +524,7 @@ impl Netstack {
                     ?cmd.handle,
                     "dropping a cancelled blocked socket command"
                 );
+                self.cancel_creation(&cmd.command, cmd.handle);
                 continue;
             }
             self.process_one_cmd(cmd);

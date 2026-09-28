@@ -2,27 +2,29 @@ package io.github.georgexie2333.usque
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.SharedPreferences
 
 internal object PerAppProxyStore {
     const val PREFERENCES = "usque_per_app_proxy_v1"
     const val KEY_ENABLED = "enabled"
     const val KEY_PACKAGES = "package_names"
 
-    fun preferences(context: Context): SharedPreferences =
-        context.applicationContext
-            .createDeviceProtectedStorageContext()
-            .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    fun preferences(context: Context): AtomicPolicyStore = AndroidPolicyStore.perApp(context)
 
     fun load(
         context: Context,
         selfPackage: String = context.packageName,
     ): PerAppProxySettings {
-        val prefs = preferences(context)
+        val values = preferences(context).snapshot()
+        check(values[KEY_ENABLED] == null || values[KEY_ENABLED] is Boolean) { "Invalid per-app enabled flag" }
+        check(values[KEY_PACKAGES] == null || values[KEY_PACKAGES] is Set<*>) { "Invalid per-app package set" }
         val stored =
             PerAppProxySettings(
-                enabled = prefs.getBoolean(KEY_ENABLED, false),
-                packageNames = prefs.getStringSet(KEY_PACKAGES, emptySet())?.toList() ?: emptyList(),
+                enabled = values[KEY_ENABLED] as? Boolean ?: false,
+                packageNames =
+                    (values[KEY_PACKAGES] as? Set<*>)?.map {
+                        require(it is String)
+                        it
+                    } ?: emptyList(),
             )
         return PerAppProxyRules.sanitize(stored, selfPackage)
     }

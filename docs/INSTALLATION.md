@@ -5,7 +5,7 @@ Download packages from this repository's
 
 ## Version scope
 
-This guide describes the current v0.2.7 source checkout. Development branches can
+This guide describes the current v0.2.8 source checkout. Development branches can
 include changes that are not yet published. For an installed release, use its
 release notes and the guide at the matching Git tag.
 
@@ -22,17 +22,17 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Official package names (v0.2.7)
+### Official package names (v0.2.8)
 
-- `usque-v0.2.7-windows-x64-v2.exe`
-- `usque-v0.2.7-windows-arm64.exe`
-- `usque-v0.2.7-android-arm64-v8a.apk`
-- `usque-v0.2.7-android-x86_64.apk`
-- `usque-v0.2.7-android-armeabi-v7a.apk`
-- `usque-v0.2.7-android-universal.apk`
+- `usque-v0.2.8-windows-x64-v2.exe`
+- `usque-v0.2.8-windows-arm64.exe`
+- `usque-v0.2.8-android-arm64-v8a.apk`
+- `usque-v0.2.8-android-x86_64.apk`
+- `usque-v0.2.8-android-armeabi-v7a.apk`
+- `usque-v0.2.8-android-universal.apk`
 
-The release also provides `usque-v0.2.7-windows-x64-v2.msi` and
-`usque-v0.2.7-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The release also provides `usque-v0.2.8-windows-x64-v2.msi` and
+`usque-v0.2.8-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation.
 
 Each release includes `SHA256SUMS`, `release-manifest.json` and a software
@@ -42,7 +42,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use v0.2.7; substitute the exact filename and tag you downloaded. These commands
+use v0.2.8; substitute the exact filename and tag you downloaded. These commands
 inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -50,7 +50,7 @@ inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.2.7-windows-x64-v2.exe'
+$package = '.\usque-v0.2.8-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -85,13 +85,16 @@ the package hash and from the certificate's usual SHA-1 `Thumbprint` field.
 [Microsoft's signature command reference](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/get-authenticodesignature)
 describes the signature information returned by the command.
 
-Pre-1.0 packages use the project's fixed self-signed certificate. Windows can
-report `NotTrusted` or show an unknown-publisher warning because that certificate
-is not in its trust stores. Only proceed with that expected trust warning when
-both the exact official package hash and the full certificate SHA-256 match.
-Do not accept an unsigned file, a hash mismatch, a different signer or another
-verification error. Do not import the certificate into Root or Trusted Publisher
-to hide the warning. The identity policy is in [Code signing](CODE_SIGNING.md).
+Pre-1.0 packages use the project's fixed self-signed certificate. Because that
+certificate is not in Windows trust stores, the expected `$signature.Status` is
+`UnknownError`; its `StatusMessage` reports that the certificate chain ends in a
+root certificate that is not trusted. Windows can also show an unknown-publisher
+warning. Only proceed with that expected result when the exact official package
+hash and the full certificate SHA-256 both match. Stop if the status is
+`NotTrusted`, `HashMismatch`, `NotSigned` or any other value, or if the signer
+certificate differs. Do not import the certificate into Root or Trusted
+Publisher to hide the warning. The identity policy is in
+[Code signing](CODE_SIGNING.md).
 
 ### Check the Android signer
 
@@ -102,7 +105,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.2.7-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.2.8-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -116,7 +119,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.2.7 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.2.8 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 ```
 
 This checks the file against the repository, source tag and release workflow
@@ -156,7 +159,7 @@ caches and recovery records. Downgrades are rejected. Same-version replacement
 also replaces equal-version and unversioned application files together, so the
 GUI, Engine and Agent stay in sync.
 
-If v0.2.4 cannot uninstall, upgrade with a verified official v0.2.7 Windows
+If v0.2.4 cannot uninstall, upgrade with a verified official v0.2.8 Windows
 package, then uninstall the newer version if removal is your goal. The newer
 Agent can recover state that the older package could not clean up. If recovery
 still fails, stop and report the error with sanitized diagnostics. Do not delete
@@ -171,9 +174,11 @@ The implementation and recovery ordering are documented in
 
 1. Open **Settings → Apps → Installed apps**, or **Programs and Features**, and
    choose Usque's uninstall action.
-2. Confirm removal. Leave **Delete user data** unchecked to retain your local
-   accounts, settings and credentials for a later reinstall. Selecting it
-   permanently deletes only the current Windows user's Usque data.
+2. Confirm removal. On **Uninstall options**, leave **Delete profiles,
+   settings, logs, caches, and WARP identities for this Windows user.**
+   unchecked to retain your local accounts, settings and credentials for a later
+   reinstall. Selecting it permanently deletes only the current Windows user's
+   Usque data.
 3. Allow Windows to complete removal. It may ask for administrator approval
    separately for the MSI and installer-bundle cleanup.
 
@@ -217,13 +222,15 @@ access resumes after the VPN ends.
 Open **Settings → System integration → Open Always-on VPN settings**. Enable
 both **Always-on VPN** and **Block connections without VPN**.
 
-For automatic startup after reboot, also enable **Start Usque after reboot**
+For automatic startup after reboot, also enable **Start Usque when you sign in**
 under System integration and **Connect the current account automatically on
-start** for the active account.
+start** for the active account. On Android this switch's description reads
+**Start Usque after the device restarts. To connect automatically, also turn on “Connect the current account automatically on start”.** Windows
+shows the same switch title, which starts Usque when you sign in to Windows.
 
 ### Per-app proxy
 
-This setting is shared across accounts and applies only while VPN output is on.
+This setting is shared across accounts and takes effect when the VPN is on.
 When off, every app uses the VPN. When on, only checked apps use it; newly
 installed apps must be selected. **Select all** checks the apps currently shown
 and does not disable the filter. Usque itself is not listed.

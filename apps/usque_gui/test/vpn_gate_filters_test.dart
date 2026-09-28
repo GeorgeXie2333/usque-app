@@ -109,7 +109,10 @@ void main() {
         await tester.pumpAndSettle();
         expect(engine.country, 'JP');
         final node = find.byKey(ValueKey('vpn-gate-node-${server.id}'));
-        expect(tester.widget<ListTile>(node).onTap, isNull);
+        expect(
+          tester.widget<RadioListTile<(String, String)>>(node).enabled,
+          isFalse,
+        );
         final favorite = find.byKey(ValueKey('vpn-gate-favorite-${server.id}'));
         await tester.ensureVisible(favorite);
         await tester.pumpAndSettle();

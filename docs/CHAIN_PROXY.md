@@ -1,0 +1,409 @@
+# Chain proxy / 链式代理
+
+Open **Proxy → Chain proxy**. The page switch comes first, then the source
+selector: four choices that always use this order:
+
+1. **OpenVPN**
+2. **WireGuard**
+3. **WARP via WireGuard**
+4. **VPN Gate**
+
+The source names remain English in every locale. On phones and other layouts
+with less than 600 logical pixels of content width, the source heading stays
+above a compact selector showing the current source. Tap it to open a bottom
+sheet, then choose a source to close the sheet and show its configuration. The
+selector keeps the existing selected choice's size. Wider layouts keep all four
+choices visible, wrapping normally and stacking at large text. A source the
+running engine cannot provide is shown disabled with its reason. One exit
+is enabled at a time:
+`Application → WARP → selected chain exit → Internet`. System VPN, SOCKS5 and
+HTTP share the final exit while retaining their own protocol capabilities;
+HTTP CONNECT does not gain UDP support. Explicit direct rules still apply.
+
+打开 **代理 → 链式代理**，总开关在最上方，其下的来源名称和顺序固定为
+**OpenVPN**、**WireGuard**、**WARP via WireGuard**、**VPN Gate**。手机和内容宽度小于 600 逻辑像素的
+窄屏上，“出口来源”标题独占一行，下方选择框显示当前来源，大小与原来的选中
+标签一致。点击选择框打开底部列表，选中来源后列表自动收起并显示对应配置。
+宽屏仍显示四个选项，通常横向排列并自动换行，大字号时竖排；不可用的来源会
+禁用并说明原因。每次启用一个出口，系统 VPN、SOCKS5 和 HTTP 共用最终出口，
+各入口保留自身协议能力，显式直连规则继续生效。
+
+All sources share the page heading, enable switch, **Current connection** section
+and apply bar. The current connection always describes the running exit, even
+while browsing a different source. Below it, custom sources provide import and
+paste actions with saved configurations; VPN Gate provides refresh, country and
+favorite filters with public nodes. Selection rows use the same radio controls
+and saved/current markers. VPN Gate observations remain labeled as remote data.
+
+四种来源共用页头、总开关、“当前连接”和底部应用栏。切换来源浏览时，“当前连接”
+仍显示正在使用的出口。下方内容随来源变化：OpenVPN／WireGuard 提供导入、粘贴
+和已保存配置，VPN Gate 提供刷新、国家／地区筛选、收藏和公共节点。两类列表
+使用相同的单选控件及“已保存的选择”“当前连接”标记；VPN Gate 的远端观测说明
+保持可见。
+
+WARP via WireGuard supports generated/imported configurations and editable
+endpoints. See [WARP via WireGuard](WARP_WIREGUARD.md).
+
+WARP via WireGuard 支持生成／导入配置和编辑端点，详见
+[使用指南](WARP_WIREGUARD.md)。
+
+## Import, select and apply / 导入、选用与应用
+
+Choose a custom source, then **Import file** or **Paste configuration**. Use
+UTF-8 text up to 128 KiB. Windows opens its native multi-file picker; Android uses the
+system multi-document provider. Select up to 128 files from the current source
+at once; the library still holds at most 128 configurations. Android TV devices without a document provider can
+use pasted text. Usque reads the document once and does not retain a dependency
+on its path or document-provider permissions. An imported file is checked as
+soon as the dialog opens; pasted text is checked with **Check configuration**.
+For multiple files, a batch list automatically checks every file offline and
+shows ready, incomplete, failed and saved counts. Expand an entry to review its
+details, change its name or supply its individual credentials. File imports default
+to the filename without its final extension. Incorrect encoding, empty
+or oversized files, unsupported configurations and source mismatches are reported
+per file; validation does not test connectivity. **Import valid items** saves
+only entries that passed validation and have the required name and credentials.
+You can complete remaining entries and save them afterward. Already imported
+entries are not submitted again. Canceling the initial check saves nothing.
+
+Saving keeps successful entries even if another fails. If communication is
+interrupted, further saves stop: close the dialog and inspect the library before
+importing again, because the interrupted entry may already have been saved.
+Files with identical names or content create separate entries; they do not
+replace existing configurations.
+Text that structurally belongs to the other source is reported before the
+engine runs.
+
+The check displays the endpoint, transport, IP version, addresses, DNS,
+AllowedIPs and MTU where available. OpenVPN addresses and DNS may be negotiated
+by the server. Single-file imports also default to the filename without its final
+extension; pasted configurations default to the endpoint host. Supply the requested
+username, password or encrypted private-key password and **Save configuration**.
+Errors identify a field and line without reproducing configuration values.
+Saving to the library neither selects the configuration nor starts a connection.
+
+Enable the page switch, select a saved configuration, then apply from the
+action bar. The list marks the saved selection, the configuration used by the
+current connection, and configurations marked **Not available with L4**. The selected
+configuration's **Technical details** expand on request under its selected row.
+The action bar names the pending
+selection and states why a draft cannot be applied yet; while connected, its
+button reads **Apply and reconnect**. A disconnected connection stays
+disconnected; an active connection applies the new exit using the existing
+connection workflow. Switching sources is browsing, not editing: it never asks
+to discard anything, and a selection made under one source is still there when
+you return to it until settings are applied. Navigating away asks before
+discarding an unapplied draft. **Current connection** shows the live state,
+the endpoint being tried and the connected endpoint, and explains failures and
+missing DNS inline.
+
+Use the configuration's menu to rename it or update OpenVPN credentials. Import
+again to replace configuration content. Credential changes are used on the next
+connection; they do not silently reconnect the current one. A configuration that
+is selected, saved, or used by the current connection cannot be deleted; the
+page says so instead of hiding the action. Imports are device-wide, independent
+of the selected WARP account.
+
+选择自定义来源后，可导入文件或粘贴配置。两种入口共用 Rust 校验流程，限制为
+每个文件 128 KiB UTF-8 文本。Windows 和 Android 均支持多选，每次最多选择
+128 个当前来源的文件，配置库总量仍限制为 128 条。TV 没有系统文件选择器时请粘贴文本。
+单文件沿用原有对话框；多文件自动逐项离线预检，显示可导入、待补充、失败和已保存数量。
+展开项目可检查详情、修改名称并逐项填写凭据，默认名称为去掉最后一个后缀的文件名。
+空文件、超限、编码错误、来源不符或不受支持的配置逐项报错，不进行连通性探测。
+点击**导入合格项**仅保存校验通过且名称与凭据齐全的项目；其余项目可补充后继续保存，
+已导入项目不会再次提交。预检期间取消不会保存配置。
+保存失败不回滚其他成功项；通信中断则停止后续提交，请关闭并核对配置库后再导入，
+因为中断的项目可能已经保存。同名或相同内容仍作为独立新配置导入，不覆盖已有配置。
+导入文件后立即检查；
+粘贴文本需点击**检查配置**。粘贴到错误来源的配置会在调用引擎前得到提示。
+检查后补充认证信息、命名（单文件导入默认使用不含后缀的文件名，粘贴导入默认使用
+服务器主机名）并保存；保存不会选用配置
+或自动连接。打开总开关、选择配置，再在底栏应用。列表会标记已保存的选择、
+当前连接使用的配置以及标记为**不支持 L4** 的配置；点击所选配置下的“技术详情”
+可展开详细信息。
+底栏说明待应用的选择及暂时不能应用的原因；已连接时按钮为**应用并重新连接**。
+切换出口来源只是浏览，不会弹出“放弃未应用的修改”提示；在某个来源下做出的
+选择会保留到切回时，直到应用为止。只有离开页面才会询问是否放弃未应用的修改。
+重命名和更新认证信息使用配置菜单；内容变化请重新导入。被选中、已保存或
+当前连接使用的配置不能删除，页面会直接说明原因。切换 WARP 账号不会丢失
+导入配置库。
+
+VPN Gate uses the same **Apply changes** and **Apply and reconnect** actions.
+Preparing a node configuration shows progress and **Cancel** in the apply bar;
+failed preparation or application keeps the requested selection available for
+review and retry. Refresh controls stay beside the public-node list.
+
+VPN Gate 同样使用“应用更改”和“应用并重新连接”。准备节点配置时，应用栏显示
+进度及“取消”；准备或应用失败后，保留待应用的选择供检查和重试。刷新操作位于
+公共节点列表区域。
+
+## Compatibility / 兼容范围
+
+| Source and transport | CONNECT-IP H3/H2 | L4 |
+| --- | --- | --- |
+| OpenVPN, TCP | Supported | Supported |
+| OpenVPN, UDP | Supported | Cannot enable |
+| WireGuard, UDP | Supported | Cannot enable |
+| WARP via WireGuard, UDP | Supported | Cannot enable |
+| VPN Gate, directory TCP | Supported | Supported |
+
+L4 can store UDP and WireGuard imports. Enabling them requires the explicit
+**Turn off L4 and apply** action, which replaces the action bar's
+button while the conflict exists. Capability discovery prevents enabling
+WireGuard when the native binary was compiled without it. Such a binary rejects
+an existing enabled WireGuard selection; it never ignores that selection.
+
+OpenVPN supports up to 16 distinct `remote` endpoints, domains or IPs, with
+one TCP or UDP transport shared by every candidate. Family qualifiers such as
+`tcp4` and `udp6` remain specific to each endpoint. Startup tries file order,
+or a fresh permutation when `remote-random` is present. The saved endpoint is
+always the first file candidate; connection details separately identify the
+current attempt and actual connected endpoint. Multi-endpoint imports require
+the engine's advertised capability.
+
+Only DNS, dial, transport-close and connection-timeout failures can advance to
+the next candidate. Authentication, certificate, configuration and unknown fatal
+protocol errors stop immediately. Failed cleanup also stops further attempts.
+The candidate phase has a 120-second budget; each attempt gets at most 35 seconds
+and no more than its share of the remaining budget. Connection and final platform
+admission share a 180-second absolute deadline. An established connection never
+switches endpoints automatically after a terminal failure.
+
+Inline CA/client certificates/keys, `tls-auth`/`tls-crypt`, username/password and
+encrypted private-key passwords are supported. A password-only profile does not
+require a client certificate. `setenv CLIENT_CERT 0` explicitly selects that mode;
+`CLIENT_CERT 1` requires an inline certificate and key. Contradictory modes are
+rejected. Other `setenv` options are unsupported. `mssfix 0` disables OpenVPN
+Core's MSS rewriting; positive values 576–65535 support an optional `mtu` or
+`fixed` modifier. Zero does not accept a modifier. H3 with a UDP chain exit
+also applies Usque's independent TCP MSS ceiling, including when `mssfix 0`
+is present, to account for the nested transport's encapsulation overhead.
+
+TUN, TLS 1.2 or newer and server-certificate verification are required. TAP,
+external certificate/key/credential files, scripts, plugins, compression,
+verification bypasses and interactive MFA/SSO are rejected during preview.
+VPN Gate retains its stricter directory/IP validation and existing retry policy.
+
+WireGuard accepts a standard single `[Interface]` and single `[Peer]`:
+`PrivateKey`, `Address`, `DNS`, `MTU`, `PublicKey`, `PresharedKey`, `Endpoint`,
+`AllowedIPs`, `PersistentKeepalive`. Keys must be nonzero 32-byte Base64 values;
+DNS entries must be IP addresses. One address per family is supported. Hooks,
+multiple peers and platform-specific `wg-quick` routing directives are rejected.
+
+Partial `AllowedIPs` is supported. Outbound destinations and authenticated inbound
+sources are both checked. Uncovered proxy traffic is refused; explicit direct
+rules retain their existing behavior. External exit-IP probes can be unavailable
+for a valid private-network tunnel without failing the connection. Idle
+WireGuard key expiry alone does not disconnect a healthy idle session.
+
+L4 可以保存 OpenVPN UDP 和 WireGuard 配置，但不能直接启用。存在冲突时底栏
+按钮直接变为**关闭 L4 并应用**。OpenVPN 支持最多 16 个同为 TCP 或同为 UDP 的
+remote 候选；保留各端点的地址族限制。默认按文件顺序尝试，`remote-random`
+为每次连接生成一次随机顺序。只在建立连接时切换候选；认证、证书、配置及未知
+致命协议错误立即停止，错误密码不会在备用端点重复尝试。候选阶段总计最多
+120 秒，每个候选最多 35 秒且受剩余预算分摊限制；连接及平台应用共用 180 秒
+绝对截止时间。已经连接后的终止性故障仍断开整条链。
+
+纯用户名/密码配置可以不带客户端证书；支持精确的 `setenv CLIENT_CERT 0/1`，
+与证书矛盾时拒绝。`mssfix 0` 关闭 OpenVPN Core 自身的 MSS 修改；正数范围为
+576–65535，支持可选的 `mtu` 或 `fixed` 修饰符。H3 搭配 UDP 链式出口时，Usque
+另按嵌套封装开销限制 TCP MSS，此上限也适用于 `mssfix 0`。仍不支持 TAP、外部
+文件、脚本、插件或 MFA/SSO。
+WireGuard 首版支持标准单 Peer 和部分 AllowedIPs；范围之外的代理流量被拒绝，
+显式直连规则仍生效。局部网络配置不能访问公网探测服务时，出口信息可能不可用，
+这不等同于连接失败。
+
+## DNS, MTU and failures / DNS、MTU 与故障
+
+On Android, a physical-network change during an established chain connection
+rebuilds the whole chain after native cleanup is confirmed. The existing VPN
+interface remains blocking until the replacement final network is attached.
+Recovery waits while no usable physical network is selected and coalesces rapid
+changes. Disconnect cancels recovery. Authentication, certificate, configuration
+and unconfirmed-cleanup failures still stop the connection; ordinary WARP mode
+keeps its existing native migration/reconnect behavior.
+
+Android 上已建立的链式连接遇到物理网络变化时，会在确认原生实例清理完成后
+重建整条链。新出口网络接管前保留用于阻断流量的 VPN 接口；没有可用物理网络
+时等待恢复，连续变化会合并处理。主动断开会取消恢复。认证、证书、配置错误
+或清理未确认仍停止连接；普通 WARP 模式保留原有原生迁移和重连行为。
+
+Endpoint names resolve inside the current WARP session. Protocol UDP uses the
+private WARP network stack, bypassing the business-traffic “disable QUIC” filter.
+Neither protocol opens a physical socket to its VPN server.
+
+Custom exits use the final tunnel for remote DNS. WireGuard prefers its configured
+DNS IPs, otherwise the existing tunnel DNS; AllowedIPs applies to DNS too. A
+candidate is filtered by the final address families and AllowedIPs before it is
+used. Explicitly configured DNS is never replaced merely because all of it was
+filtered out. With no usable DNS, the private tunnel and IP destinations remain
+available; the system VPN uses the in-app synthetic DNS service to return failure.
+It never leaves platform DNS unspecified to obtain physical fallback.
+
+Final-exit queries start with UDP and add an alternative after 250 ms. Configured
+servers receive their first UDP attempt before TCP alternatives; a single DNS
+server gets its TCP alternative after 250 ms. Servers and protocols share at most
+two concurrent attempts and one four-second question deadline. Each attempt has
+at most one second, shortened when necessary to reserve time for later candidates.
+Truncated UDP responses retry TCP immediately. TCP connections are reused within
+the same final session; cancelled or invalid exchanges are never returned to the
+pool. Valid NXDOMAIN/NODATA answers are terminal. Direct-rule DNS retains its
+separate policy. Endpoint resolution through WARP is also separate.
+
+WireGuard defaults to inner MTU 1280, with explicit MTU in the project's 1280–9000
+range. Its imported MTU controls the final interface; it is not capped by the WARP
+interface's MTU. The WARP stack for a chain uses MTU 1280 separately from the final interface.
+For OpenVPN UDP and WireGuard over H3, TCP SYN/SYN-ACK MSS
+is capped in both directions so ordinary TCP data fits the 1280-byte WARP
+packet budget after outer IP/UDP headers and protocol overhead. WireGuard
+includes the peer's 16-byte padding; OpenVPN reserves 128 bytes for its supported
+data-channel crypto modes. Smaller MSS values are preserved. Interface MTU,
+stored configuration, direct rules, H2 and TCP exits are unchanged. New TCP
+connections use the current outer transport; existing connections retain their
+negotiated MSS after a transport change. Authenticated TCP options and fragmented
+SYN packets are not rewritten. This TCP mitigation does not eliminate the need
+for UDP fragmentation or prove every external path's MTU.
+
+H3 搭配 OpenVPN UDP 或 WireGuard 时，Usque 会在两个方向上限制
+TCP SYN/SYN-ACK 的 MSS，为外层 IP/UDP、协议加密及 WireGuard 填充预留空间。
+较小的 MSS 保持不变；不降低接口 MTU，不改写保存的配置，也不影响直连规则、H2
+或 TCP 出口。外层传输切换后，现有 TCP 连接仍使用建连时的 MSS；新连接使用当前
+传输的策略。带 TCP 认证选项或分片的 SYN 不改写。此修复针对 TCP 首次访问延迟，
+不表示所有 UDP 大包问题均已解决。遇到旧版本的 H3 链式首次访问延迟，可将 WARP
+外层切到 CONNECT-IP H2 并应用后重试。
+
+Protocol UDP larger than this uses IPv4 fragmentation or the private IPv6 UDP
+fragment/reassembly path; its buffers and queues are bounded. An existing WARP
+session with another MTU is reconnected when first enabling a chain.
+
+All sources use WARP connection, authenticated protocol negotiation, final
+platform-network configuration, then traffic admission. Applying another exit
+closes old final traffic and destroys its protocol session first. Terminal
+failures stop the entire chain and retain the requested selection and error.
+There is no automatic WARP-only fallback. Windows keeps the existing single
+Agent-owned Wintun; Android keeps VpnService and its interface handoff. Android
+process termination still requires system Always-on/Lockdown for system-level
+blocking; an app-level blocker is not a system guarantee.
+
+Home identifies `WARP → exit name`; source details remain visible in the chain
+page. Traffic counters and exit IP describe the final exit. WARP RTT continues
+to describe only the WARP leg.
+
+服务器域名解析及协议 UDP 均通过当前 WARP 会话。远程 DNS 必须通过最终出口，
+不会回退到物理 DNS；DNS 地址在使用前按最终地址族和 AllowedIPs 过滤。没有可用
+DNS 时仍可使用 IP 访问局部网络，系统 VPN 的应用内 DNS 返回明确失败。第一个
+DNS 候选立即以 UDP 查询，250 ms 后启用备用候选；只有一个 DNS 时，该备用为 TCP。
+多个 DNS 优先完成各服务器的 UDP 首试，再安排 TCP 备用。两种协议共用最多两个
+并发与整轮 4 秒预算；每次最多 1 秒，候选较多时缩短，避免后面的服务器没有机会。
+UDP 截断回复立即改用 TCP；TCP 连接在同一链式会话内复用。有效的 NXDOMAIN/NODATA
+不会重复向其他候选查询。默认 WireGuard 内层 MTU 为
+1280。切换出口先停止旧出口流量并清理旧协议会话；终止性错误会断开整条链，
+保留配置与错误，不会自动退化为仅 WARP。Windows/Android 复用现有平台接口和
+清理机制。Android 应用进程结束后的系统级阻断仍依赖系统 Always-on/Lockdown。
+
+## Configuration examples / 配置结构示例
+
+These placeholders are not usable credentials. Obtain matching keys/certificates
+and an endpoint from the server administrator. Keep CA verification enabled.
+
+```ini
+# OpenVPN: replace the inline PEM with the administrator's CA.
+client
+dev tun
+proto tcp-client
+remote vpn.example.org 443
+auth-user-pass
+remote-cert-tls server
+tls-version-min 1.2
+<ca>
+... administrator-provided PEM certificate ...
+</ca>
+```
+
+```ini
+# WireGuard: replace every key placeholder with the real Base64 key.
+[Interface]
+PrivateKey = <client-private-key>
+Address = 10.8.0.2/32
+DNS = 10.8.0.1
+MTU = 1280
+[Peer]
+PublicKey = <server-public-key>
+Endpoint = vpn.example.org:51820
+AllowedIPs = 10.8.0.0/24
+PersistentKeepalive = 25
+```
+
+示例只展示结构。请替换为管理员提供的服务器地址、证书和密钥，保留证书验证。
+请勿将实际配置、私钥、密码或原始诊断抓包提交到仓库。
+
+## Storage, compatibility and dependencies
+
+Schema 17 migrates the previous VPN Gate switch and reference without changing
+favorites, cached configurations or pinned snapshots. Schema 18 appends an
+optional endpoint override, an IP address and port accepted only with a selected
+**WARP via WireGuard** configuration. Failed validation keeps the original
+settings file. Shared settings contain only the source, immutable configuration
+ID/revision and that optional override. Older clients cannot replace a selected
+imported exit. IPC fields are appended; none of the old field numbers is
+reordered or reused.
+
+Each imported record, including credentials and metadata, is separately encrypted
+in `chain-profiles`: current-user DPAPI on Windows, AES-256-GCM with Android
+Keystore on Android. Configuration ID is authenticated as encryption context.
+Records are atomically replaced under a file lock. An edit revision protects
+rename, delete and credential updates from stale concurrent writes. Temporary
+objects are encrypted; orphan temporary files are collected under the same lock.
+Public status/IPC/diagnostics contain only references and allowlisted metadata.
+The explicit clear-all-data workflow removes these objects after disconnecting.
+
+| Component | Pin / purpose | License |
+| --- | --- | --- |
+| [BoringTun](https://docs.rs/crate/boringtun/0.7.1) | `=0.7.1`, Rust protocol API, default features disabled | BSD-3-Clause |
+| OpenVPN 3 Core + Mbed TLS | Existing embedded native bridge; TCP and UDP | OpenVPN 3 Core used under MPL-2.0 (offered as AGPL-3.0-only or MPL-2.0); Mbed TLS used under Apache-2.0; see [native source notices](VPN_GATE.md#sources-licenses-and-validation) |
+| [flutter_svg](https://pub.dev/packages/flutter_svg/versions/2.3.0) | `2.3.0`, local SVG assets | MIT |
+| smoltcp | `=0.13.1`, existing stack with 16 KiB fragmentation buffer | 0BSD |
+
+Cargo and Flutter lockfiles contain transitive versions and checksums. BoringTun's
+CLI, OS tunnel/device layer, JNI and C FFI features are not enabled. The
+`wireguard` feature defaults on in both desktop and Android crates and can be
+disabled for native size comparison. The editable monochrome SVGs in
+`apps/usque_gui/assets/icons/` were supplied by the project maintainer:
+`openvpn.svg` and `wireguard.svg` use a 24×24 viewBox, and `warp-wireguard.svg`
+keeps its original `viewBox="120 80 250 330"`. OpenVPN's 32×32 path is scaled
+proportionally by 0.75. All three use the current theme color without altering
+their silhouettes; VPN Gate retains its globe. The repository does not record an
+upstream source or license for these icon paths. The OpenVPN, WireGuard and WARP
+names and marks belong to their respective owners and identify the exit source
+only. BoringTun attribution is bundled in the app's license registry; Flutter
+handles its Dart-package notices.
+
+Read the original [validation and size evidence](CHAIN_PROXY_VALIDATION.md) and
+the later [fix validation record](CHAIN_PROXY_FIX_VALIDATION.md) for candidate-specific
+build results and unavailable checks. Compile-only evidence does not establish real
+VPN lifecycle or external leak behavior. See [Contributing](../CONTRIBUTING.md)
+for the workstation and isolated-runner boundaries.
+
+## Imported record compatibility / 导入记录兼容
+
+Shared settings are schema 18 and store only configuration references, plus the
+optional **WARP via WireGuard** endpoint override (`ChainExitSettings` IPC fields
+5/6). Encrypted records are written as version 3, which records the exit source
+explicitly, with a 192 KiB serialized plaintext limit and 256 KiB ciphertext
+limit. Versions 1 and 2 are read without changing IDs, revisions or saved
+selections; their source is recovered from the stored protocol, and a later edit
+rewrites the record as version 3. Historical version 1 records between 192 and
+256 KiB plaintext remain readable and deletable; a later edit must meet the new
+write limit and otherwise leaves the original record intact. Legacy incomplete
+authentication records can be listed/deleted but must be reimported with a valid
+authentication mode before connecting. No automatic rewrite or batch deletion
+occurs. Windows selection commits and deletion hold the configuration transaction
+before the library lock, so concurrent operations cannot leave a dangling reference.
+
+共享设置为 schema 18，仅保存配置引用，以及 **WARP via WireGuard** 可选的端点
+覆盖（IPC `ChainExitSettings` 字段 5/6）。加密对象写入版本 3，明确记录出口来源；
+序列化明文最多 192 KiB、密文最多 256 KiB。兼容读取版本 1 和 2，按保存的协议
+恢复来源，不改变 ID、版本引用或已保存选择；再次修改时改写为版本 3。
+历史较大记录可读取、删除，再次修改超限时保留原对象。旧版缺少认证方式的记录
+可管理，但必须重新导入有效配置后才能连接。Windows 删除与选用共用配置事务，
+避免并发操作留下失效引用。

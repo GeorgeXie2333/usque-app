@@ -11,6 +11,7 @@ repository.workspace = true
 interop-test = []
 
 [dependencies]
+zeroize.workspace = true
 bytes.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

@@ -3,6 +3,8 @@ package io.github.georgexie2333.usque
 import java.io.File
 
 internal object NativeEngine {
+    private external fun nativeInitializeChainCrypto(codec: ChainProfileCipher): Boolean
+
     fun networkSettings(
         path: String,
         request: String,
@@ -16,7 +18,7 @@ internal object NativeEngine {
     private val libraryLoaded: Boolean =
         try {
             System.loadLibrary("usque_android")
-            true
+            nativeInitializeChainCrypto(ChainProfileCipher)
         } catch (_: UnsatisfiedLinkError) {
             false
         }
@@ -219,17 +221,21 @@ internal object NativeEngine {
         return nativeApplyProfileCommand(configPath, requestJson)
     }
 
-    fun reconfigure(profileJson: String): Int {
+    fun reconfigure(
+        profileJson: String,
+        proxyPassword: ByteArray,
+    ): Int {
         if (!libraryLoaded) return ERROR_NOT_LINKED
-        return nativeReconfigure(profileJson)
+        return nativeReconfigure(profileJson, proxyPassword)
     }
 
     fun attachTun(
         tunFileDescriptor: Int,
         profileJson: String,
+        proxyPassword: ByteArray,
     ): Int {
         if (!libraryLoaded) return ERROR_NOT_LINKED
-        return nativeAttachTun(tunFileDescriptor, profileJson)
+        return nativeAttachTun(tunFileDescriptor, profileJson, proxyPassword)
     }
 
     fun detachTun(): Int {
@@ -297,11 +303,15 @@ internal object NativeEngine {
         requestJson: String,
     ): String?
 
-    private external fun nativeReconfigure(profileJson: String): Int
+    private external fun nativeReconfigure(
+        profileJson: String,
+        proxyPassword: ByteArray,
+    ): Int
 
     private external fun nativeAttachTun(
         tunFileDescriptor: Int,
         profileJson: String,
+        proxyPassword: ByteArray,
     ): Int
 
     private external fun nativeDetachTun(): Int

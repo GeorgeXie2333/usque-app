@@ -215,6 +215,12 @@ build-only signing procedure in [Build](.github/workflows/build.yml), never
 official signing material on a development host. Do not install a release APK
 on a personal or shared device to validate it.
 
+Release APKs compress native libraries for direct downloads. Android extracts
+those libraries during installation, so APK bytes are not installed disk usage.
+Verify compression, native-library hashes, extraction settings, ELF/ZIP alignment
+and the build-only signer when comparing local packaging changes. Debug packaging
+retains its existing behavior.
+
 Kotlin compiler warnings and Android lint warnings are errors. ktlint is pinned through `org.jlleitschuh.gradle.ktlint` `14.2.0` and ktlint `1.8.0`.
 
 ### Python tooling
@@ -231,6 +237,16 @@ Security-rule suppressions such as `S603` or `S607` must be per-line and include
 ### PowerShell tooling
 
 Every script in `tool/` must declare `[CmdletBinding()]`, call `Set-StrictMode -Version Latest`, and set `$ErrorActionPreference = 'Stop'`.
+
+For release signing cleanup changes, also run:
+
+```shell
+pwsh -NoProfile -File tool/test_windows_release_signing.ps1
+```
+
+This executes the workflow's import and cleanup steps with inert certificate
+doubles, including failed fingerprint, missing SignTool, and cleanup-error
+paths. It never accesses a certificate store or real signing material.
 
 ```shell
 Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
@@ -327,8 +343,12 @@ dart format --output=none --set-exit-if-changed lib test
 flutter analyze --no-pub
 flutter test --no-pub
 & ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .
-flutter build windows --release --no-pub
+flutter build windows --release --no-pub --split-debug-info=build/symbols/windows
 ```
+
+Keep Dart symbols outside the installable payload and archive them with the exact
+source and binary identity as described in [Flutter release symbols](docs/FLUTTER_SYMBOLS.md).
+Run `--analyze-size` separately from `--split-debug-info`.
 
 The plugin-junction helper is part of the checked-in Windows build sequence.
 Application assembly and binary inspection are defined in

@@ -71,6 +71,11 @@ const Map<String, Map<String, String>> kCatalogs =
 const List<String> kPlaceholderTokens = <String>[
   '{count}',
   '{current}',
+  '{field}',
+  '{line}',
+  '{lines}',
+  '{message}',
+  '{reason}',
   '{total}',
   '{updated}',
 ];

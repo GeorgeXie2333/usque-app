@@ -37,8 +37,9 @@ internal class VpnControlClient(
         const val CLEAR_ALL_TIMEOUT_MILLIS = 45_000L
         const val EVENT_REFRESH_INTERVAL_MILLIS = 5_000L
 
-        // Native reconfigure and attach_tun each wait up to 30s; NEED_ATTACH runs both.
-        const val RECONFIGURE_TIMEOUT_MILLIS = 95_000L
+        // Native connection work shares one 180s deadline through final attachment.
+        // Binder retains cleanup margin; quick acceptance and snapshots stay short.
+        const val RECONFIGURE_TIMEOUT_MILLIS = 200_000L
 
         fun create(
             context: Context,
@@ -117,6 +118,8 @@ internal class VpnControlClient(
     private val pendingVpnGate = mutableMapOf<Int, SettingsRequest>()
     var vpnGateRefreshPending = false
         private set
+    var warpGenerationPending = false
+        private set
 
     fun requestVpnGate(
         json: String,
@@ -128,6 +131,11 @@ internal class VpnControlClient(
         }
         val id = allocateRequestId()
         val request = org.json.JSONObject(json)
+        if (request.optString("command") == "warp_wireguard" &&
+            request.optJSONObject("warp_wireguard")?.optString("action") == "generate"
+        ) {
+            warpGenerationPending = true
+        }
         if ((request.optString("command") == "refresh" && !request.optBoolean("cancel")) ||
             (
                 request.optString("command") == "node" &&
@@ -173,6 +181,31 @@ internal class VpnControlClient(
     ) {
         scheduler.cancel("vpn-gate-$id")
         val request = pendingVpnGate.remove(id) ?: return
+        if (request.json?.let { org.json.JSONObject(it).optString("command") } == "chain_profile") {
+            val value = json?.let { runCatching { ChainProfileFields.response(it) }.getOrNull() }
+            if (value == null) {
+                request.result.error("CHAIN_PROFILE_UNAVAILABLE", "Chain profile request failed.", null)
+            } else {
+                request.result.success(value)
+            }
+            return
+        }
+        if (request.json?.let { org.json.JSONObject(it).optString("command") } == "warp_wireguard") {
+            val value = json?.let { runCatching { WarpWireguardFields.response(it) }.getOrNull() }
+            if (value == null) {
+                request.result.error(
+                    WarpWireguardFields.failureCode(error),
+                    "WARP configuration generation request failed.",
+                    null,
+                )
+            } else {
+                if (value["error"] == null) {
+                    warpGenerationPending = (value["job"] as? Map<*, *>)?.get("state") == "running"
+                }
+                request.result.success(value)
+            }
+            return
+        }
         val parsed = json?.let { runCatching { VpnGateFields.directory(it) }.getOrNull() }
         if (parsed == null) {
             request.result.error(error ?: "VPN_GATE_UNAVAILABLE", "The catalogue request failed.", null)
@@ -182,6 +215,7 @@ internal class VpnControlClient(
                 org.json.JSONObject(request.json.orEmpty()).optBoolean("cancel")
             ) {
                 vpnGateRefreshPending = false
+                if (org.json.JSONObject(request.json.orEmpty()).optBoolean("cancel")) warpGenerationPending = false
             }
             request.result.success(parsed)
         }
@@ -262,8 +296,10 @@ internal class VpnControlClient(
     private val eventRefreshToken = Any()
     private var eventRefreshGeneration = 0L
     private var pendingDisconnectResult: MethodChannel.Result? = null
+    private var pendingRetryResult: MethodChannel.Result? = null
     private var pendingReconfigure: PendingReconfigure? = null
     private var desiredLocaleCatalog: String? = null
+    private var pendingPerAppRevision: Long? = null
 
     /** Guards the acknowledgement-to-local-wipe ownership transition across threads. */
     private val clearAllStateLock = Any()
@@ -319,10 +355,12 @@ internal class VpnControlClient(
                     scheduler.cancel(disconnectPendingToken(result))
                     requestDisconnect(result)
                 }
+                flushPendingRetry()
                 flushPendingReconfigure()
                 flushSettings()
                 flushVpnGate()
                 flushLocale()
+                flushPerApp()
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
@@ -564,8 +602,18 @@ internal class VpnControlClient(
         }
         val service = endpoint
         if (service == null) {
+            pendingRetryResult?.let { previous ->
+                scheduler.cancel(previous)
+                previous.error("ENGINE_REQUEST_CANCELLED", "A newer retry superseded this request.", null)
+            }
+            pendingRetryResult = result
             bind()
-            result.success(disconnectedSnapshot())
+            scheduler.postDelayed(snapshotTimeoutMillis, result) {
+                if (pendingRetryResult === result) {
+                    pendingRetryResult = null
+                    result.error("ENGINE_IPC_TIMEOUT", "The VPN process did not accept retry in time.", null)
+                }
+            }
             return
         }
         val requestId = allocateRequestId()
@@ -589,9 +637,31 @@ internal class VpnControlClient(
         }
     }
 
+    private fun flushPendingRetry() {
+        val result = pendingRetryResult ?: return
+        if (endpoint == null) return
+        pendingRetryResult = null
+        scheduler.cancel(result)
+        requestRetry(result)
+    }
+
+    private fun cancelPendingConnections(code: String = "ENGINE_REQUEST_CANCELLED") {
+        pendingRetryResult?.let {
+            pendingRetryResult = null
+            scheduler.cancel(it)
+            it.error(code, "The connection request was cancelled.", null)
+        }
+        pendingReconfigure?.let {
+            pendingReconfigure = null
+            scheduler.cancel(reconfigurePendingToken(it.result))
+            it.result.error(code, "The reconfigure request was cancelled.", null)
+        }
+    }
+
     fun requestReconfigure(
         profileJson: String,
         result: MethodChannel.Result,
+        authOnly: Boolean = false,
     ): Boolean {
         if (destroyed) {
             result.error(
@@ -611,7 +681,7 @@ internal class VpnControlClient(
                 )
                 return true
             }
-            pendingReconfigure = PendingReconfigure(profileJson, result)
+            pendingReconfigure = PendingReconfigure(profileJson, result, authOnly)
             bind()
             val token = reconfigurePendingToken(result)
             scheduler.postDelayed(reconfigureTimeoutMillis, token) {
@@ -631,7 +701,7 @@ internal class VpnControlClient(
         if (!service.send(
                 UsqueVpnService.MSG_RECONFIGURE,
                 requestId,
-                mapOf(UsqueVpnService.EXTRA_PROFILE_JSON to profileJson),
+                mapOf(UsqueVpnService.EXTRA_PROFILE_JSON to profileJson, "auth_only" to authOnly),
             )
         ) {
             pendingSnapshots.remove(requestId)
@@ -653,15 +723,25 @@ internal class VpnControlClient(
         return true
     }
 
-    fun notifyApplyPerApp() {
+    fun notifyApplyPerApp(revision: Long = 0L) {
         if (destroyed) return
+        pendingPerAppRevision = maxOf(pendingPerAppRevision ?: 0L, revision)
+        if (endpoint == null) bind()
+        flushPerApp()
+    }
+
+    private fun flushPerApp() {
+        val revision = pendingPerAppRevision ?: return
         val service = endpoint ?: return
-        if (!service.send(UsqueVpnService.MSG_APPLY_PER_APP)) {
+        if (service.send(UsqueVpnService.MSG_APPLY_PER_APP, extras = mapOf("revision" to revision))) {
+            pendingPerAppRevision = null
+        } else {
             endpoint = null
         }
     }
 
     fun requestDisconnect(result: MethodChannel.Result) {
+        cancelPendingConnections()
         if (destroyed) {
             result.error(
                 "ENGINE_IPC_CLOSED",
@@ -723,6 +803,8 @@ internal class VpnControlClient(
      * @return false when the control endpoint is unavailable (caller already received the error).
      */
     fun requestClearAllData(result: MethodChannel.Result): Boolean {
+        pendingPerAppRevision = null
+        cancelPendingConnections()
         if (destroyed) {
             result.error(
                 "CLEAR_ALL_CANCELLED",
@@ -778,6 +860,7 @@ internal class VpnControlClient(
     }
 
     fun destroy() {
+        cancelPendingConnections("ENGINE_IPC_CLOSED")
         pendingVpnGate.forEach { (id, request) ->
             scheduler.cancel("vpn-gate-$id")
             request.result.error("VPN_GATE_UNAVAILABLE", "The catalogue service was closed.", null)
@@ -871,6 +954,35 @@ internal class VpnControlClient(
         unbind()
         eventListener = null
         clearAllAcknowledgedListener = null
+    }
+
+    fun resetAfterClear() {
+        cancelPendingConnections()
+        pendingPerAppRevision = null
+        val oldTimeline = pendingTimeline
+        pendingTimeline = null
+        oldTimeline?.let { (id, callback) ->
+            scheduler.cancel(snapshotTimeoutToken(id))
+            callback(null)
+        }
+        val oldProbes = pendingDiagnosticProbes.toMap()
+        pendingDiagnosticProbes.clear()
+        oldProbes.forEach { (id, callback) ->
+            scheduler.cancel(snapshotTimeoutToken(id))
+            callback(SnapshotProbe(disconnectedSnapshot(), false))
+        }
+        eventsWanted = false
+        desiredLocaleCatalog = null
+        eventRefreshGeneration++
+        scheduler.cancel(eventRefreshToken)
+        eventSubscriptionReachable = false
+        endpoint = null
+        lastSnapshot = disconnectedSnapshot()
+        // stopSelf alone cannot destroy a service still retained by this bind.
+        if (controlBound) {
+            controlBound = false
+            runCatching { serviceUnbinder(controlConnection) }
+        }
     }
 
     /**
@@ -981,9 +1093,12 @@ internal class VpnControlClient(
             scheduler.cancel(disconnectPendingToken(result))
             requestDisconnect(result)
         }
+        flushPendingRetry()
         flushPendingReconfigure()
         flushSettings()
+        flushVpnGate()
         flushLocale()
+        flushPerApp()
     }
 
     fun detachEndpointForTest() {
@@ -1144,13 +1259,14 @@ internal class VpnControlClient(
         pendingReconfigure?.let { pending ->
             pendingReconfigure = null
             scheduler.cancel(reconfigurePendingToken(pending.result))
-            requestReconfigure(pending.profileJson, pending.result)
+            requestReconfigure(pending.profileJson, pending.result, pending.authOnly)
         }
     }
 
     private data class PendingReconfigure(
         val profileJson: String,
         val result: MethodChannel.Result,
+        val authOnly: Boolean = false,
     )
 
     private fun snapshotFromBundle(bundle: Bundle): Map<String, Any?> {

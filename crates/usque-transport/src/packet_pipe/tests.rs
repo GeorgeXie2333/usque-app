@@ -1,4 +1,5 @@
 use super::*;
+use std::future::Future;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -7,6 +8,48 @@ use std::task::{Wake, Waker};
 use std::time::Duration;
 use ts_netstack_smoltcp::netcore::smoltcp::phy::{RxToken, TxToken};
 use ts_netstack_smoltcp::netcore::{Config, Netstack, Request, flume, tcp};
+
+#[tokio::test]
+async fn owned_ingress_retains_the_payload_allocation() {
+    let (pipe, mut peer) = PacketPipe::bounded(1);
+    let packet = Bytes::from(vec![0x45; 1280]);
+    let pointer = packet.as_ptr();
+    pipe.tx.send_owned_async(packet).await;
+    let received = peer.rx.recv_async().await.unwrap();
+    assert_eq!(received.as_ptr(), pointer);
+    assert_eq!(received.as_ref(), &[0x45; 1280]);
+    assert!(peer.rx.try_recv().is_none());
+    assert_eq!(pipe.tx.sender.capacity(), 1);
+}
+
+#[tokio::test]
+async fn cancelling_a_full_owned_send_does_not_replay_or_leak_a_slot() {
+    let (pipe, mut peer) = PacketPipe::bounded(1);
+    pipe.tx.send_owned_async(Bytes::from_static(b"first")).await;
+    let mut waiting = Box::pin(pipe.tx.send_owned_async(Bytes::from(vec![2; 1280])));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(waiting.as_mut().poll(&mut cx).is_pending());
+    drop(waiting);
+    assert_eq!(peer.rx.recv_async().await.unwrap().as_ref(), b"first");
+    assert!(peer.rx.try_recv().is_none());
+    pipe.tx.send_owned_async(Bytes::from_static(b"next")).await;
+    assert_eq!(peer.rx.recv_async().await.unwrap().as_ref(), b"next");
+    assert_eq!(pipe.tx.sender.capacity(), 1);
+}
+
+#[tokio::test]
+async fn closing_a_full_pipe_releases_an_owned_sender() {
+    let (pipe, peer) = PacketPipe::bounded(1);
+    pipe.tx.send_owned_async(Bytes::from_static(b"first")).await;
+    let mut waiting = Box::pin(pipe.tx.send_owned_async(Bytes::from(vec![2; 1280])));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(waiting.as_mut().poll(&mut cx).is_pending());
+    drop(peer);
+    tokio::time::timeout(Duration::from_secs(1), waiting)
+        .await
+        .unwrap();
+    assert!(pipe.tx.sender.is_closed());
+}
 
 #[derive(Default)]
 struct WakeCounter(AtomicUsize);

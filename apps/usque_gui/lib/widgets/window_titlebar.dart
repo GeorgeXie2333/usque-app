@@ -32,74 +32,78 @@ class WindowTitleBar extends StatelessWidget {
     final UsqueTokens tokens = UsqueTokens.of(context);
     final WindowFrame frame = WindowFrame.instance;
 
-    return ListenableBuilder(
-      listenable: frame,
-      builder: (context, _) {
-        return AnimatedOpacity(
-          duration: UsqueMotion.of(context, UsqueMotion.base),
-          opacity: frame.active ? 1 : 0.62,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: tokens.canvas,
-              border: Border(
-                bottom: BorderSide(
-                  color: tokens.hairline.withValues(alpha: 0.7),
+    return Directionality(
+      // The native caption hit regions use physical Windows coordinates.
+      textDirection: TextDirection.ltr,
+      child: ListenableBuilder(
+        listenable: frame,
+        builder: (context, _) {
+          return AnimatedOpacity(
+            duration: UsqueMotion.of(context, UsqueMotion.base),
+            opacity: frame.active ? 1 : 0.62,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: tokens.canvas,
+                border: Border(
+                  bottom: BorderSide(
+                    color: tokens.hairline.withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
+              child: SizedBox(
+                height: kWindowTitleBarHeight,
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.only(start: 12),
+                        child: Row(
+                          children: <Widget>[
+                            Image.asset(
+                              'assets/branding/usque-ui-icon.png',
+                              width: 17,
+                              height: 17,
+                              filterQuality: FilterQuality.medium,
+                            ),
+                            const SizedBox(width: 9),
+                            Text(
+                              strings.get('app_name'),
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            _ConnectionLamp(phase: phase),
+                          ],
+                        ),
+                      ),
+                    ),
+                    _WindowButton(
+                      label: strings.get('window_minimize'),
+                      hovered: frame.captionHover == CaptionHover.min,
+                      glyph: _Glyph.minimize,
+                    ),
+                    _WindowButton(
+                      label: strings.get(
+                        frame.maximized ? 'window_restore' : 'window_maximize',
+                      ),
+                      hovered: frame.captionHover == CaptionHover.max,
+                      glyph: frame.maximized ? _Glyph.restore : _Glyph.maximize,
+                    ),
+                    _WindowButton(
+                      label: strings.get('window_close'),
+                      hovered: frame.captionHover == CaptionHover.close,
+                      danger: true,
+                      glyph: _Glyph.close,
+                    ),
+                  ],
                 ),
               ),
             ),
-            child: SizedBox(
-              height: kWindowTitleBarHeight,
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsetsDirectional.only(start: 12),
-                      child: Row(
-                        children: <Widget>[
-                          Image.asset(
-                            'assets/branding/usque-ui-icon.png',
-                            width: 17,
-                            height: 17,
-                            filterQuality: FilterQuality.medium,
-                          ),
-                          const SizedBox(width: 9),
-                          Text(
-                            strings.get('app_name'),
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          _ConnectionLamp(phase: phase),
-                        ],
-                      ),
-                    ),
-                  ),
-                  _WindowButton(
-                    label: strings.get('window_minimize'),
-                    hovered: frame.captionHover == CaptionHover.min,
-                    glyph: _Glyph.minimize,
-                  ),
-                  _WindowButton(
-                    label: strings.get(
-                      frame.maximized ? 'window_restore' : 'window_maximize',
-                    ),
-                    hovered: frame.captionHover == CaptionHover.max,
-                    glyph: frame.maximized ? _Glyph.restore : _Glyph.maximize,
-                  ),
-                  _WindowButton(
-                    label: strings.get('window_close'),
-                    hovered: frame.captionHover == CaptionHover.close,
-                    danger: true,
-                    glyph: _Glyph.close,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

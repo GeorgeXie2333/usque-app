@@ -1295,6 +1295,11 @@ struct ConfiguredDnsProtector {
 
 #[async_trait]
 impl SocketProtector for ConfiguredDnsProtector {
+    fn subscribe_physical_network(
+        &self,
+    ) -> Option<tokio::sync::watch::Receiver<crate::socket::PhysicalNetworkSnapshot>> {
+        self.protector.subscribe_physical_network()
+    }
     fn protect(&self, socket: SocketHandle) -> Result<(), String> {
         self.protector.protect(socket)
     }

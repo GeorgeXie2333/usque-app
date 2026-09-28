@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../core/connection_presentation.dart';
 import '../core/diagnostics_strings.dart';
@@ -10,6 +9,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/connection_timeline.dart';
 import '../widgets/diagnostic_check_tile.dart';
+import '../widgets/external_link.dart';
 import '../widgets/usque_dialog.dart';
 
 class DiagnosticsScreen extends StatefulWidget {
@@ -183,20 +183,28 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                       value: MonoValue(value: strings.get('app_version')),
                     ),
                     const SizedBox(height: 12),
-                    const ReadoutRow(
-                      icon: LucideIcons.monitor,
-                      label: 'IPC API',
-                      value: MonoValue(value: 'usque.v1'),
+                    ExpansionTile(
+                      key: const PageStorageKey<String>(
+                        'app-technical-details',
+                      ),
+                      title: Text(strings.get('technical_details')),
+                      childrenPadding: const EdgeInsets.all(16),
+                      expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: const <Widget>[
+                        SelectableText(
+                          'IPC API: usque.v1',
+                          key: PageStorageKey<String>('app-ipc-api'),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 16),
                     Align(
                       alignment: AlignmentDirectional.centerEnd,
                       child: OutlinedButton.icon(
-                        onPressed: () => launchUrl(
-                          Uri.parse(
-                            'https://github.com/GeorgeXie2333/usque-app',
-                          ),
-                          mode: LaunchMode.externalApplication,
+                        onPressed: () => openExternalLink(
+                          context,
+                          strings,
+                          'https://github.com/GeorgeXie2333/usque-app',
                         ),
                         icon: const Icon(LucideIcons.code2),
                         label: Text(strings.get('source_code')),

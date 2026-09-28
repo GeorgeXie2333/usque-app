@@ -1,5 +1,18 @@
 /// Spanish UI catalog.
 const Map<String, String> kEsCatalog = <String, String>{
+  'disable_quic': "Desactivar QUIC",
+  'disable_quic_help':
+      "Bloquea el tráfico UDP del puerto 443 reenviado por Usque, principalmente QUIC, para que las aplicaciones pasen a TCP. El tráfico directo y la conexión propia de Usque no se ven afectados. Se aplica al instante.",
+  'disable_quic_unsupported':
+      'El bloqueo de QUIC no está disponible ahora. Reinicia Usque; si sigue sin estar disponible, busca actualizaciones en Ajustes.',
+  'technical_details': 'Detalles técnicos',
+  'diag_skip_disconnected': 'Conéctate para ejecutar esta comprobación.',
+  'diag_skip_disabled': 'Esta función está desactivada.',
+  'diag_skip_unsupported':
+      'Esta comprobación no está disponible en este dispositivo.',
+  'diag_skip_traffic': 'Usa la conexión y vuelve a ejecutar esta comprobación.',
+  'diag_skip_deep':
+      'Selecciona el modo profundo para ejecutar esta comprobación.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesión L4 no disponible',
   'diag_fail_L4_PROTOCOL_ERROR': 'Error de protocolo L4',
@@ -16,13 +29,13 @@ const Map<String, String> kEsCatalog = <String, String>{
   'tray_disconnect_profile': 'Desconectar la cuenta activa',
   'tray_disconnect_exit': 'Desconectar y salir',
   'connection_status': 'Estado de la conexión',
-  'outputs': 'Salidas de red',
+  'outputs': 'VPN y proxies locales',
   'home': 'Inicio',
   'profiles': 'Cuentas',
   'profiles_subtitle': 'Cambiar y administrar las cuentas WARP.',
   'proxy': 'Proxy',
   'proxy_subtitle':
-      'Listeners locales y DNS compartidos por todas las cuentas.',
+      'Configura las direcciones de proxy y DNS compartidas por todas las cuentas.',
   'settings': 'Ajustes',
   'settings_subtitle': 'Ajustes de conexión, proxy y aplicación.',
   'diagnostics': 'Diagnóstico',
@@ -30,10 +43,9 @@ const Map<String, String> kEsCatalog = <String, String>{
   'nav_profiles': 'Cuentas',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Ajustes',
-  'status_stream_degraded':
-      'Las actualizaciones de estado en tiempo real están degradadas',
+  'status_stream_degraded': 'La actualización del estado se está retrasando',
   'status_stream_degraded_body':
-      'El sondeo de estado está activo; las actualizaciones en tiempo real se reintentarán automáticamente.',
+      'Las actualizaciones de estado se retrasan. Se reintentará automáticamente.',
   'connect': 'Conectar',
   'retry': 'Reintentar',
   'disconnect': 'Desconectar',
@@ -47,7 +59,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'error': 'Error de conexión',
   'active_profile': 'Cuenta actual',
   'protocol': 'Protocolo',
-  'address_family': 'Familia de direcciones',
+  'address_family': 'Versión de IP',
   'duration': 'Duración',
   'download': 'Descarga',
   'upload': 'Carga',
@@ -57,46 +69,47 @@ const Map<String, String> kEsCatalog = <String, String>{
   'not_available': 'No disponible',
   'location_disconnected': 'Esperando para conectar',
   'engine_unavailable':
-      'El Usque Engine nativo aún no está disponible en esta compilación.',
+      'No se pudo iniciar el servicio de conexión. Cierra Usque por completo y ábrelo de nuevo. Si sigue fallando, abre Diagnóstico.',
   'dismiss': 'Descartar',
   'new_profile': 'Añadir cuenta',
   'profile_name': 'Nombre de la cuenta',
   'profile_name_too_long': 'No use más de 64 caracteres.',
-  'configure_identity': 'Configurar identidad WARP',
-  'identity_ready': 'Identidad lista',
+  'configure_identity': 'Configurar cuenta WARP',
+  'identity_ready': 'Cuenta lista',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Se requiere identidad',
-  'identity_invalid': 'La identidad necesita reparación',
-  'identity_setup_failed': 'No se pudo configurar la identidad WARP.',
+  'identity_missing': 'Configura la cuenta',
+  'identity_invalid': 'Es necesario configurar la cuenta de nuevo',
+  'identity_setup_failed':
+      'No se pudo configurar la cuenta WARP. Inténtalo de nuevo.',
   'use_license_key': 'Usar una WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Iniciar sesión con una cuenta de organización',
   'zero_trust_team': 'Nombre de equipo de la organización',
   'zero_trust_team_invalid':
-      'Introduzca un único nombre de equipo en forma de etiqueta DNS.',
+      'Usa entre 1 y 63 letras latinas, números o guiones. Empieza y termina con una letra o número. Ejemplo: example-team.',
   'zero_trust_open_login': 'Abrir inicio de sesión de la organización',
   'zero_trust_browser_failed': 'No se pudo abrir el navegador del sistema.',
   'zero_trust_manual_callback':
-      'Tras iniciar sesión, vuelva a Usque. Si el callback no se completa automáticamente, rellénelo desde el portapapeles o pegue la URL completa.',
+      'Tras iniciar sesión, vuelve a Usque. Si no se recibe el resultado automáticamente, copia el enlace que la página de acceso usa para abrir WARP y pégalo completo abajo.',
   'zero_trust_callback_received':
-      'Callback de la organización recibido de forma segura.',
-  'zero_trust_callback': 'URL de callback completa',
+      'Inicio de sesión recibido. Continúa para completar la configuración.',
+  'zero_trust_callback': 'Enlace de regreso tras iniciar sesión',
   'zero_trust_callback_required':
-      'Pegue una URL de callback completa reciente o inicie sesión de nuevo.',
+      'Pega el enlace completo de la página de acceso o vuelve a abrirla e inicia sesión de nuevo.',
   'zero_trust_callback_invalid':
-      'Use un callback de Access com.cloudflare.warp para esta organización.',
+      'El enlace no corresponde a esta organización. Abre de nuevo la página de acceso y copia el enlace completo para abrir WARP.',
   'zero_trust_paste_clipboard': 'Rellenar desde el portapapeles',
   'zero_trust_clipboard_empty':
-      'El portapapeles no contiene una URL de callback.',
+      'El portapapeles no contiene un enlace de regreso del inicio de sesión.',
   'zero_trust_scope_note':
-      'Experimental: usa el registro de dispositivo de la organización para el acceso a Internet; la sincronización de políticas y la postura del dispositivo no están implementadas.',
+      'Experimental: esta cuenta solo permite acceder a Internet público. No admite actualizaciones de políticas de la organización ni comprobaciones de los requisitos de seguridad del dispositivo.',
   'zero_trust_repair_same_team':
-      'Inicie sesión de nuevo en la misma organización para actualizar el registro de este dispositivo.',
+      'Inicia sesión de nuevo en la misma organización para recuperar la conexión de esta cuenta.',
   'zero_trust_metadata_missing':
-      'Falta la vinculación de organización guardada. Por seguridad, esta cuenta no se puede reparar en su lugar; añada una cuenta Zero Trust nueva.',
+      'La información guardada de la organización está incompleta. Añade otra cuenta Zero Trust e inicia sesión.',
   'zero_trust_endpoint_managed':
-      'Este extremo lo gestiona el registro de dispositivo de Zero Trust y no se puede editar aquí.',
+      'La cuenta de la organización establece esta dirección del servidor. No puedes modificarla aquí.',
   'experimental': 'Experimental',
   'show_license': 'Mostrar License Key',
   'hide_license': 'Ocultar License Key',
@@ -110,10 +123,10 @@ const Map<String, String> kEsCatalog = <String, String>{
   'delete': 'Eliminar',
   'delete_profile': '¿Eliminar cuenta?',
   'delete_profile_body':
-      'Esto elimina los ajustes no secretos de esta cuenta. Los datos de identidad almacenados no se eliminan.',
+      "¿Eliminar esta cuenta y sus datos de inicio de sesión de WARP de este dispositivo? Si hay una License Key vinculada, Usque también intentará desvincularla.",
   'delete_zero_trust_profile_body':
-      'Esto elimina solo la cuenta local y las credenciales. Pida a un administrador de la organización que quite el registro residual del dispositivo en Zero Trust.',
-  'license_not_applicable': 'Licencia no aplicable · Experimental',
+      'Se borrarán la cuenta y sus datos de acceso de este dispositivo. Pide al administrador que elimine también el registro del dispositivo en el panel Zero Trust de la organización.',
+  'license_not_applicable': 'Cuenta de organización · Experimental',
   'zero_trust_reauthenticate': 'Iniciar sesión de nuevo en esta organización',
   'zero_trust_admin_cleanup_note':
       'Quitar esta cuenta no revoca el dispositivo en el panel de Zero Trust.',
@@ -122,50 +135,48 @@ const Map<String, String> kEsCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Renombrar cuenta',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'Solo canal MASQUE',
-  'channel_only_warning': 'No hay ninguna salida de red habilitada.',
-  'socks_listener': 'Escucha SOCKS5',
-  'http_listener': 'Escucha HTTP',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN y proxies locales desactivados',
+  'channel_only_warning':
+      'Esta conexión no transportará tráfico de las aplicaciones. Abre Proxy y activa VPN, SOCKS5 o HTTP.',
+  'socks_listener': 'Proxy SOCKS5',
+  'http_listener': 'Proxy HTTP',
+  'listener_addresses': 'Direcciones de escucha (una por línea)',
   'listen_ipv4': 'Escuchar IPv4',
   'listen_ipv6': 'Escuchar IPv6',
   'port': 'Puerto',
-  'remote_dns': 'Resolver nombres de forma remota',
   'proxy_dns_mode': 'Resolución DNS del proxy',
   'proxy_dns_subtitle':
-      'Dónde resuelven los nombres los clientes SOCKS5 y HTTP.',
+      'Cómo resuelven los nombres de dominio los proxies SOCKS5 y HTTP.',
   'proxy_dns_remote': 'Remoto a través del túnel',
   'proxy_dns_configured': 'Servidores DNS personalizados',
   'proxy_dns_system': 'DNS del sistema',
   'dns_leak_warning': 'El DNS local puede revelar los nombres solicitados',
   'dns_leak_warning_body':
-      'El DNS personalizado o del sistema se resuelve fuera de la ruta del proxy remoto. Use DNS remoto salvo que acepte explícitamente esta exposición.',
+      'El DNS personalizado y el del sistema no se resuelven a través del túnel, por lo que su red actual puede ver los dominios que visita. Use “Remoto a través del túnel” salvo que lo acepte.',
   'system_proxy': 'Configurar el proxy del sistema',
   'output_disabled_in_profile': 'Desactivado en Ajustes',
   'auto_connect': 'Conectar la cuenta actual automáticamente al iniciar',
   'lan_warning': 'Proxy expuesto a la red local',
   'lan_warning_body':
-      'Usque no añade autenticación con nombre de usuario y contraseña. Cualquiera que pueda alcanzar esta escucha puede usarla.',
+      'No se ha configurado usuario ni contraseña. Cualquier dispositivo que pueda acceder a esta dirección puede usar el proxy.',
   'lan_warning_body_authenticated':
-      'Esta escucha acepta clientes autenticados que no sean de tipo loopback y que presenten el nombre de usuario y la contraseña configurados.',
-  'proxy_auth': 'Autenticación de la escucha',
+      'Otros dispositivos de tu red local pueden usar este proxy con el nombre de usuario y la contraseña que has configurado.',
+  'proxy_auth': 'Usuario y contraseña del proxy',
   'proxy_auth_help':
-      'Nombre de usuario y contraseña opcionales para las escuchas SOCKS5 y HTTP. La contraseña se almacena en la bóveda del sistema, no en el archivo del perfil.',
+      'Exige usuario y contraseña para usar los proxies SOCKS5 y HTTP. La contraseña se guarda de forma segura en este dispositivo.',
   'proxy_username': 'Nombre de usuario',
   'proxy_password': 'Contraseña',
   'proxy_password_hint':
-      'Solo escritura. Vuelva a introducir la contraseña para establecer o cambiar las credenciales.',
-  'proxy_auth_apply': 'Guardar credenciales',
+      'Introduce la contraseña al configurar o cambiar el usuario y la contraseña.',
+  'proxy_auth_apply': 'Guardar usuario y contraseña',
   'proxy_auth_invalid':
-      'El nombre de usuario debe tener entre 1 y 255 bytes, sin “:” ni NUL. Se requiere una contraseña de 1 a 255 bytes junto con un nombre de usuario.',
-  'proxy_auth_saved': 'Credenciales de la escucha guardadas',
-  'proxy_auth_cleared': 'Autenticación de la escucha eliminada',
-  'lan_warning_authenticated': 'Escucha autenticada de red local',
-  'lan_warning_authenticated_body':
-      'Esta escucha es accesible en la red local y requiere el nombre de usuario y la contraseña que haya establecido.',
+      'Revisa el usuario y la contraseña e inténtalo de nuevo.',
+  'proxy_auth_saved': 'Usuario y contraseña del proxy guardados.',
+  'proxy_auth_cleared': 'Protección por contraseña del proxy eliminada.',
   'proxy_password_set':
       'La contraseña está establecida. Introduzca una nueva para reemplazarla.',
-  'proxy_auth_clear': 'Quitar autenticación',
+  'proxy_auth_clear': 'Quitar protección por contraseña',
   'general': 'General',
   'system_integration': 'Integración con el sistema',
   'start_on_boot': 'Iniciar Usque al iniciar sesión',
@@ -205,25 +216,24 @@ const Map<String, String> kEsCatalog = <String, String>{
   'update_available': 'Hay una versión más reciente disponible:',
   'already_latest': 'Esta instalación ya está actualizada.',
   'open_release': 'Abrir la página de la versión',
-  'update_startup_description':
-      'Usque comprueba una vez después de iniciarse. Al volver a la aplicación no se vuelve a comprobar. «Buscar ahora» siempre solicita la información de la última versión.',
+  'update_startup_description': 'Buscar actualizaciones al iniciar Usque.',
   'update_checking': 'Buscando una actualización…',
-  'update_downloading': 'Descargando el paquete de actualización verificado…',
+  'update_downloading': 'Descargando la actualización…',
   'update_verifying': 'Verificando el paquete de actualización…',
   'update_ready': 'La actualización está lista para instalarse.',
-  'update_installing': 'La actualización se entregó al instalador del sistema.',
+  'update_installing': 'Se ha iniciado el instalador del sistema.',
   'update_restart_install': 'Reiniciar y actualizar',
   'update_install_android': 'Instalar actualización',
   'update_confirm_title': '¿Instalar esta actualización?',
   'update_confirm_body':
       'Las conexiones VPN y proxy se desconectarán temporalmente durante la instalación.',
   'update_package_unavailable':
-      'No hay un paquete verificado para este dispositivo. Abra la página de la versión para continuar.',
+      'No hay un instalador disponible para este dispositivo. Descárguelo desde la página de la versión.',
   'notice': 'Completado',
-  'identity': 'Identidad WARP',
-  'identity_and_license': 'Identidad y licencia',
+  'identity': 'Cuenta WARP',
+  'identity_and_license': 'Cuenta y licencia',
   'license_cleanup_pending':
-      'Hay un registro antiguo de dispositivo WARP pendiente de eliminación.',
+      'El registro antiguo del dispositivo WARP aún no se ha eliminado.',
   'copy_license': 'Copiar License Key',
   'change_license': 'Cambiar License Key',
   'unbind_license': 'Volver a WARP gratuito',
@@ -245,7 +255,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'Familia del extremo',
+  'ip_policy': 'Versión de IP del extremo',
   'prefer_ipv4': 'Preferir extremo IPv4',
   'prefer_ipv6': 'Preferir extremo IPv6',
   'ipv4_only': 'Solo extremo IPv4',
@@ -262,11 +272,13 @@ const Map<String, String> kEsCatalog = <String, String>{
   'lockdown': 'Bloquear sin VPN',
   'not_used_proxy': 'No se usa en modo proxy',
   'kill_switch_help':
-      'Bloquea el tráfico al conectar, reconectar o recuperarse de un fallo de Usque Engine. En Android esto dura mientras el servicio VPN está en ejecución; active VPN siempre activada y Bloquear conexiones sin VPN en los ajustes del sistema para protegerse cuando el sistema cierra o detiene la aplicación de forma forzada.',
+      'Bloquea el tráfico durante la conexión o la reconexión, o si falla el servicio de conexión.',
+  'kill_switch_help_android':
+      'Bloquea el tráfico durante la conexión o la reconexión, o si falla el servicio de conexión. Solo actúa mientras se ejecuta el servicio VPN. Para mantener la protección cuando Usque se detenga, active VPN siempre activada y Bloquear conexiones sin VPN en los ajustes del sistema.',
   'start_on_boot_android':
-      'Inicie Usque después de reiniciar. Active también la conexión automática al iniciar.',
+      'Inicie Usque cuando el dispositivo se reinicie. Para conectarse automáticamente, active también “Conectar la cuenta actual automáticamente al iniciar”.',
   'add_quick_settings_tile_help':
-      'Fije el acceso de Usque en Android 13 o posterior. En versiones anteriores, añádalo desde Ajustes rápidos.',
+      'Añada el acceso de Usque en Android 13 o posterior. En versiones anteriores, añádalo manualmente desde Ajustes rápidos.',
   'always_on_vpn': 'Abrir ajustes de VPN siempre activada',
   'always_on_vpn_help':
       'Active VPN siempre activada y Bloquear conexiones sin VPN para protegerse de fugas tras la detención forzada de la aplicación.',
@@ -275,11 +287,11 @@ const Map<String, String> kEsCatalog = <String, String>{
   'per_app_proxy_on': 'Proxy de {count} aplicaciones',
   'per_app_proxy_enable': 'Usar proxy solo en las aplicaciones seleccionadas',
   'per_app_proxy_help':
-      'Solo las aplicaciones marcadas usan la VPN. Las aplicaciones recién instaladas permanecen fuera del túnel hasta que las seleccione. Seleccionar todas no desactiva esta opción.',
+      'Solo las aplicaciones marcadas usan la VPN. Las aplicaciones recién instaladas deben marcarse para usarla.',
   'per_app_proxy_lockdown_help':
       'Si VPN siempre activada y Bloquear conexiones sin VPN están activados, las aplicaciones que no seleccione se bloquean; no se envían fuera del túnel.',
   'per_app_proxy_tunnel_hint':
-      'Esto se aplica la próxima vez que la salida VPN esté activada. El modo solo SOCKS5/HTTP no filtra aplicaciones.',
+      'Se aplica cuando la VPN está activada. Los proxies SOCKS5 y HTTP no filtran por aplicación.',
   'per_app_search': 'Buscar aplicaciones',
   'per_app_show_system': 'Mostrar aplicaciones del sistema',
   'per_app_select_visible': 'Seleccionar visibles',
@@ -304,22 +316,20 @@ const Map<String, String> kEsCatalog = <String, String>{
   'invalid_cidr': 'CIDR no válido',
   'diagnostics_title': 'Diagnóstico e información',
   'diagnostics_subtitle':
-      'Estado de Usque Engine, exportación de registros y datos locales.',
-  'engine_status': 'Estado de Usque Engine',
+      'Revisa problemas de conexión, exporta registros y administra los datos locales.',
+  'engine_status': 'Información de conexión',
   'version': 'Versión',
-  'app_version': 'Usque 0.2.7',
+  'app_version': 'Usque 0.2.8',
   'logs': 'Registros locales',
   'export_diagnostics': 'Exportar paquete de diagnóstico',
   'diagnostics_saved': 'Paquete de diagnóstico guardado en',
-  'export_help':
-      'Podrá revisar su contenido antes de guardar. Se excluyen secretos, tokens, claves privadas y las direcciones sensibles completas.',
   'source_code': 'Código fuente',
   'license': 'Licencia',
   'clear_all_data': 'Borrar todos los datos',
   'clear_all_data_help':
-      'Desconecte y elimine de forma permanente de este dispositivo todas las cuentas, identidades Consumer WARP, preferencias, caché y registros de diagnóstico locales.',
+      'Desconecta y elimina permanentemente de este dispositivo todas las cuentas, datos de acceso WARP, ajustes, cachés y registros de diagnóstico.',
   'clear_all_data_confirm':
-      'Esta acción no se puede deshacer. Usque se desconectará primero, borrará todas las identidades y cuentas guardadas y volverá a la configuración inicial.',
+      'No se puede deshacer. Usque desconectará, borrará todas las cuentas y sus datos de acceso y volverá a la configuración inicial.',
   'clear_all_data_complete': 'Se borraron todos los datos locales de Usque.',
   'unofficial':
       'Cliente no oficial compatible con Cloudflare WARP. No está afiliado ni respaldado por Cloudflare.',
@@ -328,13 +338,13 @@ const Map<String, String> kEsCatalog = <String, String>{
   'get_started': 'Empezar',
   'permissions_title': 'Permisos del sistema',
   'permissions_body':
-      'Usque necesita permiso para crear una interfaz VPN y gestionar rutas, DNS, reglas de cortafuegos y el proxy del sistema.',
+      'Usque necesita permiso para enviar el tráfico de las aplicaciones por la VPN. Según el modo, también configura DNS, rutas de red, protección del cortafuegos o el proxy del sistema.',
   'terms_title': 'Términos de Cloudflare',
   'terms_body':
-      'Usque es un cliente independiente. El uso de Consumer WARP o del registro experimental de Zero Trust sigue sujeto a los términos aplicables y a la política de privacidad de Cloudflare.',
+      'Usque es un cliente independiente. El uso de WARP personal o del registro experimental de Zero Trust sigue sujeto a los términos y la política de privacidad de Cloudflare.',
   'terms_accept': 'Entiendo y acepto estas condiciones.',
-  'identity_title': 'Configurar WARP de consumo',
-  'register_new': 'Registrar una identidad nueva',
+  'identity_title': 'Configurar una cuenta WARP personal',
+  'register_new': 'Crear cuenta WARP gratuita',
   'manual_secret': 'Introducir WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Mostrar secreto',
@@ -349,9 +359,9 @@ const Map<String, String> kEsCatalog = <String, String>{
   'profile_required': 'Conserve al menos una cuenta.',
   'socks_capabilities': 'TCP y UDP',
   'http_capabilities': 'CONNECT y reenvío ordinario',
-  'geo_direct': 'Países con enrutamiento directo',
+  'geo_direct': 'Países y regiones con conexión directa',
   'geo_direct_help':
-      'Los dominios coincidentes son visibles para el DNS de su red actual; las aplicaciones con DNS cifrado se enrutan solo por IP.',
+      'El tráfico que coincida con estos países o regiones no pasa por la VPN. El proveedor DNS de tu red puede ver los dominios consultados. Las aplicaciones con DNS cifrado se clasifican solo por IP.',
   'geo_update_all': 'Actualizar datos geográficos',
   'geo_last_updated': 'Última actualización correcta: {current}',
   'geo_never_updated': 'Aún no actualizado',
@@ -362,22 +372,22 @@ const Map<String, String> kEsCatalog = <String, String>{
   'geo_search': 'Buscar países',
   'geo_not_downloaded': 'No descargado',
   'geo_downloaded': 'Descargado',
-  'geo_chip': 'Enrutamiento directo: {current}',
+  'geo_chip': 'Directo: {current}',
   'geo_download_first':
       'Descargue los datos geográficos de este país antes de activarlo.',
   'geo_update_complete':
       'Datos geográficos: {updated} actualizados, {current} ya estaban al día.',
-  'geo_update_failed': 'Error al actualizar los datos geográficos: {current}',
+  'geo_update_failed':
+      'No se pudieron actualizar algunas reglas ({current}). Revisa la red y vuelve a intentarlo.',
   'diagnostics_page_subtitle':
-      'Inspeccione la conexión, la protección de la plataforma y el estado de recuperación. Los resultados permanecen en el dispositivo.',
+      'Compruebe problemas de conexión. Los resultados permanecen en este dispositivo.',
   'diag_refresh_timeline': 'Actualizar cronología',
   'diag_operation_failed': 'Error en la operación de diagnóstico',
   'diag_event_stream_degraded': 'Flujo de eventos de diagnóstico interrumpido',
-  'diag_event_stream_degraded_body':
-      'El estado de la sesión se recupera con sondeo acotado; la ejecución no se reinicia.',
+  'diag_event_stream_degraded_body': 'Restaurando el progreso del diagnóstico…',
   'diag_export_included': 'Incluido:',
   'diag_export_included_body':
-      'Códigos de error, etapas, tiempos relativos, contadores y estados booleanos',
+      'Códigos de error, pasos de conexión, tiempos, estadísticas de tráfico y estado de las funciones',
   'diag_export_excluded': 'Excluido:',
   'diag_export_excluded_body':
       'Claves, tokens, nombres de perfil, direcciones completas, SSID, listas de aplicaciones y rutas de usuario',
@@ -385,16 +395,16 @@ const Map<String, String> kEsCatalog = <String, String>{
       'El archivo se escribe solo en la ubicación que elija y nunca se carga automáticamente.',
   'diag_run_title': 'Ejecutar diagnóstico de red',
   'diag_run_subtitle':
-      'El modo estándar usa solo comprobaciones de solo lectura y pasivas.',
+      'Las comprobaciones estándar no envían tráfico ni cambian ajustes.',
   'diag_mode_standard': 'Estándar',
   'diag_mode_deep': 'Profundo',
   'diag_deep_title': 'Acerca del diagnóstico profundo',
   'diag_deep_connected':
-      'Hay un túnel activo: no se abrirá un segundo camino de datos MASQUE; las comprobaciones de transporte activas se marcarán como omitidas o con una advertencia.',
+      'Algunas comprobaciones se omiten mientras estás conectado para no interrumpir la conexión.',
   'diag_deep_disconnected':
-      'Sin conexión, las comprobaciones activas tienen un tiempo límite y se pueden cancelar; después se compara el estado de la plataforma.',
+      'Las comprobaciones pueden usar la red. Puedes cancelarlas en cualquier momento.',
   'diag_start': 'Iniciar diagnóstico',
-  'diag_session': 'Sesión de diagnóstico',
+  'diag_session': 'Diagnóstico actual',
   'diag_progress_semantics': 'Progreso del diagnóstico {current}%',
   'diag_waiting_check': 'Esperando el estado de las comprobaciones…',
   'diag_summary_passed': 'Correctas {count}',
@@ -403,12 +413,11 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_summary_skipped': 'Omitidas {count}',
   'diag_check_results': 'Resultados de las comprobaciones',
   'diag_check_results_empty':
-      'Inicie un diagnóstico para ver comprobaciones agrupadas por capa y dependencias.',
+      'Inicia el diagnóstico para comprobar la conexión.',
   'diag_timeline': 'Cronología de conexión',
-  'diag_timeline_subtitle':
-      'Solo se conservan los cambios de estado más recientes; nunca se registran contenidos de paquetes ni direcciones completas.',
+  'diag_timeline_subtitle': 'Cambios recientes en el estado de la conexión.',
   'diag_logs_subtitle':
-      'Exporte la sesión, la cronología, el resumen del estado de la plataforma y los registros sin datos sensibles.',
+      'Exporte un paquete de diagnóstico sin información sensible.',
   'diag_session_pending': 'Pendiente',
   'diag_session_running': 'En ejecución',
   'diag_session_cancelling': 'Cancelando',
@@ -418,14 +427,14 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_timeline_empty':
       'Los cambios de estado importantes aparecerán aquí tras un intento de conexión.',
   'diag_timeline_truncated':
-      'Se muestran los 100 eventos más recientes; el paquete de diagnóstico exportado conserva todos los eventos que el Usque Engine aún mantiene.',
+      'Se muestran los últimos 100 registros. El paquete de diagnóstico incluye todos los que aún se conservan en este dispositivo.',
   'diag_metric_reconnects': 'Reconexiones',
   'diag_metric_fallbacks': 'Cambios a transporte alternativo',
   'diag_metric_network_changes': 'Cambios de red',
   'diag_metric_queue_high_water': 'Profundidad máxima de la cola de envío',
   'diag_unknown': 'Desconocido',
   'diag_stage': 'Etapa',
-  'diag_family': 'Familia de direcciones',
+  'diag_family': 'Versión de IP',
   'diag_retryable': 'Reintentable',
   'diag_fallback_allowed': 'Transporte alternativo permitido',
   'diag_copy_support': 'Copiar información de soporte',
@@ -433,10 +442,11 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_yes': 'Sí',
   'diag_no': 'No',
   'diag_finding_passed': 'Esta comprobación se superó.',
-  'diag_finding_attention': 'Esta comprobación requiere atención.',
+  'diag_finding_attention':
+      'Se detectó un posible problema. Revisa los detalles antes de volver a intentarlo.',
   'diag_finding_failed': 'Esta comprobación falló.',
   'diag_finding_skipped':
-      'Esta comprobación no se ejecutó en el estado actual.',
+      'No se pudo ejecutar esta comprobación. Revisa la conexión y las comprobaciones fallidas e inténtalo de nuevo.',
   'diag_finding_cancelled': 'Esta comprobación se canceló.',
   'diag_finding_running': 'Esta comprobación se está ejecutando.',
   'diag_finding_pending': 'Esta comprobación aún no ha comenzado.',
@@ -453,11 +463,13 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_cat_tunnel': 'Túnel',
   'diag_cat_protection': 'Protección del sistema',
   'diag_cat_recovery': 'Recuperación',
-  'diag_check_engine_control_channel': 'Canal de control de Usque Engine',
-  'diag_check_engine_event_stream': 'Flujo de eventos de Usque Engine',
-  'diag_check_engine_capabilities': 'Capacidades de API',
+  'diag_check_engine_control_channel':
+      'Comunicación con el servicio de conexión',
+  'diag_check_engine_event_stream': 'Actualizaciones del estado de conexión',
+  'diag_check_engine_capabilities':
+      'Compatibilidad de las funciones de conexión',
   'diag_check_engine_configuration': 'Configuración',
-  'diag_check_engine_secure_storage_metadata': 'Metadatos de identidad',
+  'diag_check_engine_secure_storage_metadata': 'Datos de acceso guardados',
   'diag_check_frontend_socks_port': 'Escucha SOCKS5',
   'diag_check_frontend_http_port': 'Escucha HTTP',
   'diag_check_frontend_system_proxy_state': 'Estado del proxy del sistema',
@@ -465,7 +477,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Ruta IPv4 física',
   'diag_check_physical_ipv6_route': 'Ruta IPv6 física',
   'diag_check_physical_dns_available': 'DNS físico',
-  'diag_check_physical_network_generation': 'Generación de red',
+  'diag_check_physical_network_generation': 'Cambios de red',
   'diag_check_transport_h3_connect': 'Conexión HTTP/3',
   'diag_check_transport_h3_datagram': 'Datagramas HTTP/3',
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
@@ -481,29 +493,31 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'Salida IPv6',
   'diag_check_protection_kill_switch': 'Estado del Kill Switch',
   'diag_check_protection_dns_path': 'Ruta DNS',
-  'diag_check_protection_route_ownership': 'Propiedad de rutas',
+  'diag_check_protection_route_ownership':
+      'Rutas de red administradas por Usque',
   'diag_check_protection_recovery_journal': 'Diario de recuperación',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine no disponible',
-  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent inalcanzable',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Servicio de conexión de Usque no disponible',
+  'diag_fail_AGENT_UNREACHABLE':
+      'No se puede contactar con el servicio de red del sistema de Usque',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Servicio VPN no disponible',
   'diag_fail_PROXY_PORT_IN_USE': 'Puerto de proxy en uso',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 físico no disponible',
   'diag_fail_PHYSICAL_IPV6_UNAVAILABLE': 'IPv6 físico no disponible',
   'diag_fail_PHYSICAL_DNS_UNAVAILABLE': 'DNS físico no disponible',
   'diag_fail_PHYSICAL_NETWORK_CHANGED': 'La red física cambió',
-  'diag_fail_H3_UDP_UNREACHABLE': 'UDP H3 inalcanzable',
+  'diag_fail_H3_UDP_UNREACHABLE': 'UDP HTTP/3 inalcanzable',
   'diag_fail_H3_HANDSHAKE_TIMEOUT':
-      'Tiempo de espera del protocolo de enlace H3',
-  'diag_fail_H3_PROTOCOL_ERROR': 'Error de protocolo H3',
-  'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagrama H3 no disponible',
-  'diag_fail_H3_CONNECTION_CLOSED': 'Conexión H3 cerrada',
+      'Tiempo de espera del protocolo de enlace HTTP/3',
+  'diag_fail_H3_PROTOCOL_ERROR': 'Error de protocolo HTTP/3',
+  'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagrama HTTP/3 no disponible',
+  'diag_fail_H3_CONNECTION_CLOSED': 'Conexión HTTP/3 cerrada',
   'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
-      'Se agotaron los intentos de revalidar la MTU de la ruta H3',
-  'diag_fail_H2_TCP_CONNECT_FAILED': 'Falló la conexión TCP H2',
-  'diag_fail_H2_TLS_FAILED': 'Falló TLS H2',
-  'diag_fail_H2_STREAM_CLOSED': 'Flujo H2 cerrado',
-  'diag_fail_H2_CONNECT_REJECTED': 'CONNECT H2 rechazado',
-  'diag_fail_H2_GOAWAY': 'H2 recibió GOAWAY',
+      'Se agotaron los intentos de revalidar la MTU de la ruta HTTP/3',
+  'diag_fail_H2_TCP_CONNECT_FAILED': 'Falló la conexión TCP HTTP/2',
+  'diag_fail_H2_TLS_FAILED': 'Falló TLS HTTP/2',
+  'diag_fail_H2_STREAM_CLOSED': 'Flujo HTTP/2 cerrado',
+  'diag_fail_H2_CONNECT_REJECTED': 'CONNECT HTTP/2 rechazado',
+  'diag_fail_H2_GOAWAY': 'HTTP/2 recibió GOAWAY',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'Fallaron HTTP/3 y HTTP/2',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'El pin de extremo no coincide',
   'diag_fail_IDENTITY_INVALID': 'Identidad no válida',
@@ -527,7 +541,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_fail_SYSTEM_PROXY_STALE':
       'El estado del proxy del sistema de Usque no se limpió',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Esperando a que se restaure el estado de red de la plataforma',
+      'Ajustes de red del sistema aún sin restaurar',
   'diag_fail_PACKET_SEND_FAILED': 'Falló el envío de paquetes',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Tiempo de espera al enviar paquetes',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Falló la recepción de paquetes',
@@ -541,32 +555,33 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Falló una dependencia del diagnóstico',
   'diag_fail_INTERNAL': 'Error interno',
   'diag_fix_try_http2':
-      'Use HTTP/2 y deje habilitadas las sondas de recuperación.',
+      'En Ajustes → Ajustes avanzados de red, elige HTTP/2, aplica los cambios e intenta conectar de nuevo.',
   'diag_fix_check_physical_network':
-      'Compruebe la disponibilidad de la red actual, el DNS y la familia de direcciones.',
+      'Comprueba que el Wi-Fi o la red móvil funcionan e intenta conectar de nuevo.',
   'diag_fix_refresh_or_replace_identity':
-      'Actualice o reemplace la identidad antes de volver a conectar.',
-  'diag_fix_replace_identity': 'Configure de nuevo una identidad válida.',
+      'En Cuentas, elige Configurar cuenta WARP para esta cuenta. Inicia sesión de nuevo o crea una cuenta WARP y vuelve a conectar.',
+  'diag_fix_replace_identity':
+      'En Cuentas → Configurar cuenta WARP, inicia sesión de nuevo o importa datos de acceso WARP válidos.',
   'diag_fix_review_configuration':
-      'Revise la configuración y corrija los valores no válidos.',
+      'En Ajustes → Ajustes avanzados de red, corrige los campos marcados y aplica los cambios.',
   'diag_fix_restore_platform_state':
-      'Restablezca el estado de red de la plataforma antes de reintentar.',
+      'Cierra Usque por completo y ábrelo de nuevo. Si sigue fallando, exporta un paquete desde Diagnóstico para solicitar ayuda.',
   'diag_fix_resolve_dependency':
-      'Resuelva primero el requisito previo fallido.',
+      'Resuelve primero las comprobaciones fallidas de la lista y vuelve a ejecutar el diagnóstico.',
   'diag_fix_run_deep_diagnostics':
-      'Ejecute el diagnóstico profundo en un entorno adecuado.',
+      'En Diagnóstico, elige Profundo e inicia las comprobaciones. Pueden enviar tráfico de prueba; algunas se omiten mientras estás conectado.',
   'diag_fix_run_release_leak_gate':
-      'Ejecute la prueba independiente de fugas de la versión con un observador de red externo.',
+      'Exporte un paquete de diagnóstico y envíelo al soporte. La información sensible se elimina.',
   'diag_fix_inspect_platform_state':
-      'Confirme el estado real con una comprobación de solo lectura del estado de red y proxy del sistema.',
+      'En Diagnóstico, revisa los fallos de Protección del sistema. Si persisten, exporta un paquete de diagnóstico para solicitar ayuda.',
   'diag_fix_generate_tunnel_traffic':
-      'Genere un poco de tráfico del túnel y vuelva a comprobar.',
+      'Abre una página web a través de Usque y repite la comprobación.',
   'diag_fix_export_diagnostics':
-      'Exporte un paquete de diagnóstico sin datos sensibles para soporte.',
+      'Exporte un paquete de diagnóstico y envíelo al soporte. La información sensible se elimina.',
   'diag_fix_retry': 'Vuelva a intentarlo en breve.',
   'diag_fix_none': 'No se requiere ninguna acción.',
   'diag_fix_default':
-      'Use el código de error para revisar la configuración y el estado de red relacionados.',
+      'Inténtalo de nuevo. Si el problema persiste, abre Diagnóstico y exporta un paquete para solicitar ayuda.',
   'diag_event_attempt_started': 'Intento de conexión iniciado',
   'diag_event_endpoint_resolved': 'Dirección del extremo resuelta',
   'diag_event_socket_connected': 'Socket conectado',
@@ -578,15 +593,30 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_event_tunnel_ready': 'Túnel listo',
   'diag_event_first_packet_sent': 'Primer paquete enviado',
   'diag_event_first_packet_received': 'Primer paquete recibido',
-  'diag_event_fallback_started': 'Cambio a H2 iniciado',
+  'diag_event_fallback_started': 'Cambio a HTTP/2 iniciado',
   'diag_event_reconnect_scheduled': 'Reconexión programada',
   'diag_event_network_changed': 'La red física cambió',
-  'diag_event_recovery_probe_started': 'Sonda de recuperación H3 iniciada',
+  'diag_event_recovery_probe_started': 'Sonda de recuperación HTTP/3 iniciada',
   'diag_event_recovery_probe_succeeded':
-      'Sonda de recuperación H3 completada correctamente',
-  'diag_event_recovery_probe_failed': 'Sonda de recuperación H3 fallida',
-  'diag_event_path_promoted': 'Ruta candidata activada',
+      'Sonda de recuperación HTTP/3 completada correctamente',
+  'diag_event_recovery_probe_failed': 'Sonda de recuperación HTTP/3 fallida',
+  'diag_event_path_promoted': 'Cambiado a una nueva ruta de red',
+  'diag_event_queue_backpressured': 'Cola de envío saturada',
   'diag_event_queue_saturated': 'La cola de envío alcanzó su capacidad',
   'diag_event_disconnected': 'Desconectado',
   'diag_event_failed': 'Conexión fallida',
+  'operation_failed':
+      'No se pudo completar la operación. Inténtalo de nuevo; si el problema persiste, exporta un paquete de diagnóstico para solicitar ayuda.',
+  'operation_timeout':
+      'La operación agotó el tiempo de espera. Revisa la red e inténtalo de nuevo.',
+  'accounts_reset':
+      'Se restablecieron los ajustes de cuenta que no se podían leer. Se guardó una copia en este dispositivo. Configura de nuevo la cuenta en Cuentas.',
+  'input_too_long_bytes':
+      'El texto es demasiado largo. Usa como máximo {count} bytes UTF-8; algunos caracteres ocupan varios bytes.',
+  'username_colon': 'El nombre de usuario no puede contener dos puntos (:).',
+  'username_null':
+      'El nombre de usuario contiene un carácter invisible. Bórralo y vuelve a escribirlo.',
+  'dns_duplicate_address': 'Elimina las direcciones IP duplicadas.',
+  'dns_address_not_allowed':
+      'Una dirección no sirve para conectar con un servidor DNS. Usa las IP del servidor facilitadas por tu proveedor DNS.',
 };

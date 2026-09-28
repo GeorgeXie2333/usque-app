@@ -24,6 +24,8 @@ pub struct SharedNetworkSettings {
     pub dns_mode: DnsMode,
     pub dns_servers: Vec<IpAddr>,
     pub allow_lan: bool,
+    #[serde(default)]
+    pub disable_quic: bool,
     pub split_exclusions: Vec<IpNet>,
     pub kill_switch: bool,
     pub auto_connect: bool,
@@ -34,6 +36,8 @@ pub struct SharedNetworkSettings {
     pub direct_dns: DirectDnsSettings,
     #[serde(default)]
     pub vpn_gate: crate::vpngate::VpnGateSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_exit: Option<crate::chain_exit::ChainExitSettings>,
 }
 
 impl Default for SharedNetworkSettings {
@@ -43,6 +47,11 @@ impl Default for SharedNetworkSettings {
 }
 
 impl SharedNetworkSettings {
+    pub fn chain_enabled(&self) -> bool {
+        self.chain_exit
+            .as_ref()
+            .map_or(self.vpn_gate.enabled, |s| s.enabled)
+    }
     /// Copy device-wide settings from a runtime profile. Zero Trust endpoint
     /// addresses are restored from the account after the shared copy is made.
     pub fn from_profile(profile: &Profile) -> Self {
@@ -57,6 +66,7 @@ impl SharedNetworkSettings {
             dns_mode: profile.dns_mode,
             dns_servers: profile.dns_servers.clone(),
             allow_lan: profile.allow_lan,
+            disable_quic: profile.disable_quic,
             split_exclusions: profile.split_exclusions.clone(),
             kill_switch: profile.kill_switch,
             auto_connect: profile.auto_connect,
@@ -64,6 +74,7 @@ impl SharedNetworkSettings {
             geo_direct_countries: profile.geo_direct_countries.clone(),
             direct_dns: profile.direct_dns.clone(),
             vpn_gate: profile.vpn_gate.clone(),
+            chain_exit: profile.chain_exit.clone(),
         }
     }
 
@@ -87,6 +98,7 @@ impl SharedNetworkSettings {
             dns_mode: self.dns_mode,
             dns_servers: self.dns_servers.clone(),
             allow_lan: self.allow_lan,
+            disable_quic: self.disable_quic,
             split_exclusions: self.split_exclusions.clone(),
             kill_switch: self.kill_switch,
             auto_connect: self.auto_connect,
@@ -94,6 +106,7 @@ impl SharedNetworkSettings {
             geo_direct_countries: self.geo_direct_countries.clone(),
             direct_dns: self.direct_dns.clone(),
             vpn_gate: self.vpn_gate.clone(),
+            chain_exit: self.chain_exit.clone(),
         };
         profile.canonicalize_mode();
         profile.proxy.normalize_auth();

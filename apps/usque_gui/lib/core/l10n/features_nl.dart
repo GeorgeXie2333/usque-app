@@ -2,28 +2,26 @@
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowNl = <String, String>{
   'local_proxy_settings': 'Lokale proxyinstellingen',
-  'proxy_switches_hint':
-      'Schakelaars worden automatisch opgeslagen. Bevestig wijzigingen aan luisteradressen en DNS met Wijzigingen toepassen.',
+  'proxy_switches_hint': 'Schakelaars werken meteen.',
   'cc_label': 'HTTP/3-congestiecontrole',
   'cc_help': 'Wordt bij de volgende handmatige verbinding toegepast.',
-  'cc_upgrade': 'Update van de Engine vereist.',
-  'cc_h2': 'HTTP/2 gebruikt systeem-TCP.',
+  'cc_upgrade': 'Werk Usque bij via Instellingen om deze optie te gebruiken.',
+  'cc_h2': 'Deze optie geldt alleen voor HTTP/3-verbindingen.',
   'cc_saved': 'Opgeslagen',
   'cc_pending': 'Wacht op de volgende handmatige verbinding.',
   'save_changes': 'Wijzigingen toepassen',
   'saving_changes': 'Wijzigingen worden toegepast…',
   'unsaved_changes': 'Niet-toegepaste wijzigingen',
   'changes_applied': 'Wijzigingen toegepast',
-  'changes_apply_hint': 'Bewerkingen worden pas van kracht nadat u ze toepast.',
+  'changes_apply_hint':
+      'Bewerkingen worden van kracht nadat u “Wijzigingen toepassen” kiest.',
   'changes_failed':
       'Wijzigingen konden niet worden toegepast. Controleer de opgeslagen '
       'waarden en probeer het opnieuw.',
   'form_errors':
       'Controleer de gemarkeerde velden voordat u de wijzigingen toepast.',
   'discard_changes_title': 'Niet-toegepaste wijzigingen verwerpen?',
-  'discard_changes_body':
-      'Uw bewerkingen zijn nog niet toegepast. Blijf bewerken om ze op te '
-      'slaan, of verwerp ze om te vertrekken.',
+  'discard_changes_body': 'Niet-toegepaste bewerkingen gaan verloren.',
   'keep_editing': 'Blijven bewerken',
   'discard_changes': 'Wijzigingen verwerpen',
   'invalid_port': 'Voer een poort van 1 tot 65535 in.',
@@ -48,18 +46,16 @@ const Map<String, String> kUiWorkflowNl = <String, String>{
   'home_kill_switch': 'Kill Switch',
   'home_traffic': 'Verkeer',
   'home_traffic_window': 'Laatste 60 seconden',
-  'home_traffic_idle': 'Start na het verbinden',
-  'home_traffic_waiting': 'Wachten op metingen',
-  'home_traffic_unavailable': 'Geschiedenis niet beschikbaar',
-  'home_traffic_stale': 'Metingen vertraagd',
-  'home_outputs_next': 'Uitgangen worden na het verbinden ingeschakeld',
-  'home_outputs_retry': 'Uitgangen geconfigureerd voor de volgende poging',
+  'home_traffic_idle': 'Verkeer verschijnt na verbinden',
+  'home_traffic_waiting': 'Wachten op verkeersgegevens',
+  'home_traffic_unavailable': 'Geen verkeersgeschiedenis beschikbaar',
+  'home_traffic_stale': 'Verkeersupdates vertraagd',
+  'home_outputs_next': 'Beschikbaar na verbinden',
+  'home_outputs_retry': 'VPN en proxy’s voor de volgende verbinding',
   'connection_protection_group': 'Verbinding en bescherming',
   'proxy_routing_group': 'Proxy en routering',
   'application_group': 'Applicatie',
   'proxy_settings_link': 'Listeneradressen, poorten, authenticatie en DNS.',
-  'proxy_auth_separate':
-      'Inloggegevens worden afzonderlijk opgeslagen met Inloggegevens opslaan.',
   'reset_draft_hint':
       'Standaardwaarden worden in dit formulier geladen. Pas de wijzigingen '
       'toe om ze door te voeren.',
@@ -86,11 +82,9 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_finding_invalid_configuration':
       'De aangepaste DNS-configuratie is ongeldig.',
   'nq_finding_dns_system':
-      'Fysieke systeem-DNS is geselecteerd; controles voor versleutelde DNS '
-      'zijn niet van toepassing.',
+      'DNS van het huidige netwerk wordt gebruikt; controles voor versleutelde DNS zijn niet van toepassing.',
   'nq_finding_unsupported':
-      'Versleutelde DNS is in deze Engine niet beschikbaar; terugval naar '
-      'platte tekst is niet toegestaan.',
+      'Werk Usque bij voor versleutelde DNS. Aanvragen schakelen niet over op onversleutelde DNS.',
   'nq_finding_dns_custom_valid':
       'De aangepaste configuratie voor versleutelde DNS is geldig. Terugval '
       'naar platte tekst is uitgeschakeld.',
@@ -98,35 +92,25 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
       'De meting is verouderd of het fysieke netwerk is gewijzigd.',
   'nq_finding_rtt_high': 'De gemeten retourtijd is verhoogd.',
   'nq_finding_healthy':
-      'De beschikbare lokale meting ligt binnen het verwachte bereik.',
+      'De beschikbare verbindingsmetingen liggen binnen het normale bereik.',
   'nq_finding_loss_high': 'Het pakketverlies in het interval is verhoogd.',
   'nq_finding_queue_pressure':
-      'Een wachtrij staat onder druk of heeft tijdens deze verbinding '
-      'verliezen geregistreerd.',
-  'nq_finding_pmtu_degraded': 'De validatie van de pad-MTU is verslechterd.',
+      'Verkeer wacht op verzending of er zijn gegevens weggegooid tijdens deze verbinding.',
+  'nq_finding_pmtu_degraded':
+      'Usque kon geen geschikte pakketgrootte voor deze verbinding bevestigen.',
   'nq_finding_migration_reconnect':
-      'Migratie is op dit pad niet beschikbaar; bij een netwerkwijziging wordt '
-      'volledig opnieuw verbonden.',
+      'Bij een netwerkwissel moet deze verbinding opnieuw worden opgezet.',
   'nq_finding_dns_changed':
       'De opgeslagen DNS-modus verschilt van de actieve verbinding.',
-  'nq_finding_dns_runtime':
-      'Versleutelde DNS is geslaagd. De lokale status is geen extern bewijs '
-      'tegen lekken.',
+  'nq_finding_dns_runtime': 'Versleutelde DNS werkt.',
   'nq_finding_dns_degraded':
-      'Versleutelde DNS is verslechterd; mislukte directe query’s vallen niet '
-      'terug op systeem-DNS.',
+      'Versleutelde DNS heeft problemen. Mislukte aanvragen gebruiken niet de onversleutelde DNS van het netwerk.',
   'nq_finding_probe_unsafe':
-      'Probe overgeslagen: de vereiste veilige status of opgeslagen identiteit '
-      'is niet beschikbaar. Een actieve tunnel wordt nooit gedupliceerd.',
-  'nq_finding_probe_success':
-      'De geverifieerde probe is voltooid. Dit is geen externe test op '
-      'pakketlekken.',
-  'nq_finding_probe_cancelled': 'Probe geannuleerd en opschoning aangevraagd.',
-  'nq_finding_probe_timeout':
-      'De begrensde probe is niet vóór de deadline voltooid.',
-  'nq_finding_probe_failed':
-      'De geverifieerde probe is mislukt; er is geen onveilige terugval '
-      'geprobeerd.',
+      'Deze meting is in de huidige status niet beschikbaar.',
+  'nq_finding_probe_success': 'Deze controle is geslaagd.',
+  'nq_finding_probe_cancelled': 'Deze controle is geannuleerd.',
+  'nq_finding_probe_timeout': 'Time-out bij diagnostische controle',
+  'nq_finding_probe_failed': 'Deze controle is mislukt.',
   'diag_fix_nq_profile':
       'Controleer de aangepaste DNS-velden en de certificaatnaam. Schakel '
       'TLS-verificatie niet uit.',
@@ -139,12 +123,11 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
       'Maak opnieuw verbinding om de opgeslagen configuratie toe te passen.',
   'nav_network_quality': 'Kwaliteit',
   'network_quality': 'Netwerkkwaliteit',
-  'nq_subtitle': 'Bekijk de verbinding, niet alleen de snelheid.',
+  'nq_subtitle': 'Latentie, pakketverlies en doorvoer.',
   'nq_local_only': 'Alleen lokale metingen. Er wordt niets geüpload.',
   'nq_doctor': 'Netwerkcontrole uitvoeren',
   'nq_doctor_help':
-      'Standaardcontroles lezen alleen de lokale status. Ze openen geen '
-      'externe verbindingen en wijzigen uw instellingen niet.',
+      'Standaardcontroles versturen geen verkeer en wijzigen geen instellingen.',
   'nq_live': 'Actueel',
   'nq_stale': 'Verouderde metingen',
   'nq_updated': 'Laatste meting',
@@ -160,14 +143,10 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_not_ready': 'Niet gereed',
   'nq_unsupported': 'Niet ondersteund',
   'nq_capability_missing':
-      'Deze Engine biedt geen netwerkkwaliteit. De bestaande '
-      'verbindingsbediening blijft werken.',
-  'nq_empty':
-      'Maak verbinding om metingen te zien. Onbekende waarden worden niet als '
-      'nul weergegeven.',
+      'Deze versie toont geen verbindingskwaliteit. Verbinden en verbreken blijven mogelijk. Controleer op updates bij Instellingen.',
+  'nq_empty': 'Maak verbinding om metingen te bekijken.',
   'nq_stale_help':
-      'De bron is gestopt met bijwerken. Dit zijn eerdere metingen; hiaten '
-      'blijven hiaten.',
+      'Updates zijn onderbroken. De laatste metingen worden getoond.',
   'nq_rtt': 'Retourtijd',
   'nq_latest': 'Nieuwste',
   'nq_smoothed': 'Afgevlakt',
@@ -194,17 +173,17 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_pmtu': 'Pad-MTU',
   'nq_outer_pmtu': 'Buitenste UDP-payloadlimiet',
   'nq_inner_payload': 'CONNECT-IP-payloadlimiet',
-  'nq_pmtu_help': 'Padontdekking verhoogt de TUN-MTU van het apparaat niet.',
+  'nq_pmtu_help':
+      'Dit is de pakketgrootte die het netwerkpad aankan. Usque controleert die automatisch om pakketverlies te beperken. Dit verhoogt niet de VPN-MTU in Geavanceerde netwerkinstellingen.',
   'nq_migration': 'Netwerkmigratie',
   'nq_migration_help':
-      'Één verbinding, één gegevenspad. Alleen dezelfde IP-adresfamilie; geen '
-      'meerdere paden.',
+      'Usque probeert de verbinding te behouden als u van netwerk wisselt, bijvoorbeeld van wifi naar mobiele data. Beide netwerken moeten dezelfde IP-versie gebruiken: IPv4 of IPv6.',
   'nq_attempts': 'Pogingen',
   'nq_successes': 'Geslaagd',
   'nq_failures': 'Mislukt',
   'nq_last_duration': 'Laatste duur',
   'nq_direct_dns': 'Directe DNS',
-  'nq_system_dns': 'Fysieke systeem-DNS',
+  'nq_system_dns': 'DNS van het huidige netwerk',
   'nq_doh': 'DNS over HTTPS',
   'nq_dot': 'DNS over TLS',
   'nq_ready': 'Gereed',
@@ -212,8 +191,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_timeouts': 'Time-outs',
   'nq_last_rtt': 'Laatste RTT',
   'nq_dns_redacted':
-      'Resolver-namen en bootstrap-adressen worden alleen in Instellingen '
-      'getoond.',
+      'Domeinnamen en IP-adressen van DNS-servers worden alleen in Instellingen getoond.',
   'nq_queues': 'Wachtrijdruk',
   'nq_queue_details': 'Wachtrijen op laag niveau',
   'nq_queue_empty': 'Nog geen wachtrijmetingen.',
@@ -248,76 +226,63 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_phase_unknown': 'Niet gereed',
   'nq_phase_unsupported': 'Niet ondersteund',
   'nq_reason_family_unavailable':
-      'De huidige IP-adresfamilie is niet beschikbaar; er wordt volledig '
-      'opnieuw verbonden.',
+      'Het nieuwe netwerk kan niet dezelfde IP-versie gebruiken. Opnieuw verbinden is nodig.',
   'nq_reason_socket_protect_failed':
-      'Een beveiligde kandidaat-socket kon niet worden voorbereid.',
+      'Usque kon het nieuwe netwerk niet veilig gebruiken. Verbind handmatig opnieuw als de verbinding niet herstelt.',
   'nq_reason_generation_changed_during_setup':
       'Het netwerk is tijdens de voorbereiding opnieuw gewijzigd.',
   'nq_reason_peer_cid_unavailable':
-      'De peer heeft geen extra verbindingsidentificatie.',
+      'De server kon de verbinding op het nieuwe netwerk niet behouden. Verbind zo nodig handmatig opnieuw.',
   'nq_reason_local_cid_unavailable':
-      'Een lokale verbindingsidentificatie is niet beschikbaar.',
+      'Usque kon de verbinding op het nieuwe netwerk niet behouden. Verbind zo nodig handmatig opnieuw.',
   'nq_reason_path_probe_rejected':
-      'Het kandidaatpad kon niet worden gevalideerd.',
+      'Het nieuwe netwerk slaagde niet voor de verbindingscontrole. Controleer de internettoegang.',
   'nq_reason_path_validation_timeout':
-      'De padvalidatie is verlopen; opnieuw verbinden is beschikbaar.',
+      'Het nieuwe netwerk reageerde niet op tijd. Controleer het en verbind zo nodig opnieuw.',
   'nq_reason_superseded':
-      'Een nieuwere netwerkwijziging heeft deze poging vervangen.',
+      'Het netwerk veranderde opnieuw voordat de wissel klaar was.',
   'nq_reason_promotion_failed':
-      'Het padwisselen kon niet veilig worden voltooid.',
+      'Usque kon de netwerkwissel niet veilig voltooien. Verbind handmatig opnieuw als de verbinding niet herstelt.',
   'nq_reason_connection_closed':
-      'De verbinding is tijdens de migratie gesloten.',
+      'De verbinding is gesloten tijdens de netwerkwissel. Verbind opnieuw.',
   'nq_reason_unsupported': 'Migratie is op deze verbinding niet beschikbaar.',
   'nq_reason_unknown': 'Er is geen ondersteunde reden beschikbaar.',
   'nq_dns_custom': 'Aangepaste versleutelde resolver',
-  'nq_dns_server': 'TLS-servernaam',
+  'nq_dns_server': 'Domeinnaam van DNS-server',
   'nq_dns_path': 'HTTPS-pad',
   'nq_dns_port': 'Poort (0 gebruikt de standaardwaarde)',
-  'nq_dns_bootstrap': 'Bootstrap-IP-adressen',
+  'nq_dns_bootstrap': 'IP-adressen van DNS-server',
   'nq_dns_bootstrap_help':
-      'Voer 1–8 numerieke IP-adressen in, één per regel. Er wordt geen '
-      'hostnaamopzoeking gebruikt.',
+      'Voer 1–8 IP-adressen van je DNS-aanbieder in, één per regel, zoals 1.1.1.1. Usque verbindt rechtstreeks met deze adressen zonder eerst de servernaam op te zoeken.',
   'nq_dns_no_fallback':
-      'Als versleutelde directe DNS mislukt, mislukt de query. Er wordt nooit '
-      'teruggevallen op systeem- of platte DNS.',
+      'Als versleutelde DNS niet beschikbaar is, mislukken aanvragen in plaats van over te schakelen naar onversleutelde DNS.',
   'nq_dns_system_privacy':
-      'Fysieke systeem-DNS kan namen van directe query’s blootstellen aan de '
-      'DNS-provider van het fysieke netwerk.',
+      'De DNS-aanbieder van je huidige netwerk kan domeinen van direct verkeer zien.',
   'nq_dns_scope':
-      'Alleen gebruikt voor door Geo geselecteerde directe query’s. Tunnel-DNS '
-      'blijft ongewijzigd.',
+      'Voor verkeer dat overeenkomt met je regels voor directe landen. DNS voor VPN-verkeer blijft gelijk.',
   'nq_dns_no_capability':
-      'Deze Engine kan geen versleutelde directe DNS gebruiken. Opgeslagen '
-      'instellingen blijven behouden. U kunt expliciet systeem-DNS kiezen.',
+      'Werk Usque bij voor versleutelde DNS bij direct verkeer. Je instellingen blijven bewaard. Je kunt DNS van het huidige netwerk kiezen als je de privacygevolgen accepteert.',
   'nq_dns_invalid_name':
-      'Voer een DNS-naam in zonder spaties, URL-syntaxis of jokertekens.',
+      'Voer een domein zoals dns.example.com in, zonder https://, poort of spaties.',
   'nq_dns_invalid_path':
-      'Gebruik een pad dat met / begint, tot 256 tekens, zonder query, '
-      'fragment of witruimte.',
-  'nq_dns_invalid_bootstrap':
-      'Gebruik 1–8 unieke unicast-IP’s; geen ongespecificeerde, multicast-, '
-      'broadcast- of IPv6-link-local-adressen.',
-  'nq_dns_invalid_port': 'Voer 0–65535 in.',
+      'Voer een pad zoals /dns-query in, maximaal 256 tekens. Verwijder spaties en delen vanaf ? of #.',
+  'nq_dns_invalid_bootstrap': 'Voer 1–8 IP-adressen van de server in.',
+  'nq_dns_invalid_port':
+      'Voer een poort van 1 tot 65535 in, of 0 voor de standaardwaarde.',
   'nq_dns_invalid_mode': 'Kies een ondersteunde DNS-modus.',
   'nq_doctor_deep_title': 'Diepgaande netwerkcontroles uitvoeren?',
   'nq_doctor_deep_body':
-      'Diepgaande controles kunnen een DNS-testquery naar uw geconfigureerde '
-      'resolver sturen en een beveiligd QUIC-pad valideren. Ze duren maximaal '
-      '15 seconden, kunnen worden geannuleerd, maken nooit een tweede '
-      'datadragende tunnel aan en wijzigen nooit uw DNS, route, profiel of '
-      'transport.',
+      'Controles kunnen testverkeer verzenden. Ze duren maximaal 15 seconden en kunnen worden geannuleerd. Je verbindingsinstellingen blijven ongewijzigd.',
   'nq_doctor_deep_run': 'Diepgaande controles uitvoeren',
   'nq_doctor_evidence':
-      'Lokale controles beschrijven de configuratie en de waargenomen status. '
-      'Ze zijn geen extern bewijs van nul DNS-lekken.',
+      'Deze controles kunnen niet vaststellen of DNS-lekken optreden.',
 };
 
 const Map<String, String> kWindowsRecoveryNl = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      "Werk de app en Windows Agent samen bij om het TUN-apparaat opnieuw te gebruiken. Er is geen nieuwe VPN-verbinding gestart.",
+      'De verbindingsonderdelen van Usque moeten samen worden bijgewerkt. Controleer op updates bij Instellingen. Er is geen nieuwe VPN-verbinding gestart.',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      "Het vorige TUN-apparaat moet nog worden hersteld. Sluit Usque volledig af en open het opnieuw om het nogmaals te proberen, of bekijk de lokale diagnostiek.",
+      'De vorige VPN-verbinding is nog niet opgeruimd. Sluit Usque volledig en open het opnieuw. Open Diagnostiek als het probleem blijft.',
   'WINDOWS_RECOVERY_FAILED':
       'De vorige VPN-netwerkstatus kon niet volledig worden hersteld. Er is '
       'geen nieuwe VPN-verbinding gestart. Probeer de verbinding opnieuw of '
@@ -327,10 +292,7 @@ const Map<String, String> kWindowsRecoveryNl = <String, String>{
       'niet herstellen. Probeer het opnieuw wanneer u klaar bent, of bekijk de '
       'lokale diagnostiek.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'De automatische reparatie is gestopt omdat de vorige '
-      'Windows-netwerkstatus niet veilig kon worden geverifieerd. Start de '
-      'Agent opnieuw of werk Usque bij, en bekijk daarna de lokale '
-      'diagnostiek.',
+      'Automatisch herstel is gestopt omdat niet kon worden bevestigd dat de vorige VPN-instellingen veilig hersteld konden worden. Controleer op updates bij Instellingen; exporteer bij aanhoudende problemen een diagnosepakket.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Het herstel van het Windows-netwerk duurt langer dan verwacht. Er is '
       'geen nieuwe VPN-verbinding gestart. Wacht tot het herstel is voltooid '
@@ -340,46 +302,45 @@ const Map<String, String> kWindowsRecoveryNl = <String, String>{
       'sessie. Het automatische herstel is gestopt om de actieve verbinding te '
       'beschermen.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'Deze Windows-Agent ondersteunt geen veilig automatisch herstel. Werk de '
-      'toepassing en de Agent samen bij, en probeer het daarna opnieuw.',
+      'Deze installatie kan de vorige VPN-instellingen niet automatisch herstellen. Werk Usque bij via Instellingen en probeer opnieuw.',
 };
 
 const String kWindowsAdapterCleanupNl =
-    'De vorige Wintun-adapter kon niet worden verwijderd, of de verwijdering '
-    'kon niet worden geverifieerd. Er is geen nieuwe VPN-verbinding gestart.';
+    'De virtuele netwerkadapter van de vorige verbinding kon niet worden verwijderd, of de verwijdering kon niet worden bevestigd. Er is geen nieuwe VPN-verbinding gestart.';
 
 const Map<String, String> kL4Nl = <String, String>{
-  'l4_quic_not_ready': 'Wachten op een gerede QUIC-sessie',
+  'l4_quic_not_ready': 'L4-verbinding voorbereiden',
   'l4_unsupported_packets':
       'Niet-ondersteunde of ongeldige pakketten geweigerd',
-  'l4_budget_rejections': 'Afgewezen resourcetoelatingen',
+  'l4_budget_rejections': 'Verbindingen geweigerd wegens gebrek aan resources',
   'l4_not_applicable': 'Niet van toepassing (L4)',
   'l4_mode': 'L4 (experimenteel)',
-  'l4_transport_hint': 'Alleen TCP; TUN-DNS gebruikt TCP. Auto sluit L4 uit.',
+  'l4_transport_hint':
+      'Alleen TCP. Apps die UDP nodig hebben werken mogelijk niet. De automatische modus kiest geen L4.',
   'l4_explanation':
-      'Alleen TCP over HTTP/3. Ondersteunt VPN/TUN, SOCKS5 en HTTP; TUN-DNS wordt naar TCP omgezet. Auto kiest nooit L4. Overige UDP, externe ping, IP-fragmenten en extensiekoppen worden niet ondersteund; sommige apps werken mogelijk niet.',
+      'L4 vervoert TCP via HTTP/3 en werkt met VPN, SOCKS5- en HTTP-proxy’s. DNS-aanvragen van de VPN worden omgezet naar TCP. Apps die ander UDP-verkeer, externe Ping, IP-fragmenten of uitbreidingsheaders nodig hebben, werken mogelijk niet.',
   'l4_unsupported':
-      'Deze engine heeft geen volledige L4-ondersteuning aangegeven. L4 kan niet worden ingeschakeld.',
+      'L4 is niet beschikbaar in deze Usque-versie. Controleer op updates bij Instellingen.',
   'l4_sni_identity':
-      'Alleen-lezen: afgeleid van de geladen accountidentiteit. De bestaande CONNECT-IP-SNI blijft behouden.',
+      'Automatisch ingesteld door je account. De servernaam voor andere verbindingsmodi blijft bewaard.',
   'l4_edge_requires_l4':
-      'Aan de rand omgezette DNS vereist L4. Kies een andere proxy-DNS-modus voordat u naar Auto, H3 of H2 schakelt.',
+      'Aan de rand omgezette DNS werkt alleen met L4. Kies een andere proxy-DNS-modus voordat u overschakelt naar Automatisch, HTTP/3 of HTTP/2.',
   'proxy_dns_edge_resolved':
       'Cloudflare-rand (alleen L4; geen lokale opzoeking)',
-  'l4_verified': 'L4 CONNECT geverifieerd',
-  'l4_unverified': 'QUIC gereed; L4 CONNECT nog niet geverifieerd',
-  'l4_status_unknown': 'L4-verificatiestatus onbekend',
+  'l4_verified': 'L4 heeft een appverbinding gemaakt',
+  'l4_unverified': 'Server verbonden; appverbinding nog niet bevestigd',
+  'l4_status_unknown': 'Status van appverbinding niet beschikbaar',
   'l4_sessions': 'Sessies / leegloop',
   'l4_flows': 'Actieve / wachtende streams',
   'l4_connect': 'CONNECT geslaagd / mislukt / time-out',
-  'l4_buffers': 'Gebruikt applicatiebufferbudget (bytes)',
+  'l4_buffers': 'Buffergebruik (bytes)',
   'l4_backpressure': 'Verzend- / ontvangsttegendruk',
   'l4_tun_flows': 'TUN TCP / halfopen',
   'l4_udp': 'Geweigerde UDP-pakketten',
   'l4_dns': 'DNS-omzettingen geslaagd / mislukt / time-out',
   'l4_migration': 'Streams behouden door migratie / beëindigd door herbouw',
   'l4_na':
-      'CONNECT-IP-adresbeheer, DATAGRAM-wachtrijen, binnenste payload-MTU en UDP-time-out: niet van toepassing in L4.',
+      'Metingen voor adrestoewijzing, datagramwachtrij, MTU en UDP-time-out gelden niet in de L4-modus.',
 };
 
 const Map<String, String> kNetworkSettingsNl = <String, String>{
@@ -391,8 +352,157 @@ const Map<String, String> kNetworkSettingsNl = <String, String>{
   'settings_unknown': 'Resultaat nog niet bevestigd',
   'settings_saved': 'Opgeslagen',
   'settings_unsupported':
-      'Start de Engine opnieuw of werk deze bij om netwerkinstellingen op te slaan.',
+      'Sluit Usque volledig, open het opnieuw en sla nogmaals op. Controleer bij problemen op updates in Instellingen.',
   'settings_save_failed':
       'Instellingen konden niet worden opgeslagen. Uw wijzigingen blijven behouden.',
   'settings_reconnect': 'Opnieuw verbinden',
+};
+
+const Map<String, String> kChainNl = <String, String>{
+  "batch_title": "Configuraties importeren",
+  "batch_counts":
+      "Gereed: {ready} · Onvolledig: {pending} · Mislukt: {failed} · Opgeslagen: {saved}",
+  "batch_ready": "Klaar om te importeren",
+  "batch_pending": "Vul de naam of aanmeldgegevens aan",
+  "batch_saved": "Geïmporteerd",
+  "batch_close": "Sluiten",
+  "batch_import": "Geldige items importeren ({count})",
+  "batch_checking": "Controleren: {done} van {total}",
+  "batch_saving": "Configuraties opslaan…",
+  "batch_uncertain":
+      "Opslaan onderbroken. Sluit en controleer de bibliotheek voordat u opnieuw importeert; sommige items zijn mogelijk al opgeslagen.",
+  "file_count_limit": "Selecteer maximaal 128 bestanden tegelijk.",
+  'duplicate_directive': 'Deze richtlijn mag maar één keer voorkomen.',
+  'mixed_protocols':
+      'Alle remote-eindpunten moeten hetzelfde TCP- of UDP-transport gebruiken.',
+  'conflicting_protocol':
+      'De remote-waarde botst met de globale transportinstelling.',
+  'too_many_endpoints': 'Gebruik hoogstens 16 remote-eindpunten.',
+  'conflicting_authentication':
+      'CLIENT_CERT botst met het ingesloten certificaat of de authenticatiemodus.',
+  'serialized_size_limit':
+      'De versleutelde record zou de opslaglimiet overschrijden.',
+  'multi_endpoint_unavailable':
+      'Werk de engine bij om configuraties met meerdere eindpunten te gebruiken.',
+  'candidates': 'Starteindpunten',
+  'random_order':
+      'Eindpunten worden bij elke verbinding in een nieuwe willekeurige volgorde geprobeerd.',
+  'file_order': 'Eindpunten worden in de volgorde van het bestand geprobeerd.',
+  'attempting': 'Eindpunt wordt geprobeerd',
+  'actual_endpoint': 'Verbonden eindpunt',
+  'attempt_failures': 'Mislukte pogingen',
+  'failure_transport': 'transport gesloten',
+  'failure_authentication': 'authenticatie',
+  'failure_certificate': 'certificaat',
+  'failure_configuration': 'configuratie',
+  'failure_address_changed': 'adres gewijzigd',
+  'failure_protocol': 'protocolfout',
+  'failure_cleanup': 'opschoning',
+  'failure_reason': 'Fout: {reason}.',
+  'manage': 'Beheren',
+  'dns_fallback': 'Tunnel-DNS (OpenVPN kan DNS onderhandelen)',
+  'dns_unavailable_title': 'Geen DNS via deze uitgang',
+  'dns_unavailable':
+      'Er is geen DNS-server bereikbaar via deze uitgang. Gebruik IP-adressen of kies een andere uitgang met bereikbare DNS.',
+  'authentication_failed':
+      'Authenticatie mislukt. Werk de aanmeldgegevens bij voordat u opnieuw verbindt.',
+  'profile_limit': 'De configuratiebibliotheek is vol (128 configuraties).',
+  'metadata_limit': 'De metadata van de configuratiebibliotheek is vol.',
+  'title': 'Ketenproxy',
+  'subtitle': 'Kies een uitgang die via WARP wordt bereikt.',
+  'source': 'Uitgangsbron',
+  'enable': 'Ketenproxy inschakelen',
+  'import_file': 'Bestand importeren',
+  'paste': 'Configuratie plakken',
+  'profiles': 'Opgeslagen configuraties',
+  'empty': 'Importeer een configuratie om een uitgang te kiezen.',
+  'empty_hint_openvpn':
+      'Importeer een .ovpn-bestand of plak de tekst. TCP- en UDP-eindpunten, ingesloten certificaten en gebruikersnaam/wachtwoord worden ondersteund.',
+  'empty_hint_wireguard':
+      'Importeer een .conf-bestand of plak de tekst. Eén sectie [Interface] en één sectie [Peer] worden ondersteund.',
+  'import_limits':
+      'Configuraties moeten UTF-8-tekst van maximaal 128 KiB zijn. Zonder bestandskeuze kunt u de tekst plakken.',
+  'enable_to_choose': 'Schakel de ketenproxy in om een configuratie te kiezen.',
+  'select_required': 'Selecteer een opgeslagen configuratie om toe te passen.',
+  'pending_disable': 'In afwachting: ketenproxy uitschakelen',
+  'apply_reconnect': 'Toepassen en opnieuw verbinden',
+  'requires_connect_ip': 'Niet beschikbaar met L4',
+  'menu': 'Configuratieacties',
+  'preview': 'Configuratie controleren',
+  'save_import': 'Configuratie opslaan',
+  'name': 'Naam',
+  'configuration': 'Configuratietekst',
+  'file_loaded': 'Configuratie geladen uit bestand ({lines} regels).',
+  'username': 'Gebruikersnaam',
+  'password': 'Wachtwoord',
+  'key_password': 'Wachtwoord van de privésleutel',
+  'show_password': 'Wachtwoord tonen',
+  'hide_password': 'Wachtwoord verbergen',
+  'credentials': 'Aanmeldgegevens bijwerken',
+  'rename': 'Hernoemen',
+  'delete': 'Verwijderen',
+  'cancel': 'Annuleren',
+  'save': 'Opslaan',
+  'apply': 'Wijzigingen toepassen',
+  'clear': 'Selectie wissen',
+  'current': 'Huidige verbinding',
+  'saved': 'Opgeslagen selectie',
+  'draft': 'Selectie in afwachting',
+  'disconnected': 'Niet verbonden',
+  'disabled': 'Niet ingeschakeld',
+  'enabled_idle': 'Ingeschakeld · niet verbonden',
+  'disconnecting': 'Verbinding wordt verbroken',
+  'file_read_failed': 'Het configuratiebestand kon niet worden gelezen.',
+  'file_encoding_invalid': 'Het configuratiebestand moet UTF-8-tekst zijn.',
+  'file_busy': 'Er is al een bestandskeuze geopend.',
+  'connected': 'Verbonden',
+  'connecting': 'Verbinden',
+  'error': 'Verbinding mislukt',
+  'no_selection': 'Geen configuratie geselecteerd',
+  'l4': 'Deze configuratie vereist UDP, wat L4 niet ondersteunt.',
+  'switch_mode': 'L4 uitschakelen en toepassen',
+  'unsupported':
+      'Deze versie van Usque kan deze uitgangsbron niet gebruiken. Controleer bij Instellingen op updates.',
+  'scope':
+      'Bestaande expliciete directe regels blijven gelden. Overig verkeer gebruikt de gekozen uitgang.',
+  'allowed': 'Toegestane bestemmingen',
+  'dns': 'DNS',
+  'addresses': 'Tunneladressen',
+  'address_family': 'IP-versie',
+  'transport': 'Overdracht',
+  'endpoint': 'Doelserver',
+  'restricted':
+      'Bestemmingen buiten AllowedIPs worden op het proxypad geblokkeerd.',
+  'delete_confirm':
+      'Deze opgeslagen configuratie verwijderen? Het oorspronkelijk geïmporteerde bestand blijft ongewijzigd.',
+  'profile_in_use':
+      'Kies een andere configuratie of wis de opgeslagen selectie voordat u deze configuratie verwijdert.',
+  'stale_revision':
+      'De configuratie is gewijzigd. Vernieuw de lijst en probeer het opnieuw.',
+  'secure_storage_failed':
+      'De versleutelde configuratie kon niet worden gelezen of opgeslagen.',
+  'invalid_configuration':
+      'De configuratie is ongeldig of bevat niet-ondersteunde opties.',
+  'looks_like_wireguard':
+      'Dit lijkt een WireGuard-configuratie. Zet de uitgangsbron op WireGuard.',
+  'looks_like_openvpn':
+      'Dit lijkt een OpenVPN-configuratie. Zet de uitgangsbron op OpenVPN.',
+  'error_location': '{message} ({field}, regel {line})',
+  'error_field': '{message} ({field})',
+  'file_unavailable':
+      'Er is geen bestandskeuze beschikbaar. Plak de configuratietekst.',
+  'invalid_size_or_encoding':
+      'Gebruik een UTF-8-configuratie van maximaal 128 KiB.',
+  'unsupported_directive': 'Deze OpenVPN-richtlijn wordt niet ondersteund.',
+  'unsupported_or_duplicate_field':
+      'Dit veld wordt niet ondersteund of komt dubbel voor.',
+  'unsupported_or_duplicate_section':
+      'Gebruik één sectie Interface en één sectie Peer.',
+  'missing_field': 'Een verplicht veld ontbreekt.',
+  'invalid_name':
+      'Gebruik een naam van 1 tot 64 tekens zonder besturingstekens.',
+  'invalid_key':
+      'De sleutel moet een geldige Base64-sleutel van 32 bytes zijn.',
+  'checking': 'Configuratie wordt gecontroleerd…',
+  'changed': 'Wijzigingen opgeslagen',
 };

@@ -249,10 +249,12 @@ connected maintenance shutdown, and injected installation/recovery failure.
 Rollback must restore A's matching files and registration; profiles and secrets
 must survive. These scenarios are `not_run` without isolated infrastructure.
 
-After the exact signed candidate has been staged, the public release workflow
-selects four explicitly labelled self-hosted runners only when repository
-variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`. Publication does
-not wait for these supplemental jobs:
+After the exact signed candidate has been staged, the release workflow selects
+four explicitly labelled self-hosted runners only in a private repository and
+when repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`.
+The public repository always skips these jobs, including the evidence summary;
+enabling the variable alone cannot start them. Record this as `not_run`, not a
+pass. Publication does not wait for these supplemental jobs:
 
 | Runner label | Required isolation | Scope |
 | --- | --- | --- |
@@ -263,9 +265,11 @@ not wait for these supplemental jobs:
 
 Each runner supplies a protected `usque-reliability-runner` executable. The
 repository workflow passes it the exact candidate directory, commit and output
-directory. The Windows command is additionally guarded by
-`USQUE_ISOLATED_SNAPSHOT_VM=1`. Do not provision these runner labels on a
-developer workstation.
+directory. The workflow always sets `USQUE_ISOLATED_SNAPSHOT_VM=1` for the
+Windows command as the protected runner's own interlock. That variable is not
+evidence of isolation; isolation comes only from the snapshot VM and its
+independent management channel. Do not provision these runner labels or set
+that variable on a developer workstation.
 
 ## Reliability report contract
 
@@ -274,7 +278,10 @@ Every runner produces `report.json` with:
 - schema version, exact commit and SHA-256 of `release-manifest.json`;
 - an allowlisted environment class without a device identifier, SSID or user
   path;
-- one result per required gate with `passed`, `failed` or `not_run`;
+- one result per required gate with `passed`, `failed`, `not_run` or
+  `unstable`. `unstable` is produced by the performance evaluator when baseline
+  or candidate samples exceed the stability budget, so no comparison is made;
+  like `failed` and `not_run`, it is never accepted as a pass;
 - JUnit, connection-timeline and platform-diff evidence references. Every
   reference contains a relative `path` and SHA-256, and the file must be a
   non-empty regular file below that runner class's evidence namespace;
@@ -292,10 +299,17 @@ mismatches, empty files, and oversized files fail closed.
 duplicates, missing or forged evidence, candidate digest mismatches, `failed`,
 `unstable`, and `not_run`. It emits the validated `reliability-report.json` and
 `device-matrix.md` only when all required gates pass. The release workflow keeps
-that validated summary as a protected Actions artifact; missing or failed
-optional runs produce no summary and do not block publication. PCAPs stay in
-restricted CI artifacts and are never copied into the public diagnostic bundle
-or GitHub release.
+that validated summary in the private execution context; missing or failed
+optional runs produce no summary and do not block publication. Actions artifacts
+inherit repository read access: a `restricted` name, runner label, environment
+approval, or short retention period does not make a public artifact private.
+PCAPs, raw lab evidence, reports, and performance samples must remain in a
+private repository or another store with equivalent access controls. They are
+never copied into the public diagnostic bundle or GitHub release. Running
+supplemental validation for a public release requires a separately configured
+private execution context bound to the exact signed candidate. Any future
+public summary export must rebuild an allowlisted, sanitized summary inside
+that context; the public workflow does not currently import such summaries.
 
 The performance-lab report replaces the old
 `performance.informational_baseline` result with these required results:
@@ -374,11 +388,14 @@ also binds every raw report's identities to its comparison and release candidate
 not only to matching file digests.
 
 H2 high-BDP has two mandatory scenario entries, not two interchangeable profiles:
-`h2-high-bdp` uses `h2-bdp-100ms` (100 Mbps, 100 ms, single flow) and
-`h2-high-bdp-four-flow` uses `h2-bdp-500ms` (500 Mbps, 50 ms, four flows), with
-bidirectional workloads. Each requires its own seven-sample baseline and candidate
-file. There are sixteen input files across eight scenarios but still seven stable
-gate IDs. `performance.h2_high_bdp` passes only if both scenario comparisons pass;
+the single-flow `h2-high-bdp` scenario uses network profile `h2-bdp-100ms`, and
+the four-flow `h2-high-bdp-four-flow` scenario uses `h2-bdp-500ms`. The
+repository treats these profile IDs as opaque allowlisted identifiers. It does
+not define or record their link rate, RTT or workload direction. Baseline and
+candidate reports must name the same profile. Each scenario requires its own
+seven-sample baseline and candidate file. There are sixteen input files across
+eight scenarios but still seven stable gate IDs. `performance.h2_high_bdp`
+passes only if both scenario comparisons pass;
 a missing, failed, unstable, or not-run scenario cannot be represented by the other.
 
 Version-3 evidence bundles contain `baseline_reports` and `candidate_reports`

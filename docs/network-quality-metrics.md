@@ -26,8 +26,8 @@ Every metric carries one of four states:
 A numeric zero is therefore never used as a substitute for unsupported,
 not-ready, or stale data. H2 loss, congestion window, bytes in flight, and PMTU
 are `Unsupported`. H2 PING RTT is `NotReady` before the first PONG, `Available`
-after a valid PONG, and `Stale` after its adaptive deadline. If the locked h2
-build cannot provide `PingPong`, H2 RTT is explicitly `Unsupported` while the
+after a valid PONG, and `Stale` after its adaptive soft deadline. If the locked
+h2 build cannot provide `PingPong`, H2 RTT is explicitly `Unsupported` while the
 tunnel remains usable. The locked quiche 0.29.3 `PathStats` exposes smoothed RTT,
 minimum RTT, variance, loss, congestion window, delivery rate, and PMTU, but not
 latest RTT or current bytes in flight. Those two fields are explicitly
@@ -50,6 +50,13 @@ The first interval, an interval with no sent packets, and a counter reset are
 `NotReady`. A new connection instance clears the delta baseline and short-term
 quality history.
 
+Known limitation after the 2026-09-24 transport rollback: the pinned recovery
+backends again leave per-path `lost_bytes` at zero even when packet loss is
+reported. Treat byte-loss observations from this candidate as unavailable for
+comparisons; a displayed zero does not establish absence of loss. Packet-loss
+counting is separate. The withdrawn accumulation fix and candidate scope are
+recorded in [MASQUE performance validation](MASQUE_PERFORMANCE_VALIDATION.md#device-regression-and-baseline-restoration-2026-09-24).
+
 ## Bounded queue map
 
 Queue payloads are never copied for measurement. Tokio queues use tracked items
@@ -66,12 +73,34 @@ oldest age, close, and cancellation state are process-local numeric data.
 | `H3WireSend` | Pacing-aware QUIC wire deque | 64 datagrams and a family-specific bound: 94,208 bytes for IPv4 or 92,928 for IPv6; entries complete only after a full UDP send |
 | `TransportToTun` | Managed/final TUN batch sink | 16 batches and 4 MiB; a re-attach atomically replaces the old tracked sink |
 | `TransportToProxy` | Packet mux into the smoltcp proxy pipe | Existing 1,024-packet pipe; logical actor handoff time and bytes are tracked for the same locked-dependency reason |
-| `DirectDnsRequests` | Active GeoSite direct DNS queries | 512 requests and 32 MiB; semaphore rejection is a queue drop and returns SERVFAIL |
+| `DirectDnsRequests` | Active GeoSite direct DNS queries | System mode: 512 requests and 33,553,920 bytes (512 × 65,535). DoH/DoT: 64 requests and 4,194,240 bytes (64 × 65,535). Semaphore rejection is a queue drop and returns SERVFAIL |
 
 Packet queues keep the oldest timestamp in their FIFO head metadata and do not
 take a mutex in the packet path. Direct DNS requests can complete out of order,
 so that low-rate control path keeps a bounded timestamp multiset under a local
 mutex; snapshots still read only the published atomic oldest timestamp.
+
+The proxy receive pipe transfers an already-owned packet into its reserved
+queue slot without copying the payload. Borrowed callers retain a copying
+convenience path. Both interfaces preserve queue capacity, cancellation and
+the device's per-TxToken reservation; this does not remove QUIC or kernel copies.
+
+Android reads TUN packets into eight-slot slabs and transfers disjoint
+`BytesMut` views through `TunPacketIo::start_send_mut_packet`. CONNECT-IP keeps
+these views mutable across the TUN queue, mux/NAT edits and supervisor queue.
+It freezes each view only after validation, TTL/Hop Limit decrement and checksum
+repair, so live neighboring slab packets do not force a whole-packet copy.
+The existing `Bytes` entry points remain available and copy only when a shared
+allocation needs mutation. L4 still receives its existing immutable packet
+representation. The VPN Gate external boundary freezes for native delivery
+without adding another TTL decrement.
+
+Memory-only regressions compile the actual Android slab producer and check
+pointer identity across 130 packets, batching, both IP families, NAT collisions,
+MTU changes, cancellation, backpressure and reattachment. These tests establish
+ownership and packet correctness; throughput, CPU/RSS and device lifecycle
+measurements require their separate isolated environments. MTU, buffer presets,
+configuration, JNI, IPC and protobuf formats are unchanged.
 
 The H2 ADDRESS_REQUEST rejection path is no longer unbounded. Both its pending
 control deque and writer channel are capped at 64 capsules, with a 256 KiB byte
@@ -84,21 +113,101 @@ the 64-datagram actor budget; an all-discarded drain yields before retrying so
 cancellation and other tasks remain responsive. Prefetched channel entries
 retain both item and byte permits until actual consumption.
 
+## Packet mux mapping bounds
+
+CONNECT-IP's TUN/proxy attribution table admits at most 65,536 main flows on
+every platform, plus 8,192 outgoing and 8,192 incoming fragment mappings.
+Paired reverse indexes share their forward entry's lifetime. New mappings are
+rejected at capacity before packet headers or associated indexes change;
+existing mappings remain usable. Allocation grows on demand, not at startup.
+
+The owning mux schedules maintenance once per second, checking at most 4,096
+entries from each table per pass. Each mapping has one scan-queue entry;
+packet activity refreshes its timestamp without appending scan work. The idle
+timeout remains five minutes, with expiry discovered on a subsequent bounded
+pass. Empty tables release their backing storage; nonempty tables keep bounded
+capacity. Capacity logs contain only reason codes and cumulative counts and
+are emitted at most once per thirty seconds. No traffic identifiers are added.
+
+## Direct gateway TCP memory
+
+The direct TUN gateway charges ordinary DNS listeners, half-open sockets and
+accepted TCP sockets to its existing platform TCP budget: 48 MiB on Android32,
+128 MiB on Android64 and 256 MiB on desktop. Direct sockets retain symmetric
+1 MiB receive/send buffers. Business flows use the shared one-shot adapter,
+which does not reserve a spare accept socket. A failed admission releases its
+NAT reservation and follows the existing routing fallback; established flows
+are not evicted. These allocator bounds are not process RSS limits. Proxy TCP
+buffer tiers and L4 application budgets are unchanged.
+
+## Proxy DNS resolution
+
+Remote and configured proxy DNS share a four-second absolute deadline across
+A/AAAA lookups, socket admission, bind/send/receive and resolver retries. System
+lookup awaits are also bounded; late system results are discarded. Validated
+NODATA and NXDOMAIN end that query type's retry chain, while temporary failures
+may use the remaining deadline at another configured server. Question and
+record validation precedes negative-answer classification. No DNS mode falls
+back to a different mode.
+
+The internal candidate interface owns unfinished query futures and yields each
+address family as it completes. Dropping it cancels owned work. The aggregate
+resolver remains available to UDP callers, preserving IPv4-first ordering for
+remote/configured results and OS ordering for System mode.
+
+HTTP and SOCKS5 share one target connector with a ten-second deadline covering
+both resolution and dialing. It starts with the first available address, spaces
+additional attempts by 250 ms, and admits at most two simultaneous attempts and
+16 unique candidates. The second slot is reserved for the other family until
+that lookup finishes; once only one family remains, both slots can use it.
+Fast failures refill immediately. Resource-budget rejection stops new attempts
+while allowing an existing attempt to finish. Authentication rejection and
+cancellation stop the group; a winner cancels the remaining lookups and dials.
+Direct-route policy and server-side name resolution keep their existing paths.
+
+Stack creation retains ownership until its response is consumed. Cancellation
+before allocation, during a TCP handshake, or with a queued response reclaims
+the socket and TCP reservation. A cancellation wake also works with an idle
+stack; a full command queue is drained before the normal cleanup pass. DNS UDP
+owners retry close admission when that queue is full. These are in-memory
+resource guarantees, not measured throughput or device lifecycle results.
+
 ## HTTP/2 flow control and PING
 
 CONNECT-IP uses an explicit h2 client Builder with a 4 MiB stream receive
 window, an 8 MiB connection receive window, and server push disabled. These
-settings affect only the peer-to-client CONNECT-IP data path. Registration and
-future encrypted-DNS control clients keep independent small default Builders;
-the send-buffer limit is unchanged.
+settings affect only the peer-to-client CONNECT-IP data path. The registration
+control client keeps h2's small default Builder. The DoH direct-DNS client uses
+its own explicit Builder: a 65,535-byte stream window, a 256 KiB connection
+window, a 16 KiB header-list limit, and server push disabled. The send-buffer
+limit is unchanged.
+
+H2 receive batches span already-ready DATA frames, up to the common 64-packet
+or 256 KiB limit. After the first packet, a batch polls at most 64 additional
+DATA frames and returns immediately when no more data is ready. This also
+bounds lookahead through empty or control-only frames. A peer that flushes one
+DATAGRAM per DATA frame therefore does not force every buffered packet to use
+its own downstream batch slot. The 16-slot handoffs retain their existing
+memory limits; batches are not delayed to fill them. Partial capsules remain
+owned by the receiver across cancellation, receive capacity is returned once
+per consumed frame, and a lookahead failure is reported on the next receive
+after delivering the already-completed batch.
 
 One protocol PING may be outstanding at a time. The interval is five seconds.
-The deadline is five seconds before the first sample, then three times smoothed
-RTT clamped to two through ten seconds. Smoothed RTT and variance use an integer
-EWMA with alpha 1/8; minimum RTT is monotonic for the connection. A timeout
-marks retained RTT stale and increments a bounded counter but never closes the
-tunnel. Three consecutive failures may classify quality as `Poor`; the existing
-connection driver alone decides whether the transport has failed.
+The soft deadline is five seconds before the first sample, then
+`max(3 * smoothed RTT, smoothed RTT + 4 * RTT variation)` clamped to two through
+ten seconds. Smoothed RTT and variance use an integer EWMA with alpha 1/8;
+minimum RTT is monotonic for the connection. A soft timeout marks retained RTT
+stale, increments the timeout and consecutive-failure counters, and keeps
+waiting for the same PONG. The hard liveness deadline, measured from that
+PING's start, is three times the soft deadline clamped to 15–30 seconds. If it
+expires, the PING task records an error and the H2 driver fails with
+`H2LivenessTimeout`, reported as `PACKET_RECEIVE_STALLED`; see
+[HTTP/2 liveness](h3-client-reliability.md#http2-liveness). A usable RTT sample
+resets the consecutive-failure counter. The classifier returns `Poor` when that
+counter reaches three, but a blackholed PING normally counts only its soft
+timeout and terminal error before the driver fails, so this rule is rarely
+reached.
 
 Each `reserve_capacity`/`poll_capacity` wait is measured with an actor-local
 monotonic timestamp. A successful wait longer than one millisecond increments
@@ -154,7 +263,8 @@ metrics are unsupported.
 - `Fair`: RTT below 150 ms, H3 loss below 2%, every registered queue below 80%,
   and no sustained drop.
 - `Poor`: a threshold is exceeded, drops are sustained, PMTU is degraded, a new
-  migration failure is observed, or three consecutive H2 PINGs fail.
+  migration failure is observed, or the H2 consecutive PING-failure counter
+  (soft timeouts plus PING errors) reaches three.
 - `Disconnected`: there is no current connection instance.
 
 ## Privacy
@@ -162,8 +272,8 @@ metrics are unsupported.
 The UI retains at most sixty one-second slots and 300 raw points per local
 connection instance. Missing/stale/disconnected samples are gaps, not zero;
 counter baselines reset on a new instance. H2 loss/congestion/PMTU/migration
-are Unsupported, pending H2 PING is NotReady, and three failed PINGs retain the
-last measured RTT as Stale. Metrics are not persistence or upload inputs.
+are Unsupported, pending H2 PING is NotReady, and a soft PING timeout retains
+the last measured RTT as Stale. Metrics are not persistence or upload inputs.
 The internal metrics rollback stops quality publication and its capability,
 not transport work or safety counters. See [rollback](network-quality-rollback.md).
 
@@ -172,3 +282,54 @@ process-local random connection instance UUID. They do not contain socket addres
 endpoint names, QNAMEs, DNS server names or bootstrap IPs, SSID/BSSID, QUIC
 connection IDs, tokens, packet payloads, or free-form errors. Direct DNS and
 migration failures use closed reason-code enums.
+
+## MASQUE performance and capacity waits
+
+Optional `QueueQuality.backpressure` starts a wait at the first capacity-blocked
+poll of an async admission. Tokio can also return Pending solely because the
+task exhausted its cooperative execution budget, even when all queue permits
+are available. Those yields retain their normal scheduling behavior but do not
+start a capacity wait. A later capacity-blocked poll starts its own timestamp.
+Only channels with measured async admission publish this group; manually
+accounted proxy/QUIC queue depth does not imply measured zero waits.
+`waits` and `active` count started and ongoing waits;
+`completed`, `cancelled`, `closed`, and `errors` count exactly one terminal
+outcome each. Dropping a waiting future settles cancellation through RAII.
+Immediately admitted packets contribute no wait sample. `total_us`, `max_us`
+and the fixed 32-bin histogram measure completed waits in monotonic microseconds.
+Bin 0 contains zero microseconds; bin n covers [2^(n-1), 2^n), with the final
+bin including all larger durations. Queue drop counters retain their existing
+meaning; waiting by itself is not a dropped packet.
+
+The sampled `QueueBackpressured` timeline event carries the queue enum and the
+actual completed admission wait in milliseconds, without a transport failure.
+Sub-millisecond waits truncate to `0 ms` in the timeline; the microsecond
+counters and histogram retain finer resolution. `transport_outgoing` identifies
+the application-to-transport queue, not a particular QUIC stop reason.
+Successful waits are sampled at counts 1, 2, 4, 8, etc. across a telemetry
+lifetime, so increasing intervals between displayed events do not establish a
+falling wait rate. In-progress/cancelled/failed waits remain visible in the
+counters.
+Real rejected admissions retain their existing failure semantics. The event
+never clears or overwrites the most recent failure.
+
+Optional `transport_performance` carries H2 DATA frames/bytes, delivered batch
+packets/bytes, assembly-copy bytes, inbound mux copy bytes, and send timeouts.
+H3 adds application batches/packets/bytes and stop observations: encoding pool
+exhausted, DATAGRAM queue full, PMTU deferred, wire queue full, quantum reached,
+QUIC Done with queued DATAGRAMs, UDP WouldBlock, partial sends, and EMSGSIZE.
+A stop count is an observation, not a packet loss or a duration. In particular,
+QUIC Done with backlog does not establish congestion-window exhaustion;
+bytes-in-flight remains unavailable. Batch histograms have seven bins:
+1, 2–3, 4–7, 8–15, 16–31, 32–63, and 64 packets.
+
+Transport counters belong to the selected connection attempt. Queue counters
+belong to the registered queue lifetime, and mux copies/timeouts to the shared
+runtime telemetry lifetime; hot attachment changes can retain those counters.
+Use deltas from the same published connection instance; discard the comparison
+baseline on any instance change. Snapshots are relaxed atomic observations,
+not transactions across counters. Missing groups in older peers are unknown,
+not measured zero. H2 and H3 groups are only present for the corresponding
+active transport. Detailed fields are exported locally through existing
+diagnostics, with fixed numeric allowlists and bounded histograms on Android.
+No packet data, destinations, credentials, or automatic upload are added.

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/user_facing_errors.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
@@ -27,6 +28,8 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
   bool _showSystem = false;
   bool _loading = true;
   String? _loadError;
+  bool _saving = false;
+  String? _saveError;
 
   @override
   void initState() {
@@ -58,7 +61,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _loadError = error.toString();
+        _loadError = userFacingError(widget.controller.strings, error);
       });
     }
   }
@@ -88,6 +91,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     final next = PerAppProxySettings(
       enabled: _enabled,
       packageNames: PerAppProxySettings.sanitizePackages(_selected),
@@ -95,9 +99,22 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
     if (next.validationError() != null) {
       return;
     }
-    await widget.controller.setPerAppProxy(next);
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    final result = await widget.controller.setPerAppProxy(next);
     if (!mounted) return;
-    if (widget.controller.lastError == null && Navigator.of(context).canPop()) {
+    setState(() {
+      _saving = false;
+      _saveError = result.error;
+    });
+    if (result.saved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(widget.controller.strings.get('saved'))),
+      );
+    }
+    if (result.saved && Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
   }
@@ -113,7 +130,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
       backLabel: strings.get('back'),
       actions: <Widget>[
         FilledButton.icon(
-          onPressed: _canSave ? _save : null,
+          onPressed: _canSave && !_saving ? _save : null,
           icon: const Icon(LucideIcons.save),
           label: Text(strings.get('save')),
         ),
@@ -121,6 +138,15 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          BannerSlot(
+            child: _saveError == null
+                ? null
+                : WarningBanner(
+                    title: strings.get('error'),
+                    message: _saveError!,
+                    danger: true,
+                  ),
+          ),
           BannerSlot(
             child: widget.controller.activeProfile.frontends.tunnel
                 ? null
@@ -149,7 +175,9 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                       title: Text(strings.get('per_app_proxy_enable')),
                       subtitle: Text(strings.get('per_app_proxy_help')),
                       value: _enabled,
-                      onChanged: (value) => setState(() => _enabled = value),
+                      onChanged: _saving
+                          ? null
+                          : (value) => setState(() => _enabled = value),
                     ),
                     const SizedBox(height: 16),
                     TextField(
@@ -186,7 +214,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                           spacing: 8,
                           children: <Widget>[
                             TextButton(
-                              onPressed: visible.isEmpty
+                              onPressed: visible.isEmpty || _saving
                                   ? null
                                   : () => setState(() {
                                       _selected.addAll(
@@ -198,7 +226,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                               ),
                             ),
                             TextButton(
-                              onPressed: visible.isEmpty
+                              onPressed: visible.isEmpty || _saving
                                   ? null
                                   : () => setState(() {
                                       _selected.removeAll(
@@ -281,15 +309,17 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
           contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           shape: const RoundedRectangleBorder(),
           value: _selected.contains(app.packageName),
-          onChanged: (checked) {
-            setState(() {
-              if (checked ?? false) {
-                _selected.add(app.packageName);
-              } else {
-                _selected.remove(app.packageName);
-              }
-            });
-          },
+          onChanged: _saving
+              ? null
+              : (checked) {
+                  setState(() {
+                    if (checked ?? false) {
+                      _selected.add(app.packageName);
+                    } else {
+                      _selected.remove(app.packageName);
+                    }
+                  });
+                },
           secondary: SizedBox(
             width: 36,
             height: 36,

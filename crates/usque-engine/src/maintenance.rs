@@ -23,6 +23,7 @@ const MAX_DIAGNOSTIC_LOG_BYTES: usize = 2 * 1024 * 1024;
 #[derive(Default)]
 pub struct DiagnosticTransportContext {
     pub timeline: ConnectionTimelineSnapshot,
+    pub network_quality: Option<usque_transport::NetworkQualitySnapshot>,
     pub socket_receive: Option<usque_transport::SocketReceiveQuality>,
     pub platform_state: Option<usque_ipc::agent_v1::PlatformState>,
 }
@@ -202,6 +203,22 @@ fn write_diagnostic_bundle(
             readme.as_bytes().to_vec().into_boxed_slice(),
         ),
     ];
+    if let Some(quality) = &transport.network_quality {
+        let value = serde_json::json!({
+            "connection_instance_id": quality.connection_id.map(|id| id.0.to_string()),
+            "transport_performance": quality.transport_performance.as_ref().map(usque_transport::TransportPerformanceSnapshot::to_json),
+            "queues": quality.queues.iter().map(|queue| serde_json::json!({
+                "kind": queue.kind.as_str(), "current_items": queue.current_items,
+                "current_bytes": queue.current_bytes, "drop_items": queue.drop_items,
+                "drop_bytes": queue.drop_bytes,
+                "backpressure": queue.backpressure.as_ref().map(usque_transport::QueueBackpressureSnapshot::to_json),
+            })).collect::<Vec<_>>(),
+        });
+        entries.push((
+            "transport-performance.json".to_owned(),
+            serde_json::to_vec_pretty(&value)?.into_boxed_slice(),
+        ));
+    }
     if snapshot.transport == Some(usque_core::Transport::Http3)
         && let Some(socket) = &transport.socket_receive
     {
@@ -402,6 +419,7 @@ fn connection_timeline_summary(timeline: &ConnectionTimelineSnapshot) -> serde_j
                     event.elapsed_from_attempt_start,
                 ),
                 "event_type": connection_event_type_name(event.event_type),
+                "queue_kind": event.queue_kind.map(usque_transport::QueueKind::as_str),
                 "stage": event.stage.map(usque_core::TransportStage::as_str),
                 "transport": event.transport,
                 "address_family": event.address_family,
@@ -776,6 +794,7 @@ const fn connection_event_type_name(event: ConnectionEventType) -> &'static str 
         ConnectionEventType::MigrationPromoted => "migration_promoted",
         ConnectionEventType::MigrationFailed => "migration_failed",
         ConnectionEventType::QueueSaturated => "queue_saturated",
+        ConnectionEventType::QueueBackpressured => "queue_backpressured",
         ConnectionEventType::PmtuChanged => "pmtu_changed",
         ConnectionEventType::PmtuRevalidationStarted => "pmtu_revalidation_started",
         ConnectionEventType::PmtuRevalidationFailed => "pmtu_revalidation_failed",

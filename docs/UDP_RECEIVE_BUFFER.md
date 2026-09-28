@@ -24,8 +24,9 @@ and Kill Switch behavior are unchanged.
   See the [Linux socket API](https://man7.org/linux/man-pages/man7/socket.7.html)
   and [Winsock options](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-setsockopt).
 - No `SO_RCVBUFFORCE`, global sysctl, privilege escalation, runtime environment
-  override, persisted setting or UI control is introduced. Configuration version
-  remains 15. Normal builds need no experiment flag.
+  override, persisted setting or UI control is introduced. The policy added no
+  configuration schema version; it shipped at schema 15, and the current schema
+  is 18. Normal builds need no experiment flag.
 
 This changes an OS socket buffer, not the QUIC flow-control window, application
 buffer budget or TUN MTU. The send buffer, default MTU 1280, QUIC windows, TCP

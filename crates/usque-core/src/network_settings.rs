@@ -27,12 +27,14 @@ macro_rules! network_fields {
             "dns_mode" => dns_mode,
             "dns_servers" => dns_servers,
             "allow_lan" => allow_lan,
+            "disable_quic" => disable_quic,
             "split_exclusions" => split_exclusions,
             "kill_switch" => kill_switch,
             "auto_connect" => auto_connect,
             "geo_direct_countries" => geo_direct_countries,
             "direct_dns" => direct_dns,
             "vpn_gate" => vpn_gate,
+            "chain_exit" => chain_exit,
             "proxy.socks5_listeners" => proxy.socks5_listeners,
             "proxy.http_listeners" => proxy.http_listeners,
             "proxy.system_proxy" => proxy.system_proxy,
@@ -48,6 +50,12 @@ macro_rules! define_fields {
         pub const NETWORK_FIELDS: &[&str] = &[$($name),*];
 
         fn copy_field(target: &mut Profile, source: &Profile, field: &str) -> Result<(), SettingsError> {
+            if field == "vpn_gate" && source.chain_exit.is_none() {
+                if target.custom_chain().is_some_and(|c| c.profile_id.is_some()) {
+                    return Err(SettingsError::InvalidField);
+                }
+                target.chain_exit = None;
+            }
             match field {
                 $($name => target.$($member).+.clone_from(&source.$($member).+),)*
                 _ => return Err(SettingsError::InvalidField),
@@ -91,6 +99,7 @@ pub struct NetworkSettingsState {
     pub operation_id: Option<Uuid>,
     pub session_id: Option<String>,
     pub stored_profile: Option<Profile>,
+    pub shared_network_profile: Option<Profile>,
     pub applied_profile: Option<Profile>,
     pub apply_status: ApplyStatus,
     pub deferred_fields: Vec<String>,
@@ -106,6 +115,7 @@ impl Default for NetworkSettingsState {
             operation_id: None,
             session_id: None,
             stored_profile: None,
+            shared_network_profile: None,
             applied_profile: None,
             apply_status: ApplyStatus::Unknown,
             deferred_fields: Vec::new(),
@@ -136,6 +146,9 @@ impl NetworkSettingsState {
             self.apply_status = ApplyStatus::Deferred;
         }
         // Passwords are only carried by the private runtime plan.
+        if let Some(profile) = &mut self.shared_network_profile {
+            profile.proxy.auth_password = None;
+        }
         if let Some(profile) = &mut self.stored_profile {
             profile.proxy.auth_password = None;
         }
@@ -199,6 +212,10 @@ pub fn merge_patch(
 }
 
 fn normalize(profile: &mut Profile) -> Result<(), SettingsError> {
+    if let Some(chain) = &profile.chain_exit {
+        profile.vpn_gate.enabled =
+            chain.enabled && chain.source == crate::chain_exit::ChainSource::VpnGate;
+    }
     if !profile.frontends.http {
         profile.proxy.system_proxy = false;
     }
@@ -302,6 +319,56 @@ mod tests {
         assert!(stored.allow_lan);
         assert_eq!(stored.mtu, 1400);
         assert_ne!(stored.name, "stale name");
+    }
+
+    #[test]
+    fn quic_patch_preserves_geo_and_defers_only_when_session_is_unavailable() {
+        let mut config = AppConfig::default();
+        config.network.geo_direct_countries = vec!["JP".into()];
+        let previous = config.active_profile().unwrap();
+        let mut edit = patch(&config, &["disable_quic"]);
+        edit.values.disable_quic = true;
+        edit.values.geo_direct_countries.clear();
+        let stored = merge_patch(&mut config, &edit).unwrap();
+        assert!(stored.disable_quic);
+        assert_eq!(stored.geo_direct_countries, previous.geo_direct_countries);
+        for available in [true, false] {
+            let plan = plan_application(
+                Some(&previous),
+                &stored,
+                &edit.changed_fields,
+                ConnectionPhase::Connected,
+                available,
+            )
+            .unwrap();
+            assert_eq!(
+                plan.class,
+                if available {
+                    ReconfigureClass::HotTrafficPolicy
+                } else {
+                    ReconfigureClass::PersistOnly
+                }
+            );
+            assert_eq!(
+                plan.status,
+                if available {
+                    ApplyStatus::Applying
+                } else {
+                    ApplyStatus::Deferred
+                }
+            );
+        }
+        for phase in [
+            ConnectionPhase::Disconnected,
+            ConnectionPhase::Reconnecting,
+            ConnectionPhase::Disconnecting,
+        ] {
+            let plan =
+                plan_application(Some(&previous), &stored, &edit.changed_fields, phase, true)
+                    .unwrap();
+            assert_eq!(plan.status, ApplyStatus::Deferred);
+            assert!(plan.target.is_none());
+        }
     }
 
     #[test]

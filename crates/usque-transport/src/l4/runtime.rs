@@ -34,18 +34,28 @@ pub(crate) struct L4Runtime {
     http_spec: Option<FrontendSpec>,
     listeners: Vec<SocketAddr>,
     dns: Arc<StreamDns>,
+    warp_dns_servers: Vec<IpAddr>,
     services: ProxyServices,
     cancellation: CancellationToken,
     tasks: Vec<JoinHandle<()>>,
 }
 
 impl L4Runtime {
+    pub(crate) fn update_traffic_policy(&self, disable_quic: bool) {
+        self.services.traffic_policy.set_disable_quic(disable_quic);
+    }
     pub(crate) fn internal_network(&self) -> crate::InternalNetwork {
         crate::InternalNetwork::for_streams(
             self.client.clone(),
             self.client.health.clone(),
             self.cancellation.clone(),
         )
+        .with_resolver(Resolver::for_streams(
+            self.dns.clone(),
+            self.warp_dns_servers.clone(),
+            ProxyDnsMode::Remote,
+            self.services.protector.clone(),
+        ))
     }
     pub(crate) async fn start(
         profile: &Profile,
@@ -143,6 +153,9 @@ impl L4Runtime {
         }));
         let servers = dns_servers(profile);
         let services = ProxyServices {
+            traffic_policy: Arc::new(crate::application_traffic::ApplicationTrafficPolicy::new(
+                profile.disable_quic,
+            )),
             admission: Some(Arc::new(crate::tcp::FrontendAdmission::new(
                 client.budget.clone(),
                 super::Limits::platform().active + super::Limits::platform().pending,
@@ -208,6 +221,7 @@ impl L4Runtime {
             http_spec,
             listeners: Vec::new(),
             dns,
+            warp_dns_servers: profile.dns_servers.clone(),
             services,
             cancellation,
             tasks: vec![sampler.detach(), pool_maintenance.detach()],

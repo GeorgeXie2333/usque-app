@@ -162,6 +162,7 @@ async fn bridge_with_mtu(mtu: u16) -> (TunBridge, Arc<MemoryDialer>, Arc<L4Metri
         reconnect_count: 0,
     });
     let services = ProxyServices {
+        traffic_policy: Arc::default(),
         admission: None,
         dialer: dialer.clone(),
         udp: None,

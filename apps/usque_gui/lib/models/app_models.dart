@@ -1,10 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
+import 'chain_exit_models.dart';
 import 'diagnostics_models.dart';
 import 'l4_performance.dart';
+import 'transport_performance.dart';
 import 'vpngate_models.dart';
 
+export 'chain_exit_models.dart';
 export 'l4_performance.dart';
+export 'transport_performance.dart';
 export 'vpngate_models.dart';
 
 enum AppSection { home, profiles, proxy, settings }
@@ -492,8 +498,10 @@ class ProfileCatalog {
     required this.activeProfileId,
     this.identityStates = const <String, ProfileIdentityState>{},
     this.identityStatuses = const <String, ProfileIdentityStatus>{},
+    this.sharedNetwork,
   });
 
+  final UsqueProfile? sharedNetwork;
   final List<UsqueProfile> profiles;
   final String activeProfileId;
   final Map<String, ProfileIdentityState> identityStates;
@@ -577,6 +585,8 @@ class ProxySettings {
     this.dnsIpv6 = '2606:4700:4700::1111',
     this.systemProxy = false,
     this.authUsername = '',
+    this._socksListeners,
+    this._httpListeners,
   });
 
   final String socksIpv4;
@@ -590,19 +600,51 @@ class ProxySettings {
   final String dnsIpv6;
   final bool systemProxy;
   final String authUsername;
+  final List<String>? _socksListeners;
+  final List<String>? _httpListeners;
+
+  List<String> get socksListeners => List<String>.unmodifiable(
+    _socksListeners ?? ['$socksIpv4:$socksPort', '[$socksIpv6]:$socksPort'],
+  );
+  List<String> get httpListeners => List<String>.unmodifiable(
+    _httpListeners ?? ['$httpIpv4:$httpPort', '[$httpIpv6]:$httpPort'],
+  );
+  bool get hasCustomSocksListeners => !listEquals(socksListeners, [
+    '$socksIpv4:$socksPort',
+    '[$socksIpv6]:$socksPort',
+  ]);
+  bool get hasCustomHttpListeners => !listEquals(httpListeners, [
+    '$httpIpv4:$httpPort',
+    '[$httpIpv6]:$httpPort',
+  ]);
+
+  static ({String host, int port})? parseListener(String value) {
+    final match = RegExp(r'^(?:\[([^\]]+)\]|([^:]+)):(\d+)$').firstMatch(value);
+    if (match == null) return null;
+    final host = match.group(1) ?? match.group(2)!;
+    final address = InternetAddress.tryParse(host);
+    final port = int.tryParse(match.group(3)!);
+    if (address == null ||
+        port == null ||
+        port < 1 ||
+        port > 65535 ||
+        (match.group(1) != null) !=
+            (address.type == InternetAddressType.IPv6)) {
+      return null;
+    }
+    return (host: address.address, port: port);
+  }
 
   bool get remoteDns => dnsMode == ProxyDnsMode.remote;
 
   bool get hasAuth => authUsername.isNotEmpty;
 
   bool get exposesLan {
-    final addresses = <String>[socksIpv4, socksIpv6, httpIpv4, httpIpv6];
-    return addresses.any(
-      (address) =>
-          address != '127.0.0.1' &&
-          address != '::1' &&
-          address.toLowerCase() != 'localhost',
-    );
+    return [...socksListeners, ...httpListeners].any((listener) {
+      final address = parseListener(listener)?.host;
+      return address == null ||
+          !(InternetAddress.tryParse(address)?.isLoopback ?? false);
+    });
   }
 
   ProxySettings copyWith({
@@ -617,6 +659,8 @@ class ProxySettings {
     String? dnsIpv6,
     bool? systemProxy,
     String? authUsername,
+    List<String>? socksListeners,
+    List<String>? httpListeners,
   }) {
     return ProxySettings(
       socksIpv4: socksIpv4 ?? this.socksIpv4,
@@ -630,6 +674,16 @@ class ProxySettings {
       dnsIpv6: dnsIpv6 ?? this.dnsIpv6,
       systemProxy: systemProxy ?? this.systemProxy,
       authUsername: authUsername ?? this.authUsername,
+      socksListeners:
+          socksListeners ??
+          (socksIpv4 != null || socksIpv6 != null || socksPort != null
+              ? null
+              : _socksListeners),
+      httpListeners:
+          httpListeners ??
+          (httpIpv4 != null || httpIpv6 != null || httpPort != null
+              ? null
+              : _httpListeners),
     );
   }
 
@@ -646,6 +700,12 @@ class ProxySettings {
       dnsIpv6: _stringOr(map, 'dns_v6', '2606:4700:4700::1111'),
       systemProxy: _bool(map, 'system_proxy'),
       authUsername: _stringOr(map, 'auth_username', ''),
+      socksListeners: map.containsKey('socks5_listeners')
+          ? List<String>.unmodifiable(_stringList(map, 'socks5_listeners'))
+          : null,
+      httpListeners: map.containsKey('http_listeners')
+          ? List<String>.unmodifiable(_stringList(map, 'http_listeners'))
+          : null,
     );
   }
 
@@ -661,6 +721,8 @@ class ProxySettings {
       'dns_v4': dnsIpv4,
       'dns_v6': dnsIpv6,
       'system_proxy': systemProxy,
+      'socks5_listeners': socksListeners,
+      'http_listeners': httpListeners,
       if (authUsername.isNotEmpty) 'auth_username': authUsername,
     };
   }
@@ -684,7 +746,8 @@ class UsqueProfile {
     this.dnsIpv6 = defaultDnsIpv6,
     this.dnsMode = DnsMode.tunnel,
     this.killSwitch = true,
-    this.allowLan = false,
+    this.allowLan = true,
+    this.disableQuic = false,
     this.autoConnect = false,
     this.bypassCidrs = const <String>[],
     this.geoDirectCountries = const <String>[],
@@ -692,6 +755,7 @@ class UsqueProfile {
     this.frontends = const FrontendSettings.windowsDefault(),
     this.directDns = const DirectDnsSettings(),
     this.vpnGate = const VpnGateSettings(),
+    this.chainExit,
   });
 
   static const defaultEndpointIpv4 = '162.159.198.2';
@@ -720,6 +784,7 @@ class UsqueProfile {
   final DnsMode dnsMode;
   final bool killSwitch;
   final bool allowLan;
+  final bool disableQuic;
   final bool autoConnect;
   final List<String> bypassCidrs;
   final List<String> geoDirectCountries;
@@ -727,6 +792,13 @@ class UsqueProfile {
   final FrontendSettings frontends;
   final DirectDnsSettings directDns;
   final VpnGateSettings vpnGate;
+  final ChainExitSettings? chainExit;
+  bool get chainEnabled => chainExit?.enabled ?? vpnGate.enabled;
+  ChainSource get chainSource =>
+      chainExit?.source ??
+      (vpnGate.enabled || vpnGate.hasSelection
+          ? ChainSource.vpnGate
+          : ChainSource.openvpnCustom);
 
   factory UsqueProfile.defaultProfile() {
     final android = defaultTargetPlatform == TargetPlatform.android;
@@ -766,6 +838,7 @@ class UsqueProfile {
       dnsIpv6: defaultDnsIpv6,
       dnsMode: DnsMode.tunnel,
       allowLan: false,
+      disableQuic: false,
       bypassCidrs: const <String>[],
       proxy: const ProxySettings(),
       directDns: const DirectDnsSettings(),
@@ -790,6 +863,7 @@ class UsqueProfile {
     DnsMode? dnsMode,
     bool? killSwitch,
     bool? allowLan,
+    bool? disableQuic,
     bool? autoConnect,
     List<String>? bypassCidrs,
     List<String>? geoDirectCountries,
@@ -797,6 +871,7 @@ class UsqueProfile {
     FrontendSettings? frontends,
     DirectDnsSettings? directDns,
     VpnGateSettings? vpnGate,
+    ChainExitSettings? chainExit,
   }) {
     final nextFrontends = frontends ?? this.frontends;
     final nextMode = frontends != null
@@ -820,6 +895,7 @@ class UsqueProfile {
       dnsMode: dnsMode ?? this.dnsMode,
       killSwitch: killSwitch ?? this.killSwitch,
       allowLan: allowLan ?? this.allowLan,
+      disableQuic: disableQuic ?? this.disableQuic,
       autoConnect: autoConnect ?? this.autoConnect,
       bypassCidrs: bypassCidrs ?? this.bypassCidrs,
       geoDirectCountries: geoDirectCountries ?? this.geoDirectCountries,
@@ -827,6 +903,7 @@ class UsqueProfile {
       frontends: nextFrontends,
       directDns: directDns ?? this.directDns,
       vpnGate: vpnGate ?? this.vpnGate,
+      chainExit: chainExit ?? this.chainExit,
     );
   }
 
@@ -838,6 +915,7 @@ class UsqueProfile {
       'transport': transport.name,
       'data_plane': dataPlane.wireName,
       'vpn_gate': vpnGate.toMap(),
+      if (chainExit != null) 'chain_exit': chainExit!.toMap(),
       'congestion_control': congestionControl.name,
       'ip_policy': ipPolicy.name,
       'endpoint_v4': endpointIpv4,
@@ -850,6 +928,7 @@ class UsqueProfile {
       'dns_mode': dnsMode.name,
       'kill_switch': killSwitch,
       'allow_lan': allowLan,
+      'disable_quic': disableQuic,
       'auto_connect': autoConnect,
       'bypass_cidrs': bypassCidrs,
       'geo_direct_countries': geoDirectCountries,
@@ -901,6 +980,9 @@ class UsqueProfile {
       id: id,
       name: name,
       mode: modeFromFrontends(migratedFrontends),
+      chainExit: map['chain_exit'] is Map
+          ? ChainExitSettings.fromMap(map['chain_exit'] as Map)
+          : null,
       vpnGate: map['vpn_gate'] is Map
           ? VpnGateSettings.fromMap(map['vpn_gate'] as Map)
           : const VpnGateSettings(),
@@ -926,6 +1008,9 @@ class UsqueProfile {
       dnsMode: _enumByName(DnsMode.values, _string(map, 'dns_mode')),
       killSwitch: _bool(map, 'kill_switch'),
       allowLan: _bool(map, 'allow_lan'),
+      disableQuic: map.containsKey('disable_quic')
+          ? _bool(map, 'disable_quic')
+          : false,
       autoConnect: _bool(map, 'auto_connect'),
       bypassCidrs: List<String>.unmodifiable(bypass),
       geoDirectCountries: List<String>.unmodifiable(geoDirect),
@@ -1271,6 +1356,7 @@ class NetworkConnectionMetrics {
 
 class NetworkQueueQuality {
   const NetworkQueueQuality({
+    this.backpressure,
     this.kind = NetworkQueueKind.unknown,
     this.availability = MetricAvailability.unknown,
     this.currentItems = 0,
@@ -1288,6 +1374,7 @@ class NetworkQueueQuality {
     this.cancelled = false,
   });
 
+  final PerformanceCounters? backpressure;
   final NetworkQueueKind kind;
   final MetricAvailability availability;
   final int currentItems;
@@ -1308,6 +1395,7 @@ class NetworkQueueQuality {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is NetworkQueueQuality &&
+          backpressure == other.backpressure &&
           kind == other.kind &&
           availability == other.availability &&
           currentItems == other.currentItems &&
@@ -1326,6 +1414,7 @@ class NetworkQueueQuality {
 
   @override
   int get hashCode => Object.hashAll(<Object?>[
+    backpressure,
     kind,
     availability,
     currentItems,
@@ -1522,6 +1611,7 @@ class NetworkQualitySample {
 
 class NetworkQualitySnapshot {
   const NetworkQualitySnapshot({
+    this.transportPerformance,
     this.udpSocketReceive,
     this.sampledAt,
     this.connectionInstanceId,
@@ -1544,6 +1634,7 @@ class NetworkQualitySnapshot {
   final DirectDnsQualityInfo directDns;
   final List<NetworkQualitySample> samples;
   final UdpSocketReceiveSnapshot? udpSocketReceive;
+  final TransportPerformanceSnapshot? transportPerformance;
 
   factory NetworkQualitySnapshot.fromMap(Map<Object?, Object?> map) {
     final metricsMap = _objectMap(map['metrics']);
@@ -1553,6 +1644,9 @@ class NetworkQualitySnapshot {
     final sampledAtMilliseconds = _mapInt(map, 'sampled_at_unix_ms');
     final connectionId = _mapString(map, 'connection_instance_id');
     return NetworkQualitySnapshot(
+      transportPerformance: TransportPerformanceSnapshot.from(
+        map['transport_performance'],
+      ),
       udpSocketReceive: UdpSocketReceiveSnapshot.from(
         map['udp_socket_receive'],
       ),
@@ -1726,6 +1820,11 @@ class NetworkQualitySnapshot {
             .map((raw) {
               final queue = Map<Object?, Object?>.from(raw);
               return NetworkQueueQuality(
+                backpressure: PerformanceCounters.from(
+                  queue['backpressure'],
+                  queueBackpressureFields,
+                  bucketLimit: 32,
+                ),
                 kind: _enumNameOr(
                   NetworkQueueKind.values,
                   queue['kind'],
@@ -1836,8 +1935,16 @@ class NetworkQualitySnapshot {
 class EngineCapabilities {
   const EngineCapabilities({
     this.vpnGateTcp = false,
+    this.chainProfileImport = false,
+    this.chainOpenvpnUdp = false,
+    this.chainWireguard = false,
+    this.chainWarpWireguard = false,
+    this.chainOpenvpnMultiEndpoint = false,
     this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
+    this.applicationQuicBlocking = false,
+    this.accountMetadataMutations = false,
+    this.sharedProxyAuthApplication = false,
     this.l4Tcp = false,
     this.l4TunTcp = false,
     this.l4DnsConversion = false,
@@ -1851,8 +1958,17 @@ class EngineCapabilities {
   factory EngineCapabilities.fromMap(Map<Object?, Object?> map) =>
       EngineCapabilities(
         vpnGateTcp: map['vpn_gate_tcp'] == true,
+        chainProfileImport: map['chain_profile_import'] == true,
+        chainOpenvpnUdp: map['chain_openvpn_udp'] == true,
+        chainWireguard: map['chain_wireguard'] == true,
+        chainWarpWireguard: map['chain_warp_wireguard'] == true,
+        chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
         vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
+        applicationQuicBlocking: map['application_quic_blocking'] == true,
+        accountMetadataMutations: map['account_metadata_mutations'] == true,
+        sharedProxyAuthApplication:
+            map['shared_proxy_auth_application'] == true,
         l4Tcp: map['l4_tcp'] == true,
         l4TunTcp: map['l4_tun_tcp'] == true,
         l4DnsConversion: map['l4_dns_conversion'] == true,
@@ -1873,8 +1989,16 @@ class EngineCapabilities {
 
   final bool networkQuality;
   final bool vpnGateTcp;
+  final bool chainProfileImport,
+      chainOpenvpnUdp,
+      chainWireguard,
+      chainWarpWireguard,
+      chainOpenvpnMultiEndpoint;
   final bool vpnGatePoolFavorites;
   final bool networkSettingsApplication;
+  final bool applicationQuicBlocking;
+  final bool accountMetadataMutations;
+  final bool sharedProxyAuthApplication;
   final bool l4Tcp;
   final bool l4TunTcp;
   final bool l4DnsConversion;
@@ -1889,8 +2013,16 @@ class EngineCapabilities {
       identical(this, other) ||
       other is EngineCapabilities &&
           vpnGateTcp == other.vpnGateTcp &&
+          chainProfileImport == other.chainProfileImport &&
+          chainOpenvpnUdp == other.chainOpenvpnUdp &&
+          chainWireguard == other.chainWireguard &&
+          chainWarpWireguard == other.chainWarpWireguard &&
+          chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
+          applicationQuicBlocking == other.applicationQuicBlocking &&
+          accountMetadataMutations == other.accountMetadataMutations &&
+          sharedProxyAuthApplication == other.sharedProxyAuthApplication &&
           l4Tcp == other.l4Tcp &&
           l4TunTcp == other.l4TunTcp &&
           l4DnsConversion == other.l4DnsConversion &&
@@ -1906,7 +2038,15 @@ class EngineCapabilities {
   @override
   int get hashCode => Object.hash(
     networkSettingsApplication,
+    applicationQuicBlocking,
+    accountMetadataMutations,
+    sharedProxyAuthApplication,
     vpnGateTcp,
+    chainProfileImport,
+    chainOpenvpnUdp,
+    chainWireguard,
+    chainWarpWireguard,
+    chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites,
     l4Tcp,
     l4TunTcp,
@@ -2055,6 +2195,7 @@ class L4Snapshot {
 class EngineSnapshot {
   const EngineSnapshot({
     this.vpnGate = const VpnGateStatus(),
+    this.chainExit = const ChainExitStatus(),
     this.sessionCongestionControl,
     this.dataPlane,
     this.l4,
@@ -2082,6 +2223,7 @@ class EngineSnapshot {
 
   final ConnectionPhase phase;
   final VpnGateStatus vpnGate;
+  final ChainExitStatus chainExit;
   final CongestionControlAlgorithm? sessionCongestionControl;
   final DataPlaneMode? dataPlane;
   final L4Snapshot? l4;
@@ -2128,6 +2270,11 @@ class EngineSnapshot {
       phase: parsePhase(map['phase'] as String?),
       dataPlane: DataPlaneMode.fromWire(map['data_plane']),
       l4: map['l4'] is Map ? L4Snapshot.fromMap(map['l4'] as Map) : null,
+      chainExit: ChainExitStatus.fromMap(
+        (map['chain_exit'] ?? map['vpn_gate']) is Map
+            ? (map['chain_exit'] ?? map['vpn_gate']) as Map
+            : const {},
+      ),
       vpnGate: map['vpn_gate'] is Map
           ? VpnGateStatus.fromMap(map['vpn_gate'] as Map)
           : const VpnGateStatus(),
@@ -2210,6 +2357,7 @@ class EngineSnapshot {
             sessionCongestionControl == other.sessionCongestionControl &&
             dataPlane == other.dataPlane &&
             vpnGate == other.vpnGate &&
+            chainExit == other.chainExit &&
             l4 == other.l4 &&
             phase == other.phase &&
             transport == other.transport &&
@@ -2238,6 +2386,7 @@ class EngineSnapshot {
     sessionCongestionControl,
     dataPlane,
     vpnGate,
+    chainExit,
     l4,
     phase,
     transport,

@@ -1,12 +1,29 @@
 package io.github.georgexie2333.usque
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicReference
 
 class PhysicalNetworkMonitorTest {
+    @Test
+    fun recoverySnapshotDistinguishesUnknownOfflineAndUsableFamilies() {
+        assertArrayEquals(longArrayOf(0, 0, 0), RecoveryNetworkSnapshot().toWire())
+        assertArrayEquals(longArrayOf(4, 1, 0), RecoveryNetworkSnapshot(4, true, 0).toWire())
+        val online = RecoveryNetworkSnapshot(5, true, FAMILY_IPV4 or FAMILY_IPV6)
+        val wire = online.toWire()
+        wire[2] = 0
+        assertArrayEquals(longArrayOf(5, 1, 3), online.toWire())
+        val state = AtomicReference(online)
+        assertFalse(publishRecoveryNetworkSnapshot(state, RecoveryNetworkSnapshot(4, true, 0)))
+        assertFalse(publishRecoveryNetworkSnapshot(state, online))
+        assertTrue(publishRecoveryNetworkSnapshot(state, RecoveryNetworkSnapshot(6, true, 0)))
+        assertEquals(6L, state.get().generation)
+    }
+
     /**
      * Mirrors [PhysicalNetworkMonitor.selectUnderlyingNetwork] generation path so tests and
      * production share [hasUnderlyingSelectionChanged] + [NetworkRestartGeneration.bumpIfChanged].

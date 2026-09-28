@@ -1,9 +1,13 @@
+mod framing;
+use framing::H2CapsuleFramer;
+
 use std::collections::VecDeque;
 use std::future::Future;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::Poll;
 use std::time::Duration;
 
 use boring::asn1::{Asn1Integer, Asn1Time};
@@ -53,11 +57,17 @@ const MAX_CAPSULE_BYTES: usize = 65_535;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const H2_OUTGOING_CAPACITY: usize = 1_024;
 const H2_PACKET_QUEUE_CAPACITY: usize = 1_024;
+// Bound lookahead even when ready DATA contains only control or empty frames.
+const H2_RECEIVE_BATCH_MAX_FRAMES: usize = 64;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const H2_PING_INTERVAL: Duration = Duration::from_secs(5);
 const H2_PING_DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const H2_PING_MIN_TIMEOUT: Duration = Duration::from_secs(2);
 const H2_PING_MAX_TIMEOUT: Duration = Duration::from_secs(10);
+const H2_PING_MIN_DEADLINE: Duration = Duration::from_secs(15);
+const H2_PING_MAX_DEADLINE: Duration = Duration::from_secs(30);
+const H2_SCHEDULING_GAP: Duration = Duration::from_secs(15);
+const H2_RESUME_GRACE: Duration = Duration::from_secs(5);
 const H2_CAPACITY_STALL_THRESHOLD: Duration = Duration::from_millis(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,6 +195,7 @@ struct H2Rejection {
 pub struct H2SendHalf {
     sender: Option<mpsc::Sender<H2Outgoing>>,
     _writer: AbortOnDropHandle<Result<(), TransportError>>,
+    liveness_failed: Arc<AtomicBool>,
 }
 
 impl H2SendHalf {
@@ -225,12 +236,15 @@ impl H2SendHalf {
     ) -> Pin<Box<dyn Future<Output = Result<PacketBatchResult, TransportError>> + Send + 'static>>
     {
         let sender = self.sender.clone();
+        let liveness_failed = self.liveness_failed.clone();
         Box::pin(async move {
             if batch.is_empty() {
                 return Ok(PacketBatchResult::default());
             }
             let (encoded, accepted_bytes) = encode_datagram_batch(&batch)?;
-            let accepted_bytes = Self::send_encoded(sender, encoded, accepted_bytes).await?;
+            let accepted_bytes = Self::send_encoded(sender, encoded, accepted_bytes)
+                .await
+                .map_err(|error| h2_termination_error(&liveness_failed, error))?;
             Ok(PacketBatchResult {
                 accepted_bytes,
                 oversized: Vec::new(),
@@ -239,7 +253,9 @@ impl H2SendHalf {
     }
 
     async fn send_capsule_inner(&self, capsule: Bytes) -> Result<(), TransportError> {
-        Self::send_encoded(self.sender.clone(), capsule, 0).await?;
+        Self::send_encoded(self.sender.clone(), capsule, 0)
+            .await
+            .map_err(|error| h2_termination_error(&self.liveness_failed, error))?;
         Ok(())
     }
 
@@ -271,17 +287,30 @@ impl H2SendHalf {
 }
 
 pub struct H2ReceiveHalf {
+    framing: H2CapsuleFramer,
+    quality: NetworkQualityTelemetry,
     stream: RecvStream,
     control: ConnectIpControlPlane,
     packets: VecDeque<Bytes>,
+    receive_error: Option<TransportError>,
     rejections: mpsc::Sender<H2Rejection>,
     rejection_bytes: Arc<Semaphore>,
+    liveness_failed: Arc<AtomicBool>,
 }
 
 impl H2ReceiveHalf {
     /// Receives the next raw IP packet, transparently handling capsules split
     /// across or coalesced within HTTP/2 DATA frames.
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
+        self.receive_packet_inner()
+            .await
+            .map_err(|error| h2_termination_error(&self.liveness_failed, error))
+    }
+
+    async fn receive_packet_inner(&mut self) -> Result<Bytes, TransportError> {
+        if let Some(error) = self.receive_error.take() {
+            return Err(error);
+        }
         loop {
             self.drain_ready_capsules()?;
             if let Some(packet) = self.packets.pop_front() {
@@ -293,33 +322,92 @@ impl H2ReceiveHalf {
                 .data()
                 .await
                 .ok_or(TransportError::TunnelClosed)??;
-            if self.control.buffer.len().saturating_add(chunk.len()) > MAX_CAPSULE_PAYLOAD + 16 {
-                return Err(TransportError::CapsuleTooLarge);
-            }
-            let length = chunk.len();
-            self.control.buffer.extend_from_slice(&chunk);
-            self.stream.flow_control().release_capacity(length)?;
+            self.buffer_data(chunk)?;
         }
     }
 
     pub(crate) async fn receive_batch(&mut self) -> Result<PacketBatch, TransportError> {
         let first = self.receive_packet().await?;
         let mut batch = PacketBatch::single(first);
-        while let Some(packet) = self.packets.pop_front() {
-            if let Err(packet) = batch.push_back(packet) {
-                self.packets.push_front(packet);
+        let mut frames = 0;
+        loop {
+            if self.packets.is_empty()
+                && !self.framing.data.is_empty()
+                && let Err(error) = self.drain_ready_capsules()
+            {
+                self.receive_error = Some(error);
+                break;
+            }
+            while let Some(packet) = self.packets.pop_front() {
+                if let Err(packet) = batch.push_back(packet) {
+                    self.packets.push_front(packet);
+                    return Ok(self.observed_batch(batch));
+                }
+            }
+            if !batch.can_accept(1) || frames == H2_RECEIVE_BATCH_MAX_FRAMES {
+                break;
+            }
+
+            // DATA boundaries are chosen by the peer, not by our packet batch.
+            // Drain only frames already ready: waiting here would delay ACKs and
+            // make cancellation drop the packets held in this local batch.
+            let next = std::future::poll_fn(|cx| Poll::Ready(self.stream.poll_data(cx))).await;
+            let result = match next {
+                Poll::Ready(Some(Ok(chunk))) => {
+                    frames += 1;
+                    self.buffer_data(chunk)
+                        .and_then(|()| self.drain_ready_capsules())
+                }
+                Poll::Ready(Some(Err(error))) => Err(error.into()),
+                Poll::Ready(None) | Poll::Pending => break,
+            };
+            if let Err(error) = result {
+                // Deliver the already-completed batch, then surface the terminal
+                // error before any packets parsed during the failed lookahead.
+                self.receive_error = Some(error);
                 break;
             }
         }
-        Ok(batch)
+        Ok(self.observed_batch(batch))
+    }
+
+    fn observed_batch(&self, batch: PacketBatch) -> PacketBatch {
+        let counters = self.quality.performance();
+        crate::transport_performance::add(&counters.h2.batches, 1);
+        crate::transport_performance::add(&counters.h2.packets, batch.len() as u64);
+        crate::transport_performance::add(&counters.h2.packet_bytes, batch.bytes() as u64);
+        crate::transport_performance::record_batch(&counters.h2_batch_sizes, batch.len());
+        batch
+    }
+
+    fn buffer_data(&mut self, chunk: Bytes) -> Result<(), TransportError> {
+        let length = chunk.len();
+        let counters = &self.quality.performance().h2;
+        crate::transport_performance::add(&counters.data_frames, 1);
+        crate::transport_performance::add(&counters.data_bytes, length as u64);
+        self.framing.feed(chunk);
+        self.stream.flow_control().release_capacity(length)?;
+        Ok(())
     }
 
     fn drain_ready_capsules(&mut self) -> Result<(), TransportError> {
+        let result = self.drain_capsules();
+        let copied = self.framing.take_copied_bytes();
+        if copied != 0 {
+            crate::transport_performance::add(
+                &self.quality.performance().h2.assembly_copy_bytes,
+                copied,
+            );
+        }
+        result
+    }
+
+    fn drain_capsules(&mut self) -> Result<(), TransportError> {
         loop {
             if self.packets.len() >= H2_PACKET_QUEUE_CAPACITY {
                 return Ok(());
             }
-            let Some(capsule) = take_complete_capsule(&mut self.control.buffer)? else {
+            let Some(capsule) = self.framing.next()? else {
                 return Ok(());
             };
             if let ConnectIpCapsule::Unknown {
@@ -366,7 +454,8 @@ impl H2ReceiveHalf {
 /// Drives the underlying HTTP/2 connection. Dropping or aborting this handle
 /// immediately tears down the transport.
 pub struct H2Driver {
-    task: Option<JoinHandle<Result<(), h2::Error>>>,
+    task: Option<JoinHandle<Result<(), TransportError>>>,
+    liveness_failed: Arc<AtomicBool>,
 }
 
 impl H2Driver {
@@ -378,7 +467,6 @@ impl H2Driver {
         AbortOnDropHandle::new(task)
             .await
             .map_err(|error| TransportError::Driver(error.to_string()))?
-            .map_err(TransportError::Http2)
     }
 
     pub fn abort(&self) {
@@ -510,12 +598,7 @@ pub(crate) async fn connect_h2_with_protector(
             "the HTTP/2 build does not expose protocol PING observation"
         );
     }
-    let task = AbortOnDropHandle::new(spawn_h2_driver(
-        connection,
-        ping_pong,
-        quality.clone(),
-        attempt.cloned(),
-    ));
+    let task = spawn_h2_driver(connection, ping_pong, quality.clone(), attempt.cloned());
     sender = sender.ready().await?;
     if let Some(attempt) = attempt {
         attempt.record(
@@ -539,14 +622,8 @@ pub(crate) async fn connect_h2_with_protector(
         );
     }
     let receive = response.into_body();
-    let mut tunnel = h2_tunnel_from_streams(
-        stream,
-        receive,
-        task.detach(),
-        quality,
-        flow_control,
-        ping_supported,
-    );
+    let mut tunnel =
+        h2_tunnel_from_streams(stream, receive, task, quality, flow_control, ping_supported);
     tunnel.attempt = attempt.cloned();
     Ok(tunnel)
 }
@@ -567,18 +644,40 @@ fn spawn_h2_driver<T>(
     ping_pong: Option<PingPong>,
     quality: NetworkQualityTelemetry,
     attempt: Option<ConnectionAttemptTelemetry>,
-) -> JoinHandle<Result<(), h2::Error>>
+) -> H2Driver
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    tokio::spawn(async move {
-        let ping_task = ping_pong.map(|ping_pong| {
-            AbortOnDropHandle::new(tokio::spawn(run_h2_ping(ping_pong, quality, attempt)))
-        });
-        let result = connection.await;
-        drop(ping_task);
+    let liveness_failed = Arc::new(AtomicBool::new(false));
+    let failure = liveness_failed.clone();
+    let task = tokio::spawn(async move {
+        let Some(ping_pong) = ping_pong else {
+            return connection.await.map_err(TransportError::Http2);
+        };
+        tokio::pin!(connection);
+        let result = tokio::select! {
+            biased;
+            result = &mut connection => result.map_err(TransportError::Http2),
+            result = run_h2_ping(ping_pong, quality, attempt) => result,
+        };
+        // Publish before dropping the connection closes receive/writer channels.
+        if matches!(result, Err(TransportError::H2LivenessTimeout)) {
+            failure.store(true, Ordering::Release);
+        }
         result
-    })
+    });
+    H2Driver {
+        task: Some(task),
+        liveness_failed,
+    }
+}
+
+fn h2_termination_error(failed: &AtomicBool, error: TransportError) -> TransportError {
+    if failed.load(Ordering::Acquire) {
+        TransportError::H2LivenessTimeout
+    } else {
+        error
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -624,6 +723,7 @@ impl H2RttEstimator {
         self.smoothed.map_or(H2_PING_DEFAULT_TIMEOUT, |smoothed| {
             smoothed
                 .saturating_mul(3)
+                .max(smoothed.saturating_add(self.variance.unwrap_or_default().saturating_mul(4)))
                 .clamp(H2_PING_MIN_TIMEOUT, H2_PING_MAX_TIMEOUT)
         })
     }
@@ -659,7 +759,7 @@ async fn run_h2_ping(
     mut ping_pong: PingPong,
     quality: NetworkQualityTelemetry,
     attempt: Option<ConnectionAttemptTelemetry>,
-) {
+) -> Result<(), TransportError> {
     let _task = H2PingTaskGuard::new(quality.clone());
     let mut estimator = H2RttEstimator::default();
     let mut ticker = interval_at(Instant::now() + H2_PING_INTERVAL, H2_PING_INTERVAL);
@@ -672,16 +772,22 @@ async fn run_h2_ping(
             .take_fault(crate::fault_injection::FaultPoint::H2Ping)
             .is_some()
         {
-            let _ = h2_ping_with_timeout(
+            await_h2_pong(
                 std::future::pending::<Result<(), h2::Error>>(),
                 estimator.timeout(),
+                &quality,
             )
-            .await;
-            quality.record_h2_ping_timeout();
+            .await?;
             continue;
         }
-        match h2_ping_with_timeout(ping_pong.ping(Ping::opaque()), estimator.timeout()).await {
-            Ok(Some(_)) => {
+        match await_h2_pong(
+            ping_pong.ping(Ping::opaque()),
+            estimator.timeout(),
+            &quality,
+        )
+        .await
+        {
+            Ok(true) => {
                 let sample = estimator.observe(started.elapsed());
                 if let Some(attempt) = &attempt {
                     attempt.observe_h2_rtt(
@@ -699,26 +805,67 @@ async fn run_h2_ping(
                     );
                 }
             }
-            Err(_) => {
+            Err(error) => {
                 quality.record_h2_ping_error();
-                return;
+                return Err(error);
             }
-            Ok(None) => {
-                quality.record_h2_ping_timeout();
-                // h2 0.4 permits only one outstanding user PING. The timed-out
-                // future has already sent it, so drain that eventual PONG before
-                // another interval can send a new opaque PING.
-                if std::future::poll_fn(|context| ping_pong.poll_pong(context))
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
-            }
+            Ok(false) => {} // A scheduling gap makes this RTT sample unusable.
         }
     }
 }
 
+/// Poll one and only one PING through both deadlines. The connection driver
+/// remains independently pollable, so even saturated application queues cannot
+/// prevent ACK processing. Returns whether the RTT sample is usable.
+async fn await_h2_pong<F, T>(
+    pong: F,
+    soft: Duration,
+    quality: &NetworkQualityTelemetry,
+) -> Result<bool, TransportError>
+where
+    F: Future<Output = Result<T, h2::Error>>,
+{
+    let started = Instant::now();
+    let soft_at = started + soft;
+    let mut hard_at = started
+        + soft
+            .saturating_mul(3)
+            .clamp(H2_PING_MIN_DEADLINE, H2_PING_MAX_DEADLINE);
+    let mut observed_at = started;
+    let mut grace_used = false;
+    let mut soft_reported = false;
+    let mut ticker = interval_at(started + H2_PING_INTERVAL, H2_PING_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    tokio::pin!(pong);
+    loop {
+        let now = Instant::now();
+        if now.saturating_duration_since(observed_at) > H2_SCHEDULING_GAP && !grace_used {
+            hard_at = hard_at.max(now + H2_RESUME_GRACE);
+            grace_used = true;
+        }
+        observed_at = now;
+        tokio::select! {
+            biased;
+            result = &mut pong => return result.map(|_| !grace_used && observed_at.elapsed() <= H2_SCHEDULING_GAP).map_err(TransportError::Http2),
+            _ = ticker.tick() => {},
+            _ = tokio::time::sleep_until(soft_at), if !soft_reported => {
+                quality.record_h2_ping_timeout();
+                soft_reported = true;
+            },
+            _ = tokio::time::sleep_until(hard_at) => {
+                let now = Instant::now();
+                if now.saturating_duration_since(observed_at) > H2_SCHEDULING_GAP && !grace_used {
+                    hard_at = now + H2_RESUME_GRACE;
+                    grace_used = true;
+                } else {
+                    return Err(TransportError::H2LivenessTimeout);
+                }
+            },
+        }
+    }
+}
+
+#[cfg(test)]
 async fn h2_ping_with_timeout<F, T, E>(future: F, limit: Duration) -> Result<Option<T>, E>
 where
     F: Future<Output = Result<T, E>>,
@@ -732,7 +879,7 @@ where
 fn h2_tunnel_from_streams(
     send: SendStream<Bytes>,
     receive: RecvStream,
-    connection: JoinHandle<Result<(), h2::Error>>,
+    connection: H2Driver,
     quality: NetworkQualityTelemetry,
     flow_control: H2FlowControlConfig,
     ping_supported: bool,
@@ -751,17 +898,20 @@ fn h2_tunnel_from_streams(
         send: H2SendHalf {
             sender: Some(outgoing_tx),
             _writer: writer,
+            liveness_failed: connection.liveness_failed.clone(),
         },
         receive: H2ReceiveHalf {
+            framing: H2CapsuleFramer::default(),
+            quality: quality.clone(),
             stream: receive,
             control: ConnectIpControlPlane::new(control_tx),
             packets: VecDeque::new(),
+            receive_error: None,
             rejections: rejection_tx,
             rejection_bytes,
+            liveness_failed: connection.liveness_failed.clone(),
         },
-        driver: H2Driver {
-            task: Some(connection),
-        },
+        driver: connection,
         control: control_rx,
         flow_control,
         ping_supported,
@@ -998,35 +1148,19 @@ fn self_signed_certificate(private_key: &PKey<Private>) -> Result<X509, ErrorSta
     Ok(certificate.build())
 }
 
+#[cfg(test)]
 fn take_complete_capsule(
     buffer: &mut BytesMut,
 ) -> Result<Option<ConnectIpCapsule>, TransportError> {
-    let Some((_, type_length)) = decode_varint(buffer)? else {
-        return Ok(None);
-    };
-    let Some((payload_length, length_length)) = decode_varint(&buffer[type_length..])? else {
-        return Ok(None);
-    };
-    let payload_length =
-        usize::try_from(payload_length).map_err(|_| TransportError::CapsuleTooLarge)?;
-    if payload_length > MAX_CAPSULE_PAYLOAD {
-        return Err(TransportError::CapsuleTooLarge);
+    let mut framer = H2CapsuleFramer::default();
+    framer.feed(buffer.clone().freeze());
+    let result = framer.next();
+    // Preserve test helper's historical transactional incomplete-input contract.
+    if !matches!(result, Ok(None)) {
+        let consumed = buffer.len() - framer.data.len();
+        buffer.advance(consumed);
     }
-    let frame_length = type_length
-        .checked_add(length_length)
-        .and_then(|header_length| header_length.checked_add(payload_length))
-        .ok_or(TransportError::CapsuleTooLarge)?;
-    if buffer.len() < frame_length {
-        return Ok(None);
-    }
-
-    // A complete malformed capsule is terminal for this H2 tunnel. Splitting
-    // only after framing is complete preserves fragmented-input semantics while
-    // allowing successful DATAGRAM payloads to remain zero-copy `Bytes` views.
-    let mut frame = buffer.split_to(frame_length).freeze();
-    let capsule = ConnectIpCapsule::decode(&mut frame)?;
-    debug_assert!(frame.is_empty());
-    Ok(Some(capsule))
+    result
 }
 
 #[cfg(test)]
@@ -1219,6 +1353,8 @@ pub enum TransportError {
     SendQueueFull,
     #[error("the tunnel packet send operation timed out")]
     SendTimeout,
+    #[error("the HTTP/2 PING acknowledgment deadline expired")]
+    H2LivenessTimeout,
     #[error("the HTTP/2 driver stopped: {0}")]
     Driver(String),
     #[error("a received HTTP capsule exceeded the safety limit")]
@@ -1250,6 +1386,22 @@ impl TransportError {
         use TransportFailureCode as Code;
         use TransportStage as Stage;
 
+        if let Self::AllTransportsFailed { h3, h2 } = self {
+            // Never let the aggregate's generic retry metadata erase an
+            // authentication, protection or other terminal child failure.
+            if let Some(failure) = [h3.as_ref(), h2.as_ref()]
+                .into_iter()
+                .find(|failure| !failure.retryable && failure.code != Code::EndpointPinMismatch)
+                .or_else(|| {
+                    [h3.as_ref(), h2.as_ref()]
+                        .into_iter()
+                        .find(|failure| !failure.retryable)
+                })
+            {
+                return failure.clone();
+            }
+        }
+
         let (code, stage) = match self {
             Self::VpnGate(reason) => {
                 use usque_core::vpngate::GateFailure;
@@ -1259,7 +1411,7 @@ impl TransportError {
                         (Code::AuthenticationFailed, Stage::TlsHandshake)
                     }
                     GateFailure::Certificate => (Code::EndpointPinMismatch, Stage::TlsHandshake),
-                    GateFailure::Configuration => {
+                    GateFailure::Configuration | GateFailure::Protocol | GateFailure::Cleanup => {
                         (Code::ConfigurationInvalid, Stage::TunnelStartup)
                     }
                     GateFailure::AddressChanged => {
@@ -1335,6 +1487,7 @@ impl TransportError {
             },
             Self::SendQueueFull => (Code::SendQueueFull, Stage::PacketSend),
             Self::SendTimeout => (Code::PacketSendTimeout, Stage::PacketSend),
+            Self::H2LivenessTimeout => (Code::PacketReceiveStalled, Stage::PacketReceive),
             Self::Driver(_) | Self::Http2(_) => (Code::H2StreamClosed, Stage::PacketReceive),
             Self::CapsuleTooLarge | Self::InvalidVarint | Self::Protocol(_) | Self::Http(_) => {
                 (Code::ConnectIpRejected, Stage::PeerSettings)
@@ -1345,11 +1498,10 @@ impl TransportError {
             },
         };
 
-        let failure = TransportFailure::new(code, stage);
-        match (transport, family) {
-            (Some(transport), Some(family)) => failure.on_path(transport, family),
-            _ => failure,
-        }
+        let mut failure = TransportFailure::new(code, stage);
+        failure.transport = transport;
+        failure.address_family = family;
+        failure
     }
 
     pub fn exhausted_transport_failures(&self) -> Option<(&TransportFailure, &TransportFailure)> {
@@ -1363,6 +1515,7 @@ impl TransportError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("h2/receive_framing_tests.rs");
     use crate::network_quality::{MetricAvailability, NetworkQualitySampler};
     use crate::socket::{DirectEgressLease, SocketHandle};
     use std::sync::atomic::{AtomicU64, AtomicUsize};
@@ -1750,6 +1903,7 @@ mod tests {
         quality: NetworkQualityTelemetry,
         _client_driver: H2Driver,
         _server: JoinHandle<Result<(), h2::Error>>,
+        server_paused: watch::Sender<bool>,
     }
 
     async fn connect_h2_loopback() -> H2Loopback {
@@ -1762,6 +1916,7 @@ mod tests {
 
         let (client_io, server_io) = tokio::io::duplex(1024 * 1024);
         let (streams_tx, streams_rx) = oneshot::channel();
+        let (server_paused, mut pause) = watch::channel(false);
         let server = tokio::spawn(async move {
             let mut connection = h2::server::handshake(server_io)
                 .await
@@ -1778,7 +1933,19 @@ mod tests {
             let send = respond.send_response(response, false).expect("send 200");
             let recv = request.into_body();
             let _ = streams_tx.send((send, recv));
-            while connection.accept().await.is_some() {}
+            loop {
+                if *pause.borrow_and_update() {
+                    if pause.changed().await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
+                tokio::select! {
+                    biased;
+                    result = pause.changed() => { if result.is_err() { break; } },
+                    stream = connection.accept() => { if stream.is_none() { break; } },
+                }
+            }
             Ok(())
         });
 
@@ -1791,12 +1958,7 @@ mod tests {
             .expect("client handshake");
         let ping_pong = connection.ping_pong();
         let ping_supported = ping_pong.is_some();
-        let driver = AbortOnDropHandle::new(spawn_h2_driver(
-            connection,
-            ping_pong,
-            quality.clone(),
-            None,
-        ));
+        let driver = spawn_h2_driver(connection, ping_pong, quality.clone(), None);
         sender = sender.ready().await.expect("client ready");
         let (response, send) = sender
             .send_request(connect_request().expect("CONNECT"), false)
@@ -1808,7 +1970,7 @@ mod tests {
         let tunnel = h2_tunnel_from_streams(
             send,
             receive,
-            driver.detach(),
+            driver,
             quality.clone(),
             config,
             ping_supported,
@@ -1824,7 +1986,167 @@ mod tests {
             quality,
             _client_driver: driver,
             _server: server,
+            server_paused,
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_ping_final_deadline_and_late_ack_use_the_same_pending_ping() {
+        for soft in [
+            Duration::from_secs(2),
+            Duration::from_secs(5),
+            Duration::from_secs(10),
+        ] {
+            let quality = NetworkQualityTelemetry::default();
+            quality.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+            let started = Instant::now();
+            let result = await_h2_pong(
+                std::future::pending::<Result<(), h2::Error>>(),
+                soft,
+                &quality,
+            )
+            .await;
+            assert!(matches!(result, Err(TransportError::H2LivenessTimeout)));
+            assert_eq!(
+                started.elapsed(),
+                soft.saturating_mul(3)
+                    .clamp(H2_PING_MIN_DEADLINE, H2_PING_MAX_DEADLINE)
+            );
+            assert_eq!(
+                NetworkQualitySampler::new(quality)
+                    .sample()
+                    .h2_flow_control
+                    .ping_timeout_count,
+                1
+            );
+        }
+        let quality = NetworkQualityTelemetry::default();
+        quality.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        assert!(
+            await_h2_pong(
+                async {
+                    tokio::time::sleep(Duration::from_secs(8)).await;
+                    Ok::<_, h2::Error>(())
+                },
+                Duration::from_secs(5),
+                &quality
+            )
+            .await
+            .unwrap()
+        );
+        assert_eq!(
+            NetworkQualitySampler::new(quality)
+                .sample()
+                .h2_flow_control
+                .ping_timeout_count,
+            1
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_scheduling_gap_gets_only_one_bounded_resume_grace() {
+        let task = tokio::spawn(async {
+            await_h2_pong(
+                std::future::pending::<Result<(), h2::Error>>(),
+                Duration::from_secs(5),
+                &NetworkQualityTelemetry::default(),
+            )
+            .await
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        tokio::time::advance(Duration::from_secs(4)).await;
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        // A second scheduling gap must not postpone termination indefinitely.
+        tokio::time::advance(Duration::from_secs(60)).await;
+        assert!(matches!(
+            task.await.unwrap(),
+            Err(TransportError::H2LivenessTimeout)
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn repeated_h2_cancellation_during_ack_grace_releases_the_heartbeat() {
+        for _ in 0..16 {
+            let loopback = connect_h2_loopback().await;
+            loopback.server_paused.send_replace(true);
+            let quality = loopback.quality.clone();
+            tokio::task::yield_now().await;
+            tokio::time::advance(H2_PING_INTERVAL).await;
+            tokio::task::yield_now().await;
+            tokio::time::advance(H2_PING_DEFAULT_TIMEOUT).await;
+            tokio::task::yield_now().await;
+            assert_eq!(quality.active_h2_ping_tasks(), 1);
+            loopback._client_driver.abort();
+            for _ in 0..4 {
+                tokio::task::yield_now().await;
+            }
+            assert_eq!(quality.active_h2_ping_tasks(), 0);
+            loopback._server.abort();
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_blackholed_peer_stops_driver_and_retains_cause_on_both_halves() {
+        for driver_first in [false, true] {
+            let mut loopback = connect_h2_loopback().await;
+            loopback.server_paused.send_replace(true);
+            tokio::task::yield_now().await;
+            let quality = loopback.quality.clone();
+            let started = Instant::now();
+            if driver_first {
+                assert!(matches!(
+                    loopback._client_driver.wait().await,
+                    Err(TransportError::H2LivenessTimeout)
+                ));
+                assert!(matches!(
+                    loopback.receive.receive_packet().await,
+                    Err(TransportError::H2LivenessTimeout)
+                ));
+            } else {
+                assert!(matches!(
+                    loopback.receive.receive_packet().await,
+                    Err(TransportError::H2LivenessTimeout)
+                ));
+                assert!(matches!(
+                    loopback._client_driver.wait().await,
+                    Err(TransportError::H2LivenessTimeout)
+                ));
+            }
+            assert_eq!(started.elapsed(), H2_PING_INTERVAL + H2_PING_MIN_DEADLINE);
+            assert!(matches!(
+                loopback
+                    .send
+                    .send_capsule(Bytes::from_static(b"test"))
+                    .await,
+                Err(TransportError::H2LivenessTimeout)
+            ));
+            assert_eq!(quality.active_h2_ping_tasks(), 0);
+            loopback._server.abort();
+        }
+    }
+
+    #[test]
+    fn aggregate_authentication_failure_cannot_become_retryable() {
+        let error = TransportError::AllTransportsFailed {
+            h3: Box::new(
+                TransportError::Http3("network failure".into())
+                    .failure(Some(Transport::Http3), Some(AddressFamily::Ipv6)),
+            ),
+            h2: Box::new(
+                TransportError::ConnectRejected(StatusCode::FORBIDDEN)
+                    .failure(Some(Transport::Http2), Some(AddressFamily::Ipv4)),
+            ),
+        };
+        let failure = error.failure(None, None);
+        assert_eq!(failure.code, TransportFailureCode::AuthenticationFailed);
+        assert_eq!(failure.transport, Some(Transport::Http2));
+        assert_eq!(failure.address_family, Some(AddressFamily::Ipv4));
+        assert!(!failure.retryable && !failure.fallback_allowed);
+        assert!(error.exhausted_transport_failures().is_some());
     }
 
     async fn peer_send_all(stream: &mut SendStream<Bytes>, mut encoded: Bytes) {
@@ -1839,6 +2161,190 @@ mod tests {
                 .send_data(encoded.split_to(length), false)
                 .expect("peer send");
         }
+    }
+
+    async fn wait_for_buffered_data(receive: &mut H2ReceiveHalf, bytes: usize) {
+        timeout(Duration::from_secs(2), async {
+            while receive.stream.flow_control().used_capacity() < bytes {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("peer DATA reaches the H2 receive queue");
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_combines_ready_data_frames_without_packet_loss() {
+        use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PACKET_BATCH_CHANNEL_CAPACITY};
+
+        let mut loopback = connect_h2_loopback().await;
+        let count = 2 * MAX_PACKET_BATCH_PACKETS;
+        let mut wire_bytes = 0;
+        for sequence in 0..count {
+            let mut packet = sized_ipv4_packet(1_280).to_vec();
+            packet[4..6].copy_from_slice(&(sequence as u16).to_be_bytes());
+            let capsule = encode_datagram_capsule(&packet).unwrap();
+            wire_bytes += capsule.len();
+            // One DATAGRAM per DATA frame, as a flushing peer may send it.
+            peer_send_all(&mut loopback.peer_send, capsule).await;
+        }
+        wait_for_buffered_data(&mut loopback.receive, wire_bytes).await;
+
+        // Model the existing bounded batch handoff while its consumer is busy.
+        let (incoming, mut queued) = mpsc::channel(PACKET_BATCH_CHANNEL_CAPACITY);
+        let mut received = 0;
+        let mut batches = 0;
+        while received < count {
+            let batch = loopback.receive.receive_batch().await.unwrap();
+            received += batch.len();
+            batches += 1;
+            incoming.try_send(batch).expect("burst fits batch handoff");
+        }
+        assert_eq!(batches, 2);
+
+        let mut sequence = 0;
+        while let Ok(mut batch) = queued.try_recv() {
+            assert_eq!(batch.len(), MAX_PACKET_BATCH_PACKETS);
+            while let Some(packet) = batch.pop_front() {
+                assert_eq!(u16::from_be_bytes([packet[4], packet[5]]), sequence);
+                sequence += 1;
+            }
+        }
+        assert_eq!(usize::from(sequence), count);
+        assert_eq!(loopback.receive.stream.flow_control().used_capacity(), 0);
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_preserves_packet_order_at_the_byte_limit() {
+        let mut loopback = connect_h2_loopback().await;
+        let mut wire_bytes = 0;
+        for sequence in 0_u16..6 {
+            let mut packet = sized_ipv4_packet(60 * 1024).to_vec();
+            packet[4..6].copy_from_slice(&sequence.to_be_bytes());
+            let capsule = encode_datagram_capsule(&packet).unwrap();
+            wire_bytes += capsule.len();
+            peer_send_all(&mut loopback.peer_send, capsule).await;
+        }
+        wait_for_buffered_data(&mut loopback.receive, wire_bytes).await;
+
+        let mut sequence = 0;
+        for expected_count in [4, 2] {
+            let mut batch = loopback.receive.receive_batch().await.unwrap();
+            assert_eq!(batch.len(), expected_count);
+            assert_eq!(batch.bytes(), expected_count * 60 * 1024);
+            while let Some(packet) = batch.pop_front() {
+                assert_eq!(u16::from_be_bytes([packet[4], packet[5]]), sequence);
+                sequence += 1;
+            }
+        }
+        assert_eq!(sequence, 6);
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_returns_immediately_and_retains_partial_capsules() {
+        let mut loopback = connect_h2_loopback().await;
+        let packet = sized_ipv4_packet(1_280);
+        let capsule = encode_datagram_capsule(&packet).unwrap();
+        peer_send_all(&mut loopback.peer_send, capsule.clone()).await;
+        peer_send_all(&mut loopback.peer_send, capsule.slice(..1)).await;
+        wait_for_buffered_data(&mut loopback.receive, capsule.len() + 1).await;
+
+        // A partial next capsule must not make a completed batch Pending.
+        let received = std::future::poll_fn(|cx| {
+            Poll::Ready(std::pin::pin!(loopback.receive.receive_batch()).poll(cx))
+        })
+        .await;
+        let Poll::Ready(Ok(mut batch)) = received else {
+            panic!("ready packets must not wait for another DATA frame");
+        };
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch.pop_front().unwrap(), packet);
+        assert_eq!(loopback.receive.framing.partial.as_ref(), &capsule[..1]);
+
+        // Cancel a waiting receive, then complete the same partial capsule.
+        let cancelled = std::future::poll_fn(|cx| {
+            Poll::Ready(std::pin::pin!(loopback.receive.receive_batch()).poll(cx))
+        })
+        .await;
+        assert!(cancelled.is_pending());
+        let assignment = ipv4_only_assignment().encode().unwrap();
+        let mut tail = BytesMut::from(&capsule[1..]);
+        tail.extend_from_slice(&assignment);
+        peer_send_all(&mut loopback.peer_send, tail.freeze()).await;
+        let mut next = timeout(Duration::from_secs(2), loopback.receive.receive_batch())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.len(), 1);
+        assert_eq!(next.pop_front().unwrap(), packet);
+        let mut expected = PeerNetworkState::default();
+        expected.apply(&ipv4_only_assignment());
+        assert_eq!(*loopback.control.borrow(), expected);
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_delivers_ready_packets_before_end_of_stream() {
+        let mut loopback = connect_h2_loopback().await;
+        let packet = sized_ipv4_packet(1_280);
+        let capsule = encode_datagram_capsule(&packet).unwrap();
+        peer_send_all(&mut loopback.peer_send, capsule.clone()).await;
+        loopback.peer_send.send_data(Bytes::new(), true).unwrap();
+        wait_for_buffered_data(&mut loopback.receive, capsule.len()).await;
+
+        let mut batch = loopback.receive.receive_batch().await.unwrap();
+        assert_eq!(batch.pop_front().unwrap(), packet);
+        assert!(batch.is_empty());
+        assert!(matches!(
+            timeout(Duration::from_secs(2), loopback.receive.receive_batch())
+                .await
+                .unwrap(),
+            Err(TransportError::TunnelClosed)
+        ));
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_surfaces_malformed_lookahead_after_the_ready_batch() {
+        for malformed in [
+            // DATAGRAM containing an invalid IP header.
+            Bytes::from_static(&[0, 1, 0]),
+            // DATAGRAM declaring a payload over the capsule limit.
+            Bytes::from_static(&[0, 0x80, 1, 0, 1]),
+        ] {
+            let mut loopback = connect_h2_loopback().await;
+            let packet = sized_ipv4_packet(1_280);
+            let capsule = encode_datagram_capsule(&packet).unwrap();
+            peer_send_all(&mut loopback.peer_send, capsule.clone()).await;
+            peer_send_all(&mut loopback.peer_send, malformed.clone()).await;
+            wait_for_buffered_data(&mut loopback.receive, capsule.len() + malformed.len()).await;
+
+            let mut batch = loopback.receive.receive_batch().await.unwrap();
+            assert_eq!(batch.len(), 1);
+            assert_eq!(batch.pop_front().unwrap(), packet);
+            assert!(matches!(
+                loopback.receive.receive_batch().await,
+                Err(TransportError::MalformedIpPacket | TransportError::CapsuleTooLarge)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn h2_receive_batch_bounds_control_only_lookahead() {
+        let mut loopback = connect_h2_loopback().await;
+        let capsule = encode_datagram_capsule(&ipv4_packet()).unwrap();
+        peer_send_all(&mut loopback.peer_send, capsule.clone()).await;
+        let unknown = Bytes::from_static(&[0x21, 0]);
+        for _ in 0..=H2_RECEIVE_BATCH_MAX_FRAMES {
+            peer_send_all(&mut loopback.peer_send, unknown.clone()).await;
+        }
+        let wire_bytes = capsule.len() + (H2_RECEIVE_BATCH_MAX_FRAMES + 1) * unknown.len();
+        wait_for_buffered_data(&mut loopback.receive, wire_bytes).await;
+
+        assert_eq!(loopback.receive.receive_batch().await.unwrap().len(), 1);
+        assert_eq!(
+            loopback.receive.stream.flow_control().used_capacity(),
+            unknown.len(),
+            "control-only lookahead yields after its bounded frame budget"
+        );
     }
 
     async fn peer_recv_capsule(stream: &mut RecvStream, buffer: &mut BytesMut) -> ConnectIpCapsule {
@@ -1919,6 +2425,9 @@ mod tests {
         assert_eq!(estimator.timeout(), Duration::from_secs(3));
         estimator.smoothed = Some(Duration::from_secs(4));
         assert_eq!(estimator.timeout(), Duration::from_secs(10));
+        estimator.smoothed = Some(Duration::from_secs(1));
+        estimator.variance = Some(Duration::from_secs(1));
+        assert_eq!(estimator.timeout(), Duration::from_secs(5));
     }
 
     #[tokio::test(start_paused = true)]
@@ -2274,11 +2783,11 @@ mod tests {
             }
             wire.extend_from_slice(&capsule);
         }
-        loopback.receive.control.buffer.extend_from_slice(&wire);
+        loopback.receive.framing.feed(wire.freeze());
 
         loopback.receive.drain_ready_capsules().unwrap();
         assert_eq!(loopback.receive.packets.len(), H2_PACKET_QUEUE_CAPACITY);
-        assert_eq!(loopback.receive.control.buffer, final_capsule);
+        assert_eq!(loopback.receive.framing.data, final_capsule);
         assert_eq!(
             u16::from_be_bytes([
                 loopback.receive.packets.front().unwrap()[4],
@@ -2290,7 +2799,7 @@ mod tests {
         loopback.receive.packets.pop_front();
         loopback.receive.drain_ready_capsules().unwrap();
         assert_eq!(loopback.receive.packets.len(), H2_PACKET_QUEUE_CAPACITY);
-        assert!(loopback.receive.control.buffer.is_empty());
+        assert!(loopback.receive.framing.data.is_empty());
         assert_eq!(
             u16::from_be_bytes([
                 loopback.receive.packets.back().unwrap()[4],

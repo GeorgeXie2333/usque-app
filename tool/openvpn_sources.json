@@ -27,6 +27,16 @@
         "path": "openvpn/transport/dco.hpp",
         "upstream_sha256": "17adc99f12574e3bc4f594199124e3901b59079406862b19e78ae5cd6935c7f4",
         "sha256": "eb4325ec972c58c534971cfadca605384b26917cb1ea42a891fc7bd1429805db"
+      },
+      {
+        "path": "openvpn/ssl/mssparms.hpp",
+        "upstream_sha256": "ba4c5272bec81ea8aec0eb5863ee3a68ed799786b1afba950fa0eec62940d431",
+        "sha256": "c4a5e0f6a14129895a1c81618f161d8a9951e595dec4afa4a603c4b5d37f7286"
+      },
+      {
+        "path": "openvpn/ssl/proto.hpp",
+        "upstream_sha256": "f36354f3ff93b11b17217b906189a7f97f5ac5770c6fbae1dff903de66a38bdf",
+        "sha256": "9ee4bcf2952d9a5dd54b9adc12ac54fe22c7c1926aca1925c73fd782b463d5b0"
       }
     ]
   },

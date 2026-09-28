@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use bytes::Bytes;
+use crate::outbound_packet::OutboundPacket;
+use bytes::{Bytes, BytesMut};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep, timeout};
@@ -36,6 +37,7 @@ use crate::pin_refresh::EndpointPinRefresher;
 use crate::queue_metrics::{
     QueueKind, TrackedReceiver, TrackedSendErrorKind, TrackedSender, tracked_channel,
 };
+use crate::recovery_policy::RecoveryDecision;
 use crate::socket::SocketProtector;
 use crate::telemetry::{
     ConnectionAttemptTelemetry, ConnectionEventPath, ConnectionEventType, ConnectionTelemetry,
@@ -43,6 +45,11 @@ use crate::telemetry::{
 };
 use crate::tunnel::{BatchSendFuture, MasqueTunnel};
 
+#[cfg(test)]
+mod ownership_tests;
+mod reconnect;
+#[cfg(test)]
+mod reconnect_tests;
 #[cfg(test)]
 mod shutdown_tests;
 
@@ -169,6 +176,7 @@ impl TrafficCounters {
 }
 
 pub(crate) struct PacketStack {
+    pub(crate) traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
     pub(crate) channel: Channel,
     pub(crate) protector: Arc<dyn SocketProtector>,
     pub(crate) geo_policy: Arc<GeoDirectPolicy>,
@@ -222,6 +230,9 @@ impl PacketStack {
         Ok((
             Self {
                 channel,
+                traffic_policy: Arc::new(
+                    crate::application_traffic::ApplicationTrafficPolicy::new(profile.disable_quic),
+                ),
                 protector,
                 geo_policy,
                 cancellation,
@@ -326,6 +337,9 @@ impl PacketStack {
 
         Ok(Self {
             channel,
+            traffic_policy: Arc::new(crate::application_traffic::ApplicationTrafficPolicy::new(
+                profile.disable_quic,
+            )),
             protector: direct_protector,
             geo_policy: Arc::new(GeoDirectPolicy::disabled()),
             cancellation,
@@ -416,6 +430,8 @@ pub(crate) fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetr
         tcp_nagle_enabled: false,
         udp_buffer_size: 64 * 1024,
         udp_message_count: 128,
+        raw_buffer_size: 64 * 1024,
+        raw_message_count: 128,
         ..Config::default()
     };
     (config, metrics)
@@ -423,6 +439,21 @@ pub(crate) fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetr
 
 pub(crate) fn bounded_piped(config: Config) -> (Netstack<PacketDevice>, WakingPipe) {
     bounded_piped_with_capacity(config, PROXY_PACKET_PIPE_CAPACITY)
+}
+
+/// Direct listeners keep their existing symmetric buffers, but all listener,
+/// half-open and accepted sockets now participate in the platform budget.
+pub(crate) fn direct_netstack_config(profile: &Profile) -> (Config, TcpBufferMetrics) {
+    let (mut config, metrics) = proxy_netstack_config(profile);
+    config.tcp_listener_budgeted = true;
+    let tier = TcpBufferTier {
+        receive: config.tcp_buffer_size,
+        transmit: config.tcp_buffer_size,
+    };
+    let policy = config.tcp_buffer_policy.as_mut().expect("proxy TCP policy");
+    policy.preferred = tier;
+    policy.fallback = tier;
+    (config, metrics)
 }
 
 pub(crate) fn bounded_piped_with_capacity(
@@ -461,7 +492,7 @@ impl Drop for PacketStack {
 /// here originate from the platform TUN; the transport supervisor validates
 /// them and decrements TTL/hop-limit immediately before encapsulation.
 pub struct ManagedTunnelRuntime {
-    outgoing: Option<TrackedSender<Bytes>>,
+    outgoing: Option<TrackedSender<OutboundPacket>>,
     incoming: TrackedReceiver<PacketBatch>,
     pending_incoming: PacketBatch,
     cancellation: CancellationToken,
@@ -477,7 +508,7 @@ pub struct ManagedTunnelRuntime {
 /// Protocol-neutral packet boundary for an embedded, in-memory VPN. The
 /// producer owns cleanup; the existing mux owns these bounded packet queues.
 pub(crate) struct ExternalPacketChannels {
-    pub(crate) outgoing: TrackedReceiver<Bytes>,
+    pub(crate) outgoing: Option<TrackedReceiver<OutboundPacket>>,
     pub(crate) incoming: TrackedSender<PacketBatch>,
     pub(crate) health: watch::Sender<RuntimeHealth>,
     pub(crate) failure: watch::Sender<Option<String>>,
@@ -502,7 +533,7 @@ pub struct ManagedTunnelMonitor {
 
 #[derive(Clone)]
 pub struct ManagedTunnelSender {
-    outgoing: TrackedSender<Bytes>,
+    outgoing: TrackedSender<OutboundPacket>,
     telemetry: ConnectionTelemetry,
 }
 
@@ -518,6 +549,16 @@ impl ManagedTunnelSender {
     }
 
     pub async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+        self.send_outbound_packet(OutboundPacket::Shared(packet))
+            .await
+    }
+
+    pub async fn send_mut_packet(&self, packet: BytesMut) -> Result<(), TransportError> {
+        self.send_outbound_packet(OutboundPacket::Mutable(packet))
+            .await
+    }
+
+    async fn send_outbound_packet(&self, packet: OutboundPacket) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(&packet)?;
         let packet_bytes = packet.len();
         let queued = self
@@ -525,12 +566,15 @@ impl ManagedTunnelSender {
             .max_capacity()
             .saturating_sub(self.outgoing.capacity());
         self.telemetry.observe_queue_depth(queued);
-        if self.outgoing.capacity() == 0 {
-            self.telemetry.record_queue_saturated(queued);
-        }
         self.outgoing
-            .send(packet, packet_bytes)
+            .send_observed(packet, packet_bytes)
             .await
+            .map(|wait| {
+                if let Some(wait) = wait {
+                    self.telemetry
+                        .record_queue_backpressured(QueueKind::TransportOutgoingPackets, wait);
+                }
+            })
             .map_err(|error| match error.kind {
                 TrackedSendErrorKind::Closed
                 | TrackedSendErrorKind::Cancelled
@@ -696,7 +740,7 @@ impl ManagedTunnelRuntime {
                 tasks: vec![sampler],
             },
             ExternalPacketChannels {
-                outgoing: outgoing_rx,
+                outgoing: Some(outgoing_rx),
                 incoming: incoming_tx,
                 health: health_tx,
                 failure: failure_tx,
@@ -708,7 +752,11 @@ impl ManagedTunnelRuntime {
     #[cfg(test)]
     pub(crate) fn packet_mux_test_channels(
         outgoing_capacity: usize,
-    ) -> (Self, TrackedReceiver<Bytes>, TrackedSender<PacketBatch>) {
+    ) -> (
+        Self,
+        TrackedReceiver<OutboundPacket>,
+        TrackedSender<PacketBatch>,
+    ) {
         let telemetry = ConnectionTelemetry::default();
         let quality_snapshot = initial_quality_receiver(&telemetry);
         let quality = telemetry.network_quality();
@@ -1179,23 +1227,38 @@ async fn connect_happy_eyeballs(
         protector,
         telemetry,
     );
-    match race_candidates(preferred_connect, alternate_connect, HAPPY_EYEBALLS_DELAY).await {
+    match race_candidates(
+        preferred_connect,
+        alternate_connect,
+        HAPPY_EYEBALLS_DELAY,
+        |error| {
+            RecoveryDecision::for_failure(&error.failure(Some(transport), None))
+                != RecoveryDecision::Retry
+        },
+    )
+    .await
+    {
         Ok((tunnel, false)) => Ok((tunnel, preferred_family)),
         Ok((tunnel, true)) => Ok((tunnel, alternate_family)),
-        Err((preferred_error, alternate_error)) => Err(combine_endpoint_errors(
-            preferred,
-            preferred_error,
-            alternate,
-            alternate_error,
-        )),
+        Err(CandidateErrors::Terminal(error)) => Err(error),
+        Err(CandidateErrors::Both(preferred_error, alternate_error)) => Err(
+            combine_endpoint_errors(preferred, preferred_error, alternate, alternate_error),
+        ),
     }
+}
+
+#[derive(Debug)]
+enum CandidateErrors<E> {
+    Terminal(E),
+    Both(E, E),
 }
 
 async fn race_candidates<P, A, T, E>(
     preferred: P,
     alternate: A,
     delay: Duration,
-) -> Result<(T, bool), (E, E)>
+    terminal: impl Fn(&E) -> bool,
+) -> Result<(T, bool), CandidateErrors<E>>
 where
     P: Future<Output = Result<T, E>>,
     A: Future<Output = Result<T, E>>,
@@ -1204,11 +1267,14 @@ where
     tokio::pin!(alternate);
     match timeout(delay, &mut preferred).await {
         Ok(Ok(value)) => return Ok((value, false)),
+        Ok(Err(error)) if terminal(&error) => return Err(CandidateErrors::Terminal(error)),
         Ok(Err(preferred_error)) => {
             return alternate
                 .await
                 .map(|value| (value, true))
-                .map_err(|alternate_error| (preferred_error, alternate_error));
+                .map_err(|alternate_error| {
+                    CandidateErrors::Both(preferred_error, alternate_error)
+                });
         }
         Err(_) => {}
     }
@@ -1216,17 +1282,19 @@ where
     tokio::select! {
         result = &mut preferred => match result {
             Ok(value) => Ok((value, false)),
+            Err(error) if terminal(&error) => Err(CandidateErrors::Terminal(error)),
             Err(preferred_error) => alternate
                 .await
                 .map(|value| (value, true))
-                .map_err(|alternate_error| (preferred_error, alternate_error)),
+                .map_err(|alternate_error| CandidateErrors::Both(preferred_error, alternate_error)),
         },
         result = &mut alternate => match result {
             Ok(value) => Ok((value, true)),
+            Err(error) if terminal(&error) => Err(CandidateErrors::Terminal(error)),
             Err(alternate_error) => preferred
                 .await
                 .map(|value| (value, false))
-                .map_err(|preferred_error| (preferred_error, alternate_error)),
+                .map_err(|preferred_error| CandidateErrors::Both(preferred_error, alternate_error)),
         },
     }
 }
@@ -1291,7 +1359,7 @@ async fn connect_endpoint(
                     Some(&attempt),
                 )
                 .await
-                .map(MasqueTunnel::Http3),
+                .map(|tunnel| MasqueTunnel::Http3(Box::new(tunnel))),
                 Transport::Http2 => connect_h2_with_protector(
                     endpoint,
                     sni,
@@ -1300,7 +1368,7 @@ async fn connect_endpoint(
                     Some(&attempt),
                 )
                 .await
-                .map(MasqueTunnel::Http2),
+                .map(|tunnel| MasqueTunnel::Http2(Box::new(tunnel))),
             }
         };
         tokio::pin!(connecting);
@@ -1363,6 +1431,14 @@ fn combine_endpoint_errors(
     alternate: std::net::SocketAddr,
     alternate_error: TransportError,
 ) -> TransportError {
+    if RecoveryDecision::for_failure(&preferred_error.failure(None, None)) == RecoveryDecision::Stop
+    {
+        return preferred_error;
+    }
+    if RecoveryDecision::for_failure(&alternate_error.failure(None, None)) == RecoveryDecision::Stop
+    {
+        return alternate_error;
+    }
     if matches!(&preferred_error, TransportError::EndpointPinMismatch)
         || matches!(&alternate_error, TransportError::EndpointPinMismatch)
     {
@@ -1399,7 +1475,7 @@ enum PacketIo {
         buffered_outgoing: Option<Bytes>,
     },
     Channel {
-        outgoing: TrackedReceiver<Bytes>,
+        outgoing: TrackedReceiver<OutboundPacket>,
         incoming: TrackedSender<PacketBatch>,
         buffered_outgoing: Option<Bytes>,
     },
@@ -1464,9 +1540,7 @@ impl PacketIo {
                     Some(packet.freeze())
                 }),
                 Self::Channel { outgoing, .. } => outgoing.recv().await.map(|packet| {
-                    let mut packet = packet
-                        .try_into_mut()
-                        .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
+                    let mut packet = packet.into_mut();
                     if let Err(error) = prepare_forwarded_packet(&mut packet) {
                         tracing::warn!(%error, "discarded malformed packet from the TUN source");
                         return None;
@@ -1505,7 +1579,7 @@ impl PacketIo {
                         return TryOutgoingPacket::Empty;
                     }
                     match rx.try_recv() {
-                        Some(packet) => packet,
+                        Some(packet) => OutboundPacket::Shared(packet),
                         None => return TryOutgoingPacket::Closed,
                     }
                 }
@@ -1517,9 +1591,7 @@ impl PacketIo {
                     }
                 },
             };
-            let mut packet = packet
-                .try_into_mut()
-                .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
+            let mut packet = packet.into_mut();
             if let Err(error) = prepare_forwarded_packet(&mut packet) {
                 tracing::warn!(%error, "discarded malformed packet while building a MASQUE batch");
                 continue;
@@ -1558,7 +1630,7 @@ impl PacketIo {
                 let tx = tx.clone();
                 Box::pin(async move {
                     while let Some(packet) = batch.pop_front() {
-                        tx.send_async(&packet).await;
+                        tx.send_owned_async(packet).await;
                     }
                     true
                 })
@@ -1611,6 +1683,8 @@ async fn run_transport_supervisor(
     let mut backoff_index = 0usize;
     let mut probe_generation = 0u32;
     let mut recovery_policy = crate::recovery_policy::AutoRecoveryPolicy::default();
+    let mut reconnect_schedule =
+        reconnect::ReconnectSchedule::new(protector.as_ref(), profile.ip_policy);
 
     loop {
         active_tunnel.activate_network_quality();
@@ -1639,6 +1713,21 @@ async fn run_transport_supervisor(
         )
         .await;
         probe_generation = probe_generation.wrapping_add(1);
+
+        let outcome = if cancellation.is_cancelled() {
+            ActiveOutcome::Shutdown
+        } else {
+            match outcome {
+                ActiveOutcome::Reconnect(failure) => {
+                    match RecoveryDecision::for_failure(&failure) {
+                        RecoveryDecision::Stop => ActiveOutcome::Terminal(failure),
+                        RecoveryDecision::RefreshPin => ActiveOutcome::PinMismatch,
+                        RecoveryDecision::Retry => ActiveOutcome::Reconnect(failure),
+                    }
+                }
+                outcome => outcome,
+            }
+        };
 
         // Candidate failures only add timeline events. The supervisor alone
         // ends the selected connection when its bearing tunnel stops.
@@ -1792,14 +1881,33 @@ async fn run_transport_supervisor(
                     backoff_index = 0;
                 }
                 loop {
-                    reconnect_count = reconnect_count.saturating_add(1);
+                    if cancellation.is_cancelled() {
+                        return;
+                    }
+                    if RecoveryDecision::for_failure(&failure) == RecoveryDecision::Stop {
+                        let message = failure.code.to_string();
+                        health_tx.send_replace(RuntimeHealth::Failed {
+                            last_path: active_path,
+                            reconnect_count,
+                            message: message.clone(),
+                            failure: failure.clone(),
+                        });
+                        telemetry.record(
+                            ConnectionEventType::Failed,
+                            Some(failure.stage),
+                            ConnectionEventPath::new(failure.transport, failure.address_family),
+                            None,
+                            Some(failure),
+                        );
+                        report_failure(&cancellation, &failure_tx, message);
+                        return;
+                    }
                     let attempt = backoff_index as u32 + 1;
                     let delay = jitter_duration(
                         RECONNECT_DELAYS[backoff_index],
                         H3_PROBE_JITTER_PERCENT,
                         reconnect_count,
                     );
-                    backoff_index = (backoff_index + 1).min(RECONNECT_DELAYS.len() - 1);
                     let reason = failure.code.to_string();
                     telemetry.set_reconnect(reconnect_count, &failure);
                     telemetry.record(
@@ -1816,16 +1924,26 @@ async fn run_transport_supervisor(
                         reason,
                         failure: failure.clone(),
                     });
-                    if !wait_while_dropping_packets(
-                        delay,
-                        &mut packet_io,
-                        &cancellation,
-                        Arc::clone(&protector),
-                    )
-                    .await
-                    {
+                    let Some(reset_backoff) = reconnect_schedule
+                        .wait(delay, &mut packet_io, &cancellation)
+                        .await
+                    else {
                         return;
+                    };
+                    if reset_backoff {
+                        backoff_index = 0;
                     }
+                    reconnect_count = reconnect_count.saturating_add(1);
+                    let attempt = backoff_index as u32 + 1;
+                    backoff_index = (backoff_index + 1).min(RECONNECT_DELAYS.len() - 1);
+                    telemetry.set_reconnect(reconnect_count, &failure);
+                    health_tx.send_replace(RuntimeHealth::Reconnecting {
+                        last_path: active_path,
+                        attempt,
+                        reconnect_count,
+                        reason: failure.code.to_string(),
+                        failure: failure.clone(),
+                    });
 
                     // Clone only the attempt policy. The user's explicit H3/H2
                     // choice, identity, exact egress protection, and saved
@@ -1837,15 +1955,19 @@ async fn run_transport_supervisor(
                         protector.network_generation(),
                         Instant::now(),
                     );
-                    match connect_while_dropping_packets(
-                        &reconnect_profile,
-                        Arc::clone(&identity),
-                        Arc::clone(&protector),
-                        &mut packet_io,
-                        &cancellation,
-                        &telemetry,
-                    )
-                    .await
+                    match reconnect_schedule
+                        .connect(
+                            connect_while_dropping_packets(
+                                &reconnect_profile,
+                                Arc::clone(&identity),
+                                Arc::clone(&protector),
+                                &mut packet_io,
+                                &cancellation,
+                                &telemetry,
+                            ),
+                            &cancellation,
+                        )
+                        .await
                     {
                         Some(Ok((tunnel, family))) => {
                             active_tunnel = tunnel;
@@ -1936,9 +2058,18 @@ async fn refresh_and_retry_connection(
         Some(pin_refresher) => pin_refresher,
         None => return Some(Err(TransportError::EndpointPinMismatch)),
     };
-    let refreshed = match pin_refresher.refresh(Arc::clone(&protector)).await {
-        Ok(refreshed) => refreshed,
-        Err(error) => return Some(Err(error)),
+    let refresh = pin_refresher.refresh(Arc::clone(&protector));
+    tokio::pin!(refresh);
+    let refreshed = loop {
+        tokio::select! {
+            biased;
+            _ = context.cancellation.cancelled() => return None,
+            result = &mut refresh => match result {
+                Ok(refreshed) => break refreshed,
+                Err(error) => return Some(Err(error)),
+            },
+            batch = context.packet_io.receive_outgoing_batch() => { batch?; },
+        }
     };
     if let Err(error) = ensure_assignments_unchanged(current, &refreshed) {
         return Some(Err(error));
@@ -2183,6 +2314,7 @@ async fn pump_active_tunnel(
                         ));
                     }
                     Err(_) => {
+                        crate::transport_performance::add(&telemetry.network_quality().performance().send_timeouts, 1);
                         break ActiveOutcome::Reconnect(
                             TransportFailure::new(
                                 TransportFailureCode::PacketSendTimeout,
@@ -2523,31 +2655,6 @@ async fn wait_for_probe(
     }
 }
 
-async fn wait_while_dropping_packets(
-    delay: Duration,
-    packet_io: &mut PacketIo,
-    cancellation: &CancellationToken,
-    protector: Arc<dyn SocketProtector>,
-) -> bool {
-    let wait = sleep(delay);
-    tokio::pin!(wait);
-    let network_generation = protector.network_generation();
-    loop {
-        tokio::select! {
-            _ = cancellation.cancelled() => return false,
-            _ = &mut wait => return true,
-            _ = wait_for_network_change(&protector, network_generation), if network_generation.is_some() => {
-                return true;
-            }
-            batch = packet_io.receive_outgoing_batch() => {
-                if batch.is_none() {
-                    return false;
-                }
-            }
-        }
-    }
-}
-
 async fn connect_while_dropping_packets(
     profile: &Profile,
     identity: Arc<MasqueTlsIdentity>,
@@ -2858,7 +2965,10 @@ mod tests {
     pub(super) fn test_packet_channel(
         kind: QueueKind,
         capacity: usize,
-    ) -> (TrackedSender<Bytes>, TrackedReceiver<Bytes>) {
+    ) -> (
+        TrackedSender<OutboundPacket>,
+        TrackedReceiver<OutboundPacket>,
+    ) {
         tracked_channel(crate::queue_metrics::QueueMetrics::new(
             kind,
             capacity,
@@ -2877,11 +2987,11 @@ mod tests {
         ))
     }
 
-    fn test_managed_sender(
+    pub(super) fn test_managed_sender(
         capacity: usize,
     ) -> (
         ManagedTunnelSender,
-        TrackedReceiver<Bytes>,
+        TrackedReceiver<OutboundPacket>,
         ConnectionTelemetry,
     ) {
         let telemetry = ConnectionTelemetry::default();
@@ -2933,13 +3043,13 @@ mod tests {
             tokio::spawn(async move { blocked_sender.send_owned_packet(blocked_packet).await });
         tokio::task::yield_now().await;
         assert!(!blocked.is_finished());
-        assert_eq!(receiver.recv().await.unwrap(), first);
+        assert_eq!(receiver.recv().await.unwrap().freeze(), first);
         timeout(Duration::from_secs(1), blocked)
             .await
             .expect("sender did not resume after capacity returned")
             .unwrap()
             .unwrap();
-        assert_eq!(receiver.recv().await.unwrap(), second);
+        assert_eq!(receiver.recv().await.unwrap().freeze(), second);
 
         let metrics = telemetry.snapshot().metrics;
         assert_eq!(metrics.send_queue_drop_count, 0);
@@ -2972,7 +3082,7 @@ mod tests {
         for sequence in 0..130_u16 {
             let packet = test_ipv4_packet(sequence);
             let bytes = packet.len();
-            outgoing_tx.try_send(packet, bytes).unwrap();
+            outgoing_tx.try_send(packet.into(), bytes).unwrap();
         }
         drop(outgoing_tx);
         let mut packet_io = PacketIo::Channel {
@@ -3085,6 +3195,7 @@ mod tests {
             },
             async { Ok::<_, &'static str>("ipv4") },
             Duration::from_millis(20),
+            |_| false,
         )
         .await
         .unwrap();
@@ -3098,6 +3209,7 @@ mod tests {
             async { Err::<&'static str, _>("ipv6 failed") },
             async { Ok::<_, &'static str>("ipv4") },
             Duration::from_secs(1),
+            |_| false,
         )
         .await
         .unwrap();
@@ -3114,6 +3226,7 @@ mod tests {
             },
             async { Err::<&'static str, _>("ipv4 failed") },
             Duration::from_millis(10),
+            |_| false,
         )
         .await
         .unwrap();

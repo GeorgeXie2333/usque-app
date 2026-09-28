@@ -239,11 +239,7 @@ class UsqueTileService : TileService() {
     }
 
     private fun cachedPresentation(): QuickSettingsTileState.Presentation {
-        val recovery =
-            createDeviceProtectedStorageContext().getSharedPreferences(
-                UsqueVpnService.RECOVERY_PREFERENCES,
-                MODE_PRIVATE,
-            )
+        val recovery = AndroidPolicyStore.recovery(this)
         return if (recovery.contains(UsqueVpnService.RECOVERY_PROFILE)) {
             QuickSettingsTileState.active()
         } else {

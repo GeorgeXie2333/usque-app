@@ -338,7 +338,7 @@ impl BatchQueue {
         }
     }
 
-    fn step(&mut self, connection: &mut H3QuicConnection) {
+    fn step(&mut self, connection: &mut H3QuicConnection) -> BatchProgress {
         queue_pending_batch(
             connection,
             0,
@@ -349,7 +349,7 @@ impl BatchQueue {
             &self.pool,
             1500,
         )
-        .unwrap();
+        .unwrap()
     }
 }
 
@@ -439,8 +439,11 @@ fn assert_ipv6_waiter_resumes_after_probe_ack(mut pair: Pair) {
     let mut batch = PacketBatch::single(ipv6.clone());
     batch.push_back(small.clone()).unwrap();
     let mut queue = BatchQueue::new(batch);
-    for _ in 0..4 {
-        queue.step(&mut pair.client);
+    for round in 0..4 {
+        let progress = queue.step(&mut pair.client);
+        assert_eq!(progress.stop, BatchStop::PmtuDeferred);
+        assert_eq!(progress.deferred, 1);
+        assert_eq!(progress.accepted, usize::from(round == 0));
         assert!(matches!(
             queue.result.try_recv(),
             Err(oneshot::error::TryRecvError::Empty)
@@ -553,7 +556,10 @@ fn cancelled_ipv6_waiter_releases_the_pending_batch_without_probe_ack() {
     queue.step(&mut pair.client);
     assert!(queue.pending.is_some());
     queue.result.close();
-    queue.step(&mut pair.client);
+    assert_eq!(
+        queue.step(&mut pair.client).stop,
+        BatchStop::ProducerCancelled
+    );
     assert!(queue.pending.is_none());
     assert!(queue.entries.is_empty());
     assert_eq!(pair.client.dgram_send_queue_len(), 0);

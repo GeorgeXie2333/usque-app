@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:usque/core/chain_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/screens/vpn_gate_screen.dart';
@@ -20,6 +21,10 @@ Future<AppController> openGate(
   tester.view.physicalSize = size;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
+  engine.legacyProfilesImported = true;
+  engine.storedProfiles[0] = engine.storedProfiles[0].copyWith(
+    chainExit: const ChainExitSettings(source: ChainSource.vpnGate),
+  );
   final app = AppController(engine);
   await app.initialize();
   addTearDown(app.dispose);
@@ -28,7 +33,11 @@ Future<AppController> openGate(
     workflowHost(app, home: ShellScreen(controller: app)),
   );
   await tester.pumpAndSettle();
-  await tester.tap(find.text('VPN Gate'));
+  await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
+  await tester.pumpAndSettle();
+  if (find.byType(VpnGateScreen).evaluate().isEmpty) {
+    await tester.tap(find.byKey(const ValueKey('chain-source-vpn_gate')));
+  }
   await tester.pumpAndSettle();
   return app;
 }
@@ -127,7 +136,8 @@ void main() {
     (tester) async {
       await openGate(tester, GateEngine(), size: const Size(390, 1000));
       final country = find.byType(DropdownButtonFormField<String>);
-      await tester.ensureVisible(country);
+      await Scrollable.ensureVisible(tester.element(country), alignment: 0.5);
+      await tester.pumpAndSettle();
       await tester.tap(country);
       await tester.pumpAndSettle();
       await tester.binding.handlePopRoute();
@@ -176,7 +186,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(VpnGateScreen), findsNothing);
       expect(app.section, AppSection.proxy);
-      expect(find.text('VPN Gate').hitTestable(), findsOneWidget);
+      expect(
+        find.text(app.strings.chain('disabled')).hitTestable(),
+        findsOneWidget,
+      );
     },
   );
 
@@ -234,11 +247,30 @@ void main() {
       await tester.tap(node);
       await tester.pumpAndSettle();
       final state = tester.state(find.byType(VpnGateScreen));
+      final scrollable = find
+          .descendant(
+            of: find.byType(VpnGateScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first;
       for (final width in [900.0, 700.0, 390.0, 1200.0, 390.0]) {
         tester.view.physicalSize = Size(width, 1000);
         await tester.pumpAndSettle();
         expect(tester.state(find.byType(VpnGateScreen)), same(state));
-        expect(tester.widget<ListTile>(node).selected, isTrue);
+        // The taller phone layout can lay the row out beyond the viewport;
+        // the draft must survive regardless of where the row ends up.
+        if (node.evaluate().isEmpty) {
+          await tester.dragUntilVisible(
+            node,
+            scrollable,
+            const Offset(0, -160),
+          );
+          await tester.pumpAndSettle();
+        }
+        expect(
+          tester.widget<RadioListTile<(String, String)>>(node).selected,
+          isTrue,
+        );
         expect(
           find.byType(NavigationRail),
           width >= 760 ? findsOneWidget : findsNothing,

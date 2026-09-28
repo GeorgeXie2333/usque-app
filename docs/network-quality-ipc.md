@@ -1,8 +1,10 @@
 # Network quality IPC contract
 
-Schema 13 adds the process-local network quality path without changing or
-reusing any established protobuf tag or enum value. Older profiles normalize
-to canonical physical-system direct DNS, preserving schema-12 behavior.
+Configuration schema 13 introduced the process-local network quality path
+without changing or reusing any established protobuf tag or enum value. Older
+profiles normalize to canonical physical-system direct DNS, preserving
+schema-12 behavior. The current configuration schema is 18; fields added after
+schema 13 below follow the same append-only rule.
 
 ## Append-only fields
 
@@ -22,7 +24,11 @@ to canonical physical-system direct DNS, preserving schema-12 behavior.
   `NetworkQualitySample` tags 1-7 are sequence, UTC sampling timestamp,
   connection-local monotonic milliseconds, optional cumulative downloaded and
   uploaded bytes, optional available RTT milliseconds, and optional available
-  interval loss basis points. Optional zero is a measurement; absence is not.
+  interval loss basis points. The RTT is the latest available sample, falling
+  back to available smoothed RTT. H2 therefore reports its latest PING RTT.
+  H3 always reports smoothed RTT because quiche does not expose latest RTT.
+  Stale or not-ready RTT is omitted. Optional zero is a measurement; absence is
+  not.
 - `NetworkQualitySnapshot.udp_socket_receive = 10` adds optional raw receive/send
   buffer sizes and a bounded socket observation. Its policy target is separate
   from a setter invocation and actual capacity; see the
@@ -165,3 +171,14 @@ encrypted capability is disabled, custom values remain read-only, and only an
 explicit user selection can switch to physical-system DNS.
 
 See [network-doctor.md](network-doctor.md) for Standard and Deep diagnostics.
+
+### MASQUE performance extension
+
+The append-only extension uses `QueueQuality.backpressure` (17),
+`NetworkQualitySnapshot.transport_performance` (11), timeline event
+`QueueBackpressured` (31), and `ConnectionEvent.queue_kind` (10). Older peers
+omit these fields; absent groups remain unknown. Histograms accept packed or
+unpacked protobuf values with fixed 32/7-bin bounds. Android keeps the existing
+16 KiB limit and fixed numeric allowlists. Performance counters are available
+in diagnostic exports, without a new settings panel. See
+[metric semantics and units](network-quality-metrics.md#masque-performance-and-capacity-waits).

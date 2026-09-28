@@ -35,6 +35,12 @@ Mbed TLS 3.6.7 no longer initializes a default padding mode in cipher setup;
 without this call CBC data encryption fails. No wire format or padding
 validation is replaced; Mbed TLS supplies both operations.
 
+`openvpn/ssl/mssparms.hpp` treats explicit `mssfix 0` as disabled rather
+than retaining the default flag. `openvpn/ssl/proto.hpp` returns a zero MSS
+adjustment before overhead arithmetic for this disabled case. Positive MSS
+values retain upstream range and modifier semantics. The memory peer checks
+that an explicit zero preserves TCP MSS bytes after encryption/decryption.
+
 All other upstream source files are unchanged. `SOURCE-FILES.sha256` records
 the original upstream contents, including the original versions of those files.
 The archive and fixed revision are recorded in `SOURCE.md`.

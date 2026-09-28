@@ -84,6 +84,10 @@ unsafe extern "C" {
         length: usize,
         remote: *const c_char,
         port: u16,
+        username: *const c_char,
+        password: *const c_char,
+        key_password: *const c_char,
+        disable_client_cert: u32,
         notify: extern "C" fn(*mut c_void),
         context: *mut c_void,
     ) -> *mut c_void;
@@ -97,11 +101,12 @@ unsafe extern "C" {
         data: *const u8,
         length: usize,
     ) -> i32;
-    fn usque_ovpn_pop(
+    fn usque_ovpn_pop_filtered(
         session: *mut c_void,
         event: *mut RawEvent,
         data: *mut u8,
         capacity: usize,
+        mask: u32,
     ) -> i32;
     #[cfg(test)]
     fn usque_ovpn_event_size() -> usize;
@@ -208,9 +213,30 @@ impl Input {
 pub struct Session {
     native: Arc<Native>,
     worker: Option<JoinHandle<Result<(), Error>>>,
+    output: Output,
+    split: bool,
 }
 impl Session {
     pub fn start(config: &str, remote: SocketAddr) -> Result<Self, Error> {
+        Self::start_with_credentials(config, remote, "", "", "")
+    }
+    pub fn start_with_credentials(
+        config: &str,
+        remote: SocketAddr,
+        username: &str,
+        password: &str,
+        key_password: &str,
+    ) -> Result<Self, Error> {
+        Self::start_with_options(config, remote, username, password, key_password, false)
+    }
+    pub fn start_with_options(
+        config: &str,
+        remote: SocketAddr,
+        username: &str,
+        password: &str,
+        key_password: &str,
+        disable_client_cert: bool,
+    ) -> Result<Self, Error> {
         if config.is_empty()
             || config.len() > MAX_CONFIG
             || config.contains('\0')
@@ -221,6 +247,18 @@ impl Session {
         let notify = Box::new(Notify::new());
         let context = (&*notify as *const Notify).cast_mut().cast::<c_void>();
         let address = CString::new(remote.ip().to_string()).map_err(|_| Error::InvalidConfig)?;
+        // Zeroizing byte buffers avoid leaving temporary CString copies of credentials.
+        fn credential(value: &str) -> Result<zeroize::Zeroizing<Vec<u8>>, Error> {
+            if value.len() > 2048 || value.contains('\0') {
+                return Err(Error::InvalidConfig);
+            }
+            let mut bytes = zeroize::Zeroizing::new(value.as_bytes().to_vec());
+            bytes.push(0);
+            Ok(bytes)
+        }
+        let username = credential(username)?;
+        let password = credential(password)?;
+        let key_password = credential(key_password)?;
         // SAFETY: create copies the configuration and remote before returning.
         // The callback points at a stable allocation retained by Native.
         let pointer = unsafe {
@@ -229,6 +267,10 @@ impl Session {
                 config.len(),
                 address.as_ptr(),
                 remote.port(),
+                username.as_ptr().cast(),
+                password.as_ptr().cast(),
+                key_password.as_ptr().cast(),
+                u32::from(disable_client_cert),
                 wake,
                 context,
             )
@@ -251,8 +293,10 @@ impl Session {
             }
         });
         Ok(Self {
+            output: Output::new(Arc::clone(&native), u32::MAX),
             native,
             worker: Some(worker),
+            split: false,
         })
     }
     pub fn input(&self) -> Input {
@@ -261,42 +305,81 @@ impl Session {
         }
     }
     pub async fn next_event(&mut self) -> Result<Event, Error> {
-        let mut data = vec![0; MAX_PACKET];
-        loop {
-            let notified = self.native.notify.notified();
-            tokio::pin!(notified);
-            notified.as_mut().enable();
-            let mut event = std::mem::MaybeUninit::<RawEvent>::uninit();
-            // SAFETY: Output buffers have their declared capacity. pop writes
-            // a complete RawEvent only when it returns 1; mutexes serialize it.
-            let result = unsafe {
-                usque_ovpn_pop(
-                    self.native.pointer.as_ptr(),
-                    event.as_mut_ptr(),
-                    data.as_mut_ptr(),
-                    data.len(),
-                )
-            };
-            if result == 0 {
-                notified.await;
-                continue;
-            }
-            if result != 1 {
-                return Err(Error::Closed);
-            }
-            // SAFETY: A successful pop initialized the full repr(C) value.
-            let event = unsafe { event.assume_init() };
-            let length = usize::try_from(event.length).map_err(|_| Error::InvalidPacket)?;
-            if length > data.len() {
-                return Err(Error::InvalidPacket);
-            }
-            data.truncate(length);
-            return decode_event(event, data);
+        self.output.next_event().await
+    }
+    /// Independently drained packet outputs; lifecycle events stay on Session.
+    pub fn split_packet_outputs(&mut self) -> Option<(Output, Output)> {
+        if self.split {
+            return None;
         }
+        self.split = true;
+        self.output.mask = (1 << 1) | (1 << 4) | (1 << 5) | (1 << 6);
+        Some((
+            Output::new(self.native.clone(), 1 << 2),
+            Output::new(self.native.clone(), 1 << 3),
+        ))
     }
     pub async fn shutdown(&mut self) -> Result<(), Error> {
         self.native.stop();
         join_worker(&mut self.worker, SHUTDOWN_TIMEOUT).await
+    }
+}
+
+/// A single reader owns its reusable native copy buffer. Native pop is atomic;
+/// abandoning a pending wait never consumes a packet from another reader.
+/// `Stopped` means this reader is drained and the worker has finished. Other
+/// split readers may still hold packets or the terminal lifecycle error.
+pub struct Output {
+    native: Arc<Native>,
+    mask: u32,
+    buffer: Vec<u8>,
+}
+impl Output {
+    fn new(native: Arc<Native>, mask: u32) -> Self {
+        Self {
+            native,
+            mask,
+            buffer: vec![0; MAX_PACKET],
+        }
+    }
+    pub fn try_next_event(&mut self) -> Result<Option<Event>, Error> {
+        let mut event = std::mem::MaybeUninit::<RawEvent>::uninit();
+        // SAFETY: Arc retains the native allocation; output capacities match
+        // the provided buffers. A successful filtered pop initializes RawEvent.
+        let result = unsafe {
+            usque_ovpn_pop_filtered(
+                self.native.pointer.as_ptr(),
+                event.as_mut_ptr(),
+                self.buffer.as_mut_ptr(),
+                self.buffer.len(),
+                self.mask,
+            )
+        };
+        if result == 0 {
+            return Ok(None);
+        }
+        if result != 1 {
+            return Err(Error::Closed);
+        }
+        // SAFETY: native pop returned success and initialized the full event.
+        let event = unsafe { event.assume_init() };
+        let length = event.length as usize;
+        if length > self.buffer.len() {
+            return Err(Error::InvalidPacket);
+        }
+        decode_event(event, self.buffer[..length].to_vec()).map(Some)
+    }
+    pub async fn next_event(&mut self) -> Result<Event, Error> {
+        loop {
+            let native = self.native.clone();
+            let notified = native.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if let Some(event) = self.try_next_event()? {
+                return Ok(event);
+            }
+            notified.await;
+        }
     }
 }
 
@@ -478,6 +561,11 @@ mod tests {
     }
     #[tokio::test]
     async fn unusable_tls_configuration_finishes_without_opening_a_socket() {
+        // The memory peer changes OpenVPN's process-global CryptoAlgs table.
+        // Even a configuration that fails before dialing must not initialize
+        // another native client concurrently with that test-only setup.
+        #[cfg(feature = "interop-test")]
+        let _native_fixture = crate::interop_tests::SERIAL.lock().await;
         let remote = "192.0.2.1:1194".parse().unwrap();
         let mut session = Session::start(
             "client\ndev tun\nproto tcp\nremote 192.0.2.1 1194\n",

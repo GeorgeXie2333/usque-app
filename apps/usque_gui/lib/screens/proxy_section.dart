@@ -6,8 +6,8 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/unsaved_changes_guard.dart';
+import 'chain_proxy_screen.dart';
 import 'proxy_screen.dart';
-import 'vpn_gate_screen.dart';
 
 /// Keeps proxy subroutes inside the shell, including across rail breakpoints.
 class ProxySection extends StatefulWidget {
@@ -48,10 +48,10 @@ class ProxySectionState extends State<ProxySection> {
   Future<void> openVpnGate() async {
     if (_gateRoute != null || _closing) return;
     final route = MaterialPageRoute<void>(
-      settings: const RouteSettings(name: '/proxy/vpn-gate'),
+      settings: const RouteSettings(name: '/proxy/chain-proxy'),
       builder: (context) => ValueListenableBuilder<bool>(
         valueListenable: _active,
-        builder: (context, active, _) => VpnGateScreen(
+        builder: (context, active, _) => ChainProxyScreen(
           controller: widget.controller,
           active: active,
           leaveGuardKey: _leaveGuard,

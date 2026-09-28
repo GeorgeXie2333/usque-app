@@ -128,6 +128,7 @@ pub struct PmtuQuality {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueueQuality {
+    pub backpressure: Option<crate::QueueBackpressureSnapshot>,
     pub kind: QueueKind,
     pub availability: MetricAvailability,
     pub current_items: u64,
@@ -171,6 +172,7 @@ impl QueueQuality {
                 .map_or_else(MetricValue::not_ready, MetricValue::available)
         };
         Self {
+            backpressure: snapshot.backpressure,
             kind: snapshot.kind,
             availability,
             current_items: snapshot.current_items,
@@ -331,6 +333,7 @@ pub struct H2FlowControlQuality {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkQualitySnapshot {
+    pub transport_performance: Option<crate::TransportPerformanceSnapshot>,
     pub sampled_at: Instant,
     pub connection_id: Option<ConnectionInstanceId>,
     pub transport: Option<Transport>,
@@ -519,6 +522,7 @@ pub struct NetworkQualityTelemetry {
 }
 
 struct NetworkQualityTelemetryInner {
+    performance: crate::transport_performance::PerformanceCounters,
     stream_data_plane: AtomicBool,
     features: crate::NetworkFeatureFlags,
     #[cfg(any(test, feature = "fault-injection"))]
@@ -550,6 +554,7 @@ impl NetworkQualityTelemetry {
             std::array::from_fn(|index| QueueMetrics::unregistered(ALL_QUEUE_KINDS[index]));
         Self {
             inner: Arc::new(NetworkQualityTelemetryInner {
+                performance: Default::default(),
                 stream_data_plane: AtomicBool::new(false),
                 features,
                 #[cfg(any(test, feature = "fault-injection"))]
@@ -565,6 +570,10 @@ impl NetworkQualityTelemetry {
 }
 
 impl NetworkQualityTelemetry {
+    pub(crate) fn performance(&self) -> &crate::transport_performance::PerformanceCounters {
+        &self.inner.performance
+    }
+
     pub fn features(&self) -> crate::NetworkFeatureFlags {
         self.inner.features
     }
@@ -1154,7 +1163,8 @@ impl NetworkQualitySampler {
         let source = self
             .external_transport
             .as_ref()
-            .map_or(&self.telemetry, |external| &external.telemetry);
+            .map_or(&self.telemetry, |external| &external.telemetry)
+            .clone();
         let stream_data_plane = source.inner.stream_data_plane.load(Ordering::Acquire);
         let mut state = if self.external_transport.is_some() {
             source.state_read().clone()
@@ -1166,7 +1176,7 @@ impl NetworkQualitySampler {
         let active = state.active_attempt.take();
         let mut queue_metrics = self.telemetry.queues_read().clone();
         let mut allocations = self.telemetry.allocation_snapshot();
-        let udp_io = active.as_ref().unwrap_or(source).udp_snapshot();
+        let udp_io = active.as_ref().unwrap_or(&source).udp_snapshot();
         if self.external_transport.is_some() {
             allocations.add(source.allocation_snapshot());
             let transport_queues = source.queues_read();
@@ -1223,7 +1233,23 @@ impl NetworkQualitySampler {
         let pmtu = pmtu_quality(&state, sampled_at);
         let migration = migration_quality(&state);
         let direct_dns = direct_dns_quality(&state);
+        let mut performance = active
+            .as_ref()
+            .unwrap_or(&source)
+            .performance()
+            .snapshot(state.transport);
+        performance.incoming_copy_bytes = self
+            .telemetry
+            .performance()
+            .incoming_copy_bytes
+            .load(Ordering::Relaxed);
+        performance.send_timeouts = self
+            .telemetry
+            .performance()
+            .send_timeouts
+            .load(Ordering::Relaxed);
         let mut snapshot = NetworkQualitySnapshot {
+            transport_performance: state.connection_id.map(|_| performance),
             sampled_at,
             connection_id: state.connection_id,
             transport: state.transport,

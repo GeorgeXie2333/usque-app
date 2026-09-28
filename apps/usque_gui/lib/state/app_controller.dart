@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_strings.dart';
+import '../core/user_facing_errors.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../services/update_downloader.dart';
@@ -14,6 +15,39 @@ import 'network_quality_controller.dart';
 import 'network_settings_controller.dart';
 
 class AppController extends ChangeNotifier {
+  Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request) {
+    final engine = _engine;
+    if (engine is WarpWireguardClient) {
+      return (engine as WarpWireguardClient).warpWireguard(request);
+    }
+    throw const EngineException(
+      'WARP_GENERATION_UNAVAILABLE',
+      'WARP configuration generation unavailable.',
+    );
+  }
+
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request) {
+    final engine = _engine;
+    if (engine is ChainProfileClient) {
+      return (engine as ChainProfileClient).chainProfile(request);
+    }
+    throw const EngineException(
+      'CHAIN_PROFILE_UNAVAILABLE',
+      'Chain profiles are unavailable.',
+    );
+  }
+
+  Future<List<ChainConfigurationFile>> pickChainConfigurations() {
+    final engine = _engine;
+    if (engine is ChainProfileClient) {
+      return (engine as ChainProfileClient).pickChainConfigurations();
+    }
+    throw const EngineException(
+      'CHAIN_PROFILE_UNAVAILABLE',
+      'File import is unavailable.',
+    );
+  }
+
   AppController(
     EngineClient engine, {
     UpdateDownloader? updateDownloader,
@@ -23,6 +57,7 @@ class AppController extends ChangeNotifier {
        diagnostics = DiagnosticsController(engine),
        quality = qualityController ?? NetworkQualityController(engine),
        networkSettings = NetworkSettingsController(engine) {
+    diagnostics.resolveStrings = () => strings;
     networkSettings.addListener(_acceptNetworkSettings);
   }
 
@@ -157,13 +192,13 @@ class AppController extends ChangeNotifier {
   set snapshot(EngineSnapshot value) {
     _snapshotRevision++;
     _snapshot = value;
-    if (value.phase == ConnectionPhase.error) {
-      lastError =
-          strings.windowsRecoveryError(
-            value.errorCode,
-            details: value.warning,
-          ) ??
-          lastError;
+    if (value.phase == ConnectionPhase.error &&
+        (value.errorCode != null || value.warning?.isNotEmpty == true)) {
+      lastError = userFacingFailure(
+        strings,
+        code: value.errorCode,
+        details: value.warning,
+      );
     }
     quality.updateConnection(value);
   }
@@ -226,6 +261,19 @@ class AppController extends ChangeNotifier {
   };
 
   UsqueProfile sharedNetwork = UsqueProfile.defaultProfile();
+  NetworkSettingsState? _acceptedSettings;
+  bool _profilesLoaded = false;
+  String? _profileLoadError;
+  bool _initialStatusLoaded = false;
+  bool _startupAutoConnectChecked = false;
+  Timer? _bootstrapRetryTimer;
+  Future<void>? _bootstrapWork;
+  int _bootstrapGeneration = 0;
+  int _dataGeneration = 0;
+  bool _clearing = false;
+  final Map<String, int> _identityReconnectIntents = {};
+  final Set<String> _managedAccountIds = {};
+  final List<void Function()> _pendingAccountViews = [];
 
   UsqueProfile get activeProfile {
     final account = profiles.firstWhere(
@@ -271,10 +319,18 @@ class AppController extends ChangeNotifier {
   }
 
   void _acceptNetworkSettings() {
-    final stored = networkSettings.state?.storedProfile;
-    if (stored != null && profiles.any((profile) => profile.id == stored.id)) {
+    final state = networkSettings.state;
+    if (identical(state, _acceptedSettings)) {
+      _notifyListeners();
+      return;
+    }
+    _acceptedSettings = state;
+    final stored = state?.sharedNetwork ?? state?.storedProfile;
+    if (stored != null) {
       final managed =
-          identityStatus(stored.id).provider == IdentityProvider.zeroTrust;
+          state?.sharedNetwork == null &&
+          (_managedAccountIds.contains(stored.id) ||
+              identityStatus(stored.id).provider == IdentityProvider.zeroTrust);
       sharedNetwork = managed
           ? stored.copyWith(
               endpointIpv4: sharedNetwork.endpointIpv4,
@@ -286,7 +342,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    final dataGeneration = _dataGeneration;
+    _bootstrapGeneration++;
     _preferences = await SharedPreferences.getInstance();
+    if (_disposed || dataGeneration != _dataGeneration) return;
     onboardingComplete = _preferences?.getBool('onboarding_complete') ?? false;
     updateChecksEnabled =
         _preferences?.getBool('update_checks_enabled') ?? true;
@@ -301,11 +360,12 @@ class AppController extends ChangeNotifier {
       LocalePreference.system,
     );
     await _loadProfiles();
-    if (_disposed) {
+    if (_disposed || dataGeneration != _dataGeneration) {
       return;
     }
     try {
       final launchTarget = await _engine.consumeLaunchTarget();
+      if (_disposed || dataGeneration != _dataGeneration) return;
       if (launchTarget == 'profiles') {
         section = AppSection.profiles;
       }
@@ -314,32 +374,101 @@ class AppController extends ChangeNotifier {
     }
     try {
       final platformPreferences = await _engine.platformPreferences();
+      if (_disposed || dataGeneration != _dataGeneration) return;
       startOnBoot = platformPreferences.startOnBoot;
       closeToTray = platformPreferences.closeToTray;
     } on Object {
       // Native shell preferences are optional in unsupported test hosts.
     }
     try {
-      perAppProxy = await _engine.perAppProxy();
+      final perApp = await _engine.perAppProxy();
+      if (_disposed || dataGeneration != _dataGeneration) return;
+      perAppProxy = perApp;
     } on Object {
       perAppProxy = const PerAppProxySettings();
     }
     if (_engine.supportsSnapshotEvents) {
       unawaited(_subscribeToSnapshotEvents());
     }
+    if (_disposed || dataGeneration != _dataGeneration) return;
     initialized = true;
-    unawaited(_refreshCapabilities());
     _notifyListeners();
     unawaited(diagnostics.restore(silent: true));
-    unawaited(refreshSnapshot(silent: true));
     unawaited(_updateDownloader.cleanupStale());
     if (updateChecksEnabled && !_startupUpdateCheckStarted) {
       _startupUpdateCheckStarted = true;
       unawaited(_checkForUpdates(manual: false, silent: true));
     }
-    if (_shouldAutoConnectOnStart()) {
-      await connectOrDisconnect();
+    // Rendering can proceed after the deadline; a late bootstrap still checks
+    // the user's current intent before it may auto-connect.
+    await _finishBootstrap().timeout(
+      const Duration(seconds: 12),
+      onTimeout: () {},
+    );
+  }
+
+  Future<void> _finishBootstrap() {
+    final pending = _bootstrapWork;
+    if (pending != null) return pending;
+    late final Future<void> work;
+    work = _bootstrapOnce().whenComplete(() {
+      if (identical(_bootstrapWork, work)) _bootstrapWork = null;
+    });
+    _bootstrapWork = work;
+    return work;
+  }
+
+  Future<void> _bootstrapOnce() async {
+    final generation = _bootstrapGeneration;
+    final intent = _connectionIntent;
+    try {
+      if (!_profilesLoaded) await _loadProfiles();
+      await Future.wait<void>([
+        _refreshCapabilities(),
+        refreshSnapshot(silent: true),
+      ]);
+      if (_disposed || generation != _bootstrapGeneration) return;
+      final needsCapabilities =
+          activeProfile.dataPlane == DataPlaneMode.l4Proxy ||
+          activeProfile.vpnGate.enabled;
+      if (!_profilesLoaded ||
+          !_initialStatusLoaded ||
+          (needsCapabilities && engineCapabilities == null)) {
+        _scheduleBootstrapRetry();
+        return;
+      }
+      _bootstrapRetryTimer?.cancel();
+      _bootstrapRetryTimer = null;
+      if (!_startupAutoConnectChecked) {
+        _startupAutoConnectChecked = true;
+        if (intent == _connectionIntent && _shouldAutoConnectOnStart()) {
+          await connectOrDisconnect();
+        }
+      }
+    } on Object {
+      if (!_disposed && generation == _bootstrapGeneration) {
+        _scheduleBootstrapRetry();
+      }
     }
+  }
+
+  void _scheduleBootstrapRetry() {
+    _bootstrapRetryTimer?.cancel();
+    _bootstrapRetryTimer = Timer(const Duration(seconds: 2), () {
+      _bootstrapRetryTimer = null;
+      if (!_disposed) unawaited(_finishBootstrap());
+    });
+  }
+
+  Future<void> _ensureConnectionInputs() async {
+    if (!_profilesLoaded) await _loadProfiles();
+    if (!_profilesLoaded) {
+      throw const EngineException(
+        'ENGINE_UNAVAILABLE',
+        'The saved accounts are not available.',
+      );
+    }
+    if (engineCapabilities == null) await _refreshCapabilities();
   }
 
   bool _shouldAutoConnectOnStart() {
@@ -352,6 +481,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _loadProfiles() async {
+    final generation = _bootstrapGeneration;
     final preferences = _preferences;
     final raw = preferences?.getString(_profilesKey);
     var legacyProfiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
@@ -391,8 +521,7 @@ class AppController extends ChangeNotifier {
       } on Object {
         await preferences.setString(_corruptProfilesBackupKey, raw);
         await preferences.remove(_profilesKey);
-        lastError =
-            'Saved profiles were invalid and have been reset. A local backup was retained.';
+        lastError = strings.get('accounts_reset');
       }
     }
 
@@ -403,14 +532,24 @@ class AppController extends ChangeNotifier {
         legacyProfiles,
         legacyActiveProfileId,
       );
+      if (_disposed || generation != _bootstrapGeneration) return;
+      _profilesLoaded = true;
+      if (lastError == _profileLoadError) lastError = null;
+      _profileLoadError = null;
       profiles = catalog.profiles;
       activeProfileId = catalog.activeProfileId;
       profileIdentityStates = catalog.identityStates;
       profileIdentityStatuses = catalog.identityStatuses;
       _captureSharedNetwork();
+      sharedNetwork = catalog.sharedNetwork ?? sharedNetwork;
+      _rememberManagedAccounts();
       await preferences?.remove(_profilesKey);
-    } on EngineException catch (error) {
-      lastError ??= error.message;
+    } on Object catch (error) {
+      if (!_disposed &&
+          generation == _bootstrapGeneration &&
+          lastError == null) {
+        lastError = _profileLoadError = userFacingError(strings, error);
+      }
     }
   }
 
@@ -430,9 +569,13 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _refreshCapabilities() async {
+    final generation = _dataGeneration;
     try {
       final value = await _engine.getCapabilities();
-      if (!_disposed && value != null) {
+      if (!_disposed &&
+          generation == _dataGeneration &&
+          !_clearing &&
+          value != null) {
         engineCapabilities = value;
         _notifyListeners();
       }
@@ -447,6 +590,7 @@ class AppController extends ChangeNotifier {
     String? teamName,
     String? callbackUri,
   }) async {
+    final generation = _dataGeneration;
     return _run(() async {
       await _engine.provisionIdentity(
         activeProfile,
@@ -456,6 +600,7 @@ class AppController extends ChangeNotifier {
         callbackUri: callbackUri,
       );
       await _refreshProfileCatalog();
+      if (_disposed || generation != _dataGeneration || _clearing) return;
       onboardingComplete = true;
       await _preferences?.setBool('onboarding_complete', true);
     });
@@ -478,6 +623,7 @@ class AppController extends ChangeNotifier {
       snapshot = EngineSnapshot(
         phase: ConnectionPhase.disconnecting,
         vpnGate: snapshot.vpnGate,
+        chainExit: snapshot.chainExit,
         killSwitchState: snapshot.killSwitchState,
         platformLockdown: snapshot.platformLockdown,
         alwaysOn: snapshot.alwaysOn,
@@ -500,6 +646,8 @@ class AppController extends ChangeNotifier {
     snapshot = const EngineSnapshot(phase: ConnectionPhase.preparing);
     _notifyListeners();
     final success = await _run(() async {
+      await _ensureConnectionInputs();
+      if (intent != _connectionIntent) return;
       if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
         throw const EngineException(
           'IDENTITY_SETUP_REQUIRED',
@@ -522,6 +670,7 @@ class AppController extends ChangeNotifier {
   Future<void> retry() async {
     final intent = ++_connectionIntent;
     final success = await _run(() async {
+      await _ensureConnectionInputs();
       await flushProfileWrites();
       if (intent != _connectionIntent) return;
       _requireDataPlaneCapability(activeProfile);
@@ -549,11 +698,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshSnapshot({bool silent = false}) {
-    if (_disposed) return Future<void>.value();
-    return _snapshotRefresh ??= _refreshSnapshotOnce(silent: silent)
-        .whenComplete(() {
-          _snapshotRefresh = null;
-        });
+    if (_clearing) return Future<void>.value();
+    final pending = _snapshotRefresh;
+    if (pending != null) return pending;
+    late final Future<void> work;
+    work = _refreshSnapshotOnce(silent: silent).whenComplete(() {
+      if (identical(_snapshotRefresh, work)) _snapshotRefresh = null;
+    });
+    _snapshotRefresh = work;
+    return work;
   }
 
   Future<void> _refreshSnapshotOnce({required bool silent}) async {
@@ -563,6 +716,7 @@ class AppController extends ChangeNotifier {
       if (_disposed || revision != _snapshotRevision) {
         return;
       }
+      _initialStatusLoaded = true;
       snapshot = next;
       if (!snapshot.isConnected && !snapshotStreamDegraded) {
         _stopPolling();
@@ -570,7 +724,7 @@ class AppController extends ChangeNotifier {
       _notifyListeners();
     } on EngineException catch (error) {
       if (!silent && !_disposed && revision == _snapshotRevision) {
-        lastError = error.message;
+        lastError = userFacingError(strings, error);
         _notifyListeners();
       }
     }
@@ -602,27 +756,26 @@ class AppController extends ChangeNotifier {
     required String username,
     required String password,
   }) async {
+    if (_clearing || _disposed) return false;
     final success = await networkSettings.enqueue(
       () => _run(() async {
-        final profile = activeProfile;
-        await _engine.updateProxyAuth(
-          profile.id,
-          username: username,
-          password: password,
-          confirmed: true,
-        );
-        final next = profile.copyWith(
-          proxy: profile.proxy.copyWith(authUsername: username),
-        );
-        if (profile.id == activeProfileId && snapshot.isConnected) {
-          await _engine.reconfigureActiveProfile(next);
-        } else {
-          await _engine.upsertProfile(next);
+        try {
+          await _engine.updateProxyAuth(
+            activeProfileId,
+            username: username,
+            password: password,
+            confirmed: true,
+          );
+        } finally {
+          // Read back even when persistence succeeded but runtime application failed.
+          try {
+            await _refreshProfileCatalog();
+          } on Object {
+            // Keep the original credential result if catalogue readback fails.
+          }
+          await networkSettings.refresh();
+          await refreshSnapshot();
         }
-        profiles = profiles
-            .map((item) => item.id == next.id ? next : item)
-            .toList(growable: false);
-        _captureSharedNetwork();
       }, affectsConnection: false),
     );
     if (success) {
@@ -634,46 +787,80 @@ class AppController extends ChangeNotifier {
     return success;
   }
 
-  Future<bool> updateLicenseKey(String profileId, String licenseKey) async {
-    final success = await _run(() async {
-      final reconnect = profileId == activeProfileId && snapshot.isConnected;
+  Future<bool> updateLicenseKey(String profileId, String licenseKey) => _run(
+    () => _mutateIdentity(
+      profileId,
+      () => _engine.updateLicenseKey(profileId, licenseKey),
+    ),
+    affectsConnection: false,
+    connectionIntent: _connectionIntent,
+  );
+
+  Future<bool> unbindLicenseKey(String profileId) => _run(
+    () => _mutateIdentity(profileId, () => _engine.unbindLicenseKey(profileId)),
+    affectsConnection: false,
+    connectionIntent: _connectionIntent,
+  );
+
+  Future<void> _mutateIdentity(
+    String profileId,
+    Future<void> Function() mutation,
+  ) async {
+    final intent = _connectionIntent;
+    final reconnect = profileId == activeProfileId && snapshot.isConnected;
+    var committed = false;
+    var refreshed = false;
+    if (reconnect) _identityReconnectIntents[profileId] = intent;
+    try {
       if (reconnect) {
-        snapshot = await _engine.disconnect();
+        final next = await _engine.disconnect();
+        if (intent == _connectionIntent) snapshot = next;
         _notifyListeners();
       }
       try {
-        await _engine.updateLicenseKey(profileId, licenseKey);
+        await mutation();
+        committed = true;
         await _refreshProfileCatalog();
+        refreshed = true;
       } finally {
-        if (reconnect) {
+        if (reconnect &&
+            (!committed || refreshed) &&
+            !_disposed &&
+            intent == _connectionIntent &&
+            profileId == activeProfileId) {
           _requireDataPlaneCapability(activeProfile);
-          snapshot = await _engine.connect(activeProfile);
+          final next = await _engine.connect(activeProfile);
+          if (intent == _connectionIntent && profileId == activeProfileId) {
+            snapshot = next;
+          }
           _notifyListeners();
         }
       }
-    });
-    return success;
+    } finally {
+      if (_identityReconnectIntents[profileId] == intent) {
+        _identityReconnectIntents.remove(profileId);
+      }
+    }
   }
 
-  Future<bool> unbindLicenseKey(String profileId) async {
-    final success = await _run(() async {
-      final reconnect = profileId == activeProfileId && snapshot.isConnected;
-      if (reconnect) {
-        snapshot = await _engine.disconnect();
-        _notifyListeners();
-      }
-      try {
-        await _engine.unbindLicenseKey(profileId);
-        await _refreshProfileCatalog();
-      } finally {
-        if (reconnect) {
-          _requireDataPlaneCapability(activeProfile);
-          snapshot = await _engine.connect(activeProfile);
-          _notifyListeners();
-        }
-      }
-    });
-    return success;
+  void cancelIdentityFlow(String profileId) {
+    final intent = _identityReconnectIntents.remove(profileId);
+    if (intent == null || intent != _connectionIntent) return;
+    final cancelled = ++_connectionIntent;
+    _userDisconnectedThisSession = true;
+    unawaited(
+      _engine
+          .disconnect()
+          .then((next) {
+            if (!_disposed && cancelled == _connectionIntent) {
+              snapshot = next;
+              _notifyListeners();
+            }
+          })
+          .catchError((Object _) {
+            /* Snapshot recovery reports any unconfirmed stop. */
+          }),
+    );
   }
 
   Future<void> exportWarpSecret(String profileId) async {
@@ -688,15 +875,30 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _refreshProfileCatalog() async {
+    if (_clearing) return;
+    final generation = _dataGeneration;
     final catalog = await _engine.importLegacyProfiles(
       const <UsqueProfile>[],
       '',
     );
+    if (_disposed || generation != _dataGeneration || _clearing) return;
+    _profilesLoaded = true;
     profiles = catalog.profiles;
     activeProfileId = catalog.activeProfileId;
     profileIdentityStates = catalog.identityStates;
     profileIdentityStatuses = catalog.identityStatuses;
-    _captureSharedNetwork();
+    _rememberManagedAccounts();
+    for (final apply in _pendingAccountViews) {
+      apply();
+    }
+  }
+
+  void _rememberManagedAccounts() {
+    _managedAccountIds.addAll(
+      profileIdentityStatuses.entries
+          .where((entry) => entry.value.provider == IdentityProvider.zeroTrust)
+          .map((entry) => entry.key),
+    );
   }
 
   Future<void> checkForUpdates() async {
@@ -712,7 +914,8 @@ class AppController extends ChangeNotifier {
         !result.available ||
         package == null ||
         version == null ||
-        updateOperationActive) {
+        updateOperationActive ||
+        _clearing) {
       return;
     }
     final generation = ++_updateOperationGeneration;
@@ -724,60 +927,75 @@ class AppController extends ChangeNotifier {
     updateError = null;
     lastError = null;
     _notifyListeners();
-    String? path;
-    try {
-      path = await _updateDownloader.download(
-        package,
-        cancellation: cancellation,
-        onProgress: (downloaded, total) {
-          if (_disposed || generation != _updateOperationGeneration) return;
-          updateDownloadedBytes = downloaded;
-          updateTotalBytes = total;
-          _notifyListeners();
-        },
-      );
+    downloadedUpdatePath = null;
+    await _updateDownloader.runExclusive(() async {
       if (_disposed || generation != _updateOperationGeneration) {
-        await _updateDownloader.discard(path);
+        if (identical(_updateCancellation, cancellation)) {
+          _updateCancellation = null;
+        }
         return;
       }
-      updatePhase = UpdateOperationPhase.verifying;
-      _notifyListeners();
-      await _engine.verifyUpdatePackage(
-        path: path,
-        version: version,
-        package: package,
-      );
-      if (_disposed || generation != _updateOperationGeneration) {
-        await _updateDownloader.discard(path);
-        return;
-      }
-      path = await _updateDownloader.publish(path, package);
-      downloadedUpdatePath = path;
-      updatePhase = UpdateOperationPhase.ready;
-      updateDownloadedBytes = package.size;
-      updateTotalBytes = package.size;
-      _notifyListeners();
-    } on UpdateDownloadCancelled {
-      if (!_disposed && generation == _updateOperationGeneration) {
-        updatePhase = UpdateOperationPhase.available;
-        updateDownloadedBytes = 0;
+      String? path;
+      try {
+        path = await _updateDownloader.download(
+          package,
+          cancellation: cancellation,
+          onProgress: (downloaded, total) {
+            if (_disposed || generation != _updateOperationGeneration) return;
+            updateDownloadedBytes = downloaded;
+            updateTotalBytes = total;
+            _notifyListeners();
+          },
+        );
+        if (_disposed || generation != _updateOperationGeneration) {
+          await _updateDownloader.discard(path);
+          return;
+        }
+        updatePhase = UpdateOperationPhase.verifying;
+        _notifyListeners();
+        await _engine.verifyUpdatePackage(
+          path: path,
+          version: version,
+          package: package,
+        );
+        if (_disposed || generation != _updateOperationGeneration) {
+          await _updateDownloader.discard(path);
+          return;
+        }
+        path = await _updateDownloader.publish(path, package);
+        if (_disposed || generation != _updateOperationGeneration) {
+          await _updateDownloader.discard(path);
+          return;
+        }
+        downloadedUpdatePath = path;
+        updatePhase = UpdateOperationPhase.ready;
+        updateDownloadedBytes = package.size;
         updateTotalBytes = package.size;
         _notifyListeners();
+      } on UpdateDownloadCancelled {
+        if (!_disposed && generation == _updateOperationGeneration) {
+          updatePhase = UpdateOperationPhase.available;
+          updateDownloadedBytes = 0;
+          updateTotalBytes = package.size;
+          _notifyListeners();
+        }
+      } on Object catch (error) {
+        try {
+          await _updateDownloader.discard(path);
+        } on Object {
+          // Keep the primary failure; cleanup cannot leave the UI busy.
+        }
+        if (!_disposed && generation == _updateOperationGeneration) {
+          updateError = userFacingError(strings, error);
+          updatePhase = UpdateOperationPhase.failed;
+          _notifyListeners();
+        }
+      } finally {
+        if (identical(_updateCancellation, cancellation)) {
+          _updateCancellation = null;
+        }
       }
-    } on Object catch (error) {
-      await _updateDownloader.discard(path);
-      if (!_disposed && generation == _updateOperationGeneration) {
-        updateError = error is EngineException
-            ? error.message
-            : error.toString();
-        updatePhase = UpdateOperationPhase.failed;
-        _notifyListeners();
-      }
-    } finally {
-      if (identical(_updateCancellation, cancellation)) {
-        _updateCancellation = null;
-      }
-    }
+    });
   }
 
   void cancelUpdateDownload() {
@@ -798,13 +1016,16 @@ class AppController extends ChangeNotifier {
         updatePhase != UpdateOperationPhase.ready) {
       return;
     }
+    final generation = _updateOperationGeneration;
     updatePhase = UpdateOperationPhase.installing;
     updateError = null;
     _notifyListeners();
     final success = await _run(() async {
       await flushProfileWrites();
+      if (_disposed || generation != _updateOperationGeneration) return;
       if (snapshot.phase != ConnectionPhase.disconnected) {
         final disconnected = await _engine.disconnect();
+        if (_disposed || generation != _updateOperationGeneration) return;
         if (disconnected.phase != ConnectionPhase.disconnected) {
           throw const EngineException(
             'UPDATE_DISCONNECT_FAILED',
@@ -814,15 +1035,20 @@ class AppController extends ChangeNotifier {
         snapshot = disconnected;
         _notifyListeners();
       }
+      if (_disposed || generation != _updateOperationGeneration) return;
       await _engine.installUpdatePackage(
         path: path,
         version: version,
         package: package,
       );
     }, affectsConnection: false);
-    if (!success && !_disposed) {
+    if (!success && !_disposed && generation == _updateOperationGeneration) {
       updateError = lastError;
-      await _updateDownloader.discard(path);
+      try {
+        await _updateDownloader.discard(path);
+      } on Object {
+        // The install failure remains visible even if deleting the file fails.
+      }
       downloadedUpdatePath = null;
       updateDownloadedBytes = 0;
       updatePhase = UpdateOperationPhase.available;
@@ -837,21 +1063,26 @@ class AppController extends ChangeNotifier {
     updatePhase = updateResult?.available == true
         ? UpdateOperationPhase.available
         : UpdateOperationPhase.idle;
-    updateError = message;
+    updateError = strings.get('operation_failed');
     _notifyListeners();
   }
 
   Future<void> refreshGeoRules() async {
+    final generation = _dataGeneration;
     try {
-      geoRules = await _engine.listGeoRules();
+      final next = await _engine.listGeoRules();
+      if (_disposed || generation != _dataGeneration) return;
+      geoRules = next;
       _notifyListeners();
     } on EngineException catch (error) {
-      lastError = error.message;
+      if (_disposed || generation != _dataGeneration) return;
+      lastError = userFacingError(strings, error);
       _notifyListeners();
     }
   }
 
   Future<void> downloadGeoRules(String countryCode) async {
+    final generation = _dataGeneration;
     await _run(() async {
       lastNotice = null;
       _geoOperationActive = true;
@@ -859,16 +1090,22 @@ class AppController extends ChangeNotifier {
       _notifyListeners();
       try {
         final results = await _engine.downloadGeoRules(countryCode);
+        if (_disposed || generation != _dataGeneration) return;
         _recordGeoUpdateResults(results);
-        geoRules = await _engine.listGeoRules();
+        final next = await _engine.listGeoRules();
+        if (_disposed || generation != _dataGeneration) return;
+        geoRules = next;
       } finally {
-        _geoOperationActive = false;
-        geoProgress = null;
+        if (generation == _dataGeneration) {
+          _geoOperationActive = false;
+          geoProgress = null;
+        }
       }
     }, affectsConnection: false);
   }
 
   Future<void> updateAllGeoRules() async {
+    final generation = _dataGeneration;
     await _run(() async {
       lastNotice = null;
       _geoOperationActive = true;
@@ -876,11 +1113,16 @@ class AppController extends ChangeNotifier {
       _notifyListeners();
       try {
         final results = await _engine.updateAllGeoRules();
+        if (_disposed || generation != _dataGeneration) return;
         _recordGeoUpdateResults(results);
-        geoRules = await _engine.listGeoRules();
+        final next = await _engine.listGeoRules();
+        if (_disposed || generation != _dataGeneration) return;
+        geoRules = next;
       } finally {
-        _geoOperationActive = false;
-        geoProgress = null;
+        if (generation == _dataGeneration) {
+          _geoOperationActive = false;
+          geoProgress = null;
+        }
       }
     }, affectsConnection: false);
   }
@@ -894,64 +1136,126 @@ class AppController extends ChangeNotifier {
         .length;
     final failures = results
         .where((result) => result.status == GeoRulesUpdateStatus.failed)
-        .map((result) {
-          final scope = result.artifactScope == 'global'
-              ? 'global'
-              : result.countryCode;
-          final artifact = result.artifactKind.isEmpty
-              ? scope
-              : '$scope ${result.artifactKind}';
-          return result.reason.isEmpty
-              ? artifact
-              : '$artifact: ${result.reason}';
-        })
-        .join('; ');
+        .length;
     if (updated > 0 || current > 0) {
       lastNotice = strings
           .get('geo_update_complete')
           .replaceAll('{updated}', '$updated')
           .replaceAll('{current}', '$current');
     }
-    if (failures.isNotEmpty) {
+    if (failures > 0) {
       lastError = strings
           .get('geo_update_failed')
-          .replaceAll('{current}', failures);
+          .replaceAll('{current}', '$failures');
     }
   }
 
   Future<bool> clearAllData() async {
-    await flushProfileWrites();
+    if (_clearing || _disposed) return false;
+    _clearing = true;
+    busy = true;
+    _dataGeneration++;
+    _connectionIntent++;
+    _perAppSaveToken = null;
+    _identityReconnectIntents.clear();
+    _activeOperations = 0;
+    _bootstrapGeneration++;
+    _bootstrapWork = null;
+    _bootstrapRetryTimer?.cancel();
+    _bootstrapRetryTimer = null;
+    _snapshotRevision++;
+    _snapshotRefresh = null;
+    _snapshotSubscriptionGeneration++;
+    _snapshotReconnectTimer?.cancel();
+    _snapshotReconnectTimer = null;
+    _stopPolling();
+    final subscription = _snapshotSubscription;
+    _snapshotSubscription = null;
+    diagnostics.suspendForReset();
+    networkSettings.suspendForReset();
+    _updateOperationGeneration++;
+    _updateCancellation?.cancel();
     String? cleanupWarning;
-    final success = await _run(() async {
-      await _engine.clearAllData(confirmed: true);
-      await _preferences?.clear();
-      onboardingComplete = false;
-      updateChecksEnabled = true;
-      themePreference = ThemePreference.system;
-      localePreference = LocalePreference.system;
-      section = AppSection.home;
-      snapshot = const EngineSnapshot();
-      profiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
-      activeProfileId = UsqueProfile.defaultProfileId;
-      profileIdentityStates = <String, ProfileIdentityState>{};
-      profileIdentityStatuses = <String, ProfileIdentityStatus>{};
-      _updateCancellation?.cancel();
-      _updateOperationGeneration += 1;
+    var success = false;
+    try {
       try {
-        await _updateDownloader.discard(downloadedUpdatePath);
+        await subscription?.cancel();
       } on Object catch (error) {
-        cleanupWarning = error is EngineException
-            ? error.message
-            : error.toString();
+        cleanupWarning = userFacingError(strings, error);
       }
-      updateResult = null;
-      updatePhase = UpdateOperationPhase.idle;
-      updateDownloadedBytes = 0;
-      updateTotalBytes = 0;
-      updateError = null;
-      downloadedUpdatePath = null;
-      perAppProxy = const PerAppProxySettings();
-    }, affectsConnection: false);
+      await flushProfileWrites();
+      success = await _run(
+        () async {
+          await _engine.clearAllData(confirmed: true);
+          final preferences =
+              _preferences ?? await SharedPreferences.getInstance();
+          if (!await preferences.clear()) {
+            throw const EngineException(
+              'CLEAR_ALL_FAILED',
+              'Local preferences could not be cleared.',
+            );
+          }
+          onboardingComplete = false;
+          updateChecksEnabled = true;
+          themePreference = ThemePreference.system;
+          localePreference = LocalePreference.system;
+          section = AppSection.home;
+          snapshot = const EngineSnapshot();
+          sharedNetwork = UsqueProfile.defaultProfile();
+          _acceptedSettings = null;
+          _managedAccountIds.clear();
+          _pendingAccountViews.clear();
+          profiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
+          activeProfileId = UsqueProfile.defaultProfileId;
+          profileIdentityStates = <String, ProfileIdentityState>{};
+          profileIdentityStatuses = <String, ProfileIdentityStatus>{};
+          networkSettings.reset();
+          diagnostics.reset();
+          quality.reset();
+          geoRules = const GeoRulesList();
+          geoProgress = null;
+          _geoOperationActive = false;
+          _profilesLoaded = false;
+          _profileLoadError = null;
+          _initialStatusLoaded = false;
+          _startupAutoConnectChecked = false;
+          _startupUpdateCheckStarted = false;
+          try {
+            await _updateDownloader.discard(downloadedUpdatePath);
+          } on Object catch (error) {
+            cleanupWarning = userFacingError(strings, error);
+          }
+          updateResult = null;
+          updatePhase = UpdateOperationPhase.idle;
+          updateDownloadedBytes = 0;
+          updateTotalBytes = 0;
+          updateError = null;
+          downloadedUpdatePath = null;
+          _updateCancellation = null;
+          perAppProxy = const PerAppProxySettings();
+        },
+        affectsConnection: false,
+        allowDuringClear: true,
+      );
+    } finally {
+      _clearing = false;
+      busy = _activeOperations > 0;
+      diagnostics.resumeAfterReset();
+      networkSettings.resumeAfterReset();
+      if (!_disposed) {
+        if (_engine.supportsSnapshotEvents) await _subscribeToSnapshotEvents();
+        if (!success) {
+          try {
+            await _refreshProfileCatalog();
+          } on Object {
+            /* Keep the clear failure. */
+          }
+          await networkSettings.refresh();
+          await diagnostics.restore(silent: true);
+          await refreshSnapshot(silent: true);
+        }
+      }
+    }
     if (success) {
       lastNotice = strings.get('clear_all_data_complete');
       lastError = cleanupWarning;
@@ -964,17 +1268,19 @@ class AppController extends ChangeNotifier {
     required bool manual,
     required bool silent,
   }) async {
-    if (updateOperationActive) return;
+    if (updateOperationActive || _clearing) return;
+    final generation = ++_updateOperationGeneration;
     updatePhase = UpdateOperationPhase.checking;
     updateError = null;
     _notifyListeners();
     if (silent) {
       try {
         final result = await _engine.checkForUpdates(manual: manual);
-        if (_disposed) {
+        if (_disposed || generation != _updateOperationGeneration) {
           return;
         }
-        await _applyUpdateResult(result);
+        await _applyUpdateResult(result, generation);
+        if (_disposed || generation != _updateOperationGeneration) return;
         if (result.available) {
           lastNotice =
               '${strings.get('update_available')} ${result.version ?? ''}'
@@ -983,7 +1289,9 @@ class AppController extends ChangeNotifier {
         _notifyListeners();
       } on Object {
         // Automatic checks are optional and must not affect tunnel state.
-        if (!_disposed && updatePhase == UpdateOperationPhase.checking) {
+        if (!_disposed &&
+            generation == _updateOperationGeneration &&
+            updatePhase == UpdateOperationPhase.checking) {
           updatePhase = updateResult?.available == true
               ? UpdateOperationPhase.available
               : UpdateOperationPhase.idle;
@@ -997,14 +1305,19 @@ class AppController extends ChangeNotifier {
     final success = await _run(() async {
       checked = await _engine.checkForUpdates(manual: manual);
     }, affectsConnection: false);
-    if (success && checked != null) {
-      await _applyUpdateResult(checked!);
+    if (success &&
+        checked != null &&
+        generation == _updateOperationGeneration) {
+      await _applyUpdateResult(checked!, generation);
+      if (_disposed || generation != _updateOperationGeneration) return;
       lastNotice = checked!.available
           ? '${strings.get('update_available')} ${checked!.version ?? ''}'
                 .trim()
           : strings.get('already_latest');
       _notifyListeners();
-    } else if (!_disposed && updatePhase == UpdateOperationPhase.checking) {
+    } else if (!_disposed &&
+        generation == _updateOperationGeneration &&
+        updatePhase == UpdateOperationPhase.checking) {
       updatePhase = updateResult?.available == true
           ? UpdateOperationPhase.available
           : UpdateOperationPhase.idle;
@@ -1012,14 +1325,22 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> _applyUpdateResult(UpdateCheckResult result) async {
+  Future<void> _applyUpdateResult(
+    UpdateCheckResult result,
+    int generation,
+  ) async {
+    String? cleanupError;
     final previousName = updateResult?.package?.name;
     final nextName = result.package?.name;
     final packageChanged = previousName != nextName;
     if (packageChanged && downloadedUpdatePath != null) {
-      _updateOperationGeneration += 1;
       _updateCancellation?.cancel();
-      await _updateDownloader.discard(downloadedUpdatePath);
+      try {
+        await _updateDownloader.discard(downloadedUpdatePath);
+      } on Object catch (error) {
+        cleanupError = userFacingError(strings, error);
+      }
+      if (_disposed || generation != _updateOperationGeneration) return;
       downloadedUpdatePath = null;
       updateDownloadedBytes = 0;
       updateTotalBytes = 0;
@@ -1033,29 +1354,30 @@ class AppController extends ChangeNotifier {
       updatePhase = UpdateOperationPhase.available;
       updateTotalBytes = result.package?.size ?? 0;
     }
-    updateError = null;
+    updateError = cleanupError;
   }
 
   Future<bool> _run(
     Future<void> Function() operation, {
     bool affectsConnection = true,
     int? connectionIntent,
+    bool allowDuringClear = false,
   }) async {
+    if (_clearing && !allowDuringClear) return false;
+    final generation = _dataGeneration;
     _activeOperations += 1;
     busy = true;
     lastError = null;
     _notifyListeners();
     try {
       await operation();
-      return true;
+      return !_disposed && generation == _dataGeneration;
     } catch (error) {
+      if (_disposed || generation != _dataGeneration) return false;
       if (connectionIntent != null && connectionIntent != _connectionIntent) {
         return false;
       }
-      lastError = error is EngineException
-          ? strings.windowsRecoveryError(error.code, details: error.message) ??
-                error.message
-          : error.toString();
+      final message = userFacingError(strings, error);
       if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
@@ -1063,14 +1385,18 @@ class AppController extends ChangeNotifier {
           dataPlane: snapshot.dataPlane,
           l4: snapshot.l4,
           vpnGate: snapshot.vpnGate,
-          warning: lastError,
+          chainExit: snapshot.chainExit,
+          warning: message,
           errorCode: error is EngineException ? error.code : null,
           errorRetryable: error is EngineException ? error.retryable : null,
         );
       }
+      // Preserve exception-specific context after the snapshot setter maps its
+      // structured code, including timeouts and localized adapter cleanup.
+      lastError = message;
       return false;
     } finally {
-      _activeOperations -= 1;
+      if (generation == _dataGeneration) _activeOperations -= 1;
       busy = _activeOperations > 0;
       _notifyListeners();
     }
@@ -1104,20 +1430,31 @@ class AppController extends ChangeNotifier {
     await _preferences?.setBool('update_checks_enabled', value);
   }
 
-  Future<void> setPerAppProxy(PerAppProxySettings value) async {
-    final previous = perAppProxy;
-    perAppProxy = value;
-    _notifyListeners();
-    try {
-      perAppProxy = await _engine.setPerAppProxy(value);
-      if (snapshot.isConnected) {
-        await refreshSnapshot(silent: true);
-      }
-    } on Object catch (error) {
-      perAppProxy = previous;
-      lastError = error is EngineException ? error.message : error.toString();
+  Object? _perAppSaveToken;
+
+  /// The result confirms persisted policy. Runtime application is asynchronous.
+  Future<({bool saved, String? error})> setPerAppProxy(
+    PerAppProxySettings value,
+  ) async {
+    if (_clearing || _disposed || _perAppSaveToken != null) {
+      return (saved: false, error: strings.get('operation_failed'));
     }
-    _notifyListeners();
+    final generation = _dataGeneration;
+    final token = Object();
+    _perAppSaveToken = token;
+    try {
+      final saved = await _engine.setPerAppProxy(value);
+      if (_disposed || generation != _dataGeneration) {
+        return (saved: false, error: strings.get('operation_failed'));
+      }
+      perAppProxy = saved;
+      _notifyListeners();
+      return (saved: true, error: null);
+    } on Object catch (error) {
+      return (saved: false, error: userFacingError(strings, error));
+    } finally {
+      if (identical(_perAppSaveToken, token)) _perAppSaveToken = null;
+    }
   }
 
   Future<List<InstalledAppInfo>> listInstalledApps() =>
@@ -1134,7 +1471,7 @@ class AppController extends ChangeNotifier {
       await _engine.setStartOnBoot(value);
     } on Object catch (error) {
       startOnBoot = previous;
-      lastError = error is EngineException ? error.message : error.toString();
+      lastError = userFacingError(strings, error);
       _notifyListeners();
     }
   }
@@ -1147,7 +1484,7 @@ class AppController extends ChangeNotifier {
       await _engine.setCloseToTray(value);
     } on Object catch (error) {
       closeToTray = previous;
-      lastError = error is EngineException ? error.message : error.toString();
+      lastError = userFacingError(strings, error);
       _notifyListeners();
     }
   }
@@ -1164,6 +1501,7 @@ class AppController extends ChangeNotifier {
       _run(_engine.openAlwaysOnVpnSettings, affectsConnection: false);
 
   void addProfile(String name) {
+    if (_clearing) return;
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.runes.length > 64) {
       return;
@@ -1182,7 +1520,14 @@ class AppController extends ChangeNotifier {
       ),
     };
     _notifyListeners();
-    _queueProfileMutation(() => _engine.upsertProfile(added));
+    _queueProfileMutation(
+      () => _engine.upsertProfile(added),
+      optimistic: () {
+        if (!profiles.any((p) => p.id == added.id)) {
+          profiles = [...profiles, added];
+        }
+      },
+    );
   }
 
   ProfileIdentityState identityState(String profileId) =>
@@ -1202,6 +1547,7 @@ class AppController extends ChangeNotifier {
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.runes.length > 64) return false;
     final profile = sharedNetwork.copyWith(id: _newUuidV4(), name: normalized);
+    final generation = _dataGeneration;
     ProfileCatalog? catalog;
     final success = await _run(() async {
       catalog = await _engine.createProfileWithIdentity(
@@ -1211,11 +1557,16 @@ class AppController extends ChangeNotifier {
         teamName: teamName,
         callbackUri: callbackUri,
       );
+      if (_disposed || generation != _dataGeneration || _clearing) return;
+      _profilesLoaded = true;
       profiles = catalog!.profiles;
       activeProfileId = catalog!.activeProfileId;
       profileIdentityStates = catalog!.identityStates;
       profileIdentityStatuses = catalog!.identityStatuses;
-      _captureSharedNetwork();
+      _rememberManagedAccounts();
+      for (final apply in _pendingAccountViews) {
+        apply();
+      }
     }, affectsConnection: false);
     return success;
   }
@@ -1227,35 +1578,20 @@ class AppController extends ChangeNotifier {
     String? teamName,
     String? callbackUri,
   }) async {
-    final success = await _run(() async {
-      final reconnect = profile.id == activeProfileId && snapshot.isConnected;
-      var mutationCommitted = false;
-      var refreshedCatalog = false;
-      if (reconnect) {
-        snapshot = await _engine.disconnect();
-        _notifyListeners();
-      }
-      try {
-        await _engine.provisionIdentity(
+    return _run(
+      () => _mutateIdentity(
+        profile.id,
+        () => _engine.provisionIdentity(
           profile,
           method: method,
           licenseKey: licenseKey,
           teamName: teamName,
           callbackUri: callbackUri,
-        );
-        mutationCommitted = true;
-        await _refreshProfileCatalog();
-        refreshedCatalog = true;
-      } finally {
-        final safeToReconnect = !mutationCommitted || refreshedCatalog;
-        if (reconnect && safeToReconnect) {
-          _requireDataPlaneCapability(activeProfile);
-          snapshot = await _engine.connect(activeProfile);
-          _notifyListeners();
-        }
-      }
-    }, affectsConnection: false);
-    return success;
+        ),
+      ),
+      affectsConnection: false,
+      connectionIntent: _connectionIntent,
+    );
   }
 
   Future<String> beginZeroTrustLogin(String teamName) async {
@@ -1271,7 +1607,7 @@ class AppController extends ChangeNotifier {
     try {
       await _engine.cancelZeroTrustLogin();
     } on Object catch (error) {
-      lastError = error is EngineException ? error.message : error.toString();
+      lastError = userFacingError(strings, error);
       _notifyListeners();
     }
   }
@@ -1281,6 +1617,7 @@ class AppController extends ChangeNotifier {
   }
 
   void renameProfile(String id, String name) {
+    if (_clearing) return;
     if (!profiles.any((profile) => profile.id == id)) {
       return;
     }
@@ -1292,9 +1629,15 @@ class AppController extends ChangeNotifier {
         .toList(growable: false);
     _notifyListeners();
     _queueProfileMutation(
-      () => _engine.upsertProfile(
-        _hydrateAccount(profiles.firstWhere((profile) => profile.id == id)),
-      ),
+      () => _engine.renameProfile(id, name),
+      optimistic: () {
+        profiles = profiles
+            .map(
+              (profile) =>
+                  profile.id == id ? profile.copyWith(name: name) : profile,
+            )
+            .toList(growable: false);
+      },
     );
   }
 
@@ -1325,15 +1668,22 @@ class AppController extends ChangeNotifier {
   }
 
   void setActiveProfile(String id) {
+    if (_clearing) return;
     if (profiles.any((profile) => profile.id == id)) {
       _connectionIntent++;
       activeProfileId = id;
       _notifyListeners();
-      _queueProfileMutation(() => _engine.setActiveProfile(id));
+      _queueProfileMutation(
+        () => _engine.setActiveProfile(id),
+        optimistic: () {
+          if (profiles.any((p) => p.id == id)) activeProfileId = id;
+        },
+      );
     }
   }
 
   bool deleteProfile(String id) {
+    if (_clearing) return false;
     if (profiles.length == 1) {
       return false;
     }
@@ -1348,40 +1698,48 @@ class AppController extends ChangeNotifier {
       activeProfileId = profiles.first.id;
     }
     _notifyListeners();
-    _queueProfileMutation(() => _engine.deleteProfile(id));
+    _queueProfileMutation(
+      () => _engine.deleteProfile(id),
+      optimistic: () {
+        profiles = profiles.where((p) => p.id != id).toList();
+        profileIdentityStates = {...profileIdentityStates}..remove(id);
+        profileIdentityStatuses = {...profileIdentityStatuses}..remove(id);
+        if (activeProfileId == id && profiles.isNotEmpty) {
+          activeProfileId = profiles.first.id;
+        }
+      },
+    );
     return true;
   }
 
-  Future<bool> _queueProfileMutation(Future<void> Function() mutation) {
-    final outcome = Completer<bool>();
-    unawaited(
-      networkSettings.enqueue(() async {
-        var succeeded = false;
-        try {
-          await mutation();
-          succeeded = true;
-        } on Object catch (error) {
-          lastError = 'Profile changes could not be saved: $error';
-          try {
-            final catalog = await _engine.importLegacyProfiles(
-              const <UsqueProfile>[],
-              '',
-            );
-            profiles = catalog.profiles;
-            activeProfileId = catalog.activeProfileId;
-            profileIdentityStates = catalog.identityStates;
-            profileIdentityStatuses = catalog.identityStatuses;
-            _captureSharedNetwork();
-          } on Object {
-            // Keep the optimistic in-memory state when the authoritative store
-            // cannot be reloaded; the original mutation error remains visible.
-          }
-          _notifyListeners();
-        }
-        outcome.complete(succeeded);
-      }),
-    );
-    return outcome.future;
+  Future<bool> _queueProfileMutation(
+    Future<void> Function() mutation, {
+    required void Function() optimistic,
+  }) {
+    final generation = _dataGeneration;
+    _pendingAccountViews.add(optimistic);
+    return networkSettings.enqueue(() async {
+      if (_clearing || generation != _dataGeneration) {
+        _pendingAccountViews.remove(optimistic);
+        return false;
+      }
+      var succeeded = false;
+      try {
+        await mutation();
+        succeeded = true;
+      } on Object catch (error) {
+        lastError = userFacingError(strings, error);
+      }
+      _pendingAccountViews.remove(optimistic);
+      try {
+        await _refreshProfileCatalog();
+      } on Object {
+        // Keep the current view if authoritative readback is unavailable.
+        // Subsequent mutations retain their original immutable arguments.
+      }
+      _notifyListeners();
+      return succeeded;
+    });
   }
 
   /// Waits for already queued non-secret profile writes. Installers and tests
@@ -1424,7 +1782,9 @@ class AppController extends ChangeNotifier {
     if (previous != null) {
       await previous.cancel();
     }
-    if (_disposed || generation != _snapshotSubscriptionGeneration) {
+    if (_disposed ||
+        _clearing ||
+        generation != _snapshotSubscriptionGeneration) {
       return;
     }
     _snapshotSubscription = _engine.snapshotEvents.listen(
@@ -1438,7 +1798,9 @@ class AppController extends ChangeNotifier {
   }
 
   void _handleSnapshotEvent(EngineSnapshotEvent event, int generation) {
-    if (_disposed || generation != _snapshotSubscriptionGeneration) {
+    if (_disposed ||
+        _clearing ||
+        generation != _snapshotSubscriptionGeneration) {
       return;
     }
     if (event.snapshot != null || event.networkQuality != null) {
@@ -1481,6 +1843,7 @@ class AppController extends ChangeNotifier {
       networkSettings.accept(event.networkSettings!);
     }
     final next = event.snapshot;
+    if (next != null) _initialStatusLoaded = true;
     if (next == null) {
       if ((wasDegraded || handledNetworkQuality || handledCapabilities) &&
           !handledGeoProgress) {
@@ -1491,11 +1854,11 @@ class AppController extends ChangeNotifier {
     final nextError =
         next.phase == ConnectionPhase.error &&
             (next.warning?.trim().isNotEmpty ?? false)
-        ? strings.windowsRecoveryError(next.errorCode, details: next.warning) ??
-              <String?>[
-                next.errorCode?.trim(),
-                next.warning?.trim(),
-              ].whereType<String>().where((part) => part.isNotEmpty).join(': ')
+        ? userFacingFailure(
+            strings,
+            code: next.errorCode,
+            details: next.warning,
+          )
         : null;
     final errorChanged = nextError != null && nextError != lastError;
     // Presentation equality intentionally ignores quality timestamps. The
@@ -1531,7 +1894,9 @@ class AppController extends ChangeNotifier {
   }
 
   void _markSnapshotStreamUnavailable(int generation) {
-    if (_disposed || generation != _snapshotSubscriptionGeneration) {
+    if (_disposed ||
+        _clearing ||
+        generation != _snapshotSubscriptionGeneration) {
       return;
     }
     final established = _snapshotStreamEstablished;
@@ -1563,6 +1928,8 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _bootstrapGeneration++;
+    _bootstrapRetryTimer?.cancel();
     _connectionIntent++;
     _updateOperationGeneration += 1;
     _updateCancellation?.cancel();

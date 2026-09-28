@@ -12,7 +12,7 @@
 #[cfg(any(test, target_os = "android"))]
 use std::sync::atomic::AtomicBool;
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicU64, Ordering},
 };
 #[cfg(any(test, target_os = "android"))]
@@ -26,7 +26,7 @@ use jni::{
     Env, EnvUnowned, JValue, JavaVM,
     errors::ThrowRuntimeExAndDefault,
     jni_sig, jni_str,
-    objects::{JByteArray, JClass, JObject, JObjectArray, JString},
+    objects::{JByteArray, JClass, JLongArray, JObject, JObjectArray, JString},
     refs::Global,
     strings::JNIString,
     sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring},
@@ -48,8 +48,8 @@ use usque_transport::{
     PmtuPhase, QueueKind, RuntimePath, TransportError,
 };
 use usque_transport::{
-    DirectEgressLease, DirectProtocol, MasqueTlsIdentity, STALE_GENERATION_REASON, SocketHandle,
-    SocketProtector,
+    DirectEgressLease, DirectProtocol, MasqueTlsIdentity, PhysicalNetworkAvailability,
+    PhysicalNetworkSnapshot, STALE_GENERATION_REASON, SocketHandle, SocketProtector,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
@@ -70,10 +70,13 @@ pub const RECONFIGURE_NEED_COLD: i32 = 1;
 pub const RECONFIGURE_NEED_ATTACH: i32 = 2;
 pub const RECONFIGURE_NOT_RUNNING: i32 = -10;
 
+mod chain_exit;
 mod connection_timeline;
 mod diagnostic_probe;
 #[cfg(any(test, target_os = "android"))]
 mod exit_probe_task;
+#[cfg(feature = "wireguard")]
+mod warp_wireguard;
 
 #[derive(Debug)]
 struct JniCode(jint);
@@ -121,11 +124,19 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
     with_jni_env(&mut environment, |environment| {
         let json = serde_json::json!({
             "network_settings_application": engine_ready(),
+            "account_metadata_mutations": engine_ready(),
+            "shared_proxy_auth_application": engine_ready(),
             "l4_tcp": engine_ready(),
             "l4_tun_tcp": engine_ready(),
             "l4_dns_conversion": engine_ready(),
             "vpn_gate_tcp": engine_ready(),
             "vpn_gate_pool_favorites": engine_ready(),
+            "chain_profile_import": engine_ready(),
+            "chain_openvpn_udp": engine_ready(),
+            "chain_wireguard": engine_ready() && cfg!(feature = "wireguard"),
+            "chain_warp_wireguard": engine_ready() && cfg!(feature = "wireguard"),
+            "chain_openvpn_multi_endpoint": engine_ready(),
+            "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
             "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
@@ -258,6 +269,7 @@ fn native_start<'local>(environment: &mut Env<'local>, request: NativeVpnStart<'
             service,
             policy: AndroidSocketRoutePolicy::Vpn,
             network_generation: AtomicU64::new(network_generation),
+            physical_watch: OnceLock::new(),
         }),
     )
 }
@@ -304,7 +316,7 @@ fn native_start_proxy<'local>(
         Err(_) => return INVALID_WARP_SECRET,
     };
     let profile = match parse_android_profile(&profile_json) {
-        Ok(profile) if !profile.frontends.tunnel || profile.vpn_gate.enabled => profile,
+        Ok(profile) if !profile.frontends.tunnel || profile.chain_enabled() => profile,
         _ => return START_INVALID_PROFILE,
     };
     let proxy_password = match environment.convert_byte_array(&proxy_password) {
@@ -355,6 +367,7 @@ fn native_start_proxy<'local>(
             service,
             policy,
             network_generation: AtomicU64::new(network_generation),
+            physical_watch: OnceLock::new(),
         }),
     )
 }
@@ -434,6 +447,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRec
     mut environment: EnvUnowned<'local>,
     _class: JClass<'local>,
     profile_json: JString<'local>,
+    proxy_password: JByteArray<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
         let profile_json = match profile_json.try_to_string(environment) {
@@ -443,6 +457,14 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRec
         let profile = match parse_android_profile(&profile_json) {
             Ok(profile) => profile,
             Err(_) => return START_INVALID_PROFILE,
+        };
+        let password = match environment.convert_byte_array(&proxy_password) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        let profile = match attach_android_proxy_password(profile, password) {
+            Ok(profile) => profile,
+            Err(code) => return code,
         };
         reconfigure_engine(profile)
     })
@@ -454,6 +476,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeAtt
     _class: JClass<'local>,
     tun_file_descriptor: jint,
     profile_json: JString<'local>,
+    proxy_password: JByteArray<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
         if tun_file_descriptor < 0 {
@@ -466,6 +489,14 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeAtt
         let profile = match parse_android_profile(&profile_json) {
             Ok(profile) => profile,
             Err(_) => return START_INVALID_PROFILE,
+        };
+        let password = match environment.convert_byte_array(&proxy_password) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        let profile = match attach_android_proxy_password(profile, password) {
+            Ok(profile) => profile,
+            Err(code) => return code,
         };
         attach_tun_engine(tun_file_descriptor, profile)
     })
@@ -893,6 +924,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeVpn
                         .map_err(|_| "VPN_GATE_UNAVAILABLE")?,
                     policy: AndroidSocketRoutePolicy::Proxy,
                     network_generation: AtomicU64::new(generation),
+                    physical_watch: OnceLock::new(),
                 });
                 Some(vpngate::FetchContext {
                     #[cfg(target_os = "android")]
@@ -1019,6 +1051,10 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
 #[derive(Debug, Deserialize)]
 struct AndroidProfile {
     #[serde(default)]
+    chain_exit: Option<usque_core::chain_exit::ChainExitSettings>,
+    #[serde(default)]
+    disable_quic: bool,
+    #[serde(default)]
     vpn_gate: usque_core::vpngate::VpnGateSettings,
     #[serde(default)]
     data_plane: usque_core::DataPlaneMode,
@@ -1074,6 +1110,10 @@ struct AndroidFrontends {
 
 #[derive(Debug, Deserialize)]
 struct AndroidProxy {
+    #[serde(default)]
+    socks5_listeners: Option<Vec<SocketAddr>>,
+    #[serde(default)]
+    http_listeners: Option<Vec<SocketAddr>>,
     socks_ipv4: String,
     socks_ipv6: String,
     socks_port: u16,
@@ -1185,6 +1225,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
     let http_ipv4: IpAddr = parse_value(&source.proxy.http_ipv4, "HTTP IPv4 listener")?;
     let http_ipv6: IpAddr = parse_value(&source.proxy.http_ipv6, "HTTP IPv6 listener")?;
     let mut profile = Profile {
+        chain_exit: source.chain_exit,
         vpn_gate: source.vpn_gate,
         id: parse_value(&source.id, "profile ID")?,
         data_plane: source.data_plane,
@@ -1207,6 +1248,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
             parse_value(&source.dns_v6, "DNS IPv6")?,
         ],
         allow_lan: source.allow_lan,
+        disable_quic: source.disable_quic,
         split_exclusions: source
             .bypass_cidrs
             .iter()
@@ -1217,14 +1259,18 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         geo_direct_countries: source.geo_direct_countries,
         direct_dns,
         proxy: ProxySettings {
-            socks5_listeners: vec![
-                SocketAddr::new(socks_ipv4, source.proxy.socks_port),
-                SocketAddr::new(socks_ipv6, source.proxy.socks_port),
-            ],
-            http_listeners: vec![
-                SocketAddr::new(http_ipv4, source.proxy.http_port),
-                SocketAddr::new(http_ipv6, source.proxy.http_port),
-            ],
+            socks5_listeners: source.proxy.socks5_listeners.unwrap_or_else(|| {
+                vec![
+                    SocketAddr::new(socks_ipv4, source.proxy.socks_port),
+                    SocketAddr::new(socks_ipv6, source.proxy.socks_port),
+                ]
+            }),
+            http_listeners: source.proxy.http_listeners.unwrap_or_else(|| {
+                vec![
+                    SocketAddr::new(http_ipv4, source.proxy.http_port),
+                    SocketAddr::new(http_ipv6, source.proxy.http_port),
+                ]
+            }),
             system_proxy: false,
             udp_idle_timeout_seconds: 60,
             dns_mode: proxy_dns_mode,
@@ -1286,6 +1332,14 @@ enum AndroidConfigCommand {
         identity_provider: Option<String>,
         organization: Option<String>,
     },
+    SetProxyUsername {
+        profile_id: String,
+        username: String,
+    },
+    RenameProfile {
+        profile_id: String,
+        name: String,
+    },
     DeleteProfile {
         profile_id: String,
     },
@@ -1344,6 +1398,19 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
     }
     let command: AndroidConfigCommand = serde_json::from_str(request_json)
         .map_err(|error| format!("invalid profile-store command: {error}"))?;
+    #[cfg(feature = "wireguard")]
+    if matches!(
+        &command,
+        AndroidConfigCommand::ClearAllData
+            | AndroidConfigCommand::SetActiveProfile { .. }
+            | AndroidConfigCommand::DeleteProfile { .. }
+            | AndroidConfigCommand::UpsertProfile { .. }
+            | AndroidConfigCommand::ReconfigureActiveProfile { .. }
+            | AndroidConfigCommand::BeginIdentityReplacement { .. }
+    ) && !warp_wireguard::stop()
+    {
+        return Err("WARP_GENERATION_CLEANUP_PENDING".into());
+    }
     let clear_all_data = matches!(&command, AndroidConfigCommand::ClearAllData);
     let store = ConfigStore::new(config_path);
     if matches!(
@@ -1387,6 +1454,14 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                     .iter()
                     .find(|profile| Some(profile.id) == config.active_profile_id)
                 {
+                    if active.chain_exit.is_none()
+                        && config.network.chain_exit.as_ref().is_some_and(|s| {
+                            s.source != usque_core::chain_exit::ChainSource::VpnGate
+                                && s.profile_id.is_some()
+                        })
+                    {
+                        return Err("chain_exit capability is required".into());
+                    }
                     let mut network = SharedNetworkSettings::from_profile(active);
                     if active.endpoint.is_zero_trust_managed() {
                         network.endpoint = incoming
@@ -1443,6 +1518,29 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                     .map_err(|error| error.to_string())?;
             }
             config.preferences.profiles_migrated_from_flutter = true;
+            changed = true;
+        }
+        AndroidConfigCommand::SetProxyUsername {
+            profile_id,
+            username,
+        } => {
+            let id = parse_value(&profile_id, "profile ID")?;
+            if config.account(id).is_none() {
+                return Err("profile not found".into());
+            }
+            if !username.is_empty() {
+                usque_core::config::validate_proxy_username(&username)
+                    .map_err(|e| e.to_string())?;
+            }
+            config.network.proxy.auth_username = (!username.is_empty()).then_some(username);
+            config.network.proxy.auth_password = None;
+            changed = true;
+        }
+        AndroidConfigCommand::RenameProfile { profile_id, name } => {
+            let id = parse_value(&profile_id, "profile ID")?;
+            config
+                .rename_account(id, name)
+                .map_err(|error| error.to_string())?;
             changed = true;
         }
         AndroidConfigCommand::DeleteProfile { profile_id } => {
@@ -1665,6 +1763,15 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
 
     config.validate().map_err(|error| error.to_string())?;
     if changed {
+        if let Some(active) = config.active_profile()
+            && active.chain_enabled()
+            && active.custom_chain().is_some()
+        {
+            chain_exit::prepare(
+                store.path().parent().ok_or("Invalid storage path")?,
+                &active,
+            )?;
+        }
         if config.network.vpn_gate != previous_gate {
             vpngate::pin_settings(store.path(), &config.network.vpn_gate, &previous_gate)?;
         }
@@ -1692,6 +1799,10 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             }
         }
         if clear_all_data {
+            usque_core::chain_exit::store::clear_library(
+                store.path().parent().ok_or("Invalid storage path")?,
+            )
+            .map_err(|_| "Chain profile cleanup failed")?;
             let _ = std::fs::remove_file(store.backup_path());
         }
     }
@@ -1771,6 +1882,7 @@ fn geo_update_json(
 
 fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
     serde_json::json!({
+        "shared_network_profile": android_profile_value(&config.network.hydrate(&usque_core::config::Account::default_account()), None, false),
         "profiles": config
             .profiles
             .iter()
@@ -1835,6 +1947,7 @@ fn android_profile_value(
     serde_json::json!({
         "id": profile.id.to_string(),
         "vpn_gate": profile.vpn_gate,
+        "chain_exit": profile.chain_exit,
         "name": profile.name,
         "mode": match profile.mode {
             OperatingMode::Vpn => "vpn",
@@ -1853,6 +1966,7 @@ fn android_profile_value(
         },
         "congestion_control": profile.congestion_control,
         "data_plane": profile.data_plane,
+        "disable_quic": profile.disable_quic,
         "ip_policy": match profile.ip_policy {
             IpPolicy::Auto => "automatic",
             IpPolicy::PreferIpv4 => "preferIpv4",
@@ -1909,6 +2023,8 @@ fn android_profile_value(
         },
         "proxy": {
             "socks_ipv4": socks_ipv4.ip().to_string(),
+            "socks5_listeners": profile.proxy.socks5_listeners.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "http_listeners": profile.proxy.http_listeners.iter().map(ToString::to_string).collect::<Vec<_>>(),
             "socks_ipv6": socks_ipv6.ip().to_string(),
             "socks_port": socks_ipv4.port(),
             "http_ipv4": http_ipv4.ip().to_string(),
@@ -1985,6 +2101,7 @@ struct AndroidSocketProtector {
     service: Global<JObject<'static>>,
     policy: AndroidSocketRoutePolicy,
     network_generation: AtomicU64,
+    physical_watch: OnceLock<tokio::sync::watch::Sender<PhysicalNetworkSnapshot>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2000,6 +2117,34 @@ impl AndroidSocketRoutePolicy {
 }
 
 impl AndroidSocketProtector {
+    fn refresh_recovery_network(&self) {
+        let Some(sender) = self.physical_watch.get() else {
+            return;
+        };
+        let fields = self
+            .java_vm
+            .attach_current_thread(|environment| -> jni::errors::Result<_> {
+                let array = environment
+                    .call_method(
+                        &self.service,
+                        jni_str!("getUnderlyingRecoverySnapshot"),
+                        jni_sig!("()[J"),
+                        &[],
+                    )?
+                    .l()?;
+                let array = environment.cast_local::<JLongArray>(array)?;
+                let mut fields = [-1i64; 3];
+                if array.len(environment)? == fields.len() {
+                    array.get_region(environment, 0, &mut fields)?;
+                }
+                Ok(fields)
+            })
+            .ok();
+        let next =
+            decode_recovery_snapshot(fields, self.network_generation.load(Ordering::Acquire));
+        publish_recovery_snapshot(&self.network_generation, sender, next);
+    }
+
     fn refresh_network_generation(&self) -> Result<u64, String> {
         let generation = self
             .java_vm
@@ -2016,10 +2161,9 @@ impl AndroidSocketProtector {
             .map_err(|_| "Android network generation is unavailable".to_owned())?;
         let generation = u64::try_from(generation)
             .map_err(|_| "Android network generation is invalid".to_owned())?;
-        Ok(publish_network_generation(
-            &self.network_generation,
-            generation,
-        ))
+        let generation = publish_network_generation(&self.network_generation, generation);
+        self.refresh_recovery_network();
+        Ok(generation)
     }
 
     fn bind_socket_for_generation(
@@ -2070,8 +2214,113 @@ fn publish_network_generation(cached: &AtomicU64, observed: u64) -> u64 {
     cached.fetch_max(observed, Ordering::AcqRel).max(observed)
 }
 
+fn publish_recovery_snapshot(
+    generation: &AtomicU64,
+    sender: &tokio::sync::watch::Sender<PhysicalNetworkSnapshot>,
+    next: PhysicalNetworkSnapshot,
+) {
+    let generation = publish_network_generation(generation, next.generation);
+    sender.send_if_modified(|current| {
+        if next.generation < generation || next.generation < current.generation || *current == next
+        {
+            false
+        } else {
+            *current = next;
+            true
+        }
+    });
+}
+
+fn decode_recovery_snapshot(fields: Option<[i64; 3]>, generation: u64) -> PhysicalNetworkSnapshot {
+    let Some([observed, known, mask]) = fields.filter(|fields| {
+        fields[0] >= 0 && matches!(fields[1], 0 | 1) && (0..=3).contains(&fields[2])
+    }) else {
+        return PhysicalNetworkSnapshot {
+            generation,
+            availability: PhysicalNetworkAvailability::Unknown,
+        };
+    };
+    PhysicalNetworkSnapshot {
+        generation: observed as u64,
+        availability: if known == 0 {
+            PhysicalNetworkAvailability::Unknown
+        } else if mask == 0 {
+            PhysicalNetworkAvailability::Offline
+        } else {
+            PhysicalNetworkAvailability::Online {
+                ipv4: mask & 1 != 0,
+                ipv6: mask & 2 != 0,
+            }
+        },
+    }
+}
+
+#[cfg(test)]
+mod recovery_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn missing_and_malformed_snapshots_are_unknown_not_offline() {
+        for fields in [None, Some([-1, 1, 0]), Some([5, 2, 0]), Some([5, 1, 4])] {
+            assert_eq!(
+                decode_recovery_snapshot(fields, 7),
+                PhysicalNetworkSnapshot {
+                    generation: 7,
+                    availability: PhysicalNetworkAvailability::Unknown,
+                }
+            );
+        }
+        assert_eq!(
+            decode_recovery_snapshot(Some([5, 1, 0]), 4).availability,
+            PhysicalNetworkAvailability::Offline
+        );
+        assert_eq!(
+            decode_recovery_snapshot(Some([5, 1, 2]), 4).availability,
+            PhysicalNetworkAvailability::Online {
+                ipv4: false,
+                ipv6: true
+            }
+        );
+    }
+
+    #[test]
+    fn stale_or_duplicate_callbacks_cannot_resurrect_a_network() {
+        let generation = AtomicU64::new(5);
+        let (sender, mut receiver) =
+            tokio::sync::watch::channel(decode_recovery_snapshot(Some([5, 1, 0]), 5));
+        publish_recovery_snapshot(
+            &generation,
+            &sender,
+            decode_recovery_snapshot(Some([4, 1, 3]), 5),
+        );
+        assert!(!receiver.has_changed().unwrap());
+        publish_recovery_snapshot(
+            &generation,
+            &sender,
+            decode_recovery_snapshot(Some([6, 1, 1]), 5),
+        );
+        assert_eq!(receiver.borrow_and_update().generation, 6);
+        assert_eq!(generation.load(Ordering::Acquire), 6);
+        publish_recovery_snapshot(
+            &generation,
+            &sender,
+            decode_recovery_snapshot(Some([6, 1, 1]), 6),
+        );
+        assert!(!receiver.has_changed().unwrap());
+    }
+}
+
 #[async_trait::async_trait]
 impl SocketProtector for AndroidSocketProtector {
+    fn subscribe_physical_network(
+        &self,
+    ) -> Option<tokio::sync::watch::Receiver<PhysicalNetworkSnapshot>> {
+        let sender = self
+            .physical_watch
+            .get_or_init(|| tokio::sync::watch::channel(PhysicalNetworkSnapshot::default()).0);
+        self.refresh_recovery_network();
+        Some(sender.subscribe())
+    }
     fn protect(&self, socket: SocketHandle) -> Result<(), String> {
         let expected_generation = self.network_generation.load(Ordering::Acquire);
         self.bind_socket_for_generation(socket, expected_generation)
@@ -2411,6 +2660,7 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             .connection_id
             .map(|connection| connection.0.to_string())
             .unwrap_or_default(),
+        "transport_performance": snapshot.transport_performance.as_ref().map(usque_transport::TransportPerformanceSnapshot::to_json),
         "udp_socket_receive": snapshot.socket_receive.as_ref().map(|socket| serde_json::json!({
             "receive_buffer_bytes": socket.receive_buffer_bytes,
             "send_buffer_bytes": socket.send_buffer_bytes,
@@ -2483,6 +2733,7 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             ),
         },
         "queues": snapshot.queues.iter().map(|queue| serde_json::json!({
+            "backpressure": queue.backpressure.as_ref().map(usque_transport::QueueBackpressureSnapshot::to_json),
             "kind": native_queue_kind(queue.kind),
             "availability": native_availability(queue.availability),
             "current_items": queue.current_items,
@@ -3324,6 +3575,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rename_command_preserves_shared_network() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let path = path.to_str().unwrap();
+        let before: serde_json::Value = serde_json::from_str(
+            &apply_profile_command(path, r#"{"command":"list_profiles"}"#).unwrap(),
+        )
+        .unwrap();
+        let command = serde_json::json!({"command":"rename_profile", "profile_id": before["active_profile_id"], "name":"Renamed"});
+        let after: serde_json::Value =
+            serde_json::from_str(&apply_profile_command(path, &command.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(
+            before["shared_network_profile"],
+            after["shared_network_profile"]
+        );
+        assert_eq!(after["profiles"][0]["name"], "Renamed");
+    }
+
     fn valid_profile_json() -> String {
         serde_json::json!({
             "id": "8c30b771-9ebd-457a-b67b-bbc74a1ddba6",
@@ -3365,6 +3636,35 @@ mod tests {
     }
 
     #[test]
+    fn android_proxy_listener_lists_round_trip_without_family_or_port_loss() {
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["proxy"]["socks5_listeners"] =
+            serde_json::json!(["127.0.0.1:1080", "127.0.0.2:1081", "[::1]:1082"]);
+        source["proxy"]["http_listeners"] = serde_json::json!([]);
+        source["frontends"] = serde_json::json!({"tunnel": false, "socks5": true, "http": false});
+        let profile = parse_android_profile(&source.to_string()).unwrap();
+        assert_eq!(profile.proxy.socks5_listeners.len(), 3);
+        assert!(profile.proxy.http_listeners.is_empty());
+        let encoded = android_profile_value(&profile, None, false);
+        assert_eq!(
+            encoded["proxy"]["socks5_listeners"],
+            source["proxy"]["socks5_listeners"]
+        );
+        let decoded = parse_android_profile(&encoded.to_string()).unwrap();
+        assert_eq!(
+            decoded.proxy.socks5_listeners,
+            profile.proxy.socks5_listeners
+        );
+        assert_eq!(decoded.proxy.http_listeners, profile.proxy.http_listeners);
+
+        source["proxy"]["socks5_listeners"] =
+            serde_json::json!(["127.0.0.1:1080", "127.0.0.1:1080"]);
+        assert!(parse_android_profile(&source.to_string()).is_err());
+        source["proxy"]["socks5_listeners"] = serde_json::json!(["127.0.0.1:0"]);
+        assert!(parse_android_profile(&source.to_string()).is_err());
+    }
+
+    #[test]
     fn android_profile_maps_optional_listener_username_without_password() {
         let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
         source["proxy"]["auth_username"] = serde_json::json!("lan-user");
@@ -3378,6 +3678,37 @@ mod tests {
         let attached =
             attach_android_proxy_password(profile, Zeroizing::new(b"s3cret".to_vec())).unwrap();
         assert!(attached.proxy.listener_credentials().unwrap().is_some());
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["proxy"]["auth_username"] = serde_json::json!("lan-user");
+        let next = parse_android_profile(&source.to_string()).unwrap();
+        assert!(attach_android_proxy_password(next.clone(), Zeroizing::new(vec![])).is_err());
+        let rotated = attach_android_proxy_password(next, Zeroizing::new(b"new".to_vec())).unwrap();
+        assert_eq!(
+            usque_core::classify_reconfigure(&attached, &rotated),
+            usque_core::ReconfigureClass::HotFrontends
+        );
+    }
+
+    #[test]
+    fn android_quic_policy_round_trips_and_legacy_defaults_off() {
+        let mut value: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        assert!(
+            !parse_android_profile(&value.to_string())
+                .unwrap()
+                .disable_quic
+        );
+        value["disable_quic"] = serde_json::json!(true);
+        let profile = parse_android_profile(&value.to_string()).unwrap();
+        assert!(profile.disable_quic);
+        let exported = android_profile_value(&profile, None, false);
+        assert_eq!(exported["disable_quic"], true);
+        assert!(
+            parse_android_profile(&exported.to_string())
+                .unwrap()
+                .disable_quic
+        );
+        value["disable_quic"] = serde_json::json!("true");
+        assert!(parse_android_profile(&value.to_string()).is_err());
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::error::Error as StdError;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,7 +30,7 @@ use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::CreateSocket;
 use usque_core::{OperatingMode, Profile, ProxyAuthCredentials};
 
-use crate::dns::Resolver;
+use crate::dns::{CandidateResolution, Resolver};
 use crate::geo_direct::{GeoDirectPolicy, GeoTarget, RoutedTcpStream, connect_routed};
 use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::netstack::{
@@ -47,7 +47,6 @@ const HTTP_IO_BUFFER_SIZE: usize = 128 * 1024;
 const MAX_HEADERS: usize = 128;
 const HEADER_TIMEOUT: Duration = Duration::from_secs(15);
 const REMOTE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_TARGET_ADDRESSES: usize = 16;
 const MAX_SESSION_CONNECTIONS: usize = 32;
 const MAX_IDLE_PER_AUTHORITY: usize = 2;
 const UPSTREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
@@ -892,6 +891,7 @@ async fn connect_remote_inner(
         (GeoTarget::from_host(host), port),
         || RemoteConnectError::Failed("encrypted_direct_dns_failed".to_owned()),
         |resolved| async {
+            let deadline = tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT;
             if resolved.is_none() && context.edge_resolved {
                 let target =
                     crate::tcp::TcpTarget::new(host, port).map_err(remote_connect_error)?;
@@ -899,26 +899,22 @@ async fn connect_remote_inner(
                     .dialer
                     .connect(
                         target,
-                        tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT,
+                        deadline,
                         &context.cancellation,
                         crate::tcp::FlowClass::Business,
                     )
                     .await
                     .map_err(remote_connect_error);
             }
-            let addresses = if let Some(addresses) = resolved {
-                addresses
+            let resolution = if let Some(addresses) = resolved {
+                CandidateResolution::from_addresses(addresses)
             } else {
-                match host.parse::<IpAddr>() {
-                    Ok(address) => vec![address],
-                    Err(_) => context
-                        .resolver
-                        .resolve(host)
-                        .await
-                        .map_err(|error| RemoteConnectError::Failed(error.to_string()))?,
-                }
+                context
+                    .resolver
+                    .resolve_candidates(host, deadline)
+                    .map_err(|error| RemoteConnectError::Failed(error.to_string()))?
             };
-            connect_tunnel_remote(context, &addresses, port).await
+            connect_tunnel_remote(context, resolution, port, deadline).await
         },
     )
     .await
@@ -926,33 +922,24 @@ async fn connect_remote_inner(
 
 async fn connect_tunnel_remote(
     context: &HttpContext,
-    addresses: &[IpAddr],
+    resolution: CandidateResolution,
     port: u16,
+    deadline: tokio::time::Instant,
 ) -> Result<crate::tcp::TcpStream, RemoteConnectError> {
-    let deadline = tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT;
-    let mut last = crate::tcp::DialError::Network;
-    for address in addresses.iter().take(MAX_TARGET_ADDRESSES) {
-        let target = crate::tcp::TcpTarget::address(SocketAddr::new(*address, port));
-        match context
-            .dialer
-            .connect(
-                target,
-                deadline,
-                &context.cancellation,
-                crate::tcp::FlowClass::Business,
-            )
-            .await
-        {
-            Ok(stream) => return Ok(stream),
-            Err(
-                error @ (crate::tcp::DialError::Budget
-                | crate::tcp::DialError::Cancelled
-                | crate::tcp::DialError::Rejected(401 | 403)),
-            ) => return Err(remote_connect_error(error)),
-            Err(error) => last = error,
+    crate::tcp_candidates::connect_candidates(
+        context.dialer.clone(),
+        resolution,
+        port,
+        deadline,
+        &context.cancellation,
+    )
+    .await
+    .map_err(|error| match error {
+        crate::tcp_candidates::CandidateDialError::Resolve(error) => {
+            RemoteConnectError::Failed(error.to_string())
         }
-    }
-    Err(remote_connect_error(last))
+        crate::tcp_candidates::CandidateDialError::Dial(error) => remote_connect_error(error),
+    })
 }
 
 fn remote_connect_error(error: crate::tcp::DialError) -> RemoteConnectError {
@@ -997,6 +984,7 @@ fn full_body(bytes: Bytes) -> ProxyBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::IpAddr;
     use std::sync::atomic::AtomicUsize;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use ts_netstack_smoltcp::netcore::{Config, HasChannel, NetstackControl};

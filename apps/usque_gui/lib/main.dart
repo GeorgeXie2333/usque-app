@@ -16,12 +16,22 @@ void main() {
   });
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(const [
+      'BoringTun',
+    ], await rootBundle.loadString('assets/licenses/boringtun.txt'));
+  });
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
       'OpenVPN 3 Core',
       'Mbed TLS',
       'Asio',
       'LZ4',
       'xxHash',
     ], await rootBundle.loadString('assets/licenses/vpngate.txt'));
+  });
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
+      'wgcf registration protocol reference',
+    ], await rootBundle.loadString('assets/licenses/wgcf.txt'));
   });
   // The Windows runner removes the native caption, so Flutter has to draw one.
   if (!kIsWeb && Platform.isWindows) {

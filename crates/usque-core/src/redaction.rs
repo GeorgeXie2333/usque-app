@@ -12,6 +12,9 @@ const SENSITIVE_KEYS: &[&str] = &[
     "proxy_password",
     "token",
     "warp_secret",
+    "warp_observation",
+    "endpoint_override",
+    "command_json",
 ];
 
 #[derive(Debug, Clone, Default)]

@@ -18,6 +18,26 @@ import java.util.concurrent.atomic.AtomicReference
 internal const val FAMILY_IPV4 = 0x1
 internal const val FAMILY_IPV6 = 0x2
 
+/** An immutable reconnect hint; it never grants permission to bind a socket. */
+internal data class RecoveryNetworkSnapshot(
+    val generation: Long = 0L,
+    val known: Boolean = false,
+    val familyMask: Int = 0,
+) {
+    fun toWire(): LongArray = longArrayOf(generation, if (known) 1L else 0L, familyMask.toLong())
+}
+
+internal fun publishRecoveryNetworkSnapshot(
+    state: AtomicReference<RecoveryNetworkSnapshot>,
+    next: RecoveryNetworkSnapshot,
+): Boolean {
+    while (true) {
+        val previous = state.get()
+        if (next.generation < previous.generation || next == previous) return false
+        if (state.compareAndSet(previous, next)) return true
+    }
+}
+
 /**
  * Tracks non-VPN physical networks, schedules reselection, and owns the underlying-network
  * generation counter used by the Rust engine. Selection ranking is delegated to the pure
@@ -51,6 +71,7 @@ internal class PhysicalNetworkMonitor(
     private val underlyingFamilyMask = AtomicInteger()
     private val underlyingDnsServers = AtomicReference<List<InetAddress>>(emptyList())
     private val networkRestartGeneration = NetworkRestartGeneration()
+    private val recoverySnapshot = AtomicReference(RecoveryNetworkSnapshot())
     private val generationNetworks = GenerationNetworkHistory<Network>()
     private val networkSelectionTask = Runnable(::selectUnderlyingNetwork)
 
@@ -115,6 +136,7 @@ internal class PhysicalNetworkMonitor(
             // The callback may already have been revoked while the process exited.
         }
         generationNetworks.clear()
+        recoverySnapshot.set(RecoveryNetworkSnapshot(generation = generation()))
     }
 
     fun underlyingNetwork(): Network? = underlyingNetwork.get()
@@ -125,9 +147,12 @@ internal class PhysicalNetworkMonitor(
 
     fun generation(): Long = networkRestartGeneration.get()
 
+    fun recoverySnapshot(): LongArray = recoverySnapshot.get().toWire()
+
     fun bumpGeneration(): Long {
         val generation = networkRestartGeneration.bump()
         generationNetworks.record(generation, underlyingNetwork.get())
+        recoverySnapshot.updateAndGet { previous -> previous.copy(generation = maxOf(generation, previous.generation)) }
         return generation
     }
 
@@ -221,7 +246,7 @@ internal class PhysicalNetworkMonitor(
         val previousFamilyMask = underlyingFamilyMask.getAndSet(selectedFamilyMask)
         val previousDnsServers = underlyingDnsServers.getAndSet(selectedDnsServers)
         // Single source of truth with unit tests: handle + family-mask comparison.
-        val generation =
+        val changedGeneration =
             networkRestartGeneration.bumpIfChanged(
                 hasUnderlyingSelectionChanged(
                     previousHandle = previousNetwork?.networkHandle,
@@ -231,9 +256,14 @@ internal class PhysicalNetworkMonitor(
                     previousDnsServers = previousDnsServers.map(::dnsServerKey),
                     selectedDnsServers = selectedDnsServers.map(::dnsServerKey),
                 ),
-            ) ?: return
+            )
+        val generation = changedGeneration ?: generation()
+        val nextSnapshot = RecoveryNetworkSnapshot(generation, true, selectedFamilyMask)
+        val snapshotChanged = publishRecoveryNetworkSnapshot(recoverySnapshot, nextSnapshot)
         generationNetworks.record(generation, selectedNetwork)
-        listener.onUnderlyingNetworkChanged(selectedNetwork, selectedFamilyMask, generation)
+        if (changedGeneration != null || snapshotChanged) {
+            listener.onUnderlyingNetworkChanged(selectedNetwork, selectedFamilyMask, generation)
+        }
     }
 }
 

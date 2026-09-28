@@ -9,11 +9,16 @@ param(
     [string]$AbiFilter = "all",
     # build: compile and copy .so into jniLibs. clippy: lint arm64-v8a lib only, no .so copy.
     [ValidateSet("build", "clippy")]
-    [string]$CargoAction = "build"
+    [string]$CargoAction = "build",
+    # Matched native A/B measurement, never a packaging or installation switch.
+    [switch]$DisableWireGuard
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+if ($DisableWireGuard -and $CargoAction -ne "build") {
+    throw "DisableWireGuard is only supported for compile-only builds."
+}
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $androidRoot = Join-Path $repoRoot "apps/usque_gui/android"
 $jniRoot = Join-Path $androidRoot "app/src/main/jniLibs"
@@ -230,6 +235,9 @@ try {
             $cargoArguments += "--release"
         }
 
+        if ($DisableWireGuard) {
+            $cargoArguments += "--no-default-features"
+        }
         & $cargoPath @cargoArguments
         if ($LASTEXITCODE -ne 0) {
             throw "Rust Android build failed for $($target.RustTarget)."

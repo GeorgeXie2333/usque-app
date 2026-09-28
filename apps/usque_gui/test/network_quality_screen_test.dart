@@ -85,6 +85,46 @@ void main() {
     }
   });
 
+  testWidgets('quality scope follows the connected exit, not Gate status', (
+    tester,
+  ) async {
+    final app = qualityApp(
+      QualityEngineStub(),
+      locale: LocalePreference.simplifiedChinese,
+    );
+    addTearDown(app.dispose);
+    const profile = ChainProfileSummary(
+      id: 'wireguard',
+      revision: 'r1',
+      editRevision: 'e1',
+      name: 'WireGuard exit',
+      protocol: 'wireguard',
+      host: 'vpn.example',
+      port: 51820,
+    );
+    app.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.connected,
+      chainExit: ChainExitStatus(stage: 'connected', currentProfile: profile),
+      vpnGate: VpnGateStatus(stage: 'connected'),
+    );
+    await tester.pumpWidget(host(app));
+    expect(find.text(app.strings.get('nq_subtitle')), findsOneWidget);
+    expect(find.text(app.strings.get('gate_quality_scope')), findsNothing);
+
+    app.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.connected,
+      vpnGate: VpnGateStatus(stage: 'connected'),
+    );
+    await tester.pumpWidget(host(app));
+    expect(find.text(app.strings.get('gate_quality_scope')), findsOneWidget);
+
+    app.snapshot = const EngineSnapshot(
+      vpnGate: VpnGateStatus(stage: 'connected'),
+    );
+    await tester.pumpWidget(host(app));
+    expect(find.text(app.strings.get('nq_subtitle')), findsOneWidget);
+  });
+
   testWidgets('Quality lives in Settings with its own icon and back path', (
     tester,
   ) async {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/chain_strings.dart';
 import '../core/usque_theme.dart';
 import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
@@ -26,7 +27,14 @@ class VpnGateEntry extends StatelessWidget {
     required this.controller,
     required this.onOpen,
     super.key,
+    this.title = 'VPN Gate',
+    this.chainEntry = false,
+    this.entryKey = const ValueKey('proxy-vpn-gate-entry'),
   });
+
+  final String title;
+  final bool chainEntry;
+  final Key entryKey;
 
   final AppController controller;
   final VoidCallback onOpen;
@@ -43,8 +51,14 @@ class VpnGateEntry extends StatelessWidget {
       phase: app.snapshot.phase,
       status: app.snapshot.vpnGate,
     ),
-    builder: (context, value) =>
-        _EntryCard(controller: controller, value: value, onOpen: onOpen),
+    builder: (context, value) => _EntryCard(
+      controller: controller,
+      value: value,
+      onOpen: onOpen,
+      title: title,
+      chainEntry: chainEntry,
+      entryKey: entryKey,
+    ),
   );
 }
 
@@ -53,11 +67,17 @@ class _EntryCard extends StatefulWidget {
     required this.controller,
     required this.value,
     required this.onOpen,
+    required this.title,
+    required this.chainEntry,
+    required this.entryKey,
   });
 
   final AppController controller;
   final _EntrySelection value;
   final VoidCallback onOpen;
+  final String title;
+  final bool chainEntry;
+  final Key entryKey;
 
   @override
   State<_EntryCard> createState() => _EntryCardState();
@@ -169,7 +189,9 @@ class _EntryCardState extends State<_EntryCard> {
           children: [
             Flexible(
               child: Text(
-                strings.get('gate_manage'),
+                widget.chainEntry
+                    ? strings.chain('manage')
+                    : strings.get('gate_manage'),
                 style: theme.textTheme.labelLarge?.copyWith(
                   color: theme.colorScheme.primary,
                 ),
@@ -184,7 +206,7 @@ class _EntryCardState extends State<_EntryCard> {
           ],
         );
         return Panel(
-          key: const ValueKey('proxy-vpn-gate-entry'),
+          key: widget.entryKey,
           onTap: widget.onOpen,
           padding: EdgeInsets.all(compact ? 16 : 20),
           child: Row(
@@ -220,7 +242,8 @@ class _EntryCardState extends State<_EntryCard> {
                       runSpacing: 8,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Text('VPN Gate', style: theme.textTheme.titleLarge),
+                        Text(widget.title, style: theme.textTheme.titleLarge),
+                        if (widget.chainEntry) const Text('VPN Gate'),
                         Semantics(
                           liveRegion: true,
                           child: Container(
@@ -262,7 +285,9 @@ class _EntryCardState extends State<_EntryCard> {
                         ),
                     ] else
                       Text(
-                        strings.get('gate_subtitle'),
+                        widget.chainEntry
+                            ? strings.chain('subtitle')
+                            : strings.get('gate_subtitle'),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),

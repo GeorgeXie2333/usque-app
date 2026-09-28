@@ -17,6 +17,7 @@ import 'package:usque/screens/vpn_gate_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/state/window_frame.dart';
+import 'package:usque/widgets/chain_proxy_entry.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/usque_dialog.dart';
@@ -64,6 +65,67 @@ void main() {
           .load();
     }
   });
+
+  testWidgets('QUIC traffic policy phone and TV layouts', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    for (final tv in [false, true]) {
+      tester.view.physicalSize = tv
+          ? const Size(1280, 1000)
+          : const Size(390, 1000);
+      final app = AppController(WorkflowEngine())
+        ..engineCapabilities = const EngineCapabilities(
+          networkSettingsApplication: true,
+          applicationQuicBlocking: true,
+        )
+        ..localePreference = tv
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english;
+      final boundary = GlobalKey();
+      try {
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: workflowHost(
+              app,
+              dark: tv,
+              scale: tv ? 2 : 1,
+              home: AdvancedSettingsScreen(controller: app),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('disable-quic-switch')),
+        );
+        await tester.pumpAndSettle();
+        if (tv) {
+          await tester.tap(find.byKey(const ValueKey('disable-quic-switch')));
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<SwitchListTile>(
+                  find.byKey(const ValueKey('disable-quic-switch')),
+                )
+                .value,
+            isTrue,
+          );
+        }
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/quic_${tv ? 'tv_dark' : 'phone_light'}.png',
+          ),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        app.dispose();
+      }
+    }
+  }, tags: 'golden');
 
   testWidgets('VPN Gate proxy entry on desktop and phone', (tester) async {
     tester.view.devicePixelRatio = 1;
@@ -399,7 +461,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('VPN Gate'));
+      await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
+      await tester.pumpAndSettle();
+      if (find.byType(VpnGateScreen).evaluate().isEmpty) {
+        await tester.tap(find.byKey(const ValueKey('chain-source-vpn_gate')));
+      }
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
         final context = tester.element(find.byType(VpnGateScreen));
@@ -464,7 +530,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('VPN Gate'));
+      await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
+      await tester.pumpAndSettle();
+      if (find.byType(VpnGateScreen).evaluate().isEmpty) {
+        await tester.tap(find.byKey(const ValueKey('chain-source-vpn_gate')));
+      }
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(ValueKey('vpn-gate-node-${server.id}')));
       await tester.pumpAndSettle();
@@ -736,6 +806,7 @@ void main() {
         );
       addTearDown(app.dispose);
       app.sharedNetwork = app.sharedNetwork.copyWith(
+        allowLan: false,
         congestionControl: CongestionControlAlgorithm.bbr3,
       );
       app.networkSettings.accept(
@@ -1225,7 +1296,7 @@ void main() {
           FocusManager.instance.primaryFocus?.unfocus();
           await tester.pumpAndSettle();
           Scrollable.of(
-            tester.element(find.byType(VpnGateEntry)),
+            tester.element(find.byType(ChainProxyEntry)),
           ).position.jumpTo(0);
           await tester.pumpAndSettle();
         }

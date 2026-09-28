@@ -21,6 +21,38 @@ use tokio::time::timeout;
 use super::*;
 use crate::network_quality::NetworkQualitySampler;
 
+#[tokio::test]
+async fn encrypted_dns_wrapper_forwards_reconnect_observations() {
+    use crate::socket::{PhysicalNetworkAvailability, PhysicalNetworkSnapshot};
+    struct Observable(tokio::sync::watch::Sender<PhysicalNetworkSnapshot>);
+    impl SocketProtector for Observable {
+        fn protect(&self, _: SocketHandle) -> Result<(), String> {
+            panic!("no socket needed");
+        }
+        fn subscribe_physical_network(
+            &self,
+        ) -> Option<tokio::sync::watch::Receiver<PhysicalNetworkSnapshot>> {
+            Some(self.0.subscribe())
+        }
+    }
+    let (sender, _) = tokio::sync::watch::channel(PhysicalNetworkSnapshot::default());
+    let wrapped = configure_direct_dns(
+        &settings(ConfigMode::Doh, "127.0.0.1:443".parse().unwrap()),
+        Arc::new(Observable(sender.clone())),
+        NetworkQualityTelemetry::default(),
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    let mut receiver = wrapped.subscribe_physical_network().unwrap();
+    let offline = PhysicalNetworkSnapshot {
+        generation: 9,
+        availability: PhysicalNetworkAvailability::Offline,
+    };
+    sender.send_replace(offline);
+    receiver.changed().await.unwrap();
+    assert_eq!(*receiver.borrow(), offline);
+}
+
 struct PrefaceWriteFailure(std::io::ErrorKind);
 
 impl tokio::io::AsyncRead for PrefaceWriteFailure {

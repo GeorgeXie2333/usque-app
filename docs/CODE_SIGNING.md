@@ -8,7 +8,7 @@ Only packages attached to a GitHub Release for this repository, with matching ch
 
 Pre-1.0 official packages use two fixed, project-controlled self-signed identities:
 
-- Windows Authenticode for the installer bundle, its detached Burn engine, the update MSI, and the project EXE/DLL files inside that MSI
+- Windows Authenticode for the installer bundle, its detached Burn engine, the update MSI, and every EXE/DLL in the Windows application payload inside that MSI except the official Wintun DLL
 - an Android release certificate for every official APK
 
 Those identities are not a public CA and are not in the Windows Root or Trusted Publisher stores. Windows will show an unknown-publisher warning. That is expected. The installer does not install the certificate into the machine trust stores.
@@ -34,7 +34,7 @@ before distribution. Developer verification does not authorize key rotation.
 | --- | --- |
 | Official Windows installer bundle and its detached Burn engine | project Authenticode identity |
 | Official Windows MSI | project Authenticode identity |
-| Project EXE/DLL files inside that MSI | same identity |
+| Every EXE/DLL in the Windows application payload inside that MSI, including Usque binaries and the Flutter engine and plugin DLLs from the Flutter release build, except the official Wintun DLL | same identity |
 | Official per-ABI and universal APKs | project Android release certificate |
 | Official Wintun DLL (`amd64` / `arm64`) | original vendor signature; Usque redistributes those files and does not re-sign them |
 | Local validation MSI/APK | a throwaway identity created on the build machine; never official |
@@ -87,14 +87,14 @@ A lost backup of an official key is treated the same as a compromise: do not inv
 
 ## Local and development signing
 
-`tool/build_windows_local_validation.ps1` and similar helpers may create a temporary self-signed identity, sign a validation package, then delete the key. Those packages are for table checks and isolated VM work only. They must not be published, renamed to look like a GitHub Release, or installed on a daily-driver machine. The multilingual bundle is produced only by the approved tag workflow; local MSI validation does not create an official bundle.
+`tool/build_windows_local_validation.ps1` and similar helpers may create a temporary self-signed identity, sign a validation package, then delete the key. The local validation helper creates its throwaway certificate in `CurrentUser\My` and temporarily trusts it for the current user by importing it into `CurrentUser\TrustedPeople` and `CurrentUser\TrustedPublisher`; cleanup removes it from all three stores, deletes its private key, and fails if any removal fails. Those packages are for table checks and isolated VM work only. They must not be published, renamed to look like a GitHub Release, or installed on a daily-driver machine. The multilingual bundle is produced only by the approved tag workflow; local MSI validation does not create an official bundle.
 
 Debug and unsigned Android builds used on a developer device are not release certificates. Do not reuse the official Android keystore on a development host.
 
 ## Maintainer rules
 
 - Do not commit PFX, keystore, or password files.
-- Do not re-sign Wintun or any other third-party binary that already has a vendor signature.
+- Do not re-sign the official Wintun DLL. The release workflow excludes it by path and signs every other EXE/DLL in the payload with the project identity; it does not check whether another binary already carries a vendor signature.
 - Do not add the project certificate to Root or Trusted Publisher on user machines.
 - Do not sign a package whose contents were not produced by the approved release workflow for that tag.
 - Signing-key or release-chain issues are vulnerabilities; handle them privately as in [SECURITY.md](../SECURITY.md).

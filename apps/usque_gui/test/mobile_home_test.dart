@@ -105,7 +105,7 @@ void main() {
       fixture.quality.markStreamUnavailable(true);
       await tester.pump();
       expectCaption('home_traffic_stale');
-      expect(download().semanticLabel, contains('Samples delayed'));
+      expect(download().semanticLabel, contains('Traffic updates delayed'));
 
       fixture.app.engineCapabilities = const EngineCapabilities();
       await tester.pump();
@@ -346,7 +346,7 @@ void main() {
       fixture.now = fixture.now.add(const Duration(seconds: 4));
       fixture.quality.markStreamUnavailable(true);
       await tester.pump();
-      expect(find.text('Samples delayed'), findsOneWidget);
+      expect(find.text('Traffic updates delayed'), findsOneWidget);
       expect(_trace(tester, 'download').samples.last, isNull);
       expect(_trace(tester, 'download').samples.whereType<int>().length, 3);
       fixture.app.snapshot = const EngineSnapshot();
@@ -355,8 +355,8 @@ void main() {
       expect(_trace(tester, 'download').samples, isEmpty);
       expect(_trace(tester, 'upload').samples, isEmpty);
       expect(find.text('Singapore'), findsNothing);
-      expect(find.text('Outputs enabled after connecting'), findsOneWidget);
-      expect(find.text('Starts after connecting'), findsOneWidget);
+      expect(find.text('Available after connecting'), findsOneWidget);
+      expect(find.text('Traffic appears after connecting'), findsOneWidget);
       expect(fixture.engine.qualityRequests, 0);
     },
   );
@@ -369,11 +369,11 @@ void main() {
       phase: ConnectionPhase.connected,
     );
     await _show(tester, fixture);
-    expect(find.text('Waiting for samples'), findsOneWidget);
+    expect(find.text('Waiting for traffic data'), findsOneWidget);
     expect(_trace(tester, 'download').samples.whereType<int>(), isEmpty);
     fixture.app.engineCapabilities = const EngineCapabilities();
     await tester.pumpAndSettle();
-    expect(find.text('History unavailable'), findsOneWidget);
+    expect(find.text('Traffic history unavailable'), findsOneWidget);
     expect(_trace(tester, 'download').samples.whereType<int>(), isEmpty);
     fixture.app.engineCapabilities = const EngineCapabilities(
       networkQuality: true,

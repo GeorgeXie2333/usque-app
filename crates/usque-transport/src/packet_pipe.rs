@@ -61,6 +61,21 @@ pub(crate) struct PacketSender {
     meter: Option<Arc<QueuePerformance>>,
 }
 impl PacketSender {
+    /// Transfer an existing allocation after reserving the bounded queue slot.
+    pub(crate) async fn send_owned_async(&self, packet: Bytes) {
+        self.send_owned_checked(packet).await;
+    }
+
+    /// The mux needs to distinguish successful admission from a closed receiver.
+    pub(crate) async fn send_owned_checked(&self, packet: Bytes) -> bool {
+        if let Ok(permit) = self.sender.reserve().await {
+            permit.send(QueuedPacket::new(packet, self.meter.as_ref()));
+            true
+        } else {
+            false
+        }
+    }
+
     pub(crate) async fn send_async(&self, packet: &[u8]) {
         if let Ok(permit) = self.sender.reserve().await {
             permit.send(QueuedPacket::new(

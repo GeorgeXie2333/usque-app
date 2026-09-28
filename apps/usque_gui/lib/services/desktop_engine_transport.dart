@@ -302,13 +302,18 @@ class DesktopEngineTransport {
   bool get hasLiveProcess => _process != null;
 
   Future<String?> selectDiagnosticsDestination() async {
-    final testSelect = _testSelectDiagnostics;
-    if (testSelect != null) {
-      return testSelect();
+    try {
+      final testSelect = _testSelectDiagnostics;
+      if (testSelect != null) return await testSelect();
+      return await _nativeTransport.invokeMethod<String>(
+        'selectDiagnosticsDestination',
+      );
+    } on PlatformException catch (error) {
+      throw EngineException(
+        error.code,
+        error.message ?? 'The diagnostic destination dialog failed.',
+      );
     }
-    return _nativeTransport.invokeMethod<String>(
-      'selectDiagnosticsDestination',
-    );
   }
 
   Future<String?> selectWarpSecretDestination() async {
@@ -321,6 +326,19 @@ class DesktopEngineTransport {
     String method, [
     Map<String, Object?>? arguments,
   ]) => _nativeTransport.invokeMethod<T>(method, arguments);
+
+  Future<void> resetEventStream() async {
+    final subscription = _rawEventSubscription;
+    final events = _rawEventController;
+    _rawEventSubscription = null;
+    _rawEventController = null;
+    _rawEventFrames = null;
+    try {
+      await subscription?.cancel();
+    } finally {
+      if (events != null && !events.isClosed) await events.close();
+    }
+  }
 
   void dispose() {
     _disposed = true;
@@ -402,6 +420,15 @@ class DesktopEngineTransport {
       exitCode.then((_) {
         if (identical(_process, process)) {
           _process = null;
+          final events = _rawEventController;
+          if (!_disposed && events != null && !events.isClosed) {
+            events.addError(
+              const EngineException(
+                'ENGINE_EVENT_UNAVAILABLE',
+                'The Engine exited. Status will be checked again.',
+              ),
+            );
+          }
         }
       }),
     );
