@@ -120,7 +120,22 @@ impl Drop for QueuedEvent {
     }
 }
 
-static WRITERS: OnceLock<Mutex<HashMap<PathBuf, Weak<LogShared>>>> = OnceLock::new();
+#[derive(Default)]
+struct LogRegistration {
+    shared: Weak<LogShared>,
+    health: Option<Arc<LogHealth>>,
+    offline_operation: bool,
+}
+
+impl LogRegistration {
+    fn running(&self) -> bool {
+        self.health
+            .as_ref()
+            .is_some_and(|health| health.running.load(Ordering::Acquire))
+    }
+}
+
+static WRITERS: OnceLock<Mutex<HashMap<PathBuf, LogRegistration>>> = OnceLock::new();
 
 fn normalized_directory(directory: &Path) -> PathBuf {
     let absolute = if directory.is_absolute() {
@@ -143,18 +158,65 @@ fn normalized_directory(directory: &Path) -> PathBuf {
     normalized
 }
 
-fn live_writer(directory: &Path) -> Option<Arc<LogShared>> {
+fn live_writer(directory: &Path) -> io::Result<Option<Arc<LogShared>>> {
     let writers = WRITERS
         .get_or_init(Mutex::default)
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    writers
-        .get(&normalized_directory(directory))
-        .and_then(Weak::upgrade)
+    let Some(entry) = writers.get(&normalized_directory(directory)) else {
+        return Ok(None);
+    };
+    if entry.offline_operation || (entry.running() && entry.shared.strong_count() == 0) {
+        return Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "log directory is still owned",
+        ));
+    }
+    Ok(entry.shared.upgrade())
 }
 
 pub fn log_health(directory: &Path) -> Option<LogHealthSnapshot> {
-    live_writer(directory).map(|shared| shared.health.snapshot())
+    WRITERS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&normalized_directory(directory))
+        .and_then(|entry| entry.health.as_ref())
+        .map(|health| health.snapshot())
+}
+
+struct OfflineLogOperation(PathBuf);
+
+impl OfflineLogOperation {
+    fn reserve(directory: &Path) -> io::Result<Self> {
+        let directory = normalized_directory(directory);
+        let mut writers = WRITERS
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let entry = writers.entry(directory.clone()).or_default();
+        if entry.running() || entry.offline_operation {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "log directory is still owned",
+            ));
+        }
+        entry.offline_operation = true;
+        Ok(Self(directory))
+    }
+}
+
+impl Drop for OfflineLogOperation {
+    fn drop(&mut self) {
+        if let Some(entry) = WRITERS
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get_mut(&self.0)
+        {
+            entry.offline_operation = false;
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -181,10 +243,18 @@ impl LogWriterFactory {
             .get_or_init(Mutex::default)
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        if let Some(shared) = writers.get(&directory).and_then(Weak::upgrade)
-            && shared.health.running.load(Ordering::Acquire)
-        {
-            return Ok(Self { shared });
+        if let Some(entry) = writers.get(&directory) {
+            if entry.offline_operation {
+                return Ok(Self::disabled());
+            }
+            if entry.running() {
+                // A dropped final handle does not mean its thread has drained
+                // or closed the file. Keep that ownership until completion.
+                return Ok(entry
+                    .shared
+                    .upgrade()
+                    .map_or_else(Self::disabled, |shared| Self { shared }));
+            }
         }
         let health = Arc::new(LogHealth::default());
         health.running.store(true, Ordering::Release);
@@ -208,14 +278,34 @@ impl LogWriterFactory {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()) = true;
         }
-        writers.retain(|_, writer| writer.strong_count() != 0);
+        writers.retain(|_, entry| {
+            entry.offline_operation || entry.running() || entry.shared.strong_count() != 0
+        });
         writers.insert(
             normalized_directory(&log_directory(config_path)),
-            Arc::downgrade(&shared),
+            LogRegistration {
+                shared: Arc::downgrade(&shared),
+                health: Some(Arc::clone(&health)),
+                offline_operation: false,
+            },
         );
         // Disk and worker failures produce a disabled, observable sink. Logging
         // must not prevent the Engine from starting or performing cleanup.
         Ok(Self { shared })
+    }
+
+    fn disabled() -> Self {
+        let health = Arc::new(LogHealth::default());
+        health.write_failures.store(1, Ordering::Release);
+        *health
+            .stopped
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = true;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        drop(receiver);
+        Self {
+            shared: Arc::new(LogShared { sender, health }),
+        }
     }
 
     pub fn health(&self) -> LogHealthSnapshot {
@@ -294,7 +384,7 @@ fn owner_operation<T: Send + 'static>(
 }
 
 pub fn flush_logs(directory: &Path, timeout: Duration) -> io::Result<()> {
-    let shared = live_writer(directory)
+    let shared = live_writer(directory)?
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no live log writer"))?;
     owner_operation(&shared, timeout, LogState::sync)
 }
@@ -304,23 +394,29 @@ pub(crate) fn capture_logs<T: Send + 'static>(
     timeout: Duration,
     capture: impl FnOnce() -> T + Send + 'static,
 ) -> io::Result<T> {
-    match live_writer(directory) {
+    match live_writer(directory)? {
         Some(shared) if shared.health.running.load(Ordering::Acquire) => {
             owner_operation(&shared, timeout, move |state| {
                 state.sync()?;
                 Ok(capture())
             })
         }
-        _ => Ok(capture()),
+        _ => {
+            let _reservation = OfflineLogOperation::reserve(directory)?;
+            Ok(capture())
+        }
     }
 }
 
 pub(crate) fn clear_logs(directory: &Path, timeout: Duration) -> io::Result<()> {
-    match live_writer(directory) {
+    match live_writer(directory)? {
         Some(shared) if shared.health.running.load(Ordering::Acquire) => {
             owner_operation(&shared, timeout, LogState::clear)
         }
-        _ => clear_log_files(directory),
+        _ => {
+            let _reservation = OfflineLogOperation::reserve(directory)?;
+            clear_log_files(directory)
+        }
     }
 }
 
@@ -1318,6 +1414,70 @@ mod tests {
         assert_eq!(health.write_failures, 1);
         assert_eq!(health.written_events, 0);
         assert_eq!(health.unconfirmed_events, 1);
+    }
+
+    #[test]
+    fn retiring_owner_excludes_reopen_clear_and_capture_until_its_queue_is_drained() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let logs = log_directory(&config);
+        let factory = LogWriterFactory::open(&config).unwrap();
+        let health = Arc::clone(&factory.shared.health);
+        let release = block_writer(&factory);
+        record_sequence(&factory, 1);
+        drop(factory);
+        let unavailable = LogWriterFactory::open(&config).unwrap();
+        assert!(!unavailable.health().running);
+        assert!(!unavailable.health().writer_available);
+        assert_eq!(
+            clear_logs(&logs, Duration::from_secs(5))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert_eq!(
+            capture_logs(&logs, Duration::from_secs(5), || ())
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        release.send(()).unwrap();
+        let stopped = health.stopped.lock().unwrap();
+        let (stopped, _) = health
+            .completed
+            .wait_timeout_while(stopped, Duration::from_secs(5), |stopped| !*stopped)
+            .unwrap();
+        assert!(*stopped);
+        drop(stopped);
+        let replacement = LogWriterFactory::open(&config).unwrap();
+        clear_logs(&logs, Duration::from_secs(5)).unwrap();
+        record_sequence(&replacement, 2);
+        replacement.shutdown(Duration::from_secs(5)).unwrap();
+        let value: Value =
+            serde_json::from_slice(&fs::read(logs.join(ACTIVE_LOG_NAME)).unwrap()).unwrap();
+        assert_eq!(value["sequence"], 2);
+    }
+
+    #[test]
+    fn persisted_capture_reserves_the_directory_against_a_new_writer() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let logs = log_directory(&config);
+        let (entered, waiting) = mpsc::channel();
+        let (release, blocked) = mpsc::channel();
+        let capture = std::thread::spawn(move || {
+            capture_logs(&logs, Duration::from_secs(5), move || {
+                entered.send(()).unwrap();
+                blocked.recv_timeout(Duration::from_secs(5)).unwrap();
+            })
+        });
+        waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(!LogWriterFactory::open(&config).unwrap().health().running);
+        release.send(()).unwrap();
+        capture.join().unwrap().unwrap();
+        let replacement = LogWriterFactory::open(&config).unwrap();
+        record_sequence(&replacement, 2);
+        replacement.shutdown(Duration::from_secs(5)).unwrap();
     }
 
     #[test]
