@@ -691,6 +691,24 @@ message DiagnosticFinding {
   int64 started_at_unix_milliseconds = 9;
   uint64 duration_milliseconds = 10;
   string dependency_reason = 11;
+  DiagnosticObservation observation = 12;
+  repeated DiagnosticEvidence evidence = 13;
+}
+
+// Append-only optional evidence metadata. Absent metadata is unknown.
+message DiagnosticObservation {
+  string source = 1;
+  string availability = 2;
+  uint64 age_milliseconds = 3;
+  string connection_instance_id = 4;
+  uint64 network_generation = 5;
+}
+
+// Exactly one allowlisted token or unsigned number is exported.
+message DiagnosticEvidence {
+  string key = 1;
+  optional uint64 number = 2;
+  string token = 3;
 }
 
 message DiagnosticSummary {

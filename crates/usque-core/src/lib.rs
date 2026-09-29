@@ -2,6 +2,7 @@ pub mod chain_exit;
 pub mod config;
 pub mod connector;
 pub mod diagnostics;
+pub mod diagnostics_contract_generated;
 pub mod exit_probe;
 pub mod failure;
 pub mod geo_rules;
@@ -29,8 +30,9 @@ pub use connector::{
     ConnectedPath, ConnectionAttempt, ConnectionOrchestrator, ConnectorError, TransportConnector,
 };
 pub use diagnostics::{
-    DiagnosticCategory, DiagnosticCheckStatus, DiagnosticFinding, DiagnosticMode,
-    DiagnosticSession, DiagnosticSessionState, DiagnosticSummary,
+    DiagnosticCategory, DiagnosticCheckStatus, DiagnosticEvidence, DiagnosticFinding,
+    DiagnosticMode, DiagnosticObservation, DiagnosticObservationAvailability,
+    DiagnosticObservationSource, DiagnosticSession, DiagnosticSessionState, DiagnosticSummary,
 };
 pub use exit_probe::{ExitInfo, GeoLocation, IpSbProbe, ProbeError};
 pub use failure::{

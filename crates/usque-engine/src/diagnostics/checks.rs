@@ -943,6 +943,8 @@ fn finding<const N: usize>(
         started_at: Some(Utc::now()),
         duration_milliseconds: None,
         dependency_reason: None,
+        observation: None,
+        evidence: Vec::new(),
     }
 }
 

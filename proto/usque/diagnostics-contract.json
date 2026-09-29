@@ -1,0 +1,683 @@
+{
+  "schema_version": 1,
+  "checks": [
+    {
+      "id": "engine.control_channel",
+      "category": "LocalComponent",
+      "dependencies": [],
+      "mode": "standard",
+      "resource_group": "engine",
+      "kind": "ControlChannel"
+    },
+    {
+      "id": "engine.event_stream",
+      "category": "LocalComponent",
+      "dependencies": [
+        "engine.control_channel"
+      ],
+      "mode": "standard",
+      "resource_group": "engine",
+      "kind": "EventStream"
+    },
+    {
+      "id": "engine.capabilities",
+      "category": "LocalComponent",
+      "dependencies": [
+        "engine.control_channel"
+      ],
+      "mode": "standard",
+      "resource_group": "engine",
+      "kind": "Capabilities"
+    },
+    {
+      "id": "engine.configuration",
+      "category": "LocalComponent",
+      "dependencies": [
+        "engine.control_channel"
+      ],
+      "mode": "standard",
+      "resource_group": "engine",
+      "kind": "Configuration"
+    },
+    {
+      "id": "engine.secure_storage_metadata",
+      "category": "LocalComponent",
+      "dependencies": [
+        "engine.configuration"
+      ],
+      "mode": "standard",
+      "resource_group": "storage",
+      "kind": "SecureStorage"
+    },
+    {
+      "id": "frontend.socks_port",
+      "category": "LocalComponent",
+      "dependencies": [
+        "engine.configuration"
+      ],
+      "mode": "standard",
+      "resource_group": "frontend",
+      "kind": "SocksPort"
+    },
+    {
+      "id": "frontend.http_port",
+      "category": "LocalComponent",
+      "dependencies": [
+        "engine.configuration"
+      ],
+      "mode": "standard",
+      "resource_group": "frontend",
+      "kind": "HttpPort"
+    },
+    {
+      "id": "frontend.system_proxy_state",
+      "category": "LocalComponent",
+      "dependencies": [
+        "engine.configuration"
+      ],
+      "mode": "standard",
+      "resource_group": "platform",
+      "kind": "SystemProxy"
+    },
+    {
+      "id": "physical.network_present",
+      "category": "PhysicalNetwork",
+      "dependencies": [
+        "engine.control_channel"
+      ],
+      "mode": "standard",
+      "resource_group": "physical",
+      "kind": "PhysicalNetwork"
+    },
+    {
+      "id": "physical.ipv4_route",
+      "category": "PhysicalNetwork",
+      "dependencies": [
+        "physical.network_present"
+      ],
+      "mode": "standard",
+      "resource_group": "physical",
+      "kind": "Ipv4Route"
+    },
+    {
+      "id": "physical.ipv6_route",
+      "category": "PhysicalNetwork",
+      "dependencies": [
+        "physical.network_present"
+      ],
+      "mode": "standard",
+      "resource_group": "physical",
+      "kind": "Ipv6Route"
+    },
+    {
+      "id": "physical.dns_available",
+      "category": "PhysicalNetwork",
+      "dependencies": [
+        "physical.network_present"
+      ],
+      "mode": "standard",
+      "resource_group": "physical",
+      "kind": "PhysicalDns"
+    },
+    {
+      "id": "physical.network_generation",
+      "category": "PhysicalNetwork",
+      "dependencies": [
+        "physical.network_present"
+      ],
+      "mode": "standard",
+      "resource_group": "physical",
+      "kind": "NetworkGeneration"
+    },
+    {
+      "id": "transport.h3_connect",
+      "category": "Transport",
+      "dependencies": [
+        "physical.network_present"
+      ],
+      "mode": "standard",
+      "resource_group": "transport",
+      "kind": "H3Connect"
+    },
+    {
+      "id": "transport.h3_datagram",
+      "category": "Transport",
+      "dependencies": [
+        "transport.h3_connect"
+      ],
+      "mode": "standard",
+      "resource_group": "transport",
+      "kind": "H3Datagram"
+    },
+    {
+      "id": "transport.h2_tcp",
+      "category": "Transport",
+      "dependencies": [
+        "physical.network_present"
+      ],
+      "mode": "standard",
+      "resource_group": "transport",
+      "kind": "H2Tcp"
+    },
+    {
+      "id": "transport.h2_tls",
+      "category": "Transport",
+      "dependencies": [
+        "transport.h2_tcp"
+      ],
+      "mode": "standard",
+      "resource_group": "transport",
+      "kind": "H2Tls"
+    },
+    {
+      "id": "transport.h2_connect",
+      "category": "Transport",
+      "dependencies": [
+        "transport.h2_tls"
+      ],
+      "mode": "standard",
+      "resource_group": "transport",
+      "kind": "H2Connect"
+    },
+    {
+      "id": "transport.endpoint_pin",
+      "category": "Transport",
+      "dependencies": [
+        "physical.network_present"
+      ],
+      "mode": "standard",
+      "resource_group": "transport",
+      "kind": "EndpointPin"
+    },
+    {
+      "id": "transport.fallback_policy",
+      "category": "Transport",
+      "dependencies": [
+        "engine.capabilities"
+      ],
+      "mode": "standard",
+      "resource_group": "transport",
+      "kind": "FallbackPolicy"
+    },
+    {
+      "id": "tunnel.address_assignment",
+      "category": "Tunnel",
+      "dependencies": [
+        "engine.control_channel"
+      ],
+      "mode": "standard",
+      "resource_group": "tunnel",
+      "kind": "AddressAssignment"
+    },
+    {
+      "id": "tunnel.routes",
+      "category": "Tunnel",
+      "dependencies": [
+        "tunnel.address_assignment"
+      ],
+      "mode": "standard",
+      "resource_group": "tunnel",
+      "kind": "TunnelRoutes"
+    },
+    {
+      "id": "tunnel.dns",
+      "category": "Tunnel",
+      "dependencies": [
+        "tunnel.address_assignment"
+      ],
+      "mode": "standard",
+      "resource_group": "tunnel",
+      "kind": "TunnelDns"
+    },
+    {
+      "id": "tunnel.first_packet",
+      "category": "Tunnel",
+      "dependencies": [
+        "tunnel.address_assignment"
+      ],
+      "mode": "standard",
+      "resource_group": "tunnel",
+      "kind": "FirstPacket"
+    },
+    {
+      "id": "tunnel.ipv4_egress",
+      "category": "Tunnel",
+      "dependencies": [
+        "tunnel.first_packet"
+      ],
+      "mode": "deep",
+      "resource_group": "egress",
+      "kind": "Ipv4Egress"
+    },
+    {
+      "id": "tunnel.ipv6_egress",
+      "category": "Tunnel",
+      "dependencies": [
+        "tunnel.first_packet"
+      ],
+      "mode": "deep",
+      "resource_group": "egress",
+      "kind": "Ipv6Egress"
+    },
+    {
+      "id": "protection.kill_switch",
+      "category": "Protection",
+      "dependencies": [
+        "engine.configuration"
+      ],
+      "mode": "standard",
+      "resource_group": "platform",
+      "kind": "KillSwitch"
+    },
+    {
+      "id": "protection.dns_path",
+      "category": "Protection",
+      "dependencies": [
+        "tunnel.dns"
+      ],
+      "mode": "standard",
+      "resource_group": "platform",
+      "kind": "DnsPath"
+    },
+    {
+      "id": "protection.route_ownership",
+      "category": "Protection",
+      "dependencies": [
+        "tunnel.routes"
+      ],
+      "mode": "standard",
+      "resource_group": "platform",
+      "kind": "RouteOwnership"
+    },
+    {
+      "id": "protection.recovery_journal",
+      "category": "Recovery",
+      "dependencies": [
+        "engine.control_channel"
+      ],
+      "mode": "standard",
+      "resource_group": "platform",
+      "kind": "RecoveryJournal"
+    },
+    {
+      "id": "quality.rtt",
+      "category": "Transport",
+      "dependencies": [],
+      "mode": "standard",
+      "resource_group": "quality",
+      "kind": "QualityRtt"
+    },
+    {
+      "id": "quality.packet_loss",
+      "category": "Transport",
+      "dependencies": [],
+      "mode": "standard",
+      "resource_group": "quality",
+      "kind": "QualityLoss"
+    },
+    {
+      "id": "quality.queue_pressure",
+      "category": "Transport",
+      "dependencies": [],
+      "mode": "standard",
+      "resource_group": "quality",
+      "kind": "QualityQueues"
+    },
+    {
+      "id": "quality.pmtu",
+      "category": "Transport",
+      "dependencies": [],
+      "mode": "standard",
+      "resource_group": "quality",
+      "kind": "QualityPmtu"
+    },
+    {
+      "id": "transport.migration_capability",
+      "category": "Transport",
+      "dependencies": [],
+      "mode": "standard",
+      "resource_group": "quality",
+      "kind": "MigrationCapability"
+    },
+    {
+      "id": "dns.direct_encrypted_configuration",
+      "category": "Protection",
+      "dependencies": [
+        "engine.configuration"
+      ],
+      "mode": "standard",
+      "resource_group": "quality",
+      "kind": "EncryptedDnsConfiguration"
+    },
+    {
+      "id": "dns.direct_encrypted_runtime_state",
+      "category": "Protection",
+      "dependencies": [
+        "dns.direct_encrypted_configuration"
+      ],
+      "mode": "standard",
+      "resource_group": "quality",
+      "kind": "EncryptedDnsRuntime"
+    },
+    {
+      "id": "transport.h3_path_validation_probe",
+      "category": "Transport",
+      "dependencies": [
+        "engine.configuration"
+      ],
+      "mode": "deep",
+      "resource_group": "network_probe",
+      "kind": "H3Probe"
+    },
+    {
+      "id": "dns.direct_encrypted_reachability",
+      "category": "Protection",
+      "dependencies": [
+        "dns.direct_encrypted_configuration"
+      ],
+      "mode": "deep",
+      "resource_group": "network_probe",
+      "kind": "DnsProbe"
+    }
+  ],
+  "event_types": [
+    "attempt_started",
+    "endpoint_resolved",
+    "socket_connected",
+    "tls_ready",
+    "quic_ready",
+    "masque_accepted",
+    "peer_settings_received",
+    "address_assigned",
+    "tunnel_ready",
+    "first_packet_sent",
+    "first_packet_received",
+    "fallback_started",
+    "reconnect_scheduled",
+    "network_changed",
+    "recovery_probe_started",
+    "recovery_probe_succeeded",
+    "recovery_probe_failed",
+    "path_promoted",
+    "queue_saturated",
+    "disconnected",
+    "failed",
+    "migration_started",
+    "migration_path_validated",
+    "migration_promoted",
+    "migration_failed",
+    "pmtu_changed",
+    "pmtu_revalidation_started",
+    "pmtu_revalidation_failed",
+    "direct_dns_degraded",
+    "direct_dns_recovered",
+    "queue_backpressured"
+  ],
+  "failure_codes": [
+    "ENGINE_UNAVAILABLE",
+    "AGENT_UNREACHABLE",
+    "VPN_SERVICE_UNAVAILABLE",
+    "PROXY_PORT_IN_USE",
+    "PHYSICAL_IPV4_UNAVAILABLE",
+    "PHYSICAL_IPV6_UNAVAILABLE",
+    "PHYSICAL_DNS_UNAVAILABLE",
+    "PHYSICAL_NETWORK_CHANGED",
+    "H3_UDP_UNREACHABLE",
+    "H3_HANDSHAKE_TIMEOUT",
+    "H3_PROTOCOL_ERROR",
+    "H3_DATAGRAM_UNAVAILABLE",
+    "H3_CONNECTION_CLOSED",
+    "PMTU_REVALIDATION_EXHAUSTED",
+    "H2_TCP_CONNECT_FAILED",
+    "H2_TLS_FAILED",
+    "H2_STREAM_CLOSED",
+    "H2_CONNECT_REJECTED",
+    "H2_GOAWAY",
+    "ALL_TRANSPORTS_FAILED",
+    "ENDPOINT_PIN_MISMATCH",
+    "IDENTITY_INVALID",
+    "AUTHENTICATION_FAILED",
+    "CONFIGURATION_INVALID",
+    "CONNECT_IP_REJECTED",
+    "ADDRESS_ASSIGNMENT_INVALID",
+    "TUN_ADDRESS_MISSING",
+    "SOCKET_PROTECTION_FAILED",
+    "SOCKET_AFFINITY_INVALID",
+    "DNS_APPLY_FAILED",
+    "ROUTE_APPLY_FAILED",
+    "KILL_SWITCH_APPLY_FAILED",
+    "KILL_SWITCH_STATE_MISMATCH",
+    "SYSTEM_PROXY_STATE_MISMATCH",
+    "ROUTE_RESTORE_INCOMPLETE",
+    "DNS_RESTORE_INCOMPLETE",
+    "SYSTEM_PROXY_STALE",
+    "PLATFORM_RECOVERY_PENDING",
+    "PACKET_SEND_FAILED",
+    "PACKET_SEND_TIMEOUT",
+    "PACKET_RECEIVE_FAILED",
+    "PACKET_RECEIVE_STALLED",
+    "SEND_QUEUE_FULL",
+    "DIAGNOSTIC_ALREADY_RUNNING",
+    "DIAGNOSTIC_TIMEOUT",
+    "DIAGNOSTIC_CANCELLED",
+    "DIAGNOSTIC_DEPENDENCY_FAILED",
+    "INTERNAL",
+    "L4_SESSION_UNAVAILABLE",
+    "L4_PROTOCOL_ERROR",
+    "L4_CONNECT_REJECTED",
+    "L4_CONNECT_TIMEOUT",
+    "L4_RESOURCE_EXHAUSTED",
+    "L4_DNS_FAILED"
+  ],
+  "summary_keys": [
+    "diagnostic_address_assignment_missing",
+    "nq_finding_unavailable",
+    "nq_finding_invalid_configuration",
+    "nq_finding_dns_system",
+    "nq_finding_unsupported",
+    "nq_finding_dns_custom_valid",
+    "nq_finding_stale",
+    "nq_finding_rtt_high",
+    "nq_finding_healthy",
+    "nq_finding_loss_high",
+    "nq_finding_queue_pressure",
+    "nq_finding_pmtu_degraded",
+    "nq_finding_migration_reconnect",
+    "nq_finding_dns_changed",
+    "nq_finding_dns_runtime",
+    "nq_finding_dns_degraded",
+    "nq_finding_probe_unsafe",
+    "nq_finding_probe_success",
+    "nq_finding_probe_cancelled",
+    "nq_finding_probe_timeout",
+    "nq_finding_probe_failed",
+    "diagnostic_address_assignment_unknown",
+    "diagnostic_address_assignment_valid",
+    "diagnostic_cancelled",
+    "diagnostic_capabilities_ok",
+    "diagnostic_check_failed_internally",
+    "diagnostic_check_timed_out",
+    "diagnostic_configuration_invalid",
+    "diagnostic_configuration_ok",
+    "diagnostic_dependency_failed",
+    "diagnostic_dns_path_actual_state_unknown",
+    "diagnostic_dns_path_consistent",
+    "diagnostic_dns_path_mismatch",
+    "diagnostic_dns_path_not_tunnel",
+    "diagnostic_egress_family_unavailable",
+    "diagnostic_endpoint_pin_mismatch",
+    "diagnostic_endpoint_pin_not_tested",
+    "diagnostic_endpoint_pin_valid",
+    "diagnostic_engine_control_ok",
+    "diagnostic_event_stream_ok",
+    "diagnostic_fallback_policy_valid",
+    "diagnostic_fallback_policy_violation",
+    "diagnostic_first_packet_not_observed",
+    "diagnostic_first_packet_observed",
+    "diagnostic_first_packet_unknown",
+    "diagnostic_frontend_disabled",
+    "diagnostic_frontend_listener_failed",
+    "diagnostic_frontend_listener_ok",
+    "diagnostic_frontend_not_configured",
+    "diagnostic_h2_not_required",
+    "diagnostic_h2_not_tested",
+    "diagnostic_h2_stage_ready",
+    "diagnostic_h3_connected",
+    "diagnostic_h3_datagram_available",
+    "diagnostic_h3_datagram_not_tested",
+    "diagnostic_h3_not_active",
+    "diagnostic_h3_not_tested",
+    "diagnostic_ipv4_egress_requires_external_observer",
+    "diagnostic_ipv4_route_available",
+    "diagnostic_ipv4_route_unavailable",
+    "diagnostic_ipv4_route_unknown",
+    "diagnostic_ipv6_egress_requires_external_observer",
+    "diagnostic_ipv6_route_available",
+    "diagnostic_ipv6_route_unavailable",
+    "diagnostic_ipv6_route_unknown",
+    "diagnostic_kill_switch_actual_state_unknown",
+    "diagnostic_kill_switch_disabled",
+    "diagnostic_kill_switch_state_consistent",
+    "diagnostic_kill_switch_state_mismatch",
+    "diagnostic_network_generation_observed",
+    "diagnostic_physical_dns_available",
+    "diagnostic_physical_dns_unavailable",
+    "diagnostic_physical_dns_unknown",
+    "diagnostic_physical_network_not_observed",
+    "diagnostic_physical_network_present",
+    "diagnostic_recovery_journal_agent_unavailable",
+    "diagnostic_recovery_journal_consistent",
+    "diagnostic_recovery_journal_not_supported",
+    "diagnostic_recovery_journal_pending_cleanup",
+    "diagnostic_requires_deep_mode",
+    "diagnostic_route_ownership_actual_state_unknown",
+    "diagnostic_route_ownership_consistent",
+    "diagnostic_route_ownership_mismatch",
+    "diagnostic_route_ownership_not_supported",
+    "diagnostic_secure_storage_available",
+    "diagnostic_secure_storage_not_supported",
+    "diagnostic_system_proxy_actual_state_unknown",
+    "diagnostic_system_proxy_disabled",
+    "diagnostic_system_proxy_lease_missing",
+    "diagnostic_system_proxy_lease_only",
+    "diagnostic_system_proxy_runtime_mismatch",
+    "diagnostic_tunnel_dns_configured",
+    "diagnostic_tunnel_dns_disabled",
+    "diagnostic_tunnel_dns_unknown",
+    "diagnostic_tunnel_routes_consistent",
+    "diagnostic_tunnel_routes_unknown"
+  ],
+  "remediation_keys": [
+    "none",
+    "nq_profile",
+    "nq_retry",
+    "nq_network",
+    "nq_reconnect",
+    "retry",
+    "try_http2",
+    "check_physical_network",
+    "refresh_or_replace_identity",
+    "replace_identity",
+    "review_configuration",
+    "restore_platform_state",
+    "resolve_dependency",
+    "run_deep_diagnostics",
+    "run_release_leak_gate",
+    "inspect_platform_state",
+    "generate_tunnel_traffic",
+    "export_diagnostics",
+    "not_configured",
+    "platform_capability_unavailable",
+    "connect_or_run_deep_diagnostics",
+    "active_probe_requires_disconnected_deep_mode",
+    "http2_fallback_active",
+    "h3_not_active",
+    "h3_active",
+    "no_transport_handshake",
+    "no_active_runtime",
+    "no_active_tunnel",
+    "payload_family_unavailable"
+  ],
+  "evidence_tokens": [
+    "responsive",
+    "recoverable",
+    "append_only_api",
+    "schema_valid",
+    "metadata_only",
+    "runtime_path",
+    "payload_family",
+    "runtime_started",
+    "stable",
+    "changed",
+    "active_path",
+    "verified_before_ready",
+    "typed_matrix",
+    "family_flags",
+    "configuration_consistent_not_leak_test",
+    "bidirectional",
+    "internal_state_only",
+    "agent_read_only_inspection",
+    "listener_active",
+    "network_present",
+    "network_absent",
+    "kill_switch_active",
+    "kill_switch_inactive",
+    "kill_switch_not_applicable",
+    "kill_switch_unknown",
+    "frontend_active",
+    "platform_configuration_only"
+  ],
+  "evidence_keys": [
+    "rtt_ms",
+    "loss_basis_points",
+    "queue_percent",
+    "queue_drops",
+    "pmtu_bytes",
+    "pmtu_failures",
+    "migration_failures",
+    "dns_successes",
+    "dns_failures",
+    "dns_timeouts",
+    "plaintext_fallback",
+    "probe_ms",
+    "automatic_recovery_phase",
+    "automatic_recovery_attempts_completed",
+    "automatic_recovery_attempt_limit",
+    "recovery_sample_status",
+    "recovery_sample_time_ms",
+    "recovery_sample_generation",
+    "recovery_history_count",
+    "network_generation",
+    "reconnect_count",
+    "dns_server_count",
+    "family_mask",
+    "transferred_bytes"
+  ],
+  "log_event_codes": [
+    "ANDROID_RUNTIME_FAILED",
+    "ENGINE_RUNTIME_WAIT_FINISHED",
+    "ENGINE_RUNTIME_WAIT_STARTED",
+    "NATIVE_EVENT_FAILED",
+    "NATIVE_STOP_FAILED",
+    "NATIVE_STOP_FINISHED",
+    "NATIVE_STOP_REQUESTED",
+    "NATIVE_STOP_UNCONFIRMED",
+    "PACKET_PUMPS_JOIN_PENDING",
+    "PACKET_PUMP_TASK_PANICKED",
+    "STARTUP_CANCELLED",
+    "STARTUP_RETRY",
+    "STARTUP_TIMEOUT",
+    "STOP_REQUESTED",
+    "TASK_JOIN_FINISHED",
+    "TASK_JOIN_STARTED",
+    "TCP_CLOSED",
+    "TCP_CONNECTED",
+    "TCP_DIAL_FAILED",
+    "TCP_READ_FAILED",
+    "TCP_WRITE_FAILED",
+    "TRANSPORT_JOIN_FINISHED",
+    "TRANSPORT_JOIN_STARTED",
+    "UDP_CLOSED",
+    "UDP_CONNECTED"
+  ]
+}

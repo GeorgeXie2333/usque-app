@@ -77,6 +77,30 @@ pub(crate) fn finding_to_proto(finding: &DiagnosticFinding) -> v1::DiagnosticFin
             .map_or(0, |started| started.timestamp_millis()),
         duration_milliseconds: finding.duration_milliseconds.unwrap_or_default(),
         dependency_reason: finding.dependency_reason.clone().unwrap_or_default(),
+        observation: finding
+            .observation
+            .as_ref()
+            .map(|observation| v1::DiagnosticObservation {
+                source: observation.source.as_str().to_owned(),
+                availability: observation.availability.as_str().to_owned(),
+                age_milliseconds: observation.age_milliseconds,
+                connection_instance_id: observation
+                    .connection_instance_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_default(),
+                network_generation: observation.network_generation.unwrap_or_default(),
+            }),
+        evidence: finding
+            .evidence
+            .iter()
+            .filter(|evidence| evidence.is_export_safe())
+            .take(16)
+            .map(|evidence| v1::DiagnosticEvidence {
+                key: evidence.key().to_owned(),
+                number: evidence.number(),
+                token: evidence.token().unwrap_or_default().to_owned(),
+            })
+            .collect(),
     }
 }
 
