@@ -25,6 +25,7 @@ import org.json.JSONObject
 import java.io.File
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -65,6 +66,7 @@ class UsqueVpnService : VpnService() {
         const val MSG_SETTINGS_EVENT = 17
         const val MSG_UPDATE_LOCALE = 18
         const val MSG_VPN_GATE = 19
+        const val MSG_LOG_SNAPSHOT = 20
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -142,7 +144,15 @@ class UsqueVpnService : VpnService() {
         AndroidPolicyStore.recovery(this)
     }
     private val flagCache by lazy { FlagSvgCache(this) }
-    private val logStore by lazy { AndroidLogStore(this) }
+    private val logStore by lazy { AndroidLogStore.forContext(this) }
+
+    private data class LogContext(
+        val instanceId: String?,
+        val connectionGeneration: Long,
+        val networkGeneration: Long,
+    )
+
+    private val nativeStopLogContexts = ConcurrentHashMap<Long, LogContext>()
     private val snapshotState = ServiceSnapshotState()
     private val diagnosticProbes by lazy {
         ServiceDiagnosticProbes(
@@ -267,6 +277,27 @@ class UsqueVpnService : VpnService() {
                         true
                     }
 
+                    MSG_LOG_SNAPSHOT -> {
+                        logStore.capture().thenAccept { snapshot ->
+                            try {
+                                message.replyTo?.send(
+                                    Message.obtain(null, MSG_LOG_SNAPSHOT, message.arg1, 0).apply {
+                                        data =
+                                            Bundle().apply {
+                                                putString(
+                                                    "log_snapshot",
+                                                    JSONObject(snapshot.toMap()).toString(),
+                                                )
+                                            }
+                                    },
+                                )
+                            } catch (_: RemoteException) {
+                                // The capture has no lifetime beyond this reply.
+                            }
+                        }
+                        true
+                    }
+
                     MSG_DIAGNOSTIC_PROBE -> {
                         diagnosticProbes.start(message)
                         true
@@ -296,7 +327,8 @@ class UsqueVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        logStore.record(AndroidLogStore.Event.SERVICE_CREATED)
+        logStore.resume()
+        recordLog(AndroidLogStore.Event.SERVICE_CREATED)
         notifications.createChannel()
         networkMonitor.register(getSystemService(ConnectivityManager::class.java))
     }
@@ -434,7 +466,7 @@ class UsqueVpnService : VpnService() {
     }
 
     override fun onRevoke() {
-        logStore.record(AndroidLogStore.Event.VPN_PERMISSION_REVOKED, phase = snapshotState.phase)
+        recordLog(AndroidLogStore.Event.VPN_PERMISSION_REVOKED, phase = snapshotState.phase)
         disconnect(stopService = true)
         super.onRevoke()
     }
@@ -443,7 +475,7 @@ class UsqueVpnService : VpnService() {
         chainNetworkRecovery.cancel()
         diagnosticProbes.cancel()
         if (!clearAllRequested.get()) {
-            logStore.record(AndroidLogStore.Event.SERVICE_DESTROYED, phase = snapshotState.phase)
+            recordLog(AndroidLogStore.Event.SERVICE_DESTROYED, phase = snapshotState.phase)
         }
         destroyed = true
         networkMonitor.cancelScheduledSelection()
@@ -574,7 +606,7 @@ class UsqueVpnService : VpnService() {
         networkMonitor.bumpGeneration()
         activeProfileJson.set(profileJson)
         activeMode.set(mode)
-        logStore.record(
+        recordLog(
             AndroidLogStore.Event.CONNECTION_REQUESTED,
             phase = "preparing",
             mode = mode,
@@ -1633,7 +1665,7 @@ class UsqueVpnService : VpnService() {
         closeQuietly(descriptor)
         snapshotState.resetForDisconnect(terminalFailure)
         notifyTileStateChanged()
-        logStore.record(
+        recordLog(
             AndroidLogStore.Event.CONNECTION_STOPPED,
             phase = snapshotState.phase,
             mode = stoppedMode,
@@ -1722,17 +1754,30 @@ class UsqueVpnService : VpnService() {
                                 replyControlError(request, "CLEAR_ALL_FAILED", "Network settings could not be reset.")
                                 return@resetDone
                             }
-                            settingsStateJson = null
-                            confirmedSettingsProfile = null
-                            settingsUncertain = false
-                            runtimeReconfigureInFlight = false
-                            diagnosticProbes.cancel()
-                            snapshotState.reset("disconnected")
-                            notifyTileStateChanged()
-                            broadcastSnapshot()
-                            replyWithSnapshot(request)
-                            stopForeground(STOP_FOREGROUND_REMOVE)
-                            stopSelf()
+                            logStore.clearAndPause().thenAccept { cleared ->
+                                mainHandler.post logCleared@{
+                                    if (!isCurrent(generation)) return@logCleared
+                                    if (!cleared) {
+                                        replyControlError(
+                                            request,
+                                            "CLEAR_ALL_FAILED",
+                                            "Android logs could not be cleared.",
+                                        )
+                                        return@logCleared
+                                    }
+                                    settingsStateJson = null
+                                    confirmedSettingsProfile = null
+                                    settingsUncertain = false
+                                    runtimeReconfigureInFlight = false
+                                    diagnosticProbes.cancel()
+                                    snapshotState.reset("disconnected")
+                                    notifyTileStateChanged()
+                                    broadcastSnapshot()
+                                    replyWithSnapshot(request)
+                                    stopForeground(STOP_FOREGROUND_REMOVE)
+                                    stopSelf()
+                                }
+                            }
                         }
                     }
                 }
@@ -1742,19 +1787,24 @@ class UsqueVpnService : VpnService() {
 
     private fun beginNativeStop(): Long {
         val ticket = nativeStops.begin()
-        logStore.record(AndroidLogStore.Event.NATIVE_STOP_REQUESTED)
+        val context = currentLogContext()
+        nativeStopLogContexts[ticket] = context
+        recordLog(AndroidLogStore.Event.NATIVE_STOP_REQUESTED, stopTicket = ticket, context = context)
         return ticket
     }
 
     private fun stopNativeRuntime(ticket: Long): Boolean {
         val confirmed = NativeEngine.stop()
         nativeStops.complete(ticket, confirmed)
-        logStore.record(
+        recordLog(
             if (confirmed) {
                 AndroidLogStore.Event.NATIVE_STOP_COMPLETED
             } else {
                 AndroidLogStore.Event.NATIVE_STOP_UNCONFIRMED
             },
+            errorType = if (confirmed) null else "NATIVE_STOP_UNCONFIRMED",
+            stopTicket = ticket,
+            context = nativeStopLogContexts.remove(ticket) ?: currentLogContext(),
         )
         return confirmed
     }
@@ -1786,7 +1836,7 @@ class UsqueVpnService : VpnService() {
         val recoveringChain =
             chainNetworkRecovery.networkChanged(chainRunning, selectedNetwork != null)
         NativeEngine.notifyNetworkChanged(generation)
-        logStore.record(
+        recordLog(
             AndroidLogStore.Event.NETWORK_CHANGED,
             phase = snapshotState.phase,
             mode = activeMode.get(),
@@ -2144,7 +2194,7 @@ class UsqueVpnService : VpnService() {
             stopStatusTask()
         }
         if (merge.phaseChanged) {
-            logStore.record(
+            recordLog(
                 AndroidLogStore.Event.CONNECTION_PHASE_CHANGED,
                 phase = snapshotState.phase,
                 mode = activeMode.get(),
@@ -2167,7 +2217,7 @@ class UsqueVpnService : VpnService() {
                 snapshotState.phase = nextPhase
                 snapshotState.warning = nextWarning
                 snapshotState.errorCode = null
-                logStore.record(
+                recordLog(
                     AndroidLogStore.Event.CONNECTION_PHASE_CHANGED,
                     phase = snapshotState.phase,
                     mode = activeMode.get(),
@@ -2196,10 +2246,11 @@ class UsqueVpnService : VpnService() {
         val stoppedGate =
             VpnGateFields.stoppedStatus(source)
                 ?: VpnGateFields.stoppedStatus(JSONObject().put("stage", "error"))
-        logStore.record(
+        recordLog(
             AndroidLogStore.Event.CONNECTION_FAILED,
             phase = "error",
             mode = activeMode.get(),
+            errorType = code,
         )
         // End this connection intent, including its recovery record and Java
         // TUN. Cancellation precedes FD closure; native duplicate-FD cleanup
@@ -2238,10 +2289,11 @@ class UsqueVpnService : VpnService() {
                 snapshotState.tunnelIpv4Available = false
                 snapshotState.tunnelIpv6Available = false
             }
-            logStore.record(
+            recordLog(
                 AndroidLogStore.Event.CONNECTION_FAILED,
                 phase = snapshotState.phase,
                 mode = activeMode.get(),
+                errorType = code,
             )
             snapshotState.warning = message.take(512)
             snapshotState.transport = null
@@ -2315,6 +2367,8 @@ class UsqueVpnService : VpnService() {
 
     private fun snapshotBundle(): Bundle =
         snapshotState.toBundle(platformFlags()).apply {
+            currentLogContext().instanceId?.let { putString("connection_instance_id", it) }
+            putLong("connection_generation", connectionGeneration.get())
             val (dnsMode, dnsConfiguration) = diagnosticProbes.configuration()
             putString("direct_dns_mode", dnsMode)
             putString("direct_dns_configuration", dnsConfiguration)
@@ -2323,6 +2377,36 @@ class UsqueVpnService : VpnService() {
                 activeProfileJson.get() != null && activeMode.get() == "vpn",
             )
         }
+
+    private fun currentLogContext(): LogContext =
+        LogContext(
+            NetworkQualityFields.decode(snapshotState.networkQualityJson)?.get("connection_instance_id") as? String,
+            connectionGeneration.get(),
+            networkMonitor.generation(),
+        )
+
+    private fun recordLog(
+        event: AndroidLogStore.Event,
+        phase: String? = null,
+        mode: String? = null,
+        transport: String? = null,
+        errorType: String? = snapshotState.errorCode,
+        stopTicket: Long? = null,
+        context: LogContext = currentLogContext(),
+    ) {
+        if (clearAllRequested.get()) return
+        logStore.record(
+            event,
+            phase,
+            mode,
+            transport,
+            errorType,
+            context.instanceId,
+            context.connectionGeneration,
+            context.networkGeneration,
+            stopTicket,
+        )
+    }
 
     private fun platformFlags(): ServiceSnapshotState.PlatformFlags =
         ServiceSnapshotState.PlatformFlags(

@@ -2,6 +2,7 @@ package io.github.georgexie2333.usque
 
 import android.content.ServiceConnection
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -12,6 +13,49 @@ import org.junit.Before
 import org.junit.Test
 
 class VpnControlClientTest {
+    @Test
+    fun logCaptureIsBoundedAndLateTimeoutRepliesCannotCompleteTwice() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val replies = mutableListOf<AndroidLogStore.Snapshot?>()
+        client.requestLogs(replies::add)
+        val id = endpoint.messages.last().requestId
+        assertEquals(UsqueVpnService.MSG_LOG_SNAPSHOT, endpoint.messages.last().what)
+        scheduler.fireAllDelayed()
+        assertEquals(listOf<AndroidLogStore.Snapshot?>(null), replies)
+        client.deliverLogsReply(id, "{}")
+        assertEquals(1, replies.size)
+    }
+
+    @Test
+    fun logCaptureRevalidatesRecordsAndHealthAtTheMessengerBoundary() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        var snapshot: AndroidLogStore.Snapshot? = null
+        client.requestLogs { snapshot = it }
+        val id = endpoint.messages.last().requestId
+        val line =
+            JSONObject()
+                .put("timestamp", "2026-09-30T00:00:00Z")
+                .put("level", "WARN")
+                .put("event", "CONNECTION_FAILED")
+                .put("error_code", "ANDROID_RUNTIME_FAILED")
+                .toString()
+        client.deliverLogsReply(
+            id,
+            JSONObject(
+                mapOf(
+                    "lines" to "$line\n{\"token\":\"private-token\"}\n",
+                    "health" to
+                        mapOf("barrier_completed" to true, "written_count" to 1L, "private_path" to "private-file"),
+                ),
+            ).toString(),
+        )
+        assertEquals("$line\n", snapshot?.lines)
+        assertEquals(1L, snapshot?.health?.get("omitted_line_count"))
+        assertFalse(snapshot.toString().contains("private"))
+    }
+
     @Test
     fun generationPendingFollowsCurrentJobUntilCompletion() {
         val endpoint = RecordingEndpoint()

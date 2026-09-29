@@ -15,7 +15,6 @@ import java.util.zip.ZipOutputStream
 internal object AndroidMaintenance {
     private const val UPDATE_PREFERENCES = "usque_update_state_v1"
     private const val MAX_UPDATE_RESULT_BYTES = 16 * 1024
-    private const val MAX_DIAGNOSTIC_LOG_BYTES = 2 * 1024 * 1024
     private const val MAX_DIAGNOSTIC_BUNDLE_BYTES = 8 * 1024 * 1024
     private const val RELEASE_URL_PREFIX =
         "https://github.com/GeorgeXie2333/usque-app/releases/"
@@ -54,8 +53,11 @@ internal object AndroidMaintenance {
         snapshot: Map<String, Any?>,
         diagnosticSession: Map<String, Any?>? = null,
         connectionTimeline: Map<String, Any?> = emptyMap(),
+        logSnapshot: AndroidLogStore.Snapshot? = null,
     ) {
-        val logs = AndroidLogStore(context).diagnosticSnapshot(MAX_DIAGNOSTIC_LOG_BYTES)
+        val capturedLogs =
+            logSnapshot?.let { AndroidLogStore.fromMap(it.toMap()) } ?: AndroidLogStore.readPersisted(context)
+        val logs = capturedLogs.lines
         val connection =
             JSONObject()
                 .put("phase", safeEnum(snapshot["phase"], CONNECTION_PHASES, "unknown"))
@@ -144,6 +146,7 @@ internal object AndroidMaintenance {
                 requireNotNull(sanitizedSession).toString(2).toByteArray()
         }
         if (logs.isNotEmpty()) payloads["logs/android-engine.jsonl"] = logs.toByteArray()
+        payloads["log-storage-health.json"] = JSONObject(capturedLogs.health).toString(2).toByteArray()
         payloads["README.txt"] = readme.toByteArray()
         val payloadBytes = payloads.values.sumOf(ByteArray::size)
         if (payloadBytes > MAX_DIAGNOSTIC_BUNDLE_BYTES) {
@@ -217,7 +220,7 @@ internal object AndroidMaintenance {
         check(AndroidLocaleController.clear(context)) {
             "Android locale state could not be cleared"
         }
-        AndroidLogStore(context).clear()
+        AndroidLogStore.clearPersisted(context)
         FlagSvgCache(context).clear()
         AndroidPolicyStore.clear(context)
     }

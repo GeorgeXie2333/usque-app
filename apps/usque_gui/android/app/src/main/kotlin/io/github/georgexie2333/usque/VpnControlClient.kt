@@ -12,6 +12,7 @@ import android.os.Message
 import android.os.Messenger
 import android.os.RemoteException
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -286,6 +287,7 @@ internal class VpnControlClient(
     private val pendingDiagnosticProbes = mutableMapOf<Int, (SnapshotProbe) -> Unit>()
     private var pendingNetworkProbe: Pair<Int, CompletableFuture<String?>>? = null
     private var pendingTimeline: Pair<Int, (Map<String, Any?>?) -> Unit>? = null
+    private var pendingLogs: Pair<Int, (AndroidLogStore.Snapshot?) -> Unit>? = null
     private val pendingClearAll = mutableMapOf<Int, MethodChannel.Result>()
     private var nextSnapshotId = 1
     private var endpoint: ControlEndpoint? = null
@@ -530,6 +532,60 @@ internal class VpnControlClient(
         pendingTimeline = null
         scheduler.cancel(snapshotTimeoutToken(id))
         pending.second(NativeTimelineFields.decode(raw))
+    }
+
+    /** Capture at the service writer barrier; never block the main thread or poll logs. */
+    fun requestLogs(callback: (AndroidLogStore.Snapshot?) -> Unit) {
+        val service = endpoint
+        if (destroyed || service == null || pendingLogs != null) {
+            callback(null)
+            return
+        }
+        val id = allocateRequestId()
+        pendingLogs = id to callback
+        if (!service.send(UsqueVpnService.MSG_LOG_SNAPSHOT, id)) {
+            deliverLogsReply(id, null)
+            return
+        }
+        scheduler.postDelayed(1_500L, snapshotTimeoutToken(id)) { deliverLogsReply(id, null) }
+    }
+
+    internal fun deliverLogsReply(
+        id: Int,
+        raw: String?,
+    ) {
+        val pending = pendingLogs?.takeIf { it.first == id } ?: return
+        pendingLogs = null
+        scheduler.cancel(snapshotTimeoutToken(id))
+        val snapshot =
+            if (raw == null || raw.length > 384 * 1024 || raw.toByteArray(Charsets.UTF_8).size > 384 * 1024) {
+                null
+            } else {
+                runCatching {
+                    val source = JSONObject(raw)
+                    val health = source.optJSONObject("health") ?: JSONObject()
+                    AndroidLogStore.fromMap(
+                        mapOf(
+                            "lines" to source.optString("lines"),
+                            "health" to
+                                health
+                                    .keys()
+                                    .asSequence()
+                                    .take(20)
+                                    .associateWith { health.opt(it) },
+                        ),
+                    )
+                }.getOrNull()
+            }
+        pending.second(snapshot)
+    }
+
+    private fun cancelPendingLogs() {
+        pendingLogs?.let { (id, callback) ->
+            pendingLogs = null
+            scheduler.cancel(snapshotTimeoutToken(id))
+            callback(null)
+        }
     }
 
     /** Called only on the existing diagnostic worker, never on the UI thread. */
@@ -908,6 +964,7 @@ internal class VpnControlClient(
             scheduler.cancel(snapshotTimeoutToken(id))
             callback(null)
         }
+        cancelPendingLogs()
 
         pendingClearAll.keys.toList().forEach { requestId ->
             scheduler.cancel(clearAllTimeoutToken(requestId))
@@ -958,6 +1015,7 @@ internal class VpnControlClient(
 
     fun resetAfterClear() {
         cancelPendingConnections()
+        cancelPendingLogs()
         pendingPerAppRevision = null
         val oldTimeline = pendingTimeline
         pendingTimeline = null
@@ -1157,6 +1215,11 @@ internal class VpnControlClient(
                 true
             }
 
+            UsqueVpnService.MSG_LOG_SNAPSHOT -> {
+                deliverLogsReply(arg1, data.getString("log_snapshot"))
+                true
+            }
+
             UsqueVpnService.MSG_DIAGNOSTIC_PROBE -> {
                 pendingNetworkProbe?.takeIf { it.first == arg1 }?.let { (_, response) ->
                     pendingNetworkProbe = null
@@ -1345,6 +1408,12 @@ internal class VpnControlClient(
                     bundle.getBoolean("underlying_network_present"),
                 "underlying_family_mask" to bundle.getInt("underlying_family_mask"),
                 "network_generation" to bundle.getLong("network_generation"),
+                "connection_generation" to
+                    if (bundle.containsKey("connection_generation")) bundle.getLong("connection_generation") else null,
+                "connection_instance_id" to
+                    bundle.getString("connection_instance_id")?.takeIf {
+                        it.matches(Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"))
+                    },
                 "dns_server_count" to bundle.getInt("dns_server_count"),
                 "native_runtime_state" to bundle.getString("native_runtime_state"),
                 "foreground_notification_state" to

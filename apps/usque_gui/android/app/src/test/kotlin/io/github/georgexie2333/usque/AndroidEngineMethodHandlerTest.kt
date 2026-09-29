@@ -317,6 +317,10 @@ class AndroidEngineMethodHandlerTest {
                 }.second,
             null,
         )
+        controlClient.deliverLogsReply(
+            endpoint.messages.last { it.first == UsqueVpnService.MSG_LOG_SNAPSHOT }.second,
+            null,
+        )
         assertEquals(1, activityCommands.diagnosticsCount)
     }
 
@@ -371,6 +375,10 @@ class AndroidEngineMethodHandlerTest {
         )
 
         controlClient.deliverTimelineReply(timelineRequestId, null)
+        controlClient.deliverLogsReply(
+            endpoint.messages.last { it.first == UsqueVpnService.MSG_LOG_SNAPSHOT }.second,
+            null,
+        )
         val frozenPayload = requireNotNull(activityCommands.diagnosticsPayload)
         assertEquals(1L, frozenPayload.snapshot["network_generation"])
         assertEquals(firstSessionId, frozenPayload.diagnosticSession?.get("session_id"))

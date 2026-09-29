@@ -44,6 +44,7 @@ internal class AndroidEngineMethodHandler(
         val snapshot: Map<String, Any?>,
         val diagnosticSession: Map<String, Any?>?,
         val connectionTimeline: Map<String, Any?>,
+        val logSnapshot: AndroidLogStore.Snapshot? = null,
     )
 
     /**
@@ -567,6 +568,7 @@ internal class AndroidEngineMethodHandler(
             }
 
             "exportDiagnostics" -> {
+                val generation = dataGeneration.get()
                 val sessionId = call.argument<String>("diagnostic_session_id")
                 if (!diagnosticsCoordinator.matchesSession(sessionId)) {
                     result.error(
@@ -579,17 +581,20 @@ internal class AndroidEngineMethodHandler(
                     val exportSession = diagnosticsCoordinator.current()?.toMap()
                     controlClient.requestTimeline { timeline ->
                         diagnosticsCoordinator.observeNativeTimeline(timeline)
-                        if (controlClient.isClosed) {
-                            result.error("ENGINE_IPC_CLOSED", "The Android UI closed before export.", null)
-                        } else {
-                            activityCommands.selectDiagnosticsDestination(
-                                result,
-                                DiagnosticExportPayload(
-                                    snapshot = exportSnapshot,
-                                    diagnosticSession = exportSession,
-                                    connectionTimeline = diagnosticsCoordinator.timeline(),
-                                ),
-                            )
+                        val exportTimeline = diagnosticsCoordinator.timeline()
+                        controlClient.requestLogs { logs ->
+                            if (controlClient.isClosed || generation != dataGeneration.get()) {
+                                result.error(
+                                    "ENGINE_REQUEST_CANCELLED",
+                                    "The Android export capture was cancelled.",
+                                    null,
+                                )
+                            } else {
+                                activityCommands.selectDiagnosticsDestination(
+                                    result,
+                                    DiagnosticExportPayload(exportSnapshot, exportSession, exportTimeline, logs),
+                                )
+                            }
                         }
                     }
                 }

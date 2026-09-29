@@ -784,6 +784,7 @@ class MainActivity : FlutterFragmentActivity() {
                     payload.snapshot,
                     payload.diagnosticSession,
                     payload.connectionTimeline,
+                    payload.logSnapshot,
                 )
                 runOnUiThread { result.success(destination.toString()) }
             } catch (error: Exception) {
