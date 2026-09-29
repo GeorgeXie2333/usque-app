@@ -57,6 +57,7 @@ Publication and optional protected-runner validation are explained in
 | [Reliability invariants](reliability-invariants.md) | Append-only invariant identifiers and safety properties / 不可复用的标识与安全属性 |
 | [Network-quality metrics](network-quality-metrics.md) | Availability, counters, queue bounds, RTT, and PMTU / 指标语义与资源边界 |
 | [Network-quality IPC](network-quality-ipc.md) | Wire fields, compatibility, event coalescing, and UI samples / 协议字段、兼容性与采样 |
+| [Diagnostics and observability](diagnostics-observability.md) | Evidence sources, session recovery, retained timelines, logging and export limits / 证据来源、会话恢复、保留时间线、日志与导出限制 |
 | [H3 path infrastructure](h3-path-infrastructure.md) | Socket ownership, exact generations, and migration / 路径所有权、网络代次与迁移 |
 | [H3 client reliability](h3-client-reliability.md) | Receive handling, fragmentation policy, GOAWAY, and recovery / 接收、分片策略与恢复 |
 | [HTTP/3 congestion control](congestion-control.md) | Algorithm selection, deferred session settings, and BBRv3 / 算法选择、延迟生效与 BBRv3 |

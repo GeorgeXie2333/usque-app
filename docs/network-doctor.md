@@ -35,13 +35,26 @@ connection test.
 
 | Result | Meaning and next step |
 | --- | --- |
-| Passed | The check's observed condition passed. Other checks and unobserved network paths may still be unknown. |
+| Passed | The check's stated condition passed. Read its evidence source and availability; runtime inference is not an independent network measurement. |
 | Warning | Review the measured value and suggested action. A timeout or high latency alone does not prove the normal connection cannot work. |
 | Failed | Follow the check's explanation, correct the relevant configuration if needed, and rerun it. |
 | Skipped / unavailable | Required data, protocol support, credentials or safe probe conditions were missing. This is not a zero reading or a pass. |
 | Cancelled / cancelling | The run was cancelled, or is still releasing its temporary resources. Wait for completion before starting another run. |
 
 For example, HTTP/2 packet loss and PMTU are unavailable, rather than zero.
+Results distinguish configuration, runtime, platform, client and active-probe
+sources, and mark evidence as observed, inferred, unavailable, stale or not
+applicable. Missing counters display **Unknown**; an explicit measured zero
+remains zero. A suggested action can be present even without a transport failure
+code.
+
+The timeline shows recent connection events, with distinct labels for QUIC
+migration, path MTU and encrypted-DNS changes. **Last connection** identifies
+retained records after disconnect. Native transport records show observed
+runtime evidence; an Android platform fallback shows inferred evidence. Source
+event drops and events hidden by the view are reported separately. Refreshing
+the timeline reads existing records and does not start probes.
+
 A local pass cannot establish that no DNS or Kill Switch traffic leaked on the
 physical network. Keep credentials and raw diagnostic bundles out of public
 Issues; follow [Security policy](../SECURITY.md) for suspected vulnerabilities.
@@ -49,8 +62,8 @@ Issues; follow [Security policy](../SECURITY.md) for suspected vulnerabilities.
 ## Implementation reference
 
 The sections below describe checks, resource limits and platform integration for
-maintainers. They use the existing diagnostic session, progress, cancellation
-and local-export framework.
+maintainers. The current session, logging and export contracts are documented
+in [Diagnostics and observability](diagnostics-observability.md).
 
 ### Check catalog
 
@@ -68,7 +81,10 @@ and local-export framework.
 
 Unknown, unsupported, disconnected or stale measurements cannot pass as zero.
 Findings use existing pass/warning/failure/skipped/cancelled statuses, fixed
-summary/remediation codes and allowlisted numeric evidence. Exports omit
+summary/remediation codes and typed allowlisted facts/unsigned numeric evidence.
+The shared [diagnostic contract](../proto/usque/diagnostics-contract.json)
+generates Rust, Kotlin and Dart allowlists. Optional provenance metadata and
+legacy string evidence remain compatible with older peers. Exports omit
 resolver names, bootstrap/endpoint addresses, QNAMEs, SSIDs, CIDs and raw errors.
 The reserved probe name is constant program behavior, never a user's query.
 
@@ -118,15 +134,38 @@ remain optional; unsupported probes are skipped without insecure alternatives.
 
 ### Workstation evidence and protected scope
 
+Session snapshots preserve every finding, parallel active checks and a session
+revision. The desktop event stream sends a full snapshot on attachment, after
+event-buffer lag and on changed revisions at its one-second tick; older check
+events still recover through GetDiagnostics. Cancellation remains active until
+owned checks unwind, and clearing joins the old desktop worker before another
+run starts. Completed execution can contain failed findings.
+
 Android timeline reads use append-only Binder message 14 and an optional JNI
 method. Rust mirrors the bounded native transport timeline in memory at 1 Hz
 and on shutdown; the getter returns at most 256 events and 192 KiB. The UI
-allows one outstanding request for at most 750 ms. Missing/old methods fall
+uses a 750 ms caller timeout and keeps a late request owned until it finishes,
+preventing an overlapping read. Missing/old methods fall
 back to the existing phase timeline; native events and real RTT/fallback/queue
 counters take precedence when present. Late replies and UI destruction cannot
 complete a request twice. The full timeline is never added to regular events.
-Exports use the same enum/numeric allowlist and omit live absolute timestamps;
-the requested diagnostic session is frozen before the asynchronous read.
+While Diagnostics is visible, Flutter refreshes it every two seconds,
+independently of the active session's 750 ms recovery polling. These reads do
+not create source samples. Desktop keeps a bounded terminal timeline through
+runtime removal and shutdown, marked **Last connection**.
+
+Exports use the same enum/numeric allowlist and omit live event absolute
+timestamps; the requested diagnostic session is frozen before the asynchronous
+read. Capture metadata records available connection identity, generation,
+cleanup and freshness. Desktop captures quality once from its active or
+retained runtime scope. Android omits mismatched timeline events/metrics and
+scoped finding evidence, marking the scope stale. Missing correlation remains
+unavailable. Log capture health records queue/write failures, incomplete
+records and truncation; an empty payload does not prove there were no events.
+Retention is based on log files and segments, without strict per-record expiry
+or crash-durability guarantees. See the
+[export and logging reference](diagnostics-observability.md) for platform limits
+and the Android document-provider partial-output limitation.
 
 Ordinary tests cover read-only configuration/state equality, the 15-second
 session budget, dependency ordering, resource-group serialization, cancellation,
