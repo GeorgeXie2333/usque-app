@@ -256,6 +256,8 @@ pub struct DiagnosticSession {
     pub progress_percent: u32,
     pub findings: Vec<DiagnosticFinding>,
     pub summary: DiagnosticSummary,
+    #[serde(default)]
+    pub revision: u64,
 }
 
 impl DiagnosticSession {
@@ -270,10 +272,16 @@ impl DiagnosticSession {
             progress_percent: 0,
             findings,
             summary: DiagnosticSummary::default(),
+            revision: 1,
         }
     }
 
     pub fn recompute_summary(&mut self) {
+        self.current_check = self
+            .findings
+            .iter()
+            .find(|finding| finding.status == DiagnosticCheckStatus::Running)
+            .map(|finding| finding.check_id.clone());
         self.summary = DiagnosticSummary::from_findings(&self.findings);
         let terminal = self
             .findings
@@ -285,6 +293,14 @@ impl DiagnosticSession {
         } else {
             ((terminal * 100) / self.findings.len()) as u32
         };
+    }
+
+    pub fn active_checks(&self) -> Vec<String> {
+        self.findings
+            .iter()
+            .filter(|finding| finding.status == DiagnosticCheckStatus::Running)
+            .map(|finding| finding.check_id.clone())
+            .collect()
     }
 }
 

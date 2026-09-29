@@ -45,6 +45,8 @@ where
     let mut settings_updates = service.settings_tx.subscribe();
     let initial_quality = service.network_quality_payload();
     let mut quality_gate = NetworkQualityEventGate::new(initial_quality);
+    let mut diagnostic_revision = None;
+    write_diagnostic_snapshot(&mut stream, &service, &mut diagnostic_revision).await?;
 
     loop {
         tokio::select! {
@@ -75,6 +77,7 @@ where
                 if let Some(snapshot) = quality_gate.take_periodic(Instant::now()) {
                     write_network_quality_event(&mut stream, &service, snapshot).await?;
                 }
+                write_diagnostic_snapshot(&mut stream, &service, &mut diagnostic_revision).await?;
             }
             changed = quality_updates.changed(), if quality_gate.is_enabled() => {
                 if changed.is_err() {
@@ -115,12 +118,43 @@ where
                         )
                         .await?;
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        diagnostic_revision = None;
+                        write_diagnostic_snapshot(&mut stream, &service, &mut diagnostic_revision).await?;
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
                 }
             }
         }
     }
+}
+
+async fn write_diagnostic_snapshot(
+    writer: &mut (impl AsyncWrite + Unpin),
+    service: &ControlService,
+    last_sent: &mut Option<(uuid::Uuid, u64)>,
+) -> io::Result<()> {
+    let Some(session) = service.diagnostics.get().await else {
+        return Ok(());
+    };
+    let revision = (session.session_id, session.revision);
+    if *last_sent == Some(revision) {
+        return Ok(());
+    }
+    write_event(
+        writer,
+        EventEnvelope {
+            sequence: service.next_event_sequence(),
+            payload: Some(event_envelope::Payload::DiagnosticsSnapshot(
+                v1::DiagnosticSessionSnapshot {
+                    session: Some(diagnostics::session_to_proto(&session)),
+                },
+            )),
+        },
+    )
+    .await?;
+    *last_sent = Some(revision);
+    Ok(())
 }
 
 struct NetworkQualityEventGate {
@@ -280,6 +314,43 @@ mod tests {
         let directory = tempfile::tempdir().expect("tempdir");
         let path = directory.keep().join("config.json");
         Arc::new(ControlService::open(ConfigStore::new(path)).expect("service"))
+    }
+
+    #[tokio::test]
+    async fn new_event_subscriber_receives_a_full_session_snapshot_without_delta_history() {
+        let service = service();
+        let context = service
+            .diagnostic_context(usque_core::DiagnosticMode::Standard)
+            .await;
+        service
+            .diagnostics
+            .start(usque_core::DiagnosticMode::Standard, context)
+            .await
+            .unwrap();
+        let expected = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let session = service.diagnostics.get().await.unwrap();
+                if !session.state.is_active() {
+                    break session;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let (mut client, server) = duplex(128 * 1024);
+        let task = tokio::spawn(handle_event_stream(server, service));
+        let _capabilities = read_event(&mut client).await.unwrap();
+        let snapshot = read_event(&mut client).await.unwrap();
+        let Some(event_envelope::Payload::DiagnosticsSnapshot(snapshot)) = snapshot.payload else {
+            panic!("full snapshot required");
+        };
+        let snapshot = snapshot.session.unwrap();
+        assert_eq!(snapshot.session_id, expected.session_id.to_string());
+        assert_eq!(snapshot.revision, expected.revision);
+        assert_eq!(snapshot.findings.len(), expected.findings.len());
+        drop(client);
+        let _ = timeout(Duration::from_secs(2), task).await.unwrap();
     }
 
     #[tokio::test]

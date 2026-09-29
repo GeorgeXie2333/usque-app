@@ -44,6 +44,8 @@ pub(crate) fn session_to_proto(session: &DiagnosticSession) -> v1::DiagnosticSes
             skipped: session.summary.skipped,
             cancelled: session.summary.cancelled,
         }),
+        active_checks: session.active_checks(),
+        revision: session.revision,
     }
 }
 
@@ -109,6 +111,9 @@ pub(crate) fn timeline_to_proto(timeline: &ConnectionTimelineSnapshot) -> v1::Co
         events: timeline.events.iter().map(event_to_proto).collect(),
         metrics: Some(metrics_to_proto(&timeline.metrics)),
         dropped_event_count: timeline.dropped_event_count,
+        connection_instance_id: String::new(),
+        retained: false,
+        session_generation: 0,
     }
 }
 

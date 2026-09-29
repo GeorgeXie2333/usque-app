@@ -729,6 +729,8 @@ message DiagnosticSession {
   uint32 progress_percent = 7;
   repeated DiagnosticFinding findings = 8;
   DiagnosticSummary summary = 9;
+  repeated string active_checks = 10;
+  uint64 revision = 11;
 }
 
 message StartDiagnosticsRequest {
@@ -981,6 +983,9 @@ message ConnectionTimeline {
   repeated ConnectionEvent events = 1;
   ConnectionMetrics metrics = 2;
   uint64 dropped_event_count = 3;
+  string connection_instance_id = 4;
+  bool retained = 5;
+  uint64 session_generation = 6;
 }
 message ClearAllDataRequest {
   bool confirmed = 1;
@@ -1283,6 +1288,10 @@ message DiagnosticSessionCancelled {
   DiagnosticSession session = 1;
 }
 
+message DiagnosticSessionSnapshot {
+  DiagnosticSession session = 1;
+}
+
 message EventEnvelope {
   uint64 sequence = 1;
   oneof payload {
@@ -1301,6 +1310,7 @@ message EventEnvelope {
     DiagnosticSessionCancelled diagnostic_session_cancelled = 22;
     NetworkQualityUpdated network_quality_updated = 23;
     NetworkSettingsState network_settings_changed = 24;
+    DiagnosticSessionSnapshot diagnostics_snapshot = 25;
   }
 }
 
