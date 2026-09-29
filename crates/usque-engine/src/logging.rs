@@ -1,14 +1,20 @@
 //! Bounded, privacy-filtered JSONL logging for the desktop engine.
 
 use std::{
+    collections::HashMap,
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, BufWriter, Write},
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{
+        Arc, Condvar, Mutex, OnceLock, Weak,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        mpsc::{self, SyncSender, TrySendError},
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use serde::Serialize;
 use serde_json::Value;
 use tracing_subscriber::fmt::MakeWriter;
 use usque_core::diagnostics_contract_generated::LOG_EVENT_CODES;
@@ -18,39 +24,297 @@ const ROTATE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_EVENT_BYTES: usize = 256 * 1024;
 const MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const ACTIVE_LOG_NAME: &str = "engine.jsonl";
+const MAX_QUEUED_EVENTS: usize = 248;
+const MAX_QUEUED_BYTES: usize = 2 * 1024 * 1024;
+const COMMAND_CAPACITY: usize = 256;
+const SYNC_INTERVAL: Duration = Duration::from_secs(1);
+const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
+pub(crate) const MAX_LOG_DIRECTORY_ENTRIES: usize = 1024;
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LogHealthSnapshot {
+    pub running: bool,
+    pub writer_available: bool,
+    pub queued_events: usize,
+    pub queued_bytes: usize,
+    pub written_events: u64,
+    pub dropped_events: u64,
+    pub queue_full_events: u64,
+    pub write_failures: u64,
+    pub oversized_events: u64,
+    pub unconfirmed_events: u64,
+}
+
+#[derive(Default)]
+struct LogHealth {
+    running: AtomicBool,
+    writer_available: AtomicBool,
+    accepting: AtomicBool,
+    stopping: AtomicBool,
+    queued_events: AtomicUsize,
+    queued_bytes: AtomicUsize,
+    written_events: AtomicU64,
+    dropped_events: AtomicU64,
+    queue_full_events: AtomicU64,
+    write_failures: AtomicU64,
+    oversized_events: AtomicU64,
+    unconfirmed_events: AtomicU64,
+    stopped: Mutex<bool>,
+    completed: Condvar,
+}
+
+impl LogHealth {
+    fn snapshot(&self) -> LogHealthSnapshot {
+        LogHealthSnapshot {
+            running: self.running.load(Ordering::Acquire),
+            writer_available: self.writer_available.load(Ordering::Acquire),
+            queued_events: self.queued_events.load(Ordering::Acquire),
+            queued_bytes: self.queued_bytes.load(Ordering::Acquire),
+            written_events: self.written_events.load(Ordering::Acquire),
+            dropped_events: self.dropped_events.load(Ordering::Acquire),
+            queue_full_events: self.queue_full_events.load(Ordering::Acquire),
+            write_failures: self.write_failures.load(Ordering::Acquire),
+            oversized_events: self.oversized_events.load(Ordering::Acquire),
+            unconfirmed_events: self.unconfirmed_events.load(Ordering::Acquire),
+        }
+    }
+}
+
+struct LogShared {
+    sender: SyncSender<LogCommand>,
+    health: Arc<LogHealth>,
+}
+
+impl Drop for LogShared {
+    fn drop(&mut self) {
+        self.health.accepting.store(false, Ordering::Release);
+        self.health.stopping.store(true, Ordering::Release);
+    }
+}
+
+enum LogCommand {
+    Event(QueuedEvent),
+    Operation(Box<dyn FnOnce(&mut LogState) + Send>),
+}
+
+struct QueuedEvent {
+    bytes: Vec<u8>,
+    health: Arc<LogHealth>,
+    written: bool,
+}
+
+impl Drop for QueuedEvent {
+    fn drop(&mut self) {
+        self.health.queued_events.fetch_sub(1, Ordering::AcqRel);
+        self.health
+            .queued_bytes
+            .fetch_sub(self.bytes.len(), Ordering::AcqRel);
+        if !self.written {
+            self.health.dropped_events.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+static WRITERS: OnceLock<Mutex<HashMap<PathBuf, Weak<LogShared>>>> = OnceLock::new();
+
+fn normalized_directory(directory: &Path) -> PathBuf {
+    let absolute = if directory.is_absolute() {
+        directory.to_owned()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(directory)
+    };
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn live_writer(directory: &Path) -> Option<Arc<LogShared>> {
+    let writers = WRITERS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    writers
+        .get(&normalized_directory(directory))
+        .and_then(Weak::upgrade)
+}
+
+pub fn log_health(directory: &Path) -> Option<LogHealthSnapshot> {
+    live_writer(directory).map(|shared| shared.health.snapshot())
+}
 
 #[derive(Clone)]
 pub struct LogWriterFactory {
-    shared: Arc<Mutex<LogState>>,
+    shared: Arc<LogShared>,
 }
 
 struct LogState {
     directory: PathBuf,
     active_path: PathBuf,
-    file: Option<File>,
+    file: Option<BufWriter<File>>,
     bytes_written: u64,
     rotation_counter: u32,
+    health: Arc<LogHealth>,
+    retry_after: Instant,
+    pending_events: u64,
 }
 
 impl LogWriterFactory {
     pub fn open(config_path: &Path) -> io::Result<Self> {
-        let directory = log_directory(config_path);
-        fs::create_dir_all(&directory)?;
-        prune_logs(&directory, MAX_TOTAL_BYTES)?;
-        let active_path = directory.join(ACTIVE_LOG_NAME);
-        let bytes_written = fs::metadata(&active_path)
-            .map(|metadata| metadata.len())
-            .unwrap_or_default();
-        let file = open_active_log(&active_path)?;
-        Ok(Self {
-            shared: Arc::new(Mutex::new(LogState {
-                directory,
-                active_path,
-                file: Some(file),
-                bytes_written,
-                rotation_counter: 0,
-            })),
-        })
+        let directory = normalized_directory(&log_directory(config_path));
+        let mut writers = WRITERS
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(shared) = writers.get(&directory).and_then(Weak::upgrade)
+            && shared.health.running.load(Ordering::Acquire)
+        {
+            return Ok(Self { shared });
+        }
+        let health = Arc::new(LogHealth::default());
+        health.running.store(true, Ordering::Release);
+        health.accepting.store(true, Ordering::Release);
+        let (sender, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
+        let shared = Arc::new(LogShared {
+            sender,
+            health: Arc::clone(&health),
+        });
+        let worker_health = Arc::clone(&health);
+        if std::thread::Builder::new()
+            .name("usque-log-writer".into())
+            .spawn(move || run_writer(directory, receiver, worker_health))
+            .is_err()
+        {
+            health.accepting.store(false, Ordering::Release);
+            health.running.store(false, Ordering::Release);
+            health.write_failures.fetch_add(1, Ordering::Relaxed);
+            *health
+                .stopped
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = true;
+        }
+        writers.retain(|_, writer| writer.strong_count() != 0);
+        writers.insert(
+            normalized_directory(&log_directory(config_path)),
+            Arc::downgrade(&shared),
+        );
+        // Disk and worker failures produce a disabled, observable sink. Logging
+        // must not prevent the Engine from starting or performing cleanup.
+        Ok(Self { shared })
+    }
+
+    pub fn health(&self) -> LogHealthSnapshot {
+        self.shared.health.snapshot()
+    }
+
+    pub fn flush(&self, timeout: Duration) -> io::Result<()> {
+        owner_operation(&self.shared, timeout, LogState::sync)
+    }
+
+    /// Stop accepting events, drain the bounded queue, and sync the active file.
+    /// A timeout only bounds the caller; the worker retains its owned state.
+    pub fn shutdown(&self, timeout: Duration) -> io::Result<()> {
+        self.shared.health.accepting.store(false, Ordering::Release);
+        self.shared.health.stopping.store(true, Ordering::Release);
+        let stopped = self
+            .shared
+            .health
+            .stopped
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let (stopped, _) = self
+            .shared
+            .health
+            .completed
+            .wait_timeout_while(stopped, timeout, |stopped| !*stopped)
+            .unwrap_or_else(|error| error.into_inner());
+        if !*stopped {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "log shutdown timed out",
+            ));
+        }
+        if !self.shared.health.writer_available.load(Ordering::Acquire) {
+            return Err(io::Error::other(
+                "log shutdown completed with an unavailable writer",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn owner_operation<T: Send + 'static>(
+    shared: &Arc<LogShared>,
+    timeout: Duration,
+    operation: impl FnOnce(&mut LogState) -> io::Result<T> + Send + 'static,
+) -> io::Result<T> {
+    if !shared.health.accepting.load(Ordering::Acquire) {
+        return Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "log writer is stopped",
+        ));
+    }
+    let (reply, result) = mpsc::channel();
+    shared
+        .sender
+        .try_send(LogCommand::Operation(Box::new(move |state| {
+            let _ = reply.send(operation(state));
+        })))
+        .map_err(|error| match error {
+            TrySendError::Full(_) => {
+                io::Error::new(io::ErrorKind::WouldBlock, "log command queue is full")
+            }
+            TrySendError::Disconnected(_) => {
+                io::Error::new(io::ErrorKind::BrokenPipe, "log writer is unavailable")
+            }
+        })?;
+    result.recv_timeout(timeout).map_err(|error| match error {
+        mpsc::RecvTimeoutError::Timeout => {
+            io::Error::new(io::ErrorKind::TimedOut, "log operation timed out")
+        }
+        mpsc::RecvTimeoutError::Disconnected => {
+            io::Error::new(io::ErrorKind::BrokenPipe, "log operation was abandoned")
+        }
+    })?
+}
+
+pub fn flush_logs(directory: &Path, timeout: Duration) -> io::Result<()> {
+    let shared = live_writer(directory)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no live log writer"))?;
+    owner_operation(&shared, timeout, LogState::sync)
+}
+
+pub(crate) fn capture_logs<T: Send + 'static>(
+    directory: &Path,
+    timeout: Duration,
+    capture: impl FnOnce() -> T + Send + 'static,
+) -> io::Result<T> {
+    match live_writer(directory) {
+        Some(shared) if shared.health.running.load(Ordering::Acquire) => {
+            owner_operation(&shared, timeout, move |state| {
+                state.sync()?;
+                Ok(capture())
+            })
+        }
+        _ => Ok(capture()),
+    }
+}
+
+pub(crate) fn clear_logs(directory: &Path, timeout: Duration) -> io::Result<()> {
+    match live_writer(directory) {
+        Some(shared) if shared.health.running.load(Ordering::Acquire) => {
+            owner_operation(&shared, timeout, LogState::clear)
+        }
+        _ => clear_log_files(directory),
     }
 }
 
@@ -67,7 +331,7 @@ impl<'a> MakeWriter<'a> for LogWriterFactory {
 }
 
 pub struct BufferedLogEvent {
-    shared: Arc<Mutex<LogState>>,
+    shared: Arc<LogShared>,
     buffer: Vec<u8>,
     overflowed: bool,
 }
@@ -88,32 +352,239 @@ impl Write for BufferedLogEvent {
 
 impl Drop for BufferedLogEvent {
     fn drop(&mut self) {
-        let event = if self.overflowed {
+        let mut event = if self.overflowed {
+            self.shared
+                .health
+                .oversized_events
+                .fetch_add(1, Ordering::Relaxed);
             br#"{"level":"ERROR","target":"usque_engine","message":"oversized log event omitted"}"#
                 .to_vec()
         } else {
             sanitize_log_bytes(&self.buffer)
         };
+        if event.len() > MAX_EVENT_BYTES {
+            self.shared
+                .health
+                .oversized_events
+                .fetch_add(1, Ordering::Relaxed);
+            event = br#"{"level":"ERROR","target":"usque_engine","message":"oversized log event omitted"}"#.to_vec();
+        }
         if event.is_empty() {
             return;
         }
-        if let Ok(mut state) = self.shared.lock() {
-            let _ = state.write_event(&event);
+        let health = &self.shared.health;
+        if !health.accepting.load(Ordering::Acquire) {
+            health.dropped_events.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        if health
+            .queued_events
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |events| {
+                (events < MAX_QUEUED_EVENTS).then_some(events + 1)
+            })
+            .is_err()
+        {
+            health.queue_full_events.fetch_add(1, Ordering::Relaxed);
+            health.dropped_events.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        if health
+            .queued_bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |bytes| {
+                bytes
+                    .checked_add(event.len())
+                    .filter(|total| *total <= MAX_QUEUED_BYTES)
+            })
+            .is_err()
+        {
+            health.queued_events.fetch_sub(1, Ordering::AcqRel);
+            health.queue_full_events.fetch_add(1, Ordering::Relaxed);
+            health.dropped_events.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let event = QueuedEvent {
+            bytes: event,
+            health: Arc::clone(health),
+            written: false,
+        };
+        if self
+            .shared
+            .sender
+            .try_send(LogCommand::Event(event))
+            .is_err()
+        {
+            health.queue_full_events.fetch_add(1, Ordering::Relaxed);
         }
     }
 }
 
+struct WorkerCompletion(Arc<LogHealth>);
+
+impl Drop for WorkerCompletion {
+    fn drop(&mut self) {
+        self.0.accepting.store(false, Ordering::Release);
+        self.0.running.store(false, Ordering::Release);
+        *self
+            .0
+            .stopped
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = true;
+        self.0.completed.notify_all();
+    }
+}
+
+fn run_writer(directory: PathBuf, receiver: mpsc::Receiver<LogCommand>, health: Arc<LogHealth>) {
+    let _completion = WorkerCompletion(Arc::clone(&health));
+    let mut state = LogState {
+        active_path: directory.join(ACTIVE_LOG_NAME),
+        directory,
+        file: None,
+        bytes_written: 0,
+        rotation_counter: 0,
+        health: Arc::clone(&health),
+        retry_after: Instant::now(),
+        pending_events: 0,
+    };
+    let _ = state.ensure_open(true);
+    let mut last_sync = Instant::now();
+    let mut last_prune = Instant::now();
+    while !health.stopping.load(Ordering::Acquire) {
+        match receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok(command) => process_command(&mut state, command),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        if last_sync.elapsed() >= SYNC_INTERVAL {
+            let _ = state.sync();
+            last_sync = Instant::now();
+        }
+        if last_prune.elapsed() >= PRUNE_INTERVAL {
+            let limit = MAX_TOTAL_BYTES
+                .saturating_sub(ROTATE_BYTES)
+                .saturating_add(state.bytes_written.min(ROTATE_BYTES));
+            if prune_logs(&state.directory, limit).is_err() {
+                health.write_failures.fetch_add(1, Ordering::Relaxed);
+            }
+            last_prune = Instant::now();
+        }
+    }
+    // Producers are barred first. Every accepted command owns bounded memory;
+    // draining cannot turn shutdown into an unbounded queue of new work.
+    for _ in 0..COMMAND_CAPACITY {
+        let Ok(command) = receiver.try_recv() else {
+            break;
+        };
+        process_command(&mut state, command);
+    }
+    let _ = state.sync();
+}
+
+fn process_command(state: &mut LogState, command: LogCommand) {
+    match command {
+        LogCommand::Event(mut event) => {
+            if state.write_event(&event.bytes).is_ok() {
+                event.written = true;
+            }
+        }
+        LogCommand::Operation(operation) => operation(state),
+    }
+}
+
 impl LogState {
+    fn ensure_open(&mut self, force: bool) -> io::Result<()> {
+        if self.file.is_some() {
+            return Ok(());
+        }
+        if !force && Instant::now() < self.retry_after {
+            return Err(io::Error::other("log writer is awaiting retry"));
+        }
+        let result = (|| {
+            fs::create_dir_all(&self.directory)?;
+            self.bytes_written = fs::metadata(&self.active_path)
+                .map(|metadata| metadata.len())
+                .unwrap_or_default();
+            let limit = MAX_TOTAL_BYTES
+                .saturating_sub(ROTATE_BYTES)
+                .saturating_add(self.bytes_written.min(ROTATE_BYTES));
+            prune_logs(&self.directory, limit)?;
+            self.file = Some(open_active_log(&self.active_path)?);
+            Ok(())
+        })();
+        if result.is_err() {
+            self.failed();
+        } else {
+            self.health.writer_available.store(true, Ordering::Release);
+        }
+        result
+    }
+
+    fn failed(&mut self) {
+        // Discard a failed buffered writer without retrying its raw buffer on
+        // Drop. The data is already sanitized, but duplicate writes are not useful.
+        if let Some(file) = self.file.take() {
+            let _ = file.into_parts();
+        }
+        self.health.writer_available.store(false, Ordering::Release);
+        self.health.write_failures.fetch_add(1, Ordering::Relaxed);
+        self.health
+            .unconfirmed_events
+            .fetch_add(self.pending_events, Ordering::Relaxed);
+        self.pending_events = 0;
+        self.retry_after = Instant::now() + SYNC_INTERVAL;
+    }
+
+    fn sync(&mut self) -> io::Result<()> {
+        self.ensure_open(true)?;
+        let result = (|| {
+            let file = self
+                .file
+                .as_mut()
+                .ok_or_else(|| io::Error::other("log writer is unavailable"))?;
+            file.flush()?;
+            file.get_ref().sync_data()
+        })();
+        if result.is_err() {
+            self.failed();
+        } else {
+            self.health
+                .written_events
+                .fetch_add(self.pending_events, Ordering::Relaxed);
+            self.pending_events = 0;
+        }
+        result
+    }
+
+    fn clear(&mut self) -> io::Result<()> {
+        // The single owner closes/flushed its handle before clearing, then
+        // resets the length used for rotation and reopens the current file.
+        self.sync()?;
+        self.file.take();
+        let result = clear_log_files(&self.directory);
+        self.bytes_written = 0;
+        if result.is_err() {
+            self.failed();
+            return result;
+        }
+        self.ensure_open(true)
+    }
+
     fn write_event(&mut self, event: &[u8]) -> io::Result<()> {
-        let event_length = u64::try_from(event.len()).unwrap_or(u64::MAX);
+        self.ensure_open(false)?;
+        let result = self.write_open_event(event);
+        if result.is_err() && self.health.writer_available.load(Ordering::Acquire) {
+            self.failed();
+        }
+        result
+    }
+
+    fn write_open_event(&mut self, event: &[u8]) -> io::Result<()> {
+        let event_length = u64::try_from(event.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::from(!event.ends_with(b"\n")));
         if self.bytes_written > 0 && self.bytes_written.saturating_add(event_length) > ROTATE_BYTES
         {
             self.rotate()?;
         }
-        prune_logs(
-            &self.directory,
-            MAX_TOTAL_BYTES.saturating_sub(event_length),
-        )?;
         let file = self
             .file
             .as_mut()
@@ -121,16 +592,15 @@ impl LogState {
         file.write_all(event)?;
         if !event.ends_with(b"\n") {
             file.write_all(b"\n")?;
-            self.bytes_written = self.bytes_written.saturating_add(1);
         }
         self.bytes_written = self.bytes_written.saturating_add(event_length);
+        self.pending_events = self.pending_events.saturating_add(1);
         Ok(())
     }
 
     fn rotate(&mut self) -> io::Result<()> {
-        if let Some(file) = self.file.take() {
-            file.sync_data()?;
-        }
+        self.sync()?;
+        self.file.take();
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -150,13 +620,45 @@ impl LogState {
         }
         self.file = Some(open_active_log(&self.active_path)?);
         self.bytes_written = 0;
-        prune_logs(&self.directory, MAX_TOTAL_BYTES)?;
+        prune_logs(
+            &self.directory,
+            MAX_TOTAL_BYTES.saturating_sub(ROTATE_BYTES),
+        )?;
         Ok(())
     }
 }
 
-fn open_active_log(path: &Path) -> io::Result<File> {
-    OpenOptions::new().create(true).append(true).open(path)
+fn open_active_log(path: &Path) -> io::Result<BufWriter<File>> {
+    let file = OpenOptions::new().create(true).append(true).open(path)?;
+    Ok(BufWriter::with_capacity(64 * 1024, file))
+}
+
+fn clear_log_files(directory: &Path) -> io::Result<()> {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for (index, entry) in entries.enumerate() {
+        if index >= MAX_LOG_DIRECTORY_ENTRIES {
+            return Err(io::Error::other("log directory entry limit exceeded"));
+        }
+        let entry = entry?;
+        if !fs::symlink_metadata(entry.path())?.file_type().is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == ACTIVE_LOG_NAME {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(entry.path())?;
+        } else if is_engine_log_name(&name) || name == "windows-recovery-cache-v1.json" {
+            fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
 }
 
 pub fn log_directory(config_path: &Path) -> PathBuf {
@@ -169,11 +671,16 @@ pub fn log_directory(config_path: &Path) -> PathBuf {
 fn prune_logs(directory: &Path, byte_limit: u64) -> io::Result<()> {
     let now = SystemTime::now();
     let mut logs = Vec::new();
-    for entry in match fs::read_dir(directory) {
+    for (index, entry) in match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
-    } {
+    }
+    .enumerate()
+    {
+        if index >= MAX_LOG_DIRECTORY_ENTRIES {
+            return Err(io::Error::other("log directory entry limit exceeded"));
+        }
         let entry = entry?;
         let path = entry.path();
         let file_name = entry.file_name();
@@ -452,8 +959,9 @@ pub fn project_public_log(bytes: &[u8]) -> Vec<u8> {
         fields
             .iter()
             .filter_map(|(key, value)| {
-                if is_public_numeric_key(key)
-                    && (value.is_boolean() || value.as_u64().is_some() || value.as_i64().is_some())
+                if (is_public_numeric_key(key)
+                    && (value.is_boolean() || value.as_u64().is_some() || value.as_i64().is_some()))
+                    || (key == "error" && value.is_boolean())
                 {
                     return Some((key.clone(), value.clone()));
                 }
@@ -465,6 +973,7 @@ pub fn project_public_log(bytes: &[u8]) -> Vec<u8> {
                     }
                     "failure_code" | "error_code" => {
                         usque_core::diagnostics_contract_generated::FAILURE_CODES.contains(&text)
+                            || LOG_EVENT_CODES.contains(&text)
                     }
                     "check_id" => {
                         usque_core::diagnostics_contract_generated::CHECK_IDS.contains(&text)
@@ -599,6 +1108,153 @@ fn looks_like_jwt(token: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn record_sequence(factory: &LogWriterFactory, sequence: u64) {
+        let bytes = serde_json::to_vec(&serde_json::json!({"level": "INFO", "sequence": sequence}))
+            .unwrap();
+        factory.make_writer().write_all(&bytes).unwrap();
+    }
+
+    fn block_writer(factory: &LogWriterFactory) -> mpsc::Sender<()> {
+        let (entered, waiting) = mpsc::channel();
+        let (release, blocked) = mpsc::channel();
+        assert!(
+            factory
+                .shared
+                .sender
+                .try_send(LogCommand::Operation(Box::new(move |_| {
+                    let _ = entered.send(());
+                    let _ = blocked.recv();
+                })))
+                .is_ok()
+        );
+        waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+        release
+    }
+
+    #[test]
+    fn queue_overflow_is_bounded_and_flush_has_a_timeout() {
+        let directory = tempfile::tempdir().unwrap();
+        let factory = LogWriterFactory::open(&directory.path().join("config.json")).unwrap();
+        let release = block_writer(&factory);
+        for sequence in 0..(MAX_QUEUED_EVENTS + 17) {
+            record_sequence(&factory, sequence as u64);
+        }
+        let health = factory.health();
+        assert_eq!(health.queued_events, MAX_QUEUED_EVENTS);
+        assert!(health.queued_bytes <= MAX_QUEUED_BYTES);
+        assert_eq!(health.queue_full_events, 17);
+        assert_eq!(health.dropped_events, 17);
+        assert_eq!(
+            factory.flush(Duration::ZERO).unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        release.send(()).unwrap();
+        factory.flush(Duration::from_secs(5)).unwrap();
+        assert_eq!(factory.health().written_events, MAX_QUEUED_EVENTS as u64);
+        assert_eq!(factory.health().queued_bytes, 0);
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+        record_sequence(&factory, 999);
+        assert_eq!(factory.health().dropped_events, 18);
+    }
+
+    #[test]
+    fn queue_limits_total_payload_bytes_independently_of_event_count() {
+        let directory = tempfile::tempdir().unwrap();
+        let factory = LogWriterFactory::open(&directory.path().join("config.json")).unwrap();
+        let release = block_writer(&factory);
+        let bytes =
+            serde_json::to_vec(&serde_json::json!({"padding": "x".repeat(MAX_EVENT_BYTES - 64)}))
+                .unwrap();
+        for _ in 0..9 {
+            factory.make_writer().write_all(&bytes).unwrap();
+        }
+        assert!(factory.health().queued_bytes <= MAX_QUEUED_BYTES);
+        assert!(factory.health().queued_events < MAX_QUEUED_EVENTS);
+        assert!(factory.health().queue_full_events > 0);
+        release.send(()).unwrap();
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
+    fn disk_failure_degrades_startup_and_recovers_without_blocking_producers() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let logs = log_directory(&config);
+        fs::write(&logs, b"inert path blocker").unwrap();
+        let factory = LogWriterFactory::open(&config).unwrap();
+        record_sequence(&factory, 1);
+        assert!(factory.flush(Duration::from_secs(5)).is_err());
+        let health = factory.health();
+        assert!(!health.writer_available);
+        assert!(health.write_failures > 0);
+        assert_eq!(health.dropped_events, 1);
+        assert_eq!(health.written_events, 0);
+        fs::remove_file(&logs).unwrap();
+        factory.flush(Duration::from_secs(5)).unwrap();
+        record_sequence(&factory, 2);
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+        assert_eq!(factory.health().written_events, 1);
+    }
+
+    #[test]
+    fn failed_flush_marks_buffered_records_unconfirmed_instead_of_synced() {
+        let directory = tempfile::tempdir().unwrap();
+        let factory = LogWriterFactory::open(&directory.path().join("config.json")).unwrap();
+        owner_operation(&factory.shared, Duration::from_secs(5), |state| {
+            state.sync()?;
+            state.file = Some(BufWriter::new(File::open(&state.active_path)?));
+            Ok(())
+        })
+        .unwrap();
+        record_sequence(&factory, 1);
+        assert!(factory.flush(Duration::from_secs(5)).is_err());
+        let health = factory.health();
+        assert_eq!(health.written_events, 0);
+        assert_eq!(health.unconfirmed_events, 1);
+        assert_eq!(health.queued_bytes, 0);
+        assert!(!health.writer_available);
+        factory.flush(Duration::from_secs(5)).unwrap();
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
+    fn clearing_is_ordered_with_writes_and_resets_rotation_length() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let logs = log_directory(&config);
+        fs::create_dir(&logs).unwrap();
+        File::create(logs.join(ACTIVE_LOG_NAME))
+            .unwrap()
+            .set_len(ROTATE_BYTES - 4)
+            .unwrap();
+        let factory = LogWriterFactory::open(&config).unwrap();
+        record_sequence(&factory, 1);
+        clear_logs(&logs, Duration::from_secs(5)).unwrap();
+        record_sequence(&factory, 2);
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+        assert_eq!(fs::read_dir(&logs).unwrap().count(), 1);
+        let value: Value =
+            serde_json::from_slice(&fs::read(logs.join(ACTIVE_LOG_NAME)).unwrap()).unwrap();
+        assert_eq!(value["sequence"], 2);
+    }
+
+    #[test]
+    fn dropping_last_handle_stops_worker_without_a_sender_reference_cycle() {
+        let directory = tempfile::tempdir().unwrap();
+        let factory = LogWriterFactory::open(&directory.path().join("config.json")).unwrap();
+        let health = Arc::clone(&factory.shared.health);
+        record_sequence(&factory, 1);
+        drop(factory);
+        let stopped = health.stopped.lock().unwrap();
+        let (stopped, _) = health
+            .completed
+            .wait_timeout_while(stopped, Duration::from_secs(5), |stopped| !*stopped)
+            .unwrap();
+        assert!(*stopped);
+        assert!(!health.running.load(Ordering::Acquire));
+        assert_eq!(health.snapshot().written_events, 1);
+    }
+
     #[test]
     fn assignments_punctuation_and_paths_are_scrubbed_without_losing_typed_counts() {
         for message in [
@@ -646,6 +1302,11 @@ mod tests {
         assert_eq!(value["fields"]["listener_count"], 3);
         assert_eq!(value["fields"]["ipv4_available"], true);
         assert!(project_public_log(br#"["secret"]"#).is_empty());
+        let projected = project_public_log(br#"{"fields":{"gate_event":"AUTH_FAILED","error":true,"error_code":"AGENT_DIRECT_EGRESS_FAILED"}}"#);
+        let value: Value = serde_json::from_slice(&projected).unwrap();
+        assert_eq!(value["fields"]["gate_event"], "AUTH_FAILED");
+        assert_eq!(value["fields"]["error"], true);
+        assert_eq!(value["fields"]["error_code"], "AGENT_DIRECT_EGRESS_FAILED");
     }
 
     #[test]
@@ -734,8 +1395,10 @@ mod tests {
                 .write_all(br#"{"level":"INFO","message":"ready"}"#)
                 .unwrap();
         }
+        factory.flush(Duration::from_secs(5)).unwrap();
         let contents = fs::read_to_string(log_directory(&config).join(ACTIVE_LOG_NAME)).unwrap();
         assert!(contents.ends_with('\n'));
         assert!(contents.contains("\"ready\""));
+        factory.shutdown(Duration::from_secs(5)).unwrap();
     }
 }

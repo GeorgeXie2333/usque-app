@@ -1,11 +1,11 @@
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use crate::logging::{log_directory, project_public_log};
+use crate::logging::{self, LogHealthSnapshot, log_directory, project_public_log};
 
 use chrono::Utc;
 use serde::Serialize;
@@ -39,6 +39,8 @@ struct LogExportMetadata {
     rejected_records: usize,
     truncated: bool,
     omission_reasons: Vec<&'static str>,
+    capture_status: &'static str,
+    writer_health: Option<LogHealthSnapshot>,
 }
 
 struct CollectedLogs {
@@ -129,7 +131,7 @@ impl Maintenance {
             if flag_cache_directory.is_dir() {
                 fs::remove_dir_all(&flag_cache_directory)?;
             }
-            clear_engine_logs(&log_directory)
+            logging::clear_logs(&log_directory, Duration::from_secs(5))
         })
         .await
         .map_err(|error| MaintenanceError::Worker(error.to_string()))??;
@@ -143,34 +145,6 @@ fn remove_file_if_present(path: &Path) -> io::Result<()> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
-}
-
-fn clear_engine_logs(directory: &Path) -> io::Result<()> {
-    let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    for entry in entries {
-        let entry = entry?;
-        let metadata = entry.metadata()?;
-        if !metadata.is_file() {
-            continue;
-        }
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name == "engine.jsonl" {
-            OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(entry.path())?;
-        } else if (name.starts_with("engine-") && name.ends_with(".jsonl"))
-            || name == "windows-recovery-cache-v1.json"
-        {
-            fs::remove_file(entry.path())?;
-        }
-    }
-    Ok(())
 }
 
 fn write_diagnostic_bundle(
@@ -195,7 +169,7 @@ fn write_diagnostic_bundle(
         return Err(MaintenanceError::InvalidDestination(destination.to_owned()));
     }
 
-    let log = collect_sanitized_logs(log_directory);
+    let log = collect_logs_with_owner(log_directory);
     let configuration = configuration_summary(config);
     let connection = connection_summary(snapshot);
     let timeline = connection_timeline_summary(&transport.timeline);
@@ -925,10 +899,44 @@ fn write_stored_zip(
     Ok(())
 }
 
+fn collect_logs_with_owner(directory: &Path) -> CollectedLogs {
+    let owned_directory = directory.to_owned();
+    match logging::capture_logs(directory, Duration::from_secs(5), move || {
+        collect_sanitized_logs(&owned_directory)
+    }) {
+        Ok(logs) => logs,
+        Err(error) => {
+            let capture_status = match error.kind() {
+                io::ErrorKind::TimedOut => "timeout",
+                io::ErrorKind::WouldBlock => "busy",
+                _ => "unavailable",
+            };
+            CollectedLogs {
+                bytes: Vec::new(),
+                metadata: LogExportMetadata {
+                    source_status: "unavailable",
+                    capture_status,
+                    byte_limit: MAX_DIAGNOSTIC_LOG_BYTES,
+                    omission_reasons: vec![capture_status],
+                    writer_health: logging::log_health(directory),
+                    ..Default::default()
+                },
+            }
+        }
+    }
+}
+
 fn collect_sanitized_logs(directory: &Path) -> CollectedLogs {
+    let writer_health = logging::log_health(directory);
     let mut metadata = LogExportMetadata {
         source_status: "available",
         byte_limit: MAX_DIAGNOSTIC_LOG_BYTES,
+        capture_status: if writer_health.as_ref().is_some_and(|health| health.running) {
+            "coordinated"
+        } else {
+            "no_live_writer"
+        },
+        writer_health,
         ..Default::default()
     };
     let entries = match fs::read_dir(directory) {
@@ -947,7 +955,13 @@ fn collect_sanitized_logs(directory: &Path) -> CollectedLogs {
         }
     };
     let mut files = Vec::new();
-    for entry in entries {
+    for (index, entry) in entries.enumerate() {
+        if index >= logging::MAX_LOG_DIRECTORY_ENTRIES {
+            metadata.truncated = true;
+            metadata.source_status = "partial";
+            metadata.omission_reasons.push("directory_entry_limit");
+            break;
+        }
         let Ok(entry) = entry else {
             metadata.unreadable_files += 1;
             continue;
@@ -979,6 +993,7 @@ fn collect_sanitized_logs(directory: &Path) -> CollectedLogs {
     files.sort_by_key(|(path, active, modified)| (*active, *modified, path.clone()));
     let mut records = Vec::new();
     let mut output_bytes = 0_usize;
+    let mut output_limit_hit = false;
     'files: for (path, _, _) in files.into_iter().rev() {
         let remaining = MAX_DIAGNOSTIC_LOG_BYTES.saturating_sub(metadata.source_bytes_read);
         if remaining == 0 {
@@ -1025,14 +1040,18 @@ fn collect_sanitized_logs(directory: &Path) -> CollectedLogs {
             }
             if output_bytes.saturating_add(sanitized.len() + 1) > MAX_DIAGNOSTIC_LOG_BYTES {
                 metadata.truncated = true;
+                output_limit_hit = true;
                 break 'files;
             }
             output_bytes += sanitized.len() + 1;
             records.push(sanitized);
         }
     }
-    metadata.truncated |= metadata.source_bytes_available > metadata.source_bytes_read as u64;
-    if metadata.truncated {
+    let byte_limit_hit = output_limit_hit
+        || (metadata.source_bytes_available > metadata.source_bytes_read as u64
+            && metadata.source_bytes_read == MAX_DIAGNOSTIC_LOG_BYTES);
+    metadata.truncated |= byte_limit_hit;
+    if byte_limit_hit {
         metadata.omission_reasons.push("byte_limit");
     }
     if metadata.unreadable_files != 0 {
@@ -1155,6 +1174,46 @@ pub enum MaintenanceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_export_flushes_preceding_events_and_reports_writer_health() {
+        use tracing_subscriber::fmt::MakeWriter;
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let factory = logging::LogWriterFactory::open(&config).unwrap();
+        factory
+            .make_writer()
+            .write_all(br#"{"level":"INFO","sequence":12,"message":"private"}"#)
+            .unwrap();
+        let logs = collect_logs_with_owner(&log_directory(&config));
+        assert_eq!(logs.metadata.capture_status, "coordinated");
+        assert_eq!(logs.metadata.records_exported, 1);
+        assert_eq!(logs.metadata.writer_health.unwrap().written_events, 1);
+        assert!(!String::from_utf8_lossy(&logs.bytes).contains("private"));
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
+    fn log_export_marks_failed_writer_as_unavailable_without_failing_bundle() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        fs::write(log_directory(&config), b"inert path blocker").unwrap();
+        let factory = logging::LogWriterFactory::open(&config).unwrap();
+        let logs = collect_logs_with_owner(&log_directory(&config));
+        assert_eq!(logs.metadata.source_status, "unavailable");
+        assert!(!logs.metadata.writer_health.unwrap().writer_available);
+        assert!(logs.bytes.is_empty());
+        write_diagnostic_bundle(
+            &directory.path().join("diagnostics.zip"),
+            &AppConfig::default(),
+            &ConnectionSnapshot::default(),
+            None,
+            &DiagnosticTransportContext::default(),
+            &log_directory(&config),
+        )
+        .unwrap();
+        assert!(factory.shutdown(Duration::from_secs(5)).is_err());
+    }
 
     fn fixed_log_record(sequence: u64) -> Vec<u8> {
         let mut value = serde_json::json!({"level": "INFO", "event_type": "failed", "sequence": sequence, "padding": ""});

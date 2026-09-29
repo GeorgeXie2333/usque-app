@@ -1,8 +1,9 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use clap::Parser;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use usque_core::{LogLevel, storage::ConfigStore};
 use usque_engine::ControlService;
 
@@ -46,10 +47,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let result = runtime.block_on(run());
+    let mut log_shutdown = None;
+    let result = runtime.block_on(run(&mut log_shutdown));
     // run() finishes privileged cleanup (or records its failure) first. A
     // pending in-memory native worker must not hold process exit indefinitely.
     finish_runtime(runtime, std::time::Duration::from_secs(5));
+    drop(log_shutdown);
     result
 }
 
@@ -69,7 +72,9 @@ fn finish_runtime(runtime: tokio::runtime::Runtime, grace: std::time::Duration) 
     );
 }
 
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn run(
+    log_shutdown: &mut Option<LogShutdownGuard>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let arguments = Arguments::parse();
     let config_path = arguments.config.clone();
 
@@ -84,29 +89,61 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let store = ConfigStore::new(config_path.clone());
-    let config = store.load_or_default()?;
-    config.validate()?;
-
     if arguments.validate_only {
+        store.load_or_default()?.validate()?;
         return Ok(());
     }
-
+    // Bootstrap diagnostics before reading user configuration. Validate-only
+    // stays side-effect free, and invalid configuration still has a local cause.
+    let log_writer = usque_engine::logging::LogWriterFactory::open(&config_path)?;
+    *log_shutdown = Some(LogShutdownGuard(log_writer.clone()));
+    let (filter, filter_handle) = tracing_subscriber::reload::Layer::new(
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+    );
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(log_writer.clone())
+                .json(),
+        )
+        .init();
+    install_panic_logging(log_writer);
+    let config = match store.load_or_default() {
+        Ok(config) => config,
+        Err(error) => {
+            tracing::error!(
+                error_code = "ENGINE_CONFIGURATION_LOAD_FAILED",
+                "Engine configuration could not be read"
+            );
+            return Err(error.into());
+        }
+    };
+    if let Err(error) = config.validate() {
+        tracing::error!(
+            error_code = "ENGINE_CONFIGURATION_INVALID",
+            "Engine configuration failed validation"
+        );
+        return Err(error.into());
+    }
     let default_filter = match config.preferences.log_level {
         LogLevel::Error => "error",
         LogLevel::Warn => "warn",
         LogLevel::Info => "info",
         LogLevel::Debug => "debug",
     };
-    let log_writer = usque_engine::logging::LogWriterFactory::open(&config_path)?;
-    tracing_subscriber::fmt()
-        .with_env_filter(
+    if filter_handle
+        .reload(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter)),
         )
-        .with_ansi(false)
-        .with_writer(log_writer)
-        .json()
-        .init();
-    install_panic_logging();
+        .is_err()
+    {
+        tracing::warn!(
+            error_code = "ENGINE_LOG_FILTER_RELOAD_FAILED",
+            "Engine log filter could not be updated"
+        );
+    }
 
     let service = ControlService::open(store)?;
     if let Err(error) = service.migrate_shared_proxy_password().await {
@@ -190,7 +227,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// privacy-filtered log as the rest of the Engine diagnostics. The default
 /// hook is retained so an attached debugger or stderr collector still sees
 /// Rust's normal panic report.
-fn install_panic_logging() {
+fn install_panic_logging(log_writer: usque_engine::logging::LogWriterFactory) {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let location = info.location();
@@ -207,8 +244,21 @@ fn install_panic_logging() {
             panic_column = location.map(|location| location.column()),
             "unhandled Engine panic"
         );
+        if std::thread::current().name() != Some("usque-log-writer") {
+            let _ = log_writer.flush(Duration::from_millis(250));
+        }
         default_hook(info);
     }));
+}
+
+struct LogShutdownGuard(usque_engine::logging::LogWriterFactory);
+
+impl Drop for LogShutdownGuard {
+    fn drop(&mut self) {
+        // Cover ordinary and early-error exits without making diagnostic I/O
+        // an unbounded prerequisite for platform shutdown.
+        let _ = self.0.shutdown(Duration::from_secs(2));
+    }
 }
 
 #[cfg(windows)]

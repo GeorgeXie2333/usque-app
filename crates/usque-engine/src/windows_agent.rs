@@ -5074,9 +5074,10 @@ mod tests {
         ]);
         *service.test_windows_agent.lock().await = Some(client);
         let config = directory.path().join("config.json");
+        let log_writer = crate::logging::LogWriterFactory::open(&config).unwrap();
         let subscriber = tracing_subscriber::fmt()
             .json()
-            .with_writer(crate::logging::LogWriterFactory::open(&config).unwrap())
+            .with_writer(log_writer.clone())
             .finish();
         let response = service
             .handle(usque_ipc::v1::ControlRequest {
@@ -5091,6 +5092,7 @@ mod tests {
             .await;
         assert_eq!(response.error.unwrap().code, "WINDOWS_RECOVERY_EXHAUSTED");
         assert_eq!(task.await.unwrap().len(), 3);
+        log_writer.flush(Duration::from_secs(5)).unwrap();
         let log =
             std::fs::read_to_string(crate::logging::log_directory(&config).join("engine.jsonl"))
                 .unwrap();
@@ -5606,7 +5608,7 @@ mod tests {
         let subscriber = tracing_subscriber::fmt()
             .with_ansi(false)
             .json()
-            .with_writer(writer)
+            .with_writer(writer.clone())
             .finish();
         tracing::subscriber::with_default(subscriber, || {
             for code in [
@@ -5659,6 +5661,7 @@ mod tests {
                 assert!(!text.contains("private-"));
             }
         });
+        writer.flush(Duration::from_secs(5)).unwrap();
         let log = std::fs::read_to_string(directory.path().join("logs/engine.jsonl")).unwrap();
         assert!(log.contains("AGENT_WFP_SUBLAYER_NOT_FOUND"));
         assert!(log.contains("ACQUIRE_DIRECT_EGRESS"));
