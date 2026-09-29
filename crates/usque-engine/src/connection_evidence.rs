@@ -44,7 +44,27 @@ pub(crate) struct ConnectionEvidence {
 }
 
 impl ConnectionEvidence {
-    pub(crate) fn active(active: &ActiveDataPlane, connection: ConnectionSnapshot) -> Self {
+    pub(crate) fn active(active: &ActiveDataPlane, mut connection: ConnectionSnapshot) -> Self {
+        // Project actual health into this read-only copy. A delayed status tick
+        // must not make a failed or reconnecting runtime appear ready; the
+        // authoritative StateMachine and platform state remain untouched.
+        match active.runtime.health() {
+            usque_transport::RuntimeHealth::Failed { failure, .. } => {
+                connection.phase = usque_core::ConnectionPhase::Error;
+                let retryable = failure.retryable;
+                connection.failure = Some(failure);
+                connection.error = Some(usque_core::ConnectionError {
+                    code: usque_core::ErrorCode::TransportUnavailable,
+                    message: "The current connection runtime failed.".into(),
+                    retryable,
+                });
+            }
+            usque_transport::RuntimeHealth::Reconnecting { failure, .. } => {
+                connection.phase = usque_core::ConnectionPhase::Reconnecting;
+                connection.failure = Some(failure);
+            }
+            _ => {}
+        }
         let updates = active.runtime.subscribe_network_quality();
         let quality = updates.borrow().clone();
         Self {
@@ -158,6 +178,37 @@ mod tests {
     use super::*;
     use usque_core::storage::ConfigStore;
     use usque_transport::{ConnectionEventType, ConnectionTelemetry};
+
+    #[tokio::test]
+    async fn capture_projects_failed_runtime_without_mutating_connection_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let service =
+            ControlService::open(ConfigStore::new(directory.path().join("config.json"))).unwrap();
+        let profile = service.config_snapshot().await.runtime_profiles()[0].clone();
+        service
+            .install_test_session(profile, false, 0)
+            .await
+            .unwrap();
+        {
+            let mut plane = service.data_plane.lock().await;
+            let crate::ActiveRuntime::Harness(runtime) = &mut plane.as_mut().unwrap().runtime
+            else {
+                panic!("harness");
+            };
+            runtime.gate_status.failure = Some(usque_core::vpngate::GateFailure::Certificate);
+        }
+        let before = service.state.lock().await.snapshot().clone();
+        let captured = service.capture_connection_evidence().await;
+        assert_eq!(
+            captured.connection.phase,
+            usque_core::ConnectionPhase::Error
+        );
+        assert!(captured.connection.failure.is_some());
+        assert!(!captured.connection.error.unwrap().retryable);
+        let after = service.state.lock().await.snapshot().clone();
+        assert_eq!(after.phase, before.phase);
+        assert_eq!(after.failure, before.failure);
+    }
 
     #[tokio::test]
     async fn terminal_timeline_survives_without_a_runtime_and_new_runtime_invalidates_capture() {

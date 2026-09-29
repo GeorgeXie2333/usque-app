@@ -206,9 +206,28 @@ impl PassiveCheck {
                 | Kind::H2Tls
                 | Kind::H2Connect
                 | Kind::EndpointPin
-        ) && !connected_or_reconnecting(&context.connection)
-            && context.connection.failure.is_none()
-        {
+        ) && !matches!(
+            context.connection.phase,
+            ConnectionPhase::Connected | ConnectionPhase::Degraded
+        ) {
+            if let Some(failure) = &context.connection.failure {
+                let relevant = match self.kind {
+                    Kind::H3Connect => context.connection.transport == Some(Transport::Http3),
+                    Kind::H2Connect => context.connection.transport == Some(Transport::Http2),
+                    Kind::EndpointPin => failure.code == TransportFailureCode::EndpointPinMismatch,
+                    _ => false,
+                };
+                if relevant {
+                    let mut result = failed(
+                        self,
+                        failure.code,
+                        failure.stage,
+                        "diagnostic_h3_not_active",
+                    );
+                    result.failure = Some(failure.clone());
+                    return result;
+                }
+            }
             return skipped(self, "diagnostic_h3_not_tested", "no_active_runtime");
         }
 
@@ -1066,6 +1085,34 @@ mod tests {
             assert!(
                 finding.failure.is_none(),
                 "missing external observation is not an unavailable payload family"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_or_reconnecting_transport_never_claims_a_current_ready_path() {
+        let mut context = context_with_unknown_platform_state();
+        context.connection.transport = Some(Transport::Http3);
+        context.connection.failure = Some(TransportFailure::new(
+            TransportFailureCode::PacketReceiveFailed,
+            TransportStage::PacketReceive,
+        ));
+        for phase in [ConnectionPhase::Error, ConnectionPhase::Reconnecting] {
+            context.connection.phase = phase;
+            let finding = check(PassiveCheckKind::H3Connect)
+                .run(&context, CancellationToken::new())
+                .await;
+            assert_eq!(finding.status, DiagnosticCheckStatus::Failed);
+            assert_eq!(
+                finding.failure.unwrap().code,
+                TransportFailureCode::PacketReceiveFailed
+            );
+            assert_eq!(
+                check(PassiveCheckKind::H3Datagram)
+                    .run(&context, CancellationToken::new())
+                    .await
+                    .status,
+                DiagnosticCheckStatus::Skipped
             );
         }
     }
