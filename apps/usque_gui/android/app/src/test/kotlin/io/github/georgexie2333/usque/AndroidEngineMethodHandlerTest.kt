@@ -385,6 +385,9 @@ class AndroidEngineMethodHandlerTest {
         assertEquals(1, activityCommands.diagnosticsCount)
         assertNull(exportResult.errorCode)
         assertNull(secondResult.errorCode)
+        assertTrue(handler.matchesExportCapture(frozenPayload))
+        handler.handle(MethodCall("clearAllData", mapOf("confirmed" to true)), RecordingResult())
+        assertFalse(handler.matchesExportCapture(frozenPayload))
     }
 
     @Test

@@ -45,6 +45,7 @@ internal class AndroidEngineMethodHandler(
         val diagnosticSession: Map<String, Any?>?,
         val connectionTimeline: Map<String, Any?>,
         val logSnapshot: AndroidLogStore.Snapshot? = null,
+        val dataGeneration: Long? = null,
     )
 
     /**
@@ -592,7 +593,13 @@ internal class AndroidEngineMethodHandler(
                             } else {
                                 activityCommands.selectDiagnosticsDestination(
                                     result,
-                                    DiagnosticExportPayload(exportSnapshot, exportSession, exportTimeline, logs),
+                                    DiagnosticExportPayload(
+                                        exportSnapshot,
+                                        exportSession,
+                                        exportTimeline,
+                                        logs,
+                                        generation,
+                                    ),
                                 )
                             }
                         }
@@ -641,6 +648,9 @@ internal class AndroidEngineMethodHandler(
     fun observeSnapshot(snapshot: Map<String, Any?>) {
         diagnosticsCoordinator.observeSnapshot(snapshot)
     }
+
+    fun matchesExportCapture(payload: DiagnosticExportPayload): Boolean =
+        payload.dataGeneration == dataGeneration.get() && !controlClient.isClosed
 
     private fun runDiagnosticsCommand(
         result: MethodChannel.Result,

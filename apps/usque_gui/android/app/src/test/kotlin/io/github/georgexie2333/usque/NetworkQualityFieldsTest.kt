@@ -188,7 +188,7 @@ class NetworkQualityFieldsTest {
                 "transport" to "h2",
                 "network_quality" to
                     mapOf(
-                        "connection_instance_id" to "id",
+                        "connection_instance_id" to "12345678-1234-4234-8234-123456789012",
                         "sampled_at_unix_ms" to 1000L,
                         "metrics" to
                             mapOf("interval_loss_availability" to "unsupported", "interval_loss_basis_points" to 0L),
@@ -196,6 +196,9 @@ class NetworkQualityFieldsTest {
             )
         assertEquals("skipped", NetworkDiagnosticChecks.evaluate("quality.packet_loss", source, 1000)["status"])
         assertEquals("warning", NetworkDiagnosticChecks.evaluate("quality.rtt", source, 5000)["status"])
+        val invalidQuality = mapOf("connection_instance_id" to "account-id", "sampled_at_unix_ms" to 1000L)
+        val invalidContext = source + ("network_quality" to invalidQuality)
+        assertEquals("skipped", NetworkDiagnosticChecks.evaluate("quality.rtt", invalidContext, 5000)["status"])
         assertEquals(
             "skipped",
             NetworkDiagnosticChecks.evaluate("transport.migration_capability", source, 1000)["status"],

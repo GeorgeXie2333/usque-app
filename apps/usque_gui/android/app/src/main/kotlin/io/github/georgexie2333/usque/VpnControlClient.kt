@@ -1420,6 +1420,7 @@ internal class VpnControlClient(
                     bundle.getString("foreground_notification_state"),
                 "pending_cleanup" to bundle.getBoolean("pending_cleanup"),
                 "platform_state_observed" to true,
+                "observed_at_unix_milliseconds" to System.currentTimeMillis(),
                 "exit_ipv4" to bundle.getString("exit_ipv4"),
                 "exit_ipv6" to bundle.getString("exit_ipv6"),
                 "exit_city" to bundle.getString("exit_city"),

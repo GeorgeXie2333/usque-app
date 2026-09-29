@@ -36,6 +36,7 @@ internal class AndroidDiagnosticsCoordinator(
     private var observedNetworkChanges = 0L
     private var droppedTimelineEvents = 0L
     private var nativeTimeline: Map<String, Any?>? = null
+    private var activeWorkerSessionId: String? = null
 
     fun clear() {
         synchronized(lock) {
@@ -62,14 +63,14 @@ internal class AndroidDiagnosticsCoordinator(
         synchronized(lock) {
             latestSnapshot = snapshot.toMap()
             val phase = snapshot["phase"] as? String ?: "disconnected"
-            val networkGeneration = (snapshot["network_generation"] as? Number)?.toLong() ?: 0L
+            val networkGeneration = DiagnosticMetadata.unsigned(snapshot["network_generation"])
             val fingerprint = "$phase:$networkGeneration:${snapshot["error_code"] ?: ""}"
             if (fingerprint == lastTimelineFingerprint) return
             lastTimelineFingerprint = fingerprint
             val previousPhase = lastObservedPhase
             lastObservedPhase = phase
             val previousGeneration = lastNetworkGeneration
-            if (previousGeneration != null && previousGeneration != networkGeneration) {
+            if (previousGeneration != null && networkGeneration != null && previousGeneration != networkGeneration) {
                 observedNetworkChanges += 1
             }
             lastNetworkGeneration = networkGeneration
@@ -135,17 +136,29 @@ internal class AndroidDiagnosticsCoordinator(
                 )
         }
         publishSession(requireNotNull(current()))
-        executor.execute {
-            complete(
-                runGeneration = runGeneration,
-                sessionId = sessionId,
-                mode = normalizedMode,
-                snapshot = snapshot.toMap(),
-                controlReachable = controlReachable,
-                eventStreamReachable = eventStreamReachable,
-                nativeLinked = nativeLinked,
-                nativeReady = nativeReady,
-            )
+        try {
+            executor.execute {
+                synchronized(lock) { activeWorkerSessionId = sessionId }
+                try {
+                    complete(
+                        runGeneration,
+                        sessionId,
+                        normalizedMode,
+                        snapshot.toMap(),
+                        controlReachable,
+                        eventStreamReachable,
+                        nativeLinked,
+                        nativeReady,
+                    )
+                } catch (_: Exception) {
+                    failRunner(runGeneration, sessionId)
+                } finally {
+                    synchronized(lock) { if (activeWorkerSessionId == sessionId) activeWorkerSessionId = null }
+                    finishCancellation(sessionId)
+                }
+            }
+        } catch (_: Exception) {
+            failRunner(runGeneration, sessionId)
         }
         return requireNotNull(current())
     }
@@ -187,22 +200,70 @@ internal class AndroidDiagnosticsCoordinator(
         }
         publishSession(cancelled)
         // Runs after the active probe worker has released its socket/lease.
-        executor.execute {
-            val terminal =
-                synchronized(lock) {
-                    val current = session ?: return@execute
-                    if (current["session_id"] != sessionId || current["state"] != "cancelling") return@execute
-                    (current + mapOf("state" to "cancelled", "completed_at_unix_milliseconds" to nowMillis())).also {
-                        session =
-                            it
-                    }
-                }
-            publishSession(terminal)
+        try {
+            executor.execute { finishCancellation(sessionId) }
+        } catch (_: Exception) {
+            // An active worker owns cleanup; its finally block completes cancellation.
+            if (synchronized(lock) { activeWorkerSessionId != sessionId }) finishCancellation(sessionId)
         }
         return cancelled.toMap()
     }
 
     fun current(): Map<String, Any?>? = synchronized(lock) { session?.toMap() }
+
+    private fun finishCancellation(sessionId: String) {
+        val terminal =
+            synchronized(lock) {
+                val current = session ?: return
+                if (current["session_id"] != sessionId || current["state"] != "cancelling") return
+                (current + mapOf("state" to "cancelled", "completed_at_unix_milliseconds" to nowMillis())).also {
+                    session =
+                        it
+                }
+            }
+        runCatching { publishSession(terminal) }
+    }
+
+    private fun failRunner(
+        runGeneration: Long,
+        sessionId: String,
+    ) {
+        val terminal =
+            synchronized(lock) {
+                val current = session ?: return
+                if (generation != runGeneration || current["session_id"] != sessionId) return
+                val findings =
+                    (current["findings"] as? List<*>).orEmpty().mapNotNull(::stringMap).map {
+                        if (it["status"] in
+                            setOf("pending", "running")
+                        ) {
+                            it +
+                                mapOf(
+                                    "status" to "skipped",
+                                    "summary_key" to "diagnostic_check_failed_internally",
+                                    "remediation_key" to "export_diagnostics",
+                                )
+                        } else {
+                            it
+                        }
+                    }
+                (
+                    current +
+                        mapOf(
+                            "state" to "failed",
+                            "completed_at_unix_milliseconds" to nowMillis(),
+                            "current_check" to null,
+                            "progress_percent" to 100,
+                            "findings" to findings,
+                            "summary" to summarize(findings),
+                        )
+                ).also {
+                    session =
+                        it
+                }
+            }
+        runCatching { publishSession(terminal) }
+    }
 
     fun matchesSession(sessionId: String?): Boolean =
         sessionId == null || synchronized(lock) { session?.get("session_id") == sessionId }
@@ -217,11 +278,13 @@ internal class AndroidDiagnosticsCoordinator(
                     mapOf(
                         "reconnect_count" to
                             (snapshot["reconnect_count"] as? Number)?.toLong(),
-                        "network_change_count" to observedNetworkChanges,
+                        "network_change_count" to if (lastNetworkGeneration != null) observedNetworkChanges else null,
                         "current_smoothed_rtt_known" to false,
                         "last_failure_code" to (snapshot["error_code"] as? String),
                     ).filterValues { value -> value != null },
                 "dropped_event_count" to droppedTimelineEvents,
+                "source" to "platform",
+                "availability" to "inferred",
             )
         }
 
@@ -263,51 +326,79 @@ internal class AndroidDiagnosticsCoordinator(
                 }
             publishSession(running)
 
-            val finding =
-                if (System.nanoTime() - started >= budgetNanos) {
-                    NetworkDiagnosticChecks.result(check.id, "failed", "nq_finding_probe_timeout", "nq_retry")
-                } else if (check.id in NetworkDiagnosticChecks.deepIds) {
-                    val dependency =
-                        if (check.id.startsWith(
-                                "dns.",
-                            )
-                        ) {
-                            "dns.direct_encrypted_configuration"
+            val checkStartedNanos = System.nanoTime()
+            val rawFinding =
+                try {
+                    if (System.nanoTime() - started >= budgetNanos) {
+                        NetworkDiagnosticChecks.result(check.id, "warning", "diagnostic_check_timed_out", "nq_retry")
+                    } else if (check.id in NetworkDiagnosticChecks.deepIds) {
+                        val dependency =
+                            if (check.id.startsWith(
+                                    "dns.",
+                                )
+                            ) {
+                                "dns.direct_encrypted_configuration"
+                            } else {
+                                "engine.configuration"
+                            }
+                        val dependencyReady =
+                            findings.firstOrNull { it["check_id"] == dependency }?.get("status") in
+                                setOf("passed", "warning")
+                        if (mode == "deep" && (!dependencyReady || !controlReachable || !nativeReady)) {
+                            NetworkDiagnosticChecks.result(check.id, "skipped", "diagnostic_dependency_failed")
+                        } else if (mode == "deep") {
+                            networkProbe(check.id) { synchronized(lock) { generation != runGeneration } }
                         } else {
-                            "engine.configuration"
+                            NetworkDiagnosticChecks.result(check.id, "skipped", "diagnostic_requires_deep_mode")
                         }
-                    val dependencyReady =
-                        findings.firstOrNull { it["check_id"] == dependency }?.get("status") in
+                    } else if (check.id in NetworkDiagnosticChecks.standardIds) {
+                        if (!controlReachable) {
+                            NetworkDiagnosticChecks.result(check.id, "skipped", "nq_finding_unavailable")
+                        } else if (check.id == "dns.direct_encrypted_runtime_state" &&
+                            findings.firstOrNull { it["check_id"] == "dns.direct_encrypted_configuration" }?.get(
+                                "status",
+                            ) !in
                             setOf("passed", "warning")
-                    if (mode == "deep" && (!dependencyReady || !controlReachable || !nativeReady)) {
-                        NetworkDiagnosticChecks.result(check.id, "skipped", "diagnostic_dependency_failed")
-                    } else if (mode == "deep") {
-                        networkProbe(check.id) { synchronized(lock) { generation != runGeneration } }
+                        ) {
+                            NetworkDiagnosticChecks.result(check.id, "skipped", "diagnostic_dependency_failed")
+                        } else {
+                            NetworkDiagnosticChecks.evaluate(check.id, snapshot, nowMillis())
+                        }
                     } else {
-                        NetworkDiagnosticChecks.result(check.id, "skipped", "diagnostic_requires_deep_mode")
+                        evaluate(
+                            check = check,
+                            mode = mode,
+                            snapshot = snapshot,
+                            controlReachable = controlReachable,
+                            eventStreamReachable = eventStreamReachable,
+                            nativeLinked = nativeLinked,
+                        )
                     }
-                } else if (check.id in NetworkDiagnosticChecks.standardIds) {
-                    if (check.id == "dns.direct_encrypted_runtime_state" &&
-                        findings.firstOrNull { it["check_id"] == "dns.direct_encrypted_configuration" }?.get(
-                            "status",
-                        ) !in
-                        setOf("passed", "warning")
-                    ) {
-                        NetworkDiagnosticChecks.result(check.id, "skipped", "diagnostic_dependency_failed")
-                    } else {
-                        NetworkDiagnosticChecks.evaluate(check.id, snapshot, nowMillis())
-                    }
-                } else {
-                    evaluate(
-                        check = check,
-                        mode = mode,
-                        snapshot = snapshot,
-                        controlReachable = controlReachable,
-                        eventStreamReachable = eventStreamReachable,
-                        nativeLinked = nativeLinked,
-                        nativeReady = nativeReady,
-                    )
+                } catch (_: Exception) {
+                    NetworkDiagnosticChecks.result(
+                        check.id,
+                        "failed",
+                        "diagnostic_check_failed_internally",
+                        "export_diagnostics",
+                    ) +
+                        mapOf("failure" to fallbackFailure("INTERNAL"))
                 }
+            var finding =
+                DiagnosticMetadata.attach(rawFinding, snapshot, nowMillis(), controlReachable) +
+                    mapOf(
+                        "duration_milliseconds" to
+                            ((System.nanoTime() - checkStartedNanos) / 1_000_000L).coerceAtLeast(0L),
+                    )
+            val oldGeneration = DiagnosticMetadata.unsigned(snapshot["network_generation"])
+            val currentGeneration =
+                synchronized(lock) { DiagnosticMetadata.unsigned(latestSnapshot["network_generation"]) }
+            if (oldGeneration != null && currentGeneration != null && oldGeneration != currentGeneration &&
+                DiagnosticMetadata.source(check.id) in setOf("runtime", "platform", "active_probe")
+            ) {
+                finding =
+                    finding +
+                    mapOf("observation" to ((finding["observation"] as Map<*, *>) + ("availability" to "stale")))
+            }
             val updated =
                 synchronized(lock) {
                     if (generation != runGeneration || session?.get("session_id") != sessionId) {
@@ -352,19 +443,18 @@ internal class AndroidDiagnosticsCoordinator(
         controlReachable: Boolean,
         eventStreamReachable: Boolean,
         nativeLinked: Boolean,
-        nativeReady: Boolean,
     ): Map<String, Any?> {
         val phase = snapshot["phase"] as? String ?: "disconnected"
         val connected = phase == "connected" || phase == "degraded"
-        val familyMask = (snapshot["underlying_family_mask"] as? Number)?.toInt() ?: 0
+        val familyMask = DiagnosticMetadata.unsigned(snapshot["underlying_family_mask"])
         val hasNetwork = snapshot["underlying_network_present"] == true
         val tunOpen = snapshot["tun_fd_valid"] == true
-        val dnsCount = (snapshot["dns_server_count"] as? Number)?.toInt() ?: 0
+        val dnsCount = DiagnosticMetadata.unsigned(snapshot["dns_server_count"])
         val activeFrontends = snapshot["active_frontends"] as? List<*> ?: emptyList<Any?>()
         val tunnelIpv4Available = snapshot["tunnel_ipv4_available"] == true
         val tunnelIpv6Available = snapshot["tunnel_ipv6_available"] == true
         val platformStateObserved = controlReachable && snapshot["platform_state_observed"] == true
-        val errorCode = (snapshot["error_code"] as? String)?.takeIf(SAFE_CODE::matches)
+        val errorCode = (snapshot["error_code"] as? String)?.takeIf(DiagnosticsContract.failureCodes::contains)
         val status: String
         val evidence = mutableListOf<String>()
         var failure: Map<String, Any?>? = null
@@ -389,12 +479,12 @@ internal class AndroidDiagnosticsCoordinator(
                     } else if (errorCode == "CONFIGURATION_INVALID") {
                         "failed"
                     } else {
-                        "passed"
+                        "warning"
                     }
             }
 
             "engine.secure_storage_metadata" -> {
-                status = "warning"
+                status = "skipped"
             }
 
             "frontend.socks_port" -> {
@@ -413,7 +503,7 @@ internal class AndroidDiagnosticsCoordinator(
 
             "physical.network_present" -> {
                 status =
-                    if (!platformStateObserved) {
+                    if (!platformStateObserved || snapshot["underlying_network_present"] !is Boolean) {
                         "skipped"
                     } else if (hasNetwork) {
                         "passed"
@@ -433,51 +523,43 @@ internal class AndroidDiagnosticsCoordinator(
             }
 
             "physical.ipv4_route" -> {
-                status =
-                    if (!platformStateObserved) {
-                        "skipped"
-                    } else if (familyMask and 1 != 0) {
-                        "passed"
-                    } else {
-                        "warning"
-                    }
+                status = if (!platformStateObserved || familyMask == null) "skipped" else "warning"
+                if (platformStateObserved && familyMask != null) evidence += "family_mask=$familyMask"
             }
 
             "physical.ipv6_route" -> {
-                status =
-                    if (!platformStateObserved) {
-                        "skipped"
-                    } else if (familyMask and 2 != 0) {
-                        "passed"
-                    } else {
-                        "warning"
-                    }
+                status = if (!platformStateObserved || familyMask == null) "skipped" else "warning"
+                if (platformStateObserved && familyMask != null) evidence += "family_mask=$familyMask"
             }
 
             "physical.dns_available" -> {
                 status =
-                    if (!platformStateObserved) {
+                    if (!platformStateObserved || dnsCount == null) {
                         "skipped"
-                    } else if (dnsCount > 0) {
-                        "passed"
                     } else {
                         "warning"
                     }
                 evidence +=
-                    if (platformStateObserved) "dns_server_count=$dnsCount" else "dns_server_count=unknown"
+                    if (platformStateObserved &&
+                        dnsCount != null
+                    ) {
+                        "dns_server_count=$dnsCount"
+                    } else {
+                        "dns_server_count=unknown"
+                    }
             }
 
             "physical.network_generation" -> {
-                val generation = snapshot["network_generation"] as? Number
+                val generation = DiagnosticMetadata.unsigned(snapshot["network_generation"])
                 status =
                     if (!platformStateObserved) {
                         "skipped"
                     } else if (generation != null) {
                         "passed"
                     } else {
-                        "warning"
+                        "skipped"
                     }
-                generation?.let { evidence += "generation=${it.toLong()}" }
+                if (platformStateObserved) generation?.let { evidence += "network_generation=$it" }
             }
 
             "transport.h3_connect", "transport.h3_datagram" -> {
@@ -510,24 +592,28 @@ internal class AndroidDiagnosticsCoordinator(
                     }
             }
 
-            "transport.endpoint_pin", "transport.fallback_policy" -> {
+            "transport.endpoint_pin" -> {
                 status =
                     if (!controlReachable) {
                         "skipped"
                     } else if (errorCode == "ENDPOINT_PIN_MISMATCH") {
                         "failed"
-                    } else if (nativeReady) {
-                        "passed"
                     } else {
                         "skipped"
                     }
+            }
+
+            "transport.fallback_policy" -> {
+                status = "skipped"
             }
 
             "tunnel.address_assignment" -> {
                 status =
                     if (snapshot["data_plane"] == "l4_proxy") {
                         "skipped"
-                    } else if (!platformStateObserved) {
+                    } else if (!platformStateObserved ||
+                        (snapshot["tunnel_ipv4_available"] !is Boolean && snapshot["tunnel_ipv6_available"] !is Boolean)
+                    ) {
                         "skipped"
                     } else if (
                         connected &&
@@ -544,25 +630,34 @@ internal class AndroidDiagnosticsCoordinator(
 
             "tunnel.routes", "tunnel.dns" -> {
                 status =
-                    if (!platformStateObserved) {
+                    if (!platformStateObserved || snapshot["tun_fd_valid"] !is Boolean ||
+                        (!tunOpen && snapshot["data_plane"] == "l4_proxy")
+                    ) {
                         "skipped"
                     } else if (connected && tunOpen) {
                         // The service confirms its configured state, but only an external
                         // observer can prove effective OS routing or DNS ownership.
                         "warning"
                     } else if (connected) {
-                        "failed"
+                        "warning"
                     } else {
                         "skipped"
                     }
             }
 
             "tunnel.first_packet" -> {
+                val downloaded = DiagnosticMetadata.unsigned(snapshot["downloaded_bytes"])
+                val uploaded = DiagnosticMetadata.unsigned(snapshot["uploaded_bytes"])
                 val bytes =
-                    ((snapshot["downloaded_bytes"] as? Number)?.toLong() ?: 0L) +
-                        ((snapshot["uploaded_bytes"] as? Number)?.toLong() ?: 0L)
+                    if (downloaded != null &&
+                        uploaded != null
+                    ) {
+                        downloaded + minOf(uploaded, Long.MAX_VALUE - downloaded)
+                    } else {
+                        null
+                    }
                 status =
-                    if (!controlReachable) {
+                    if (!controlReachable || bytes == null) {
                         "skipped"
                     } else if (bytes > 0L) {
                         "passed"
@@ -573,6 +668,7 @@ internal class AndroidDiagnosticsCoordinator(
                     } else {
                         "skipped"
                     }
+                if (controlReachable && bytes != null) evidence += "transferred_bytes=$bytes"
             }
 
             "tunnel.ipv4_egress", "tunnel.ipv6_egress" -> {
@@ -601,12 +697,12 @@ internal class AndroidDiagnosticsCoordinator(
 
             "protection.recovery_journal" -> {
                 status =
-                    if (!platformStateObserved) {
+                    if (!platformStateObserved || snapshot["pending_cleanup"] !is Boolean) {
                         "skipped"
                     } else if (snapshot["pending_cleanup"] == true) {
                         "failed"
                     } else {
-                        "passed"
+                        "skipped"
                     }
             }
 
@@ -616,8 +712,9 @@ internal class AndroidDiagnosticsCoordinator(
         }
 
         if (status == "failed") {
-            val code = errorCode ?: defaultFailureCode(check.id)
-            failure = failureFromSnapshot(snapshot) ?: fallbackFailure(code)
+            val code = defaultFailureCode(check.id)
+            failure =
+                if (errorCode == code) failureFromSnapshot(snapshot) ?: fallbackFailure(code) else fallbackFailure(code)
         }
         return mapOf(
             "check_id" to check.id,
@@ -632,7 +729,7 @@ internal class AndroidDiagnosticsCoordinator(
                 } else {
                     "info"
                 },
-            "summary_key" to "diagnostics.${check.id}.$status",
+            "summary_key" to summaryKey(check.id, status),
             "remediation_key" to
                 if (check.id.endsWith("egress") || check.id in INDEPENDENT_OBSERVER_CHECKS) {
                     "run_release_leak_gate"
@@ -648,8 +745,141 @@ internal class AndroidDiagnosticsCoordinator(
     }
 
     private fun publishSession(value: Map<String, Any?>) {
-        publish(mapOf("diagnostic_session" to value))
+        // Delivery is supplemental; GetDiagnostics remains the authoritative snapshot.
+        runCatching { publish(mapOf("diagnostic_session" to value)) }
     }
+
+    private fun summaryKey(
+        id: String,
+        status: String,
+    ): String =
+        when (id) {
+            "engine.control_channel" -> {
+                if (status ==
+                    "passed"
+                ) {
+                    "diagnostic_engine_control_ok"
+                } else {
+                    "diagnostics.$id.$status"
+                }
+            }
+
+            "engine.event_stream" -> {
+                if (status ==
+                    "passed"
+                ) {
+                    "diagnostic_event_stream_ok"
+                } else {
+                    "diagnostic_event_stream_unknown"
+                }
+            }
+
+            "engine.capabilities" -> {
+                if (status == "passed") "diagnostic_capabilities_ok" else "diagnostics.$id.$status"
+            }
+
+            "engine.configuration" -> {
+                if (status ==
+                    "failed"
+                ) {
+                    "diagnostic_configuration_invalid"
+                } else {
+                    "nq_finding_unavailable"
+                }
+            }
+
+            "engine.secure_storage_metadata" -> {
+                "diagnostic_secure_storage_not_supported"
+            }
+
+            "physical.ipv4_route" -> {
+                "diagnostic_ipv4_route_unknown"
+            }
+
+            "physical.ipv6_route" -> {
+                "diagnostic_ipv6_route_unknown"
+            }
+
+            "physical.dns_available" -> {
+                "diagnostic_physical_dns_unknown"
+            }
+
+            "physical.network_generation" -> {
+                if (status ==
+                    "passed"
+                ) {
+                    "diagnostic_network_generation_observed"
+                } else {
+                    "diagnostic_network_generation_unknown"
+                }
+            }
+
+            "transport.endpoint_pin" -> {
+                if (status ==
+                    "failed"
+                ) {
+                    "diagnostic_endpoint_pin_mismatch"
+                } else {
+                    "diagnostic_endpoint_pin_not_tested"
+                }
+            }
+
+            "transport.fallback_policy" -> {
+                "nq_finding_unavailable"
+            }
+
+            "tunnel.routes" -> {
+                "diagnostic_tunnel_routes_unknown"
+            }
+
+            "tunnel.dns" -> {
+                "diagnostic_tunnel_dns_unknown"
+            }
+
+            "tunnel.first_packet" -> {
+                if (status ==
+                    "passed"
+                ) {
+                    "diagnostic_first_packet_observed"
+                } else if (status ==
+                    "warning"
+                ) {
+                    "diagnostic_first_packet_not_observed"
+                } else {
+                    "diagnostic_first_packet_unknown"
+                }
+            }
+
+            "tunnel.ipv4_egress" -> {
+                "diagnostic_ipv4_egress_requires_external_observer"
+            }
+
+            "tunnel.ipv6_egress" -> {
+                "diagnostic_ipv6_egress_requires_external_observer"
+            }
+
+            "protection.dns_path" -> {
+                "diagnostic_dns_path_actual_state_unknown"
+            }
+
+            "protection.route_ownership" -> {
+                "diagnostic_route_ownership_actual_state_unknown"
+            }
+
+            "protection.recovery_journal" -> {
+                if (status ==
+                    "failed"
+                ) {
+                    "diagnostic_recovery_journal_pending_cleanup"
+                } else {
+                    "diagnostic_recovery_journal_not_supported"
+                }
+            }
+
+            else -> {
+                "diagnostics.$id.$status"
+            }
+        }
 
     private fun appendTimeline(event: Map<String, Any?>) {
         if (timeline.size == MAX_TIMELINE_EVENTS) {
@@ -689,25 +919,31 @@ internal class AndroidDiagnosticsCoordinator(
         mapOf("passed" to 0L, "warnings" to 0L, "failed" to 0L, "skipped" to 0L, "cancelled" to 0L)
 
     private fun failureFromSnapshot(snapshot: Map<String, Any?>): Map<String, Any?>? {
-        val code = (snapshot["error_code"] as? String)?.takeIf(SAFE_CODE::matches) ?: return null
+        val code =
+            (snapshot["error_code"] as? String)?.takeIf(DiagnosticsContract.failureCodes::contains) ?: return null
         val structured = stringMap(snapshot["failure"])
         if (structured != null && structured["code"] == code) {
-            val stage = (structured["stage"] as? String)?.takeIf(SAFE_TOKEN::matches)
+            val stage = (structured["stage"] as? String)?.takeIf(DiagnosticMetadata.transportStages::contains)
             if (stage != null) {
                 return mapOf(
                     "code" to code,
                     "stage" to stage,
                     "transport" to
-                        (structured["transport"] as? String)?.takeIf(SAFE_TOKEN::matches),
+                        (structured["transport"] as? String)?.takeIf { it in setOf("h2", "h3", "http2", "http3") },
                     "address_family" to
-                        (structured["address_family"] as? String)?.takeIf(SAFE_TOKEN::matches),
+                        (structured["address_family"] as? String)?.takeIf { it in setOf("ipv4", "ipv6", "dual") },
                     "retryable" to (structured["retryable"] as? Boolean ?: false),
                     "fallback_allowed" to
                         (structured["fallback_allowed"] as? Boolean ?: false),
                     "severity" to
-                        (structured["severity"] as? String)?.takeIf(SAFE_TOKEN::matches),
+                        (structured["severity"] as? String)?.takeIf {
+                            it in
+                                setOf("info", "warning", "error", "critical")
+                        },
                     "remediation_key" to
-                        (structured["remediation_key"] as? String)?.takeIf(SAFE_TOKEN::matches),
+                        (structured["remediation_key"] as? String)?.takeIf(
+                            DiagnosticsContract.remediationKeys::contains,
+                        ),
                     "sanitized_detail" to
                         (structured["sanitized_detail"] as? String)?.takeIf(::safeFailureDetail),
                 ).filterValues { value -> value != null }
@@ -797,6 +1033,7 @@ internal class AndroidDiagnosticsCoordinator(
 
     private fun failureStage(code: String): String =
         when {
+            code in LOCAL_FAILURE_CODES -> "diagnostics"
             code.startsWith("H3_") -> "quic_handshake"
             code == "H2_TLS_FAILED" -> "tls_handshake"
             code.startsWith("H2_") -> "masque_connect"
@@ -819,8 +1056,6 @@ internal class AndroidDiagnosticsCoordinator(
         private const val MAX_TIMELINE_EVENTS = 256
         private val ACTIVE_STATES = setOf("pending", "running", "cancelling")
         private val CONNECTION_START_PHASES = setOf("preparing", "connectingH3", "connectingH2")
-        private val SAFE_CODE = Regex("^[A-Z][A-Z0-9_]{1,63}$")
-        private val SAFE_TOKEN = Regex("^[a-z][a-z0-9_]{0,63}$")
         private val FAILURE_DETAIL_PREFIXES =
             setOf("attempt ", "status ", "generation ", "queue depth ")
         private val H3_FALLBACK_CODES =
@@ -830,6 +1065,13 @@ internal class AndroidDiagnosticsCoordinator(
                 "H3_PROTOCOL_ERROR",
                 "H3_DATAGRAM_UNAVAILABLE",
                 "H3_CONNECTION_CLOSED",
+            )
+        private val LOCAL_FAILURE_CODES =
+            setOf(
+                "INTERNAL",
+                "ENGINE_UNAVAILABLE",
+                "VPN_SERVICE_UNAVAILABLE",
+                "CONFIGURATION_INVALID",
             )
         private val INDEPENDENT_OBSERVER_CHECKS =
             setOf("protection.dns_path", "protection.route_ownership")

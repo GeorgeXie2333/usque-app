@@ -754,7 +754,7 @@ class MainActivity : FlutterFragmentActivity() {
         val payload = pendingDiagnosticsPayload
         pendingDiagnosticsResult = null
         pendingDiagnosticsPayload = null
-        if (payload == null) {
+        if (payload == null || !methodHandler.matchesExportCapture(payload)) {
             result.error(
                 "DIAGNOSTICS_SESSION_MISMATCH",
                 "The diagnostic data selected for export is no longer available.",
@@ -778,6 +778,7 @@ class MainActivity : FlutterFragmentActivity() {
         val mainHandler = android.os.Handler(mainLooper)
         identityExecutor.execute {
             try {
+                check(methodHandler.matchesExportCapture(payload)) { "The diagnostic capture was invalidated." }
                 AndroidMaintenance.writeDiagnostics(
                     this,
                     destination,

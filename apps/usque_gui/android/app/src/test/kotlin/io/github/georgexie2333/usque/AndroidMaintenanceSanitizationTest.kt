@@ -7,6 +7,49 @@ import org.junit.Test
 
 class AndroidMaintenanceSanitizationTest {
     @Test
+    fun provenanceAndTypedEvidenceAreRevalidatedAndWrongConnectionFactsAreMasked() {
+        val finding =
+            mapOf(
+                "check_id" to "quality.rtt",
+                "status" to "passed",
+                "summary_key" to "nq_finding_healthy",
+                "sanitized_evidence" to listOf("rtt_ms=8", "private.example"),
+                "evidence" to
+                    listOf(
+                        mapOf("key" to "rtt_ms", "number" to 8L),
+                        mapOf("key" to "rtt_ms", "number" to 1.5),
+                        mapOf("key" to "hostname", "token" to "private.example"),
+                    ),
+                "observation" to
+                    mapOf(
+                        "source" to "runtime",
+                        "availability" to "observed",
+                        "age_milliseconds" to 2L,
+                        "connection_instance_id" to "123e4567-e89b-42d3-a456-426614174000",
+                        "network_generation" to 4L,
+                        "device_id" to "private-device",
+                    ),
+            )
+        val session =
+            mapOf(
+                "session_id" to "123e4567-e89b-42d3-a456-426614174000",
+                "state" to "completed",
+                "findings" to listOf(finding),
+            )
+        val public = AndroidMaintenance.sanitizeDiagnosticSession(session).getJSONArray("findings").getJSONObject(0)
+        assertEquals(1, public.getJSONArray("evidence").length())
+        assertEquals(4L, public.getJSONObject("observation").getLong("network_generation"))
+        assertFalse(public.toString().contains("private"))
+        val stale = AndroidMaintenance.sanitizeDiagnosticSession(session, "223e4567-e89b-42d3-a456-426614174000", 4L)
+        val masked = stale.getJSONArray("findings").getJSONObject(0)
+        assertEquals("skipped", masked.getString("status"))
+        assertEquals("stale", masked.getJSONObject("observation").getString("availability"))
+        assertEquals(0, masked.getJSONArray("evidence").length())
+        assertEquals(0, masked.getJSONArray("sanitized_evidence").length())
+        assertEquals(0, stale.getJSONObject("summary").getInt("passed"))
+    }
+
+    @Test
     fun migrationEventsKeepOnlyAllowlistedFields() {
         val events =
             listOf("migration_started", "migration_path_validated", "migration_promoted")

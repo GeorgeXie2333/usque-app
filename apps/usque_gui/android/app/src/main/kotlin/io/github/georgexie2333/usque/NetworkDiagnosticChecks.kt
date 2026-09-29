@@ -35,9 +35,10 @@ internal object NetworkDiagnosticChecks {
                 } else {
                     "info"
                 },
-            "summary_key" to summary,
-            "remediation_key" to remediation,
-            "sanitized_evidence" to evidence,
+            "summary_key" to summary.takeIf(DiagnosticsContract.summaryKeys::contains).orEmpty(),
+            "remediation_key" to remediation.takeIf(DiagnosticsContract.remediationKeys::contains).orEmpty(),
+            "sanitized_evidence" to evidence.filter { DiagnosticMetadata.fromLegacy(it) != null }.take(16),
+            "evidence" to evidence.mapNotNull(DiagnosticMetadata::fromLegacy).take(16),
         )
 
     fun evaluate(
@@ -92,8 +93,8 @@ internal object NetworkDiagnosticChecks {
         ) {
             return unavailable()
         }
-        if (q["connection_instance_id"] !is String) return unavailable()
-        val sampled = (q["sampled_at_unix_ms"] as? Number)?.toLong() ?: return unavailable()
+        if (DiagnosticMetadata.runtimeId(q["connection_instance_id"]) == null) return unavailable()
+        val sampled = DiagnosticMetadata.unsigned(q["sampled_at_unix_ms"]) ?: return unavailable()
         if (sampled < now - 3_000 || sampled > now + 3_000) return result(id, "warning", "nq_finding_stale", "nq_retry")
         val metrics = q["metrics"] as? Map<*, *> ?: emptyMap<Any, Any>()
 
@@ -292,8 +293,8 @@ internal object NetworkDiagnosticChecks {
                     "nq_finding_probe_success",
                     evidence =
                         listOfNotNull(
-                            (source.opt("milliseconds") as? Number)
-                                ?.toLong()
+                            DiagnosticMetadata
+                                .unsigned(source.opt("milliseconds"))
                                 ?.takeIf {
                                     it in
                                         0..4_000
@@ -327,5 +328,5 @@ internal object NetworkDiagnosticChecks {
     private fun number(
         source: Map<*, *>,
         key: String,
-    ): Long? = (source[key] as? Number)?.toLong()?.takeIf { it >= 0 }
+    ): Long? = DiagnosticMetadata.unsigned(source[key])
 }

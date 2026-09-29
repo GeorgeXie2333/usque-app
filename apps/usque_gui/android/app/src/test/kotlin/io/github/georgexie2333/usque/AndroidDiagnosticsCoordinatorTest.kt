@@ -10,6 +10,41 @@ import java.util.concurrent.Executor
 
 class AndroidDiagnosticsCoordinatorTest {
     @Test
+    fun rejectedWorkerCannotLeaveARunningSessionOrPublishAnExceptionMessage() {
+        val coordinator =
+            AndroidDiagnosticsCoordinator(
+                Executor { throw java.util.concurrent.RejectedExecutionException("private-context") },
+            )
+        val failed = coordinator.start("standard", snapshot(), true, true, true, true)
+        assertEquals("failed", failed["state"])
+        assertFalse(failed.toString().contains("private-context"))
+        assertTrue((failed["findings"] as List<*>).all { (it as Map<*, *>)["status"] == "skipped" })
+    }
+
+    @Test
+    fun rejectedCancellationOfAnUnstartedWorkerNeverRunsProbes() {
+        var task: Runnable? = null
+        var probes = 0
+        val executor =
+            Executor { next ->
+                if (task == null) task = next else throw java.util.concurrent.RejectedExecutionException()
+            }
+        val coordinator =
+            AndroidDiagnosticsCoordinator(executor, networkProbe = {
+                id,
+                _,
+                ->
+                probes++
+                NetworkDiagnosticChecks.probe(id, null)
+            })
+        val started = coordinator.start("deep", snapshot(), true, true, true, true)
+        coordinator.cancel(started["session_id"] as String)
+        assertEquals("cancelled", coordinator.current()!!["state"])
+        task!!.run()
+        assertEquals(0, probes)
+    }
+
+    @Test
     fun clearDropsSessionsAndTimelineAndRejectsOldWorkerCompletion() {
         val executor = QueuedExecutor()
         var sequence = 0
@@ -111,6 +146,13 @@ class AndroidDiagnosticsCoordinatorTest {
         val completed = requireNotNull(coordinator.current())
         assertEquals("completed", completed["state"])
         assertEquals(39, (completed["findings"] as List<*>).size)
+        assertEquals(
+            DiagnosticsContract.checkIds,
+            (completed["findings"] as List<*>)
+                .map {
+                    (it as Map<*, *>)["check_id"]
+                }.toSet(),
+        )
         val exported = completed.toString()
         assertFalse(exported.contains("private-network-name"))
         assertFalse(exported.contains("192.0.2.53"))
@@ -243,5 +285,132 @@ class AndroidDiagnosticsCoordinatorTest {
         assertEquals("passed", byId.getValue("frontend.http_port")["status"])
         assertEquals("warning", byId.getValue("tunnel.routes")["status"])
         assertEquals("warning", byId.getValue("tunnel.dns")["status"])
+    }
+
+    @Test
+    fun familyFlagsAndDnsConfigurationCannotBecomePlatformVerificationPasses() {
+        val coordinator = AndroidDiagnosticsCoordinator(Executor(Runnable::run), nowMillis = { 100L })
+        coordinator.start(
+            "deep",
+            snapshot() +
+                mapOf(
+                    "observed_at_unix_milliseconds" to 80L,
+                    "connection_instance_id" to "123e4567-e89b-42d3-a456-426614174000",
+                ),
+            true,
+            true,
+            true,
+            true,
+        )
+        val byId =
+            (coordinator.current()!!["findings"] as List<*>)
+                .map {
+                    it as Map<*, *>
+                }.associateBy { it["check_id"] }
+        for (id in listOf(
+            "physical.ipv4_route",
+            "physical.ipv6_route",
+            "physical.dns_available",
+            "tunnel.routes",
+            "tunnel.dns",
+        )) {
+            val finding = byId.getValue(id)
+            assertEquals("warning", finding["status"])
+            assertEquals("inferred", (finding["observation"] as Map<*, *>)["availability"])
+            assertEquals("platform", (finding["observation"] as Map<*, *>)["source"])
+        }
+        for (id in listOf("transport.endpoint_pin", "transport.fallback_policy", "protection.recovery_journal")) {
+            assertEquals("skipped", byId.getValue(id)["status"])
+        }
+        for (id in listOf("tunnel.ipv4_egress", "tunnel.ipv6_egress")) {
+            assertEquals("unavailable", (byId.getValue(id)["observation"] as Map<*, *>)["availability"])
+            assertEquals(null, byId.getValue(id)["failure"])
+        }
+        val generation = byId.getValue("physical.network_generation")
+        assertEquals(20L, (generation["observation"] as Map<*, *>)["age_milliseconds"])
+        assertEquals(listOf(mapOf("key" to "network_generation", "number" to 4L)), generation["evidence"])
+    }
+
+    @Test
+    fun missingPlatformFieldsDoNotDefaultToObservedZerosOrPasses() {
+        val coordinator = AndroidDiagnosticsCoordinator(Executor(Runnable::run))
+        coordinator.start(
+            "standard",
+            mapOf("phase" to "connected", "platform_state_observed" to true),
+            true,
+            true,
+            true,
+            true,
+        )
+        val byId =
+            (coordinator.current()!!["findings"] as List<*>)
+                .map {
+                    it as Map<*, *>
+                }.associateBy { it["check_id"] }
+        for (id in listOf(
+            "physical.network_present",
+            "physical.ipv4_route",
+            "physical.ipv6_route",
+            "physical.dns_available",
+            "physical.network_generation",
+            "tunnel.first_packet",
+            "protection.recovery_journal",
+        )) {
+            val finding = byId.getValue(id)
+            assertEquals("skipped", finding["status"])
+            assertEquals("unavailable", (finding["observation"] as Map<*, *>)["availability"])
+            assertFalse((finding["observation"] as Map<*, *>).containsKey("network_generation"))
+        }
+    }
+
+    @Test
+    fun oldTransportFailureCannotBeAttributedToAnUnreachableControlChannel() {
+        val coordinator = AndroidDiagnosticsCoordinator(Executor(Runnable::run))
+        coordinator.start(
+            "standard",
+            snapshot() + mapOf("error_code" to "H3_HANDSHAKE_TIMEOUT"),
+            false,
+            false,
+            true,
+            true,
+        )
+        val finding =
+            (coordinator.current()!!["findings"] as List<*>).map { it as Map<*, *> }.single {
+                it["check_id"] ==
+                    "engine.control_channel"
+            }
+        assertEquals("ENGINE_UNAVAILABLE", (finding["failure"] as Map<*, *>)["code"])
+        assertEquals("diagnostics", (finding["failure"] as Map<*, *>)["stage"])
+    }
+
+    @Test
+    fun closedTunCannotFabricateRouteOrDnsApplyFailureWithoutAnOsObservation() {
+        val coordinator = AndroidDiagnosticsCoordinator(Executor(Runnable::run))
+        coordinator.start("standard", snapshot() + mapOf("tun_fd_valid" to false), true, true, true, true)
+        val findings = (coordinator.current()!!["findings"] as List<*>).map { it as Map<*, *> }
+        for (id in listOf("tunnel.routes", "tunnel.dns")) {
+            val finding = findings.single { it["check_id"] == id }
+            assertEquals("warning", finding["status"])
+            assertEquals(null, finding["failure"])
+            assertEquals("inferred", (finding["observation"] as Map<*, *>)["availability"])
+        }
+    }
+
+    @Test
+    fun unexpectedProbeExceptionProducesTerminalSessionAndSafeInternalFailure() {
+        val coordinator =
+            AndroidDiagnosticsCoordinator(Executor(Runnable::run), networkProbe = {
+                _,
+                _,
+                ->
+                error("private-host token")
+            })
+        coordinator.start("deep", snapshot(), true, true, true, true)
+        assertEquals("completed", coordinator.current()!!["state"])
+        val findings = (coordinator.current()!!["findings"] as List<*>).map { it as Map<*, *> }
+        val probe = findings.single { it["check_id"] == "transport.h3_path_validation_probe" }
+        assertEquals("failed", probe["status"])
+        assertEquals("INTERNAL", (probe["failure"] as Map<*, *>)["code"])
+        assertFalse(coordinator.current().toString().contains("private-host"))
     }
 }
