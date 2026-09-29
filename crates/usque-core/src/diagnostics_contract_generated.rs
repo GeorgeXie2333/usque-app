@@ -610,6 +610,7 @@ pub const EVIDENCE_TOKENS: &[&str] = &[
     "network_present",
     "payload_family",
     "platform_configuration_only",
+    "probe_cleanup_unconfirmed",
     "recoverable",
     "responsive",
     "runtime_path",

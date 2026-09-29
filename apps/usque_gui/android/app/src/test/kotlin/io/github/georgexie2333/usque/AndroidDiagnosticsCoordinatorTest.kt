@@ -6,9 +6,61 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.ArrayDeque
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class AndroidDiagnosticsCoordinatorTest {
+    @Test
+    fun cancellationCannotBecomeCancelledWhileActualProbeCleanupIsUnknown() {
+        val executor = Executors.newFixedThreadPool(2)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        try {
+            val coordinator =
+                AndroidDiagnosticsCoordinator(
+                    executor,
+                    publish = { event ->
+                        if ((event["diagnostic_session"] as? Map<*, *>)?.get("state") == "failed") finished.countDown()
+                    },
+                    networkProbe = { id, _ ->
+                        entered.countDown()
+                        check(release.await(2, TimeUnit.SECONDS))
+                        NetworkDiagnosticChecks.result(
+                            id,
+                            "failed",
+                            "nq_finding_unavailable",
+                            "export_diagnostics",
+                            listOf("probe_cleanup_unconfirmed"),
+                        ) + ("cleanup_confirmed" to false)
+                    },
+                )
+            val started = coordinator.start("deep", snapshot(), true, true, true, true)
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            coordinator.cancel(started["session_id"] as String)
+            executor.submit {}.get(2, TimeUnit.SECONDS)
+            assertEquals("cancelling", coordinator.current()!!["state"])
+            release.countDown()
+            assertTrue(finished.await(2, TimeUnit.SECONDS))
+            val failed = coordinator.current()!!
+            assertEquals("failed", failed["state"])
+            assertFalse(failed.toString().contains("cleanup_confirmed"))
+            val finding =
+                (failed["findings"] as List<*>).map { it as Map<*, *> }.single {
+                    it["check_id"] == "transport.h3_path_validation_probe"
+                }
+            assertEquals("failed", finding["status"])
+            assertEquals("unavailable", (finding["observation"] as Map<*, *>)["availability"])
+            assertEquals(listOf("probe_cleanup_unconfirmed"), finding["sanitized_evidence"])
+            assertFalse(AndroidMaintenance.sanitizeDiagnosticSession(failed).toString().contains("cleanup_confirmed"))
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+    }
+
     @Test
     fun rejectedWorkerCannotLeaveARunningSessionOrPublishAnExceptionMessage() {
         val coordinator =

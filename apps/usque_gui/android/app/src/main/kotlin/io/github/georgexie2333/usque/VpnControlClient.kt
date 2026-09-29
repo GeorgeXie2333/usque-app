@@ -32,11 +32,15 @@ internal class VpnControlClient(
     private val snapshotTimeoutMillis: Long = SNAPSHOT_TIMEOUT_MILLIS,
     private val clearAllTimeoutMillis: Long = CLEAR_ALL_TIMEOUT_MILLIS,
     private val reconfigureTimeoutMillis: Long = RECONFIGURE_TIMEOUT_MILLIS,
+    private val nowNanos: () -> Long = System::nanoTime,
 ) {
     companion object {
         const val SNAPSHOT_TIMEOUT_MILLIS = 2_000L
         const val CLEAR_ALL_TIMEOUT_MILLIS = 45_000L
         const val EVENT_REFRESH_INTERVAL_MILLIS = 5_000L
+        private const val PROBE_OPERATION_NANOS = 3_850_000_000L
+        private const val PROBE_TOTAL_NANOS = 4_000_000_000L
+        private const val PROBE_CLEANUP_NANOS = 500_000_000L
 
         // Native connection work shares one 180s deadline through final attachment.
         // Binder retains cleanup margin; quick acceptance and snapshots stay short.
@@ -285,7 +289,13 @@ internal class VpnControlClient(
     }
 
     private val pendingDiagnosticProbes = mutableMapOf<Int, (SnapshotProbe) -> Unit>()
-    private var pendingNetworkProbe: Pair<Int, CompletableFuture<String?>>? = null
+
+    private data class NetworkProbeReply(
+        val json: String?,
+        val cleanupConfirmed: Boolean,
+    )
+
+    private var pendingNetworkProbe: Pair<Int, CompletableFuture<NetworkProbeReply>>? = null
     private var pendingTimeline: Pair<Int, (Map<String, Any?>?) -> Unit>? = null
     private var pendingLogs: Pair<Int, (AndroidLogStore.Snapshot?) -> Unit>? = null
     private val pendingClearAll = mutableMapOf<Int, MethodChannel.Result>()
@@ -367,11 +377,13 @@ internal class VpnControlClient(
 
             override fun onServiceDisconnected(name: ComponentName?) {
                 endpoint = null
+                networkProbeDisconnected()
                 eventSubscriptionReachable = false
             }
 
             override fun onBindingDied(name: ComponentName?) {
                 endpoint = null
+                networkProbeDisconnected()
                 eventSubscriptionReachable = false
                 if (controlBound) {
                     runCatching { serviceUnbinder(this) }
@@ -384,6 +396,7 @@ internal class VpnControlClient(
 
             override fun onNullBinding(name: ComponentName?) {
                 endpoint = null
+                networkProbeDisconnected()
                 eventSubscriptionReachable = false
             }
         }
@@ -398,6 +411,7 @@ internal class VpnControlClient(
         runCatching { serviceUnbinder(controlConnection) }
         controlBound = false
         endpoint = null
+        networkProbeDisconnected()
         eventSubscriptionReachable = false
     }
 
@@ -593,19 +607,21 @@ internal class VpnControlClient(
         checkId: String,
         cancelled: () -> Boolean,
     ): Map<String, Any?> {
-        val response = CompletableFuture<String?>()
-        val started = System.nanoTime()
+        val response = CompletableFuture<NetworkProbeReply>()
+        val started = nowNanos()
         scheduler.post {
             val service = endpoint
-            if (destroyed || cancelled() || service == null || pendingNetworkProbe != null) {
-                response.complete(null)
+            if (pendingNetworkProbe != null) {
+                response.complete(NetworkProbeReply(null, false))
+            } else if (destroyed || cancelled() || service == null || nowNanos() - started >= PROBE_OPERATION_NANOS) {
+                response.complete(NetworkProbeReply(null, true))
             } else {
                 val id = allocateRequestId()
                 pendingNetworkProbe = id to response
                 val kind = if (checkId == "transport.h3_path_validation_probe") "h3" else "dns"
                 if (!service.send(UsqueVpnService.MSG_DIAGNOSTIC_PROBE, id, mapOf("probe_kind" to kind))) {
                     pendingNetworkProbe = null
-                    response.complete(null)
+                    response.complete(NetworkProbeReply(null, true))
                 }
             }
         }
@@ -618,9 +634,14 @@ internal class VpnControlClient(
             }
         }
         try {
-            while (System.nanoTime() - started < 3_850_000_000L && !cancelled()) {
+            while (nowNanos() - started < PROBE_OPERATION_NANOS && !cancelled()) {
                 try {
-                    return NetworkDiagnosticChecks.probe(checkId, response.get(50, TimeUnit.MILLISECONDS))
+                    val reply = response.get(50, TimeUnit.MILLISECONDS)
+                    return if (reply.cleanupConfirmed) {
+                        NetworkDiagnosticChecks.probe(checkId, reply.json)
+                    } else {
+                        unconfirmedProbeCleanup(checkId)
+                    }
                 } catch (
                     _: TimeoutException,
                 ) {
@@ -628,23 +649,50 @@ internal class VpnControlClient(
                 }
             }
             cancelPending()
-            try {
-                response.get(100, TimeUnit.MILLISECONDS)
-            } catch (
-                _: Exception,
-            ) {
-                // native deadline remains authoritative
-            }
+            val cleanupWait = minOf(PROBE_CLEANUP_NANOS, (PROBE_TOTAL_NANOS - (nowNanos() - started)).coerceAtLeast(0))
+            val reply =
+                try {
+                    response.get(cleanupWait, TimeUnit.NANOSECONDS)
+                } catch (
+                    _: Exception,
+                ) {
+                    null
+                }
+            if (reply?.cleanupConfirmed != true) return unconfirmedProbeCleanup(checkId)
             return NetworkDiagnosticChecks.probe(
                 checkId,
                 if (cancelled()) "{\"code\":\"cancelled\"}" else "{\"code\":\"timeout\"}",
             )
         } catch (_: Exception) {
             cancelPending()
-            return NetworkDiagnosticChecks.probe(checkId, "{\"code\":\"failed\"}")
-        } finally {
-            scheduler.post { if (pendingNetworkProbe?.second === response) pendingNetworkProbe = null }
+            return unconfirmedProbeCleanup(checkId)
         }
+    }
+
+    private fun unconfirmedProbeCleanup(checkId: String): Map<String, Any?> =
+        NetworkDiagnosticChecks.result(
+            checkId,
+            "failed",
+            "nq_finding_unavailable",
+            "export_diagnostics",
+            listOf("probe_cleanup_unconfirmed"),
+        ) + ("cleanup_confirmed" to false)
+
+    internal fun deliverNetworkProbeReply(
+        id: Int,
+        json: String?,
+    ) {
+        pendingNetworkProbe?.takeIf { it.first == id }?.let { (_, response) ->
+            // Accepted service probes reply after cleanup; rejected requests own no probe.
+            pendingNetworkProbe = null
+            response.complete(NetworkProbeReply(json, true))
+        }
+    }
+
+    private fun networkProbeDisconnected() {
+        // Losing Binder is not a cleanup acknowledgement. Keep the request gate
+        // until its actual reply, or destruction of this client.
+        pendingNetworkProbe?.second?.complete(NetworkProbeReply(null, false))
     }
 
     fun requestRetry(result: MethodChannel.Result) {
@@ -955,7 +1003,7 @@ internal class VpnControlClient(
         pendingDiagnosticProbes.clear()
         pendingNetworkProbe?.let { (id, response) ->
             endpoint?.send(UsqueVpnService.MSG_CANCEL_DIAGNOSTIC_PROBE, id)
-            response.complete("{\"code\":\"cancelled\"}")
+            response.complete(NetworkProbeReply(null, false))
         }
         pendingNetworkProbe = null
 
@@ -1035,6 +1083,7 @@ internal class VpnControlClient(
         scheduler.cancel(eventRefreshToken)
         eventSubscriptionReachable = false
         endpoint = null
+        networkProbeDisconnected()
         lastSnapshot = disconnectedSnapshot()
         // stopSelf alone cannot destroy a service still retained by this bind.
         if (controlBound) {
@@ -1161,6 +1210,7 @@ internal class VpnControlClient(
 
     fun detachEndpointForTest() {
         endpoint = null
+        networkProbeDisconnected()
     }
 
     fun notifyBindingDiedForTest() {
@@ -1221,10 +1271,7 @@ internal class VpnControlClient(
             }
 
             UsqueVpnService.MSG_DIAGNOSTIC_PROBE -> {
-                pendingNetworkProbe?.takeIf { it.first == arg1 }?.let { (_, response) ->
-                    pendingNetworkProbe = null
-                    response.complete(data.getString("probe_result"))
-                }
+                deliverNetworkProbeReply(arg1, data.getString("probe_result"))
                 true
             }
 

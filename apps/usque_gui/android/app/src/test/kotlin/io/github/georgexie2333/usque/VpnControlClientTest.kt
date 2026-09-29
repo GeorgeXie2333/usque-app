@@ -8,11 +8,114 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 class VpnControlClientTest {
+    @Test
+    fun cancelledSessionWaitsForDelayedServiceCleanupReply() {
+        val endpoint = RecordingEndpoint()
+        val probeStarted = CountDownLatch(1)
+        val cancellationSent = CountDownLatch(1)
+        endpoint.onSend = { sent ->
+            if (sent.what == UsqueVpnService.MSG_DIAGNOSTIC_PROBE) probeStarted.countDown()
+            if (sent.what == UsqueVpnService.MSG_CANCEL_DIAGNOSTIC_PROBE) cancellationSent.countDown()
+        }
+        client.attachEndpointForTest(endpoint)
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val coordinator = AndroidDiagnosticsCoordinator(executor, networkProbe = client::runNetworkProbe)
+            val started = coordinator.start("deep", mapOf("phase" to "disconnected"), true, true, true, true)
+            assertTrue(probeStarted.await(2, TimeUnit.SECONDS))
+            coordinator.cancel(started["session_id"] as String)
+            assertTrue(cancellationSent.await(2, TimeUnit.SECONDS))
+            val workerFinished = executor.submit {}
+            assertThrows(TimeoutException::class.java) { workerFinished.get(150, TimeUnit.MILLISECONDS) }
+            assertEquals("cancelling", coordinator.current()!!["state"])
+            val id = endpoint.messages.first { it.what == UsqueVpnService.MSG_DIAGNOSTIC_PROBE }.requestId
+            client.deliverNetworkProbeReply(id, "{\"code\":\"cancelled\"}")
+            workerFinished.get(2, TimeUnit.SECONDS)
+            assertEquals("cancelled", coordinator.current()!!["state"])
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun missingCleanupReplyFailsAndKeepsProbeOwnershipUntilLateActualReply() {
+        val endpoint = RecordingEndpoint()
+        val cancelled = AtomicBoolean()
+        endpoint.onSend = { sent ->
+            if (sent.what == UsqueVpnService.MSG_DIAGNOSTIC_PROBE) cancelled.set(true)
+        }
+        client.attachEndpointForTest(endpoint)
+        val result = client.runNetworkProbe("transport.h3_path_validation_probe", cancelled::get)
+        assertEquals("failed", result["status"])
+        assertEquals(false, result["cleanup_confirmed"])
+        assertEquals(listOf("probe_cleanup_unconfirmed"), result["sanitized_evidence"])
+        val blocked = client.runNetworkProbe("dns.direct_encrypted_reachability") { false }
+        assertEquals(false, blocked["cleanup_confirmed"])
+        assertEquals(1, endpoint.messages.count { it.what == UsqueVpnService.MSG_DIAGNOSTIC_PROBE })
+        val id = endpoint.messages.first { it.what == UsqueVpnService.MSG_DIAGNOSTIC_PROBE }.requestId
+        client.deliverNetworkProbeReply(id + 1, "{\"code\":\"cancelled\"}")
+        assertEquals(false, client.runNetworkProbe("dns.direct_encrypted_reachability") { false }["cleanup_confirmed"])
+        client.deliverNetworkProbeReply(id, "{\"code\":\"cancelled\"}")
+        endpoint.onSend = { sent ->
+            if (sent.what == UsqueVpnService.MSG_DIAGNOSTIC_PROBE) {
+                client.deliverNetworkProbeReply(sent.requestId, "{\"code\":\"passed\"}")
+            }
+        }
+        assertEquals("passed", client.runNetworkProbe("dns.direct_encrypted_reachability") { false }["status"])
+        assertEquals(2, endpoint.messages.count { it.what == UsqueVpnService.MSG_DIAGNOSTIC_PROBE })
+    }
+
+    @Test
+    fun cleanupWaitCannotExtendExpiredFourSecondBudget() {
+        val clock = AtomicLong()
+        val boundedClient =
+            VpnControlClient(
+                scheduler,
+                binder::bind,
+                binder::unbind,
+                { _, _ -> error("real Binder is unused") },
+                nowNanos = clock::get,
+            )
+        val endpoint = RecordingEndpoint()
+        endpoint.onSend = { sent ->
+            if (sent.what == UsqueVpnService.MSG_DIAGNOSTIC_PROBE) clock.set(4_000_000_000L)
+        }
+        boundedClient.attachEndpointForTest(endpoint)
+        val result =
+            CompletableFuture
+                .supplyAsync {
+                    boundedClient.runNetworkProbe("transport.h3_path_validation_probe") { false }
+                }.get(200, TimeUnit.MILLISECONDS)
+        assertEquals(false, result["cleanup_confirmed"])
+    }
+
+    @Test
+    fun losingBinderIsNotASyntheticCleanupAcknowledgement() {
+        val endpoint = RecordingEndpoint()
+        endpoint.onSend = { sent ->
+            if (sent.what == UsqueVpnService.MSG_DIAGNOSTIC_PROBE) client.detachEndpointForTest()
+        }
+        client.attachEndpointForTest(endpoint)
+        val result = client.runNetworkProbe("transport.h3_path_validation_probe") { false }
+        assertEquals(false, result["cleanup_confirmed"])
+        assertEquals("failed", result["status"])
+        client.attachEndpointForTest(RecordingEndpoint())
+        assertEquals(false, client.runNetworkProbe("transport.h3_path_validation_probe") { false }["cleanup_confirmed"])
+    }
+
     @Test
     fun logCaptureIsBoundedAndLateTimeoutRepliesCannotCompleteTwice() {
         val endpoint = RecordingEndpoint()

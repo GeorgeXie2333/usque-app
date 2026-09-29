@@ -216,6 +216,7 @@ internal class AndroidDiagnosticsCoordinator(
             synchronized(lock) {
                 val current = session ?: return
                 if (current["session_id"] != sessionId || current["state"] != "cancelling") return
+                if (activeWorkerSessionId == sessionId) return
                 (current + mapOf("state" to "cancelled", "completed_at_unix_milliseconds" to nowMillis())).also {
                     session =
                         it
@@ -384,11 +385,15 @@ internal class AndroidDiagnosticsCoordinator(
                         mapOf("failure" to fallbackFailure("INTERNAL"))
                 }
             var finding =
-                DiagnosticMetadata.attach(rawFinding, snapshot, nowMillis(), controlReachable) +
+                DiagnosticMetadata.attach(rawFinding - "cleanup_confirmed", snapshot, nowMillis(), controlReachable) +
                     mapOf(
                         "duration_milliseconds" to
                             ((System.nanoTime() - checkStartedNanos) / 1_000_000L).coerceAtLeast(0L),
                     )
+            if (rawFinding["cleanup_confirmed"] == false) {
+                failUnconfirmedProbeCleanup(sessionId, finding)
+                return
+            }
             val oldGeneration = DiagnosticMetadata.unsigned(snapshot["network_generation"])
             val currentGeneration =
                 synchronized(lock) { DiagnosticMetadata.unsigned(latestSnapshot["network_generation"]) }
@@ -434,6 +439,39 @@ internal class AndroidDiagnosticsCoordinator(
             session = completed
         }
         publishSession(completed)
+    }
+
+    private fun failUnconfirmedProbeCleanup(
+        sessionId: String,
+        cleanupFinding: Map<String, Any?>,
+    ) {
+        val terminal =
+            synchronized(lock) {
+                val current = session ?: return
+                if (current["session_id"] != sessionId || current["state"] !in ACTIVE_STATES) return
+                val findings =
+                    (current["findings"] as? List<*>).orEmpty().mapNotNull(::stringMap).map { finding ->
+                        if (finding["check_id"] == cleanupFinding["check_id"]) {
+                            cleanupFinding
+                        } else if (finding["status"] in setOf("pending", "running")) {
+                            finding + mapOf("status" to "skipped", "summary_key" to "nq_finding_unavailable")
+                        } else {
+                            finding
+                        }
+                    }
+                (
+                    current +
+                        mapOf(
+                            "state" to "failed",
+                            "completed_at_unix_milliseconds" to nowMillis(),
+                            "current_check" to null,
+                            "progress_percent" to 100,
+                            "findings" to findings,
+                            "summary" to summarize(findings),
+                        )
+                ).also { session = it }
+            }
+        publishSession(terminal)
     }
 
     private fun evaluate(

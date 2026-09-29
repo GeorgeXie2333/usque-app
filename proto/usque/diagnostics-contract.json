@@ -627,7 +627,8 @@
     "kill_switch_not_applicable",
     "kill_switch_unknown",
     "frontend_active",
-    "platform_configuration_only"
+    "platform_configuration_only",
+    "probe_cleanup_unconfirmed"
   ],
   "evidence_keys": [
     "rtt_ms",
