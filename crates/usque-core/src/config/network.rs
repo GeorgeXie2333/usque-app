@@ -33,6 +33,8 @@ pub struct SharedNetworkSettings {
     #[serde(default)]
     pub geo_direct_countries: Vec<String>,
     #[serde(default)]
+    pub bypass_domains: Vec<String>,
+    #[serde(default)]
     pub direct_dns: DirectDnsSettings,
     #[serde(default)]
     pub vpn_gate: crate::vpngate::VpnGateSettings,
@@ -72,6 +74,7 @@ impl SharedNetworkSettings {
             auto_connect: profile.auto_connect,
             proxy: profile.proxy.clone(),
             geo_direct_countries: profile.geo_direct_countries.clone(),
+            bypass_domains: profile.bypass_domains.clone(),
             direct_dns: profile.direct_dns.clone(),
             vpn_gate: profile.vpn_gate.clone(),
             chain_exit: profile.chain_exit.clone(),
@@ -104,6 +107,7 @@ impl SharedNetworkSettings {
             auto_connect: self.auto_connect,
             proxy: self.proxy.clone(),
             geo_direct_countries: self.geo_direct_countries.clone(),
+            bypass_domains: self.bypass_domains.clone(),
             direct_dns: self.direct_dns.clone(),
             vpn_gate: self.vpn_gate.clone(),
             chain_exit: self.chain_exit.clone(),

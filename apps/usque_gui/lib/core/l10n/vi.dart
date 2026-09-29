@@ -350,7 +350,15 @@ const Map<String, String> kViCatalog = <String, String>{
   'profile_required': 'Giữ ít nhất một tài khoản.',
   'socks_capabilities': 'TCP và UDP',
   'http_capabilities': 'CONNECT và chuyển tiếp thông thường',
-  'geo_direct': 'Quốc gia / khu vực kết nối trực tiếp',
+  'geo_direct': 'Cài đặt bỏ qua VPN',
+  'bypass_custom': 'Đích bỏ qua tùy chỉnh',
+  'bypass_countries': 'Quốc gia / khu vực',
+  'bypass_targets_hint':
+      'Mỗi dòng một CIDR, IP hoặc tên miền. Bao gồm mọi tên miền phụ. Ứng dụng dùng DNS mã hóa riêng chỉ được đối chiếu theo IP.',
+  'bypass_unsupported': 'Bộ máy này không hỗ trợ đích bỏ qua tùy chỉnh.',
+  'bypass_limit': 'Tối đa 256 quy tắc địa chỉ và 256 tên miền.',
+  'bypass_line_error': 'Dòng {line}: {reason}',
+  'bypass_summary': '{countries} khu vực · {targets} đích tùy chỉnh',
   'geo_direct_help':
       'Lưu lượng khớp các quy tắc này sẽ không qua VPN. Nhà cung cấp DNS của mạng hiện tại có thể thấy các tên miền được truy vấn. Ứng dụng dùng DNS mã hóa chỉ được định tuyến theo địa chỉ IP.',
   'geo_update_all': 'Cập nhật dữ liệu địa lý',

@@ -354,7 +354,15 @@ const Map<String, String> kFaCatalog = <String, String>{
   'profile_required': 'حداقل یک حساب نگه دارید.',
   'socks_capabilities': 'TCP و UDP',
   'http_capabilities': 'CONNECT و هدایت معمولی',
-  'geo_direct': 'کشورها / مناطق با اتصال مستقیم',
+  'geo_direct': 'تنظیمات عبور از VPN',
+  'bypass_custom': 'مقصدهای سفارشی',
+  'bypass_countries': 'کشورها / مناطق',
+  'bypass_targets_hint':
+      'در هر خط یک CIDR، IP یا دامنه. همه زیردامنه‌ها را شامل می‌شود. برنامه‌های دارای DNS رمزگذاری‌شده مستقل فقط با IP تطبیق می‌یابند.',
+  'bypass_unsupported': 'این موتور از مقصدهای سفارشی پشتیبانی نمی‌کند.',
+  'bypass_limit': 'حداکثر ۲۵۶ قانون آدرس و ۲۵۶ دامنه.',
+  'bypass_line_error': 'خط {line}: {reason}',
+  'bypass_summary': '{countries} منطقه · {targets} مقصد سفارشی',
   'geo_direct_help':
       'ترافیک مطابق این قوانین از VPN عبور نمی‌کند. ارائه‌دهندهٔ DNS شبکهٔ فعلی ممکن است نام دامنه‌های درخواستی را ببیند. برنامه‌هایی که از DNS رمزگذاری‌شده استفاده می‌کنند فقط بر اساس نشانی IP مسیریابی می‌شوند.',
   'geo_update_all': 'به‌روزرسانی داده‌های جغرافیایی',

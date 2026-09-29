@@ -1257,3 +1257,41 @@ mod tests {
         assert_eq!(stream, original);
     }
 }
+
+#[cfg(test)]
+mod custom_bypass_tests {
+    use prost::Message;
+    #[test]
+    fn bypass_profile_and_capability_append_wire_fields() {
+        let profile = super::v1::Profile {
+            bypass_domains: vec!["a.test".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            profile.encode_to_vec(),
+            [0xba, 0x01, 6, b'a', b'.', b't', b'e', b's', b't']
+        );
+        assert_eq!(
+            super::v1::Profile::decode(profile.encode_to_vec().as_slice())
+                .unwrap()
+                .bypass_domains,
+            ["a.test"]
+        );
+        assert!(
+            super::v1::Profile::decode(&[][..])
+                .unwrap()
+                .bypass_domains
+                .is_empty()
+        );
+        let caps = super::v1::Capabilities {
+            custom_bypass: true,
+            ..Default::default()
+        };
+        assert_eq!(caps.encode_to_vec(), [0xc8, 0x02, 1]);
+        assert!(
+            !super::v1::Capabilities::decode(&[][..])
+                .unwrap()
+                .custom_bypass
+        );
+    }
+}

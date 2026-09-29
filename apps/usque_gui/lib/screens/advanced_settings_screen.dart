@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
@@ -34,7 +33,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late final TextEditingController _mtu;
   late final TextEditingController _dnsV4;
   late final TextEditingController _dnsV6;
-  late final TextEditingController _bypass;
   late TransportPolicy _transport;
   late DataPlaneMode _dataPlane;
   late CongestionControlAlgorithm _congestionControl;
@@ -55,7 +53,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   List<Object> _baseline = [];
   late String _editingAccountId;
   final _fieldKeys = List.generate(
-    8,
+    7,
     (_) => GlobalKey<FormFieldState<String>>(),
   );
   final _focus = List.generate(9, (_) => FocusNode());
@@ -68,7 +66,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _dnsV4.text,
     _dnsV6.text,
     _mtu.text,
-    _bypass.text,
     _transport,
     _dataPlane,
     _congestionControl,
@@ -111,7 +108,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _mtu = TextEditingController();
     _dnsV4 = TextEditingController();
     _dnsV6 = TextEditingController();
-    _bypass = TextEditingController();
     _load(widget.controller.activeProfile);
   }
 
@@ -124,7 +120,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _mtu.text = profile.mtu.toString();
     _dnsV4.text = profile.dnsIpv4;
     _dnsV6.text = profile.dnsIpv6;
-    _bypass.text = profile.bypassCidrs.join('\n');
     _transport = profile.transport;
     _dataPlane = profile.dataPlane;
     _congestionControl = profile.congestionControl;
@@ -152,7 +147,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       _mtu,
       _dnsV4,
       _dnsV6,
-      _bypass,
     ]) {
       controller.dispose();
     }
@@ -512,22 +506,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               }),
                       ),
                       const SizedBox(height: 14),
-                      TextFormField(
-                        key: _fieldKeys[7],
-                        focusNode: _focus[7],
-                        enabled: !_saving,
-                        controller: _bypass,
-                        onChanged: (_) => _edited(),
-                        minLines: 3,
-                        maxLines: 6,
-                        style: UsqueTheme.mono(context),
-                        decoration: InputDecoration(
-                          labelText: strings.get('bypass_cidrs'),
-                          hintText: strings.get('bypass_hint'),
-                          alignLabelWithHint: true,
-                        ),
-                        validator: _validateCidrs,
-                      ),
                     ],
                   ),
                   DirectDnsEditor(
@@ -669,27 +647,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     return valid ? null : widget.controller.strings.get('invalid_dns_name');
   }
 
-  String? _validateCidrs(String? value) {
-    final cidrs = (value ?? '')
-        .split(RegExp(r'\r?\n'))
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty);
-    for (final cidr in cidrs) {
-      final parts = cidr.split('/');
-      final address = InternetAddress.tryParse(parts.first);
-      final prefix = parts.length == 2 ? int.tryParse(parts[1]) : null;
-      final maximum = address?.type == InternetAddressType.IPv4 ? 32 : 128;
-      if (parts.length != 2 ||
-          address == null ||
-          prefix == null ||
-          prefix < 0 ||
-          prefix > maximum) {
-        return '${widget.controller.strings.get('invalid_cidr')}: $cidr';
-      }
-    }
-    return null;
-  }
-
   Future<void> _save() async {
     if (_saving) return;
     if (_dataPlane == DataPlaneMode.l4Proxy &&
@@ -743,7 +700,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'dns_servers',
       'dns_servers',
       'mtu',
-      'split_exclusions',
       'transport',
       'data_plane',
       'congestion_control',
@@ -789,11 +745,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         directDns: _directDns,
         dnsMode: _dnsMode,
         proxy: _proxy.copyWith(authUsername: profile.proxy.authUsername),
-        bypassCidrs: _bypass.text
-            .split(RegExp(r'\r?\n'))
-            .map((line) => line.trim())
-            .where((line) => line.isNotEmpty)
-            .toList(growable: false),
       ),
       changedFields: changedFields,
     );

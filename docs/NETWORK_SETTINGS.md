@@ -413,3 +413,25 @@ Snapshot-VM, dedicated Android-device, external network-observer and
 performance-lab validation: **not_run** (no isolated environments supplied).
 No MSI, release APK, installation, live VPN session, or publication was part
 of this validation.
+
+## Custom VPN bypass settings
+
+`bypass_domains` is a shared network field, defaults to an empty list, and uses
+canonical IDNA domain suffixes. Schema 19 preserves earlier CIDRs and country
+selections. Profile protobuf field 23 carries domains; capability field 41
+(`custom_bypass`) gates custom target editing in Flutter. Existing CIDRs retain
+field 10 (`split_exclusions`) and Android JSON key `bypass_cidrs`.
+
+The page patches country selection, address exclusions and domains together;
+validation failure saves none of them. Core validates domain syntax and bounds,
+normalizes domain/network duplicates and retains VPN DNS exclusion checks.
+Domain changes require the existing cold-reconfigure path. Split DNS activates
+for country or custom domain rules, independently of the GEO cache. The direct
+policy also evaluates explicit address rules at HTTP/SOCKS5 IP targets. The
+Windows exact-target leases and Android protected sockets are unchanged; failed
+GEO loading cannot be masked by a custom-rule hit. DNS hints remain bounded,
+non-persistent, TTL-limited and scoped to the current network generation.
+
+No new logs contain custom domains or target addresses. Workstation fake-engine,
+loopback and compile tests do not establish VPN cleanup or leak prevention;
+those require the isolated environments in CONTRIBUTING.md.

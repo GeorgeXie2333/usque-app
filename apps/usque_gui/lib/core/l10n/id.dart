@@ -354,7 +354,15 @@ const Map<String, String> kIdCatalog = <String, String>{
   'profile_required': 'Pertahankan setidaknya satu akun.',
   'socks_capabilities': 'TCP dan UDP',
   'http_capabilities': 'CONNECT dan penerusan biasa',
-  'geo_direct': 'Negara/wilayah koneksi langsung',
+  'geo_direct': 'Pengaturan bypass VPN',
+  'bypass_custom': 'Target bypass khusus',
+  'bypass_countries': 'Negara / wilayah',
+  'bypass_targets_hint':
+      'Satu CIDR, IP, atau domain per baris. Mencakup semua subdomain. Aplikasi dengan DNS terenkripsi sendiri hanya dicocokkan melalui IP.',
+  'bypass_unsupported': 'Mesin ini tidak mendukung target bypass khusus.',
+  'bypass_limit': 'Maksimal 256 aturan alamat dan 256 domain.',
+  'bypass_line_error': 'Baris {line}: {reason}',
+  'bypass_summary': '{countries} wilayah · {targets} target khusus',
   'geo_direct_help':
       'Lalu lintas yang cocok dengan negara atau wilayah ini tidak melalui VPN. Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta. Aplikasi dengan DNS terenkripsi dicocokkan berdasarkan IP saja.',
   'geo_update_all': 'Perbarui data geo',

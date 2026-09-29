@@ -208,7 +208,7 @@ const kNetworkQualityEn = <String, String>{
   'nq_dns_system_privacy':
       'Your current network’s DNS provider may see the domains requested by direct traffic.',
   'nq_dns_scope':
-      'Used for traffic matching your direct country rules. DNS for VPN traffic is unchanged.',
+      'Used for matching country and custom domain bypass rules. DNS for VPN traffic is unchanged.',
   'nq_dns_no_capability':
       'Update Usque to use encrypted DNS for direct traffic. Your settings are kept. You can choose Current network DNS if you accept its privacy implications.',
   'nq_dns_invalid_name':
@@ -382,7 +382,7 @@ const kNetworkQualityZhCn = <String, String>{
       '填写 DNS 服务商提供的 1–8 个 IP 地址，每行一个，例如 1.1.1.1。Usque 会直接连接这些地址，无需先查询服务器域名。',
   'nq_dns_no_fallback': '加密 DNS 不可用时，查询会直接失败，不会改用未加密的 DNS。',
   'nq_dns_system_privacy': '直连流量查询的域名可能对当前网络的 DNS 服务商可见。',
-  'nq_dns_scope': '用于匹配直连国家规则的流量，不影响 VPN 流量的 DNS。',
+  'nq_dns_scope': '用于匹配国家/地区及自定义域名绕过规则的流量，不影响 VPN 流量的 DNS。',
   'nq_dns_no_capability':
       '请更新 Usque 以使用加密直连 DNS。已保存的设置会保留；若接受隐私风险，也可选择“当前网络的 DNS”。',
   'nq_dns_invalid_name': '请输入服务器域名，例如 dns.example.com，不要包含 https://、端口或空格。',

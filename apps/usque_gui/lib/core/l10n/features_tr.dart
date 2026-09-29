@@ -242,7 +242,7 @@ const kNetworkQualityTr = <String, String>{
   'nq_dns_system_privacy':
       'Mevcut ağın DNS sağlayıcısı, doğrudan bağlantı trafiğinde sorgulanan alan adlarını görebilir.',
   'nq_dns_scope':
-      'Yalnızca doğrudan bağlanılacak ülke/bölge kurallarıyla eşleşen trafiği etkiler. VPN trafiğinin DNS ayarı değişmez.',
+      'Ülke ve özel alan adı atlama kuralları için kullanılır. VPN trafiğinin DNS ayarı değişmez.',
   'nq_dns_no_capability':
       'Doğrudan bağlantılar için şifreli DNS kullanmak üzere Usque’yi güncelleyin. Kayıtlı ayarlar korunur. Gizlilik etkisini kabul ediyorsanız “Mevcut ağın DNS’i” seçeneğini kendiniz seçebilirsiniz.',
   'nq_dns_invalid_name':

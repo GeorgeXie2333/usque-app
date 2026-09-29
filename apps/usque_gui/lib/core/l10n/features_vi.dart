@@ -236,7 +236,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_dns_system_privacy':
       'Nhà cung cấp DNS của mạng hiện tại có thể thấy các tên miền được truy vấn cho lưu lượng trực tiếp.',
   'nq_dns_scope':
-      'Chỉ ảnh hưởng đến lưu lượng khớp quy tắc kết nối trực tiếp theo quốc gia hoặc khu vực. DNS của lưu lượng VPN không thay đổi.',
+      'Dùng cho quy tắc bỏ qua theo quốc gia và tên miền tùy chỉnh. DNS của lưu lượng VPN không đổi.',
   'nq_dns_no_capability':
       'Cập nhật Usque để dùng DNS mã hóa cho kết nối trực tiếp. Các cài đặt đã lưu vẫn được giữ lại. Nếu chấp nhận ảnh hưởng đến quyền riêng tư, bạn có thể tự chọn “DNS của mạng hiện tại”.',
   'nq_dns_invalid_name':

@@ -351,7 +351,15 @@ const Map<String, String> kEnCatalog = <String, String>{
   'profile_required': 'Keep at least one account.',
   'socks_capabilities': 'TCP and UDP',
   'http_capabilities': 'CONNECT and ordinary forwarding',
-  'geo_direct': 'Direct countries / regions',
+  'geo_direct': 'VPN bypass settings',
+  'bypass_custom': 'Custom bypass targets',
+  'bypass_countries': 'Countries / regions',
+  'bypass_targets_hint':
+      'One CIDR, IP or domain per line. Domains include all subdomains. Apps using their own encrypted DNS can only be matched by IP.',
+  'bypass_unsupported': 'This Engine does not support custom bypass targets.',
+  'bypass_limit': 'At most 256 address rules and 256 domains.',
+  'bypass_line_error': 'Line {line}: {reason}',
+  'bypass_summary': '{countries} regions · {targets} custom targets',
   'geo_direct_help':
       'Traffic matching these countries or regions connects without the VPN. DNS providers on your current network may see the requested domains. Apps using encrypted DNS are matched by IP address only.',
   'geo_update_all': 'Update geographic data',

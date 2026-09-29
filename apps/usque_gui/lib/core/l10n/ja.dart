@@ -337,7 +337,15 @@ const Map<String, String> kJaCatalog = <String, String>{
   'profile_required': '少なくとも 1 つのアカウントを残してください。',
   'socks_capabilities': 'TCP と UDP',
   'http_capabilities': 'CONNECT と通常の転送',
-  'geo_direct': '直接接続する国・地域',
+  'geo_direct': 'VPNバイパス設定',
+  'bypass_custom': 'カスタムバイパス対象',
+  'bypass_countries': '国・地域',
+  'bypass_targets_hint':
+      '1行にCIDR、IPまたはドメインを入力。ドメインは全サブドメインを含みます。独自の暗号化DNSを使うアプリはIPのみで判定します。',
+  'bypass_unsupported': 'このエンジンはカスタムバイパスに対応していません。',
+  'bypass_limit': 'アドレス規則とドメインはそれぞれ最大256件です。',
+  'bypass_line_error': '{line}行目: {reason}',
+  'bypass_summary': '地域 {countries}件 · カスタム対象 {targets}件',
   'geo_direct_help':
       'これらの国・地域に一致する通信は VPN を経由しません。現在のネットワークの DNS 提供元にアクセス先ドメインが見える場合があります。暗号化 DNS を使うアプリは IP アドレスだけで振り分けます。',
   'geo_update_all': '地理データを更新',

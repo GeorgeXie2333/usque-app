@@ -955,7 +955,7 @@ impl WindowsVpnRuntime {
         device: &WindowsDeviceOwner,
     ) -> Result<Self, WindowsVpnError> {
         let startup_cancel = gate.cancellation.clone();
-        let geo_enabled = geo_policy.is_enabled();
+        let geo_enabled = profile.has_domain_direct_rules();
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
         validate_capabilities(&capabilities, profile.kill_switch)?;
@@ -1296,7 +1296,7 @@ impl WindowsVpnRuntime {
                         self.operation_id,
                         bootstrap.registration_api.clone(),
                         profile,
-                        policy.is_enabled(),
+                        profile.has_domain_direct_rules(),
                     )
                     .await
                     .map_err(|error| TransportError::VpnGate(error.gate_failure()))?,
@@ -1384,7 +1384,7 @@ impl WindowsVpnRuntime {
                 tunnel.assigned_ipv4(),
                 tunnel.assigned_ipv6(),
                 &[],
-                !profile.geo_direct_countries.is_empty(),
+                profile.has_domain_direct_rules(),
             );
             plan.assigned_ipv4 = final_values.assigned_ipv4;
             plan.assigned_ipv6 = final_values.assigned_ipv6;
@@ -5857,6 +5857,31 @@ mod tests {
         );
         assert!(!local.split_dns);
         assert_eq!(local.dns_servers, ["10.8.0.1"]);
+    }
+
+    #[test]
+    fn custom_domain_bypass_requires_synthetic_dns_but_ip_only_does_not() {
+        let mut profile = Profile {
+            split_exclusions: vec!["192.0.2.0/24".parse().unwrap()],
+            ..Default::default()
+        };
+        let plan = tunnel_plan(
+            &profile,
+            &identity(),
+            &[],
+            profile.has_domain_direct_rules(),
+        );
+        assert!(!plan.split_dns);
+        assert_eq!(plan.split_exclusions, ["192.0.2.0/24"]);
+        profile.bypass_domains.push("example.com".into());
+        let plan = tunnel_plan(
+            &profile,
+            &identity(),
+            &[],
+            profile.has_domain_direct_rules(),
+        );
+        assert!(plan.split_dns);
+        assert_eq!(plan.dns_servers, ["198.18.0.1", "fd00::1"]);
     }
 
     #[test]

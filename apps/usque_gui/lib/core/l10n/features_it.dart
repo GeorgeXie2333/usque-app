@@ -257,7 +257,7 @@ const Map<String, String> kNetworkQualityIt = <String, String>{
   'nq_dns_system_privacy':
       'Il fornitore DNS della rete attuale può vedere i domini richiesti dal traffico diretto.',
   'nq_dns_scope':
-      'Usato per il traffico che corrisponde alle regole dei paesi diretti. Il DNS del traffico VPN resta invariato.',
+      'Usato per le regole di bypass per paese e domini personalizzati. Il DNS del traffico VPN non cambia.',
   'nq_dns_no_capability':
       'Aggiorna Usque per usare DNS cifrato nelle connessioni dirette. Le impostazioni vengono conservate. Puoi scegliere DNS della rete attuale se accetti le conseguenze per la privacy.',
   'nq_dns_invalid_name':

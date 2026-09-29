@@ -267,6 +267,26 @@ void main() {
       );
       expect(catalog.profiles.single.geoDirectCountries, <String>['CN']);
     });
+    test('bypass_domains field 23 round-trips', () {
+      const profile = UsqueProfile(
+        id: 'p',
+        name: 'X',
+        bypassDomains: <String>['example.com'],
+      );
+      final encoded = codec.encodeProfile(profile);
+      expect(encoded, containsAllInOrder(<int>[0xba, 0x01, 11]));
+      final catalogBody = ControlPayloadWriter()
+        ..message(1, encoded)
+        ..string(2, 'p');
+      final responseBody = ControlPayloadWriter()
+        ..string(1, 'r3')
+        ..message(12, catalogBody.takeBytes());
+      final catalog = debugDecodeProfileCatalogFrame(
+        codec.frame(responseBody.takeBytes()),
+        'r3',
+      );
+      expect(catalog.profiles.single.bypassDomains, <String>['example.com']);
+    });
   });
 
   group('ControlCodec truncated / oversized handling', () {

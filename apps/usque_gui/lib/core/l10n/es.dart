@@ -359,7 +359,15 @@ const Map<String, String> kEsCatalog = <String, String>{
   'profile_required': 'Conserve al menos una cuenta.',
   'socks_capabilities': 'TCP y UDP',
   'http_capabilities': 'CONNECT y reenvío ordinario',
-  'geo_direct': 'Países y regiones con conexión directa',
+  'geo_direct': 'Ajustes de omisión de VPN',
+  'bypass_custom': 'Destinos personalizados',
+  'bypass_countries': 'Países / regiones',
+  'bypass_targets_hint':
+      'Un CIDR, IP o dominio por línea. Incluye todos los subdominios. Las apps con DNS cifrado propio solo se identifican por IP.',
+  'bypass_unsupported': 'Este motor no admite destinos personalizados.',
+  'bypass_limit': 'Máximo 256 reglas de direcciones y 256 dominios.',
+  'bypass_line_error': 'Línea {line}: {reason}',
+  'bypass_summary': '{countries} regiones · {targets} destinos personalizados',
   'geo_direct_help':
       'El tráfico que coincida con estos países o regiones no pasa por la VPN. El proveedor DNS de tu red puede ver los dominios consultados. Las aplicaciones con DNS cifrado se clasifican solo por IP.',
   'geo_update_all': 'Actualizar datos geográficos',

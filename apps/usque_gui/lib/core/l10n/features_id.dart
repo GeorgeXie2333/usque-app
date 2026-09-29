@@ -246,7 +246,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_dns_system_privacy':
       'Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta oleh lalu lintas langsung.',
   'nq_dns_scope':
-      'Untuk lalu lintas yang cocok dengan aturan negara koneksi langsung. DNS lalu lintas VPN tidak berubah.',
+      'Untuk aturan bypass negara dan domain khusus. DNS lalu lintas VPN tidak berubah.',
   'nq_dns_no_capability':
       'Perbarui Usque untuk memakai DNS terenkripsi pada koneksi langsung. Pengaturan disimpan. Anda dapat memilih DNS jaringan saat ini jika menerima dampak privasinya.',
   'nq_dns_invalid_name':

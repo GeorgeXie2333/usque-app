@@ -21,6 +21,8 @@ Build and test commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Feature
 - Desktop and mobile traces share the timestamped 60-second quality history. New samples with unchanged values are retained; repaint timers do not generate observations. Source-aligned time slots tolerate scheduling jitter, and averages use actual elapsed time. Missing samples stay gaps; delayed, paused, unavailable, and disconnected readings are identified explicitly. The view does not start additional probes or persist traffic history.
 - Settings groups connection/protection, proxy/routing, and application preferences. Home links to network quality when the engine supports it.
 
+- **VPN bypass settings** combines country rules and a line-based editor for custom CIDRs, IPs and domains. Domains include subdomains; custom rules work without GEO downloads. The editor uses the shared apply bar and leave guard. Advanced settings no longer edits bypass CIDRs. See [direct DNS and bypass targets](../../docs/encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标).
+
 ## Native UI composition
 
 - `ContentSection` and `ContentHeading` group ordinary content with typography and spacing, not a card background. `ContentList` separates adjacent entries; `ActionRow` provides native ink, keyboard/D-pad activation and a visible, layout-stable focus outline. `InlineStatus` pairs a readable state label with a supplementary icon.

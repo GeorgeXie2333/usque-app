@@ -14,6 +14,8 @@ class NetworkSettingsController extends ChangeNotifier {
   final Set<String> _retiredEpochs = {};
   NetworkSettingsState? state;
   String? saveError;
+  // Only an ordinal is retained; backend target text never reaches diagnostics.
+  int? invalidBypassDomainEntry;
   bool _queryUnconfirmed = false;
   final Map<String, _SaveAttempt> _saveAttempts = {};
   int _observationRevision = 0;
@@ -116,6 +118,7 @@ class NetworkSettingsController extends ChangeNotifier {
       final attempt = _SaveAttempt();
       _saveAttempts[operationId] = attempt;
       saveError = null;
+      invalidBypassDomainEntry = null;
       _notify();
       try {
         final result = await _engine.saveNetworkSettings(
@@ -138,6 +141,12 @@ class NetworkSettingsController extends ChangeNotifier {
         if (definitive) {
           _saveAttempts.remove(operationId);
           saveError = error.code;
+          final invalidDomain = RegExp(
+            r'invalid bypass domain at entry (\d+)',
+          ).firstMatch(error.message);
+          invalidBypassDomainEntry = invalidDomain == null
+              ? null
+              : int.tryParse(invalidDomain.group(1)!);
         } else {
           attempt.unconfirmed = true;
           // A mutation is never replayed after an ambiguous reply.
@@ -173,6 +182,7 @@ class NetworkSettingsController extends ChangeNotifier {
     _dataGeneration++;
     state = null;
     saveError = null;
+    invalidBypassDomainEntry = null;
     _saveAttempts.clear();
     _queryUnconfirmed = false;
     _resetting = false;

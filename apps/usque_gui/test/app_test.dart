@@ -1097,10 +1097,16 @@ void main() {
 
   test('advanced defaults preserve countries managed on their own page', () {
     final reset = UsqueProfile.defaultProfile()
-        .copyWith(geoDirectCountries: const <String>['CN', 'US'])
+        .copyWith(
+          geoDirectCountries: const <String>['CN', 'US'],
+          bypassCidrs: const ['192.0.2.0/24'],
+          bypassDomains: const ['example.com'],
+        )
         .resetAdvancedDefaults();
 
     expect(reset.geoDirectCountries, const <String>['CN', 'US']);
+    expect(reset.bypassCidrs, const ['192.0.2.0/24']);
+    expect(reset.bypassDomains, const ['example.com']);
     expect(
       AppStrings(LocalePreference.english).get('reset_defaults_body'),
       isNot(contains('direct countries')),
@@ -3970,7 +3976,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final directCountries = find.text('Direct countries / regions');
+      final directCountries = find.text('VPN bypass settings');
       expect(directCountries, findsOneWidget);
       await tester.ensureVisible(directCountries);
       await tester.pumpAndSettle();
@@ -3995,7 +4001,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(AdvancedSettingsScreen), findsOneWidget);
-      expect(find.text('Direct countries / regions'), findsNothing);
+      expect(find.text('VPN bypass settings'), findsNothing);
     },
   );
 
@@ -4223,7 +4229,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), 'CN');
+    await tester.enterText(
+      find.byKey(const ValueKey('bypass-country-search')),
+      'CN',
+    );
     await tester.pump();
     final countryTile = find.widgetWithText(ListTile, 'CN  China');
     final countrySwitch = find.descendant(
@@ -4231,9 +4240,12 @@ void main() {
       matching: find.byType(Switch),
     );
     expect(countrySwitch, findsOneWidget);
+    await tester.ensureVisible(countrySwitch);
+    await tester.pumpAndSettle();
     await tester.tap(countrySwitch);
-    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Apply changes'));
+    await tester.pumpAndSettle();
 
     expect(controller.activeProfile.geoDirectCountries, const <String>['CN']);
     expect(tester.takeException(), isNull);
@@ -4273,7 +4285,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(engine.calls, contains('updateAllGeoRules'));
 
-      await tester.enterText(find.byType(TextField), 'CN');
+      await tester.enterText(
+        find.byKey(const ValueKey('bypass-country-search')),
+        'CN',
+      );
       await tester.pump();
       final countryTile = find.widgetWithText(ListTile, 'CN  China');
       final countrySwitch = tester.widget<Switch>(
@@ -4285,8 +4300,9 @@ void main() {
       await tester.tap(
         find.descendant(of: countryTile, matching: find.byType(Switch)),
       );
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply changes'));
+      await tester.pumpAndSettle();
 
       expect(controller.activeProfile.geoDirectCountries, isEmpty);
     },

@@ -1991,6 +1991,33 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn custom_domain_hints_conflicts_and_network_generation_remain_scoped() {
+        let profile = usque_core::Profile {
+            bypass_domains: vec!["example.cn".into()],
+            ..Default::default()
+        };
+        let policy = GeoDirectPolicy::disabled()
+            .with_custom_rules(&profile)
+            .unwrap();
+        let request = query(9, "www.example.cn");
+        assert_eq!(policy.route_host("www.example.cn"), GeoRoute::Direct);
+        let parsed = parse_query(&request).unwrap();
+        let response = a_response(&request, 60, [198, 51, 100, 7]);
+        let cache = DnsRouteCache::default();
+        let ip = "198.51.100.7".parse().unwrap();
+        cache.observe(&response, &parsed, QueryRoute::Direct, Some(1));
+        assert_eq!(cache.route_ip(ip, Some(1), &policy), GeoRoute::Direct);
+        cache.observe(&response, &parsed, QueryRoute::Tunnel, Some(1));
+        assert_eq!(cache.route_ip(ip, Some(1), &policy), GeoRoute::Tunnel);
+        assert_eq!(cache.route_ip(ip, Some(2), &policy), GeoRoute::Tunnel);
+        let fresh = DnsRouteCache::default();
+        assert_eq!(
+            fresh.route_ip(ip, Some(2), &GeoDirectPolicy::disabled()),
+            GeoRoute::Tunnel
+        );
+    }
+
+    #[test]
     fn conflicting_dns_hint_falls_back_to_geoip() {
         let request = query(9, "www.example.cn");
         let parsed = parse_query(&request).unwrap();

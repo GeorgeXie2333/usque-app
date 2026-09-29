@@ -5,9 +5,12 @@ import '../core/app_strings.dart';
 import '../core/iso_countries.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
+import '../models/bypass_targets.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/country_flag.dart';
+import '../widgets/save_changes_bar.dart';
+import '../widgets/unsaved_changes_guard.dart';
 
 class GeoDirectSettingsScreen extends StatefulWidget {
   const GeoDirectSettingsScreen({required this.controller, super.key});
@@ -23,38 +26,117 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
   final TextEditingController _search = TextEditingController();
   late Set<String> _enabled;
   bool _saving = false;
+  bool _saved = false;
+  String? _error;
+  final _targets = TextEditingController();
+  late String _baseline;
+  late String _targetsBaseline;
+  late String _countriesBaseline;
+  late String _accountId;
+  String get _draft =>
+      '${_orderedCountries(_enabled).join(',')}|${_targets.text}';
+  bool get _dirty => _draft != _baseline;
+  bool get _customAvailable =>
+      widget.controller.engineCapabilities?.customBypass ?? false;
+  void _edited() => setState(() {
+    _error = null;
+    _saved = false;
+  });
 
   @override
   void initState() {
     super.initState();
     _enabled = widget.controller.activeProfile.geoDirectCountries.toSet();
+    final profile = widget.controller.activeProfile;
+    _accountId = profile.id;
+    _targets.text = [
+      ...profile.bypassCidrs,
+      ...profile.bypassDomains,
+    ].join('\n');
+    _baseline = _draft;
+    _targetsBaseline = _targets.text;
+    _countriesBaseline = _orderedCountries(_enabled).join(',');
     widget.controller.refreshGeoRules();
   }
 
   @override
   void dispose() {
     _search.dispose();
+    _targets.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     if (_saving) return;
-    setState(() => _saving = true);
-    final profile = widget.controller.activeProfile;
-    await widget.controller.saveNetwork(
-      profile.copyWith(geoDirectCountries: _orderedCountries(_enabled)),
-      changedFields: const ['geo_direct_countries'],
+    final controller = widget.controller;
+    final strings = controller.strings;
+    if (!_customAvailable && _targets.text != _targetsBaseline) {
+      setState(() => _error = strings.get('bypass_unsupported'));
+      return;
+    }
+    BypassTargets targets;
+    try {
+      targets = BypassTargets.parse(_targets.text);
+    } on BypassTargetError catch (error) {
+      setState(
+        () => _error = strings
+            .get('bypass_line_error')
+            .replaceAll('{line}', '${error.line}')
+            .replaceAll('{reason}', strings.get(error.messageKey)),
+      );
+      return;
+    }
+    final profile = controller.activeProfile;
+    if (profile.id != _accountId) {
+      setState(() => _error = strings.get('changes_failed'));
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final saved = await controller.saveNetwork(
+      profile.copyWith(
+        geoDirectCountries: _orderedCountries(_enabled),
+        bypassCidrs: _customAvailable ? targets.cidrs : profile.bypassCidrs,
+        bypassDomains: _customAvailable
+            ? targets.domains
+            : profile.bypassDomains,
+      ),
+      changedFields: [
+        if (_orderedCountries(_enabled).join(',') != _countriesBaseline)
+          'geo_direct_countries',
+        if (_customAvailable && _targets.text != _targetsBaseline) ...[
+          'split_exclusions',
+          'bypass_domains',
+        ],
+      ],
     );
     if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          widget.controller.networkSettingsMessage ??
-              widget.controller.strings.get('settings_unknown'),
-        ),
-      ),
-    );
+    setState(() {
+      _saving = false;
+      _saved = saved;
+      if (saved) {
+        final stored = controller.activeProfile;
+        _enabled = stored.geoDirectCountries.toSet();
+        _targets.text = [
+          ...stored.bypassCidrs,
+          ...stored.bypassDomains,
+        ].join('\n');
+        _baseline = _draft;
+        _targetsBaseline = _targets.text;
+        _countriesBaseline = _orderedCountries(_enabled).join(',');
+      } else {
+        _error = controller.lastError ?? strings.get('changes_failed');
+        final entry = controller.networkSettings.invalidBypassDomainEntry;
+        if (entry != null && entry > 0 && entry <= targets.domainLines.length) {
+          _error = strings
+              .get('bypass_line_error')
+              .replaceAll('{line}', '${targets.domainLines[entry - 1]}')
+              .replaceAll('{reason}', strings.get('invalid_dns_name'));
+        }
+      }
+    });
   }
 
   @override
@@ -63,41 +145,97 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
       listenable: widget.controller,
       builder: (context, _) {
         final strings = widget.controller.strings;
-        return SubPage(
-          contentWidth: 880,
-          title: strings.get('geo_direct'),
-          backLabel: strings.get('back'),
-          actions: <Widget>[
-            FilledButton.icon(
-              onPressed: _saving ? null : _save,
-              icon: const Icon(LucideIcons.save),
-              label: Text(strings.get('save')),
+        return UnsavedChangesGuard(
+          strings: strings,
+          dirty: _dirty,
+          saving: _saving,
+          child: SubPage(
+            contentWidth: 880,
+            title: strings.get('geo_direct'),
+            backLabel: strings.get('back'),
+            bottomBar: SaveChangesBar(
+              strings: strings,
+              dirty: _dirty,
+              saving: _saving,
+              saved: _saved,
+              error: _error,
+              validationError: _error,
+              statusLabel:
+                  !_dirty ||
+                      widget.controller.networkSettings.unconfirmed ||
+                      widget.controller.networkSettings.saveError != null
+                  ? widget.controller.networkSettingsMessage
+                  : null,
+              onReconnect: widget.controller.networkSettingsCanReconnect
+                  ? widget.controller.retry
+                  : null,
+              onSave: _save,
             ),
-          ],
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              BannerSlot(
-                child: widget.controller.lastError == null
-                    ? null
-                    : WarningBanner(
-                        title: strings.get('error'),
-                        message: widget.controller.lastError!,
-                        danger: true,
-                        onDismiss: widget.controller.clearError,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                BannerSlot(
+                  child: widget.controller.lastError == null
+                      ? null
+                      : WarningBanner(
+                          title: strings.get('error'),
+                          message: widget.controller.lastError!,
+                          danger: true,
+                          onDismiss: widget.controller.clearError,
+                        ),
+                ),
+                BannerSlot(
+                  child: widget.controller.lastNotice == null
+                      ? null
+                      : WarningBanner(
+                          title: strings.get('notice'),
+                          message: widget.controller.lastNotice!,
+                          onDismiss: widget.controller.clearNotice,
+                        ),
+                ),
+                ContentSection(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        strings.get('bypass_custom'),
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
-              ),
-              BannerSlot(
-                child: widget.controller.lastNotice == null
-                    ? null
-                    : WarningBanner(
-                        title: strings.get('notice'),
-                        message: widget.controller.lastNotice!,
-                        onDismiss: widget.controller.clearNotice,
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const ValueKey('bypass-targets'),
+                        controller: _targets,
+                        readOnly: !_customAvailable || _saving,
+                        onChanged: (_) => _edited(),
+                        minLines: 4,
+                        maxLines: 8,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        decoration: InputDecoration(
+                          labelText: strings.get('bypass_custom'),
+                          hintText: '192.0.2.0/24\n2001:db8::1\nexample.com',
+                          helperText: strings.get('bypass_targets_hint'),
+                          helperMaxLines: 5,
+                          alignLabelWithHint: true,
+                        ),
                       ),
-              ),
-              ContentSection(child: _buildRulesPanel(context)),
-            ],
+                      if (!_customAvailable)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(strings.get('bypass_unsupported')),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  strings.get('bypass_countries'),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                ContentSection(child: _buildRulesPanel(context)),
+              ],
+            ),
           ),
         );
       },
@@ -166,6 +304,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
           child: Divider(height: 1, color: UsqueTokens.of(context).hairline),
         ),
         TextField(
+          key: const ValueKey('bypass-country-search'),
           controller: _search,
           onChanged: (_) => setState(() {}),
           decoration: InputDecoration(
@@ -223,6 +362,8 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
                         onChanged: !_saving && (ready || enabled)
                             ? (value) {
                                 setState(() {
+                                  _saved = false;
+                                  _error = null;
                                   if (value) {
                                     _enabled.add(country.code);
                                   } else {

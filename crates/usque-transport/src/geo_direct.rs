@@ -50,15 +50,18 @@ impl GeoDirectClassifier for GeoClassifier {
     }
 }
 
-/// Immutable GEO split-routing policy for proxy and platform traffic.
+/// Immutable GEO and explicit bypass policy for proxy and platform traffic.
 ///
-/// A hostname is evaluated only with GeoSite, while an IP literal is evaluated
-/// only with GeoIP. A missing classifier, an empty country list, and every
-/// unknown result route through the tunnel (fail closed).
+/// Hostnames match custom suffixes or GeoSite; numerical addresses match custom
+/// networks or GeoIP. Explicit rules work without a GEO catalog. Unknown targets
+/// always route through the tunnel; loading an enabled but invalid GEO catalog
+/// fails before callers can attach custom rules.
 #[derive(Clone)]
 pub struct GeoDirectPolicy {
     classifier: Option<Arc<dyn GeoDirectClassifier>>,
     countries: Vec<CountryCode>,
+    networks: Vec<usque_core::config::IpNet>,
+    domains: Vec<String>,
 }
 
 impl Default for GeoDirectPolicy {
@@ -73,6 +76,8 @@ impl GeoDirectPolicy {
         Self {
             classifier: None,
             countries: Vec::new(),
+            networks: Vec::new(),
+            domains: Vec::new(),
         }
     }
 
@@ -121,7 +126,19 @@ impl GeoDirectPolicy {
         Self {
             classifier: Some(classifier),
             countries: countries.into_iter().collect(),
+            networks: Vec::new(),
+            domains: Vec::new(),
         }
+    }
+
+    /// Add validated explicit rules independently of the optional GEO catalog.
+    pub fn with_custom_rules(
+        mut self,
+        profile: &usque_core::Profile,
+    ) -> Result<Self, usque_core::ConfigError> {
+        self.domains = usque_core::config::normalize_bypass_domains(&profile.bypass_domains)?;
+        self.networks = profile.split_exclusions.clone();
+        Ok(self)
     }
 
     /// Returns the configured country codes in their caller-provided order.
@@ -131,11 +148,24 @@ impl GeoDirectPolicy {
 
     /// Returns whether this policy can select a direct route.
     pub fn is_enabled(&self) -> bool {
-        self.classifier.is_some() && !self.countries.is_empty()
+        (self.classifier.is_some() && !self.countries.is_empty())
+            || !self.networks.is_empty()
+            || !self.domains.is_empty()
     }
 
-    /// Selects a route for a hostname using GeoSite only.
+    /// Selects a route for a hostname using custom suffixes and GeoSite.
     pub fn route_host(&self, host: &str) -> GeoRoute {
+        if !self.domains.is_empty()
+            && let Some(host) = usque_core::config::canonical_bypass_domain(host)
+            && self.domains.iter().any(|domain| {
+                host == *domain
+                    || host
+                        .strip_suffix(domain)
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            })
+        {
+            return GeoRoute::Direct;
+        }
         let Some(classifier) = &self.classifier else {
             return GeoRoute::Tunnel;
         };
@@ -153,8 +183,11 @@ impl GeoDirectPolicy {
         }
     }
 
-    /// Selects a route for an IP literal using GeoIP only.
+    /// Selects a route for an IP literal using explicit networks and GeoIP.
     pub fn route_ip(&self, ip: IpAddr) -> GeoRoute {
+        if self.networks.iter().any(|network| network.contains(&ip)) {
+            return GeoRoute::Direct;
+        }
         let Some(classifier) = &self.classifier else {
             return GeoRoute::Tunnel;
         };
@@ -541,6 +574,50 @@ mod tests {
     }
 
     #[test]
+    fn custom_targets_work_without_geo_and_match_label_and_network_boundaries() {
+        let profile = usque_core::Profile {
+            bypass_domains: vec!["Example.COM.".into(), "bücher.example".into()],
+            split_exclusions: vec![
+                "192.0.2.0/24".parse().unwrap(),
+                "2001:db8::1/128".parse().unwrap(),
+            ],
+            ..Default::default()
+        };
+        let policy = GeoDirectPolicy::disabled()
+            .with_custom_rules(&profile)
+            .unwrap();
+        assert!(policy.is_enabled());
+        for host in [
+            "example.com",
+            "A.example.com.",
+            "deep.a.example.com",
+            "xn--bcher-kva.example",
+            "bücher.example",
+        ] {
+            assert_eq!(policy.route_host(host), GeoRoute::Direct, "{host}");
+        }
+        for host in [
+            "notexample.com",
+            "example.com.evil",
+            "unknown.test",
+            "https://example.com",
+        ] {
+            assert_eq!(policy.route_host(host), GeoRoute::Tunnel, "{host}");
+        }
+        for ip in ["192.0.2.0", "192.0.2.255", "2001:db8::1"] {
+            assert_eq!(policy.route_ip(ip.parse().unwrap()), GeoRoute::Direct);
+        }
+        for ip in ["192.0.3.0", "2001:db8::2"] {
+            assert_eq!(policy.route_ip(ip.parse().unwrap()), GeoRoute::Tunnel);
+        }
+        let removed = GeoDirectPolicy::disabled()
+            .with_custom_rules(&usque_core::Profile::default())
+            .unwrap();
+        assert!(!removed.is_enabled());
+        assert_eq!(removed.route_host("example.com"), GeoRoute::Tunnel);
+    }
+
+    #[test]
     fn classifier_routes_hosts_via_geosite_ips_via_geoip_and_unknowns_to_tunnel() {
         let policy = policy(true, true);
         assert_eq!(policy.route_host("direct.test"), GeoRoute::Direct);
@@ -604,6 +681,75 @@ mod tests {
         };
         let result: Result<_, ()> = connect_with_geo_fallback(
             &policy(true, false),
+            &protector,
+            GeoTarget::Host("direct.test"),
+            443,
+            |_| async { Ok("tunnel") },
+        )
+        .await;
+        assert!(matches!(
+            result.unwrap(),
+            super::DirectFallback::Fallback("tunnel")
+        ));
+        assert_eq!(protector.resolve_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn custom_hostname_uses_protected_resolver_and_loopback_socket() {
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let protector = FakeProtector {
+            resolved: address,
+            reject_protect: false,
+            protect_calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+        };
+        let fallback_called = Arc::new(AtomicBool::new(false));
+        let fallback_observed = Arc::clone(&fallback_called);
+        let result: Result<_, ()> = connect_with_geo_fallback(
+            &GeoDirectPolicy::disabled()
+                .with_custom_rules(&usque_core::Profile {
+                    bypass_domains: vec!["direct.test".into()],
+                    ..Default::default()
+                })
+                .unwrap(),
+            &protector,
+            GeoTarget::Host("direct.test"),
+            address.port(),
+            move |_| async move {
+                fallback_observed.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .await;
+        assert!(matches!(
+            result.unwrap(),
+            super::DirectFallback::Direct(_, _)
+        ));
+        assert_eq!(protector.resolve_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 1);
+        assert!(!fallback_called.load(Ordering::SeqCst));
+        let _ = listener.accept().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn custom_failure_does_not_open_an_unprotected_socket() {
+        let protector = FakeProtector {
+            resolved: SocketAddr::from((Ipv4Addr::LOCALHOST, 443)),
+            reject_protect: true,
+            protect_calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+        };
+        let result: Result<_, ()> = connect_with_geo_fallback(
+            &GeoDirectPolicy::disabled()
+                .with_custom_rules(&usque_core::Profile {
+                    bypass_domains: vec!["direct.test".into()],
+                    ..Default::default()
+                })
+                .unwrap(),
             &protector,
             GeoTarget::Host("direct.test"),
             443,

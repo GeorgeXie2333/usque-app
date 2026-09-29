@@ -19,6 +19,7 @@ internal data class TunIdentity(
     val dnsV6: String,
     val allowLan: Boolean,
     val bypassCidrs: List<String>,
+    val splitDnsEnabled: Boolean = false,
     val perAppEnabled: Boolean = false,
     val perAppPackages: List<String> = emptyList(),
     val dataPlane: String = "connect_ip",
@@ -41,6 +42,7 @@ internal data class TunIdentity(
                 dnsV6 = profile.dnsIpv6.hostAddress ?: profile.dnsIpv6.toString(),
                 allowLan = profile.allowLan,
                 bypassCidrs = profile.bypassCidrs,
+                splitDnsEnabled = profile.splitDnsEnabled,
                 perAppEnabled = perApp.enabled,
                 perAppPackages = perApp.packageNames,
             )

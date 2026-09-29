@@ -197,13 +197,18 @@ void main() {
       workflowHost(app, home: GeoDirectSettingsScreen(controller: app)),
     );
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'United States');
+    await tester.enterText(
+      find.byKey(const ValueKey('bypass-country-search')),
+      'United States',
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save'));
+    tester.widget<Switch>(find.byType(Switch)).onChanged!(false);
+    await tester.pump();
+    await tester.tap(find.text('Apply changes'));
     await tester.pump();
     expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNull);
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
-    expect(engine.savedValues?.geoDirectCountries, ['US']);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+    expect(engine.savedValues?.geoDirectCountries, isEmpty);
     engine.pendingSave!.complete();
     await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox());

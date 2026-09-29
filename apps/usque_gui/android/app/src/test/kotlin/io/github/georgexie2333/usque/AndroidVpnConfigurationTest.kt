@@ -11,6 +11,17 @@ import java.net.InetAddress
 
 class AndroidVpnConfigurationTest {
     @Test
+    fun customDomainsEnableSplitDnsAndInvalidateTunIdentityWithoutCountries() {
+        val before = profile("automatic")
+        val after = before.copy(bypassDomains = listOf("example.com"))
+        assertTrue(after.geoDirectCountries.isEmpty())
+        assertTrue(after.splitDnsEnabled)
+        assertTrue(after.requiresPhysicalDns)
+        assertTrue(!after.copy(directDnsMode = "doh").requiresPhysicalDns)
+        assertTrue(!TunIdentity.from(before).sameForReuse(TunIdentity.from(after)))
+    }
+
+    @Test
     fun customExitKeepsSyntheticDnsEvenWithoutUsableUpstreams() {
         val configured = profile("automatic").copy(vpnGateEnabled = true, customChain = true, dnsMode = "system")
         assertTrue(configured.splitDnsEnabled)

@@ -365,7 +365,17 @@ const Map<String, String> kFrCatalog = <String, String>{
   'profile_required': 'Conservez au moins un compte.',
   'socks_capabilities': 'TCP et UDP',
   'http_capabilities': 'CONNECT et transfert ordinaire',
-  'geo_direct': 'Pays et régions en connexion directe',
+  'geo_direct': 'Paramètres de contournement VPN',
+  'bypass_custom': 'Destinations personnalisées',
+  'bypass_countries': 'Pays / régions',
+  'bypass_targets_hint':
+      'Un CIDR, une IP ou un domaine par ligne. Tous les sous-domaines sont inclus. Les applications utilisant leur propre DNS chiffré sont reconnues uniquement par IP.',
+  'bypass_unsupported':
+      'Ce moteur ne prend pas en charge les destinations personnalisées.',
+  'bypass_limit': '256 règles IP et 256 domaines maximum.',
+  'bypass_line_error': 'Ligne {line} : {reason}',
+  'bypass_summary':
+      '{countries} régions · {targets} destinations personnalisées',
   'geo_direct_help':
       'Le trafic correspondant à ces pays ou régions ne passe pas par le VPN. Le fournisseur DNS du réseau actuel peut voir les domaines demandés. Les applications utilisant un DNS chiffré sont réparties selon l’adresse IP uniquement.',
   'geo_update_all': 'Mettre à jour les données géographiques',

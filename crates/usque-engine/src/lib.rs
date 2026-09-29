@@ -4763,6 +4763,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
             auth_password: None,
         },
         geo_direct_countries: source.geo_direct_countries,
+        bypass_domains: source.bypass_domains,
         direct_dns,
         vpn_gate: vpngate::settings_from_proto(source.vpn_gate)?,
     };
@@ -4848,6 +4849,7 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
             http: profile.frontends.http,
         }),
         geo_direct_countries: profile.geo_direct_countries.clone(),
+        bypass_domains: profile.bypass_domains.clone(),
         direct_dns: Some(v1::DirectDnsSettings {
             mode: match profile.direct_dns.mode {
                 ConfigDirectDnsMode::PhysicalSystem => v1::DirectDnsMode::PhysicalSystem as i32,
@@ -4868,9 +4870,6 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
 }
 
 fn load_geo_direct_policy(profile: &Profile, cache_dir: &std::path::Path) -> GeoDirectPolicy {
-    if profile.geo_direct_countries.is_empty() {
-        return GeoDirectPolicy::disabled();
-    }
     let countries = match profile
         .geo_direct_countries
         .iter()
@@ -4884,7 +4883,10 @@ fn load_geo_direct_policy(profile: &Profile, cache_dir: &std::path::Path) -> Geo
         }
     };
     match GeoDirectPolicy::load(cache_dir, countries) {
-        Ok(policy) => policy,
+        Ok(policy) => policy.with_custom_rules(profile).unwrap_or_else(|error| {
+            tracing::warn!(%error, "invalid custom direct policy; using tunnel-only routing");
+            GeoDirectPolicy::disabled()
+        }),
         Err(error) => {
             tracing::warn!(%error, "GEO rule cache could not be loaded; using tunnel-only routing");
             GeoDirectPolicy::disabled()
@@ -4970,6 +4972,7 @@ fn current_capabilities() -> v1::Capabilities {
         chain_warp_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
         chain_http_proxy: cfg!(windows),
         chain_socks5_proxy: cfg!(windows),
+        custom_bypass: cfg!(windows),
         chain_openvpn_multi_endpoint: cfg!(windows),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,

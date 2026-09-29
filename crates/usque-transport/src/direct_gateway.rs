@@ -307,7 +307,7 @@ impl DirectGatewayRouter {
                 || profile.custom_chain().is_some());
         let split_dns_enabled = gate_dns
             || (profile.frontends.tunnel
-                && !profile.geo_direct_countries.is_empty()
+                && profile.has_domain_direct_rules()
                 && policy.is_enabled());
         if split_dns_enabled && policy.is_enabled() && !protector.tun_direct_available() {
             return Err(TransportError::Dns(

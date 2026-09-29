@@ -137,6 +137,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "chain_warp_wireguard": engine_ready() && cfg!(feature = "wireguard"),
             "chain_http_proxy": engine_ready(),
             "chain_socks5_proxy": engine_ready(),
+            "custom_bypass": engine_ready(),
             "chain_openvpn_multi_endpoint": engine_ready(),
             "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
@@ -1085,6 +1086,8 @@ struct AndroidProfile {
     #[serde(default)]
     geo_direct_countries: Vec<String>,
     #[serde(default)]
+    bypass_domains: Vec<String>,
+    #[serde(default)]
     direct_dns: AndroidDirectDns,
     proxy: AndroidProxy,
 }
@@ -1259,6 +1262,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         kill_switch: source.kill_switch,
         auto_connect: source.auto_connect,
         geo_direct_countries: source.geo_direct_countries,
+        bypass_domains: source.bypass_domains,
         direct_dns,
         proxy: ProxySettings {
             socks5_listeners: source.proxy.socks5_listeners.unwrap_or_else(|| {
@@ -2007,6 +2011,7 @@ fn android_profile_value(
             .map(ToString::to_string)
             .collect::<Vec<_>>(),
         "geo_direct_countries": profile.geo_direct_countries,
+        "bypass_domains": profile.bypass_domains,
         "direct_dns": {
             "mode": match profile.direct_dns.mode {
                 DirectDnsMode::PhysicalSystem => "physicalSystem",
@@ -3731,6 +3736,21 @@ mod tests {
             ]
         );
         assert!(profile.geo_direct_countries.is_empty());
+    }
+
+    #[test]
+    fn android_profile_roundtrips_custom_bypass_without_geo() {
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["bypass_domains"] = serde_json::json!(["Example.COM."]);
+        source["bypass_cidrs"] = serde_json::json!(["192.0.2.0/24"]);
+        let profile = parse_android_profile(&source.to_string()).unwrap();
+        assert_eq!(profile.bypass_domains, ["example.com"]);
+        assert!(profile.geo_direct_countries.is_empty());
+        let exported = android_profile_value(&profile, None, false);
+        assert_eq!(
+            exported["bypass_domains"],
+            serde_json::json!(["example.com"])
+        );
     }
 
     #[test]

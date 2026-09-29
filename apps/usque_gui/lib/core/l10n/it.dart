@@ -361,7 +361,17 @@ const Map<String, String> kItCatalog = <String, String>{
   'profile_required': 'Mantenere almeno un account.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e inoltro ordinario',
-  'geo_direct': 'Paesi e regioni con connessione diretta',
+  'geo_direct': 'Impostazioni bypass VPN',
+  'bypass_custom': 'Destinazioni personalizzate',
+  'bypass_countries': 'Paesi / regioni',
+  'bypass_targets_hint':
+      'Un CIDR, IP o dominio per riga. Include tutti i sottodomini. Le app con DNS cifrato proprio sono identificate solo tramite IP.',
+  'bypass_unsupported':
+      'Questo motore non supporta destinazioni personalizzate.',
+  'bypass_limit': 'Massimo 256 regole di indirizzo e 256 domini.',
+  'bypass_line_error': 'Riga {line}: {reason}',
+  'bypass_summary':
+      '{countries} regioni · {targets} destinazioni personalizzate',
   'geo_direct_help':
       'Il traffico corrispondente a questi paesi o regioni non passa nella VPN. Il fornitore DNS della rete può vedere i domini richiesti. Le app con DNS cifrato vengono associate solo in base all’IP.',
   'geo_update_all': 'Aggiorna dati geografici',

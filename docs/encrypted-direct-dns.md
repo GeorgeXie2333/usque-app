@@ -1,6 +1,6 @@
 # Direct DNS: System, DoH and DoT
 
-Direct DNS controls name lookups for destinations selected by country-based
+Direct DNS controls name lookups for destinations selected by country-based or custom domain
 direct rules. It is shared across accounts. It does not change other tunnel DNS,
 intercept an application's own encrypted DNS, or decrypt unrelated traffic.
 
@@ -18,9 +18,11 @@ Usque has no provider presets or embedded resolver addresses.
 
 ## Configure direct DNS
 
-1. In **Settings → Direct countries / regions**, select the countries and download
+1. In **Settings → VPN bypass settings**, select the countries and download
    their GeoIP rules and the global GeoSite catalog, then save the selection.
-   If no direct-country rule matches, these DNS settings are not used.
+   Alternatively, enter custom domains under **Custom bypass targets**; these
+   do not need geographic downloads. If no country or custom domain rule matches,
+   these DNS settings are not used.
 2. Open **Settings → Advanced network settings → Direct DNS**.
 3. Choose System, DoH or DoT. For an encrypted resolver, enter the values from
    your DNS provider using the field guide below.
@@ -30,7 +32,7 @@ Usque has no provider presets or embedded resolver addresses.
 5. Check **Network quality → Direct DNS** while connected. To test reachability,
    run a confirmed [Deep diagnostic](network-doctor.md).
 
-In Simplified Chinese, the relevant pages are **设置 → 直连国家／地区** and
+In Simplified Chinese, the relevant pages are **设置 → 绕过VPN分流设置** and
 **设置 → 高级网络设置 → 直连 DNS**. The System option is currently labelled
 **当前网络的 DNS**.
 
@@ -224,3 +226,32 @@ These tests are not external leak proof. Actual device/adapter binding,
 observer packet counts and controlled performance evidence require the
 protected environments in [Contributing](../CONTRIBUTING.md#development-machines). Unavailable runs must be recorded as `not_run`; they do not establish leak or
 performance results.
+
+## Custom bypass targets / 自定义绕过目标
+
+In **Settings → VPN bypass settings**, enter one CIDR, IPv4/IPv6 address or
+bare domain per line, then select **Apply changes**. Existing bypass CIDRs from
+Advanced settings appear here automatically. Address rules and domains each
+allow up to 256 entries. An IP becomes a /32 or /128 host rule; network addresses
+are normalized and duplicates removed. Domains include themselves and every
+subdomain, using label boundaries: `example.com` matches `a.example.com`, not
+`notexample.com`. Case, a final dot, and IDNA names are normalized. URLs, ports,
+paths, wildcards and regular expressions are rejected. Invalid lines prevent
+saving the entire draft; a failed apply retains the draft for correction.
+
+Windows and Android share these settings across accounts and use them for VPN,
+HTTP and SOCKS5 frontends, including traffic otherwise sent through a chain.
+Custom rules work without selecting a country. Address literals use address
+rules; hostnames use domain rules. VPN DNS observations associate matching names
+with addresses only within the existing bounded TTL/generation cache. Conflicting
+names sharing an address fall back to explicit IP/CIDR or GeoIP matching.
+Applications using their own encrypted DNS cannot be matched by hidden names;
+IP/CIDR matching remains available. Changing rules follows the existing reconnect
+and pending-settings workflow. An older Engine shows targets read-only.
+
+在 **设置 → 绕过VPN分流设置** 的 **自定义绕过目标** 中，每行填写一个 CIDR、
+IPv4/IPv6 地址或域名，点击 **应用更改**。原高级设置里的 CIDR 会自动显示在这里。
+域名匹配自身及全部子域名；不接受 URL、端口、路径、通配符或正则表达式。
+错误行会阻止整份草稿保存。自定义规则无需下载国家规则即可工作，设置跨账号共享，
+适用于 Windows、Android 的 VPN 和 HTTP/SOCKS5 入口。直连域名使用当前的直连 DNS
+设置；应用自行使用加密 DNS 时只能按地址分流。请查看应用结果，必要时重新连接。

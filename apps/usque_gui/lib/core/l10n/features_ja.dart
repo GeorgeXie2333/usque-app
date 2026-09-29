@@ -217,7 +217,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
       'DNS 提供元の IP アドレスを 1～8 個、1行に1つ入力してください。例：1.1.1.1。サーバー名を先に調べず、このアドレスに直接接続します。',
   'nq_dns_no_fallback': '暗号化 DNS が使えない場合、暗号化されていない DNS には切り替えず、クエリは失敗します。',
   'nq_dns_system_privacy': '直接接続の問い合わせ先ドメインは、現在のネットワークの DNS 提供元に見える場合があります。',
-  'nq_dns_scope': '直接接続する国のルールに一致する通信に使います。VPN 通信の DNS は変わりません。',
+  'nq_dns_scope': '国・地域およびカスタムドメインのバイパス規則に一致する通信に使います。VPN通信のDNSは変わりません。',
   'nq_dns_no_capability':
       '暗号化した直接接続用 DNS を使うには Usque を更新してください。設定は保持されます。プライバシーへの影響を理解したうえで「現在のネットワークの DNS」を選ぶこともできます。',
   'nq_dns_invalid_name':

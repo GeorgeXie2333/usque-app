@@ -285,6 +285,7 @@ async fn live_wireguard_dns_through_loopback_socks_without_tun() {
     profile.proxy.system_proxy = false;
     profile.kill_switch = false;
     profile.geo_direct_countries.clear();
+    profile.bypass_domains.clear();
     profile.split_exclusions.clear();
     profile.canonicalize_mode();
     assert!(!profile.frontends.tunnel && !profile.proxy.system_proxy && !profile.kill_switch);

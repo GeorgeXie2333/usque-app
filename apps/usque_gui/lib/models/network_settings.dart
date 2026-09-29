@@ -114,6 +114,7 @@ Map<String, Object?> _fields(UsqueProfile p) => {
   'kill_switch': p.killSwitch,
   'auto_connect': p.autoConnect,
   'geo_direct_countries': p.geoDirectCountries,
+  'bypass_domains': p.bypassDomains,
   'direct_dns': p.directDns,
   'proxy.socks5_listeners': p.proxy.socksListeners,
   'proxy.http_listeners': p.proxy.httpListeners,

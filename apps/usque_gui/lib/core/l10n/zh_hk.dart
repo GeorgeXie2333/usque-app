@@ -318,7 +318,15 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'profile_required': '請至少保留一個帳戶。',
   'socks_capabilities': 'TCP 及 UDP',
   'http_capabilities': 'CONNECT 及一般轉送',
-  'geo_direct': '直接連接的國家／地區',
+  'geo_direct': '繞過VPN分流設定',
+  'bypass_custom': '自訂繞過目標',
+  'bypass_countries': '國家/地區',
+  'bypass_targets_hint':
+      '每行一個 CIDR、IP 或網域。網域包含所有子網域；自行使用加密 DNS 的應用程式只能按 IP 分流。',
+  'bypass_unsupported': '目前引擎不支援自訂繞過目標。',
+  'bypass_limit': '最多 256 條位址規則和 256 個網域。',
+  'bypass_line_error': '第 {line} 行：{reason}',
+  'bypass_summary': '{countries} 個地區 · {targets} 個自訂目標',
   'geo_direct_help':
       '符合規則的流量不會經過 VPN。目前網絡的 DNS 服務供應商可能看見查詢的網域名稱。使用加密 DNS 的應用程式只會依 IP 地址決定路由。',
   'geo_update_all': '更新地理數據',

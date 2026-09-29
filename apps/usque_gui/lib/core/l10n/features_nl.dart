@@ -259,7 +259,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_dns_system_privacy':
       'De DNS-aanbieder van je huidige netwerk kan domeinen van direct verkeer zien.',
   'nq_dns_scope':
-      'Voor verkeer dat overeenkomt met je regels voor directe landen. DNS voor VPN-verkeer blijft gelijk.',
+      'Voor omzeilingsregels per land en eigen domeinen. DNS voor VPN-verkeer blijft ongewijzigd.',
   'nq_dns_no_capability':
       'Werk Usque bij voor versleutelde DNS bij direct verkeer. Je instellingen blijven bewaard. Je kunt DNS van het huidige netwerk kiezen als je de privacygevolgen accepteert.',
   'nq_dns_invalid_name':

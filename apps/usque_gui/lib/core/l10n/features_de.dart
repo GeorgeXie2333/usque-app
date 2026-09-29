@@ -262,7 +262,7 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_dns_system_privacy':
       'Der DNS-Anbieter des aktuellen Netzwerks kann Domains von Direktverbindungen sehen.',
   'nq_dns_scope':
-      'Gilt für Verkehr passend zu den Direktverbindungsregeln nach Land. Das DNS für VPN-Verkehr bleibt unverändert.',
+      'Gilt für Umgehungsregeln nach Land und eigenen Domains. DNS für VPN-Verkehr bleibt unverändert.',
   'nq_dns_no_capability':
       'Aktualisiere Usque für verschlüsseltes DNS bei Direktverbindungen. Einstellungen bleiben erhalten. Du kannst DNS des aktuellen Netzwerks wählen, wenn du die Datenschutzfolgen akzeptierst.',
   'nq_dns_invalid_name':

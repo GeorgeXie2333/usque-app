@@ -197,6 +197,7 @@ message Profile {
   VpnGateSettings vpn_gate = 20;
   bool disable_quic = 21;
   ChainExitSettings chain_exit = 22;
+  repeated string bypass_domains = 23;
 }
 
 message ChainExitSettings {
@@ -453,6 +454,7 @@ message Capabilities {
   bool chain_warp_wireguard = 38;
   bool chain_http_proxy = 39;
   bool chain_socks5_proxy = 40;
+  bool custom_bypass = 41;
 }
 
 message FrontendStatus {

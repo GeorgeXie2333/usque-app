@@ -351,7 +351,15 @@ const Map<String, String> kArCatalog = <String, String>{
   'profile_required': 'أبقِ حسابًا واحدًا على الأقل.',
   'socks_capabilities': 'TCP وUDP',
   'http_capabilities': 'CONNECT وإعادة التوجيه العادية',
-  'geo_direct': 'بلدان / مناطق للاتصال المباشر',
+  'geo_direct': 'إعدادات تجاوز VPN',
+  'bypass_custom': 'وجهات تجاوز مخصصة',
+  'bypass_countries': 'البلدان / المناطق',
+  'bypass_targets_hint':
+      'CIDR أو IP أو نطاق واحد في كل سطر. يشمل جميع النطاقات الفرعية. التطبيقات التي تستخدم DNS مشفراً خاصاً بها تطابق IP فقط.',
+  'bypass_unsupported': 'هذا المحرك لا يدعم وجهات التجاوز المخصصة.',
+  'bypass_limit': 'بحد أقصى 256 قاعدة عناوين و256 نطاقاً.',
+  'bypass_line_error': 'السطر {line}: {reason}',
+  'bypass_summary': '{countries} مناطق · {targets} وجهات مخصصة',
   'geo_direct_help':
       'الحركة المطابقة لهذه القواعد تتجاوز VPN. قد يرى مزوّد DNS للشبكة الحالية أسماء النطاقات المطلوبة. تُوجّه التطبيقات التي تستخدم DNS مشفّرًا حسب عنوان IP فقط.',
   'geo_update_all': 'تحديث بيانات الجغرافيا',

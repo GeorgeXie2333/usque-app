@@ -18,6 +18,7 @@ internal data class AndroidVpnProfile(
     val allowLan: Boolean,
     val bypassCidrs: List<String>,
     val geoDirectCountries: List<String> = emptyList(),
+    val bypassDomains: List<String> = emptyList(),
     val directDnsMode: String = "physicalSystem",
     val dataPlane: String = "connect_ip",
     val vpnGateEnabled: Boolean = false,
@@ -40,11 +41,11 @@ internal data class AndroidVpnProfile(
 
     val splitDnsEnabled: Boolean
         get() =
-            geoDirectCountries.isNotEmpty() ||
+            (geoDirectCountries.isNotEmpty() || bypassDomains.isNotEmpty()) ||
                 (vpnGateEnabled && (dnsMode == "tunnel" || customChain)) || (dataPlane == "l4_proxy" && !vpnGateEnabled)
 
     val requiresPhysicalDns: Boolean
-        get() = geoDirectCountries.isNotEmpty() && directDnsMode == "physicalSystem"
+        get() = (geoDirectCountries.isNotEmpty() || bypassDomains.isNotEmpty()) && directDnsMode == "physicalSystem"
 
     companion object {
         private val profileIdPattern =
@@ -142,6 +143,7 @@ internal data class AndroidVpnProfile(
                 allowLan = allowLan,
                 bypassCidrs = bypassCidrs,
                 geoDirectCountries = geoDirectCountries,
+                bypassDomains = source.optJSONArray("bypass_domains")?.strings() ?: emptyList(),
                 directDnsMode = directDnsMode,
             )
         }

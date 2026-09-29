@@ -356,7 +356,15 @@ const Map<String, String> kTrCatalog = <String, String>{
   'profile_required': 'En az bir hesap bulundurun.',
   'socks_capabilities': 'TCP ve UDP',
   'http_capabilities': 'CONNECT ve olağan iletme',
-  'geo_direct': 'Doğrudan bağlanılacak ülkeler / bölgeler',
+  'geo_direct': 'VPN atlama ayarları',
+  'bypass_custom': 'Özel atlama hedefleri',
+  'bypass_countries': 'Ülkeler / bölgeler',
+  'bypass_targets_hint':
+      'Her satıra bir CIDR, IP veya alan adı girin. Tüm alt alan adları dahildir. Kendi şifreli DNS hizmetini kullanan uygulamalar yalnızca IP ile eşleşir.',
+  'bypass_unsupported': 'Bu motor özel atlama hedeflerini desteklemiyor.',
+  'bypass_limit': 'En fazla 256 adres kuralı ve 256 alan adı.',
+  'bypass_line_error': 'Satır {line}: {reason}',
+  'bypass_summary': '{countries} bölge · {targets} özel hedef',
   'geo_direct_help':
       'Bu kurallarla eşleşen trafik VPN’i kullanmaz. Mevcut ağın DNS sağlayıcısı sorgulanan alan adlarını görebilir. Şifreli DNS kullanan uygulamalar için yalnızca IP adresine göre yönlendirme yapılır.',
   'geo_update_all': 'Coğrafi verileri güncelle',

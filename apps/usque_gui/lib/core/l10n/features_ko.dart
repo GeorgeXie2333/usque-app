@@ -218,7 +218,7 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
       'DNS 제공업체의 IP 주소를 한 줄에 하나씩 1~8개 입력하세요. 예: 1.1.1.1. Usque는 서버 이름을 먼저 조회하지 않고 이 주소로 직접 연결합니다.',
   'nq_dns_no_fallback': '암호화된 DNS를 사용할 수 없으면 암호화되지 않은 DNS로 전환하지 않고 쿼리가 실패합니다.',
   'nq_dns_system_privacy': '현재 네트워크의 DNS 제공업체에 직접 연결 트래픽이 요청한 도메인이 보일 수 있습니다.',
-  'nq_dns_scope': '직접 연결 국가 규칙에 해당하는 트래픽에 사용됩니다. VPN 트래픽의 DNS는 바뀌지 않습니다.',
+  'nq_dns_scope': '국가 및 사용자 지정 도메인 우회 규칙에 사용됩니다. VPN 트래픽의 DNS는 바뀌지 않습니다.',
   'nq_dns_no_capability':
       '암호화된 직접 연결 DNS를 사용하려면 Usque를 업데이트하세요. 설정은 유지됩니다. 개인정보 영향을 감수한다면 현재 네트워크 DNS를 선택할 수도 있습니다.',
   'nq_dns_invalid_name':

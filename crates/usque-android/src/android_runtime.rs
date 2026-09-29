@@ -280,9 +280,6 @@ fn spawn_runtime(
 }
 
 fn load_geo_direct_policy(profile: &Profile, cache_dir: &Path) -> Result<GeoDirectPolicy, String> {
-    if profile.geo_direct_countries.is_empty() {
-        return Ok(GeoDirectPolicy::disabled());
-    }
     let countries = match profile
         .geo_direct_countries
         .iter()
@@ -295,7 +292,9 @@ fn load_geo_direct_policy(profile: &Profile, cache_dir: &Path) -> Result<GeoDire
         }
     };
     match GeoDirectPolicy::load(cache_dir, countries) {
-        Ok(policy) => Ok(policy),
+        Ok(policy) => policy
+            .with_custom_rules(profile)
+            .map_err(|error| error.to_string()),
         Err(error) => Err(format!("Android GEO cache could not be loaded: {error}")),
     }
 }

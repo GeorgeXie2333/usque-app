@@ -350,7 +350,15 @@ const Map<String, String> kThCatalog = <String, String>{
   'profile_required': 'คงบัญชีไว้อย่างน้อยหนึ่งรายการ',
   'socks_capabilities': 'TCP และ UDP',
   'http_capabilities': 'CONNECT และการส่งต่อทั่วไป',
-  'geo_direct': 'ประเทศ / ภูมิภาคที่เชื่อมต่อโดยตรง',
+  'geo_direct': 'การตั้งค่าข้าม VPN',
+  'bypass_custom': 'ปลายทางข้ามที่กำหนดเอง',
+  'bypass_countries': 'ประเทศ / ภูมิภาค',
+  'bypass_targets_hint':
+      'หนึ่ง CIDR, IP หรือโดเมนต่อบรรทัด รวมโดเมนย่อยทั้งหมด แอปที่ใช้ DNS เข้ารหัสของตนเองจะจับคู่ด้วย IP เท่านั้น',
+  'bypass_unsupported': 'เอนจินนี้ไม่รองรับปลายทางข้ามที่กำหนดเอง',
+  'bypass_limit': 'สูงสุด 256 กฎที่อยู่และ 256 โดเมน',
+  'bypass_line_error': 'บรรทัด {line}: {reason}',
+  'bypass_summary': '{countries} ภูมิภาค · {targets} ปลายทางที่กำหนดเอง',
   'geo_direct_help':
       'ข้อมูลที่ตรงกับกฎเหล่านี้จะไม่ผ่าน VPN ผู้ให้บริการ DNS ของเครือข่ายปัจจุบันอาจเห็นชื่อโดเมนที่สอบถาม แอปที่ใช้ DNS แบบเข้ารหัสจะกำหนดเส้นทางตามที่อยู่ IP เท่านั้น',
   'geo_update_all': 'อัปเดตข้อมูลภูมิศาสตร์',

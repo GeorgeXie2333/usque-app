@@ -12,8 +12,8 @@ timeline bridge. The stable target is the sanitized repository identity
 This scoped document does not replace a shared whole-repository model.
 Root `SECURITY.md` is the applicable policy; no nested policy was found.
 
-Usque has one MASQUE runtime shared by VPN and proxy frontends. Geo-selected
-direct traffic alone consumes `DirectDnsSettings`: System, DoH or DoT.
+Usque has one MASQUE runtime shared by VPN and proxy frontends. Country- or custom-domain-selected
+direct traffic consumes `DirectDnsSettings`: System, DoH or DoT.
 `SharedNetworkSettings` is hydrated into an account's runtime Profile;
 managed-account endpoint overlays do not override DNS. Core validation is
 authoritative after Flutter/protobuf or Android JSON decoding. The default is
@@ -167,3 +167,21 @@ Impact and confidence are separate: source mapping has high confidence about
 call paths and limits, while real-device cleanup, multi-homed behavior and
 external packet counts have no execution evidence in this run. Missing evidence
 does not lower the impact of a real issue, and must never be turned into pass.
+
+## Custom bypass extension (2026-09-30)
+
+The working-tree extension adds explicit domain suffixes and address targets to
+`GeoDirectPolicy`. This source analysis is separate from the historical review
+above. A domain authorizes itself and label-boundary subdomains only; normalized
+rules are bounded at 256 domains and 256 address networks. Malformed domain
+errors expose an entry ordinal, not the domain. Diagnostic configuration exports
+remain allowlisted and do not include custom target lists.
+
+Custom domains use the same protected DNS resolver and exact-target egress
+leases as GEO domains. No wildcard WFP authorization or platform privilege API
+was added. DNS route hints retain their existing TTL, conflict handling and
+network-generation checks and are destroyed with the session. A custom match
+cannot rescue an enabled but invalid GEO catalog during startup. Proxy-only
+chain underlays clear custom targets together with GEO and address exclusions.
+Real VPN cleanup and externally observed leak tests remain `not_run` without
+the required isolated environments.

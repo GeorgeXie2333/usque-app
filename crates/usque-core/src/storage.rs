@@ -414,6 +414,10 @@ fn migrate_app_config(config: &mut AppConfig) {
     if config.schema_version < 18 {
         config.schema_version = 18;
     }
+    if config.schema_version < 19 {
+        config.network.bypass_domains.clear();
+        config.schema_version = 19;
+    }
 }
 
 #[cfg(not(windows))]
@@ -859,6 +863,30 @@ mod tests {
         assert!(saved["profiles"][0].get("frontends").is_none());
         assert!(saved["profiles"][1].get("managed_endpoint").is_none());
         assert!(saved["profiles"][1].get("managed_endpoint_ips").is_some());
+    }
+
+    #[test]
+    fn schema_eighteen_preserves_existing_bypass_and_country_selection() {
+        let mut config = AppConfig {
+            schema_version: 18,
+            ..Default::default()
+        };
+        config.network.geo_direct_countries = vec!["CN".into()];
+        config.network.split_exclusions = vec!["192.0.2.0/24".parse().unwrap()];
+        let mut value = serde_json::to_value(&config).unwrap();
+        value["network"]
+            .as_object_mut()
+            .unwrap()
+            .remove("bypass_domains");
+        let mut legacy: AppConfig = serde_json::from_value(value).unwrap();
+        migrate_app_config(&mut legacy);
+        assert_eq!(legacy.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(legacy.network.geo_direct_countries, ["CN"]);
+        assert_eq!(
+            legacy.network.split_exclusions,
+            config.network.split_exclusions
+        );
+        assert!(legacy.network.bypass_domains.is_empty());
     }
 
     #[test]

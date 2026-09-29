@@ -318,7 +318,15 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'profile_required': '至少保留一个账号。',
   'socks_capabilities': 'TCP 与 UDP',
   'http_capabilities': 'CONNECT 与普通转发',
-  'geo_direct': '直连国家／地区',
+  'geo_direct': '绕过VPN分流设置',
+  'bypass_custom': '自定义绕过目标',
+  'bypass_countries': '国家/地区',
+  'bypass_targets_hint':
+      '每行一个 CIDR、IP 或域名。域名包含自身和全部子域名；应用自行使用加密 DNS 时只能按 IP 分流。',
+  'bypass_unsupported': '当前引擎不支持自定义绕过目标。',
+  'bypass_limit': '最多支持 256 条地址规则和 256 个域名。',
+  'bypass_line_error': '第 {line} 行：{reason}',
+  'bypass_summary': '{countries} 个地区 · {targets} 个自定义目标',
   'geo_direct_help':
       '匹配这些国家／地区的流量不经过 VPN。查询的域名可能对当前网络的 DNS 服务商可见；使用加密 DNS 的应用仅按 IP 地址分流。',
   'geo_update_all': '更新地理数据',

@@ -32,6 +32,7 @@ macro_rules! network_fields {
             "kill_switch" => kill_switch,
             "auto_connect" => auto_connect,
             "geo_direct_countries" => geo_direct_countries,
+            "bypass_domains" => bypass_domains,
             "direct_dns" => direct_dns,
             "vpn_gate" => vpn_gate,
             "chain_exit" => chain_exit,

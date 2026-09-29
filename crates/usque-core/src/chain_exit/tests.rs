@@ -210,7 +210,10 @@ fn schema_16_retains_gate_selection_backups_and_unrelated_favorites() {
     let favorites = directory.path().join("favorites.json");
     std::fs::write(&favorites, b"unchanged-fixture").unwrap();
     let migrated = store.load().unwrap();
-    assert_eq!(migrated.schema_version, 18);
+    assert_eq!(
+        migrated.schema_version,
+        crate::config::CURRENT_SCHEMA_VERSION
+    );
     let chain = migrated.network.chain_exit.unwrap();
     assert!(chain.enabled);
     assert_eq!(chain.source, ChainSource::VpnGate);

@@ -370,6 +370,7 @@ impl DataPlaneRuntime {
         headless.proxy.auth_username = None;
         headless.proxy.auth_password = None;
         headless.geo_direct_countries.clear();
+        headless.bypass_domains.clear();
         headless.split_exclusions.clear();
         headless.canonicalize_mode();
         headless

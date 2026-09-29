@@ -65,11 +65,12 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.allow_lan != next.allow_lan
         || previous.split_exclusions != next.split_exclusions
         || previous.kill_switch != next.kill_switch
+        || previous.bypass_domains != next.bypass_domains
         || previous.geo_direct_countries != next.geo_direct_countries
         || previous.direct_dns != next.direct_dns
         || previous.frontends.tunnel != next.frontends.tunnel
-            && (!previous.geo_direct_countries.is_empty()
-                || !next.geo_direct_countries.is_empty()
+            && (previous.has_domain_direct_rules()
+                || next.has_domain_direct_rules()
                 // The final Gate gateway creates its synthetic DNS service at
                 // startup only when TUN is enabled. A hot attach cannot supply
                 // the resolver that both platforms advertise to the OS.

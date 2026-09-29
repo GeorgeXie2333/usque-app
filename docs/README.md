@@ -97,6 +97,7 @@ Common terms in these references:
 | [VPN Gate validation](VPN_GATE_VALIDATION.md) | Local implementation and follow-up checks / 本地实现与后续修复检查 |
 | [Chain proxy validation](CHAIN_PROXY_VALIDATION.md) | Native builds, protocol/UI tests and size comparisons / 原生编译、协议与界面测试、体积对照 |
 | [Chain proxy fixes](CHAIN_PROXY_FIX_VALIDATION.md) | Import, DNS, queues, authentication, multiple endpoints and candidate-specific regressions / 导入、DNS、队列、认证、多端点修复与回归 |
+| [Custom bypass validation](BYPASS_SETTINGS_VALIDATION.md) | Custom target routing, configuration compatibility, editor checks and unavailable isolated validation / 自定义目标分流、兼容性、编辑器检查及未执行的隔离验证 |
 | [Chain DNS follow-up](CHAIN_DNS_VALIDATION.md) | DNS receive cancellation, TCP alternatives, and explicitly authorized SOCKS-only measurements / DNS 接收竞态、TCP 备用及无 TUN 代理实测 |
 | [WARP WireGuard validation](WARP_WIREGUARD_VALIDATION.md) | Discovery, storage, platform checks and artifact sizes / 扫描、存储、平台检查与产物体积 |
 | [WARP WireGuard registration fix](WARP_WIREGUARD_REGISTRATION_FIX.md) | wgcf registration compatibility, endpoint parsing, disconnected tasks and regression results / 注册兼容、端点解析、未连接任务与回归验证 |

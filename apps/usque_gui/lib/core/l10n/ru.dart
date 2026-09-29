@@ -354,7 +354,15 @@ const Map<String, String> kRuCatalog = <String, String>{
   'profile_required': 'Оставьте хотя бы один аккаунт.',
   'socks_capabilities': 'TCP и UDP',
   'http_capabilities': 'CONNECT и обычная пересылка',
-  'geo_direct': 'Страны и регионы прямого подключения',
+  'geo_direct': 'Настройки обхода VPN',
+  'bypass_custom': 'Свои цели обхода',
+  'bypass_countries': 'Страны / регионы',
+  'bypass_targets_hint':
+      'Один CIDR, IP или домен в строке. Включает все поддомены. Приложения со своим зашифрованным DNS определяются только по IP.',
+  'bypass_unsupported': 'Этот движок не поддерживает свои цели обхода.',
+  'bypass_limit': 'Не более 256 правил адресов и 256 доменов.',
+  'bypass_line_error': 'Строка {line}: {reason}',
+  'bypass_summary': 'Регионов: {countries} · Своих целей: {targets}',
   'geo_direct_help':
       'Трафик для этих стран и регионов идёт в обход VPN. DNS-провайдер текущей сети может видеть запрашиваемые домены. Приложения с шифрованным DNS распределяются только по IP-адресу.',
   'geo_update_all': 'Обновить геоданные',

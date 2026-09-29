@@ -98,6 +98,9 @@ class ControlCodec {
     for (final country in profile.geoDirectCountries) {
       writer.string(16, country);
     }
+    for (final domain in profile.bypassDomains) {
+      writer.string(23, domain);
+    }
     writer.message(17, directDns.takeBytes());
     writer.enumeration(
       18,
@@ -759,6 +762,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var frontends = defaults.frontends;
   var frontendsSeen = false;
   final geoDirectCountries = <String>[];
+  final bypassDomains = <String>[];
   var directDns = defaults.directDns;
 
   while (!reader.isDone) {
@@ -849,6 +853,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         frontendsSeen = true;
       case 16:
         geoDirectCountries.add(reader.string(field));
+      case 23:
+        bypassDomains.add(reader.string(field));
       case 17:
         directDns = _decodeDirectDnsSettings(reader.message(field));
       case 18:
@@ -910,6 +916,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     autoConnect: autoConnect,
     bypassCidrs: List<String>.unmodifiable(bypassCidrs),
     geoDirectCountries: List<String>.unmodifiable(geoDirectCountries),
+    bypassDomains: List<String>.unmodifiable(bypassDomains),
     proxy: proxy,
     frontends: frontends,
     directDns: directDns,
@@ -1528,6 +1535,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
       chainHttpProxy = false,
       chainSocks5Proxy = false,
       chainOpenvpnMultiEndpoint = false;
+  var customBypass = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
@@ -1559,6 +1567,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainOpenvpnUdp = reader.varint(field) != 0;
       case 39:
         chainHttpProxy = reader.varint(field) != 0;
+      case 41:
+        customBypass = reader.varint(field) != 0;
       case 40:
         chainSocks5Proxy = reader.varint(field) != 0;
       case 38:
@@ -1610,6 +1620,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     chainWarpWireguard: chainWarpWireguard,
     chainHttpProxy: chainHttpProxy,
     chainSocks5Proxy: chainSocks5Proxy,
+    customBypass: customBypass,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),

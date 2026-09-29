@@ -751,6 +751,7 @@ class UsqueProfile {
     this.autoConnect = false,
     this.bypassCidrs = const <String>[],
     this.geoDirectCountries = const <String>[],
+    this.bypassDomains = const <String>[],
     this.proxy = const ProxySettings(),
     this.frontends = const FrontendSettings.windowsDefault(),
     this.directDns = const DirectDnsSettings(),
@@ -788,6 +789,7 @@ class UsqueProfile {
   final bool autoConnect;
   final List<String> bypassCidrs;
   final List<String> geoDirectCountries;
+  final List<String> bypassDomains;
   final ProxySettings proxy;
   final FrontendSettings frontends;
   final DirectDnsSettings directDns;
@@ -839,7 +841,6 @@ class UsqueProfile {
       dnsMode: DnsMode.tunnel,
       allowLan: false,
       disableQuic: false,
-      bypassCidrs: const <String>[],
       proxy: const ProxySettings(),
       directDns: const DirectDnsSettings(),
     );
@@ -867,6 +868,7 @@ class UsqueProfile {
     bool? autoConnect,
     List<String>? bypassCidrs,
     List<String>? geoDirectCountries,
+    List<String>? bypassDomains,
     ProxySettings? proxy,
     FrontendSettings? frontends,
     DirectDnsSettings? directDns,
@@ -899,6 +901,7 @@ class UsqueProfile {
       autoConnect: autoConnect ?? this.autoConnect,
       bypassCidrs: bypassCidrs ?? this.bypassCidrs,
       geoDirectCountries: geoDirectCountries ?? this.geoDirectCountries,
+      bypassDomains: bypassDomains ?? this.bypassDomains,
       proxy: proxy ?? this.proxy,
       frontends: nextFrontends,
       directDns: directDns ?? this.directDns,
@@ -932,6 +935,7 @@ class UsqueProfile {
       'auto_connect': autoConnect,
       'bypass_cidrs': bypassCidrs,
       'geo_direct_countries': geoDirectCountries,
+      'bypass_domains': bypassDomains,
       'proxy': proxy.toMap(),
       'frontends': frontends.toMap(),
       'direct_dns': directDns.toMap(),
@@ -953,6 +957,12 @@ class UsqueProfile {
     final bypass = _stringList(map, 'bypass_cidrs');
     if (bypass.length > 256) {
       throw const FormatException('Too many bypass routes');
+    }
+    final domains = map.containsKey('bypass_domains')
+        ? _stringList(map, 'bypass_domains')
+        : const <String>[];
+    if (domains.length > 256) {
+      throw const FormatException('Too many bypass domains');
     }
     final geoDirect = map.containsKey('geo_direct_countries')
         ? _stringList(map, 'geo_direct_countries')
@@ -1014,6 +1024,7 @@ class UsqueProfile {
       autoConnect: _bool(map, 'auto_connect'),
       bypassCidrs: List<String>.unmodifiable(bypass),
       geoDirectCountries: List<String>.unmodifiable(geoDirect),
+      bypassDomains: List<String>.unmodifiable(domains),
       proxy: ProxySettings.fromMap(Map<String, Object?>.from(proxy)),
       frontends: migratedFrontends,
       directDns: directDns is Map
@@ -1941,6 +1952,7 @@ class EngineCapabilities {
     this.chainWarpWireguard = false,
     this.chainHttpProxy = false,
     this.chainSocks5Proxy = false,
+    this.customBypass = false,
     this.chainOpenvpnMultiEndpoint = false,
     this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
@@ -1966,6 +1978,7 @@ class EngineCapabilities {
         chainWarpWireguard: map['chain_warp_wireguard'] == true,
         chainHttpProxy: map['chain_http_proxy'] == true,
         chainSocks5Proxy: map['chain_socks5_proxy'] == true,
+        customBypass: map['custom_bypass'] == true,
         chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
         vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
@@ -1991,6 +2004,7 @@ class EngineCapabilities {
         automaticPmtu: map['automatic_pmtu'] == true,
       );
 
+  final bool customBypass;
   final bool networkQuality;
   final bool vpnGateTcp;
   final bool chainProfileImport,
@@ -2025,6 +2039,7 @@ class EngineCapabilities {
           chainWarpWireguard == other.chainWarpWireguard &&
           chainHttpProxy == other.chainHttpProxy &&
           chainSocks5Proxy == other.chainSocks5Proxy &&
+          customBypass == other.customBypass &&
           chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
@@ -2053,7 +2068,12 @@ class EngineCapabilities {
     chainProfileImport,
     chainOpenvpnUdp,
     chainWireguard,
-    Object.hash(chainWarpWireguard, chainHttpProxy, chainSocks5Proxy),
+    Object.hash(
+      chainWarpWireguard,
+      chainHttpProxy,
+      chainSocks5Proxy,
+      customBypass,
+    ),
     chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites,
     l4Tcp,

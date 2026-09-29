@@ -357,7 +357,15 @@ const Map<String, String> kPtCatalog = <String, String>{
   'profile_required': 'Mantenha pelo menos uma conta.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e encaminhamento comum',
-  'geo_direct': 'Países e regiões com conexão direta',
+  'geo_direct': 'Definições de desvio da VPN',
+  'bypass_custom': 'Destinos personalizados',
+  'bypass_countries': 'Países / regiões',
+  'bypass_targets_hint':
+      'Um CIDR, IP ou domínio por linha. Inclui todos os subdomínios. Apps com DNS cifrado próprio são identificadas apenas por IP.',
+  'bypass_unsupported': 'Este motor não suporta destinos personalizados.',
+  'bypass_limit': 'Máximo de 256 regras de endereços e 256 domínios.',
+  'bypass_line_error': 'Linha {line}: {reason}',
+  'bypass_summary': '{countries} regiões · {targets} destinos personalizados',
   'geo_direct_help':
       'O tráfego correspondente a esses países ou regiões não passa pela VPN. O provedor DNS da rede atual pode ver os domínios consultados. Aplicativos com DNS criptografado são classificados apenas pelo IP.',
   'geo_update_all': 'Atualizar dados geográficos',

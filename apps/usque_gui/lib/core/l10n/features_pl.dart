@@ -252,7 +252,7 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_dns_system_privacy':
       'Dostawca DNS bieżącej sieci może widzieć domeny żądane przez ruch bezpośredni.',
   'nq_dns_scope':
-      'Dotyczy ruchu pasującego do reguł krajów połączeń bezpośrednich. DNS ruchu VPN pozostaje bez zmian.',
+      'Dla reguł omijania według kraju i własnych domen. DNS ruchu VPN pozostaje bez zmian.',
   'nq_dns_no_capability':
       'Zaktualizuj Usque, aby używać szyfrowanego DNS dla ruchu bezpośredniego. Ustawienia zostaną zachowane. Możesz wybrać DNS bieżącej sieci, jeśli akceptujesz wpływ na prywatność.',
   'nq_dns_invalid_name':

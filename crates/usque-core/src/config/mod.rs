@@ -4,7 +4,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use ipnet::IpNet;
+pub use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use thiserror::Error;
@@ -14,6 +14,8 @@ use zeroize::Zeroizing;
 use crate::identity::IdentityProvider;
 
 mod account;
+#[cfg(test)]
+mod bypass_tests;
 mod congestion;
 mod data_plane;
 mod network;
@@ -23,7 +25,7 @@ pub use congestion::CongestionControlAlgorithm;
 pub use data_plane::{CONSUMER_L4_SNI, DataPlaneMode, ZERO_TRUST_L4_SNI, l4_server_name};
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 18;
+pub const CURRENT_SCHEMA_VERSION: u32 = 19;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -39,6 +41,7 @@ pub const DEFAULT_PROFILE_ID: Uuid = Uuid::from_u128(0x8c30_b771_9ebd_457a_b67b_
 pub const MAX_PROFILES: usize = 128;
 pub const MAX_DNS_SERVERS: usize = 8;
 pub const MAX_SPLIT_EXCLUSIONS: usize = 256;
+pub const MAX_BYPASS_DOMAINS: usize = 256;
 pub const MAX_PROXY_LISTENERS_PER_PROTOCOL: usize = 16;
 pub const MAX_GEO_DIRECT_COUNTRIES: usize = 32;
 pub const MAX_DIRECT_DNS_BOOTSTRAP_IPS: usize = 8;
@@ -461,6 +464,8 @@ pub struct Profile {
     /// Uppercase ISO 3166-1 alpha-2 codes sent DIRECT. Empty disables the feature.
     #[serde(default)]
     pub geo_direct_countries: Vec<String>,
+    #[serde(default)]
+    pub bypass_domains: Vec<String>,
     /// Resolver used only for GeoSite traffic routed directly over the
     /// physical network. The default preserves the system-resolver behavior.
     #[serde(default)]
@@ -494,6 +499,7 @@ impl Default for Profile {
             auto_connect: false,
             proxy: ProxySettings::default(),
             geo_direct_countries: Vec::new(),
+            bypass_domains: Vec::new(),
             direct_dns: DirectDnsSettings::default(),
             vpn_gate: crate::vpngate::VpnGateSettings::default(),
             chain_exit: None,
@@ -582,6 +588,7 @@ impl Profile {
             return Err(ConfigError::DuplicateSplitExclusion);
         }
         normalize_geo_direct_countries(&self.geo_direct_countries)?;
+        normalize_bypass_domains(&self.bypass_domains)?;
         self.direct_dns.validate()?;
         if self.frontends.tunnel {
             if self.dns_mode == DnsMode::System {
@@ -651,13 +658,26 @@ impl Profile {
         self.split_exclusions.clear();
         self.proxy = ProxySettings::default();
         self.geo_direct_countries.clear();
+        self.bypass_domains.clear();
         self.direct_dns = DirectDnsSettings::default();
         self.vpn_gate = crate::vpngate::VpnGateSettings::default();
         self.chain_exit = None;
     }
 
+    pub fn has_domain_direct_rules(&self) -> bool {
+        !self.geo_direct_countries.is_empty() || !self.bypass_domains.is_empty()
+    }
+
     pub fn canonicalize_geo_direct(&mut self) -> Result<(), ConfigError> {
         self.geo_direct_countries = normalize_geo_direct_countries(&self.geo_direct_countries)?;
+        self.bypass_domains = normalize_bypass_domains(&self.bypass_domains)?;
+        let mut seen = HashSet::new();
+        self.split_exclusions = self
+            .split_exclusions
+            .iter()
+            .map(|net| net.trunc())
+            .filter(|net| seen.insert(*net))
+            .collect();
         Ok(())
     }
 
@@ -834,6 +854,27 @@ pub struct DirectDnsSettings {
 
 fn direct_dns_port_is_zero(port: &u16) -> bool {
     *port == 0
+}
+
+/// Normalize a suffix rule without permitting URL syntax or numeric hosts.
+pub fn canonical_bypass_domain(name: &str) -> Option<String> {
+    canonical_direct_dns_name(name.strip_suffix('.').unwrap_or(name))
+}
+
+pub fn normalize_bypass_domains(values: &[String]) -> Result<Vec<String>, ConfigError> {
+    if values.len() > MAX_BYPASS_DOMAINS {
+        return Err(ConfigError::TooManyBypassDomains);
+    }
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for (index, value) in values.iter().enumerate() {
+        let name =
+            canonical_bypass_domain(value).ok_or(ConfigError::InvalidBypassDomain(index + 1))?;
+        if seen.insert(name.clone()) {
+            result.push(name);
+        }
+    }
+    Ok(result)
 }
 
 fn canonical_direct_dns_name(name: &str) -> Option<String> {
@@ -1283,6 +1324,10 @@ fn valid_dns_name(value: &str) -> bool {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
+    #[error("no more than 256 bypass domains are allowed")]
+    TooManyBypassDomains,
+    #[error("invalid bypass domain at entry {0}")]
+    InvalidBypassDomain(usize),
     #[error("chain_exit capability is required to replace an imported exit")]
     ChainExitCapabilityRequired,
     #[error("VPN Gate requires a valid pinned server selection")]

@@ -356,7 +356,15 @@ const Map<String, String> kPlCatalog = <String, String>{
   'profile_required': 'Zachowaj co najmniej jedno konto.',
   'socks_capabilities': 'TCP i UDP',
   'http_capabilities': 'CONNECT i zwykłe przekazywanie',
-  'geo_direct': 'Kraje i regiony połączeń bezpośrednich',
+  'geo_direct': 'Ustawienia omijania VPN',
+  'bypass_custom': 'Własne cele omijania',
+  'bypass_countries': 'Kraje / regiony',
+  'bypass_targets_hint':
+      'Jeden CIDR, IP lub domena w wierszu. Obejmuje wszystkie subdomeny. Aplikacje z własnym szyfrowanym DNS są rozpoznawane tylko po IP.',
+  'bypass_unsupported': 'Ten silnik nie obsługuje własnych celów omijania.',
+  'bypass_limit': 'Maksymalnie 256 reguł adresów i 256 domen.',
+  'bypass_line_error': 'Wiersz {line}: {reason}',
+  'bypass_summary': 'Regiony: {countries} · Własne cele: {targets}',
   'geo_direct_help':
       'Ruch pasujący do tych krajów lub regionów omija VPN. Dostawca DNS bieżącej sieci może widzieć żądane domeny. Aplikacje z szyfrowanym DNS są dopasowywane wyłącznie według IP.',
   'geo_update_all': 'Aktualizuj dane geo',

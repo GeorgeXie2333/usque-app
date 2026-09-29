@@ -359,7 +359,16 @@ const Map<String, String> kDeCatalog = <String, String>{
   'profile_required': 'Behalten Sie mindestens ein Konto.',
   'socks_capabilities': 'TCP und UDP',
   'http_capabilities': 'CONNECT und gewöhnliche Weiterleitung',
-  'geo_direct': 'Länder und Regionen für Direktverbindungen',
+  'geo_direct': 'VPN-Umgehung',
+  'bypass_custom': 'Eigene Umgehungsziele',
+  'bypass_countries': 'Länder / Regionen',
+  'bypass_targets_hint':
+      'Eine CIDR, IP oder Domain pro Zeile. Alle Subdomains sind eingeschlossen. Apps mit eigenem verschlüsseltem DNS werden nur per IP erkannt.',
+  'bypass_unsupported':
+      'Diese Engine unterstützt keine eigenen Umgehungsziele.',
+  'bypass_limit': 'Maximal 256 Adressregeln und 256 Domains.',
+  'bypass_line_error': 'Zeile {line}: {reason}',
+  'bypass_summary': '{countries} Regionen · {targets} eigene Ziele',
   'geo_direct_help':
       'Passender Datenverkehr umgeht das VPN. Der DNS-Anbieter des aktuellen Netzwerks kann abgefragte Domains sehen. Apps mit verschlüsseltem DNS werden nur anhand der IP-Adresse zugeordnet.',
   'geo_update_all': 'Geodaten aktualisieren',

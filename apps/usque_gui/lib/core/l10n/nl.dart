@@ -356,7 +356,15 @@ const Map<String, String> kNlCatalog = <String, String>{
   'profile_required': 'Behoud ten minste één account.',
   'socks_capabilities': 'TCP en UDP',
   'http_capabilities': 'CONNECT en gewone doorsturing',
-  'geo_direct': 'Landen en regio’s voor directe verbinding',
+  'geo_direct': 'VPN-omzeiling instellen',
+  'bypass_custom': 'Eigen omzeilingsdoelen',
+  'bypass_countries': 'Landen / regio’s',
+  'bypass_targets_hint':
+      'Eén CIDR, IP of domein per regel. Inclusief alle subdomeinen. Apps met eigen versleutelde DNS worden alleen op IP herkend.',
+  'bypass_unsupported': 'Deze engine ondersteunt geen eigen omzeilingsdoelen.',
+  'bypass_limit': 'Maximaal 256 adresregels en 256 domeinen.',
+  'bypass_line_error': 'Regel {line}: {reason}',
+  'bypass_summary': '{countries} regio’s · {targets} eigen doelen',
   'geo_direct_help':
       'Verkeer voor deze landen of regio’s gaat buiten de VPN om. De DNS-aanbieder van je huidige netwerk kan de opgevraagde domeinen zien. Apps met versleutelde DNS worden alleen op IP-adres ingedeeld.',
   'geo_update_all': 'Geografische gegevens bijwerken',

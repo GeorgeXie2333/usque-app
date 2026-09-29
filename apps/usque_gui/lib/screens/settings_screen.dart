@@ -532,8 +532,14 @@ class _GeoDirectRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = controller.activeProfile.geoDirectCountries;
-    final preview = enabled.take(4).join(' · ');
-    final remaining = enabled.length - 4;
+    final profile = controller.activeProfile;
+    final summary = controller.strings
+        .get('bypass_summary')
+        .replaceAll('{countries}', '${enabled.length}')
+        .replaceAll(
+          '{targets}',
+          '${profile.bypassCidrs.length + profile.bypassDomains.length}',
+        );
     return ActionRow(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -543,13 +549,9 @@ class _GeoDirectRow extends StatelessWidget {
       child: ContentHeading(
         icon: LucideIcons.route,
         title: controller.strings.get('geo_direct'),
-        subtitle: enabled.isEmpty
-            ? null
-            : remaining > 0
-            ? '$preview · +$remaining'
-            : preview,
+        subtitle: summary,
         trailing: Semantics(
-          label: '${controller.strings.get('geo_direct')}: ${enabled.length}',
+          label: summary,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
