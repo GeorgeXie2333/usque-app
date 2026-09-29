@@ -3,7 +3,7 @@
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
-    io::{self, BufWriter, Write},
+    io::{self, BufWriter, Read, Seek, SeekFrom, Write},
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     sync::{
@@ -45,6 +45,7 @@ pub struct LogHealthSnapshot {
     pub oversized_events: u64,
     pub unconfirmed_events: u64,
     pub clear_epoch: u64,
+    pub repaired_tail_fragments: u64,
 }
 
 #[derive(Default)]
@@ -62,6 +63,7 @@ struct LogHealth {
     oversized_events: AtomicU64,
     unconfirmed_events: AtomicU64,
     clear_epoch: AtomicU64,
+    repaired_tail_fragments: AtomicU64,
     stopped: Mutex<bool>,
     completed: Condvar,
 }
@@ -80,6 +82,7 @@ impl LogHealth {
             oversized_events: self.oversized_events.load(Ordering::Acquire),
             unconfirmed_events: self.unconfirmed_events.load(Ordering::Acquire),
             clear_epoch: self.clear_epoch.load(Ordering::Acquire),
+            repaired_tail_fragments: self.repaired_tail_fragments.load(Ordering::Acquire),
         }
     }
 }
@@ -651,7 +654,31 @@ impl LogState {
                 .saturating_sub(ROTATE_BYTES)
                 .saturating_add(self.bytes_written.min(ROTATE_BYTES));
             prune_logs(&self.directory, limit)?;
-            self.file = Some(open_active_log(&self.active_path)?);
+            let mut file = open_active_log(&self.active_path)?;
+            if self.bytes_written > 0 {
+                let mut reader = File::open(&self.active_path)?;
+                reader.seek(SeekFrom::End(-1))?;
+                let mut tail = [0];
+                reader.read_exact(&mut tail)?;
+                if tail[0] != b'\n' {
+                    // Isolate a crash/partial-write fragment before accepting
+                    // a fresh record. Keep the fragment for omission reporting;
+                    // never concatenate it with a successfully written event.
+                    let repair = file
+                        .write_all(b"\n")
+                        .and_then(|()| file.flush())
+                        .and_then(|()| file.get_ref().sync_data());
+                    if let Err(error) = repair {
+                        let _ = file.into_parts();
+                        return Err(error);
+                    }
+                    self.bytes_written = self.bytes_written.saturating_add(1);
+                    self.health
+                        .repaired_tail_fragments
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            self.file = Some(file);
             Ok(())
         })();
         if result.is_err() {
@@ -1478,6 +1505,32 @@ mod tests {
         let replacement = LogWriterFactory::open(&config).unwrap();
         record_sequence(&replacement, 2);
         replacement.shutdown(Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
+    fn partial_persisted_tail_cannot_consume_the_first_fresh_record() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let logs = log_directory(&config);
+        fs::create_dir(&logs).unwrap();
+        fs::write(logs.join(ACTIVE_LOG_NAME), b"{\"sequence\":").unwrap();
+        let factory = LogWriterFactory::open(&config).unwrap();
+        record_sequence(&factory, 2);
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+        let bytes = fs::read(logs.join(ACTIVE_LOG_NAME)).unwrap();
+        let lines = bytes
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert!(serde_json::from_slice::<Value>(lines[0]).is_err());
+        assert_eq!(
+            serde_json::from_slice::<Value>(lines[1]).unwrap()["sequence"],
+            2
+        );
+        assert_eq!(factory.health().written_events, 1);
+        assert_eq!(factory.health().repaired_tail_fragments, 1);
+        assert!(!project_public_log(lines[1]).is_empty());
     }
 
     #[test]
