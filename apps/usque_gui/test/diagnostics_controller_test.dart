@@ -109,6 +109,37 @@ DiagnosticSession runningSession({
 }
 
 void main() {
+  testWidgets('newer start reply wins over an early cached running event', (
+    tester,
+  ) async {
+    final engine = DiagnosticsEngineStub()
+      ..pendingStart = Completer<DiagnosticSession>();
+    final controller = DiagnosticsController(engine);
+    addTearDown(controller.dispose);
+    final starting = controller.start(DiagnosticMode.standard);
+    final early = DiagnosticSession(
+      sessionId: 'session-one',
+      state: DiagnosticSessionState.running,
+      startedAt: DateTime.fromMillisecondsSinceEpoch(1),
+      mode: DiagnosticMode.standard,
+      revision: 2,
+    );
+    controller.handleEngineEvent(
+      EngineSnapshotEvent(diagnosticsChanged: true, diagnosticSession: early),
+    );
+    final completed = DiagnosticSession(
+      sessionId: 'session-one',
+      state: DiagnosticSessionState.completed,
+      startedAt: DateTime.fromMillisecondsSinceEpoch(1),
+      mode: DiagnosticMode.standard,
+      revision: 5,
+    );
+    engine.pendingStart!.complete(completed);
+    await starting;
+    expect(controller.session, same(completed));
+    expect(controller.state, DiagnosticsControllerState.completed);
+  });
+
   testWidgets('timeline refresh is independent of active session polling', (
     tester,
   ) async {

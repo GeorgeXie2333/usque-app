@@ -138,7 +138,12 @@ class DiagnosticsController extends ChangeNotifier {
       if (_disposed || generation != _operationGeneration) {
         return;
       }
-      final started = _startEvents[reply.sessionId] ?? reply;
+      final cached = _startEvents[reply.sessionId];
+      final started =
+          cached != null &&
+              (_olderSession(reply, cached) || !_olderSession(cached, reply))
+          ? cached
+          : reply;
       if (_cancelRequestedDuringStart && started.isActive) {
         _cancelRequestedDuringStart = false;
         _requestedMode = null;
