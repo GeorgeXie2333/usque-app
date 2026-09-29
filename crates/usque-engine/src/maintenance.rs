@@ -250,7 +250,15 @@ fn write_diagnostic_bundle(
     if let Some(session) = diagnostic_session {
         entries.push((
             "diagnostic-session.json".to_owned(),
-            serde_json::to_vec_pretty(&diagnostic_session_summary(session))?.into_boxed_slice(),
+            serde_json::to_vec_pretty(&diagnostic_session_summary(
+                session,
+                transport
+                    .network_quality
+                    .as_ref()
+                    .and_then(|quality| quality.connection_id)
+                    .map(|id| id.0),
+            ))?
+            .into_boxed_slice(),
         ));
     }
     if !log.bytes.is_empty() {
@@ -482,7 +490,33 @@ fn platform_health_summary(snapshot: &ConnectionSnapshot) -> serde_json::Value {
     })
 }
 
-fn diagnostic_session_summary(session: &DiagnosticSession) -> serde_json::Value {
+fn diagnostic_session_summary(
+    session: &DiagnosticSession,
+    expected_connection: Option<uuid::Uuid>,
+) -> serde_json::Value {
+    let mut projected = session.clone();
+    for finding in &mut projected.findings {
+        if finding
+            .observation
+            .as_ref()
+            .and_then(|observation| observation.connection_instance_id)
+            .is_some_and(|id| Some(id) != expected_connection)
+        {
+            finding.status = usque_core::DiagnosticCheckStatus::Skipped;
+            finding.severity = usque_core::FailureSeverity::Info;
+            finding.summary_key = "nq_finding_stale".into();
+            finding.remediation_key = "nq_retry".into();
+            finding.failure = None;
+            finding.sanitized_evidence.clear();
+            finding.evidence.clear();
+            if let Some(observation) = &mut finding.observation {
+                observation.availability = usque_core::DiagnosticObservationAvailability::Stale;
+            }
+        }
+    }
+    projected.summary = usque_core::DiagnosticSummary::from_findings(&projected.findings);
+    projected.current_check = projected.active_checks().first().cloned();
+    let session = &projected;
     let completed_after_milliseconds = session.completed_at.map(|completed| {
         completed
             .signed_duration_since(session.started_at)
@@ -494,6 +528,8 @@ fn diagnostic_session_summary(session: &DiagnosticSession) -> serde_json::Value 
         "session_id": session.session_id,
         "state": session.state,
         "mode": session.mode,
+        "revision": session.revision,
+        "active_checks": session.active_checks().iter().filter(|id| known_diagnostic_check(id)).collect::<Vec<_>>(),
         "completed_after_milliseconds": completed_after_milliseconds,
         "current_check": session.current_check.as_deref().filter(|id| known_diagnostic_check(id)),
         "progress_percent": session.progress_percent,
@@ -968,6 +1004,38 @@ pub enum MaintenanceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_masks_findings_from_another_connection_without_changing_the_session() {
+        let mut finding =
+            DiagnosticFinding::pending("quality.rtt", usque_core::DiagnosticCategory::Transport);
+        finding.status = usque_core::DiagnosticCheckStatus::Passed;
+        finding.sanitized_evidence = vec!["rtt_ms=42".into()];
+        finding.evidence = vec![usque_core::DiagnosticEvidence::from_legacy("rtt_ms=42").unwrap()];
+        finding.observation = Some(usque_core::DiagnosticObservation {
+            source: usque_core::DiagnosticObservationSource::Runtime,
+            availability: usque_core::DiagnosticObservationAvailability::Observed,
+            connection_instance_id: Some(uuid::Uuid::new_v4()),
+            ..Default::default()
+        });
+        let mut session =
+            DiagnosticSession::pending(usque_core::DiagnosticMode::Standard, vec![finding]);
+        session.recompute_summary();
+        let projected = diagnostic_session_summary(&session, Some(uuid::Uuid::new_v4()));
+        assert_eq!(projected["findings"][0]["status"], "skipped");
+        assert_eq!(
+            projected["findings"][0]["observation"]["availability"],
+            "stale"
+        );
+        assert_eq!(projected["findings"][0]["evidence"], serde_json::json!([]));
+        assert_eq!(projected["summary"]["passed"], 0);
+        assert_eq!(projected["summary"]["skipped"], 1);
+        assert_eq!(
+            session.findings[0].status,
+            usque_core::DiagnosticCheckStatus::Passed
+        );
+        assert_eq!(session.findings[0].evidence.len(), 1);
+    }
 
     #[test]
     fn log_export_flushes_preceding_events_and_reports_writer_health() {
