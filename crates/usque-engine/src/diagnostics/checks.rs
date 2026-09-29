@@ -221,17 +221,23 @@ impl PassiveCheck {
                     _ => false,
                 };
                 if relevant {
-                    let mut result = failed(
-                        self,
-                        failure.code,
-                        failure.stage,
-                        "diagnostic_h3_not_active",
-                    );
+                    let summary = match self.kind {
+                        Kind::EndpointPin => "diagnostic_endpoint_pin_mismatch",
+                        Kind::H2Connect => "diagnostic_h2_not_tested",
+                        _ => "diagnostic_h3_not_active",
+                    };
+                    let mut result = failed(self, failure.code, failure.stage, summary);
                     result.failure = Some(failure.clone());
                     return result;
                 }
             }
-            return skipped(self, "diagnostic_h3_not_tested", "no_active_runtime");
+            let summary = match self.kind {
+                Kind::EndpointPin => "diagnostic_endpoint_pin_not_tested",
+                Kind::H2Tcp | Kind::H2Tls | Kind::H2Connect => "diagnostic_h2_not_tested",
+                Kind::H3Datagram => "diagnostic_h3_datagram_not_tested",
+                _ => "diagnostic_h3_not_tested",
+            };
+            return skipped(self, summary, "no_active_runtime");
         }
 
         match self.kind {
@@ -1144,6 +1150,44 @@ mod tests {
                 DiagnosticCheckStatus::Skipped
             );
         }
+    }
+
+    #[tokio::test]
+    async fn non_ready_checks_keep_their_own_protocol_and_pin_explanations() {
+        let mut context = context_with_unknown_platform_state();
+        context.connection.phase = ConnectionPhase::Disconnected;
+        let h2 = check(PassiveCheckKind::H2Connect)
+            .run(&context, CancellationToken::new())
+            .await;
+        assert_eq!(h2.summary_key, "diagnostic_h2_not_tested");
+        context.connection.phase = ConnectionPhase::Reconnecting;
+        context.connection.transport = Some(Transport::Http2);
+        context.connection.failure = Some(TransportFailure::new(
+            TransportFailureCode::H2TcpConnectFailed,
+            TransportStage::SocketConnect,
+        ));
+        let h2 = check(PassiveCheckKind::H2Connect)
+            .run(&context, CancellationToken::new())
+            .await;
+        assert_eq!(h2.status, DiagnosticCheckStatus::Failed);
+        assert_eq!(h2.summary_key, "diagnostic_h2_not_tested");
+        assert_eq!(
+            h2.failure.unwrap().code,
+            TransportFailureCode::H2TcpConnectFailed
+        );
+        context.connection.phase = ConnectionPhase::Error;
+        context.connection.failure = Some(TransportFailure::new(
+            TransportFailureCode::EndpointPinMismatch,
+            TransportStage::TlsHandshake,
+        ));
+        let pin = check(PassiveCheckKind::EndpointPin)
+            .run(&context, CancellationToken::new())
+            .await;
+        assert_eq!(pin.summary_key, "diagnostic_endpoint_pin_mismatch");
+        assert_eq!(
+            pin.failure.unwrap().code,
+            TransportFailureCode::EndpointPinMismatch
+        );
     }
 
     #[tokio::test]
