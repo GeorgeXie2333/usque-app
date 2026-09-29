@@ -7,6 +7,50 @@ import org.junit.Test
 
 class AndroidMaintenanceSanitizationTest {
     @Test
+    fun staleFailureCannotSurviveAsCurrentSeverityRemediationOrRunningCheck() {
+        val oldId = "123e4567-e89b-42d3-a456-426614174000"
+        val currentId = "223e4567-e89b-42d3-a456-426614174000"
+        val old =
+            mapOf(
+                "check_id" to "transport.h3_connect",
+                "status" to "running",
+                "severity" to "critical",
+                "remediation_key" to "try_http2",
+                "failure" to mapOf("code" to "H3_HANDSHAKE_TIMEOUT", "stage" to "quic_handshake"),
+                "observation" to
+                    mapOf("source" to "runtime", "availability" to "observed", "connection_instance_id" to oldId),
+            )
+        val source =
+            mapOf(
+                "state" to "running",
+                "current_check" to "transport.h3_connect",
+                "findings" to listOf(old),
+            )
+        val stale = AndroidMaintenance.sanitizeDiagnosticSession(source, currentId)
+        val masked = stale.getJSONArray("findings").getJSONObject(0)
+        assertEquals("skipped", masked.getString("status"))
+        assertEquals("info", masked.getString("severity"))
+        assertEquals("nq_retry", masked.getString("remediation_key"))
+        assertFalse(masked.has("failure"))
+        assertFalse(stale.has("current_check"))
+
+        val current =
+            mapOf(
+                "check_id" to "quality.rtt",
+                "status" to "running",
+                "observation" to
+                    mapOf("source" to "runtime", "availability" to "observed", "connection_instance_id" to currentId),
+            )
+        val mixed =
+            AndroidMaintenance.sanitizeDiagnosticSession(
+                source + ("findings" to listOf(old, current)),
+                currentId,
+            )
+        assertEquals("quality.rtt", mixed.getString("current_check"))
+        assertEquals(1, mixed.getJSONObject("summary").getInt("skipped"))
+    }
+
+    @Test
     fun provenanceAndTypedEvidenceAreRevalidatedAndWrongConnectionFactsAreMasked() {
         val finding =
             mapOf(

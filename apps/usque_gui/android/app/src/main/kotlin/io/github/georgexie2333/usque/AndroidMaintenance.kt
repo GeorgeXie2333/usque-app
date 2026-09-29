@@ -300,6 +300,7 @@ internal object AndroidMaintenance {
         val mode = safeEnum(source["mode"], DIAGNOSTIC_MODES, "standard") ?: "standard"
         val findings = JSONArray()
         val statuses = mutableListOf<String>()
+        var currentCheck: String? = null
         val rawFindings = source["findings"] as? List<*> ?: emptyList<Any?>()
         for (rawFinding in rawFindings.take(MAX_DIAGNOSTIC_FINDINGS)) {
             val finding = stringMap(rawFinding) ?: continue
@@ -324,6 +325,7 @@ internal object AndroidMaintenance {
                         ?: "skipped"
                 }
             statuses += status
+            if (status == "running" && currentCheck == null) currentCheck = checkId
             val output =
                 JSONObject()
                     .put("check_id", checkId)
@@ -331,7 +333,7 @@ internal object AndroidMaintenance {
                     .put("status", status)
                     .put(
                         "severity",
-                        safeEnum(finding["severity"], SEVERITIES, "info") ?: "info",
+                        if (mismatched) "info" else safeEnum(finding["severity"], SEVERITIES, "info") ?: "info",
                     ).put("duration_milliseconds", safeCounter(finding["duration_milliseconds"]))
             val expectedSummary = "diagnostics.$checkId.$status"
             if (finding["summary_key"] == expectedSummary) {
@@ -341,7 +343,7 @@ internal object AndroidMaintenance {
                 ?.takeIf(
                     NETWORK_SUMMARIES::contains,
                 )?.let { output.put("summary_key", it) }
-            safeRemediationKey(finding["remediation_key"])?.let { key ->
+            (if (mismatched) "nq_retry" else safeRemediationKey(finding["remediation_key"]))?.let { key ->
                 output.put("remediation_key", key)
             }
             val evidence = JSONArray()
@@ -371,8 +373,10 @@ internal object AndroidMaintenance {
             (finding["dependency_reason"] as? String)
                 ?.takeIf { it in CHECK_IDS || it in DiagnosticsContract.remediationKeys }
                 ?.let { dependency -> output.put("dependency_reason", dependency) }
-            sanitizeFailure(finding["failure"])?.let { failure ->
-                output.put("failure", failure)
+            if (!mismatched) {
+                sanitizeFailure(finding["failure"])?.let { failure ->
+                    output.put("failure", failure)
+                }
             }
             if (mismatched) output.put("summary_key", "nq_finding_stale")
             findings.put(output)
@@ -388,9 +392,7 @@ internal object AndroidMaintenance {
                 .put("progress_percent", safeCounter(source["progress_percent"]).coerceAtMost(100))
                 .put("findings", findings)
                 .put("summary", diagnosticSummary(statuses))
-        (source["current_check"] as? String)
-            ?.takeIf(CHECK_IDS::contains)
-            ?.let { current -> output.put("current_check", current) }
+        currentCheck?.let { output.put("current_check", it) }
         val completedAt = safeCounter(source["completed_at_unix_milliseconds"])
         if (startedAt > 0 && completedAt >= startedAt) {
             output.put("completed_after_milliseconds", completedAt - startedAt)
