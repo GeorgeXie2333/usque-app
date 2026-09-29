@@ -889,7 +889,9 @@ fn scrub_network_tokens(input: &str) -> String {
     .any(|key| {
         normalized.match_indices(key).any(|(offset, _)| {
             normalized[offset + key.len()..]
-                .trim_start_matches([' ', '\t', '"', '\''])
+                .trim_start_matches(|character: char| {
+                    character.is_whitespace() || matches!(character, '"' | '\'')
+                })
                 .starts_with(['=', ':'])
         })
     }) {
@@ -905,9 +907,15 @@ fn scrub_network_tokens(input: &str) -> String {
                 matches!(character, '"' | '\'' | '(' | ')' | ',' | ';')
             });
             let identifier = trimmed.rsplit_once('=').map_or(trimmed, |(_, value)| value);
-            if looks_like_network_identifier(identifier.trim_end_matches(':')) {
+            let bare = identifier.trim_matches(['[', ']', '{', '}', ':', '.', '!']);
+            // Parse the original first: trimming punctuation can otherwise
+            // destroy a valid IPv6 address whose compressed suffix is `::`.
+            if looks_like_network_identifier(identifier)
+                || looks_like_network_identifier(identifier.trim_end_matches(':'))
+                || looks_like_network_identifier(bare)
+            {
                 format!("[NETWORK_REDACTED]{whitespace}")
-            } else if looks_like_file_path(identifier) {
+            } else if looks_like_file_path(identifier) || looks_like_file_path(bare) {
                 format!("[PATH_REDACTED]{whitespace}")
             } else {
                 part.to_owned()
@@ -1442,6 +1450,39 @@ mod tests {
             assert_eq!(value["listener_count"], 3);
             assert_eq!(value["ipv4_available"], true);
             assert_eq!(value["endpoint_pin_valid"], true);
+        }
+    }
+
+    #[test]
+    fn bracketed_identifiers_and_unicode_assignment_whitespace_are_scrubbed() {
+        for message in [
+            "[example.com]",
+            "endpoint=[203.0.113.1:443]",
+            "{203.0.113.1}!",
+            "[2001:db8::]",
+            "2001:db8::",
+            "::",
+            "[/Users/private/config.json]",
+            "password\u{2003}=\u{a0}super-secret",
+            "password\r\n=\tsuper-secret",
+            "authorization\u{202f}:\u{2003}super-secret",
+        ] {
+            let bytes =
+                serde_json::to_vec(&serde_json::json!({"message": message, "listener_count": 3}))
+                    .unwrap();
+            let sanitized: Value = serde_json::from_slice(&sanitize_log_bytes(&bytes)).unwrap();
+            let text = sanitized["message"].as_str().unwrap();
+            assert!(text.contains("REDACTED"), "unfiltered fixture: {message}");
+            for private in [
+                "example.com",
+                "203.0.113.1",
+                "2001:db8",
+                "private",
+                "super-secret",
+            ] {
+                assert!(!text.contains(private));
+            }
+            assert_eq!(sanitized["listener_count"], 3);
         }
     }
 
