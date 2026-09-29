@@ -433,6 +433,10 @@ struct WorkerCompletion(Arc<LogHealth>);
 
 impl Drop for WorkerCompletion {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.writer_available.store(false, Ordering::Release);
+            self.0.write_failures.fetch_add(1, Ordering::Relaxed);
+        }
         self.0.accepting.store(false, Ordering::Release);
         self.0.running.store(false, Ordering::Release);
         *self
@@ -441,6 +445,22 @@ impl Drop for WorkerCompletion {
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = true;
         self.0.completed.notify_all();
+    }
+}
+
+impl Drop for LogState {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            // An unwinding worker did not execute its final sync. Do not let
+            // BufWriter's implicit Drop write turn this into a healthy exit.
+            self.health
+                .unconfirmed_events
+                .fetch_add(self.pending_events, Ordering::Relaxed);
+            self.pending_events = 0;
+            if let Some(file) = self.file.take() {
+                let _ = file.into_parts();
+            }
+        }
     }
 }
 
@@ -1277,6 +1297,27 @@ mod tests {
         assert!(!health.writer_available);
         factory.flush(Duration::from_secs(5)).unwrap();
         factory.shutdown(Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
+    fn unwinding_owner_reports_failure_and_unconfirmed_buffered_records() {
+        let directory = tempfile::tempdir().unwrap();
+        let factory = LogWriterFactory::open(&directory.path().join("config.json")).unwrap();
+        let result: io::Result<()> =
+            owner_operation(&factory.shared, Duration::from_secs(5), |state| {
+                // Keep the write and fault in one command so the periodic sync
+                // cannot make this timing-sensitive under a loaded test runner.
+                state.write_event(br#"{"sequence":1}"#)?;
+                panic!("inert log owner failure");
+            });
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+        assert!(factory.shutdown(Duration::from_secs(5)).is_err());
+        let health = factory.health();
+        assert!(!health.running);
+        assert!(!health.writer_available);
+        assert_eq!(health.write_failures, 1);
+        assert_eq!(health.written_events, 0);
+        assert_eq!(health.unconfirmed_events, 1);
     }
 
     #[test]
