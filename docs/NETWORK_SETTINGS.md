@@ -121,7 +121,8 @@ from generic HTTP/3 support.
 
 | Situation | Result |
 | --- | --- |
-| Disconnected, connecting, reconnecting, disconnecting, error, or executor busy | Save; wait for a manual connection. |
+| Disconnected, connecting, reconnecting, disconnecting, error, or ordinary executor-busy saves | Save; wait for a manual connection. |
+| Confirmed Windows session; system-proxy switch or HTTP-off proxy cleanup while its executor is busy | Save; coalesce the latest proxy switch into one bounded, session-scoped follow-up. |
 | Stable; congestion control only | Save; keep the session algorithm. |
 | Stable; auto-connect only | Save; no runtime action. |
 | Stable; hot fields | Save; run the existing frontend/platform operation. |
@@ -134,8 +135,23 @@ from generic HTTP/3 support.
 The [shared planner](../crates/usque-core/src/network_settings.rs) owns these
 rules. The [desktop adapter](../crates/usque-engine/src/network_settings.rs)
 reserves an immediately available lifecycle executor before the short save
-transaction. A busy executor does not acquire an application queue entry.
-Runtime execution rechecks session identity and disconnect intent.
+transaction. Ordinary busy-executor saves do not acquire an application queue
+entry. The Windows system-proxy switch is a narrow exception: one worker waits
+up to 30 seconds for the executor and applies only the latest proxy flag to the
+same confirmed account and session. It never pulls in unrelated deferred
+settings. Closing HTTP also prevents a pending switch from enabling the proxy;
+when the executor is busy, this follow-up applies only the dependent proxy
+cleanup while the HTTP setting remains subject to the normal deferred rule.
+If a short runtime/state read is busy, the captured confirmed session permits
+reservation, but execution must recheck its connection phase and identity.
+Disconnect intent, account/session replacement, failed runtime confirmation,
+or unhealthy transport cancels this follow-up. A timeout remains deferred;
+an application failure remains a failure. Runtime execution rechecks session
+identity and disconnect intent.
+
+Disabling HTTP clears its dependent system-proxy flag through the frontend hot
+update, preserving the other outputs and their underlying session. Combining
+that edit with a cold transport or routing change still requires reconnecting.
 
 Automatic recovery uses the captured session profile. Manual connect and Retry
 read saved settings. A cold application failure can attempt one runtime

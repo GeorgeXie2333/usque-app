@@ -130,6 +130,7 @@ pub struct ControlServiceState {
     settings_intent: AtomicU64,
     settings_submission: Mutex<()>,
     settings_applying: std::sync::atomic::AtomicBool,
+    system_proxy_applications: Mutex<network_settings::SystemProxyApplications>,
     #[cfg(windows)]
     windows_recovery: Mutex<WindowsRecoveryRuntime>,
     #[cfg(windows)]
@@ -459,6 +460,7 @@ impl ControlService {
                 settings_intent: AtomicU64::new(0),
                 settings_submission: Mutex::new(()),
                 settings_applying: std::sync::atomic::AtomicBool::new(false),
+                system_proxy_applications: Mutex::new(Default::default()),
                 #[cfg(windows)]
                 windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
                 #[cfg(windows)]
