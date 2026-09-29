@@ -4760,6 +4760,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resumed_tunnel_clears_an_intended_proxy_receipt_and_restore_is_idempotent() {
+        let first_backend = Arc::new(MockBackend::default());
+        let (directory, first, operation, owner) = active_tunnel(first_backend).await;
+        let settings = || SystemProxySettings {
+            proxy_uri: "127.0.0.1:8080".to_owned(),
+            bypass_hosts: vec!["<local>".to_owned()],
+        };
+        first
+            .apply_system_proxy(operation, settings(), owner.clone())
+            .await
+            .unwrap();
+        let mut journal = first.state().await;
+        let profile_id = journal.plan.as_ref().unwrap().profile_id;
+        // A crash after native Apply and before its completion save retains
+        // an Intended receipt, which is inactive in the AgentState wire flag.
+        journal
+            .steps
+            .iter_mut()
+            .find(|step| step.kind == MutationKind::SystemProxy)
+            .unwrap()
+            .state = MutationState::Intended;
+        let tunnel_steps: Vec<_> = journal
+            .steps
+            .iter()
+            .filter(|step| step.kind != MutationKind::SystemProxy)
+            .map(|step| (step.kind, step.state))
+            .collect();
+        drop(first);
+        let journal_path = directory.path().join("recovery.json");
+        JournalStore::new(&journal_path).save(&mut journal).unwrap();
+
+        let backend = Arc::new(MockBackend::default());
+        let resumed =
+            AgentCoordinator::open(JournalStore::new(&journal_path), Arc::clone(&backend)).unwrap();
+        let mut replacement = owner;
+        replacement.process_id += 1;
+        resumed
+            .resume_tunnel(operation, profile_id, &replacement)
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            let restored = resumed
+                .restore_system_proxy(operation, &replacement)
+                .await
+                .unwrap();
+            assert_eq!(restored.phase, RecoveryPhase::Active);
+            assert_eq!(restored.operation_id, Some(operation));
+            assert_eq!(
+                restored
+                    .steps
+                    .iter()
+                    .map(|step| (step.kind, step.state))
+                    .collect::<Vec<_>>(),
+                tunnel_steps
+            );
+        }
+        assert_eq!(
+            backend.restored.lock().await.as_slice(),
+            [MutationKind::SystemProxy]
+        );
+        let replaced = resumed
+            .apply_system_proxy(operation, settings(), replacement)
+            .await
+            .unwrap();
+        assert!(
+            replaced
+                .steps
+                .iter()
+                .any(|step| step.kind == MutationKind::SystemProxy
+                    && step.state == MutationState::Applied)
+        );
+        assert_eq!(replaced.phase, RecoveryPhase::Active);
+    }
+
+    #[tokio::test]
     async fn sidecar_system_proxy_restore_failure_keeps_the_tunnel_active() {
         let backend = Arc::new(MockBackend::default());
         let (_directory, coordinator, operation, owner) = active_tunnel(Arc::clone(&backend)).await;

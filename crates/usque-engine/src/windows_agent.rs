@@ -655,8 +655,11 @@ async fn resolve_registration_api() -> Result<Vec<SocketAddr>, WindowsVpnError> 
 pub(crate) struct WindowsSystemProxyGuard {
     client: WindowsAgentClient,
     operation_id: Uuid,
-    pipe: Option<NamedPipeClient>,
+    pipe: Option<Arc<tokio::sync::Mutex<NamedPipeClient>>>,
     tunnel_lease: bool,
+    lease_cancel: CancellationToken,
+    lease_monitor: Option<JoinHandle<()>>,
+    lease_failed: Arc<AtomicBool>,
 }
 
 impl WindowsSystemProxyGuard {
@@ -715,18 +718,83 @@ impl WindowsSystemProxyGuard {
                 ],
             )
             .await?;
-        Ok(Self {
+        Ok(Self::from_lease(
+            client,
+            operation_id,
+            pipe,
+            tunnel_operation_id.is_some(),
+        ))
+    }
+
+    fn from_lease(
+        client: WindowsAgentClient,
+        operation_id: Uuid,
+        pipe: NamedPipeClient,
+        tunnel_lease: bool,
+    ) -> Self {
+        let pipe = Arc::new(tokio::sync::Mutex::new(pipe));
+        let lease_cancel = CancellationToken::new();
+        let lease_failed = Arc::new(AtomicBool::new(false));
+        let monitor_pipe = Arc::clone(&pipe);
+        let monitor_cancel = lease_cancel.clone();
+        let monitor_failed = Arc::clone(&lease_failed);
+        let lease_monitor = tokio::spawn(async move {
+            let mut pipe = monitor_pipe.lock().await;
+            let mut probe = [0_u8; 1];
+            tokio::select! {
+                biased;
+                () = monitor_cancel.cancelled() => {}
+                _ = pipe.read(&mut probe) => {
+                    // The leased pipe sends no unsolicited data. EOF, a read
+                    // error or unexpected data means this guard no longer
+                    // proves that Windows is using the configured proxy.
+                    monitor_failed.store(true, Ordering::Release);
+                }
+            }
+        });
+        Self {
             client,
             operation_id,
             pipe: Some(pipe),
-            tunnel_lease: tunnel_operation_id.is_some(),
-        })
+            tunnel_lease,
+            lease_cancel,
+            lease_monitor: Some(lease_monitor),
+            lease_failed,
+        }
+    }
+
+    pub(crate) fn lease_failed(&self) -> bool {
+        self.lease_failed.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn health(&self, transport: RuntimeHealth) -> RuntimeHealth {
+        if !self.lease_failed() || matches!(transport, RuntimeHealth::Failed { .. }) {
+            return transport;
+        }
+        let path = transport.path();
+        RuntimeHealth::Failed {
+            last_path: path,
+            reconnect_count: transport.reconnect_count(),
+            failure: TransportFailure::new(
+                TransportFailureCode::AgentUnreachable,
+                TransportStage::PlatformRecovery,
+            )
+            .on_path(path.transport, path.endpoint_family),
+            message: "Windows system proxy lease disconnected; retry the connection".to_owned(),
+        }
     }
 
     pub(crate) async fn shutdown(&mut self) -> Result<(), WindowsVpnError> {
-        let Some(mut pipe) = self.pipe.take() else {
+        let Some(pipe) = self.pipe.take() else {
             return Ok(());
         };
+        // The monitor is the only idle reader. Join it before the Restore RPC
+        // so it cannot consume that response or keep the pipe open on failure.
+        self.lease_cancel.cancel();
+        if let Some(monitor) = self.lease_monitor.take() {
+            let _ = monitor.await;
+        }
+        let mut pipe = pipe.lock().await;
         let result = timeout(
             AGENT_RPC_TIMEOUT,
             self.client
@@ -756,6 +824,10 @@ impl Drop for WindowsSystemProxyGuard {
     fn drop(&mut self) {
         // Closing the leased pipe is itself the crash-safe restore signal.
         // The Agent also recovers this transaction when its service restarts.
+        self.lease_cancel.cancel();
+        if let Some(monitor) = self.lease_monitor.take() {
+            monitor.abort();
+        }
         self.pipe.take();
     }
 }
@@ -1171,7 +1243,11 @@ impl WindowsVpnRuntime {
                 return health;
             }
         }
-        self.monitor.health()
+        let health = self.monitor.health();
+        match &self.system_proxy {
+            Some(proxy) => proxy.health(health),
+            None => health,
+        }
     }
 
     pub(crate) fn statistics(&self) -> TrafficSnapshot {
@@ -1432,6 +1508,14 @@ impl WindowsVpnRuntime {
                     ),
                 ));
             }
+            if self.system_proxy.is_none() {
+                // A resumed chain also retains sidecar receipts across an
+                // Agent restart. Commit has established Active and the exact
+                // Engine owner before the existing restore protocol is used.
+                self.agent
+                    .restore_retained_system_proxy(self.operation_id)
+                    .await?;
+            }
             if profile.frontends.http && profile.proxy.system_proxy && self.system_proxy.is_none() {
                 let listener = loopback_http_listener(tunnel.http_listeners())
                     .ok_or(WindowsVpnError::MissingSystemProxyListener)?;
@@ -1648,12 +1732,31 @@ impl WindowsVpnRuntime {
 
     pub(crate) fn requires_agent_reattach(&self) -> bool {
         self.monitor.agent_disconnected()
+            && self
+                .system_proxy
+                .as_ref()
+                .is_none_or(|proxy| proxy.pipe.is_some())
     }
 
     pub(crate) async fn detach_for_agent_reattach(&mut self) -> Result<(), WindowsVpnError> {
         self.stop_packet_pumps().await;
         if let Some(tunnel) = self.tunnel.as_mut() {
             tunnel.detach_tun();
+        }
+        if let Some(mut proxy) = self.system_proxy.take()
+            && let Err(error) = proxy.shutdown().await
+            && !matches!(
+                &error,
+                WindowsVpnError::Io(error)
+                    if matches!(error.kind(), io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof)
+            )
+        {
+            // An unacknowledged live lease may still run its EOF cleanup. Do
+            // not let it restore a new sidecar using the same operation ID.
+            // Retain the failed guard so the next Retry performs a full
+            // disconnect, which invalidates that old transaction first.
+            self.system_proxy = Some(proxy);
+            return Err(error);
         }
         let state = self.agent.get_state().await?;
         if state.phase != agent_v1::AgentPhase::Active as i32
@@ -1979,8 +2082,29 @@ async fn bind_agent_session(
         agent_disconnected_tx,
     ));
 
-    let system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
-        let Some(listener) = loopback_http_listener(&http_listeners) else {
+    let proxy_result = async {
+        if resuming {
+            // Resume has transferred the journal owner to this Engine. A
+            // restarted Agent can retain the old sidecar receipt but cannot
+            // retain its old pipe lease. Restore that receipt before creating
+            // the replacement lease, including when the new profile disables
+            // system proxy. Never erase the tunnel's persistent protection.
+            agent.restore_retained_system_proxy(operation_id).await?;
+        }
+        if profile.frontends.http && profile.proxy.system_proxy {
+            let listener = loopback_http_listener(&http_listeners)
+                .ok_or(WindowsVpnError::MissingSystemProxyListener)?;
+            WindowsSystemProxyGuard::start_for_tunnel(listener, operation_id)
+                .await
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+    .await;
+    let system_proxy = match proxy_result {
+        Ok(proxy) => proxy,
+        Err(error) => {
             mapping.signal_shutdown();
             cancellation.cancel();
             stop_tasks(&mut tasks).await;
@@ -1989,32 +2113,12 @@ async fn bind_agent_session(
                 &agent,
                 operation_id,
                 resuming,
-                "SYSTEM_PROXY_LISTENER_MISSING",
-                WindowsVpnError::MissingSystemProxyListener,
+                "SYSTEM_PROXY_APPLY_FAILED",
+                error,
             )
             .await;
             return Err((tunnel, error));
-        };
-        match WindowsSystemProxyGuard::start_for_tunnel(listener, operation_id).await {
-            Ok(guard) => Some(guard),
-            Err(error) => {
-                mapping.signal_shutdown();
-                cancellation.cancel();
-                stop_tasks(&mut tasks).await;
-                tunnel.detach_tun();
-                let error = fail_startup(
-                    &agent,
-                    operation_id,
-                    resuming,
-                    "SYSTEM_PROXY_APPLY_FAILED",
-                    error,
-                )
-                .await;
-                return Err((tunnel, error));
-            }
         }
-    } else {
-        None
     };
 
     if resuming {
@@ -3384,6 +3488,50 @@ impl WindowsAgentClient {
         {
             agent_response::Payload::State(state) => Ok(state),
             payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn restore_retained_system_proxy(
+        &self,
+        operation_id: Uuid,
+    ) -> Result<(), WindowsVpnError> {
+        let state = self.get_state().await?;
+        if state.phase != agent_v1::AgentPhase::Active as i32
+            || state.operation_id != operation_id.to_string()
+        {
+            return Err(WindowsVpnError::RecoveryConflict);
+        }
+        let capabilities = self.get_capabilities().await?;
+        if capabilities.protocol_version != AGENT_PROTOCOL_VERSION {
+            return Err(WindowsVpnError::ProtocolVersion(
+                capabilities.protocol_version,
+            ));
+        }
+        if !capabilities.system_proxy {
+            return if state.system_proxy_active {
+                Err(WindowsVpnError::MissingCapabilities(
+                    "system_proxy".to_owned(),
+                ))
+            } else {
+                Ok(())
+            };
+        }
+        // Inactive does not prove that no receipt exists: a failed Apply can
+        // leave an Intended sidecar step. The negotiated Restore RPC is
+        // idempotent for an Active tunnel with no step and clears every
+        // retained receipt before a replacement lease is applied.
+        let mut pipe = self.open_pipe().await?;
+        let state = timeout(
+            AGENT_RPC_TIMEOUT,
+            self.restore_system_proxy(&mut pipe, operation_id),
+        )
+        .await
+        .map_err(|_| WindowsVpnError::RpcTimeout)??;
+        if system_proxy_restore_succeeded(true, operation_id, &state) && !state.system_proxy_active
+        {
+            Ok(())
+        } else {
+            Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
         }
     }
 
@@ -6166,6 +6314,262 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn proxy_lease_eof_invalidates_a_healthy_transport() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)
+            .unwrap();
+        let client = WindowsAgentClient::for_test(pipe_name);
+        let pipe = client.open_pipe().await.unwrap();
+        server.connect().await.unwrap();
+        let mut guard = WindowsSystemProxyGuard::from_lease(client, Uuid::new_v4(), pipe, false);
+        let transport = RuntimeHealth::Connected {
+            path: RuntimePath {
+                transport: usque_core::Transport::Http3,
+                endpoint_family: usque_core::AddressFamily::Ipv4,
+                ipv4_available: true,
+                ipv6_available: true,
+            },
+            reconnect_count: 2,
+        };
+        assert!(matches!(
+            guard.health(transport.clone()),
+            RuntimeHealth::Connected { .. }
+        ));
+        drop(server);
+        timeout(Duration::from_secs(1), async {
+            while !guard.lease_failed() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("lease EOF must be observed without a settings change");
+        let RuntimeHealth::Failed {
+            failure,
+            reconnect_count,
+            ..
+        } = guard.health(transport)
+        else {
+            panic!("an expired proxy lease must not remain Connected");
+        };
+        assert_eq!(failure.code, TransportFailureCode::AgentUnreachable);
+        assert_eq!(reconnect_count, 2);
+        let error = timeout(Duration::from_secs(1), guard.shutdown())
+            .await
+            .expect("a dead lease must not block reattachment")
+            .unwrap_err();
+        assert!(matches!(error, WindowsVpnError::Io(error)
+            if matches!(error.kind(), io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof)));
+    }
+
+    #[tokio::test]
+    async fn dropping_a_monitored_proxy_guard_releases_its_pipe() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let mut server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)
+            .unwrap();
+        let client = WindowsAgentClient::for_test(pipe_name);
+        let pipe = client.open_pipe().await.unwrap();
+        server.connect().await.unwrap();
+        let guard = WindowsSystemProxyGuard::from_lease(client, Uuid::new_v4(), pipe, false);
+        tokio::task::yield_now().await;
+        drop(guard);
+        let mut probe = [0_u8; 1];
+        assert_eq!(
+            timeout(Duration::from_secs(1), server.read(&mut probe))
+                .await
+                .expect("the monitor cannot retain a dropped guard's lease")
+                .unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn resumed_tunnel_restores_retained_proxy_before_replacement_apply() {
+        // Intended receipts are inactive on the wire. Both states must be
+        // restored; relying only on the active flag would admit DuplicateStep.
+        for initially_active in [false, true] {
+            let operation = Uuid::new_v4();
+            let state = |system_proxy_active| AgentResponse {
+                payload: Some(agent_response::Payload::State(AgentState {
+                    system_proxy_active,
+                    ..restore_state(agent_v1::AgentPhase::Active, operation)
+                })),
+                ..Default::default()
+            };
+            let (client, requests) = scripted_recovery_client(vec![
+                state(initially_active),
+                proxy_capabilities_response(true, AGENT_PROTOCOL_VERSION),
+                state(false),
+                state(true),
+            ]);
+            client
+                .restore_retained_system_proxy(operation)
+                .await
+                .unwrap();
+            let lease = client
+                .apply_system_proxy_lease(operation, "http://127.0.0.1:8080".to_owned(), vec![])
+                .await
+                .unwrap();
+            drop(lease);
+            let requests = requests.await.unwrap();
+            assert!(matches!(requests.as_slice(), [
+                agent_request::Payload::GetState(_),
+                agent_request::Payload::GetCapabilities(_),
+                agent_request::Payload::RestoreSystemProxy(restore),
+                agent_request::Payload::ApplySystemProxy(apply),
+            ] if restore.operation_id == operation.to_string() && apply.operation_id == operation.to_string()));
+        }
+    }
+
+    fn proxy_capabilities_response(system_proxy: bool, protocol_version: u32) -> AgentResponse {
+        AgentResponse {
+            payload: Some(agent_response::Payload::Capabilities(AgentCapabilities {
+                system_proxy,
+                protocol_version,
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn resumed_tunnel_with_proxy_capability_restores_even_without_an_active_proxy() {
+        let operation = Uuid::new_v4();
+        let state = AgentResponse {
+            payload: Some(agent_response::Payload::State(restore_state(
+                agent_v1::AgentPhase::Active,
+                operation,
+            ))),
+            ..Default::default()
+        };
+        let (client, requests) = scripted_recovery_client(vec![
+            state.clone(),
+            proxy_capabilities_response(true, AGENT_PROTOCOL_VERSION),
+            state,
+        ]);
+        client
+            .restore_retained_system_proxy(operation)
+            .await
+            .unwrap();
+        assert!(matches!(
+            requests.await.unwrap().as_slice(),
+            [
+                agent_request::Payload::GetState(_),
+                agent_request::Payload::GetCapabilities(_),
+                agent_request::Payload::RestoreSystemProxy(_)
+            ]
+        ));
+    }
+
+    #[tokio::test]
+    async fn resumed_tunnel_without_proxy_capability_only_skips_an_inactive_proxy() {
+        for active in [false, true] {
+            let operation = Uuid::new_v4();
+            let (client, requests) = scripted_recovery_client(vec![
+                AgentResponse {
+                    payload: Some(agent_response::Payload::State(AgentState {
+                        system_proxy_active: active,
+                        ..restore_state(agent_v1::AgentPhase::Active, operation)
+                    })),
+                    ..Default::default()
+                },
+                proxy_capabilities_response(false, AGENT_PROTOCOL_VERSION),
+            ]);
+            let result = client.restore_retained_system_proxy(operation).await;
+            if active {
+                assert!(
+                    matches!(result, Err(WindowsVpnError::MissingCapabilities(capability))
+                    if capability == "system_proxy")
+                );
+            } else {
+                result.unwrap();
+            }
+            assert!(matches!(
+                requests.await.unwrap().as_slice(),
+                [
+                    agent_request::Payload::GetState(_),
+                    agent_request::Payload::GetCapabilities(_),
+                ]
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn resumed_tunnel_rechecks_protocol_before_any_restore() {
+        let operation = Uuid::new_v4();
+        for supported in [false, true] {
+            let (client, requests) = scripted_recovery_client(vec![
+                AgentResponse {
+                    payload: Some(agent_response::Payload::State(restore_state(
+                        agent_v1::AgentPhase::Active,
+                        operation,
+                    ))),
+                    ..Default::default()
+                },
+                proxy_capabilities_response(supported, AGENT_PROTOCOL_VERSION + 1),
+            ]);
+            assert!(
+                matches!(client.restore_retained_system_proxy(operation).await,
+                Err(WindowsVpnError::ProtocolVersion(version)) if version == AGENT_PROTOCOL_VERSION + 1)
+            );
+            assert!(matches!(
+                requests.await.unwrap().as_slice(),
+                [
+                    agent_request::Payload::GetState(_),
+                    agent_request::Payload::GetCapabilities(_),
+                ]
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn resumed_tunnel_never_restores_a_different_operation_or_accepts_a_live_proxy() {
+        let operation = Uuid::new_v4();
+        for same_operation in [false, true] {
+            let state = |system_proxy_active| AgentResponse {
+                payload: Some(agent_response::Payload::State(AgentState {
+                    system_proxy_active,
+                    ..restore_state(
+                        agent_v1::AgentPhase::Active,
+                        if same_operation {
+                            operation
+                        } else {
+                            Uuid::new_v4()
+                        },
+                    )
+                })),
+                ..Default::default()
+            };
+            let responses = if same_operation {
+                vec![
+                    state(true),
+                    proxy_capabilities_response(true, AGENT_PROTOCOL_VERSION),
+                    state(true),
+                ]
+            } else {
+                vec![state(true)]
+            };
+            let (client, requests) = scripted_recovery_client(responses);
+            assert!(
+                client
+                    .restore_retained_system_proxy(operation)
+                    .await
+                    .is_err()
+            );
+            let requests = requests.await.unwrap();
+            assert_eq!(requests.len(), if same_operation { 3 } else { 1 });
+            assert!(
+                !requests
+                    .iter()
+                    .any(|request| matches!(request, agent_request::Payload::ApplySystemProxy(_)))
+            );
+        }
+    }
+
     #[test]
     fn standalone_proxy_restore_accepts_clean() {
         let operation_id = Uuid::new_v4();
@@ -6240,12 +6644,9 @@ mod tests {
         });
         let client = WindowsAgentClient::for_test(pipe_name);
         let pipe = client.open_pipe().await.expect("open");
-        let mut guard = WindowsSystemProxyGuard {
-            client,
-            operation_id,
-            pipe: Some(pipe),
-            tunnel_lease: true,
-        };
+        let mut guard = WindowsSystemProxyGuard::from_lease(client, operation_id, pipe, true);
+        tokio::task::yield_now().await;
+        assert!(!guard.lease_failed());
         guard.shutdown().await.expect("restore Active tunnel lease");
         server_task.await.expect("server task");
     }
@@ -6289,12 +6690,12 @@ mod tests {
         });
         let client = WindowsAgentClient::for_test(pipe_name);
         let pipe = client.open_pipe().await.expect("open");
-        let mut slot = Some(WindowsSystemProxyGuard {
+        let mut slot = Some(WindowsSystemProxyGuard::from_lease(
             client,
             operation_id,
-            pipe: Some(pipe),
-            tunnel_lease: false,
-        });
+            pipe,
+            false,
+        ));
         WindowsSystemProxyGuard::shutdown_slot(&mut slot)
             .await
             .expect("restore standalone lease");

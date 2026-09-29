@@ -55,6 +55,8 @@ pub(crate) struct HarnessRuntime {
     pub(crate) detach_count: u32,
     system_proxy: bool,
     pub(crate) system_proxy_apply_count: u32,
+    pub(crate) system_proxy_failures: u32,
+    pub(crate) fail_attach: bool,
     pub(crate) fail_after_detach: bool,
     pub(crate) gate_status: usque_core::vpngate::GateStatus,
     pub(crate) gate_replace_count: u32,
@@ -97,6 +99,8 @@ impl HarnessRuntime {
             detach_count: 0,
             system_proxy: profile.frontends.http && profile.proxy.system_proxy,
             system_proxy_apply_count: 0,
+            system_proxy_failures: 0,
+            fail_attach: false,
             fail_after_detach: false,
             gate_status: Default::default(),
             gate_replace_count: 0,
@@ -289,7 +293,14 @@ impl ActiveRuntime {
 
     pub(crate) fn health(&self) -> RuntimeHealth {
         match self {
-            Self::Proxy(runtime) => runtime.runtime.health(),
+            Self::Proxy(runtime) => {
+                let health = runtime.runtime.health();
+                #[cfg(windows)]
+                if let Some(proxy) = &runtime.system_proxy {
+                    return proxy.health(health);
+                }
+                health
+            }
             #[cfg(windows)]
             Self::Vpn(runtime) => runtime.health(),
             #[cfg(test)]
@@ -572,9 +583,16 @@ impl ActiveRuntime {
                 .map_err(map_windows_vpn_error),
             #[cfg(test)]
             Self::Harness(runtime) => {
-                runtime.system_proxy = profile.frontends.http && profile.proxy.system_proxy;
+                runtime.system_proxy = false;
                 runtime.system_proxy_apply_count =
                     runtime.system_proxy_apply_count.saturating_add(1);
+                if runtime.system_proxy_failures > 0 {
+                    runtime.system_proxy_failures -= 1;
+                    return Err(ControlServiceError::PlatformVpn(
+                        "injected system proxy apply failure".to_owned(),
+                    ));
+                }
+                runtime.system_proxy = profile.frontends.http && profile.proxy.system_proxy;
                 Ok(())
             }
         }
@@ -587,6 +605,13 @@ impl ActiveRuntime {
     ) -> Result<Self, (Self, ControlServiceError)> {
         #[cfg(test)]
         if let Self::Harness(mut harness) = self {
+            if profile.frontends.tunnel && harness.fail_attach {
+                harness.system_proxy = false;
+                return Err((
+                    Self::Harness(harness),
+                    ControlServiceError::PlatformVpn("injected VPN attach failure".to_owned()),
+                ));
+            }
             harness.set_tunnel(profile.frontends.tunnel);
             if harness.fail_after_detach && !harness.vpn {
                 return Err((

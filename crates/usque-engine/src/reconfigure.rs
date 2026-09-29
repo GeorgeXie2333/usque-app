@@ -208,28 +208,77 @@ impl ControlService {
         &self,
         profile: &Profile,
     ) -> Result<(), ControlServiceError> {
-        let mut data_plane = self.data_plane.lock().await;
-        let Some(active) = data_plane.as_mut() else {
-            return Err(ControlServiceError::InvalidRequest(
-                "a connected session is required".to_owned(),
-            ));
+        let (previous, error, rollback_failed) = {
+            let mut data_plane = self.data_plane.lock().await;
+            let Some(active) = data_plane.as_mut() else {
+                return Err(ControlServiceError::InvalidRequest(
+                    "a connected session is required".to_owned(),
+                ));
+            };
+            let previous = active.profile.clone();
+            match active.runtime.reconfigure_frontends(profile).await {
+                Ok(()) => {
+                    active.frontends = profile.frontends;
+                    return Ok(());
+                }
+                Err(error) => {
+                    // The transport may have replaced its listeners before
+                    // the system-proxy RPC failed. A configuration-file
+                    // rollback alone cannot restore the applied session.
+                    let rollback = active.runtime.reconfigure_frontends(&previous).await;
+                    if rollback.is_ok() {
+                        active.frontends = previous.frontends;
+                    }
+                    (previous, error, rollback.is_err())
+                }
+            }
         };
-        active.runtime.reconfigure_frontends(profile).await?;
-        active.frontends = profile.frontends;
-        Ok(())
+        self.finish_failed_hot_update(&previous, &error, rollback_failed)
+            .await;
+        Err(error)
     }
 
     pub(crate) async fn hot_apply_system_proxy(
         &self,
         profile: &Profile,
     ) -> Result<(), ControlServiceError> {
-        let mut data_plane = self.data_plane.lock().await;
-        let Some(active) = data_plane.as_mut() else {
-            return Err(ControlServiceError::InvalidRequest(
-                "a connected session is required".to_owned(),
-            ));
+        let (previous, error, rollback_failed) = {
+            let mut data_plane = self.data_plane.lock().await;
+            let Some(active) = data_plane.as_mut() else {
+                return Err(ControlServiceError::InvalidRequest(
+                    "a connected session is required".to_owned(),
+                ));
+            };
+            let previous = active.profile.clone();
+            match active.runtime.apply_system_proxy(profile).await {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    let rollback = active.runtime.apply_system_proxy(&previous).await;
+                    (previous, error, rollback.is_err())
+                }
+            }
         };
-        active.runtime.apply_system_proxy(profile).await
+        self.finish_failed_hot_update(&previous, &error, rollback_failed)
+            .await;
+        Err(error)
+    }
+
+    async fn finish_failed_hot_update(
+        &self,
+        previous: &Profile,
+        error: &ControlServiceError,
+        rollback_failed: bool,
+    ) {
+        if rollback_failed {
+            // Do not advertise the previous confirmed profile when its
+            // listeners/proxy could not be restored. Keep cleanup owned by
+            // the normal Disconnect path and preserve the first error.
+            tracing::warn!("hot network update rollback failed; stopping the connection");
+            let _ = self.disconnect_locked().await;
+            self.mark_connection_error(error).await;
+        } else {
+            self.apply_hot_profile_state(previous).await;
+        }
     }
 
     pub(crate) async fn hot_tunnel_attach(
@@ -263,7 +312,21 @@ impl ControlService {
                 if detached {
                     active.frontends.tunnel = false;
                 }
+                let previous = active.profile.clone();
+                let rollback_failed = if profile.frontends.tunnel && !active.runtime.is_vpn() {
+                    // Attaching VPN first releases a standalone system-proxy
+                    // lease. Restore it when attach returns the live proxy
+                    // data plane after a failure.
+                    active.runtime.apply_system_proxy(&previous).await.is_err()
+                } else {
+                    false
+                };
                 *data_plane = Some(active);
+                drop(data_plane);
+                if !detached {
+                    self.finish_failed_hot_update(&previous, &error, rollback_failed)
+                        .await;
+                }
                 Err(error)
             }
         }

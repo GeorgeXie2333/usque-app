@@ -1947,7 +1947,7 @@ impl ControlService {
             if let Some(active) = data_plane.as_ref() {
                 if active.profile_id == profile_id {
                     drop(data_plane);
-                    return Ok(self.state.lock().await.snapshot().clone());
+                    return Ok(self.status_snapshot().await);
                 }
                 return Err(ControlServiceError::AlreadyConnected(active.profile_id));
             }
@@ -2576,7 +2576,14 @@ impl ControlService {
                 .is_some_and(|active| active.runtime.requires_agent_reattach())
             {
                 let mut active = data_plane.take().expect("checked active data plane");
-                active.runtime.detach_for_agent_reattach().await?;
+                if let Err(error) = active.runtime.detach_for_agent_reattach().await {
+                    *data_plane = Some(active);
+                    drop(data_plane);
+                    self.clear_windows_connection_intent_if(intent_generation)
+                        .await;
+                    self.mark_connection_error(&error).await;
+                    return Err(error);
+                }
                 drop(data_plane);
                 // The Agent journal remains Active and WFP stays fail-closed.
                 // `connect_locked` detects that transaction and recreates only
@@ -8637,6 +8644,215 @@ mod tests {
             .active_profile()
             .unwrap();
         assert!(!persisted.frontends.tunnel);
+    }
+
+    #[tokio::test]
+    async fn connecting_an_existing_session_refreshes_its_failed_runtime() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile.clone(), false, 0)
+            .await
+            .unwrap();
+        {
+            let mut data_plane = service.data_plane.lock().await;
+            let ActiveRuntime::Harness(runtime) = &mut data_plane.as_mut().unwrap().runtime else {
+                panic!("harness");
+            };
+            runtime.gate_status.failure = Some(usque_core::vpngate::GateFailure::Transport);
+        }
+        assert_eq!(
+            service.state.lock().await.snapshot().phase,
+            ConnectionPhase::Connected
+        );
+        let snapshot = service.connect_locked(profile.id).await.unwrap();
+        assert_eq!(snapshot.phase, ConnectionPhase::Error);
+        assert!(
+            snapshot
+                .frontends
+                .iter()
+                .all(|frontend| { frontend.phase != usque_core::FrontendPhase::Active })
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_hot_proxy_changes_restore_the_confirmed_runtime() {
+        for change_listener in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let service = ControlService::open_with_vault(
+                ConfigStore::new(directory.path().join("config.json")),
+                Arc::new(MemoryVault::default()),
+            )
+            .unwrap();
+            let mut profile = service.config_snapshot().await.active_profile().unwrap();
+            profile.frontends.tunnel = false;
+            profile.mode = OperatingMode::Socks5;
+            profile.frontends.http = true;
+            profile.proxy.system_proxy = true;
+            service
+                .install_test_session(profile.clone(), false, 5)
+                .await
+                .unwrap();
+            {
+                let mut data_plane = service.data_plane.lock().await;
+                let ActiveRuntime::Harness(runtime) = &mut data_plane.as_mut().unwrap().runtime
+                else {
+                    panic!("harness");
+                };
+                runtime.system_proxy_failures = 1;
+            }
+            let mut target = profile.clone();
+            if change_listener {
+                target.proxy.http_listeners[0].set_port(18081);
+            } else {
+                target.proxy.system_proxy = false;
+            }
+            assert!(service.reconfigure_active_profile(target).await.is_err());
+            let active = service.data_plane.lock().await;
+            let active = active.as_ref().expect("rollback preserves the session");
+            assert_eq!(active.profile, profile);
+            assert_eq!(active.frontends, profile.frontends);
+            assert!(
+                active
+                    .runtime
+                    .listeners()
+                    .contains(&profile.proxy.http_listeners[0])
+            );
+            assert!(matches!(
+                active.runtime.health(),
+                RuntimeHealth::Connected { .. }
+            ));
+            let proxy = active
+                .runtime
+                .frontend_statuses(active.frontends)
+                .into_iter()
+                .find(|status| status.kind == FrontendKind::SystemProxy)
+                .unwrap();
+            assert_eq!(proxy.phase, usque_core::FrontendPhase::Active);
+            let ActiveRuntime::Harness(runtime) = &active.runtime else {
+                panic!("harness");
+            };
+            assert_eq!(runtime.system_proxy_apply_count, 2);
+            assert_eq!(
+                service.config_snapshot().await.active_profile().unwrap(),
+                profile
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_hot_proxy_rollback_stops_the_session_and_keeps_the_first_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.frontends.tunnel = false;
+        profile.mode = OperatingMode::Socks5;
+        profile.frontends.http = true;
+        profile.proxy.system_proxy = true;
+        service
+            .install_test_session(profile.clone(), false, 0)
+            .await
+            .unwrap();
+        {
+            let mut data_plane = service.data_plane.lock().await;
+            let ActiveRuntime::Harness(runtime) = &mut data_plane.as_mut().unwrap().runtime else {
+                panic!("harness");
+            };
+            runtime.system_proxy_failures = 2;
+        }
+        let mut target = profile.clone();
+        target.proxy.http_listeners[0].set_port(18081);
+        let error = service
+            .reconfigure_active_profile(target)
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("injected system proxy apply failure")
+        );
+        assert!(service.data_plane.lock().await.is_none());
+        assert_eq!(
+            service.state.lock().await.snapshot().phase,
+            ConnectionPhase::Error
+        );
+        service.await_disconnect_cleanup().await.unwrap();
+        assert_eq!(
+            service.config_snapshot().await.active_profile().unwrap(),
+            profile
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_vpn_attach_restores_the_standalone_proxy_or_stops_on_rollback_failure() {
+        for rollback_fails in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let service = ControlService::open_with_vault(
+                ConfigStore::new(directory.path().join("config.json")),
+                Arc::new(MemoryVault::default()),
+            )
+            .unwrap();
+            let mut profile = service.config_snapshot().await.active_profile().unwrap();
+            profile.frontends.tunnel = false;
+            profile.mode = OperatingMode::Socks5;
+            profile.frontends.http = true;
+            profile.proxy.system_proxy = true;
+            service
+                .install_test_session(profile.clone(), false, 0)
+                .await
+                .unwrap();
+            {
+                let mut data_plane = service.data_plane.lock().await;
+                let ActiveRuntime::Harness(runtime) = &mut data_plane.as_mut().unwrap().runtime
+                else {
+                    panic!("harness");
+                };
+                runtime.fail_attach = true;
+                runtime.system_proxy_failures = u32::from(rollback_fails);
+            }
+            let mut target = profile.clone();
+            target.frontends.tunnel = true;
+            target.mode = OperatingMode::Vpn;
+            let error = service
+                .reconfigure_active_profile(target)
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("injected VPN attach failure"));
+            let data_plane = service.data_plane.lock().await;
+            if rollback_fails {
+                assert!(data_plane.is_none());
+                assert_eq!(
+                    service.state.lock().await.snapshot().phase,
+                    ConnectionPhase::Error
+                );
+            } else {
+                let active = data_plane.as_ref().expect("restored proxy session");
+                assert!(!active.runtime.is_vpn());
+                assert_eq!(active.profile, profile);
+                let proxy = active
+                    .runtime
+                    .frontend_statuses(active.frontends)
+                    .into_iter()
+                    .find(|status| status.kind == FrontendKind::SystemProxy)
+                    .unwrap();
+                assert_eq!(proxy.phase, usque_core::FrontendPhase::Active);
+            }
+            drop(data_plane);
+            service.await_disconnect_cleanup().await.unwrap();
+            assert_eq!(
+                service.config_snapshot().await.active_profile().unwrap(),
+                profile
+            );
+        }
     }
 
     fn request(id: &str, payload: control_request::Payload) -> ControlRequest {
