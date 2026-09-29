@@ -23,6 +23,7 @@ const MAX_TOTAL_BYTES: u64 = 20 * 1024 * 1024;
 const ROTATE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_EVENT_BYTES: usize = 256 * 1024;
 const MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const MAX_ACTIVE_SEGMENT_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const ACTIVE_LOG_NAME: &str = "engine.jsonl";
 const MAX_QUEUED_EVENTS: usize = 248;
 const MAX_QUEUED_BYTES: usize = 2 * 1024 * 1024;
@@ -170,6 +171,7 @@ struct LogState {
     health: Arc<LogHealth>,
     retry_after: Instant,
     pending_events: u64,
+    active_started: SystemTime,
 }
 
 impl LogWriterFactory {
@@ -453,8 +455,10 @@ fn run_writer(directory: PathBuf, receiver: mpsc::Receiver<LogCommand>, health: 
         health: Arc::clone(&health),
         retry_after: Instant::now(),
         pending_events: 0,
+        active_started: SystemTime::now(),
     };
     let _ = state.ensure_open(true);
+    let _ = state.rotate_aged_segment(SystemTime::now());
     let mut last_sync = Instant::now();
     let mut last_prune = Instant::now();
     while !health.stopping.load(Ordering::Acquire) {
@@ -468,6 +472,7 @@ fn run_writer(directory: PathBuf, receiver: mpsc::Receiver<LogCommand>, health: 
             last_sync = Instant::now();
         }
         if last_prune.elapsed() >= PRUNE_INTERVAL {
+            let _ = state.rotate_aged_segment(SystemTime::now());
             let limit = MAX_TOTAL_BYTES
                 .saturating_sub(ROTATE_BYTES)
                 .saturating_add(state.bytes_written.min(ROTATE_BYTES));
@@ -514,9 +519,18 @@ impl LogState {
         }
         let result = (|| {
             fs::create_dir_all(&self.directory)?;
-            self.bytes_written = fs::metadata(&self.active_path)
-                .map(|metadata| metadata.len())
-                .unwrap_or_default();
+            let existing = fs::metadata(&self.active_path).ok();
+            self.bytes_written = existing.as_ref().map_or(0, fs::Metadata::len);
+            self.active_started = existing.as_ref().map_or_else(SystemTime::now, |metadata| {
+                // Creation time gives a persistent segment boundary where the
+                // filesystem supports it. An older mtime also identifies a
+                // restored/quiet file; otherwise mtime is the fallback origin.
+                [metadata.created().ok(), metadata.modified().ok()]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .unwrap_or_else(SystemTime::now)
+            });
             let limit = MAX_TOTAL_BYTES
                 .saturating_sub(ROTATE_BYTES)
                 .saturating_add(self.bytes_written.min(ROTATE_BYTES));
@@ -582,11 +596,14 @@ impl LogState {
             self.failed();
             return result;
         }
-        self.ensure_open(true)
+        self.ensure_open(true)?;
+        self.active_started = SystemTime::now();
+        Ok(())
     }
 
     fn write_event(&mut self, event: &[u8]) -> io::Result<()> {
         self.ensure_open(false)?;
+        self.rotate_aged_segment(SystemTime::now())?;
         let result = self.write_open_event(event);
         if result.is_err() && self.health.writer_available.load(Ordering::Acquire) {
             self.failed();
@@ -595,6 +612,9 @@ impl LogState {
     }
 
     fn write_open_event(&mut self, event: &[u8]) -> io::Result<()> {
+        if self.bytes_written == 0 {
+            self.active_started = SystemTime::now();
+        }
         let event_length = u64::try_from(event.len())
             .unwrap_or(u64::MAX)
             .saturating_add(u64::from(!event.ends_with(b"\n")));
@@ -637,11 +657,28 @@ impl LogState {
         }
         self.file = Some(open_active_log(&self.active_path)?);
         self.bytes_written = 0;
+        self.active_started = SystemTime::now();
         prune_logs(
             &self.directory,
             MAX_TOTAL_BYTES.saturating_sub(ROTATE_BYTES),
         )?;
         Ok(())
+    }
+
+    /// Rotate an old nonempty segment once. Archives expire by their last
+    /// modification time, so this is not a per-record seven-day guarantee.
+    fn rotate_aged_segment(&mut self, now: SystemTime) -> io::Result<()> {
+        if self.file.is_none()
+            || self.bytes_written == 0
+            || now.duration_since(self.active_started).unwrap_or_default() < MAX_ACTIVE_SEGMENT_AGE
+        {
+            return Ok(());
+        }
+        let result = self.rotate();
+        if result.is_err() && self.health.writer_available.load(Ordering::Acquire) {
+            self.failed();
+        }
+        result
     }
 }
 
@@ -1274,6 +1311,59 @@ mod tests {
         assert_eq!(factory.health().clear_epoch, 1);
         assert_eq!(factory.health().dropped_events, 1);
         assert_eq!(factory.health().written_events, 1);
+    }
+
+    #[test]
+    fn startup_rotates_and_prunes_an_expired_quiet_active_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let logs = log_directory(&config);
+        fs::create_dir(&logs).unwrap();
+        let active = logs.join(ACTIVE_LOG_NAME);
+        fs::write(&active, b"{\"sequence\":1}\n").unwrap();
+        let old = SystemTime::now() - MAX_AGE - Duration::from_secs(60);
+        File::options()
+            .write(true)
+            .open(&active)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(old))
+            .unwrap();
+        let factory = LogWriterFactory::open(&config).unwrap();
+        factory.flush(Duration::from_secs(5)).unwrap();
+        assert!(fs::read(&active).unwrap().is_empty());
+        assert_eq!(fs::read_dir(&logs).unwrap().count(), 1);
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
+    fn quiet_segments_rotate_by_age_while_fresh_archives_are_retained() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let factory = LogWriterFactory::open(&config).unwrap();
+        record_sequence(&factory, 1);
+        owner_operation(&factory.shared, Duration::from_secs(5), |state| {
+            let now = SystemTime::now();
+            state.active_started = now - MAX_ACTIVE_SEGMENT_AGE;
+            state.rotate_aged_segment(now)
+        })
+        .unwrap();
+        record_sequence(&factory, 2);
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+        let logs = log_directory(&config);
+        let paths = fs::read_dir(&logs)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(paths.len(), 2);
+        let archived = paths
+            .iter()
+            .find(|path| path.file_name().unwrap() != ACTIVE_LOG_NAME)
+            .unwrap();
+        let prior: Value = serde_json::from_slice(&fs::read(archived).unwrap()).unwrap();
+        let current: Value =
+            serde_json::from_slice(&fs::read(logs.join(ACTIVE_LOG_NAME)).unwrap()).unwrap();
+        assert_eq!(prior["sequence"], 1);
+        assert_eq!(current["sequence"], 2);
     }
 
     #[test]
