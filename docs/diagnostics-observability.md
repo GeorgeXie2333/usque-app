@@ -20,7 +20,7 @@ A finding's outcome is separate from how its evidence was obtained:
 | Source | `config`: configuration validation; `runtime`: runtime evidence; `platform`: platform observation; `active_probe`: an explicit Deep probe; `frontend`: client-side observation; `unknown`: no established source |
 | Availability | `observed`: the source supplied the stated observation; `inferred`: derived from other state; `unavailable`: missing observation; `stale`: outdated or mismatched scope; `not_applicable`: the check does not apply |
 | Correlation | Optional random connection-instance UUID and physical network generation; these are not account/device identities. Connection session generation and platform recovery journal generation have separate meanings. |
-| Age | Age of the actual observation when supplied; readers do not invent an observation time from receipt time. |
+| Age | When supplied, age uses the quality/timeline timestamp or captured diagnostic context; frontend receipt time is not substituted for missing timestamps. |
 
 Observed configuration or runtime state does not establish externally observed
 traffic behavior. An inferred condition is presented as inferred. Unsupported,
@@ -45,6 +45,13 @@ remain in [Network Doctor](network-doctor.md).
 The desktop manager owns its worker, cancellation token and session. Clearing
 retires and joins the old worker before another start can acquire that
 lifecycle. Cancellation remains active while checks release their resources.
+Data reset excludes new diagnostic captures through configuration and log
+clearing, using a separate lifecycle guard from Deep's networking lease.
+Android waits for the service's post-cleanup probe reply within the remaining
+four-second check budget (at most 500 ms after cancellation). Missing confirmation
+produces failed execution with unavailable cleanup evidence. The bridge retains
+the pending-probe gate until an actual reply or client destruction; Binder loss
+does not establish cleanup, and can leave probes unavailable for that client.
 A completed session can contain failed findings: completion describes execution,
 not a successful network verdict.
 
@@ -55,6 +62,8 @@ broadcast lag. Existing start/check/completion events remain compatible.
 Flutter ignores lower revisions and active updates after a terminal result for
 the same session. Legacy check events request single-flight `GetDiagnostics`
 recovery instead of fabricating revisions.
+Conflicting session IDs trigger a fresh read at the recovery cadence; the reply
+and intervening event are not assumed to have a universal delivery order.
 
 | Bound | Current limit |
 | --- | --- |
@@ -100,6 +109,9 @@ connection/network generations and timeline correlation. Mismatched timeline
 events/metrics are omitted and marked stale; mismatched scoped finding evidence
 is also excluded. Missing correlation is reported as unavailable rather than
 proof that independently collected sources match.
+Scope stability checks identity rather than atomic sampling across every
+source. A read-only runtime-health projection can be newer than the published
+connection-state phase without changing that state machine.
 
 ## Log ownership, bounds and health
 
@@ -109,6 +121,11 @@ bounded records, then enqueue without filesystem I/O. The owner serializes
 append, rotation, pruning, export capture and clear. Clear epochs prevent an
 older formatter or queued record from restoring cleared data. A capture barrier
 syncs preceding writes before the tail is read.
+Directory ownership survives final-handle retirement until the old worker has
+closed its file. Reopening during retirement yields an unavailable sink;
+capture/clear report busy. Persisted-only operations also reserve the directory.
+On reopen, an unfinished tail fragment is isolated before fresh records are
+accepted; recovery is counted and the invalid fragment remains rejectable.
 
 Android
 [AndroidLogStore.kt](../apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/AndroidLogStore.kt)
@@ -142,8 +159,9 @@ An empty log payload is therefore not evidence that nothing happened.
 ## Local export and privacy
 
 Export selects the newest complete records across active and rotated logs,
-then restores the selected records to forward order. Records
-outside the bounded tail or rejected by public projection are not silently
+then restores the selected records to forward order. The active file takes
+priority; archive ordering uses file time, so clock changes can limit ordering
+between archives. Records outside the bounded tail or rejected by public projection are not silently
 represented as a complete log. Desktop `log-export.json` and Android
 `log-storage-health.json` explain omissions; manifests list content sizes and
 SHA-256 hashes. Android limits the collected payloads to 8 MiB.

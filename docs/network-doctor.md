@@ -46,7 +46,10 @@ Results distinguish configuration, runtime, platform, client and active-probe
 sources, and mark evidence as observed, inferred, unavailable, stale or not
 applicable. Missing counters display **Unknown**; an explicit measured zero
 remains zero. A suggested action can be present even without a transport failure
-code.
+code. If Android cannot confirm probe cleanup, the session reports failed
+execution with unavailable evidence. Another probe remains blocked until the
+service's cleanup reply arrives or the client closes; export diagnostics when
+confirmation remains unavailable.
 
 The timeline shows recent connection events, with distinct labels for QUIC
 migration, path MTU and encrypted-DNS changes. **Last connection** identifies
