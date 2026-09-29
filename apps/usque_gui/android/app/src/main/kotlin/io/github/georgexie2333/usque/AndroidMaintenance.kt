@@ -66,69 +66,14 @@ internal object AndroidMaintenance {
             } else {
                 connectionTimeline
             }
-        val connection =
-            JSONObject()
-                .put("phase", safeEnum(snapshot["phase"], CONNECTION_PHASES, "unknown"))
-                .put("transport", safeEnum(snapshot["transport"], setOf("h2", "h3"), null))
-                .put("data_plane", L4StatusFields.mode(snapshot["data_plane"]))
-                .put(
-                    "l4",
-                    L4StatusFields
-                        .decode(
-                            (snapshot["l4"] as? Map<*, *>)?.let {
-                                JSONObject(it).toString()
-                            },
-                        )?.let { JSONObject(it) },
-                ).put(
-                    "address_family",
-                    safeEnum(snapshot["address_family"], setOf("ipv4", "ipv6", "dual"), null),
-                ).put("reconnect_count", safeCounter(snapshot["reconnect_count"]))
-                .put(
-                    "kill_switch_state",
-                    safeEnum(snapshot["kill_switch_state"], KILL_SWITCH_STATES, "unknown"),
-                ).put("platform_lockdown", snapshot["platform_lockdown"] == true)
-                .put("always_on", snapshot["always_on"] == true)
-                .put(
-                    "active_listener_count",
-                    (snapshot["active_listeners"] as? List<*>)?.size?.coerceAtMost(32) ?: 0,
-                ).put("exit_ipv4_observed", snapshot["exit_ipv4"] != null)
-                .put("exit_ipv6_observed", snapshot["exit_ipv6"] != null)
+        val connection = sanitizeConnectionSummary(snapshot)
         val configuration =
             JSONObject()
                 .put("platform", "android")
                 .put("vpn_service_diagnostics", true)
                 .put("diagnostic_modes", listOf("standard", "deep"))
                 .put("automatic_upload", false)
-        val platformHealth =
-            JSONObject()
-                .put(
-                    "vpn_service_state",
-                    safeEnum(snapshot["vpn_service_state"], SERVICE_STATES, "unknown"),
-                ).put(
-                    "vpn_process_state",
-                    safeEnum(snapshot["vpn_process_state"], PROCESS_STATES, "unknown"),
-                ).put("tun_fd_valid", snapshot["tun_fd_valid"] == true)
-                .put("tun_interface_present", snapshot["tun_interface_present"] == true)
-                .put(
-                    "underlying_network_present",
-                    snapshot["underlying_network_present"] == true,
-                ).put("underlying_family_mask", safeCounter(snapshot["underlying_family_mask"]))
-                .put("network_generation", safeCounter(snapshot["network_generation"]))
-                .put("dns_server_count", safeCounter(snapshot["dns_server_count"]))
-                .put("always_on_state", snapshot["always_on"] == true)
-                .put("lockdown_state", snapshot["platform_lockdown"] == true)
-                .put(
-                    "foreground_notification_state",
-                    safeEnum(
-                        snapshot["foreground_notification_state"],
-                        NOTIFICATION_STATES,
-                        "unknown",
-                    ),
-                ).put(
-                    "native_runtime_state",
-                    safeEnum(snapshot["native_runtime_state"], RUNTIME_STATES, "unknown"),
-                ).put("pending_cleanup", snapshot["pending_cleanup"] == true)
-                .put("independent_leak_verification", false)
+        val platformHealth = sanitizePlatformHealth(snapshot)
         val readme =
             """
             Usque diagnostic bundle
@@ -220,6 +165,74 @@ internal object AndroidMaintenance {
             }
         }
     }
+
+    internal fun sanitizeConnectionSummary(snapshot: Map<String, Any?>): JSONObject {
+        val platform = observedPlatformFields(snapshot)
+        val result =
+            JSONObject()
+                .put("phase", safeEnum(snapshot["phase"], CONNECTION_PHASES, "unknown"))
+                .put("transport", safeEnum(snapshot["transport"], setOf("h2", "h3"), null))
+                .put("data_plane", L4StatusFields.mode(snapshot["data_plane"]))
+                .put(
+                    "l4",
+                    L4StatusFields
+                        .decode((snapshot["l4"] as? Map<*, *>)?.let { JSONObject(it).toString() })
+                        ?.let { JSONObject(it) },
+                ).put("address_family", safeEnum(snapshot["address_family"], setOf("ipv4", "ipv6", "dual"), null))
+                .put("reconnect_count", DiagnosticMetadata.unsigned(snapshot["reconnect_count"]))
+                .put("kill_switch_state", safeEnum(snapshot["kill_switch_state"], KILL_SWITCH_STATES, "unknown"))
+                .put("platform_lockdown", platform["platform_lockdown"] as? Boolean)
+                .put("always_on", platform["always_on"] as? Boolean)
+                .put("platform_observation", platformObservation(snapshot))
+                .put("active_listener_count", (snapshot["active_listeners"] as? List<*>)?.size?.coerceAtMost(32))
+        for (family in listOf("ipv4", "ipv6")) {
+            val key = "exit_$family"
+            val value = snapshot[key]
+            if (snapshot.containsKey(key) && (value == null || value is String)) {
+                result.put("${key}_observed", value?.isNotBlank() == true)
+            }
+        }
+        return result
+    }
+
+    internal fun sanitizePlatformHealth(snapshot: Map<String, Any?>): JSONObject {
+        val platform = observedPlatformFields(snapshot)
+        val result =
+            JSONObject()
+                .put("observation", platformObservation(snapshot))
+                .put("vpn_service_state", safeEnum(platform["vpn_service_state"], SERVICE_STATES, "unknown"))
+                .put("vpn_process_state", safeEnum(platform["vpn_process_state"], PROCESS_STATES, "unknown"))
+                .put(
+                    "foreground_notification_state",
+                    safeEnum(platform["foreground_notification_state"], NOTIFICATION_STATES, "unknown"),
+                ).put("native_runtime_state", safeEnum(platform["native_runtime_state"], RUNTIME_STATES, "unknown"))
+                .put("independent_leak_verification", false)
+        for ((output, input) in PLATFORM_BOOLEAN_FIELDS) {
+            result.put(output, platform[input] as? Boolean)
+        }
+        for (key in listOf("underlying_family_mask", "network_generation", "dns_server_count")) {
+            result.put(key, DiagnosticMetadata.unsigned(platform[key]))
+        }
+        return result
+    }
+
+    private fun observedPlatformFields(snapshot: Map<String, Any?>): Map<String, Any?> =
+        if (snapshot["platform_state_observed"] == true) snapshot else emptyMap()
+
+    private fun platformObservation(snapshot: Map<String, Any?>): JSONObject =
+        JSONObject()
+            .put("source", "platform")
+            .put("availability", if (snapshot["platform_state_observed"] == true) "observed" else "unavailable")
+
+    private val PLATFORM_BOOLEAN_FIELDS =
+        mapOf(
+            "tun_fd_valid" to "tun_fd_valid",
+            "tun_interface_present" to "tun_interface_present",
+            "underlying_network_present" to "underlying_network_present",
+            "always_on_state" to "always_on",
+            "lockdown_state" to "platform_lockdown",
+            "pending_cleanup" to "pending_cleanup",
+        )
 
     // Clear-all must know whether persistence succeeded before continuing.
     @SuppressLint("ApplySharedPref", "UseKtx")

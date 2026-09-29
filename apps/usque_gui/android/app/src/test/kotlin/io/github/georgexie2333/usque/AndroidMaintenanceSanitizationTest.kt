@@ -7,6 +7,74 @@ import org.junit.Test
 
 class AndroidMaintenanceSanitizationTest {
     @Test
+    fun missingPlatformObservationNeverBecomesFalseOrZeroInExport() {
+        val disconnected = mapOf("phase" to "disconnected", "platform_state_observed" to false)
+        for (snapshot in listOf(emptyMap(), disconnected)) {
+            val health = AndroidMaintenance.sanitizePlatformHealth(snapshot)
+            assertEquals("unavailable", health.getJSONObject("observation").getString("availability"))
+            for (key in listOf(
+                "tun_fd_valid",
+                "tun_interface_present",
+                "underlying_network_present",
+                "underlying_family_mask",
+                "network_generation",
+                "dns_server_count",
+                "always_on_state",
+                "lockdown_state",
+                "pending_cleanup",
+            )) {
+                assertFalse("Missing $key must remain unknown", health.has(key))
+            }
+            val connection = AndroidMaintenance.sanitizeConnectionSummary(snapshot)
+            assertEquals("unavailable", connection.getJSONObject("platform_observation").getString("availability"))
+            for (key in listOf(
+                "reconnect_count",
+                "active_listener_count",
+                "platform_lockdown",
+                "always_on",
+                "exit_ipv4_observed",
+                "exit_ipv6_observed",
+            )) {
+                assertFalse("Missing $key must remain unknown", connection.has(key))
+            }
+        }
+    }
+
+    @Test
+    fun actualPlatformFalseAndZeroRemainDistinctFromMissingOrInvalidValues() {
+        val snapshot =
+            mapOf(
+                "platform_state_observed" to true,
+                "tun_fd_valid" to false,
+                "pending_cleanup" to false,
+                "always_on" to false,
+                "platform_lockdown" to false,
+                "network_generation" to 0L,
+                "dns_server_count" to 0,
+                "underlying_family_mask" to -1,
+                "tun_interface_present" to "false",
+                "reconnect_count" to 0,
+                "active_listeners" to emptyList<String>(),
+                "exit_ipv4" to null,
+            )
+        val health = AndroidMaintenance.sanitizePlatformHealth(snapshot)
+        assertEquals("observed", health.getJSONObject("observation").getString("availability"))
+        assertFalse(health.getBoolean("tun_fd_valid"))
+        assertFalse(health.getBoolean("pending_cleanup"))
+        assertEquals(0L, health.getLong("network_generation"))
+        assertEquals(0L, health.getLong("dns_server_count"))
+        assertFalse(health.has("underlying_family_mask"))
+        assertFalse(health.has("tun_interface_present"))
+        val connection = AndroidMaintenance.sanitizeConnectionSummary(snapshot)
+        assertEquals(0L, connection.getLong("reconnect_count"))
+        assertEquals(0, connection.getInt("active_listener_count"))
+        assertFalse(connection.getBoolean("platform_lockdown"))
+        assertFalse(connection.getBoolean("always_on"))
+        assertFalse(connection.getBoolean("exit_ipv4_observed"))
+        assertFalse(connection.has("exit_ipv6_observed"))
+    }
+
+    @Test
     fun staleFailureCannotSurviveAsCurrentSeverityRemediationOrRunningCheck() {
         val oldId = "123e4567-e89b-42d3-a456-426614174000"
         val currentId = "223e4567-e89b-42d3-a456-426614174000"
