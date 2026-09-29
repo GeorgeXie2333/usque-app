@@ -12,6 +12,28 @@ import java.util.concurrent.Executor
 
 class AndroidLogStoreTest {
     @Test
+    fun activeTailWinsTheBudgetEvenWhenAnArchiveHasALaterFileTime() {
+        val directory = Files.createTempDirectory("usque-log-clock-test").toFile()
+        try {
+            val store = AndroidLogStore(directory, Executor(Runnable::run))
+            store.record(AndroidLogStore.Event.CONNECTION_REQUESTED)
+            store.capture().get()
+            val active = directory.resolve("android-engine.jsonl")
+            val prior = active.readText()
+            val archive = directory.resolve("android-engine-future-1.jsonl")
+            archive.writeText(prior.repeat(20))
+            store.record(AndroidLogStore.Event.NATIVE_STOP_COMPLETED)
+            store.capture().get()
+            assertTrue(archive.setLastModified(System.currentTimeMillis() + 60_000))
+            val latest = store.capture(prior.toByteArray().size * 3).get()
+            assertTrue(latest.lines.contains("NATIVE_STOP_COMPLETED"))
+            assertEquals(true, latest.health["truncated"])
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun failedPartialAppendDoesNotCorruptTheFollowingRecord() {
         val directory = Files.createTempDirectory("usque-log-partial-test").toFile()
         try {

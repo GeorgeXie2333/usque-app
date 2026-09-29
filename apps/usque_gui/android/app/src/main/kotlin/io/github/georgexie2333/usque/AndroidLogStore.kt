@@ -461,9 +461,10 @@ internal class AndroidLogStore internal constructor(
                     withDirectoryLock(directory) {
                         purgeExpired(directory)
                         for (file in logFiles(directory).sortedWith(
-                            compareByDescending<File> {
-                                it.lastModified()
-                            }.thenByDescending { it.name },
+                            compareByDescending<File> { it == activeFile(directory) }
+                                .thenByDescending {
+                                    it.lastModified()
+                                }.thenByDescending { it.name },
                         )) {
                             val length = file.length()
                             sourceBytes += length
