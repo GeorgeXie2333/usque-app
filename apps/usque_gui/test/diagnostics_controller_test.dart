@@ -23,8 +23,10 @@ class DiagnosticsEngineStub implements EngineClient {
   int cancelCalls = 0;
   int restoreCalls = 0;
   int exportCalls = 0;
+  int timelineCalls = 0;
   Completer<DiagnosticSession>? pendingStart;
   Completer<DiagnosticSession?>? pendingRestore;
+  Completer<ConnectionTimeline>? pendingTimeline;
   String? cancelledId;
 
   @override
@@ -41,7 +43,10 @@ class DiagnosticsEngineStub implements EngineClient {
   }
 
   @override
-  Future<ConnectionTimeline> getConnectionTimeline() async => timeline;
+  Future<ConnectionTimeline> getConnectionTimeline() async {
+    timelineCalls += 1;
+    return pendingTimeline?.future ?? timeline;
+  }
 
   @override
   Future<DiagnosticSession> startDiagnostics(DiagnosticMode mode) {
@@ -104,6 +109,157 @@ DiagnosticSession runningSession({
 }
 
 void main() {
+  testWidgets('timeline refresh is independent of active session polling', (
+    tester,
+  ) async {
+    final engine = DiagnosticsEngineStub()..recovered = runningSession();
+    final controller = DiagnosticsController(engine);
+    await controller.restore();
+    controller.beginTimelineUpdates();
+    final initialTimelineReads = engine.timelineCalls;
+    final initialSessionReads = engine.restoreCalls;
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump();
+    expect(engine.restoreCalls, greaterThan(initialSessionReads));
+    expect(engine.timelineCalls, initialTimelineReads);
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump();
+    expect(engine.timelineCalls, initialTimelineReads + 1);
+    expect(engine.startCalls, 0);
+    controller.endTimelineUpdates();
+    final stoppedReads = engine.timelineCalls;
+    await tester.pump(const Duration(seconds: 2));
+    expect(engine.timelineCalls, stoppedReads);
+    controller.dispose();
+  });
+
+  testWidgets('timeline updates without a diagnostic session or new probes', (
+    tester,
+  ) async {
+    final engine = DiagnosticsEngineStub();
+    final controller = DiagnosticsController(engine);
+    addTearDown(controller.dispose);
+    await controller.restore();
+    controller.beginTimelineUpdates();
+    final initialSessionReads = engine.restoreCalls;
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+    expect(engine.timelineCalls, 2);
+    expect(engine.restoreCalls, initialSessionReads);
+    expect(engine.startCalls, 0);
+    controller.endTimelineUpdates();
+  });
+
+  testWidgets(
+    'timed-out timeline read retains single flight until bridge completion',
+    (tester) async {
+      final engine = DiagnosticsEngineStub()
+        ..pendingTimeline = Completer<ConnectionTimeline>();
+      final controller = DiagnosticsController(engine);
+      addTearDown(controller.dispose);
+      final read = controller.loadTimeline(silent: true);
+      await tester.pump(const Duration(milliseconds: 751));
+      await read;
+      expect(controller.timelineLoading, isFalse);
+      await controller.loadTimeline(silent: true);
+      expect(engine.timelineCalls, 1);
+      engine.pendingTimeline!.complete(
+        const ConnectionTimeline(droppedEventCount: 9),
+      );
+      await tester.pump();
+      expect(controller.timeline.droppedEventCount, 0);
+      engine.pendingTimeline = null;
+      await controller.loadTimeline();
+      expect(engine.timelineCalls, 2);
+    },
+  );
+
+  testWidgets('session revisions prevent late poll or event regression', (
+    tester,
+  ) async {
+    final engine = DiagnosticsEngineStub()..recovered = runningSession();
+    final controller = DiagnosticsController(engine);
+    addTearDown(controller.dispose);
+    await controller.restore();
+    engine.pendingRestore = Completer<DiagnosticSession?>();
+    final poll = controller.restore(refreshTimeline: false);
+    final terminal = DiagnosticSession(
+      sessionId: 'session-one',
+      state: DiagnosticSessionState.completed,
+      startedAt: DateTime.fromMillisecondsSinceEpoch(1),
+      mode: DiagnosticMode.standard,
+      revision: 5,
+    );
+    controller.handleEngineEvent(
+      EngineSnapshotEvent(
+        diagnosticsChanged: true,
+        diagnosticSession: terminal,
+      ),
+    );
+    engine.pendingRestore!.complete(runningSession());
+    await poll;
+    controller.handleEngineEvent(
+      EngineSnapshotEvent(
+        diagnosticsChanged: true,
+        diagnosticSession: runningSession(),
+      ),
+    );
+    expect(controller.session, same(terminal));
+    expect(controller.state, DiagnosticsControllerState.completed);
+  });
+
+  testWidgets(
+    'reset discards a late timeline response and stops old session polling',
+    (tester) async {
+      final engine = DiagnosticsEngineStub()
+        ..pendingTimeline = Completer<ConnectionTimeline>();
+      final controller = DiagnosticsController(engine);
+      addTearDown(controller.dispose);
+      final read = controller.loadTimeline();
+      controller.reset();
+      engine.pendingTimeline!.complete(
+        const ConnectionTimeline(droppedEventCount: 4),
+      );
+      await read;
+      expect(controller.timeline.droppedEventCount, 0);
+      expect(controller.timelineLoading, isFalse);
+      expect(controller.session, isNull);
+    },
+  );
+
+  testWidgets('older full snapshot cannot regress parallel active checks', (
+    tester,
+  ) async {
+    final engine = DiagnosticsEngineStub();
+    final controller = DiagnosticsController(engine);
+    final newest = DiagnosticSession(
+      sessionId: 'session-one',
+      state: DiagnosticSessionState.running,
+      startedAt: DateTime.fromMillisecondsSinceEpoch(1),
+      mode: DiagnosticMode.standard,
+      revision: 7,
+      activeChecks: const ['quality.rtt', 'quality.packet_loss'],
+    );
+    controller.handleEngineEvent(
+      EngineSnapshotEvent(diagnosticsChanged: true, diagnosticSession: newest),
+    );
+    final old = DiagnosticSession(
+      sessionId: 'session-one',
+      state: DiagnosticSessionState.running,
+      startedAt: newest.startedAt,
+      mode: DiagnosticMode.standard,
+      revision: 6,
+      activeChecks: const ['quality.rtt'],
+    );
+    controller.handleEngineEvent(
+      EngineSnapshotEvent(diagnosticsChanged: true, diagnosticSession: old),
+    );
+    expect(controller.session, same(newest));
+    expect(controller.session!.runningCheckIds, hasLength(2));
+    controller.dispose();
+    await tester.pump();
+  });
+
   testWidgets(
     'second pending start cancels its own session despite old events',
     (tester) async {

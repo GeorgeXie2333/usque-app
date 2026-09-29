@@ -29,11 +29,27 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   @override
   void initState() {
     super.initState();
+    controller.diagnostics.beginTimelineUpdates();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         controller.diagnostics.restore(silent: true);
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(DiagnosticsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != controller) {
+      oldWidget.controller.diagnostics.endTimelineUpdates();
+      controller.diagnostics.beginTimelineUpdates();
+    }
+  }
+
+  @override
+  void dispose() {
+    controller.diagnostics.endTimelineUpdates();
+    super.dispose();
   }
 
   @override
@@ -459,6 +475,7 @@ class _SessionProgressPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     final summary = session.summary;
+    final activeChecks = session.runningCheckIds;
     return ContentSection(
       icon: LucideIcons.radio,
       title: strings.get('diag_session'),
@@ -482,10 +499,15 @@ class _SessionProgressPanel extends StatelessWidget {
           children: <Widget>[
             Expanded(
               child: Text(
-                session.currentCheck == null
+                activeChecks.isNotEmpty
+                    ? activeChecks
+                          .map((check) => diagnosticCheckLabel(strings, check))
+                          .join(' · ')
+                    : session.currentCheck == null
                     ? strings.get('diag_waiting_check')
                     : diagnosticCheckLabel(strings, session.currentCheck!),
                 overflow: TextOverflow.ellipsis,
+                maxLines: 2,
               ),
             ),
             const SizedBox(width: 12),

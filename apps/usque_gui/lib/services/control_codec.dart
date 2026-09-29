@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/diagnostics_contract_generated.dart';
 import '../models/app_models.dart';
 import '../models/diagnostics_models.dart';
 import 'engine_client.dart';
@@ -290,6 +291,7 @@ class ControlCodec {
           case 18:
           case 21:
           case 22:
+          case 25:
             final event = envelope.message(field);
             diagnosticsChanged = true;
             while (!event.isDone) {
@@ -1107,6 +1109,8 @@ DiagnosticSession _decodeDiagnosticSession(_ProtoReader reader) {
   var progressPercent = 0;
   final findings = <DiagnosticFinding>[];
   var summary = const DiagnosticSummary();
+  final activeChecks = <String>[];
+  int? revision;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -1148,6 +1152,16 @@ DiagnosticSession _decodeDiagnosticSession(_ProtoReader reader) {
         findings.add(_decodeDiagnosticFinding(reader.message(field)));
       case 9:
         summary = _decodeDiagnosticSummary(reader.message(field));
+      case 10:
+        final check = reader.string(field);
+        if (activeChecks.length < 4 &&
+            DiagnosticsContract.checkIds.contains(check) &&
+            !activeChecks.contains(check)) {
+          activeChecks.add(check);
+        }
+      case 11:
+        final value = reader.varint(field);
+        revision = value >= 0 ? value : null;
       default:
         reader.skip(field);
     }
@@ -1162,6 +1176,8 @@ DiagnosticSession _decodeDiagnosticSession(_ProtoReader reader) {
     progressPercent: progressPercent,
     findings: List<DiagnosticFinding>.unmodifiable(findings),
     summary: summary,
+    activeChecks: List.unmodifiable(activeChecks),
+    revision: revision,
   );
 }
 
@@ -1177,6 +1193,8 @@ DiagnosticFinding _decodeDiagnosticFinding(_ProtoReader reader) {
   DateTime? startedAt;
   int? durationMilliseconds;
   String? dependencyReason;
+  DiagnosticObservation? observation;
+  final typedEvidence = <DiagnosticEvidence>[];
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -1221,6 +1239,13 @@ DiagnosticFinding _decodeDiagnosticFinding(_ProtoReader reader) {
         durationMilliseconds = value == 0 ? null : value;
       case 11:
         dependencyReason = _emptyToNull(reader.string(field));
+      case 12:
+        observation = _decodeDiagnosticObservation(reader.message(field));
+      case 13:
+        final value = _decodeDiagnosticEvidence(reader.message(field));
+        if (value != null && typedEvidence.length < 32) {
+          typedEvidence.add(value);
+        }
       default:
         reader.skip(field);
     }
@@ -1237,7 +1262,49 @@ DiagnosticFinding _decodeDiagnosticFinding(_ProtoReader reader) {
     startedAt: startedAt,
     durationMilliseconds: durationMilliseconds,
     dependencyReason: dependencyReason,
+    observation: observation,
+    evidence: List.unmodifiable(typedEvidence),
   );
+}
+
+DiagnosticObservation _decodeDiagnosticObservation(_ProtoReader reader) {
+  final values = <Object?, Object?>{'age_milliseconds': 0};
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        values['source'] = reader.string(field);
+      case 2:
+        values['availability'] = reader.string(field);
+      case 3:
+        values['age_milliseconds'] = reader.varint(field);
+      case 4:
+        values['connection_instance_id'] = reader.string(field);
+      case 5:
+        values['network_generation'] = reader.varint(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return DiagnosticObservation.fromMap(values);
+}
+
+DiagnosticEvidence? _decodeDiagnosticEvidence(_ProtoReader reader) {
+  final values = <Object?, Object?>{};
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        values['key'] = reader.string(field);
+      case 2:
+        values['number'] = reader.varint(field);
+      case 3:
+        values['token'] = reader.string(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return DiagnosticEvidence.fromMap(values);
 }
 
 DiagnosticSummary _decodeDiagnosticSummary(_ProtoReader reader) {

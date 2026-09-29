@@ -1,5 +1,6 @@
 import '../models/diagnostics_models.dart';
 import 'app_strings.dart';
+import 'diagnostics_contract_generated.dart';
 
 String diagnosticStatusLabel(AppStrings strings, DiagnosticCheckStatus status) {
   return strings.get(switch (status) {
@@ -28,6 +29,9 @@ String diagnosticCategoryLabel(
 }
 
 String diagnosticCheckLabel(AppStrings strings, String checkId) {
+  if (!DiagnosticsContract.checkIds.contains(checkId)) {
+    return strings.get('diagnostics');
+  }
   return _catalogOrFallback(
     strings,
     'diag_check_${checkId.replaceAll('.', '_')}',
@@ -36,6 +40,9 @@ String diagnosticCheckLabel(AppStrings strings, String checkId) {
 }
 
 String diagnosticFailureTitle(AppStrings strings, String code) {
+  if (!DiagnosticsContract.failureCodes.contains(code)) {
+    return strings.get('operation_failed');
+  }
   return _catalogOrFallback(
     strings,
     'diag_fail_$code',
@@ -47,6 +54,9 @@ String diagnosticRemediation(AppStrings strings, String key) {
   if (key == 'none' || key.isEmpty) {
     return strings.get('diag_fix_none');
   }
+  if (!DiagnosticsContract.remediationKeys.contains(key)) {
+    return strings.get('diag_fix_default');
+  }
   final catalogKey = 'diag_fix_$key';
   final value = strings.get(catalogKey);
   if (value == catalogKey) {
@@ -56,7 +66,8 @@ String diagnosticRemediation(AppStrings strings, String key) {
 }
 
 String diagnosticFindingSummary(AppStrings strings, DiagnosticFinding finding) {
-  if (finding.summaryKey.startsWith('nq_finding_')) {
+  if (DiagnosticsContract.summaryKeys.contains(finding.summaryKey) &&
+      finding.summaryKey.startsWith('nq_finding_')) {
     final localized = strings.get(finding.summaryKey);
     if (localized != finding.summaryKey) return localized;
   }
@@ -70,6 +81,32 @@ String diagnosticFindingSummary(AppStrings strings, DiagnosticFinding finding) {
     DiagnosticCheckStatus.pending => 'diag_finding_pending',
   });
 }
+
+String diagnosticObservationSourceLabel(
+  AppStrings strings,
+  DiagnosticObservationSource source,
+) => strings.get(switch (source) {
+  DiagnosticObservationSource.config => 'diag_source_config',
+  DiagnosticObservationSource.runtime => 'diag_source_runtime',
+  DiagnosticObservationSource.platform => 'diag_source_platform',
+  DiagnosticObservationSource.activeProbe => 'diag_source_active_probe',
+  DiagnosticObservationSource.frontend => 'diag_source_frontend',
+  DiagnosticObservationSource.unknown => 'diag_unknown',
+});
+
+String diagnosticObservationAvailabilityLabel(
+  AppStrings strings,
+  DiagnosticObservationAvailability availability,
+) => strings.get(switch (availability) {
+  DiagnosticObservationAvailability.observed => 'diag_availability_observed',
+  DiagnosticObservationAvailability.inferred => 'diag_availability_inferred',
+  DiagnosticObservationAvailability.unavailable =>
+    'diag_availability_unavailable',
+  DiagnosticObservationAvailability.stale => 'diag_availability_stale',
+  DiagnosticObservationAvailability.notApplicable =>
+    'diag_availability_not_applicable',
+  DiagnosticObservationAvailability.unknown => 'diag_unknown',
+});
 
 String diagnosticSkipReason(AppStrings strings, DiagnosticFinding finding) {
   final key = switch (finding.dependencyReason) {

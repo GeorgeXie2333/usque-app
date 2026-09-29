@@ -15,10 +15,16 @@ class DiagnosticsController extends ChangeNotifier {
       AppStrings(LocalePreference.system);
 
   static const Duration _activeRefreshInterval = Duration(milliseconds: 750);
+  static const Duration _timelineRefreshInterval = Duration(seconds: 2);
+  static const Duration _timelineReadTimeout = Duration(milliseconds: 750);
 
   final EngineClient _engine;
   Timer? _activeRefreshTimer;
+  Timer? _timelineRefreshTimer;
+  int _timelineObservers = 0;
+  int _sessionVersion = 0;
   Future<void>? _restoreInFlight;
+  Future<ConnectionTimeline>? _timelineInFlight;
   int _operationGeneration = 0;
   bool _cancelRequestedDuringStart = false;
   bool _startRequestInFlight = false;
@@ -42,10 +48,22 @@ class DiagnosticsController extends ChangeNotifier {
   bool get isActive => session?.isActive ?? false;
   DiagnosticMode? get requestedMode => _requestedMode;
 
-  Future<void> restore({bool silent = false}) {
+  Future<void> restore({bool silent = false, bool refreshTimeline = true}) {
+    final generation = _dataGeneration;
+    final operation = _operationGeneration;
+    Future<void> withTimeline(Future<void> restored) => !refreshTimeline
+        ? restored
+        : restored.then((_) async {
+            if (!_disposed &&
+                !_resetting &&
+                generation == _dataGeneration &&
+                operation == _operationGeneration) {
+              await loadTimeline(silent: true);
+            }
+          });
     final current = _restoreInFlight;
     if (current != null) {
-      return current;
+      return withTimeline(current);
     }
     late final Future<void> restore;
     restore = _restore(silent: silent).whenComplete(() {
@@ -54,12 +72,13 @@ class DiagnosticsController extends ChangeNotifier {
       }
     });
     _restoreInFlight = restore;
-    return restore;
+    return withTimeline(restore);
   }
 
   Future<void> _restore({required bool silent}) async {
     final generation = _dataGeneration;
     final operation = _operationGeneration;
+    final version = _sessionVersion;
     if (_resetting || _startRequestInFlight) return;
     try {
       final recovered = await _engine.getDiagnostics();
@@ -71,7 +90,7 @@ class DiagnosticsController extends ChangeNotifier {
         return;
       }
       if (recovered == null) {
-        if (!_startRequestInFlight) {
+        if (!_startRequestInFlight && version == _sessionVersion) {
           session = null;
           state = DiagnosticsControllerState.idle;
           _stopActiveRefresh();
@@ -79,7 +98,6 @@ class DiagnosticsController extends ChangeNotifier {
       } else {
         _applySession(recovered);
       }
-      await loadTimeline(silent: true);
     } on EngineException catch (error) {
       if (!silent &&
           !_disposed &&
@@ -207,7 +225,10 @@ class DiagnosticsController extends ChangeNotifier {
         if (_startEvents.length >= 8) {
           _startEvents.remove(_startEvents.keys.first);
         }
-        _startEvents[next.sessionId] = next;
+        final previous = _startEvents[next.sessionId];
+        if (previous == null || !_olderSession(next, previous)) {
+          _startEvents[next.sessionId] = next;
+        }
       }
       return;
     }
@@ -222,7 +243,7 @@ class DiagnosticsController extends ChangeNotifier {
         return;
       }
     }
-    unawaited(restore(silent: true));
+    unawaited(restore(silent: true, refreshTimeline: false));
   }
 
   void markEventStreamUnavailable() {
@@ -239,7 +260,7 @@ class DiagnosticsController extends ChangeNotifier {
   Future<void> loadTimeline({bool silent = false}) async {
     final generation = _dataGeneration;
     if (_resetting) return;
-    if (timelineLoading) {
+    if (timelineLoading || _timelineInFlight != null) {
       return;
     }
     timelineLoading = true;
@@ -247,11 +268,25 @@ class DiagnosticsController extends ChangeNotifier {
       notifyListeners();
     }
     try {
-      final next = await _engine.getConnectionTimeline();
+      final request = _engine.getConnectionTimeline();
+      _timelineInFlight = request;
+      void release() {
+        if (identical(_timelineInFlight, request)) _timelineInFlight = null;
+      }
+
+      // A timed-out read may still be unwinding in the bridge. Keep ownership
+      // until its actual completion so subsequent ticks cannot overlap it.
+      unawaited(
+        request.then<void>(
+          (_) => release(),
+          onError: (Object error, StackTrace stack) => release(),
+        ),
+      );
+      final next = await request.timeout(_timelineReadTimeout);
       if (!_disposed && generation == _dataGeneration) {
         timeline = next;
       }
-    } on EngineException catch (error) {
+    } on Object catch (error) {
       if (!silent && !_disposed && generation == _dataGeneration) {
         lastError = userFacingError(resolveStrings(), error);
       }
@@ -261,6 +296,37 @@ class DiagnosticsController extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  /// Observe existing runtime evidence while this page is visible. This never
+  /// starts diagnostic probes and is independent of session recovery polling.
+  void beginTimelineUpdates() {
+    if (_disposed) return;
+    _timelineObservers++;
+    _startTimelineRefresh();
+  }
+
+  void endTimelineUpdates() {
+    if (_timelineObservers > 0) _timelineObservers--;
+    if (_timelineObservers == 0) _stopTimelineRefresh();
+  }
+
+  void _startTimelineRefresh() {
+    if (_disposed ||
+        _resetting ||
+        _timelineObservers == 0 ||
+        _timelineRefreshTimer != null) {
+      return;
+    }
+    _timelineRefreshTimer = Timer.periodic(
+      _timelineRefreshInterval,
+      (_) => unawaited(loadTimeline(silent: true)),
+    );
+  }
+
+  void _stopTimelineRefresh() {
+    _timelineRefreshTimer?.cancel();
+    _timelineRefreshTimer = null;
   }
 
   Future<String?> export() async {
@@ -298,6 +364,7 @@ class DiagnosticsController extends ChangeNotifier {
     _operationGeneration++;
     _resetting = true;
     _stopActiveRefresh();
+    _stopTimelineRefresh();
     _restoreInFlight = null;
   }
 
@@ -311,6 +378,7 @@ class DiagnosticsController extends ChangeNotifier {
     exporting = false;
     timelineLoading = false;
     _startActiveRefresh();
+    _startTimelineRefresh();
   }
 
   void reset() {
@@ -331,6 +399,7 @@ class DiagnosticsController extends ChangeNotifier {
     eventStreamDegraded = false;
     _acceptUnownedEvents = false;
     _resetting = false;
+    _startTimelineRefresh();
     notifyListeners();
   }
 
@@ -343,6 +412,9 @@ class DiagnosticsController extends ChangeNotifier {
   }
 
   void _applySession(DiagnosticSession next) {
+    final current = session;
+    if (current != null && _olderSession(next, current)) return;
+    _sessionVersion++;
     _requestedMode = null;
     session = next;
     state = switch (next.state) {
@@ -368,7 +440,7 @@ class DiagnosticsController extends ChangeNotifier {
     }
     _activeRefreshTimer = Timer.periodic(
       _activeRefreshInterval,
-      (_) => unawaited(restore(silent: true)),
+      (_) => unawaited(restore(silent: true, refreshTimeline: false)),
     );
   }
 
@@ -382,6 +454,15 @@ class DiagnosticsController extends ChangeNotifier {
     _disposed = true;
     _operationGeneration += 1;
     _stopActiveRefresh();
+    _stopTimelineRefresh();
     super.dispose();
   }
+}
+
+bool _olderSession(DiagnosticSession next, DiagnosticSession previous) {
+  if (next.sessionId != previous.sessionId) return false;
+  if (!previous.isActive && next.isActive) return true;
+  final previousRevision = previous.revision;
+  return previousRevision != null &&
+      (next.revision == null || next.revision! < previousRevision);
 }

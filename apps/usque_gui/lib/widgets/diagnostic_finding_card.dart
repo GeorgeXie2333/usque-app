@@ -20,6 +20,8 @@ class DiagnosticFindingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final failure = finding.failure;
+    final observation = finding.observation;
+    final evidence = finding.publicEvidence;
     final theme = Theme.of(context);
     final tokens = UsqueTokens.of(context);
     final color = _statusColor(tokens, finding.status);
@@ -43,6 +45,15 @@ class DiagnosticFindingCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          if (observation != null) ...<Widget>[
+            Text(
+              '${diagnosticObservationSourceLabel(strings, observation.source)} · ${diagnosticObservationAvailabilityLabel(strings, observation.availability)}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
           if (failure != null) ...<Widget>[
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -125,14 +136,14 @@ class DiagnosticFindingCard extends StatelessWidget {
               ),
             ],
           ],
-          if (finding.sanitizedEvidence.isNotEmpty) ...<Widget>[
+          if (evidence.isNotEmpty) ...<Widget>[
             const SizedBox(height: 10),
             ExpansionTile(
               key: PageStorageKey<String>('evidence-${finding.checkId}'),
               title: Text(strings.get('technical_details')),
               expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
               childrenPadding: const EdgeInsets.all(12),
-              children: finding.sanitizedEvidence.indexed
+              children: evidence.indexed
                   .map(
                     (entry) => SelectableText(
                       key: PageStorageKey<String>(
