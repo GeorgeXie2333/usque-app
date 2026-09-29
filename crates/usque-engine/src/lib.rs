@@ -112,6 +112,7 @@ pub struct ControlServiceState {
     maintenance: maintenance::Maintenance,
     diagnostics: diagnostics::DiagnosticsManager,
     retained_connection_evidence: Arc<Mutex<Option<connection_evidence::ConnectionEvidence>>>,
+    diagnostics_lifecycle: Mutex<()>,
     cache_dir: PathBuf,
     geo_progress_tx: tokio::sync::broadcast::Sender<v1::GeoRulesProgress>,
     gate_directory: usque_core::vpngate::DirectoryDownloader,
@@ -431,6 +432,7 @@ impl ControlService {
                 maintenance: maintenance::Maintenance::new(store.path()),
                 diagnostics: diagnostics::DiagnosticsManager::new(),
                 retained_connection_evidence: Arc::new(Mutex::new(None)),
+                diagnostics_lifecycle: Mutex::new(()),
                 #[cfg(all(windows, feature = "wireguard"))]
                 warp_generator: Arc::new(usque_transport::warp_wireguard::Manager::new(
                     store.path().to_path_buf(),
@@ -1039,6 +1041,9 @@ impl ControlService {
                 Ok(control_response::Payload::Empty(v1::Empty {}))
             }
             control_request::Payload::StartDiagnostics(request) => {
+                // Keep capture and publication on the same side of a data
+                // reset. This guard is separate from Deep's mutation lease.
+                let _diagnostics_lifecycle = self.diagnostics_lifecycle.lock().await;
                 let mode = match v1::DiagnosticMode::try_from(request.mode) {
                     Ok(v1::DiagnosticMode::Standard) => usque_core::DiagnosticMode::Standard,
                     Ok(v1::DiagnosticMode::Deep) => usque_core::DiagnosticMode::Deep,
@@ -2702,6 +2707,10 @@ impl ControlService {
         if !confirmed {
             return Err(ControlServiceError::ConfirmationRequired);
         }
+        let _diagnostics_lifecycle = self.diagnostics_lifecycle.lock().await;
+        // Cancel a disconnected Deep probe before waiting for its mutation
+        // lease, and exclude new captures through the entire reset.
+        self.diagnostics.clear().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
@@ -2709,7 +2718,6 @@ impl ControlService {
         let _mutation = self.mutation_lock.lock().await;
         self.disconnect_locked().await?;
         self.await_disconnect_cleanup().await?;
-        self.diagnostics.clear().await;
         *self.retained_connection_evidence.lock().await = None;
         let config = self.config.read().await;
         let profile_ids = config
@@ -6494,6 +6502,74 @@ mod tests {
             status.network_quality.as_ref().map(|quality| quality.level),
             Some(v1::NetworkQualityLevel::Disconnected as i32)
         );
+    }
+
+    #[tokio::test]
+    async fn diagnostics_start_cannot_publish_an_old_capture_during_data_reset() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = Arc::new(
+            ControlService::open_with_vault(
+                ConfigStore::new(directory.path().join("config.json")),
+                Arc::new(MemoryVault::default()),
+            )
+            .unwrap(),
+        );
+        let started = service
+            .handle(request(
+                "before-reset",
+                control_request::Payload::StartDiagnostics(v1::StartDiagnosticsRequest {
+                    mode: v1::DiagnosticMode::Standard as i32,
+                }),
+            ))
+            .await;
+        assert!(started.error.is_none());
+        let submission = service.settings_submission.lock().await;
+        let clearing_service = Arc::clone(&service);
+        let clearing = tokio::spawn(async move { clearing_service.clear_all_data(true).await });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while service.diagnostics.get().await.is_some() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        // Clear has retired the old worker, but cannot reset configuration or
+        // logs until this inert test releases the submission gate.
+        let starting_service = Arc::clone(&service);
+        let mut starting = tokio::spawn(async move {
+            starting_service
+                .handle(request(
+                    "during-reset",
+                    control_request::Payload::StartDiagnostics(v1::StartDiagnosticsRequest {
+                        mode: v1::DiagnosticMode::Standard as i32,
+                    }),
+                ))
+                .await
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut starting)
+                .await
+                .is_err()
+        );
+        assert!(service.diagnostics.get().await.is_none());
+        drop(submission);
+        clearing.await.unwrap().unwrap();
+        let response = starting.await.unwrap();
+        assert!(response.error.is_none());
+        let Some(control_response::Payload::Diagnostics(session)) = response.payload else {
+            panic!("diagnostics response");
+        };
+        assert_eq!(
+            service
+                .diagnostics
+                .get()
+                .await
+                .unwrap()
+                .session_id
+                .to_string(),
+            session.session_id
+        );
+        service.diagnostics.clear().await;
     }
 
     #[tokio::test]
