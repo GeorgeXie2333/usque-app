@@ -450,6 +450,22 @@ mod tests {
         config.network.proxy.system_proxy = true;
         let mut edit = patch(&config, &["frontends.http"]);
         edit.values.frontends.http = false;
-        assert!(!merge_patch(&mut config, &edit).unwrap().proxy.system_proxy);
+        let previous = config.active_profile().unwrap();
+        let stored = merge_patch(&mut config, &edit).unwrap();
+        assert!(!stored.proxy.system_proxy);
+        let plan = plan_application(
+            Some(&previous),
+            &stored,
+            &edit.changed_fields,
+            ConnectionPhase::Connected,
+            true,
+        )
+        .unwrap();
+        assert_eq!(plan.class, ReconfigureClass::HotFrontends);
+        let target = plan.target.unwrap();
+        assert!(!target.frontends.http);
+        assert!(!target.proxy.system_proxy);
+        assert_eq!(target.frontends.tunnel, previous.frontends.tunnel);
+        assert_eq!(target.frontends.socks5, previous.frontends.socks5);
     }
 }

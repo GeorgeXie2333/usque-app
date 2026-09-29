@@ -90,7 +90,10 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         return ReconfigureClass::HotSystemProxy;
     }
 
-    if tunnel_same && system_proxy_same && (!socks_http_frontends || !proxy_except_system) {
+    // Frontend application also replaces the Windows system-proxy lease. In
+    // particular, disabling HTTP normalizes system_proxy to false and must not
+    // tear down the other outputs or their shared underlay.
+    if tunnel_same && (!socks_http_frontends || !proxy_except_system) {
         return ReconfigureClass::HotFrontends;
     }
 
@@ -213,6 +216,25 @@ mod tests {
         assert_eq!(
             classify_reconfigure(&previous, &next),
             ReconfigureClass::HotSystemProxy
+        );
+    }
+
+    #[test]
+    fn disabling_http_and_its_system_proxy_keeps_other_outputs_hot() {
+        let mut previous = base();
+        previous.proxy.system_proxy = true;
+        let mut next = previous.clone();
+        next.frontends.http = false;
+        next.proxy.system_proxy = false;
+        next.canonicalize_mode();
+        assert_eq!(
+            classify_reconfigure(&previous, &next),
+            ReconfigureClass::HotFrontends
+        );
+        next.mtu = 1400;
+        assert_eq!(
+            classify_reconfigure(&previous, &next),
+            ReconfigureClass::ColdReconnect
         );
     }
 
