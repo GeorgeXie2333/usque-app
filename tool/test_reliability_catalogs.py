@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _contract() -> dict:
+    return json.loads((ROOT / "proto/usque/diagnostics-contract.json").read_text(encoding="utf-8"))
 
 
 def _section(text: str, start: str, end: str) -> str:
@@ -23,7 +28,7 @@ class ReliabilityCatalogueTest(unittest.TestCase):
         )
         android = (
             ROOT
-            / "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/AndroidMaintenance.kt"
+            / "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/DiagnosticsContract.kt"
         ).read_text(encoding="utf-8")
         rust_codes = set(
             re.findall(
@@ -40,12 +45,13 @@ class ReliabilityCatalogueTest(unittest.TestCase):
         android_codes = set(
             re.findall(
                 r'"([A-Z][A-Z0-9_]+)"',
-                _section(android, "private val FAILURE_CODES", "private val REMEDIATION_KEYS"),
+                _section(android, "val failureCodes", "val summaryKeys"),
             )
         )
         self.assertEqual(54, len(rust_codes))
         self.assertSetEqual(rust_codes, chinese_codes)
         self.assertSetEqual(rust_codes, android_codes)
+        self.assertSetEqual(rust_codes, set(_contract()["failure_codes"]))
 
     def test_check_ids_match_engine_android_and_flutter(self) -> None:
         rust = (ROOT / "crates/usque-engine/src/diagnostics/catalog.rs").read_text(encoding="utf-8")
@@ -77,17 +83,16 @@ class ReliabilityCatalogueTest(unittest.TestCase):
         chinese_catalog += feature_catalog[feature_catalog.index("const kNetworkQualityZhCn") :]
         categories = "engine|frontend|physical|transport|tunnel|protection|quality|dns"
         pattern = rf'"((?:{categories})\.[a-z0-9_]+)"'
-        rust_ids = set(re.findall(pattern, rust))
+        rust_ids = {check["id"] for check in _contract()["checks"]}
+        self.assertIn("CHECK_DEFINITIONS", rust)
         android_ids = set(re.findall(pattern, android))
+        self.assertIn("CHECK_IDS = DiagnosticsContract.checkIds", android_maintenance)
+        generated_android = (
+            ROOT
+            / "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/DiagnosticsContract.kt"
+        ).read_text(encoding="utf-8")
         android_export_ids = set(
-            re.findall(
-                pattern,
-                _section(
-                    android_maintenance,
-                    "private val CHECK_IDS",
-                    "private val FAILURE_CODES",
-                ),
-            )
+            re.findall(pattern, _section(generated_android, "val checkIds", "val eventTypes"))
         )
         expected_catalog_keys = {
             f"diag_check_{check_id.replace('.', '_')}" for check_id in rust_ids
@@ -122,14 +127,16 @@ class ReliabilityCatalogueTest(unittest.TestCase):
         maintenance = (ROOT / "crates/usque-engine/src/maintenance.rs").read_text(encoding="utf-8")
         summary_pattern = r'"((?:diagnostic_|nq_finding_)[a-z0-9_]+)"'
         runner_summaries = set(re.findall(summary_pattern, checks))
-        export_summaries = set(
-            re.findall(
-                summary_pattern,
-                _section(maintenance, "fn safe_summary_key", "\nfn safe_evidence"),
-            )
+        self.assertRegex(
+            _section(maintenance, "fn safe_summary_key", "\nfn safe_evidence"),
+            r"diagnostics_contract_generated::SUMMARY_KEYS\s*\.contains",
         )
+        export_summaries = set(_contract()["summary_keys"])
         self.assertTrue(runner_summaries)
-        self.assertSetEqual(runner_summaries, export_summaries)
+        # Retired identifiers remain accepted for older saved diagnostics. New
+        # runner results must be covered; append-only compatibility permits a
+        # strict superset rather than deleting legacy entries to satisfy a test.
+        self.assertLessEqual(runner_summaries, export_summaries)
 
 
 if __name__ == "__main__":
