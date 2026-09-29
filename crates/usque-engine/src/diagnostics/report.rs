@@ -114,6 +114,7 @@ pub(crate) fn timeline_to_proto(timeline: &ConnectionTimelineSnapshot) -> v1::Co
         connection_instance_id: String::new(),
         retained: false,
         session_generation: 0,
+        observation: None,
     }
 }
 

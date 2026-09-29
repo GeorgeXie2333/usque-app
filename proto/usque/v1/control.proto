@@ -986,6 +986,7 @@ message ConnectionTimeline {
   string connection_instance_id = 4;
   bool retained = 5;
   uint64 session_generation = 6;
+  DiagnosticObservation observation = 7;
 }
 message ClearAllDataRequest {
   bool confirmed = 1;

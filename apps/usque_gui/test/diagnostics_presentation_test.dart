@@ -102,6 +102,83 @@ void main() {
   });
 
   test(
+    'timeline provenance stays absent on legacy sources and ages actual captures only',
+    () {
+      expect(connectionTimelineFromMap({}).observation, isNull);
+      expect(
+        debugDecodeConnectionTimelineFrame(
+          _timelineFrame(Uint8List(0)),
+          'test',
+        )!.observation,
+        isNull,
+      );
+      final untimed = connectionTimelineFromMap({
+        'source': 'platform',
+        'availability': 'inferred',
+      });
+      expect(untimed.observation!.ageMilliseconds, isNull);
+      final captured = DateTime.now()
+          .subtract(const Duration(seconds: 1))
+          .millisecondsSinceEpoch;
+      final timed = connectionTimelineFromMap({
+        'source': 'runtime',
+        'availability': 'observed',
+        'captured_at_unix_milliseconds': captured,
+      });
+      expect(timed.observation!.ageMilliseconds, greaterThanOrEqualTo(1000));
+      final future = connectionTimelineFromMap({
+        'source': 'platform',
+        'availability': 'inferred',
+        'captured_at_unix_milliseconds': DateTime.now()
+            .add(const Duration(days: 1))
+            .millisecondsSinceEpoch,
+      });
+      expect(future.observation!.ageMilliseconds, isNull);
+    },
+  );
+
+  testWidgets(
+    'native observed and platform inferred timelines have distinct visible provenance',
+    (tester) async {
+      final observation =
+          (ControlPayloadWriter()
+                ..string(1, 'runtime')
+                ..string(2, 'observed'))
+              .takeBytes();
+      final payload = (ControlPayloadWriter()..message(7, observation))
+          .takeBytes();
+      final native = debugDecodeConnectionTimelineFrame(
+        _timelineFrame(payload),
+        'test',
+      )!;
+      await tester.pumpWidget(
+        _host(ConnectionTimelineView(timeline: native, strings: strings)),
+      );
+      expect(find.text('Runtime state · Observed'), findsOneWidget);
+      final fallback = connectionTimelineFromMap({
+        'source': 'platform',
+        'availability': 'inferred',
+      });
+      await tester.pumpWidget(
+        _host(ConnectionTimelineView(timeline: fallback, strings: strings)),
+      );
+      expect(find.text('Platform observation · Inferred'), findsOneWidget);
+      expect(find.text('Runtime state · Observed'), findsNothing);
+      await tester.pumpWidget(
+        _host(
+          ConnectionTimelineView(
+            timeline: const ConnectionTimeline(),
+            strings: strings,
+          ),
+        ),
+      );
+      expect(find.text('Runtime state · Observed'), findsNothing);
+      expect(find.text('Platform observation · Inferred'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  test(
     'retained timeline metadata is optional and validates runtime identity',
     () {
       const identity = '550e8400-e29b-41d4-a716-446655440000';

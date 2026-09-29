@@ -1083,6 +1083,28 @@ impl ControlService {
                 let mut timeline = diagnostics::timeline_to_proto(&captured.timeline);
                 timeline.retained = captured.retained;
                 timeline.session_generation = captured.session_generation;
+                if captured.session_generation != 0 {
+                    timeline.observation = Some(v1::DiagnosticObservation {
+                        source: "runtime".into(),
+                        availability: "observed".into(),
+                        age_milliseconds: captured
+                            .captured_at
+                            .elapsed()
+                            .unwrap_or_default()
+                            .as_millis()
+                            .min(u128::from(u64::MAX))
+                            as u64,
+                        connection_instance_id: captured
+                            .quality
+                            .as_ref()
+                            .and_then(|quality| quality.connection_id)
+                            .map(|id| id.0.to_string())
+                            .unwrap_or_default(),
+                        network_generation: 0,
+                    });
+                } else {
+                    timeline.metrics = None;
+                }
                 timeline.connection_instance_id = captured
                     .quality
                     .as_ref()

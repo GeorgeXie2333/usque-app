@@ -19,15 +19,27 @@ class ConnectionTimelineView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final content = _buildTimeline(context);
-    if (!timeline.retained) return content;
+    final observation = timeline.observation;
+    if (!timeline.retained && observation == null) return content;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(
-          strings.get('diag_timeline_retained'),
-          style: Theme.of(context).textTheme.labelMedium,
-        ),
-        const SizedBox(height: 10),
+        if (timeline.retained) ...<Widget>[
+          Text(
+            strings.get('diag_timeline_retained'),
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          const SizedBox(height: 10),
+        ],
+        if (observation != null) ...<Widget>[
+          Text(
+            '${diagnosticObservationSourceLabel(strings, observation.source)} · ${diagnosticObservationAvailabilityLabel(strings, observation.availability)}',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
         content,
       ],
     );

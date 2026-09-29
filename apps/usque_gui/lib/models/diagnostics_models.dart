@@ -685,6 +685,7 @@ class ConnectionTimeline {
     this.connectionInstanceId,
     this.retained = false,
     this.sessionGeneration,
+    this.observation,
   });
 
   final List<ConnectionTimelineEvent> events;
@@ -693,10 +694,28 @@ class ConnectionTimeline {
   final String? connectionInstanceId;
   final bool retained;
   final int? sessionGeneration;
+  final DiagnosticObservation? observation;
 }
 
 ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
   final identity = map['connection_instance_id'];
+  final rawObservation = map['observation'];
+  final observationFields = rawObservation is Map
+      ? Map<Object?, Object?>.from(rawObservation)
+      : map['source'] is String || map['availability'] is String
+      ? <Object?, Object?>{
+          'source': map['source'],
+          'availability': map['availability'],
+        }
+      : null;
+  if (observationFields != null &&
+      observationFields['age_milliseconds'] == null) {
+    final captured = _unsignedValue(map['captured_at_unix_milliseconds']);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (captured != null && captured > 0 && captured <= now) {
+      observationFields['age_milliseconds'] = now - captured;
+    }
+  }
   final metricsMap = map['metrics'];
   final metrics = metricsMap is Map
       ? Map<Object?, Object?>.from(metricsMap)
@@ -773,6 +792,9 @@ ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
         : null,
     retained: map['retained'] == true,
     sessionGeneration: _unsignedValue(map['session_generation']),
+    observation: observationFields == null
+        ? null
+        : DiagnosticObservation.fromMap(observationFields),
   );
 }
 

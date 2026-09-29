@@ -1396,6 +1396,7 @@ ConnectionTimeline _decodeConnectionTimeline(_ProtoReader reader) {
   var metrics = const ConnectionMetrics();
   var droppedEventCount = 0;
   final metadata = <Object?, Object?>{};
+  DiagnosticObservation? observation;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -1411,6 +1412,8 @@ ConnectionTimeline _decodeConnectionTimeline(_ProtoReader reader) {
         metadata['retained'] = reader.varint(field) == 1;
       case 6:
         metadata['session_generation'] = reader.varint(field);
+      case 7:
+        observation = _decodeDiagnosticObservation(reader.message(field));
       default:
         reader.skip(field);
     }
@@ -1423,6 +1426,7 @@ ConnectionTimeline _decodeConnectionTimeline(_ProtoReader reader) {
     connectionInstanceId: validated.connectionInstanceId,
     retained: validated.retained,
     sessionGeneration: validated.sessionGeneration,
+    observation: observation,
   );
 }
 
