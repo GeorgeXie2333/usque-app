@@ -31,6 +31,18 @@ class DiagnosticsContractTests(unittest.TestCase):
             {"direct_dns_degraded", "direct_dns_recovered"}, set(self.contract["event_types"])
         )
 
+    def test_windows_fixed_recovery_log_codes_remain_exportable(self):
+        source = (generator.ROOT / "crates/usque-engine/src/windows_agent.rs").read_text(
+            encoding="utf-8"
+        )
+        lease = source.split("let code = match &error", 1)[1].split("// Never log raw", 1)[0]
+        recovery = source.split("let historical_terminal = matches!", 1)[1].split(
+            "tracing::warn!", 1
+        )[0]
+        codes = set(re.findall(r'"([A-Z][A-Z0-9_]+)"', lease + recovery))
+        self.assertTrue(codes)
+        self.assertLessEqual(codes, set(self.contract["log_event_codes"]))
+
     def test_unsafe_duplicate_missing_and_cyclic_contracts_are_rejected(self):
         mutations = [
             lambda value: value["evidence_tokens"].append("private@example.com"),
