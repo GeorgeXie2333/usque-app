@@ -8,6 +8,7 @@ use std::{
 use crate::logging::{log_directory, sanitize_log_bytes};
 
 use chrono::Utc;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
@@ -19,6 +20,30 @@ use usque_core::{
 use usque_transport::{ConnectionEventType, ConnectionTimelineSnapshot};
 
 const MAX_DIAGNOSTIC_LOG_BYTES: usize = 2 * 1024 * 1024;
+const MAX_DIAGNOSTIC_LOG_RECORD_BYTES: usize = 256 * 1024;
+
+#[derive(Default, Serialize)]
+struct LogExportMetadata {
+    source_status: &'static str,
+    byte_limit: usize,
+    source_bytes_available: u64,
+    source_bytes_read: usize,
+    exported_bytes: usize,
+    files_available: usize,
+    files_read: usize,
+    unreadable_files: usize,
+    records_exported: usize,
+    invalid_records: usize,
+    partial_records: usize,
+    oversized_records: usize,
+    truncated: bool,
+    omission_reasons: Vec<&'static str>,
+}
+
+struct CollectedLogs {
+    bytes: Vec<u8>,
+    metadata: LogExportMetadata,
+}
 
 #[derive(Default)]
 pub struct DiagnosticTransportContext {
@@ -169,7 +194,7 @@ fn write_diagnostic_bundle(
         return Err(MaintenanceError::InvalidDestination(destination.to_owned()));
     }
 
-    let log = collect_sanitized_logs(log_directory)?;
+    let log = collect_sanitized_logs(log_directory);
     let configuration = configuration_summary(config);
     let connection = connection_summary(snapshot);
     let timeline = connection_timeline_summary(&transport.timeline);
@@ -182,6 +207,10 @@ fn write_diagnostic_bundle(
     );
 
     let mut entries = vec![
+        (
+            "log-export.json".to_owned(),
+            serde_json::to_vec_pretty(&log.metadata)?.into_boxed_slice(),
+        ),
         (
             "configuration-summary.json".to_owned(),
             serde_json::to_vec_pretty(&configuration)?.into_boxed_slice(),
@@ -242,8 +271,8 @@ fn write_diagnostic_bundle(
             serde_json::to_vec_pretty(&diagnostic_session_summary(session))?.into_boxed_slice(),
         ));
     }
-    if !log.is_empty() {
-        entries.push(("logs/engine.jsonl".to_owned(), log.into_boxed_slice()));
+    if !log.bytes.is_empty() {
+        entries.push(("logs/engine.jsonl".to_owned(), log.bytes.into_boxed_slice()));
     }
     let contents = entries
         .iter()
@@ -895,72 +924,149 @@ fn write_stored_zip(
     Ok(())
 }
 
-fn collect_sanitized_logs(directory: &Path) -> Result<Vec<u8>, MaintenanceError> {
-    let mut files = match fs::read_dir(directory) {
-        Ok(entries) => entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if !(name == "engine.jsonl"
-                    || (name.starts_with("engine-") && name.ends_with(".jsonl")))
-                {
-                    return None;
-                }
-                let metadata = fs::symlink_metadata(entry.path()).ok()?;
-                metadata.file_type().is_file().then_some((
-                    entry.path(),
-                    metadata.modified().unwrap_or(std::time::UNIX_EPOCH),
-                    metadata.len(),
-                ))
-            })
-            .collect::<Vec<_>>(),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
+fn collect_sanitized_logs(directory: &Path) -> CollectedLogs {
+    let mut metadata = LogExportMetadata {
+        source_status: "available",
+        byte_limit: MAX_DIAGNOSTIC_LOG_BYTES,
+        ..Default::default()
     };
-    files.sort_by_key(|(_, modified, _)| *modified);
-
-    let mut selected = Vec::new();
-    let mut selected_bytes = 0_u64;
-    for file in files.into_iter().rev() {
-        if selected_bytes >= MAX_DIAGNOSTIC_LOG_BYTES as u64 {
-            break;
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) => {
+            metadata.source_status = if error.kind() == io::ErrorKind::NotFound {
+                "missing"
+            } else {
+                "unavailable"
+            };
+            metadata.omission_reasons.push(metadata.source_status);
+            return CollectedLogs {
+                bytes: Vec::new(),
+                metadata,
+            };
         }
-        selected_bytes = selected_bytes.saturating_add(file.2);
-        selected.push(file);
+    };
+    let mut files = Vec::new();
+    for entry in entries {
+        let Ok(entry) = entry else {
+            metadata.unreadable_files += 1;
+            continue;
+        };
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !(name == "engine.jsonl" || (name.starts_with("engine-") && name.ends_with(".jsonl"))) {
+            continue;
+        }
+        let Ok(file_metadata) = fs::symlink_metadata(entry.path()) else {
+            metadata.unreadable_files += 1;
+            continue;
+        };
+        if !file_metadata.file_type().is_file() {
+            continue;
+        }
+        metadata.files_available += 1;
+        metadata.source_bytes_available = metadata
+            .source_bytes_available
+            .saturating_add(file_metadata.len());
+        files.push((
+            entry.path(),
+            name == "engine.jsonl",
+            file_metadata.modified().unwrap_or(std::time::UNIX_EPOCH),
+        ));
     }
-    selected.reverse();
-
-    let mut output = Vec::new();
-    for (path, _, length) in selected {
-        let remaining = MAX_DIAGNOSTIC_LOG_BYTES.saturating_sub(output.len());
+    // The active file is newest even when timestamps are tied or the wall clock
+    // moved backwards. Reserve the budget for its newest complete records first.
+    files.sort_by_key(|(path, active, modified)| (*active, *modified, path.clone()));
+    let mut records = Vec::new();
+    let mut output_bytes = 0_usize;
+    'files: for (path, _, _) in files.into_iter().rev() {
+        let remaining = MAX_DIAGNOSTIC_LOG_BYTES.saturating_sub(metadata.source_bytes_read);
         if remaining == 0 {
             break;
         }
-        let mut file = File::open(path)?;
-        if length > remaining as u64 {
-            file.seek(SeekFrom::End(-(remaining as i64)))?;
+        let source = read_log_tail(&path, remaining);
+        let Ok((source, starts_mid_record)) = source else {
+            metadata.unreadable_files += 1;
+            continue;
+        };
+        metadata.files_read += 1;
+        metadata.source_bytes_read += source.len();
+        let mut source = source.as_slice();
+        if starts_mid_record {
+            metadata.partial_records += 1;
+            source = source
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(&[], |newline| &source[newline + 1..]);
         }
-        let mut source = Vec::with_capacity(remaining);
-        file.take(remaining as u64).read_to_end(&mut source)?;
-        if length > remaining as u64
-            && let Some(first_newline) = source.iter().position(|byte| *byte == b'\n')
-        {
-            source.drain(..=first_newline);
+        if !source.is_empty() && !source.ends_with(b"\n") {
+            metadata.partial_records += 1;
+            source = source
+                .iter()
+                .rposition(|byte| *byte == b'\n')
+                .map_or(&[], |newline| &source[..=newline]);
         }
-        for line in source.split(|byte| *byte == b'\n') {
-            let sanitized = sanitize_log_bytes(line);
-            if sanitized.is_empty() {
+        for line in source.rsplit(|byte| *byte == b'\n') {
+            if line.iter().all(u8::is_ascii_whitespace) {
                 continue;
             }
-            if output.len().saturating_add(sanitized.len() + 1) > MAX_DIAGNOSTIC_LOG_BYTES {
-                return Ok(output);
+            if line.len() > MAX_DIAGNOSTIC_LOG_RECORD_BYTES {
+                metadata.oversized_records += 1;
+                continue;
             }
-            output.extend_from_slice(&sanitized);
-            output.push(b'\n');
+            if serde_json::from_slice::<serde_json::Value>(line).is_err() {
+                metadata.invalid_records += 1;
+                continue;
+            }
+            let sanitized = sanitize_log_bytes(line);
+            if output_bytes.saturating_add(sanitized.len() + 1) > MAX_DIAGNOSTIC_LOG_BYTES {
+                metadata.truncated = true;
+                break 'files;
+            }
+            output_bytes += sanitized.len() + 1;
+            records.push(sanitized);
         }
     }
-    Ok(output)
+    metadata.truncated |= metadata.source_bytes_available > metadata.source_bytes_read as u64;
+    if metadata.truncated {
+        metadata.omission_reasons.push("byte_limit");
+    }
+    if metadata.unreadable_files != 0 {
+        metadata.omission_reasons.push("unreadable_files");
+    }
+    if metadata.partial_records != 0 {
+        metadata.omission_reasons.push("partial_records");
+    }
+    if metadata.invalid_records != 0 {
+        metadata.omission_reasons.push("invalid_records");
+    }
+    if metadata.oversized_records != 0 {
+        metadata.omission_reasons.push("oversized_records");
+    }
+    metadata.records_exported = records.len();
+    let mut bytes = Vec::with_capacity(output_bytes);
+    for record in records.into_iter().rev() {
+        bytes.extend_from_slice(&record);
+        bytes.push(b'\n');
+    }
+    metadata.exported_bytes = bytes.len();
+    CollectedLogs { bytes, metadata }
+}
+
+/// Read a bounded tail plus one boundary byte. Never serialize an incomplete
+/// record from either end, including an in-progress concurrent append.
+fn read_log_tail(path: &Path, limit: usize) -> io::Result<(Vec<u8>, bool)> {
+    let mut file = File::open(path)?;
+    let length = file.metadata()?.len();
+    let start = length.saturating_sub(limit as u64);
+    file.seek(SeekFrom::Start(start.saturating_sub(1)))?;
+    let mut source = Vec::with_capacity(limit + usize::from(start != 0));
+    file.take(limit as u64 + u64::from(start != 0))
+        .read_to_end(&mut source)?;
+    let starts_mid_record = start != 0 && source.first().is_some_and(|byte| *byte != b'\n');
+    if start != 0 && !source.is_empty() {
+        source.remove(0);
+    }
+    Ok((source, starts_mid_record))
 }
 
 fn write_u16(writer: &mut impl Write, value: u16) -> io::Result<()> {
@@ -1041,6 +1147,84 @@ pub enum MaintenanceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixed_log_record(marker: &str) -> Vec<u8> {
+        let mut value = serde_json::json!({"level": "INFO", "message": marker, "padding": ""});
+        let padding_length = 255 - serde_json::to_vec(&value).unwrap().len();
+        value["padding"] = serde_json::Value::String("x".repeat(padding_length));
+        let mut bytes = serde_json::to_vec(&value).unwrap();
+        bytes.push(b'\n');
+        assert_eq!(bytes.len(), 256);
+        bytes
+    }
+
+    #[test]
+    fn log_export_reserves_tail_budget_for_all_latest_active_records() {
+        let directory = tempfile::tempdir().unwrap();
+        let older = fixed_log_record("older");
+        fs::write(
+            directory.path().join("engine-1-0.jsonl"),
+            older.repeat(16_384),
+        )
+        .unwrap();
+        let latest = (0..256)
+            .flat_map(|index| fixed_log_record(&format!("latest_{index:03}")))
+            .collect::<Vec<_>>();
+        fs::write(directory.path().join("engine.jsonl"), latest).unwrap();
+
+        let collected = collect_sanitized_logs(directory.path());
+        let text = String::from_utf8(collected.bytes).unwrap();
+        for index in 0..256 {
+            assert!(text.contains(&format!("latest_{index:03}")));
+        }
+        assert!(text.find("older").unwrap() < text.find("latest_000").unwrap());
+        assert_eq!(
+            collected.metadata.source_bytes_read,
+            MAX_DIAGNOSTIC_LOG_BYTES
+        );
+        assert_eq!(collected.metadata.exported_bytes, MAX_DIAGNOSTIC_LOG_BYTES);
+        assert_eq!(collected.metadata.records_exported, 8_192);
+        assert!(collected.metadata.truncated);
+        assert_eq!(collected.metadata.omission_reasons, ["byte_limit"]);
+    }
+
+    #[test]
+    fn log_export_omits_incomplete_tail_and_invalid_records_without_invented_events() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("engine.jsonl"),
+            b"{\"message\":\"ready\"}\nnot-json\n{\"message\":\"unfinished\"",
+        )
+        .unwrap();
+        let collected = collect_sanitized_logs(directory.path());
+        assert_eq!(collected.bytes, b"{\"message\":\"ready\"}\n");
+        assert_eq!(collected.metadata.records_exported, 1);
+        assert_eq!(collected.metadata.partial_records, 1);
+        assert_eq!(collected.metadata.invalid_records, 1);
+        assert!(!collected.metadata.truncated);
+        assert_eq!(
+            collected.metadata.omission_reasons,
+            ["partial_records", "invalid_records"]
+        );
+    }
+
+    #[test]
+    fn log_tail_distinguishes_aligned_and_partial_first_records() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("engine.jsonl");
+        fs::write(&path, b"first\nsecond\n").unwrap();
+        assert_eq!(
+            read_log_tail(&path, 7).unwrap(),
+            (b"second\n".to_vec(), false)
+        );
+        assert_eq!(
+            read_log_tail(&path, 6).unwrap(),
+            (b"econd\n".to_vec(), true)
+        );
+        let missing = collect_sanitized_logs(&directory.path().join("missing"));
+        assert_eq!(missing.metadata.source_status, "missing");
+        assert!(missing.bytes.is_empty());
+    }
 
     #[test]
     fn quality_doctor_export_allowlist_accepts_numbers_but_no_private_text() {
