@@ -98,3 +98,28 @@ fn check(
         kind,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn executable_catalog_matches_the_shared_contract() {
+        let catalog = diagnostic_catalog();
+        let definitions = usque_core::diagnostics_contract_generated::CHECK_DEFINITIONS;
+        assert_eq!(catalog.len(), definitions.len());
+        for (check, definition) in catalog.iter().zip(definitions) {
+            assert_eq!(check.id(), definition.id);
+            assert_eq!(check.dependencies(), definition.dependencies);
+            assert_eq!(check.resource_group(), definition.resource_group);
+            assert_eq!(
+                check.minimum_mode(),
+                if definition.mode == "deep" {
+                    Mode::Deep
+                } else {
+                    Mode::Standard
+                }
+            );
+        }
+    }
+}

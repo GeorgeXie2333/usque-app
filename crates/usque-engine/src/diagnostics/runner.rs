@@ -143,7 +143,7 @@ pub(super) async fn run(
                     child.cancel();
                     let _ = timeout(cleanup_budget, &mut operation).await;
                 }
-                (result, started.elapsed())
+                (context.annotate(result), started.elapsed())
             });
             running.insert(handle.id(), running_check);
         }
