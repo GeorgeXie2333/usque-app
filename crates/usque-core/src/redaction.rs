@@ -17,9 +17,18 @@ const SENSITIVE_KEYS: &[&str] = &[
     "command_json",
 ];
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct SecretRedactor {
     exact_values: HashSet<String>,
+}
+
+impl std::fmt::Debug for SecretRedactor {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SecretRedactor")
+            .field("registered_secret_count", &self.exact_values.len())
+            .finish()
+    }
 }
 
 impl SecretRedactor {
@@ -91,5 +100,13 @@ mod tests {
         assert_eq!(value["profile"]["access_token"], "[REDACTED]");
         assert_eq!(value["profile"]["message"], "failed with [REDACTED]");
         assert_eq!(value["profile"]["endpoint"], "162.159.198.2");
+    }
+
+    #[test]
+    fn debug_never_discloses_registered_secrets() {
+        let redactor = SecretRedactor::with_secrets(["fixture-private-token".to_owned()]);
+        let debug = format!("{redactor:?}");
+        assert!(!debug.contains("fixture-private-token"));
+        assert!(debug.contains("registered_secret_count: 1"));
     }
 }
