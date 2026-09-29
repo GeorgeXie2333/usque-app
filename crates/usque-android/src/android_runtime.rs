@@ -135,7 +135,7 @@ fn spawn_runtime(
     if slot.is_some() {
         return START_ALREADY_RUNNING;
     }
-    super::connection_timeline::publish(Default::default());
+    let timeline_generation = super::connection_timeline::begin();
     let tun = match tun_file_descriptor {
         Some(fd) => match duplicate_tun(fd) {
             Ok(tun) => Some(tun),
@@ -229,6 +229,7 @@ fn spawn_runtime(
                 started_tx,
                 command_rx,
                 thread_deadline,
+                timeline_generation,
             ));
         });
     let thread = match thread {
@@ -509,6 +510,7 @@ async fn run(
     started: std::sync::mpsc::SyncSender<i32>,
     commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     connection_deadline: Arc<Mutex<Option<Instant>>>,
+    timeline_generation: u64,
 ) {
     let tun = match tun {
         Some(fd) => match AsyncFd::new(TunFd(fd)) {
@@ -638,6 +640,7 @@ async fn run(
         status.clone(),
         commands,
         gate_context,
+        timeline_generation,
     )
     .await;
 }
@@ -759,6 +762,7 @@ async fn run_session(
     status: Arc<Mutex<NativeSnapshot>>,
     mut commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     gate_context: GateContext,
+    timeline_generation: u64,
 ) {
     let mut packet_slab = TunReadSlab::new();
     let mut ticker = interval(Duration::from_secs(1));
@@ -867,7 +871,8 @@ async fn run_session(
                     }
                 }
                 SessionDataEvent::Tick => {
-                    super::connection_timeline::publish(tunnel.connection_timeline());
+                    let quality = tunnel.subscribe_network_quality().borrow().clone();
+                    super::connection_timeline::publish_for(timeline_generation, tunnel.connection_timeline(), quality.connection_id.map(|id| id.0), false);
                     update_health(&status, &tunnel);
                     update_frontends(&status, &tunnel);
                     if matches!(tunnel.health(), RuntimeHealth::Failed { .. }) {
@@ -940,7 +945,17 @@ async fn run_session(
             }
         }
     }
-    super::connection_timeline::publish(tunnel.connection_timeline());
+    let connection_id = tunnel
+        .subscribe_network_quality()
+        .borrow()
+        .connection_id
+        .map(|id| id.0);
+    super::connection_timeline::publish_for(
+        timeline_generation,
+        tunnel.connection_timeline(),
+        connection_id,
+        true,
+    );
     gate_context.exit_probe.cancel();
     cancellation.cancel();
     tunnel.cancel_immediately();
@@ -954,6 +969,12 @@ async fn run_session(
     // own FD for fail-closed recovery unless the user explicitly disconnected.
     drop(tun.take());
     tunnel.shutdown().await;
+    super::connection_timeline::publish_for(
+        timeline_generation,
+        tunnel.connection_timeline(),
+        connection_id,
+        true,
+    );
 }
 
 async fn handle_runtime_command(
