@@ -137,22 +137,23 @@ String connectionEventLabel(
     ConnectionTimelineEventType.disconnected => 'diag_event_disconnected',
     ConnectionTimelineEventType.failed => 'diag_event_failed',
     ConnectionTimelineEventType.migrationStarted =>
-      'diag_event_recovery_probe_started',
+      'diag_event_migration_started',
     ConnectionTimelineEventType.migrationPathValidated =>
-      'diag_event_recovery_probe_succeeded',
-    ConnectionTimelineEventType.migrationPromoted => 'diag_event_path_promoted',
+      'diag_event_migration_path_validated',
+    ConnectionTimelineEventType.migrationPromoted =>
+      'diag_event_migration_promoted',
     ConnectionTimelineEventType.migrationFailed =>
-      'diag_event_recovery_probe_failed',
-    ConnectionTimelineEventType.pmtuChanged => 'diag_event_path_promoted',
+      'diag_event_migration_failed',
+    ConnectionTimelineEventType.pmtuChanged => 'diag_event_pmtu_changed',
     ConnectionTimelineEventType.pmtuRevalidationStarted =>
-      'diag_event_recovery_probe_started',
+      'diag_event_pmtu_revalidation_started',
     ConnectionTimelineEventType.pmtuRevalidationFailed =>
-      'diag_event_recovery_probe_failed',
+      'diag_event_pmtu_revalidation_failed',
     ConnectionTimelineEventType.directDnsDegraded =>
-      'diag_event_network_changed',
+      'diag_event_direct_dns_degraded',
     ConnectionTimelineEventType.directDnsRecovered =>
-      'diag_event_recovery_probe_succeeded',
-    ConnectionTimelineEventType.unknown => 'diag_event_failed',
+      'diag_event_direct_dns_recovered',
+    ConnectionTimelineEventType.unknown => 'diag_event_unknown',
   });
 }
 

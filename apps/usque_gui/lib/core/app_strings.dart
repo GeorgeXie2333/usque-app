@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../models/app_models.dart';
 import 'l10n/catalogs.dart';
 import 'l10n/chain.dart';
+import 'l10n/diagnostics.dart';
 import 'l10n/l4.dart';
 import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
@@ -39,6 +40,9 @@ class AppStrings {
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
+    final diagnostics =
+        kDiagnosticsCatalogs[catalogId] ?? kDiagnosticsCatalogs['en']!;
+    if (diagnostics.containsKey(key)) return diagnostics[key]!;
     final gate = kVpnGateCatalogs[catalogId] ?? kVpnGateEn;
     if (gate.containsKey(key)) return gate[key]!;
     final l4 = kL4Catalogs[catalogId] ?? kL4En;
@@ -76,7 +80,11 @@ class AppStrings {
 
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
-    if (!_featureTablesComplete(kUiWorkflowCatalogs, kUiWorkflowEn) ||
+    if (!_featureTablesComplete(
+          kDiagnosticsCatalogs,
+          kDiagnosticsCatalogs['en']!,
+        ) ||
+        !_featureTablesComplete(kUiWorkflowCatalogs, kUiWorkflowEn) ||
         !_featureTablesComplete(kWindowsRecoveryCatalogs, kWindowsRecoveryEn) ||
         !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn) ||
         !_featureTablesComplete(kL4Catalogs, kL4En) ||
@@ -164,6 +172,7 @@ class AppStrings {
       }
     }
 
+    scan(kDiagnosticsCatalogs, kDiagnosticsCatalogs['en']!);
     scan(kUiWorkflowCatalogs, kUiWorkflowEn);
     scan(kNetworkQualityCatalogs, kNetworkQualityEn);
     scan(kWindowsRecoveryCatalogs, kWindowsRecoveryEn);
@@ -186,6 +195,10 @@ class AppStrings {
   @visibleForTesting
   static bool get debugPlaceholdersArePreserved {
     if (!_placeholdersPreserved(kEnCatalog, kCatalogs.values) ||
+        !_placeholdersPreserved(
+          kDiagnosticsCatalogs['en']!,
+          kDiagnosticsCatalogs.values,
+        ) ||
         !_placeholdersPreserved(kUiWorkflowEn, kUiWorkflowCatalogs.values) ||
         !_placeholdersPreserved(
           kNetworkQualityEn,

@@ -445,11 +445,11 @@ class ConnectionMetrics {
     this.lastH3HandshakeDurationMilliseconds,
     this.lastH2HandshakeDurationMilliseconds,
     this.currentSmoothedRttMilliseconds,
-    this.reconnectCount = 0,
-    this.fallbackCount = 0,
-    this.networkChangeCount = 0,
-    this.sendQueueHighWatermark = 0,
-    this.sendQueueDropCount = 0,
+    this.reconnectCount,
+    this.fallbackCount,
+    this.networkChangeCount,
+    this.sendQueueHighWatermark,
+    this.sendQueueDropCount,
     this.lastFailureCode,
     this.lastReconnectCode,
   });
@@ -458,11 +458,11 @@ class ConnectionMetrics {
   final int? lastH3HandshakeDurationMilliseconds;
   final int? lastH2HandshakeDurationMilliseconds;
   final int? currentSmoothedRttMilliseconds;
-  final int reconnectCount;
-  final int fallbackCount;
-  final int networkChangeCount;
-  final int sendQueueHighWatermark;
-  final int sendQueueDropCount;
+  final int? reconnectCount;
+  final int? fallbackCount;
+  final int? networkChangeCount;
+  final int? sendQueueHighWatermark;
+  final int? sendQueueDropCount;
   final String? lastFailureCode;
   final String? lastReconnectCode;
 }
@@ -541,14 +541,12 @@ ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
           metrics['current_smoothed_rtt_known'] == true
           ? (metrics['current_smoothed_rtt_milliseconds'] as num?)?.toInt()
           : null,
-      reconnectCount: (metrics['reconnect_count'] as num?)?.toInt() ?? 0,
-      fallbackCount: (metrics['fallback_count'] as num?)?.toInt() ?? 0,
-      networkChangeCount:
-          (metrics['network_change_count'] as num?)?.toInt() ?? 0,
-      sendQueueHighWatermark:
-          (metrics['send_queue_high_watermark'] as num?)?.toInt() ?? 0,
-      sendQueueDropCount:
-          (metrics['send_queue_drop_count'] as num?)?.toInt() ?? 0,
+      reconnectCount: (metrics['reconnect_count'] as num?)?.toInt(),
+      fallbackCount: (metrics['fallback_count'] as num?)?.toInt(),
+      networkChangeCount: (metrics['network_change_count'] as num?)?.toInt(),
+      sendQueueHighWatermark: (metrics['send_queue_high_watermark'] as num?)
+          ?.toInt(),
+      sendQueueDropCount: (metrics['send_queue_drop_count'] as num?)?.toInt(),
       lastFailureCode: metrics['last_failure_code'] as String?,
       lastReconnectCode: metrics['last_reconnect_code'] as String?,
     ),

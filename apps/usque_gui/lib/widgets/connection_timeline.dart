@@ -19,6 +19,16 @@ class ConnectionTimelineView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (timeline.events.isEmpty) {
+      if (timeline.droppedEventCount > 0) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            _OmittedEvents(count: timeline.droppedEventCount, strings: strings),
+            const SizedBox(height: 10),
+            Text(strings.get('diag_timeline_empty')),
+          ],
+        );
+      }
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Row(
@@ -51,10 +61,16 @@ class ConnectionTimelineView extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         _MetricsStrip(metrics: timeline.metrics, strings: strings),
+        if (timeline.droppedEventCount > 0) ...<Widget>[
+          const SizedBox(height: 10),
+          _OmittedEvents(count: timeline.droppedEventCount, strings: strings),
+        ],
         if (omitted > 0) ...<Widget>[
           const SizedBox(height: 10),
           Text(
-            strings.get('diag_timeline_truncated'),
+            strings
+                .get('diag_timeline_truncated_count')
+                .replaceAll('{count}', '$omitted'),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -80,6 +96,21 @@ class ConnectionTimelineView extends StatelessWidget {
   }
 }
 
+class _OmittedEvents extends StatelessWidget {
+  const _OmittedEvents({required this.count, required this.strings});
+
+  final int count;
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    strings.get('diag_timeline_dropped').replaceAll('{count}', '$count'),
+    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    ),
+  );
+}
+
 class _MetricsStrip extends StatelessWidget {
   const _MetricsStrip({required this.metrics, required this.strings});
 
@@ -88,22 +119,24 @@ class _MetricsStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    String counter(int? value) =>
+        value?.toString() ?? strings.get('diag_unknown');
     final items = <({String label, String value})>[
       (
         label: strings.get('diag_metric_reconnects'),
-        value: '${metrics.reconnectCount}',
+        value: counter(metrics.reconnectCount),
       ),
       (
         label: strings.get('diag_metric_fallbacks'),
-        value: '${metrics.fallbackCount}',
+        value: counter(metrics.fallbackCount),
       ),
       (
         label: strings.get('diag_metric_network_changes'),
-        value: '${metrics.networkChangeCount}',
+        value: counter(metrics.networkChangeCount),
       ),
       (
         label: strings.get('diag_metric_queue_high_water'),
-        value: '${metrics.sendQueueHighWatermark}',
+        value: counter(metrics.sendQueueHighWatermark),
       ),
       (
         label: 'RTT',
@@ -150,7 +183,11 @@ class _TimelineRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = UsqueTokens.of(context);
-    final color = event.failure == null ? tokens.brand : tokens.caution;
+    final color = event.eventType == ConnectionTimelineEventType.unknown
+        ? Theme.of(context).colorScheme.onSurfaceVariant
+        : event.failure == null
+        ? tokens.brand
+        : tokens.caution;
     final label = connectionEventLabel(strings, event.eventType);
     return Semantics(
       label: '$label, ${_elapsed(event.elapsedMilliseconds)}',
@@ -223,7 +260,7 @@ class _TimelineRow extends StatelessWidget {
                             .queueBackpressured) ...<Widget>[
                       const SizedBox(height: 3),
                       Text(
-                        '${event.queueKind ?? ''} · ${event.durationMilliseconds ?? 0} ms',
+                        '${event.queueKind ?? strings.get('diag_unknown')} · ${event.durationMilliseconds == null ? strings.get('diag_unknown') : '${event.durationMilliseconds} ms'}',
                         style: Theme.of(context).textTheme.labelSmall,
                       ),
                     ],

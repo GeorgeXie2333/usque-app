@@ -23,9 +23,10 @@ class DiagnosticFindingCard extends StatelessWidget {
     final theme = Theme.of(context);
     final tokens = UsqueTokens.of(context);
     final color = _statusColor(tokens, finding.status);
-    final remediation = failure?.remediationKey.isNotEmpty == true
-        ? failure!.remediationKey
-        : finding.remediationKey;
+    final remediation =
+        finding.remediationKey.isNotEmpty && finding.remediationKey != 'none'
+        ? finding.remediationKey
+        : failure?.remediationKey ?? finding.remediationKey;
     final emphasized =
         finding.status == DiagnosticCheckStatus.warning ||
         finding.status == DiagnosticCheckStatus.failed;
@@ -116,6 +117,13 @@ class DiagnosticFindingCard extends StatelessWidget {
                   : _summaryText(strings, finding),
               style: theme.textTheme.bodyMedium,
             ),
+            if (remediation.isNotEmpty && remediation != 'none') ...<Widget>[
+              const SizedBox(height: 12),
+              Text(
+                diagnosticRemediation(strings, remediation),
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
           ],
           if (finding.sanitizedEvidence.isNotEmpty) ...<Widget>[
             const SizedBox(height: 10),
