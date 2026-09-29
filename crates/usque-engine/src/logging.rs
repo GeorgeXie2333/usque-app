@@ -11,6 +11,7 @@ use std::{
 
 use serde_json::Value;
 use tracing_subscriber::fmt::MakeWriter;
+use usque_core::diagnostics_contract_generated::LOG_EVENT_CODES;
 
 const MAX_TOTAL_BYTES: u64 = 20 * 1024 * 1024;
 const ROTATE_BYTES: u64 = 4 * 1024 * 1024;
@@ -230,6 +231,9 @@ pub fn sanitize_log_bytes(bytes: &[u8]) -> Vec<u8> {
 }
 
 fn redact_log_value(value: &mut Value, key: Option<&str>) {
+    if key.is_some_and(is_public_numeric_key) && (value.is_number() || value.is_boolean()) {
+        return;
+    }
     if key.is_some_and(is_sensitive_log_key) {
         *value = Value::String("[REDACTED]".to_owned());
         return;
@@ -271,6 +275,11 @@ fn is_sensitive_log_key(key: &str) -> bool {
         "listener",
         "jwt",
         "name",
+        "path",
+        "directory",
+        "hostname",
+        "ssid",
+        "username",
         "passwd",
         "password",
         "peer",
@@ -295,6 +304,36 @@ fn is_sensitive_log_key(key: &str) -> bool {
 }
 
 fn scrub_network_tokens(input: &str) -> String {
+    let normalized = input.to_ascii_lowercase();
+    // An assignment may include quoted, whitespace-separated secret material.
+    // Remove the whole free-text value instead of trying to guess its boundary.
+    if [
+        "password",
+        "passwd",
+        "token",
+        "secret",
+        "private_key",
+        "authorization",
+        "cookie",
+        "assertion",
+        "license",
+        "username",
+        "credential",
+        "device_id",
+        "certificate",
+        "path",
+        "directory",
+    ]
+    .iter()
+    .any(|key| {
+        normalized.match_indices(key).any(|(offset, _)| {
+            normalized[offset + key.len()..]
+                .trim_start_matches([' ', '\t', '"', '\''])
+                .starts_with(['=', ':'])
+        })
+    }) {
+        return "[REDACTED]".to_owned();
+    }
     input
         .split_inclusive(char::is_whitespace)
         .map(|part| {
@@ -304,13 +343,194 @@ fn scrub_network_tokens(input: &str) -> String {
             let trimmed = token.trim_matches(|character: char| {
                 matches!(character, '"' | '\'' | '(' | ')' | ',' | ';')
             });
-            if looks_like_network_identifier(trimmed) {
+            let identifier = trimmed.rsplit_once('=').map_or(trimmed, |(_, value)| value);
+            if looks_like_network_identifier(identifier.trim_end_matches(':')) {
                 format!("[NETWORK_REDACTED]{whitespace}")
+            } else if looks_like_file_path(identifier) {
+                format!("[PATH_REDACTED]{whitespace}")
             } else {
                 part.to_owned()
             }
         })
         .collect()
+}
+
+fn looks_like_file_path(token: &str) -> bool {
+    token.starts_with('/')
+        || token.starts_with("./")
+        || token.starts_with("../")
+        || token.contains('\\')
+        || token.contains(":/")
+}
+
+fn is_public_numeric_key(key: &str) -> bool {
+    matches!(
+        key,
+        "sequence"
+            | "elapsed_ms"
+            | "duration_ms"
+            | "received_frames"
+            | "sent_frames"
+            | "received_bytes"
+            | "sent_bytes"
+            | "attempt"
+            | "attempts"
+            | "attempt_limit"
+            | "reconnect_count"
+            | "fallback_count"
+            | "listener_count"
+            | "active_listener_count"
+            | "endpoint_count"
+            | "profiles"
+            | "gate_driver_id"
+            | "worker_pending"
+            | "fatal"
+            | "retryable"
+            | "historical_terminal"
+            | "ipv4_available"
+            | "ipv6_available"
+            | "endpoint_pin_valid"
+            | "request_accepted"
+            | "journal_generation"
+            | "os_code"
+            | "win32_code"
+            | "panic_line"
+            | "panic_column"
+            | "queue_items"
+            | "queue_bytes"
+            | "drop_items"
+            | "drop_bytes"
+            | "queue_drops"
+            | "network_generation"
+            | "backlog"
+            | "capacity"
+            | "sent_packets"
+            | "received_packets"
+    ) || usque_core::diagnostics_contract_generated::EVIDENCE_KEYS.contains(&key)
+}
+
+/// Public bundles have a stronger boundary than local debug logs. Unknown text,
+/// messages, errors, keys and nested objects have no path through this projection.
+pub fn project_public_log(bytes: &[u8]) -> Vec<u8> {
+    let Ok(Value::Object(input)) = serde_json::from_slice(bytes) else {
+        return Vec::new();
+    };
+    let mut output = serde_json::Map::new();
+    output.insert("schema_version".into(), Value::from(1));
+    if let Some(level) = input
+        .get("level")
+        .and_then(Value::as_str)
+        .filter(|level| matches!(*level, "ERROR" | "WARN" | "INFO" | "DEBUG" | "TRACE"))
+    {
+        output.insert("level".into(), Value::String(level.into()));
+    }
+    if let Some(timestamp) = input
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
+    {
+        output.insert("timestamp".into(), Value::String(timestamp.to_rfc3339()));
+    }
+    if let Some(target) = input
+        .get("target")
+        .and_then(Value::as_str)
+        .and_then(|target| target.split("::").next())
+        .filter(|target| {
+            matches!(
+                *target,
+                "usque_engine"
+                    | "usque_transport"
+                    | "usque_agent"
+                    | "usque_android"
+                    | "usque_openvpn"
+            )
+        })
+    {
+        output.insert("component".into(), Value::String(target.into()));
+    }
+    let project_fields = |fields: &serde_json::Map<String, Value>| {
+        fields
+            .iter()
+            .filter_map(|(key, value)| {
+                if is_public_numeric_key(key)
+                    && (value.is_boolean() || value.as_u64().is_some() || value.as_i64().is_some())
+                {
+                    return Some((key.clone(), value.clone()));
+                }
+                let text = value.as_str()?;
+                let safe = match key.as_str() {
+                    "gate_event" | "recovery_event" => LOG_EVENT_CODES.contains(&text),
+                    "event_type" => {
+                        usque_core::diagnostics_contract_generated::EVENT_TYPES.contains(&text)
+                    }
+                    "failure_code" | "error_code" => {
+                        usque_core::diagnostics_contract_generated::FAILURE_CODES.contains(&text)
+                    }
+                    "check_id" => {
+                        usque_core::diagnostics_contract_generated::CHECK_IDS.contains(&text)
+                    }
+                    "io_error_kind" => matches!(
+                        text,
+                        "NotFound"
+                            | "PermissionDenied"
+                            | "ConnectionRefused"
+                            | "ConnectionReset"
+                            | "ConnectionAborted"
+                            | "NotConnected"
+                            | "AddrInUse"
+                            | "AddrNotAvailable"
+                            | "BrokenPipe"
+                            | "AlreadyExists"
+                            | "WouldBlock"
+                            | "InvalidInput"
+                            | "InvalidData"
+                            | "TimedOut"
+                            | "WriteZero"
+                            | "Interrupted"
+                            | "UnexpectedEof"
+                            | "Unsupported"
+                            | "OutOfMemory"
+                            | "Other"
+                    ),
+                    "state" => matches!(
+                        text,
+                        "Pending" | "Running" | "Cancelling" | "Completed" | "Failed" | "Cancelled"
+                    ),
+                    "reason_code" => matches!(
+                        text,
+                        "direct_send_failed"
+                            | "direct_resolution_failed"
+                            | "direct_connect_failed"
+                            | "timeout"
+                            | "query_failed"
+                    ),
+                    "transport" => {
+                        matches!(text, "h2" | "h3" | "Http2" | "Http3" | "HTTP/2" | "HTTP/3")
+                    }
+                    "phase" => matches!(
+                        text,
+                        "disconnected"
+                            | "preparing"
+                            | "connecting_h3"
+                            | "connecting_h2"
+                            | "connected"
+                            | "degraded"
+                            | "reconnecting"
+                            | "disconnecting"
+                            | "error"
+                    ),
+                    _ => false,
+                };
+                safe.then(|| (key.clone(), value.clone()))
+            })
+            .collect::<serde_json::Map<_, _>>()
+    };
+    let mut fields = project_fields(&input);
+    if let Some(nested) = input.get("fields").and_then(Value::as_object) {
+        fields.extend(project_fields(nested));
+    }
+    output.insert("fields".into(), Value::Object(fields));
+    serde_json::to_vec(&Value::Object(output)).unwrap_or_default()
 }
 
 fn looks_like_network_identifier(token: &str) -> bool {
@@ -378,6 +598,55 @@ fn looks_like_jwt(token: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assignments_punctuation_and_paths_are_scrubbed_without_losing_typed_counts() {
+        for message in [
+            "password=super-secret with spaces",
+            "password = \"super-secret\"",
+            "username = super-secret",
+            "Authorization: Bearer super-secret",
+            "203.0.113.1:443: timeout",
+            "endpoint=203.0.113.1:443",
+            r"C:\Users\private\config.json",
+            "/Users/private/config.json",
+        ] {
+            let input = serde_json::to_vec(&serde_json::json!({"message": message, "listener_count": 3, "ipv4_available": true, "endpoint_pin_valid": true})).unwrap();
+            let sanitized = sanitize_log_bytes(&input);
+            let text = String::from_utf8(sanitized.clone()).unwrap();
+            for secret in ["super-secret", "203.0.113.1", "private"] {
+                assert!(!text.contains(secret), "retained private fixture in {text}");
+            }
+            let value: Value = serde_json::from_slice(&sanitized).unwrap();
+            assert_eq!(value["listener_count"], 3);
+            assert_eq!(value["ipv4_available"], true);
+            assert_eq!(value["endpoint_pin_valid"], true);
+        }
+    }
+
+    #[test]
+    fn public_projection_excludes_unknown_text_and_preserves_typed_failure_evidence() {
+        let input = serde_json::json!({
+            "level": "WARN", "target": "usque_transport::vpngate",
+            "message": "a raw secret", "arbitrary_secret_key": "another secret",
+            "fields": {"gate_event": "TCP_READ_FAILED", "io_error_kind": "UnexpectedEof", "sent_frames": 1,
+                "listener_count": 3, "ipv4_available": true, "error": "token=secret", "remote": "203.0.113.1:443",
+                "sequence": "private", "state": "private", "elapsed_ms": {"secret": "private"}}
+        });
+        let projected = project_public_log(&serde_json::to_vec(&input).unwrap());
+        let text = String::from_utf8(projected.clone()).unwrap();
+        for private in ["secret", "private", "203.0.113.1", "arbitrary_secret_key"] {
+            assert!(!text.contains(private));
+        }
+        let value: Value = serde_json::from_slice(&projected).unwrap();
+        assert_eq!(value["component"], "usque_transport");
+        assert_eq!(value["fields"]["gate_event"], "TCP_READ_FAILED");
+        assert_eq!(value["fields"]["io_error_kind"], "UnexpectedEof");
+        assert_eq!(value["fields"]["sent_frames"], 1);
+        assert_eq!(value["fields"]["listener_count"], 3);
+        assert_eq!(value["fields"]["ipv4_available"], true);
+        assert!(project_public_log(br#"["secret"]"#).is_empty());
+    }
 
     #[test]
     fn json_log_redaction_removes_secrets_and_network_identifiers() {

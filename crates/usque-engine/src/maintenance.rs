@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use crate::logging::{log_directory, sanitize_log_bytes};
+use crate::logging::{log_directory, project_public_log};
 
 use chrono::Utc;
 use serde::Serialize;
@@ -36,6 +36,7 @@ struct LogExportMetadata {
     invalid_records: usize,
     partial_records: usize,
     oversized_records: usize,
+    rejected_records: usize,
     truncated: bool,
     omission_reasons: Vec<&'static str>,
 }
@@ -297,7 +298,7 @@ fn write_diagnostic_bundle(
         "diagnostic_cancelled": diagnostic_session.is_some_and(|session| {
             session.state == usque_core::DiagnosticSessionState::Cancelled
         }),
-        "sanitization_policy": "allowlist-v2",
+        "sanitization_policy": "typed-summaries-v2-public-logs-v1",
         "contents": contents,
         "excluded": [
             "WARP Secret",
@@ -1017,7 +1018,11 @@ fn collect_sanitized_logs(directory: &Path) -> CollectedLogs {
                 metadata.invalid_records += 1;
                 continue;
             }
-            let sanitized = sanitize_log_bytes(line);
+            let sanitized = project_public_log(line);
+            if sanitized.is_empty() {
+                metadata.rejected_records += 1;
+                continue;
+            }
             if output_bytes.saturating_add(sanitized.len() + 1) > MAX_DIAGNOSTIC_LOG_BYTES {
                 metadata.truncated = true;
                 break 'files;
@@ -1041,6 +1046,9 @@ fn collect_sanitized_logs(directory: &Path) -> CollectedLogs {
     }
     if metadata.oversized_records != 0 {
         metadata.omission_reasons.push("oversized_records");
+    }
+    if metadata.rejected_records != 0 {
+        metadata.omission_reasons.push("rejected_records");
     }
     metadata.records_exported = records.len();
     let mut bytes = Vec::with_capacity(output_bytes);
@@ -1148,8 +1156,8 @@ pub enum MaintenanceError {
 mod tests {
     use super::*;
 
-    fn fixed_log_record(marker: &str) -> Vec<u8> {
-        let mut value = serde_json::json!({"level": "INFO", "message": marker, "padding": ""});
+    fn fixed_log_record(sequence: u64) -> Vec<u8> {
+        let mut value = serde_json::json!({"level": "INFO", "event_type": "failed", "sequence": sequence, "padding": ""});
         let padding_length = 255 - serde_json::to_vec(&value).unwrap().len();
         value["padding"] = serde_json::Value::String("x".repeat(padding_length));
         let mut bytes = serde_json::to_vec(&value).unwrap();
@@ -1161,28 +1169,39 @@ mod tests {
     #[test]
     fn log_export_reserves_tail_budget_for_all_latest_active_records() {
         let directory = tempfile::tempdir().unwrap();
-        let older = fixed_log_record("older");
+        let older = fixed_log_record(999);
         fs::write(
             directory.path().join("engine-1-0.jsonl"),
             older.repeat(16_384),
         )
         .unwrap();
-        let latest = (0..256)
-            .flat_map(|index| fixed_log_record(&format!("latest_{index:03}")))
-            .collect::<Vec<_>>();
+        let latest = (0..256).flat_map(fixed_log_record).collect::<Vec<_>>();
         fs::write(directory.path().join("engine.jsonl"), latest).unwrap();
 
         let collected = collect_sanitized_logs(directory.path());
-        let text = String::from_utf8(collected.bytes).unwrap();
-        for index in 0..256 {
-            assert!(text.contains(&format!("latest_{index:03}")));
-        }
-        assert!(text.find("older").unwrap() < text.find("latest_000").unwrap());
+        let sequences = String::from_utf8(collected.bytes)
+            .unwrap()
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<serde_json::Value>(line).unwrap()["fields"]["sequence"]
+                    .as_u64()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            &sequences[sequences.len() - 256..],
+            (0..256).collect::<Vec<_>>().as_slice()
+        );
+        assert!(
+            sequences[..sequences.len() - 256]
+                .iter()
+                .all(|sequence| *sequence == 999)
+        );
         assert_eq!(
             collected.metadata.source_bytes_read,
             MAX_DIAGNOSTIC_LOG_BYTES
         );
-        assert_eq!(collected.metadata.exported_bytes, MAX_DIAGNOSTIC_LOG_BYTES);
+        assert!(collected.metadata.exported_bytes <= MAX_DIAGNOSTIC_LOG_BYTES);
         assert_eq!(collected.metadata.records_exported, 8_192);
         assert!(collected.metadata.truncated);
         assert_eq!(collected.metadata.omission_reasons, ["byte_limit"]);
@@ -1197,7 +1216,8 @@ mod tests {
         )
         .unwrap();
         let collected = collect_sanitized_logs(directory.path());
-        assert_eq!(collected.bytes, b"{\"message\":\"ready\"}\n");
+        assert!(!collected.bytes.is_empty());
+        assert!(!String::from_utf8_lossy(&collected.bytes).contains("ready"));
         assert_eq!(collected.metadata.records_exported, 1);
         assert_eq!(collected.metadata.partial_records, 1);
         assert_eq!(collected.metadata.invalid_records, 1);
