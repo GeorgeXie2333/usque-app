@@ -43,6 +43,7 @@ pub struct LogHealthSnapshot {
     pub write_failures: u64,
     pub oversized_events: u64,
     pub unconfirmed_events: u64,
+    pub clear_epoch: u64,
 }
 
 #[derive(Default)]
@@ -59,6 +60,7 @@ struct LogHealth {
     write_failures: AtomicU64,
     oversized_events: AtomicU64,
     unconfirmed_events: AtomicU64,
+    clear_epoch: AtomicU64,
     stopped: Mutex<bool>,
     completed: Condvar,
 }
@@ -76,6 +78,7 @@ impl LogHealth {
             write_failures: self.write_failures.load(Ordering::Acquire),
             oversized_events: self.oversized_events.load(Ordering::Acquire),
             unconfirmed_events: self.unconfirmed_events.load(Ordering::Acquire),
+            clear_epoch: self.clear_epoch.load(Ordering::Acquire),
         }
     }
 }
@@ -101,6 +104,7 @@ struct QueuedEvent {
     bytes: Vec<u8>,
     health: Arc<LogHealth>,
     written: bool,
+    epoch: u64,
 }
 
 impl Drop for QueuedEvent {
@@ -326,6 +330,7 @@ impl<'a> MakeWriter<'a> for LogWriterFactory {
             shared: Arc::clone(&self.shared),
             buffer: Vec::with_capacity(1024),
             overflowed: false,
+            epoch: self.shared.health.clear_epoch.load(Ordering::Acquire),
         }
     }
 }
@@ -334,6 +339,7 @@ pub struct BufferedLogEvent {
     shared: Arc<LogShared>,
     buffer: Vec<u8>,
     overflowed: bool,
+    epoch: u64,
 }
 
 impl Write for BufferedLogEvent {
@@ -373,7 +379,9 @@ impl Drop for BufferedLogEvent {
             return;
         }
         let health = &self.shared.health;
-        if !health.accepting.load(Ordering::Acquire) {
+        if !health.accepting.load(Ordering::Acquire)
+            || self.epoch != health.clear_epoch.load(Ordering::Acquire)
+        {
             health.dropped_events.fetch_add(1, Ordering::Relaxed);
             return;
         }
@@ -406,6 +414,7 @@ impl Drop for BufferedLogEvent {
             bytes: event,
             health: Arc::clone(health),
             written: false,
+            epoch: self.epoch,
         };
         if self
             .shared
@@ -482,6 +491,11 @@ fn run_writer(directory: PathBuf, receiver: mpsc::Receiver<LogCommand>, health: 
 fn process_command(state: &mut LogState, command: LogCommand) {
     match command {
         LogCommand::Event(mut event) => {
+            // The producer can submit after its check but before clear changes
+            // the epoch. Validate again on the owner, in FIFO command order.
+            if event.epoch != state.health.clear_epoch.load(Ordering::Acquire) {
+                return;
+            }
             if state.write_event(&event.bytes).is_ok() {
                 event.written = true;
             }
@@ -555,6 +569,9 @@ impl LogState {
     }
 
     fn clear(&mut self) -> io::Result<()> {
+        // Formatters created before this command cannot resurrect old records,
+        // even when they finish after clear, or enqueue behind the command.
+        self.health.clear_epoch.fetch_add(1, Ordering::AcqRel);
         // The single owner closes/flushed its handle before clearing, then
         // resets the length used for rotation and reopens the current file.
         self.sync()?;
@@ -1236,6 +1253,64 @@ mod tests {
         let value: Value =
             serde_json::from_slice(&fs::read(logs.join(ACTIVE_LOG_NAME)).unwrap()).unwrap();
         assert_eq!(value["sequence"], 2);
+    }
+
+    #[test]
+    fn clearing_rejects_an_old_formatter_that_finishes_after_clear() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let factory = LogWriterFactory::open(&config).unwrap();
+        let mut stale = factory.make_writer();
+        stale.write_all(br#"{"sequence":1}"#).unwrap();
+        clear_logs(&log_directory(&config), Duration::from_secs(5)).unwrap();
+        drop(stale);
+        record_sequence(&factory, 2);
+        factory.shutdown(Duration::from_secs(5)).unwrap();
+        let value: Value = serde_json::from_slice(
+            &fs::read(log_directory(&config).join(ACTIVE_LOG_NAME)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(value["sequence"], 2);
+        assert_eq!(factory.health().clear_epoch, 1);
+        assert_eq!(factory.health().dropped_events, 1);
+        assert_eq!(factory.health().written_events, 1);
+    }
+
+    #[test]
+    fn owner_rejects_old_epoch_records_already_queued_behind_clear() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let factory = LogWriterFactory::open(&config).unwrap();
+        let release = block_writer(&factory);
+        let mut stale = factory.make_writer();
+        stale.write_all(br#"{"sequence":1}"#).unwrap();
+        let (cleared, result) = mpsc::channel();
+        assert!(
+            factory
+                .shared
+                .sender
+                .try_send(LogCommand::Operation(Box::new(move |state| {
+                    let _ = cleared.send(state.clear());
+                })))
+                .is_ok()
+        );
+        // Clear is queued but cannot run yet: the producer's epoch check still
+        // succeeds, so only the owner's second check can reject this record.
+        drop(stale);
+        release.send(()).unwrap();
+        result
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        factory.flush(Duration::from_secs(5)).unwrap();
+        assert!(
+            fs::read(log_directory(&config).join(ACTIVE_LOG_NAME))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(factory.health().dropped_events, 1);
+        assert_eq!(factory.health().queued_bytes, 0);
+        factory.shutdown(Duration::from_secs(5)).unwrap();
     }
 
     #[test]
