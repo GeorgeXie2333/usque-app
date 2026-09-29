@@ -46,4 +46,44 @@ class NativeTimelineFieldsTest {
         coordinator.observeNativeTimeline(null)
         assertTrue((coordinator.timeline()["events"] as List<*>).isNotEmpty())
     }
+
+    @Test
+    fun directDnsTransitionsSurviveBothLiveAndExportSanitization() {
+        val decoded =
+            requireNotNull(
+                NativeTimelineFields.decode(
+                    """{"schema_version":1,"events":[
+                    {"sequence":1,"event_type":"direct_dns_degraded"},
+                    {"sequence":2,"event_type":"direct_dns_recovered"}
+                    ],"metrics":{}}""",
+                ),
+            )
+        val liveTypes = (decoded["events"] as List<*>).map { (it as Map<*, *>)["event_type"] }
+        assertEquals(listOf("direct_dns_degraded", "direct_dns_recovered"), liveTypes)
+        val exported = AndroidMaintenance.sanitizeConnectionTimeline(decoded).getJSONArray("events")
+        assertEquals(2, exported.length())
+        assertEquals("direct_dns_degraded", exported.getJSONObject(0).getString("event_type"))
+        assertEquals("direct_dns_recovered", exported.getJSONObject(1).getString("event_type"))
+    }
+
+    @Test
+    fun unavailableCountersRemainAbsentWhileObservedZeroSurvives() {
+        val coordinator = AndroidDiagnosticsCoordinator(Executor(Runnable::run))
+        coordinator.observeSnapshot(mapOf("phase" to "connected"))
+        val fallback = AndroidMaintenance.sanitizeConnectionTimeline(coordinator.timeline())
+        val metrics = fallback.getJSONObject("metrics")
+        assertFalse(metrics.has("reconnect_count"))
+        assertFalse(metrics.has("fallback_count"))
+        assertFalse(metrics.has("send_queue_high_watermark"))
+        assertFalse(metrics.has("send_queue_drop_count"))
+        assertEquals(0L, metrics.getLong("network_change_count"))
+
+        val observed =
+            AndroidMaintenance
+                .sanitizeConnectionTimeline(
+                    mapOf("metrics" to mapOf("fallback_count" to 0L, "send_queue_drop_count" to 0L)),
+                ).getJSONObject("metrics")
+        assertEquals(0L, observed.getLong("fallback_count"))
+        assertEquals(0L, observed.getLong("send_queue_drop_count"))
+    }
 }

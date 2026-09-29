@@ -408,7 +408,9 @@ internal object AndroidMaintenance {
             }
         }
         for (key in COUNTER_METRICS) {
-            metrics.put(key, safeCounter(metricsSource[key]))
+            (metricsSource[key] as? Number)?.let { value ->
+                metrics.put(key, safeCounter(value))
+            }
         }
         if (metricsSource["current_smoothed_rtt_known"] == true) {
             metrics.put(
@@ -615,6 +617,8 @@ internal object AndroidMaintenance {
             "pmtu_changed",
             "pmtu_revalidation_started",
             "pmtu_revalidation_failed",
+            "direct_dns_degraded",
+            "direct_dns_recovered",
             "queue_saturated",
             "queue_backpressured",
             "disconnected",

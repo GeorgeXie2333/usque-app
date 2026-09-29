@@ -216,11 +216,8 @@ internal class AndroidDiagnosticsCoordinator(
                 "metrics" to
                     mapOf(
                         "reconnect_count" to
-                            ((snapshot["reconnect_count"] as? Number)?.toLong() ?: 0L),
-                        "fallback_count" to 0L,
+                            (snapshot["reconnect_count"] as? Number)?.toLong(),
                         "network_change_count" to observedNetworkChanges,
-                        "send_queue_high_watermark" to 0L,
-                        "send_queue_drop_count" to 0L,
                         "current_smoothed_rtt_known" to false,
                         "last_failure_code" to (snapshot["error_code"] as? String),
                     ).filterValues { value -> value != null },
