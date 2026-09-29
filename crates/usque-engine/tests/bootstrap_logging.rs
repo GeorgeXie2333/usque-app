@@ -5,6 +5,8 @@ use std::{path::Path, process::Command};
 fn invalid_config_command(config: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_usque-engine"));
     command.arg("--config").arg(config);
+    // The user's RUST_LOG may legitimately suppress INFO shutdown boundaries.
+    command.env("RUST_LOG", "info");
     // Cargo's MSVC test binaries find development DLLs beside the test harness.
     // Give this harmless child the same search directory, without changing the
     // parent process or any system environment setting.
