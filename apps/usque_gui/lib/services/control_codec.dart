@@ -1395,6 +1395,7 @@ ConnectionTimeline _decodeConnectionTimeline(_ProtoReader reader) {
   final events = <ConnectionTimelineEvent>[];
   var metrics = const ConnectionMetrics();
   var droppedEventCount = 0;
+  final metadata = <Object?, Object?>{};
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -1404,14 +1405,24 @@ ConnectionTimeline _decodeConnectionTimeline(_ProtoReader reader) {
         metrics = _decodeConnectionMetrics(reader.message(field));
       case 3:
         droppedEventCount = reader.varint(field);
+      case 4:
+        metadata['connection_instance_id'] = reader.string(field);
+      case 5:
+        metadata['retained'] = reader.varint(field) == 1;
+      case 6:
+        metadata['session_generation'] = reader.varint(field);
       default:
         reader.skip(field);
     }
   }
+  final validated = connectionTimelineFromMap(metadata);
   return ConnectionTimeline(
     events: List<ConnectionTimelineEvent>.unmodifiable(events),
     metrics: metrics,
     droppedEventCount: droppedEventCount,
+    connectionInstanceId: validated.connectionInstanceId,
+    retained: validated.retained,
+    sessionGeneration: validated.sessionGeneration,
   );
 }
 

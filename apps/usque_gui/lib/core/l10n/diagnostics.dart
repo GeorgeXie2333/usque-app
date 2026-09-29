@@ -1,6 +1,7 @@
 /// Precise timeline labels and source omissions for every supported locale.
 const kDiagnosticsCatalogs = <String, Map<String, String>>{
   'en': <String, String>{
+    'diag_timeline_retained': 'Last connection',
     'diag_source_config': 'Configuration',
     'diag_source_runtime': 'Runtime state',
     'diag_source_platform': 'Platform observation',
@@ -26,6 +27,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Earlier events hidden in this view: {count}',
   },
   'zh_CN': <String, String>{
+    'diag_timeline_retained': '上次连接',
     'diag_source_config': '配置',
     'diag_source_runtime': '运行时状态',
     'diag_source_platform': '平台观测',
@@ -50,6 +52,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': '此视图隐藏的较早事件：{count}',
   },
   'zh_TW': <String, String>{
+    'diag_timeline_retained': '上次連線',
     'diag_source_config': '設定',
     'diag_source_runtime': '執行階段狀態',
     'diag_source_platform': '平台觀測',
@@ -74,6 +77,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': '此檢視隱藏的較早事件：{count}',
   },
   'zh_HK': <String, String>{
+    'diag_timeline_retained': '上次連線',
     'diag_source_config': '設定',
     'diag_source_runtime': '執行階段狀態',
     'diag_source_platform': '平台觀測',
@@ -98,6 +102,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': '此檢視隱藏的較早事件：{count}',
   },
   'ja': <String, String>{
+    'diag_timeline_retained': '前回の接続',
     'diag_source_config': '設定',
     'diag_source_runtime': '実行時の状態',
     'diag_source_platform': 'プラットフォーム観測',
@@ -122,6 +127,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': 'この表示で非表示の過去イベント：{count}',
   },
   'ko': <String, String>{
+    'diag_timeline_retained': '이전 연결',
     'diag_source_config': '설정',
     'diag_source_runtime': '실행 상태',
     'diag_source_platform': '플랫폼 관측',
@@ -146,6 +152,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': '이 보기에서 숨겨진 이전 이벤트: {count}',
   },
   'es': <String, String>{
+    'diag_timeline_retained': 'Última conexión',
     'diag_source_config': 'Configuración',
     'diag_source_runtime': 'Estado de ejecución',
     'diag_source_platform': 'Observación de la plataforma',
@@ -173,6 +180,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Eventos anteriores ocultos en esta vista: {count}',
   },
   'pt': <String, String>{
+    'diag_timeline_retained': 'Última conexão',
     'diag_source_config': 'Configuração',
     'diag_source_runtime': 'Estado de execução',
     'diag_source_platform': 'Observação da plataforma',
@@ -200,6 +208,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Eventos anteriores ocultos nesta visualização: {count}',
   },
   'fr': <String, String>{
+    'diag_timeline_retained': 'Dernière connexion',
     'diag_source_config': 'Paramètres',
     'diag_source_runtime': 'État d’exécution',
     'diag_source_platform': 'Observation de la plateforme',
@@ -227,6 +236,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Événements antérieurs masqués dans cette vue : {count}',
   },
   'nl': <String, String>{
+    'diag_timeline_retained': 'Laatste verbinding',
     'diag_source_config': 'Configuratie',
     'diag_source_runtime': 'Uitvoeringsstatus',
     'diag_source_platform': 'Platformwaarneming',
@@ -252,6 +262,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Eerdere gebeurtenissen verborgen in deze weergave: {count}',
   },
   'tr': <String, String>{
+    'diag_timeline_retained': 'Son bağlantı',
     'diag_source_config': 'Yapılandırma',
     'diag_source_runtime': 'Çalışma durumu',
     'diag_source_platform': 'Platform gözlemi',
@@ -279,6 +290,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Bu görünümde gizlenen önceki olaylar: {count}',
   },
   'ru': <String, String>{
+    'diag_timeline_retained': 'Последнее подключение',
     'diag_source_config': 'Конфигурация',
     'diag_source_runtime': 'Состояние выполнения',
     'diag_source_platform': 'Наблюдение платформы',
@@ -306,6 +318,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Предыдущие события, скрытые в этом представлении: {count}',
   },
   'fa': <String, String>{
+    'diag_timeline_retained': 'آخرین اتصال',
     'diag_source_config': 'پیکربندی',
     'diag_source_runtime': 'وضعیت اجرا',
     'diag_source_platform': 'مشاهدهٔ سکو',
@@ -330,6 +343,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': 'رویدادهای قبلی پنهان در این نما: {count}',
   },
   'ar': <String, String>{
+    'diag_timeline_retained': 'آخر اتصال',
     'diag_source_config': 'الإعدادات',
     'diag_source_runtime': 'حالة التشغيل',
     'diag_source_platform': 'ملاحظة المنصة',
@@ -354,6 +368,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': 'أحداث سابقة مخفية في هذا العرض: {count}',
   },
   'de': <String, String>{
+    'diag_timeline_retained': 'Letzte Verbindung',
     'diag_source_config': 'Konfiguration',
     'diag_source_runtime': 'Laufzeitzustand',
     'diag_source_platform': 'Plattformbeobachtung',
@@ -383,6 +398,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'In dieser Ansicht ausgeblendete frühere Ereignisse: {count}',
   },
   'id': <String, String>{
+    'diag_timeline_retained': 'Koneksi terakhir',
     'diag_source_config': 'Konfigurasi',
     'diag_source_runtime': 'Status runtime',
     'diag_source_platform': 'Pengamatan platform',
@@ -408,6 +424,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Peristiwa sebelumnya yang disembunyikan di tampilan ini: {count}',
   },
   'it': <String, String>{
+    'diag_timeline_retained': 'Ultima connessione',
     'diag_source_config': 'Configurazione',
     'diag_source_runtime': 'Stato di esecuzione',
     'diag_source_platform': 'Osservazione della piattaforma',
@@ -435,6 +452,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Eventi precedenti nascosti in questa vista: {count}',
   },
   'pl': <String, String>{
+    'diag_timeline_retained': 'Ostatnie połączenie',
     'diag_source_config': 'Konfiguracja',
     'diag_source_runtime': 'Stan działania',
     'diag_source_platform': 'Obserwacja platformy',
@@ -463,6 +481,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Wcześniejsze zdarzenia ukryte w tym widoku: {count}',
   },
   'th': <String, String>{
+    'diag_timeline_retained': 'การเชื่อมต่อครั้งล่าสุด',
     'diag_source_config': 'การตั้งค่า',
     'diag_source_runtime': 'สถานะขณะทำงาน',
     'diag_source_platform': 'การสังเกตจากแพลตฟอร์ม',
@@ -490,6 +509,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'เหตุการณ์ก่อนหน้าที่ซ่อนในมุมมองนี้: {count}',
   },
   'uk': <String, String>{
+    'diag_timeline_retained': 'Останнє підключення',
     'diag_source_config': 'Конфігурація',
     'diag_source_runtime': 'Стан виконання',
     'diag_source_platform': 'Спостереження платформи',
@@ -517,6 +537,7 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Попередні події, приховані в цьому поданні: {count}',
   },
   'vi': <String, String>{
+    'diag_timeline_retained': 'Kết nối gần nhất',
     'diag_source_config': 'Cấu hình',
     'diag_source_runtime': 'Trạng thái khi chạy',
     'diag_source_platform': 'Quan sát nền tảng',

@@ -682,14 +682,21 @@ class ConnectionTimeline {
     this.events = const <ConnectionTimelineEvent>[],
     this.metrics = const ConnectionMetrics(),
     this.droppedEventCount = 0,
+    this.connectionInstanceId,
+    this.retained = false,
+    this.sessionGeneration,
   });
 
   final List<ConnectionTimelineEvent> events;
   final ConnectionMetrics metrics;
   final int droppedEventCount;
+  final String? connectionInstanceId;
+  final bool retained;
+  final int? sessionGeneration;
 }
 
 ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
+  final identity = map['connection_instance_id'];
   final metricsMap = map['metrics'];
   final metrics = metricsMap is Map
       ? Map<Object?, Object?>.from(metricsMap)
@@ -760,6 +767,12 @@ ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
       lastReconnectCode: metrics['last_reconnect_code'] as String?,
     ),
     droppedEventCount: (map['dropped_event_count'] as num?)?.toInt() ?? 0,
+    connectionInstanceId:
+        identity is String && _connectionIdentity.hasMatch(identity)
+        ? identity
+        : null,
+    retained: map['retained'] == true,
+    sessionGeneration: _unsignedValue(map['session_generation']),
   );
 }
 

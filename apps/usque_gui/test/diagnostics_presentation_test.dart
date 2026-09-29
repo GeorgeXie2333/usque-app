@@ -101,6 +101,82 @@ void main() {
     expect(native.metrics.reconnectCount, 0);
   });
 
+  test(
+    'retained timeline metadata is optional and validates runtime identity',
+    () {
+      const identity = '550e8400-e29b-41d4-a716-446655440000';
+      final legacy = connectionTimelineFromMap({});
+      expect(legacy.connectionInstanceId, isNull);
+      expect(legacy.retained, isFalse);
+      expect(legacy.sessionGeneration, isNull);
+      final payload =
+          (ControlPayloadWriter()
+                ..string(4, identity)
+                ..unsigned(5, 1)
+                ..unsigned(6, 9))
+              .takeBytes();
+      final wire = debugDecodeConnectionTimelineFrame(
+        _timelineFrame(payload),
+        'test',
+      )!;
+      expect(wire.connectionInstanceId, identity);
+      expect(wire.retained, isTrue);
+      expect(wire.sessionGeneration, 9);
+      final invalid = connectionTimelineFromMap({
+        'connection_instance_id': 'private-account-name',
+        'session_generation': -1,
+        'retained': 'true',
+      });
+      expect(invalid.connectionInstanceId, isNull);
+      expect(invalid.sessionGeneration, isNull);
+      expect(invalid.retained, isFalse);
+      final hostile =
+          (ControlPayloadWriter()..string(4, 'private-account-name'))
+              .takeBytes();
+      expect(
+        debugDecodeConnectionTimelineFrame(
+          _timelineFrame(hostile),
+          'test',
+        )!.connectionInstanceId,
+        isNull,
+      );
+    },
+  );
+
+  testWidgets(
+    'retained evidence is labeled as the last connection without raw ids',
+    (tester) async {
+      const identity = '550e8400-e29b-41d4-a716-446655440000';
+      final timeline = ConnectionTimeline(
+        retained: true,
+        connectionInstanceId: identity,
+        sessionGeneration: 9,
+        events: const [
+          ConnectionTimelineEvent(
+            sequence: 1,
+            eventType: ConnectionTimelineEventType.disconnected,
+            elapsedMilliseconds: 10,
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        _host(ConnectionTimelineView(timeline: timeline, strings: strings)),
+      );
+      expect(find.text('Last connection'), findsOneWidget);
+      expect(find.textContaining(identity), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(
+        _host(
+          ConnectionTimelineView(
+            timeline: const ConnectionTimeline(),
+            strings: strings,
+          ),
+        ),
+      );
+      expect(find.text('Last connection'), findsNothing);
+    },
+  );
+
   testWidgets(
     'timeline shows source omissions, view omissions and unknown metrics',
     (tester) async {

@@ -18,6 +18,22 @@ class ConnectionTimelineView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = _buildTimeline(context);
+    if (!timeline.retained) return content;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          strings.get('diag_timeline_retained'),
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
+        const SizedBox(height: 10),
+        content,
+      ],
+    );
+  }
+
+  Widget _buildTimeline(BuildContext context) {
     if (timeline.events.isEmpty) {
       if (timeline.droppedEventCount > 0) {
         return Column(
