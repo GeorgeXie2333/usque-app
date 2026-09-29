@@ -43,6 +43,7 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | [GitHub governance](GITHUB_GOVERNANCE.md) | Repository checks, permissions, and maintainer rules / 仓库检查、权限与维护规则 |
 | [Reliability testing](RELIABILITY_TESTING.md) | Deterministic checks, isolated environments, and result requirements / 确定性检查、隔离环境与结果要求 |
 | [Network-quality rollback](network-quality-rollback.md) | Reviewed build-only rollback and regression requirements / 构建级回滚及回归验证 |
+| [Diagnostics refactor plan](diagnostics-refactor-plan.md) | Evidence contracts, implementation batches and validation record / 诊断证据契约、重构步骤与验证记录 |
 
 Read the [Code of Conduct](../CODE_OF_CONDUCT.md) before participating and follow
 [Contributing](../CONTRIBUTING.md) for safety rules and required checks.
