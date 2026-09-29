@@ -95,7 +95,8 @@ class DiagnosticsController extends ChangeNotifier {
           state = DiagnosticsControllerState.idle;
           _stopActiveRefresh();
         }
-      } else {
+      } else if (version == _sessionVersion ||
+          session?.sessionId == recovered.sessionId) {
         _applySession(recovered);
       }
     } on EngineException catch (error) {

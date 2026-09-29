@@ -109,6 +109,24 @@ DiagnosticSession runningSession({
 }
 
 void main() {
+  testWidgets(
+    'late restore cannot replace a session adopted from a newer event',
+    (tester) async {
+      final engine = DiagnosticsEngineStub()
+        ..pendingRestore = Completer<DiagnosticSession?>();
+      final controller = DiagnosticsController(engine);
+      final restoring = controller.restore(refreshTimeline: false);
+      final newer = runningSession(id: 'session-newer');
+      controller.handleEngineEvent(
+        EngineSnapshotEvent(diagnosticsChanged: true, diagnosticSession: newer),
+      );
+      engine.pendingRestore!.complete(runningSession(id: 'session-old'));
+      await restoring;
+      expect(controller.session, same(newer));
+      controller.dispose();
+    },
+  );
+
   testWidgets('newer start reply wins over an early cached running event', (
     tester,
   ) async {
