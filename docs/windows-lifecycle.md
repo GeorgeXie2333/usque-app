@@ -70,6 +70,81 @@ The observer distinguishes confirmed `AGENT_PHYSICAL_NETWORK_OFFLINE` from faile
 queries and older Agents' generic errors. This does not relax the Agent's startup,
 exact-egress, cleanup or automatic-recovery checks.
 
+## System-proxy ownership and recovery
+
+The system-proxy output points at an explicit loopback HTTP listener. Turning it
+off restores the captured user settings: an originally disabled manual proxy
+returns to disabled, while an originally enabled proxy returns to its previous
+configuration. When the current server differs from both the captured and
+applied addresses, cleanup preserves that replacement and its related settings,
+including its PAC configuration. Captured/applied intermediate values remain
+eligible for interrupted-operation recovery.
+
+The Agent checks the resolved identity of the opened registry object before
+reading or changing proxy values and uses that same handle throughout the
+operation. A valid caller SID alone does not authorize a different resolved
+object. Recovery retains its ownership marker until settings are flushed and
+the change notification succeeds. Retrying after marker removal still flushes
+and notifies, so an interrupted final step cannot become a false success.
+
+The Engine observes the proxy lease independently of transport health. A lost
+lease invalidates the reported system-proxy runtime state. Reattaching an active
+tunnel closes the previous lease and restores any retained proxy receipt before
+applying the replacement, without discarding the tunnel's persistent protection.
+Failed frontend or tunnel-attachment changes restore the previous runtime when
+possible; if that compensation fails, the connection stops and reports failure.
+
+These ownership and failure paths have deterministic memory and named-pipe
+tests. Those tests do not prove Windows Settings UI synchronization, connection
+flags, WinINet notification across user/service contexts, or actual installed
+Agent crash recovery. Those behaviors require snapshot-VM validation, including
+the case where the Windows proxy was disabled before Usque enabled it.
+
+### Review validation, 2026-09-30
+
+The tested executable source is
+`cfe17f53aa671f285fa465f9904e06ddc30c3585`, based on
+`f29077a4d45d1c4dd6bc167eb644f4bcf32b5451`. The subsequent documentation-only
+commit does not change that executable source. The four code batches are
+`9799b8a` (frontend classification), `afeb24b` (Agent ownership/recovery),
+`4628bca` (Engine leases/compensation), and `cfe17f5` (settings application).
+
+| Review finding | Recheck and evidence |
+| --- | --- |
+| HTTP shutdown rebuilds unrelated outputs | Confirmed in the planner; fixed with hot classification and dependency tests. The real GUI request also exposed an earlier validation rejection, now covered by wire-input tests. |
+| A saved proxy-off switch is never applied behind a busy executor | Confirmed with the fake Engine. Coalescing, runtime/state contention, HTTP-dependent shutdown, timeout, cancellation and failure tests cover the fix. |
+| Expired proxy lease remains Active | Confirmed from ownership/health flow; fake pipe EOF and drop tests cover invalidation and pipe release. Existing-session Connect refreshes runtime health. |
+| Reattachment duplicates a retained proxy step | Confirmed for retained applied and intended receipts. Capability/protocol, request-order and journal tests cover idempotent cleanup before replacement. |
+| Failed hot changes lose previous listeners/proxy | Confirmed with injected runtime failures; compensation-success and compensation-failure tests cover restore or explicit stop. |
+| Cleanup disables an externally selected replacement proxy | Confirmed with production recovery flow on memory settings; replacement configuration is preserved. |
+| Failed final flush/notification is retried as success | Confirmed with production recovery fault injection; unfinished durability/notification remains retryable. |
+| Caller SID validation does not constrain the resolved registry object | Confirmed from the registry API contract. Resolved-path rejection tests and a read-only real key-name query verify the new check; an attack was not executed. |
+
+The workstation checks below completed successfully from the repository root
+using Rust 1.97.1 and PowerShell 7. `python` denotes the verified Python 3.12.14
+runtime executable used for the policy check.
+
+```powershell
+cargo fmt --all --check
+& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy
+& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test
+& .\tool\build_windows_rust_release.ps1 -Variant x64-v2
+& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy
+python tool/check_repository_policy.py
+git diff --check
+```
+
+The x64-v2 Rust release compile-only check also completed successfully. No
+package is part of this validation. The native resolved-key query was read-only and did
+not read proxy values, create links, or change registry state.
+
+Actual Windows proxy apply/restore and Settings UI readback, installed Agent
+restart/crash recovery, VPN/platform restoration, registry-link attack
+execution, and external leak observation are `not_run`. The specific reported
+black-box UI failure has not been reproduced in a snapshot VM. Connection-level
+flags and user/service WinINet notification remain unconfirmed causes; no raw
+connection-blob or notification-architecture change was made on that assumption.
+
 ## Upgrade ordering and payload replacement
 
 The newer-Agent-first ordering below was introduced in v0.2.5. It is retained
