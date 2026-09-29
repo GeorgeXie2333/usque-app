@@ -110,6 +110,36 @@ DiagnosticSession runningSession({
 
 void main() {
   testWidgets(
+    'conflicting old terminal event triggers fresh authoritative recovery',
+    (tester) async {
+      final engine = DiagnosticsEngineStub()
+        ..pendingRestore = Completer<DiagnosticSession?>();
+      final controller = DiagnosticsController(engine);
+      final restoring = controller.restore(refreshTimeline: false);
+      final old = DiagnosticSession(
+        sessionId: 'session-old',
+        state: DiagnosticSessionState.completed,
+        startedAt: DateTime.fromMillisecondsSinceEpoch(1),
+        mode: DiagnosticMode.standard,
+      );
+      controller.handleEngineEvent(
+        EngineSnapshotEvent(diagnosticsChanged: true, diagnosticSession: old),
+      );
+      final current = runningSession(id: 'session-current');
+      engine.pendingRestore!.complete(current);
+      await restoring;
+      expect(controller.session, same(old));
+      engine.pendingRestore = null;
+      engine.recovered = current;
+      await tester.pump(const Duration(milliseconds: 751));
+      await tester.pump();
+      expect(engine.restoreCalls, 2);
+      expect(controller.session, same(current));
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
     'late restore cannot replace a session adopted from a newer event',
     (tester) async {
       final engine = DiagnosticsEngineStub()

@@ -20,6 +20,7 @@ class DiagnosticsController extends ChangeNotifier {
 
   final EngineClient _engine;
   Timer? _activeRefreshTimer;
+  Timer? _restoreConflictTimer;
   Timer? _timelineRefreshTimer;
   int _timelineObservers = 0;
   int _sessionVersion = 0;
@@ -98,6 +99,11 @@ class DiagnosticsController extends ChangeNotifier {
       } else if (version == _sessionVersion ||
           session?.sessionId == recovered.sessionId) {
         _applySession(recovered);
+      } else {
+        // The intervening event and reply may belong to either ordering of two
+        // sessions. Keep the displayed event and read fresh authoritative state
+        // once this request settles, at the normal recovery cadence.
+        _scheduleConflictRestore();
       }
     } on EngineException catch (error) {
       if (!silent &&
@@ -370,6 +376,8 @@ class DiagnosticsController extends ChangeNotifier {
     _operationGeneration++;
     _resetting = true;
     _stopActiveRefresh();
+    _restoreConflictTimer?.cancel();
+    _restoreConflictTimer = null;
     _stopTimelineRefresh();
     _restoreInFlight = null;
   }
@@ -455,11 +463,27 @@ class DiagnosticsController extends ChangeNotifier {
     _activeRefreshTimer = null;
   }
 
+  void _scheduleConflictRestore() {
+    if (_restoreConflictTimer != null) return;
+    final generation = _dataGeneration;
+    final operation = _operationGeneration;
+    _restoreConflictTimer = Timer(_activeRefreshInterval, () {
+      _restoreConflictTimer = null;
+      if (!_disposed &&
+          !_resetting &&
+          generation == _dataGeneration &&
+          operation == _operationGeneration) {
+        unawaited(restore(silent: true, refreshTimeline: false));
+      }
+    });
+  }
+
   @override
   void dispose() {
     _disposed = true;
     _operationGeneration += 1;
     _stopActiveRefresh();
+    _restoreConflictTimer?.cancel();
     _stopTimelineRefresh();
     super.dispose();
   }
