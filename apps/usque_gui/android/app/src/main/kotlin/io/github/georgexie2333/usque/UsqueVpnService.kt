@@ -146,13 +146,7 @@ class UsqueVpnService : VpnService() {
     private val flagCache by lazy { FlagSvgCache(this) }
     private val logStore by lazy { AndroidLogStore.forContext(this) }
 
-    private data class LogContext(
-        val instanceId: String?,
-        val connectionGeneration: Long,
-        val networkGeneration: Long,
-    )
-
-    private val nativeStopLogContexts = ConcurrentHashMap<Long, LogContext>()
+    private val nativeStopLogContexts = ConcurrentHashMap<Long, ServiceLogContext>()
     private val snapshotState = ServiceSnapshotState()
     private val diagnosticProbes by lazy {
         ServiceDiagnosticProbes(
@@ -472,6 +466,7 @@ class UsqueVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        val previousLogContext = currentLogContext()
         chainNetworkRecovery.cancel()
         diagnosticProbes.cancel()
         if (!clearAllRequested.get()) {
@@ -490,7 +485,7 @@ class UsqueVpnService : VpnService() {
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
         closeQuietly(descriptor)
-        submitNativeStop()
+        submitNativeStop(beginNativeStop(previousLogContext))
         engineExecutor.shutdownNow()
         settingsExecutor.shutdownNow()
         statusExecutor.shutdownNow()
@@ -579,6 +574,7 @@ class UsqueVpnService : VpnService() {
         }
         // Revoke polling before publishing the replacement generation. A
         // snapshot of the old ENGINE must never be stamped as the new session.
+        val previousLogContext = currentLogContext()
         nativeRuntimeActive.set(false)
         stopStatusTask()
         val generation = connectionGeneration.incrementAndGet()
@@ -610,6 +606,8 @@ class UsqueVpnService : VpnService() {
             AndroidLogStore.Event.CONNECTION_REQUESTED,
             phase = "preparing",
             mode = mode,
+            errorType = null,
+            context = previousLogContext.replacementRequest(generation, networkMonitor.generation()),
         )
         startForeground(
             VpnNotificationController.NOTIFICATION_ID,
@@ -652,7 +650,7 @@ class UsqueVpnService : VpnService() {
             } else {
                 null
             }
-        val stopped = submitNativeStop()
+        val stopped = submitNativeStop(beginNativeStop(previousLogContext))
         engineExecutor.execute {
             try {
                 check(stopped.get(35, TimeUnit.SECONDS)) { "Native stop is unconfirmed" }
@@ -1651,6 +1649,7 @@ class UsqueVpnService : VpnService() {
         recoveryPreferences.edit().remove(RECOVERY_PROFILE).commit()
         lastTunIdentity.set(null)
         pendingTunRestart = TunRestartDecision.TEARDOWN
+        val previousLogContext = currentLogContext()
         val generation = connectionGeneration.incrementAndGet()
         settingsApplication.cancel()
         runtimeReconfigureInFlight = false
@@ -1658,7 +1657,7 @@ class UsqueVpnService : VpnService() {
         activeProfileJson.set(null)
         val stoppedMode = activeMode.getAndSet(null)
         nativeRuntimeActive.set(false)
-        val stopTicket = beginNativeStop()
+        val stopTicket = beginNativeStop(previousLogContext)
         stopStatusTask()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
@@ -1669,6 +1668,7 @@ class UsqueVpnService : VpnService() {
             AndroidLogStore.Event.CONNECTION_STOPPED,
             phase = snapshotState.phase,
             mode = stoppedMode,
+            context = previousLogContext,
         )
         broadcastSnapshot()
         request?.let(::replyWithSnapshot)
@@ -1718,13 +1718,14 @@ class UsqueVpnService : VpnService() {
         }
         AndroidLocaleController.clear(this)
         chainNetworkRecovery.cancel()
+        val previousLogContext = currentLogContext()
         val generation = connectionGeneration.incrementAndGet()
         settingsApplication.cancel()
         networkMonitor.bumpGeneration()
         activeProfileJson.set(null)
         activeMode.set(null)
         nativeRuntimeActive.set(false)
-        val stopTicket = beginNativeStop()
+        val stopTicket = beginNativeStop(previousLogContext)
         stopStatusTask()
         snapshotState.phase = "disconnecting"
         snapshotState.warning = null
@@ -1785,9 +1786,8 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun beginNativeStop(): Long {
+    private fun beginNativeStop(context: ServiceLogContext = currentLogContext()): Long {
         val ticket = nativeStops.begin()
-        val context = currentLogContext()
         nativeStopLogContexts[ticket] = context
         recordLog(AndroidLogStore.Event.NATIVE_STOP_REQUESTED, stopTicket = ticket, context = context)
         return ticket
@@ -2378,8 +2378,8 @@ class UsqueVpnService : VpnService() {
             )
         }
 
-    private fun currentLogContext(): LogContext =
-        LogContext(
+    private fun currentLogContext(): ServiceLogContext =
+        ServiceLogContext(
             NetworkQualityFields.decode(snapshotState.networkQualityJson)?.get("connection_instance_id") as? String,
             connectionGeneration.get(),
             networkMonitor.generation(),
@@ -2392,7 +2392,7 @@ class UsqueVpnService : VpnService() {
         transport: String? = null,
         errorType: String? = snapshotState.errorCode,
         stopTicket: Long? = null,
-        context: LogContext = currentLogContext(),
+        context: ServiceLogContext = currentLogContext(),
     ) {
         if (clearAllRequested.get()) return
         logStore.record(
