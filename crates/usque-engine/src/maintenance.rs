@@ -54,6 +54,7 @@ pub struct DiagnosticTransportContext {
     pub network_quality: Option<usque_transport::NetworkQualitySnapshot>,
     pub socket_receive: Option<usque_transport::SocketReceiveQuality>,
     pub platform_state: Option<usque_ipc::agent_v1::PlatformState>,
+    pub capture: Option<crate::connection_evidence::CaptureMetadata>,
 }
 
 pub struct Maintenance {
@@ -207,6 +208,12 @@ fn write_diagnostic_bundle(
             readme.as_bytes().to_vec().into_boxed_slice(),
         ),
     ];
+    if let Some(capture) = &transport.capture {
+        entries.push((
+            "capture.json".to_owned(),
+            serde_json::to_vec_pretty(capture)?.into_boxed_slice(),
+        ));
+    }
     if let Some(quality) = &transport.network_quality {
         let value = serde_json::json!({
             "connection_instance_id": quality.connection_id.map(|id| id.0.to_string()),
@@ -509,6 +516,8 @@ fn diagnostic_session_summary(session: &DiagnosticSession) -> serde_json::Value 
                 "severity": finding.severity,
                 "summary_key": safe_summary_key(&finding.summary_key),
                 "remediation_key": safe_remediation_key(&finding.remediation_key),
+                "observation": finding.observation,
+                "evidence": finding.evidence.iter().filter(|evidence| evidence.is_export_safe()).take(16).collect::<Vec<_>>(),
                 "sanitized_evidence": finding.sanitized_evidence.iter()
                     .filter(|value| safe_evidence(value))
                     .take(16)
@@ -539,238 +548,23 @@ fn sanitized_failure_summary(failure: &TransportFailure) -> serde_json::Value {
 }
 
 fn safe_remediation_key(value: &str) -> Option<&str> {
-    matches!(
-        value,
-        "none"
-            | "nq_profile"
-            | "nq_retry"
-            | "nq_network"
-            | "nq_reconnect"
-            | "retry"
-            | "try_http2"
-            | "check_physical_network"
-            | "refresh_or_replace_identity"
-            | "replace_identity"
-            | "review_configuration"
-            | "restore_platform_state"
-            | "resolve_dependency"
-            | "run_deep_diagnostics"
-            | "run_release_leak_gate"
-            | "inspect_platform_state"
-            | "generate_tunnel_traffic"
-            | "export_diagnostics"
-            | "not_configured"
-            | "platform_capability_unavailable"
-            | "connect_or_run_deep_diagnostics"
-            | "active_probe_requires_disconnected_deep_mode"
-            | "http2_fallback_active"
-            | "h3_not_active"
-            | "h3_active"
-            | "no_transport_handshake"
-            | "no_active_runtime"
-            | "no_active_tunnel"
-            | "payload_family_unavailable"
-    )
-    .then_some(value)
+    usque_core::diagnostics_contract_generated::REMEDIATION_KEYS
+        .contains(&value)
+        .then_some(value)
 }
 
 fn safe_summary_key(value: &str) -> Option<&str> {
-    matches!(
-        value,
-        "diagnostic_address_assignment_missing"
-            | "nq_finding_unavailable"
-            | "nq_finding_invalid_configuration"
-            | "nq_finding_dns_system"
-            | "nq_finding_unsupported"
-            | "nq_finding_dns_custom_valid"
-            | "nq_finding_stale"
-            | "nq_finding_rtt_high"
-            | "nq_finding_healthy"
-            | "nq_finding_loss_high"
-            | "nq_finding_queue_pressure"
-            | "nq_finding_pmtu_degraded"
-            | "nq_finding_migration_reconnect"
-            | "nq_finding_dns_changed"
-            | "nq_finding_dns_runtime"
-            | "nq_finding_dns_degraded"
-            | "nq_finding_probe_unsafe"
-            | "nq_finding_probe_success"
-            | "nq_finding_probe_cancelled"
-            | "nq_finding_probe_timeout"
-            | "nq_finding_probe_failed"
-            | "diagnostic_address_assignment_unknown"
-            | "diagnostic_address_assignment_valid"
-            | "diagnostic_cancelled"
-            | "diagnostic_capabilities_ok"
-            | "diagnostic_check_failed_internally"
-            | "diagnostic_check_timed_out"
-            | "diagnostic_configuration_invalid"
-            | "diagnostic_configuration_ok"
-            | "diagnostic_dependency_failed"
-            | "diagnostic_dns_path_actual_state_unknown"
-            | "diagnostic_dns_path_consistent"
-            | "diagnostic_dns_path_mismatch"
-            | "diagnostic_dns_path_not_tunnel"
-            | "diagnostic_egress_family_unavailable"
-            | "diagnostic_endpoint_pin_mismatch"
-            | "diagnostic_endpoint_pin_not_tested"
-            | "diagnostic_endpoint_pin_valid"
-            | "diagnostic_engine_control_ok"
-            | "diagnostic_event_stream_ok"
-            | "diagnostic_fallback_policy_valid"
-            | "diagnostic_fallback_policy_violation"
-            | "diagnostic_first_packet_not_observed"
-            | "diagnostic_first_packet_observed"
-            | "diagnostic_first_packet_unknown"
-            | "diagnostic_frontend_disabled"
-            | "diagnostic_frontend_listener_failed"
-            | "diagnostic_frontend_listener_ok"
-            | "diagnostic_frontend_not_configured"
-            | "diagnostic_h2_not_required"
-            | "diagnostic_h2_not_tested"
-            | "diagnostic_h2_stage_ready"
-            | "diagnostic_h3_connected"
-            | "diagnostic_h3_datagram_available"
-            | "diagnostic_h3_datagram_not_tested"
-            | "diagnostic_h3_not_active"
-            | "diagnostic_h3_not_tested"
-            | "diagnostic_ipv4_egress_requires_external_observer"
-            | "diagnostic_ipv4_route_available"
-            | "diagnostic_ipv4_route_unavailable"
-            | "diagnostic_ipv4_route_unknown"
-            | "diagnostic_ipv6_egress_requires_external_observer"
-            | "diagnostic_ipv6_route_available"
-            | "diagnostic_ipv6_route_unavailable"
-            | "diagnostic_ipv6_route_unknown"
-            | "diagnostic_kill_switch_actual_state_unknown"
-            | "diagnostic_kill_switch_disabled"
-            | "diagnostic_kill_switch_state_consistent"
-            | "diagnostic_kill_switch_state_mismatch"
-            | "diagnostic_network_generation_observed"
-            | "diagnostic_physical_dns_available"
-            | "diagnostic_physical_dns_unavailable"
-            | "diagnostic_physical_dns_unknown"
-            | "diagnostic_physical_network_not_observed"
-            | "diagnostic_physical_network_present"
-            | "diagnostic_recovery_journal_agent_unavailable"
-            | "diagnostic_recovery_journal_consistent"
-            | "diagnostic_recovery_journal_not_supported"
-            | "diagnostic_recovery_journal_pending_cleanup"
-            | "diagnostic_requires_deep_mode"
-            | "diagnostic_route_ownership_actual_state_unknown"
-            | "diagnostic_route_ownership_consistent"
-            | "diagnostic_route_ownership_mismatch"
-            | "diagnostic_route_ownership_not_supported"
-            | "diagnostic_secure_storage_available"
-            | "diagnostic_secure_storage_not_supported"
-            | "diagnostic_system_proxy_actual_state_unknown"
-            | "diagnostic_system_proxy_disabled"
-            | "diagnostic_system_proxy_lease_missing"
-            | "diagnostic_system_proxy_lease_only"
-            | "diagnostic_system_proxy_runtime_mismatch"
-            | "diagnostic_tunnel_dns_configured"
-            | "diagnostic_tunnel_dns_disabled"
-            | "diagnostic_tunnel_dns_unknown"
-            | "diagnostic_tunnel_routes_consistent"
-            | "diagnostic_tunnel_routes_unknown"
-    )
-    .then_some(value)
+    usque_core::diagnostics_contract_generated::SUMMARY_KEYS
+        .contains(&value)
+        .then_some(value)
 }
 
 fn safe_evidence(value: &str) -> bool {
-    if let Some((key, number)) = value.split_once('=') {
-        return matches!(
-            key,
-            "rtt_ms"
-                | "loss_basis_points"
-                | "queue_percent"
-                | "queue_drops"
-                | "pmtu_bytes"
-                | "pmtu_failures"
-                | "migration_failures"
-                | "dns_successes"
-                | "dns_failures"
-                | "dns_timeouts"
-                | "plaintext_fallback"
-                | "probe_ms"
-                | "automatic_recovery_phase"
-                | "automatic_recovery_attempts_completed"
-                | "automatic_recovery_attempt_limit"
-                | "recovery_sample_status"
-                | "recovery_sample_time_ms"
-                | "recovery_sample_generation"
-                | "recovery_history_count"
-        ) && !number.is_empty()
-            && number.bytes().all(|byte| byte.is_ascii_digit())
-            && number.parse::<u64>().is_ok();
-    }
-    matches!(
-        value,
-        "responsive"
-            | "recoverable"
-            | "append_only_api"
-            | "schema_valid"
-            | "metadata_only"
-            | "runtime_path"
-            | "payload_family"
-            | "runtime_started"
-            | "stable"
-            | "changed"
-            | "active_path"
-            | "verified_before_ready"
-            | "typed_matrix"
-            | "family_flags"
-            | "configuration_consistent_not_leak_test"
-            | "bidirectional"
-            | "internal_state_only"
-            | "agent_read_only_inspection"
-            | "listener_active"
-    )
+    usque_core::DiagnosticEvidence::from_legacy(value).is_some()
 }
 
 fn known_diagnostic_check(value: &str) -> bool {
-    matches!(
-        value,
-        "engine.control_channel"
-            | "quality.rtt"
-            | "quality.packet_loss"
-            | "quality.queue_pressure"
-            | "quality.pmtu"
-            | "transport.migration_capability"
-            | "dns.direct_encrypted_configuration"
-            | "dns.direct_encrypted_runtime_state"
-            | "dns.direct_encrypted_reachability"
-            | "transport.h3_path_validation_probe"
-            | "engine.event_stream"
-            | "engine.capabilities"
-            | "engine.configuration"
-            | "engine.secure_storage_metadata"
-            | "frontend.socks_port"
-            | "frontend.http_port"
-            | "frontend.system_proxy_state"
-            | "physical.network_present"
-            | "physical.ipv4_route"
-            | "physical.ipv6_route"
-            | "physical.dns_available"
-            | "physical.network_generation"
-            | "transport.h3_connect"
-            | "transport.h3_datagram"
-            | "transport.h2_tcp"
-            | "transport.h2_tls"
-            | "transport.h2_connect"
-            | "transport.endpoint_pin"
-            | "transport.fallback_policy"
-            | "tunnel.address_assignment"
-            | "tunnel.routes"
-            | "tunnel.dns"
-            | "tunnel.first_packet"
-            | "tunnel.ipv4_egress"
-            | "tunnel.ipv6_egress"
-            | "protection.kill_switch"
-            | "protection.dns_path"
-            | "protection.route_ownership"
-            | "protection.recovery_journal"
-    )
+    usque_core::diagnostics_contract_generated::CHECK_IDS.contains(&value)
 }
 
 const fn connection_event_type_name(event: ConnectionEventType) -> &'static str {

@@ -42,6 +42,7 @@ pub(crate) enum ActiveRuntime {
 
 #[cfg(test)]
 pub(crate) struct HarnessRuntime {
+    pub(crate) timeline: usque_transport::ConnectionTelemetry,
     pub(crate) disable_quic: bool,
     pub(crate) traffic_policy_updates: u32,
     pub(crate) path: RuntimePath,
@@ -81,6 +82,7 @@ impl HarnessRuntime {
         let mut listeners = socks5_listeners.clone();
         listeners.extend(http_listeners.iter().copied());
         Self {
+            timeline: usque_transport::ConnectionTelemetry::default(),
             path: RuntimePath {
                 transport: usque_core::Transport::Http3,
                 endpoint_family: usque_core::AddressFamily::Ipv4,
@@ -324,7 +326,7 @@ impl ActiveRuntime {
             #[cfg(windows)]
             Self::Vpn(runtime) => runtime.connection_timeline(),
             #[cfg(test)]
-            Self::Harness(_) => ConnectionTimelineSnapshot::default(),
+            Self::Harness(runtime) => runtime.timeline.snapshot(),
         }
     }
 
@@ -487,6 +489,13 @@ impl ActiveRuntime {
             Self::Vpn(runtime) => runtime.shutdown().await.map_err(map_windows_vpn_error),
             #[cfg(test)]
             Self::Harness(runtime) => {
+                runtime.timeline.record(
+                    usque_transport::ConnectionEventType::Disconnected,
+                    None,
+                    Default::default(),
+                    None,
+                    None,
+                );
                 runtime.stopped.cancel();
                 Ok(())
             }

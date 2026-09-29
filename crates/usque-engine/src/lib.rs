@@ -49,6 +49,7 @@ use zeroize::Zeroizing;
 #[cfg(all(test, windows))]
 mod chain_dns_live_tests;
 mod chain_exit;
+mod connection_evidence;
 pub mod diagnostics;
 #[cfg(any(windows, test))]
 mod event_stream;
@@ -110,6 +111,7 @@ pub struct ControlServiceState {
     exit_probe_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     maintenance: maintenance::Maintenance,
     diagnostics: diagnostics::DiagnosticsManager,
+    retained_connection_evidence: Arc<Mutex<Option<connection_evidence::ConnectionEvidence>>>,
     cache_dir: PathBuf,
     geo_progress_tx: tokio::sync::broadcast::Sender<v1::GeoRulesProgress>,
     gate_directory: usque_core::vpngate::DirectoryDownloader,
@@ -428,6 +430,7 @@ impl ControlService {
             inner: Arc::new(ControlServiceState {
                 maintenance: maintenance::Maintenance::new(store.path()),
                 diagnostics: diagnostics::DiagnosticsManager::new(),
+                retained_connection_evidence: Arc::new(Mutex::new(None)),
                 #[cfg(all(windows, feature = "wireguard"))]
                 warp_generator: Arc::new(usque_transport::warp_wireguard::Manager::new(
                     store.path().to_path_buf(),
@@ -995,7 +998,7 @@ impl ControlService {
                     ));
                 }
                 let config = self.config.read().await.clone();
-                let snapshot = self.status_snapshot().await;
+                let evidence = self.capture_connection_evidence().await;
                 let diagnostic_session = self.diagnostics.get().await;
                 if !request.diagnostic_session_id.trim().is_empty()
                     && diagnostic_session.as_ref().is_none_or(|session| {
@@ -1006,21 +1009,30 @@ impl ControlService {
                         "the requested diagnostic session is unavailable".to_owned(),
                     ));
                 }
-                let timeline = self.connection_timeline_snapshot().await;
+                #[cfg(windows)]
+                let platform_state = Some(recovery_diagnostics::capture().await);
+                #[cfg(not(windows))]
+                let platform_state = None;
+                let stable = self.evidence_capture_is_current(&evidence).await;
+                let platform_state = platform_state.filter(|_| stable);
+                let current = self.state.lock().await.snapshot().clone();
+                let capture = evidence.capture_metadata(&current, stable, platform_state.is_some());
+                let socket_receive = evidence
+                    .quality
+                    .as_ref()
+                    .and_then(|quality| quality.socket_receive.clone());
                 self.maintenance
                     .export_diagnostics(
                         destination.into(),
                         config,
-                        snapshot,
+                        evidence.connection,
                         diagnostic_session,
                         maintenance::DiagnosticTransportContext {
-                            timeline,
-                            network_quality: Some(self.network_quality_snapshot()),
-                            socket_receive: self.network_quality_snapshot().socket_receive,
-                            #[cfg(windows)]
-                            platform_state: Some(recovery_diagnostics::capture().await),
-                            #[cfg(not(windows))]
-                            platform_state: None,
+                            timeline: evidence.timeline,
+                            network_quality: evidence.quality,
+                            socket_receive,
+                            platform_state,
+                            capture: Some(capture),
                         },
                     )
                     .await?;
@@ -1067,9 +1079,18 @@ impl ControlService {
                 Ok(control_response::Payload::Diagnostics(session))
             }
             control_request::Payload::GetConnectionTimeline(_) => {
-                let timeline = self.connection_timeline_snapshot().await;
+                let captured = self.capture_connection_evidence().await;
+                let mut timeline = diagnostics::timeline_to_proto(&captured.timeline);
+                timeline.retained = captured.retained;
+                timeline.session_generation = captured.session_generation;
+                timeline.connection_instance_id = captured
+                    .quality
+                    .as_ref()
+                    .and_then(|quality| quality.connection_id)
+                    .map(|id| id.0.to_string())
+                    .unwrap_or_default();
                 Ok(control_response::Payload::ConnectionTimeline(Box::new(
-                    diagnostics::timeline_to_proto(&timeline),
+                    timeline,
                 )))
             }
             control_request::Payload::GetNetworkQuality(_) => {
@@ -1239,15 +1260,6 @@ impl ControlService {
         self.diagnostics.subscribe()
     }
 
-    async fn connection_timeline_snapshot(&self) -> usque_transport::ConnectionTimelineSnapshot {
-        self.data_plane
-            .lock()
-            .await
-            .as_ref()
-            .map(|active| active.runtime.connection_timeline())
-            .unwrap_or_default()
-    }
-
     async fn diagnostic_context(
         &self,
         mode: usque_core::DiagnosticMode,
@@ -1255,7 +1267,12 @@ impl ControlService {
         let captured_at = tokio::time::Instant::now();
         // Unlike status polling, diagnostics must not reconcile or mutate the
         // runtime state machine as a side effect of a read-only Standard run.
-        let connection = self.state.lock().await.snapshot().clone();
+        let captured = self.capture_connection_evidence().await;
+        let connection = if captured.retained {
+            self.state.lock().await.snapshot().clone()
+        } else {
+            captured.connection.clone()
+        };
         let config = self.config.read().await.clone();
         let active_profile = config.active_profile();
         #[cfg(windows)]
@@ -1271,8 +1288,14 @@ impl ControlService {
         } else {
             None
         };
+        let stable = self.evidence_capture_is_current(&captured).await;
+        let platform_state = platform_state.filter(|_| stable);
         diagnostics::DiagnosticContext {
-            connection,
+            connection: if stable {
+                connection
+            } else {
+                ConnectionSnapshot::default()
+            },
             configuration_valid: config.validate().is_ok(),
             secure_storage_available: current_capabilities().secure_storage,
             kill_switch_expected: active_profile
@@ -1285,9 +1308,19 @@ impl ControlService {
                 .as_ref()
                 .is_some_and(|profile| profile.proxy.system_proxy),
             operating_system: std::env::consts::OS.to_owned(),
-            timeline: self.connection_timeline_snapshot().await,
+            timeline: if captured.retained || !stable {
+                Default::default()
+            } else {
+                captured.timeline
+            },
             platform_state,
-            quality: self.network_quality_snapshot(),
+            quality: if captured.retained || !stable {
+                network_quality::disconnected_snapshot()
+            } else {
+                captured
+                    .quality
+                    .unwrap_or_else(network_quality::disconnected_snapshot)
+            },
             direct_dns: active_profile
                 .as_ref()
                 .map(|profile| profile.direct_dns.clone())
@@ -2432,13 +2465,37 @@ impl ControlService {
             }
         }
         if let Some(mut active) = data_plane.take() {
+            let evidence = connection_evidence::ConnectionEvidence::active(
+                &active,
+                self.state.lock().await.snapshot().clone(),
+            )
+            .terminal();
+            let generation = evidence.session_generation;
+            *self.retained_connection_evidence.lock().await = Some(evidence);
             // Stop accepting and forwarding traffic synchronously. Platform
             // rollback (routes, WFP, DNS and system proxy) can take seconds and
             // must not keep the Disconnect action or data plane alive.
             active.runtime.cancel_immediately();
             drop(data_plane);
 
-            let cleanup = tokio::spawn(async move { active.runtime.shutdown().await });
+            let retained = Arc::clone(&self.retained_connection_evidence);
+            let cleanup = tokio::spawn(async move {
+                let result = active.runtime.shutdown().await;
+                let timeline = active.runtime.connection_timeline();
+                if let Some(evidence) = retained.lock().await.as_mut()
+                    && evidence.session_generation == generation
+                {
+                    evidence.timeline = timeline;
+                    // Returning from shutdown is not proof of OS restoration;
+                    // actual platform recovery remains independently observed.
+                    evidence.cleanup_status = if result.is_ok() {
+                        "shutdown_returned"
+                    } else {
+                        "shutdown_failed"
+                    };
+                }
+                result
+            });
             let mut pending = self.disconnect_cleanup.lock().await;
             debug_assert!(
                 pending.is_none(),
@@ -2630,6 +2687,8 @@ impl ControlService {
         let _mutation = self.mutation_lock.lock().await;
         self.disconnect_locked().await?;
         self.await_disconnect_cleanup().await?;
+        self.diagnostics.clear().await;
+        *self.retained_connection_evidence.lock().await = None;
         let config = self.config.read().await;
         let profile_ids = config
             .profiles
@@ -2661,7 +2720,6 @@ impl ControlService {
         self.maintenance.clear_local_state().await?;
         *self.settings.lock().await = Default::default();
         self.settings_tx.send_replace(0);
-        self.diagnostics.clear().await;
         Ok(())
     }
 
