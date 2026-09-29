@@ -93,7 +93,10 @@ impl DiagnosticContext {
                     .as_millis()
                     .min(u128::from(u64::MAX)) as u64
             },
-            connection_instance_id: if source == Source::Runtime {
+            connection_instance_id: if matches!(
+                source,
+                Source::Runtime | Source::Platform | Source::ActiveProbe
+            ) {
                 self.quality.connection_id.map(|id| id.0)
             } else {
                 None
@@ -1058,6 +1061,32 @@ mod tests {
     use usque_core::{FrontendStatus, Statistics};
 
     use super::*;
+
+    #[test]
+    fn platform_and_probe_findings_keep_the_actual_runtime_identity() {
+        let mut context = context_with_unknown_platform_state();
+        let id = uuid::Uuid::new_v4();
+        context.quality.connection_id = Some(usque_transport::ConnectionInstanceId(id));
+        context.platform_state = Some(Default::default());
+        for check_id in [
+            "protection.kill_switch",
+            "dns.direct_encrypted_reachability",
+        ] {
+            let finding = context.annotate(DiagnosticFinding::pending(
+                check_id,
+                DiagnosticCategory::Protection,
+            ));
+            assert_eq!(
+                finding.observation.unwrap().connection_instance_id,
+                Some(id)
+            );
+        }
+        let finding = context.annotate(DiagnosticFinding::pending(
+            "engine.configuration",
+            DiagnosticCategory::LocalComponent,
+        ));
+        assert_eq!(finding.observation.unwrap().connection_instance_id, None);
+    }
 
     #[tokio::test]
     async fn inferred_connectivity_never_passes_unobserved_dns_routes_or_event_delivery() {

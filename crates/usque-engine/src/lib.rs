@@ -1347,7 +1347,7 @@ impl ControlService {
                 .as_ref()
                 .map(|profile| profile.direct_dns.clone())
                 .unwrap_or_default(),
-            probes,
+            probes: probes.filter(|_| stable),
             captured_at,
         }
     }
