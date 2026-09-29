@@ -7,6 +7,7 @@ use windows_sys::Win32::{
     Networking::WinInet::{
         INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED, InternetSetOptionW,
     },
+    System::LibraryLoader::{GetModuleHandleW, GetProcAddress},
     System::Registry::{
         HKEY, HKEY_USERS, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_EXPAND_SZ, REG_SZ,
         RegCloseKey, RegDeleteValueW, RegFlushKey, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
@@ -39,6 +40,25 @@ struct ProxySnapshot {
     auto_detect: Option<u32>,
 }
 
+trait InternetSettings {
+    fn read_dword(&self, name: &str) -> Result<Option<u32>, SystemProxyError>;
+    fn read_string(&self, name: &str) -> Result<Option<String>, SystemProxyError>;
+    fn write_dword(&self, name: &str, value: u32) -> Result<(), SystemProxyError>;
+    fn write_string(&self, name: &str, value: &str) -> Result<(), SystemProxyError>;
+    fn delete_value(&self, name: &str) -> Result<(), SystemProxyError>;
+    fn flush(&self) -> Result<(), SystemProxyError>;
+
+    fn snapshot(&self) -> Result<ProxySnapshot, SystemProxyError> {
+        Ok(ProxySnapshot {
+            proxy_enable: self.read_dword(PROXY_ENABLE_VALUE)?,
+            proxy: self.read_string(PROXY_SERVER_VALUE)?,
+            bypass: self.read_string(PROXY_OVERRIDE_VALUE)?,
+            auto_config_url: self.read_string(AUTO_CONFIG_URL_VALUE)?,
+            auto_detect: self.read_dword(AUTO_DETECT_VALUE)?,
+        })
+    }
+}
+
 pub fn plan(
     operation_id: Uuid,
     caller: &AuthenticatedCaller,
@@ -68,8 +88,17 @@ pub fn plan(
 }
 
 pub fn apply(receipt: MutationReceipt) -> Result<MutationReceipt, SystemProxyError> {
+    let key = UserInternetSettings::open(validate_receipt_values(&receipt)?)?;
+    apply_with(&key, receipt, notify_settings_changed)
+}
+
+fn apply_with(
+    key: &impl InternetSettings,
+    receipt: MutationReceipt,
+    notify: impl FnOnce() -> Result<(), SystemProxyError>,
+) -> Result<MutationReceipt, SystemProxyError> {
     let MutationReceipt::SystemProxy {
-        user_sid,
+        user_sid: _,
         operation_id,
         previous_proxy_enable,
         previous_proxy,
@@ -83,7 +112,6 @@ pub fn apply(receipt: MutationReceipt) -> Result<MutationReceipt, SystemProxyErr
         return Err(SystemProxyError::WrongReceipt);
     };
     validate_receipt_values(&receipt)?;
-    let key = UserInternetSettings::open(user_sid)?;
     let expected = ProxySnapshot {
         proxy_enable: *previous_proxy_enable,
         proxy: previous_proxy.clone(),
@@ -110,14 +138,23 @@ pub fn apply(receipt: MutationReceipt) -> Result<MutationReceipt, SystemProxyErr
     // even if the process is terminated between any preceding writes.
     key.write_dword(PROXY_ENABLE_VALUE, 1)?;
     key.flush()?;
-    notify_settings_changed()?;
+    notify()?;
     Ok(receipt)
 }
 
 pub fn restore(receipt: &MutationReceipt) -> Result<(), SystemProxyError> {
+    let key = UserInternetSettings::open(validate_receipt_values(receipt)?)?;
+    restore_with(&key, receipt, notify_settings_changed)
+}
+
+fn restore_with(
+    key: &impl InternetSettings,
+    receipt: &MutationReceipt,
+    notify: impl FnOnce() -> Result<(), SystemProxyError>,
+) -> Result<(), SystemProxyError> {
     validate_receipt_values(receipt)?;
     let MutationReceipt::SystemProxy {
-        user_sid,
+        user_sid: _,
         operation_id,
         previous_proxy_enable,
         previous_proxy,
@@ -130,39 +167,54 @@ pub fn restore(receipt: &MutationReceipt) -> Result<(), SystemProxyError> {
     else {
         return Err(SystemProxyError::WrongReceipt);
     };
-    let key = UserInternetSettings::open(user_sid)?;
     match key.read_string(OWNER_VALUE)? {
-        None => return Ok(()),
+        // A prior attempt may have deleted the marker and then failed to
+        // flush. The journal still requires both durability and notification;
+        // absence of the marker must not turn that failure into success.
+        None => {
+            key.flush()?;
+            return notify();
+        }
         Some(owner) if owner == operation_id.to_string() => {}
         Some(_) => return Err(SystemProxyError::OwnerChanged),
     }
 
-    restore_dword_if_unchanged(&key, PROXY_ENABLE_VALUE, Some(1), *previous_proxy_enable)?;
-    restore_string_if_unchanged(
-        &key,
-        PROXY_SERVER_VALUE,
-        Some(applied_proxy),
-        previous_proxy.as_deref(),
-    )?;
-    restore_string_if_unchanged(
-        &key,
-        PROXY_OVERRIDE_VALUE,
-        Some(applied_bypass),
-        previous_bypass.as_deref(),
-    )?;
-    restore_string_if_unchanged(
-        &key,
-        AUTO_CONFIG_URL_VALUE,
-        None,
-        previous_auto_config_url.as_deref(),
-    )?;
-    restore_dword_if_unchanged(&key, AUTO_DETECT_VALUE, Some(0), *previous_auto_detect)?;
-    key.delete_value(OWNER_VALUE)?;
+    let proxy = key.read_string(PROXY_SERVER_VALUE)?;
+    // The server identifies which manual proxy the enable/PAC flags belong
+    // to. Preserve a replacement proxy as a complete configuration instead
+    // of disabling it or reintroducing a previous PAC. Accept the previous
+    // server as well so interrupted apply/restore attempts remain recoverable.
+    if proxy.as_deref() == Some(applied_proxy) || proxy.as_deref() == previous_proxy.as_deref() {
+        restore_dword_if_unchanged(key, PROXY_ENABLE_VALUE, Some(1), *previous_proxy_enable)?;
+        restore_string_if_unchanged(
+            key,
+            PROXY_SERVER_VALUE,
+            Some(applied_proxy),
+            previous_proxy.as_deref(),
+        )?;
+        restore_string_if_unchanged(
+            key,
+            PROXY_OVERRIDE_VALUE,
+            Some(applied_bypass),
+            previous_bypass.as_deref(),
+        )?;
+        restore_string_if_unchanged(
+            key,
+            AUTO_CONFIG_URL_VALUE,
+            None,
+            previous_auto_config_url.as_deref(),
+        )?;
+        restore_dword_if_unchanged(key, AUTO_DETECT_VALUE, Some(0), *previous_auto_detect)?;
+    }
+    // Keep ownership until the settings have been durably restored and the
+    // notification has succeeded, allowing either failure to be retried.
     key.flush()?;
-    notify_settings_changed()
+    notify()?;
+    key.delete_value(OWNER_VALUE)?;
+    key.flush()
 }
 
-fn validate_receipt_values(receipt: &MutationReceipt) -> Result<(), SystemProxyError> {
+fn validate_receipt_values(receipt: &MutationReceipt) -> Result<&str, SystemProxyError> {
     let MutationReceipt::SystemProxy {
         user_sid,
         operation_id,
@@ -195,7 +247,7 @@ fn validate_receipt_values(receipt: &MutationReceipt) -> Result<(), SystemProxyE
     {
         return Err(SystemProxyError::InvalidReceipt);
     }
-    Ok(())
+    Ok(user_sid)
 }
 
 fn normalize_proxy_uri(value: &str) -> Result<String, SystemProxyError> {
@@ -254,7 +306,7 @@ fn normalize_bypass_hosts(values: &[String]) -> Result<String, SystemProxyError>
 }
 
 fn restore_dword_if_unchanged(
-    key: &UserInternetSettings,
+    key: &impl InternetSettings,
     name: &str,
     applied: Option<u32>,
     previous: Option<u32>,
@@ -270,7 +322,7 @@ fn restore_dword_if_unchanged(
 }
 
 fn restore_string_if_unchanged(
-    key: &UserInternetSettings,
+    key: &impl InternetSettings,
     name: &str,
     applied: Option<&str>,
     previous: Option<&str>,
@@ -313,17 +365,13 @@ impl UserInternetSettings {
                 "RegOpenKeyExW returned a null key",
             )));
         }
-        Ok(Self { key })
-    }
-
-    fn snapshot(&self) -> Result<ProxySnapshot, SystemProxyError> {
-        Ok(ProxySnapshot {
-            proxy_enable: self.read_dword(PROXY_ENABLE_VALUE)?,
-            proxy: self.read_string(PROXY_SERVER_VALUE)?,
-            bypass: self.read_string(PROXY_OVERRIDE_VALUE)?,
-            auto_config_url: self.read_string(AUTO_CONFIG_URL_VALUE)?,
-            auto_detect: self.read_dword(AUTO_DETECT_VALUE)?,
-        })
+        let settings = Self { key };
+        // Check the resolved object, not the requested name: a link anywhere
+        // in the user-controlled parent chain can redirect a SYSTEM open.
+        // All operations below retain this same handle, so changing a link
+        // after verification cannot redirect a later read or write.
+        verify_registry_key_path(user_sid, &registry_key_path(settings.key)?)?;
+        Ok(settings)
     }
 
     fn read_dword(&self, name: &str) -> Result<Option<u32>, SystemProxyError> {
@@ -458,6 +506,120 @@ impl UserInternetSettings {
     }
 }
 
+impl InternetSettings for UserInternetSettings {
+    fn read_dword(&self, name: &str) -> Result<Option<u32>, SystemProxyError> {
+        Self::read_dword(self, name)
+    }
+
+    fn read_string(&self, name: &str) -> Result<Option<String>, SystemProxyError> {
+        Self::read_string(self, name)
+    }
+
+    fn write_dword(&self, name: &str, value: u32) -> Result<(), SystemProxyError> {
+        Self::write_dword(self, name, value)
+    }
+
+    fn write_string(&self, name: &str, value: &str) -> Result<(), SystemProxyError> {
+        Self::write_string(self, name, value)
+    }
+
+    fn delete_value(&self, name: &str) -> Result<(), SystemProxyError> {
+        Self::delete_value(self, name)
+    }
+
+    fn flush(&self) -> Result<(), SystemProxyError> {
+        Self::flush(self)
+    }
+}
+
+fn verify_registry_key_path(user_sid: &str, actual: &str) -> Result<(), SystemProxyError> {
+    if !valid_sid(user_sid) {
+        return Err(SystemProxyError::InvalidOwner);
+    }
+    let expected = format!(r"\REGISTRY\USER\{user_sid}\{INTERNET_SETTINGS_PATH}");
+    if !actual.eq_ignore_ascii_case(&expected) {
+        // Do not include the resolved path in diagnostics: it can disclose
+        // another user's SID or a deliberately supplied sensitive target.
+        return Err(SystemProxyError::RegistryKeyIdentity);
+    }
+    Ok(())
+}
+
+fn registry_key_path(key: HKEY) -> Result<String, SystemProxyError> {
+    type NtQueryKey = unsafe extern "system" fn(HKEY, i32, *mut c_void, u32, *mut u32) -> i32;
+    // NtQueryKey is the documented user-mode spelling of ZwQueryKey.
+    // KeyNameInformation (3) reports the resolved name for this live handle.
+    // https://learn.microsoft.com/windows-hardware/drivers/ddi/wdm/nf-wdm-zwquerykey
+    const KEY_NAME_INFORMATION: i32 = 3;
+    let module_name = wide("ntdll.dll");
+    // SAFETY: the name is terminated; ntdll is already loaded by Windows and
+    // the borrowed module remains loaded for the process lifetime.
+    let module = unsafe { GetModuleHandleW(module_name.as_ptr()) };
+    if module.is_null() {
+        return Err(SystemProxyError::RegistryKeyIdentity);
+    }
+    // SAFETY: the module is live and the export name is terminated.
+    let address = unsafe { GetProcAddress(module, c"NtQueryKey".as_ptr().cast()) }
+        .ok_or(SystemProxyError::RegistryKeyIdentity)?;
+    // SAFETY: this exact ntdll export has the documented NtQueryKey system
+    // ABI and signature above on both supported Windows architectures.
+    let query =
+        unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, NtQueryKey>(address) };
+    query_registry_key_path_with(|buffer, required| {
+        let data = if buffer.is_empty() {
+            ptr::null_mut()
+        } else {
+            buffer.as_mut_ptr().cast()
+        };
+        // SAFETY: key remains live, data is null or an aligned writable buffer
+        // of buffer.len() bytes, and required is a writable size output.
+        unsafe {
+            query(
+                key,
+                KEY_NAME_INFORMATION,
+                data,
+                buffer.len() as u32,
+                required,
+            )
+        }
+    })
+}
+
+fn query_registry_key_path_with(
+    mut query: impl FnMut(&mut [u8], &mut u32) -> i32,
+) -> Result<String, SystemProxyError> {
+    const STATUS_BUFFER_OVERFLOW: i32 = 0x8000_0005_u32 as i32;
+    const STATUS_BUFFER_TOO_SMALL: i32 = 0xc000_0023_u32 as i32;
+    let mut required = 0;
+    let status = query(&mut [], &mut required);
+    if !matches!(status, STATUS_BUFFER_OVERFLOW | STATUS_BUFFER_TOO_SMALL)
+        || required < size_of::<u32>() as u32
+        || required > MAX_REGISTRY_VALUE_BYTES
+    {
+        return Err(SystemProxyError::RegistryKeyIdentity);
+    }
+    let byte_length = required as usize;
+    let mut words = vec![0_u32; byte_length.div_ceil(size_of::<u32>())];
+    // SAFETY: the zeroed allocation is DWORD-aligned and has at least
+    // byte_length bytes. It is accessed only through this slice until it ends.
+    let buffer = unsafe { slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), byte_length) };
+    let status = query(buffer, &mut required);
+    if status != 0 || required as usize > buffer.len() || required < size_of::<u32>() as u32 {
+        return Err(SystemProxyError::RegistryKeyIdentity);
+    }
+    let buffer = &buffer[..required as usize];
+    let name_length =
+        u32::from_le_bytes(buffer[..4].try_into().expect("validated header")) as usize;
+    if !name_length.is_multiple_of(2) || name_length > buffer.len() - 4 {
+        return Err(SystemProxyError::RegistryKeyIdentity);
+    }
+    let name = buffer[4..4 + name_length]
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect::<Vec<_>>();
+    String::from_utf16(&name).map_err(|_| SystemProxyError::RegistryKeyIdentity)
+}
+
 impl Drop for UserInternetSettings {
     fn drop(&mut self) {
         if !self.key.is_null() {
@@ -541,6 +703,8 @@ pub enum SystemProxyError {
     SnapshotChanged,
     #[error("system-proxy ownership marker belongs to another operation")]
     OwnerChanged,
+    #[error("system-proxy registry key identity could not be verified")]
+    RegistryKeyIdentity,
     #[error("registry value has an unexpected type: {0}")]
     UnexpectedRegistryType(String),
     #[error("registry value exceeds the safety limit: {0} bytes")]
@@ -561,6 +725,9 @@ impl SystemProxyError {
         }
     }
 }
+
+#[cfg(test)]
+mod recovery_tests;
 
 #[cfg(test)]
 mod tests {
