@@ -451,6 +451,28 @@ mod tests {
     }
 
     #[test]
+    fn automatic_proxy_to_vpn_application_requires_a_new_underlay() {
+        let mut config = AppConfig::default();
+        config.network.frontends.tunnel = false;
+        let previous = config.active_profile().unwrap();
+        let mut edit = patch(&config, &["frontends.tunnel"]);
+        edit.values.frontends.tunnel = true;
+        let stored = merge_patch(&mut config, &edit).unwrap();
+        let plan = plan_application(
+            Some(&previous),
+            &stored,
+            &edit.changed_fields,
+            ConnectionPhase::Connected,
+            true,
+        )
+        .unwrap();
+        assert_eq!(plan.class, ReconfigureClass::ColdReconnect);
+        assert_eq!(plan.status, ApplyStatus::Applying);
+        assert_eq!(plan.target.as_ref(), Some(&stored));
+        assert!(stored.frontends.tunnel);
+    }
+
+    #[test]
     fn endpoint_selection_is_cold_and_managed_accounts_preserve_shared_mode() {
         let mut config = AppConfig::default();
         let previous = config.active_profile().unwrap();

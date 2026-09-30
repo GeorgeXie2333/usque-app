@@ -68,6 +68,11 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.bypass_domains != next.bypass_domains
         || previous.geo_direct_countries != next.geo_direct_countries
         || previous.direct_dns != next.direct_dns
+        // Automatic MASQUE sockets need leases owned by the new VPN operation.
+        // A proxy runtime's no-op protector cannot supply those on hot attach.
+        || !previous.frontends.tunnel
+            && next.frontends.tunnel
+            && next.endpoint.selection == crate::EndpointSelection::Automatic
         || previous.frontends.tunnel != next.frontends.tunnel
             && (previous.has_domain_direct_rules()
                 || next.has_domain_direct_rules()
@@ -254,7 +259,39 @@ mod tests {
     }
 
     #[test]
-    fn gate_tunnel_dns_toggle_rebuilds_gateway_but_other_connect_ip_toggles_stay_hot() {
+    fn automatic_tunnel_attach_recreates_endpoint_protection() {
+        for transport in [
+            crate::TransportPolicy::Auto,
+            crate::TransportPolicy::Http3,
+            crate::TransportPolicy::Http2,
+        ] {
+            for kill_switch in [false, true] {
+                let mut proxy = base();
+                proxy.transport = transport;
+                proxy.kill_switch = kill_switch;
+                proxy.frontends.tunnel = false;
+                let mut vpn = proxy.clone();
+                vpn.frontends.tunnel = true;
+                assert_eq!(
+                    classify_reconfigure(&proxy, &vpn),
+                    ReconfigureClass::ColdReconnect
+                );
+                assert_eq!(
+                    classify_reconfigure(&vpn, &proxy),
+                    ReconfigureClass::HotTunnelAttach
+                );
+                proxy.endpoint.selection = crate::EndpointSelection::Custom;
+                vpn.endpoint.selection = crate::EndpointSelection::Custom;
+                assert_eq!(
+                    classify_reconfigure(&proxy, &vpn),
+                    ReconfigureClass::HotTunnelAttach
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gate_tunnel_dns_toggle_rebuilds_gateway_but_custom_connect_ip_toggles_stay_hot() {
         for transport in [
             crate::TransportPolicy::Auto,
             crate::TransportPolicy::Http3,
@@ -267,6 +304,7 @@ mod tests {
                     crate::DnsMode::System,
                 ] {
                     let mut proxy = base();
+                    proxy.endpoint.selection = crate::EndpointSelection::Custom;
                     proxy.transport = transport;
                     proxy.vpn_gate.enabled = enabled;
                     proxy.dns_mode = dns_mode;

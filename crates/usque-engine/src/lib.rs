@@ -8678,7 +8678,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reconfigure_active_profile_keeps_masque_for_socks_http_and_tunnel_flips() {
+    async fn reconfigure_active_profile_keeps_custom_masque_for_socks_http_and_tunnel_flips() {
         let directory = tempfile::tempdir().unwrap();
         let service = ControlService::open_with_vault(
             ConfigStore::new(directory.path().join("config.json")),
@@ -8686,6 +8686,7 @@ mod tests {
         )
         .unwrap();
         let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.endpoint.selection = usque_core::EndpointSelection::Custom;
         profile.frontends = FrontendSettings {
             tunnel: true,
             socks5: true,
@@ -9002,7 +9003,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn failed_vpn_attach_restores_the_standalone_proxy_or_stops_on_rollback_failure() {
+    async fn failed_custom_vpn_attach_restores_the_standalone_proxy_or_stops_on_rollback_failure() {
         for rollback_fails in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let service = ControlService::open_with_vault(
@@ -9011,6 +9012,7 @@ mod tests {
             )
             .unwrap();
             let mut profile = service.config_snapshot().await.active_profile().unwrap();
+            profile.endpoint.selection = usque_core::EndpointSelection::Custom;
             profile.frontends.tunnel = false;
             profile.mode = OperatingMode::Socks5;
             profile.frontends.http = true;
