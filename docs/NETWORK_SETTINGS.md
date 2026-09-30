@@ -15,10 +15,17 @@ selected. Port and SNI remain editable in both modes; L4 retains its
 identity-derived SNI. Zero Trust uses the
 registration-owned addresses and has no Consumer pool picker.
 
+Custom accepts numeric IPv4/IPv6 addresses without a Consumer or organization
+prefix restriction. Only the active Custom pair is checked for VPN DNS conflicts;
+Automatic ignores the saved custom pair, including organization-range addresses.
+
 打开 **设置 → 高级网络设置 → 端点选择**，选择 **自动选择** 或 **自定义**，再点击
 **应用修改**。新安装和恢复默认使用自动选择；升级保留已有自定义端点。切换模式
 会保留手动地址草稿；自动模式应用修改时保留原来已保存的地址。要保存新的手动
 地址，请在自定义模式应用。端口和 SNI 在两种模式都可修改，组织账号仍使用注册地址。
+
+自定义端点可填写任意合法 IPv4/IPv6 地址，不限制所属网段。自动模式忽略已保存的
+自定义地址；仅对当前生效的自定义端点检查 VPN DNS 冲突。
 
 | Transport | Free IPv4 | Plus IPv4 | Free IPv6 | Plus IPv6 |
 | --- | --- | --- | --- | --- |

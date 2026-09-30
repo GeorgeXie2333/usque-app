@@ -24,19 +24,40 @@ class AndroidVpnConfigurationTest {
     }
 
     @Test
-    fun managedEndpointDnsClashesRemainRejectedInAutomaticMode() {
+    fun automaticIgnoresDormantAddressesInOrganisationRanges() {
         val source =
             jsonProfile()
                 .put("endpoint_selection", "automatic")
                 .put("endpoint_v4", "162.159.197.2")
                 .put("dns_v4", "162.159.197.2")
-        assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+        assertEquals("162.159.197.2", AndroidVpnProfile.parse(source.toString()).dnsIpv4.hostAddress)
         source
             .put("endpoint_v4", "162.159.198.2")
             .put("dns_v4", "1.1.1.1")
             .put("endpoint_v6", "2606:4700:102::2")
             .put("dns_v6", "2606:4700:102::2")
+        assertEquals(
+            InetAddress.getByName("2606:4700:102::2"),
+            AndroidVpnProfile.parse(source.toString()).dnsIpv6,
+        )
+        source.put("endpoint_selection", "custom")
         assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+    }
+
+    @Test
+    fun customAcceptsAddressesWithoutAnEndpointPoolRestriction() {
+        for ((ipv4, ipv6) in listOf(
+            "162.159.197.2" to "2606:4700:102::2",
+            "192.0.2.45" to "2001:db8::45",
+            "10.20.30.40" to "fd00::40",
+        )) {
+            val source =
+                jsonProfile()
+                    .put("endpoint_selection", "custom")
+                    .put("endpoint_v4", ipv4)
+                    .put("endpoint_v6", ipv6)
+            assertEquals(source.getString("id"), AndroidVpnProfile.parse(source.toString()).id)
+        }
     }
 
     @Test
