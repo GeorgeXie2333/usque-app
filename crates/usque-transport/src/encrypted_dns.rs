@@ -1324,6 +1324,17 @@ impl SocketProtector for ConfiguredDnsProtector {
             .protect_for_target_generation(socket, remote, protocol, generation)
             .await
     }
+    async fn protect_masque_endpoint_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        self.protector
+            .protect_masque_endpoint_generation(socket, remote, protocol, generation)
+            .await
+    }
     async fn resolve_direct(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
         resolve_encrypted_host(self.resolver.as_ref(), self.protector.as_ref(), host, port)
             .await

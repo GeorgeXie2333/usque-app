@@ -250,6 +250,14 @@ const Map<String, String> kItCatalog = <String, String>{
   'automatic': 'Auto',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Selezione endpoint',
+  'endpoint_automatic': 'Automatica',
+  'endpoint_custom': 'Personalizzata',
+  'endpoint_automatic_help':
+      'Sceglie l’endpoint disponibile più veloce per questo account. Le modifiche agli indirizzi vengono salvate solo in modalità Personalizzata.',
+  'endpoint_custom_help': 'Usa gli indirizzi IPv4 e IPv6 qui sotto.',
+  'endpoint_unsupported':
+      'Aggiorna Usque per usare la selezione automatica degli endpoint.',
   'endpoint_ipv4': 'Endpoint IPv4',
   'endpoint_ipv6': 'Endpoint IPv6',
   'sni': 'SNI',

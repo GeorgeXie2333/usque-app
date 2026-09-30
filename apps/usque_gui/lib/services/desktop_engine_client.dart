@@ -828,7 +828,12 @@ Duration requestTimeoutForPayload(int payloadField) {
   switch (payloadField) {
     case 12:
     case 14:
-      return const Duration(seconds: 195);
+      // Covers the maximum automatic endpoint cycle, chain startup and native
+      // reporting margin. Native code applies the profile's narrower budget.
+      return const Duration(seconds: 715);
+    case 27:
+      // A legacy cold reconfigure may connect the target and then roll back.
+      return const Duration(seconds: 1415);
     case 23:
     case 26:
     case 29:

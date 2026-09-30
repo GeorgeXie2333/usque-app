@@ -14,7 +14,7 @@ use usque_core::{AddressFamily, IpPolicy, Profile, Transport};
 use super::stream::{Flow, FlowState};
 use super::{BufferBudget, L4Actor, L4Metrics, Limits, OpenRequest, SessionHandle};
 use crate::h2::{MasqueTlsIdentity, TransportError};
-use crate::h3::{H3ConnectSettings, H3MigrationResult, H3Tunnel, connect_l4_h3};
+use crate::h3::{H3ConnectSettings, H3MigrationResult, H3Tunnel};
 use crate::netstack::{RuntimeHealth, RuntimePath, TrafficCounters};
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::SocketProtector;
@@ -127,6 +127,16 @@ struct Session {
     generation: Option<u64>,
 }
 
+#[async_trait]
+impl crate::endpoint_race::RaceConnection for Session {
+    async fn shutdown(self) {
+        self.tunnel.shutdown().await;
+    }
+    fn is_alive(&self) -> bool {
+        self.tunnel.is_alive()
+    }
+}
+
 impl L4Client {
     #[expect(
         clippy::too_many_arguments,
@@ -229,6 +239,7 @@ impl L4Client {
             active: Arc::new(Semaphore::new(limits.active)),
             dns: Arc::new(Semaphore::new(super::DNS_OPERATIONS)),
             slots: Arc::new(Semaphore::new(2)),
+            startup_slots: Arc::new(Semaphore::new(8)),
             startup: Some(startup_tx),
         };
         *client.task.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -296,6 +307,7 @@ struct Supervisor {
     active: Arc<Semaphore>,
     dns: Arc<Semaphore>,
     slots: Arc<Semaphore>,
+    startup_slots: Arc<Semaphore>,
     startup: Option<oneshot::Sender<Result<(), TransportError>>>,
 }
 
@@ -446,6 +458,7 @@ impl Supervisor {
                     metrics: self.metrics.clone(),
                     changed: self.changed.clone(),
                     slots: self.slots.clone(),
+                    startup_slots: self.startup_slots.clone(),
                     race: sessions.is_empty(),
                 };
                 connecting = Some(tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
@@ -483,6 +496,7 @@ impl Supervisor {
                             next_connect = Instant::now();
                         }
                         Ok(mut session) => {
+                            if let Some(admission) = &session.handle.startup_admission { admission.promote(); }
                             session.epoch = self.epoch.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
                             session.handle.epoch.store(session.epoch, Ordering::Release);
                             self.metrics.performance.active_epoch.store(session.epoch, Ordering::Release);
@@ -498,10 +512,18 @@ impl Supervisor {
                             pin_refreshed = true;
                             let result = tokio::select! {
                                 _ = self.cancellation.cancelled() => break,
-                                result = self.pin_refresher.as_ref().expect("checked refresher").refresh(self.protector.clone()) => result,
+                                result = async {
+                                    let refresh = self.pin_refresher.as_ref().expect("checked refresher").refresh(self.protector.clone());
+                                    if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+                                        tokio::time::timeout(usque_core::endpoints::AUTOMATIC_PIN_REFRESH_TIMEOUT, refresh).await.map_err(|_| TransportError::EndpointPinRefresh("authenticated endpoint refresh timed out".to_owned()))?
+                                    } else { refresh.await }
+                                } => result,
                             };
                             match result {
                                 Ok(identity) if identity.provider == self.identity.provider && identity.assigned_ipv4 == self.identity.assigned_ipv4 && identity.assigned_ipv6 == self.identity.assigned_ipv6 => {
+                                    if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic && identity.endpoint_pool() != self.identity.endpoint_pool() {
+                                        self.fail(TransportError::EndpointAssignmentChanged, reconnects); break;
+                                    }
                                     self.identity = Arc::new(identity); next_connect = Instant::now();
                                 }
                                 Ok(_) => { self.fail(TransportError::InvalidIdentity, reconnects); break; }
@@ -581,11 +603,50 @@ struct Setup {
     metrics: Arc<L4Metrics>,
     changed: Arc<Notify>,
     slots: Arc<Semaphore>,
+    startup_slots: Arc<Semaphore>,
     race: bool,
 }
 
 impl Setup {
     async fn connect(self) -> Result<Session, TransportError> {
+        let slot = Arc::new(
+            self.slots
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|_| TransportError::TunnelClosed)?,
+        );
+        if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+            let policy = usque_core::AutomaticEndpointPolicy::for_profile(
+                &self.profile,
+                self.identity.endpoint_pool(),
+            );
+            let targets = crate::endpoint_race::h3_targets(policy, self.profile.ip_policy)
+                .into_iter()
+                .filter(|target| {
+                    self.protector.endpoint_family_available(target.endpoint) != Some(false)
+                        && !crate::endpoint_race::excludes_dns_server(
+                            &self.profile,
+                            target.endpoint,
+                        )
+                })
+                .collect();
+            let setup = Arc::new(self);
+            return crate::endpoint_race::race_batch(
+                targets,
+                None,
+                move |endpoint, cancellation| {
+                    let setup = setup.clone();
+                    let slot = slot.clone();
+                    async move {
+                        setup
+                            .candidate_with_cancellation(endpoint, slot, cancellation)
+                            .await
+                    }
+                },
+            )
+            .await;
+        }
         let v4 = self.profile.endpoint.ipv4_socket();
         let v6 = self.profile.endpoint.ipv6_socket();
         let (first, second) = match self.profile.ip_policy {
@@ -594,7 +655,8 @@ impl Setup {
             IpPolicy::PreferIpv4 => (v4, Some(v6)),
             _ => (v6, Some(v4)),
         };
-        let first_attempt = self.candidate(first);
+        let first_attempt =
+            self.candidate_with_cancellation(first, slot.clone(), CancellationToken::new());
         tokio::pin!(first_attempt);
         let Some(second) = second else {
             return first_attempt.await;
@@ -603,13 +665,16 @@ impl Setup {
             return match first_attempt.await {
                 Ok(s) => Ok(s),
                 Err(error) if terminal(&error) => Err(error),
-                Err(_) => self.candidate(second).await,
+                Err(_) => {
+                    self.candidate_with_cancellation(second, slot.clone(), CancellationToken::new())
+                        .await
+                }
             };
         }
         tokio::select! {
-            result = &mut first_attempt => match result { Ok(s) => Ok(s), Err(error) if terminal(&error) => Err(error), Err(_) => self.candidate(second).await },
+            result = &mut first_attempt => match result { Ok(s) => Ok(s), Err(error) if terminal(&error) => Err(error), Err(_) => self.candidate_with_cancellation(second, slot.clone(), CancellationToken::new()).await },
             _ = tokio::time::sleep(Duration::from_millis(250)) => {
-                let second_attempt = self.candidate(second); tokio::pin!(second_attempt);
+                let second_attempt = self.candidate_with_cancellation(second, slot.clone(), CancellationToken::new()); tokio::pin!(second_attempt);
                 tokio::select! {
                     result = &mut first_attempt => match result { Ok(s) => Ok(s), Err(error) if terminal(&error) => Err(error), Err(_) => second_attempt.await },
                     result = &mut second_attempt => match result { Ok(s) => Ok(s), Err(error) if terminal(&error) => Err(error), Err(_) => first_attempt.await },
@@ -618,7 +683,12 @@ impl Setup {
         }
     }
 
-    async fn candidate(&self, endpoint: SocketAddr) -> Result<Session, TransportError> {
+    async fn candidate_with_cancellation(
+        &self,
+        endpoint: SocketAddr,
+        slot: Arc<tokio::sync::OwnedSemaphorePermit>,
+        cancellation: CancellationToken,
+    ) -> Result<Session, TransportError> {
         let generation = self.protector.network_generation();
         let family = if endpoint.is_ipv4() {
             AddressFamily::Ipv4
@@ -628,18 +698,22 @@ impl Setup {
         if self.protector.endpoint_family_available(endpoint) == Some(false) {
             return Err(TransportError::EndpointFamilyUnavailable(family));
         }
-        let slot = self
-            .slots
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| TransportError::TunnelClosed)?;
+        let startup_slot = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
+            result = self.startup_slots.clone().acquire_owned() => result.map_err(|_| TransportError::TunnelClosed)?,
+        };
         let mut actor = L4Actor::new(
             self.budget.clone(),
             self.metrics.clone(),
             self.changed.clone(),
         );
-        actor.session_slot = Some(Arc::new(slot));
+        actor.session_slot = Some(slot);
+        if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+            actor.limit_startup(startup_slot);
+        } else {
+            actor.startup_slot = Some(Arc::new(startup_slot));
+        }
         #[cfg(test)]
         {
             actor.test_options = self.test_options;
@@ -647,7 +721,7 @@ impl Setup {
         let handle = actor.handle.clone();
         let attempt =
             ConnectionAttemptTelemetry::new(self.telemetry.clone(), Transport::Http3, family);
-        let tunnel = connect_l4_h3(
+        let tunnel = crate::h3::connect_l4_h3_with_cancellation(
             endpoint,
             &self.identity,
             H3ConnectSettings {
@@ -657,6 +731,7 @@ impl Setup {
             self.protector.clone(),
             Some(&attempt),
             actor,
+            cancellation,
         )
         .await?;
         Ok(Session {

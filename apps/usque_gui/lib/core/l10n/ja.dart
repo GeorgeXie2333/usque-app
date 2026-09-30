@@ -231,6 +231,13 @@ const Map<String, String> kJaCatalog = <String, String>{
   'automatic': '自動',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'エンドポイントの選択',
+  'endpoint_automatic': '自動選択',
+  'endpoint_custom': 'カスタム',
+  'endpoint_automatic_help':
+      'このアカウントで利用できる最速のエンドポイントを選びます。アドレスの変更はカスタムモードでのみ保存されます。',
+  'endpoint_custom_help': '下の IPv4 と IPv6 アドレスを使用します。',
+  'endpoint_unsupported': 'エンドポイントの自動選択には Usque を更新してください。',
   'endpoint_ipv4': 'エンドポイント IPv4',
   'endpoint_ipv6': 'エンドポイント IPv6',
   'sni': 'SNI',

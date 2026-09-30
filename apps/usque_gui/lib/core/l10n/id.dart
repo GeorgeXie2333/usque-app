@@ -244,6 +244,14 @@ const Map<String, String> kIdCatalog = <String, String>{
   'automatic': 'Otomatis',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Pemilihan endpoint',
+  'endpoint_automatic': 'Otomatis',
+  'endpoint_custom': 'Kustom',
+  'endpoint_automatic_help':
+      'Memilih endpoint tersedia tercepat untuk akun ini. Perubahan alamat hanya disimpan dalam mode Kustom.',
+  'endpoint_custom_help': 'Menggunakan alamat IPv4 dan IPv6 di bawah.',
+  'endpoint_unsupported':
+      'Perbarui Usque untuk menggunakan pemilihan endpoint otomatis.',
   'endpoint_ipv4': 'Endpoint IPv4',
   'endpoint_ipv6': 'Endpoint IPv6',
   'sni': 'SNI',

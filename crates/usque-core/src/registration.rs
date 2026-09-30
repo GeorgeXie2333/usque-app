@@ -907,6 +907,7 @@ fn zero_trust_endpoint(enrollment: &AccountData) -> Result<EndpointSettings, Reg
         ipv6,
         port: ZERO_TRUST_PORT,
         sni: ZERO_TRUST_SNI.to_owned(),
+        selection: crate::EndpointSelection::Custom,
     };
     settings
         .validate()

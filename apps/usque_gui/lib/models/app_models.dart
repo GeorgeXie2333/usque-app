@@ -41,6 +41,8 @@ enum DataPlaneMode {
 
 enum TransportPolicy { automatic, http3, http2 }
 
+enum EndpointSelection { automatic, custom }
+
 enum CongestionControlAlgorithm {
   cubic('cubic'),
   reno('reno'),
@@ -737,6 +739,7 @@ class UsqueProfile {
     this.dataPlane = DataPlaneMode.connectIp,
     this.congestionControl = CongestionControlAlgorithm.cubic,
     this.ipPolicy = IpPolicy.automatic,
+    this.endpointSelection = EndpointSelection.automatic,
     this.endpointIpv4 = defaultEndpointIpv4,
     this.endpointIpv6 = defaultEndpointIpv6,
     this.endpointPort = defaultEndpointPort,
@@ -775,6 +778,7 @@ class UsqueProfile {
   final DataPlaneMode dataPlane;
   final CongestionControlAlgorithm congestionControl;
   final IpPolicy ipPolicy;
+  final EndpointSelection endpointSelection;
   final String endpointIpv4;
   final String endpointIpv6;
   final int endpointPort;
@@ -831,6 +835,7 @@ class UsqueProfile {
       transport: TransportPolicy.automatic,
       dataPlane: DataPlaneMode.connectIp,
       ipPolicy: IpPolicy.automatic,
+      endpointSelection: EndpointSelection.automatic,
       endpointIpv4: defaultEndpointIpv4,
       endpointIpv6: defaultEndpointIpv6,
       endpointPort: defaultEndpointPort,
@@ -854,6 +859,7 @@ class UsqueProfile {
     DataPlaneMode? dataPlane,
     CongestionControlAlgorithm? congestionControl,
     IpPolicy? ipPolicy,
+    EndpointSelection? endpointSelection,
     String? endpointIpv4,
     String? endpointIpv6,
     int? endpointPort,
@@ -887,6 +893,7 @@ class UsqueProfile {
       dataPlane: dataPlane ?? this.dataPlane,
       congestionControl: congestionControl ?? this.congestionControl,
       ipPolicy: ipPolicy ?? this.ipPolicy,
+      endpointSelection: endpointSelection ?? this.endpointSelection,
       endpointIpv4: endpointIpv4 ?? this.endpointIpv4,
       endpointIpv6: endpointIpv6 ?? this.endpointIpv6,
       endpointPort: endpointPort ?? this.endpointPort,
@@ -921,6 +928,7 @@ class UsqueProfile {
       if (chainExit != null) 'chain_exit': chainExit!.toMap(),
       'congestion_control': congestionControl.name,
       'ip_policy': ipPolicy.name,
+      'endpoint_selection': endpointSelection.name,
       'endpoint_v4': endpointIpv4,
       'endpoint_v6': endpointIpv6,
       'endpoint_port': endpointPort,
@@ -1008,6 +1016,12 @@ class UsqueProfile {
             )
           : CongestionControlAlgorithm.cubic,
       ipPolicy: _enumByName(IpPolicy.values, _string(map, 'ip_policy')),
+      endpointSelection: map.containsKey('endpoint_selection')
+          ? _enumByName(
+              EndpointSelection.values,
+              _string(map, 'endpoint_selection'),
+            )
+          : EndpointSelection.custom,
       endpointIpv4: _string(map, 'endpoint_v4'),
       endpointIpv6: _string(map, 'endpoint_v6'),
       endpointPort: _boundedInt(map, 'endpoint_port', 1, 65535),
@@ -1953,6 +1967,7 @@ class EngineCapabilities {
     this.chainHttpProxy = false,
     this.chainSocks5Proxy = false,
     this.customBypass = false,
+    this.automaticEndpoints = false,
     this.chainOpenvpnMultiEndpoint = false,
     this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
@@ -1979,6 +1994,7 @@ class EngineCapabilities {
         chainHttpProxy: map['chain_http_proxy'] == true,
         chainSocks5Proxy: map['chain_socks5_proxy'] == true,
         customBypass: map['custom_bypass'] == true,
+        automaticEndpoints: map['automatic_endpoints'] == true,
         chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
         vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
@@ -2005,6 +2021,7 @@ class EngineCapabilities {
       );
 
   final bool customBypass;
+  final bool automaticEndpoints;
   final bool networkQuality;
   final bool vpnGateTcp;
   final bool chainProfileImport,
@@ -2040,6 +2057,7 @@ class EngineCapabilities {
           chainHttpProxy == other.chainHttpProxy &&
           chainSocks5Proxy == other.chainSocks5Proxy &&
           customBypass == other.customBypass &&
+          automaticEndpoints == other.automaticEndpoints &&
           chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
@@ -2073,6 +2091,7 @@ class EngineCapabilities {
       chainHttpProxy,
       chainSocks5Proxy,
       customBypass,
+      automaticEndpoints,
     ),
     chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites,

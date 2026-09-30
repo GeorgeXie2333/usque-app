@@ -80,6 +80,7 @@ impl WindowsBackend {
             automatic_recovery: true,
             deferred_network_configuration: true,
             reusable_tun_device: true,
+            automatic_endpoint_leases: true,
         }
     }
 }
@@ -148,6 +149,7 @@ impl PrivilegedBackend for WindowsBackend {
         parameter: StepParameter,
     ) -> Result<MutationReceipt, BackendError> {
         match kind {
+            MutationKind::WfpMetadata => Ok(wfp::plan_metadata()),
             MutationKind::WintunAdapter => Ok(MutationReceipt::WintunAdapter {
                 adapter_name: adapter_name(plan),
                 adapter_guid: Uuid::new_v4(),
@@ -358,6 +360,10 @@ fn apply_sync(
     caller: &AuthenticatedCaller,
 ) -> Result<(MutationReceipt, StepOutput), BackendError> {
     match receipt {
+        other @ MutationReceipt::WfpMetadata { .. } => Ok((
+            wfp::apply_metadata(other).map_err(wfp_backend_error)?,
+            StepOutput::default(),
+        )),
         MutationReceipt::WintunAdapter {
             adapter_name: name,
             adapter_guid,
@@ -591,6 +597,9 @@ fn restore_sync(
     adapter_identity: Option<&MutationReceipt>,
 ) -> Result<(), BackendError> {
     match receipt {
+        receipt @ MutationReceipt::WfpMetadata { .. } => {
+            wfp::restore_metadata(receipt).map_err(wfp_backend_error)
+        }
         MutationReceipt::PacketSession { .. } => {
             let pump = lock_resources(inner)?.pump.take();
             if let Some(pump) = pump {

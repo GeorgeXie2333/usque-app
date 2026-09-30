@@ -104,6 +104,7 @@ Common terms in these references:
 | [WARP WireGuard validation](WARP_WIREGUARD_VALIDATION.md) | Discovery, storage, platform checks and artifact sizes / 扫描、存储、平台检查与产物体积 |
 | [WARP WireGuard registration fix](WARP_WIREGUARD_REGISTRATION_FIX.md) | wgcf registration compatibility, endpoint parsing, disconnected tasks and regression results / 注册兼容、端点解析、未连接任务与回归验证 |
 | [WARP single-port scan](WARP_WIREGUARD_SCAN_VALIDATION.md) | One port per IP, saved-job compatibility, overlapping HTTPS and validation limits / 每 IP 单端口、任务兼容、并行 HTTPS 与验证边界 |
+| [Automatic endpoint validation](AUTOMATIC_ENDPOINTS_VALIDATION.md) | Pool selection, concurrent startup, native authorization, UI checks and unavailable live validation / 端点池、并发连接、原生授权、界面检查与未运行的实网验证 |
 
 Historical results apply only to the recorded candidate and environment. Some
 records identify a baseline plus uncommitted work rather than a reproducible

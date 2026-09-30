@@ -244,6 +244,14 @@ const Map<String, String> kFaCatalog = <String, String>{
   'automatic': 'خودکار',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'انتخاب نقطهٔ پایانی',
+  'endpoint_automatic': 'انتخاب خودکار',
+  'endpoint_custom': 'سفارشی',
+  'endpoint_automatic_help':
+      'سریع‌ترین نقطهٔ پایانی در دسترس این حساب را انتخاب می‌کند. تغییرات نشانی فقط در حالت سفارشی ذخیره می‌شوند.',
+  'endpoint_custom_help': 'از نشانی‌های IPv4 و IPv6 زیر استفاده می‌کند.',
+  'endpoint_unsupported':
+      'برای انتخاب خودکار نقطهٔ پایانی، Usque را به‌روزرسانی کنید.',
   'endpoint_ipv4': 'نقطهٔ پایانی IPv4',
   'endpoint_ipv6': 'نقطهٔ پایانی IPv6',
   'sni': 'SNI',

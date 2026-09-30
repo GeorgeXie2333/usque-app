@@ -51,6 +51,7 @@ class ChainEngine extends GateEngine
   ChainProfileSummary previewProfile = imported;
   @override
   Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    automaticEndpoints: true,
     vpnGateTcp: true,
     vpnGatePoolFavorites: true,
     networkSettingsApplication: true,
@@ -1295,6 +1296,7 @@ void main() {
       final engine = ChainEngine();
       final app = await hostChain(tester, engine, width: 390);
       app.engineCapabilities = const EngineCapabilities(
+        automaticEndpoints: true,
         chainProfileImport: true,
       );
       final picker = find.byKey(const ValueKey('chain-source-picker'));

@@ -6,6 +6,7 @@ use std::{
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use usque_core::{AutomaticEndpointPolicy, EndpointPool};
 use usque_ipc::agent_v1;
 use uuid::Uuid;
 
@@ -38,6 +39,8 @@ pub struct ValidatedTunnelPlan {
     pub vpn_chain: bool,
     #[serde(default)]
     pub defer_network_configuration: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automatic_endpoint_policy: Option<AutomaticEndpointPolicy>,
 }
 
 impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
@@ -143,6 +146,10 @@ impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
             assigned_ipv6,
             vpn_chain: value.vpn_chain,
             defer_network_configuration: value.defer_network_configuration,
+            automatic_endpoint_policy: value
+                .automatic_endpoint_policy
+                .map(policy_from_proto)
+                .transpose()?,
         };
         plan.validate()?;
         Ok(plan)
@@ -184,6 +191,7 @@ impl ValidatedTunnelPlan {
                 .unwrap_or_default(),
             vpn_chain: self.vpn_chain,
             defer_network_configuration: self.defer_network_configuration,
+            automatic_endpoint_policy: self.automatic_endpoint_policy.map(policy_to_proto),
         }
     }
     pub fn validate(&self) -> Result<(), PlanError> {
@@ -194,6 +202,16 @@ impl ValidatedTunnelPlan {
             return Err(PlanError::Mtu(u32::from(self.mtu)));
         }
         validate_endpoint_candidates(self.endpoint, &self.endpoint_candidates)?;
+        if let Some(policy) = self.automatic_endpoint_policy {
+            validate_automatic_policy(policy)?;
+            if self
+                .endpoint_candidates
+                .iter()
+                .any(|candidate| !is_automatic_observation_anchor(policy, *candidate))
+            {
+                return Err(PlanError::AutomaticEndpointPolicy);
+            }
+        }
         if !self.control_api_candidates.is_empty() {
             validate_control_api_candidates(&self.control_api_candidates)?;
         }
@@ -235,6 +253,55 @@ impl ValidatedTunnelPlan {
         )?;
         Ok(())
     }
+}
+
+pub fn policy_from_proto(
+    value: agent_v1::AutomaticEndpointPolicy,
+) -> Result<AutomaticEndpointPolicy, PlanError> {
+    let pool = match agent_v1::AutomaticEndpointPool::try_from(value.pool) {
+        Ok(agent_v1::AutomaticEndpointPool::Free) => EndpointPool::Free,
+        Ok(agent_v1::AutomaticEndpointPool::WarpPlus) => EndpointPool::WarpPlus,
+        _ => return Err(PlanError::AutomaticEndpointPolicy),
+    };
+    let policy = AutomaticEndpointPolicy {
+        pool,
+        port: u16::try_from(value.port).map_err(|_| PlanError::AutomaticEndpointPolicy)?,
+        ipv4: value.ipv4,
+        ipv6: value.ipv6,
+        tcp: value.tcp,
+        udp: value.udp,
+    };
+    validate_automatic_policy(policy)?;
+    Ok(policy)
+}
+
+pub fn policy_to_proto(value: AutomaticEndpointPolicy) -> agent_v1::AutomaticEndpointPolicy {
+    agent_v1::AutomaticEndpointPolicy {
+        pool: match value.pool {
+            EndpointPool::Free => agent_v1::AutomaticEndpointPool::Free,
+            EndpointPool::WarpPlus => agent_v1::AutomaticEndpointPool::WarpPlus,
+        } as i32,
+        port: u32::from(value.port),
+        ipv4: value.ipv4,
+        ipv6: value.ipv6,
+        tcp: value.tcp,
+        udp: value.udp,
+    }
+}
+
+fn validate_automatic_policy(value: AutomaticEndpointPolicy) -> Result<(), PlanError> {
+    if value.port == 0 || !(value.ipv4 || value.ipv6) || !(value.tcp || value.udp) {
+        Err(PlanError::AutomaticEndpointPolicy)
+    } else {
+        Ok(())
+    }
+}
+
+fn is_automatic_observation_anchor(policy: AutomaticEndpointPolicy, endpoint: SocketAddr) -> bool {
+    // This validates a single numeric observation host. Candidate-count and
+    // family limits still prevent prefix routes or a generated endpoint list.
+    policy.permits(endpoint, usque_core::Transport::Http2)
+        || policy.permits(endpoint, usque_core::Transport::Http3)
 }
 
 fn validate_split_dns(
@@ -317,6 +384,10 @@ fn validate_endpoint_candidates(
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PlanError {
+    #[error(
+        "automatic endpoint policy must describe an allowed pool, nonzero port, address family and protocol"
+    )]
+    AutomaticEndpointPolicy,
     #[error("profile_id is not a UUID")]
     ProfileId,
     #[error("endpoint must be a numeric IP socket address")]
@@ -371,6 +442,7 @@ mod tests {
         agent_v1::TunnelPlan {
             vpn_chain: false,
             defer_network_configuration: false,
+            automatic_endpoint_policy: None,
             profile_id: Uuid::new_v4().to_string(),
             endpoint: "162.159.198.2:443".to_owned(),
             endpoint_candidates: vec![
@@ -390,6 +462,84 @@ mod tests {
             assigned_ipv6: "2606:4700:110::2/128".to_owned(),
             split_dns: false,
         }
+    }
+
+    #[test]
+    fn automatic_descriptor_round_trips_without_expanding_candidates() {
+        let mut wire = valid_plan();
+        let policy = AutomaticEndpointPolicy {
+            pool: EndpointPool::Free,
+            port: 443,
+            ipv4: true,
+            ipv6: true,
+            tcp: true,
+            udp: true,
+        };
+        wire.endpoint = "162.159.199.2:443".into();
+        wire.endpoint_candidates = vec![wire.endpoint.clone(), "[2606:4700:104::2]:443".into()];
+        wire.automatic_endpoint_policy = Some(policy_to_proto(policy));
+        let validated = ValidatedTunnelPlan::try_from(wire).unwrap();
+        assert_eq!(validated.endpoint_candidates.len(), 2);
+        assert_eq!(validated.automatic_endpoint_policy, Some(policy));
+        assert_eq!(
+            ValidatedTunnelPlan::try_from(validated.to_proto()).unwrap(),
+            validated
+        );
+        let mut malformed = validated.to_proto();
+        malformed.automatic_endpoint_policy.as_mut().unwrap().pool = 99;
+        assert_eq!(
+            ValidatedTunnelPlan::try_from(malformed).unwrap_err(),
+            PlanError::AutomaticEndpointPolicy
+        );
+        for (port, ipv4, ipv6, tcp, udp) in [
+            (0, true, true, true, true),
+            (443, false, false, true, true),
+            (443, true, true, false, false),
+        ] {
+            let mut malformed = validated.to_proto();
+            let policy = malformed.automatic_endpoint_policy.as_mut().unwrap();
+            policy.port = port;
+            policy.ipv4 = ipv4;
+            policy.ipv6 = ipv6;
+            policy.tcp = tcp;
+            policy.udp = udp;
+            assert_eq!(
+                ValidatedTunnelPlan::try_from(malformed).unwrap_err(),
+                PlanError::AutomaticEndpointPolicy
+            );
+        }
+        let mut generated = validated.to_proto();
+        generated.endpoint_candidates[1] = "[2606:4700:104:ffff::99]:443".into();
+        assert!(ValidatedTunnelPlan::try_from(generated.clone()).is_ok());
+        generated.automatic_endpoint_policy.as_mut().unwrap().tcp = false;
+        assert_eq!(
+            ValidatedTunnelPlan::try_from(generated).unwrap_err(),
+            PlanError::AutomaticEndpointPolicy
+        );
+        let mut free_only_anchor = validated.to_proto();
+        free_only_anchor.endpoint_candidates[1] = "[2606:4700:103::3]:443".into();
+        assert!(ValidatedTunnelPlan::try_from(free_only_anchor.clone()).is_ok());
+        free_only_anchor
+            .automatic_endpoint_policy
+            .as_mut()
+            .unwrap()
+            .pool = agent_v1::AutomaticEndpointPool::WarpPlus as i32;
+        assert_eq!(
+            ValidatedTunnelPlan::try_from(free_only_anchor).unwrap_err(),
+            PlanError::AutomaticEndpointPolicy
+        );
+        let mut free_h3 = validated.to_proto();
+        free_h3.endpoint = "162.159.198.2:443".into();
+        free_h3.endpoint_candidates =
+            vec![free_h3.endpoint.clone(), "[2606:4700:103::2]:443".into()];
+        free_h3.automatic_endpoint_policy.as_mut().unwrap().tcp = false;
+        assert!(ValidatedTunnelPlan::try_from(free_h3.clone()).is_ok());
+        free_h3.automatic_endpoint_policy.as_mut().unwrap().pool =
+            agent_v1::AutomaticEndpointPool::WarpPlus as i32;
+        assert_eq!(
+            ValidatedTunnelPlan::try_from(free_h3).unwrap_err(),
+            PlanError::AutomaticEndpointPolicy
+        );
     }
 
     #[test]

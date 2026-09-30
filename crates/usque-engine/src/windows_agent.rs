@@ -118,6 +118,7 @@ struct WindowsVpnSocketProtector {
     physical_watch: tokio::sync::watch::Sender<PhysicalNetworkSnapshot>,
     monitor_cancel: CancellationToken,
     proxy_mode: AtomicBool,
+    automatic_endpoints: bool,
 }
 
 struct WindowsPhysicalState {
@@ -171,7 +172,7 @@ impl SocketProtector for WindowsVpnSocketProtector {
         let generation = self
             .network_generation()
             .ok_or_else(|| STALE_GENERATION_REASON.to_owned())?;
-        self.protect_target_generation(socket, remote, protocol, generation)
+        self.protect_target_generation(socket, remote, protocol, generation, false)
             .await
     }
 
@@ -182,8 +183,25 @@ impl SocketProtector for WindowsVpnSocketProtector {
         protocol: DirectProtocol,
         expected_generation: u64,
     ) -> Result<DirectEgressLease, String> {
-        self.protect_target_generation(socket, remote, protocol, expected_generation)
+        self.protect_target_generation(socket, remote, protocol, expected_generation, false)
             .await
+    }
+
+    async fn protect_masque_endpoint_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        self.protect_target_generation(
+            socket,
+            remote,
+            protocol,
+            expected_generation,
+            self.automatic_endpoints,
+        )
+        .await
     }
 
     fn tun_direct_available(&self) -> bool {
@@ -283,6 +301,7 @@ impl WindowsVpnSocketProtector {
         remote: SocketAddr,
         protocol: DirectProtocol,
         expected_generation: u64,
+        automatic_masque: bool,
     ) -> Result<DirectEgressLease, String> {
         let Some(agent_generation) = self.egress_generation(expected_generation)? else {
             return NoopSocketProtector
@@ -291,7 +310,13 @@ impl WindowsVpnSocketProtector {
         };
         let (pipe, lease) = self
             .agent
-            .acquire_direct_egress(self.operation_id, remote, protocol, agent_generation)
+            .acquire_direct_egress(
+                self.operation_id,
+                remote,
+                protocol,
+                agent_generation,
+                automatic_masque,
+            )
             .await
             .map_err(|error| self.socket_setup_error("ACQUIRE_DIRECT_EGRESS", error))?;
         self.verify_generation(expected_generation, agent_generation)?;
@@ -1031,6 +1056,7 @@ impl WindowsVpnRuntime {
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
         validate_capabilities(&capabilities, profile.kill_switch)?;
+        validate_automatic_endpoint_capability(&capabilities, profile)?;
         if profile.chain_enabled() && !capabilities.deferred_network_configuration {
             return Err(WindowsVpnError::MissingCapabilities(
                 "deferred_network_configuration".into(),
@@ -1356,7 +1382,8 @@ impl WindowsVpnRuntime {
         status: watch::Sender<usque_core::vpngate::GateStatus>,
         startup_cancel: &CancellationToken,
     ) -> Result<(), WindowsVpnError> {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+        let deadline =
+            tokio::time::Instant::now() + usque_core::endpoint_connection_budget(profile);
         self.quiesce_final();
         require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
         self.agent.begin_chain_transition(self.operation_id).await?;
@@ -1603,6 +1630,9 @@ impl WindowsVpnRuntime {
         if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch) {
             return Err((tunnel, error));
         }
+        if let Err(error) = validate_automatic_endpoint_capability(&capabilities, profile) {
+            return Err((tunnel, error));
+        }
         if profile.chain_enabled() && !capabilities.deferred_network_configuration {
             return Err((
                 tunnel,
@@ -1639,13 +1669,23 @@ impl WindowsVpnRuntime {
                 effective.dns_servers = network.dns_servers;
             }
         }
-        let plan = tunnel_plan_from_assignment(
+        let mut plan = tunnel_plan_from_assignment(
             &effective,
             tunnel.assigned_ipv4(),
             tunnel.assigned_ipv6(),
             &registration_api,
             false,
         );
+        if effective.endpoint.selection == usque_core::EndpointSelection::Automatic {
+            apply_automatic_observation_policy(
+                &mut plan,
+                &effective,
+                usque_core::AutomaticEndpointPolicy::for_profile(
+                    &effective,
+                    tunnel.endpoint_pool(),
+                ),
+            );
+        }
         let startup_lease = match agent
             .prepare(operation_id, plan, &device_lease, state.journal_generation)
             .await
@@ -1870,6 +1910,14 @@ async fn prepare_vpn_protector(
     profile: &Profile,
     geo_enabled: bool,
 ) -> Result<Arc<WindowsVpnSocketProtector>, WindowsVpnError> {
+    let state = agent.get_state().await?;
+    if state.operation_id != operation_id.to_string() {
+        return Err(WindowsVpnError::MissingMasqueRuntime);
+    }
+    let automatic_endpoints = state
+        .plan
+        .as_ref()
+        .is_some_and(|plan| plan.automatic_endpoint_policy.is_some());
     let physical_info = agent.get_physical_network_info(operation_id).await?;
     let dns_servers = physical_dns_endpoints(&physical_info)?;
     validate_physical_dns(geo_enabled, profile.direct_dns.mode, &dns_servers)?;
@@ -1889,6 +1937,7 @@ async fn prepare_vpn_protector(
         }),
         monitor_cancel: CancellationToken::new(),
         proxy_mode: AtomicBool::new(false),
+        automatic_endpoints,
         physical_watch: tokio::sync::watch::channel(PhysicalNetworkSnapshot::default()).0,
     });
     protector.observe_physical_snapshot(&physical_info);
@@ -2195,6 +2244,13 @@ fn tunnel_plan(
         split_dns,
     );
     plan.defer_network_configuration = profile.chain_enabled();
+    if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+        apply_automatic_observation_policy(
+            &mut plan,
+            profile,
+            usque_core::AutomaticEndpointPolicy::for_profile(profile, identity.endpoint_pool()),
+        );
+    }
     plan
 }
 
@@ -2210,19 +2266,45 @@ fn tunnel_plan_from_assignment(
             && (profile.dns_mode == usque_core::DnsMode::Tunnel
                 || profile.custom_chain().is_some())
         || profile.data_plane == usque_core::DataPlaneMode::L4Proxy && !profile.chain_enabled();
-    let ipv4 = profile.endpoint.ipv4_socket();
-    let ipv6 = profile.endpoint.ipv6_socket();
-    let endpoint = match profile.ip_policy {
+    let automatic_policy = (profile.endpoint.selection == usque_core::EndpointSelection::Automatic)
+        .then(|| {
+            usque_core::AutomaticEndpointPolicy::for_profile(
+                profile,
+                usque_core::EndpointPool::WarpPlus,
+            )
+        });
+    let (ipv4, ipv6) = automatic_policy.map_or_else(
+        || {
+            (
+                profile.endpoint.ipv4_socket(),
+                profile.endpoint.ipv6_socket(),
+            )
+        },
+        |policy| automatic_observation_pair(profile, policy),
+    );
+    let mut endpoint = match profile.ip_policy {
         IpPolicy::PreferIpv6 | IpPolicy::Ipv6Only => ipv6,
         IpPolicy::Auto | IpPolicy::PreferIpv4 | IpPolicy::Ipv4Only => ipv4,
     };
-    let endpoint_candidates = match profile.ip_policy {
+    let mut endpoint_candidates = match profile.ip_policy {
         IpPolicy::Ipv4Only => vec![ipv4.to_string()],
         IpPolicy::Ipv6Only => vec![ipv6.to_string()],
         IpPolicy::Auto | IpPolicy::PreferIpv4 | IpPolicy::PreferIpv6 => {
             vec![ipv4.to_string(), ipv6.to_string()]
         }
     };
+    if automatic_policy.is_some() {
+        endpoint_candidates.retain(|candidate| {
+            candidate.parse::<SocketAddr>().is_ok_and(|value| {
+                !usque_transport::excludes_automatic_endpoint_dns_server(profile, value)
+            })
+        });
+        if !endpoint_candidates.contains(&endpoint.to_string())
+            && let Some(first) = endpoint_candidates.first()
+        {
+            endpoint = first.parse().expect("numeric anchor");
+        }
+    }
     agent_v1::TunnelPlan {
         profile_id: profile.id.to_string(),
         endpoint: endpoint.to_string(),
@@ -2266,6 +2348,113 @@ fn tunnel_plan_from_assignment(
         split_dns,
         vpn_chain: profile.chain_enabled(),
         defer_network_configuration: false,
+        automatic_endpoint_policy: automatic_policy.map(automatic_policy_to_proto),
+    }
+}
+
+fn automatic_observation_pair(
+    profile: &Profile,
+    policy: usque_core::AutomaticEndpointPolicy,
+) -> (SocketAddr, SocketAddr) {
+    let defaults = policy.representative_pair();
+    let choose = |ipv6: bool| {
+        [(199_u8, 2_u16), (199, 1)]
+            .into_iter()
+            .chain(
+                [(198, 2), (198, 1)]
+                    .into_iter()
+                    .filter(|_| policy.pool == usque_core::EndpointPool::Free),
+            )
+            .chain((3..=255).filter(|_| policy.tcp).map(|last| (199, last)))
+            .chain(std::iter::once((199, 0)).filter(|_| policy.tcp))
+            .map(|(third, last)| {
+                let address = if ipv6 {
+                    std::net::IpAddr::V6(std::net::Ipv6Addr::new(
+                        0x2606,
+                        0x4700,
+                        if third == 198 { 0x103 } else { 0x104 },
+                        0,
+                        0,
+                        0,
+                        0,
+                        last,
+                    ))
+                } else {
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+                        162,
+                        159,
+                        third,
+                        u8::try_from(last).expect("bounded observation host"),
+                    ))
+                };
+                SocketAddr::new(address, policy.port)
+            })
+            .find(|endpoint| {
+                !usque_transport::excludes_automatic_endpoint_dns_server(profile, *endpoint)
+            })
+            .unwrap_or(if ipv6 { defaults.1 } else { defaults.0 })
+    };
+    (choose(false), choose(true))
+}
+
+fn apply_automatic_observation_policy(
+    plan: &mut agent_v1::TunnelPlan,
+    profile: &Profile,
+    policy: usque_core::AutomaticEndpointPolicy,
+) {
+    let (ipv4, ipv6) = automatic_observation_pair(profile, policy);
+    let mut endpoint = match profile.ip_policy {
+        IpPolicy::PreferIpv6 | IpPolicy::Ipv6Only => ipv6,
+        IpPolicy::Auto | IpPolicy::PreferIpv4 | IpPolicy::Ipv4Only => ipv4,
+    };
+    let candidates = [ipv4, ipv6]
+        .into_iter()
+        .filter(|candidate| {
+            (candidate.is_ipv4() && policy.ipv4 || candidate.is_ipv6() && policy.ipv6)
+                && !usque_transport::excludes_automatic_endpoint_dns_server(profile, *candidate)
+        })
+        .collect::<Vec<_>>();
+    if !candidates.contains(&endpoint)
+        && let Some(first) = candidates.first()
+    {
+        endpoint = *first;
+    }
+    plan.endpoint = endpoint.to_string();
+    plan.endpoint_candidates = candidates
+        .into_iter()
+        .map(|candidate| candidate.to_string())
+        .collect();
+    plan.automatic_endpoint_policy = Some(automatic_policy_to_proto(policy));
+}
+
+fn automatic_policy_to_proto(
+    policy: usque_core::AutomaticEndpointPolicy,
+) -> agent_v1::AutomaticEndpointPolicy {
+    agent_v1::AutomaticEndpointPolicy {
+        pool: match policy.pool {
+            usque_core::EndpointPool::Free => agent_v1::AutomaticEndpointPool::Free,
+            usque_core::EndpointPool::WarpPlus => agent_v1::AutomaticEndpointPool::WarpPlus,
+        } as i32,
+        port: u32::from(policy.port),
+        ipv4: policy.ipv4,
+        ipv6: policy.ipv6,
+        tcp: policy.tcp,
+        udp: policy.udp,
+    }
+}
+
+fn validate_automatic_endpoint_capability(
+    capabilities: &AgentCapabilities,
+    profile: &Profile,
+) -> Result<(), WindowsVpnError> {
+    if profile.endpoint.selection == usque_core::EndpointSelection::Automatic
+        && !capabilities.automatic_endpoint_leases
+    {
+        Err(WindowsVpnError::MissingCapabilities(
+            "automatic_endpoint_leases".into(),
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -3107,6 +3296,7 @@ impl WindowsAgentClient {
         remote: SocketAddr,
         protocol: DirectProtocol,
         expected_generation: u64,
+        automatic_masque: bool,
     ) -> Result<(NamedPipeClient, AgentDirectEgressLease), WindowsVpnError> {
         let mut pipe = self.open_pipe().await?;
         let response = timeout(
@@ -3118,6 +3308,11 @@ impl WindowsAgentClient {
                     remote_endpoint: remote.to_string(),
                     protocol: u32::from(protocol.iana_number()),
                     expected_generation,
+                    purpose: if automatic_masque {
+                        agent_v1::DirectEgressPurpose::AutomaticMasque as i32
+                    } else {
+                        0
+                    },
                 }),
             ),
         )
@@ -4153,7 +4348,7 @@ mod tests {
         }
     }
     use std::{
-        net::{Ipv4Addr, Ipv6Addr},
+        net::{IpAddr, Ipv4Addr, Ipv6Addr},
         sync::{
             Mutex as StdMutex,
             atomic::{AtomicUsize, Ordering},
@@ -5692,6 +5887,7 @@ mod tests {
             }),
             monitor_cancel: cancellation.clone(),
             proxy_mode: AtomicBool::new(false),
+            automatic_endpoints: false,
             physical_watch: tokio::sync::watch::channel(PhysicalNetworkSnapshot::default()).0,
         };
         let mut observations = protector.subscribe_physical_network().unwrap();
@@ -5768,6 +5964,7 @@ mod tests {
             }),
             monitor_cancel: CancellationToken::new(),
             proxy_mode: AtomicBool::new(false),
+            automatic_endpoints: false,
             physical_watch: tokio::sync::watch::channel(PhysicalNetworkSnapshot::default()).0,
         };
         let mut state = AgentState {
@@ -5821,6 +6018,7 @@ mod tests {
     fn windows_vpn_requires_the_exact_generation_lease_capability() {
         let mut capabilities = AgentCapabilities {
             reusable_tun_device: true,
+            automatic_endpoint_leases: true,
             protocol_version: AGENT_PROTOCOL_VERSION,
             wintun: true,
             interface_addresses: true,
@@ -5837,6 +6035,166 @@ mod tests {
             validate_capabilities(&capabilities, false),
             Err(WindowsVpnError::MissingCapabilities(_))
         ));
+    }
+
+    #[test]
+    fn automatic_endpoints_require_new_capability_and_compact_plus_anchors() {
+        let mut profile = Profile::default();
+        profile.endpoint.selection = usque_core::EndpointSelection::Automatic;
+        let mut capabilities = AgentCapabilities::default();
+        assert!(validate_automatic_endpoint_capability(&capabilities, &profile).is_err());
+        capabilities.automatic_endpoint_leases = true;
+        assert!(validate_automatic_endpoint_capability(&capabilities, &profile).is_ok());
+        profile.dns_servers = vec!["162.159.199.2".parse().unwrap()];
+        let wire = tunnel_plan_from_assignment(
+            &profile,
+            "172.16.0.2".parse().unwrap(),
+            "2606:4700:cf1::2".parse().unwrap(),
+            &[],
+            false,
+        );
+        assert!(
+            wire.endpoint_candidates
+                .contains(&"162.159.199.1:443".to_owned())
+        );
+        assert_eq!(wire.endpoint_candidates.len(), 2);
+        assert_eq!(
+            wire.automatic_endpoint_policy.as_ref().unwrap().pool,
+            agent_v1::AutomaticEndpointPool::WarpPlus as i32
+        );
+        profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+        capabilities.automatic_endpoint_leases = false;
+        assert!(validate_automatic_endpoint_capability(&capabilities, &profile).is_ok());
+        let wire = tunnel_plan_from_assignment(
+            &profile,
+            "172.16.0.2".parse().unwrap(),
+            "2606:4700:cf1::2".parse().unwrap(),
+            &[],
+            false,
+        );
+        assert!(wire.automatic_endpoint_policy.is_none());
+    }
+
+    #[test]
+    fn automatic_observation_anchors_follow_active_proxy_dns_exclusions() {
+        let mut profile = Profile::default();
+        profile.endpoint.selection = usque_core::EndpointSelection::Automatic;
+        profile.proxy.dns_mode = usque_core::ProxyDnsMode::LocalConfigured;
+        profile.proxy.dns_servers = vec![
+            "162.159.199.2".parse().unwrap(),
+            "2606:4700:104::2".parse().unwrap(),
+        ];
+        let build = |profile: &Profile| {
+            tunnel_plan_from_assignment(
+                profile,
+                "172.16.0.2".parse().unwrap(),
+                "2606:4700:cf1::2".parse().unwrap(),
+                &["198.51.100.10:443".parse().unwrap()],
+                false,
+            )
+        };
+        let wire = build(&profile);
+        assert_eq!(
+            wire.endpoint_candidates,
+            ["162.159.199.1:443", "[2606:4700:104::1]:443"]
+        );
+        profile.proxy.dns_mode = usque_core::ProxyDnsMode::Remote;
+        assert_eq!(
+            build(&profile).endpoint_candidates,
+            ["162.159.199.2:443", "[2606:4700:104::2]:443"]
+        );
+        profile.proxy.dns_mode = usque_core::ProxyDnsMode::LocalConfigured;
+        profile.proxy.dns_servers.extend([
+            "162.159.199.1".parse::<IpAddr>().unwrap(),
+            "2606:4700:104::1".parse::<IpAddr>().unwrap(),
+        ]);
+        for transport in [
+            usque_core::TransportPolicy::Auto,
+            usque_core::TransportPolicy::Http2,
+        ] {
+            profile.transport = transport;
+            let wire = build(&profile);
+            assert_eq!(
+                wire.endpoint_candidates,
+                ["162.159.199.3:443", "[2606:4700:104::3]:443"]
+            );
+            assert_eq!(wire.control_api_candidates, ["198.51.100.10:443"]);
+        }
+        profile.transport = usque_core::TransportPolicy::Http3;
+        assert!(build(&profile).endpoint_candidates.is_empty());
+        profile.data_plane = usque_core::DataPlaneMode::L4Proxy;
+        assert!(build(&profile).endpoint_candidates.is_empty());
+        profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+        assert_eq!(
+            build(&profile).endpoint_candidates,
+            ["162.159.198.2:443", "[2606:4700:103::2]:443"]
+        );
+    }
+
+    #[test]
+    fn free_h3_and_l4_observation_use_remaining_free_seeds() {
+        let identity_key = MasqueKeyPair::generate();
+        let endpoint_key = MasqueKeyPair::generate();
+        let warp = usque_core::WarpIdentity::from_secure_records(
+            identity_key,
+            usque_core::EndpointPin::from_spki_der(&endpoint_key.public_spki_der().unwrap())
+                .unwrap(),
+            Uuid::new_v4().to_string(),
+            Uuid::new_v4().to_string(),
+            None,
+            usque_core::IdentityProvider::Consumer,
+            Some(usque_core::ConsumerEntitlement::Free),
+            "172.16.0.2".parse().unwrap(),
+            "2606:4700:cf1::2".parse().unwrap(),
+        )
+        .unwrap();
+        let free = MasqueTlsIdentity::from_warp_identity(&warp).unwrap();
+        let mut profile = Profile::default();
+        profile.endpoint.selection = usque_core::EndpointSelection::Automatic;
+        profile.transport = usque_core::TransportPolicy::Http3;
+        profile.proxy.dns_mode = usque_core::ProxyDnsMode::LocalConfigured;
+        profile.proxy.dns_servers = vec![
+            "162.159.199.1".parse().unwrap(),
+            "162.159.199.2".parse().unwrap(),
+            "2606:4700:104::1".parse().unwrap(),
+            "2606:4700:104::2".parse().unwrap(),
+        ];
+        for data_plane in [
+            usque_core::DataPlaneMode::ConnectIp,
+            usque_core::DataPlaneMode::L4Proxy,
+        ] {
+            profile.data_plane = data_plane;
+            let wire = tunnel_plan(
+                &profile,
+                &free,
+                &["198.51.100.10:443".parse().unwrap()],
+                false,
+            );
+            assert_eq!(
+                wire.endpoint_candidates,
+                ["162.159.198.2:443", "[2606:4700:103::2]:443"]
+            );
+            let policy = wire.automatic_endpoint_policy.unwrap();
+            assert_eq!(policy.pool, agent_v1::AutomaticEndpointPool::Free as i32);
+            assert!(!policy.tcp && policy.udp);
+            assert!(
+                tunnel_plan(&profile, &identity(), &[], false)
+                    .endpoint_candidates
+                    .is_empty()
+            );
+            let mut exhausted = profile.clone();
+            exhausted.proxy.dns_servers.extend([
+                "162.159.198.1".parse::<IpAddr>().unwrap(),
+                "162.159.198.2".parse::<IpAddr>().unwrap(),
+                "2606:4700:103::1".parse::<IpAddr>().unwrap(),
+                "2606:4700:103::2".parse::<IpAddr>().unwrap(),
+            ]);
+            assert!(
+                tunnel_plan(&exhausted, &free, &[], false)
+                    .endpoint_candidates
+                    .is_empty()
+            );
+        }
     }
 
     #[test]
@@ -5937,6 +6295,7 @@ mod tests {
             mode: OperatingMode::Vpn,
             ..Profile::default()
         };
+        profile.endpoint.selection = usque_core::EndpointSelection::Custom;
         profile.ip_policy = IpPolicy::PreferIpv6;
         let plan = tunnel_plan(
             &profile,
@@ -6072,10 +6431,11 @@ mod tests {
 
     #[test]
     fn single_family_policy_limits_agent_bypass_and_wfp_candidates() {
-        let profile = Profile {
+        let mut profile = Profile {
             ip_policy: IpPolicy::Ipv4Only,
             ..Profile::default()
         };
+        profile.endpoint.selection = usque_core::EndpointSelection::Custom;
         let plan = tunnel_plan(
             &profile,
             &identity(),

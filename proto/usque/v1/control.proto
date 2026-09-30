@@ -143,11 +143,18 @@ enum LockdownState {
   LOCKDOWN_STATE_UNKNOWN = 4;
 }
 
+enum EndpointSelection {
+  ENDPOINT_SELECTION_UNSPECIFIED = 0;
+  ENDPOINT_SELECTION_AUTOMATIC = 1;
+  ENDPOINT_SELECTION_CUSTOM = 2;
+}
+
 message EndpointSettings {
   string ipv4 = 1;
   string ipv6 = 2;
   uint32 port = 3;
   string sni = 4;
+  EndpointSelection selection = 5;
 }
 
 message ProxySettings {
@@ -455,6 +462,7 @@ message Capabilities {
   bool chain_http_proxy = 39;
   bool chain_socks5_proxy = 40;
   bool custom_bypass = 41;
+  bool automatic_endpoints = 42;
 }
 
 message FrontendStatus {

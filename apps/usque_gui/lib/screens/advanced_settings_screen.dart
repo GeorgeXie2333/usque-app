@@ -37,6 +37,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late DataPlaneMode _dataPlane;
   late CongestionControlAlgorithm _congestionControl;
   late IpPolicy _ipPolicy;
+  late EndpointSelection _endpointSelection;
   late bool _killSwitch;
   late bool _allowLan;
   late bool _disableQuic;
@@ -59,8 +60,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   final _focus = List.generate(9, (_) => FocusNode());
 
   List<Object> get _values => [
-    _endpointV4.text,
-    _endpointV6.text,
+    _endpointSelection == EndpointSelection.automatic
+        ? widget.controller.activeProfile.endpointIpv4
+        : _endpointV4.text,
+    _endpointSelection == EndpointSelection.automatic
+        ? widget.controller.activeProfile.endpointIpv6
+        : _endpointV6.text,
     _port.text,
     _sni.text,
     _dnsV4.text,
@@ -81,6 +86,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _proxy.dnsIpv4,
     _proxy.dnsIpv6,
     _proxy.systemProxy,
+    _endpointSelection,
   ];
   bool get _dirty => !listEquals(_values, _baseline);
   void _edited() {
@@ -124,6 +130,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _dataPlane = profile.dataPlane;
     _congestionControl = profile.congestionControl;
     _ipPolicy = profile.ipPolicy;
+    _endpointSelection = profile.endpointSelection;
     _killSwitch = profile.killSwitch;
     _allowLan = profile.allowLan;
     _disableQuic = profile.disableQuic;
@@ -299,34 +306,100 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                         if (!l4Available) Text(strings.get('l4_unsupported')),
                       ],
                       const SizedBox(height: 18),
+                      if (!_zeroTrustEndpointIpsManaged) ...[
+                        Text(strings.get('endpoint_selection')),
+                        const SizedBox(height: 8),
+                        LayoutBuilder(
+                          builder: (context, constraints) =>
+                              SegmentedButton<EndpointSelection>(
+                                key: const ValueKey('endpoint-selection'),
+                                direction:
+                                    constraints.maxWidth < 400 ||
+                                        MediaQuery.textScalerOf(
+                                              context,
+                                            ).scale(1) >
+                                            1.3
+                                    ? Axis.vertical
+                                    : Axis.horizontal,
+                                segments: [
+                                  ButtonSegment(
+                                    value: EndpointSelection.automatic,
+                                    label: Text(
+                                      strings.get('endpoint_automatic'),
+                                    ),
+                                    enabled:
+                                        widget
+                                            .controller
+                                            .engineCapabilities
+                                            ?.automaticEndpoints ??
+                                        false,
+                                  ),
+                                  ButtonSegment(
+                                    value: EndpointSelection.custom,
+                                    label: Text(strings.get('endpoint_custom')),
+                                  ),
+                                ],
+                                selected: {_endpointSelection},
+                                onSelectionChanged: _saving
+                                    ? null
+                                    : (values) {
+                                        setState(() {
+                                          _endpointSelection = values.first;
+                                        });
+                                        _edited();
+                                      },
+                                showSelectedIcon: false,
+                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          widget
+                                      .controller
+                                      .engineCapabilities
+                                      ?.automaticEndpoints ==
+                                  true
+                              ? strings.get(
+                                  _endpointSelection ==
+                                          EndpointSelection.automatic
+                                      ? 'endpoint_automatic_help'
+                                      : 'endpoint_custom_help',
+                                )
+                              : strings.get('endpoint_unsupported'),
+                        ),
+                        const SizedBox(height: 18),
+                      ],
                       _ResponsiveFields(
                         children: <Widget>[
-                          TextFormField(
-                            key: _fieldKeys[0],
-                            focusNode: _focus[0],
-                            enabled: !_saving,
-                            controller: _endpointV4,
-                            onChanged: (_) => _edited(),
-                            readOnly: _zeroTrustEndpointIpsManaged,
-                            decoration: InputDecoration(
-                              labelText: strings.get('endpoint_ipv4'),
+                          if (_zeroTrustEndpointIpsManaged ||
+                              _endpointSelection == EndpointSelection.custom)
+                            TextFormField(
+                              key: _fieldKeys[0],
+                              focusNode: _focus[0],
+                              enabled: !_saving,
+                              controller: _endpointV4,
+                              onChanged: (_) => _edited(),
+                              readOnly: _zeroTrustEndpointIpsManaged,
+                              decoration: InputDecoration(
+                                labelText: strings.get('endpoint_ipv4'),
+                              ),
+                              validator: (value) =>
+                                  _validateIp(value, InternetAddressType.IPv4),
                             ),
-                            validator: (value) =>
-                                _validateIp(value, InternetAddressType.IPv4),
-                          ),
-                          TextFormField(
-                            key: _fieldKeys[1],
-                            focusNode: _focus[1],
-                            enabled: !_saving,
-                            controller: _endpointV6,
-                            onChanged: (_) => _edited(),
-                            readOnly: _zeroTrustEndpointIpsManaged,
-                            decoration: InputDecoration(
-                              labelText: strings.get('endpoint_ipv6'),
+                          if (_zeroTrustEndpointIpsManaged ||
+                              _endpointSelection == EndpointSelection.custom)
+                            TextFormField(
+                              key: _fieldKeys[1],
+                              focusNode: _focus[1],
+                              enabled: !_saving,
+                              controller: _endpointV6,
+                              onChanged: (_) => _edited(),
+                              readOnly: _zeroTrustEndpointIpsManaged,
+                              decoration: InputDecoration(
+                                labelText: strings.get('endpoint_ipv6'),
+                              ),
+                              validator: (value) =>
+                                  _validateIp(value, InternetAddressType.IPv6),
                             ),
-                            validator: (value) =>
-                                _validateIp(value, InternetAddressType.IPv6),
-                          ),
                           TextFormField(
                             key: _fieldKeys[2],
                             focusNode: _focus[2],
@@ -715,10 +788,15 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'proxy.dns_servers',
       'proxy.dns_servers',
       'proxy.system_proxy',
+      'endpoint.selection',
     ];
     final changedFields = <String>{
       for (var i = 0; i < paths.length; i++)
-        if (_values[i] != _baseline[i] && !(endpointIpsManaged && i < 2))
+        if (_values[i] != _baseline[i] &&
+            !(i < 2 &&
+                (endpointIpsManaged ||
+                    _endpointSelection == EndpointSelection.automatic)) &&
+            !(endpointIpsManaged && paths[i] == 'endpoint.selection'))
           paths[i],
     }.toList();
     final saved = await widget.controller.saveNetwork(
@@ -728,10 +806,17 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         dataPlane: _dataPlane,
         congestionControl: _congestionControl,
         ipPolicy: _ipPolicy,
-        endpointIpv4: endpointIpsManaged
+        endpointSelection: endpointIpsManaged
+            ? profile.endpointSelection
+            : _endpointSelection,
+        endpointIpv4:
+            endpointIpsManaged ||
+                _endpointSelection == EndpointSelection.automatic
             ? profile.endpointIpv4
             : _endpointV4.text.trim(),
-        endpointIpv6: endpointIpsManaged
+        endpointIpv6:
+            endpointIpsManaged ||
+                _endpointSelection == EndpointSelection.automatic
             ? profile.endpointIpv6
             : _endpointV6.text.trim(),
         endpointPort: int.parse(_port.text),
@@ -798,6 +883,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     var reset = current.resetAdvancedDefaults();
     if (_zeroTrustEndpointIpsManaged) {
       reset = reset.copyWith(
+        endpointSelection: current.endpointSelection,
         endpointIpv4: current.endpointIpv4,
         endpointIpv6: current.endpointIpv6,
       );

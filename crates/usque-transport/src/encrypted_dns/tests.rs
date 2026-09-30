@@ -55,6 +55,50 @@ async fn encrypted_dns_wrapper_forwards_reconnect_observations() {
 
 struct PrefaceWriteFailure(std::io::ErrorKind);
 
+#[tokio::test]
+async fn encrypted_dns_wrapper_preserves_masque_authorization_purpose() {
+    struct Purpose;
+    #[async_trait]
+    impl SocketProtector for Purpose {
+        fn protect(&self, _: SocketHandle) -> Result<(), String> {
+            Err("generic egress denied".to_owned())
+        }
+        async fn protect_masque_endpoint_generation(
+            &self,
+            _: SocketHandle,
+            remote: SocketAddr,
+            protocol: DirectProtocol,
+            generation: u64,
+        ) -> Result<DirectEgressLease, String> {
+            assert_eq!(remote, "162.159.199.2:443".parse().unwrap());
+            assert_eq!(protocol, DirectProtocol::Udp);
+            assert_eq!(generation, 9);
+            Ok(DirectEgressLease::for_generation(generation))
+        }
+        fn network_generation(&self) -> Option<u64> {
+            Some(9)
+        }
+    }
+    let wrapped = configure_direct_dns(
+        &settings(ConfigMode::Doh, "127.0.0.1:443".parse().unwrap()),
+        Arc::new(Purpose),
+        NetworkQualityTelemetry::default(),
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let lease = wrapped
+        .protect_masque_endpoint_generation(
+            socket_handle(&socket),
+            "162.159.199.2:443".parse().unwrap(),
+            DirectProtocol::Udp,
+            9,
+        )
+        .await
+        .unwrap();
+    assert_eq!(lease.generation(), Some(9));
+}
+
 impl tokio::io::AsyncRead for PrefaceWriteFailure {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,

@@ -244,6 +244,14 @@ const Map<String, String> kRuCatalog = <String, String>{
   'automatic': 'Авто',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Выбор конечной точки',
+  'endpoint_automatic': 'Автоматически',
+  'endpoint_custom': 'Вручную',
+  'endpoint_automatic_help':
+      'Выбирает самую быструю доступную конечную точку для этой учётной записи. Изменения адресов сохраняются только в режиме «Вручную».',
+  'endpoint_custom_help': 'Использует указанные ниже адреса IPv4 и IPv6.',
+  'endpoint_unsupported':
+      'Обновите Usque для автоматического выбора конечной точки.',
   'endpoint_ipv4': 'Конечная точка IPv4',
   'endpoint_ipv6': 'Конечная точка IPv6',
   'sni': 'SNI',

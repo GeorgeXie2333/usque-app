@@ -246,6 +246,14 @@ const Map<String, String> kTrCatalog = <String, String>{
   'automatic': 'Otomatik',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Uç nokta seçimi',
+  'endpoint_automatic': 'Otomatik',
+  'endpoint_custom': 'Özel',
+  'endpoint_automatic_help':
+      'Bu hesap için kullanılabilir en hızlı uç noktayı seçer. Adres değişiklikleri yalnızca Özel modda kaydedilir.',
+  'endpoint_custom_help': 'Aşağıdaki IPv4 ve IPv6 adreslerini kullanır.',
+  'endpoint_unsupported':
+      'Otomatik uç nokta seçimi için Usque uygulamasını güncelleyin.',
   'endpoint_ipv4': 'Uç nokta IPv4',
   'endpoint_ipv6': 'Uç nokta IPv6',
   'sni': 'SNI',

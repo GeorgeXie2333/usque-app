@@ -14,9 +14,11 @@ use uuid::Uuid;
 
 use crate::plan::{PlanError, ValidatedTunnelPlan};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 3;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 4;
 pub const MAX_JOURNAL_BYTES: u64 = 1024 * 1024;
 pub const MAX_JOURNAL_STEPS: usize = 16;
+pub(crate) const WFP_PROVIDER_KEY: Uuid = Uuid::from_u128(0x6d70fda5_3fa2_4c36_a86c_88650b58f013);
+pub(crate) const WFP_SUBLAYER_KEY: Uuid = Uuid::from_u128(0xc93b7042_7b1e_4ab5_96ba_96b4539b67ec);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +52,7 @@ pub enum MutationKind {
     PacketSession,
     DefaultRoutes,
     SystemProxy,
+    WfpMetadata,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -128,6 +131,10 @@ pub enum MutationReceipt {
         applied_proxy: String,
         applied_bypass: String,
     },
+    WfpMetadata {
+        provider_key: Uuid,
+        sublayer_key: Uuid,
+    },
 }
 
 impl MutationReceipt {
@@ -141,6 +148,7 @@ impl MutationReceipt {
             Self::PacketSession { .. } => MutationKind::PacketSession,
             Self::DefaultRoutes { .. } => MutationKind::DefaultRoutes,
             Self::SystemProxy { .. } => MutationKind::SystemProxy,
+            Self::WfpMetadata { .. } => MutationKind::WfpMetadata,
         }
     }
 }
@@ -435,6 +443,20 @@ fn validate_receipt(
         Some(plan.ok_or_else(|| unsafe_receipt("tunnel receipt has no tunnel plan"))?)
     };
     match &record.receipt {
+        MutationReceipt::WfpMetadata {
+            provider_key,
+            sublayer_key,
+        } => {
+            let plan = tunnel_plan.expect("validated tunnel operation");
+            if plan.automatic_endpoint_policy.is_none()
+                || *provider_key != WFP_PROVIDER_KEY
+                || *sublayer_key != WFP_SUBLAYER_KEY
+            {
+                return Err(unsafe_receipt(
+                    "invalid automatic endpoint WFP metadata identity",
+                ));
+            }
+        }
         MutationReceipt::WintunAdapter {
             adapter_name,
             adapter_guid,
@@ -711,9 +733,25 @@ impl JournalStore {
             return Err(JournalError::TooLarge(bytes.len() as u64));
         }
         let mut journal: RecoveryJournal = serde_json::from_slice(&bytes)?;
-        if journal.schema_version == 2 {
-            if journal.device.is_some() || journal.device_binding.is_some() {
-                return Err(JournalError::InvalidDevice);
+        if journal.schema_version == 2
+            && (journal.device.is_some() || journal.device_binding.is_some())
+        {
+            return Err(JournalError::InvalidDevice);
+        }
+        if matches!(journal.schema_version, 2 | 3) {
+            if journal
+                .plan
+                .as_ref()
+                .is_some_and(|plan| plan.automatic_endpoint_policy.is_some())
+                || journal
+                    .steps
+                    .iter()
+                    .any(|step| step.kind == MutationKind::WfpMetadata)
+            {
+                return Err(JournalError::Schema {
+                    found: journal.schema_version,
+                    supported: JOURNAL_SCHEMA_VERSION,
+                });
             }
             journal.schema_version = JOURNAL_SCHEMA_VERSION;
         }
@@ -896,6 +934,7 @@ mod tests {
         ValidatedTunnelPlan {
             vpn_chain: false,
             defer_network_configuration: false,
+            automatic_endpoint_policy: None,
             profile_id: Uuid::new_v4(),
             endpoint: SocketAddrV4::new(Ipv4Addr::new(162, 159, 198, 2), 443).into(),
             endpoint_candidates: vec![
@@ -953,6 +992,85 @@ mod tests {
         store.save(&mut journal).expect("save");
         assert_eq!(journal.generation, 1);
         assert_eq!(store.load_or_clean().expect("load"), journal);
+    }
+
+    #[test]
+    fn schema_three_migrates_but_cannot_claim_new_automatic_policy() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = JournalStore::new(directory.path().join("recovery.json"));
+        let mut legacy = RecoveryJournal::clean(3);
+        legacy.schema_version = 3;
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let migrated = store.load_or_clean().unwrap();
+        assert_eq!(migrated.schema_version, JOURNAL_SCHEMA_VERSION);
+        assert_eq!(migrated.generation, legacy.generation);
+        let mut automatic = plan();
+        automatic.endpoint = "162.159.199.2:443".parse().unwrap();
+        automatic.endpoint_candidates = vec![automatic.endpoint];
+        automatic.automatic_endpoint_policy = Some(usque_core::AutomaticEndpointPolicy {
+            pool: usque_core::EndpointPool::Free,
+            port: 443,
+            ipv4: true,
+            ipv6: false,
+            tcp: true,
+            udp: true,
+        });
+        legacy.plan = Some(automatic);
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert!(matches!(
+            store.load_or_clean(),
+            Err(JournalError::Schema { found: 3, .. })
+        ));
+    }
+
+    #[test]
+    fn metadata_intent_has_only_stable_keys_and_requires_automatic_policy() {
+        let mut automatic = plan();
+        automatic.endpoint = "162.159.199.2:443".parse().unwrap();
+        automatic.endpoint_candidates = vec![automatic.endpoint];
+        automatic.automatic_endpoint_policy = Some(usque_core::AutomaticEndpointPolicy {
+            pool: usque_core::EndpointPool::WarpPlus,
+            port: 443,
+            ipv4: true,
+            ipv6: false,
+            tcp: true,
+            udp: true,
+        });
+        let mut journal = RecoveryJournal {
+            schema_version: JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
+            generation: 1,
+            phase: RecoveryPhase::Preparing,
+            operation_kind: Some(OperationKind::Tunnel),
+            operation_id: Some(Uuid::new_v4()),
+            owner_sid: Some("S-1-5-21-1000".into()),
+            owner_process_id: Some(42),
+            plan: Some(automatic),
+            pause_deadline_unix_seconds: None,
+            steps: vec![MutationRecord {
+                kind: MutationKind::WfpMetadata,
+                state: MutationState::Intended,
+                receipt: MutationReceipt::WfpMetadata {
+                    provider_key: WFP_PROVIDER_KEY,
+                    sublayer_key: WFP_SUBLAYER_KEY,
+                },
+            }],
+        };
+        assert!(journal.validate().is_ok());
+        let encoded = serde_json::to_string(&journal.steps[0].receipt).unwrap();
+        assert!(!encoded.contains("162.159") && !encoded.contains("filter_ids"));
+        journal.steps[0].receipt = MutationReceipt::WfpMetadata {
+            provider_key: Uuid::new_v4(),
+            sublayer_key: WFP_SUBLAYER_KEY,
+        };
+        assert!(journal.validate().is_err());
+        journal.steps[0].receipt = MutationReceipt::WfpMetadata {
+            provider_key: WFP_PROVIDER_KEY,
+            sublayer_key: WFP_SUBLAYER_KEY,
+        };
+        journal.plan.as_mut().unwrap().automatic_endpoint_policy = None;
+        assert!(journal.validate().is_err());
     }
 
     #[test]

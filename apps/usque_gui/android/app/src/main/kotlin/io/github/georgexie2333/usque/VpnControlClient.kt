@@ -42,9 +42,9 @@ internal class VpnControlClient(
         private const val PROBE_TOTAL_NANOS = 4_000_000_000L
         private const val PROBE_CLEANUP_NANOS = 500_000_000L
 
-        // Native connection work shares one 180s deadline through final attachment.
-        // Binder retains cleanup margin; quick acceptance and snapshots stay short.
-        const val RECONFIGURE_TIMEOUT_MILLIS = 200_000L
+        // Covers the maximum automatic underlay plus chain startup and native
+        // reporting margin. Quick acceptance and snapshot deadlines stay short.
+        const val RECONFIGURE_TIMEOUT_MILLIS = 715_000L
 
         fun create(
             context: Context,

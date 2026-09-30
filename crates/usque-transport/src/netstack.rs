@@ -23,8 +23,8 @@ use usque_core::{
 use usque_protocol::{IpAddressRange, IpPrefix, PeerNetworkState};
 
 use crate::geo_direct::GeoDirectPolicy;
-use crate::h2::{MasqueTlsIdentity, TransportError, connect_h2_with_protector};
-use crate::h3::{H3MigrationResult, connect_h3_with_protector};
+use crate::h2::{MasqueTlsIdentity, TransportError};
+use crate::h3::H3MigrationResult;
 use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler_with_counters};
 use crate::packet_batch::{
     MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult,
@@ -1051,8 +1051,9 @@ async fn connect_initial_with_refresh(
             let Some(pin_refresher) = pin_refresher else {
                 return Err(TransportError::EndpointPinMismatch);
             };
-            let refreshed = pin_refresher.refresh(Arc::clone(&protector)).await?;
+            let refreshed = refresh_pin(profile, pin_refresher, Arc::clone(&protector)).await?;
             ensure_assignments_unchanged(identity.as_ref(), &refreshed)?;
+            ensure_endpoint_pool_unchanged(profile, identity.as_ref(), &refreshed)?;
             let refreshed = Arc::new(refreshed);
             telemetry.reset_attempt();
             match connect_with_policy(profile, refreshed.as_ref(), protector, telemetry).await {
@@ -1064,6 +1065,41 @@ async fn connect_initial_with_refresh(
         }
         Err(error) => Err(error),
     }
+}
+
+async fn refresh_pin(
+    profile: &Profile,
+    refresher: &Arc<dyn EndpointPinRefresher>,
+    protector: Arc<dyn SocketProtector>,
+) -> Result<MasqueTlsIdentity, TransportError> {
+    let refresh = refresher.refresh(protector);
+    if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+        timeout(
+            usque_core::endpoints::AUTOMATIC_PIN_REFRESH_TIMEOUT,
+            refresh,
+        )
+        .await
+        .map_err(|_| {
+            TransportError::EndpointPinRefresh(
+                "authenticated endpoint refresh timed out".to_owned(),
+            )
+        })?
+    } else {
+        refresh.await
+    }
+}
+
+fn ensure_endpoint_pool_unchanged(
+    profile: &Profile,
+    current: &MasqueTlsIdentity,
+    refreshed: &MasqueTlsIdentity,
+) -> Result<(), TransportError> {
+    if profile.endpoint.selection == usque_core::EndpointSelection::Automatic
+        && current.endpoint_pool() != refreshed.endpoint_pool()
+    {
+        return Err(TransportError::EndpointAssignmentChanged);
+    }
+    Ok(())
 }
 
 fn ensure_assignments_unchanged(
@@ -1150,6 +1186,10 @@ async fn connect_happy_eyeballs(
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+        return connect_automatic_endpoints(profile, identity, transport, protector, telemetry)
+            .await;
+    }
     let (preferred, preferred_family, alternate, alternate_family) = match profile.ip_policy {
         IpPolicy::Auto | IpPolicy::PreferIpv6 | IpPolicy::Ipv6Only => (
             profile.endpoint.ipv6_socket(),
@@ -1247,6 +1287,96 @@ async fn connect_happy_eyeballs(
     }
 }
 
+async fn connect_automatic_endpoints(
+    profile: &Profile,
+    identity: &MasqueTlsIdentity,
+    transport: Transport,
+    protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
+) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    let policy =
+        usque_core::AutomaticEndpointPolicy::for_profile(profile, identity.endpoint_pool());
+    let connect = {
+        let profile = profile.clone();
+        let identity = identity.clone();
+        let protector = protector.clone();
+        let telemetry = telemetry.clone();
+        move |endpoint: std::net::SocketAddr, cancellation: CancellationToken| {
+            let profile = profile.clone();
+            let identity = identity.clone();
+            let protector = protector.clone();
+            let telemetry = telemetry.clone();
+            async move {
+                let family = if endpoint.is_ipv4() {
+                    AddressFamily::Ipv4
+                } else {
+                    AddressFamily::Ipv6
+                };
+                connect_endpoint_cancellable(
+                    transport,
+                    EndpointCandidate::new(endpoint, family),
+                    &profile.endpoint.sni,
+                    &identity,
+                    usize::from(profile.mtu),
+                    profile.congestion_control,
+                    protector,
+                    &telemetry,
+                    cancellation,
+                )
+                .await
+                .map(|tunnel| (tunnel, family))
+            }
+        }
+    };
+    if transport == Transport::Http3 {
+        let targets = crate::endpoint_race::h3_targets(policy, profile.ip_policy)
+            .into_iter()
+            .filter(|target| {
+                protector.endpoint_family_available(target.endpoint) != Some(false)
+                    && !crate::endpoint_race::excludes_dns_server(profile, target.endpoint)
+            })
+            .collect();
+        return crate::endpoint_race::race_batch(targets, None, connect).await;
+    }
+    let (mut ipv4, mut ipv6) = crate::endpoint_race::h2_candidates(policy)?;
+    ipv4.retain(|endpoint| {
+        protector.endpoint_family_available(*endpoint) != Some(false)
+            && !crate::endpoint_race::excludes_dns_server(profile, *endpoint)
+    });
+    ipv6.retain(|endpoint| {
+        protector.endpoint_family_available(*endpoint) != Some(false)
+            && !crate::endpoint_race::excludes_dns_server(profile, *endpoint)
+    });
+    let (mut preferred, mut alternate) =
+        if matches!(profile.ip_policy, IpPolicy::PreferIpv4 | IpPolicy::Ipv4Only) {
+            (ipv4, ipv6)
+        } else {
+            (ipv6, ipv4)
+        };
+    while !preferred.is_empty() || !alternate.is_empty() {
+        let targets = crate::endpoint_race::next_h2_batch(&mut preferred, &mut alternate);
+        match crate::endpoint_race::race_batch(
+            targets,
+            Some(usque_core::endpoints::AUTOMATIC_H2_BATCH_TIMEOUT),
+            connect.clone(),
+        )
+        .await
+        {
+            Ok(connected) => return Ok(connected),
+            Err(error)
+                if RecoveryDecision::for_failure(&error.failure(Some(transport), None))
+                    != RecoveryDecision::Retry =>
+            {
+                return Err(error);
+            }
+            Err(_) => {}
+        }
+    }
+    Err(TransportError::AllEndpointsFailed(
+        "automatic endpoint cycle exhausted".to_owned(),
+    ))
+}
+
 #[derive(Debug)]
 enum CandidateErrors<E> {
     Terminal(E),
@@ -1332,6 +1462,35 @@ async fn connect_endpoint(
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<MasqueTunnel, TransportError> {
+    connect_endpoint_cancellable(
+        transport,
+        target,
+        sni,
+        identity,
+        profile_inner_mtu,
+        congestion_control,
+        protector,
+        telemetry,
+        CancellationToken::new(),
+    )
+    .await
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "protected endpoint racing carries exact path settings and cancellation"
+)]
+async fn connect_endpoint_cancellable(
+    transport: Transport,
+    target: EndpointCandidate,
+    sni: &str,
+    identity: &MasqueTlsIdentity,
+    profile_inner_mtu: usize,
+    congestion_control: usque_core::CongestionControlAlgorithm,
+    protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
+    cancellation: CancellationToken,
+) -> Result<MasqueTunnel, TransportError> {
     let EndpointCandidate {
         socket: endpoint,
         family,
@@ -1345,9 +1504,10 @@ async fn connect_endpoint(
             TransportStage::EndpointResolution,
         );
         let network_generation = protector.network_generation();
+        let attempt_cancellation = cancellation.child_token();
         let connecting = async {
             match transport {
-                Transport::Http3 => connect_h3_with_protector(
+                Transport::Http3 => crate::h3::connect_h3_with_cancellation(
                     endpoint,
                     sni,
                     identity,
@@ -1357,15 +1517,17 @@ async fn connect_endpoint(
                     },
                     Arc::clone(&protector),
                     Some(&attempt),
+                    attempt_cancellation.clone(),
                 )
                 .await
                 .map(|tunnel| MasqueTunnel::Http3(Box::new(tunnel))),
-                Transport::Http2 => connect_h2_with_protector(
+                Transport::Http2 => crate::h2::connect_h2_with_cancellation(
                     endpoint,
                     sni,
                     identity,
                     protector.as_ref(),
                     Some(&attempt),
+                    &attempt_cancellation,
                 )
                 .await
                 .map(|tunnel| MasqueTunnel::Http2(Box::new(tunnel))),
@@ -1398,6 +1560,9 @@ async fn connect_endpoint(
                 return result;
             },
             _ = wait_for_network_change(&protector, network_generation), if network_generation.is_some() => {
+                attempt_cancellation.cancel();
+                let _ = connecting.await;
+                if cancellation.is_cancelled() { return Err(TransportError::TunnelClosed); }
                 telemetry.increment_network_change();
                 telemetry.record(
                     ConnectionEventType::NetworkChanged,
@@ -2058,7 +2223,7 @@ async fn refresh_and_retry_connection(
         Some(pin_refresher) => pin_refresher,
         None => return Some(Err(TransportError::EndpointPinMismatch)),
     };
-    let refresh = pin_refresher.refresh(Arc::clone(&protector));
+    let refresh = refresh_pin(profile, pin_refresher, Arc::clone(&protector));
     tokio::pin!(refresh);
     let refreshed = loop {
         tokio::select! {
@@ -2072,6 +2237,9 @@ async fn refresh_and_retry_connection(
         }
     };
     if let Err(error) = ensure_assignments_unchanged(current, &refreshed) {
+        return Some(Err(error));
+    }
+    if let Err(error) = ensure_endpoint_pool_unchanged(profile, current, &refreshed) {
         return Some(Err(error));
     }
     let refreshed = Arc::new(refreshed);
@@ -2901,6 +3069,240 @@ fn ipv4_header_checksum(header: &[u8]) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct DeferredEndpointProtection {
+        calls: std::sync::Mutex<Vec<(std::net::SocketAddr, Instant)>>,
+        active: Arc<std::sync::atomic::AtomicUsize>,
+        released: CancellationToken,
+        ipv4: bool,
+        ipv6: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl SocketProtector for DeferredEndpointProtection {
+        fn protect(&self, _: crate::socket::SocketHandle) -> Result<(), String> {
+            panic!("MASQUE must use exact endpoint protection");
+        }
+        async fn protect_masque_endpoint_generation(
+            &self,
+            _: crate::socket::SocketHandle,
+            endpoint: std::net::SocketAddr,
+            _: crate::socket::DirectProtocol,
+            generation: u64,
+        ) -> Result<crate::socket::DirectEgressLease, String> {
+            assert_eq!(generation, 7);
+            struct Active(Arc<std::sync::atomic::AtomicUsize>);
+            impl Drop for Active {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+            self.active
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let _active = Active(self.active.clone());
+            self.calls.lock().unwrap().push((endpoint, Instant::now()));
+            self.released.cancelled().await;
+            // Stop before connecting or sending any packet on the workstation.
+            Err("fixture endpoint protection denied".to_owned())
+        }
+        fn endpoint_family_available(&self, endpoint: std::net::SocketAddr) -> Option<bool> {
+            Some(if endpoint.is_ipv4() {
+                self.ipv4
+            } else {
+                self.ipv6
+            })
+        }
+        fn network_generation(&self) -> Option<u64> {
+            Some(7)
+        }
+    }
+
+    fn automatic_test_identity() -> MasqueTlsIdentity {
+        let key = usque_core::MasqueKeyPair::generate();
+        let mut identity = MasqueTlsIdentity::new(
+            key.private_sec1_der().unwrap(),
+            &key.public_spki_der().unwrap(),
+            "172.16.0.2".parse().unwrap(),
+            "2001:db8::2".parse().unwrap(),
+        )
+        .unwrap();
+        identity.entitlement = Some(usque_core::ConsumerEntitlement::Free);
+        identity
+    }
+
+    async fn wait_for_endpoint_calls(protector: &DeferredEndpointProtection, expected: usize) {
+        for _ in 0..1000 {
+            if protector.calls.lock().unwrap().len() == expected {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(protector.calls.lock().unwrap().len(), expected);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn automatic_h3_all_eight_requests_overlap_with_family_delay() {
+        let protector = Arc::new(DeferredEndpointProtection {
+            calls: Default::default(),
+            active: Arc::new(0.into()),
+            released: CancellationToken::new(),
+            ipv4: true,
+            ipv6: true,
+        });
+        let started = Instant::now();
+        let task = tokio::spawn({
+            let protector = protector.clone();
+            async move {
+                let profile = Profile {
+                    transport: TransportPolicy::Http3,
+                    ..Profile::default()
+                };
+                connect_automatic_endpoints(
+                    &profile,
+                    &automatic_test_identity(),
+                    Transport::Http3,
+                    protector,
+                    &ConnectionTelemetry::default(),
+                )
+                .await
+            }
+        });
+        wait_for_endpoint_calls(&protector, 4).await;
+        assert!(
+            protector
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|(endpoint, at)| endpoint.is_ipv6() && *at == started)
+        );
+        tokio::time::advance(Duration::from_millis(249)).await;
+        assert_eq!(protector.calls.lock().unwrap().len(), 4);
+        tokio::time::advance(Duration::from_millis(1)).await;
+        wait_for_endpoint_calls(&protector, 8).await;
+        assert_eq!(
+            protector.active.load(std::sync::atomic::Ordering::SeqCst),
+            8
+        );
+        let calls = protector.calls.lock().unwrap().clone();
+        assert_eq!(
+            calls
+                .iter()
+                .map(|(endpoint, _)| *endpoint)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            8
+        );
+        assert!(
+            calls
+                .iter()
+                .filter(|(endpoint, _)| endpoint.is_ipv4())
+                .all(|(_, at)| *at - started == Duration::from_millis(250))
+        );
+        protector.released.cancel();
+        assert!(matches!(
+            task.await.unwrap(),
+            Err(TransportError::SocketProtection(_))
+        ));
+        assert_eq!(
+            protector.active.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn automatic_h3_filters_forced_and_unavailable_families_before_requests() {
+        for (policy, ipv4, ipv6, expected_ipv4) in [
+            (IpPolicy::Ipv4Only, true, true, true),
+            (IpPolicy::Ipv6Only, true, true, false),
+            (IpPolicy::Auto, true, false, true),
+            (IpPolicy::PreferIpv4, false, true, false),
+        ] {
+            let protector = Arc::new(DeferredEndpointProtection {
+                calls: Default::default(),
+                active: Arc::new(0.into()),
+                released: CancellationToken::new(),
+                ipv4,
+                ipv6,
+            });
+            let started = Instant::now();
+            let task = tokio::spawn({
+                let protector = protector.clone();
+                async move {
+                    let profile = Profile {
+                        transport: TransportPolicy::Http3,
+                        ip_policy: policy,
+                        ..Profile::default()
+                    };
+                    connect_automatic_endpoints(
+                        &profile,
+                        &automatic_test_identity(),
+                        Transport::Http3,
+                        protector,
+                        &ConnectionTelemetry::default(),
+                    )
+                    .await
+                }
+            });
+            wait_for_endpoint_calls(&protector, 4).await;
+            assert!(
+                protector
+                    .calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|(endpoint, at)| endpoint.is_ipv4() == expected_ipv4 && *at == started)
+            );
+            protector.released.cancel();
+            assert!(task.await.unwrap().is_err());
+            assert_eq!(
+                protector.active.load(std::sync::atomic::Ordering::SeqCst),
+                0
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn automatic_pin_refresh_has_one_global_sixty_second_deadline() {
+        struct BlockedRefresh {
+            calls: std::sync::atomic::AtomicUsize,
+            stopped: Arc<std::sync::atomic::AtomicBool>,
+        }
+        #[async_trait::async_trait]
+        impl EndpointPinRefresher for BlockedRefresh {
+            async fn refresh(
+                &self,
+                _: Arc<dyn SocketProtector>,
+            ) -> Result<MasqueTlsIdentity, TransportError> {
+                struct Stopped(Arc<std::sync::atomic::AtomicBool>);
+                impl Drop for Stopped {
+                    fn drop(&mut self) {
+                        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+                self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let _stopped = Stopped(self.stopped.clone());
+                std::future::pending().await
+            }
+        }
+        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let refresher = Arc::new(BlockedRefresh {
+            calls: 0.into(),
+            stopped: stopped.clone(),
+        });
+        let erased: Arc<dyn EndpointPinRefresher> = refresher.clone();
+        let started = Instant::now();
+        let result = refresh_pin(
+            &Profile::default(),
+            &erased,
+            crate::socket::noop_socket_protector(),
+        )
+        .await;
+        assert!(matches!(result, Err(TransportError::EndpointPinRefresh(_))));
+        assert_eq!(started.elapsed(), Duration::from_secs(60));
+        assert_eq!(refresher.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(stopped.load(std::sync::atomic::Ordering::SeqCst));
+    }
 
     #[test]
     fn migration_policy_keeps_h2_and_cross_family_changes_on_full_reconnect() {

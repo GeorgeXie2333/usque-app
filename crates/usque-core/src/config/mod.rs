@@ -25,7 +25,7 @@ pub use congestion::CongestionControlAlgorithm;
 pub use data_plane::{CONSUMER_L4_SNI, DataPlaneMode, ZERO_TRUST_L4_SNI, l4_server_name};
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 19;
+pub const CURRENT_SCHEMA_VERSION: u32 = 20;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -192,6 +192,7 @@ impl AppConfig {
                 if keep_shared_endpoint_ips {
                     network.endpoint.ipv4 = self.network.endpoint.ipv4;
                     network.endpoint.ipv6 = self.network.endpoint.ipv6;
+                    network.endpoint.selection = self.network.endpoint.selection;
                 }
                 if keep_username {
                     network.proxy.auth_username = self.network.proxy.auth_username.clone();
@@ -606,8 +607,9 @@ impl Profile {
                 self.split_exclusions
                     .iter()
                     .any(|network| network.contains(server))
-                    || *server == IpAddr::V4(self.endpoint.ipv4)
-                    || *server == IpAddr::V6(self.endpoint.ipv6)
+                    || self.endpoint.selection == EndpointSelection::Custom
+                        && (*server == IpAddr::V4(self.endpoint.ipv4)
+                            || *server == IpAddr::V6(self.endpoint.ipv6))
                     || self.allow_lan && is_lan_bypass_address(*server)
             }) {
                 return Err(ConfigError::VpnDnsServerBypassed(server));
@@ -995,12 +997,24 @@ impl DirectDnsSettings {
     }
 }
 
+/// Address selection is independent of the saved custom address pair.
+/// Missing legacy fields preserve manual endpoint selection.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointSelection {
+    Automatic,
+    #[default]
+    Custom,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EndpointSettings {
     pub ipv4: Ipv4Addr,
     pub ipv6: Ipv6Addr,
     pub port: u16,
     pub sni: String,
+    #[serde(default)]
+    pub selection: EndpointSelection,
 }
 
 impl Default for EndpointSettings {
@@ -1010,6 +1024,7 @@ impl Default for EndpointSettings {
             ipv6: DEFAULT_ENDPOINT_V6,
             port: DEFAULT_PORT,
             sni: DEFAULT_SNI.to_owned(),
+            selection: EndpointSelection::Automatic,
         }
     }
 }
@@ -1733,6 +1748,8 @@ mod tests {
 
         profile.split_exclusions.clear();
         profile.dns_servers = vec![IpAddr::V4(profile.endpoint.ipv4)];
+        assert_eq!(profile.validate(), Ok(()));
+        profile.endpoint.selection = EndpointSelection::Custom;
         assert_eq!(
             profile.validate(),
             Err(ConfigError::VpnDnsServerBypassed(IpAddr::V4(
@@ -1916,6 +1933,7 @@ mod tests {
             ipv6: Ipv6Addr::new(0x2606, 0x4700, 0x0102, 0, 0, 0, 0, 2),
             port: 8443,
             sni: "shared.example.com".to_owned(),
+            selection: crate::EndpointSelection::Custom,
         };
         let stored = config.upsert_runtime_profile(registered).unwrap();
         assert_eq!(stored.endpoint.ipv4, DEFAULT_ENDPOINT_V4);
@@ -1947,6 +1965,7 @@ mod tests {
             ipv6: Ipv6Addr::new(0x2606, 0x4700, 0x0102, 0, 0, 0, 0, 2),
             port: 443,
             sni: "zt-masque.cloudflareclient.com".to_owned(),
+            selection: crate::EndpointSelection::Custom,
         };
         let stored = config.upsert_runtime_profile(registered).unwrap();
 
@@ -1963,6 +1982,7 @@ mod tests {
                 ipv6: Ipv6Addr::new(0x2606, 0x4700, 0x0102, 0, 0, 0, 0, 2),
                 port: 443,
                 sni: "zt-masque.cloudflareclient.com".to_owned(),
+                selection: crate::EndpointSelection::Custom,
             },
             mtu: 1400,
             ..Profile::default()

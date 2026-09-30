@@ -222,6 +222,7 @@ void main() {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       final engine = QualityEngineStub()
         ..capabilities = const EngineCapabilities(
+          automaticEndpoints: true,
           networkSettingsApplication: true,
         );
       final app = AppController(engine);

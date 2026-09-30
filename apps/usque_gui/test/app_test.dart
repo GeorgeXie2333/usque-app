@@ -87,7 +87,10 @@ class FakeEngineClient implements EngineClient {
 
   @override
   Future<EngineCapabilities?> getCapabilities() async =>
-      const EngineCapabilities(networkSettingsApplication: true);
+      const EngineCapabilities(
+        networkSettingsApplication: true,
+        automaticEndpoints: true,
+      );
 
   bool provisioned = false;
   IdentityProvisioningMethod? lastProvisioningMethod;

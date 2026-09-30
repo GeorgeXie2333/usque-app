@@ -1951,7 +1951,7 @@ impl ControlService {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
         }
-        let connection_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
+        let connection_started = tokio::time::Instant::now();
         self.ensure_gate_supervisor().await;
         let cleanup_result = tokio::select! {
             biased;
@@ -2034,6 +2034,8 @@ impl ControlService {
             profile = session.clone();
         }
         self.attach_proxy_auth(&mut profile).await?;
+        let connection_deadline =
+            connection_started + usque_core::endpoint_connection_budget(&profile);
         self.gate_status.send_replace(Default::default());
         {
             let mut session = self.session_congestion_control.lock().await;
@@ -4767,6 +4769,17 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
                 .map_err(ControlServiceError::configuration)?,
             port: u16::try_from(endpoint.port).map_err(ControlServiceError::configuration)?,
             sni: endpoint.sni,
+            selection: match v1::EndpointSelection::try_from(endpoint.selection) {
+                Ok(v1::EndpointSelection::Unspecified | v1::EndpointSelection::Custom) => {
+                    usque_core::EndpointSelection::Custom
+                }
+                Ok(v1::EndpointSelection::Automatic) => usque_core::EndpointSelection::Automatic,
+                Err(_) => {
+                    return Err(ControlServiceError::InvalidRequest(
+                        "unknown endpoint selection".to_owned(),
+                    ));
+                }
+            },
         },
         ip_policy: match source.ip_policy {
             value if value == v1::IpPolicy::Unspecified as i32 => IpPolicy::Auto,
@@ -4911,6 +4924,10 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
             ipv6: profile.endpoint.ipv6.to_string(),
             port: u32::from(profile.endpoint.port),
             sni: profile.endpoint.sni.clone(),
+            selection: match profile.endpoint.selection {
+                usque_core::EndpointSelection::Automatic => v1::EndpointSelection::Automatic as i32,
+                usque_core::EndpointSelection::Custom => v1::EndpointSelection::Custom as i32,
+            },
         }),
         ip_policy: match profile.ip_policy {
             IpPolicy::Auto => v1::IpPolicy::Auto as i32,
@@ -5070,6 +5087,7 @@ fn current_capabilities() -> v1::Capabilities {
         chain_http_proxy: cfg!(windows),
         chain_socks5_proxy: cfg!(windows),
         custom_bypass: cfg!(windows),
+        automatic_endpoints: true,
         chain_openvpn_multi_endpoint: cfg!(windows),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
@@ -6413,6 +6431,7 @@ mod tests {
                 ipv6: "2606:4700:102::2".parse().unwrap(),
                 port: 443,
                 sni: usque_core::ZERO_TRUST_SNI.to_owned(),
+                selection: usque_core::EndpointSelection::Custom,
             },
             ..Profile::default()
         };
@@ -7704,6 +7723,7 @@ mod tests {
             ipv6: "2606:4700:102::8".parse().unwrap(),
             port: 443,
             sni: usque_core::ZERO_TRUST_SNI.to_owned(),
+            selection: usque_core::EndpointSelection::Custom,
         };
         service
             .update_config(move |latest| {
@@ -8430,6 +8450,7 @@ mod tests {
             ipv6: "2001:db8::1".parse().unwrap(),
             port: 8443,
             sni: "shared.example.com".to_owned(),
+            selection: usque_core::EndpointSelection::Custom,
         };
         let managed = ManagedEndpointIps {
             ipv4: "162.159.197.8".parse().unwrap(),
@@ -8510,6 +8531,36 @@ mod tests {
             snapshot_to_proto(&ConnectionSnapshot::default()).session_congestion_control,
             0
         );
+    }
+
+    #[test]
+    fn endpoint_selection_wire_roundtrip_legacy_and_unknown() {
+        for selection in [
+            usque_core::EndpointSelection::Automatic,
+            usque_core::EndpointSelection::Custom,
+        ] {
+            let mut profile = Profile::default();
+            profile.endpoint.selection = selection;
+            assert_eq!(
+                profile_from_proto(profile_to_proto(&profile))
+                    .unwrap()
+                    .endpoint
+                    .selection,
+                selection
+            );
+        }
+        let mut legacy = profile_to_proto(&Profile::default());
+        legacy.endpoint.as_mut().unwrap().selection = 0;
+        assert_eq!(
+            profile_from_proto(legacy.clone())
+                .unwrap()
+                .endpoint
+                .selection,
+            usque_core::EndpointSelection::Custom
+        );
+        legacy.endpoint.as_mut().unwrap().selection = 99;
+        assert!(profile_from_proto(legacy).is_err());
+        assert!(current_capabilities().automatic_endpoints);
     }
 
     #[tokio::test]

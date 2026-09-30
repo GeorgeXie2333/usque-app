@@ -49,7 +49,8 @@ class ControlCodec {
       ..string(1, profile.endpointIpv4)
       ..string(2, profile.endpointIpv6)
       ..unsigned(3, profile.endpointPort)
-      ..string(4, profile.sni);
+      ..string(4, profile.sni)
+      ..enumeration(5, profile.endpointSelection.index + 1);
     final proxy = ControlPayloadWriter();
     for (final listener in profile.proxy.socksListeners) {
       proxy.string(1, listener);
@@ -752,6 +753,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var endpointIpv4 = defaults.endpointIpv4;
   var endpointIpv6 = defaults.endpointIpv6;
   var endpointPort = defaults.endpointPort;
+  var endpointSelection = EndpointSelection.custom;
   var sni = defaults.sni;
   var mtu = defaults.mtu;
   final dnsServers = <String>[];
@@ -799,6 +801,12 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
               endpointPort = endpoint.varint(endpointField);
             case 4:
               sni = endpoint.string(endpointField);
+            case 5:
+              endpointSelection = switch (endpoint.varint(endpointField)) {
+                0 || 2 => EndpointSelection.custom,
+                1 => EndpointSelection.automatic,
+                _ => throw const FormatException('Invalid endpoint selection'),
+              };
             default:
               endpoint.skip(endpointField);
           }
@@ -904,6 +912,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     endpointIpv4: endpointIpv4,
     endpointIpv6: endpointIpv6,
     endpointPort: endpointPort,
+    endpointSelection: endpointSelection,
     sni: sni,
     mtu: mtu,
     dnsIpv4:
@@ -1618,6 +1627,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
       chainSocks5Proxy = false,
       chainOpenvpnMultiEndpoint = false;
   var customBypass = false;
+  var automaticEndpoints = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
@@ -1651,6 +1661,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainHttpProxy = reader.varint(field) != 0;
       case 41:
         customBypass = reader.varint(field) != 0;
+      case 42:
+        automaticEndpoints = reader.varint(field) != 0;
       case 40:
         chainSocks5Proxy = reader.varint(field) != 0;
       case 38:
@@ -1703,6 +1715,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     chainHttpProxy: chainHttpProxy,
     chainSocks5Proxy: chainSocks5Proxy,
     customBypass: customBypass,
+    automaticEndpoints: automaticEndpoints,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),

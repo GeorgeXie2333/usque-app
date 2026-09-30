@@ -22,6 +22,7 @@ macro_rules! network_fields {
             "endpoint.ipv6" => endpoint.ipv6,
             "endpoint.port" => endpoint.port,
             "endpoint.sni" => endpoint.sni,
+            "endpoint.selection" => endpoint.selection,
             "ip_policy" => ip_policy,
             "mtu" => mtu,
             "dns_mode" => dns_mode,
@@ -197,7 +198,12 @@ pub fn merge_patch(
         .is_some_and(|account| account.managed_endpoint_ips.is_some())
         || config.is_zero_trust_account(patch.account_id);
     for field in &patch.changed_fields {
-        if managed && matches!(field.as_str(), "endpoint.ipv4" | "endpoint.ipv6") {
+        if managed
+            && matches!(
+                field.as_str(),
+                "endpoint.ipv4" | "endpoint.ipv6" | "endpoint.selection"
+            )
+        {
             return Err(SettingsError::ManagedEndpoint);
         }
         copy_field(&mut profile, &patch.values, field)?;
@@ -207,6 +213,7 @@ pub fn merge_patch(
     if managed {
         network.endpoint.ipv4 = config.network.endpoint.ipv4;
         network.endpoint.ipv6 = config.network.endpoint.ipv6;
+        network.endpoint.selection = config.network.endpoint.selection;
     }
     config.network = network;
     Ok(profile)
@@ -441,6 +448,47 @@ mod tests {
             let edit = patch(&config, &[field]);
             assert!(merge_patch(&mut config, &edit).is_err());
         }
+    }
+
+    #[test]
+    fn endpoint_selection_is_cold_and_managed_accounts_preserve_shared_mode() {
+        let mut config = AppConfig::default();
+        let previous = config.active_profile().unwrap();
+        let mut edit = patch(&config, &["endpoint.selection"]);
+        edit.values.endpoint.selection = crate::EndpointSelection::Custom;
+        let stored = merge_patch(&mut config, &edit).unwrap();
+        let plan = plan_application(
+            Some(&previous),
+            &stored,
+            &edit.changed_fields,
+            ConnectionPhase::Connected,
+            true,
+        )
+        .unwrap();
+        assert_eq!(plan.class, ReconfigureClass::ColdReconnect);
+        config.network.endpoint.selection = crate::EndpointSelection::Automatic;
+        let id = config.active_profile_id.unwrap();
+        config
+            .set_managed_endpoint_ips(
+                id,
+                crate::ManagedEndpointIps {
+                    ipv4: "162.159.197.2".parse().unwrap(),
+                    ipv6: "2606:4700:102::2".parse().unwrap(),
+                },
+            )
+            .unwrap();
+        let edit = patch(&config, &["endpoint.port"]);
+        let stored = merge_patch(&mut config, &edit).unwrap();
+        assert_eq!(stored.endpoint.selection, crate::EndpointSelection::Custom);
+        assert_eq!(
+            config.network.endpoint.selection,
+            crate::EndpointSelection::Automatic
+        );
+        let edit = patch(&config, &["endpoint.selection"]);
+        assert!(matches!(
+            merge_patch(&mut config, &edit),
+            Err(SettingsError::ManagedEndpoint)
+        ));
     }
 
     #[test]

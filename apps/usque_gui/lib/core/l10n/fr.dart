@@ -253,6 +253,14 @@ const Map<String, String> kFrCatalog = <String, String>{
   'automatic': 'Auto',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Sélection du point de terminaison',
+  'endpoint_automatic': 'Automatique',
+  'endpoint_custom': 'Personnalisée',
+  'endpoint_automatic_help':
+      'Choisit le point de terminaison disponible le plus rapide pour ce compte. Les adresses modifiées sont enregistrées uniquement en mode Personnalisée.',
+  'endpoint_custom_help': 'Utilise les adresses IPv4 et IPv6 ci-dessous.',
+  'endpoint_unsupported':
+      'Mettez Usque à jour pour choisir automatiquement un point de terminaison.',
   'endpoint_ipv4': 'Point de terminaison IPv4',
   'endpoint_ipv6': 'Point de terminaison IPv6',
   'sni': 'SNI',

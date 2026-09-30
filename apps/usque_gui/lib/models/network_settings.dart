@@ -100,6 +100,7 @@ Map<String, Object?> _fields(UsqueProfile p) => {
   'vpn_gate': p.vpnGate,
   'chain_exit': p.chainExit,
   'congestion_control': p.congestionControl,
+  'endpoint.selection': p.endpointSelection,
   'endpoint.ipv4': p.endpointIpv4,
   'endpoint.ipv6': p.endpointIpv6,
   'endpoint.port': p.endpointPort,

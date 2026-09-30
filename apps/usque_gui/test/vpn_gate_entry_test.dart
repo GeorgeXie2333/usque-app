@@ -38,7 +38,10 @@ AppController _controllerFor(_EntryEngine engine, {bool selected = true}) {
   final app = AppController(engine)
     ..section = AppSection.proxy
     ..localePreference = LocalePreference.english
-    ..engineCapabilities = const EngineCapabilities(vpnGateTcp: true);
+    ..engineCapabilities = const EngineCapabilities(
+      vpnGateTcp: true,
+      automaticEndpoints: true,
+    );
   if (selected) {
     app.sharedNetwork = app.sharedNetwork.copyWith(
       vpnGate: VpnGateSettings(

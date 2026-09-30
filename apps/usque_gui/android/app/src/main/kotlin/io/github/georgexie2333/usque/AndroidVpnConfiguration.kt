@@ -106,10 +106,21 @@ internal data class AndroidVpnProfile(
                 parseNumericAddress(source.requiredString("endpoint_v4", 64), false) as Inet4Address
             val endpointIpv6 =
                 parseNumericAddress(source.requiredString("endpoint_v6", 128), true) as Inet6Address
+            val endpointSelection = source.optString("endpoint_selection", "custom")
+            require(endpointSelection in setOf("automatic", "custom")) { "Invalid endpoint selection" }
+            val managedEndpoint =
+                endpointIpv4.hostAddress?.startsWith("162.159.197.") == true ||
+                    endpointIpv6.address.copyOfRange(0, 6).contentEquals(
+                        byteArrayOf(0x26, 0x06, 0x47, 0x00, 0x01, 0x02),
+                    )
             val activeDnsServers = listOf(dnsIpv4, dnsIpv6)
-            require(
-                activeDnsServers.none { server -> server == endpointIpv4 || server == endpointIpv6 },
-            ) { "VPN DNS server cannot equal a protected MASQUE endpoint" }
+            if (endpointSelection == "custom" || managedEndpoint) {
+                require(
+                    activeDnsServers.none { server -> server == endpointIpv4 || server == endpointIpv6 },
+                ) { "VPN DNS server cannot equal a protected MASQUE endpoint" }
+            }
+            // Automatic selection filters DNS clashes against real candidates
+            // in Rust; the dormant custom pair does not describe that pool.
             require(
                 activeDnsServers.none { server ->
                     server.isAnyLocalAddress ||

@@ -240,6 +240,14 @@ const Map<String, String> kViCatalog = <String, String>{
   'automatic': 'Tự động',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Chọn điểm cuối',
+  'endpoint_automatic': 'Tự động',
+  'endpoint_custom': 'Tùy chỉnh',
+  'endpoint_automatic_help':
+      'Chọn điểm cuối khả dụng nhanh nhất cho tài khoản này. Thay đổi địa chỉ chỉ được lưu trong chế độ Tùy chỉnh.',
+  'endpoint_custom_help': 'Sử dụng các địa chỉ IPv4 và IPv6 bên dưới.',
+  'endpoint_unsupported':
+      'Cập nhật Usque để dùng tính năng tự động chọn điểm cuối.',
   'endpoint_ipv4': 'Endpoint IPv4',
   'endpoint_ipv6': 'Endpoint IPv6',
   'sni': 'SNI',

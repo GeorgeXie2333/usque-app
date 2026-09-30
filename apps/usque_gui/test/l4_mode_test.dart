@@ -161,6 +161,7 @@ void main() {
         final controller = AppController(FakeEngineClient())
           ..localePreference = LocalePreference.simplifiedChinese
           ..engineCapabilities = EngineCapabilities(
+            automaticEndpoints: true,
             l4Tcp: supported,
             l4TunTcp: supported,
             l4DnsConversion: supported,
@@ -258,6 +259,7 @@ void main() {
               ? LocalePreference.simplifiedChinese
               : LocalePreference.english
           ..engineCapabilities = const EngineCapabilities(
+            automaticEndpoints: true,
             l4Tcp: true,
             l4TunTcp: true,
             l4DnsConversion: true,
@@ -384,6 +386,7 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         final controller = AppController(FakeEngineClient())
           ..engineCapabilities = const EngineCapabilities(
+            automaticEndpoints: true,
             l4Tcp: true,
             l4TunTcp: true,
             l4DnsConversion: true,

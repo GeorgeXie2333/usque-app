@@ -241,6 +241,13 @@ const Map<String, String> kEnCatalog = <String, String>{
   'automatic': 'Auto',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Endpoint selection',
+  'endpoint_automatic': 'Automatic',
+  'endpoint_custom': 'Custom',
+  'endpoint_automatic_help':
+      'Choose the fastest available endpoint for this account. Custom address edits are saved only in Custom.',
+  'endpoint_custom_help': 'Use the IPv4 and IPv6 addresses below.',
+  'endpoint_unsupported': 'Update Usque to use automatic endpoint selection.',
   'endpoint_ipv4': 'Endpoint IPv4',
   'endpoint_ipv6': 'Endpoint IPv6',
   'sni': 'SNI',

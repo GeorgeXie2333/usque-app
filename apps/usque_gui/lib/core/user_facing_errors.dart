@@ -41,6 +41,7 @@ String userFacingFailure(AppStrings strings, {String? code, String? details}) {
     'AUTHENTICATION_FAILED' => 'diag_fix_refresh_or_replace_identity',
     'CONFIGURATION_INVALID' => 'diag_fix_review_configuration',
     'L4_UNSUPPORTED' => 'l4_unsupported',
+    'AUTOMATIC_ENDPOINTS_UNSUPPORTED' => 'endpoint_unsupported',
     'NETWORK_SETTINGS_UNSUPPORTED' ||
     'PROXY_AUTH_UNSUPPORTED' => 'settings_unsupported',
     'PROXY_AUTH_APPLY_FAILED' => 'settings_failed',

@@ -196,6 +196,7 @@ void main() {
           ? LocalePreference.simplifiedChinese
           : LocalePreference.english
       ..engineCapabilities = EngineCapabilities(
+        automaticEndpoints: true,
         h3CongestionControlAlgorithms: supported
             ? CongestionControlAlgorithm.values
             : const [],

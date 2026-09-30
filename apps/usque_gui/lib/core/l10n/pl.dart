@@ -245,6 +245,14 @@ const Map<String, String> kPlCatalog = <String, String>{
   'automatic': 'Auto',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Wybór punktu końcowego',
+  'endpoint_automatic': 'Automatyczny',
+  'endpoint_custom': 'Własny',
+  'endpoint_automatic_help':
+      'Wybiera najszybszy dostępny punkt końcowy dla tego konta. Zmiany adresów są zapisywane tylko w trybie Własny.',
+  'endpoint_custom_help': 'Używa poniższych adresów IPv4 i IPv6.',
+  'endpoint_unsupported':
+      'Zaktualizuj Usque, aby automatycznie wybierać punkt końcowy.',
   'endpoint_ipv4': 'Punkt końcowy IPv4',
   'endpoint_ipv6': 'Punkt końcowy IPv6',
   'sni': 'SNI',

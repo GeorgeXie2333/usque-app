@@ -247,6 +247,14 @@ const Map<String, String> kPtCatalog = <String, String>{
   'automatic': 'Automático',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Seleção de endpoint',
+  'endpoint_automatic': 'Automática',
+  'endpoint_custom': 'Personalizada',
+  'endpoint_automatic_help':
+      'Escolhe o endpoint disponível mais rápido para esta conta. As alterações de endereço só são salvas no modo Personalizada.',
+  'endpoint_custom_help': 'Usa os endereços IPv4 e IPv6 abaixo.',
+  'endpoint_unsupported':
+      'Atualize o Usque para usar a seleção automática de endpoints.',
   'endpoint_ipv4': 'Endpoint IPv4',
   'endpoint_ipv6': 'Endpoint IPv6',
   'sni': 'SNI',

@@ -144,6 +144,7 @@ internal object NetworkQualityFields {
             "application_quic_blocking",
             "account_metadata_mutations",
             "shared_proxy_auth_application",
+            "automatic_endpoints",
         ).associateWith {
             source?.opt(it) ==
                 true

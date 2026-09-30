@@ -231,6 +231,13 @@ const Map<String, String> kKoCatalog = <String, String>{
   'automatic': '자동',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': '엔드포인트 선택',
+  'endpoint_automatic': '자동 선택',
+  'endpoint_custom': '사용자 지정',
+  'endpoint_automatic_help':
+      '이 계정에서 사용 가능한 가장 빠른 엔드포인트를 선택합니다. 주소 변경은 사용자 지정 모드에서만 저장됩니다.',
+  'endpoint_custom_help': '아래 IPv4 및 IPv6 주소를 사용합니다.',
+  'endpoint_unsupported': '엔드포인트 자동 선택을 사용하려면 Usque를 업데이트하세요.',
   'endpoint_ipv4': '엔드포인트 IPv4',
   'endpoint_ipv6': '엔드포인트 IPv6',
   'sni': 'SNI',

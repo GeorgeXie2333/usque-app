@@ -23,9 +23,13 @@ separate static-configuration snapshot for rollback; DHCP values must not be
 persisted as static DNS. Bounded native-buffer fixtures cover IPv4/IPv6,
 missing interfaces, malformed pointers/lengths, cycles and duplicate LUIDs.
 
-Recovery uses journal schema v3, reads v2 conservatively, and retains the
+Recovery uses journal schema v4, reads v2/v3 conservatively, and retains the
 operation/owner/generation guards. Device ownership and connection receipts
-are recorded in the same atomically replaced protected journal. The adapter GUID is the RequestedGUID passed to pinned Wintun 0.14.1;
+are recorded in the same atomically replaced protected journal. Legacy versions
+cannot claim the new automatic endpoint policy or WFP metadata receipts. The
+automatic policy validates exact leased targets; it never installs prefix
+permissions. Recovery closes dynamic leases before removing journal-owned WFP
+metadata. The adapter GUID is the RequestedGUID passed to pinned Wintun 0.14.1;
 its exact `SWD\Wintun\{GUID}` device-instance identity is checked using SetupAPI,
 including non-present devices. Recovery does not call `WintunOpenAdapter` as
 an existence probe. A registry-read failure is no longer convertible into

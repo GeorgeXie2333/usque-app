@@ -245,6 +245,14 @@ const Map<String, String> kUkCatalog = <String, String>{
   'automatic': 'Авто',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Вибір кінцевої точки',
+  'endpoint_automatic': 'Автоматично',
+  'endpoint_custom': 'Власна',
+  'endpoint_automatic_help':
+      'Вибирає найшвидшу доступну кінцеву точку для цього облікового запису. Зміни адрес зберігаються лише в режимі «Власна».',
+  'endpoint_custom_help': 'Використовує наведені нижче адреси IPv4 та IPv6.',
+  'endpoint_unsupported':
+      'Оновіть Usque для автоматичного вибору кінцевої точки.',
   'endpoint_ipv4': 'Кінцева точка IPv4',
   'endpoint_ipv6': 'Кінцева точка IPv6',
   'sni': 'SNI',

@@ -156,8 +156,9 @@ released. iOS, store distribution and a public CLI are outside this release's sc
 
 | Setting | Default |
 | --- | --- |
-| Consumer endpoint IPv4 | `162.159.198.2` |
-| Consumer endpoint IPv6 | `2606:4700:103::2` |
+| Consumer endpoint selection | Automatic selection; existing configurations retain Custom |
+| Saved custom endpoint IPv4 | `162.159.198.2` |
+| Saved custom endpoint IPv6 | `2606:4700:103::2` |
 | Port / SNI | `443` / `speed.cloudflare.com` |
 | Transport | Auto: HTTP/3, then HTTP/2 |
 | HTTP/3 congestion control | `cubic`; BBRv2, experimental BBRv3, and `reno` are selectable |
@@ -168,6 +169,8 @@ released. iOS, store distribution and a public CLI are outside this release's sc
 | HTTP proxy | `127.0.0.1:8080`, `[::1]:8080` |
 
 Proxy address, port, and DNS edits are drafts until applied. Advanced settings reset loads defaults into the draft; it does not apply them immediately. Zero Trust endpoint addresses come from registration and are not editable.
+
+In Advanced network settings, Automatic selection races eligible account endpoints; Custom keeps manual addresses. Port and SNI remain editable. See [automatic endpoints](docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点).
 
 Congestion-control changes are saved for the next manual connection or retry,
 not applied to the current session or its automatic reconnections. HTTP/2 uses

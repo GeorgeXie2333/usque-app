@@ -42,7 +42,9 @@ use crate::{
         AgentCoordinator, BackendError, CoordinatorError, ORPHANED_TUNNEL_RECOVERY_GRACE,
         PrivilegedBackend, RecoveryDisposition, SystemProxySettings, TunnelInspection,
     },
-    journal::{MutationReceipt, RecoveryJournal, RecoveryPhase, RouteReceipt},
+    journal::{
+        MutationKind, MutationReceipt, MutationState, RecoveryJournal, RecoveryPhase, RouteReceipt,
+    },
     plan::ValidatedTunnelPlan,
     windows::{
         auth::{AuthenticationError, CallerPolicy, authenticate_named_pipe},
@@ -135,6 +137,25 @@ struct DirectEgressKey {
     protocol: u8,
     interface_luid: u64,
     network_generation: u64,
+    purpose: EgressPurpose,
+}
+
+const MAX_AUTOMATIC_ENDPOINT_LEASES: usize = 16;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum EgressPurpose {
+    Generic,
+    AutomaticMasque,
+}
+
+impl EgressPurpose {
+    fn from_proto(value: i32) -> Result<Self, ServiceError> {
+        match value {
+            0 => Ok(Self::Generic),
+            1 => Ok(Self::AutomaticMasque),
+            _ => Err(ServiceError::DirectEgressTarget),
+        }
+    }
 }
 
 struct DirectEgressEntry {
@@ -148,6 +169,17 @@ struct DirectEgressRegistry {
 }
 
 impl DirectEgressRegistry {
+    fn has_capacity(&self, key: DirectEgressKey) -> bool {
+        self.entries.contains_key(&key)
+            || self.entries.len() < MAX_DYNAMIC_DIRECT_TARGETS
+                && (key.purpose != EgressPurpose::AutomaticMasque
+                    || self
+                        .entries
+                        .keys()
+                        .filter(|entry| entry.purpose == EgressPurpose::AutomaticMasque)
+                        .count()
+                        < MAX_AUTOMATIC_ENDPOINT_LEASES)
+    }
     fn invalidate_before(&mut self, generation: u64) {
         // Snapshot invalidation can run after a concurrent acquisition for
         // this or a newer generation. Never revoke that newer authorization.
@@ -856,12 +888,17 @@ where
         })
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "exact egress authorization binds target, protocol, purpose, generation and authenticated owner"
+    )]
     async fn acquire_direct_egress(
         &self,
         operation_id: Uuid,
         remote: SocketAddr,
         protocol: u8,
         expected_generation: u64,
+        purpose: EgressPurpose,
         caller: &AuthenticatedCaller,
     ) -> Result<(agent_v1::DirectEgressLease, DirectEgressKey), ServiceError> {
         let _gate = self.mutation_gate.lock().await;
@@ -877,6 +914,9 @@ where
         }
         let journal = self.state().await;
         let plan = validate_direct_context(&journal, operation_id, caller, true)?;
+        if purpose == EgressPurpose::AutomaticMasque {
+            validate_automatic_endpoint_egress(&journal, remote, protocol, expected_generation)?;
+        }
         let physical = self.physical_network_info(operation_id, caller).await?;
         validate_expected_generation(expected_generation, physical.generation)?;
         let family_mask = if remote.is_ipv4() { 1 } else { 2 };
@@ -897,6 +937,7 @@ where
             protocol,
             interface_luid,
             network_generation: physical.generation,
+            purpose,
         };
         let mut registry = self.direct_egress.lock().await;
         validate_expected_generation(
@@ -909,18 +950,25 @@ where
                 .checked_add(1)
                 .ok_or(ServiceError::DirectEgressLimit)?;
         } else {
-            if registry.entries.len() >= MAX_DYNAMIC_DIRECT_TARGETS {
+            if !registry.has_capacity(key) {
                 return Err(ServiceError::DirectEgressLimit);
             }
-            let permit = acquire_egress_permit(plan, journal.phase, remote, protocol, || {
-                wfp::acquire_dynamic_permit(
-                    remote,
-                    protocol,
-                    interface_luid,
-                    &caller.executable_path,
-                )
-                .map_err(ServiceError::DirectEgress)
-            })?;
+            let permit = acquire_egress_permit_for_purpose(
+                plan,
+                journal.phase,
+                remote,
+                protocol,
+                purpose,
+                || {
+                    wfp::acquire_dynamic_permit(
+                        remote,
+                        protocol,
+                        interface_luid,
+                        &caller.executable_path,
+                    )
+                    .map_err(ServiceError::DirectEgress)
+                },
+            )?;
             registry.entries.insert(
                 key,
                 DirectEgressEntry {
@@ -1177,6 +1225,8 @@ where
                         remote,
                         protocol,
                         request.expected_generation,
+                        EgressPurpose::from_proto(request.purpose)
+                            .map_err(|error| (request_id.clone(), error))?,
                         caller,
                     )
                     .await
@@ -1823,6 +1873,12 @@ where
                     }
                     _ => None,
                 };
+                let direct_purpose = match request.payload.as_ref() {
+                    Some(agent_request::Payload::AcquireDirectEgress(request)) => {
+                        EgressPurpose::from_proto(request.purpose).ok()
+                    }
+                    _ => None,
+                };
                 let lease_action = match request.payload.as_ref() {
                     Some(agent_request::Payload::ApplySystemProxy(request)) => {
                         Uuid::parse_str(request.operation_id.trim()).ok().map(Some)
@@ -1907,6 +1963,8 @@ where
                         protocol,
                         interface_luid: lease.interface_luid,
                         network_generation: lease.network_generation,
+                        purpose: direct_purpose
+                            .expect("successful direct request has a validated purpose"),
                     });
                 }
                 let encoded = encode_frame(&response)?;
@@ -1961,6 +2019,7 @@ where
     result
 }
 
+#[cfg(test)]
 fn acquire_egress_permit<Permit>(
     plan: &ValidatedTunnelPlan,
     phase: RecoveryPhase,
@@ -1968,8 +2027,69 @@ fn acquire_egress_permit<Permit>(
     protocol: u8,
     install: impl FnOnce() -> Result<Permit, ServiceError>,
 ) -> Result<Option<Permit>, ServiceError> {
+    acquire_egress_permit_for_purpose(
+        plan,
+        phase,
+        remote,
+        protocol,
+        EgressPurpose::Generic,
+        install,
+    )
+}
+
+fn validate_automatic_endpoint_egress(
+    journal: &RecoveryJournal,
+    remote: SocketAddr,
+    protocol: u8,
+    expected_generation: u64,
+) -> Result<(), ServiceError> {
+    let policy = journal
+        .plan
+        .as_ref()
+        .and_then(|plan| plan.automatic_endpoint_policy)
+        .ok_or(ServiceError::DirectEgressTarget)?;
+    let transport = match protocol {
+        6 => usque_core::Transport::Http2,
+        17 => usque_core::Transport::Http3,
+        _ => return Err(ServiceError::DirectEgressTarget),
+    };
+    if expected_generation == 0 || !policy.permits(remote, transport) {
+        return Err(ServiceError::DirectEgressTarget);
+    }
+    if !journal
+        .steps
+        .iter()
+        .any(|step| step.kind == MutationKind::WfpMetadata && step.state == MutationState::Applied)
+    {
+        return Err(ServiceError::DirectEgressNotReady);
+    }
+    Ok(())
+}
+
+fn acquire_egress_permit_for_purpose<Permit>(
+    plan: &ValidatedTunnelPlan,
+    phase: RecoveryPhase,
+    remote: SocketAddr,
+    protocol: u8,
+    purpose: EgressPurpose,
+    install: impl FnOnce() -> Result<Permit, ServiceError>,
+) -> Result<Option<Permit>, ServiceError> {
     if !matches!(phase, RecoveryPhase::Prepared | RecoveryPhase::Active) {
         return Err(ServiceError::DirectEgressState);
+    }
+    if purpose == EgressPurpose::AutomaticMasque {
+        let transport = match protocol {
+            6 => usque_core::Transport::Http2,
+            17 => usque_core::Transport::Http3,
+            _ => return Err(ServiceError::DirectEgressTarget),
+        };
+        if !plan
+            .automatic_endpoint_policy
+            .is_some_and(|policy| policy.permits(remote, transport))
+        {
+            return Err(ServiceError::DirectEgressTarget);
+        }
+        return install().map(Some);
     }
     // Prepared has no WFP provider/sublayer yet. Only the exact bootstrap
     // endpoints may cross commit without a dynamic permit: commit installs
@@ -2557,6 +2677,136 @@ mod tests {
     }
 
     #[test]
+    fn automatic_egress_is_exact_ready_and_distinct_from_generic() {
+        let mut plan = egress_plan();
+        plan.automatic_endpoint_policy = Some(usque_core::AutomaticEndpointPolicy {
+            pool: usque_core::EndpointPool::WarpPlus,
+            port: 443,
+            ipv4: true,
+            ipv6: true,
+            tcp: true,
+            udp: true,
+        });
+        plan.endpoint = "162.159.199.2:443".parse().unwrap();
+        plan.endpoint_candidates = vec![plan.endpoint];
+        assert!(
+            acquire_egress_permit::<()>(
+                &plan,
+                RecoveryPhase::Prepared,
+                plan.endpoint,
+                17,
+                || panic!("automatic seed is not generic bootstrap")
+            )
+            .is_err()
+        );
+        for phase in [RecoveryPhase::Prepared, RecoveryPhase::Active] {
+            for kill_switch in [false, true] {
+                plan.kill_switch = kill_switch;
+                assert_eq!(
+                    acquire_egress_permit_for_purpose(
+                        &plan,
+                        phase,
+                        "162.159.199.2:443".parse().unwrap(),
+                        17,
+                        EgressPurpose::AutomaticMasque,
+                        || Ok(42)
+                    )
+                    .unwrap(),
+                    Some(42)
+                );
+                assert!(
+                    acquire_egress_permit_for_purpose::<()>(
+                        &plan,
+                        phase,
+                        "162.159.198.2:443".parse().unwrap(),
+                        17,
+                        EgressPurpose::AutomaticMasque,
+                        || panic!("disallowed pool cannot install")
+                    )
+                    .is_err()
+                );
+                assert!(
+                    acquire_egress_permit_for_purpose::<()>(
+                        &plan,
+                        phase,
+                        "162.159.199.99:443".parse().unwrap(),
+                        17,
+                        EgressPurpose::AutomaticMasque,
+                        || panic!("H3 requires a seed")
+                    )
+                    .is_err()
+                );
+            }
+        }
+        assert!(EgressPurpose::from_proto(2).is_err());
+        let mut journal = RecoveryJournal::clean(1);
+        journal.phase = RecoveryPhase::Prepared;
+        journal.plan = Some(plan);
+        let target = "[2606:4700:104:ffff:1234:5678:9abc:def0]:443"
+            .parse()
+            .unwrap();
+        assert!(validate_automatic_endpoint_egress(&journal, target, 6, 1).is_err());
+        journal.steps.push(crate::journal::MutationRecord {
+            kind: MutationKind::WfpMetadata,
+            state: MutationState::Applied,
+            receipt: wfp::plan_metadata(),
+        });
+        assert!(validate_automatic_endpoint_egress(&journal, target, 6, 1).is_ok());
+        assert!(validate_automatic_endpoint_egress(&journal, target, 6, 0).is_err());
+        assert!(validate_automatic_endpoint_egress(&journal, target, 17, 1).is_err());
+    }
+
+    #[test]
+    fn automatic_registry_cap_and_purpose_release_are_independent() {
+        let mut registry = DirectEgressRegistry::default();
+        let base = DirectEgressKey {
+            operation_id: Uuid::nil(),
+            remote: "162.159.199.0:443".parse().unwrap(),
+            protocol: 6,
+            interface_luid: 9,
+            network_generation: 1,
+            purpose: EgressPurpose::AutomaticMasque,
+        };
+        for last in 0..MAX_AUTOMATIC_ENDPOINT_LEASES {
+            let key = DirectEgressKey {
+                remote: SocketAddr::from(([162, 159, 199, u8::try_from(last).unwrap()], 443)),
+                ..base
+            };
+            assert!(registry.has_capacity(key));
+            registry.entries.insert(
+                key,
+                DirectEgressEntry {
+                    references: 1,
+                    _permit: None,
+                },
+            );
+        }
+        let extra = DirectEgressKey {
+            remote: "162.159.199.99:443".parse().unwrap(),
+            ..base
+        };
+        assert!(!registry.has_capacity(extra));
+        assert!(registry.has_capacity(base));
+        let generic = DirectEgressKey {
+            purpose: EgressPurpose::Generic,
+            ..base
+        };
+        assert!(registry.has_capacity(generic));
+        registry.entries.insert(
+            generic,
+            DirectEgressEntry {
+                references: 1,
+                _permit: None,
+            },
+        );
+        registry.release(base);
+        assert!(registry.entries.contains_key(&generic));
+        assert!(registry.has_capacity(extra));
+        registry.invalidate_before(2);
+        assert!(registry.entries.is_empty());
+    }
+
+    #[test]
     fn bootstrap_egress_never_requires_wfp_objects_before_or_after_commit() {
         let plan = egress_plan();
         for phase in [RecoveryPhase::Prepared, RecoveryPhase::Active] {
@@ -2745,6 +2995,7 @@ mod tests {
             protocol: 17,
             interface_luid: 9,
             network_generation: 1,
+            purpose: EgressPurpose::Generic,
         };
         let new = DirectEgressKey {
             network_generation: 2,
@@ -3478,6 +3729,7 @@ mod tests {
             AgentCapabilities {
                 deferred_network_configuration: true,
                 reusable_tun_device: true,
+                automatic_endpoint_leases: false,
                 wintun: false,
                 wfp_kill_switch: false,
                 interface_addresses: false,

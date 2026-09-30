@@ -64,6 +64,14 @@ class NetworkQualityFieldsTest {
         }
     }
 
+    @Test fun automaticEndpointCapabilityReachesFlutterOnlyWithBooleanSupport() {
+        val key = "automatic_endpoints"
+        assertEquals(true, NetworkQualityFields.capabilities("{\"automatic_endpoints\":true}")[key])
+        for (source in listOf(null, "{}", "{\"automatic_endpoints\":false}", "{\"automatic_endpoints\":\"true\"}")) {
+            assertEquals(false, NetworkQualityFields.capabilities(source)[key])
+        }
+    }
+
     @Test fun applicationQuicCapabilityRequiresExplicitBooleanSupport() {
         val key = "application_quic_blocking"
         assertEquals(true, NetworkQualityFields.capabilities("{\"application_quic_blocking\":true}")[key])

@@ -228,6 +228,20 @@ pub trait SocketProtector: Send + Sync {
         Ok(lease.with_generation(expected_generation))
     }
 
+    /// Protects a MASQUE ingress separately from ordinary direct egress. An
+    /// automatic endpoint policy must be enforced in both bootstrap and active
+    /// phases, without falling through to generic direct-target authorization.
+    async fn protect_masque_endpoint_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        self.protect_for_target_generation(socket, remote, protocol, expected_generation)
+            .await
+    }
+
     /// Resolves a GeoSite-selected host using the platform's selected physical
     /// DNS path. Implementations must not fall back to the tunnel resolver.
     async fn resolve_direct(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {

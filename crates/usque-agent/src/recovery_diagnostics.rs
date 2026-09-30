@@ -229,6 +229,7 @@ fn history_event(stored: StoredEvent) -> agent_v1::RecoveryHistoryEvent {
             MutationKind::PacketSession => Step::PacketSession,
             MutationKind::DefaultRoutes => Step::DefaultRoutes,
             MutationKind::SystemProxy => Step::SystemProxy,
+            MutationKind::WfpMetadata => Step::WfpMetadata,
         } as i32,
         restored: event.restored,
         elapsed_ms: event.elapsed_ms,

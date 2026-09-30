@@ -607,6 +607,14 @@ class AppController extends ChangeNotifier {
   }
 
   void _requireDataPlaneCapability(UsqueProfile profile) {
+    if (profile.endpointSelection == EndpointSelection.automatic &&
+        identityStatus(profile.id).provider != IdentityProvider.zeroTrust &&
+        !(engineCapabilities?.automaticEndpoints ?? false)) {
+      throw EngineException(
+        'AUTOMATIC_ENDPOINTS_UNSUPPORTED',
+        strings.get('endpoint_unsupported'),
+      );
+    }
     if (profile.vpnGate.enabled && !(engineCapabilities?.vpnGateTcp ?? false)) {
       throw EngineException('VPN_GATE_UNSUPPORTED', strings.vpnGateUnsupported);
     }
@@ -1648,8 +1656,17 @@ class AppController extends ChangeNotifier {
   Future<bool> saveNetwork(
     UsqueProfile updated, {
     List<String>? changedFields,
-  }) {
+  }) async {
     if (updated.id != activeProfileId) return Future.value(false);
+    if (updated.endpointSelection == EndpointSelection.automatic &&
+        identityStatus(updated.id).provider != IdentityProvider.zeroTrust) {
+      if (engineCapabilities == null) await _refreshCapabilities();
+      if (!(engineCapabilities?.automaticEndpoints ?? false)) {
+        lastError = strings.get('endpoint_unsupported');
+        _notifyListeners();
+        return false;
+      }
+    }
     if (updated.vpnGate.enabled && !(engineCapabilities?.vpnGateTcp ?? false)) {
       lastError = strings.vpnGateUnsupported;
       _notifyListeners();

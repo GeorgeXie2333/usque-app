@@ -138,6 +138,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "chain_http_proxy": engine_ready(),
             "chain_socks5_proxy": engine_ready(),
             "custom_bypass": engine_ready(),
+            "automatic_endpoints": engine_ready(),
             "chain_openvpn_multi_endpoint": engine_ready(),
             "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
@@ -1072,6 +1073,8 @@ struct AndroidProfile {
     ip_policy: String,
     endpoint_v4: String,
     endpoint_v6: String,
+    #[serde(default)]
+    endpoint_selection: usque_core::EndpointSelection,
     endpoint_port: u16,
     sni: String,
     mtu: u16,
@@ -1244,6 +1247,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
             ipv6: parse_value(&source.endpoint_v6, "endpoint IPv6")?,
             port: source.endpoint_port,
             sni: source.sni,
+            selection: source.endpoint_selection,
         },
         ip_policy,
         mtu: source.mtu,
@@ -1982,6 +1986,7 @@ fn android_profile_value(
         },
         "endpoint_v4": profile.endpoint.ipv4.to_string(),
         "endpoint_v6": profile.endpoint.ipv6.to_string(),
+        "endpoint_selection": profile.endpoint.selection,
         "endpoint_port": profile.endpoint.port,
         "sni": profile.endpoint.sni,
         "identity_provider": match binding {
@@ -3820,6 +3825,31 @@ mod tests {
             json["congestion_control"] = serde_json::json!("unknown");
             assert!(serde_json::from_value::<AndroidProfile>(json).is_err());
         }
+    }
+
+    #[test]
+    fn android_endpoint_selection_roundtrip_and_legacy() {
+        let mut json = android_profile_value(&Profile::default(), None, false);
+        assert_eq!(json["endpoint_selection"], "automatic");
+        let source: AndroidProfile = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(
+            android_profile_to_core(source).unwrap().endpoint.selection,
+            usque_core::EndpointSelection::Automatic
+        );
+        json["endpoint_selection"] = serde_json::json!("custom");
+        let source: AndroidProfile = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(
+            android_profile_to_core(source).unwrap().endpoint.selection,
+            usque_core::EndpointSelection::Custom
+        );
+        json.as_object_mut().unwrap().remove("endpoint_selection");
+        let source: AndroidProfile = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(
+            android_profile_to_core(source).unwrap().endpoint.selection,
+            usque_core::EndpointSelection::Custom
+        );
+        json["endpoint_selection"] = serde_json::json!("future");
+        assert!(serde_json::from_value::<AndroidProfile>(json).is_err());
     }
 
     #[test]

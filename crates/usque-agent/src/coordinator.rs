@@ -570,7 +570,7 @@ where
         // The persistent WFP policy is deliberately deferred until commit,
         // after the packet session exists and immediately before default
         // routes are installed.
-        let kinds = if plan.defer_network_configuration {
+        let mut kinds = if plan.defer_network_configuration {
             // A chain cannot open ordinary egress while it negotiates the
             // final network. This policy is persistent only when requested by
             // Kill Switch; otherwise its filters live in an Agent session.
@@ -596,6 +596,9 @@ where
             ]
         };
 
+        if plan.automatic_endpoint_policy.is_some() {
+            kinds.insert(1, MutationKind::WfpMetadata);
+        }
         for kind in kinds {
             if kind == MutationKind::WintunAdapter && journal.device.is_some() {
                 continue;
@@ -2254,6 +2257,10 @@ mod tests {
             parameter: StepParameter,
         ) -> Result<MutationReceipt, BackendError> {
             Ok(match kind {
+                MutationKind::WfpMetadata => MutationReceipt::WfpMetadata {
+                    provider_key: crate::journal::WFP_PROVIDER_KEY,
+                    sublayer_key: crate::journal::WFP_SUBLAYER_KEY,
+                },
                 MutationKind::WintunAdapter => {
                     let adapter_guid = Uuid::new_v4();
                     *self.adapter_guid.lock().await = Some(adapter_guid);
@@ -2556,6 +2563,7 @@ mod tests {
         ValidatedTunnelPlan {
             vpn_chain: false,
             defer_network_configuration: false,
+            automatic_endpoint_policy: None,
             profile_id: Uuid::new_v4(),
             endpoint: SocketAddrV4::new(Ipv4Addr::new(162, 159, 198, 2), 443).into(),
             endpoint_candidates: vec![
@@ -2721,6 +2729,74 @@ mod tests {
                 .await
                 .contains(&MutationKind::KillSwitch)
         );
+    }
+
+    #[tokio::test]
+    async fn automatic_metadata_is_journaled_before_prepare_and_recovered_after_egress() {
+        for fail_after_metadata in [false, true] {
+            let backend = Arc::new(MockBackend::default());
+            let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+            let operation = Uuid::new_v4();
+            let owner = caller();
+            let mut requested = plan();
+            requested.kill_switch = false;
+            requested.endpoint = "162.159.199.2:443".parse().unwrap();
+            requested.endpoint_candidates = vec![requested.endpoint];
+            requested.automatic_endpoint_policy = Some(usque_core::AutomaticEndpointPolicy {
+                pool: usque_core::EndpointPool::Free,
+                port: 443,
+                ipv4: true,
+                ipv6: false,
+                tcp: true,
+                udp: true,
+            });
+            if fail_after_metadata {
+                backend
+                    .fail_apply
+                    .lock()
+                    .await
+                    .insert(MutationKind::EndpointBypass);
+            }
+            let result = coordinator
+                .prepare_legacy_fixture(operation, requested, owner.clone())
+                .await;
+            if fail_after_metadata {
+                assert!(result.is_err());
+            } else {
+                let prepared = result.unwrap();
+                assert_eq!(prepared.phase, RecoveryPhase::Prepared);
+                assert!(
+                    prepared
+                        .steps
+                        .iter()
+                        .any(|step| step.kind == MutationKind::WfpMetadata
+                            && step.state == MutationState::Applied)
+                );
+                let revoked = AtomicBool::new(false);
+                coordinator
+                    .rollback_with_egress(operation, &owner, async {
+                        revoked.store(true, Ordering::Release);
+                    })
+                    .await
+                    .unwrap();
+                assert!(revoked.load(Ordering::Acquire));
+            }
+            assert!(
+                backend
+                    .applied
+                    .lock()
+                    .await
+                    .contains(&MutationKind::WfpMetadata)
+            );
+            assert!(
+                backend
+                    .restored
+                    .lock()
+                    .await
+                    .contains(&MutationKind::WfpMetadata)
+            );
+            assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+        }
     }
 
     #[tokio::test]

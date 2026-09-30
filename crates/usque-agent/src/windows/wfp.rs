@@ -62,9 +62,43 @@ const MAX_FILTERS: usize = 256;
 // remove Usque's persistent WFP policy even when the recovery journal is
 // missing or corrupt. Legacy random-key receipts remain recoverable through
 // `restore_kill_switch`.
-const PROVIDER_KEY: Uuid = Uuid::from_u128(0x6d70fda5_3fa2_4c36_a86c_88650b58f013);
-const SUBLAYER_KEY: Uuid = Uuid::from_u128(0xc93b7042_7b1e_4ab5_96ba_96b4539b67ec);
+const PROVIDER_KEY: Uuid = crate::journal::WFP_PROVIDER_KEY;
+const SUBLAYER_KEY: Uuid = crate::journal::WFP_SUBLAYER_KEY;
 const FILTER_KEY_BASE: u128 = 0x39ce51c7_ba9d_42f4_ae00_000000000000;
+
+pub fn plan_metadata() -> MutationReceipt {
+    MutationReceipt::WfpMetadata {
+        provider_key: PROVIDER_KEY,
+        sublayer_key: SUBLAYER_KEY,
+    }
+}
+
+pub fn apply_metadata(receipt: MutationReceipt) -> Result<MutationReceipt, WfpError> {
+    let MutationReceipt::WfpMetadata {
+        provider_key,
+        sublayer_key,
+    } = &receipt
+    else {
+        return Err(WfpError::ReceiptKind);
+    };
+    let engine = WfpEngine::open()?;
+    let transaction = WfpTransaction::begin(&engine)?;
+    add_provider(&engine, *provider_key)?;
+    add_sublayer(&engine, *provider_key, *sublayer_key)?;
+    transaction.commit()?;
+    Ok(receipt)
+}
+
+pub fn restore_metadata(receipt: &MutationReceipt) -> Result<(), WfpError> {
+    let MutationReceipt::WfpMetadata {
+        provider_key,
+        sublayer_key,
+    } = receipt
+    else {
+        return Err(WfpError::ReceiptKind);
+    };
+    remove_resources(*provider_key, *sublayer_key, std::iter::empty())
+}
 
 pub fn plan_kill_switch(
     plan: &ValidatedTunnelPlan,
@@ -306,6 +340,9 @@ fn bootstrap_endpoints(
 ) -> impl Iterator<Item = (SocketAddr, u8, &'static str)> + '_ {
     plan.endpoint_candidates
         .iter()
+        // Automatic data endpoints are authorized only by their exact,
+        // generation-scoped dynamic lease, including observation seed hosts.
+        .filter(|_| plan.automatic_endpoint_policy.is_none())
         .flat_map(|endpoint| {
             [
                 (*endpoint, IPPROTO_UDP as u8, "Engine H3 endpoint"),
@@ -1146,6 +1183,7 @@ mod tests {
         ValidatedTunnelPlan {
             vpn_chain: false,
             defer_network_configuration: false,
+            automatic_endpoint_policy: None,
             profile_id: Uuid::new_v4(),
             endpoint,
             endpoint_candidates: vec![endpoint],
@@ -1295,6 +1333,51 @@ mod tests {
         );
         assert!(dynamic_direct_rule(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), 17, 42).is_err());
         assert!(dynamic_direct_rule(remote, 1, 42).is_err());
+    }
+
+    #[test]
+    fn automatic_data_permits_are_volatile_and_metadata_cleanup_keys_match() {
+        let endpoint: SocketAddr = "162.159.199.2:443".parse().unwrap();
+        let mut plan = plan(endpoint.ip(), false);
+        plan.automatic_endpoint_policy = Some(usque_core::AutomaticEndpointPolicy {
+            pool: usque_core::EndpointPool::WarpPlus,
+            port: 443,
+            ipv4: true,
+            ipv6: true,
+            tcp: true,
+            udp: true,
+        });
+        assert!(!is_bootstrap_endpoint(&plan, endpoint, IPPROTO_TCP as u8));
+        assert!(!is_bootstrap_endpoint(&plan, endpoint, IPPROTO_UDP as u8));
+        for control in &plan.control_api_candidates {
+            assert!(is_bootstrap_endpoint(&plan, *control, IPPROTO_TCP as u8));
+        }
+        let rules = build_rules(&plan, 42).unwrap();
+        assert!(rules.len() <= MAX_FILTERS);
+        assert!(rules.iter().all(|rule| {
+            !rule
+                .conditions
+                .contains(&ConditionSpec::RemoteNetwork(host_network(endpoint.ip())))
+        }));
+        let MutationReceipt::WfpMetadata {
+            provider_key,
+            sublayer_key,
+        } = plan_metadata()
+        else {
+            panic!("metadata receipt");
+        };
+        let MutationReceipt::KillSwitch {
+            provider_key: filter_provider,
+            sublayer_key: filter_sublayer,
+            ..
+        } = plan_kill_switch(&plan, 42).unwrap()
+        else {
+            panic!("filter receipt");
+        };
+        assert_eq!(
+            (provider_key, sublayer_key),
+            (filter_provider, filter_sublayer)
+        );
     }
 
     #[test]

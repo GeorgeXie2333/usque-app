@@ -249,6 +249,14 @@ const Map<String, String> kEsCatalog = <String, String>{
   'automatic': 'Auto',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Selección de extremo',
+  'endpoint_automatic': 'Automática',
+  'endpoint_custom': 'Personalizada',
+  'endpoint_automatic_help':
+      'Elige el extremo disponible más rápido para esta cuenta. Los cambios de dirección solo se guardan en el modo Personalizada.',
+  'endpoint_custom_help': 'Usa las direcciones IPv4 e IPv6 indicadas abajo.',
+  'endpoint_unsupported':
+      'Actualiza Usque para usar la selección automática de extremos.',
   'endpoint_ipv4': 'Extremo IPv4',
   'endpoint_ipv6': 'Extremo IPv6',
   'sni': 'SNI',

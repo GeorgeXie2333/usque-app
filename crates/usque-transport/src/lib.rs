@@ -16,6 +16,7 @@ mod direct_gateway;
 mod dns;
 mod dns_stream;
 mod encrypted_dns;
+mod endpoint_race;
 mod feature_flags;
 mod final_dns;
 mod geo_direct;
@@ -82,6 +83,7 @@ pub use diagnostic_probe::{
     probe_h3_handshake_candidates,
 };
 pub use encrypted_dns::{DirectDnsError, DirectDnsQueryContext, DirectDnsResolver};
+pub use endpoint_race::excludes_dns_server as excludes_automatic_endpoint_dns_server;
 pub use feature_flags::{
     ENCRYPTED_DIRECT_DNS_ENABLED, NetworkFeatureFlags, PRODUCTION_NETWORK_FEATURES,
 };

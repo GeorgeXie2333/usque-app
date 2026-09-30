@@ -241,6 +241,14 @@ const Map<String, String> kArCatalog = <String, String>{
   'automatic': 'تلقائي',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'اختيار نقطة النهاية',
+  'endpoint_automatic': 'تلقائي',
+  'endpoint_custom': 'مخصص',
+  'endpoint_automatic_help':
+      'يختار أسرع نقطة نهاية متاحة لهذا الحساب. تُحفظ تغييرات العناوين في الوضع المخصص فقط.',
+  'endpoint_custom_help': 'يستخدم عناوين IPv4 وIPv6 أدناه.',
+  'endpoint_unsupported':
+      'حدّث Usque لاستخدام الاختيار التلقائي لنقطة النهاية.',
   'endpoint_ipv4': 'نقطة نهاية IPv4',
   'endpoint_ipv6': 'نقطة نهاية IPv6',
   'sni': 'SNI',

@@ -73,6 +73,7 @@ async fn supervisor_with_refresh(
         ..Profile::default()
     };
     profile.endpoint.ipv4 = std::net::Ipv4Addr::LOCALHOST;
+    profile.endpoint.selection = usque_core::EndpointSelection::Custom;
     let path = runtime_path(Transport::Http3, AddressFamily::Ipv4);
     let (health_tx, health) = watch::channel(RuntimeHealth::Connected {
         path,

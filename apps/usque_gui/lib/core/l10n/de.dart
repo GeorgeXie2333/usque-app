@@ -248,6 +248,14 @@ const Map<String, String> kDeCatalog = <String, String>{
   'automatic': 'Auto',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Endpunktauswahl',
+  'endpoint_automatic': 'Automatisch',
+  'endpoint_custom': 'Benutzerdefiniert',
+  'endpoint_automatic_help':
+      'Wählt den schnellsten verfügbaren Endpunkt für dieses Konto. Adressänderungen werden nur im Modus Benutzerdefiniert gespeichert.',
+  'endpoint_custom_help': 'Verwendet die IPv4- und IPv6-Adressen unten.',
+  'endpoint_unsupported':
+      'Aktualisiere Usque für die automatische Endpunktauswahl.',
   'endpoint_ipv4': 'Endpunkt IPv4',
   'endpoint_ipv6': 'Endpunkt IPv6',
   'sni': 'SNI',

@@ -23,6 +23,7 @@ use usque_core::vpngate::{
 use usque_core::{DataPlaneMode, L4Snapshot, Profile};
 
 pub struct DataPlaneRuntime {
+    endpoint_pool: usque_core::EndpointPool,
     inner: RuntimeInner,
     gate: Option<Box<GateRuntime>>,
     warp_network: FinalNetworkParameters,
@@ -212,6 +213,10 @@ impl GateFrontend {
 }
 
 impl DataPlaneRuntime {
+    /// The authenticated endpoint eligibility is frozen for this outer runtime.
+    pub fn endpoint_pool(&self) -> usque_core::EndpointPool {
+        self.endpoint_pool
+    }
     /// Only the final application frontend observes this policy. The outer
     /// transport and an optional WARP underlay remain untouched.
     pub fn update_traffic_policy(&mut self, disable_quic: bool) {
@@ -244,6 +249,7 @@ impl DataPlaneRuntime {
             mtu: profile.mtu,
             dns_servers: profile.dns_servers.clone(),
         };
+        let endpoint_pool = identity.endpoint_pool();
         let inner = match profile.data_plane {
             DataPlaneMode::ConnectIp => RuntimeInner::ConnectIp(Box::new(
                 MasqueRuntime::start_with_geo_policy(
@@ -256,6 +262,7 @@ impl DataPlaneRuntime {
             )),
         };
         Ok(Self {
+            endpoint_pool,
             inner,
             gate: None,
             warp_network,
@@ -281,11 +288,17 @@ impl DataPlaneRuntime {
             cancellation,
             deadline,
         } = gate;
+        let overall_deadline = deadline
+            .unwrap_or_else(|| Instant::now() + usque_core::endpoint_connection_budget(profile));
+        let underlay_deadline =
+            overall_deadline.min(Instant::now() + usque_core::endpoint_underlay_budget(profile));
         if !profile.chain_enabled() {
-            return Self::start_with_geo_policy(profile, identity, protector, refresher, policy)
-                .await;
+            return tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => Err(TransportError::TunnelClosed),
+                result = tokio::time::timeout_at(underlay_deadline, Self::start_with_geo_policy(profile, identity, protector, refresher, policy)) => result.map_err(|_| TransportError::ConnectTimeout)?,
+            };
         }
-        let deadline = deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(180));
         let selected = selected.ok_or(TransportError::VpnGate(GateFailure::Configuration))?;
         if let Some(status) = &status {
             status.send_replace(GateStatus {
@@ -309,7 +322,7 @@ impl DataPlaneRuntime {
         underlay_profile.proxy.system_proxy = false;
         underlay_profile.canonicalize_mode();
         let mut runtime = tokio::time::timeout_at(
-            deadline,
+            underlay_deadline,
             Self::start_with_geo_policy(
                 &underlay_profile,
                 identity,
@@ -320,6 +333,11 @@ impl DataPlaneRuntime {
         )
         .await
         .map_err(|_| TransportError::VpnGate(GateFailure::Transport))??;
+        let deadline = if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+            overall_deadline.min(Instant::now() + Duration::from_secs(180))
+        } else {
+            overall_deadline
+        };
         runtime.activation_deadline = Some(deadline);
         runtime.quiesce_final();
         runtime.transition_status.current_server = Some(selected.0.clone());
@@ -528,7 +546,7 @@ impl DataPlaneRuntime {
             policy,
             status,
             cancellation,
-            Instant::now() + Duration::from_secs(180),
+            Instant::now() + usque_core::endpoint_connection_budget(profile),
         )
         .await
     }
@@ -1353,6 +1371,7 @@ mod tests {
         .await
         .unwrap();
         let runtime = DataPlaneRuntime {
+            endpoint_pool: usque_core::EndpointPool::WarpPlus,
             inner: RuntimeInner::ConnectIp(Box::new(warp)),
             gate: None,
             warp_network: FinalNetworkParameters {

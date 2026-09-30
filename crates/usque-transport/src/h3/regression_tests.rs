@@ -50,7 +50,10 @@ pub(crate) fn tunnel_with_closed_channel(
             receiver: incoming_rx,
             pending: PacketBatch::new(),
         },
-        driver: H3Driver { task: Some(task) },
+        driver: H3Driver {
+            task: Some(task),
+            cancellation: CancellationToken::new(),
+        },
         control: control_rx,
         migration: H3MigrationHandle::new(
             migration_tx,
@@ -364,6 +367,7 @@ async fn full_actor_wakes_immediately_on_returned_receive_capacity() {
         1472,
         PmtuPathKey::new(client_address, peer_address),
         None,
+        CancellationToken::new(),
     )));
     let (commands_tx, commands_rx) = mpsc::channel(1);
     let cancel_peer = CancellationToken::new();

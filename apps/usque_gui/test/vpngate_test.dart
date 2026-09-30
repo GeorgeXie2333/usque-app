@@ -32,6 +32,7 @@ class GateEngine extends FakeEngineClient implements VpnGateClient {
   @override
   Future<EngineCapabilities?> getCapabilities() async =>
       const EngineCapabilities(
+        automaticEndpoints: true,
         vpnGateTcp: true,
         vpnGatePoolFavorites: true,
         networkSettingsApplication: true,

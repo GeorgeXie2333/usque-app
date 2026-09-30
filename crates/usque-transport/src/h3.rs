@@ -105,6 +105,17 @@ pub struct H3Tunnel {
 }
 
 impl H3Tunnel {
+    pub(crate) async fn shutdown(self) {
+        self.driver.shutdown().await;
+    }
+
+    pub(crate) fn is_alive(&self) -> bool {
+        self.driver
+            .task
+            .as_ref()
+            .is_some_and(|task| !task.is_finished())
+    }
+
     pub fn into_parts(
         self,
     ) -> (
@@ -240,9 +251,17 @@ impl H3ReceiveHalf {
 
 pub struct H3Driver {
     task: Option<JoinHandle<Result<(), TransportError>>>,
+    cancellation: CancellationToken,
 }
 
 impl H3Driver {
+    pub(crate) async fn shutdown(mut self) {
+        self.cancellation.cancel();
+        if let Some(task) = self.task.take() {
+            let _ = task.await;
+        }
+    }
+
     pub async fn wait(mut self) -> Result<(), TransportError> {
         let task = self
             .task
@@ -262,6 +281,7 @@ impl H3Driver {
 
 impl Drop for H3Driver {
     fn drop(&mut self) {
+        self.cancellation.cancel();
         if let Some(task) = &self.task {
             task.abort();
         }
@@ -327,7 +347,7 @@ async fn prepare_udp_for_generation(
     crate::udp_options::configure_quic_socket(&std_socket)?;
     std_socket.set_nonblocking(true)?;
     let egress_lease = protector
-        .protect_for_target_generation(
+        .protect_masque_endpoint_generation(
             socket_handle(&std_socket),
             target,
             DirectProtocol::Udp,
@@ -397,6 +417,31 @@ pub(crate) async fn connect_h3_with_protector(
     protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
+    connect_h3_with_cancellation(
+        endpoint,
+        sni,
+        identity,
+        settings,
+        protector,
+        attempt,
+        CancellationToken::new(),
+    )
+    .await
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the endpoint race carries protected path settings and cooperative cancellation together"
+)]
+pub(crate) async fn connect_h3_with_cancellation(
+    endpoint: SocketAddr,
+    sni: &str,
+    identity: &MasqueTlsIdentity,
+    settings: H3ConnectSettings,
+    protector: Arc<dyn SocketProtector>,
+    attempt: Option<&ConnectionAttemptTelemetry>,
+    cancellation: CancellationToken,
+) -> Result<H3Tunnel, TransportError> {
     let first = connect_h3_once(
         endpoint,
         sni,
@@ -404,18 +449,35 @@ pub(crate) async fn connect_h3_with_protector(
         settings,
         Arc::clone(&protector),
         attempt,
+        cancellation.clone(),
     )
     .await;
     match first {
         Err(TransportError::Http3ProtocolViolation(_)) => {
             // The Go oracle retries this specific Cloudflare interoperability
             // failure once. All other failures preserve normal fallback rules.
-            connect_h3_once(endpoint, sni, identity, settings, protector, attempt).await
+            if cancellation.is_cancelled() {
+                return Err(TransportError::TunnelClosed);
+            }
+            connect_h3_once(
+                endpoint,
+                sni,
+                identity,
+                settings,
+                protector,
+                attempt,
+                cancellation,
+            )
+            .await
         }
         result => result,
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one QUIC startup retains the exact endpoint, identity, settings and cancellation scope"
+)]
 async fn connect_h3_once(
     endpoint: SocketAddr,
     sni: &str,
@@ -423,17 +485,33 @@ async fn connect_h3_once(
     settings: H3ConnectSettings,
     protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
+    cancellation: CancellationToken,
 ) -> Result<H3Tunnel, TransportError> {
-    connect_h3_application(endpoint, sni, identity, settings, protector, attempt, None).await
+    connect_h3_application(
+        endpoint,
+        sni,
+        identity,
+        settings,
+        protector,
+        attempt,
+        None,
+        cancellation,
+    )
+    .await
 }
 
-pub(crate) async fn connect_l4_h3(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "L4 candidates retain their actor and protected startup cancellation scope"
+)]
+pub(crate) async fn connect_l4_h3_with_cancellation(
     endpoint: SocketAddr,
     identity: &MasqueTlsIdentity,
     settings: H3ConnectSettings,
     protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
     actor: crate::l4::L4Actor,
+    cancellation: CancellationToken,
 ) -> Result<H3Tunnel, TransportError> {
     let provider = identity
         .provider
@@ -447,6 +525,7 @@ pub(crate) async fn connect_l4_h3(
         protector,
         attempt,
         Some(actor),
+        cancellation,
     )
     .await
 }
@@ -463,14 +542,17 @@ async fn connect_h3_application(
     protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
     l4: Option<crate::l4::L4Actor>,
+    cancellation: CancellationToken,
 ) -> Result<H3Tunnel, TransportError> {
     let H3ConnectSettings {
         inner_mtu: profile_inner_mtu,
         congestion_control,
     } = settings;
-    let prepared = prepare_initial_udp_socket(endpoint, protector.as_ref())
-        .await
-        .map_err(SocketPrepareError::into_transport_error)?;
+    let prepared = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
+        result = prepare_initial_udp_socket(endpoint, protector.as_ref()) => result.map_err(SocketPrepareError::into_transport_error)?,
+    };
     let local_address = prepared.local_addr;
     let initial_generation = prepared.network_generation;
     let migration_generation = protector.network_generation().map(|_| initial_generation);
@@ -554,6 +636,7 @@ async fn connect_h3_application(
     )?;
     let path_sockets = PathSocketSet::with_active(active_path)
         .map_err(|error| TransportError::Http3(error.to_string()))?;
+    let actor_cancellation = cancellation.child_token();
     let task = AbortOnDropHandle::new(tokio::spawn(run_h3_actor(
         path_sockets,
         connection,
@@ -572,9 +655,17 @@ async fn connect_h3_application(
         family_ceiling,
         PmtuPathKey::new(local_address, endpoint),
         l4,
+        actor_cancellation.clone(),
     )));
 
-    let startup = timeout(CONNECT_TIMEOUT, startup_rx).await;
+    let startup = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => {
+            let _ = task.await;
+            return Err(TransportError::TunnelClosed);
+        }
+        result = timeout(CONNECT_TIMEOUT, startup_rx) => result,
+    };
     match startup {
         Ok(Ok(Ok(()))) => Ok(H3Tunnel {
             send: H3SendHalf {
@@ -586,6 +677,7 @@ async fn connect_h3_application(
             },
             driver: H3Driver {
                 task: Some(task.detach()),
+                cancellation: actor_cancellation,
             },
             control: control_rx,
             migration: H3MigrationHandle::new(
@@ -597,7 +689,7 @@ async fn connect_h3_application(
             attempt: attempt.cloned(),
         }),
         Ok(Ok(Err(failure))) => {
-            task.abort();
+            actor_cancellation.cancel();
             let _ = task.await;
             if pin_state.rejected() {
                 Err(TransportError::EndpointPinMismatch)
@@ -621,7 +713,7 @@ async fn connect_h3_application(
             }
         }
         Err(_) => {
-            task.abort();
+            actor_cancellation.cancel();
             let _ = task.await;
             if pin_state.rejected() {
                 Err(TransportError::EndpointPinMismatch)
@@ -818,10 +910,15 @@ async fn run_h3_actor(
     family_ceiling: usize,
     initial_path: PmtuPathKey,
     l4: Option<crate::l4::L4Actor>,
+    cancellation: CancellationToken,
 ) -> Result<(), TransportError> {
     let mut startup_tx = Some(startup_tx);
     // Do not free a session slot until the QUIC actor AND protected paths stop.
     let _l4_slot = l4.as_ref().and_then(|actor| actor.session_slot.clone());
+    let _l4_startup_slot = l4.as_ref().and_then(|actor| actor.startup_slot.clone());
+    let _l4_startup_admission = l4
+        .as_ref()
+        .and_then(|actor| actor.handle.startup_admission.clone());
     let result = drive_h3_actor(
         &mut path_sockets,
         connection,
@@ -840,6 +937,7 @@ async fn run_h3_actor(
         family_ceiling,
         initial_path,
         l4,
+        cancellation,
     )
     .await;
     path_sockets.shutdown_all().await;
@@ -877,6 +975,7 @@ async fn drive_h3_actor(
     family_ceiling: usize,
     initial_path: PmtuPathKey,
     mut l4: Option<crate::l4::L4Actor>,
+    cancellation: CancellationToken,
 ) -> Result<(), TransportError> {
     let mut http3 = None;
     let mut request_stream_id = None;
@@ -890,7 +989,7 @@ async fn drive_h3_actor(
     let mut datagram_entries = VecDeque::with_capacity(DATAGRAM_SEND_QUEUE_CAPACITY);
     let encode_pool = DatagramEncodePool::new(quality.clone());
     let mut free_wire_buffers = Vec::new();
-    let io_cancel = CancellationToken::new();
+    let io_cancel = cancellation;
     let mut incoming_batch = PacketBatch::new();
     let mut inbound_queue_drop_count = 0_u64;
     let mut pmtu = PmtuController::with_automatic(initial_path, quality.features().automatic_pmtu);
@@ -969,8 +1068,17 @@ async fn drive_h3_actor(
                     &mut connection,
                     migration.allows_application_injection(),
                 )?;
-                if !ready {
+                if !ready
+                    && connection.application_proto() == b"h3"
+                    && http3.peer_settings_raw().is_some()
+                {
                     ready = true;
+                    if let Some(attempt) = attempt {
+                        attempt.record(
+                            ConnectionEventType::PeerSettingsReceived,
+                            TransportStage::PeerSettings,
+                        );
+                    }
                     if let Some(startup_tx) = startup_tx.take() {
                         let _ = startup_tx.send(Ok(()));
                     }
@@ -1120,6 +1228,8 @@ async fn drive_h3_actor(
         let preparing_migration = migration.is_preparing();
 
         tokio::select! {
+            biased;
+            _ = io_cancel.cancelled() => return Err(TransportError::TunnelClosed),
             received = path_sockets.recv_any() => {
                 match received {
                     PathReceiveEvent::Batch { path_id, mut batch }
@@ -1127,6 +1237,9 @@ async fn drive_h3_actor(
                     {
                         let mut incoming_fairness = IncomingBurstFairness::default();
                         for mut datagram in batch.drain() {
+                            if let Some(actor) = l4.as_ref() {
+                                actor.admit_startup_datagram(datagram.payload_mut().len())?;
+                            }
                             let source = datagram.source;
                             let destination = datagram.destination;
                             let dropped = receive_and_drain_quic_datagram(
@@ -2608,7 +2721,10 @@ pub(crate) mod tests {
             std::future::pending::<Result<(), TransportError>>().await
         });
         started_rx.await.unwrap();
-        let driver = H3Driver { task: Some(task) };
+        let driver = H3Driver {
+            task: Some(task),
+            cancellation: CancellationToken::new(),
+        };
         let mut wait = Box::pin(driver.wait());
         tokio::select! {
             result = &mut wait => panic!("driver wait completed early: {result:?}"),

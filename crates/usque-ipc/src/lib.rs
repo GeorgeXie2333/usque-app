@@ -75,6 +75,55 @@ pub enum FrameError {
 mod tests {
     use super::*;
     #[test]
+    fn automatic_endpoint_wire_fields_are_append_only() {
+        let endpoint = v1::EndpointSettings {
+            selection: v1::EndpointSelection::Automatic as i32,
+            ..Default::default()
+        };
+        assert_eq!(endpoint.encode_to_vec(), [0x28, 1]);
+        assert_eq!(v1::EndpointSettings::decode(&[][..]).unwrap().selection, 0);
+        assert!(v1::EndpointSettings::decode(&[0x28, 0x80][..]).is_err());
+        assert_eq!(
+            v1::Capabilities {
+                automatic_endpoints: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xd0, 0x02, 1]
+        );
+        assert_eq!(
+            agent_v1::AgentCapabilities {
+                automatic_endpoint_leases: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x88, 0x01, 1]
+        );
+        assert_eq!(
+            agent_v1::AcquireDirectEgressRequest {
+                purpose: agent_v1::DirectEgressPurpose::AutomaticMasque as i32,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x28, 1]
+        );
+        let plan = agent_v1::TunnelPlan {
+            automatic_endpoint_policy: Some(agent_v1::AutomaticEndpointPolicy {
+                pool: agent_v1::AutomaticEndpointPool::Free as i32,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(plan.encode_to_vec(), [0x7a, 2, 8, 1]);
+        assert!(
+            agent_v1::TunnelPlan::decode(&[][..])
+                .unwrap()
+                .automatic_endpoint_policy
+                .is_none()
+        );
+    }
+
+    #[test]
     fn network_settings_wire_numbers_are_append_only() {
         let save = v1::ControlRequest {
             request_id: String::new(),
@@ -422,6 +471,7 @@ mod tests {
                     remote_endpoint: "203.0.113.9:53".to_owned(),
                     protocol: 17,
                     expected_generation: 0,
+                    purpose: 0,
                 },
             )),
         };

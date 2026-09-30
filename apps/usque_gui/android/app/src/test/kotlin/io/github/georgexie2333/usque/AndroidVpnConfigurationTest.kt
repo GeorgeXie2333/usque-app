@@ -3,6 +3,7 @@ package io.github.georgexie2333.usque
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.Inet4Address
@@ -10,6 +11,34 @@ import java.net.Inet6Address
 import java.net.InetAddress
 
 class AndroidVpnConfigurationTest {
+    @Test
+    fun automaticIgnoresDormantCustomDnsClashesButLegacyCustomRemainsStrict() {
+        val source = jsonProfile().put("endpoint_v4", "1.1.1.1")
+        assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+        source.put("endpoint_selection", "custom")
+        assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+        source.put("endpoint_selection", "automatic")
+        assertEquals("1.1.1.1", AndroidVpnProfile.parse(source.toString()).dnsIpv4.hostAddress)
+        source.put("endpoint_selection", "unknown")
+        assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+    }
+
+    @Test
+    fun managedEndpointDnsClashesRemainRejectedInAutomaticMode() {
+        val source =
+            jsonProfile()
+                .put("endpoint_selection", "automatic")
+                .put("endpoint_v4", "162.159.197.2")
+                .put("dns_v4", "162.159.197.2")
+        assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+        source
+            .put("endpoint_v4", "162.159.198.2")
+            .put("dns_v4", "1.1.1.1")
+            .put("endpoint_v6", "2606:4700:102::2")
+            .put("dns_v6", "2606:4700:102::2")
+        assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+    }
+
     @Test
     fun customDomainsEnableSplitDnsAndInvalidateTunIdentityWithoutCountries() {
         val before = profile("automatic")
@@ -92,6 +121,22 @@ class AndroidVpnConfigurationTest {
         assertTrue(profile.splitDnsEnabled)
         assertEquals(listOf(profile.dnsIpv4, profile.dnsIpv6), profile.dnsServers)
     }
+
+    private fun jsonProfile(): JSONObject =
+        JSONObject()
+            .put("id", "11111111-2222-4333-8444-555555555555")
+            .put("name", "Endpoint policy test")
+            .put("mode", "vpn")
+            .put("ip_policy", "automatic")
+            .put("mtu", 1280)
+            .put("dns_mode", "tunnel")
+            .put("dns_v4", "1.1.1.1")
+            .put("dns_v6", "2606:4700:4700::1111")
+            .put("endpoint_v4", "162.159.198.2")
+            .put("endpoint_v6", "2606:4700:103::2")
+            .put("kill_switch", true)
+            .put("allow_lan", false)
+            .put("bypass_cidrs", JSONArray())
 
     private fun profile(ipPolicy: String): AndroidVpnProfile =
         AndroidVpnProfile(

@@ -240,6 +240,13 @@ const Map<String, String> kThCatalog = <String, String>{
   'automatic': 'อัตโนมัติ',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'การเลือกปลายทาง',
+  'endpoint_automatic': 'อัตโนมัติ',
+  'endpoint_custom': 'กำหนดเอง',
+  'endpoint_automatic_help':
+      'เลือกปลายทางที่พร้อมใช้งานและเร็วที่สุดสำหรับบัญชีนี้ การแก้ไขที่อยู่จะบันทึกเฉพาะในโหมดกำหนดเอง',
+  'endpoint_custom_help': 'ใช้ที่อยู่ IPv4 และ IPv6 ด้านล่าง',
+  'endpoint_unsupported': 'อัปเดต Usque เพื่อใช้การเลือกปลายทางอัตโนมัติ',
   'endpoint_ipv4': 'ปลายทาง IPv4',
   'endpoint_ipv6': 'ปลายทาง IPv6',
   'sni': 'SNI',

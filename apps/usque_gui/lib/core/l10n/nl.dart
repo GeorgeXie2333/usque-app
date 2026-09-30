@@ -246,6 +246,13 @@ const Map<String, String> kNlCatalog = <String, String>{
   'automatic': 'Automatisch',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
+  'endpoint_selection': 'Endpointselectie',
+  'endpoint_automatic': 'Automatisch',
+  'endpoint_custom': 'Aangepast',
+  'endpoint_automatic_help':
+      'Kies het snelste beschikbare endpoint voor dit account. Adreswijzigingen worden alleen in de modus Aangepast opgeslagen.',
+  'endpoint_custom_help': 'Gebruik de onderstaande IPv4- en IPv6-adressen.',
+  'endpoint_unsupported': 'Werk Usque bij voor automatische endpointselectie.',
   'endpoint_ipv4': 'Eindpunt IPv4',
   'endpoint_ipv6': 'Eindpunt IPv6',
   'sni': 'SNI',

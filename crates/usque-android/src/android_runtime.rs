@@ -121,11 +121,9 @@ fn spawn_runtime(
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> i32 {
-    let connection_deadline = Arc::new(Mutex::new(
-        profile
-            .chain_enabled()
-            .then(|| Instant::now() + Duration::from_secs(180)),
-    ));
+    let connection_deadline = Arc::new(Mutex::new(Some(
+        Instant::now() + usque_core::endpoint_connection_budget(&profile),
+    )));
     clear_last_start_error();
     let engine = ENGINE.get_or_init(|| Mutex::new(None));
     let mut slot = match engine.lock() {
@@ -259,7 +257,7 @@ fn spawn_runtime(
             set_error_with_code(
                 &status,
                 "ANDROID_START_TIMEOUT",
-                "The Android native runtime did not start within 195 seconds.".to_owned(),
+                "The Android native runtime did not start within its connection budget.".to_owned(),
             );
             START_TRANSPORT_FAILURE
         }
@@ -398,9 +396,10 @@ pub(super) fn snapshot() -> NativeSnapshot {
 }
 
 pub(super) fn reconfigure(profile: Profile) -> i32 {
+    let deadline = Instant::now() + usque_core::endpoint_connection_budget(&profile);
     send_command(|reply, cancelled| RuntimeCommand::Reconfigure {
         profile,
-        deadline: Instant::now() + Duration::from_secs(180),
+        deadline,
         reply,
         cancelled,
     })

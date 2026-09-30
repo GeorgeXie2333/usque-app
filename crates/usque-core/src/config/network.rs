@@ -86,6 +86,7 @@ impl SharedNetworkSettings {
         if let Some(managed) = &account.managed_endpoint_ips {
             endpoint.ipv4 = managed.ipv4;
             endpoint.ipv6 = managed.ipv6;
+            endpoint.selection = super::EndpointSelection::Custom;
         }
         let mut profile = Profile {
             id: account.id,

@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use quiche::h3::NameValue;
@@ -15,7 +15,48 @@ use crate::tcp::DialError;
 
 type Connection = quiche::Connection<H3BufferFactory>;
 
+/// Counts all wire input, including duplicates, before quiche sees it. This
+/// bounds native receive buffering during an eight-candidate startup race
+/// without changing the admitted connection's flow-control windows.
+pub(crate) struct StartupAdmission {
+    promoted: AtomicBool,
+    received: AtomicUsize,
+    slot: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
+}
+
+impl StartupAdmission {
+    const LIMIT: usize = 256 * 1024;
+    pub(crate) fn new(slot: tokio::sync::OwnedSemaphorePermit) -> Arc<Self> {
+        Arc::new(Self {
+            promoted: AtomicBool::new(false),
+            received: AtomicUsize::new(0),
+            slot: Mutex::new(Some(slot)),
+        })
+    }
+    fn admit(&self, bytes: usize) -> Result<(), TransportError> {
+        if self.promoted.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        self.received
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |received| {
+                received
+                    .checked_add(bytes)
+                    .filter(|next| *next <= Self::LIMIT)
+            })
+            .map(|_| ())
+            .map_err(|_| TransportError::Http3("L4 startup ingress limit reached".to_owned()))
+    }
+    pub(crate) fn promote(&self) {
+        self.promoted.store(true, Ordering::Release);
+        self.slot
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+    }
+}
+
 pub(crate) struct SessionHandle {
+    pub(crate) startup_admission: Option<Arc<StartupAdmission>>,
     pub(crate) epoch: AtomicU64,
     pub(crate) closed: AtomicBool,
     pub(crate) draining: AtomicBool,
@@ -28,7 +69,13 @@ pub(crate) struct SessionHandle {
 impl SessionHandle {
     pub(crate) fn enqueue(&self, flow: Arc<Flow>) -> Result<(), Arc<Flow>> {
         let mut queue = self.incoming.lock().unwrap_or_else(|e| e.into_inner());
-        if self.closed.load(Ordering::Acquire) || self.draining.load(Ordering::Acquire) {
+        if self.closed.load(Ordering::Acquire)
+            || self.draining.load(Ordering::Acquire)
+            || self
+                .startup_admission
+                .as_ref()
+                .is_some_and(|admission| !admission.promoted.load(Ordering::Acquire))
+        {
             return Err(flow);
         }
         queue.push_back(flow);
@@ -37,10 +84,38 @@ impl SessionHandle {
     }
 }
 
+#[cfg(test)]
+mod startup_admission_tests {
+    use super::*;
+
+    #[test]
+    fn ingress_counts_duplicates_and_releases_only_promoted_or_closed_startup_slots() {
+        let slots = Arc::new(tokio::sync::Semaphore::new(8));
+        let admissions = (0..8)
+            .map(|_| StartupAdmission::new(slots.clone().try_acquire_owned().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(slots.available_permits(), 0);
+        assert!(slots.clone().try_acquire_owned().is_err());
+        for admission in &admissions {
+            for _ in 0..128 {
+                admission.admit(2048).unwrap();
+            }
+            assert!(admission.admit(1).is_err());
+            assert!(admission.admit(usize::MAX).is_err());
+        }
+        admissions[0].promote();
+        admissions[0].admit(8 * 1024 * 1024).unwrap();
+        assert_eq!(slots.available_permits(), 1);
+        drop(admissions);
+        assert_eq!(slots.available_permits(), 8);
+    }
+}
+
 pub(crate) struct L4Actor {
     #[cfg(test)]
     pub(crate) test_options: super::test_options::TestOptions,
     pub(crate) session_slot: Option<Arc<tokio::sync::OwnedSemaphorePermit>>,
+    pub(crate) startup_slot: Option<Arc<tokio::sync::OwnedSemaphorePermit>>,
     pub(crate) handle: Arc<SessionHandle>,
     pub(crate) budget: Arc<BufferBudget>,
     pending: VecDeque<Arc<Flow>>,
@@ -56,6 +131,18 @@ pub(crate) struct L4Actor {
 }
 
 impl L4Actor {
+    pub(crate) fn admit_startup_datagram(&self, bytes: usize) -> Result<(), TransportError> {
+        self.handle
+            .startup_admission
+            .as_ref()
+            .map_or(Ok(()), |admission| admission.admit(bytes))
+    }
+
+    pub(crate) fn limit_startup(&mut self, slot: tokio::sync::OwnedSemaphorePermit) {
+        Arc::get_mut(&mut self.handle)
+            .expect("startup handle is not yet published")
+            .startup_admission = Some(StartupAdmission::new(slot));
+    }
     pub(crate) fn record_wakeup(&mut self) {
         self.woken = true;
         self.metrics
@@ -86,7 +173,9 @@ impl L4Actor {
             #[cfg(test)]
             test_options: super::test_options::TestOptions::default(),
             session_slot: None,
+            startup_slot: None,
             handle: Arc::new(SessionHandle {
+                startup_admission: None,
                 epoch: AtomicU64::new(0),
                 closed: AtomicBool::new(false),
                 draining: AtomicBool::new(false),

@@ -3,6 +3,7 @@ pub mod config;
 pub mod connector;
 pub mod diagnostics;
 pub mod diagnostics_contract_generated;
+pub mod endpoints;
 pub mod exit_probe;
 pub mod failure;
 pub mod geo_rules;
@@ -20,11 +21,12 @@ pub mod warp_wireguard;
 
 pub use config::{
     Account, AppConfig, AppPreferences, CONSUMER_L4_SNI, ConfigError, CongestionControlAlgorithm,
-    DEFAULT_PROFILE_ID, DataPlaneMode, DirectDnsMode, DirectDnsSettings, DnsMode, EndpointSettings,
-    FrontendSettings, IpPolicy, LogLevel, MAX_GEO_DIRECT_COUNTRIES, ManagedEndpointIps,
-    OperatingMode, PendingIdentityReplacement, Profile, ProxyAuthCredentials, ProxyDnsMode,
-    ProxySettings, SHARED_NETWORK_SECRET_ID, SharedNetworkSettings, TransportPolicy,
-    ZERO_TRUST_L4_SNI, l4_server_name, validate_proxy_password, validate_proxy_username,
+    DEFAULT_PROFILE_ID, DataPlaneMode, DirectDnsMode, DirectDnsSettings, DnsMode,
+    EndpointSelection, EndpointSettings, FrontendSettings, IpPolicy, LogLevel,
+    MAX_GEO_DIRECT_COUNTRIES, ManagedEndpointIps, OperatingMode, PendingIdentityReplacement,
+    Profile, ProxyAuthCredentials, ProxyDnsMode, ProxySettings, SHARED_NETWORK_SECRET_ID,
+    SharedNetworkSettings, TransportPolicy, ZERO_TRUST_L4_SNI, l4_server_name,
+    validate_proxy_password, validate_proxy_username,
 };
 pub use connector::{
     ConnectedPath, ConnectionAttempt, ConnectionOrchestrator, ConnectorError, TransportConnector,
@@ -33,6 +35,10 @@ pub use diagnostics::{
     DiagnosticCategory, DiagnosticCheckStatus, DiagnosticEvidence, DiagnosticFinding,
     DiagnosticMode, DiagnosticObservation, DiagnosticObservationAvailability,
     DiagnosticObservationSource, DiagnosticSession, DiagnosticSessionState, DiagnosticSummary,
+};
+pub use endpoints::{
+    AutomaticEndpointPolicy, EndpointPool, endpoint_connection_budget, endpoint_report_budget,
+    endpoint_underlay_budget,
 };
 pub use exit_probe::{ExitInfo, GeoLocation, IpSbProbe, ProbeError};
 pub use failure::{

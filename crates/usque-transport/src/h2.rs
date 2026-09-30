@@ -32,6 +32,7 @@ use tokio::net::TcpSocket;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, timeout};
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 use usque_core::{
     AddressFamily, EndpointPin, Transport, TransportFailure, TransportFailureCode, TransportStage,
@@ -108,11 +109,16 @@ pub struct MasqueTlsIdentity {
     private_key_sec1_der: Zeroizing<Vec<u8>>,
     endpoint_pin: EndpointPin,
     pub(crate) provider: Option<usque_core::IdentityProvider>,
+    pub(crate) entitlement: Option<usque_core::ConsumerEntitlement>,
     pub assigned_ipv4: Ipv4Addr,
     pub assigned_ipv6: Ipv6Addr,
 }
 
 impl MasqueTlsIdentity {
+    pub fn endpoint_pool(&self) -> usque_core::EndpointPool {
+        usque_core::EndpointPool::from_entitlement(self.entitlement)
+    }
+
     /// Available only when the credential loader supplied an authenticated
     /// provider. Diagnostics must not derive L4 SNI from a saved profile label.
     pub fn l4_server_name(&self) -> Option<&'static str> {
@@ -135,6 +141,7 @@ impl MasqueTlsIdentity {
             private_key_sec1_der,
             endpoint_pin,
             provider: None,
+            entitlement: None,
             assigned_ipv4,
             assigned_ipv6,
         })
@@ -154,6 +161,18 @@ pub struct H2Tunnel {
 }
 
 impl H2Tunnel {
+    pub(crate) async fn shutdown(self) {
+        self.driver.abort();
+        let _ = self.driver.wait().await;
+    }
+
+    pub(crate) fn is_alive(&self) -> bool {
+        self.driver
+            .task
+            .as_ref()
+            .is_some_and(|task| !task.is_finished())
+    }
+
     pub fn into_parts(
         self,
     ) -> (
@@ -508,27 +527,49 @@ pub(crate) async fn connect_h2_with_protector(
     protector: &dyn SocketProtector,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H2Tunnel, TransportError> {
+    connect_h2_with_cancellation(
+        endpoint,
+        sni,
+        identity,
+        protector,
+        attempt,
+        &CancellationToken::new(),
+    )
+    .await
+}
+
+pub(crate) async fn connect_h2_with_cancellation(
+    endpoint: SocketAddr,
+    sni: &str,
+    identity: &MasqueTlsIdentity,
+    protector: &dyn SocketProtector,
+    attempt: Option<&ConnectionAttemptTelemetry>,
+    cancellation: &CancellationToken,
+) -> Result<H2Tunnel, TransportError> {
     let expected_generation = protector.network_generation().unwrap_or_default();
     let socket = if endpoint.is_ipv4() {
         TcpSocket::new_v4()
     } else {
         TcpSocket::new_v6()
     }?;
-    let egress_lease = protector
-        .protect_for_target_generation(
-            socket_handle(&socket),
-            endpoint,
-            DirectProtocol::Tcp,
-            expected_generation,
-        )
-        .await
-        .map_err(|error| {
-            if error == STALE_GENERATION_REASON {
-                TransportError::UnderlyingNetworkChanged
-            } else {
-                TransportError::SocketProtection(error)
-            }
-        })?;
+    let protecting = protector.protect_masque_endpoint_generation(
+        socket_handle(&socket),
+        endpoint,
+        DirectProtocol::Tcp,
+        expected_generation,
+    );
+    let egress_lease = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
+        result = protecting => result,
+    }
+    .map_err(|error| {
+        if error == STALE_GENERATION_REASON {
+            TransportError::UnderlyingNetworkChanged
+        } else {
+            TransportError::SocketProtection(error)
+        }
+    })?;
     if protector.network_generation().unwrap_or_default() != expected_generation
         || egress_lease.generation() != Some(expected_generation)
     {
@@ -536,9 +577,12 @@ pub(crate) async fn connect_h2_with_protector(
         drop(egress_lease);
         return Err(TransportError::UnderlyingNetworkChanged);
     }
-    let tcp = timeout(CONNECT_TIMEOUT, socket.connect(endpoint))
-        .await
-        .map_err(|_| TransportError::EndpointTimeout(endpoint))??;
+    let tcp = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
+        result = timeout(CONNECT_TIMEOUT, socket.connect(endpoint)) => result,
+    }
+    .map_err(|_| TransportError::EndpointTimeout(endpoint))??;
     tcp.set_nodelay(true)?;
     if protector.network_generation().unwrap_or_default() != expected_generation {
         return Err(TransportError::UnderlyingNetworkChanged);
@@ -556,7 +600,12 @@ pub(crate) async fn connect_h2_with_protector(
         // The enrolled public-key pin is the trust anchor. The configurable
         // fronting SNI is intentionally not the certificate hostname.
         .verify_hostname(false);
-    let tls = match timeout(CONNECT_TIMEOUT, tokio_boring::connect(config, sni, tcp)).await {
+    let tls_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
+        result = timeout(CONNECT_TIMEOUT, tokio_boring::connect(config, sni, tcp)) => result,
+    };
+    let tls = match tls_result {
         Ok(Ok(stream)) => stream,
         Ok(Err(error)) => {
             if pin_state.checked.load(Ordering::SeqCst) && !pin_state.matched.load(Ordering::SeqCst)
@@ -589,7 +638,11 @@ pub(crate) async fn connect_h2_with_protector(
         .unwrap_or_default();
     let flow_control = H2FlowControlConfig::for_features(quality.features());
     let builder = connect_ip_h2_builder(flow_control);
-    let (mut sender, mut connection) = builder.handshake(tls).await?;
+    let (mut sender, mut connection) = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
+        result = builder.handshake(tls) => result?,
+    };
     let ping_pong = connection.ping_pong();
     let ping_supported = ping_pong.is_some();
     if !ping_supported && !H2_PING_UNSUPPORTED_REPORTED.swap(true, Ordering::Relaxed) {
@@ -599,29 +652,43 @@ pub(crate) async fn connect_h2_with_protector(
         );
     }
     let task = spawn_h2_driver(connection, ping_pong, quality.clone(), attempt.cloned());
-    sender = sender.ready().await?;
-    if let Some(attempt) = attempt {
-        attempt.record(
-            ConnectionEventType::PeerSettingsReceived,
-            TransportStage::PeerSettings,
-        );
-    }
-
-    let request = connect_request()?;
-    let (response, stream) = sender.send_request(request, false)?;
-    let response = timeout(CONNECT_TIMEOUT, response)
-        .await
-        .map_err(|_| TransportError::ConnectTimeout)??;
-    if response.status() != StatusCode::OK {
-        return Err(TransportError::ConnectRejected(response.status()));
-    }
-    if let Some(attempt) = attempt {
-        attempt.record(
-            ConnectionEventType::MasqueAccepted,
-            TransportStage::MasqueConnect,
-        );
-    }
-    let receive = response.into_body();
+    let startup = async {
+        sender = sender.ready().await?;
+        if let Some(attempt) = attempt {
+            attempt.record(
+                ConnectionEventType::PeerSettingsReceived,
+                TransportStage::PeerSettings,
+            );
+        }
+        let request = connect_request()?;
+        let (response, stream) = sender.send_request(request, false)?;
+        let response = timeout(CONNECT_TIMEOUT, response)
+            .await
+            .map_err(|_| TransportError::ConnectTimeout)??;
+        if response.status() != StatusCode::OK {
+            return Err(TransportError::ConnectRejected(response.status()));
+        }
+        if let Some(attempt) = attempt {
+            attempt.record(
+                ConnectionEventType::MasqueAccepted,
+                TransportStage::MasqueConnect,
+            );
+        }
+        Ok::<_, TransportError>((stream, response.into_body()))
+    };
+    let startup = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => Err(TransportError::TunnelClosed),
+        result = startup => result,
+    };
+    let (stream, receive) = match startup {
+        Ok(streams) => streams,
+        Err(error) => {
+            task.abort();
+            let _ = task.wait().await;
+            return Err(error);
+        }
+    };
     let mut tunnel =
         h2_tunnel_from_streams(stream, receive, task, quality, flow_control, ping_supported);
     tunnel.attempt = attempt.cloned();

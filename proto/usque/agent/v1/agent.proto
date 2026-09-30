@@ -63,6 +63,24 @@ message AgentCapabilities {
   bool deferred_network_configuration = 15;
   // A process-scoped device lease outlives individual packet sessions.
   bool reusable_tun_device = 16;
+  // Exact authenticated MASQUE endpoint leases authorized by a compact policy.
+  bool automatic_endpoint_leases = 17;
+}
+
+enum AutomaticEndpointPool {
+  AUTOMATIC_ENDPOINT_POOL_UNSPECIFIED = 0;
+  AUTOMATIC_ENDPOINT_POOL_FREE = 1;
+  AUTOMATIC_ENDPOINT_POOL_WARP_PLUS = 2;
+}
+
+// A bounded authorization descriptor, never a list of generated host routes.
+message AutomaticEndpointPolicy {
+  AutomaticEndpointPool pool = 1;
+  uint32 port = 2;
+  bool ipv4 = 3;
+  bool ipv6 = 4;
+  bool tcp = 5;
+  bool udp = 6;
 }
 
 message TunnelPlan {
@@ -89,6 +107,7 @@ message TunnelPlan {
   bool vpn_chain = 13;
   // Prepare only bootstrap protection. Commit requires FinalizeTunnel first.
   bool defer_network_configuration = 14;
+  AutomaticEndpointPolicy automatic_endpoint_policy = 15;
 }
 
 message FinalizeTunnelRequest {
@@ -306,6 +325,7 @@ enum RecoveryStep {
   RECOVERY_STEP_PACKET_SESSION = 6;
   RECOVERY_STEP_DEFAULT_ROUTES = 7;
   RECOVERY_STEP_SYSTEM_PROXY = 8;
+  RECOVERY_STEP_WFP_METADATA = 9;
 }
 
 enum RecoveryRemovalStage {
@@ -421,6 +441,12 @@ message PhysicalNetworkInfo {
   uint64 generation = 2;
 }
 
+enum DirectEgressPurpose {
+  // Zero preserves legacy generic direct-egress behavior.
+  DIRECT_EGRESS_PURPOSE_UNSPECIFIED = 0;
+  DIRECT_EGRESS_PURPOSE_AUTOMATIC_MASQUE = 1;
+}
+
 message AcquireDirectEgressRequest {
   string operation_id = 1;
   // Numeric IP address and non-zero destination port only.
@@ -429,6 +455,7 @@ message AcquireDirectEgressRequest {
   uint32 protocol = 3;
   // Zero preserves the legacy request shape; non-zero must match exactly.
   uint64 expected_generation = 4;
+  DirectEgressPurpose purpose = 5;
 }
 
 message DirectEgressLease {

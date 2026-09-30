@@ -103,6 +103,7 @@ void main() {
       expect(engine.calls, isNot(contains('connect')));
       engine.capabilitiesReply.complete(
         const EngineCapabilities(
+          automaticEndpoints: true,
           l4Tcp: true,
           l4TunTcp: true,
           l4DnsConversion: true,

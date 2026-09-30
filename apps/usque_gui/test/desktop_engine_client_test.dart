@@ -13,6 +13,7 @@ import 'package:usque/services/engine_client.dart';
 const UsqueProfile _goldenProfile = UsqueProfile(
   id: 'p',
   name: 'X',
+  endpointSelection: EndpointSelection.custom,
   endpointIpv4: 'a',
   endpointIpv6: 'b',
   endpointPort: 1,
@@ -41,11 +42,12 @@ const List<int> _goldenProfileBytes = <int>[
   0x12, 0x01, 0x58, // name "X"
   0x18, 0x01, // mode VPN
   0x20, 0x01, // transport AUTO
-  0x2a, 0x0b, // endpoint { (11 bytes)
+  0x2a, 0x0d, // endpoint { (13 bytes)
   0x0a, 0x01, 0x61, //   ipv4 "a"
   0x12, 0x01, 0x62, //   ipv6 "b"
   0x18, 0x01, //   port 1
   0x22, 0x01, 0x63, //   sni "c"
+  0x28, 0x02, //   selection CUSTOM (appended field 5)
   // }
   0x30, 0x01, // ip policy AUTO
   0x38, 0x80, 0x0a, // mtu 1280
@@ -818,17 +820,24 @@ void main() {
       },
     );
 
-    test('production timeout table matches the pre-split contract', () {
-      expect(requestTimeoutForPayload(12), const Duration(seconds: 195));
-      expect(requestTimeoutForPayload(23), const Duration(seconds: 60));
-      expect(requestTimeoutForPayload(26), const Duration(seconds: 60));
-      expect(requestTimeoutForPayload(20), const Duration(seconds: 20));
-      expect(requestTimeoutForPayload(21), const Duration(seconds: 15));
-      expect(requestTimeoutForPayload(22), const Duration(seconds: 30));
-      expect(requestTimeoutForPayload(34), const Duration(seconds: 90));
-      expect(requestTimeoutForPayload(35), const Duration(seconds: 180));
-      expect(requestTimeoutForPayload(10), const Duration(seconds: 5));
-    });
+    test(
+      'connection deadlines cover automatic selection and legacy rollback',
+      () {
+        expect(requestTimeoutForPayload(12), const Duration(seconds: 715));
+        expect(requestTimeoutForPayload(14), const Duration(seconds: 715));
+        expect(requestTimeoutForPayload(27), const Duration(seconds: 1415));
+        expect(requestTimeoutForPayload(23), const Duration(seconds: 60));
+        expect(requestTimeoutForPayload(26), const Duration(seconds: 60));
+        expect(requestTimeoutForPayload(20), const Duration(seconds: 20));
+        expect(requestTimeoutForPayload(21), const Duration(seconds: 15));
+        expect(requestTimeoutForPayload(22), const Duration(seconds: 30));
+        expect(requestTimeoutForPayload(34), const Duration(seconds: 90));
+        expect(requestTimeoutForPayload(35), const Duration(seconds: 180));
+        expect(requestTimeoutForPayload(10), const Duration(seconds: 5));
+        expect(requestTimeoutForPayload(41), const Duration(seconds: 5));
+        expect(requestTimeoutForPayload(42), const Duration(seconds: 5));
+      },
+    );
 
     test(
       'disconnect is not blocked by an in-flight serialized request',

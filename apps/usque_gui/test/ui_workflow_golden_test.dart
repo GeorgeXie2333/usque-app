@@ -66,6 +66,58 @@ void main() {
     }
   });
 
+  for (final custom in [false, true]) {
+    testWidgets('endpoint selection ${custom ? 'custom_zh' : 'automatic_en'}', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 1000);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final app = AppController(WorkflowEngine())
+        ..localePreference = custom
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english
+        ..engineCapabilities = const EngineCapabilities(
+          automaticEndpoints: true,
+          h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
+        );
+      app.sharedNetwork = app.sharedNetwork.copyWith(
+        endpointSelection: custom
+            ? EndpointSelection.custom
+            : EndpointSelection.automatic,
+      );
+      addTearDown(app.dispose);
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: custom,
+            home: AdvancedSettingsScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final selector = find.byKey(const ValueKey('endpoint-selection'));
+      await tester.scrollUntilVisible(
+        selector,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await Scrollable.ensureVisible(tester.element(selector), alignment: 0.15);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile(
+          'goldens/endpoint_${custom ? 'custom_zh_dark' : 'automatic_en_light'}.png',
+        ),
+      );
+    }, tags: 'golden');
+  }
+
   testWidgets('QUIC traffic policy phone and TV layouts', (tester) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -76,6 +128,7 @@ void main() {
           : const Size(390, 1000);
       final app = AppController(WorkflowEngine())
         ..engineCapabilities = const EngineCapabilities(
+          automaticEndpoints: true,
           networkSettingsApplication: true,
           applicationQuicBlocking: true,
         )
@@ -191,6 +244,7 @@ void main() {
       final engine = GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8);
       final app = AppController(engine)
         ..engineCapabilities = const EngineCapabilities(
+          automaticEndpoints: true,
           vpnGateTcp: true,
           vpnGatePoolFavorites: true,
         )
@@ -443,6 +497,7 @@ void main() {
     final engine = GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8);
     final app = AppController(engine)
       ..engineCapabilities = const EngineCapabilities(
+        automaticEndpoints: true,
         vpnGateTcp: true,
         vpnGatePoolFavorites: true,
       )
@@ -499,6 +554,7 @@ void main() {
     final app =
         AppController(GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8))
           ..engineCapabilities = const EngineCapabilities(
+            automaticEndpoints: true,
             vpnGateTcp: true,
             vpnGatePoolFavorites: true,
           )
@@ -684,6 +740,7 @@ void main() {
                   ? LocalePreference.simplifiedChinese
                   : LocalePreference.english
               ..engineCapabilities = const EngineCapabilities(
+                automaticEndpoints: true,
                 networkQuality: true,
               );
             if (connected) {
@@ -797,6 +854,7 @@ void main() {
             ? LocalePreference.simplifiedChinese
             : LocalePreference.english
         ..engineCapabilities = const EngineCapabilities(
+          automaticEndpoints: true,
           h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
         )
         ..snapshot = const EngineSnapshot(
@@ -864,6 +922,7 @@ void main() {
             ? LocalePreference.simplifiedChinese
             : LocalePreference.english
         ..engineCapabilities = const EngineCapabilities(
+          automaticEndpoints: true,
           l4Tcp: true,
           l4TunTcp: true,
           l4DnsConversion: true,
@@ -939,6 +998,7 @@ void main() {
                 ..section = section
                 ..localePreference = locale
                 ..engineCapabilities = const EngineCapabilities(
+                  automaticEndpoints: true,
                   networkQuality: true,
                 );
               try {
@@ -1155,6 +1215,7 @@ void main() {
                 ? LocalePreference.simplifiedChinese
                 : LocalePreference.english
             ..engineCapabilities = const EngineCapabilities(
+              automaticEndpoints: true,
               networkQuality: true,
             );
       if (scene.section == AppSection.profiles) {

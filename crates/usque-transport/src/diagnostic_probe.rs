@@ -108,8 +108,20 @@ pub async fn probe_h3_handshake(
 /// The same family preference and forced-family policy as normal connection
 /// selection. No resolver lookup or endpoint discovery is performed.
 pub fn h3_probe_endpoints(profile: &Profile) -> Vec<SocketAddr> {
-    let v4 = profile.endpoint.ipv4_socket();
-    let v6 = profile.endpoint.ipv6_socket();
+    let (v4, v6) = if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+        // Diagnostics stay bounded to one common endpoint per family. This
+        // pair is eligible for both Free and Plus authenticated identities.
+        usque_core::AutomaticEndpointPolicy::for_profile(
+            profile,
+            usque_core::EndpointPool::WarpPlus,
+        )
+        .representative_pair()
+    } else {
+        (
+            profile.endpoint.ipv4_socket(),
+            profile.endpoint.ipv6_socket(),
+        )
+    };
     match profile.ip_policy {
         IpPolicy::Ipv4Only => vec![v4],
         IpPolicy::Ipv6Only => vec![v6],

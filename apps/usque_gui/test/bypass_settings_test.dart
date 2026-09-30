@@ -42,6 +42,7 @@ void main() {
       await app.initialize();
       await tester.pumpAndSettle();
       app.engineCapabilities = const EngineCapabilities(
+        automaticEndpoints: true,
         networkSettingsApplication: true,
         customBypass: true,
       );
@@ -115,6 +116,7 @@ void main() {
       await app.initialize();
       await tester.pumpAndSettle();
       app.engineCapabilities = const EngineCapabilities(
+        automaticEndpoints: true,
         networkSettingsApplication: true,
         customBypass: true,
       );

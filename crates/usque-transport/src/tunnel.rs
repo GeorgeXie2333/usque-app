@@ -76,6 +76,33 @@ impl MasqueTunnel {
     }
 }
 
+#[async_trait::async_trait]
+impl crate::endpoint_race::RaceConnection for MasqueTunnel {
+    async fn shutdown(self) {
+        match self {
+            Self::Http3(tunnel) => tunnel.shutdown().await,
+            Self::Http2(tunnel) => tunnel.shutdown().await,
+        }
+    }
+
+    fn is_alive(&self) -> bool {
+        match self {
+            Self::Http3(tunnel) => tunnel.is_alive(),
+            Self::Http2(tunnel) => tunnel.is_alive(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::endpoint_race::RaceConnection for (MasqueTunnel, usque_core::AddressFamily) {
+    async fn shutdown(self) {
+        crate::endpoint_race::RaceConnection::shutdown(self.0).await;
+    }
+    fn is_alive(&self) -> bool {
+        crate::endpoint_race::RaceConnection::is_alive(&self.0)
+    }
+}
+
 pub(crate) enum MasqueSendHalf {
     Http3(H3SendHalf),
     Http2(H2SendHalf),

@@ -4,6 +4,83 @@ Settings can be saved without changing the current connection. The API reports
 saving and application separately, so the GUI can show whether a change is saved,
 active, waiting for a later connection, or awaiting confirmation.
 
+## Automatic endpoints / 自动选择端点
+
+Open **Settings → Advanced network settings → Endpoint selection**, choose
+**Automatic** or **Custom**, then **Apply changes**. New installations and staged
+network resets use Automatic selection. Schema 20 preserves existing addresses
+in Custom mode. Switching the picker keeps custom drafts; automatic saves retain
+the previously saved address pair. Save new address drafts while Custom is
+selected. Port and SNI remain editable in both modes; L4 retains its
+identity-derived SNI. Zero Trust uses the
+registration-owned addresses and has no Consumer pool picker.
+
+打开 **设置 → 高级网络设置 → 端点选择**，选择 **自动选择** 或 **自定义**，再点击
+**应用修改**。新安装和恢复默认使用自动选择；升级保留已有自定义端点。切换模式
+会保留手动地址草稿；自动模式应用修改时保留原来已保存的地址。要保存新的手动
+地址，请在自定义模式应用。端口和 SNI 在两种模式都可修改，组织账号仍使用注册地址。
+
+| Transport | Free IPv4 | Plus IPv4 | Free IPv6 | Plus IPv6 |
+| --- | --- | --- | --- | --- |
+| H3 | `162.159.198.1`, `.2`; `162.159.199.1`, `.2` | `162.159.199.1`, `.2` | `2606:4700:103::1`, `::2`; `2606:4700:104::1`, `::2` | `2606:4700:104::1`, `::2` |
+| H2 | `162.159.198.0/24`, `162.159.199.0/24` | `162.159.199.0/24` | `2606:4700:103::/48`, `2606:4700:104::/48` | `2606:4700:104::/48` |
+
+Pool eligibility uses authenticated Consumer entitlement, not the raw API
+`warp_plus` boolean. Unknown legacy entitlement uses the Plus-compatible common
+pool. Custom mode permits manual overrides. Automatic candidates exclude tunnel
+DNS addresses and unavailable endpoint families. The correct IPv6 prefix is
+`2606:4700`; H2 range support is based on
+[published experimental samples](https://github.com/vernette/warpscout/blob/master/masque.go#L65-L82),
+not a guarantee that every address accepts every account.
+
+H3 races all admitted addresses, preserving the preferred-family 250 ms head
+start and existing 8-second startup timeout/compatibility retry. The Auto IP
+policy retains its existing IPv6 preference; IPv4/IPv6-only policies strictly
+filter the other family. H2 enumerates
+all 256 IPv4 addresses per admitted /24 and samples 256 unique IPv6 addresses
+per /48, including `::1` and `::2`. Subsequent rounds resample IPv6. Known hosts
+come first; remaining addresses are shuffled. Each H2 batch admits at most ten
+attempts, normally five per family, with one absolute two-second deadline from
+batch start. In dual-stack batches the preferred family starts immediately and
+the other starts after 250 ms, or sooner if the preferred attempts all fail.
+Early failures advance immediately. A fully exhausted Free
+dual-stack round has 103 batches, about 206 seconds before cleanup overhead.
+
+The first authenticated, pinned, accepted CONNECT-IP connection wins and is
+reused. L4 instead requires authenticated QUIC, H3 ALPN and peer SETTINGS;
+business CONNECT requests start only after winner promotion. Losers close their
+sockets before releasing protection leases. Terminal protection, identity and
+pin errors keep their fail-closed handling; authenticated pin refresh remains
+limited to one retry and a 60-second automatic-mode refresh budget.
+
+Automatic startup shares a profile-derived bounded deadline across transport,
+Engine, Android and IPC. The maximum underlay budget is 520 seconds; chaining
+adds 180 seconds, and response delivery adds 15 seconds. Ordinary save and
+status acknowledgements retain their shorter limits. Disconnect cancels startup
+without replaying a timed-out mutation.
+
+Endpoint selection uses appended EndpointSettings field 5, capability field 42
+and field mask `endpoint.selection`. Absent legacy wire fields mean Custom;
+unknown explicit values are rejected. Selection changes use controlled cold
+reconnect. Managed-account writes preserve the shared Consumer selection.
+
+Windows journals a canonical pool descriptor and authorizes each candidate
+through an exact Engine/process/interface/generation-scoped lease. Prefixes are
+validation data only: no prefix route or firewall permit is installed. Two
+representative host routes retain physical-network observation. Prepared WFP
+metadata is journal-owned; rollback releases dynamic leases before restoring
+that metadata. Endpoint leases cannot fall through to generic direct egress.
+
+L4 retains its two admitted/draining session slots, with at most eight startup
+actors sharing one reserved slot. Each unpromoted actor admits at most 256 KiB
+of cumulative UDP input before QUIC parsing. This bounds admitted startup input,
+not total heap usage; existing bounded UDP queues and parser overhead remain.
+Only the winner is promoted after loser shutdown and generation revalidation.
+
+Workstation unit/widget tests and compile-only builds do not establish native
+VPN cleanup or leaks. IPv6 protocol measurements and protected-environment
+validation must be reported separately; unavailable environments are `not_run`.
+
 ## Entry points and ownership
 
 - Flutter owns form drafts. NetworkSettingsController serializes submissions,

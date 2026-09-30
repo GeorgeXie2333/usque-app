@@ -279,6 +279,7 @@ void main() {
     expect(
       ChainSourcePicker.available(
         const EngineCapabilities(
+          automaticEndpoints: true,
           chainProfileImport: true,
           chainWireguard: true,
         ),

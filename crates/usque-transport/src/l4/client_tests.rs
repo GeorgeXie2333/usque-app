@@ -39,6 +39,7 @@ async fn server(
     identity: MasqueTlsIdentity,
     expected_sni: &'static str,
     targets: Arc<Mutex<Vec<String>>>,
+    hold_settings: Option<Arc<tokio::sync::Notify>>,
 ) {
     let address = socket.local_addr().unwrap();
     let mut incoming = vec![0; 65536];
@@ -72,13 +73,17 @@ async fn server(
         }
         if quic.is_established() && h3.is_none() {
             assert_eq!(quic.server_name(), Some(expected_sni));
-            h3 = Some(
-                quiche::h3::Connection::with_transport(
-                    &mut quic,
-                    &quiche::h3::Config::new().unwrap(),
-                )
-                .unwrap(),
-            );
+            if let Some(established) = &hold_settings {
+                established.notify_one();
+            } else {
+                h3 = Some(
+                    quiche::h3::Connection::with_transport(
+                        &mut quic,
+                        &quiche::h3::Config::new().unwrap(),
+                    )
+                    .unwrap(),
+                );
+            }
         }
         if let Some(h3) = h3.as_mut() {
             loop {
@@ -165,9 +170,10 @@ async fn shared_session_serves_parallel_connects_socks_http_and_half_close_witho
             let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
             let endpoint = socket.local_addr().unwrap();
             let targets = Arc::new(Mutex::new(Vec::new()));
-            let server = AbortOnDropHandle::new(tokio::spawn(server(socket, peer, expected_sni, targets.clone())));
+            let server = AbortOnDropHandle::new(tokio::spawn(server(socket, peer, expected_sni, targets.clone(), None)));
             let mut profile = Profile { data_plane: DataPlaneMode::L4Proxy, transport: TransportPolicy::Http2, ip_policy: IpPolicy::Ipv4Only, ..Profile::default() };
             profile.endpoint.ipv4 = "127.0.0.1".parse().unwrap();
+            profile.endpoint.selection = usque_core::EndpointSelection::Custom;
             profile.endpoint.port = endpoint.port();
             profile.endpoint.sni = "legacy.example.com".to_owned();
             profile.proxy.dns_mode = ProxyDnsMode::EdgeResolved;
@@ -224,4 +230,65 @@ async fn shared_session_serves_parallel_connects_socks_http_and_half_close_witho
             drop(server);
         }).await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn authenticated_l4_peer_without_settings_never_publishes_readiness() {
+    let (mut identity, peer) = identities();
+    identity.provider = Some(IdentityProvider::Consumer);
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = socket.local_addr().unwrap();
+    let established = Arc::new(tokio::sync::Notify::new());
+    let targets = Arc::new(Mutex::new(Vec::new()));
+    let server = AbortOnDropHandle::new(tokio::spawn(server(
+        socket,
+        peer,
+        usque_core::l4_server_name(&IdentityProvider::Consumer),
+        targets.clone(),
+        Some(established.clone()),
+    )));
+    let mut profile = Profile {
+        data_plane: DataPlaneMode::L4Proxy,
+        transport: TransportPolicy::Http3,
+        ip_policy: IpPolicy::Ipv4Only,
+        ..Profile::default()
+    };
+    profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+    profile.endpoint.ipv4 = "127.0.0.1".parse().unwrap();
+    profile.endpoint.port = endpoint.port();
+    let cancellation = CancellationToken::new();
+    let mut startup = AbortOnDropHandle::new(tokio::spawn({
+        let cancellation = cancellation.clone();
+        async move {
+            L4Client::start(
+                profile,
+                identity,
+                Arc::new(crate::NoopSocketProtector),
+                None,
+                crate::telemetry::ConnectionTelemetry::default(),
+                Arc::default(),
+                &cancellation,
+            )
+            .await
+        }
+    }));
+    timeout(Duration::from_secs(2), established.notified())
+        .await
+        .unwrap();
+    assert!(
+        timeout(Duration::from_millis(200), &mut startup)
+            .await
+            .is_err(),
+        "TLS/QUIC establishment alone must not admit an L4 session"
+    );
+    assert!(targets.lock().unwrap().is_empty());
+    cancellation.cancel();
+    assert!(
+        timeout(Duration::from_secs(1), startup)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    drop(server);
 }

@@ -255,6 +255,7 @@ impl AppConfig {
                 .map(|profile| profile.endpoint.clone())
                 .unwrap_or_default();
         }
+        network.endpoint.selection = crate::EndpointSelection::Custom;
         Self {
             schema_version: CURRENT_SCHEMA_VERSION,
             active_profile_id: legacy.active_profile_id,
@@ -417,6 +418,12 @@ fn migrate_app_config(config: &mut AppConfig) {
     if config.schema_version < 19 {
         config.network.bypass_domains.clear();
         config.schema_version = 19;
+    }
+    if config.schema_version < 20 {
+        // Preserve every existing manually selected endpoint, including the
+        // old default pair. Only new configurations opt into racing.
+        config.network.endpoint.selection = crate::EndpointSelection::Custom;
+        config.schema_version = 20;
     }
 }
 
@@ -664,6 +671,46 @@ mod tests {
         let config = store.load_or_default().unwrap();
         assert_eq!(config.schema_version, CURRENT_SCHEMA_VERSION);
         assert!(!store.path().exists());
+        assert_eq!(
+            config.network.endpoint.selection,
+            crate::EndpointSelection::Automatic
+        );
+    }
+
+    #[test]
+    fn schema_nineteen_preserves_manual_endpoints_and_backup() {
+        for custom in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = ConfigStore::new(directory.path().join("config.json"));
+            let mut config = AppConfig {
+                schema_version: 19,
+                ..AppConfig::default()
+            };
+            if custom {
+                config.network.endpoint.ipv4 = "192.0.2.42".parse().unwrap();
+                config.network.endpoint.port = 8443;
+                config.network.endpoint.sni = "shared.example.com".into();
+            }
+            let mut legacy = serde_json::to_value(&config).unwrap();
+            legacy["network"]["endpoint"]
+                .as_object_mut()
+                .unwrap()
+                .remove("selection");
+            fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+            let migrated = store.load().unwrap();
+            assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+            assert_eq!(
+                migrated.network.endpoint.selection,
+                crate::EndpointSelection::Custom
+            );
+            assert_eq!(migrated.network.endpoint.ipv4, config.network.endpoint.ipv4);
+            assert_eq!(migrated.network.endpoint.port, config.network.endpoint.port);
+            assert_eq!(migrated.network.endpoint.sni, config.network.endpoint.sni);
+            assert_eq!(store.load().unwrap(), migrated);
+            let backup: serde_json::Value =
+                serde_json::from_slice(&fs::read(store.backup_path()).unwrap()).unwrap();
+            assert_eq!(backup, legacy);
+        }
     }
 
     fn fat_legacy(schema_version: u32) -> LegacyStoredConfig {
@@ -827,6 +874,7 @@ mod tests {
                 ipv6: "2606:4700:102::8".parse().unwrap(),
                 port: 443,
                 sni: "zt-masque.cloudflareclient.com".to_owned(),
+                selection: crate::EndpointSelection::Custom,
             },
             ..Profile::default()
         };
@@ -1072,17 +1120,19 @@ mod tests {
             ipv6: "2606:4700:102::8".parse().unwrap(),
             port: 443,
             sni: "zt-masque.cloudflareclient.com".to_owned(),
+            selection: crate::EndpointSelection::Custom,
         };
         fs::write(store.path(), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
 
         let migrated = store.load().unwrap();
 
         assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(migrated.network.endpoint, EndpointSettings::default());
-        assert_eq!(
-            migrated.active_profile().unwrap().endpoint,
-            EndpointSettings::default()
-        );
+        let legacy_defaults = EndpointSettings {
+            selection: crate::EndpointSelection::Custom,
+            ..EndpointSettings::default()
+        };
+        assert_eq!(migrated.network.endpoint, legacy_defaults);
+        assert_eq!(migrated.active_profile().unwrap().endpoint, legacy_defaults);
     }
 
     #[test]
