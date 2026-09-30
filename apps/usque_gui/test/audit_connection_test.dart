@@ -41,6 +41,29 @@ class FirstCatalogFailure extends FakeEngineClient {
   }
 }
 
+class TransientCapabilities extends FakeEngineClient {
+  int attempts = 0;
+  final recovered = Completer<void>();
+  final connected = Completer<void>();
+
+  @override
+  Future<EngineCapabilities?> getCapabilities() async {
+    if (++attempts <= 2) {
+      throw const EngineException('ENGINE_IPC_UNAVAILABLE', 'Starting');
+    }
+    final capabilities = await super.getCapabilities();
+    if (!recovered.isCompleted) recovered.complete();
+    return capabilities;
+  }
+
+  @override
+  Future<EngineSnapshot> connect(UsqueProfile profile) async {
+    final snapshot = await super.connect(profile);
+    if (!connected.isCompleted) connected.complete();
+    return snapshot;
+  }
+}
+
 class HeldIdentityMutation extends FakeEngineClient {
   final entered = Completer<void>();
   final release = Completer<void>();
@@ -144,6 +167,45 @@ void main() {
       expect(app.lastError, isNull);
     },
   );
+
+  test('Automatic startup retries temporary capability failures', () async {
+    final engine = TransientCapabilities()
+      ..legacyProfilesImported = true
+      ..storedProfiles = [
+        UsqueProfile.defaultProfile().copyWith(autoConnect: true),
+      ];
+    final app = AppController(engine);
+    addTearDown(app.dispose);
+    await app.initialize();
+    expect(engine.attempts, 1);
+    expect(engine.calls, isNot(contains('connect')));
+    expect(app.snapshot.phase, ConnectionPhase.disconnected);
+    await engine.connected.future.timeout(const Duration(seconds: 8));
+    await Future<void>.delayed(Duration.zero);
+    expect(engine.attempts, 3);
+    expect(engine.calls.where((call) => call == 'connect'), hasLength(1));
+    expect(app.snapshot.phase, ConnectionPhase.connected);
+    expect(app.lastError, isNull);
+  });
+
+  test('user disconnect survives Automatic capability recovery', () async {
+    final engine = TransientCapabilities()
+      ..legacyProfilesImported = true
+      ..storedProfiles = [
+        UsqueProfile.defaultProfile().copyWith(autoConnect: true),
+      ];
+    final app = AppController(engine);
+    addTearDown(app.dispose);
+    await app.initialize();
+    engine.current = const EngineSnapshot(phase: ConnectionPhase.connected);
+    await app.refreshSnapshot();
+    await app.connectOrDisconnect();
+    await engine.recovered.future.timeout(const Duration(seconds: 8));
+    await Future<void>.delayed(Duration.zero);
+    expect(engine.attempts, 3);
+    expect(engine.calls, isNot(contains('connect')));
+    expect(app.snapshot.phase, ConnectionPhase.disconnected);
+  });
 
   test(
     'identity completion cannot reconnect after cancellation or account change',

@@ -430,7 +430,10 @@ class AppController extends ChangeNotifier {
       if (_disposed || generation != _bootstrapGeneration) return;
       final needsCapabilities =
           activeProfile.dataPlane == DataPlaneMode.l4Proxy ||
-          activeProfile.vpnGate.enabled;
+          activeProfile.vpnGate.enabled ||
+          (activeProfile.endpointSelection == EndpointSelection.automatic &&
+              identityStatus(activeProfile.id).provider !=
+                  IdentityProvider.zeroTrust);
       if (!_profilesLoaded ||
           !_initialStatusLoaded ||
           (needsCapabilities && engineCapabilities == null)) {
