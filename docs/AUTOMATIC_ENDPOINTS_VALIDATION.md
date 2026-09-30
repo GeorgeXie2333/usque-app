@@ -152,3 +152,39 @@ prefixes are validation data, not broad route/firewall grants. The new policy
 and capability fields contain no credentials. Cleanup errors retain recovery
 ownership and fail closed. Deterministic mocks and builds cannot prove native
 platform cleanup or leak prevention; the unavailable checks remain `not_run`.
+
+## UDP blackhole regression follow-up
+
+Follow-up date: 2026-09-30. The user reported that Android cannot complete
+H3-to-H2 fallback with Automatic endpoints, while Custom endpoints work.
+Baseline: `678bc680e4076f5e5ba363c15663bdc32388b083`, plus the uncommitted
+regression test and this record. This follow-up has not identified the Android
+failure's root cause and makes no production behavior change.
+
+The new
+`endpoint_race::tests::native_h3_blackhole_race_times_out_and_preserves_h2_fallback`
+test races four real QUIC startups against bound, silent loopback UDP peers.
+It finishes within ten seconds, returns an H3 failure eligible for H2 fallback,
+and observes zero retained exact socket leases after all candidates exit.
+The scoped transport suite completed in about eight seconds. This exercises
+the shared native race and timeout/cleanup code on Windows; it does not run
+Android JNI socket binding or Android's Unix UDP batch backend.
+
+The test verifies H3 timeout cleanup and fallback eligibility. It does not
+establish that an authenticated H2 connection succeeds on the reported Android
+network.
+
+| Exact command | Follow-up result |
+| --- | --- |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test -Package usque-transport` | 573 passed, zero failed; includes the real loopback blackhole test |
+| `cargo fmt --all --check` | Passed |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | Passed |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | 1430 passed, zero failed, eight existing ignored tests |
+| `& ./tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | Passed |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | Passed; compile only |
+| `python tool/check_repository_policy.py` | Passed |
+| `git diff --check` | Passed |
+
+Android device reproduction, JNI/batch-backend runtime verification and live
+authenticated H2 candidate measurements remain `not_run`. The Android
+connection timeline/error code is still needed to determine its failure stage.

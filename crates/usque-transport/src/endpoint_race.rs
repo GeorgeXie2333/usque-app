@@ -380,6 +380,95 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn native_h3_blackhole_race_times_out_and_preserves_h2_fallback() {
+        struct Lease(Arc<AtomicUsize>);
+        impl Drop for Lease {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        struct Protector(Arc<AtomicUsize>);
+        #[async_trait]
+        impl crate::socket::SocketProtector for Protector {
+            fn protect(&self, _: crate::socket::SocketHandle) -> Result<(), String> {
+                Ok(())
+            }
+            async fn protect_for_target(
+                &self,
+                _: crate::socket::SocketHandle,
+                endpoint: SocketAddr,
+                protocol: crate::socket::DirectProtocol,
+            ) -> Result<crate::socket::DirectEgressLease, String> {
+                assert!(endpoint.ip().is_loopback());
+                assert_eq!(protocol, crate::socket::DirectProtocol::Udp);
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(crate::socket::DirectEgressLease::hold(Lease(
+                    self.0.clone(),
+                )))
+            }
+        }
+        // Bound, silent loopback peers model dropped UDP without public traffic.
+        let mut peers = Vec::new();
+        let mut targets = Vec::new();
+        for _ in 0..4 {
+            let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            targets.push(RaceTarget {
+                endpoint: peer.local_addr().unwrap(),
+                delay: Duration::ZERO,
+            });
+            peers.push(peer);
+        }
+        let key = usque_core::MasqueKeyPair::generate();
+        let identity = crate::h2::MasqueTlsIdentity::new(
+            key.private_sec1_der().unwrap(),
+            &key.public_spki_der().unwrap(),
+            "172.16.0.2".parse().unwrap(),
+            "2001:db8::2".parse().unwrap(),
+        )
+        .unwrap();
+        let leases = Arc::new(AtomicUsize::new(0));
+        let protector: Arc<dyn crate::socket::SocketProtector> =
+            Arc::new(Protector(leases.clone()));
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            race_batch(targets, None, move |endpoint, cancellation| {
+                let identity = identity.clone();
+                let protector = protector.clone();
+                async move {
+                    crate::h3::connect_h3_with_cancellation(
+                        endpoint,
+                        "blackhole.test",
+                        &identity,
+                        crate::h3::H3ConnectSettings {
+                            inner_mtu: usize::from(usque_core::config::DEFAULT_MTU),
+                            congestion_control: Default::default(),
+                        },
+                        protector,
+                        None,
+                        cancellation,
+                    )
+                    .await
+                    .map(|tunnel| crate::tunnel::MasqueTunnel::Http3(Box::new(tunnel)))
+                }
+            }),
+        )
+        .await
+        .expect("native H3 timeout must finish loser cleanup before fallback");
+        let error = match result {
+            Ok(_) => panic!("silent peers cannot complete QUIC"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .failure(Some(usque_core::Transport::Http3), None)
+                .fallback_allowed,
+            "{error}"
+        );
+        assert_eq!(leases.load(Ordering::SeqCst), 0);
+        drop(peers);
+    }
+
     #[test]
     fn h2_cycle_is_finite_unique_and_contains_fixed_h3_hosts() {
         let policy = policy();
