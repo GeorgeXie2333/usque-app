@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,6 +40,17 @@ class EndpointEngine extends FakeEngineClient {
       values,
       changedFields,
     );
+  }
+}
+
+class DelayedEndpointEngine extends EndpointEngine {
+  final requested = Completer<void>();
+  final reply = Completer<EngineCapabilities?>();
+
+  @override
+  Future<EngineCapabilities?> getCapabilities() {
+    if (!requested.isCompleted) requested.complete();
+    return reply.future;
   }
 }
 
@@ -349,6 +362,72 @@ void main() {
     await apply(tester, app);
     expect(engine.submitted!.endpointSelection, EndpointSelection.custom);
   });
+
+  testWidgets(
+    'late endpoint capabilities refresh controls without losing drafts',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 1000);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({
+        'onboarding_complete': true,
+        'update_checks_enabled': false,
+      });
+      final engine = DelayedEndpointEngine()
+        ..legacyProfilesImported = true
+        ..storedProfiles = [
+          UsqueProfile.defaultProfile().copyWith(
+            endpointSelection: EndpointSelection.custom,
+          ),
+        ];
+      final app = AppController(engine);
+      addTearDown(app.dispose);
+      final initializing = app.initialize();
+      await tester.pump();
+      expect(engine.requested.isCompleted, isTrue);
+      expect(app.initialized, isTrue);
+      app.localePreference = LocalePreference.english;
+      await tester.pumpWidget(
+        workflowHost(app, home: AdvancedSettingsScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      final selector = find.byKey(const ValueKey('endpoint-selection'));
+      expect(
+        tester
+            .widget<SegmentedButton<EndpointSelection>>(selector)
+            .segments
+            .first
+            .enabled,
+        isFalse,
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Endpoint IPv4'),
+        '192.0.2.45',
+      );
+      engine.reply.complete(
+        const EngineCapabilities(
+          networkSettingsApplication: true,
+          automaticEndpoints: true,
+        ),
+      );
+      await tester.pump();
+      await initializing;
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SegmentedButton<EndpointSelection>>(selector)
+            .segments
+            .first
+            .enabled,
+        isTrue,
+      );
+      expect(find.text(app.strings.get('endpoint_unsupported')), findsNothing);
+      await apply(tester, app);
+      expect(engine.submitted!.endpointIpv4, '192.0.2.45');
+      expect(engine.submitted!.endpointSelection, EndpointSelection.custom);
+    },
+  );
 
   testWidgets('Zero Trust hides selection and preserves the consumer mode', (
     tester,

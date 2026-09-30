@@ -188,3 +188,78 @@ network.
 Android device reproduction, JNI/batch-backend runtime verification and live
 authenticated H2 candidate measurements remain `not_run`. The Android
 connection timeline/error code is still needed to determine its failure stage.
+
+## Endpoint review fixes
+
+Validation date: 2026-10-01. The patched development tree is based on
+`678d80181f42660b536ea87eae3c9e0242bd44dd`; the four fixes are committed
+separately after validation. This record does not identify a complete immutable
+source snapshot and is not signed release evidence.
+
+The changes remove Android's address-prefix inference for dormant automatic
+endpoints, rebuild the automatic underlay when enabling VPN from proxy mode,
+retry temporary startup capability failures, and refresh the settings form when
+capabilities arrive without replacing drafts. Custom addresses have no pool
+restriction. Active Custom endpoint/DNS collision checks remain in place.
+
+Regression coverage includes organization-range dormant addresses, arbitrary
+Custom address families, cold application planning across all transport policies
+with Kill Switch on and off, capability recovery with automatic startup and user
+disconnect intent, and late capability arrival with a pending address draft.
+Existing hot-attach rollback tests now explicitly exercise Custom mode.
+
+The Windows x64 environment used locked Rust 1.97.1, Flutter 3.44.7 at
+`84fc5cbb223bc12f83d65b647ff8a56caf779ffd`, pinned Android NDK 29.0.14206865
+and SDK CMake 3.22.1, and process-local Temurin 17.0.20+8. Flutter/Dart came
+from `apps/usque_gui/android/local.properties`; Python 3.12.14 came from the
+bundled runtime. No global toolchain settings were changed.
+
+Commands start at the repository root unless a directory is specified.
+
+| Exact command | Result |
+| --- | --- |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | Passed; locked workspace/all-targets with warnings denied |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | Passed; zero failures, existing isolation/credential/benchmark tests explicitly ignored |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | Passed; release compile only |
+| `& ./tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | Passed; pinned NDK and SDK CMake |
+| `pwsh -NoProfile -File tool/check_source.ps1` | Passed; supported native environment initialized by the Windows helper in the same session |
+| `python tool/check_repository_policy.py` | Passed |
+| `git diff --check` | Passed |
+
+In `apps/usque_gui`, using the pinned SDK:
+
+| Exact command | Result |
+| --- | --- |
+| `flutter pub get --enforce-lockfile` | Passed |
+| `dart format --output=none --set-exit-if-changed lib test` | Passed; 195 files, zero changes |
+| `flutter analyze --no-pub` | Passed; no issues |
+| `flutter test --no-pub test/audit_connection_test.dart test/endpoint_selection_test.dart` | Passed; 22 regressions/workflow tests |
+| `flutter test --no-pub` | Passed; 734 tests including exact Windows goldens |
+| `flutter build apk --debug --config-only --no-pub` | Passed; configuration only |
+| `& ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .` | Passed |
+| `flutter build windows --release --no-pub --split-debug-info=build/symbols/windows` | Passed; application not launched |
+
+In `apps/usque_gui/android`, using the process-local pinned JDK:
+
+| Exact command | Result |
+| --- | --- |
+| `.\gradlew.bat --no-daemon :app:ktlintCheck` | Passed |
+| `.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug` | Passed; 277 JVM tests, zero failures/errors/skips and no lint findings |
+
+Earlier gate attempts caught a cancellation test using an inactive identity
+flow and two hot-attach fixtures still using Automatic defaults. The cancellation
+test now disconnects an observed connection; the hot-attach fixtures explicitly
+use Custom, with separate Automatic cold-planning coverage. Only successful
+completed reruns are reported as passes.
+
+No egress allowlist, certificate pin, WFP permit, or cleanup check was widened.
+Automatic VPN attachment reuses the existing cold-reconnect cleanup and
+fail-closed startup paths. These fixes add no credentials, address logging,
+telemetry, or diagnostic upload. Generated JNI, symbols and build outputs are
+excluded from the commits; no MSI or release APK was produced or installed.
+
+Snapshot-VM Wintun/WFP and restoration, Android device/emulator lifecycle,
+external IPv4/IPv6/DNS/leak observation, and controlled performance validation
+remain `not_run`. The earlier live Android H3-to-H2 report remains unresolved;
+these deterministic fixes and compile-only builds do not establish its cause
+or a live-network resolution.

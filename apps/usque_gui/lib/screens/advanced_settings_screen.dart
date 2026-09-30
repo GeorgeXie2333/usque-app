@@ -10,6 +10,7 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/context_help_button.dart';
+import '../widgets/controller_selector.dart';
 import '../widgets/direct_dns_editor.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
@@ -164,7 +165,13 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ControllerSelector<EngineCapabilities?>(
+    controller: widget.controller,
+    selector: (controller) => controller.engineCapabilities,
+    builder: (context, _) => _buildSettings(context),
+  );
+
+  Widget _buildSettings(BuildContext context) {
     final strings = widget.controller.strings;
     final l4Available =
         widget.controller.engineCapabilities?.l4Available ?? false;

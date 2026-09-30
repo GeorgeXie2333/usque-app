@@ -21,6 +21,7 @@ Automatic ignores the saved custom pair, including organization-range addresses.
 Enabling the VPN output from an Automatic proxy-only connection reconnects the
 underlay so its sockets acquire the new VPN operation's exact protection leases.
 Startup retries temporary capability-query failures before automatic connection.
+The endpoint picker refreshes when capabilities arrive without replacing drafts.
 
 打开 **设置 → 高级网络设置 → 端点选择**，选择 **自动选择** 或 **自定义**，再点击
 **应用修改**。新安装和恢复默认使用自动选择；升级保留已有自定义端点。切换模式
@@ -31,6 +32,7 @@ Startup retries temporary capability-query failures before automatic connection.
 自定义地址；仅对当前生效的自定义端点检查 VPN DNS 冲突。
 从自动端点的代理连接开启系统 VPN 时会重新连接，以取得新 VPN 会话的端点保护。
 启动时能力查询暂时失败会自动重试。
+能力信息返回后端点选择控件立即刷新，并保留未应用的草稿。
 
 | Transport | Free IPv4 | Plus IPv4 | Free IPv6 | Plus IPv6 |
 | --- | --- | --- | --- | --- |
