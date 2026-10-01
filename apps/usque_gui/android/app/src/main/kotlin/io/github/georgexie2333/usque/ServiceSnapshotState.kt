@@ -285,6 +285,8 @@ internal class ServiceSnapshotState {
         }
 
     fun noteUnderlyingNetworkChange(networkPresent: Boolean) {
+        // A physical callback cannot revoke a terminal failure or authorize a restart.
+        if (phase == "error") return
         errorCode = null
         if (!networkPresent) {
             phase = "reconnecting"

@@ -97,6 +97,38 @@ class UsqueVpnService : VpnService() {
     private val tunnel = AtomicReference<ParcelFileDescriptor?>()
     private val nativeRuntimeActive = AtomicBoolean()
     private val nativeStops = NativeStopTracker()
+    private val failedSessionRecovery: FailedSessionRecovery =
+        FailedSessionRecovery(
+            suspendSession = {
+                nativeRuntimeActive.set(false)
+                connectionGeneration.incrementAndGet()
+                stopStatusTask()
+                diagnosticProbes.cancel()
+                NativeEngine.cancel()
+                // Retain Java's blocking TUN while the old native owner retires.
+                val killSwitchEnabled = snapshotState.killSwitchEnabled
+                snapshotState.reset("reconnecting")
+                snapshotState.killSwitchEnabled = killSwitchEnabled
+                updateNotification()
+                notifyTileStateChanged()
+                broadcastSnapshot()
+            },
+            stop = { completed ->
+                submitNativeStop { confirmed -> mainHandler.post { completed(confirmed) } }
+            },
+            schedule = { delay, action -> mainHandler.postDelayed({ action() }, delay) },
+            restart = {
+                val profile = activeProfileJson.get()
+                if (canRecoverConnectIpSession() && profile != null) {
+                    beginConnection(profile, newSession = false, networkRecovery = true)
+                } else {
+                    failedSessionRecovery.cancel()
+                }
+            },
+            cleanupFailed = {
+                fail(connectionGeneration.get(), "Native cleanup is not confirmed. Retry before reconnecting.")
+            },
+        )
     private val chainNetworkRecovery: ChainNetworkRecovery =
         ChainNetworkRecovery(
             suspendSession = {
@@ -467,6 +499,7 @@ class UsqueVpnService : VpnService() {
 
     override fun onDestroy() {
         val previousLogContext = currentLogContext()
+        failedSessionRecovery.cancel()
         chainNetworkRecovery.cancel()
         diagnosticProbes.cancel()
         if (!clearAllRequested.get()) {
@@ -508,10 +541,14 @@ class UsqueVpnService : VpnService() {
             settingsToken != null && settingsApplication.owns(settingsToken, previousGeneration) &&
                 settingsApplication.phase == NetworkSettingsApplicationTracker.Phase.RECONFIGURING
         if (settingsToken != null && !continuingSettings) return
-        if (!networkRecovery) chainNetworkRecovery.cancel()
+        if (!networkRecovery) {
+            failedSessionRecovery.cancel()
+            chainNetworkRecovery.cancel()
+        }
         var profileJson = requestedProfileJson
         diagnosticProbes.cancel()
         if (profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
+            failedSessionRecovery.cancel()
             chainNetworkRecovery.cancel()
             startForeground(
                 VpnNotificationController.NOTIFICATION_ID,
@@ -540,6 +577,7 @@ class UsqueVpnService : VpnService() {
                 }
                 VpnReconfigure.canonicalMode(tunnelEnabled) to tunnelEnabled
             } catch (error: Exception) {
+                failedSessionRecovery.cancel()
                 chainNetworkRecovery.cancel()
                 startForeground(
                     VpnNotificationController.NOTIFICATION_ID,
@@ -560,6 +598,7 @@ class UsqueVpnService : VpnService() {
                 .putString(LAST_PROFILE, if (newSession) profileJson else desiredProfileJson)
                 .commit()
         ) {
+            failedSessionRecovery.cancel()
             chainNetworkRecovery.cancel()
             startForeground(
                 VpnNotificationController.NOTIFICATION_ID,
@@ -599,7 +638,9 @@ class UsqueVpnService : VpnService() {
         } else {
             settingsApplication.cancel()
         }
-        networkMonitor.bumpGeneration()
+        // Recovery already retired the old native owner. Keep the physical
+        // generation so retries on the same network retain their backoff.
+        if (!networkRecovery) networkMonitor.bumpGeneration()
         activeProfileJson.set(profileJson)
         activeMode.set(mode)
         recordLog(
@@ -638,6 +679,7 @@ class UsqueVpnService : VpnService() {
                     incomingIdentity != null &&
                         lastTunIdentity.get()?.sameForReuse(incomingIdentity) == true,
                 userRequestedDisconnect = false,
+                networkRecovery = networkRecovery,
             )
         pendingTunRestart = decision
 
@@ -658,7 +700,7 @@ class UsqueVpnService : VpnService() {
                     closeQuietly(staleDescriptor)
                 }
                 if (!isCurrent(generation)) return@execute
-                startConnection(generation, profileJson)
+                startConnection(generation, profileJson, networkRecovery)
             } catch (error: Exception) {
                 fail(
                     generation,
@@ -1070,6 +1112,7 @@ class UsqueVpnService : VpnService() {
     private fun startConnection(
         generation: Long,
         profileJson: String,
+        networkRecovery: Boolean = false,
     ) {
         if (!NativeEngine.isReady()) {
             fail(generation, "The Rust data channel is unavailable; no VPN interface was created.")
@@ -1206,11 +1249,17 @@ class UsqueVpnService : VpnService() {
                     proxyPassword.fill(0)
                 }
             if (startResult != NativeEngine.OK) {
+                // A superseded startup may share the TUN retained by recovery.
+                // Retire its native owner without closing that Java descriptor.
+                if (!isCurrent(generation)) {
+                    stopNativeRuntime(beginNativeStop())
+                    return
+                }
                 val failure = nativeStartFailure(startResult)
                 val splitDnsStartupFailed =
                     failure.code == "ANDROID_SPLIT_DNS_FAILED" ||
                         failure.code == "ANDROID_GEO_RULES_UNAVAILABLE"
-                if (!profile.killSwitch || splitDnsStartupFailed) {
+                if ((!profile.killSwitch && !networkRecovery) || splitDnsStartupFailed) {
                     tunnel.compareAndSet(descriptor, null)
                     closeQuietly(descriptor)
                     lastTunIdentity.set(null)
@@ -1250,7 +1299,7 @@ class UsqueVpnService : VpnService() {
             }
             if (!isCurrent(generation)) {
                 stopNativeRuntime(beginNativeStop())
-                if (!profile.killSwitch) {
+                if (!profile.killSwitch && !networkRecovery) {
                     tunnel.compareAndSet(descriptor, null)
                     closeQuietly(descriptor)
                     lastTunIdentity.set(null)
@@ -1260,6 +1309,7 @@ class UsqueVpnService : VpnService() {
             mainHandler.post {
                 if (isCurrent(generation)) {
                     nativeRuntimeActive.set(true)
+                    failedSessionRecovery.connected()
                     chainNetworkRecovery.cancel()
                     snapshotState.killSwitchEnabled = profile.killSwitch
                     ensureStatusTask()
@@ -1644,6 +1694,7 @@ class UsqueVpnService : VpnService() {
         request: Message? = null,
         terminalFailure: ConnectionFailure? = null,
     ) {
+        failedSessionRecovery.cancel()
         chainNetworkRecovery.cancel()
         diagnosticProbes.cancel()
         recoveryPreferences.edit().remove(RECOVERY_PROFILE).commit()
@@ -1717,6 +1768,7 @@ class UsqueVpnService : VpnService() {
             return
         }
         AndroidLocaleController.clear(this)
+        failedSessionRecovery.cancel()
         chainNetworkRecovery.cancel()
         val previousLogContext = currentLogContext()
         val generation = connectionGeneration.incrementAndGet()
@@ -1828,6 +1880,8 @@ class UsqueVpnService : VpnService() {
         selectedNetwork: Network?,
         generation: Long,
     ) {
+        val recoveringSession =
+            failedSessionRecovery.networkChanged(generation, selectedNetwork != null)
         val chainRunning =
             nativeRuntimeActive.get() && !runtimeReconfigureInFlight && !settingsApplication.busy &&
                 activeProfileJson.get()?.let { profile ->
@@ -1842,7 +1896,7 @@ class UsqueVpnService : VpnService() {
             mode = activeMode.get(),
         )
 
-        if (recoveringChain || nativeRuntimeActive.get() || tunnel.get() != null) {
+        if (recoveringSession || recoveringChain || nativeRuntimeActive.get() || tunnel.get() != null) {
             if (tunnel.get() != null) {
                 setUnderlyingNetworks(
                     selectedNetwork?.let { arrayOf(it) } ?: emptyArray(),
@@ -1854,8 +1908,24 @@ class UsqueVpnService : VpnService() {
             updateNotification()
             notifyTileStateChanged()
             broadcastSnapshot()
-            if (!recoveringChain) ensureStatusTask()
+            if (!recoveringSession && !recoveringChain && nativeRuntimeActive.get() && snapshotState.phase != "error") {
+                ensureStatusTask()
+            }
         }
+    }
+
+    private fun canRecoverConnectIpSession(): Boolean {
+        if (destroyed || clearAllRequested.get() || activeMode.get() != "vpn" ||
+            tunnel.get()?.fileDescriptor?.valid() != true || runtimeReconfigureInFlight ||
+            settingsApplication.busy || settingsUncertain
+        ) {
+            return false
+        }
+        val profile = activeProfileJson.get() ?: return false
+        return runCatching {
+            val parsed = AndroidVpnProfile.parse(profile)
+            parsed.dataPlane == "connect_ip" && !ChainProfileFields.enabled(JSONObject(profile))
+        }.getOrDefault(false)
     }
 
     private fun awaitPhysicalNetwork(
@@ -2190,7 +2260,29 @@ class UsqueVpnService : VpnService() {
                 return
             }
             VpnGateFields.stoppedStatus(gate)?.let { snapshotState.vpnGateJson = it }
-            // Keep the TUN open and fail closed until the user retries or disconnects.
+            val recoverable =
+                canRecoverConnectIpSession() &&
+                    ConnectIpRecoveryPolicy.canRecoverFailure(snapshotState.failure, snapshotState.errorCode)
+            if (recoverable) {
+                recordLog(
+                    AndroidLogStore.Event.CONNECTION_FAILED,
+                    phase = "error",
+                    mode = activeMode.get(),
+                    transport = snapshotState.transport,
+                    errorType = snapshotState.errorCode,
+                )
+            }
+            if (recoverable &&
+                failedSessionRecovery.failed(
+                    retryable = true,
+                    networkGeneration = networkMonitor.generation(),
+                    networkPresent = networkMonitor.underlyingNetwork() != null,
+                )
+            ) {
+                return
+            }
+            failedSessionRecovery.cancel()
+            // Terminal failures retain the blocking TUN and their error evidence.
             stopStatusTask()
         }
         if (merge.phaseChanged) {
@@ -2279,9 +2371,31 @@ class UsqueVpnService : VpnService() {
             if (!isCurrent(generation)) return@post
             chainNetworkRecovery.cancel()
             if (disconnectFailedVpnGate(code, message, gateStatus)) return@post
+            val recoverable =
+                failedSessionRecovery.active && canRecoverConnectIpSession() &&
+                    ConnectIpRecoveryPolicy.canRecoverStartup(code)
+            if (recoverable) {
+                recordLog(
+                    AndroidLogStore.Event.CONNECTION_FAILED,
+                    phase = "error",
+                    mode = activeMode.get(),
+                    errorType = code,
+                )
+            }
+            if (recoverable &&
+                failedSessionRecovery.failed(
+                    retryable = true,
+                    networkGeneration = networkMonitor.generation(),
+                    networkPresent = networkMonitor.underlyingNetwork() != null,
+                )
+            ) {
+                return@post
+            }
+            failedSessionRecovery.cancel()
             nativeRuntimeActive.set(false)
             snapshotState.phase = "error"
             snapshotState.errorCode = code
+            snapshotState.failure = null
             if (gateStatus != null) {
                 snapshotState.vpnGateJson = gateStatus
                 snapshotState.activeFrontends = emptyList()
@@ -2460,38 +2574,17 @@ class UsqueVpnService : VpnService() {
         descriptor: Int,
         expectedGeneration: Long,
         requireVpnProtection: Boolean,
-    ): Int {
-        // JNI result contract: 0 = bound, 1 = stale generation, 2 = rejected.
-        if (descriptor < 0 || expectedGeneration < 0 || destroyed) return 2
-        if (networkMonitor.generation() != expectedGeneration) return 1
-        val network = networkMonitor.networkForGeneration(expectedGeneration) ?: return 1
-        if (requireVpnProtection && !protect(descriptor)) return 2
-        if (networkMonitor.generation() != expectedGeneration) return 1
-        if (destroyed) return 2
-        val duplicate =
-            try {
-                ParcelFileDescriptor.fromFd(descriptor)
-            } catch (_: Exception) {
-                return 2
-            }
-        try {
-            network.bindSocket(duplicate.fileDescriptor)
-        } catch (_: Exception) {
-            return 2
-        } finally {
-            closeQuietly(duplicate)
-        }
-        if (destroyed) return 2
-        return if (
-            networkMonitor.generation() == expectedGeneration &&
-            networkMonitor.networkForGeneration(expectedGeneration)?.networkHandle ==
-            network.networkHandle
-        ) {
-            0
-        } else {
-            1
-        }
-    }
+    ): Int =
+        UnderlyingSocketBinding<Network, ParcelFileDescriptor>(
+            destroyed = { destroyed },
+            currentGeneration = networkMonitor::generation,
+            networkForGeneration = networkMonitor::networkForGeneration,
+            networkHandle = { it.networkHandle },
+            protect = { protect(it) },
+            duplicate = ParcelFileDescriptor::fromFd,
+            bindToNetwork = { network, copy -> network.bindSocket(copy.fileDescriptor) },
+            close = ::closeQuietly,
+        ).bind(descriptor, expectedGeneration, requireVpnProtection)
 
     @Keep
     fun getUnderlyingDnsServers(): Array<String> =

@@ -97,4 +97,68 @@ class TunRestartPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun automaticNetworkRecoveryRetainsMatchingTunWithoutKillSwitch() {
+        assertEquals(
+            TunRestartDecision.RETAIN,
+            TunRestartPolicy.decide(
+                killSwitch = false,
+                tunnelFrontend = true,
+                hasCurrentFd = true,
+                sameIdentity = identity.sameForReuse(identity),
+                userRequestedDisconnect = false,
+                networkRecovery = true,
+            ),
+        )
+    }
+
+    @Test
+    fun automaticNetworkRecoveryReplacesChangedTunBeforeClosingWithoutKillSwitch() {
+        assertEquals(
+            TunRestartDecision.REPLACE_NEW_FIRST,
+            TunRestartPolicy.decide(
+                killSwitch = false,
+                tunnelFrontend = true,
+                hasCurrentFd = true,
+                sameIdentity = identity.sameForReuse(identity.copy(mtu = 1400)),
+                userRequestedDisconnect = false,
+                networkRecovery = true,
+            ),
+        )
+    }
+
+    @Test
+    fun explicitDisconnectOverridesAutomaticNetworkRecovery() {
+        for (killSwitch in listOf(false, true)) {
+            assertEquals(
+                TunRestartDecision.TEARDOWN,
+                TunRestartPolicy.decide(
+                    killSwitch = killSwitch,
+                    tunnelFrontend = true,
+                    hasCurrentFd = true,
+                    sameIdentity = true,
+                    userRequestedDisconnect = true,
+                    networkRecovery = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun automaticNetworkRecoveryStillTearsDownRemovedFrontendOrAbsentTun() {
+        for ((tunnelFrontend, hasCurrentFd) in listOf(false to true, true to false)) {
+            assertEquals(
+                TunRestartDecision.TEARDOWN,
+                TunRestartPolicy.decide(
+                    killSwitch = false,
+                    tunnelFrontend = tunnelFrontend,
+                    hasCurrentFd = hasCurrentFd,
+                    sameIdentity = true,
+                    userRequestedDisconnect = false,
+                    networkRecovery = true,
+                ),
+            )
+        }
+    }
 }

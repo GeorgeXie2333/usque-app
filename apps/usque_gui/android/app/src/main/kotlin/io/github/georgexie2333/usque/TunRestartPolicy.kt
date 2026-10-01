@@ -2,8 +2,8 @@ package io.github.georgexie2333.usque
 
 /**
  * Decides whether an Android reconnect may keep the existing VpnService TUN
- * file descriptor. Kill Switch armed + same addresses/DNS/MTU/routes retains
- * the fd so physical traffic stays black-holed while native restarts.
+ * file descriptor. Automatic network recovery or an armed Kill Switch keeps
+ * matching addresses/DNS/MTU/routes in place while native restarts.
  */
 internal enum class TunRestartDecision {
     RETAIN,
@@ -56,8 +56,9 @@ internal object TunRestartPolicy {
         hasCurrentFd: Boolean,
         sameIdentity: Boolean,
         userRequestedDisconnect: Boolean,
+        networkRecovery: Boolean = false,
     ): TunRestartDecision {
-        if (userRequestedDisconnect || !tunnelFrontend || !hasCurrentFd || !killSwitch) {
+        if (userRequestedDisconnect || !tunnelFrontend || !hasCurrentFd || (!killSwitch && !networkRecovery)) {
             return TunRestartDecision.TEARDOWN
         }
         return if (sameIdentity) {

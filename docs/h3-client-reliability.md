@@ -121,6 +121,23 @@ keeps timed retries. These are scheduling hints, never authorization to bypass
 exact-generation socket protection. L4 demand-driven replacement, downstream chain
 recovery and platform-service recovery retain their separate policies.
 
+If an established Android CONNECT-IP worker exits with an allowlisted retryable
+network failure, the service retains its connection intent and blocking TUN,
+confirms native cleanup, and starts one replacement on a usable physical network.
+The first attempt waits 250 milliseconds; failed replacements use 1/2/4/8/15/30
+second delays. A newer usable physical generation resets that backoff, while
+duplicate callbacks do not. Offline recovery waits without handshakes. Manual
+connection, disconnect, service destruction, terminal failures, and unconfirmed
+cleanup revoke pending work. Initial connection failures do not start this loop.
+Live sessions continue using native migration and reconnect scheduling.
+
+Android socket binding keeps protection failures terminal. A binding failure
+caused by a changed generation or netd's `ENONET` (the selected network no longer
+exists) rejects that socket as a stale path so native recovery can retry exact
+protection and binding. Other binding failures remain rejected; no unprotected
+socket or fallback route is authorized. Physical-network callbacks also preserve
+terminal error evidence until an explicit retry or disconnect.
+
 ## HTTP/2 liveness
 
 H2 retains its five-second PING cadence and permits only one outstanding PING.

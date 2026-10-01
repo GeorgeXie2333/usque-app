@@ -105,6 +105,23 @@ class ServiceSnapshotStateTest {
         assertNull(snapshot.warning)
     }
 
+    @Test
+    fun physicalNetworkChangesPreserveTerminalFailureEvidence() {
+        val snapshot = state()
+        snapshot.phase = "error"
+        snapshot.errorCode = "SOCKET_PROTECTION_FAILED"
+        snapshot.warning = "Socket protection was rejected."
+        val failure = ServiceSnapshotState.FailureFields("SOCKET_PROTECTION_FAILED", "socket_protection")
+        snapshot.failure = failure
+        for (present in listOf(false, true, false, true)) {
+            snapshot.noteUnderlyingNetworkChange(present)
+            assertEquals("error", snapshot.phase)
+            assertEquals("SOCKET_PROTECTION_FAILED", snapshot.errorCode)
+            assertEquals("Socket protection was rejected.", snapshot.warning)
+            assertEquals(failure, snapshot.failure)
+        }
+    }
+
     private fun platform(
         tunnelOpen: Boolean = true,
         activeMode: String? = "vpn",
