@@ -1,6 +1,12 @@
 /// Supplemental feature strings for Persian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowFa = <String, String>{
+  'home_local_proxies': 'پروکسی‌های محلی',
+  'home_manage_proxies': 'مدیریت پروکسی‌ها',
+  'home_tun': 'آداپتور شبکهٔ مجازی (TUN)',
+  'home_system_proxy': 'پروکسی سیستم',
+  'home_options': 'گزینه‌ها',
+  'home_system_proxy_requires_http': 'ابتدا پروکسی محلی HTTP را فعال کنید.',
   'local_proxy_settings': 'تنظیمات پراکسی محلی',
   'proxy_switches_hint': 'تغییر کلیدها بلافاصله اعمال می‌شود.',
   'cc_label': 'کنترل ازدحام HTTP/3',
@@ -443,7 +449,7 @@ const Map<String, String> kChainFa = <String, String>{
   'allowed': 'مقصدهای مجاز',
   'dns': 'DNS',
   'addresses': 'نشانی‌های تونل',
-  'address_family': 'نسخهٔ IP',
+  'address_family': 'خانوادهٔ آدرس',
   'transport': 'انتقال',
   'endpoint': 'کارساز',
   'restricted': 'مقصدهای بیرون از AllowedIPs در مسیر پروکسی مسدود می‌شوند.',

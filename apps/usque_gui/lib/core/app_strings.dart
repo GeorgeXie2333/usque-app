@@ -73,6 +73,8 @@ class AppStrings {
     'nq_bytes',
     'nq_stream_window',
     'home_kill_switch',
+    // French uses the same spelling for this ordinary UI noun.
+    'home_options',
     'dns',
     'error_field',
     'password',

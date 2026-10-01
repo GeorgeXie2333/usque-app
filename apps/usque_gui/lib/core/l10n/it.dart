@@ -60,7 +60,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'error': 'Errore di connessione',
   'active_profile': 'Account attuale',
   'protocol': 'Protocollo',
-  'address_family': 'Versione IP',
+  'address_family': 'Famiglia di indirizzi',
   'duration': 'Durata',
   'download': 'Download',
   'upload': 'Upload',

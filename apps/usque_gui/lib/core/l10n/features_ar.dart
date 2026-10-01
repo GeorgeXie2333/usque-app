@@ -1,6 +1,12 @@
 /// Supplemental feature strings for Arabic.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowAr = <String, String>{
+  'home_local_proxies': 'الوكلاء المحليون',
+  'home_manage_proxies': 'إدارة الوكلاء',
+  'home_tun': 'محوّل شبكة افتراضي (TUN)',
+  'home_system_proxy': 'وكيل النظام',
+  'home_options': 'خيارات',
+  'home_system_proxy_requires_http': 'فعّل وكيل HTTP المحلي أولاً.',
   'local_proxy_settings': 'إعدادات الوكيل المحلي',
   'proxy_switches_hint': 'تسري تغييرات المفاتيح فورًا.',
   'cc_label': 'التحكم في ازدحام HTTP/3',
@@ -434,7 +440,7 @@ const Map<String, String> kChainAr = <String, String>{
   'allowed': 'الوجهات المسموح بها',
   'dns': 'DNS',
   'addresses': 'عناوين النفق',
-  'address_family': 'إصدار IP',
+  'address_family': 'عائلة العناوين',
   'transport': 'النقل',
   'endpoint': 'الخادم',
   'restricted': 'تُحظر الوجهات خارج AllowedIPs على مسار الوكيل.',

@@ -21,6 +21,12 @@ import 'features_zh_tw.dart';
 // Shared workflow copy is keyed by AppStrings catalog id. Missing ids fall
 // back to English. Companion locale maps live in features_*.dart.
 const Map<String, String> kUiWorkflowEn = <String, String>{
+  'home_local_proxies': 'Local proxies',
+  'home_manage_proxies': 'Manage proxies',
+  'home_tun': 'Virtual network adapter (TUN)',
+  'home_system_proxy': 'System proxy',
+  'home_options': 'Options',
+  'home_system_proxy_requires_http': 'Enable the HTTP local proxy first.',
   'cc_label': 'HTTP/3 congestion control',
   'cc_help': 'Applies on your next manual connection.',
   'cc_upgrade': 'Update Usque in Settings to use this option.',
@@ -76,6 +82,12 @@ const Map<String, String> kUiWorkflowEn = <String, String>{
 };
 
 const Map<String, String> kUiWorkflowZhCn = <String, String>{
+  'home_local_proxies': '本地代理',
+  'home_manage_proxies': '管理代理',
+  'home_tun': '虚拟网卡 (TUN)',
+  'home_system_proxy': '系统代理',
+  'home_options': '选项',
+  'home_system_proxy_requires_http': '请先启用 HTTP 本地代理。',
   'cc_label': 'HTTP/3 拥塞控制算法',
   'cc_help': '下次手动连接生效。',
   'cc_upgrade': '请在“设置”中更新 Usque 后使用此选项。',

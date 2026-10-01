@@ -779,8 +779,8 @@ void main() {
       LocalePreference.traditionalChineseTaiwan,
       systemLocale: const Locale('en'),
     );
-    expect(hongKong.chain('address_family'), 'IP 版本');
-    expect(taiwan.chain('address_family'), 'IP 版本');
+    expect(hongKong.chain('address_family'), '位址族');
+    expect(taiwan.chain('address_family'), '位址族');
     expect(hongKong.chain('username'), '用戶名稱');
     expect(taiwan.chain('username'), '使用者名稱');
     expect(hongKong.chain('addresses'), '隧道地址');

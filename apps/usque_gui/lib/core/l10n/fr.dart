@@ -60,7 +60,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'error': 'Erreur de connexion',
   'active_profile': 'Compte actuel',
   'protocol': 'Protocole',
-  'address_family': 'Version IP',
+  'address_family': 'Famille d’adresses',
   'duration': 'Durée',
   'download': 'Téléchargement',
   'upload': 'Envoi',

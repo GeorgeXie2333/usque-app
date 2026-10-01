@@ -1,6 +1,13 @@
 /// Supplemental feature strings for Indonesian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowId = <String, String>{
+  'home_local_proxies': 'Proksi lokal',
+  'home_manage_proxies': 'Kelola proksi',
+  'home_tun': 'Adaptor jaringan virtual (TUN)',
+  'home_system_proxy': 'Proksi sistem',
+  'home_options': 'Opsi',
+  'home_system_proxy_requires_http':
+      'Aktifkan proksi HTTP lokal terlebih dahulu.',
   'local_proxy_settings': 'Pengaturan proksi lokal',
   'proxy_switches_hint': 'Sakelar langsung berlaku.',
   'cc_label': 'Kontrol kongesti HTTP/3',
@@ -455,7 +462,7 @@ const Map<String, String> kChainId = <String, String>{
   'allowed': 'Tujuan yang diizinkan',
   'dns': 'DNS',
   'addresses': 'Alamat terowongan',
-  'address_family': 'Versi IP',
+  'address_family': 'Keluarga alamat',
   'transport': 'Angkutan',
   'endpoint': 'Peladen',
   'restricted': 'Tujuan di luar AllowedIPs diblokir pada jalur proksi.',

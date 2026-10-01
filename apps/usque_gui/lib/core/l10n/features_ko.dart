@@ -1,6 +1,12 @@
 /// Supplemental feature strings for Korean.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowKo = <String, String>{
+  'home_local_proxies': '로컬 프록시',
+  'home_manage_proxies': '프록시 관리',
+  'home_tun': '가상 네트워크 어댑터 (TUN)',
+  'home_system_proxy': '시스템 프록시',
+  'home_options': '옵션',
+  'home_system_proxy_requires_http': '먼저 HTTP 로컬 프록시를 활성화하세요.',
   'local_proxy_settings': '로컬 프록시 설정',
   'proxy_switches_hint': '스위치 변경은 즉시 적용됩니다.',
   'cc_label': 'HTTP/3 혼잡 제어',
@@ -413,7 +419,7 @@ const Map<String, String> kChainKo = <String, String>{
   'allowed': '허용된 대상',
   'dns': 'DNS',
   'addresses': '터널 주소',
-  'address_family': 'IP 버전',
+  'address_family': '주소 패밀리',
   'transport': '전송 방식',
   'endpoint': '서버',
   'restricted': '프록시 경로에서는 AllowedIPs 범위 밖의 대상을 거부합니다.',

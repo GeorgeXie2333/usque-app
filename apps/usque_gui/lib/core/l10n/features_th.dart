@@ -1,6 +1,12 @@
 /// Supplemental feature strings for Thai.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowTh = <String, String>{
+  'home_local_proxies': 'พร็อกซีในเครื่อง',
+  'home_manage_proxies': 'จัดการพร็อกซี',
+  'home_tun': 'อะแดปเตอร์เครือข่ายเสมือน (TUN)',
+  'home_system_proxy': 'พร็อกซีของระบบ',
+  'home_options': 'ตัวเลือก',
+  'home_system_proxy_requires_http': 'เปิดใช้งานพร็อกซี HTTP ในเครื่องก่อน',
   'local_proxy_settings': 'การตั้งค่าพร็อกซีในเครื่อง',
   'proxy_switches_hint': 'สวิตช์มีผลทันที',
   'cc_label': 'การควบคุมความแออัด HTTP/3',
@@ -433,7 +439,7 @@ const Map<String, String> kChainTh = <String, String>{
   'allowed': 'ปลายทางที่อนุญาต',
   'dns': 'DNS',
   'addresses': 'ที่อยู่อุโมงค์',
-  'address_family': 'เวอร์ชัน IP',
+  'address_family': 'ตระกูลที่อยู่',
   'transport': 'การส่งข้อมูล',
   'endpoint': 'เซิร์ฟเวอร์',
   'restricted': 'ปลายทางนอกช่วง AllowedIPs จะถูกบล็อกบนเส้นทางพร็อกซี',

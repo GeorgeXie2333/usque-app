@@ -139,7 +139,7 @@ const kChainEn = <String, String>{
   'allowed': 'Allowed destinations',
   'dns': 'DNS',
   'addresses': 'Tunnel addresses',
-  'address_family': 'IP version',
+  'address_family': 'Address family',
   'transport': 'Transport',
   'endpoint': 'Server',
   'restricted':
@@ -280,7 +280,7 @@ const kChainZhCn = <String, String>{
   'allowed': '允许访问的目标',
   'dns': 'DNS',
   'addresses': '隧道地址',
-  'address_family': 'IP 版本',
+  'address_family': '地址族',
   'transport': '传输协议',
   'endpoint': '服务器',
   'restricted': '不在 AllowedIPs 范围内的目标无法经由此出口访问。',

@@ -57,7 +57,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'error': 'Kesalahan koneksi',
   'active_profile': 'Akun saat ini',
   'protocol': 'Protokol',
-  'address_family': 'Versi IP',
+  'address_family': 'Keluarga alamat',
   'duration': 'Durasi',
   'download': 'Unduh',
   'upload': 'Unggah',

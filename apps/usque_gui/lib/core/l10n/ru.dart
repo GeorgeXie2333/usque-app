@@ -56,7 +56,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'error': 'Ошибка подключения',
   'active_profile': 'Текущий аккаунт',
   'protocol': 'Протокол',
-  'address_family': 'Версия IP',
+  'address_family': 'Семейство адресов',
   'duration': 'Длительность',
   'download': 'Загрузка',
   'upload': 'Отправка',

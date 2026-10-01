@@ -1,6 +1,12 @@
 /// Supplemental feature strings for German.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowDe = <String, String>{
+  'home_local_proxies': 'Lokale Proxys',
+  'home_manage_proxies': 'Proxys verwalten',
+  'home_tun': 'Virtueller Netzwerkadapter (TUN)',
+  'home_system_proxy': 'Systemproxy',
+  'home_options': 'Optionen',
+  'home_system_proxy_requires_http': 'Aktiviere zuerst den lokalen HTTP-Proxy.',
   'local_proxy_settings': 'Lokale Proxy-Einstellungen',
   'proxy_switches_hint': 'Schalter wirken sofort.',
   'cc_label': 'HTTP/3-Überlastkontrolle',
@@ -486,7 +492,7 @@ const Map<String, String> kChainDe = <String, String>{
   'allowed': 'Zulässige Ziele',
   'dns': 'DNS',
   'addresses': 'Tunneladressen',
-  'address_family': 'IP-Version',
+  'address_family': 'Adressfamilie',
   'transport': 'Übertragung',
   'endpoint': 'Zielserver',
   'restricted':

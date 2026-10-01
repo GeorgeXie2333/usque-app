@@ -58,7 +58,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'error': 'خطای اتصال',
   'active_profile': 'حساب فعلی',
   'protocol': 'پروتکل',
-  'address_family': 'نسخهٔ IP',
+  'address_family': 'خانوادهٔ آدرس',
   'duration': 'مدت',
   'download': 'دانلود',
   'upload': 'آپلود',

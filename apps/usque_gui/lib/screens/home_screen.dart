@@ -14,13 +14,12 @@ import '../widgets/common.dart';
 import '../widgets/connection_ring.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/country_flag.dart';
+import '../widgets/home_desktop_controls.dart';
 import '../widgets/live_duration.dart';
 import '../widgets/mobile_home_panels.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
 import 'chain_proxy_screen.dart';
-import 'diagnostics_screen.dart';
-import 'network_quality_screen.dart';
 
 /// The instrument panel: one connection control, one status readout, and the
 /// live numbers that prove the tunnel is doing something.
@@ -32,9 +31,6 @@ class HomeScreen extends StatelessWidget {
 
   final AppController controller;
   final VoidCallback? onOpenVpnGate;
-
-  /// Below this the hero and the readout stack instead of sitting side by side.
-  static const double _splitWidth = 820;
 
   @override
   Widget build(BuildContext context) {
@@ -83,57 +79,150 @@ class HomeScreen extends StatelessWidget {
               ],
             )
           else
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final Widget hero = _ConnectionHero(
-                  controller: controller,
-                  strings: strings,
-                );
-                final Widget readout = _EngineReadout(
-                  controller: controller,
-                  strings: strings,
-                );
-                final bool split =
-                    constraints.maxWidth >= _splitWidth &&
-                    MediaQuery.textScalerOf(context).scale(14) <= 21;
-                final Widget location = _ExitPanel(
-                  controller: controller,
-                  strings: strings,
-                );
-                if (split) {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 5, child: hero),
-                      const SizedBox(width: 48),
-                      Expanded(
-                        flex: 4,
-                        child: PanelStack(
-                          spacing: 32,
-                          children: [readout, location],
-                        ),
-                      ),
-                    ],
-                  );
-                }
-                return PanelStack(
-                  spacing: 32,
-                  children: [hero, readout, location],
-                );
-              },
+            _DesktopHomeConnection(
+              controller: controller,
+              strings: strings,
+              onOpenChainProxy:
+                  onOpenVpnGate ??
+                  () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => ChainProxyScreen(controller: controller),
+                    ),
+                  ),
             ),
           if (!compact) ...[
             const SizedBox(height: 32),
             Divider(height: 1, color: UsqueTokens.of(context).hairline),
-            const SizedBox(height: 24),
+            _DesktopLocalProxies(controller: controller),
+            Divider(height: 1, color: UsqueTokens.of(context).hairline),
+            const SizedBox(height: 20),
             _TrafficGrid(controller: controller, strings: strings),
-            const SizedBox(height: 12),
-            _HomeTools(controller: controller),
           ],
         ],
       ),
     );
   }
+}
+
+class _DesktopHomeConnection extends StatelessWidget {
+  const _DesktopHomeConnection({
+    required this.controller,
+    required this.strings,
+    required this.onOpenChainProxy,
+  });
+
+  final AppController controller;
+  final AppStrings strings;
+  final VoidCallback onOpenChainProxy;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final hero = _ConnectionHero(controller: controller, strings: strings);
+      final controls = HomeDesktopControls(
+        controller: controller,
+        onOpenChainProxy: onOpenChainProxy,
+      );
+      if (constraints.maxWidth >= 860 &&
+          MediaQuery.textScalerOf(context).scale(14) <= 21) {
+        final controlWidth = constraints.maxWidth >= 940 ? 320.0 : 280.0;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: hero),
+            const SizedBox(width: 32),
+            SizedBox(width: controlWidth, child: controls),
+          ],
+        );
+      }
+      return PanelStack(spacing: 32, children: [hero, controls]);
+    },
+  );
+}
+
+typedef _LocalProxiesView = ({
+  bool http,
+  bool socks,
+  String httpAddress,
+  String socksAddress,
+});
+
+class _DesktopLocalProxies extends StatelessWidget {
+  const _DesktopLocalProxies({required this.controller});
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) => ControllerSelector<_LocalProxiesView>(
+    controller: controller,
+    active: (app) => app.section == AppSection.home,
+    selector: (app) {
+      final profile = app.activeProfile;
+      return (
+        http: profile.frontends.http,
+        socks: profile.frontends.socks5,
+        httpAddress: profile.proxy.httpListeners.join(', '),
+        socksAddress: profile.proxy.socksListeners.join(', '),
+      );
+    },
+    builder: (context, view) {
+      final strings = controller.strings;
+      Widget output(IconData icon, String name, bool enabled, String address) =>
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Text(name, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(width: 8),
+              Flexible(child: MonoValue(value: enabled ? address : '—')),
+            ],
+          );
+      final values = Wrap(
+        spacing: 24,
+        runSpacing: 12,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            strings.get('home_local_proxies'),
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          output(LucideIcons.globe, 'HTTP', view.http, view.httpAddress),
+          output(LucideIcons.network, 'SOCKS5', view.socks, view.socksAddress),
+        ],
+      );
+      final manage = TextButton.icon(
+        key: const ValueKey('home-manage-proxies'),
+        onPressed: () => controller.selectSection(AppSection.proxy),
+        icon: const Icon(LucideIcons.chevronRight, size: 16),
+        iconAlignment: IconAlignment.end,
+        label: Text(strings.get('home_manage_proxies')),
+      );
+      return ContentSection(
+        key: const ValueKey('home-local-proxies'),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: LayoutBuilder(
+          builder: (context, constraints) =>
+              constraints.maxWidth >= 760 &&
+                  MediaQuery.textScalerOf(context).scale(14) <= 21
+              ? Row(
+                  children: [
+                    Expanded(child: values),
+                    const SizedBox(width: 16),
+                    manage,
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [values, const SizedBox(height: 8), manage],
+                ),
+        ),
+      );
+    },
+  );
 }
 
 class _NarrowBrandHeader extends StatelessWidget {
@@ -455,37 +544,21 @@ class _ConnectionHero extends StatelessWidget {
           ? controller.retry
           : () => _connectOrRepairIdentity(context),
     );
-    Widget account() => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          strings.get('active_profile'),
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 5),
-        Tooltip(
-          message: view.profileName,
-          child: Text(
-            view.profileName,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleLarge,
-          ),
-        ),
-      ],
-    );
     Widget statusText() => Semantics(
       liveRegion: true,
       child: FadeThroughSwitcher(
+        alignment: compact
+            ? Alignment.center
+            : AlignmentDirectional.centerStart,
         child: Text(
           status,
           key: ValueKey(
             chainStatus.drivesHome ? chainStatus.labelKey : view.phase,
           ),
-          textAlign: TextAlign.center,
-          style: theme.textTheme.headlineSmall,
+          textAlign: compact ? TextAlign.center : TextAlign.start,
+          style: compact
+              ? theme.textTheme.headlineSmall
+              : theme.textTheme.headlineMedium,
         ),
       ),
     );
@@ -500,15 +573,6 @@ class _ConnectionHero extends StatelessWidget {
             icon: const Icon(LucideIcons.refreshCw),
             label: Text(strings.get('retry')),
           ),
-        OutlinedButton.icon(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => DiagnosticsScreen(controller: controller),
-            ),
-          ),
-          icon: const Icon(LucideIcons.activity),
-          label: Text(strings.get('diagnostics')),
-        ),
       ],
     );
     if (compact) {
@@ -573,37 +637,71 @@ class _ConnectionHero extends StatelessWidget {
         ),
       );
     }
-    return ContentSection(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          account(),
-          const SizedBox(height: 22),
-          Center(
-            child: LayoutBuilder(
-              builder: (context, constraints) =>
-                  ring(constraints.maxWidth.clamp(180, 244).toDouble()),
+    Widget overview() => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              strings.get('active_profile'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
-          Center(child: statusText()),
-          if (connection.recoverable) ...[
-            const SizedBox(height: 16),
-            recovery(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Tooltip(
+                message: view.profileName,
+                child: Text(
+                  view.profileName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium,
+                ),
+              ),
+            ),
           ],
-          const SizedBox(height: 22),
-          Divider(height: 1, color: UsqueTokens.of(context).hairline),
-          const SizedBox(height: 18),
-          Text(
-            strings.get('outputs'),
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
+        ),
+        const SizedBox(height: 16),
+        statusText(),
+        const SizedBox(height: 20),
+        _DesktopSessionReadout(controller: controller),
+        if (connection.recoverable && !error) ...[
           const SizedBox(height: 12),
-          _FrontendStatuses(view: view, strings: strings),
+          recovery(),
         ],
+        _HomeDetails(controller: controller, strings: strings),
+      ],
+    );
+    return ContentSection(
+      key: const ValueKey('home-desktop-connection'),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final split =
+              constraints.maxWidth >= 560 &&
+              MediaQuery.textScalerOf(context).scale(14) <= 21;
+          if (split) {
+            final size = (constraints.maxWidth - 200 - 32).clamp(240.0, 330.0);
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: size, child: ring(size)),
+                const SizedBox(width: 32),
+                Expanded(child: overview()),
+              ],
+            );
+          }
+          return PanelStack(
+            spacing: 24,
+            children: [
+              Center(
+                child: ring(constraints.maxWidth.clamp(180, 330).toDouble()),
+              ),
+              overview(),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1001,54 +1099,154 @@ class _ProtectionSummary extends StatelessWidget {
       );
 }
 
-class _HomeTools extends StatelessWidget {
-  const _HomeTools({required this.controller});
+typedef _DesktopSessionView = ({
+  String catalogId,
+  String? transport,
+  String? family,
+  DateTime? since,
+  bool connected,
+  String location,
+  String? countryCode,
+  String killKey,
+  bool alwaysOn,
+  bool lockdown,
+});
+
+class _DesktopSessionReadout extends StatelessWidget {
+  const _DesktopSessionReadout({required this.controller});
   final AppController controller;
+
   @override
-  Widget build(BuildContext context) =>
-      ControllerSelector<({bool quality, bool recovery})>(
-        controller: controller,
-        active: (app) => app.section == AppSection.home,
-        selector: (app) => (
-          quality: app.engineCapabilities?.networkQuality ?? false,
-          recovery: ConnectionPresentation.of(app.snapshot.phase).recoverable,
+  Widget build(BuildContext context) => ControllerSelector<_DesktopSessionView>(
+    controller: controller,
+    active: (app) => app.section == AppSection.home,
+    selector: (app) {
+      final snapshot = app.snapshot;
+      final strings = app.strings;
+      return (
+        catalogId: strings.catalogId,
+        transport: snapshot.dataPlane == DataPlaneMode.l4Proxy
+            ? 'L4 / H3'
+            : snapshot.transport,
+        family: snapshot.addressFamily,
+        since: snapshot.connectedAt,
+        connected: snapshot.isConnected,
+        location: snapshot.exit.hasLocation
+            ? snapshot.exit.location
+            : strings.get('not_available'),
+        countryCode: snapshot.exit.countryCode,
+        killKey: killSwitchStatusKey(
+          profile: app.activeProfile,
+          snapshot: snapshot,
         ),
-        builder: (context, view) {
-          final strings = controller.strings;
-          final style = homeToolButtonStyle(context);
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
+        alwaysOn: snapshot.alwaysOn,
+        lockdown: snapshot.platformLockdown,
+      );
+    },
+    builder: (context, view) {
+      final strings = controller.strings;
+      final theme = Theme.of(context);
+      final tokens = UsqueTokens.of(context);
+      Widget metric(String label, Widget value) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 5),
+          value,
+        ],
+      );
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 20,
+            runSpacing: 12,
             children: [
-              if (view.quality)
-                OutlinedButton.icon(
-                  key: const ValueKey('home-network-quality'),
-                  style: style,
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          NetworkQualityScreen(controller: controller),
-                    ),
-                  ),
-                  icon: const Icon(LucideIcons.gauge, size: 16),
-                  label: Text(strings.get('network_quality')),
+              metric(
+                strings.get('protocol'),
+                view.transport == null
+                    ? const EmptyValue(label: '—')
+                    : MonoValue(value: view.transport!),
+              ),
+              metric(
+                strings.get('address_family'),
+                view.family == null
+                    ? const EmptyValue(label: '—')
+                    : MonoValue(value: view.family!),
+              ),
+              metric(strings.get('duration'), LiveDuration(since: view.since)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              Icon(
+                view.killKey == 'ks_active'
+                    ? LucideIcons.shieldCheck
+                    : LucideIcons.shield,
+                size: 16,
+              ),
+              Text(
+                strings.get('kill_switch'),
+                style: theme.textTheme.bodySmall,
+              ),
+              Text(
+                strings.get(view.killKey),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: view.killKey == 'ks_active'
+                      ? tokens.success
+                      : view.killKey == 'ks_error'
+                      ? tokens.danger
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
-              if (!view.recovery)
-                OutlinedButton.icon(
-                  key: const ValueKey('home-diagnostics'),
-                  style: style,
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => DiagnosticsScreen(controller: controller),
-                    ),
-                  ),
-                  icon: const Icon(LucideIcons.activity, size: 16),
-                  label: Text(strings.get('diagnostics')),
+              ),
+              if (view.alwaysOn)
+                Text(
+                  '${strings.get('always_on')} · ${strings.get('on')}',
+                  style: theme.textTheme.bodySmall,
+                ),
+              if (view.lockdown)
+                Text(
+                  '${strings.get('lockdown')} · ${strings.get('on')}',
+                  style: theme.textTheme.bodySmall,
                 ),
             ],
-          );
-        },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            key: const ValueKey('home-exit-location'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (view.connected)
+                CountryFlag(countryCode: view.countryCode)
+              else
+                const Icon(LucideIcons.mapPin, size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  view.connected
+                      ? view.location
+                      : strings.get('location_disconnected'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       );
+    },
+  );
 }
 
 class _HomeDetails extends StatelessWidget {

@@ -187,6 +187,8 @@ void main() {
       Widget page() => workflowHost(app, home: HomeScreen(controller: app));
       await tester.pumpWidget(page());
       await tester.pumpAndSettle();
+      await tester.tap(find.text(app.strings.get('connection_details')));
+      await tester.pumpAndSettle();
       expect(
         find.text('HTTP · ${app.strings.get('output_running')}'),
         findsOneWidget,

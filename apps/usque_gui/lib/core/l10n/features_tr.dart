@@ -1,6 +1,13 @@
 /// Supplemental feature strings for Turkish.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowTr = <String, String>{
+  'home_local_proxies': 'Yerel proxy’ler',
+  'home_manage_proxies': 'Proxy’leri yönet',
+  'home_tun': 'Sanal ağ bağdaştırıcısı (TUN)',
+  'home_system_proxy': 'Sistem proxy’si',
+  'home_options': 'Seçenekler',
+  'home_system_proxy_requires_http':
+      'Önce yerel HTTP proxy’sini etkinleştirin.',
   'local_proxy_settings': 'Yerel proxy ayarları',
   'proxy_switches_hint': 'Anahtarlar hemen uygulanır.',
   'cc_label': 'HTTP/3 tıkanıklık denetimi',
@@ -449,7 +456,7 @@ const Map<String, String> kChainTr = <String, String>{
   'allowed': 'İzin verilen hedefler',
   'dns': 'DNS',
   'addresses': 'Tünel adresleri',
-  'address_family': 'IP sürümü',
+  'address_family': 'Adres ailesi',
   'transport': 'Aktarım',
   'endpoint': 'Sunucu',
   'restricted': 'AllowedIPs dışındaki hedefler proxy yolunda engellenir.',

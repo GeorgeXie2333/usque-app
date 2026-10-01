@@ -59,7 +59,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'error': 'Error de conexión',
   'active_profile': 'Cuenta actual',
   'protocol': 'Protocolo',
-  'address_family': 'Versión de IP',
+  'address_family': 'Familia de direcciones',
   'duration': 'Duración',
   'download': 'Descarga',
   'upload': 'Carga',

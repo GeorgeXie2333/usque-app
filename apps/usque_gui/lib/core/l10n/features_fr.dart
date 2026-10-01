@@ -1,6 +1,12 @@
 /// Supplemental feature strings for French.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowFr = <String, String>{
+  'home_local_proxies': 'Proxys locaux',
+  'home_manage_proxies': 'Gérer les proxys',
+  'home_tun': 'Carte réseau virtuelle (TUN)',
+  'home_system_proxy': 'Proxy système',
+  'home_options': 'Options',
+  'home_system_proxy_requires_http': 'Activez d’abord le proxy HTTP local.',
   'local_proxy_settings': 'Paramètres du proxy local',
   'proxy_switches_hint': 'Les interrupteurs prennent effet immédiatement.',
   'cc_label': 'Contrôle de congestion HTTP/3',
@@ -484,7 +490,7 @@ const Map<String, String> kChainFr = <String, String>{
   'allowed': 'Destinations autorisées',
   'dns': 'DNS',
   'addresses': 'Adresses du tunnel',
-  'address_family': 'Version IP',
+  'address_family': 'Famille d’adresses',
   'transport': 'Acheminement',
   'endpoint': 'Serveur',
   'restricted':

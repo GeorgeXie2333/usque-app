@@ -58,7 +58,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'error': 'Verbindungsfehler',
   'active_profile': 'Aktuelles Konto',
   'protocol': 'Protokoll',
-  'address_family': 'IP-Version',
+  'address_family': 'Adressfamilie',
   'duration': 'Dauer',
   'download': 'Download',
   'upload': 'Upload',

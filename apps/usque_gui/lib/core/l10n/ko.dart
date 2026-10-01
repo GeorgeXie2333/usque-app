@@ -55,7 +55,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'error': '연결 오류',
   'active_profile': '현재 계정',
   'protocol': '프로토콜',
-  'address_family': 'IP 버전',
+  'address_family': '주소 패밀리',
   'duration': '지속 시간',
   'download': '다운로드',
   'upload': '업로드',

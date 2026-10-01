@@ -57,7 +57,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'error': 'Verbindingsfout',
   'active_profile': 'Huidig account',
   'protocol': 'Protocol',
-  'address_family': 'IP-versie',
+  'address_family': 'Adresfamilie',
   'duration': 'Duur',
   'download': 'Downloaden',
   'upload': 'Uploaden',

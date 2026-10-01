@@ -1,6 +1,12 @@
 /// Supplemental feature strings for Japanese.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowJa = <String, String>{
+  'home_local_proxies': 'ローカルプロキシ',
+  'home_manage_proxies': 'プロキシ管理',
+  'home_tun': '仮想ネットワークアダプター (TUN)',
+  'home_system_proxy': 'システムプロキシ',
+  'home_options': 'オプション',
+  'home_system_proxy_requires_http': '先に HTTP ローカルプロキシを有効にしてください。',
   'local_proxy_settings': 'ローカルプロキシ設定',
   'proxy_switches_hint': 'スイッチの変更はすぐに反映されます。',
   'cc_label': 'HTTP/3 輻輳制御',
@@ -410,7 +416,7 @@ const Map<String, String> kChainJa = <String, String>{
   'allowed': '許可する宛先',
   'dns': 'DNS',
   'addresses': 'トンネルアドレス',
-  'address_family': 'IP バージョン',
+  'address_family': 'アドレスファミリー',
   'transport': 'トランスポート',
   'endpoint': 'サーバー',
   'restricted': 'プロキシ経路では AllowedIPs の範囲外の宛先を拒否します。',

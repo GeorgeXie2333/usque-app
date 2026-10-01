@@ -54,7 +54,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'error': '连接错误',
   'active_profile': '当前账号',
   'protocol': '协议',
-  'address_family': 'IP 版本',
+  'address_family': '地址族',
   'duration': '持续时间',
   'download': '下载',
   'upload': '上传',

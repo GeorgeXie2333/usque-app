@@ -313,10 +313,14 @@ void main() {
       );
       expect(tester.getRect(protectionPanel).contains(ring.center), isTrue);
       for (final key in ['home-network-quality', 'home-diagnostics']) {
-        final button = find.byKey(ValueKey(key));
-        expect(tester.widget(button), isA<OutlinedButton>());
-        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+        expect(find.byKey(ValueKey(key)), findsNothing);
       }
+      expect(find.text('Connection details'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      fixture.app.selectSection(AppSection.settings);
+      await tester.pumpAndSettle();
+      expect(find.text('Network quality'), findsOneWidget);
+      expect(find.text('Diagnostics'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -406,11 +410,9 @@ void main() {
         tester.widget<ConnectionRing>(find.byType(ConnectionRing)).onPressed,
         isNull,
       );
-      final diagnostics = find.byKey(const ValueKey('home-diagnostics'));
-      await tester.ensureVisible(diagnostics);
-      await tester.pumpAndSettle();
-      expect(diagnostics.hitTestable(), findsOneWidget);
-      expect(tester.widget<OutlinedButton>(diagnostics).onPressed, isNotNull);
+      expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
+      expect(find.byKey(const ValueKey('home-network-quality')), findsNothing);
+      expect(find.text('Connection details'), findsOneWidget);
       expect(_trace(tester, 'download').samples, isEmpty);
     },
   );
@@ -438,12 +440,12 @@ void main() {
       await tester.pumpWidget(workflowHost(fixture.app, scale: 2, dark: true));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      final diagnostics = find.byKey(const ValueKey('home-diagnostics'));
-      await tester.ensureVisible(diagnostics);
+      final details = find.text('Connection details');
+      await tester.ensureVisible(details);
       await tester.pumpAndSettle();
-      expect(diagnostics.hitTestable(), findsOneWidget);
+      expect(details.hitTestable(), findsOneWidget);
       expect(
-        tester.getRect(diagnostics).bottom,
+        tester.getRect(details).bottom,
         lessThanOrEqualTo(tester.getTopLeft(find.byType(NavigationBar)).dy),
       );
       expect(

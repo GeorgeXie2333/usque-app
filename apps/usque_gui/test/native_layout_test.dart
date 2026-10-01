@@ -1,5 +1,6 @@
 import 'dart:ui' show SemanticsAction;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -59,60 +60,78 @@ void main() {
   );
 
   testWidgets(
-    'home tool buttons share the mobile outline style and open their pages',
+    'Home omits quality and diagnostics in every phase and Settings opens both',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
+      tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.android
+          ? const Size(375, 812)
+          : const Size(1280, 900);
       for (final dark in [false, true]) {
-        for (final size in [const Size(1280, 900), const Size(375, 812)]) {
-          tester.view.physicalSize = size;
-          final app = AppController(WorkflowEngine())
-            ..localePreference = LocalePreference.english
-            ..engineCapabilities = const EngineCapabilities(
-              networkQuality: true,
-            );
-          try {
+        final app = AppController(WorkflowEngine())
+          ..localePreference = LocalePreference.english
+          ..engineCapabilities = const EngineCapabilities(networkQuality: true);
+        try {
+          for (final phase in ConnectionPhase.values) {
+            app.snapshot = EngineSnapshot(phase: phase);
+            app.selectSection(AppSection.home);
             await tester.pumpWidget(workflowHost(app, dark: dark));
             await tester.pumpAndSettle();
             for (final key in ['home-network-quality', 'home-diagnostics']) {
-              final finder = find.byKey(ValueKey(key));
-              expect(tester.widget(finder), isA<OutlinedButton>());
-              final button = tester.widget<OutlinedButton>(finder);
-              final states = <WidgetState>{};
               expect(
-                button.style?.minimumSize?.resolve(states),
-                const Size(0, 48),
+                find.byKey(ValueKey(key)),
+                findsNothing,
+                reason: '$defaultTargetPlatform dark=$dark phase=$phase',
               );
+            }
+            for (final label in ['network_quality', 'diagnostics']) {
               expect(
-                button.style?.padding?.resolve(states),
-                const EdgeInsets.all(10),
+                find.descendant(
+                  of: find.byType(HomeScreen),
+                  matching: find.text(app.strings.get(label)),
+                ),
+                findsNothing,
+                reason: '$defaultTargetPlatform dark=$dark phase=$phase',
               );
-              expect(
-                button.style?.foregroundColor?.resolve(states),
-                Theme.of(tester.element(finder)).colorScheme.onSurface,
-              );
-              expect(tester.getSize(finder).height, greaterThanOrEqualTo(48));
-              await tester.ensureVisible(finder);
-              await tester.pumpAndSettle();
-              await tester.tap(finder);
-              await tester.pumpAndSettle();
-              final page = key == 'home-diagnostics'
-                  ? find.byType(DiagnosticsScreen)
-                  : find.byType(NetworkQualityScreen);
-              expect(page, findsOneWidget);
-              Navigator.of(tester.element(page)).pop();
-              await tester.pumpAndSettle();
             }
             expect(tester.takeException(), isNull);
-            await tester.pumpWidget(const SizedBox.shrink());
-          } finally {
-            app.dispose();
           }
+          app.selectSection(AppSection.settings);
+          await tester.pumpAndSettle();
+          for (final label in ['network_quality', 'diagnostics']) {
+            final finder = find.widgetWithText(
+              ActionRow,
+              app.strings.get(label),
+            );
+            expect(finder, findsOneWidget);
+            await tester.ensureVisible(finder);
+            await tester.pumpAndSettle();
+            expect(tester.getSize(finder).height, greaterThanOrEqualTo(48));
+            expect(
+              tester.getSemantics(finder).rect.height,
+              greaterThanOrEqualTo(48),
+            );
+            await tester.tap(finder);
+            await tester.pumpAndSettle();
+            final page = label == 'diagnostics'
+                ? find.byType(DiagnosticsScreen)
+                : find.byType(NetworkQualityScreen);
+            expect(page, findsOneWidget);
+            Navigator.of(tester.element(page)).pop();
+            await tester.pumpAndSettle();
+          }
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          app.dispose();
         }
       }
     },
-    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
   );
 
   testWidgets(

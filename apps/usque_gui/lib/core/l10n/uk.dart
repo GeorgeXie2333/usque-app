@@ -57,7 +57,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'error': 'Помилка зʼєднання',
   'active_profile': 'Поточний обліковий запис',
   'protocol': 'Протокол',
-  'address_family': 'Версія IP',
+  'address_family': 'Сімейство адрес',
   'duration': 'Тривалість',
   'download': 'Завантаження',
   'upload': 'Вивантаження',

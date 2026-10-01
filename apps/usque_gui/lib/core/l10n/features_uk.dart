@@ -1,6 +1,13 @@
 /// Supplemental feature strings for Ukrainian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowUk = <String, String>{
+  'home_local_proxies': 'Локальні проксі',
+  'home_manage_proxies': 'Керування проксі',
+  'home_tun': 'Віртуальний мережевий адаптер (TUN)',
+  'home_system_proxy': 'Системний проксі',
+  'home_options': 'Параметри',
+  'home_system_proxy_requires_http':
+      'Спочатку увімкніть локальний HTTP-проксі.',
   'local_proxy_settings': 'Налаштування локального проксі',
   'proxy_switches_hint': 'Перемикачі діють одразу.',
   'cc_label': 'Керування перевантаженням HTTP/3',
@@ -470,7 +477,7 @@ const Map<String, String> kChainUk = <String, String>{
   'allowed': 'Дозволені призначення',
   'dns': 'DNS',
   'addresses': 'Адреси тунелю',
-  'address_family': 'Версія IP',
+  'address_family': 'Сімейство адрес',
   'transport': 'Транспорт',
   'endpoint': 'Сервер',
   'restricted': 'Призначення поза AllowedIPs блокуються на шляху проксі.',

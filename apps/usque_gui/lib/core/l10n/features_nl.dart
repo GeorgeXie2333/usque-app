@@ -1,6 +1,12 @@
 /// Supplemental feature strings for Dutch.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowNl = <String, String>{
+  'home_local_proxies': 'Lokale proxy’s',
+  'home_manage_proxies': 'Proxy’s beheren',
+  'home_tun': 'Virtuele netwerkadapter (TUN)',
+  'home_system_proxy': 'Systeemproxy',
+  'home_options': 'Opties',
+  'home_system_proxy_requires_http': 'Schakel eerst de lokale HTTP-proxy in.',
   'local_proxy_settings': 'Lokale proxyinstellingen',
   'proxy_switches_hint': 'Schakelaars werken meteen.',
   'cc_label': 'HTTP/3-congestiecontrole',
@@ -479,7 +485,7 @@ const Map<String, String> kChainNl = <String, String>{
   'allowed': 'Toegestane bestemmingen',
   'dns': 'DNS',
   'addresses': 'Tunneladressen',
-  'address_family': 'IP-versie',
+  'address_family': 'Adresfamilie',
   'transport': 'Overdracht',
   'endpoint': 'Doelserver',
   'restricted':

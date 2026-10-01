@@ -56,7 +56,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'error': 'Błąd połączenia',
   'active_profile': 'Bieżące konto',
   'protocol': 'Protokół',
-  'address_family': 'Wersja IP',
+  'address_family': 'Rodzina adresów',
   'duration': 'Czas',
   'download': 'Pobieranie',
   'upload': 'Wysyłanie',

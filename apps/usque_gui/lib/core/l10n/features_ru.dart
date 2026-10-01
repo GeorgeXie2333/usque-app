@@ -1,6 +1,12 @@
 /// Supplemental feature strings for Russian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowRu = <String, String>{
+  'home_local_proxies': 'Локальные прокси',
+  'home_manage_proxies': 'Управление прокси',
+  'home_tun': 'Виртуальный сетевой адаптер (TUN)',
+  'home_system_proxy': 'Системный прокси',
+  'home_options': 'Параметры',
+  'home_system_proxy_requires_http': 'Сначала включите локальный HTTP-прокси.',
   'local_proxy_settings': 'Настройки локального прокси',
   'proxy_switches_hint': 'Переключатели применяются сразу.',
   'cc_label': 'Контроль перегрузки HTTP/3',
@@ -471,7 +477,7 @@ const Map<String, String> kChainRu = <String, String>{
   'allowed': 'Разрешённые назначения',
   'dns': 'DNS',
   'addresses': 'Адреса туннеля',
-  'address_family': 'Версия IP',
+  'address_family': 'Семейство адресов',
   'transport': 'Транспорт',
   'endpoint': 'Сервер',
   'restricted': 'Назначения вне AllowedIPs блокируются на пути прокси.',

@@ -55,7 +55,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'error': '接続エラー',
   'active_profile': '現在のアカウント',
   'protocol': 'プロトコル',
-  'address_family': 'IP バージョン',
+  'address_family': 'アドレスファミリー',
   'duration': '接続時間',
   'download': 'ダウンロード',
   'upload': 'アップロード',

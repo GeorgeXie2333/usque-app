@@ -156,6 +156,8 @@ class _ConnectionRingState extends State<ConnectionRing>
             ),
             _PowerButton(
               diameter: widget.size * (widget.compactControl ? 0.68 : 0.47),
+              // Match the original 244px desktop dial's content proportions.
+              contentScale: widget.compactControl ? 1 : widget.size / 244,
               label: widget.actionLabel,
               busy: widget.busy,
               // The bezel follows the chain stage. The control stays with the
@@ -174,6 +176,7 @@ class _ConnectionRingState extends State<ConnectionRing>
 class _PowerButton extends StatefulWidget {
   const _PowerButton({
     required this.diameter,
+    required this.contentScale,
     required this.label,
     required this.busy,
     required this.engaged,
@@ -181,6 +184,7 @@ class _PowerButton extends StatefulWidget {
   });
 
   final double diameter;
+  final double contentScale;
   final String label;
   final bool busy;
 
@@ -246,10 +250,10 @@ class _PowerButtonState extends State<_PowerButton> {
                   children: <Widget>[
                     if (widget.busy)
                       SizedBox(
-                        width: 22,
-                        height: 22,
+                        width: 22 * widget.contentScale,
+                        height: 22 * widget.contentScale,
                         child: CircularProgressIndicator(
-                          strokeWidth: 2.4,
+                          strokeWidth: 2.4 * widget.contentScale,
                           color: enabled ? foreground : theme.disabledColor,
                         ),
                       )
@@ -258,15 +262,18 @@ class _PowerButtonState extends State<_PowerButton> {
                         widget.engaged
                             ? LucideIcons.powerOff
                             : LucideIcons.power,
-                        size: 24,
+                        size: 24 * widget.contentScale,
                         color: enabled ? foreground : theme.disabledColor,
                       ),
-                    const SizedBox(height: 7),
+                    SizedBox(height: 7 * widget.contentScale),
                     Text(
                       widget.label,
                       maxLines: 1,
                       textAlign: TextAlign.center,
                       style: theme.textTheme.labelLarge?.copyWith(
+                        fontSize:
+                            (theme.textTheme.labelLarge?.fontSize ?? 14) *
+                            widget.contentScale,
                         color: enabled ? foreground : theme.disabledColor,
                         fontWeight: FontWeight.w700,
                       ),

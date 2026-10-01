@@ -1,6 +1,12 @@
 /// Supplemental feature strings for Vietnamese.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowVi = <String, String>{
+  'home_local_proxies': 'Proxy cục bộ',
+  'home_manage_proxies': 'Quản lý proxy',
+  'home_tun': 'Bộ điều hợp mạng ảo (TUN)',
+  'home_system_proxy': 'Proxy hệ thống',
+  'home_options': 'Tùy chọn',
+  'home_system_proxy_requires_http': 'Hãy bật proxy HTTP cục bộ trước.',
   'local_proxy_settings': 'Cài đặt proxy cục bộ',
   'proxy_switches_hint': 'Công tắc có hiệu lực ngay.',
   'cc_label': 'Kiểm soát tắc nghẽn HTTP/3',
@@ -442,7 +448,7 @@ const Map<String, String> kChainVi = <String, String>{
   'allowed': 'Đích được phép',
   'dns': 'DNS',
   'addresses': 'Địa chỉ đường hầm',
-  'address_family': 'Phiên bản IP',
+  'address_family': 'Họ địa chỉ',
   'transport': 'Giao vận',
   'endpoint': 'Máy chủ',
   'restricted': 'Đích nằm ngoài AllowedIPs bị chặn trên đường proxy.',

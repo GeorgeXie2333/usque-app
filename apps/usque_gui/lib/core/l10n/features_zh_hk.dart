@@ -1,6 +1,12 @@
 /// Supplemental feature strings for Traditional Chinese (Hong Kong).
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowZhHk = <String, String>{
+  'home_local_proxies': '本地代理',
+  'home_manage_proxies': '管理代理',
+  'home_tun': '虛擬網卡 (TUN)',
+  'home_system_proxy': '系統代理',
+  'home_options': '選項',
+  'home_system_proxy_requires_http': '請先啟用 HTTP 本地代理。',
   'local_proxy_settings': '本機代理設定',
   'proxy_switches_hint': '開關變更即時生效。',
   'cc_label': 'HTTP/3 擁塞控制',
@@ -385,7 +391,7 @@ const Map<String, String> kChainZhHk = <String, String>{
   'allowed': '允許存取的目標',
   'dns': 'DNS',
   'addresses': '隧道地址',
-  'address_family': 'IP 版本',
+  'address_family': '位址族',
   'transport': '傳輸協定',
   'endpoint': '伺服器',
   'restricted': '不在 AllowedIPs 範圍內的目標無法經由此出口存取。',

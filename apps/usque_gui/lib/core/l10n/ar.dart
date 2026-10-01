@@ -57,7 +57,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'error': 'خطأ في الاتصال',
   'active_profile': 'الحساب الحالي',
   'protocol': 'البروتوكول',
-  'address_family': 'إصدار IP',
+  'address_family': 'عائلة العناوين',
   'duration': 'المدة',
   'download': 'التنزيل',
   'upload': 'الرفع',

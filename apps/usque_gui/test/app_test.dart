@@ -3405,7 +3405,17 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Home'), findsWidgets);
-    expect(find.text('Connection information'), findsOneWidget);
+    expect(find.text('Connection information'), findsNothing);
+    expect(find.text('Connection details'), findsOneWidget);
+    for (final key in [
+      'home-tun-switch',
+      if (defaultTargetPlatform == TargetPlatform.windows)
+        'home-system-proxy-switch',
+      'home-chain-proxy-switch',
+      'home-local-proxies',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
     expect(find.text('Connect'), findsOneWidget);
   });
 
@@ -3814,7 +3824,12 @@ void main() {
 
       await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Settings').last);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Settings'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       final themePicker = find.byWidgetPredicate(
@@ -3848,7 +3863,12 @@ void main() {
       });
       await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Settings').last);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.text('Settings'),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.byType(SettingsScreen), findsOneWidget);
       expect(find.text('Per-app proxy'), findsNothing);
@@ -4552,33 +4572,19 @@ void main() {
       await pumpHome();
       expect(find.text('Waiting to connect'), findsOneWidget);
       expect(find.text('Not currently connected'), findsNothing);
-      expect(find.byIcon(LucideIcons.mapPinOff), findsOneWidget);
+      expect(find.byIcon(LucideIcons.mapPin), findsOneWidget);
       expect(find.text('IPv4'), findsNothing);
       expect(find.text('IPv6'), findsNothing);
       expect(find.text('Not available'), findsNothing);
 
-      final Offset engineOrigin = tester.getTopLeft(
-        find.text('Connection information'),
-      );
-      final Offset locationOrigin = tester.getTopLeft(find.text('Location'));
-      final Offset downloadOrigin = tester.getTopLeft(find.text('Download'));
-      expect(locationOrigin.dx, closeTo(engineOrigin.dx, 1));
-      expect(locationOrigin.dy, greaterThan(engineOrigin.dy));
-      expect(downloadOrigin.dy, greaterThan(locationOrigin.dy));
-
-      final Rect heroRect = tester.getRect(
-        find.ancestor(
-          of: find.byType(ConnectionRing),
-          matching: find.byType(ContentSection),
-        ),
-      );
+      final Rect heroRect = tester.getRect(find.byType(ConnectionRing));
       final Rect locationRect = tester.getRect(
-        find.ancestor(
-          of: find.text('Location'),
-          matching: find.byType(ContentSection),
-        ),
+        find.byKey(const ValueKey('home-exit-location')),
       );
+      final Offset downloadOrigin = tester.getTopLeft(find.text('Download'));
       expect(locationRect.left, greaterThan(heroRect.right));
+      expect(locationRect.top, greaterThan(heroRect.top));
+      expect(downloadOrigin.dy, greaterThan(heroRect.bottom));
       expect(downloadOrigin.dy, greaterThan(locationRect.bottom));
       expect(find.byType(Panel), findsNothing);
 
@@ -4596,13 +4602,22 @@ void main() {
       expect(find.text('Waiting to connect'), findsNothing);
       expect(find.byIcon(LucideIcons.mapPinOff), findsNothing);
       expect(find.text('Singapore, Singapore'), findsOneWidget);
+      expect(find.text('1.2.3.4'), findsNothing);
+      expect(find.text('2001:db8::1'), findsNothing);
+      final details = find.byKey(
+        const PageStorageKey('home-connection-details'),
+      );
+      await tester.ensureVisible(details);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connection details'));
+      await tester.pumpAndSettle();
       expect(find.text('1.2.3.4'), findsOneWidget);
       expect(find.text('2001:db8::1'), findsOneWidget);
     },
   );
 
   testWidgets(
-    'error and degraded home expose Retry and the Diagnostics shortcut',
+    'error and degraded Home retain Retry without quality or diagnostics shortcuts',
     (tester) async {
       SharedPreferences.setMockInitialValues(<String, Object>{
         'onboarding_complete': true,
@@ -4613,6 +4628,12 @@ void main() {
       await controller.initialize();
       addTearDown(controller.dispose);
       controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.error);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.android
+          ? const Size(430, 900)
+          : const Size(1280, 1100);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -4622,80 +4643,87 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Retry'), findsOneWidget);
-      final diagnosticsButton = find.widgetWithText(
-        OutlinedButton,
-        'Diagnostics',
-      );
-      expect(diagnosticsButton, findsOneWidget);
-      expect(
-        tester.getSemantics(diagnosticsButton).rect.height,
-        greaterThanOrEqualTo(48),
-      );
-      await tester.tap(diagnosticsButton);
-      await tester.pumpAndSettle();
-      expect(find.byType(DiagnosticsScreen), findsOneWidget);
-      await tester.tap(find.widgetWithText(TextButton, 'Back'));
-      await tester.pumpAndSettle();
+      expect(find.text('Diagnostics'), findsNothing);
+      expect(find.text('Network quality'), findsNothing);
+      expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
+      expect(find.byKey(const ValueKey('home-network-quality')), findsNothing);
 
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
       expect(engine.calls, contains('retry'));
       expect(find.text('Retry'), findsNothing);
-      expect(find.byKey(const ValueKey('home-diagnostics')), findsOneWidget);
-      expect(
-        find.widgetWithText(OutlinedButton, 'Diagnostics'),
-        findsOneWidget,
-      );
+      expect(find.text('Diagnostics'), findsNothing);
+      expect(find.text('Network quality'), findsNothing);
+      expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
+      expect(find.byKey(const ValueKey('home-network-quality')), findsNothing);
 
       controller.snapshot = const EngineSnapshot(
         phase: ConnectionPhase.degraded,
       );
       controller.selectSection(AppSection.home);
       await tester.pump();
-      expect(
-        find.widgetWithText(OutlinedButton, 'Diagnostics'),
-        findsOneWidget,
-      );
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Diagnostics'), findsNothing);
+      expect(find.text('Network quality'), findsNothing);
       expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
+      expect(find.byKey(const ValueKey('home-network-quality')), findsNothing);
       expect(tester.takeException(), isNull);
     },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
   );
 
-  testWidgets('blocked Windows recovery exposes diagnostics but not Retry', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      'onboarding_complete': true,
-    });
-    final engine = EventEngineClient();
-    engine.current = const EngineSnapshot(
-      phase: ConnectionPhase.error,
-      errorCode: 'WINDOWS_RECOVERY_BLOCKED',
-      errorRetryable: false,
-      warning: 'sanitized',
-    );
-    final controller = AppController(engine);
-    await controller.initialize();
-    addTearDown(controller.dispose);
-    controller.snapshot = const EngineSnapshot(
-      phase: ConnectionPhase.error,
-      errorCode: 'WINDOWS_RECOVERY_BLOCKED',
-      errorRetryable: false,
-      warning: 'sanitized',
-    );
+  testWidgets(
+    'blocked Windows recovery has no Home shortcuts or Retry',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final engine = EventEngineClient();
+      engine.current = const EngineSnapshot(
+        phase: ConnectionPhase.error,
+        errorCode: 'WINDOWS_RECOVERY_BLOCKED',
+        errorRetryable: false,
+        warning: 'sanitized',
+      );
+      final controller = AppController(engine);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.android
+          ? const Size(430, 900)
+          : const Size(1280, 1100);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      controller.snapshot = const EngineSnapshot(
+        phase: ConnectionPhase.error,
+        errorCode: 'WINDOWS_RECOVERY_BLOCKED',
+        errorRetryable: false,
+        warning: 'sanitized',
+      );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: UsqueTheme.light(),
-        home: HomeScreen(controller: controller),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Retry'), findsNothing);
-    expect(find.widgetWithText(OutlinedButton, 'Diagnostics'), findsOneWidget);
-    final ring = tester.widget<ConnectionRing>(find.byType(ConnectionRing));
-    expect(ring.onPressed, isNull);
-  });
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: HomeScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('Diagnostics'), findsNothing);
+      expect(find.text('Network quality'), findsNothing);
+      expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
+      expect(find.byKey(const ValueKey('home-network-quality')), findsNothing);
+      final ring = tester.widget<ConnectionRing>(find.byType(ConnectionRing));
+      expect(ring.onPressed, isNull);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
 
   test(
     'initialize with auto_connect connects a ready disconnected profile once',

@@ -19,6 +19,7 @@ import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/state/window_frame.dart';
 import 'package:usque/widgets/chain_proxy_entry.dart';
 import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/usque_dialog.dart';
 import 'package:usque/widgets/vpn_gate_entry.dart';
@@ -474,6 +475,21 @@ void main() {
           ]);
         });
         await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('home-network-quality')),
+          findsNothing,
+        );
+        expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
+        if (!phone) {
+          expect(
+            find.byKey(const ValueKey('home-chain-proxy-settings')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('home-chain-proxy-switch')),
+            findsOneWidget,
+          );
+        }
         expect(tester.takeException(), isNull);
         await expectLater(
           find.byKey(boundary),
@@ -804,8 +820,16 @@ void main() {
                 0,
                 reason: reason,
               );
-              for (final key in ['home-network-quality', 'home-diagnostics']) {
-                final button = find.byKey(ValueKey(key));
+              for (final button in [
+                find.byType(ConnectionRing),
+                for (final key in [
+                  'home-tun-switch',
+                  'home-system-proxy-switch',
+                  'home-chain-proxy-switch',
+                  'home-chain-proxy-settings',
+                ])
+                  find.byKey(ValueKey(key)),
+              ]) {
                 expect(button.hitTestable(), findsOneWidget, reason: reason);
                 expect(
                   tester.getRect(button).bottom,
@@ -813,6 +837,33 @@ void main() {
                   reason: reason,
                 );
               }
+              for (final key in ['home-network-quality', 'home-diagnostics']) {
+                expect(find.byKey(ValueKey(key)), findsNothing, reason: reason);
+              }
+              final localProxy = find.byKey(
+                const ValueKey('home-local-proxies'),
+              );
+              expect(localProxy, findsOneWidget, reason: reason);
+              expect(
+                tester.getRect(localProxy).bottom,
+                lessThanOrEqualTo(size.height - 16),
+                reason: reason,
+              );
+              expect(
+                find.text(app.activeProfile.proxy.socksListeners.join(', ')),
+                findsOneWidget,
+                reason: reason,
+              );
+              expect(
+                find.text(app.activeProfile.proxy.httpListeners.join(', ')),
+                findsOneWidget,
+                reason: reason,
+              );
+              expect(
+                find.byKey(const ValueKey('home-manage-proxies')).hitTestable(),
+                findsOneWidget,
+                reason: reason,
+              );
               expect(tester.takeException(), isNull, reason: reason);
               if (dpi == 1.25 && !connected && zh) {
                 await tester.runAsync(
@@ -1334,6 +1385,24 @@ void main() {
           }
         });
         await tester.pumpAndSettle();
+        if (scene.section == AppSection.home) {
+          expect(
+            find.byKey(const ValueKey('home-network-quality')),
+            findsNothing,
+          );
+          expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
+          if (scene.size.width >= 760) {
+            for (final key in [
+              'home-tun-switch',
+              'home-system-proxy-switch',
+              'home-chain-proxy-switch',
+              'home-chain-proxy-settings',
+              'home-local-proxies',
+            ]) {
+              expect(find.byKey(ValueKey(key)), findsOneWidget);
+            }
+          }
+        }
         if (scene.name.startsWith('home_phone_details_expanded')) {
           final details = find.text(app.strings.get('connection_details'));
           await tester.ensureVisible(details);

@@ -56,7 +56,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'error': 'ข้อผิดพลาดในการเชื่อมต่อ',
   'active_profile': 'บัญชีปัจจุบัน',
   'protocol': 'โปรโตคอล',
-  'address_family': 'เวอร์ชัน IP',
+  'address_family': 'ตระกูลที่อยู่',
   'duration': 'ระยะเวลา',
   'download': 'ดาวน์โหลด',
   'upload': 'อัปโหลด',

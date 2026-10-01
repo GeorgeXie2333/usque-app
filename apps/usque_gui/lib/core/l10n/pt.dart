@@ -58,7 +58,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'error': 'Erro de conexão',
   'active_profile': 'Conta atual',
   'protocol': 'Protocolo',
-  'address_family': 'Versão de IP',
+  'address_family': 'Família de endereços',
   'duration': 'Duração',
   'download': 'Download',
   'upload': 'Upload',

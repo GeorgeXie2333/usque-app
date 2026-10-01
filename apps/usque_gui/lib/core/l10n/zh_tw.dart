@@ -54,7 +54,7 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'error': '連線錯誤',
   'active_profile': '目前帳號',
   'protocol': '通訊協定',
-  'address_family': 'IP 版本',
+  'address_family': '位址族',
   'duration': '持續時間',
   'download': '下載',
   'upload': '上傳',

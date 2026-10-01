@@ -56,7 +56,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'error': 'Lỗi kết nối',
   'active_profile': 'Tài khoản hiện tại',
   'protocol': 'Giao thức',
-  'address_family': 'Phiên bản IP',
+  'address_family': 'Họ địa chỉ',
   'duration': 'Thời lượng',
   'download': 'Tải xuống',
   'upload': 'Tải lên',

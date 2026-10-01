@@ -59,7 +59,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'error': 'Bağlantı hatası',
   'active_profile': 'Geçerli hesap',
   'protocol': 'Protokol',
-  'address_family': 'IP sürümü',
+  'address_family': 'Adres ailesi',
   'duration': 'Süre',
   'download': 'İndirme',
   'upload': 'Yükleme',
