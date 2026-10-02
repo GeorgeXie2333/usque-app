@@ -105,7 +105,8 @@ class UsqueVpnService : VpnService() {
     private val nativeRuntimeActive = AtomicBoolean()
     private val nativeStops = NativeStopTracker()
     private val sessionNetworkRecovery: SessionNetworkRecovery =
-        SessionNetworkRecovery(
+        loggedSessionNetworkRecovery(
+            captureLogContext = ::currentLogContext,
             suspendSession = {
                 nativeRuntimeActive.set(false)
                 connectionGeneration.incrementAndGet()
@@ -120,8 +121,8 @@ class UsqueVpnService : VpnService() {
                 notifyTileStateChanged()
                 broadcastSnapshot()
             },
-            stop = { completed ->
-                submitNativeStop { confirmed -> mainHandler.post { completed(confirmed) } }
+            stop = { context, completed ->
+                submitNativeStop(beginNativeStop(context)) { confirmed -> mainHandler.post { completed(confirmed) } }
             },
             schedule = { delay, action -> mainHandler.postDelayed({ action() }, delay) },
             restart = {
