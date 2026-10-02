@@ -72,6 +72,14 @@ class NetworkQualityFieldsTest {
         }
     }
 
+    @Test fun customBypassCapabilityReachesFlutterOnlyWithBooleanSupport() {
+        val key = "custom_bypass"
+        assertEquals(true, NetworkQualityFields.capabilities("{\"custom_bypass\":true}").getValue(key))
+        for (source in listOf(null, "{}", "{\"custom_bypass\":false}", "{\"custom_bypass\":\"true\"}", "invalid")) {
+            assertEquals(false, NetworkQualityFields.capabilities(source).getValue(key))
+        }
+    }
+
     @Test fun applicationQuicCapabilityRequiresExplicitBooleanSupport() {
         val key = "application_quic_blocking"
         assertEquals(true, NetworkQualityFields.capabilities("{\"application_quic_blocking\":true}")[key])
