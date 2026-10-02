@@ -406,6 +406,60 @@ async fn socks_udp_command_uses_zero_address_and_distinguishes_unsupported() {
 }
 
 #[tokio::test]
+async fn socks_rejects_unknown_reply_codes_before_they_can_enable_dns_only_udp() {
+    for code in [9, 255] {
+        let (mut client, mut peer) = pair();
+        let server = tokio::spawn(async move {
+            let mut request = [0; 10];
+            peer.read_exact(&mut request).await.unwrap();
+            peer.write_all(&[5, code, 0, 1]).await.unwrap();
+        });
+        assert_eq!(
+            socks_command(
+                &mut client,
+                3,
+                &TcpTarget::address("0.0.0.0:0".parse().unwrap()),
+            )
+            .await,
+            Err(DialError::Protocol)
+        );
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn malformed_command_denials_do_not_enable_dns_only_udp() {
+    for code in [2, 7] {
+        for (reply, error) in [
+            (vec![5, code, 0, 255], DialError::Protocol),
+            (vec![5, code, 0, 3, 0], DialError::Protocol),
+            (vec![5, code, 0, 3, 1, 255, 0, 0], DialError::Protocol),
+            (vec![5, code, 0], DialError::Closed),
+            (vec![5, code, 0, 1], DialError::Closed),
+            (vec![5, code, 0, 1, 0, 0, 0, 0, 0], DialError::Closed),
+            (vec![5, code, 0, 3, 3, b'a', b'b'], DialError::Closed),
+        ] {
+            let (mut client, mut peer) = pair();
+            let server = tokio::spawn(async move {
+                let mut request = [0; 10];
+                peer.read_exact(&mut request).await.unwrap();
+                peer.write_all(&reply).await.unwrap();
+            });
+            assert_eq!(
+                socks_command(
+                    &mut client,
+                    3,
+                    &TcpTarget::address("0.0.0.0:0".parse().unwrap()),
+                )
+                .await,
+                Err(error)
+            );
+            server.await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn frozen_go_http_success_fixture_is_accepted() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../tests/fixtures/proxy-exit/contract.json"

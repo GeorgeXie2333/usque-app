@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use std::io;
 use std::pin::Pin;
 use std::sync::Mutex as StdMutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 use tokio::sync::Notify;
@@ -52,10 +52,13 @@ struct ProxyPeer {
     server_connections: StdMutex<Vec<TcpTarget>>,
     dns_targets: StdMutex<Vec<TcpTarget>>,
     associate_commands: AtomicUsize,
+    udp_reply: AtomicU8,
     dns_queries: AtomicUsize,
     stalled_queries: AtomicUsize,
     stall_dns: AtomicBool,
     refuse_dns: AtomicBool,
+    refuse_server: AtomicBool,
+    auth_reply: AtomicU8,
     query_started: Notify,
     query_closed: Notify,
     cancellation: CancellationToken,
@@ -94,7 +97,11 @@ impl ProxyPeer {
             let mut greeting = [0; 3];
             stream.read_exact(&mut greeting).await?;
             assert_eq!(greeting, [5, 1, 0]);
-            stream.write_all(&[5, 0]).await?;
+            let method = self.auth_reply.load(Ordering::SeqCst);
+            stream.write_all(&[5, method]).await?;
+            if method != 0 {
+                return Ok(());
+            }
             let mut header = [0; 4];
             match stream.read_exact(&mut header).await {
                 Ok(_) => {}
@@ -104,11 +111,7 @@ impl ProxyPeer {
             let target = read_target(&mut stream, header[3]).await?;
             if header[1] == COMMAND_UDP_ASSOCIATE {
                 self.associate_commands.fetch_add(1, Ordering::SeqCst);
-                let contract: serde_json::Value = serde_json::from_str(include_str!(
-                    "../../tests/fixtures/proxy-exit/contract.json"
-                ))
-                .unwrap();
-                let unsupported = contract["socks5_udp_unsupported"].as_u64().unwrap() as u8;
+                let unsupported = self.udp_reply.load(Ordering::SeqCst);
                 stream
                     .write_all(&[5, unsupported, 0, 1, 0, 0, 0, 0, 0, 0])
                     .await?;
@@ -158,6 +161,9 @@ impl TcpDialer for Arc<ProxyPeer> {
         _class: FlowClass,
     ) -> Result<crate::tcp::TcpStream, DialError> {
         self.server_connections.lock().unwrap().push(target);
+        if self.refuse_server.load(Ordering::SeqCst) {
+            return Err(DialError::Refused);
+        }
         let (client, peer) = tokio::io::duplex(8192);
         let server = self.clone();
         let cancellation = self.cancellation.clone();
@@ -221,10 +227,20 @@ impl Fixture {
             server_connections: StdMutex::default(),
             dns_targets: StdMutex::default(),
             associate_commands: AtomicUsize::new(0),
+            udp_reply: AtomicU8::new(
+                serde_json::from_str::<serde_json::Value>(include_str!(
+                    "../../tests/fixtures/proxy-exit/contract.json"
+                ))
+                .unwrap()["socks5_udp_unsupported"]
+                    .as_u64()
+                    .unwrap() as u8,
+            ),
             dns_queries: AtomicUsize::new(0),
             stalled_queries: AtomicUsize::new(0),
             stall_dns: AtomicBool::new(false),
             refuse_dns: AtomicBool::new(false),
+            refuse_server: AtomicBool::new(false),
+            auth_reply: AtomicU8::new(0),
             query_started: Notify::new(),
             query_closed: Notify::new(),
             cancellation: CancellationToken::new(),
@@ -490,6 +506,87 @@ async fn http_exit_socks_udp_dns_uses_tcp_for_ipv4_ipv6_and_edge_domain() {
     assert_eq!(*fixture.peer.dns_targets.lock().unwrap(), targets);
     drop(control);
     fixture.shutdown().await;
+}
+
+#[tokio::test]
+async fn every_valid_udp_command_refusal_preserves_tcp_dns_only_associations() {
+    for reply in 1..=8 {
+        let mut fixture = Fixture::new(ChainSource::Socks5Proxy).await;
+        fixture.peer.udp_reply.store(reply, Ordering::SeqCst);
+        let target = TcpTarget::new("resolver.example", 53).unwrap();
+        let request = query(u16::from(reply));
+        let response = fixture
+            .dns
+            .query_target(
+                target.clone(),
+                &request,
+                Instant::now() + Duration::from_secs(2),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response, answer(&request));
+
+        let (control, udp, relay) = fixture.associate().await;
+        exchange(&udp, relay, &target, u16::from(reply) + 10).await;
+        assert_eq!(fixture.peer.dns_queries.load(Ordering::SeqCst), 2);
+        assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            fixture.proxy.status.borrow().proxy_udp.as_deref(),
+            Some("unavailable")
+        );
+        // A DNS-only association never enables ordinary tunnel UDP.
+        udp.send_to(
+            &datagram(
+                &TcpTarget::new("ordinary.example", 9000).unwrap(),
+                b"payload",
+            ),
+            relay,
+        )
+        .await
+        .unwrap();
+        let mut response = [0; 64];
+        assert!(
+            timeout(Duration::from_millis(50), udp.recv_from(&mut response))
+                .await
+                .is_err()
+        );
+        assert_eq!(fixture.peer.dns_queries.load(Ordering::SeqCst), 2);
+        drop(control);
+        fixture.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn udp_transport_authentication_and_invalid_replies_do_not_become_command_refusals() {
+    for error in [
+        DialError::Refused,
+        DialError::Rejected(407),
+        DialError::Protocol,
+    ] {
+        let mut fixture = Fixture::new(ChainSource::Socks5Proxy).await;
+        match error {
+            DialError::Refused => fixture.peer.refuse_server.store(true, Ordering::SeqCst),
+            DialError::Rejected(407) => fixture.peer.auth_reply.store(255, Ordering::SeqCst),
+            DialError::Protocol => fixture.peer.udp_reply.store(255, Ordering::SeqCst),
+            _ => unreachable!(),
+        }
+        let result = SocksFactory(fixture.proxy.clone())
+            .open(
+                &fixture.cancellation,
+                Instant::now() + Duration::from_secs(2),
+            )
+            .await;
+        assert!(matches!(result, Err(actual) if actual == error));
+        assert_eq!(
+            fixture.proxy.status.borrow().proxy_udp.as_deref(),
+            Some("unknown")
+        );
+        assert_eq!(
+            fixture.proxy.cancellation.is_cancelled(),
+            error == DialError::Rejected(407)
+        );
+        fixture.shutdown().await;
+    }
 }
 
 #[tokio::test]

@@ -196,7 +196,14 @@ impl UdpFactory for SocksFactory {
                 3,
                 &crate::tcp::TcpTarget::address("0.0.0.0:0".parse().expect("constant")),
             )
-            .await?;
+            .await
+            .map_err(|error| match error {
+                // A command refusal only denies UDP. TCP CONNECT (including
+                // DNS) remains independent; authentication and transport errors
+                // above must still fail rather than become a DNS-only relay.
+                DialError::Refused => DialError::Rejected(7),
+                error => error,
+            })?;
             let host = if host
                 .parse::<std::net::IpAddr>()
                 .is_ok_and(|ip| ip.is_unspecified())

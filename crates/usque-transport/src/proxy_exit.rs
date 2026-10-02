@@ -432,15 +432,8 @@ pub(crate) async fn socks_command(
         .read_exact(&mut header)
         .await
         .map_err(|_| DialError::Closed)?;
-    if header[0] != 5 || header[2] != 0 {
+    if header[0] != 5 || header[2] != 0 || header[1] > 8 {
         return Err(DialError::Protocol);
-    }
-    if header[1] != 0 {
-        return Err(if header[1] == 7 {
-            DialError::Rejected(7)
-        } else {
-            DialError::Refused
-        });
     }
     let size = match header[3] {
         1 => 4,
@@ -468,5 +461,14 @@ pub(crate) async fn socks_command(
         _ => String::from_utf8(bytes).map_err(|_| DialError::Protocol)?,
     };
     let port = stream.read_u16().await.map_err(|_| DialError::Closed)?;
+    // Classify only a complete, valid command reply. A malformed or truncated
+    // denial must not enable a DNS-only UDP association.
+    if header[1] != 0 {
+        return Err(if header[1] == 7 {
+            DialError::Rejected(7)
+        } else {
+            DialError::Refused
+        });
+    }
     Ok((host, port))
 }
