@@ -8,7 +8,6 @@ const Map<String, String> kUiWorkflowAr = <String, String>{
   'home_tun_hint': 'يلتقط حركة مرور التطبيقات على هذا الجهاز',
   'home_system_proxy_hint': 'التطبيقات التي تتبع وكيل النظام تستخدم وكيل HTTP',
   'home_system_proxy_requires_http': 'فعّل وكيل HTTP المحلي أولاً.',
-  'local_proxy_settings': 'إعدادات الوكيل المحلي',
   'proxy_switches_hint': 'تسري تغييرات المفاتيح فورًا.',
   'cc_label': 'التحكم في ازدحام HTTP/3',
   'cc_help': 'يسري عند اتصالك اليدوي التالي.',
@@ -57,7 +56,7 @@ const Map<String, String> kUiWorkflowAr = <String, String>{
   'connection_protection_group': 'الاتصال والحماية',
   'proxy_routing_group': 'الوكيل والتوجيه',
   'application_group': 'التطبيق',
-  'proxy_settings_link': 'عناوين المستمع والمنافذ والمصادقة وDNS.',
+  'tools_group': 'الأدوات',
   'reset_draft_hint':
       'ستُحمَّل القيم الافتراضية في هذا النموذج. طبّق التغييرات حتى تسري.',
 };

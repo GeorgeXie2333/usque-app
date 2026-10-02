@@ -9,7 +9,6 @@ const Map<String, String> kUiWorkflowPl = <String, String>{
   'home_system_proxy_hint':
       'Aplikacje respektujące proxy systemowe używają proxy HTTP',
   'home_system_proxy_requires_http': 'Najpierw włącz lokalne proxy HTTP.',
-  'local_proxy_settings': 'Ustawienia lokalnego proxy',
   'proxy_switches_hint': 'Przełączniki działają od razu.',
   'cc_label': 'Kontrola przeciążenia HTTP/3',
   'cc_help': 'Zacznie obowiązywać przy następnym ręcznym połączeniu.',
@@ -60,7 +59,7 @@ const Map<String, String> kUiWorkflowPl = <String, String>{
   'connection_protection_group': 'Połączenie i ochrona',
   'proxy_routing_group': 'Proxy i trasowanie',
   'application_group': 'Aplikacja',
-  'proxy_settings_link': 'Adresy nasłuchu, porty, uwierzytelnianie i DNS.',
+  'tools_group': 'Narzędzia',
   'reset_draft_hint':
       'W tym formularzu zostaną wczytane wartości domyślne. Zastosuj '
       'zmiany, aby zaczęły obowiązywać.',

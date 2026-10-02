@@ -76,8 +76,7 @@ const Map<String, String> kUiWorkflowEn = <String, String>{
   'connection_protection_group': 'Connection & protection',
   'proxy_routing_group': 'Proxy & routing',
   'application_group': 'Application',
-  'proxy_settings_link': 'Listener addresses, ports, authentication and DNS.',
-  'local_proxy_settings': 'Local proxy settings',
+  'tools_group': 'Tools',
   'proxy_switches_hint': 'Switches take effect immediately.',
   'reset_draft_hint':
       'Defaults will be loaded into this form. Apply changes to make them take effect.',
@@ -137,8 +136,7 @@ const Map<String, String> kUiWorkflowZhCn = <String, String>{
   'connection_protection_group': '连接与保护',
   'proxy_routing_group': '代理与分流',
   'application_group': '应用',
-  'proxy_settings_link': '监听地址、端口、认证与 DNS。',
-  'local_proxy_settings': '本地代理设置',
+  'tools_group': '工具',
   'proxy_switches_hint': '开关更改立即生效。',
   'reset_draft_hint': '默认值将填入表单，点击“应用修改”后才会生效。',
 };

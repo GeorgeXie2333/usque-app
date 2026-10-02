@@ -2350,7 +2350,10 @@ void main() {
         findsNothing,
       );
 
-      await tester.tap(find.byKey(const ValueKey<String>('proxy-dns-mode')));
+      final dnsMode = find.byKey(const ValueKey<String>('proxy-dns-mode'));
+      await tester.ensureVisible(dnsMode);
+      await tester.pumpAndSettle();
+      await tester.tap(dnsMode);
       await tester.pumpAndSettle();
       await tester.tap(find.text('自定义 DNS 服务器').last);
       await tester.pumpAndSettle();
@@ -4838,24 +4841,27 @@ void main() {
           tester.widget<SettingsScreen>(find.byType(SettingsScreen));
       final controller = settings().controller;
 
-      expect(find.text('TUN and local proxies'), findsOneWidget);
-      expect(settings().controller.activeProfile.frontends.tunnel, isTrue);
-      expect(settings().controller.activeProfile.frontends.socks5, isTrue);
-      expect(settings().controller.activeProfile.frontends.http, isTrue);
-      expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
-      expect(settings().controller.activeProfile.autoConnect, isFalse);
-
-      await toggle('TUN');
-      expect(settings().controller.activeProfile.frontends.tunnel, isFalse);
+      expect(find.text('TUN and local proxies'), findsNothing);
+      expect(controller.activeProfile.frontends.tunnel, isTrue);
+      expect(controller.activeProfile.frontends.socks5, isTrue);
+      expect(controller.activeProfile.frontends.http, isTrue);
+      expect(controller.activeProfile.proxy.systemProxy, isFalse);
+      expect(controller.activeProfile.autoConnect, isFalse);
 
       await toggle('Connect the current account automatically on start');
-      expect(settings().controller.activeProfile.autoConnect, isTrue);
+      expect(controller.activeProfile.autoConnect, isTrue);
 
-      final proxyLink = find.text('Local proxy settings');
-      await tester.ensureVisible(proxyLink);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.text('Proxy'),
+        ),
+      );
       await tester.pumpAndSettle();
-      await tester.tap(proxyLink);
-      await tester.pumpAndSettle();
+      expect(find.text('TUN and local proxies'), findsOneWidget);
+      await toggle('TUN');
+      expect(controller.activeProfile.frontends.tunnel, isFalse);
+
       await toggle('SOCKS5');
       expect(controller.activeProfile.frontends.socks5, isFalse);
 
@@ -4877,7 +4883,9 @@ void main() {
     }
   });
 
-  testWidgets('Android settings hide the system proxy switch', (tester) async {
+  testWidgets('Android proxy outputs hide the system proxy switch', (
+    tester,
+  ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     try {
       tester.view.devicePixelRatio = 1;
@@ -4893,7 +4901,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
-          matching: find.text('Settings'),
+          matching: find.text('Proxy'),
         ),
       );
       await tester.pumpAndSettle();

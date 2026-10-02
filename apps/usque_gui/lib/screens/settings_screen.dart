@@ -56,10 +56,8 @@ class SettingsScreen extends StatelessWidget {
               _SettingsGroup(
                 title: strings.get('connection_protection_group'),
                 children: [
-                  if (controller.engineCapabilities?.networkQuality ?? false)
-                    _NetworkQualityRow(controller: controller),
-                  _DiagnosticsRow(controller: controller),
-                  _NetworkOutputsPanel(controller: controller),
+                  _AutoConnectPanel(controller: controller),
+                  _KillSwitchRow(controller: controller),
                   if (android)
                     ContentSection(
                       padding: const EdgeInsets.symmetric(
@@ -84,18 +82,6 @@ class SettingsScreen extends StatelessWidget {
               _SettingsGroup(
                 title: strings.get('proxy_routing_group'),
                 children: [
-                  ActionRow(
-                    onTap: () => controller.selectSection(AppSection.proxy),
-                    child: ContentHeading(
-                      icon: LucideIcons.slidersHorizontal,
-                      title: strings.get('local_proxy_settings'),
-                      subtitle: strings.get('proxy_settings_link'),
-                      trailing: const Icon(
-                        LucideIcons.chevronRightDir,
-                        size: 20,
-                      ),
-                    ),
-                  ),
                   _GeoDirectRow(controller: controller),
                   if (android)
                     ContentSection(
@@ -129,6 +115,14 @@ class SettingsScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+                ],
+              ),
+              _SettingsGroup(
+                title: strings.get('tools_group'),
+                children: [
+                  if (controller.engineCapabilities?.networkQuality ?? false)
+                    _NetworkQualityRow(controller: controller),
+                  _DiagnosticsRow(controller: controller),
                 ],
               ),
               _SettingsGroup(
@@ -465,8 +459,8 @@ String _formatUpdateBytes(int bytes) {
   return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
 }
 
-class _NetworkOutputsPanel extends StatelessWidget {
-  const _NetworkOutputsPanel({required this.controller});
+class _AutoConnectPanel extends StatelessWidget {
+  const _AutoConnectPanel({required this.controller});
 
   final AppController controller;
 
@@ -474,24 +468,10 @@ class _NetworkOutputsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     final profile = controller.activeProfile;
-    final frontends = profile.frontends;
     return ContentSection(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
-      icon: LucideIcons.share2,
-      title: strings.get('outputs'),
-      subtitle: strings.get('shared_network_scope'),
       gap: 10,
       children: <Widget>[
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          secondary: const Icon(LucideIcons.shield),
-          title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
-          value: frontends.tunnel,
-          onChanged: (value) => controller.updateNetwork(
-            profile.copyWith(frontends: frontends.copyWith(tunnel: value)),
-            changedFields: const ['frontends.tunnel'],
-          ),
-        ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           secondary: const Icon(LucideIcons.zap),
@@ -502,13 +482,6 @@ class _NetworkOutputsPanel extends StatelessWidget {
             changedFields: const ['auto_connect'],
           ),
         ),
-        if (!frontends.any) ...<Widget>[
-          const SizedBox(height: 8),
-          WarningBanner(
-            title: strings.get('channel_only'),
-            message: strings.get('channel_only_warning'),
-          ),
-        ],
         if (controller.networkSettingsMessage != null)
           Semantics(
             liveRegion: true,
@@ -520,6 +493,59 @@ class _NetworkOutputsPanel extends StatelessWidget {
             child: Text(strings.get('settings_reconnect')),
           ),
       ],
+    );
+  }
+}
+
+/// Catalog key for the configured Kill Switch preference. Live enforcement
+/// state belongs to Home; Settings reports only what will be applied.
+String _killSwitchSettingKey(UsqueProfile profile) {
+  if (!profile.frontends.tunnel) return 'not_used_proxy';
+  return profile.killSwitch ? 'on' : 'off';
+}
+
+class _KillSwitchRow extends StatelessWidget {
+  const _KillSwitchRow({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = controller.strings;
+    final theme = Theme.of(context);
+    return ActionRow(
+      key: const ValueKey('settings-kill-switch-row'),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => AdvancedSettingsScreen(
+            controller: controller,
+            revealKillSwitch: true,
+          ),
+        ),
+      ),
+      child: ContentHeading(
+        icon: LucideIcons.shieldCheck,
+        title: strings.get('kill_switch'),
+        subtitle: strings.get('kill_switch_help'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              strings.get(_killSwitchSettingKey(controller.activeProfile)),
+              key: const ValueKey('settings-kill-switch-value'),
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Icon(
+              LucideIcons.chevronRightDir,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

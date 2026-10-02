@@ -9,7 +9,6 @@ const Map<String, String> kUiWorkflowNl = <String, String>{
   'home_system_proxy_hint':
       'Apps die de systeemproxy volgen, gebruiken de HTTP-proxy',
   'home_system_proxy_requires_http': 'Schakel eerst de lokale HTTP-proxy in.',
-  'local_proxy_settings': 'Lokale proxyinstellingen',
   'proxy_switches_hint': 'Schakelaars werken meteen.',
   'cc_label': 'HTTP/3-congestiecontrole',
   'cc_help': 'Wordt bij de volgende handmatige verbinding toegepast.',
@@ -63,7 +62,7 @@ const Map<String, String> kUiWorkflowNl = <String, String>{
   'connection_protection_group': 'Verbinding en bescherming',
   'proxy_routing_group': 'Proxy en routering',
   'application_group': 'Applicatie',
-  'proxy_settings_link': 'Listeneradressen, poorten, authenticatie en DNS.',
+  'tools_group': 'Hulpmiddelen',
   'reset_draft_hint':
       'Standaardwaarden worden in dit formulier geladen. Pas de wijzigingen '
       'toe om ze door te voeren.',

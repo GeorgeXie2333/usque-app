@@ -10,7 +10,6 @@ const Map<String, String> kUiWorkflowId = <String, String>{
       'Aplikasi yang mengikuti proxy sistem memakai proxy HTTP',
   'home_system_proxy_requires_http':
       'Aktifkan proksi HTTP lokal terlebih dahulu.',
-  'local_proxy_settings': 'Pengaturan proksi lokal',
   'proxy_switches_hint': 'Sakelar langsung berlaku.',
   'cc_label': 'Kontrol kongesti HTTP/3',
   'cc_help': 'Berlaku pada koneksi manual berikutnya.',
@@ -60,7 +59,7 @@ const Map<String, String> kUiWorkflowId = <String, String>{
   'connection_protection_group': 'Koneksi & perlindungan',
   'proxy_routing_group': 'Proksi & perutean',
   'application_group': 'Aplikasi',
-  'proxy_settings_link': 'Alamat listener, port, autentikasi, dan DNS.',
+  'tools_group': 'Alat',
   'reset_draft_hint':
       'Nilai default akan dimuat ke formulir ini. Terapkan perubahan agar berlaku.',
 };

@@ -8,7 +8,6 @@ const Map<String, String> kUiWorkflowJa = <String, String>{
   'home_tun_hint': 'このデバイスのアプリの通信を引き受けます',
   'home_system_proxy_hint': 'システムプロキシに従うアプリが HTTP プロキシを使います',
   'home_system_proxy_requires_http': '先に HTTP ローカルプロキシを有効にしてください。',
-  'local_proxy_settings': 'ローカルプロキシ設定',
   'proxy_switches_hint': 'スイッチの変更はすぐに反映されます。',
   'cc_label': 'HTTP/3 輻輳制御',
   'cc_help': '次回の手動接続時に適用されます。',
@@ -56,7 +55,7 @@ const Map<String, String> kUiWorkflowJa = <String, String>{
   'connection_protection_group': '接続と保護',
   'proxy_routing_group': 'プロキシとルーティング',
   'application_group': 'アプリ',
-  'proxy_settings_link': 'リスナーアドレス、ポート、認証、DNS。',
+  'tools_group': 'ツール',
   'reset_draft_hint': '既定値がこのフォームに読み込まれます。適用すると反映されます。',
 };
 

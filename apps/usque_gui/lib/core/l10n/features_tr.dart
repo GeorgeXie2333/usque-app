@@ -10,7 +10,6 @@ const Map<String, String> kUiWorkflowTr = <String, String>{
       'Sistem proxy’sini izleyen uygulamalar HTTP proxy’sini kullanır',
   'home_system_proxy_requires_http':
       'Önce yerel HTTP proxy’sini etkinleştirin.',
-  'local_proxy_settings': 'Yerel proxy ayarları',
   'proxy_switches_hint': 'Anahtarlar hemen uygulanır.',
   'cc_label': 'HTTP/3 tıkanıklık denetimi',
   'cc_help': 'Sonraki manuel bağlantınızda uygulanır.',
@@ -61,8 +60,7 @@ const Map<String, String> kUiWorkflowTr = <String, String>{
   'connection_protection_group': 'Bağlantı ve koruma',
   'proxy_routing_group': 'Proxy ve yönlendirme',
   'application_group': 'Uygulama',
-  'proxy_settings_link':
-      'Dinleyici adresleri, portlar, kimlik doğrulama ve DNS.',
+  'tools_group': 'Araçlar',
   'reset_draft_hint':
       'Varsayılanlar bu forma yüklenecek. Geçerli olmaları için değişiklikleri uygulayın.',
 };

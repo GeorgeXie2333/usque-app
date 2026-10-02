@@ -8,7 +8,6 @@ const Map<String, String> kUiWorkflowKo = <String, String>{
   'home_tun_hint': '이 기기의 앱 트래픽을 처리합니다',
   'home_system_proxy_hint': '시스템 프록시를 따르는 앱이 HTTP 프록시를 사용합니다',
   'home_system_proxy_requires_http': '먼저 HTTP 로컬 프록시를 활성화하세요.',
-  'local_proxy_settings': '로컬 프록시 설정',
   'proxy_switches_hint': '스위치 변경은 즉시 적용됩니다.',
   'cc_label': 'HTTP/3 혼잡 제어',
   'cc_help': '다음 수동 연결 시 적용됩니다.',
@@ -56,7 +55,7 @@ const Map<String, String> kUiWorkflowKo = <String, String>{
   'connection_protection_group': '연결 및 보호',
   'proxy_routing_group': '프록시 및 라우팅',
   'application_group': '앱',
-  'proxy_settings_link': '리스너 주소, 포트, 인증, DNS.',
+  'tools_group': '도구',
   'reset_draft_hint': '기본값이 이 양식에 로드됩니다. 적용해야 반영됩니다.',
 };
 

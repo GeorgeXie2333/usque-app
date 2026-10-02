@@ -18,17 +18,19 @@ void main() {
           section: AppSection.settings,
         );
         final settings = find.byType(SettingsScreen);
-        expect(
-          find.descendant(
-            of: settings,
-            matching: find.widgetWithText(SwitchListTile, 'SOCKS5'),
-          ),
-          findsNothing,
-        );
-        final link = find.text(app.strings.get('local_proxy_settings'));
-        await tester.ensureVisible(link);
-        await tester.pumpAndSettle();
-        await tester.tap(link);
+        for (final output in [
+          'SOCKS5',
+          app.strings.tunnelOutputLabel(platform),
+        ]) {
+          expect(
+            find.descendant(
+              of: settings,
+              matching: find.widgetWithText(SwitchListTile, output),
+            ),
+            findsNothing,
+          );
+        }
+        app.selectSection(AppSection.proxy);
         await tester.pumpAndSettle();
         expect(find.byType(ProxyScreen), findsOneWidget);
         expect(

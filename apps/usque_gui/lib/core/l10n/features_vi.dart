@@ -9,7 +9,6 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
   'home_system_proxy_hint':
       'Ứng dụng tuân theo proxy hệ thống sẽ dùng proxy HTTP',
   'home_system_proxy_requires_http': 'Hãy bật proxy HTTP cục bộ trước.',
-  'local_proxy_settings': 'Cài đặt proxy cục bộ',
   'proxy_switches_hint': 'Công tắc có hiệu lực ngay.',
   'cc_label': 'Kiểm soát tắc nghẽn HTTP/3',
   'cc_help': 'Có hiệu lực ở lần kết nối thủ công tiếp theo.',
@@ -59,7 +58,7 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
   'connection_protection_group': 'Kết nối & bảo vệ',
   'proxy_routing_group': 'Proxy & định tuyến',
   'application_group': 'Ứng dụng',
-  'proxy_settings_link': 'Địa chỉ trình lắng nghe, cổng, xác thực và DNS.',
+  'tools_group': 'Công cụ',
   'reset_draft_hint':
       'Giá trị mặc định sẽ được nạp vào biểu mẫu này. Áp dụng thay đổi để chúng có hiệu lực.',
 };

@@ -8,7 +8,6 @@ const Map<String, String> kUiWorkflowTh = <String, String>{
   'home_tun_hint': 'รับช่วงการรับส่งข้อมูลของแอปในอุปกรณ์นี้',
   'home_system_proxy_hint': 'แอปที่ทำตามพร็อกซีของระบบจะใช้พร็อกซี HTTP',
   'home_system_proxy_requires_http': 'เปิดใช้งานพร็อกซี HTTP ในเครื่องก่อน',
-  'local_proxy_settings': 'การตั้งค่าพร็อกซีในเครื่อง',
   'proxy_switches_hint': 'สวิตช์มีผลทันที',
   'cc_label': 'การควบคุมความแออัด HTTP/3',
   'cc_help': 'มีผลเมื่อคุณเชื่อมต่อด้วยตนเองครั้งถัดไป',
@@ -56,7 +55,7 @@ const Map<String, String> kUiWorkflowTh = <String, String>{
   'connection_protection_group': 'การเชื่อมต่อและการป้องกัน',
   'proxy_routing_group': 'พร็อกซีและการกำหนดเส้นทาง',
   'application_group': 'แอป',
-  'proxy_settings_link': 'ที่อยู่ตัวรับฟัง พอร์ต การยืนยันตัวตน และ DNS',
+  'tools_group': 'เครื่องมือ',
   'reset_draft_hint':
       'ค่าเริ่มต้นจะถูกโหลดลงในแบบฟอร์มนี้ ใช้การเปลี่ยนแปลงจึงจะมีผล',
 };

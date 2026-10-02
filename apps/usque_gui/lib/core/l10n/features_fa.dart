@@ -9,7 +9,6 @@ const Map<String, String> kUiWorkflowFa = <String, String>{
   'home_system_proxy_hint':
       'برنامه‌هایی که از پروکسی سیستم پیروی می‌کنند از پروکسی HTTP استفاده می‌کنند',
   'home_system_proxy_requires_http': 'ابتدا پروکسی محلی HTTP را فعال کنید.',
-  'local_proxy_settings': 'تنظیمات پراکسی محلی',
   'proxy_switches_hint': 'تغییر کلیدها بلافاصله اعمال می‌شود.',
   'cc_label': 'کنترل ازدحام HTTP/3',
   'cc_help': 'در اتصال دستی بعدی‌تان اعمال می‌شود.',
@@ -58,7 +57,7 @@ const Map<String, String> kUiWorkflowFa = <String, String>{
   'connection_protection_group': 'اتصال و حفاظت',
   'proxy_routing_group': 'پروکسی و مسیریابی',
   'application_group': 'برنامه',
-  'proxy_settings_link': 'نشانی شنونده، پورت‌ها، احراز هویت و DNS.',
+  'tools_group': 'ابزارها',
   'reset_draft_hint':
       'پیش‌فرض‌ها در این فرم بارگذاری می‌شوند. برای مؤثر شدن، تغییرات را اعمال کنید.',
 };

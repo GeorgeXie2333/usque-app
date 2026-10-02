@@ -10,7 +10,6 @@ const Map<String, String> kUiWorkflowUk = <String, String>{
       'Застосунки, що враховують системний проксі, використовують HTTP-проксі',
   'home_system_proxy_requires_http':
       'Спочатку увімкніть локальний HTTP-проксі.',
-  'local_proxy_settings': 'Налаштування локального проксі',
   'proxy_switches_hint': 'Перемикачі діють одразу.',
   'cc_label': 'Керування перевантаженням HTTP/3',
   'cc_help': 'Набирає чинності під час наступного ручного зʼєднання.',
@@ -62,7 +61,7 @@ const Map<String, String> kUiWorkflowUk = <String, String>{
   'connection_protection_group': 'Зʼєднання і захист',
   'proxy_routing_group': 'Проксі та маршрути',
   'application_group': 'Програма',
-  'proxy_settings_link': 'Адреси слухача, порти, автентифікація та DNS.',
+  'tools_group': 'Інструменти',
   'reset_draft_hint':
       'У форму буде завантажено типові значення. Застосуйте зміни, '
       'щоб вони набрали чинності.',

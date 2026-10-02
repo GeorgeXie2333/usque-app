@@ -8,7 +8,6 @@ const Map<String, String> kUiWorkflowZhHk = <String, String>{
   'home_tun_hint': '接管本機應用程式的流量',
   'home_system_proxy_hint': '讓遵循系統代理的應用程式使用 HTTP 代理',
   'home_system_proxy_requires_http': '請先啟用 HTTP 本地代理。',
-  'local_proxy_settings': '本機代理設定',
   'proxy_switches_hint': '開關變更即時生效。',
   'cc_label': 'HTTP/3 擁塞控制',
   'cc_help': '下次手動連線時生效。',
@@ -56,7 +55,7 @@ const Map<String, String> kUiWorkflowZhHk = <String, String>{
   'connection_protection_group': '連線與保護',
   'proxy_routing_group': '代理與分流',
   'application_group': '應用程式',
-  'proxy_settings_link': '監聽地址、連接埠、認證及 DNS。',
+  'tools_group': '工具',
   'reset_draft_hint': '預設值會填入此表單，按「套用修改」後才會生效。',
 };
 

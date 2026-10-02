@@ -9,7 +9,6 @@ const Map<String, String> kUiWorkflowEs = <String, String>{
   'home_system_proxy_hint':
       'Las aplicaciones que siguen el proxy del sistema usan el proxy HTTP',
   'home_system_proxy_requires_http': 'Activa primero el proxy HTTP local.',
-  'local_proxy_settings': 'Configuración del proxy local',
   'proxy_switches_hint': 'Los interruptores se aplican al instante.',
   'cc_label': 'Control de congestión HTTP/3',
   'cc_help': 'Se aplica en la próxima conexión manual.',
@@ -62,8 +61,7 @@ const Map<String, String> kUiWorkflowEs = <String, String>{
   'connection_protection_group': 'Conexión y protección',
   'proxy_routing_group': 'Proxy y enrutamiento',
   'application_group': 'Aplicación',
-  'proxy_settings_link':
-      'Direcciones de escucha, puertos, autenticación y DNS.',
+  'tools_group': 'Herramientas',
   'reset_draft_hint':
       'Los valores predeterminados se cargarán en este formulario. Aplique '
       'los cambios para que surtan efecto.',

@@ -30,6 +30,20 @@ class LocalProxyOutputs extends StatelessWidget {
       children: [
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
+          secondary: const Icon(LucideIcons.shield),
+          title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
+          value: frontends.tunnel,
+          onChanged: !enabled
+              ? null
+              : (value) => controller.updateNetwork(
+                  profile.copyWith(
+                    frontends: frontends.copyWith(tunnel: value),
+                  ),
+                  changedFields: const ['frontends.tunnel'],
+                ),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
           secondary: const Icon(LucideIcons.network),
           title: const Text('SOCKS5'),
           value: frontends.socks5,

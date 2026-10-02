@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
@@ -17,9 +18,16 @@ import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
 
 class AdvancedSettingsScreen extends StatefulWidget {
-  const AdvancedSettingsScreen({required this.controller, super.key});
+  const AdvancedSettingsScreen({
+    required this.controller,
+    this.revealKillSwitch = false,
+    super.key,
+  });
 
   final AppController controller;
+
+  /// Scrolls the Kill Switch draft switch into view once the page is laid out.
+  final bool revealKillSwitch;
 
   @override
   State<AdvancedSettingsScreen> createState() => _AdvancedSettingsScreenState();
@@ -46,6 +54,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late DnsMode _dnsMode;
   late ProxySettings _proxy;
   final _directDnsKey = GlobalKey<DirectDnsEditorState>();
+  final _killSwitchKey = GlobalKey();
   bool _saving = false;
   String? _saveError;
   String? _validationError;
@@ -116,6 +125,20 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _dnsV4 = TextEditingController();
     _dnsV6 = TextEditingController();
     _load(widget.controller.activeProfile);
+    if (widget.revealKillSwitch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _killSwitchKey.currentContext;
+        if (!mounted || target == null) return;
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.2,
+          duration: UsqueMotion.reduced(context)
+              ? Duration.zero
+              : UsqueMotion.gentle,
+          curve: UsqueMotion.emphasized,
+        );
+      });
+    }
   }
 
   void _load(UsqueProfile profile, {bool baseline = true}) {
@@ -533,6 +556,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                     gap: 10,
                     children: <Widget>[
                       SwitchListTile(
+                        key: _killSwitchKey,
                         contentPadding: EdgeInsets.zero,
                         title: Text(strings.get('kill_switch')),
                         subtitle: Text(
