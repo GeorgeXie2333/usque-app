@@ -293,6 +293,16 @@ impl FrontendAdmission {
     pub(crate) fn reserve_udp_buffers(&self) -> Option<crate::l4::stream::BufferLease> {
         self.budget.reserve_admission(16 * 16 * 1024 * 2)
     }
+
+    pub(crate) fn reserve_udp_dns_query(
+        &self,
+        query_bytes: usize,
+    ) -> Option<crate::l4::stream::BufferLease> {
+        // One owned query, the maximum framed TCP DNS answer, and the bounded
+        // SOCKS reply coexist briefly. Include the maximum domain target too.
+        self.budget
+            .reserve_admission(query_bytes + usize::from(u16::MAX) + 16 * 1024 + 256)
+    }
 }
 
 #[cfg(test)]

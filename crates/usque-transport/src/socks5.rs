@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket as TokioUdpSocket};
 use tokio::sync::{Mutex, mpsc, watch};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 #[cfg(test)]
 use tokio::time::timeout;
@@ -62,6 +62,7 @@ const REMOTE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_TARGET_ADDRESSES: usize = 16;
 const MAX_UDP_DATAGRAM: usize = 65_535;
 const UDP_RESPONSE_CAPACITY: usize = 128;
+const MAX_UDP_DNS_QUERIES: usize = 4;
 
 pub struct Socks5Runtime {
     stack: PacketStack,
@@ -559,6 +560,7 @@ async fn serve_udp_association(
     let requested_port = NonZeroU16::new(request.port);
     let mut client_endpoint = requested_port.map(|port| SocketAddr::new(peer.ip(), port.get()));
     let mut datagram = vec![0u8; packet_limit + 1];
+    let mut dns_queries = JoinSet::<Option<UdpDnsReply>>::new();
     let idle = tokio::time::sleep(context.udp_idle_timeout);
     tokio::pin!(idle);
     let result = loop {
@@ -575,6 +577,25 @@ async fn serve_udp_association(
                     Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => break Ok(()),
                     Err(error) => break Err(TransportError::Io(error)),
                 }
+            }
+            completed = dns_queries.join_next(), if !dns_queries.is_empty() => {
+                let reply = match completed {
+                    Some(Ok(Some(reply))) => reply,
+                    Some(Ok(None)) => continue,
+                    _ => break Err(TransportError::Socks5("UDP DNS worker stopped".to_owned())),
+                };
+                let Some(endpoint) = client_endpoint else { continue; };
+                tokio::select! {
+                    biased;
+                    _ = association_cancel.cancelled() => break Ok(()),
+                    _ = control.read_u8() => break Ok(()),
+                    result = relay.send_to(&reply.packet, endpoint) => {
+                        if let Err(error) = result { break Err(TransportError::Io(error)); }
+                    }
+                }
+                // Keep the query/response reservation until delivery finishes.
+                drop(reply);
+                idle.as_mut().reset(Instant::now() + context.udp_idle_timeout);
             }
             received = relay.recv_from(&mut datagram) => {
                 let (length, source) = match received {
@@ -627,24 +648,51 @@ async fn serve_udp_association(
                     };
                     let mut packet = vec![0, 0, 0];
                     if crate::proxy_exit::encode_target(&target, &mut packet).is_err() { continue; }
-                    let response = tokio::select! {
-                        biased;
-                        _ = association_cancel.cancelled() => break Ok(()),
-                        _ = control.read_u8() => break Ok(()),
-                        response = forward_udp_dns(&context, dns, &parsed) => response,
-                    };
-                    let response = crate::split_dns::limit_udp_response(parsed.payload, response, packet_limit.saturating_sub(packet.len()));
-                    packet.extend_from_slice(&response);
-                    tokio::select! {
-                        biased;
-                        _ = association_cancel.cancelled() => break Ok(()),
-                        _ = control.read_u8() => break Ok(()),
-                        result = relay.send_to(&packet, source) => {
-                            if let Err(error) = result { break Err(TransportError::Io(error)); }
-                        }
-                    }
+                    // Pin the first accepted client before asynchronous work.
+                    // A pending query must not leave this association claimable
+                    // by another endpoint sharing the TCP peer's address.
                     client_endpoint.get_or_insert(source);
                     idle.as_mut().reset(Instant::now() + context.udp_idle_timeout);
+                    let lease = (dns_queries.len() < MAX_UDP_DNS_QUERIES)
+                        .then(|| context.admission.as_ref()
+                            .and_then(|admission| admission.reserve_udp_dns_query(parsed.payload.len())))
+                        .flatten();
+                    let Some(lease) = lease else {
+                        let response = crate::split_dns::limit_udp_response(
+                            parsed.payload,
+                            crate::split_dns::l4_dns_error(parsed.payload),
+                            packet_limit.saturating_sub(packet.len()),
+                        );
+                        packet.extend_from_slice(&response);
+                        tokio::select! {
+                            biased;
+                            _ = association_cancel.cancelled() => break Ok(()),
+                            _ = control.read_u8() => break Ok(()),
+                            result = relay.send_to(&packet, source) => {
+                                if let Err(error) = result { break Err(TransportError::Io(error)); }
+                            }
+                        }
+                        continue;
+                    };
+                    let query = parsed.payload.to_vec();
+                    let target = parsed.target;
+                    let port = parsed.port;
+                    let context = context.clone();
+                    let dns = dns.clone();
+                    let cancel = association_cancel.clone();
+                    dns_queries.spawn(async move {
+                        let request = SocksUdpRequest { target, port, payload: &query };
+                        let response = tokio::select! {
+                            biased;
+                            _ = cancel.cancelled() => return None,
+                            response = forward_udp_dns(&context, &dns, &request) => response,
+                        };
+                        let response = crate::split_dns::limit_udp_response(
+                            &query, response, packet_limit.saturating_sub(packet.len()),
+                        );
+                        packet.extend_from_slice(&response);
+                        Some(UdpDnsReply { packet, _lease: lease })
+                    });
                     continue;
                 }
                 if let Err(error) = send_udp_routed(
@@ -692,10 +740,17 @@ async fn serve_udp_association(
 
     association_cancel.cancel();
     drop(association_guard);
+    dns_queries.abort_all();
+    while dns_queries.join_next().await.is_some() {}
     for task in response_tasks {
         let _ = task.await;
     }
     result
+}
+
+struct UdpDnsReply {
+    packet: Vec<u8>,
+    _lease: crate::l4::stream::BufferLease,
 }
 
 async fn forward_udp_dns(
@@ -1432,6 +1487,8 @@ async fn send_reply(
     Ok(())
 }
 
+#[cfg(test)]
+mod dns_concurrency_tests;
 #[cfg(test)]
 mod dns_tests;
 

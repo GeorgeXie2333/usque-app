@@ -190,6 +190,13 @@ so full business connection slots do not consume the DNS slots. All classes
 still share the existing memory budget; exhausted memory remains a bounded
 failure rather than permission to exceed that budget or bypass the final exit.
 
+The local SOCKS5 UDP relay converts at most four DNS queries concurrently per
+association, including replies waiting for delivery. A slow query does not block
+other queries or ordinary UDP on that association. Each query reserves bounded
+request/response memory; excess queries receive SERVFAIL immediately. Replies
+retain their query IDs and resolver addresses even when they complete out of
+order. Closing the control connection cancels and joins the outstanding work.
+
 ### Observability and safety
 
 Schema 15 appends the data-plane setting; migrating any configuration older
