@@ -305,8 +305,8 @@ const Map<String, String> kL4Tr = <String, String>{
   'l4_sni_identity':
       'Sunucu adı hesap tarafından otomatik belirlenir. Diğer bağlantı modları için kaydedilen sunucu adı korunur.',
   'l4_edge_requires_l4':
-      'Kenarda çözümlenen DNS yalnızca L4 ile çalışır. “Otomatik”, HTTP/3 veya HTTP/2’ye geçmeden önce başka bir proxy DNS modu seçin.',
-  'proxy_dns_edge_resolved': 'Cloudflare kenarı (yalnızca L4; yerel arama yok)',
+      'Bu bağlantı adları proxy sunucusunda çözemez. Başka bir DNS seçeneği belirleyin.',
+  'proxy_dns_edge_resolved': 'Adları proxy sunucusunda çöz',
   'l4_verified': 'L4 üzerinden bir uygulama bağlantısı kuruldu',
   'l4_unverified':
       'Sunucuya bağlanıldı; uygulama bağlantısı henüz doğrulanmadı',

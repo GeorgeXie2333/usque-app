@@ -322,9 +322,8 @@ const Map<String, String> kL4Pl = <String, String>{
   'l4_sni_identity':
       'Ustawiane automatycznie przez konto. Nazwa serwera dla innych trybów połączenia pozostaje zachowana.',
   'l4_edge_requires_l4':
-      'DNS rozwiązywany na brzegu działa tylko z L4. Przed przełączeniem na „Auto”, HTTP/3 lub HTTP/2 wybierz inny tryb DNS proxy.',
-  'proxy_dns_edge_resolved':
-      'Brzeg Cloudflare (tylko L4; bez lokalnego wyszukiwania)',
+      'To połączenie nie może rozwiązywać nazw na serwerze proxy. Wybierz inną opcję DNS.',
+  'proxy_dns_edge_resolved': 'Rozwiązywanie nazw na serwerze proxy',
   'l4_verified': 'L4 pomyślnie nawiązało połączenie aplikacji',
   'l4_unverified':
       'Serwer połączony; połączenie aplikacji jeszcze niepotwierdzone',

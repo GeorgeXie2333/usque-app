@@ -278,9 +278,8 @@ const Map<String, String> kL4Ko = <String, String>{
       'L4는 HTTP/3로 TCP 트래픽을 전달하며 VPN, SOCKS5 및 HTTP 프록시에서 사용할 수 있습니다. VPN의 DNS 질의는 TCP로 변환됩니다. 다른 UDP 트래픽, 원격 Ping, IP 조각 또는 확장 헤더가 필요한 앱은 작동하지 않을 수 있습니다.',
   'l4_unsupported': '이 Usque 버전은 L4를 사용할 수 없습니다. 설정에서 업데이트를 확인하세요.',
   'l4_sni_identity': '계정에서 자동으로 설정하므로 수정할 필요가 없습니다. 다른 연결 모드의 서버 이름은 유지됩니다.',
-  'l4_edge_requires_l4':
-      '에지 확인 DNS는 L4 전용입니다. ‘자동’, HTTP/3, HTTP/2로 바꾸기 전에 다른 프록시 DNS 모드를 선택하세요.',
-  'proxy_dns_edge_resolved': 'Cloudflare 에지(L4 전용, 로컬 조회 없음)',
+  'l4_edge_requires_l4': '이 연결은 프록시 서버에서 이름을 확인할 수 없습니다. 다른 DNS 방식을 선택하세요.',
+  'proxy_dns_edge_resolved': '프록시 서버에서 이름 확인',
   'l4_verified': 'L4에서 앱 연결에 성공한 적이 있습니다',
   'l4_unverified': '서버에 연결했지만 앱 연결 가능 여부는 아직 확인되지 않았습니다',
   'l4_status_unknown': '앱 연결 상태를 확인할 수 없습니다',

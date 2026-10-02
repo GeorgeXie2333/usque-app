@@ -35,8 +35,8 @@ const kL4En = <String, String>{
   'l4_sni_identity':
       'Set automatically by your account. Your server name for other connection modes is kept.',
   'l4_edge_requires_l4':
-      'Edge-resolved DNS works only with L4. Choose another proxy DNS mode before switching to Auto, HTTP/3 or HTTP/2.',
-  'proxy_dns_edge_resolved': 'Cloudflare edge (L4 only; no local lookup)',
+      'This connection cannot resolve names at the proxy server. Choose another DNS option.',
+  'proxy_dns_edge_resolved': 'Resolve at the proxy server',
   'l4_verified': 'L4 has accepted an app connection',
   'l4_unverified': 'Server connected; no app connection verified yet',
   'l4_status_unknown': 'App connection status unavailable',
@@ -64,9 +64,8 @@ const kL4ZhCn = <String, String>{
       'L4 通过 HTTP/3 转发 TCP 流量，可用于 VPN、SOCKS5 和 HTTP 代理。VPN 的 DNS 查询会自动改用 TCP。需要其他 UDP 流量、远端 Ping、IP 分片或扩展头的应用可能无法使用。',
   'l4_unsupported': '此版本的 Usque 无法使用 L4，请在“设置”中检查更新。',
   'l4_sni_identity': '由账号自动设置，无需修改。其他连接模式的服务器名称会保留。',
-  'l4_edge_requires_l4':
-      '边缘解析 DNS 仅适用于 L4。切换到自动、HTTP/3 或 HTTP/2 前，请先选择其他代理 DNS 方式。',
-  'proxy_dns_edge_resolved': 'Cloudflare 边缘解析（仅 L4，不在本地解析）',
+  'l4_edge_requires_l4': '当前连接不支持由代理服务器解析，请选择其他 DNS 方式。',
+  'proxy_dns_edge_resolved': '由代理服务器解析',
   'l4_verified': 'L4 已成功建立过应用连接',
   'l4_unverified': '已连接服务器，尚未确认能否建立应用连接',
   'l4_status_unknown': '暂时无法确认应用连接状态',

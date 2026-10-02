@@ -309,9 +309,8 @@ const Map<String, String> kL4Id = <String, String>{
   'l4_sni_identity':
       'Diatur otomatis oleh akun. Nama server mode koneksi lain tetap disimpan.',
   'l4_edge_requires_l4':
-      'DNS yang diselesaikan di tepi hanya berfungsi dengan L4. Pilih mode DNS proksi lain sebelum beralih ke Otomatis, HTTP/3, atau HTTP/2.',
-  'proxy_dns_edge_resolved':
-      'Tepi Cloudflare (hanya L4; tanpa pencarian lokal)',
+      'Koneksi ini tidak dapat meresolusi nama di server proxy. Pilih opsi DNS lain.',
+  'proxy_dns_edge_resolved': 'Resolusi nama di server proxy',
   'l4_verified': 'L4 telah berhasil membuat koneksi aplikasi',
   'l4_unverified': 'Server terhubung; koneksi aplikasi belum dikonfirmasi',
   'l4_status_unknown': 'Status koneksi aplikasi belum dapat dipastikan',

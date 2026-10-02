@@ -323,9 +323,8 @@ const Map<String, String> kL4Pt = <String, String>{
   'l4_sni_identity':
       'Definido automaticamente pela conta. O nome do servidor dos outros modos de conexão é mantido.',
   'l4_edge_requires_l4':
-      'O DNS resolvido na borda só funciona com L4. Selecione outro modo de DNS do proxy antes de mudar para Automático, HTTP/3 ou HTTP/2.',
-  'proxy_dns_edge_resolved':
-      'Borda Cloudflare (somente L4; sem consulta local)',
+      'Esta conexão não pode resolver nomes no servidor proxy. Escolha outra opção de DNS.',
+  'proxy_dns_edge_resolved': 'Resolver no servidor proxy',
   'l4_verified': 'L4 já estabeleceu uma conexão de aplicativo',
   'l4_unverified':
       'Servidor conectado; conexão de aplicativo ainda não confirmada',

@@ -97,6 +97,7 @@ class NetworkSettingsController extends ChangeNotifier {
 
   Future<bool> save(UsqueProfile values, List<String> fields) {
     final generation = _dataGeneration;
+    final requestedFields = List<String>.of(fields);
     return enqueue(() async {
       if (_resetting || generation != _dataGeneration) return false;
       if (!supported) {
@@ -121,11 +122,18 @@ class NetworkSettingsController extends ChangeNotifier {
       invalidBypassDomainEntry = null;
       _notify();
       try {
+        // Earlier queued saves may have changed the DNS mode or exit. Rebase
+        // these dependencies immediately before sending the field-scoped edit.
+        final prepared = _prepareExitDns(
+          values,
+          requestedFields,
+          state?.sharedNetwork ?? state?.storedProfile,
+        );
         final result = await _engine.saveNetworkSettings(
           operationId,
           values.id,
-          values,
-          fields,
+          prepared.values,
+          prepared.fields,
         );
         if (_resetting || generation != _dataGeneration) return false;
         accept(result);
@@ -199,6 +207,58 @@ class NetworkSettingsController extends ChangeNotifier {
     _disposed = true;
     super.dispose();
   }
+}
+
+/// Rebase the exit/DNS dependencies of every field-scoped edit before encoding.
+/// Only exit/mode edits repair an inherited, now unsupported DNS choice.
+({UsqueProfile values, List<String> fields}) _prepareExitDns(
+  UsqueProfile values,
+  List<String> fields,
+  UsqueProfile? confirmed,
+) {
+  final changesExit = fields.any(
+    (field) => const ['chain_exit', 'vpn_gate', 'data_plane'].contains(field),
+  );
+  final changesDns = fields.contains('proxy.dns_mode');
+  final current = confirmed ?? values;
+  final legacyGateEdit =
+      fields.contains('vpn_gate') &&
+      !fields.contains('chain_exit') &&
+      values.chainExit == null;
+  if (legacyGateEdit &&
+      current.chainSource != ChainSource.vpnGate &&
+      current.chainExit?.profileId != null) {
+    // A legacy Gate edit must not erase a retained custom selection. Rust
+    // rejects this combination, including when the old chain is disabled.
+    return (values: values, fields: fields);
+  }
+  final chain = legacyGateEdit
+      ? null
+      : fields.contains('chain_exit')
+      ? values.chainExit
+      : current.chainExit;
+  var target = values.copyWith(
+    dataPlane: fields.contains('data_plane')
+        ? values.dataPlane
+        : current.dataPlane,
+    vpnGate: fields.contains('vpn_gate') ? values.vpnGate : current.vpnGate,
+    chainExit: chain,
+    clearChainExit: chain == null,
+    proxy: values.proxy.copyWith(
+      dnsMode: changesDns ? values.proxy.dnsMode : current.proxy.dnsMode,
+    ),
+  );
+  if (!changesExit ||
+      changesDns ||
+      target.proxy.dnsMode != ProxyDnsMode.edgeResolved ||
+      target.dataPlane == DataPlaneMode.l4Proxy ||
+      target.chainExit?.enabled == true && target.chainSource.isProxy) {
+    return (values: target, fields: fields);
+  }
+  target = target.copyWith(
+    proxy: target.proxy.copyWith(dnsMode: ProxyDnsMode.remote),
+  );
+  return (values: target, fields: [...fields, 'proxy.dns_mode']);
 }
 
 class _SaveAttempt {

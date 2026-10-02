@@ -192,10 +192,14 @@ The local SOCKS5 listener accepts DNS-only UDP associations even when HTTP, L4 o
 the final SOCKS5 server cannot carry ordinary UDP. Malformed DNS is not converted
 into a TCP connection, and ordinary proxied UDP remains unavailable in those
 cases. If the proxy refuses CONNECT to port 53, DNS fails explicitly. For local
-HTTP/SOCKS clients, **Edge resolved** sends target domain names to the final
+HTTP/SOCKS clients, **Resolve at the proxy server** sends target domain names to the final
 proxy; it cannot recover names from TUN IP packets. Explicit local/direct DNS
 policies and direct routes retain their existing semantics. No DoH or physical
-DNS fallback is added.
+DNS fallback is added. If **Resolve at the proxy server** is selected and an
+exit or connection-mode change makes it unavailable, applying that change also
+switches proxy DNS to **Remote through tunnel**. Configured DNS addresses and
+other DNS choices are retained. Connections that still support server
+resolution keep the selected method.
 
 选择 **HTTP** 或 **SOCKS5**，点击**添加代理**，填写名称、服务器域名或 IPv4/IPv6
 地址和端口；默认端口分别为 8080、1080。按需启用用户名／密码认证。地址栏不接受
@@ -223,8 +227,11 @@ TUN 会对拒绝的数据报和明确的转发失败返回限速的 ICMP 错误�
 为 TCP DNS，并保留应用指定的解析器。HTTP、L4 或最终 SOCKS5 服务器不支持普通
 UDP 时，本地 SOCKS5 仍接受仅供 DNS 的 UDP 关联；畸形 DNS 不会转换为 TCP 连接，
 普通代理 UDP 仍不可用。显式本地／直连 DNS 策略及直连规则保持原语义。代理不允许
-连接 DNS 端口时明确失败；本地 HTTP/SOCKS 客户端可选 Edge resolved 将域名交最终
+连接 DNS 端口时明确失败；本地 HTTP/SOCKS 客户端可选**由代理服务器解析**将域名交最终
 代理解析，TUN 不推测原始域名，也不会自动改用 DoH 或物理 DNS。
+若原来选择**由代理服务器解析**，且出口或连接模式变更后不再支持该方式，应用时会
+同时将代理 DNS 改为远程经隧道解析。已配置的 DNS 地址与其他已有解析方式保持不变；
+仍支持服务器解析的连接会保留原来的解析方式。
 HTTP 出口未使用到代理服务器的 TLS；HTTP Basic 和 SOCKS5 认证在 WARP 到代理
 这一段不提供额外加密，应用自身的 HTTPS 加密继续有效。凭据仅在设备加密库保存，
 不会进入设置、摘要或诊断。

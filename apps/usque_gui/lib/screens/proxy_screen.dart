@@ -574,11 +574,17 @@ class _ProxyScreenState extends State<ProxyScreen> {
     );
   }
 
-  bool get _invalidDnsMode =>
-      _dnsMode == ProxyDnsMode.edgeResolved &&
-      widget.controller.activeProfile.dataPlane != DataPlaneMode.l4Proxy &&
-      !(widget.controller.activeProfile.chainExit?.enabled == true &&
-          widget.controller.activeProfile.chainSource.isProxy);
+  bool get _invalidDnsMode {
+    final profile = widget.controller.activeProfile;
+    // A listener draft can outlive an exit change on another surface. Only an
+    // edited DNS choice overrides the confirmed mode at the settings boundary.
+    final mode = _dnsMode == _baseline[_fields.length]
+        ? profile.proxy.dnsMode
+        : _dnsMode;
+    return mode == ProxyDnsMode.edgeResolved &&
+        profile.dataPlane != DataPlaneMode.l4Proxy &&
+        !(profile.chainExit?.enabled == true && profile.chainSource.isProxy);
+  }
 
   List<String> _listenerValues(int index) => _listeners[index].text
       .split(RegExp(r'\r?\n'))

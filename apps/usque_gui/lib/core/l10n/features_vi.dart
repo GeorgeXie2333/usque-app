@@ -299,8 +299,8 @@ const Map<String, String> kL4Vi = <String, String>{
   'l4_sni_identity':
       'Tên máy chủ được tài khoản tự động đặt. Tên máy chủ đã lưu cho các chế độ kết nối khác vẫn được giữ lại.',
   'l4_edge_requires_l4':
-      'DNS phân giải ở biên chỉ hoạt động với L4. Hãy chọn chế độ DNS proxy khác trước khi chuyển sang Tự động, HTTP/3 hoặc HTTP/2.',
-  'proxy_dns_edge_resolved': 'Biên Cloudflare (chỉ L4; không tra cứu cục bộ)',
+      'Kết nối này không thể phân giải tên tại máy chủ proxy. Hãy chọn tùy chọn DNS khác.',
+  'proxy_dns_edge_resolved': 'Phân giải tên tại máy chủ proxy',
   'l4_verified': 'Đã thiết lập kết nối ứng dụng qua L4',
   'l4_unverified': 'Đã kết nối máy chủ; chưa xác nhận kết nối ứng dụng',
   'l4_status_unknown': 'Không có trạng thái kết nối ứng dụng',

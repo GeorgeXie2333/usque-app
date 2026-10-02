@@ -328,9 +328,8 @@ const Map<String, String> kL4It = <String, String>{
   'l4_sni_identity':
       'Impostato automaticamente dall’account. Il nome del server delle altre modalità resta invariato.',
   'l4_edge_requires_l4':
-      'Il DNS risolto all’edge funziona solo con L4. Seleziona un’altra modalità DNS del proxy prima di passare ad Auto, HTTP/3 o HTTP/2.',
-  'proxy_dns_edge_resolved':
-      'Edge Cloudflare (solo L4; nessuna ricerca locale)',
+      'Questa connessione non può risolvere i nomi sul server proxy. Scegli un’altra opzione DNS.',
+  'proxy_dns_edge_resolved': 'Risoluzione dei nomi sul server proxy',
   'l4_verified': 'L4 ha stabilito una connessione di un’app',
   'l4_unverified':
       'Server connesso; connessione delle app non ancora confermata',

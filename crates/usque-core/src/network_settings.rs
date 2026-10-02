@@ -317,6 +317,42 @@ mod tests {
     }
 
     #[test]
+    fn disabling_server_resolved_chain_requires_a_compatible_dns_patch() {
+        let mut config = AppConfig::default();
+        config.network.chain_exit = Some(crate::chain_exit::ChainExitSettings {
+            enabled: true,
+            source: crate::chain_exit::ChainSource::HttpProxy,
+            profile_id: Some(Uuid::new_v4()),
+            revision: Some(Uuid::new_v4()),
+            endpoint_override: None,
+        });
+        config.network.proxy.dns_mode = crate::ProxyDnsMode::EdgeResolved;
+        let before = config.active_profile().unwrap();
+        before.validate().unwrap();
+        let mut edit = patch(&config, &["chain_exit"]);
+        edit.values.chain_exit.as_mut().unwrap().enabled = false;
+        assert!(matches!(
+            merge_patch(&mut config, &edit),
+            Err(SettingsError::Configuration(
+                crate::ConfigError::EdgeDnsRequiresL4
+            ))
+        ));
+        assert!(config.active_profile().unwrap().chain_enabled());
+        assert_eq!(
+            config.network.proxy.dns_mode,
+            crate::ProxyDnsMode::EdgeResolved
+        );
+
+        edit.values.proxy.dns_mode = crate::ProxyDnsMode::Remote;
+        edit.changed_fields.push("proxy.dns_mode".into());
+        let stored = merge_patch(&mut config, &edit).unwrap();
+        assert!(!stored.chain_enabled());
+        assert_eq!(stored.proxy.dns_mode, crate::ProxyDnsMode::Remote);
+        assert_eq!(stored.dns_servers, before.dns_servers);
+        assert_eq!(stored.proxy.dns_servers, before.proxy.dns_servers);
+    }
+
+    #[test]
     fn patch_preserves_unrelated_edits_and_account_metadata() {
         let mut config = AppConfig::default();
         let mut edit = patch(&config, &["mtu"]);

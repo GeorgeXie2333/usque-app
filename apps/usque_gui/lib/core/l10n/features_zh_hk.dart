@@ -257,9 +257,8 @@ const Map<String, String> kL4ZhHk = <String, String>{
       'L4 透過 HTTP/3 傳輸 TCP 流量，可用於 VPN、SOCKS5 和 HTTP 代理。VPN 的 DNS 查詢會轉成 TCP。不支援其他 UDP 流量、遠端 Ping、IP 分片或延伸標頭，因此部分應用程式可能無法使用。',
   'l4_unsupported': '此版本不支援 L4，請在「設定」中更新 Usque。',
   'l4_sni_identity': '伺服器名稱由帳戶自動設定。其他連接模式儲存的伺服器名稱會保留。',
-  'l4_edge_requires_l4':
-      '邊緣解析 DNS 僅適用於 L4。切換至「自動」、HTTP/3 或 HTTP/2 前，請先選擇其他代理 DNS 模式。',
-  'proxy_dns_edge_resolved': 'Cloudflare 邊緣解析（僅 L4，不在本機解析）',
+  'l4_edge_requires_l4': '目前連線不支援由代理伺服器解析，請選擇其他 DNS 方式。',
+  'proxy_dns_edge_resolved': '由代理伺服器解析',
   'l4_verified': '已透過 L4 建立應用程式連接',
   'l4_unverified': '已連上伺服器，尚未確認應用程式連接',
   'l4_status_unknown': '無法取得應用程式連接狀態',

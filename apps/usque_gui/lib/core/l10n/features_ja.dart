@@ -276,9 +276,8 @@ const Map<String, String> kL4Ja = <String, String>{
       'L4 は HTTP/3 で TCP 通信を転送し、VPN、SOCKS5、HTTP プロキシで使えます。VPN の DNS 問い合わせは TCP に変換します。他の UDP 通信、リモート Ping、IP 分割、拡張ヘッダーが必要なアプリは動かない場合があります。',
   'l4_unsupported': 'このバージョンの Usque では L4 を使えません。「設定」で更新を確認してください。',
   'l4_sni_identity': 'アカウントが自動設定します。変更は不要です。他の接続モードのサーバー名は保持されます。',
-  'l4_edge_requires_l4':
-      'エッジ解決 DNS は L4 専用です。「自動」、HTTP/3、HTTP/2 に切り替える前に、別のプロキシ DNS モードを選んでください。',
-  'proxy_dns_edge_resolved': 'Cloudflare エッジ（L4 のみ、ローカル検索なし）',
+  'l4_edge_requires_l4': 'この接続ではプロキシサーバーで名前を解決できません。別の DNS 方式を選択してください。',
+  'proxy_dns_edge_resolved': 'プロキシサーバーで名前を解決',
   'l4_verified': 'L4 でアプリの接続に成功しました',
   'l4_unverified': 'サーバー接続済み。アプリが接続できるかは未確認です',
   'l4_status_unknown': 'アプリの接続状態を確認できません',

@@ -776,17 +776,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       );
       return;
     }
-    if (_dataPlane == DataPlaneMode.connectIp &&
-        _proxy.dnsMode == ProxyDnsMode.edgeResolved &&
-        !(widget.controller.activeProfile.chainExit?.enabled == true &&
-            widget.controller.activeProfile.chainSource.isProxy)) {
-      setState(
-        () => _validationError = widget.controller.strings.get(
-          'l4_edge_requires_l4',
-        ),
-      );
-      return;
-    }
     setState(() => _validationAttempted = true);
     if (!(_formKey.currentState?.validate() ?? false)) {
       setState(
@@ -886,7 +875,14 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           ? null
           : widget.controller.strings.get('changes_failed');
       _saved = saved;
-      if (saved) _baseline = _values;
+      if (saved) {
+        // A mode change can select a compatible DNS method in the same save.
+        // Keep that confirmed dependency in later, unrelated form submissions.
+        _proxy = _proxy.copyWith(
+          dnsMode: widget.controller.activeProfile.proxy.dnsMode,
+        );
+        _baseline = _values;
+      }
     });
     if (!saved) return;
     ScaffoldMessenger.of(context).showSnackBar(

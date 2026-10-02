@@ -335,8 +335,8 @@ const Map<String, String> kL4De = <String, String>{
   'l4_sni_identity':
       'Wird vom Konto automatisch festgelegt. Der Servername anderer Verbindungsmodi bleibt erhalten.',
   'l4_edge_requires_l4':
-      'Am Rand aufgelöstes DNS funktioniert nur mit L4. Wählen Sie einen anderen Proxy-DNS-Modus, bevor Sie zu Auto, HTTP/3 oder HTTP/2 wechseln.',
-  'proxy_dns_edge_resolved': 'Cloudflare-Rand (nur L4; keine lokale Abfrage)',
+      'Diese Verbindung kann Namen nicht auf dem Proxyserver auflösen. Wähle eine andere DNS-Option.',
+  'proxy_dns_edge_resolved': 'Namensauflösung auf dem Proxyserver',
   'l4_verified': 'L4 hat eine App-Verbindung hergestellt',
   'l4_unverified': 'Server verbunden; App-Verbindung noch nicht bestätigt',
   'l4_status_unknown': 'Status der App-Verbindung nicht verfügbar',

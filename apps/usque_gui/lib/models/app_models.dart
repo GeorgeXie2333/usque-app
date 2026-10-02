@@ -880,6 +880,7 @@ class UsqueProfile {
     DirectDnsSettings? directDns,
     VpnGateSettings? vpnGate,
     ChainExitSettings? chainExit,
+    bool clearChainExit = false,
   }) {
     final nextFrontends = frontends ?? this.frontends;
     final nextMode = frontends != null
@@ -913,7 +914,7 @@ class UsqueProfile {
       frontends: nextFrontends,
       directDns: directDns ?? this.directDns,
       vpnGate: vpnGate ?? this.vpnGate,
-      chainExit: chainExit ?? this.chainExit,
+      chainExit: clearChainExit ? null : chainExit ?? this.chainExit,
     );
   }
 

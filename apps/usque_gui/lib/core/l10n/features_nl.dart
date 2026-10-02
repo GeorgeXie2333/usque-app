@@ -331,9 +331,8 @@ const Map<String, String> kL4Nl = <String, String>{
   'l4_sni_identity':
       'Automatisch ingesteld door je account. De servernaam voor andere verbindingsmodi blijft bewaard.',
   'l4_edge_requires_l4':
-      'Aan de rand omgezette DNS werkt alleen met L4. Kies een andere proxy-DNS-modus voordat u overschakelt naar Automatisch, HTTP/3 of HTTP/2.',
-  'proxy_dns_edge_resolved':
-      'Cloudflare-rand (alleen L4; geen lokale opzoeking)',
+      'Deze verbinding kan geen namen op de proxyserver oplossen. Kies een andere DNS-optie.',
+  'proxy_dns_edge_resolved': 'Namen oplossen op de proxyserver',
   'l4_verified': 'L4 heeft een appverbinding gemaakt',
   'l4_unverified': 'Server verbonden; appverbinding nog niet bevestigd',
   'l4_status_unknown': 'Status van appverbinding niet beschikbaar',
