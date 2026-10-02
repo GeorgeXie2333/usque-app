@@ -1416,6 +1416,8 @@ pub enum TransportError {
     Dns(String),
     #[error("the CONNECT-IP tunnel closed")]
     TunnelClosed,
+    #[error("the WARP underlay failed ({})", .0.code)]
+    UnderlayFailure(Box<TransportFailure>),
     #[error("the bounded tunnel send queue is full")]
     SendQueueFull,
     #[error("the tunnel packet send operation timed out")]
@@ -1490,7 +1492,7 @@ impl TransportError {
                 failure.fallback_allowed = false;
                 return failure;
             }
-            Self::L4(failure) => return failure.as_ref().clone(),
+            Self::L4(failure) | Self::UnderlayFailure(failure) => return failure.as_ref().clone(),
             Self::InvalidIdentity | Self::InvalidPrivateKey | Self::InvalidEndpointPin => {
                 (Code::IdentityInvalid, Stage::TunnelStartup)
             }

@@ -5,14 +5,14 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class FailedSessionRecoveryTest {
+class SessionNetworkRecoveryTest {
     private class Harness {
         val events = mutableListOf<String>()
         val stops = ArrayDeque<(Boolean) -> Unit>()
         val scheduled = ArrayDeque<() -> Unit>()
         val delays = mutableListOf<Long>()
         val recovery =
-            FailedSessionRecovery(
+            SessionNetworkRecovery(
                 suspendSession = { events.add("suspend") },
                 stop = { callback ->
                     events.add("stop")
@@ -259,5 +259,205 @@ class FailedSessionRecoveryTest {
         assertFalse(h.recovery.active)
         h.restartAfterFailure()
         assertEquals(listOf(250L, 1_000L, 2_000L, 250L), h.delays)
+    }
+
+    @Test
+    fun establishedChainRebuildsOnlyAfterConfirmedCleanup() {
+        val h = Harness()
+        assertTrue(h.recovery.networkChanged(1L, true, restartEstablishedSession = true))
+        h.flush()
+        assertEquals(listOf("suspend", "stop"), h.events)
+        h.stops.removeFirst()(true)
+        h.flush()
+        assertEquals(listOf("suspend", "stop", "restart"), h.events)
+        assertEquals(listOf(250L), h.delays)
+        h.recovery.connected()
+        assertFalse(h.recovery.active)
+    }
+
+    @Test
+    fun inactiveOrdinarySessionConsumesCallbacksWithoutRebuilding() {
+        val h = Harness()
+        assertFalse(h.recovery.networkChanged(1L, true))
+        assertFalse(h.recovery.networkChanged(1L, true, restartEstablishedSession = true))
+        assertFalse(h.recovery.networkChanged(0L, true, restartEstablishedSession = true))
+        assertEquals(emptyList<String>(), h.events)
+        assertTrue(h.recovery.networkChanged(2L, true, restartEstablishedSession = true))
+        assertEquals(listOf("suspend", "stop"), h.events)
+    }
+
+    @Test
+    fun establishedChainLossWaitsOfflineAndCoalescesLaterChanges() {
+        val h = Harness()
+        h.recovery.networkChanged(1L, false, restartEstablishedSession = true)
+        h.stops.removeFirst()(true)
+        repeat(5) { h.recovery.networkChanged(2L, false) }
+        h.flush()
+        assertEquals(listOf("suspend", "stop"), h.events)
+        h.recovery.networkChanged(3L, true)
+        h.recovery.networkChanged(4L, true)
+        h.recovery.networkChanged(5L, false)
+        h.flush()
+        assertEquals(listOf("suspend", "stop"), h.events)
+        h.recovery.networkChanged(6L, true)
+        h.flush()
+        assertEquals(1, h.events.count { it == "restart" })
+        assertEquals(1, h.events.count { it == "stop" })
+    }
+
+    @Test
+    fun runtimeErrorBeforeNetworkCallbackKeepsOneRecoveryOwner() {
+        val h = Harness()
+        h.fail(generation = 1L)
+        h.recovery.networkChanged(2L, true, restartEstablishedSession = true)
+        repeat(5) { h.recovery.networkChanged(2L, true, restartEstablishedSession = true) }
+        h.flush()
+        assertEquals(listOf("suspend", "stop"), h.events)
+        h.stops.removeFirst()(true)
+        h.flush()
+        assertEquals(listOf("suspend", "stop", "restart"), h.events)
+        assertEquals(listOf(250L), h.delays)
+    }
+
+    @Test
+    fun networkCallbackBeforeRuntimeErrorStillRetriesFailedReplacement() {
+        val h = Harness()
+        h.recovery.networkChanged(2L, true, restartEstablishedSession = true)
+        h.fail(generation = 2L)
+        h.stops.removeFirst()(true)
+        h.flush()
+        h.fail(generation = 2L)
+        h.stops.removeFirst()(true)
+        h.flush()
+        assertEquals(listOf("suspend", "stop", "restart", "suspend", "stop", "restart"), h.events)
+        assertEquals(listOf(250L, 1_000L), h.delays)
+        assertTrue(h.recovery.active)
+    }
+
+    @Test
+    fun replacementNativeFailureWhileOfflineWaitsForNewUsableGeneration() {
+        val h = Harness()
+        h.recovery.networkChanged(1L, true, restartEstablishedSession = true)
+        h.stops.removeFirst()(true)
+        h.flush()
+        h.fail(generation = 2L, online = false)
+        h.stops.removeFirst()(true)
+        h.flush()
+        assertEquals(1, h.events.count { it == "restart" })
+        assertTrue(h.recovery.active)
+        h.recovery.networkChanged(2L, true)
+        h.flush()
+        assertEquals(1, h.events.count { it == "restart" })
+        h.recovery.networkChanged(3L, true)
+        h.flush()
+        assertEquals(2, h.events.count { it == "restart" })
+        assertEquals(listOf(250L, 250L), h.delays)
+    }
+
+    @Test
+    fun supersededFinalHandoffCannotClearNewRecoveryOwner() {
+        val events = mutableListOf<String>()
+        val stops = ArrayDeque<(Boolean) -> Unit>()
+        val scheduled = ArrayDeque<() -> Unit>()
+        val handoffs = ArrayDeque<() -> Unit>()
+        var workerRevision = 0L
+        lateinit var recovery: SessionNetworkRecovery
+        recovery =
+            SessionNetworkRecovery(
+                suspendSession = {
+                    workerRevision++
+                    events.add("suspend")
+                },
+                stop = { callback ->
+                    events.add("stop")
+                    stops.add(callback)
+                },
+                schedule = { _, action -> scheduled.add(action) },
+                restart = {
+                    events.add("restart")
+                    val worker = workerRevision
+                    // Model the service's generation check before final TUN publication.
+                    handoffs.add {
+                        if (workerRevision == worker) {
+                            events.add("handoff")
+                            recovery.connected()
+                        }
+                    }
+                },
+                cleanupFailed = { events.add("cleanup_failed") },
+            )
+        recovery.networkChanged(1L, true, restartEstablishedSession = true)
+        stops.removeFirst()(true)
+        scheduled.removeFirst()()
+        val staleHandoff = handoffs.removeFirst()
+        recovery.networkChanged(2L, true)
+        staleHandoff()
+        assertTrue(recovery.active)
+        assertEquals(listOf("suspend", "stop", "restart", "suspend", "stop"), events)
+        stops.removeFirst()(true)
+        scheduled.removeFirst()()
+        handoffs.removeFirst()()
+        assertFalse(recovery.active)
+        assertEquals(1, events.count { it == "handoff" })
+        assertEquals(2, events.count { it == "restart" })
+    }
+
+    @Test
+    fun duplicateGenerationCannotRebuildSuccessfullyReplacedChain() {
+        val h = Harness()
+        h.recovery.networkChanged(1L, true, restartEstablishedSession = true)
+        h.stops.removeFirst()(true)
+        h.flush()
+        h.recovery.connected()
+        repeat(5) {
+            assertFalse(h.recovery.networkChanged(1L, true, restartEstablishedSession = true))
+        }
+        assertEquals(1, h.events.count { it == "stop" })
+        h.recovery.networkChanged(2L, true, restartEstablishedSession = true)
+        assertEquals(2, h.events.count { it == "stop" })
+    }
+
+    @Test
+    fun manualCancelAndTerminalFailureConsumeLateNetworkCallbacks() {
+        for (terminal in listOf(false, true)) {
+            val h = Harness()
+            h.recovery.networkChanged(1L, true, restartEstablishedSession = true)
+            val complete = h.stops.removeFirst()
+            if (terminal) h.fail(generation = 2L, retryable = false) else h.recovery.cancel()
+            complete(true)
+            h.flush()
+            assertFalse(h.recovery.networkChanged(1L, true, restartEstablishedSession = true))
+            if (terminal) {
+                assertFalse(h.recovery.networkChanged(2L, true, restartEstablishedSession = true))
+            }
+            assertFalse(h.recovery.active)
+            assertEquals(listOf("suspend", "stop"), h.events)
+        }
+    }
+
+    @Test
+    fun chainCleanupFailureCannotReauthorizeSameGeneration() {
+        val h = Harness()
+        h.recovery.networkChanged(1L, true, restartEstablishedSession = true)
+        h.stops.removeFirst()(false)
+        assertFalse(h.recovery.networkChanged(1L, true, restartEstablishedSession = true))
+        h.flush()
+        assertEquals(listOf("suspend", "stop", "cleanup_failed"), h.events)
+        assertFalse(h.recovery.active)
+    }
+
+    @Test
+    fun staleTimerCannotAuthorizeNewRecoveryOwnerOnSameNetwork() {
+        val h = Harness()
+        h.fail()
+        h.stops.removeFirst()(true)
+        val staleTimer = h.scheduled.removeFirst()
+        h.recovery.cancel()
+        h.fail()
+        staleTimer()
+        assertEquals(listOf("suspend", "stop", "suspend", "stop"), h.events)
+        h.stops.removeFirst()(true)
+        h.flush()
+        assertEquals(1, h.events.count { it == "restart" })
     }
 }

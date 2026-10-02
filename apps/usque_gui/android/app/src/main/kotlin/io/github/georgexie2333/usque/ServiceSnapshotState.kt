@@ -226,6 +226,20 @@ internal class ServiceSnapshotState {
         vpnGateJson = reason?.gateStatus
     }
 
+    /** A native rebuild clears stale runtime evidence while Java keeps the protective TUN. */
+    fun resetForRecovery() {
+        val retainedKillSwitch = killSwitchEnabled
+        reset("reconnecting")
+        killSwitchEnabled = retainedKillSwitch
+    }
+
+    /** A terminal native failure may retain the TUN; only Disconnect clears its Kill Switch intent. */
+    fun retainFailure(reason: ConnectionFailure) {
+        val retainedKillSwitch = killSwitchEnabled
+        resetForDisconnect(reason)
+        killSwitchEnabled = retainedKillSwitch
+    }
+
     fun killSwitchState(
         tunnelOpen: Boolean,
         activeMode: String?,

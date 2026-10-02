@@ -587,4 +587,125 @@ class ServiceSnapshotStateTest {
         assertNull(fields.exitCountryCode)
         assertEquals("notApplicable", fields.killSwitchState)
     }
+
+    @Test
+    fun recoveryResetPreservesKillSwitchIntentWithoutAdvertisingOldRuntimeData() {
+        for (enabled in listOf(false, true)) {
+            val snapshot = state()
+            snapshot.killSwitchEnabled = enabled
+            snapshot.phase = "connected"
+            snapshot.transport = "h3"
+            snapshot.errorCode = "PACKET_RECEIVE_FAILED"
+            snapshot.warning = "The old chain stopped."
+            snapshot.failure = ServiceSnapshotState.FailureFields("PACKET_RECEIVE_FAILED", "packet_receive")
+            snapshot.activeFrontends = listOf("vpn", "socks5")
+            snapshot.activeListeners = listOf("127.0.0.1:1080")
+            snapshot.tunnelIpv4Available = true
+            snapshot.tunnelIpv6Available = true
+            snapshot.downloadBytesPerSecond = 123
+            snapshot.uploadedBytes = 456
+            snapshot.exitIpv4 = "203.0.113.7"
+            snapshot.vpnGateJson = JSONObject().put("stage", "connected").toString()
+
+            snapshot.resetForRecovery()
+
+            val fields = snapshot.snapshotFields(platform())
+            assertEquals("reconnecting", fields.phase)
+            assertEquals(enabled, snapshot.killSwitchEnabled)
+            assertEquals(if (enabled) "active" else "inactive", fields.killSwitchState)
+            assertNull(fields.transport)
+            assertNull(fields.warning)
+            assertNull(fields.errorCode)
+            assertNull(fields.failure)
+            assertNull(fields.exitIpv4)
+            assertNull(fields.vpnGateJson)
+            assertTrue(fields.activeFrontends.isEmpty())
+            assertTrue(fields.activeListeners.isEmpty())
+            assertFalse(fields.tunnelIpv4Available)
+            assertFalse(fields.tunnelIpv6Available)
+            assertEquals(0L, fields.downloadBytesPerSecond)
+            assertEquals(0L, fields.uploadedBytes)
+        }
+    }
+
+    @Test
+    fun retainedChainFailureKeepsProtectionAndErrorEvidenceForEverySourceAndFailureReason() {
+        val sources =
+            listOf("openvpn_custom", "wireguard_custom", "warp_wireguard", "vpn_gate", "http_proxy", "socks5_proxy")
+        val reasons =
+            mapOf(
+                "transport" to "PACKET_RECEIVE_FAILED",
+                "authentication" to "AUTHENTICATION_FAILED",
+                "certificate" to "ENDPOINT_PIN_MISMATCH",
+                "configuration" to "CONFIGURATION_INVALID",
+                "protocol" to "CONFIGURATION_INVALID",
+                "address_changed" to "ADDRESS_ASSIGNMENT_INVALID",
+                "cleanup" to "CONFIGURATION_INVALID",
+            )
+        for (source in sources) {
+            for ((gateReason, code) in reasons) {
+                val snapshot = state()
+                snapshot.killSwitchEnabled = true
+                snapshot.phase = "connected"
+                snapshot.transport = "h3"
+                snapshot.activeFrontends = listOf("vpn", "socks5")
+                snapshot.tunnelIpv4Available = true
+                snapshot.exitIpv4 = "203.0.113.7"
+                val gate =
+                    JSONObject()
+                        .put("stage", "error")
+                        .put("failure", gateReason)
+                        .put("current_profile", JSONObject().put("source", source))
+                val details = ServiceSnapshotState.FailureFields(code, "packet_receive")
+                val reason = ConnectionFailure(code, "The chain failed.", VpnGateFields.stoppedStatus(gate), details)
+
+                snapshot.retainFailure(reason)
+
+                val fields = snapshot.snapshotFields(platform())
+                assertEquals("error", fields.phase)
+                assertEquals("active", fields.killSwitchState)
+                assertTrue(snapshot.killSwitchEnabled)
+                assertEquals(code, fields.errorCode)
+                assertEquals("The chain failed.", fields.warning)
+                assertEquals(details, fields.failure)
+                assertNull(fields.transport)
+                assertNull(fields.exitIpv4)
+                assertTrue(fields.activeFrontends.isEmpty())
+                assertFalse(fields.tunnelIpv4Available)
+                val stoppedGate = VpnGateFields.decodeStatus(fields.vpnGateJson)!!
+                assertEquals("error", stoppedGate["stage"])
+                assertEquals(gateReason, stoppedGate["failure"])
+                assertEquals(source, (stoppedGate["current_profile"] as Map<*, *>)["source"])
+
+                snapshot.resetForDisconnect()
+
+                assertEquals("disconnected", snapshot.phase)
+                assertFalse(snapshot.killSwitchEnabled)
+                assertNull(snapshot.errorCode)
+                assertNull(snapshot.warning)
+                assertNull(snapshot.failure)
+                assertNull(snapshot.vpnGateJson)
+                assertEquals("notApplicable", snapshot.snapshotFields(platform(false, null)).killSwitchState)
+            }
+        }
+    }
+
+    @Test
+    fun retainedFailureDoesNotArmADisabledKillSwitchOrChangeExplicitDisconnectSemantics() {
+        val reason = ConnectionFailure("ENDPOINT_PIN_MISMATCH", "The endpoint identity was rejected.")
+        val retained = state()
+        retained.killSwitchEnabled = false
+        retained.retainFailure(reason)
+        assertFalse(retained.killSwitchEnabled)
+        assertEquals("inactive", retained.snapshotFields(platform()).killSwitchState)
+        assertEquals(reason.code, retained.errorCode)
+
+        val disconnected = state()
+        disconnected.killSwitchEnabled = true
+        disconnected.resetForDisconnect(reason)
+        assertFalse(disconnected.killSwitchEnabled)
+        assertEquals("error", disconnected.phase)
+        assertEquals(reason.code, disconnected.errorCode)
+        assertEquals("notApplicable", disconnected.snapshotFields(platform(false, null)).killSwitchState)
+    }
 }

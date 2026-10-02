@@ -264,7 +264,8 @@ remote 候选；保留各端点的地址族限制。默认按文件顺序尝试�
 为每次连接生成一次随机顺序。只在建立连接时切换候选；认证、证书、配置及未知
 致命协议错误立即停止，错误密码不会在备用端点重复尝试。候选阶段总计最多
 120 秒，每个候选最多 35 秒且受剩余预算分摊限制；连接及平台应用共用 180 秒
-绝对截止时间。已经连接后的终止性故障仍断开整条链。
+绝对截止时间。已经连接后的终止性故障会停止整条链的数据通道；Android 保留
+用于阻断流量的 VPN 接口，直到用户主动断开。
 
 纯用户名/密码配置可以不带客户端证书；支持精确的 `setenv CLIENT_CERT 0/1`，
 与证书矛盾时拒绝。`mssfix 0` 关闭 OpenVPN Core 自身的 MSS 修改；正数范围为
@@ -281,14 +282,24 @@ On Android, a physical-network change during an established chain connection
 rebuilds the whole chain after native cleanup is confirmed. The existing VPN
 interface remains blocking until the replacement final network is attached.
 Recovery waits while no usable physical network is selected and coalesces rapid
-changes. Disconnect cancels recovery. Authentication, certificate, configuration
-and unconfirmed-cleanup failures still stop the connection; ordinary WARP mode
-keeps its existing native migration/reconnect behavior.
+changes. A retryable chain transport error uses the same recovery even when its
+error snapshot arrives before the physical-network callback. Replacement network
+failures use 1/2/4/8/15/30-second backoff. The profile, blocking TUN and armed Kill
+Switch remain in place throughout recovery. Disconnect cancels recovery.
+Authentication, certificate, configuration and unconfirmed-cleanup failures stop
+automatic attempts while retaining the blocking VPN interface and error evidence;
+they require an explicit retry or disconnect. Underlay security failures keep
+their original classification. Ordinary WARP mode keeps its existing native
+migration/reconnect behavior.
 
 Android 上已建立的链式连接遇到物理网络变化时，会在确认原生实例清理完成后
 重建整条链。新出口网络接管前保留用于阻断流量的 VPN 接口；没有可用物理网络
-时等待恢复，连续变化会合并处理。主动断开会取消恢复。认证、证书、配置错误
-或清理未确认仍停止连接；普通 WARP 模式保留原有原生迁移和重连行为。
+时等待恢复，连续变化会合并处理。可重试的链传输错误也进入同一恢复流程，
+包括错误快照先于网络回调到达的情况；重建中的网络失败按 1/2/4/8/15/30 秒
+退避重试。恢复期间保留配置、阻断用 TUN 和已开启的 Kill Switch。主动断开会
+取消恢复。认证、证书、配置错误或清理未确认会停止自动尝试，保留阻断接口和
+错误证据，等待用户明确重试或断开。底层安全错误保留原始分类；普通 WARP
+模式保留原有原生迁移和重连行为。
 
 Endpoint names resolve inside the current WARP session. Protocol UDP uses the
 private WARP network stack, bypassing the business-traffic “disable QUIC” filter.
@@ -359,8 +370,9 @@ DNS 候选立即以 UDP 查询，250 ms 后启用备用候选；只有一个 DNS
 并发与整轮 4 秒预算；每次最多 1 秒，候选较多时缩短，避免后面的服务器没有机会。
 UDP 截断回复立即改用 TCP；TCP 连接在同一链式会话内复用。有效的 NXDOMAIN/NODATA
 不会重复向其他候选查询。默认 WireGuard 内层 MTU 为
-1280。切换出口先停止旧出口流量并清理旧协议会话；终止性错误会断开整条链，
-保留配置与错误，不会自动退化为仅 WARP。Windows/Android 复用现有平台接口和
+1280。切换出口先停止旧出口流量并清理旧协议会话；终止性错误会停止整条链的数据
+通道，保留配置与错误，不会自动退化为仅 WARP。Android 保留阻断用接口，直到用户
+明确重试或断开。Windows/Android 复用现有平台接口和
 清理机制。Android 应用进程结束后的系统级阻断仍依赖系统 Always-on/Lockdown。
 
 ## Configuration examples / 配置结构示例

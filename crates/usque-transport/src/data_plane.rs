@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use usque_core::vpngate::{
     FinalNetworkParameters, GateFailure, GateStatus, PreparedProfile, ServerSummary,
 };
-use usque_core::{DataPlaneMode, L4Snapshot, Profile};
+use usque_core::{DataPlaneMode, L4Snapshot, Profile, TransportFailure};
 
 pub struct DataPlaneRuntime {
     endpoint_pool: usque_core::EndpointPool,
@@ -357,6 +357,9 @@ impl DataPlaneRuntime {
             )
             .await
         {
+            // Capture a terminal WARP cause before chain cleanup cancels its
+            // producers. A final transport failure must not hide that cause.
+            let error = runtime.preserve_underlay_error(error);
             let reason = match error {
                 TransportError::VpnGate(reason) => reason,
                 _ => GateFailure::Transport,
@@ -617,6 +620,7 @@ impl DataPlaneRuntime {
                 RuntimeInner::ConnectIp(_) => Ok(()),
             }
         };
+        let result = result.map_err(|error| self.preserve_underlay_error(error));
         if let Err(error) = &result {
             status.send_modify(|s| {
                 s.stage = usque_core::vpngate::GateStage::Error;
@@ -813,15 +817,32 @@ impl DataPlaneRuntime {
     }
     pub fn health(&self) -> RuntimeHealth {
         let gate = self.gate_status();
-        if gate.stage == usque_core::vpngate::GateStage::Error {
-            let current = self.monitor().health();
-            let error = TransportError::VpnGate(gate.failure.unwrap_or(GateFailure::Transport));
-            return RuntimeHealth::Failed {
-                last_path: current.path(),
-                reconnect_count: current.reconnect_count(),
-                message: error.to_string(),
-                failure: error.failure(None, None),
-            };
+        if gate.stage != usque_core::vpngate::GateStage::Disabled {
+            let error = TransportError::VpnGate(
+                gate.failure
+                    .filter(|_| gate.stage == usque_core::vpngate::GateStage::Error)
+                    .unwrap_or(GateFailure::Transport),
+            );
+            let reported = error.failure(None, None);
+            let failure = retain_underlay_terminal_failure(
+                reported.clone(),
+                self.underlay_monitor().health(),
+            );
+            // The underlay can fail before the final driver's watch callback
+            // publishes its secondary error. Do not report that chain healthy.
+            if gate.stage == usque_core::vpngate::GateStage::Error || failure != reported {
+                let current = self.monitor().health();
+                return RuntimeHealth::Failed {
+                    last_path: current.path(),
+                    reconnect_count: current.reconnect_count(),
+                    message: if failure == reported {
+                        error.to_string()
+                    } else {
+                        failure.code.to_string()
+                    },
+                    failure,
+                };
+            }
         }
         if self.final_blocked {
             let path = self.underlay_monitor().health().path();
@@ -835,6 +856,34 @@ impl DataPlaneRuntime {
             };
         }
         self.monitor().health()
+    }
+    /// Resolves a packet or platform-handoff failure before the next health
+    /// sample. Closed final queues can be a consequence of a chain failure,
+    /// rather than evidence that its authentication or protection succeeded.
+    pub fn transport_failure(&self, error: &TransportError) -> TransportFailure {
+        let path = self.path();
+        let operation = error.failure(Some(path.transport), Some(path.endpoint_family));
+        let gate = self.gate_status();
+        if gate.stage == usque_core::vpngate::GateStage::Disabled || terminal_failure(&operation) {
+            return operation;
+        }
+        let failure = if gate.stage == usque_core::vpngate::GateStage::Error {
+            TransportError::VpnGate(gate.failure.unwrap_or(GateFailure::Transport))
+                .failure(Some(path.transport), Some(path.endpoint_family))
+        } else {
+            operation
+        };
+        retain_underlay_terminal_failure(failure, self.underlay_monitor().health())
+    }
+    fn preserve_underlay_error(&self, error: TransportError) -> TransportError {
+        let failure = error.failure(None, None);
+        let retained =
+            retain_underlay_terminal_failure(failure.clone(), self.underlay_monitor().health());
+        if retained == failure {
+            error
+        } else {
+            TransportError::UnderlayFailure(Box::new(retained))
+        }
     }
     pub fn statistics(&self) -> TrafficSnapshot {
         self.monitor().statistics()
@@ -1035,6 +1084,28 @@ impl DataPlaneRuntime {
             RuntimeInner::L4(r) => r.shutdown().await,
         }
     }
+}
+
+fn terminal_failure(failure: &TransportFailure) -> bool {
+    !failure.retryable || failure.action() == usque_core::FailureAction::Stop
+}
+
+fn retain_underlay_terminal_failure(
+    failure: TransportFailure,
+    underlay: RuntimeHealth,
+) -> TransportFailure {
+    // Explicit final-exit authentication, certificate, configuration and
+    // cleanup errors keep their own cause. Only a secondary transport failure
+    // can expose the terminal WARP failure that triggered it.
+    if !terminal_failure(&failure)
+        && let RuntimeHealth::Failed {
+            failure: original, ..
+        } = underlay
+        && terminal_failure(&original)
+    {
+        return original;
+    }
+    failure
 }
 
 fn filter_final_dns(
@@ -1390,6 +1461,158 @@ mod tests {
             activation_deadline: None,
         };
         (runtime, channels)
+    }
+
+    fn failed_underlay(path: RuntimePath, failure: TransportFailure) -> RuntimeHealth {
+        RuntimeHealth::Failed {
+            last_path: path,
+            reconnect_count: 3,
+            message: failure.code.to_string(),
+            failure,
+        }
+    }
+
+    #[tokio::test]
+    async fn chain_startup_and_early_packet_exit_preserve_terminal_underlay_failures() {
+        use usque_core::{AddressFamily, Transport, TransportFailureCode, TransportStage};
+        for code in [
+            TransportFailureCode::IdentityInvalid,
+            TransportFailureCode::AuthenticationFailed,
+            TransportFailureCode::EndpointPinMismatch,
+            TransportFailureCode::ConfigurationInvalid,
+            TransportFailureCode::SocketProtectionFailed,
+        ] {
+            let (mut runtime, channels) = memory_warp().await;
+            runtime.final_blocked = true;
+            let original = TransportFailure::new(code, TransportStage::SocketProtection)
+                .on_path(Transport::Http3, AddressFamily::Ipv6)
+                .with_sanitized_detail("generation 7");
+            channels
+                .health
+                .send_replace(failed_underlay(runtime.path(), original.clone()));
+
+            // Packet queue closure may reach Android before a health tick or
+            // before the final driver has published its secondary error.
+            assert_eq!(
+                runtime.transport_failure(&TransportError::TunnelClosed),
+                original
+            );
+            let RuntimeHealth::Failed { failure, .. } = runtime.health() else {
+                panic!("a terminal underlay cannot leave the chain healthy");
+            };
+            assert_eq!(failure, original);
+            let startup =
+                runtime.preserve_underlay_error(TransportError::VpnGate(GateFailure::Transport));
+            assert!(matches!(&startup, TransportError::UnderlayFailure(_)));
+            assert_eq!(startup.failure(None, None), original);
+
+            runtime.transition_status.stage = GateStage::Error;
+            runtime.transition_status.failure = Some(GateFailure::Transport);
+            let RuntimeHealth::Failed { failure, .. } = runtime.health() else {
+                panic!("the stopped chain must remain failed");
+            };
+            assert_eq!(failure, original);
+            assert_eq!(
+                runtime.transport_failure(&TransportError::TunnelClosed),
+                original
+            );
+            runtime.shutdown().await;
+            assert_eq!(
+                runtime.transport_failure(&TransportError::TunnelClosed),
+                original
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_final_failure_keeps_priority_over_secondary_transport_errors() {
+        use usque_core::{TransportFailureCode, TransportStage};
+        let (mut runtime, channels) = memory_warp().await;
+        runtime.final_blocked = true;
+        channels.health.send_replace(failed_underlay(
+            runtime.path(),
+            TransportFailure::new(
+                TransportFailureCode::SocketProtectionFailed,
+                TransportStage::SocketProtection,
+            ),
+        ));
+        for reason in [
+            GateFailure::Authentication,
+            GateFailure::Certificate,
+            GateFailure::Configuration,
+            GateFailure::Protocol,
+            GateFailure::Cleanup,
+            GateFailure::AddressChanged,
+        ] {
+            runtime.transition_status.stage = GateStage::Error;
+            runtime.transition_status.failure = Some(reason);
+            let expected = TransportError::VpnGate(reason).failure(None, None);
+            let RuntimeHealth::Failed { failure, .. } = runtime.health() else {
+                panic!("a final failure must stay failed");
+            };
+            assert_eq!(failure, expected);
+            assert_eq!(
+                runtime
+                    .transport_failure(&TransportError::TunnelClosed)
+                    .code,
+                expected.code
+            );
+            assert_eq!(
+                runtime
+                    .preserve_underlay_error(TransportError::VpnGate(reason))
+                    .failure(None, None),
+                expected
+            );
+        }
+        assert_eq!(
+            runtime
+                .transport_failure(&TransportError::EndpointPinMismatch)
+                .code,
+            TransportFailureCode::EndpointPinMismatch
+        );
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn transient_underlay_loss_remains_retryable_and_plain_packet_mapping_stays_local() {
+        use usque_core::{TransportFailureCode, TransportStage};
+        let (mut runtime, channels) = memory_warp().await;
+        runtime.final_blocked = true;
+        channels.health.send_replace(failed_underlay(
+            runtime.path(),
+            TransportFailure::new(
+                TransportFailureCode::H3UdpUnreachable,
+                TransportStage::SocketConnect,
+            ),
+        ));
+        runtime.transition_status.stage = GateStage::Error;
+        runtime.transition_status.failure = Some(GateFailure::Transport);
+        let RuntimeHealth::Failed { failure, .. } = runtime.health() else {
+            panic!("the old chain still requires replacement");
+        };
+        assert_eq!(failure.code, TransportFailureCode::PacketReceiveFailed);
+        assert!(failure.retryable);
+        assert_eq!(
+            runtime
+                .transport_failure(&TransportError::TunnelClosed)
+                .code,
+            TransportFailureCode::PacketReceiveFailed
+        );
+        runtime.transition_status = GateStatus::default();
+        channels.health.send_replace(failed_underlay(
+            runtime.path(),
+            TransportFailure::new(
+                TransportFailureCode::SocketProtectionFailed,
+                TransportStage::SocketProtection,
+            ),
+        ));
+        assert_eq!(
+            runtime
+                .transport_failure(&TransportError::TunnelClosed)
+                .code,
+            TransportFailureCode::H3ConnectionClosed
+        );
+        runtime.shutdown().await;
     }
 
     #[tokio::test]

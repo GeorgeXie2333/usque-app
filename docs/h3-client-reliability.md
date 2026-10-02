@@ -129,7 +129,16 @@ second delays. A newer usable physical generation resets that backoff, while
 duplicate callbacks do not. Offline recovery waits without handshakes. Manual
 connection, disconnect, service destruction, terminal failures, and unconfirmed
 cleanup revoke pending work. Initial connection failures do not start this loop.
-Live sessions continue using native migration and reconnect scheduling.
+Live ordinary sessions continue using native migration and reconnect scheduling.
+Android chain exits share this service recovery owner and rebuild the whole chain
+on a physical-generation change or an explicitly retryable final transport error.
+The order of the native failure snapshot and physical callback does not determine
+whether recovery survives. Chain startup failures retain typed native evidence;
+authentication, certificate, configuration, address and cleanup failures cannot
+be reclassified as generic transport failures. A terminal failure stops attempts
+and native ingress while Java retains the blocking TUN and armed Kill Switch until
+the user retries or disconnects. Clearing stale runtime observations during
+recovery does not clear that protection intent.
 
 Android socket binding keeps protection failures terminal. A binding failure
 caused by a changed generation or netd's `ENONET` (the selected network no longer

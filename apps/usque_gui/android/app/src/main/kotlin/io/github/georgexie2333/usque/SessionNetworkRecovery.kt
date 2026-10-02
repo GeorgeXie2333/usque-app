@@ -1,7 +1,7 @@
 package io.github.georgexie2333.usque
 
-/** Main-thread recovery owner for a session that exited with a retryable network failure. */
-internal class FailedSessionRecovery(
+/** Main-thread owner of session replacement after physical changes or retryable network failures. */
+internal class SessionNetworkRecovery(
     private val suspendSession: () -> Unit,
     private val stop: ((Boolean) -> Unit) -> Unit,
     private val schedule: (Long, () -> Unit) -> Unit,
@@ -11,6 +11,7 @@ internal class FailedSessionRecovery(
     private var revision = 0L
     private var timerRevision = 0L
     private var networkGeneration = 0L
+    private var lastObservedNetworkGeneration = Long.MIN_VALUE
     private var online = false
     private var stopping = false
     private var stopped = false
@@ -26,6 +27,7 @@ internal class FailedSessionRecovery(
         networkGeneration: Long,
         networkPresent: Boolean,
     ): Boolean {
+        lastObservedNetworkGeneration = maxOf(lastObservedNetworkGeneration, networkGeneration)
         if (!retryable) {
             cancel()
             return false
@@ -48,12 +50,22 @@ internal class FailedSessionRecovery(
         return true
     }
 
-    /** Network events preserve recovery intent but cannot authorize it for an inactive owner. */
+    /** A new physical generation may rebuild an established chain; ordinary sessions recover natively. */
     fun networkChanged(
         networkGeneration: Long,
         networkPresent: Boolean,
+        restartEstablishedSession: Boolean = false,
     ): Boolean {
-        if (!active) return false
+        if (networkGeneration <= lastObservedNetworkGeneration) return active
+        lastObservedNetworkGeneration = networkGeneration
+        if (!active) {
+            if (!restartEstablishedSession) return false
+            return failed(
+                retryable = true,
+                networkGeneration = networkGeneration,
+                networkPresent = networkPresent,
+            )
+        }
         if (networkGeneration <= this.networkGeneration) return true
         updateNetwork(networkGeneration, networkPresent)
         if (connecting) {
@@ -136,6 +148,8 @@ internal class FailedSessionRecovery(
         stopped = false
         connecting = false
         retryFailures = 0
+        // Keep consumed generations: a delayed duplicate physical callback
+        // cannot reauthorize a canceled or successfully replaced session.
     }
 
     private companion object {

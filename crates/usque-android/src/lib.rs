@@ -2579,7 +2579,7 @@ struct NativeFailure {
 }
 
 impl NativeFailure {
-    #[cfg(target_os = "android")]
+    #[cfg(any(test, target_os = "android"))]
     fn from_failure(failure: &TransportFailure) -> Self {
         Self {
             code: failure.code.as_str().to_owned(),
@@ -3432,6 +3432,41 @@ fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn chain_shutdown_preserves_terminal_underlay_failure_on_the_native_wire() {
+        use usque_core::vpngate::{GateFailure, GateStage, GateStatus};
+        use usque_core::{
+            AddressFamily, Transport, TransportFailure, TransportFailureCode, TransportStage,
+        };
+        for code in [
+            TransportFailureCode::AuthenticationFailed,
+            TransportFailureCode::EndpointPinMismatch,
+            TransportFailureCode::SocketProtectionFailed,
+            TransportFailureCode::ConfigurationInvalid,
+        ] {
+            let original = TransportFailure::new(code, TransportStage::SocketProtection)
+                .on_path(Transport::Http3, AddressFamily::Ipv6)
+                .with_sanitized_detail("generation 7");
+            let mut snapshot = super::NativeSnapshot::disconnected();
+            snapshot.phase = "error".into();
+            snapshot.error_code = Some(code.as_str().into());
+            snapshot.failure = Some(super::NativeFailure::from_failure(&original));
+            let expected = serde_json::to_value(snapshot.failure.as_ref().unwrap()).unwrap();
+            snapshot.finish_runtime(GateStatus {
+                stage: GateStage::Error,
+                warp_stage: Some("error".into()),
+                failure: Some(GateFailure::Transport),
+                ..Default::default()
+            });
+            let wire = serde_json::to_value(snapshot).unwrap();
+            assert_eq!(wire["error_code"], code.as_str());
+            assert_eq!(wire["failure"], expected);
+            assert_eq!(wire["failure"]["retryable"], false);
+            assert_eq!(wire["vpn_gate"]["warp_stage"], "disconnected");
+            assert_eq!(wire["vpn_gate"]["failure"], "transport");
+        }
+    }
+
     #[test]
     fn failed_gate_runtime_clears_active_network_and_preserves_the_error() {
         use usque_core::vpngate::{GateFailure, GateStage, GateStatus};

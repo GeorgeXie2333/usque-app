@@ -13,8 +13,8 @@ use usque_core::{AddressFamily, Transport, WarpIdentity};
 use usque_core::{ReconfigureClass, classify_reconfigure};
 use usque_geo::CountryCode;
 use usque_transport::{
-    DataPlaneRuntime, EndpointPinRefresher, GeoDirectPolicy, RuntimeHealth, RuntimePath,
-    TrafficSnapshot, TransportError, TunPacketIo,
+    DataPlaneRuntime, EndpointPinRefresher, GeoDirectPolicy, RuntimeHealth, TrafficSnapshot,
+    TransportError, TunPacketIo,
 };
 
 use crate::exit_probe_task::{ExitProbeTask, run_probe};
@@ -595,7 +595,7 @@ async fn run(
     if !profile.frontends.tunnel
         && let Err(error) = tunnel.activate_final().await
     {
-        set_transport_error(&status, &error);
+        set_runtime_transport_error(&status, &error, &tunnel);
         tunnel.shutdown().await;
         let _ = started.send(START_TRANSPORT_FAILURE);
         return;
@@ -622,7 +622,7 @@ async fn run(
         match tunnel.attach_tun() {
             Ok(tun_io) => Some(tun_io),
             Err(error) => {
-                set_transport_error_on_path(&status, &error, tunnel.path());
+                set_runtime_transport_error(&status, &error, &tunnel);
                 tunnel.shutdown().await;
                 return;
             }
@@ -816,7 +816,7 @@ async fn run_session(
                 SessionDataEvent::Sent(result) => {
                     pending_send.set(None);
                     if let Err(error) = result {
-                        set_transport_error_on_path(&status, &error, tunnel.path());
+                        set_runtime_transport_error(&status, &error, &tunnel);
                         break;
                     }
                 }
@@ -864,7 +864,7 @@ async fn run_session(
                             write_sample = write_observer.as_ref().map(|o| o.begin());
                         }
                         Err(error) => {
-                            set_transport_error_on_path(&status, &error, tunnel.path());
+                            set_runtime_transport_error(&status, &error, &tunnel);
                             break;
                         }
                     }
@@ -934,7 +934,7 @@ async fn run_session(
                 Ok(ReadyDrainStop::Budget) => tokio::task::yield_now().await,
                 Ok(_) => {}
                 Err(ReadyDrainError::Receive(error)) => {
-                    set_transport_error_on_path(&status, &error, tunnel.path());
+                    set_runtime_transport_error(&status, &error, &tunnel);
                     cancellation.cancel();
                 }
                 Err(ReadyDrainError::Write(error)) => {
@@ -1069,7 +1069,7 @@ async fn handle_runtime_command(
                             _ => usque_core::vpngate::GateFailure::Transport,
                         };
                         tunnel.fail_gate(reason).await;
-                        set_transport_error_on_path(status, &error, tunnel.path());
+                        set_runtime_transport_error(status, &error, tunnel);
                         START_TRANSPORT_FAILURE
                     } else {
                         update_frontends(status, tunnel);
@@ -1088,7 +1088,7 @@ async fn handle_runtime_command(
                                     RECONFIGURE_OK
                                 }
                                 Err(error) => {
-                                    set_transport_error_on_path(status, &error, tunnel.path());
+                                    set_runtime_transport_error(status, &error, tunnel);
                                     START_TRANSPORT_FAILURE
                                 }
                             }
@@ -1109,7 +1109,7 @@ async fn handle_runtime_command(
                             RECONFIGURE_OK
                         }
                         Err(error) => {
-                            set_transport_error_on_path(status, &error, tunnel.path());
+                            set_runtime_transport_error(status, &error, tunnel);
                             START_TRANSPORT_FAILURE
                         }
                     }
@@ -1169,7 +1169,7 @@ async fn handle_runtime_command(
             let io = match tunnel.attach_tun() {
                 Ok(io) => io,
                 Err(error) => {
-                    set_transport_error_on_path(status, &error, tunnel.path());
+                    set_runtime_transport_error(status, &error, tunnel);
                     let _ = reply.send(START_TRANSPORT_FAILURE);
                     return;
                 }
@@ -1180,7 +1180,7 @@ async fn handle_runtime_command(
             }
             if let Err(error) = tunnel.reconfigure_frontends(&next).await {
                 tunnel.detach_tun();
-                set_transport_error_on_path(status, &error, tunnel.path());
+                set_runtime_transport_error(status, &error, tunnel);
                 let _ = reply.send(START_TRANSPORT_FAILURE);
                 return;
             }
@@ -1194,7 +1194,7 @@ async fn handle_runtime_command(
             *tun_io = Some(io);
             if let Err(error) = tunnel.activate_final().await {
                 detach_tun_locked(tunnel, tun, tun_io);
-                set_transport_error_on_path(status, &error, tunnel.path());
+                set_runtime_transport_error(status, &error, tunnel);
                 let _ = reply.send(START_TRANSPORT_FAILURE);
                 return;
             }
@@ -1341,12 +1341,12 @@ fn set_transport_error(status: &Arc<Mutex<NativeSnapshot>>, error: &TransportErr
     set_transport_failure(status, error, android_transport_failure(error, None));
 }
 
-fn set_transport_error_on_path(
+fn set_runtime_transport_error(
     status: &Arc<Mutex<NativeSnapshot>>,
     error: &TransportError,
-    path: RuntimePath,
+    tunnel: &DataPlaneRuntime,
 ) {
-    set_transport_failure(status, error, android_transport_failure(error, Some(path)));
+    set_transport_failure(status, error, tunnel.transport_failure(error));
 }
 
 fn set_transport_failure(
