@@ -21,6 +21,10 @@ use crate::socks5::Socks5Frontend;
 use crate::tcp::{ProxyServices, TcpDialer};
 use crate::telemetry::ConnectionTelemetry;
 
+#[cfg(test)]
+#[path = "runtime/direct_dns_tests.rs"]
+mod direct_dns_tests;
+
 /// Account-bound stream frontends, shared by L4 and final HTTP/SOCKS5 exits.
 pub(crate) struct L4Runtime {
     pub(crate) client: Arc<crate::stream_client::StreamClient>,
@@ -293,9 +297,18 @@ impl L4Runtime {
         startup_cancel: &CancellationToken,
         deadline: tokio::time::Instant,
     ) -> Result<Self, TransportError> {
+        crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let cancellation = CancellationToken::new();
         let guard = cancellation.clone().drop_guard();
         let telemetry = ConnectionTelemetry::default();
+        let quality = telemetry.network_quality();
+        quality.use_stream_data_plane();
+        let protector = crate::encrypted_dns::configure_direct_dns(
+            &profile.direct_dns,
+            protector,
+            quality,
+            &cancellation,
+        )?;
         let counters = Arc::new(TrafficCounters::default());
         let metrics = Arc::new(super::L4Metrics::default());
         let budget = Arc::new(super::BufferBudget::new(
