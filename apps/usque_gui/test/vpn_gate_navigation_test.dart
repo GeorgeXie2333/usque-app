@@ -49,7 +49,7 @@ Finder railItem(AppController app, String key) => find.descendant(
 
 void main() {
   testWidgets(
-    'Home Gate shortcut opens the shared subpage by pointer and D-pad',
+    'desktop and mobile Home chain shortcuts open the shared subpage by pointer and D-pad',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       tester.view.devicePixelRatio = 1;
@@ -84,22 +84,40 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          final entry = find.byKey(const ValueKey('home-vpn-gate-settings'));
+          expect(
+            find.byKey(const ValueKey('home-vpn-gate-settings')),
+            width < 760 ? findsOneWidget : findsNothing,
+          );
+          expect(
+            find.textContaining('WARP →'),
+            width < 760 ? findsOneWidget : findsNothing,
+          );
+          final entry = find.byKey(
+            ValueKey(
+              width >= 760
+                  ? 'home-chain-proxy-settings'
+                  : 'home-vpn-gate-settings',
+            ),
+          );
           expect(entry, findsOneWidget);
+          await tester.ensureVisible(entry);
+          await tester.pumpAndSettle();
           expect(
             find.textContaining('Proxied traffic is blocked until'),
             findsNothing,
           );
           if (keyboard) {
             Focus.of(
-              tester.element(find.text('WARP → VPN Gate')),
+              tester.element(
+                find.descendant(of: entry, matching: find.byType(Text)).first,
+              ),
             ).requestFocus();
             await tester.pump();
             await tester.sendKeyEvent(LogicalKeyboardKey.select);
           } else {
             await tester.tap(entry);
             // A second activation before the section paints cannot stack routes.
-            await tester.tap(entry);
+            if (width >= 760) await tester.tap(entry);
           }
           await tester.pumpAndSettle();
           expect(find.byType(VpnGateScreen), findsOneWidget);

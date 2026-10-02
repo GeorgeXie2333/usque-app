@@ -120,8 +120,19 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Connection details'));
       await tester.pumpAndSettle();
-      expect(find.text('Protocol'), findsOneWidget);
-      expect(find.text('SOCKS5 · Enabled · not running'), findsOneWidget);
+      final details = find.byKey(
+        const ValueKey('home-connection-detail-values'),
+      );
+      expect(find.text('Protocol'), findsNothing);
+      expect(
+        find.descendant(of: details, matching: find.text('IPv4')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: details, matching: find.textContaining('SOCKS5')),
+        findsOneWidget,
+      );
+      expect(find.text('SOCKS5 · Enabled · not running'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

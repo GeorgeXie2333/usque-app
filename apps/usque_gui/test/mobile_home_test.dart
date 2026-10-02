@@ -131,9 +131,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.byType(ErrorWidget), findsNothing);
-      final protocol = find.widgetWithText(SelectableText, 'HTTP/3');
-      expect(protocol, findsOneWidget);
-      expect(tester.getSize(protocol).height, lessThan(100));
+      final address = find.widgetWithText(SelectableText, '198.51.100.10');
+      expect(address, findsOneWidget);
+      expect(tester.getSize(address).height, lessThan(100));
+      expect(find.widgetWithText(SelectableText, 'HTTP/3'), findsNothing);
 
       final tile = find.byKey(const PageStorageKey('home-connection-details'));
       Object? expansionState() {
@@ -158,18 +159,18 @@ void main() {
           null,
         ),
       );
-      await tester.ensureVisible(protocol);
+      await tester.ensureVisible(address);
       await tester.pumpAndSettle();
-      await tester.longPress(protocol);
+      await tester.longPress(address);
       await tester.pumpAndSettle();
       final editable = tester.state<EditableTextState>(
-        find.descendant(of: protocol, matching: find.byType(EditableText)),
+        find.descendant(of: address, matching: find.byType(EditableText)),
       );
       expect(editable.widget.controller.selection.isCollapsed, isFalse);
       editable.selectAll(SelectionChangedCause.toolbar);
       editable.copySelection(SelectionChangedCause.toolbar);
       await tester.pump();
-      expect(copied, 'HTTP/3');
+      expect(copied, '198.51.100.10');
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pumpAndSettle();
       expect(expansionState(), isTrue);
@@ -183,34 +184,34 @@ void main() {
         await tester.tap(details);
         await tester.pumpAndSettle();
         expect(expansionState(), isFalse);
-        expect(protocol, findsNothing);
+        expect(address, findsNothing);
         await tester.tap(details);
         await tester.pumpAndSettle();
         expect(expansionState(), isTrue);
-        expect(protocol, findsOneWidget);
+        expect(address, findsOneWidget);
       }
       fixture.engine.current = const EngineSnapshot();
       await fixture.app.refreshSnapshot();
       await tester.pumpAndSettle();
-      expect(protocol, findsNothing);
+      expect(address, findsNothing);
       fixture.sample(8);
       await fixture.app.refreshSnapshot();
       await tester.pumpAndSettle();
-      expect(protocol, findsOneWidget);
+      expect(address, findsOneWidget);
       expect(expansionState(), isTrue);
       fixture.app.selectSection(AppSection.settings);
       await tester.pumpAndSettle();
       fixture.app.selectSection(AppSection.home);
       await tester.pumpAndSettle();
       expect(expansionState(), isTrue);
-      expect(protocol, findsOneWidget);
+      expect(address, findsOneWidget);
       // Recreate the compact subtree while retaining the route's PageStorage.
       tester.view.physicalSize = const Size(1280, 900);
       await tester.pumpAndSettle();
       tester.view.physicalSize = const Size(424, 924);
       await tester.pumpAndSettle();
       expect(expansionState(), isTrue);
-      expect(protocol, findsOneWidget);
+      expect(address, findsOneWidget);
       expect(find.byType(ErrorWidget), findsNothing);
       expect(tester.takeException(), isNull);
       expect(fixture.engine.qualityRequests, 0);
@@ -257,10 +258,13 @@ void main() {
                 await tester.pump(const Duration(milliseconds: 100));
                 expect(tester.takeException(), isNull);
                 await tester.pumpAndSettle();
-                final protocol = find.widgetWithText(SelectableText, 'HTTP/3');
-                await tester.ensureVisible(protocol);
+                final address = find.widgetWithText(
+                  SelectableText,
+                  '198.51.100.10',
+                );
+                await tester.ensureVisible(address);
                 await tester.pumpAndSettle();
-                expect(protocol.hitTestable(), findsOneWidget);
+                expect(address.hitTestable(), findsOneWidget);
                 for (final value in tester.widgetList<MonoValue>(
                   find.byType(MonoValue),
                 )) {

@@ -262,7 +262,7 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
           ContentList(
             children: [
               _OutputControl(
-                title: strings.get('home_tun'),
+                title: strings.tunnelOutputLabel(Theme.of(context).platform),
                 icon: LucideIcons.ethernetPort,
                 option: Text(strings.get('home_options')),
                 switchKey: const ValueKey('home-tun-switch'),

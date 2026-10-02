@@ -23,7 +23,7 @@ import 'features_zh_tw.dart';
 const Map<String, String> kUiWorkflowEn = <String, String>{
   'home_local_proxies': 'Local proxies',
   'home_manage_proxies': 'Manage proxies',
-  'home_tun': 'Virtual network adapter (TUN)',
+  'home_enabled_interfaces': 'Enabled: {interfaces}',
   'home_system_proxy': 'System proxy',
   'home_options': 'Options',
   'home_system_proxy_requires_http': 'Enable the HTTP local proxy first.',
@@ -84,7 +84,7 @@ const Map<String, String> kUiWorkflowEn = <String, String>{
 const Map<String, String> kUiWorkflowZhCn = <String, String>{
   'home_local_proxies': '本地代理',
   'home_manage_proxies': '管理代理',
-  'home_tun': '虚拟网卡 (TUN)',
+  'home_enabled_interfaces': '已启用：{interfaces}',
   'home_system_proxy': '系统代理',
   'home_options': '选项',
   'home_system_proxy_requires_http': '请先启用 HTTP 本地代理。',

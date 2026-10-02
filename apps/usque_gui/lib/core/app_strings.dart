@@ -39,7 +39,17 @@ class AppStrings {
   String get languageCode =>
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
-  String get(String key) {
+  String get(String key, {TargetPlatform? platform}) {
+    final text = _raw(key);
+    return text.contains('{tunnel}')
+        ? text.replaceAll(
+            '{tunnel}',
+            tunnelOutputLabel(platform ?? defaultTargetPlatform),
+          )
+        : text;
+  }
+
+  String _raw(String key) {
     final diagnostics =
         kDiagnosticsCatalogs[catalogId] ?? kDiagnosticsCatalogs['en']!;
     if (diagnostics.containsKey(key)) return diagnostics[key]!;
@@ -59,8 +69,8 @@ class AppStrings {
 
   String tunnelOutputLabel(TargetPlatform platform) =>
       platform == TargetPlatform.android
-      ? get('vpn_mode')
-      : get('tunnel_output');
+      ? _raw('vpn_mode')
+      : _raw('tunnel_output');
 
   /// Feature-table keys whose English value may be reused.
   ///

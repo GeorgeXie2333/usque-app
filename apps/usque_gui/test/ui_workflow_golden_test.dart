@@ -402,13 +402,17 @@ void main() {
     }
   }, tags: 'golden');
 
-  testWidgets('Home VPN Gate settings entry on desktop and phone', (
+  testWidgets('Home desktop chain controls and mobile top block', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
-    for (final phone in [false, true]) {
+    for (final (phone, dark) in const [
+      (false, false),
+      (true, false),
+      (true, true),
+    ]) {
       tester.view.physicalSize = phone
           ? const Size(390, 844)
           : const Size(1220, 1000);
@@ -454,7 +458,7 @@ void main() {
             key: boundary,
             child: workflowHost(
               app,
-              dark: phone,
+              dark: dark,
               home: ShellScreen(controller: app),
             ),
           ),
@@ -480,6 +484,14 @@ void main() {
           findsNothing,
         );
         expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
+        expect(
+          find.byKey(const ValueKey('home-vpn-gate-settings')),
+          phone ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.textContaining('WARP →'),
+          phone ? findsOneWidget : findsNothing,
+        );
         if (!phone) {
           expect(
             find.byKey(const ValueKey('home-chain-proxy-settings')),
@@ -494,7 +506,7 @@ void main() {
         await expectLater(
           find.byKey(boundary),
           matchesGoldenFile(
-            'goldens/home_vpngate_${phone ? 'phone_dark' : 'desktop_light'}.png',
+            'goldens/home_vpngate_${phone ? 'phone' : 'desktop'}_${dark ? 'dark' : 'light'}.png',
           ),
         );
       } finally {
@@ -1186,6 +1198,22 @@ void main() {
           connected: true,
         ),
         (
+          name: 'home_desktop_details_expanded_light',
+          size: const Size(1440, 900),
+          section: AppSection.home,
+          dark: false,
+          zh: true,
+          connected: true,
+        ),
+        (
+          name: 'home_desktop_details_expanded_dark',
+          size: const Size(1440, 900),
+          section: AppSection.home,
+          dark: true,
+          zh: true,
+          connected: true,
+        ),
+        (
           name: 'proxy_phone_draft',
           size: const Size(375, 812),
           section: AppSection.proxy,
@@ -1281,6 +1309,14 @@ void main() {
         for (final profile in app.profiles)
           profile.id: ProfileIdentityState.ready,
       };
+      if (scene.name.startsWith('home_desktop_details_expanded')) {
+        app.sharedNetwork = app.sharedNetwork.copyWith(
+          chainExit: const ChainExitSettings(
+            enabled: true,
+            source: ChainSource.socks5Proxy,
+          ),
+        );
+      }
       if (scene.connected) {
         app.snapshot = const EngineSnapshot(
           phase: ConnectionPhase.connected,
@@ -1318,8 +1354,7 @@ void main() {
         );
         app.lastError = '暂时无法连接，请检查网络后重试。';
       }
-      if (scene.connected &&
-          !scene.name.startsWith('home_phone_details_expanded')) {
+      if (scene.connected && !scene.name.contains('details_expanded')) {
         var downloaded = 0;
         var uploaded = 0;
         // Synthetic engine samples, not a UI-generated curve. The rendered
@@ -1403,7 +1438,7 @@ void main() {
             }
           }
         }
-        if (scene.name.startsWith('home_phone_details_expanded')) {
+        if (scene.name.contains('details_expanded')) {
           final details = find.text(app.strings.get('connection_details'));
           await tester.ensureVisible(details);
           await tester.pumpAndSettle();
@@ -1411,7 +1446,19 @@ void main() {
           await tester.pumpAndSettle();
           await Scrollable.ensureVisible(tester.element(details));
           await tester.pumpAndSettle();
-          expect(find.widgetWithText(SelectableText, 'HTTP/3'), findsOneWidget);
+          expect(
+            find.widgetWithText(SelectableText, '198.51.100.10'),
+            findsOneWidget,
+          );
+          expect(
+            find.widgetWithText(SelectableText, '2001:db8::10'),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('home-vpn-gate-settings')),
+            findsNothing,
+          );
+          expect(find.textContaining('WARP →'), findsNothing);
           expect(find.byType(ErrorWidget), findsNothing);
         }
         if (scene.section == AppSection.proxy) {

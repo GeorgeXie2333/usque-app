@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/app_strings.dart';
@@ -105,7 +106,7 @@ void main() {
     expect(off.drivesHome, isFalse);
   });
 
-  testWidgets('phone and desktop home show the same chain status', (
+  testWidgets('Home keeps the mobile chain block and omits it on desktop', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -117,12 +118,13 @@ void main() {
       EngineSnapshot snapshot,
       ChainExitSettings chain,
       String label, {
-      int copies = 2,
+      int? copies,
       List<String> present = const [],
       List<String> absent = const [],
       bool row = true,
     }) async {
       tester.view.physicalSize = size;
+      final mobile = defaultTargetPlatform == TargetPlatform.android;
       final app = AppController(FakeEngineClient())
         ..localePreference = LocalePreference.english
         ..sharedNetwork = UsqueProfile.defaultProfile().copyWith(
@@ -134,7 +136,11 @@ void main() {
         workflowHost(app, home: HomeScreen(controller: app)),
       );
       await tester.pumpAndSettle();
-      expect(find.text(label), findsNWidgets(copies), reason: '$size $label');
+      expect(
+        find.text(label),
+        findsNWidgets(copies ?? (mobile ? 2 : 1)),
+        reason: '$size $label',
+      );
       for (final other in present) {
         expect(find.text(other), findsOneWidget, reason: '$size $other');
       }
@@ -143,88 +149,103 @@ void main() {
       }
       expect(
         find.byKey(const ValueKey('home-vpn-gate-settings')),
-        row ? findsOneWidget : findsNothing,
-        reason: '$size row',
+        row && mobile ? findsOneWidget : findsNothing,
+        reason: '$size top block',
+      );
+      expect(
+        find.textContaining('WARP →'),
+        row && mobile ? findsOneWidget : findsNothing,
       );
       await tester.pumpWidget(const SizedBox());
     }
 
-    const sizes = [Size(390, 844), Size(1220, 1000)];
-    for (final size in sizes) {
-      await expectStatus(
-        size,
-        const EngineSnapshot(
-          phase: ConnectionPhase.preparing,
-          vpnGate: VpnGateStatus(stage: 'connecting_server'),
-        ),
-        vpnGate,
-        strings.chain('connecting'),
-        absent: [strings.get('preparing'), 'Connecting to VPN Gate'],
-      );
-      await expectStatus(
-        size,
-        const EngineSnapshot(
-          phase: ConnectionPhase.connectingH3,
-          vpnGate: VpnGateStatus(stage: 'connecting_warp'),
-        ),
-        vpnGate,
-        strings.chain('connecting'),
-        absent: [strings.get('preparing'), 'Connecting to WARP'],
-      );
-      await expectStatus(
-        size,
-        const EngineSnapshot(
-          phase: ConnectionPhase.connected,
-          vpnGate: VpnGateStatus(stage: 'configuring_network'),
-        ),
-        vpnGate,
-        strings.chain('connecting'),
-        absent: [strings.get('connected'), 'Applying network settings'],
-      );
-      await expectStatus(
-        size,
-        const EngineSnapshot(
-          phase: ConnectionPhase.reconnecting,
-          chainExit: ChainExitStatus(stage: 'negotiating'),
-        ),
-        custom,
-        strings.chain('connecting'),
-        absent: [strings.get('reconnecting'), 'Connecting to VPN Gate'],
-      );
-      await expectStatus(
-        size,
-        const EngineSnapshot(),
-        vpnGate,
-        strings.get('disconnected'),
-        copies: 1,
-        present: [strings.chain('enabled_idle')],
-      );
-      await expectStatus(
-        size,
-        const EngineSnapshot(
-          phase: ConnectionPhase.connected,
-          chainExit: ChainExitStatus(stage: 'connected'),
-          vpnGate: VpnGateStatus(stage: 'disabled'),
-        ),
-        custom,
-        strings.get('connected'),
-      );
-      await expectStatus(
-        size,
-        const EngineSnapshot(phase: ConnectionPhase.connected),
-        vpnGate,
-        strings.get('connected'),
-        copies: 1,
-        row: false,
-      );
-      await expectStatus(
-        size,
-        const EngineSnapshot(),
-        const ChainExitSettings(),
-        strings.get('disconnected'),
-        copies: 1,
-        row: false,
-      );
+    const sizes = [
+      (Size(390, 844), TargetPlatform.android),
+      (Size(1220, 1000), TargetPlatform.windows),
+      (Size(640, 900), TargetPlatform.windows),
+    ];
+    try {
+      for (final (size, platform) in sizes) {
+        debugDefaultTargetPlatformOverride = platform;
+        final mobile = platform == TargetPlatform.android;
+        await expectStatus(
+          size,
+          const EngineSnapshot(
+            phase: ConnectionPhase.preparing,
+            vpnGate: VpnGateStatus(stage: 'connecting_server'),
+          ),
+          vpnGate,
+          strings.chain('connecting'),
+          absent: [strings.get('preparing'), 'Connecting to VPN Gate'],
+        );
+        await expectStatus(
+          size,
+          const EngineSnapshot(
+            phase: ConnectionPhase.connectingH3,
+            vpnGate: VpnGateStatus(stage: 'connecting_warp'),
+          ),
+          vpnGate,
+          strings.chain('connecting'),
+          absent: [strings.get('preparing'), 'Connecting to WARP'],
+        );
+        await expectStatus(
+          size,
+          const EngineSnapshot(
+            phase: ConnectionPhase.connected,
+            vpnGate: VpnGateStatus(stage: 'configuring_network'),
+          ),
+          vpnGate,
+          strings.chain('connecting'),
+          absent: [strings.get('connected'), 'Applying network settings'],
+        );
+        await expectStatus(
+          size,
+          const EngineSnapshot(
+            phase: ConnectionPhase.reconnecting,
+            chainExit: ChainExitStatus(stage: 'negotiating'),
+          ),
+          custom,
+          strings.chain('connecting'),
+          absent: [strings.get('reconnecting'), 'Connecting to VPN Gate'],
+        );
+        await expectStatus(
+          size,
+          const EngineSnapshot(),
+          vpnGate,
+          strings.get('disconnected'),
+          copies: 1,
+          present: mobile ? [strings.chain('enabled_idle')] : const [],
+          absent: !mobile ? [strings.chain('enabled_idle')] : const [],
+        );
+        await expectStatus(
+          size,
+          const EngineSnapshot(
+            phase: ConnectionPhase.connected,
+            chainExit: ChainExitStatus(stage: 'connected'),
+            vpnGate: VpnGateStatus(stage: 'disabled'),
+          ),
+          custom,
+          strings.get('connected'),
+        );
+        await expectStatus(
+          size,
+          const EngineSnapshot(phase: ConnectionPhase.connected),
+          vpnGate,
+          strings.get('connected'),
+          copies: 1,
+          row: false,
+        );
+        await expectStatus(
+          size,
+          const EngineSnapshot(),
+          const ChainExitSettings(),
+          strings.get('disconnected'),
+          copies: 1,
+          row: false,
+        );
+      }
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
     }
   });
 }

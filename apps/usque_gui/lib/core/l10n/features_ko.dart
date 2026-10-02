@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowKo = <String, String>{
   'home_local_proxies': '로컬 프록시',
   'home_manage_proxies': '프록시 관리',
-  'home_tun': '가상 네트워크 어댑터 (TUN)',
+  'home_enabled_interfaces': '활성화됨: {interfaces}',
   'home_system_proxy': '시스템 프록시',
   'home_options': '옵션',
   'home_system_proxy_requires_http': '먼저 HTTP 로컬 프록시를 활성화하세요.',

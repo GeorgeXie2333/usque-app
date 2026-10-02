@@ -28,7 +28,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'tray_disconnect_profile': 'Etkin hesabın bağlantısını kes',
   'tray_disconnect_exit': 'Bağlantıyı kes ve çık',
   'connection_status': 'Bağlantı durumu',
-  'outputs': 'VPN ve yerel proxy’ler',
+  'outputs': '{tunnel} ve yerel proxy’ler',
   'home': 'Ana sayfa',
   'profiles': 'Hesaplar',
   'profiles_subtitle':
@@ -133,10 +133,10 @@ const Map<String, String> kTrCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Hesabı yeniden adlandır',
-  'tunnel_output': 'VPN',
-  'channel_only': 'VPN ve yerel proxy’ler kapalı',
+  'tunnel_output': 'Sanal ağ bağdaştırıcısı',
+  'channel_only': '{tunnel} ve yerel proxy’ler kapalı',
   'channel_only_warning':
-      'Hiçbir uygulamanın trafiği bu bağlantıyı kullanmıyor. Proxy sayfasını açıp VPN, SOCKS5 veya HTTP’yi etkinleştirin.',
+      'Hiçbir uygulamanın trafiği bu bağlantıyı kullanmıyor. Proxy sayfasını açıp {tunnel}, SOCKS5 veya HTTP’yi etkinleştirin.',
   'socks_listener': 'SOCKS5 proxy',
   'http_listener': 'HTTP proxy',
   'listener_addresses': 'Dinleme adresleri (her satırda bir adres)',
@@ -364,7 +364,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'profile_required': 'En az bir hesap bulundurun.',
   'socks_capabilities': 'TCP ve UDP',
   'http_capabilities': 'CONNECT ve olağan iletme',
-  'geo_direct': 'VPN atlama ayarları',
+  'geo_direct': '{tunnel} atlama ayarları',
   'bypass_custom': 'Özel atlama hedefleri',
   'bypass_countries': 'Ülkeler / bölgeler',
   'bypass_targets_hint':

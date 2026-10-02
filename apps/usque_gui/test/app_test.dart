@@ -1426,24 +1426,72 @@ void main() {
     },
   );
 
-  test('tunnel output uses the familiar VPN label in every catalog', () {
-    for (final catalog in kCatalogs.entries) {
-      expect(
-        catalog.value['tunnel_output'],
-        'VPN',
-        reason: '${catalog.key} Windows tunnel label',
-      );
-      expect(
-        catalog.value['vpn_mode'],
-        'VPN',
-        reason: '${catalog.key} Android tunnel label',
-      );
-    }
+  test(
+    'desktop adapter names are localized and Android keeps VPN in every catalog',
+    () {
+      for (final catalog in kCatalogs.entries) {
+        expect(
+          catalog.value['tunnel_output'],
+          isNot('VPN'),
+          reason: '${catalog.key} Windows tunnel label',
+        );
+        expect(
+          catalog.value['vpn_mode'],
+          'VPN',
+          reason: '${catalog.key} Android tunnel label',
+        );
+        final locale = catalog.key.split('_');
+        final localized = AppStrings(
+          LocalePreference.system,
+          systemLocale: Locale(
+            locale.first,
+            locale.length > 1 ? locale[1] : null,
+          ),
+        );
+        expect(localized.catalogId, catalog.key);
+        expect(localized.tunnelOutputLabel(TargetPlatform.android), 'VPN');
+        for (final platform in [
+          TargetPlatform.windows,
+          TargetPlatform.android,
+        ]) {
+          final name = localized.tunnelOutputLabel(platform);
+          for (final key in [
+            'outputs',
+            'channel_only',
+            'channel_only_warning',
+            'geo_direct',
+          ]) {
+            final text = localized.get(key, platform: platform);
+            expect(
+              text,
+              contains(name),
+              reason: '${catalog.key} $platform $key',
+            );
+            expect(text, isNot(contains('{tunnel}')));
+          }
+        }
+      }
 
-    final strings = AppStrings(LocalePreference.english);
-    expect(strings.tunnelOutputLabel(TargetPlatform.windows), 'VPN');
-    expect(strings.tunnelOutputLabel(TargetPlatform.android), 'VPN');
-  });
+      final strings = AppStrings(LocalePreference.english);
+      expect(strings.tunnelOutputLabel(TargetPlatform.windows), 'TUN');
+      expect(strings.tunnelOutputLabel(TargetPlatform.android), 'VPN');
+      expect(
+        AppStrings(
+          LocalePreference.simplifiedChinese,
+        ).tunnelOutputLabel(TargetPlatform.windows),
+        '虚拟网卡',
+      );
+      for (final preference in [
+        LocalePreference.traditionalChineseHongKong,
+        LocalePreference.traditionalChineseTaiwan,
+      ]) {
+        expect(
+          AppStrings(preference).tunnelOutputLabel(TargetPlatform.windows),
+          '虛擬網卡',
+        );
+      }
+    },
+  );
 
   test('compact navigation labels keep reviewed short translations', () {
     expect(AppStrings(LocalePreference.arabic).get('nav_home'), 'رئيسية');
@@ -4790,14 +4838,14 @@ void main() {
           tester.widget<SettingsScreen>(find.byType(SettingsScreen));
       final controller = settings().controller;
 
-      expect(find.text('VPN and local proxies'), findsOneWidget);
+      expect(find.text('TUN and local proxies'), findsOneWidget);
       expect(settings().controller.activeProfile.frontends.tunnel, isTrue);
       expect(settings().controller.activeProfile.frontends.socks5, isTrue);
       expect(settings().controller.activeProfile.frontends.http, isTrue);
       expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
       expect(settings().controller.activeProfile.autoConnect, isFalse);
 
-      await toggle('VPN');
+      await toggle('TUN');
       expect(settings().controller.activeProfile.frontends.tunnel, isFalse);
 
       await toggle('Connect the current account automatically on start');
@@ -4820,7 +4868,7 @@ void main() {
       expect(controller.activeProfile.frontends.any, isFalse);
       expect(
         find.text(
-          'No app traffic will use this connection. Open Proxy and enable VPN, SOCKS5 or HTTP.',
+          'No app traffic will use this connection. Open Proxy and enable TUN, SOCKS5 or HTTP.',
         ),
         findsOneWidget,
       );

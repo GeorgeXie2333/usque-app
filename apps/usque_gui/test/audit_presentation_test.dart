@@ -7,6 +7,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/home_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/animated_index_stack.dart';
+import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/window_titlebar.dart';
 import 'app_test.dart' show FakeEngineClient;
@@ -150,72 +151,129 @@ void main() {
     },
   );
 
-  testWidgets(
-    'observed outputs remain visible after desired outputs are disabled',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 900));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      final app = AppController(FakeEngineClient())
-        ..localePreference = LocalePreference.english;
-      addTearDown(app.dispose);
-      app.sharedNetwork = app.sharedNetwork.copyWith(
-        frontends: const FrontendSettings(
-          tunnel: false,
-          socks5: false,
-          http: false,
+  testWidgets('Home details contain only IPs and configured interface names', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final app = AppController(FakeEngineClient())
+      ..localePreference = LocalePreference.english;
+    addTearDown(app.dispose);
+    app.sharedNetwork = app.sharedNetwork.copyWith(
+      frontends: const FrontendSettings(
+        tunnel: false,
+        socks5: false,
+        http: false,
+      ),
+    );
+    app.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.connected,
+      transport: 'HTTP/3',
+      addressFamily: 'IPv4',
+      exit: ExitInfo(
+        country: 'Singapore',
+        countryCode: 'SG',
+        ipv4: '198.51.100.10',
+        ipv6: '2001:db8::10',
+      ),
+      frontends: [
+        FrontendRuntimeStatus(
+          kind: FrontendKind.http,
+          phase: FrontendPhase.active,
+          listeners: ['127.0.0.1:8080'],
         ),
-      );
-      app.snapshot = const EngineSnapshot(
-        phase: ConnectionPhase.connected,
-        frontends: [
-          FrontendRuntimeStatus(
-            kind: FrontendKind.http,
-            phase: FrontendPhase.active,
-            listeners: ['127.0.0.1:8080'],
-          ),
-          FrontendRuntimeStatus(
-            kind: FrontendKind.socks5,
-            phase: FrontendPhase.active,
-            listeners: ['127.0.0.1:1080'],
-          ),
-          FrontendRuntimeStatus(
-            kind: FrontendKind.systemProxy,
-            phase: FrontendPhase.active,
-          ),
-        ],
-      );
-      Widget page() => workflowHost(app, home: HomeScreen(controller: app));
-      await tester.pumpWidget(page());
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(app.strings.get('connection_details')));
-      await tester.pumpAndSettle();
-      expect(
-        find.text('HTTP · ${app.strings.get('output_running')}'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('SOCKS5 · ${app.strings.get('output_running')}'),
-        findsOneWidget,
-      );
-      expect(
-        find.text(
-          '${app.strings.get('system_proxy')} · ${app.strings.get('output_running')}',
+        FrontendRuntimeStatus(
+          kind: FrontendKind.socks5,
+          phase: FrontendPhase.active,
+          listeners: ['127.0.0.1:1080'],
         ),
-        findsOneWidget,
-      );
-      expect(find.text(app.strings.get('channel_only_warning')), findsNothing);
-      app.snapshot = const EngineSnapshot();
-      await tester.pumpWidget(page());
-      await tester.pumpAndSettle();
-      expect(
-        find.text('HTTP · ${app.strings.get('output_running')}'),
-        findsNothing,
-      );
-      expect(
-        find.text(app.strings.get('channel_only_warning')),
-        findsOneWidget,
-      );
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+        FrontendRuntimeStatus(
+          kind: FrontendKind.systemProxy,
+          phase: FrontendPhase.active,
+        ),
+      ],
+    );
+    Widget page() => workflowHost(app, home: HomeScreen(controller: app));
+    await tester.pumpWidget(page());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(app.strings.get('connection_details')));
+    await tester.pumpAndSettle();
+    final details = find.byKey(const ValueKey('home-connection-detail-values'));
+    Finder detailText(String value) =>
+        find.descendant(of: details, matching: find.text(value));
+    expect(detailText('198.51.100.10'), findsOneWidget);
+    expect(detailText('2001:db8::10'), findsOneWidget);
+    for (final key in [
+      'protocol',
+      'address_family',
+      'duration',
+      'location',
+      'outputs',
+    ]) {
+      expect(detailText(app.strings.get(key)), findsNothing);
+    }
+    expect(detailText('Singapore'), findsNothing);
+    expect(detailText('ip.sb'), findsNothing);
+    expect(detailText('HTTP/3'), findsNothing);
+    expect(
+      find.descendant(of: details, matching: find.byType(InlineStatus)),
+      findsNothing,
+    );
+    final names = [
+      app.strings.tunnelOutputLabel(Theme.of(tester.element(details)).platform),
+      app.strings.get('home_system_proxy'),
+      'HTTP',
+      'SOCKS5',
+    ];
+    expect(find.byKey(const ValueKey('home-enabled-interfaces')), findsNothing);
+    // Runtime can lag saved preferences. Only configured interfaces belong
+    // in this list; it does not claim that any output is running.
+    for (final name in names) {
+      expect(detailText(name), findsNothing);
+    }
+    expect(find.text(app.strings.get('channel_only_warning')), findsNothing);
+    app.sharedNetwork = app.sharedNetwork.copyWith(
+      frontends: const FrontendSettings(tunnel: true, socks5: true, http: true),
+      proxy: app.sharedNetwork.proxy.copyWith(systemProxy: true),
+      geoDirectCountries: const ['CN'],
+    );
+    await tester.pumpWidget(page());
+    await tester.pumpAndSettle();
+    final enabled = find.byKey(const ValueKey('home-enabled-interfaces'));
+    expect(enabled, findsOneWidget);
+    expect(tester.widget<Text>(enabled).data, 'Enabled: ${names.join(', ')}');
+    expect(
+      find.descendant(of: details, matching: find.byType(Icon)),
+      findsNWidgets(2),
+    );
+    expect(
+      detailText(app.strings.get('geo_chip').replaceAll('{current}', 'CN')),
+      findsNothing,
+    );
+    app.sharedNetwork = app.sharedNetwork.copyWith(
+      frontends: const FrontendSettings(
+        tunnel: false,
+        socks5: true,
+        http: false,
+      ),
+      proxy: app.sharedNetwork.proxy.copyWith(systemProxy: false),
+    );
+    app.snapshot = const EngineSnapshot(
+      exit: ExitInfo(ipv4: '198.51.100.10', ipv6: '2001:db8::10'),
+    );
+    await tester.pumpWidget(page());
+    await tester.pumpAndSettle();
+    expect(detailText('Enabled: SOCKS5'), findsOneWidget);
+    for (final name in names.take(3)) {
+      expect(detailText(name), findsNothing);
+    }
+    expect(detailText('198.51.100.10'), findsNothing);
+    expect(detailText('2001:db8::10'), findsNothing);
+    expect(
+      find.descendant(of: details, matching: find.byType(EmptyValue)),
+      findsNWidgets(2),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 }

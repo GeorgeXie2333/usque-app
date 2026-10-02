@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowTh = <String, String>{
   'home_local_proxies': 'พร็อกซีในเครื่อง',
   'home_manage_proxies': 'จัดการพร็อกซี',
-  'home_tun': 'อะแดปเตอร์เครือข่ายเสมือน (TUN)',
+  'home_enabled_interfaces': 'เปิดใช้งาน: {interfaces}',
   'home_system_proxy': 'พร็อกซีของระบบ',
   'home_options': 'ตัวเลือก',
   'home_system_proxy_requires_http': 'เปิดใช้งานพร็อกซี HTTP ในเครื่องก่อน',

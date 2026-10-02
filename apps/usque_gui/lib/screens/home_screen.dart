@@ -5,7 +5,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/app_strings.dart';
 import '../core/chain_home_status.dart';
 import '../core/connection_presentation.dart';
-import '../core/frontend_presentation.dart';
 import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
@@ -48,17 +47,18 @@ class HomeScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           if (!compact) _ErrorSlot(controller: controller, strings: strings),
-          _VpnGateReadout(
-            controller: controller,
-            strings: strings,
-            onOpen:
-                onOpenVpnGate ??
-                () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(
-                    builder: (_) => ChainProxyScreen(controller: controller),
+          if (compact && defaultTargetPlatform == TargetPlatform.android)
+            _VpnGateReadout(
+              controller: controller,
+              strings: strings,
+              onOpen:
+                  onOpenVpnGate ??
+                  () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => ChainProxyScreen(controller: controller),
+                    ),
                   ),
-                ),
-          ),
+            ),
           if (compact)
             PanelStack(
               spacing: 24 + mobileHomeExpansion(context) * 8,
@@ -416,43 +416,12 @@ typedef _HeroView = ({
   String? errorCode,
   String profileName,
   bool identityReady,
-  FrontendSettings frontends,
-  bool systemProxy,
-  String geoDirect,
-  _OutputPhases runtime,
   bool chainEnabled,
   String chainStage,
   String gateStage,
   bool chainProfile,
   bool gateServer,
 });
-
-/// Runtime phase of each output, flattened so the hero compares by value and
-/// ignores the new list object that arrives with every traffic sample.
-typedef _OutputPhases = ({
-  FrontendPhase? tunnel,
-  FrontendPhase? socks5,
-  FrontendPhase? http,
-  FrontendPhase? systemProxy,
-});
-
-_OutputPhases _outputPhases(EngineSnapshot snapshot) {
-  FrontendPhase? phaseOf(FrontendKind kind) {
-    for (final status in snapshot.frontends) {
-      if (status.kind == kind) {
-        return status.phase;
-      }
-    }
-    return null;
-  }
-
-  return (
-    tunnel: phaseOf(FrontendKind.tunnel),
-    socks5: phaseOf(FrontendKind.socks5),
-    http: phaseOf(FrontendKind.http),
-    systemProxy: phaseOf(FrontendKind.systemProxy),
-  );
-}
 
 _HeroView _heroView(AppController controller) => (
   phase: controller.snapshot.phase,
@@ -462,10 +431,6 @@ _HeroView _heroView(AppController controller) => (
   identityReady:
       controller.identityState(controller.activeProfileId) ==
       ProfileIdentityState.ready,
-  frontends: controller.activeProfile.frontends,
-  systemProxy: controller.activeProfile.proxy.systemProxy,
-  geoDirect: controller.activeProfile.geoDirectCountries.join(','),
-  runtime: _outputPhases(controller.snapshot),
   chainEnabled: controller.activeProfile.chainEnabled,
   chainStage: controller.snapshot.chainExit.stage,
   gateStage: controller.snapshot.vpnGate.stage,
@@ -721,201 +686,6 @@ class _ConnectionHero extends StatelessWidget {
       if (!repaired || !context.mounted) return;
     }
     await controller.connectOrDisconnect();
-  }
-}
-
-class _FrontendStatuses extends StatelessWidget {
-  const _FrontendStatuses({required this.view, required this.strings});
-
-  final _HeroView view;
-  final AppStrings strings;
-
-  @override
-  Widget build(BuildContext context) {
-    final outputs = <FrontendKind, ({bool desired, FrontendPhase? runtime})>{
-      FrontendKind.tunnel: (
-        desired: view.frontends.tunnel,
-        runtime: view.runtime.tunnel,
-      ),
-      FrontendKind.socks5: (
-        desired: view.frontends.socks5,
-        runtime: view.runtime.socks5,
-      ),
-      FrontendKind.http: (
-        desired: view.frontends.http,
-        runtime: view.runtime.http,
-      ),
-      FrontendKind.systemProxy: (
-        desired: view.systemProxy,
-        runtime: view.runtime.systemProxy,
-      ),
-    };
-    bool observed(FrontendPhase? runtime) =>
-        view.phase != ConnectionPhase.disconnected &&
-        runtime != null &&
-        runtime != FrontendPhase.disabled;
-    final enabled = outputs.entries
-        .where((entry) => entry.value.desired || observed(entry.value.runtime))
-        .toList(growable: false);
-    if (enabled.isEmpty) {
-      return Text(
-        strings.get('channel_only_warning'),
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      );
-    }
-    final chips = enabled.map((entry) {
-      final state = FrontendPresentation.of(
-        configured: true,
-        connection: view.phase,
-        runtime: entry.value.runtime,
-      );
-      final name = switch (entry.key) {
-        FrontendKind.tunnel => strings.tunnelOutputLabel(defaultTargetPlatform),
-        FrontendKind.socks5 => 'SOCKS5',
-        FrontendKind.http => 'HTTP',
-        FrontendKind.systemProxy => strings.get('system_proxy'),
-      };
-      return InlineStatus(
-        label: '$name · ${strings.get(state.labelKey)}',
-        tone: state.tone,
-        icon: state.icon,
-      );
-    }).toList();
-    if (view.geoDirect.isNotEmpty) {
-      final codes = view.geoDirect.split(',');
-      final label = codes.contains('CN') ? 'CN' : codes.first;
-      chips.add(
-        InlineStatus(
-          icon: LucideIcons.globe,
-          label: strings.get('geo_chip').replaceAll('{current}', label),
-          tone: StatusTone.neutral,
-        ),
-      );
-    }
-    return Wrap(spacing: 8, runSpacing: 8, children: chips);
-  }
-}
-
-typedef _ReadoutView = ({
-  String? transport,
-  String? addressFamily,
-  DateTime? connectedAt,
-  bool alwaysOn,
-  bool platformLockdown,
-  String killSwitchLabel,
-});
-
-class _EngineReadout extends StatelessWidget {
-  const _EngineReadout({
-    required this.controller,
-    required this.strings,
-    this.includeProtection = true,
-  });
-
-  final bool includeProtection;
-
-  final AppController controller;
-  final AppStrings strings;
-
-  @override
-  Widget build(BuildContext context) {
-    return ControllerSelector<_ReadoutView>(
-      controller: controller,
-      active: (controller) => controller.section == AppSection.home,
-      selector: (controller) {
-        final EngineSnapshot snapshot = controller.snapshot;
-        return (
-          transport: snapshot.dataPlane == DataPlaneMode.l4Proxy
-              ? 'L4 / H3'
-              : snapshot.transport,
-          addressFamily: snapshot.addressFamily,
-          connectedAt: snapshot.connectedAt,
-          alwaysOn: snapshot.alwaysOn,
-          platformLockdown: snapshot.platformLockdown,
-          killSwitchLabel: strings.get(
-            killSwitchStatusKey(
-              profile: controller.activeProfile,
-              snapshot: snapshot,
-            ),
-          ),
-        );
-      },
-      builder: (context, view) => _buildReadout(context, view),
-    );
-  }
-
-  Widget _buildReadout(BuildContext context, _ReadoutView view) {
-    final Color hairline = UsqueTokens.of(context).hairline;
-    final Widget divider = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Divider(height: 1, color: hairline),
-    );
-
-    return ContentSection(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          ContentHeading(
-            icon: LucideIcons.activity,
-            title: strings.get('engine_status'),
-          ),
-          const SizedBox(height: 20),
-          ReadoutRow(
-            stackWhenNarrow: true,
-            icon: LucideIcons.cable,
-            label: strings.get('protocol'),
-            value: view.transport == null
-                ? const EmptyValue(label: '—')
-                : MonoValue(value: view.transport!),
-          ),
-          divider,
-          ReadoutRow(
-            stackWhenNarrow: true,
-            icon: LucideIcons.network,
-            label: strings.get('address_family'),
-            value: view.addressFamily == null
-                ? const EmptyValue(label: '—')
-                : MonoValue(value: view.addressFamily!),
-          ),
-          divider,
-          ReadoutRow(
-            stackWhenNarrow: true,
-            icon: LucideIcons.clock3,
-            label: strings.get('duration'),
-            value: LiveDuration(since: view.connectedAt),
-          ),
-          if (includeProtection) ...[
-            divider,
-            ReadoutRow.text(
-              context,
-              icon: LucideIcons.shieldCheck,
-              label: strings.get('kill_switch'),
-              value: view.killSwitchLabel,
-            ),
-          ],
-          if (includeProtection && view.alwaysOn) ...<Widget>[
-            divider,
-            ReadoutRow.text(
-              context,
-              icon: LucideIcons.shield,
-              label: strings.get('always_on'),
-              value: strings.get('on'),
-            ),
-          ],
-          if (includeProtection && view.platformLockdown) ...<Widget>[
-            divider,
-            ReadoutRow.text(
-              context,
-              icon: LucideIcons.shieldBan,
-              label: strings.get('lockdown'),
-              value: strings.get('on'),
-            ),
-          ],
-        ],
-      ),
-    );
   }
 }
 
@@ -1268,130 +1038,88 @@ class _HomeDetails extends StatelessWidget {
       tilePadding: EdgeInsets.zero,
       shape: const Border(),
       collapsedShape: const Border(),
-      children: [
-        _EngineReadout(
-          controller: controller,
-          strings: strings,
-          includeProtection: false,
-        ),
-        const SizedBox(height: 16),
-        _ExitPanel(controller: controller, strings: strings),
-        const SizedBox(height: 16),
-        ControllerSelector<_HeroView>(
-          controller: controller,
-          selector: _heroView,
-          active: (app) => app.section == AppSection.home,
-          builder: (context, view) => ContentSection(
-            icon: LucideIcons.network,
-            title: strings.get('outputs'),
-            children: [_FrontendStatuses(view: view, strings: strings)],
-          ),
-        ),
-      ],
+      children: [_ConnectionDetailsReadout(controller: controller)],
     ),
   );
 }
 
-class _ExitPanel extends StatelessWidget {
-  const _ExitPanel({required this.controller, required this.strings});
+typedef _DetailsView = ({
+  String? ipv4,
+  String? ipv6,
+  bool tunnel,
+  bool systemProxy,
+  bool http,
+  bool socks5,
+});
+
+class _ConnectionDetailsReadout extends StatelessWidget {
+  const _ConnectionDetailsReadout({required this.controller});
 
   final AppController controller;
-  final AppStrings strings;
-
   @override
-  Widget build(BuildContext context) {
-    return ControllerSelector<({ExitInfo exit, bool connected})>(
-      controller: controller,
-      active: (controller) => controller.section == AppSection.home,
-      selector: (controller) => (
-        exit: controller.snapshot.exit,
-        connected: controller.snapshot.isConnected,
-      ),
-      builder: (context, view) =>
-          _buildExit(context, view.exit, view.connected),
-    );
-  }
-
-  Widget _buildExit(BuildContext context, ExitInfo exit, bool connected) =>
-      ContentSection(
-        icon: LucideIcons.globe2,
-        title: strings.get('location'),
-        subtitle: connected ? 'ip.sb' : null,
-        child: FadeThroughSwitcher(
-          alignment: Alignment.topCenter,
-          child: connected
-              ? KeyedSubtree(
-                  key: const ValueKey<String>('exit'),
-                  child: _exitReadout(context, exit),
-                )
-              : Padding(
-                  key: const ValueKey<String>('idle'),
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: _waitingToConnect(context),
-                ),
+  Widget build(BuildContext context) => ControllerSelector<_DetailsView>(
+    controller: controller,
+    active: (app) => app.section == AppSection.home,
+    selector: (app) => (
+      ipv4: app.snapshot.isConnected ? app.snapshot.exit.ipv4 : null,
+      ipv6: app.snapshot.isConnected ? app.snapshot.exit.ipv6 : null,
+      tunnel: app.activeProfile.frontends.tunnel,
+      systemProxy: app.activeProfile.proxy.systemProxy,
+      http: app.activeProfile.frontends.http,
+      socks5: app.activeProfile.frontends.socks5,
+    ),
+    builder: (context, view) {
+      final strings = controller.strings;
+      final theme = Theme.of(context);
+      Widget address(String label, String? value) => ReadoutRow(
+        stackWhenNarrow: true,
+        icon: LucideIcons.network,
+        label: label,
+        value: value == null
+            ? const EmptyValue(label: '—')
+            : MonoValue(value: value),
+      );
+      final interfaces = [
+        if (view.tunnel) strings.tunnelOutputLabel(theme.platform),
+        if (view.systemProxy) strings.get('home_system_proxy'),
+        if (view.http) 'HTTP',
+        if (view.socks5) 'SOCKS5',
+      ];
+      final separator = switch (strings.languageCode) {
+        'zh' => '、',
+        'ar' || 'fa' => '، ',
+        _ => ', ',
+      };
+      return Padding(
+        key: const ValueKey('home-connection-detail-values'),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            address(strings.get('ipv4'), view.ipv4),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Divider(
+                height: 1,
+                color: UsqueTokens.of(context).hairline,
+              ),
+            ),
+            address(strings.get('ipv6'), view.ipv6),
+            if (interfaces.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                strings
+                    .get('home_enabled_interfaces')
+                    .replaceAll('{interfaces}', interfaces.join(separator)),
+                key: const ValueKey('home-enabled-interfaces'),
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
+          ],
         ),
       );
-
-  Widget _waitingToConnect(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final Color muted = theme.colorScheme.onSurfaceVariant;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Icon(LucideIcons.mapPinOff, size: 32, color: muted),
-        const SizedBox(height: 10),
-        Text(
-          strings.get('location_disconnected'),
-          style: theme.textTheme.bodySmall?.copyWith(color: muted),
-        ),
-      ],
-    );
-  }
-
-  Widget _exitReadout(BuildContext context, ExitInfo exit) {
-    final Color hairline = UsqueTokens.of(context).hairline;
-    final String missing = strings.get('not_available');
-    final Widget divider = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Divider(height: 1, color: hairline),
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        ReadoutRow(
-          stackWhenNarrow: true,
-          leading: CountryFlag(countryCode: exit.countryCode),
-          label: strings.get('location'),
-          value: exit.hasLocation
-              ? Text(
-                  exit.location,
-                  textAlign: TextAlign.end,
-                  style: Theme.of(context).textTheme.titleSmall,
-                )
-              : EmptyValue(label: missing),
-        ),
-        divider,
-        ReadoutRow(
-          stackWhenNarrow: true,
-          icon: LucideIcons.network,
-          label: strings.get('ipv4'),
-          value: exit.ipv4 == null
-              ? EmptyValue(label: missing)
-              : MonoValue(value: exit.ipv4!),
-        ),
-        divider,
-        ReadoutRow(
-          stackWhenNarrow: true,
-          icon: LucideIcons.network,
-          label: strings.get('ipv6'),
-          value: exit.ipv6 == null
-              ? EmptyValue(label: missing)
-              : MonoValue(value: exit.ipv6!),
-        ),
-      ],
-    );
-  }
+    },
+  );
 }
 
 /// Catalog key for the Home Kill Switch value. Driven by the profile flag

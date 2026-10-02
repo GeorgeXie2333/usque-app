@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowPt = <String, String>{
   'home_local_proxies': 'Proxies locais',
   'home_manage_proxies': 'Gerenciar proxies',
-  'home_tun': 'Adaptador de rede virtual (TUN)',
+  'home_enabled_interfaces': 'Ativados: {interfaces}',
   'home_system_proxy': 'Proxy do sistema',
   'home_options': 'Opções',
   'home_system_proxy_requires_http': 'Ative primeiro o proxy HTTP local.',

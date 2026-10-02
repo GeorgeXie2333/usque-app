@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -126,39 +127,79 @@ void main() {
   );
 
   testWidgets(
-    'Home keeps measured exit flags separate from Gate node flags and legacy SVG',
+    'Home keeps exit flags distinct from the mobile chain block and IP-only details',
     (tester) async {
       final app = await pumpWorkflow(
         tester,
         WorkflowEngine(),
         section: AppSection.home,
       );
-      for (final gate in [false, true]) {
-        for (final measured in [true, false]) {
-          app.snapshot = EngineSnapshot(
-            phase: ConnectionPhase.connected,
-            vpnGate: gate
-                ? const VpnGateStatus(stage: 'connected', server: server)
-                : const VpnGateStatus(),
-            exit: ExitInfo(
-              country: measured ? 'Singapore' : null,
-              countryCode: measured ? 'SG' : null,
-              ipv4: '203.0.113.8',
-              flagSvg: '<svg>legacy image must be ignored</svg>',
-            ),
-          );
-          await tester.pumpWidget(
-            workflowHost(app, home: HomeScreen(controller: app)),
-          );
-          await tester.pumpAndSettle();
-          final codes = tester
-              .widgetList<CountryFlag>(find.byType(CountryFlag))
-              .map((flag) => flag.countryCode)
-              .toList();
-          expect(codes, contains(measured ? 'SG' : null));
-          expect(codes.where((code) => code == 'JP').length, gate ? 1 : 0);
-          expect(tester.takeException(), isNull);
+      try {
+        for (final (size, platform) in const [
+          (Size(1280, 900), TargetPlatform.windows),
+          (Size(390, 1000), TargetPlatform.android),
+        ]) {
+          tester.view.physicalSize = size;
+          debugDefaultTargetPlatformOverride = platform;
+          for (final gate in [false, true]) {
+            for (final measured in [true, false]) {
+              await tester.pumpWidget(const SizedBox());
+              app.snapshot = EngineSnapshot(
+                phase: ConnectionPhase.connected,
+                vpnGate: gate
+                    ? const VpnGateStatus(stage: 'connected', server: server)
+                    : const VpnGateStatus(),
+                exit: ExitInfo(
+                  country: measured ? 'Singapore' : null,
+                  countryCode: measured ? 'SG' : null,
+                  ipv4: '203.0.113.8',
+                  flagSvg: '<svg>legacy image must be ignored</svg>',
+                ),
+              );
+              await tester.pumpWidget(
+                workflowHost(app, home: HomeScreen(controller: app)),
+              );
+              await tester.pumpAndSettle();
+              final expansion = find.text(
+                app.strings.get('connection_details'),
+              );
+              await tester.ensureVisible(expansion);
+              await tester.pumpAndSettle();
+              await tester.tap(expansion);
+              await tester.pumpAndSettle();
+              final details = find.byKey(
+                const ValueKey('home-connection-detail-values'),
+              );
+              expect(
+                find.descendant(
+                  of: details,
+                  matching: find.byType(CountryFlag),
+                ),
+                findsNothing,
+              );
+              expect(
+                find.descendant(
+                  of: details,
+                  matching: find.text('203.0.113.8'),
+                ),
+                findsOneWidget,
+              );
+              final codes = tester
+                  .widgetList<CountryFlag>(find.byType(CountryFlag))
+                  .map((flag) => flag.countryCode)
+                  .toList();
+              expect(codes, contains(measured ? 'SG' : null));
+              expect(
+                codes.where((code) => code == 'JP').length,
+                gate && platform == TargetPlatform.android ? 1 : 0,
+              );
+              expect(tester.takeException(), isNull);
+            }
+          }
         }
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        debugDefaultTargetPlatformOverride = null;
       }
     },
   );

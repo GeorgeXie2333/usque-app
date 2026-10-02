@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowAr = <String, String>{
   'home_local_proxies': 'الوكلاء المحليون',
   'home_manage_proxies': 'إدارة الوكلاء',
-  'home_tun': 'محوّل شبكة افتراضي (TUN)',
+  'home_enabled_interfaces': 'مفعّل: {interfaces}',
   'home_system_proxy': 'وكيل النظام',
   'home_options': 'خيارات',
   'home_system_proxy_requires_http': 'فعّل وكيل HTTP المحلي أولاً.',

@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowJa = <String, String>{
   'home_local_proxies': 'ローカルプロキシ',
   'home_manage_proxies': 'プロキシ管理',
-  'home_tun': '仮想ネットワークアダプター (TUN)',
+  'home_enabled_interfaces': '有効：{interfaces}',
   'home_system_proxy': 'システムプロキシ',
   'home_options': 'オプション',
   'home_system_proxy_requires_http': '先に HTTP ローカルプロキシを有効にしてください。',

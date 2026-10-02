@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowZhTw = <String, String>{
   'home_local_proxies': '本機代理',
   'home_manage_proxies': '管理代理',
-  'home_tun': '虛擬網卡 (TUN)',
+  'home_enabled_interfaces': '已啟用：{interfaces}',
   'home_system_proxy': '系統代理',
   'home_options': '選項',
   'home_system_proxy_requires_http': '請先啟用 HTTP 本機代理。',

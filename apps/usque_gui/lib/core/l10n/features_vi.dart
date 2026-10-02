@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowVi = <String, String>{
   'home_local_proxies': 'Proxy cục bộ',
   'home_manage_proxies': 'Quản lý proxy',
-  'home_tun': 'Bộ điều hợp mạng ảo (TUN)',
+  'home_enabled_interfaces': 'Đã bật: {interfaces}',
   'home_system_proxy': 'Proxy hệ thống',
   'home_options': 'Tùy chọn',
   'home_system_proxy_requires_http': 'Hãy bật proxy HTTP cục bộ trước.',

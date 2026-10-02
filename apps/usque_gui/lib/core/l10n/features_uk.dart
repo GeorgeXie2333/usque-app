@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowUk = <String, String>{
   'home_local_proxies': 'Локальні проксі',
   'home_manage_proxies': 'Керування проксі',
-  'home_tun': 'Віртуальний мережевий адаптер (TUN)',
+  'home_enabled_interfaces': 'Увімкнено: {interfaces}',
   'home_system_proxy': 'Системний проксі',
   'home_options': 'Параметри',
   'home_system_proxy_requires_http':

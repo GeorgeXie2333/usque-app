@@ -4,7 +4,7 @@ import 'app_strings.dart';
 import 'chain_strings.dart';
 import 'connection_presentation.dart';
 
-/// Home headline, ring, and chain row for an enabled chain.
+/// Home headline, ring, and mobile chain row for an enabled chain.
 ///
 /// Desktop publishes `connectingH3` before the handshake and Android stays on
 /// `preparing` until that handshake returns. The chain stage is the status
@@ -25,8 +25,8 @@ class ChainHomeStatus {
   /// whose chain payload is gone.
   final bool drivesHome;
 
-  /// The chain row is omitted when the chain is off and idle, and when a live
-  /// session has no chain payload (so it cannot say "disconnected").
+  /// The mobile chain row is omitted when the chain is off and idle, and when
+  /// a live session has no chain payload (so it cannot say "disconnected").
   final bool showChainRow;
   final String labelKey;
 

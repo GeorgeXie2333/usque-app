@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowTr = <String, String>{
   'home_local_proxies': 'Yerel proxy’ler',
   'home_manage_proxies': 'Proxy’leri yönet',
-  'home_tun': 'Sanal ağ bağdaştırıcısı (TUN)',
+  'home_enabled_interfaces': 'Etkin: {interfaces}',
   'home_system_proxy': 'Sistem proxy’si',
   'home_options': 'Seçenekler',
   'home_system_proxy_requires_http':

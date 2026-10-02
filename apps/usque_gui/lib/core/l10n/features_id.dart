@@ -3,7 +3,7 @@
 const Map<String, String> kUiWorkflowId = <String, String>{
   'home_local_proxies': 'Proksi lokal',
   'home_manage_proxies': 'Kelola proksi',
-  'home_tun': 'Adaptor jaringan virtual (TUN)',
+  'home_enabled_interfaces': 'Diaktifkan: {interfaces}',
   'home_system_proxy': 'Proksi sistem',
   'home_options': 'Opsi',
   'home_system_proxy_requires_http':

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,7 @@ import 'package:usque/screens/vpn_gate_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/country_flag.dart';
 
 import 'app_test.dart' show FakeEngineClient;
@@ -206,22 +208,43 @@ void main() {
             server: server,
           ),
         );
-        await tester.pumpWidget(
-          workflowHost(app, home: HomeScreen(controller: app)),
-        );
-        await tester.pumpAndSettle();
-        expect(
-          find.text('WARP: ${app.strings.get('disconnected')}'),
-          findsOneWidget,
-        );
-        expect(
-          find.text('WARP: ${app.strings.get('connecting')}'),
-          findsNothing,
-        );
-        expect(
-          find.textContaining('Proxied traffic is blocked until'),
-          findsNothing,
-        );
+        try {
+          for (final (size, platform) in const [
+            (Size(980, 1000), TargetPlatform.windows),
+            (Size(390, 1000), TargetPlatform.android),
+          ]) {
+            tester.view.physicalSize = size;
+            debugDefaultTargetPlatformOverride = platform;
+            await tester.pumpWidget(
+              workflowHost(app, home: HomeScreen(controller: app)),
+            );
+            await tester.pumpAndSettle();
+            final mobile = platform == TargetPlatform.android;
+            expect(
+              find.text('WARP: ${app.strings.get('disconnected')}'),
+              mobile ? findsOneWidget : findsNothing,
+            );
+            expect(
+              find.byKey(const ValueKey('home-vpn-gate-settings')),
+              mobile ? findsOneWidget : findsNothing,
+            );
+            expect(
+              tester.widget<ConnectionRing>(find.byType(ConnectionRing)).phase,
+              ConnectionPhase.error,
+            );
+            expect(
+              find.text('WARP: ${app.strings.get('connecting')}'),
+              findsNothing,
+            );
+            expect(
+              find.textContaining('Proxied traffic is blocked until'),
+              findsNothing,
+            );
+          }
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+          debugDefaultTargetPlatformOverride = null;
+        }
       },
     );
   }
