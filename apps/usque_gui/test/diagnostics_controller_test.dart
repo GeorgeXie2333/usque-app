@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
@@ -230,6 +231,50 @@ void main() {
   });
 
   testWidgets(
+    'timeline accepts the Android timeout fallback after bridge delivery',
+    (tester) async {
+      const channel = MethodChannel('io.github.georgexie2333.usque/engine');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var fallbackReplies = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'getConnectionTimeline');
+        // Android waits 750 ms before falling back when its bound service
+        // does not reply. Include delivery time before that native budget.
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        await Future<void>.delayed(const Duration(milliseconds: 750));
+        fallbackReplies++;
+        return <String, Object?>{
+          'source': 'platform',
+          'availability': 'inferred',
+          'events': [
+            <String, Object?>{
+              'sequence': 1,
+              'event_type': 'network_changed',
+              'elapsed_from_attempt_start_milliseconds': 0,
+            },
+          ],
+        };
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final controller = DiagnosticsController(MethodChannelEngineClient());
+      addTearDown(controller.dispose);
+      final read = controller.loadTimeline();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump(const Duration(milliseconds: 750));
+      await read;
+      expect(fallbackReplies, 1);
+      expect(controller.lastError, isNull);
+      expect(controller.timeline.events, hasLength(1));
+      expect(
+        controller.timeline.observation?.availability,
+        DiagnosticObservationAvailability.inferred,
+      );
+    },
+  );
+
+  testWidgets(
     'timed-out timeline read retains single flight until bridge completion',
     (tester) async {
       final engine = DiagnosticsEngineStub()
@@ -237,7 +282,11 @@ void main() {
       final controller = DiagnosticsController(engine);
       addTearDown(controller.dispose);
       final read = controller.loadTimeline(silent: true);
-      await tester.pump(const Duration(milliseconds: 751));
+      await tester.pump(const Duration(milliseconds: 750));
+      expect(controller.timelineLoading, isTrue);
+      await controller.loadTimeline(silent: true);
+      expect(engine.timelineCalls, 1);
+      await tester.pump(const Duration(milliseconds: 1251));
       await read;
       expect(controller.timelineLoading, isFalse);
       await controller.loadTimeline(silent: true);
@@ -288,7 +337,7 @@ void main() {
   });
 
   testWidgets(
-    'reset discards a late timeline response and stops old session polling',
+    'reset discards a late timeline response without overlapping its bridge',
     (tester) async {
       final engine = DiagnosticsEngineStub()
         ..pendingTimeline = Completer<ConnectionTimeline>();
@@ -296,6 +345,8 @@ void main() {
       addTearDown(controller.dispose);
       final read = controller.loadTimeline();
       controller.reset();
+      await controller.loadTimeline();
+      expect(engine.timelineCalls, 1);
       engine.pendingTimeline!.complete(
         const ConnectionTimeline(droppedEventCount: 4),
       );
@@ -303,6 +354,10 @@ void main() {
       expect(controller.timeline.droppedEventCount, 0);
       expect(controller.timelineLoading, isFalse);
       expect(controller.session, isNull);
+      engine.pendingTimeline = null;
+      await controller.loadTimeline();
+      expect(engine.timelineCalls, 2);
+      expect(controller.timeline, same(engine.timeline));
     },
   );
 

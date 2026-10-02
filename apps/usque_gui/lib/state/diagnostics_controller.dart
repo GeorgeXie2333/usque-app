@@ -16,7 +16,9 @@ class DiagnosticsController extends ChangeNotifier {
 
   static const Duration _activeRefreshInterval = Duration(milliseconds: 750);
   static const Duration _timelineRefreshInterval = Duration(seconds: 2);
-  static const Duration _timelineReadTimeout = Duration(milliseconds: 750);
+  // Android's bridge waits up to 750 ms before returning its platform fallback.
+  // Reserve delivery time around that budget while keeping caller waits bounded.
+  static const Duration _timelineReadTimeout = Duration(seconds: 2);
 
   final EngineClient _engine;
   Timer? _activeRefreshTimer;

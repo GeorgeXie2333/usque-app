@@ -73,7 +73,7 @@ and intervening event are not assumed to have a universal delivery order.
 | Diagnostic event broadcast | 128 buffered events; lag recovers from a full snapshot |
 | Flutter active-session recovery | Single-flight polling every 750 ms |
 | Visible Diagnostics timeline refresh | Every 2 seconds; read-only, independent of session polling |
-| Flutter timeline read | 750 ms caller timeout; the underlying request stays owned until completion so another read cannot overlap |
+| Flutter timeline read | 2-second caller timeout, leaving delivery time around Android's 750 ms fallback budget; the underlying request stays owned until completion so another read cannot overlap |
 | Flutter evidence / timeline display | At most 32 public evidence items per finding / latest 100 events; source drops and view omissions are shown separately |
 | Android timeline bridge | At most 256 events and 192 KiB, with an optional JNI method and one pending request |
 

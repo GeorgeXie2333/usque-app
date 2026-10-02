@@ -147,8 +147,9 @@ run starts. Completed execution can contain failed findings.
 Android timeline reads use append-only Binder message 14 and an optional JNI
 method. Rust mirrors the bounded native transport timeline in memory at 1 Hz
 and on shutdown; the getter returns at most 256 events and 192 KiB. The UI
-uses a 750 ms caller timeout and keeps a late request owned until it finishes,
-preventing an overlapping read. Missing/old methods fall
+uses a 2-second caller timeout, leaving delivery time around Android's 750 ms
+fallback budget, and keeps a late request owned until it finishes, preventing
+an overlapping read. Missing/old methods fall
 back to the existing phase timeline; native events and real RTT/fallback/queue
 counters take precedence when present. Late replies and UI destruction cannot
 complete a request twice. The full timeline is never added to regular events.
