@@ -2,6 +2,7 @@
 use super::performance::MeasuredSender;
 use crate::direct_gateway::NatPacket;
 use crate::geo_direct::{GeoRoute, bind_protected_udp};
+use crate::split_dns::DnsRouteCache;
 use crate::tcp::{ProxyServices, TcpTarget};
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -13,15 +14,21 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::{AbortOnDropHandle, TaskTracker};
 
+#[cfg(test)]
+#[path = "tun_udp/tests.rs"]
+mod tests;
+
 pub(super) struct UdpFlows {
     senders: HashMap<SocketAddr, mpsc::Sender<(NatPacket, Bytes)>>,
     idle: Duration,
+    hints: Arc<DnsRouteCache>,
 }
 impl UdpFlows {
-    pub(super) fn new(idle: u32) -> Self {
+    pub(super) fn new(idle: u32, hints: Arc<DnsRouteCache>) -> Self {
         Self {
             senders: HashMap::new(),
             idle: Duration::from_secs(u64::from(idle.max(1))),
+            hints,
         }
     }
     #[expect(
@@ -54,11 +61,12 @@ impl UdpFlows {
             let replies = replies.clone();
             let cancel = cancel.child_token();
             let idle = self.idle;
+            let hints = self.hints.clone();
             tracker.spawn(async move {
                 let _permit = permit;
                 let _lease = lease;
                 let guard = cancel.clone().drop_guard();
-                let work = worker(receiver, services, replies, &cancel, idle, mtu);
+                let work = worker(receiver, services, hints, replies, &cancel, idle, mtu);
                 tokio::select! { _ = cancel.cancelled() => {}, _ = work => {} }
                 drop(guard);
             });
@@ -70,9 +78,14 @@ impl UdpFlows {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "UDP worker owns the shared DNS route cache and TUN lifecycle resources"
+)]
 async fn worker(
     mut packets: mpsc::Receiver<(NatPacket, Bytes)>,
     services: ProxyServices,
+    hints: Arc<DnsRouteCache>,
     replies: MeasuredSender,
     cancel: &CancellationToken,
     idle: Duration,
@@ -95,16 +108,18 @@ async fn worker(
             }
             packet = packets.recv() => {
                 let Some((meta, packet)) = packet else { break; };
+                if generation != services.protector.network_generation() { break; }
                 let remote = SocketAddr::new(meta.destination, meta.destination_port);
                 if targets.len() >= 256 && !targets.contains_key(&remote) { continue; }
                 let payload = &packet[meta.transport_offset + 8..];
                 targets.insert(remote, (meta, Instant::now()));
                 last = Instant::now();
-                if services.geo_policy.route_ip(remote.ip()) == GeoRoute::Direct {
+                if hints.route_ip(remote.ip(), generation, &services.geo_policy) == GeoRoute::Direct {
                     if let std::collections::hash_map::Entry::Vacant(entry) = direct.entry(remote)
                         && let Ok(socket) = bind_protected_udp(services.protector.as_ref(), remote.is_ipv6()) {
                         let socket = Arc::new(socket);
-                        if let Ok(lease) = services.protector.protect_for_target(crate::socket::socket_handle(socket.as_ref()), remote, crate::socket::DirectProtocol::Udp).await {
+                        if let Ok(lease) = services.protector.protect_for_target_generation(crate::socket::socket_handle(socket.as_ref()), remote, crate::socket::DirectProtocol::Udp, generation.unwrap_or_default()).await {
+                            if generation != services.protector.network_generation() { break; }
                             let read = socket.clone(); let tx = tx.clone(); let cancel = cancel.clone();
                             let task = AbortOnDropHandle::new(tokio::spawn(async move {
                                 let mut buffer = vec![0; mtu];
@@ -148,6 +163,7 @@ async fn worker(
             }
             response = rx.recv() => {
                 let Some((source,payload,route)) = response else { break; };
+                if generation != services.protector.network_generation() { break; }
                 let Some((meta,_)) = targets.get(&source) else { continue; };
                 if route == GeoRoute::Tunnel && services.traffic_policy.blocks_udp(source.port()) { continue; }
                 if payload.len() + meta.transport_offset + 8 > mtu { continue; }

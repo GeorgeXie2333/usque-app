@@ -270,7 +270,7 @@ impl TunBridge {
         let udp_idle = profile.proxy.udp_idle_timeout_seconds;
         let udp_enabled = profile.data_plane != usque_core::DataPlaneMode::L4Proxy;
         let task = tokio::spawn(async move {
-            let mut udp_flows = super::tun_udp::UdpFlows::new(udp_idle);
+            let mut udp_flows = super::tun_udp::UdpFlows::new(udp_idle, resolver.hints());
             let mut jobs = JoinSet::new();
             let dns_permits = Arc::new(Semaphore::new(80));
             let tcp_permits = Arc::new(Semaphore::new(limits.active));
@@ -325,7 +325,11 @@ impl TunBridge {
                         }));
                     } else if udp_enabled
                         && (services.udp.is_some()
-                            || services.geo_policy.route_ip(meta.destination) == GeoRoute::Direct)
+                            || resolver.hints().route_ip(
+                                meta.destination,
+                                services.protector.network_generation(),
+                                &services.geo_policy,
+                            ) == GeoRoute::Direct)
                         && udp_flows.enqueue(
                             meta,
                             packet.clone(),
