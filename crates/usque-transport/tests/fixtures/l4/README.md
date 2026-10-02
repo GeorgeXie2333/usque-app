@@ -15,7 +15,9 @@ claim of an officially stable Cloudflare protocol or a live test result.
 
 `l4::actor_tests` exercises the locked quiche peer in memory.
 `l4::client_tests` uses a loopback QUIC peer with ephemeral pinned identities,
-checks both SNIs, concurrent reuse, HTTP pre-read bytes and SOCKS UDP rejection.
+checks both SNIs, concurrent reuse, HTTP pre-read bytes and local SOCKS DNS-only
+associations. `socks5::dns_tests` checks ordinary UDP rejection and TCP DNS through
+HTTP/SOCKS5 exits, including a SOCKS5 server that rejects UDP ASSOCIATE.
 `l4::tun_tests` uses an in-memory IP peer, not Wintun/VpnService.
 These fixtures prove local interoperability boundaries; they do not prove
 Cloudflare account reachability, external leak safety or throughput gains.

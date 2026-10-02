@@ -169,15 +169,20 @@ the stream bridge's existing restrictions.
 
 **Ready** confirms proxy endpoint reachability (and SOCKS authentication).
 **TCP forwarding verified** requires a successful real CONNECT. UDP availability
-confirms acceptance of UDP ASSOCIATE, not end-to-end delivery. Individual target
-failures affect that flow; authentication failure closes the chain.
+confirms the final SOCKS5 server's acceptance of UDP ASSOCIATE, not end-to-end
+delivery. A local DNS-only association does not change that status. Individual
+target failures affect that flow; authentication failure closes the chain.
 
-Remote DNS travels through the final proxy using TCP. Valid TUN UDP/53 queries
-are converted to TCP DNS at the application's chosen resolver. If the proxy
-refuses CONNECT to port 53, DNS fails explicitly. For local HTTP/SOCKS clients,
-**Edge resolved** sends target domain names to the final proxy; it cannot recover
-names from TUN IP packets. Explicit local/direct DNS policies retain their
-existing semantics. No DoH or physical DNS fallback is added.
+Remote DNS travels through the final proxy using TCP. Valid TUN and local SOCKS5
+UDP/53 queries are converted to TCP DNS at the application's chosen resolver.
+The local SOCKS5 listener accepts DNS-only UDP associations even when HTTP, L4 or
+the final SOCKS5 server cannot carry ordinary UDP. Malformed DNS is not converted
+into a TCP connection, and ordinary proxied UDP remains unavailable in those
+cases. If the proxy refuses CONNECT to port 53, DNS fails explicitly. For local
+HTTP/SOCKS clients, **Edge resolved** sends target domain names to the final
+proxy; it cannot recover names from TUN IP packets. Explicit local/direct DNS
+policies and direct routes retain their existing semantics. No DoH or physical
+DNS fallback is added.
 
 选择 **HTTP** 或 **SOCKS5**，点击**添加代理**，填写名称、服务器域名或 IPv4/IPv6
 地址和端口；默认端口分别为 8080、1080。按需启用用户名／密码认证。地址栏不接受
@@ -188,11 +193,16 @@ URL 或嵌入凭据。可选 DNS 填写数值 IP，以空格、逗号或换行�
 两种出口在 H3/H2/L4 下均支持 TCP；SOCKS5 在 H3/H2 下可按需使用服务器提供的 UDP
 关联。HTTP 及 L4 下的普通代理 UDP 不可用，失败不会退回仅 WARP 或物理直连。
 “已就绪”不代表目标转发已验证；实际 CONNECT 成功后才显示“TCP 转发已验证”。
-UDP 关联可用不等于已验证端到端数据可达。仅支持 FRAG=0，含 SOCKS 头的 relay 包
+最终 SOCKS5 服务器接受 UDP 关联不等于已验证端到端数据可达；本地仅供 DNS 的关联
+不会改变出口 UDP 状态。仅支持 FRAG=0，含 SOCKS 头的 relay 包
 上限为 16336 字节；TUN 回包须符合 MTU，原有 IP 包限制继续适用。
 
-远程 DNS 经最终代理的 TCP 连接发送。代理不允许连接 DNS 端口时明确失败；本地
-HTTP/SOCKS 客户端可选 Edge resolved 将域名交最终代理解析，TUN 不推测原始域名。
+远程 DNS 经最终代理的 TCP 连接发送。TUN 和本地 SOCKS5 的有效 UDP/53 查询均转换
+为 TCP DNS，并保留应用指定的解析器。HTTP、L4 或最终 SOCKS5 服务器不支持普通
+UDP 时，本地 SOCKS5 仍接受仅供 DNS 的 UDP 关联；畸形 DNS 不会转换为 TCP 连接，
+普通代理 UDP 仍不可用。显式本地／直连 DNS 策略及直连规则保持原语义。代理不允许
+连接 DNS 端口时明确失败；本地 HTTP/SOCKS 客户端可选 Edge resolved 将域名交最终
+代理解析，TUN 不推测原始域名，也不会自动改用 DoH 或物理 DNS。
 HTTP 出口未使用到代理服务器的 TLS；HTTP Basic 和 SOCKS5 认证在 WARP 到代理
 这一段不提供额外加密，应用自身的 HTTPS 加密继续有效。凭据仅在设备加密库保存，
 不会进入设置、摘要或诊断。

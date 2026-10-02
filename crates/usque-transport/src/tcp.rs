@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::netcore::Channel;
 use ts_netstack_smoltcp::netsock::TcpStream as StackTcpStream;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TcpTarget {
     authority: String,
     address: Option<SocketAddr>,
@@ -288,6 +288,10 @@ impl FrontendAdmission {
                 None
             }
         }
+    }
+
+    pub(crate) fn reserve_udp_buffers(&self) -> Option<crate::l4::stream::BufferLease> {
+        self.budget.reserve_admission(16 * 16 * 1024 * 2)
     }
 }
 

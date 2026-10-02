@@ -10,7 +10,9 @@ with Auto (H3, then H2).
 Use L4 when you want TCP proxying over HTTP/3 and understand the application's
 traffic requirements. With L4 alone:
 
-- SOCKS5 and HTTP support TCP connections; SOCKS5 UDP forwarding is unavailable.
+- SOCKS5 and HTTP support TCP connections. SOCKS5 accepts DNS-only UDP
+  associations and converts valid UDP/53 queries to TCP DNS; ordinary SOCKS5 UDP
+  forwarding is unavailable.
 - VPN/TUN accepts TCP. Valid DNS queries on UDP port 53 are converted to TCP DNS,
   while ordinary UDP and remote ping are not supported.
 - Applications that require UDP may fail rather than switching to TCP.
@@ -80,8 +82,12 @@ fixture success is not a Cloudflare account test.
 - TCP uses classic HTTP/3 CONNECT: only `:method` and `:authority`, followed
   by DATA after final 2xx. No CONNECT-IP address negotiation, extended CONNECT,
   capsules, DATAGRAM requirement, business-data 0-RTT or second TLS/QUIC stack.
-- SOCKS UDP ASSOCIATE returns command-not-supported and creates no relay.
-  Unknown SOCKS bind addresses are unspecified addresses with zero port.
+- SOCKS UDP ASSOCIATE creates a local DNS-only relay. Valid UDP/53 queries use
+  TCP DNS through the selected final stream exit, without requiring upstream
+  UDP support. Ordinary proxied UDP remains unavailable; malformed DNS is not
+  converted into a TCP connection. The relay ends with its control connection
+  or idle timeout. Unknown SOCKS bind addresses are unspecified addresses with
+  zero port.
 - Ordinary UDP entering TUN is rejected before Geo UDP routing. Eligible
   unicast packets receive rate-limited ICMP unreachable responses. Invalid,
   broadcast/multicast and unsupported packets do not cause direct egress.
@@ -93,6 +99,8 @@ fixture success is not a Cloudflare account test.
   their existing semantics. EdgeResolved is available only to L4 SOCKS/HTTP:
   the domain goes into CONNECT authority without a local lookup. It does not
   invent domain information for TUN IP packets.
+- A final HTTP/SOCKS5 proxy that refuses CONNECT to the selected DNS resolver's
+  port 53 causes an explicit DNS failure; there is no physical DNS fallback.
 - Configured Geo TCP and direct DNS rules retain their protected direct
   paths. Encrypted direct DNS never falls back to plaintext. A TCP direct
   attempt falling back to L4 keeps its resolved IP and is subsequently treated

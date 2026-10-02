@@ -38,6 +38,10 @@ pub(crate) struct Resolver {
 }
 
 impl Resolver {
+    pub(crate) fn stream_dns(&self) -> Option<Arc<crate::dns_stream::StreamDns>> {
+        self.stream_dns.clone()
+    }
+
     pub(crate) fn with_final_exit(
         mut self,
         enabled: bool,

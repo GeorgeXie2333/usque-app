@@ -209,7 +209,9 @@ async fn shared_session_serves_parallel_connects_socks_http_and_half_close_witho
             local.write_all(&[5,1,0]).await.unwrap();
             let mut reply = [0;2]; local.read_exact(&mut reply).await.unwrap(); assert_eq!(reply, [5,0]);
             local.write_all(&[5,3,0,1,0,0,0,0,0,0]).await.unwrap();
-            let mut reply = [0;10]; local.read_exact(&mut reply).await.unwrap(); assert_eq!(reply[1], 7);
+            // The local relay accepts DNS over UDP and converts it to L4 TCP;
+            // opening it alone never creates an upstream UDP flow.
+            let mut reply = [0;10]; local.read_exact(&mut reply).await.unwrap(); assert_eq!(reply[1], 0);
             drop(local);
             let http_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let http_address = http_listener.local_addr().unwrap();
