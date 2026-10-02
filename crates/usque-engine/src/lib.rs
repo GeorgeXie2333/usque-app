@@ -5405,7 +5405,6 @@ mod tests {
     }
     use std::collections::HashMap;
 
-    #[cfg(windows)]
     use std::time::Duration;
 
     use async_trait::async_trait;
