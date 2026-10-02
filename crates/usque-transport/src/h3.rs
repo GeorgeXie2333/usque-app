@@ -54,6 +54,23 @@ use crate::socket::{
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpReceivePool, is_message_too_long};
 
+// Keep cancellation bounded without giving a continuously ready receive path
+// priority over wire sends and timers. The actor and its scheduling regressions
+// share this select policy; each branch still owns its existing bounded work.
+macro_rules! select_h3_actor_work {
+    ($cancel:expr; $($branches:tt)*) => {{
+        if ($cancel).is_cancelled() {
+            return Err(TransportError::TunnelClosed);
+        }
+        tokio::select! {
+            _ = ($cancel).cancelled() => return Err(TransportError::TunnelClosed),
+            $($branches)*
+        }
+    }};
+}
+
+#[cfg(test)]
+mod actor_fairness_tests;
 #[cfg(test)]
 mod burst_fairness_tests;
 pub(crate) mod diagnostic;
@@ -1017,6 +1034,9 @@ async fn drive_h3_actor(
     quality_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
+        if io_cancel.is_cancelled() {
+            return Err(TransportError::TunnelClosed);
+        }
         goaway.check_deadline(Instant::now())?;
         if ready && migration_commands_open {
             match migration_rx.try_recv() {
@@ -1227,9 +1247,7 @@ async fn drive_h3_actor(
         let migration_wakeup = migration.next_wakeup();
         let preparing_migration = migration.is_preparing();
 
-        tokio::select! {
-            biased;
-            _ = io_cancel.cancelled() => return Err(TransportError::TunnelClosed),
+        select_h3_actor_work! { &io_cancel;
             received = path_sockets.recv_any() => {
                 match received {
                     PathReceiveEvent::Batch { path_id, mut batch }
