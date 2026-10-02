@@ -1,5 +1,5 @@
 //! Bounded per-client datagram associations for stack and SOCKS5 final exits.
-use crate::tcp::{DialError, TcpTarget};
+use crate::tcp::{DialError, FlowClass, TcpTarget};
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -189,7 +189,8 @@ impl UdpFactory for SocksFactory {
             .reserve_admission(16 * 16 * 1024 * 2)
             .ok_or(DialError::Budget)?;
         let work = async {
-            let (mut control, address) = proxy.server(deadline, cancel).await?;
+            let (mut control, address) =
+                proxy.server(deadline, cancel, FlowClass::Business).await?;
             proxy.authenticate(&mut control, deadline, cancel).await?;
             let (host, port) = crate::proxy_exit::socks_command(
                 &mut control,

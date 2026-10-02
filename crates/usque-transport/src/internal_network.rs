@@ -48,9 +48,9 @@ impl TcpDialer for InternalEndpointDialer {
         target: TcpTarget,
         deadline: Instant,
         cancel: &CancellationToken,
-        _class: FlowClass,
+        class: FlowClass,
     ) -> Result<TcpStream, DialError> {
-        self.0.connect(target, cancel, deadline).await
+        self.0.connect(target, cancel, deadline, class).await
     }
 }
 
@@ -298,6 +298,7 @@ impl InternalNetwork {
         endpoint: &usque_core::chain_exit::Endpoint,
         cancel: &CancellationToken,
         deadline: Instant,
+        class: FlowClass,
     ) -> Result<(TcpStream, SocketAddr), DialError> {
         let addresses = self.resolve_endpoints(endpoint, None, cancel).await?;
         let resolution = CandidateResolution::from_addresses(
@@ -307,9 +308,9 @@ impl InternalNetwork {
             biased;
             _ = cancel.cancelled() => Err(DialError::Cancelled),
             _ = self.cancellation.cancelled() => Err(DialError::Closed),
-            result = crate::tcp_candidates::connect_candidates_with_address(
+            result = crate::tcp_candidates::connect_candidates_with_address_for_class(
                 Arc::new(InternalEndpointDialer(self.clone())), resolution, endpoint.port,
-                deadline, cancel,
+                deadline, cancel, class,
             ) => result.map_err(|error| match error {
                 crate::tcp_candidates::CandidateDialError::Dial(error) => error,
                 crate::tcp_candidates::CandidateDialError::Resolve(_) => DialError::Closed,
@@ -363,14 +364,20 @@ impl InternalNetwork {
         cancel: &CancellationToken,
         deadline: Instant,
     ) -> Result<TcpStream, DialError> {
-        self.connect(TcpTarget::address(address), cancel, deadline)
-            .await
+        self.connect(
+            TcpTarget::address(address),
+            cancel,
+            deadline,
+            FlowClass::Business,
+        )
+        .await
     }
     async fn connect(
         &self,
         target: TcpTarget,
         cancel: &CancellationToken,
         deadline: Instant,
+        class: FlowClass,
     ) -> Result<TcpStream, DialError> {
         if !matches!(*self.health.borrow(), RuntimeHealth::Connected { .. }) {
             return Err(DialError::Closed);
@@ -379,7 +386,7 @@ impl InternalNetwork {
             biased;
             _ = cancel.cancelled() => Err(DialError::Cancelled),
             _ = self.cancellation.cancelled() => Err(DialError::Closed),
-            result = self.dialer.connect(target, deadline, cancel, FlowClass::Business) => result,
+            result = self.dialer.connect(target, deadline, cancel, class) => result,
         }
     }
     async fn connect_host(
@@ -419,7 +426,7 @@ impl InternalNetwork {
             Err(failure)
         } else {
             let target = TcpTarget::new(host, port).map_err(|_| InternalHttpError::Dns)?;
-            self.connect(target, cancel, deadline)
+            self.connect(target, cancel, deadline, FlowClass::Business)
                 .await
                 .map_err(|error| match error {
                     DialError::Timeout => InternalHttpError::Timeout,

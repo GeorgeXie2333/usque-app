@@ -25,6 +25,7 @@ enum Outcome {
 #[derive(Default)]
 struct Observations {
     attempted: Mutex<Vec<(SocketAddr, Instant)>>,
+    classes: Mutex<Vec<FlowClass>>,
     active_attempts: AtomicUsize,
     cancelled_blackholes: AtomicUsize,
     uncancelled_blackholes: AtomicUsize,
@@ -114,7 +115,7 @@ impl TcpDialer for ServerDialer {
         cancellation: &CancellationToken,
         class: FlowClass,
     ) -> Result<TcpStream, DialError> {
-        assert_eq!(class, FlowClass::Business);
+        self.observations.classes.lock().unwrap().push(class);
         let remote = target
             .socket_address()
             .expect("proxy endpoints are resolved through the private DNS fixture");
@@ -394,6 +395,7 @@ async fn proxy_server_refused_a_uses_reachable_aaaa_and_retains_winner_token() {
         .server(
             Instant::now() + Duration::from_secs(2),
             &fixture.cancellation,
+            FlowClass::Business,
         )
         .await
         .unwrap();
@@ -439,6 +441,39 @@ async fn proxy_server_tries_an_alternative_address_in_the_same_family() {
     assert_eq!(fixture.attempts(), vec![v4(), alternate]);
     assert_eq!(proxy.status.borrow().active_endpoint, Some(alternate));
     fixture.stopped(0);
+    fixture.shutdown();
+}
+
+#[tokio::test(start_paused = true)]
+async fn dns_class_survives_both_underlay_address_race_attempts() {
+    let fixture = Fixture::new(
+        "proxy.example",
+        &[(v4(), Outcome::Blackhole), (v6(), Outcome::Connected)],
+    );
+    let proxy = fixture
+        .start(Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
+    let (stream, address) = proxy
+        .server(
+            Instant::now() + Duration::from_secs(2),
+            &fixture.cancellation,
+            FlowClass::Dns,
+        )
+        .await
+        .unwrap();
+    assert_eq!(address, v6());
+    assert_eq!(
+        *fixture.observations.classes.lock().unwrap(),
+        vec![
+            FlowClass::Business,
+            FlowClass::Business,
+            FlowClass::Dns,
+            FlowClass::Dns
+        ]
+    );
+    drop(stream);
+    fixture.stopped(2);
     fixture.shutdown();
 }
 

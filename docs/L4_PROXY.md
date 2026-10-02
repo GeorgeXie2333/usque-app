@@ -183,6 +183,13 @@ network and QUIC-session generations are checked before publishing results.
 Credentials and endpoint context are immutable within their cancelled runtime
 scope. Account replacement stops the old scope rather than reusing its work.
 
+HTTP/SOCKS5 chain exits also reserve 16 DNS streams and 80 pending DNS dials,
+separately from ordinary TCP and UDP-association control connections. DNS keeps
+its class through proxy-endpoint address racing and the underlying L4 dialer,
+so full business connection slots do not consume the DNS slots. All classes
+still share the existing memory budget; exhausted memory remains a bounded
+failure rather than permission to exceed that budget or bypass the final exit.
+
 ### Observability and safety
 
 Schema 15 appends the data-plane setting; migrating any configuration older

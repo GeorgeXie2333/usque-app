@@ -37,6 +37,265 @@ fn pair() -> (TcpStream, DuplexStream) {
     (Box::new(MemoryStream(a)), b)
 }
 
+// Use one slot per class so saturation is deterministic without opening a
+// platform-sized set of connections. Every upstream byte remains in memory.
+struct AdmissionPeer {
+    classes: std::sync::Mutex<Vec<FlowClass>>,
+    stall: std::sync::atomic::AtomicU8,
+    started: tokio::sync::Notify,
+    peers: tokio_util::task::TaskTracker,
+    cancellation: CancellationToken,
+}
+fn class_id(class: FlowClass) -> u8 {
+    match class {
+        FlowClass::Business => 1,
+        FlowClass::Dns => 2,
+    }
+}
+#[async_trait]
+impl TcpDialer for AdmissionPeer {
+    async fn connect(
+        &self,
+        target: TcpTarget,
+        _: Instant,
+        cancel: &CancellationToken,
+        class: FlowClass,
+    ) -> Result<TcpStream, DialError> {
+        assert_eq!(target.authority(), "203.0.113.2:8080");
+        self.classes.lock().unwrap().push(class);
+        self.started.notify_one();
+        if self.stall.load(Ordering::Acquire) == class_id(class) {
+            cancel.cancelled().await;
+            return Err(DialError::Cancelled);
+        }
+        let (stream, mut peer) = pair();
+        let cancellation = self.cancellation.clone();
+        self.peers.spawn(async move {
+            let work = async {
+                let header = read_header(&mut peer).await;
+                assert!(header.starts_with(b"CONNECT "));
+                peer.write_all(b"HTTP/1.1 200 Established\r\n\r\n").await?;
+                if class == FlowClass::Dns {
+                    loop {
+                        let length = match peer.read_u16().await {
+                            Ok(length) => usize::from(length),
+                            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => break,
+                            Err(error) => return Err(error),
+                        };
+                        let mut query = vec![0; length];
+                        peer.read_exact(&mut query).await?;
+                        query[2..4].copy_from_slice(&[0x81, 0x80]);
+                        peer.write_u16(length as u16).await?;
+                        peer.write_all(&query).await?;
+                    }
+                } else {
+                    let _ = peer.read_u8().await;
+                }
+                Ok::<_, io::Error>(())
+            };
+            tokio::select! {
+                _ = cancellation.cancelled() => {},
+                result = work => result.expect("memory proxy exchange"),
+            }
+        });
+        Ok(stream)
+    }
+}
+
+struct AdmissionFixture {
+    proxy: Arc<ProxyDialer>,
+    peer: Arc<AdmissionPeer>,
+    dns: crate::dns_stream::StreamDns,
+    _health: watch::Sender<crate::netstack::RuntimeHealth>,
+}
+impl AdmissionFixture {
+    fn new() -> Self {
+        let cancellation = CancellationToken::new();
+        let peer = Arc::new(AdmissionPeer {
+            classes: Default::default(),
+            stall: std::sync::atomic::AtomicU8::new(0),
+            started: tokio::sync::Notify::new(),
+            peers: tokio_util::task::TaskTracker::new(),
+            cancellation: cancellation.clone(),
+        });
+        let (health, receiver) = watch::channel(crate::netstack::RuntimeHealth::Connected {
+            path: crate::netstack::RuntimePath {
+                transport: usque_core::Transport::Http3,
+                endpoint_family: usque_core::AddressFamily::Ipv4,
+                ipv4_available: true,
+                ipv6_available: true,
+            },
+            reconnect_count: 0,
+        });
+        let network =
+            crate::InternalNetwork::for_streams(peer.clone(), receiver, cancellation.clone());
+        let proxy = Arc::new(ProxyDialer {
+            network,
+            config: ProxyProfile {
+                protocol: ChainProtocol::HttpConnect,
+                endpoint: usque_core::chain_exit::Endpoint::parse("203.0.113.2", "8080", 0)
+                    .unwrap(),
+                auth_mode: ProxyAuthMode::None,
+                dns_servers: vec![],
+            },
+            credentials: Box::default(),
+            cancellation,
+            status: watch::channel(GateStatus::default()).0,
+            admitted: AtomicBool::new(true),
+            active: Arc::new(Semaphore::new(1)),
+            pending: Arc::new(Semaphore::new(1)),
+            dns_active: Arc::new(Semaphore::new(1)),
+            dns_pending: Arc::new(Semaphore::new(1)),
+            budget: Arc::new(crate::l4::BufferBudget::new(
+                16 << 20,
+                Arc::default(),
+                Arc::new(tokio::sync::Notify::new()),
+            )),
+            counters: Arc::default(),
+        });
+        let dns = crate::dns_stream::StreamDns::new(
+            proxy.clone(),
+            crate::socket::noop_socket_protector(),
+            proxy.cancellation.clone(),
+            Arc::default(),
+        );
+        Self {
+            proxy,
+            peer,
+            dns,
+            _health: health,
+        }
+    }
+    async fn open(&self, class: FlowClass) -> Result<TcpStream, DialError> {
+        self.proxy
+            .connect(
+                TcpTarget::new("example.test", 443).unwrap(),
+                Instant::now() + std::time::Duration::from_secs(2),
+                &self.proxy.cancellation,
+                class,
+            )
+            .await
+    }
+    async fn query(&self) {
+        let query = [0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, b'a', 0, 0, 1, 0, 1];
+        let response = self
+            .dns
+            .query(
+                "203.0.113.53:53".parse().unwrap(),
+                &query,
+                Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .await
+            .unwrap();
+        assert_eq!(&response[2..4], &[0x81, 0x80]);
+    }
+    fn released(&self) {
+        self.dns.clear();
+        for permits in [
+            &self.proxy.pending,
+            &self.proxy.active,
+            &self.proxy.dns_pending,
+            &self.proxy.dns_active,
+        ] {
+            assert_eq!(permits.available_permits(), 1);
+        }
+        assert_eq!(self.proxy.budget.available(), 16 << 20);
+    }
+    async fn shutdown(self) {
+        self.proxy.cancellation.cancel();
+        self.peer.peers.close();
+        tokio::time::timeout(std::time::Duration::from_secs(2), self.peer.peers.wait())
+            .await
+            .expect("memory peers stop");
+    }
+}
+impl Drop for AdmissionFixture {
+    fn drop(&mut self) {
+        self.proxy.cancellation.cancel();
+    }
+}
+
+#[tokio::test]
+async fn saturated_business_connections_leave_dns_capacity_and_class_intact() {
+    let fixture = AdmissionFixture::new();
+    let business = fixture.open(FlowClass::Business).await.unwrap();
+    assert_eq!(fixture.proxy.active.available_permits(), 0);
+    fixture.query().await;
+    assert_eq!(
+        *fixture.peer.classes.lock().unwrap(),
+        vec![FlowClass::Business, FlowClass::Dns]
+    );
+    // The pooled DNS stream holds the sole DNS slot. A second DNS stream must
+    // fail within that class, even after the business slot becomes available.
+    drop(business);
+    assert!(matches!(
+        fixture.open(FlowClass::Dns).await,
+        Err(DialError::Budget)
+    ));
+    let business = fixture.open(FlowClass::Business).await.unwrap();
+    drop(business);
+    fixture.released();
+    fixture.shutdown().await;
+}
+
+#[tokio::test]
+async fn pending_dns_and_business_dials_use_independent_slots_and_release_on_cancel() {
+    for class in [FlowClass::Business, FlowClass::Dns] {
+        let fixture = AdmissionFixture::new();
+        fixture.peer.stall.store(class_id(class), Ordering::Release);
+        let cancel = fixture.proxy.cancellation.child_token();
+        let dial_cancel = cancel.clone();
+        let proxy = fixture.proxy.clone();
+        let pending = tokio::spawn(async move {
+            proxy
+                .connect(
+                    TcpTarget::new("example.test", 443).unwrap(),
+                    Instant::now() + std::time::Duration::from_secs(5),
+                    &dial_cancel,
+                    class,
+                )
+                .await
+        });
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            fixture.peer.started.notified(),
+        )
+        .await
+        .unwrap();
+        let permits = if class == FlowClass::Dns {
+            &fixture.proxy.dns_pending
+        } else {
+            &fixture.proxy.pending
+        };
+        assert_eq!(permits.available_permits(), 0);
+        assert!(matches!(fixture.open(class).await, Err(DialError::Budget)));
+        if class == FlowClass::Business {
+            fixture.query().await;
+        } else {
+            drop(fixture.open(FlowClass::Business).await.unwrap());
+        }
+        cancel.cancel();
+        assert!(matches!(pending.await.unwrap(), Err(DialError::Cancelled)));
+        fixture.released();
+        fixture.shutdown().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn dns_connect_timeout_releases_its_reserved_admission() {
+    let fixture = AdmissionFixture::new();
+    fixture
+        .peer
+        .stall
+        .store(class_id(FlowClass::Dns), Ordering::Release);
+    assert!(matches!(
+        fixture.open(FlowClass::Dns).await,
+        Err(DialError::Timeout)
+    ));
+    fixture.released();
+    fixture.shutdown().await;
+}
+
 struct SocksPeer {
     targets: std::sync::Mutex<Vec<TcpTarget>>,
     stop_udp: CancellationToken,
@@ -211,7 +470,9 @@ async fn proxy_tcp_and_udp_use_underlay_and_release_cancelled_associations() {
     assert_eq!(&bytes, b"hello");
     assert!(proxy.status.borrow().tcp_connect_verified);
     let factory = SocksFactory(proxy.clone());
+    let dns_slots = proxy.dns_active.available_permits();
     let udp = factory.open(&cancel, deadline).await.unwrap();
+    assert_eq!(proxy.dns_active.available_permits(), dns_slots);
     udp.send(&target, b"datagram").await.unwrap();
     let received = timeout_at(deadline, udp.recv()).await.unwrap().unwrap();
     assert_eq!(received, (target, bytes::Bytes::from_static(b"datagram")));

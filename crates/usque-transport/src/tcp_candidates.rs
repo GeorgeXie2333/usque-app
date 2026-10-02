@@ -33,6 +33,10 @@ struct Attempt {
 }
 
 impl Attempt {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each address attempt retains its deadline, cancellation and admission class"
+    )]
     fn new(
         dialer: Arc<dyn TcpDialer>,
         address: IpAddr,
@@ -40,6 +44,7 @@ impl Attempt {
         port: u16,
         deadline: Instant,
         parent: &CancellationToken,
+        class: FlowClass,
     ) -> Self {
         let cancellation = parent.child_token();
         let token = cancellation.clone();
@@ -55,7 +60,7 @@ impl Attempt {
                         TcpTarget::address(SocketAddr::new(address, port)),
                         deadline,
                         &token,
-                        FlowClass::Business,
+                        class,
                     )
                     .await
             }),
@@ -190,6 +195,26 @@ pub(crate) async fn connect_candidates_with_address(
     deadline: Instant,
     cancellation: &CancellationToken,
 ) -> Result<(TcpStream, SocketAddr), CandidateDialError> {
+    connect_candidates_with_address_for_class(
+        dialer,
+        resolution,
+        port,
+        deadline,
+        cancellation,
+        FlowClass::Business,
+    )
+    .await
+}
+
+/// Private final-exit DNS keeps its reserved class through every address race.
+pub(crate) async fn connect_candidates_with_address_for_class(
+    dialer: Arc<dyn TcpDialer>,
+    resolution: CandidateResolution,
+    port: u16,
+    deadline: Instant,
+    cancellation: &CancellationToken,
+    class: FlowClass,
+) -> Result<(TcpStream, SocketAddr), CandidateDialError> {
     let mut resolution = Some(resolution);
     let mut candidates = Candidates::default();
     let mut attempts: [Option<Attempt>; 2] = [None, None];
@@ -226,6 +251,7 @@ pub(crate) async fn connect_candidates_with_address(
                 port,
                 deadline,
                 cancellation,
+                class,
             ));
             next_launch = Instant::now() + STAGGER;
             continue;

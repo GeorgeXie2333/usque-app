@@ -30,6 +30,8 @@ pub(crate) struct ProxyDialer {
     pub(crate) admitted: AtomicBool,
     pub(crate) active: Arc<Semaphore>,
     pub(crate) pending: Arc<Semaphore>,
+    dns_active: Arc<Semaphore>,
+    dns_pending: Arc<Semaphore>,
     pub(crate) budget: Arc<crate::l4::BufferBudget>,
     pub(crate) counters: Arc<crate::netstack::TrafficCounters>,
 }
@@ -80,10 +82,14 @@ impl ProxyDialer {
             admitted: AtomicBool::new(false),
             active: Arc::new(Semaphore::new(limits.active)),
             pending: Arc::new(Semaphore::new(limits.pending)),
+            dns_active: Arc::new(Semaphore::new(crate::l4::DNS_OPERATIONS)),
+            dns_pending: Arc::new(Semaphore::new(80)),
             budget,
             counters,
         });
-        let (mut stream, _) = result.server(deadline, &result.cancellation).await?;
+        let (mut stream, _) = result
+            .server(deadline, &result.cancellation, FlowClass::Business)
+            .await?;
         if result.config.protocol == ChainProtocol::Socks5 {
             result
                 .authenticate(&mut stream, deadline, &result.cancellation)
@@ -109,13 +115,14 @@ impl ProxyDialer {
         &self,
         deadline: Instant,
         cancel: &CancellationToken,
+        class: FlowClass,
     ) -> Result<(TcpStream, SocketAddr), DialError> {
         tokio::select! {
             biased;
             _ = cancel.cancelled() => Err(DialError::Cancelled),
             _ = self.cancellation.cancelled() => Err(DialError::Closed),
             result = timeout_at(deadline, async {
-                let (stream, address) = self.network.connect_endpoint(&self.config.endpoint, cancel, deadline).await?;
+                let (stream, address) = self.network.connect_endpoint(&self.config.endpoint, cancel, deadline, class).await?;
                 self.status.send_modify(|s| s.active_endpoint = Some(address));
                 Ok((stream, address))
             }) => result.map_err(|_| DialError::Timeout)?,
@@ -153,18 +160,20 @@ impl TcpDialer for ProxyDialer {
         target: TcpTarget,
         deadline: Instant,
         cancel: &CancellationToken,
-        _class: FlowClass,
+        class: FlowClass,
     ) -> Result<TcpStream, DialError> {
         if !self.admitted.load(Ordering::Acquire) {
             return Err(DialError::Closed);
         }
-        let _pending = self
-            .pending
+        let (pending, active) = match class {
+            FlowClass::Dns => (&self.dns_pending, &self.dns_active),
+            FlowClass::Business => (&self.pending, &self.active),
+        };
+        let _pending = pending
             .clone()
             .try_acquire_owned()
             .map_err(|_| DialError::Budget)?;
-        let permit = self
-            .active
+        let permit = active
             .clone()
             .try_acquire_owned()
             .map_err(|_| DialError::Budget)?;
@@ -177,7 +186,7 @@ impl TcpDialer for ProxyDialer {
             _ = cancel.cancelled() => Err(DialError::Cancelled),
             _ = self.cancellation.cancelled() => Err(DialError::Closed),
             result = timeout_at(deadline, async {
-                let (mut stream, _) = self.server(deadline, cancel).await?;
+                let (mut stream, _) = self.server(deadline, cancel, class).await?;
                 if self.config.protocol == ChainProtocol::HttpConnect {
                     http_connect(&mut stream, &target, &self.credentials, self.config.auth_mode).await?;
                 } else {
