@@ -5,7 +5,9 @@ const Map<String, String> kUiWorkflowId = <String, String>{
   'home_manage_proxies': 'Kelola proksi',
   'home_enabled_interfaces': 'Diaktifkan: {interfaces}',
   'home_system_proxy': 'Proksi sistem',
-  'home_options': 'Opsi',
+  'home_tun_hint': 'Menangkap lalu lintas aplikasi di perangkat ini',
+  'home_system_proxy_hint':
+      'Aplikasi yang mengikuti proxy sistem memakai proxy HTTP',
   'home_system_proxy_requires_http':
       'Aktifkan proksi HTTP lokal terlebih dahulu.',
   'local_proxy_settings': 'Pengaturan proksi lokal',

@@ -5,7 +5,9 @@ const Map<String, String> kUiWorkflowRu = <String, String>{
   'home_manage_proxies': 'Управление прокси',
   'home_enabled_interfaces': 'Включено: {interfaces}',
   'home_system_proxy': 'Системный прокси',
-  'home_options': 'Параметры',
+  'home_tun_hint': 'Перехватывает трафик приложений на этом устройстве',
+  'home_system_proxy_hint':
+      'Приложения, учитывающие системный прокси, используют HTTP-прокси',
   'home_system_proxy_requires_http': 'Сначала включите локальный HTTP-прокси.',
   'local_proxy_settings': 'Настройки локального прокси',
   'proxy_switches_hint': 'Переключатели применяются сразу.',

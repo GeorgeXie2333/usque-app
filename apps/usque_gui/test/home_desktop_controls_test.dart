@@ -132,7 +132,7 @@ void main() {
         proxy: const ProxySettings(httpPort: 9090, systemProxy: true),
       );
       final app = await _app(tester, engine, profile: original);
-      expect(tester.getSize(find.byType(ContentList)).height, 330);
+      expect(tester.getSize(find.byType(ContentList)).height, 346);
       engine.saveBarrier = Completer();
       await tester.tap(_toggle('tun'));
       await tester.pump();
@@ -165,6 +165,11 @@ void main() {
         proxy: const ProxySettings(httpPort: 9090, socksPort: 1180),
       );
       final app = await _app(tester, engine, profile: profile);
+      expect(find.text(app.strings.get('home_tun_hint')), findsOneWidget);
+      expect(
+        find.text(app.strings.get('home_system_proxy_hint')),
+        findsOneWidget,
+      );
       await tester.tap(_toggle('system-proxy'));
       await tester.pumpAndSettle();
       expect(engine.edits.single.$2, ['proxy.system_proxy']);
@@ -182,16 +187,17 @@ void main() {
         ),
       );
       expect(tester.widget<Switch>(_toggle('system-proxy')).onChanged, isNull);
-      expect(
-        find.byTooltip(blocked.strings.get('home_system_proxy_requires_http')),
-        findsOneWidget,
-      );
       expect(blockedEngine.edits, isEmpty);
-      expect(find.text(blocked.strings.get('home_options')), findsNWidgets(2));
-      for (final text
-          in find.text(blocked.strings.get('home_options')).evaluate()) {
-        expect(text.findAncestorWidgetOfExactType<ActionRow>(), isNull);
-        expect(text.findAncestorWidgetOfExactType<TextButton>(), isNull);
+      expect(
+        find.text(blocked.strings.get('home_system_proxy_hint')),
+        findsNothing,
+      );
+      for (final key in ['home_tun_hint', 'home_system_proxy_requires_http']) {
+        final hint = find.text(blocked.strings.get(key));
+        expect(hint, findsOneWidget);
+        final element = hint.evaluate().single;
+        expect(element.findAncestorWidgetOfExactType<ActionRow>(), isNull);
+        expect(element.findAncestorWidgetOfExactType<TextButton>(), isNull);
       }
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),

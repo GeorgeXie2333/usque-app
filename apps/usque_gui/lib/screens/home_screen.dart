@@ -721,10 +721,13 @@ class _TrafficGrid extends StatelessWidget {
           ),
         );
         Widget card(bool download) => _TrafficReadout(
+          direction: download ? 'download' : 'upload',
           note: note,
           icon: download ? LucideIcons.arrowDown : LucideIcons.arrowUp,
           label: strings.get(download ? 'download' : 'upload'),
-          bytesPerSecond: download
+          bytesPerSecond: !snapshot.isConnected
+              ? null
+              : download
               ? snapshot.downloadBytesPerSecond
               : snapshot.uploadBytesPerSecond,
           color: download ? tokens.inbound : tokens.outbound,
@@ -760,6 +763,7 @@ class _TrafficGrid extends StatelessWidget {
 /// and gaps. Widget rebuilds and unchanged values never alter the history.
 class _TrafficReadout extends StatelessWidget {
   const _TrafficReadout({
+    required this.direction,
     required this.note,
     required this.icon,
     required this.label,
@@ -767,15 +771,17 @@ class _TrafficReadout extends StatelessWidget {
     required this.color,
     required this.samples,
   });
+  final String direction;
   final String note;
   final IconData icon;
   final String label;
-  final int bytesPerSecond;
+  final int? bytesPerSecond;
   final Color color;
   final List<int?> samples;
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final rate = bytesPerSecond;
     return ContentSection(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -794,19 +800,25 @@ class _TrafficReadout extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                formatRate(bytesPerSecond),
+                rate == null ? '—' : formatRate(rate),
+                key: ValueKey('home-desktop-$direction-rate'),
                 style: UsqueTheme.mono(
                   context,
                   size: theme.textTheme.titleMedium?.fontSize,
                   weight: FontWeight.w500,
+                  color: rate == null
+                      ? theme.colorScheme.onSurfaceVariant
+                      : null,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
           Sparkline(
+            key: ValueKey('home-desktop-$direction-trace'),
             samples: samples,
             color: color,
+            height: 96,
             semanticLabel: '$label · $note',
           ),
         ],

@@ -5,7 +5,9 @@ const Map<String, String> kUiWorkflowEs = <String, String>{
   'home_manage_proxies': 'Administrar proxies',
   'home_enabled_interfaces': 'Habilitado: {interfaces}',
   'home_system_proxy': 'Proxy del sistema',
-  'home_options': 'Opciones',
+  'home_tun_hint': 'Captura el tráfico de las aplicaciones de este dispositivo',
+  'home_system_proxy_hint':
+      'Las aplicaciones que siguen el proxy del sistema usan el proxy HTTP',
   'home_system_proxy_requires_http': 'Activa primero el proxy HTTP local.',
   'local_proxy_settings': 'Configuración del proxy local',
   'proxy_switches_hint': 'Los interruptores se aplican al instante.',

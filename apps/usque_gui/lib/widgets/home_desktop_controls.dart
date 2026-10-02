@@ -264,7 +264,7 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
               _OutputControl(
                 title: strings.tunnelOutputLabel(Theme.of(context).platform),
                 icon: LucideIcons.ethernetPort,
-                option: Text(strings.get('home_options')),
+                option: Text(strings.get('home_tun_hint')),
                 switchKey: const ValueKey('home-tun-switch'),
                 value: view.tunnel,
                 onChanged: enabled ? _tunnel : null,
@@ -273,14 +273,17 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
                 _OutputControl(
                   title: strings.get('home_system_proxy'),
                   icon: LucideIcons.monitorCog,
-                  option: Text(strings.get('home_options')),
+                  option: Text(
+                    strings.get(
+                      !view.http && !view.systemProxy
+                          ? 'home_system_proxy_requires_http'
+                          : 'home_system_proxy_hint',
+                    ),
+                  ),
                   switchKey: const ValueKey('home-system-proxy-switch'),
                   value: view.systemProxy,
                   onChanged: enabled && (view.http || view.systemProxy)
                       ? _systemProxy
-                      : null,
-                  disabledReason: !view.http && !view.systemProxy
-                      ? strings.get('home_system_proxy_requires_http')
                       : null,
                 ),
               _OutputControl(
@@ -351,7 +354,6 @@ class _OutputControl extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.onOpen,
-    this.disabledReason,
     this.bottomSpacing = 1,
   });
 
@@ -362,7 +364,6 @@ class _OutputControl extends StatelessWidget {
   final bool value;
   final ValueChanged<bool>? onChanged;
   final VoidCallback? onOpen;
-  final String? disabledReason;
   final double bottomSpacing;
 
   @override
@@ -381,7 +382,7 @@ class _OutputControl extends StatelessWidget {
         Expanded(child: Text(title, style: theme.textTheme.titleMedium)),
       ],
     );
-    Widget toggle = Semantics(
+    final toggle = Semantics(
       label: title,
       child: SizedBox(
         width: 80,
@@ -399,9 +400,6 @@ class _OutputControl extends StatelessWidget {
         ),
       ),
     );
-    if (disabledReason != null) {
-      toggle = Tooltip(message: disabledReason!, child: toggle);
-    }
     return Padding(
       padding: EdgeInsets.only(bottom: bottomSpacing),
       child: Column(

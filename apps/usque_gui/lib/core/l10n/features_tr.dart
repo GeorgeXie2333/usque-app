@@ -5,7 +5,9 @@ const Map<String, String> kUiWorkflowTr = <String, String>{
   'home_manage_proxies': 'Proxy’leri yönet',
   'home_enabled_interfaces': 'Etkin: {interfaces}',
   'home_system_proxy': 'Sistem proxy’si',
-  'home_options': 'Seçenekler',
+  'home_tun_hint': 'Bu cihazdaki uygulamaların trafiğini üstlenir',
+  'home_system_proxy_hint':
+      'Sistem proxy’sini izleyen uygulamalar HTTP proxy’sini kullanır',
   'home_system_proxy_requires_http':
       'Önce yerel HTTP proxy’sini etkinleştirin.',
   'local_proxy_settings': 'Yerel proxy ayarları',

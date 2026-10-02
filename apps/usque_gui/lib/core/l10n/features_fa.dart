@@ -5,7 +5,9 @@ const Map<String, String> kUiWorkflowFa = <String, String>{
   'home_manage_proxies': 'مدیریت پروکسی‌ها',
   'home_enabled_interfaces': 'فعال: {interfaces}',
   'home_system_proxy': 'پروکسی سیستم',
-  'home_options': 'گزینه‌ها',
+  'home_tun_hint': 'ترافیک برنامه‌های این دستگاه را در اختیار می‌گیرد',
+  'home_system_proxy_hint':
+      'برنامه‌هایی که از پروکسی سیستم پیروی می‌کنند از پروکسی HTTP استفاده می‌کنند',
   'home_system_proxy_requires_http': 'ابتدا پروکسی محلی HTTP را فعال کنید.',
   'local_proxy_settings': 'تنظیمات پراکسی محلی',
   'proxy_switches_hint': 'تغییر کلیدها بلافاصله اعمال می‌شود.',

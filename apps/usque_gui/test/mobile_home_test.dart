@@ -119,6 +119,33 @@ void main() {
   );
 
   testWidgets(
+    'desktop traffic charts keep their height and show a dash while disconnected',
+    (tester) async {
+      final fixture = _Fixture()
+        ..sample(0)
+        ..sample(1);
+      await _show(tester, fixture, size: const Size(1280, 900));
+      Finder trace(String direction) =>
+          find.byKey(ValueKey('home-desktop-$direction-trace'));
+      String? rate(String direction) => tester
+          .widget<Text>(find.byKey(ValueKey('home-desktop-$direction-rate')))
+          .data;
+      expect(tester.getSize(trace('download')).height, 96);
+      expect(tester.getSize(trace('upload')).height, 96);
+      expect(rate('download'), '2.0 KB/s');
+      expect(rate('upload'), '1.0 KB/s');
+
+      fixture.app.snapshot = const EngineSnapshot();
+      await tester.pump();
+      for (final direction in ['download', 'upload']) {
+        expect(rate(direction), '—');
+        expect(tester.getSize(trace(direction)).height, 96);
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
     'connected Android home details keep selectable values bounded',
     (tester) async {
       final fixture = _Fixture()..sample(1);
