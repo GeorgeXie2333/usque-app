@@ -197,6 +197,7 @@ async fn final_proxy_encrypted_direct_dns_fails_closed_without_plaintext_fallbac
                 &profile,
                 &prepared(source),
                 network,
+                crate::NetworkQualityTelemetry::default(),
                 ("192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap()),
                 protector.clone(),
                 policy,

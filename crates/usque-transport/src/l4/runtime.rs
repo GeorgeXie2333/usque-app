@@ -25,6 +25,9 @@ use crate::telemetry::ConnectionTelemetry;
 #[path = "runtime/direct_dns_tests.rs"]
 mod direct_dns_tests;
 
+#[cfg(test)]
+mod proxy_quality_tests;
+
 /// Account-bound stream frontends, shared by L4 and final HTTP/SOCKS5 exits.
 pub(crate) struct L4Runtime {
     pub(crate) client: Arc<crate::stream_client::StreamClient>,
@@ -127,6 +130,7 @@ impl L4Runtime {
             geo_policy,
             cancellation,
             telemetry,
+            None,
             counters,
         )
         .await?;
@@ -146,6 +150,7 @@ impl L4Runtime {
         geo_policy: Arc<GeoDirectPolicy>,
         cancellation: CancellationToken,
         telemetry: ConnectionTelemetry,
+        underlay_quality: Option<crate::NetworkQualityTelemetry>,
         counters: Arc<TrafficCounters>,
     ) -> Result<Self, TransportError> {
         let quality = telemetry.network_quality();
@@ -159,12 +164,19 @@ impl L4Runtime {
             .http
             .then(|| HttpProxyFrontend::prebind(profile))
             .transpose()?;
-        let (quality_rx, sampler) =
-            crate::network_quality::spawn_network_quality_sampler_with_counters(
+        let (quality_rx, sampler) = match underlay_quality {
+            Some(underlay) => crate::network_quality::spawn_external_packet_quality_sampler(
+                quality.clone(),
+                underlay,
+                counters.clone(),
+                cancellation.child_token(),
+            ),
+            None => crate::network_quality::spawn_network_quality_sampler_with_counters(
                 quality.clone(),
                 counters.clone(),
                 cancellation.child_token(),
-            );
+            ),
+        };
         let sampler = tokio_util::task::AbortOnDropHandle::new(sampler);
         let dialer: Arc<dyn TcpDialer> = client.clone();
         let dns = Arc::new(StreamDns::new(
@@ -290,6 +302,7 @@ impl L4Runtime {
         profile: &Profile,
         prepared: &usque_core::vpngate::PreparedProfile,
         network: crate::InternalNetwork,
+        underlay_quality: crate::NetworkQualityTelemetry,
         assigned: (Ipv4Addr, Ipv6Addr),
         protector: Arc<dyn SocketProtector>,
         geo_policy: Arc<GeoDirectPolicy>,
@@ -300,13 +313,16 @@ impl L4Runtime {
         crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let cancellation = CancellationToken::new();
         let guard = cancellation.clone().drop_guard();
-        let telemetry = ConnectionTelemetry::default();
+        let telemetry = ConnectionTelemetry::with_features(
+            crate::telemetry::CONNECTION_TIMELINE_CAPACITY,
+            underlay_quality.features(),
+        );
         let quality = telemetry.network_quality();
         quality.use_stream_data_plane();
         let protector = crate::encrypted_dns::configure_direct_dns(
             &profile.direct_dns,
             protector,
-            quality,
+            quality.clone(),
             &cancellation,
         )?;
         let counters = Arc::new(TrafficCounters::default());
@@ -332,6 +348,10 @@ impl L4Runtime {
             metrics,
             health: network.health(),
         });
+        // The final exit owns its identity and traffic. Transport observations
+        // remain attached to the selected WARP attempt, including H2/L4 limits.
+        let path = network.health_snapshot().path();
+        quality.begin_connection(path.transport, path.endpoint_family);
         let mut runtime = Self::finish(
             profile,
             client,
@@ -340,6 +360,7 @@ impl L4Runtime {
             geo_policy,
             cancellation,
             telemetry,
+            Some(underlay_quality),
             counters,
         )
         .await?;

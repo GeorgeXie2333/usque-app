@@ -445,6 +445,7 @@ impl DataPlaneRuntime {
                 &effective,
                 &prepared,
                 self.warp_internal_network(),
+                self.underlay_monitor().network_quality_telemetry(),
                 (
                     network.ipv4.unwrap_or(Ipv4Addr::UNSPECIFIED),
                     network.ipv6.unwrap_or(Ipv6Addr::UNSPECIFIED),
