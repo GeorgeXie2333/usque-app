@@ -25,6 +25,7 @@ pub(crate) enum CandidateDialError {
 type DialFuture = Pin<Box<dyn Future<Output = Result<TcpStream, DialError>> + Send>>;
 struct Attempt {
     family: usize,
+    remote: SocketAddr,
     ordinal: usize,
     cancellation: CancellationToken,
     armed: bool,
@@ -44,6 +45,7 @@ impl Attempt {
         let token = cancellation.clone();
         Self {
             family: family(address),
+            remote: SocketAddr::new(address, port),
             ordinal,
             cancellation,
             armed: true,
@@ -174,6 +176,20 @@ pub(crate) async fn connect_candidates(
     deadline: Instant,
     cancellation: &CancellationToken,
 ) -> Result<TcpStream, CandidateDialError> {
+    connect_candidates_with_address(dialer, resolution, port, deadline, cancellation)
+        .await
+        .map(|(stream, _)| stream)
+}
+
+/// Return the address belonging to the winning stream, never a losing attempt's
+/// last observation. Every candidate remains bound to the caller's dialer.
+pub(crate) async fn connect_candidates_with_address(
+    dialer: Arc<dyn TcpDialer>,
+    resolution: CandidateResolution,
+    port: u16,
+    deadline: Instant,
+    cancellation: &CancellationToken,
+) -> Result<(TcpStream, SocketAddr), CandidateDialError> {
     let mut resolution = Some(resolution);
     let mut candidates = Candidates::default();
     let mut attempts: [Option<Attempt>; 2] = [None, None];
@@ -250,7 +266,7 @@ pub(crate) async fn connect_candidates(
                         // L4 retains descendants of this token in the returned
                         // flow. Only the winner loses its cancellation guard.
                         finished.armed = false;
-                        return Ok(stream);
+                        return Ok((stream, finished.remote));
                     }
                     Err(error @ (DialError::Cancelled | DialError::Rejected(401 | 403))) => {
                         return Err(CandidateDialError::Dial(error));

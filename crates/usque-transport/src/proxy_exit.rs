@@ -1,6 +1,8 @@
 //! Final HTTP/SOCKS exits. Every server connection belongs to the WARP underlay.
 use crate::tcp::{DialError, FlowClass, TcpDialer, TcpIo, TcpStream, TcpTarget};
 #[cfg(test)]
+mod server_address_tests;
+#[cfg(test)]
 mod tests;
 use async_trait::async_trait;
 use base64::Engine;
@@ -113,8 +115,7 @@ impl ProxyDialer {
             _ = cancel.cancelled() => Err(DialError::Cancelled),
             _ = self.cancellation.cancelled() => Err(DialError::Closed),
             result = timeout_at(deadline, async {
-                let address = self.network.resolve_endpoint(&self.config.endpoint, None, cancel).await?;
-                let stream = self.network.connect_address(address, cancel, deadline).await?;
+                let (stream, address) = self.network.connect_endpoint(&self.config.endpoint, cancel, deadline).await?;
                 self.status.send_modify(|s| s.active_endpoint = Some(address));
                 Ok((stream, address))
             }) => result.map_err(|_| DialError::Timeout)?,

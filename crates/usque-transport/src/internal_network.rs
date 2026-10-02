@@ -1,7 +1,7 @@
 //! Private network clients never pass through a frontend's direct-rule policy.
 //! A handle is bound to one runtime and cannot silently obtain another exit.
 use crate::chain_raw::RawSocket;
-use crate::dns::{QuerySocket as UdpSocket, Resolver};
+use crate::dns::{CandidateResolution, QuerySocket as UdpSocket, Resolver};
 use crate::netstack::{PacketStack, RuntimeHealth};
 use crate::tcp::{DialError, FlowClass, StackDialer, TcpDialer, TcpStream, TcpTarget};
 use bytes::Bytes;
@@ -35,6 +35,23 @@ pub struct InternalNetwork {
     health: watch::Receiver<RuntimeHealth>,
     cancellation: CancellationToken,
     packet_channel: Option<(Channel, Ipv4Addr, Ipv6Addr)>,
+}
+
+/// Address races retain the same health, cancellation and private-network gate
+/// as single-address internal connections.
+struct InternalEndpointDialer(InternalNetwork);
+
+#[async_trait::async_trait]
+impl TcpDialer for InternalEndpointDialer {
+    async fn connect(
+        &self,
+        target: TcpTarget,
+        deadline: Instant,
+        cancel: &CancellationToken,
+        _class: FlowClass,
+    ) -> Result<TcpStream, DialError> {
+        self.0.connect(target, cancel, deadline).await
+    }
 }
 
 pub(crate) struct InternalRequest<'a> {
@@ -244,8 +261,21 @@ impl InternalNetwork {
         ipv6: Option<bool>,
         cancel: &CancellationToken,
     ) -> Result<SocketAddr, DialError> {
+        self.resolve_endpoints(endpoint, ipv6, cancel)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or(DialError::Closed)
+    }
+
+    async fn resolve_endpoints(
+        &self,
+        endpoint: &usque_core::chain_exit::Endpoint,
+        ipv6: Option<bool>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<SocketAddr>, DialError> {
         if let Some(address) = endpoint.address() {
-            return Ok(address);
+            return Ok(vec![address]);
         }
         let resolver = self.resolver.as_ref().ok_or(DialError::Closed)?;
         tokio::select! {
@@ -254,9 +284,36 @@ impl InternalNetwork {
             _ = self.cancellation.cancelled() => Err(DialError::Closed),
             result = tokio::time::timeout(CONNECT_TIMEOUT, resolver.resolve(&endpoint.host)) => {
                 let addresses = result.map_err(|_| DialError::Timeout)?.map_err(|_| DialError::Closed)?;
-                addresses.into_iter().find(|ip| ipv6.is_none_or(|v6| ip.is_ipv6() == v6) && !ip.is_unspecified() && !ip.is_multicast() && !ip.is_loopback())
-                    .map(|ip| SocketAddr::new(ip, endpoint.port)).ok_or(DialError::Closed)
+                let addresses: Vec<_> = addresses.into_iter().filter(|ip| ipv6.is_none_or(|v6| ip.is_ipv6() == v6) && !ip.is_unspecified() && !ip.is_multicast() && !ip.is_loopback())
+                    .map(|ip| SocketAddr::new(ip, endpoint.port)).collect();
+                if addresses.is_empty() { Err(DialError::Closed) } else { Ok(addresses) }
             }
+        }
+    }
+
+    /// Bound every address to this underlay. The shared two-attempt race lets a
+    /// usable alternate family progress while the first address is blackholed.
+    pub(crate) async fn connect_endpoint(
+        &self,
+        endpoint: &usque_core::chain_exit::Endpoint,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<(TcpStream, SocketAddr), DialError> {
+        let addresses = self.resolve_endpoints(endpoint, None, cancel).await?;
+        let resolution = CandidateResolution::from_addresses(
+            addresses.into_iter().map(|address| address.ip()).collect(),
+        );
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(DialError::Cancelled),
+            _ = self.cancellation.cancelled() => Err(DialError::Closed),
+            result = crate::tcp_candidates::connect_candidates_with_address(
+                Arc::new(InternalEndpointDialer(self.clone())), resolution, endpoint.port,
+                deadline, cancel,
+            ) => result.map_err(|error| match error {
+                crate::tcp_candidates::CandidateDialError::Dial(error) => error,
+                crate::tcp_candidates::CandidateDialError::Resolve(_) => DialError::Closed,
+            }),
         }
     }
     pub(crate) async fn bind_udp(
