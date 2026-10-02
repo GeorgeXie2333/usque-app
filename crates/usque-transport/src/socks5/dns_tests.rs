@@ -53,6 +53,8 @@ struct ProxyPeer {
     dns_targets: StdMutex<Vec<TcpTarget>>,
     associate_commands: AtomicUsize,
     udp_reply: AtomicU8,
+    stall_associate: AtomicBool,
+    associate_closed: Notify,
     dns_queries: AtomicUsize,
     stalled_queries: AtomicUsize,
     stall_dns: AtomicBool,
@@ -111,6 +113,15 @@ impl ProxyPeer {
             let target = read_target(&mut stream, header[3]).await?;
             if header[1] == COMMAND_UDP_ASSOCIATE {
                 self.associate_commands.fetch_add(1, Ordering::SeqCst);
+                if self.stall_associate.load(Ordering::SeqCst) {
+                    let closed = stream.read_u8().await;
+                    assert!(
+                        closed.is_err(),
+                        "timed-out association must close its control stream"
+                    );
+                    self.associate_closed.notify_one();
+                    return Ok(());
+                }
                 let unsupported = self.udp_reply.load(Ordering::SeqCst);
                 stream
                     .write_all(&[5, unsupported, 0, 1, 0, 0, 0, 0, 0, 0])
@@ -212,7 +223,21 @@ struct Fixture {
     proxy: Arc<ProxyDialer>,
     dns: Arc<StreamDns>,
     cancellation: CancellationToken,
+    physical: Arc<RejectedPhysicalNetwork>,
     _stack: Option<AbortOnDropHandle<()>>,
+}
+
+#[derive(Default)]
+struct RejectedPhysicalNetwork(AtomicUsize);
+impl crate::SocketProtector for RejectedPhysicalNetwork {
+    fn protect(&self, _: crate::SocketHandle) -> Result<(), String> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err("fixture forbids physical egress".into())
+    }
+    fn resolve(&self, _: &str, _: u16) -> Result<Vec<SocketAddr>, String> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err("fixture forbids physical DNS".into())
+    }
 }
 
 impl Fixture {
@@ -235,6 +260,8 @@ impl Fixture {
                     .as_u64()
                     .unwrap() as u8,
             ),
+            stall_associate: AtomicBool::new(false),
+            associate_closed: Notify::new(),
             dns_queries: AtomicUsize::new(0),
             stalled_queries: AtomicUsize::new(0),
             stall_dns: AtomicBool::new(false),
@@ -306,7 +333,7 @@ impl Fixture {
         .await
         .unwrap();
         proxy.admitted.store(true, Ordering::Release);
-        let protector = noop_socket_protector();
+        let protector = Arc::new(RejectedPhysicalNetwork::default());
         let dns = Arc::new(StreamDns::new(
             proxy.clone(),
             protector.clone(),
@@ -335,7 +362,7 @@ impl Fixture {
                 mode,
                 protector.clone(),
             ),
-            protector,
+            protector: protector.clone(),
             geo_policy: Arc::default(),
             counters: Arc::default(),
             cancellation: cancellation.clone(),
@@ -349,6 +376,7 @@ impl Fixture {
             proxy,
             dns,
             cancellation,
+            physical: protector,
             _stack: stack_task,
         }
     }
@@ -402,6 +430,7 @@ impl Fixture {
             crate::l4::Limits::platform().active
         );
         assert_eq!(self.proxy.budget.available(), 16 << 20);
+        assert_eq!(self.physical.0.load(Ordering::SeqCst), 0);
         let expected = format!(
             "198.51.100.10:{}",
             if self.peer.source == ChainSource::HttpProxy {
@@ -607,6 +636,59 @@ async fn upstream_socks_rejecting_udp_retains_independent_dns_only_associations(
     exchange(&udp_two, relay_two, &target, 13).await;
     assert_eq!(fixture.peer.dns_queries.load(Ordering::SeqCst), 3);
     drop(control_two);
+    fixture.shutdown().await;
+}
+
+#[tokio::test]
+async fn associate_timeout_keeps_udp_unknown_and_dns_bound_to_the_final_exit() {
+    let mut fixture = Fixture::new(ChainSource::Socks5Proxy).await;
+    fixture.peer.stall_associate.store(true, Ordering::SeqCst);
+    let before = fixture.proxy.budget.available();
+    let result = SocksFactory(fixture.proxy.clone())
+        .open(
+            &fixture.cancellation,
+            Instant::now() + Duration::from_millis(100),
+        )
+        .await;
+    assert!(matches!(result, Err(DialError::Timeout)));
+    timeout(
+        Duration::from_secs(2),
+        fixture.peer.associate_closed.notified(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        fixture.proxy.status.borrow().proxy_udp.as_deref(),
+        Some("unknown")
+    );
+    assert!(!fixture.proxy.cancellation.is_cancelled());
+    assert_eq!(
+        fixture.proxy.active.available_permits(),
+        crate::l4::Limits::platform().active
+    );
+    assert_eq!(fixture.proxy.budget.available(), before);
+
+    let target = TcpTarget::new("resolver.example", 53).unwrap();
+    let request = query(91);
+    assert_eq!(
+        fixture
+            .dns
+            .query_target(
+                target.clone(),
+                &request,
+                Instant::now() + Duration::from_secs(2)
+            )
+            .await
+            .unwrap(),
+        answer(&request)
+    );
+    assert_eq!(*fixture.peer.dns_targets.lock().unwrap(), vec![target]);
+    assert_eq!(fixture.physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        fixture.proxy.status.borrow().proxy_udp.as_deref(),
+        Some("unknown")
+    );
     fixture.shutdown().await;
 }
 

@@ -6,7 +6,7 @@ use crate::{MetricAvailability, MetricValue, NetworkQualitySnapshot, NetworkQual
 use async_trait::async_trait;
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::sync::watch;
@@ -17,11 +17,15 @@ use usque_core::{AddressFamily, DataPlaneMode, Transport};
 struct MemoryStream {
     stream: DuplexStream,
     wire: Arc<TrafficCounters>,
+    generation: u64,
 }
 
 impl TcpIo for MemoryStream {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok("192.0.2.1:41000".parse().unwrap())
+    }
+    fn session_generation(&self) -> Option<u64> {
+        Some(self.generation)
     }
 }
 
@@ -63,10 +67,14 @@ impl AsyncWrite for MemoryStream {
 struct ProxyPeer {
     source: ChainSource,
     wire: Arc<TrafficCounters>,
+    generation: Arc<AtomicU64>,
 }
 
 #[async_trait]
 impl TcpDialer for ProxyPeer {
+    fn session_generation(&self) -> Option<u64> {
+        Some(self.generation.load(Ordering::Acquire))
+    }
     async fn connect(
         &self,
         target: TcpTarget,
@@ -85,6 +93,7 @@ impl TcpDialer for ProxyPeer {
         Ok(Box::new(MemoryStream {
             stream: client,
             wire: self.wire.clone(),
+            generation: self.generation.load(Ordering::Acquire),
         }))
     }
 }
@@ -125,6 +134,7 @@ struct Underlay {
     network: crate::InternalNetwork,
     wire: Arc<TrafficCounters>,
     cancellation: CancellationToken,
+    generation: Arc<AtomicU64>,
     _health: watch::Sender<RuntimeHealth>,
 }
 
@@ -155,10 +165,12 @@ impl Underlay {
         });
         let cancellation = CancellationToken::new();
         let wire = Arc::new(TrafficCounters::default());
+        let generation = Arc::new(AtomicU64::new(1));
         let network = crate::InternalNetwork::for_streams(
             Arc::new(ProxyPeer {
                 source,
                 wire: wire.clone(),
+                generation: generation.clone(),
             }),
             health,
             cancellation.clone(),
@@ -169,6 +181,7 @@ impl Underlay {
             network,
             wire,
             cancellation,
+            generation,
             _health: health_tx,
         }
     }
@@ -425,5 +438,52 @@ async fn proxy_quality_follows_selected_underlay_and_preserves_unavailable_metri
         assert!(ended.samples.is_empty());
         assert_eq!(ended.level, crate::NetworkQualityLevel::Disconnected);
         runtime.shutdown().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn replaced_underlay_generation_closes_old_final_streams_without_fallback() {
+    for source in [ChainSource::HttpProxy, ChainSource::Socks5Proxy] {
+        let underlay = Underlay::new(source, Transport::Http3, DataPlaneMode::L4Proxy);
+        let mut original = underlay.start(source, DataPlaneMode::L4Proxy).await;
+        let mut stream = original
+            .client
+            .connect(
+                TcpTarget::address("203.0.113.20:443".parse().unwrap()),
+                Instant::now() + Duration::from_secs(2),
+                &original.cancellation,
+                FlowClass::Business,
+            )
+            .await
+            .unwrap();
+        assert_eq!(stream.session_generation(), Some(1));
+        underlay.generation.store(2, Ordering::Release);
+        advance(Duration::from_secs(1)).await;
+        timeout(Duration::from_secs(2), original.cancellation.cancelled())
+            .await
+            .unwrap();
+        assert!(!original.client.is_ready());
+        assert!(stream.write_all(b"old session").await.is_err());
+        assert!(matches!(
+            original
+                .client
+                .connect(
+                    TcpTarget::address("203.0.113.20:443".parse().unwrap()),
+                    Instant::now() + Duration::from_secs(2),
+                    &original.cancellation,
+                    FlowClass::Business,
+                )
+                .await,
+            Err(DialError::Cancelled | DialError::Closed)
+        ));
+        drop(stream);
+        assert!(!underlay.cancellation.is_cancelled());
+
+        let mut replacement = underlay.start(source, DataPlaneMode::L4Proxy).await;
+        original.shutdown().await;
+        echo(&replacement, b"new final session").await;
+        assert_eq!(replacement.client.session_generation(), Some(2));
+        replacement.shutdown().await;
+        assert!(!underlay.cancellation.is_cancelled());
     }
 }

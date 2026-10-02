@@ -380,7 +380,12 @@ async fn proxy_tcp_and_udp_use_underlay_and_release_cancelled_associations() {
     let _wire = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
         loop {
             tokio::select! {
-                Some(p)=lp.rx.recv_async()=>{ rp.tx.send_owned_async(p).await; },
+                Some(p)=lp.rx.recv_async()=>{
+                    let meta = crate::direct_gateway::NatPacket::parse(&p).unwrap();
+                    assert_eq!(meta.destination, "203.0.113.2".parse::<std::net::IpAddr>().unwrap());
+                    assert_eq!(meta.destination_port, 9000, "only the final SOCKS relay may receive underlay UDP");
+                    rp.tx.send_owned_async(p).await;
+                },
                 Some(p)=rp.rx.recv_async()=>{ lp.tx.send_owned_async(p).await; },
                 else=>break,
             }
@@ -390,12 +395,22 @@ async fn proxy_tcp_and_udp_use_underlay_and_release_cancelled_associations() {
         .udp_bind("203.0.113.2:9000".parse().unwrap())
         .await
         .unwrap();
+    let echo_udp = Arc::new(AtomicBool::new(true));
+    let relay_packets = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let relay_seen = Arc::new(tokio::sync::Notify::new());
+    let echo_enabled = echo_udp.clone();
+    let received_packets = relay_packets.clone();
+    let received_signal = relay_seen.clone();
     let _relay = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
         loop {
             let Ok((from, data)) = relay.recv_from_bytes().await else {
                 break;
             };
-            relay.send_to(from, &data).await.unwrap();
+            received_packets.fetch_add(1, Ordering::SeqCst);
+            received_signal.notify_one();
+            if echo_enabled.load(Ordering::SeqCst) {
+                relay.send_to(from, &data).await.unwrap();
+            }
         }
     }));
     let (_, health) = watch::channel(crate::netstack::RuntimeHealth::Connected {
@@ -471,7 +486,8 @@ async fn proxy_tcp_and_udp_use_underlay_and_release_cancelled_associations() {
     assert!(proxy.status.borrow().tcp_connect_verified);
     let factory = SocksFactory(proxy.clone());
     let dns_slots = proxy.dns_active.available_permits();
-    let udp = factory.open(&cancel, deadline).await.unwrap();
+    let caller = cancel.child_token();
+    let udp = factory.open(&caller, deadline).await.unwrap();
     assert_eq!(proxy.dns_active.available_permits(), dns_slots);
     udp.send(&target, b"datagram").await.unwrap();
     let received = timeout_at(deadline, udp.recv()).await.unwrap().unwrap();
@@ -479,6 +495,47 @@ async fn proxy_tcp_and_udp_use_underlay_and_release_cancelled_associations() {
     assert_eq!(
         proxy.status.borrow().proxy_udp.as_deref(),
         Some("available")
+    );
+    // Acceptance is not delivery: a silent final relay must neither become
+    // "unavailable" nor cause datagrams to bypass it on the WARP underlay.
+    echo_udp.store(false, Ordering::SeqCst);
+    let received_before = relay_packets.load(Ordering::SeqCst);
+    let blackhole_target = TcpTarget::new("203.0.113.99", 8443).unwrap();
+    udp.send(&blackhole_target, b"blackholed").await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while relay_packets.load(Ordering::SeqCst) == received_before {
+            relay_seen.notified().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), udp.recv())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        proxy.status.borrow().proxy_udp.as_deref(),
+        Some("available")
+    );
+    assert!(!proxy.cancellation.is_cancelled());
+
+    caller.cancel();
+    assert!(timeout_at(deadline, udp.recv()).await.unwrap().is_err());
+    assert!(
+        udp.send(&blackhole_target, b"old association")
+            .await
+            .is_err()
+    );
+    drop(udp);
+    assert_eq!(proxy.active.available_permits(), before - 1);
+    echo_udp.store(true, Ordering::SeqCst);
+    let replacement_caller = cancel.child_token();
+    let udp = factory.open(&replacement_caller, deadline).await.unwrap();
+    udp.send(&blackhole_target, b"replacement").await.unwrap();
+    assert_eq!(
+        timeout_at(deadline, udp.recv()).await.unwrap().unwrap(),
+        (blackhole_target, bytes::Bytes::from_static(b"replacement"))
     );
     peer.stop_udp.cancel();
     assert!(timeout_at(deadline, udp.recv()).await.unwrap().is_err());

@@ -509,6 +509,8 @@ async fn unavailable_policy_open_and_send_reject_tun_udp_in_both_families() {
                 "{failure}: {source}"
             );
             assert_eq!(fixture.metrics.snapshot().udp_rejected, 1);
+            assert_eq!(fixture.protector.direct_attempts.load(Ordering::SeqCst), 0);
+            assert_eq!(fixture.direct_packets.load(Ordering::SeqCst), 0);
             if matches!(failure, "missing" | "policy") {
                 assert_eq!(fixture.associations.opened.load(Ordering::SeqCst), 0);
             }

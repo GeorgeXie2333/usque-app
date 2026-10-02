@@ -186,6 +186,14 @@ confirms the final SOCKS5 server's acceptance of UDP ASSOCIATE, not end-to-end
 delivery. A local DNS-only association does not change that status. Individual
 target failures affect that flow; authentication failure closes the chain.
 
+An ASSOCIATE timeout leaves UDP capability unknown. A server that accepts the
+association can still silently discard datagrams; neither acceptance nor an
+absence of replies is a privacy or reachability guarantee. These outcomes do not
+enable direct or WARP-only fallback. Explicit GEO, LAN/CIDR and Android app
+bypasses remain intentional exceptions. In proxy-only mode, only traffic sent
+to Usque's local listeners is covered; applications that bypass those listeners
+are outside the proxy's protection.
+
 Remote DNS travels through the final proxy using TCP. Valid TUN and local SOCKS5
 UDP/53 queries are converted to TCP DNS at the application's chosen resolver.
 The local SOCKS5 listener accepts DNS-only UDP associations even when HTTP, L4 or
@@ -222,6 +230,11 @@ TUN 会对拒绝的数据报和明确的转发失败返回限速的 ICMP 错误�
 最终 SOCKS5 服务器接受 UDP 关联不等于已验证端到端数据可达；本地仅供 DNS 的关联
 不会改变出口 UDP 状态。仅支持 FRAG=0，含 SOCKS 头的 relay 包
 上限为 16336 字节；TUN 回包须符合 MTU，原有 IP 包限制继续适用。
+
+UDP 关联超时后，能力状态仍为未知；服务器接受关联后也可能静默丢包。接受关联或
+没有收到回包，都不能证明端到端可达或隐私安全，也不会触发直连或仅 WARP 回退。
+显式 GEO、LAN/CIDR 及 Android 应用旁路仍是用户指定的例外。仅代理模式只覆盖
+发送到 Usque 本地监听器的流量，未使用这些监听器的应用流量不在代理保护范围内。
 
 远程 DNS 经最终代理的 TCP 连接发送。TUN 和本地 SOCKS5 的有效 UDP/53 查询均转换
 为 TCP DNS，并保留应用指定的解析器。HTTP、L4 或最终 SOCKS5 服务器不支持普通
