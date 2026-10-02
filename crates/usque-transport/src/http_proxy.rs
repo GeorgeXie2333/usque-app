@@ -40,6 +40,10 @@ use crate::netstack::{
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::{SocketProtector, noop_socket_protector};
 
+#[cfg(test)]
+#[path = "http_proxy/ipv6_tests.rs"]
+mod ipv6_tests;
+
 /// Hyper HTTP/1 `max_buf_size` is both the connection I/O window and the
 /// unparsed-header cap. Independent of the CONNECT/SOCKS5 relay buffer so
 /// relay sizing cannot silently raise the header budget.
@@ -809,8 +813,23 @@ fn parse_destination(value: &str, default_port: u16) -> Result<Destination, Stri
     if port == 0 {
         return Err("proxy target port is zero".to_owned());
     }
+    // URI authorities retain IPv6 brackets, but IP parsing and both local and
+    // edge-resolved dialers require the literal without them. Keep the original
+    // authority for the upstream Host header and connection-pool key.
+    let host = authority.host();
+    let host = if let Some(literal) = host.strip_prefix('[') {
+        let literal = literal
+            .strip_suffix(']')
+            .ok_or_else(|| "invalid IPv6 proxy authority".to_owned())?;
+        literal
+            .parse::<Ipv6Addr>()
+            .map_err(|_| "invalid IPv6 proxy authority".to_owned())?;
+        literal
+    } else {
+        host
+    };
     Ok(Destination {
-        host: authority.host().to_owned(),
+        host: host.to_owned(),
         port,
         authority: authority.to_string(),
         origin_form: None,

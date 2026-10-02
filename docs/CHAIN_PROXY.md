@@ -158,6 +158,10 @@ traffic retains its own end-to-end TLS. HTTP Basic and SOCKS5 passwords are not
 encrypted by those proxy protocols on the WARP-to-proxy leg. Credentials remain
 encrypted at rest and are excluded from settings, summaries and diagnostics.
 
+Applications using the local HTTP proxy can also target IPv6 literals. Keep
+the brackets in CONNECT authorities and URLs, for example `[2001:db8::1]:443`
+and `http://[2001:db8::1]/`.
+
 Both exits carry TCP with H3, H2 and L4. SOCKS5 additionally uses UDP ASSOCIATE
 with H3/H2 when the server accepts it. L4 remains TCP-only for these exits.
 HTTP CONNECT does not carry ordinary UDP. Unsupported proxied UDP is rejected;
@@ -189,6 +193,9 @@ DNS fallback is added.
 URL 或嵌入凭据。可选 DNS 填写数值 IP，以空格、逗号或换行分隔；留空表示连接时
 继承当前网络 DNS。保存后仍需启用链式代理、选用配置并应用。修改凭据在下次连接
 生效；修改服务器、DNS 或认证模式时新增替代配置。
+
+使用本地 HTTP 代理的应用也可访问 IPv6 地址；CONNECT 目标及网址保留方括号，
+例如 `[2001:db8::1]:443` 和 `http://[2001:db8::1]/`。
 
 两种出口在 H3/H2/L4 下均支持 TCP；SOCKS5 在 H3/H2 下可按需使用服务器提供的 UDP
 关联。HTTP 及 L4 下的普通代理 UDP 不可用，失败不会退回仅 WARP 或物理直连。
