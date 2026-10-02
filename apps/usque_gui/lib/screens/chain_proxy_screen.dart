@@ -25,12 +25,10 @@ class ChainProxyScreen extends StatefulWidget {
   const ChainProxyScreen({
     required this.controller,
     this.active = true,
-    this.leaveGuardKey,
     super.key,
   });
   final AppController controller;
   final bool active;
-  final GlobalKey<UnsavedChangesGuardState>? leaveGuardKey;
   @override
   State<ChainProxyScreen> createState() => _ChainProxyScreenState();
 }
@@ -56,9 +54,7 @@ bool _chainPending(ChainExitSettings stored, ChainExitSettings draft) {
 }
 
 class _ChainProxyScreenState extends State<ChainProxyScreen> {
-  final _ownGuard = GlobalKey<UnsavedChangesGuardState>();
-  GlobalKey<UnsavedChangesGuardState> get _guard =>
-      widget.leaveGuardKey ?? _ownGuard;
+  final _guard = GlobalKey<UnsavedChangesGuardState>();
   late ChainSource _source = widget.controller.activeProfile.chainSource;
 
   /// Unapplied drafts, kept while the user compares sources.

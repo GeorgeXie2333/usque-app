@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/diagnostics_models.dart';
+import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/network_quality_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
@@ -206,7 +207,7 @@ void main() {
           await tester.tap(qualityCard);
           await tester.pumpAndSettle();
           expect(find.byType(NetworkQualityScreen), findsOneWidget);
-          expect(navigation, findsNothing);
+          expect(navigation, size.width < 760 ? findsNothing : findsOneWidget);
           expect(app.section, AppSection.settings);
           expect(engine.modes, isEmpty);
           expect(tester.takeException(), isNull);
@@ -585,6 +586,38 @@ void main() {
       app.dispose();
     },
   );
+
+  testWidgets('rail departure closes Quality and the Doctor it opened', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final app = qualityApp(QualityEngineStub())
+      ..selectSection(AppSection.settings);
+    addTearDown(app.dispose);
+    await tester.pumpWidget(host(app, shell: true));
+    await tester.pumpAndSettle();
+    await _openQualityFromSettings(tester, app);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('network-doctor-standard')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(DiagnosticsScreen), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text(app.strings.get('nav_home')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(app.section, AppSection.home);
+    expect(find.byType(DiagnosticsScreen, skipOffstage: false), findsNothing);
+    expect(
+      find.byType(NetworkQualityScreen, skipOffstage: false),
+      findsNothing,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('one tap runs Standard; Deep requires explicit dialog consent', (
     tester,

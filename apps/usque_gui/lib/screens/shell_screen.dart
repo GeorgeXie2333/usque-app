@@ -10,6 +10,7 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/animated_index_stack.dart';
 import '../widgets/controller_selector.dart';
+import '../widgets/section_navigator.dart';
 import 'home_screen.dart';
 import 'profiles_screen.dart';
 import 'proxy_section.dart';
@@ -37,9 +38,24 @@ class ShellScreen extends StatefulWidget {
 class _ShellScreenState extends State<ShellScreen> {
   AppController get controller => widget.controller;
   final _proxySection = GlobalKey<ProxySectionState>();
-  bool _proxySubpageOpen = false;
+  final _sectionNavigators = <AppSection, GlobalKey<SectionNavigatorState>>{
+    AppSection.proxy: GlobalKey<SectionNavigatorState>(),
+    AppSection.settings: GlobalKey<SectionNavigatorState>(),
+  };
+  final _subpageOpen = <AppSection>{};
   bool _changingSection = false;
   bool _openingVpnGate = false;
+
+  ValueChanged<bool> _onSubpageChanged(AppSection section) => (open) {
+    if (!mounted) return;
+    setState(() {
+      if (open) {
+        _subpageOpen.add(section);
+      } else {
+        _subpageOpen.remove(section);
+      }
+    });
+  };
 
   Future<void> _openVpnGate() async {
     if (_openingVpnGate) return;
@@ -65,9 +81,8 @@ class _ShellScreenState extends State<ShellScreen> {
     _changingSection = true;
     final selectedController = controller;
     try {
-      if (controller.section == AppSection.proxy &&
-          !await (_proxySection.currentState?.closeSubpage() ??
-              Future.value(true))) {
+      final navigator = _sectionNavigators[controller.section]?.currentState;
+      if (navigator != null && !await navigator.closeSubpages()) {
         return false;
       }
       if (!mounted || controller != selectedController) return false;
@@ -197,51 +212,59 @@ class _ShellScreenState extends State<ShellScreen> {
           ),
           ProxySection(
             key: _proxySection,
+            navigatorKey: _sectionNavigators[AppSection.proxy]!,
             controller: controller,
             active: section == AppSection.proxy,
-            onSubpageChanged: (open) {
-              if (mounted) setState(() => _proxySubpageOpen = open);
-            },
+            onSubpageChanged: _onSubpageChanged(AppSection.proxy),
           ),
-          ControllerSelector<
-            ({
-              ThemePreference theme,
-              LocalePreference locale,
-              bool networkQualitySupported,
-              bool updateChecksEnabled,
-              UpdateCheckResult? updateResult,
-              UpdateOperationPhase updatePhase,
-              int updateDownloadedBytes,
-              int updateTotalBytes,
-              String? updateError,
-              String? downloadedUpdatePath,
-              bool busy,
-              String? error,
-              String? notice,
-              UsqueProfile profile,
-            })
-          >(
-            key: const ValueKey<String>('settings-controller-selector'),
-            controller: controller,
-            active: (controller) => controller.section == AppSection.settings,
-            selector: (controller) => (
-              theme: controller.themePreference,
-              locale: controller.localePreference,
-              networkQualitySupported:
-                  controller.engineCapabilities?.networkQuality ?? false,
-              updateChecksEnabled: controller.updateChecksEnabled,
-              updateResult: controller.updateResult,
-              updatePhase: controller.updatePhase,
-              updateDownloadedBytes: controller.updateDownloadedBytes,
-              updateTotalBytes: controller.updateTotalBytes,
-              updateError: controller.updateError,
-              downloadedUpdatePath: controller.downloadedUpdatePath,
-              busy: controller.busy,
-              error: controller.lastError,
-              notice: controller.lastNotice,
-              profile: controller.activeProfile,
-            ),
-            builder: (context, _) => SettingsScreen(controller: controller),
+          SectionNavigator(
+            key: _sectionNavigators[AppSection.settings],
+            active: section == AppSection.settings,
+            rootName: '/settings',
+            onSubpageChanged: _onSubpageChanged(AppSection.settings),
+            builder: (context) =>
+                ControllerSelector<
+                  ({
+                    ThemePreference theme,
+                    LocalePreference locale,
+                    bool networkQualitySupported,
+                    bool updateChecksEnabled,
+                    UpdateCheckResult? updateResult,
+                    UpdateOperationPhase updatePhase,
+                    int updateDownloadedBytes,
+                    int updateTotalBytes,
+                    String? updateError,
+                    String? downloadedUpdatePath,
+                    bool busy,
+                    String? error,
+                    String? notice,
+                    UsqueProfile profile,
+                  })
+                >(
+                  key: const ValueKey<String>('settings-controller-selector'),
+                  controller: controller,
+                  active: (controller) =>
+                      controller.section == AppSection.settings,
+                  selector: (controller) => (
+                    theme: controller.themePreference,
+                    locale: controller.localePreference,
+                    networkQualitySupported:
+                        controller.engineCapabilities?.networkQuality ?? false,
+                    updateChecksEnabled: controller.updateChecksEnabled,
+                    updateResult: controller.updateResult,
+                    updatePhase: controller.updatePhase,
+                    updateDownloadedBytes: controller.updateDownloadedBytes,
+                    updateTotalBytes: controller.updateTotalBytes,
+                    updateError: controller.updateError,
+                    downloadedUpdatePath: controller.downloadedUpdatePath,
+                    busy: controller.busy,
+                    error: controller.lastError,
+                    notice: controller.lastNotice,
+                    profile: controller.activeProfile,
+                  ),
+                  builder: (context, _) =>
+                      SettingsScreen(controller: controller),
+                ),
           ),
         ];
         final selected = sections
@@ -318,8 +341,7 @@ class _ShellScreenState extends State<ShellScreen> {
                   ],
                 ),
               ),
-              bottomNavigationBar:
-                  useRail || section == AppSection.proxy && _proxySubpageOpen
+              bottomNavigationBar: useRail || _subpageOpen.contains(section)
                   ? null
                   : DecoratedBox(
                       decoration: BoxDecoration(

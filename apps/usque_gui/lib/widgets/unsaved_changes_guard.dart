@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import 'section_navigator.dart';
 import 'usque_dialog.dart';
 
 /// Intercepts both the visible back link and platform back navigation.
@@ -24,6 +25,23 @@ class UnsavedChangesGuard extends StatefulWidget {
 class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
   bool _discarding = false;
   Future<bool>? _confirmation;
+  SectionNavigatorState? _section;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final section = SectionNavigator.maybeOf(context);
+    if (section == _section) return;
+    _section?.unregisterGuard(this);
+    _section = section?..registerGuard(this);
+  }
+
+  @override
+  void dispose() {
+    _section?.unregisterGuard(this);
+    super.dispose();
+  }
+
   void resetDiscardDecision() {
     if (mounted) setState(() => _discarding = false);
   }
