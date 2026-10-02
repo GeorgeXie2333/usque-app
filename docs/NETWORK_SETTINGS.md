@@ -424,6 +424,16 @@ engines without the capability disable the control and show an update notice.
 不可操作并提示更新。稳定连接中单独应用此设置无需重连，现有 GEO 直连连接保持
 可用；连接中、断开或执行器忙时，界面会显示已保存并延后生效。
 
+HTTP/SOCKS5 chain exits apply this policy automatically at the final frontend.
+While either exit is enabled, the control displays the effective enabled state
+and is read-only with **Managed by this connection**. This does not overwrite
+the manual preference or a pending manual draft; leaving these exits restores
+the preference. Other chain protocols retain the manual policy.
+
+HTTP/SOCKS5 链式出口会自动在最终出口启用此策略。启用这两类出口时，开关显示
+已启用并只读，说明为“由当前连接自动管理”。原有手动偏好及未保存草稿均保留，
+退出这两类出口后恢复；其他链式协议继续遵循手动设置。
+
 The rule uses the same UDP destination-port 443 match as
 [Bettbox](https://github.com/appshubcc/Bettbox/blob/deef948c7291aca75a5bc59bfc00badcb3907630/lib/state.dart#L972),
 with Usque's GEO direct routing taking precedence. Direct UDP/443 remains
@@ -455,6 +465,15 @@ their existing application classification. Only successful application updates
 the confirmed recovery profile. VPN Gate applies the policy at the final
 application frontend; L4 retains its existing UDP limitations. There are no
 new packet logs, DNS probes, firewall rules, or persistent traffic records.
+
+The stream TUN bridge shares one 32-errors-per-second ICMP budget across its
+packet pump and all UDP workers. Rejections, unsupported associations and
+definite relay failures can provide feedback without waiting for a silent UDP
+timeout. Error quotes are bounded and charged to the existing admission budget;
+normal cancellation discards them without generating errors. A blocked QUIC
+source does not allocate a UDP worker or consume a shared TCP slot, and blocked
+destinations do not consume UDP target slots. This does not infer end-to-end UDP
+availability from a successful send or add a blackhole probe.
 
 Regression tests use fake engines, in-memory packet channels, and loopback
 UDP endpoints. Real VPN lifecycle and external leak validation still require

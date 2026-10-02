@@ -105,11 +105,22 @@ void main() {
     QuicEngine engine, {
     bool chinese = false,
     double scale = 1,
+    UsqueProfile? profile,
   }) async {
     tester.view.physicalSize = const Size(390, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    if (profile != null) {
+      engine.storedProfiles = [profile];
+      engine.storedActiveProfileId = profile.id;
+      engine.settingsState = NetworkSettingsState(
+        sourceEpoch: engine.settingsEpoch,
+        sequence: engine.settingsSequence,
+        storedProfile: profile,
+        sharedNetwork: profile,
+      );
+    }
     final app = AppController(engine)
       ..localePreference = chinese
           ? LocalePreference.simplifiedChinese
@@ -118,6 +129,7 @@ void main() {
         phase: ConnectionPhase.connected,
         transport: 'h3',
       );
+    if (profile != null) app.sharedNetwork = profile;
     app.engineCapabilities = await engine.getCapabilities();
     addTearDown(app.dispose);
     await tester.pumpWidget(
@@ -170,6 +182,148 @@ void main() {
       },
     );
   }
+
+  for (final source in [ChainSource.httpProxy, ChainSource.socks5Proxy]) {
+    for (final manualPreference in [false, true]) {
+      for (final chinese in [false, true]) {
+        testWidgets(
+          'proxy exit manages QUIC and restores $manualPreference: $source / $chinese',
+          (tester) async {
+            final engine = QuicEngine();
+            final profile = UsqueProfile.defaultProfile().copyWith(
+              disableQuic: manualPreference,
+              chainExit: ChainExitSettings(
+                enabled: true,
+                source: source,
+                profileId: 'saved-proxy',
+                revision: 'revision-1',
+              ),
+            );
+            final app = await screen(
+              tester,
+              engine,
+              profile: profile,
+              chinese: chinese,
+              scale: 2,
+            );
+            final finder = find.byKey(const ValueKey('disable-quic-switch'));
+            final toggle = tester.widget<SwitchListTile>(finder);
+            expect(toggle.value, isTrue);
+            expect(toggle.onChanged, isNull);
+            expect(
+              find.text(app.strings.get('disable_quic_managed')),
+              findsOneWidget,
+            );
+            expect(app.activeProfile.disableQuic, manualPreference);
+            expect(
+              tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).dirty,
+              isFalse,
+            );
+            // Read-only policy must not turn a keyboard activation into a
+            // persisted manual preference or a hidden pending form edit.
+            toggle.focusNode!.requestFocus();
+            await tester.pump();
+            await tester.sendKeyEvent(LogicalKeyboardKey.space);
+            await tester.pumpAndSettle();
+            expect(app.activeProfile.disableQuic, manualPreference);
+            expect(engine.fields, isNull);
+
+            // A confirmed edit from another surface must update this still-open
+            // page even when EngineCapabilities itself has not changed.
+            expect(
+              await app.saveNetwork(
+                app.activeProfile.copyWith(
+                  chainExit: profile.chainExit!.copyWith(enabled: false),
+                ),
+                changedFields: ['chain_exit'],
+              ),
+              isTrue,
+            );
+            await tester.pumpAndSettle();
+            final restored = tester.widget<SwitchListTile>(finder);
+            expect(restored.value, manualPreference);
+            expect(restored.onChanged, isNotNull);
+            expect(
+              find.text(app.strings.get('disable_quic_managed')),
+              findsNothing,
+            );
+            expect(engine.fields, ['chain_exit']);
+            expect(app.activeProfile.disableQuic, manualPreference);
+            expect(
+              tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).dirty,
+              isFalse,
+            );
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+    }
+  }
+
+  testWidgets('automatic QUIC does not overwrite an existing manual draft', (
+    tester,
+  ) async {
+    final engine = QuicEngine();
+    final app = await screen(tester, engine);
+    final finder = find.byKey(const ValueKey('disable-quic-switch'));
+    tester.widget<SwitchListTile>(finder).onChanged!(true);
+    await tester.pumpAndSettle();
+    expect(app.activeProfile.disableQuic, isFalse);
+    const proxy = ChainExitSettings(
+      enabled: true,
+      source: ChainSource.socks5Proxy,
+      profileId: 'saved-proxy',
+      revision: 'revision-1',
+    );
+    expect(
+      await app.saveNetwork(
+        app.activeProfile.copyWith(chainExit: proxy),
+        changedFields: ['chain_exit'],
+      ),
+      isTrue,
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(finder).onChanged, isNull);
+    expect(app.activeProfile.disableQuic, isFalse);
+    expect(
+      await app.saveNetwork(
+        app.activeProfile.copyWith(chainExit: proxy.copyWith(enabled: false)),
+        changedFields: ['chain_exit'],
+      ),
+      isTrue,
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(finder).value, isTrue);
+    expect(tester.widget<SwitchListTile>(finder).onChanged, isNotNull);
+    expect(app.activeProfile.disableQuic, isFalse);
+    expect(
+      tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).dirty,
+      isTrue,
+    );
+    expect(engine.fields, ['chain_exit']);
+  });
+
+  testWidgets('non-proxy chain keeps the manual QUIC control', (tester) async {
+    final app = await screen(
+      tester,
+      QuicEngine(),
+      profile: UsqueProfile.defaultProfile().copyWith(
+        chainExit: const ChainExitSettings(
+          enabled: true,
+          source: ChainSource.openvpnCustom,
+          profileId: 'saved-vpn',
+          revision: 'revision-1',
+        ),
+      ),
+    );
+    final toggle = tester.widget<SwitchListTile>(
+      find.byKey(const ValueKey('disable-quic-switch')),
+    );
+    expect(toggle.value, isFalse);
+    expect(toggle.onChanged, isNotNull);
+    expect(find.text(app.strings.get('disable_quic_managed')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('unsupported engine disables the setting with an explanation', (
     tester,

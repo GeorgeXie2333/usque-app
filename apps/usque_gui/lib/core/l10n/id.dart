@@ -1,6 +1,7 @@
 /// Indonesian UI catalog.
 const Map<String, String> kIdCatalog = <String, String>{
   'disable_quic': "Nonaktifkan QUIC",
+  'disable_quic_managed': 'Dikelola otomatis oleh koneksi ini',
   'disable_quic_help':
       "Blokir lalu lintas UDP port 443 yang diteruskan Usque, sebagian besar QUIC, agar aplikasi beralih ke TCP. Lalu lintas langsung dan koneksi Usque sendiri tidak terpengaruh. Langsung berlaku.",
   'disable_quic_unsupported':

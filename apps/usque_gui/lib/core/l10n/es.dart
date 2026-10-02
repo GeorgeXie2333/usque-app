@@ -1,6 +1,7 @@
 /// Spanish UI catalog.
 const Map<String, String> kEsCatalog = <String, String>{
   'disable_quic': "Desactivar QUIC",
+  'disable_quic_managed': 'Esta conexión lo gestiona automáticamente',
   'disable_quic_help':
       "Bloquea el tráfico UDP del puerto 443 reenviado por Usque, principalmente QUIC, para que las aplicaciones pasen a TCP. El tráfico directo y la conexión propia de Usque no se ven afectados. Se aplica al instante.",
   'disable_quic_unsupported':

@@ -162,6 +162,15 @@ Applications using the local HTTP proxy can also target IPv6 literals. Keep
 the brackets in CONNECT authorities and URLs, for example `[2001:db8::1]:443`
 and `http://[2001:db8::1]/`.
 
+HTTP and SOCKS5 exits automatically prefer TCP for web traffic by blocking
+application UDP/443 on the proxy path. The existing QUIC control shows that it
+is managed by the current connection; the saved manual preference is retained
+and takes effect again after leaving these exits. Direct traffic, DNS conversion,
+other UDP ports and Usque's own HTTP/3 transport keep their existing behavior.
+TUN clients receive rate-limited ICMP errors for rejected datagrams and definite
+relay failures. Local SOCKS5 clients retain DNS-only associations and use their
+own fallback behavior; SOCKS5 has no per-datagram error reply.
+
 Both exits carry TCP with H3, H2 and L4. SOCKS5 additionally uses UDP ASSOCIATE
 with H3/H2 when the server accepts it. L4 remains TCP-only for these exits.
 HTTP CONNECT does not carry ordinary UDP. Unsupported proxied UDP is rejected;
@@ -197,6 +206,12 @@ URL 或嵌入凭据。可选 DNS 填写数值 IP，以空格、逗号或换行�
 使用本地 HTTP 代理的应用也可访问 IPv6 地址；CONNECT 目标及网址保留方括号，
 例如 `[2001:db8::1]:443` 和 `http://[2001:db8::1]/`。
 
+HTTP 与 SOCKS5 出口会自动让网页优先使用 TCP，拦截代理路径上的应用 UDP/443。
+现有开关显示“由当前连接自动管理”，保留原手动设置，退出这两类出口后恢复原设置。
+直连流量、DNS 转换、其他 UDP 端口及 Usque 自身的 HTTP/3 传输保持原有行为。
+TUN 会对拒绝的数据报和明确的转发失败返回限速的 ICMP 错误；本地 SOCKS5 仍保留
+仅供 DNS 的关联，由客户端自行决定回退方式，SOCKS5 无法逐数据报回复错误。
+
 两种出口在 H3/H2/L4 下均支持 TCP；SOCKS5 在 H3/H2 下可按需使用服务器提供的 UDP
 关联。HTTP 及 L4 下的普通代理 UDP 不可用，失败不会退回仅 WARP 或物理直连。
 “已就绪”不代表目标转发已验证；实际 CONNECT 成功后才显示“TCP 转发已验证”。
@@ -224,7 +239,7 @@ HTTP 出口未使用到代理服务器的 TLS；HTTP Basic 和 SOCKS5 认证在 
 | WARP via WireGuard, UDP | Supported | Cannot enable |
 | VPN Gate, directory TCP | Supported | Supported |
 | HTTP CONNECT | TCP | TCP |
-| SOCKS5 | TCP; UDP when accepted by server | TCP |
+| SOCKS5 | TCP; UDP when accepted by server, except proxied UDP/443 | TCP |
 
 L4 can store UDP and WireGuard imports. Enabling them requires the explicit
 **Turn off L4 and apply** action, which replaces the action bar's

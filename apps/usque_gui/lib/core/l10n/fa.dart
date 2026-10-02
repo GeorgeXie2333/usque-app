@@ -1,6 +1,7 @@
 /// Persian UI catalog.
 const Map<String, String> kFaCatalog = <String, String>{
   'disable_quic': "غیرفعال کردن QUIC",
+  'disable_quic_managed': 'به‌طور خودکار توسط اتصال فعلی مدیریت می‌شود',
   'disable_quic_help':
       "ترافیک UDP 443 عبوری از Usque (بیشتر QUIC) را مسدود می‌کند تا برنامه‌ها به TCP برگردند. ترافیک مستقیم و اتصال خود Usque تغییری نمی‌کند. بلافاصله اعمال می‌شود.",
   'disable_quic_unsupported':

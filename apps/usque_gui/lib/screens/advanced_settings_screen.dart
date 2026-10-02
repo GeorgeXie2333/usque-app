@@ -188,13 +188,23 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => ControllerSelector<EngineCapabilities?>(
-    controller: widget.controller,
-    selector: (controller) => controller.engineCapabilities,
-    builder: (context, _) => _buildSettings(context),
-  );
+  Widget build(BuildContext context) =>
+      ControllerSelector<
+        ({EngineCapabilities? capabilities, bool managedQuic})
+      >(
+        controller: widget.controller,
+        selector: (controller) {
+          final profile = controller.activeProfile;
+          return (
+            capabilities: controller.engineCapabilities,
+            managedQuic: profile.chainEnabled && profile.chainSource.isProxy,
+          );
+        },
+        builder: (context, view) =>
+            _buildSettings(context, managedQuic: view.managedQuic),
+      );
 
-  Widget _buildSettings(BuildContext context) {
+  Widget _buildSettings(BuildContext context, {required bool managedQuic}) {
     final strings = widget.controller.strings;
     final l4Available =
         widget.controller.engineCapabilities?.l4Available ?? false;
@@ -585,17 +595,22 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                         contentPadding: EdgeInsets.zero,
                         title: Text(strings.get('disable_quic')),
                         subtitle: Text(
-                          widget
-                                      .controller
-                                      .engineCapabilities
-                                      ?.applicationQuicBlocking ==
-                                  true
+                          managedQuic
+                              ? strings.get('disable_quic_managed')
+                              : widget
+                                        .controller
+                                        .engineCapabilities
+                                        ?.applicationQuicBlocking ==
+                                    true
                               ? strings.get('disable_quic_help')
                               : strings.get('disable_quic_unsupported'),
                         ),
-                        value: _disableQuic,
+                        // The exit policy is effective without changing the
+                        // user's saved preference or this page's manual draft.
+                        value: managedQuic || _disableQuic,
                         onChanged:
                             _saving ||
+                                managedQuic ||
                                 widget
                                         .controller
                                         .engineCapabilities

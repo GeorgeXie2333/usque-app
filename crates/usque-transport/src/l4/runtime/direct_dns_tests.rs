@@ -207,6 +207,13 @@ async fn final_proxy_encrypted_direct_dns_fails_closed_without_plaintext_fallbac
             )
             .await
             .unwrap();
+            assert!(runtime.services.traffic_policy.blocks_udp(443));
+            runtime.update_traffic_policy(false);
+            assert!(runtime.services.traffic_policy.blocks_udp(443));
+            runtime.update_traffic_policy(true);
+            assert!(runtime.services.traffic_policy.blocks_udp(443));
+            assert!(!runtime.services.traffic_policy.blocks_udp(53));
+            assert!(!runtime.services.traffic_policy.blocks_udp(8443));
             let resolver = runtime
                 .diagnostic_dns_context()
                 .0

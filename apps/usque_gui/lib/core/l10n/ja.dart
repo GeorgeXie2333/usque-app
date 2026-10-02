@@ -1,6 +1,7 @@
 /// Japanese UI catalog.
 const Map<String, String> kJaCatalog = <String, String>{
   'disable_quic': "QUIC を無効化",
+  'disable_quic_managed': '現在の接続が自動的に管理します',
   'disable_quic_help':
       "Usque が転送する UDP 443 番ポートの通信（主に QUIC）をブロックし、アプリに TCP を使わせます。直接接続の通信と Usque 自身の接続には影響しません。すぐに反映されます。",
   'disable_quic_unsupported':

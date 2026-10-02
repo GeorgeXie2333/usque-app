@@ -1,6 +1,7 @@
 /// Thai UI catalog.
 const Map<String, String> kThCatalog = <String, String>{
   'disable_quic': "ปิดใช้งาน QUIC",
+  'disable_quic_managed': 'จัดการโดยอัตโนมัติตามการเชื่อมต่อปัจจุบัน',
   'disable_quic_help':
       "บล็อกทราฟฟิก UDP พอร์ต 443 ที่ Usque ส่งต่อ ซึ่งส่วนใหญ่เป็น QUIC เพื่อให้แอปกลับไปใช้ TCP ไม่กระทบทราฟฟิกโดยตรงและการเชื่อมต่อของ Usque เอง มีผลทันที",
   'disable_quic_unsupported':

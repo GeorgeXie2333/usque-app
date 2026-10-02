@@ -105,6 +105,15 @@ impl BufferBudget {
         }))
     }
 
+    /// Retained diagnostic quotes must leave DATA progress headroom available.
+    pub(crate) fn copy_admission(self: &Arc<Self>, bytes: &[u8]) -> Option<Bytes> {
+        let lease = self.reserve_admission(bytes.len())?;
+        Some(Bytes::from_owner(OwnedBuffer {
+            bytes: bytes.to_vec(),
+            _lease: lease,
+        }))
+    }
+
     #[cfg(test)]
     pub(crate) fn available(&self) -> usize {
         self.permits.available_permits()
@@ -414,5 +423,30 @@ impl Drop for L4Stream {
         state.budget_waiter.take();
         drop(state);
         self.0.wake.notify_one();
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    #[test]
+    fn retained_packet_quotes_cannot_consume_data_progress_headroom() {
+        let budget = Arc::new(BufferBudget::new(
+            1024,
+            Arc::default(),
+            Arc::new(Notify::new()),
+        ));
+        let quote = budget.copy_admission(&[0; 896]).unwrap();
+        assert_eq!(budget.available(), 128);
+        assert!(budget.copy_admission(&[0]).is_none());
+        let data = budget
+            .copy(&[1; 128])
+            .expect("DATA can use the reserved progress margin");
+        assert_eq!(budget.available(), 0);
+        drop(quote);
+        assert_eq!(budget.available(), 896);
+        drop(data);
+        assert_eq!(budget.available(), 1024);
     }
 }

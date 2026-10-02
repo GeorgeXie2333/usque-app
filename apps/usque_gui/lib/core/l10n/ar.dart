@@ -1,6 +1,7 @@
 /// Arabic UI catalog.
 const Map<String, String> kArCatalog = <String, String>{
   'disable_quic': "تعطيل QUIC",
+  'disable_quic_managed': 'يديره الاتصال الحالي تلقائيًا',
   'disable_quic_help':
       "يحظر حركة UDP 443 التي يمررها Usque، ومعظمها QUIC، لتعود التطبيقات إلى TCP. لا تتأثر حركة البيانات المباشرة ولا اتصال Usque نفسه. يسري فورًا.",
   'disable_quic_unsupported':

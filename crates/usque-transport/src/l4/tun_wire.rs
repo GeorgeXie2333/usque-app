@@ -203,6 +203,19 @@ mod tests {
             assert_eq!(response_meta.source, meta.destination);
             let rejected = udp_unreachable(&request, &meta).unwrap();
             assert!(rejected.len() <= 1280);
+            if meta.version == 4 {
+                assert_eq!(rejected[9], 1);
+                assert_eq!(&rejected[20..22], &[3, 3]);
+                assert_eq!(checksum(&rejected[..20]), 0);
+                assert_eq!(checksum(&rejected[20..]), 0);
+            } else {
+                assert_eq!(rejected[6], 58);
+                assert_eq!(&rejected[40..42], &[1, 4]);
+                assert_eq!(
+                    pseudo_checksum(meta.destination, meta.source, 58, &rejected[40..]),
+                    0
+                );
+            }
         }
     }
 }

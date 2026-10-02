@@ -19,7 +19,8 @@ use usque_core::Profile;
 
 use super::performance::{MeasuredSender, QueuedPacket, TunWriteObserver};
 use super::stream::BufferLease;
-use super::tun_wire::{TcpReset, reply_allowed, udp_response, udp_unreachable, valid_transport};
+use super::tun_reject::UdpRejector;
+use super::tun_wire::{TcpReset, reply_allowed, udp_response, valid_transport};
 use super::{BufferBudget, L4Metrics, Limits};
 use crate::direct_gateway::{NatPacket, rewrite_destination, rewrite_source};
 use crate::geo_direct::{GeoRoute, RoutedTcpStream, connect_direct_ip};
@@ -269,14 +270,15 @@ impl TunBridge {
         let tracked_flows = flow_tasks.clone();
         let udp_idle = profile.proxy.udp_idle_timeout_seconds;
         let udp_enabled = profile.data_plane != usque_core::DataPlaneMode::L4Proxy;
+        let udp_rejector =
+            UdpRejector::new(response_tx.clone(), metrics.clone(), cancellation.clone());
         let task = tokio::spawn(async move {
-            let mut udp_flows = super::tun_udp::UdpFlows::new(udp_idle, resolver.hints());
+            let mut udp_flows =
+                super::tun_udp::UdpFlows::new(udp_idle, resolver.hints(), udp_rejector.clone());
             let mut jobs = JoinSet::new();
             let dns_permits = Arc::new(Semaphore::new(80));
             let tcp_permits = Arc::new(Semaphore::new(limits.active));
             let mut sweep = tokio::time::interval(Duration::from_secs(1));
-            let mut icmp_window = Instant::now();
-            let mut icmp_count = 0u16;
             loop {
                 let packet = tokio::select! {
                     _ = task_cancel.cancelled() => break,
@@ -323,6 +325,17 @@ impl TunBridge {
                             let wire = udp_response(&meta, &response);
                             tokio::select! { _ = cancel.cancelled() => {}, _ = replies.send(wire) => {} }
                         }));
+                    } else if services.traffic_policy.blocks_udp(meta.destination_port)
+                        && resolver.hints().route_ip(
+                            meta.destination,
+                            services.protector.network_generation(),
+                            &services.geo_policy,
+                        ) != GeoRoute::Direct
+                    {
+                        // Reject known tunnel policy failures before a new
+                        // source can consume a worker's shared TCP slot/buffers.
+                        // Workers recheck after routing changes or direct failure.
+                        udp_rejector.reject(&packet, &meta);
                     } else if udp_enabled
                         && (services.udp.is_some()
                             || resolver.hints().route_ip(
@@ -344,17 +357,7 @@ impl TunBridge {
                     {
                         // The bounded worker owns this datagram until relay completion.
                     } else {
-                        pump_metrics.update(|m| m.udp_rejected += 1);
-                        if icmp_window.elapsed() >= Duration::from_secs(1) {
-                            icmp_window = Instant::now();
-                            icmp_count = 0;
-                        }
-                        if icmp_count < 32
-                            && let Some(error) = udp_unreachable(&packet, &meta)
-                        {
-                            icmp_count += 1;
-                            let _ = response_tx.try_send(error);
-                        }
+                        udp_rejector.reject(&packet, &meta);
                     }
                     continue;
                 }

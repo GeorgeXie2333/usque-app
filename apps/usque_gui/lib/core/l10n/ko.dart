@@ -1,6 +1,7 @@
 /// Korean UI catalog.
 const Map<String, String> kKoCatalog = <String, String>{
   'disable_quic': "QUIC 비활성화",
+  'disable_quic_managed': '현재 연결에서 자동으로 관리합니다',
   'disable_quic_help':
       "Usque가 전달하는 UDP 443 포트 트래픽(주로 QUIC)을 차단해 앱이 TCP를 사용하도록 합니다. 직접 연결 트래픽과 Usque 자체 연결에는 영향이 없습니다. 즉시 적용됩니다.",
   'disable_quic_unsupported':

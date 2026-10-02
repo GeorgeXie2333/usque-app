@@ -1,6 +1,7 @@
 /// Turkish UI catalog.
 const Map<String, String> kTrCatalog = <String, String>{
   'disable_quic': "QUIC’i devre dışı bırak",
+  'disable_quic_managed': 'Bu bağlantı tarafından otomatik olarak yönetilir',
   'disable_quic_help':
       "Usque’nin ilettiği UDP 443 trafiğini (çoğunlukla QUIC) engeller; böylece uygulamalar TCP’ye geçer. Doğrudan trafik ve Usque’nin kendi bağlantısı etkilenmez. Hemen uygulanır.",
   'disable_quic_unsupported':

@@ -1,6 +1,7 @@
 /// Ukrainian UI catalog.
 const Map<String, String> kUkCatalog = <String, String>{
   'disable_quic': "Вимкнути QUIC",
+  'disable_quic_managed': 'Автоматично керується поточним з’єднанням',
   'disable_quic_help':
       "Блокує трафік UDP 443, який пересилає Usque (переважно QUIC), щоб програми переходили на TCP. Прямий трафік і власне з’єднання Usque не змінюються. Діє одразу.",
   'disable_quic_unsupported':

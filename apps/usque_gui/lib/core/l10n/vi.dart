@@ -1,6 +1,7 @@
 /// Vietnamese UI catalog.
 const Map<String, String> kViCatalog = <String, String>{
   'disable_quic': "Tắt QUIC",
+  'disable_quic_managed': 'Được kết nối hiện tại quản lý tự động',
   'disable_quic_help':
       "Chặn lưu lượng UDP cổng 443 do Usque chuyển tiếp, chủ yếu là QUIC, để ứng dụng chuyển sang TCP. Lưu lượng trực tiếp và kết nối riêng của Usque không bị ảnh hưởng. Có hiệu lực ngay.",
   'disable_quic_unsupported':

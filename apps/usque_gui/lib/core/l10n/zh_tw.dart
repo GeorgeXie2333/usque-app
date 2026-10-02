@@ -1,6 +1,7 @@
 /// Traditional Chinese (Taiwan) UI catalog.
 const Map<String, String> kZhTwCatalog = <String, String>{
   'disable_quic': "停用 QUIC",
+  'disable_quic_managed': '由目前連線自動管理',
   'disable_quic_help':
       "封鎖經由 Usque 轉送的 UDP 443 流量（主要是 QUIC），讓應用程式改用 TCP。直連流量與 Usque 本身的連線不受影響，立即生效。",
   'disable_quic_unsupported': '目前無法停用 QUIC。請重新啟動 Usque；若仍無法使用，請到「設定」檢查更新。',

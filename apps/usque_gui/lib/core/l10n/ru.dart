@@ -1,6 +1,7 @@
 /// Russian UI catalog.
 const Map<String, String> kRuCatalog = <String, String>{
   'disable_quic': "Отключить QUIC",
+  'disable_quic_managed': 'Автоматически управляется текущим подключением',
   'disable_quic_help':
       "Блокирует трафик UDP 443, пересылаемый Usque (в основном QUIC), чтобы приложения переходили на TCP. Прямой трафик и собственное соединение Usque не затрагиваются. Применяется сразу.",
   'disable_quic_unsupported':

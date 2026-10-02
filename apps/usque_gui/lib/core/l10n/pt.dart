@@ -1,6 +1,7 @@
 /// Portuguese (Brazil) UI catalog.
 const Map<String, String> kPtCatalog = <String, String>{
   'disable_quic': "Desativar QUIC",
+  'disable_quic_managed': 'Gerenciado automaticamente por esta conexão',
   'disable_quic_help':
       "Bloqueia o tráfego UDP na porta 443 encaminhado pelo Usque, principalmente QUIC, para que os aplicativos passem a usar TCP. O tráfego direto e a própria conexão do Usque não são afetados. Entra em vigor imediatamente.",
   'disable_quic_unsupported':

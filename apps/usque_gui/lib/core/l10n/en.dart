@@ -1,6 +1,7 @@
 /// English UI catalog.
 const Map<String, String> kEnCatalog = <String, String>{
   'disable_quic': "Disable QUIC",
+  'disable_quic_managed': 'Automatically managed by this connection',
   'disable_quic_help':
       "Block UDP port 443 traffic forwarded by Usque, mostly QUIC, so apps fall back to TCP. Direct traffic and Usque’s own connection are unaffected. Takes effect immediately.",
   'disable_quic_unsupported':

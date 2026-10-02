@@ -1,6 +1,7 @@
 /// Polish UI catalog.
 const Map<String, String> kPlCatalog = <String, String>{
   'disable_quic': "Wyłącz QUIC",
+  'disable_quic_managed': 'Zarządzane automatycznie przez bieżące połączenie',
   'disable_quic_help':
       "Blokuje przekazywany przez Usque ruch UDP 443, głównie QUIC, aby aplikacje przeszły na TCP. Ruch bezpośredni i własne połączenie Usque pozostają bez zmian. Działa od razu.",
   'disable_quic_unsupported':

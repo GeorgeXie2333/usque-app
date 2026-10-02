@@ -1,6 +1,7 @@
 /// French UI catalog.
 const Map<String, String> kFrCatalog = <String, String>{
   'disable_quic': "Désactiver QUIC",
+  'disable_quic_managed': 'Géré automatiquement par cette connexion',
   'disable_quic_help':
       "Bloque le trafic UDP 443 transmis par Usque, principalement QUIC, pour que les applications repassent en TCP. Le trafic direct et la connexion propre d’Usque ne sont pas concernés. Prend effet immédiatement.",
   'disable_quic_unsupported':

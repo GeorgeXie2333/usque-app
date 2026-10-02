@@ -1,6 +1,7 @@
 /// Dutch UI catalog.
 const Map<String, String> kNlCatalog = <String, String>{
   'disable_quic': "QUIC uitschakelen",
+  'disable_quic_managed': 'Automatisch beheerd door deze verbinding',
   'disable_quic_help':
       "Blokkeert door Usque doorgestuurd verkeer op UDP-poort 443, vooral QUIC, zodat apps terugvallen op TCP. Direct verkeer en de eigen verbinding van Usque blijven ongemoeid. Werkt meteen.",
   'disable_quic_unsupported':

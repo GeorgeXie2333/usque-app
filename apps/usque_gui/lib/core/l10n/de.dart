@@ -1,6 +1,7 @@
 /// German UI catalog.
 const Map<String, String> kDeCatalog = <String, String>{
   'disable_quic': "QUIC deaktivieren",
+  'disable_quic_managed': 'Automatisch von dieser Verbindung verwaltet',
   'disable_quic_help':
       "Blockiert von Usque weitergeleiteten Verkehr auf UDP-Port 443, meist QUIC, sodass Apps auf TCP ausweichen. Direktverkehr und die eigene Verbindung von Usque sind nicht betroffen. Wirkt sofort.",
   'disable_quic_unsupported':
