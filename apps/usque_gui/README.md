@@ -8,6 +8,20 @@ Desktop builds start the Rust sidecar and talk to it over current-user IPC. Andr
 
 Build and test commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Feature status is in [docs/IMPLEMENTATION.md](../../docs/IMPLEMENTATION.md).
 
+## Linux development preview
+
+Linux/WSL developers can run `bash tool/dev.sh preview` from the repository root
+to open the debug-only UI preview with hot reload, simulated connection states,
+sample traffic and an onboarding reset. Accounts, preferences and settings stay
+in memory; no engine process, VPN or update operation starts. Linux is a
+development preview, not a supported VPN product or release platform. See the
+[Linux development guide](../../docs/LINUX_DEVELOPMENT.md) for native editing,
+checks, limitations and ignored local files. Windows golden validation remains
+required.
+
+Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状态和重新开始首次引导。
+数据仅在内存中保存，Windows golden 基线仍须在 Windows 验证。
+
 ## Editing and navigation
 
 - First launch keeps four steps: welcome, system permissions, Cloudflare terms and account setup. Android requires VPN authorization in the permissions step; notification authorization is optional and is requested afterward. Authorizing VPN may disconnect another VPN app, but onboarding does not start a connection. Previously completed installations enter Home normally, and connection startup rechecks revoked VPN authorization.

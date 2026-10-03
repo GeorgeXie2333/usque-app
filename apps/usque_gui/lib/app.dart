@@ -9,6 +9,7 @@ import 'screens/shell_screen.dart';
 import 'services/engine_client.dart';
 import 'services/engine_client_factory.dart';
 import 'services/platform_shell_bridge.dart';
+import 'services/update_downloader.dart';
 import 'state/app_controller.dart';
 import 'state/window_frame.dart';
 import 'widgets/controller_selector.dart';
@@ -24,9 +25,10 @@ typedef _BootstrapView = ({
 });
 
 class UsqueBootstrap extends StatefulWidget {
-  const UsqueBootstrap({super.key, this.engine});
+  const UsqueBootstrap({super.key, this.engine, this.updateDownloader});
 
   final EngineClient? engine;
+  final UpdateDownloader? updateDownloader;
 
   @override
   State<UsqueBootstrap> createState() => _UsqueBootstrapState();
@@ -39,7 +41,10 @@ class _UsqueBootstrapState extends State<UsqueBootstrap> {
   @override
   void initState() {
     super.initState();
-    controller = AppController(widget.engine ?? createDefaultEngineClient());
+    controller = AppController(
+      widget.engine ?? createDefaultEngineClient(),
+      updateDownloader: widget.updateDownloader,
+    );
     shellBridge = PlatformShellBridge(controller);
     controller.initialize();
   }

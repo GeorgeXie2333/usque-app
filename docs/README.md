@@ -36,6 +36,7 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | [Development-machine safety](../CONTRIBUTING.md#development-machines) | Workstation limits, isolation, and evidence requirements / 开发机安全边界与验证要求 |
 | [Implementation progress](IMPLEMENTATION.md) | Source-tree milestones, not proof of a test run / 源码实现进度，不等同于测试通过 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
+| [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |
 | [Release process](RELEASE.md) | Candidate preparation, approval, signing, and publication / 候选包、审批、签名与发布 |
 | [Flutter release symbols](FLUTTER_SYMBOLS.md) | Separate and archive matching Dart symbols; restore stack traces / 分离、归档 Dart 符号与还原堆栈 |

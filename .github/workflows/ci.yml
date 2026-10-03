@@ -298,6 +298,15 @@ jobs:
         working-directory: apps/usque_gui
         run: flutter --suppress-analytics test --no-pub --exclude-tags golden
 
+      - name: Install Linux preview build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+
+      - name: Compile Linux debug UI preview
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics build linux --debug --no-pub -t lib/main_preview.dart
+
   flutter-goldens:
     name: Flutter golden images (Windows)
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}

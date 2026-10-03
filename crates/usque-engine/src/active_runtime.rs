@@ -67,6 +67,7 @@ pub(crate) struct HarnessRuntime {
     pub(crate) stop_requested: tokio_util::sync::CancellationToken,
     pub(crate) stopped: tokio_util::sync::CancellationToken,
     pub(crate) failure_retained: bool,
+    #[cfg(windows)]
     pub(crate) fail_protected_reconnect: bool,
     pub(crate) shutdown_failures: u32,
     pub(crate) shutdown_attempts: Arc<std::sync::atomic::AtomicUsize>,
@@ -117,6 +118,7 @@ impl HarnessRuntime {
             stop_requested: tokio_util::sync::CancellationToken::new(),
             stopped: tokio_util::sync::CancellationToken::new(),
             failure_retained: false,
+            #[cfg(windows)]
             fail_protected_reconnect: false,
             shutdown_failures: 0,
             shutdown_attempts: Arc::default(),

@@ -76,6 +76,11 @@ material, generated JNI libraries, build directories, logs, diagnostics, or
 release artifacts. Official signing rules are in
 [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
+Linux/WSL setup, native editing, debug UI preview and the Linux check wrapper
+are described in [Linux development](docs/LINUX_DEVELOPMENT.md). The wrapper
+uses Linux tools without a Windows checkout. It does not replace the Windows
+or isolated checks in the matrix below.
+
 ## Branches, commits, and pull requests
 
 1. Branch from an up-to-date `main`. Long-lived local branches are fine; the pull request still targets `main`.
@@ -185,6 +190,16 @@ on Windows with `flutter test --no-pub --tags golden`. CI requires both the
 Ubuntu widget suite and the Windows golden suite in `CI / gate`; neither is
 optional. Keep exact pixel comparison. Regenerate baselines only on Windows
 with the pinned SDK, review every visual diff, and never update them in CI.
+
+Linux preview changes additionally require a debug compile with the pinned SDK:
+
+```shell
+flutter build linux --debug --no-pub -t lib/main_preview.dart
+```
+
+Run this from `apps/usque_gui` after the Flutter checks above. The preview uses
+an in-memory engine and does not establish native Linux VPN support or replace
+Windows validation.
 
 ### Android Rust and Kotlin
 
