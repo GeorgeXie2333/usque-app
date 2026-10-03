@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/chain_scope_presentation.dart';
 import '../core/chain_strings.dart';
 import '../models/app_models.dart';
 import '../models/network_settings.dart';
@@ -38,6 +39,7 @@ typedef _ControlsView = ({
   bool http,
   bool systemProxy,
   bool chainEnabled,
+  ChainScopePresentation scope,
   String? failure,
   bool unconfirmed,
   bool reconnect,
@@ -122,6 +124,11 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
       http: profile.frontends.http,
       systemProxy: profile.proxy.systemProxy,
       chainEnabled: profile.chainEnabled,
+      scope: ChainScopePresentation.of(
+        app.snapshot,
+        state?.appliedProfile,
+        isAndroid: false,
+      ),
       failure:
           failed || unknown || deferredFailure || settings.saveError != null
           ? app.networkSettingsMessage
@@ -291,16 +298,27 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
                 icon: LucideIcons.link,
                 bottomSpacing: 2,
                 onOpen: _saving ? null : widget.onOpenChainProxy,
-                option: TextButton.icon(
-                  key: const ValueKey('home-chain-proxy-settings'),
-                  onPressed: _saving ? null : widget.onOpenChainProxy,
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    alignment: AlignmentDirectional.centerStart,
-                  ),
-                  iconAlignment: IconAlignment.end,
-                  icon: const Icon(LucideIcons.chevronRight, size: 16),
-                  label: Text(strings.get('settings')),
+                option: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!view.scope.isEmpty)
+                      Text(
+                        view.scope.message(strings),
+                        key: const ValueKey('home-chain-scope'),
+                      ),
+                    TextButton.icon(
+                      key: const ValueKey('home-chain-proxy-settings'),
+                      onPressed: _saving ? null : widget.onOpenChainProxy,
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        alignment: AlignmentDirectional.centerStart,
+                      ),
+                      iconAlignment: IconAlignment.end,
+                      icon: const Icon(LucideIcons.chevronRight, size: 16),
+                      label: Text(strings.get('settings')),
+                    ),
+                  ],
                 ),
                 switchKey: const ValueKey('home-chain-proxy-switch'),
                 value: view.chainEnabled,

@@ -371,7 +371,16 @@ const Map<String, String> kChainIt = <String, String>{
   "proxy_ready": "Pronto · inoltro TCP non verificato",
   "proxy_verified": "Inoltro TCP verificato",
   "udp_unknown": "UDP: non verificato",
-  "udp_available": "Associazione UDP disponibile",
+  "scope_proxy_only":
+      "Usque inoltra solo le connessioni che le app gli inviano. Le altre connessioni possono rivelare il tuo indirizzo IP pubblico.",
+  "scope_bypass":
+      "Le regole di connessione diretta e per singola app restano attive.",
+  "scope_interrupted":
+      "La connessione si è interrotta. Il dispositivo potrebbe tornare alla normale connessione di rete.",
+  "scope_android_settings":
+      "Per mantenere il blocco dopo l’arresto del servizio, attiva VPN sempre attiva e Blocca connessioni senza VPN nelle impostazioni di sistema.",
+  "udp_available":
+      "Associazione UDP accettata; inoltro end-to-end non verificato",
   "udp_unavailable": "UDP non disponibile",
 
   "batch_title": "Importa configurazioni",

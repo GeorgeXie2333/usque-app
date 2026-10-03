@@ -293,7 +293,11 @@ const Map<String, String> kChainZhTw = <String, String>{
   "proxy_ready": "已就緒 · TCP 轉送尚未驗證",
   "proxy_verified": "TCP 轉送已驗證",
   "udp_unknown": "UDP：尚未驗證",
-  "udp_available": "UDP 關聯可用",
+  "scope_proxy_only": "目前僅代理應用程式交給 Usque 的連線，其他連線可能顯示本機公用 IP。",
+  "scope_bypass": "已設定的直接連線和個別應用程式規則仍然生效。",
+  "scope_interrupted": "連線已中斷，裝置可能恢復一般網路連線。",
+  "scope_android_settings": "如需在服務停止後繼續封鎖，請在系統設定中開啟「一律啟用 VPN」和「封鎖未使用 VPN 的連線」。",
+  "udp_available": "UDP 關聯已接受，端對端轉送尚未驗證",
   "udp_unavailable": "UDP 無法使用",
 
   "batch_title": "批次匯入設定",

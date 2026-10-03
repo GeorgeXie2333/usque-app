@@ -333,7 +333,13 @@ const Map<String, String> kChainAr = <String, String>{
   "proxy_ready": "جاهز · لم يتم التحقق من تمرير TCP",
   "proxy_verified": "تم التحقق من تمرير TCP",
   "udp_unknown": "UDP: لم يتم التحقق",
-  "udp_available": "ارتباط UDP متاح",
+  "scope_proxy_only":
+      "يمرر Usque حاليًا الاتصالات التي ترسلها التطبيقات إليه فقط. قد تكشف الاتصالات الأخرى عنوان IP العام لجهازك.",
+  "scope_bypass": "تظل قواعد الاتصال المباشر والقواعد الخاصة بكل تطبيق سارية.",
+  "scope_interrupted": "انقطع الاتصال. قد يعود جهازك إلى اتصال الشبكة المعتاد.",
+  "scope_android_settings":
+      "لمواصلة الحظر بعد توقف الخدمة، فعّل VPN دائم التشغيل وحظر الاتصالات بدون VPN في إعدادات النظام.",
+  "udp_available": "تم قبول ارتباط UDP؛ لم يتم التحقق من التمرير بين الطرفين",
   "udp_unavailable": "UDP غير متاح",
 
   "batch_title": "استيراد الإعدادات",

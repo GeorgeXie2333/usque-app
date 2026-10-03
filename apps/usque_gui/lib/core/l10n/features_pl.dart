@@ -366,7 +366,16 @@ const Map<String, String> kChainPl = <String, String>{
   "proxy_ready": "Gotowe · przekazywanie TCP niesprawdzone",
   "proxy_verified": "Przekazywanie TCP sprawdzone",
   "udp_unknown": "UDP: niesprawdzone",
-  "udp_available": "Powiązanie UDP dostępne",
+  "scope_proxy_only":
+      "Usque pośredniczy tylko w połączeniach kierowanych do niego przez aplikacje. Inne połączenia mogą ujawnić Twój publiczny adres IP.",
+  "scope_bypass":
+      "Twoje reguły połączeń bezpośrednich i poszczególnych aplikacji nadal obowiązują.",
+  "scope_interrupted":
+      "Połączenie zostało przerwane. Urządzenie może wrócić do zwykłego połączenia sieciowego.",
+  "scope_android_settings":
+      "Aby blokować po zatrzymaniu usługi, włącz w ustawieniach systemowych Zawsze aktywna sieć VPN i Blokuj połączenia bez VPN.",
+  "udp_available":
+      "Powiązanie UDP zaakceptowane; przekazywanie między punktami końcowymi niezweryfikowane",
   "udp_unavailable": "UDP niedostępne",
 
   "batch_title": "Importuj konfiguracje",

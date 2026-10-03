@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/chain_scope_presentation.dart';
 import '../core/chain_strings.dart';
 import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
@@ -30,6 +32,7 @@ class ChainCurrentConnection extends StatelessWidget {
           String?,
           String?,
           String,
+          ChainScopePresentation,
         )
       >(
         controller: controller,
@@ -40,9 +43,16 @@ class ChainCurrentConnection extends StatelessWidget {
           app.snapshot.warning,
           app.lastError,
           app.strings.catalogId,
+          _scope(app),
         ),
         builder: (context, _) => _build(context),
       );
+
+  ChainScopePresentation _scope(AppController app) => ChainScopePresentation.of(
+    app.snapshot,
+    app.networkSettings.state?.appliedProfile,
+    isAndroid: defaultTargetPlatform == TargetPlatform.android,
+  );
 
   Widget _build(BuildContext context) {
     final strings = controller.strings;
@@ -50,8 +60,10 @@ class ChainCurrentConnection extends StatelessWidget {
     final snapshot = controller.snapshot;
     final chain = snapshot.chainExit;
     final current = chain.currentProfile;
+    final scope = _scope(controller);
     final gateView =
         current == null &&
+            scope.source?.isProxy != true &&
             (snapshot.vpnGate.stage != 'disabled' ||
                 controller.activeProfile.chainSource == ChainSource.vpnGate)
         ? VpnGatePresentation(snapshot, configuredEnabled: configuredEnabled)
@@ -148,7 +160,9 @@ class ChainCurrentConnection extends StatelessWidget {
             ),
             VpnGateNodeIdentity(server: gateServer),
           ],
-          if (current?.source.isProxy == true) ...[
+          if (current?.source.isProxy == true &&
+              chain.stage == 'connected' &&
+              snapshot.isConnected) ...[
             Text(
               strings.chain(
                 chain.tcpConnectVerified ? 'proxy_verified' : 'proxy_ready',
@@ -156,6 +170,14 @@ class ChainCurrentConnection extends StatelessWidget {
             ),
             Text(strings.chain('udp_${chain.proxyUdp ?? 'unknown'}')),
           ],
+          if (!scope.isEmpty)
+            Text(
+              scope.message(strings),
+              key: const ValueKey('chain-current-scope'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
           if (chain.attemptingEndpoint case final endpoint?)
             ReadoutRow(
               label: strings.chain('attempting'),

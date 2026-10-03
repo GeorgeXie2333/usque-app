@@ -29,7 +29,15 @@ const kChainEn = <String, String>{
   "proxy_ready": "Ready · TCP forwarding not verified",
   "proxy_verified": "TCP forwarding verified",
   "udp_unknown": "UDP: not verified",
-  "udp_available": "UDP association available",
+  "scope_proxy_only":
+      "Usque currently proxies only connections that apps send to it. Other connections may reveal your public IP address.",
+  "scope_bypass": "Your direct-connection and per-app rules still apply.",
+  "scope_interrupted":
+      "The connection has stopped. Your device may return to its ordinary network connection.",
+  "scope_android_settings":
+      "To keep blocking after the service stops, enable Always-on VPN and Block connections without VPN in system settings.",
+  "udp_available":
+      "UDP association accepted; end-to-end forwarding is not verified",
   "udp_unavailable": "UDP unavailable",
 
   "batch_title": "Import configurations",
@@ -182,7 +190,11 @@ const kChainZhCn = <String, String>{
   "proxy_ready": "已就绪 · TCP 转发尚未验证",
   "proxy_verified": "TCP 转发已验证",
   "udp_unknown": "UDP：尚未验证",
-  "udp_available": "UDP 关联可用",
+  "scope_proxy_only": "当前仅代理应用交给 Usque 的连接，其他联网可能显示本机公网 IP。",
+  "scope_bypass": "已设置的直连和分应用规则继续生效。",
+  "scope_interrupted": "连接已中断，设备可能恢复普通网络。",
+  "scope_android_settings": "如需在服务停止后继续阻断，请在系统设置中开启“始终开启 VPN”和“无 VPN 时拦截连接”。",
+  "udp_available": "UDP 关联已接受，端到端转发尚未验证",
   "udp_unavailable": "UDP 不可用",
 
   "batch_title": "批量导入配置",

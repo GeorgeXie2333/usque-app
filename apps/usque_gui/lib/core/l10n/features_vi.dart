@@ -339,7 +339,16 @@ const Map<String, String> kChainVi = <String, String>{
   "proxy_ready": "Sẵn sàng · chưa xác minh chuyển tiếp TCP",
   "proxy_verified": "Đã xác minh chuyển tiếp TCP",
   "udp_unknown": "UDP: chưa xác minh",
-  "udp_available": "Liên kết UDP khả dụng",
+  "scope_proxy_only":
+      "Usque chỉ chuyển tiếp qua proxy những kết nối mà ứng dụng gửi tới. Các kết nối khác có thể làm lộ IP công cộng của thiết bị.",
+  "scope_bypass":
+      "Các quy tắc kết nối trực tiếp và theo ứng dụng vẫn có hiệu lực.",
+  "scope_interrupted":
+      "Kết nối đã gián đoạn. Thiết bị có thể trở về kết nối mạng thông thường.",
+  "scope_android_settings":
+      "Để tiếp tục chặn sau khi dịch vụ dừng, hãy bật VPN luôn bật và Chặn kết nối không qua VPN trong cài đặt hệ thống.",
+  "udp_available":
+      "Đã chấp nhận liên kết UDP; chưa xác minh chuyển tiếp đầu cuối",
   "udp_unavailable": "UDP không khả dụng",
 
   "batch_title": "Nhập cấu hình",

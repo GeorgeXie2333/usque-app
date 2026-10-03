@@ -350,7 +350,16 @@ const Map<String, String> kChainId = <String, String>{
   "proxy_ready": "Siap · penerusan TCP belum diverifikasi",
   "proxy_verified": "Penerusan TCP terverifikasi",
   "udp_unknown": "UDP: belum diverifikasi",
-  "udp_available": "Asosiasi UDP tersedia",
+  "scope_proxy_only":
+      "Usque hanya memproksikan koneksi yang dikirim aplikasi kepadanya. Koneksi lain dapat mengungkap alamat IP publik Anda.",
+  "scope_bypass":
+      "Aturan koneksi langsung dan per aplikasi Anda tetap berlaku.",
+  "scope_interrupted":
+      "Koneksi terputus. Perangkat Anda mungkin kembali ke koneksi jaringan biasa.",
+  "scope_android_settings":
+      "Untuk tetap memblokir setelah layanan berhenti, aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN di setelan sistem.",
+  "udp_available":
+      "Asosiasi UDP diterima; penerusan ujung ke ujung belum diverifikasi",
   "udp_unavailable": "UDP tidak tersedia",
 
   "batch_title": "Impor konfigurasi",

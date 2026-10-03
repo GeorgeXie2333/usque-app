@@ -43,6 +43,26 @@ and saved/current markers. VPN Gate observations remain labeled as remote data.
 使用相同的单选控件及“已保存的选择”“当前连接”标记；VPN Gate 的远端观测说明
 保持可见。
 
+The current-connection section and both Home layouts share factual HTTP/SOCKS
+scope hints from the runtime snapshot and applied session profile. Proxy-only
+connections describe their application-only coverage, including failed sessions
+whose scope is confirmed; tunnel connections keep explicit direct and per-app
+rules. A failed confirmed VPN session warns that
+ordinary networking may return only when the runtime Kill Switch is explicitly
+inactive. Saved changes and editor drafts do not imply that the running session
+changed. Unknown scope remains unknown; no new protection status is inferred.
+Android system-blocking advice is conditional because an absent Lockdown report
+does not prove it is disabled. A SOCKS5 UDP association accepted by the server is
+not evidence of working end-to-end UDP forwarding.
+
+“当前连接”和桌面、手机首页共用 HTTP/SOCKS 范围提示，依据实际运行状态和已应用的
+会话配置。已确认范围的仅代理会话即使失败，也说明只接管应用交给 Usque 的连接；
+VPN 模式说明显式直连与分应用规则继续生效。已确认的 VPN 会话失败且运行状态明确
+显示 Kill Switch 未启用时，
+才提示设备可能恢复普通网络。已保存修改和编辑草稿不会被当成当前会话；范围未知时
+不猜测，也不新增“已保护”状态。Android 系统阻断说明使用条件式文案，未上报
+Lockdown 不等于已关闭。SOCKS5 UDP 关联被服务器接受不等于端到端 UDP 转发已验证。
+
 WARP via WireGuard supports generated/imported configurations and editable
 endpoints. See [WARP via WireGuard](WARP_WIREGUARD.md).
 
@@ -194,6 +214,13 @@ bypasses remain intentional exceptions. In proxy-only mode, only traffic sent
 to Usque's local listeners is covered; applications that bypass those listeners
 are outside the proxy's protection.
 
+VPN protection covers captured traffic from the moment native blocking is
+successfully installed, throughout the HTTP/SOCKS session and its protected
+handoffs. UDP capability does not authorize another exit. Explicit direct and
+app-exclusion rules remain outside that scope. This feature does not change
+network-interface address candidates that WebRTC or other browser APIs can expose to a page;
+it is not a guarantee that every browser-reported address is the proxy address.
+
 Remote DNS travels through the final proxy using TCP. Valid TUN and local SOCKS5
 UDP/53 queries are converted to TCP DNS at the application's chosen resolver.
 The local SOCKS5 listener accepts DNS-only UDP associations even when HTTP, L4 or
@@ -235,6 +262,11 @@ UDP 关联超时后，能力状态仍为未知；服务器接受关联后也可�
 没有收到回包，都不能证明端到端可达或隐私安全，也不会触发直连或仅 WARP 回退。
 显式 GEO、LAN/CIDR 及 Android 应用旁路仍是用户指定的例外。仅代理模式只覆盖
 发送到 Usque 本地监听器的流量，未使用这些监听器的应用流量不在代理保护范围内。
+
+VPN 防护从原生阻断成功安装开始，覆盖 HTTP/SOCKS 会话及其受保护交接期间接管的
+流量；UDP 能力不构成改走其他出口的授权。显式直连和应用排除仍不属于这一范围。
+此功能不会修改浏览器通过 WebRTC 等接口向网页提供的网卡候选地址，因此不承诺
+浏览器报告的每个地址都等于代理出口地址。
 
 远程 DNS 经最终代理的 TCP 连接发送。TUN 和本地 SOCKS5 的有效 UDP/53 查询均转换
 为 TCP DNS，并保留应用指定的解析器。HTTP、L4 或最终 SOCKS5 服务器不支持普通
@@ -440,6 +472,9 @@ There is no automatic WARP-only fallback. Windows keeps the existing single
 Agent-owned Wintun; Android keeps VpnService and its interface handoff. Android
 process termination still requires system Always-on/Lockdown for system-level
 blocking; an app-level blocker is not a system guarantee.
+For HTTP/SOCKS terminal failures, retaining the blocking interface follows the
+applied Kill Switch and handoff rules described above, rather than unconditional
+retention for every failure.
 
 Home identifies `WARP → exit name`; source details remain visible in the chain
 page. Traffic counters and exit IP describe the final exit. WARP RTT continues
@@ -454,8 +489,9 @@ DNS 候选立即以 UDP 查询，250 ms 后启用备用候选；只有一个 DNS
 UDP 截断回复立即改用 TCP；TCP 连接在同一链式会话内复用。有效的 NXDOMAIN/NODATA
 不会重复向其他候选查询。默认 WireGuard 内层 MTU 为
 1280。切换出口先停止旧出口流量并清理旧协议会话；终止性错误会停止整条链的数据
-通道，保留配置与错误，不会自动退化为仅 WARP。Android 保留阻断用接口，直到用户
-明确重试或断开。Windows/Android 复用现有平台接口和
+通道，保留配置与错误，不会自动退化为仅 WARP。Android 的 OpenVPN/WireGuard
+来源保留原有阻断接口行为；HTTP/SOCKS 终止失败按上文的 Kill Switch 和交接策略
+决定是否继续保留接口。Windows/Android 复用现有平台接口和
 清理机制。Android 应用进程结束后的系统级阻断仍依赖系统 Always-on/Lockdown。
 
 ## Configuration examples / 配置结构示例

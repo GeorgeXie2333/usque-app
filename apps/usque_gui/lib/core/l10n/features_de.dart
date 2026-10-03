@@ -378,7 +378,16 @@ const Map<String, String> kChainDe = <String, String>{
   "proxy_ready": "Bereit · TCP-Weiterleitung ungeprüft",
   "proxy_verified": "TCP-Weiterleitung geprüft",
   "udp_unknown": "UDP: ungeprüft",
-  "udp_available": "UDP-Zuordnung verfügbar",
+  "scope_proxy_only":
+      "Usque leitet derzeit nur Verbindungen weiter, die Apps an Usque senden. Andere Verbindungen können Ihre öffentliche IP-Adresse preisgeben.",
+  "scope_bypass":
+      "Ihre Regeln für direkte Verbindungen und einzelne Apps gelten weiterhin.",
+  "scope_interrupted":
+      "Die Verbindung wurde unterbrochen. Ihr Gerät kann zur normalen Netzwerkverbindung zurückkehren.",
+  "scope_android_settings":
+      "Um nach dem Beenden des Dienstes weiter zu blockieren, aktivieren Sie in den Systemeinstellungen „Durchgehend aktives VPN“ und „Verbindungen ohne VPN blockieren“.",
+  "udp_available":
+      "UDP-Zuordnung akzeptiert; Ende-zu-Ende-Weiterleitung nicht geprüft",
   "udp_unavailable": "UDP nicht verfügbar",
 
   "batch_title": "Konfigurationen importieren",

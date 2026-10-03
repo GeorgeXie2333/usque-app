@@ -367,7 +367,16 @@ const Map<String, String> kChainPt = <String, String>{
   "proxy_ready": "Pronto · encaminhamento TCP não verificado",
   "proxy_verified": "Encaminhamento TCP verificado",
   "udp_unknown": "UDP: não verificado",
-  "udp_available": "Associação UDP disponível",
+  "scope_proxy_only":
+      "O Usque encaminha apenas as conexões que os aplicativos enviam a ele. Outras conexões podem revelar seu IP público.",
+  "scope_bypass":
+      "Suas regras de conexão direta e por aplicativo continuam valendo.",
+  "scope_interrupted":
+      "A conexão foi interrompida. O dispositivo pode voltar à conexão de rede habitual.",
+  "scope_android_settings":
+      "Para manter o bloqueio após o serviço parar, ative VPN sempre ativa e Bloquear conexões sem VPN nas configurações do sistema.",
+  "udp_available":
+      "Associação UDP aceita; encaminhamento de ponta a ponta não verificado",
   "udp_unavailable": "UDP indisponível",
 
   "batch_title": "Importar configurações",

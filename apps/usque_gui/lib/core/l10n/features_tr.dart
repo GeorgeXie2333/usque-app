@@ -346,7 +346,16 @@ const Map<String, String> kChainTr = <String, String>{
   "proxy_ready": "Hazır · TCP iletimi doğrulanmadı",
   "proxy_verified": "TCP iletimi doğrulandı",
   "udp_unknown": "UDP: doğrulanmadı",
-  "udp_available": "UDP bağlantısı kullanılabilir",
+  "scope_proxy_only":
+      "Usque yalnızca uygulamaların kendisine gönderdiği bağlantılara aracılık eder. Diğer bağlantılar genel IP adresinizi açığa çıkarabilir.",
+  "scope_bypass":
+      "Doğrudan bağlantı ve uygulama bazlı kurallarınız geçerliliğini korur.",
+  "scope_interrupted":
+      "Bağlantı kesildi. Cihazınız normal ağ bağlantısına dönebilir.",
+  "scope_android_settings":
+      "Hizmet durduktan sonra engellemeyi sürdürmek için sistem ayarlarında Her zaman açık VPN ve VPN olmayan bağlantıları engelle seçeneklerini açın.",
+  "udp_available":
+      "UDP ilişkilendirmesi kabul edildi; uçtan uca iletim doğrulanmadı",
   "udp_unavailable": "UDP kullanılamıyor",
 
   "batch_title": "Yapılandırmaları içe aktar",

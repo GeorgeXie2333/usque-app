@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
 import '../core/chain_home_status.dart';
+import '../core/chain_scope_presentation.dart';
 import '../core/connection_presentation.dart';
 import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
@@ -268,6 +269,7 @@ class _VpnGateReadout extends StatelessWidget {
           VpnGateStatus status,
           ChainExitStatus chain,
           ChainSource source,
+          ChainScopePresentation scope,
         })
       >(
         controller: controller,
@@ -278,6 +280,11 @@ class _VpnGateReadout extends StatelessWidget {
           status: app.snapshot.vpnGate,
           chain: app.snapshot.chainExit,
           source: app.activeProfile.chainSource,
+          scope: ChainScopePresentation.of(
+            app.snapshot,
+            app.networkSettings.state?.appliedProfile,
+            isAndroid: defaultTargetPlatform == TargetPlatform.android,
+          ),
         ),
         builder: (context, view) {
           final homeStatus = ChainHomeStatus.of(
@@ -288,12 +295,15 @@ class _VpnGateReadout extends StatelessWidget {
             hasCurrentProfile: view.chain.currentProfile != null,
             hasGateServer: view.status.server != null,
           );
-          if (!homeStatus.showChainRow) {
+          if (!homeStatus.showChainRow && view.scope.isEmpty) {
             return const SizedBox.shrink();
           }
           final status = view.status;
           final server = status.server;
-          final phaseLabel = homeStatus.label(strings);
+          final phaseLabel =
+              !homeStatus.showChainRow && view.phase == ConnectionPhase.error
+              ? strings.get('error')
+              : homeStatus.label(strings);
           return Padding(
             padding: const EdgeInsets.only(bottom: 24),
             child: Semantics(
@@ -323,7 +333,7 @@ class _VpnGateReadout extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'WARP → ${view.chain.currentProfile?.name ?? view.source.label}',
+                                  'WARP → ${view.chain.currentProfile?.name ?? view.scope.source?.label ?? view.source.label}',
                                   style: Theme.of(
                                     context,
                                   ).textTheme.titleMedium,
@@ -347,6 +357,17 @@ class _VpnGateReadout extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (!view.scope.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        view.scope.message(strings),
+                        key: const ValueKey('home-chain-scope'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
                   if (status.warpStage != null || server != null)
                     const SizedBox(height: 8),
                   if (status.warpStage != null)

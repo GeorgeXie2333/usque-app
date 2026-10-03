@@ -373,7 +373,16 @@ const Map<String, String> kChainNl = <String, String>{
   "proxy_ready": "Gereed · TCP-doorgifte niet geverifieerd",
   "proxy_verified": "TCP-doorgifte geverifieerd",
   "udp_unknown": "UDP: niet geverifieerd",
-  "udp_available": "UDP-associatie beschikbaar",
+  "scope_proxy_only":
+      "Usque stuurt alleen verbindingen door die apps ernaartoe sturen. Andere verbindingen kunnen uw openbare IP-adres onthullen.",
+  "scope_bypass":
+      "Uw regels voor directe verbindingen en afzonderlijke apps blijven gelden.",
+  "scope_interrupted":
+      "De verbinding is verbroken. Uw apparaat kan terugkeren naar de gewone netwerkverbinding.",
+  "scope_android_settings":
+      "Om na het stoppen van de dienst te blijven blokkeren, schakelt u Altijd-aan-VPN en Verbindingen zonder VPN blokkeren in de systeeminstellingen in.",
+  "udp_available":
+      "UDP-associatie geaccepteerd; doorsturen van eind tot eind niet geverifieerd",
   "udp_unavailable": "UDP niet beschikbaar",
 
   "batch_title": "Configuraties importeren",

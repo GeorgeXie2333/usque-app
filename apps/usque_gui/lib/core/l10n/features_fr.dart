@@ -372,7 +372,16 @@ const Map<String, String> kChainFr = <String, String>{
   "proxy_ready": "Prêt · transfert TCP non vérifié",
   "proxy_verified": "Transfert TCP vérifié",
   "udp_unknown": "UDP : non vérifié",
-  "udp_available": "Association UDP disponible",
+  "scope_proxy_only":
+      "Usque ne relaie actuellement que les connexions que les applications lui envoient. Les autres connexions peuvent révéler votre adresse IP publique.",
+  "scope_bypass":
+      "Vos règles de connexion directe et par application restent applicables.",
+  "scope_interrupted":
+      "La connexion a été interrompue. Votre appareil peut reprendre sa connexion réseau habituelle.",
+  "scope_android_settings":
+      "Pour maintenir le blocage après l’arrêt du service, activez VPN permanent et Bloquer les connexions sans VPN dans les paramètres système.",
+  "udp_available":
+      "Association UDP acceptée ; transfert de bout en bout non vérifié",
   "udp_unavailable": "UDP indisponible",
 
   "batch_title": "Importer des configurations",

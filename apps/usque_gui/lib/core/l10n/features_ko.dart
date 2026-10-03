@@ -315,7 +315,12 @@ const Map<String, String> kChainKo = <String, String>{
   "proxy_ready": "준비됨 · TCP 전달 미검증",
   "proxy_verified": "TCP 전달 검증됨",
   "udp_unknown": "UDP: 미검증",
-  "udp_available": "UDP 연결 사용 가능",
+  "scope_proxy_only": "Usque는 앱이 전달한 연결만 프록시합니다. 다른 연결은 기기의 공인 IP를 노출할 수 있습니다.",
+  "scope_bypass": "설정한 직접 연결 및 앱별 규칙은 계속 적용됩니다.",
+  "scope_interrupted": "연결이 끊어졌습니다. 기기가 일반 네트워크 연결로 돌아갈 수 있습니다.",
+  "scope_android_settings":
+      "서비스가 중지된 후에도 차단하려면 시스템 설정에서 VPN 항상 켜기와 VPN 없는 연결 차단을 켜세요.",
+  "udp_available": "UDP 연결 요청 수락됨, 종단 간 전달은 확인되지 않음",
   "udp_unavailable": "UDP 사용 불가",
 
   "batch_title": "설정 일괄 가져오기",

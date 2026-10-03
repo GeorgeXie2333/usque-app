@@ -313,7 +313,13 @@ const Map<String, String> kChainJa = <String, String>{
   "proxy_ready": "準備完了 · TCP 転送は未検証",
   "proxy_verified": "TCP 転送を検証済み",
   "udp_unknown": "UDP：未検証",
-  "udp_available": "UDP 関連付けが利用可能",
+  "scope_proxy_only":
+      "Usque はアプリから渡された接続のみをプロキシします。それ以外の接続では端末のパブリック IP が公開される場合があります。",
+  "scope_bypass": "設定済みの直接接続ルールとアプリ別ルールは引き続き適用されます。",
+  "scope_interrupted": "接続が中断されました。端末が通常のネットワーク接続に戻る場合があります。",
+  "scope_android_settings":
+      "サービス停止後もブロックを続けるには、システム設定で「常時接続 VPN」と「VPN なしの接続をブロック」を有効にしてください。",
+  "udp_available": "UDP アソシエーションは受理済み、エンドツーエンドの転送は未確認",
   "udp_unavailable": "UDP は利用不可",
 
   "batch_title": "設定を一括インポート",

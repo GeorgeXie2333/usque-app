@@ -370,7 +370,16 @@ const Map<String, String> kChainEs = <String, String>{
   "proxy_ready": "Listo · reenvío TCP sin verificar",
   "proxy_verified": "Reenvío TCP verificado",
   "udp_unknown": "UDP: sin verificar",
-  "udp_available": "Asociación UDP disponible",
+  "scope_proxy_only":
+      "Usque solo actúa como proxy de las conexiones que las aplicaciones le envían. Otras conexiones pueden revelar tu IP pública.",
+  "scope_bypass":
+      "Tus reglas de conexión directa y por aplicación siguen vigentes.",
+  "scope_interrupted":
+      "La conexión se ha interrumpido. El dispositivo puede volver a su conexión de red habitual.",
+  "scope_android_settings":
+      "Para seguir bloqueando cuando el servicio se detenga, activa VPN siempre activa y Bloquear conexiones sin VPN en los ajustes del sistema.",
+  "udp_available":
+      "Asociación UDP aceptada; reenvío de extremo a extremo sin verificar",
   "udp_unavailable": "UDP no disponible",
 
   "batch_title": "Importar configuraciones",
