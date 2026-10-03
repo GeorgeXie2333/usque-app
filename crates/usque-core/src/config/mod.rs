@@ -18,14 +18,16 @@ mod account;
 mod bypass_tests;
 mod congestion;
 mod data_plane;
+mod initial_identity;
 mod network;
 
 pub use account::{Account, ManagedEndpointIps};
 pub use congestion::CongestionControlAlgorithm;
 pub use data_plane::{CONSUMER_L4_SNI, DataPlaneMode, ZERO_TRUST_L4_SNI, l4_server_name};
+pub use initial_identity::{InitialIdentityOperation, InitialIdentityPhase};
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 20;
+pub const CURRENT_SCHEMA_VERSION: u32 = 21;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -86,6 +88,9 @@ pub struct AppConfig {
     /// Identity replacements with a durable write-ahead state.
     #[serde(default)]
     pub pending_identity_replacements: BTreeMap<Uuid, PendingIdentityReplacement>,
+    /// First-run intent only; credentials and callback assertions stay in the vault.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_identity_operation: Option<InitialIdentityOperation>,
 }
 
 impl Default for AppConfig {
@@ -102,6 +107,7 @@ impl Default for AppConfig {
             pending_identity_local_deletions: Vec::new(),
             pending_identity_creations: Vec::new(),
             pending_identity_replacements: BTreeMap::new(),
+            initial_identity_operation: None,
         }
     }
 }
@@ -241,6 +247,12 @@ impl AppConfig {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if let Some(operation) = &self.initial_identity_operation {
+            operation.validate()?;
+            if self.account(operation.profile_id).is_none() {
+                return Err(ConfigError::InvalidInitialIdentityOperation);
+            }
+        }
         if self.schema_version > CURRENT_SCHEMA_VERSION {
             return Err(ConfigError::NewerSchema {
                 found: self.schema_version,
@@ -1339,6 +1351,8 @@ fn valid_dns_name(value: &str) -> bool {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
+    #[error("initial identity operation is invalid")]
+    InvalidInitialIdentityOperation,
     #[error("no more than 256 bypass domains are allowed")]
     TooManyBypassDomains,
     #[error("invalid bypass domain at entry {0}")]

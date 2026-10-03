@@ -25,6 +25,30 @@ pub struct ConfigStore {
 }
 
 impl ConfigStore {
+    /// Separate execution lease: unlike the JSON transaction lock, this guard
+    /// may survive network registration. Never delete or replace its sidecar.
+    pub fn initial_identity_lease(&self, wait: bool) -> Result<Option<File>, StoreError> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| StoreError::MissingParent(self.path.clone()))?;
+        fs::create_dir_all(parent)?;
+        let lease = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.path.with_extension("initial-identity.lock"))?;
+        if wait {
+            file_lock::lock_exclusive(&lease)?;
+        } else if let Err(error) = file_lock::try_lock_exclusive(&lease) {
+            if error.kind() == std::io::ErrorKind::WouldBlock {
+                return Ok(None);
+            }
+            return Err(error.into());
+        }
+        Ok(Some(lease))
+    }
     /// Lock a stable sidecar inode, not the atomically replaced JSON file.
     /// The OS releases the lock when the guard is dropped or the process exits.
     pub fn lock_exclusive(&self) -> Result<File, StoreError> {
@@ -284,6 +308,7 @@ impl AppConfig {
             pending_identity_local_deletions: legacy.pending_identity_local_deletions,
             pending_identity_creations: legacy.pending_identity_creations,
             pending_identity_replacements: Default::default(),
+            initial_identity_operation: None,
         }
     }
 }
@@ -425,6 +450,10 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.network.endpoint.selection = crate::EndpointSelection::Custom;
         config.schema_version = 20;
     }
+    if config.schema_version < 21 {
+        config.initial_identity_operation = None;
+        config.schema_version = 21;
+    }
 }
 
 #[cfg(not(windows))]
@@ -497,6 +526,37 @@ pub enum StoreError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn initial_execution_lease_is_shared_and_released_with_its_owner() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = super::ConfigStore::new(directory.path().join("config.json"));
+        let owner = store.initial_identity_lease(false).unwrap().unwrap();
+        assert!(
+            store
+                .clone()
+                .initial_identity_lease(false)
+                .unwrap()
+                .is_none()
+        );
+        drop(owner);
+        assert!(store.initial_identity_lease(false).unwrap().is_some());
+    }
+
+    #[test]
+    fn schema_twenty_migrates_without_an_initial_operation() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = super::ConfigStore::new(directory.path().join("config.json"));
+        let config = crate::AppConfig {
+            schema_version: 20,
+            ..Default::default()
+        };
+        store.save(&config).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.schema_version, 21);
+        assert!(loaded.initial_identity_operation.is_none());
+        assert_eq!(loaded.profiles, config.profiles);
+        assert_eq!(loaded.network, config.network);
+    }
     use super::*;
 
     fn open_lock_probe(store: &ConfigStore) -> File {

@@ -8,6 +8,7 @@ import 'l10n/diagnostics.dart';
 import 'l10n/l4.dart';
 import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
+import 'l10n/onboarding.dart';
 import 'l10n/ui_workflow.dart';
 import 'l10n/vpngate.dart';
 import 'l10n/windows_recovery.dart';
@@ -50,6 +51,8 @@ class AppStrings {
   }
 
   String _raw(String key) {
+    final onboarding = kOnboardingCatalogs[catalogId] ?? kOnboardingEn;
+    if (onboarding.containsKey(key)) return onboarding[key]!;
     final diagnostics =
         kDiagnosticsCatalogs[catalogId] ?? kDiagnosticsCatalogs['en']!;
     if (diagnostics.containsKey(key)) return diagnostics[key]!;
@@ -95,6 +98,7 @@ class AppStrings {
           kDiagnosticsCatalogs['en']!,
         ) ||
         !_featureTablesComplete(kUiWorkflowCatalogs, kUiWorkflowEn) ||
+        !_featureTablesComplete(kOnboardingCatalogs, kOnboardingEn) ||
         !_featureTablesComplete(kWindowsRecoveryCatalogs, kWindowsRecoveryEn) ||
         !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn) ||
         !_featureTablesComplete(kL4Catalogs, kL4En) ||
@@ -184,6 +188,7 @@ class AppStrings {
 
     scan(kDiagnosticsCatalogs, kDiagnosticsCatalogs['en']!);
     scan(kUiWorkflowCatalogs, kUiWorkflowEn);
+    scan(kOnboardingCatalogs, kOnboardingEn);
     scan(kNetworkQualityCatalogs, kNetworkQualityEn);
     scan(kWindowsRecoveryCatalogs, kWindowsRecoveryEn);
     scan(kL4Catalogs, kL4En);
@@ -210,6 +215,7 @@ class AppStrings {
           kDiagnosticsCatalogs.values,
         ) ||
         !_placeholdersPreserved(kUiWorkflowEn, kUiWorkflowCatalogs.values) ||
+        !_placeholdersPreserved(kOnboardingEn, kOnboardingCatalogs.values) ||
         !_placeholdersPreserved(
           kNetworkQualityEn,
           kNetworkQualityCatalogs.values,

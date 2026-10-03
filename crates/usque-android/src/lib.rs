@@ -1333,6 +1333,24 @@ where
 #[derive(Debug, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 enum AndroidConfigCommand {
+    BeginInitialIdentity {
+        operation_id: String,
+        profile_id: String,
+        method: String,
+        organization: Option<String>,
+        owner_epoch: String,
+    },
+    FinishInitialIdentity {
+        operation_id: String,
+        profile_id: String,
+        phase: usque_core::InitialIdentityPhase,
+        error_code: Option<String>,
+        endpoint_ipv4: Option<String>,
+        endpoint_ipv6: Option<String>,
+    },
+    GetInitialIdentityState {
+        profile_id: String,
+    },
     ImportLegacyProfiles {
         profiles: Vec<AndroidProfile>,
         active_profile_id: String,
@@ -1437,6 +1455,92 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
     let mut changed = false;
 
     match command {
+        AndroidConfigCommand::GetInitialIdentityState { profile_id } => {
+            let profile_id = parse_value(&profile_id, "profile ID")?;
+            if config.account(profile_id).is_none() {
+                return Err("initial profile does not exist".into());
+            }
+            // The Kotlin adapter checks its execution lease and validates the
+            // secure identity. No rollback or orphan cleanup runs on this path.
+        }
+        AndroidConfigCommand::BeginInitialIdentity {
+            operation_id,
+            profile_id,
+            method,
+            organization,
+            owner_epoch,
+        } => {
+            let operation = usque_core::InitialIdentityOperation::new(
+                parse_value(&operation_id, "initial operation ID")?,
+                parse_value(&profile_id, "profile ID")?,
+                &method,
+                organization,
+                parse_value(&owner_epoch, "owner epoch")?,
+            )
+            .map_err(|error| error.to_string())?;
+            changed = config
+                .begin_initial_identity(operation)
+                .map_err(|error| error.to_string())?;
+        }
+        AndroidConfigCommand::FinishInitialIdentity {
+            operation_id,
+            profile_id,
+            phase,
+            error_code,
+            endpoint_ipv4,
+            endpoint_ipv6,
+        } => {
+            let operation_id = parse_value(&operation_id, "initial operation ID")?;
+            let profile_id = parse_value(&profile_id, "profile ID")?;
+            let operation = config
+                .initial_identity_operation
+                .as_ref()
+                .filter(|operation| {
+                    operation.operation_id == operation_id && operation.profile_id == profile_id
+                })
+                .ok_or_else(|| "initial identity operation was superseded".to_owned())?
+                .clone();
+            config
+                .finish_initial_identity(operation_id, profile_id, phase, error_code)
+                .map_err(|error| error.to_string())?;
+            if phase == usque_core::InitialIdentityPhase::Completed {
+                if config.identity_bindings.contains_key(&profile_id)
+                    || config
+                        .pending_identity_replacements
+                        .contains_key(&profile_id)
+                {
+                    return Err("initial identity cannot replace a bound identity".into());
+                }
+                let provider = if let Some(team) = operation.organization {
+                    let endpoints = usque_core::ManagedEndpointIps {
+                        ipv4: parse_value(
+                            endpoint_ipv4
+                                .as_deref()
+                                .ok_or("initial endpoint IPv4 is missing")?,
+                            "endpoint IPv4",
+                        )?,
+                        ipv6: parse_value(
+                            endpoint_ipv6
+                                .as_deref()
+                                .ok_or("initial endpoint IPv6 is missing")?,
+                            "endpoint IPv6",
+                        )?,
+                    };
+                    config
+                        .set_managed_endpoint_ips(profile_id, endpoints)
+                        .map_err(|error| error.to_string())?;
+                    usque_core::IdentityProvider::zero_trust(team)
+                        .map_err(|error| error.to_string())?
+                } else {
+                    if endpoint_ipv4.is_some() || endpoint_ipv6.is_some() {
+                        return Err("Consumer initial identity has managed endpoints".into());
+                    }
+                    usque_core::IdentityProvider::Consumer
+                };
+                config.identity_bindings.insert(profile_id, provider);
+            }
+            changed = true;
+        }
         AndroidConfigCommand::ImportLegacyProfiles {
             profiles,
             active_profile_id,
@@ -1565,6 +1669,13 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 .ok_or_else(|| "profile does not exist".to_owned())?;
             config.profiles.remove(index);
             config.identity_bindings.remove(&profile_id);
+            if config
+                .initial_identity_operation
+                .as_ref()
+                .is_some_and(|operation| operation.profile_id == profile_id)
+            {
+                config.initial_identity_operation = None;
+            }
             if config.active_profile_id == Some(profile_id) {
                 config.active_profile_id = config.profiles.first().map(|profile| profile.id);
             }
@@ -1892,6 +2003,7 @@ fn geo_update_json(
 
 fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
     serde_json::json!({
+        "initial_identity_operation": config.initial_identity_operation,
         "shared_network_profile": android_profile_value(&config.network.hydrate(&usque_core::config::Account::default_account()), None, false),
         "profiles": config
             .profiles
@@ -3432,6 +3544,61 @@ fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn initial_identity_commands_are_fixed_pure_and_fenced_after_clear() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let path = path.to_str().unwrap();
+        let profile = usque_core::DEFAULT_PROFILE_ID.to_string();
+        let operation = uuid::Uuid::new_v4().to_string();
+        let begin = serde_json::json!({"command":"begin_initial_identity", "operation_id":operation,
+            "profile_id":profile, "method":"register", "organization":null,
+            "owner_epoch":uuid::Uuid::new_v4().to_string()});
+        let catalog: serde_json::Value =
+            serde_json::from_str(&apply_profile_command(path, &begin.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(catalog["initial_identity_operation"]["phase"], "pending");
+        let before = std::fs::read(path).unwrap();
+        apply_profile_command(
+            path,
+            &serde_json::json!({"command":"get_initial_identity_state", "profile_id":profile})
+                .to_string(),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), before);
+        let wrong = serde_json::json!({"command":"finish_initial_identity", "operation_id":uuid::Uuid::new_v4().to_string(),
+            "profile_id":profile, "phase":"completed"});
+        assert!(apply_profile_command(path, &wrong.to_string()).is_err());
+        apply_profile_command(path, r#"{"command":"clear_all_data"}"#).unwrap();
+        let late = serde_json::json!({"command":"finish_initial_identity", "operation_id":operation,
+            "profile_id":profile, "phase":"completed"});
+        assert!(apply_profile_command(path, &late.to_string()).is_err());
+    }
+
+    #[test]
+    fn initial_zero_trust_commit_only_changes_the_identity_binding_and_owned_addresses() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let path = path.to_str().unwrap();
+        let profile = usque_core::DEFAULT_PROFILE_ID.to_string();
+        let operation = uuid::Uuid::new_v4().to_string();
+        let begin = serde_json::json!({"command":"begin_initial_identity", "operation_id":operation,
+            "profile_id":profile, "method":"zeroTrust", "organization":"example-team",
+            "owner_epoch":uuid::Uuid::new_v4().to_string()});
+        apply_profile_command(path, &begin.to_string()).unwrap();
+        let network = ConfigStore::new(path).load().unwrap().network;
+        let finish = serde_json::json!({"command":"finish_initial_identity", "operation_id":operation,
+            "profile_id":profile, "phase":"completed", "endpoint_ipv4":"162.159.197.2", "endpoint_ipv6":"2606:4700:102::2"});
+        apply_profile_command(path, &finish.to_string()).unwrap();
+        let config = ConfigStore::new(path).load().unwrap();
+        assert_eq!(config.network, network);
+        assert_eq!(
+            config.initial_identity_operation.unwrap().phase,
+            usque_core::InitialIdentityPhase::Completed
+        );
+        assert!(config.identity_bindings.values().any(|provider| matches!(provider, IdentityProvider::ZeroTrust { organization } if organization == "example-team")));
+        assert!(apply_profile_command(path, &begin.to_string()).is_err());
+    }
     #[test]
     fn chain_shutdown_preserves_terminal_underlay_failure_on_the_native_wire() {
         use usque_core::vpngate::{GateFailure, GateStage, GateStatus};

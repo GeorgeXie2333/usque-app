@@ -36,6 +36,10 @@ String userFacingFailure(AppStrings strings, {String? code, String? details}) {
     'AGENT_UNREACHABLE' ||
     'VPN_SERVICE_UNAVAILABLE' => 'engine_unavailable',
     'ENGINE_REQUEST_TIMEOUT' || 'DIAGNOSTIC_TIMEOUT' => 'operation_timeout',
+    'INITIAL_IDENTITY_UNSUPPORTED' => 'onboarding_unavailable',
+    'INITIAL_IDENTITY_INTERRUPTED' => 'onboarding_interrupted',
+    'INITIAL_IDENTITY_CLEANUP_REQUIRED' => 'onboarding_cleanup_required',
+    'VPN_PERMISSION_DENIED' => 'onboarding_vpn_required',
     'IDENTITY_SETUP_REQUIRED' ||
     'IDENTITY_INVALID' ||
     'AUTHENTICATION_FAILED' => 'diag_fix_refresh_or_replace_identity',

@@ -40,7 +40,6 @@ fn retry_interrupted(mut operation: impl FnMut() -> io::Result<()>) -> io::Resul
     }
 }
 
-#[cfg(test)]
 pub(super) fn try_lock_exclusive(file: &File) -> io::Result<()> {
     #[cfg(unix)]
     {

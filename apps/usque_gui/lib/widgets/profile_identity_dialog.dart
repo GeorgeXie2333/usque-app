@@ -77,7 +77,6 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
   void dispose() {
     final id = widget.profile?.id;
     if (id != null && _submitting) widget.controller.cancelIdentityFlow(id);
-    unawaited(widget.controller.cancelZeroTrustLogin());
     _licenseController.clear();
     _licenseFocusNode.dispose();
     _nameFocusNode.dispose();
@@ -107,8 +106,6 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
     final editor = _zeroTrustKey.currentState;
     if (editor != null) {
       await editor.clearSensitive();
-    } else {
-      await widget.controller.cancelZeroTrustLogin();
     }
     if (mounted) Navigator.of(context).pop(false);
   }
@@ -120,8 +117,6 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
       final editor = _zeroTrustKey.currentState;
       if (editor != null) {
         unawaited(editor.clearSensitive());
-      } else {
-        unawaited(widget.controller.cancelZeroTrustLogin());
       }
     }
     setState(() {
@@ -187,8 +182,6 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
     final editor = _zeroTrustKey.currentState;
     if (editor != null) {
       await editor.clearSensitive();
-    } else {
-      await widget.controller.cancelZeroTrustLogin();
     }
     if (!mounted) return;
     if (success) {

@@ -7,8 +7,29 @@ import 'package:flutter/services.dart';
 import '../models/app_models.dart';
 import '../models/diagnostics_models.dart';
 import '../models/network_settings.dart';
+import '../models/onboarding_models.dart';
 
 export '../models/network_settings.dart';
+export '../models/onboarding_models.dart';
+
+abstract interface class InitialIdentityClient {
+  Future<InitialIdentityState> initializeIdentity(
+    UsqueProfile profile, {
+    required String operationId,
+    required IdentityProvisioningMethod method,
+    bool resumeOnly = false,
+    String? licenseKey,
+    String? teamName,
+    String? callbackUri,
+  });
+
+  Future<InitialIdentityState> getInitialIdentityState(String profileId);
+}
+
+abstract interface class OnboardingPermissionsClient {
+  Future<OnboardingPermissionState> getOnboardingPermissions();
+  Future<OnboardingPermissionState> prepareOnboardingPermissions();
+}
 
 class EngineException implements Exception {
   const EngineException(this.code, this.message, {this.retryable = false});
@@ -283,7 +304,70 @@ class MethodChannelEngineClient
         EngineClient,
         VpnGateClient,
         ChainProfileClient,
-        WarpWireguardClient {
+        WarpWireguardClient,
+        InitialIdentityClient,
+        OnboardingPermissionsClient {
+  @override
+  Future<InitialIdentityState> initializeIdentity(
+    UsqueProfile profile, {
+    required String operationId,
+    required IdentityProvisioningMethod method,
+    bool resumeOnly = false,
+    String? licenseKey,
+    String? teamName,
+    String? callbackUri,
+  }) async {
+    final value = await _invoke<Map<Object?, Object?>>('initializeIdentity', {
+      'operation_id': operationId,
+      'profile_id': profile.id,
+      'method': method.name,
+      'resume_only': resumeOnly,
+      'license_key': licenseKey,
+      'team_name': teamName,
+      'callback_uri': callbackUri,
+      'terms_accepted': true,
+      'locale': PlatformDispatcher.instance.locale.toLanguageTag(),
+    }).timeout(const Duration(seconds: 90));
+    if (value == null) {
+      throw const EngineException(
+        'INITIAL_IDENTITY_UNSUPPORTED',
+        'Initial setup unavailable.',
+      );
+    }
+    return InitialIdentityState.fromMap(value);
+  }
+
+  @override
+  Future<InitialIdentityState> getInitialIdentityState(String profileId) async {
+    final value = await _invoke<Map<Object?, Object?>>(
+      'getInitialIdentityState',
+      {'profile_id': profileId},
+    ).timeout(const Duration(seconds: 5));
+    if (value == null) {
+      throw const EngineException(
+        'INITIAL_IDENTITY_UNSUPPORTED',
+        'Initial setup unavailable.',
+      );
+    }
+    return InitialIdentityState.fromMap(value);
+  }
+
+  @override
+  Future<OnboardingPermissionState> getOnboardingPermissions() async =>
+      OnboardingPermissionState.fromMap(
+        await _invoke<Map<Object?, Object?>>(
+              'getOnboardingPermissions',
+            ).timeout(const Duration(seconds: 5)) ??
+            const {},
+      );
+
+  @override
+  Future<OnboardingPermissionState> prepareOnboardingPermissions() async =>
+      OnboardingPermissionState.fromMap(
+        await _invoke<Map<Object?, Object?>>('prepareOnboardingPermissions') ??
+            const {},
+      );
+
   @override
   Future<Map<Object?, Object?>> warpWireguard(
     Map<String, Object?> request,

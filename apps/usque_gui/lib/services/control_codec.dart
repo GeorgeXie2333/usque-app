@@ -168,6 +168,7 @@ class ControlCodec {
       VpnGateDirectory? vpnGateDirectory;
       ChainProfileResult? chainProfiles;
       Map<String, Object?>? warpWireguard;
+      InitialIdentityState? initialIdentityState;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -197,6 +198,10 @@ class ControlCodec {
             networkSettings = _decodeNetworkSettings(reader.message(field));
           case 25:
             warpWireguard = _decodeChainJson(reader.message(field));
+          case 26:
+            initialIdentityState = _decodeInitialIdentityState(
+              reader.message(field),
+            );
           case 24:
             chainProfiles = ChainProfileResult.fromMap(
               _decodeChainJson(reader.message(field)),
@@ -238,6 +243,7 @@ class ControlCodec {
         vpnGateDirectory: vpnGateDirectory,
         chainProfiles: chainProfiles,
         warpWireguard: warpWireguard,
+        initialIdentityState: initialIdentityState,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -381,6 +387,7 @@ class ControlResponse {
     this.vpnGateDirectory,
     this.chainProfiles,
     this.warpWireguard,
+    this.initialIdentityState,
   });
 
   final EngineSnapshot? snapshot;
@@ -396,6 +403,42 @@ class ControlResponse {
   final VpnGateDirectory? vpnGateDirectory;
   final ChainProfileResult? chainProfiles;
   final Map<String, Object?>? warpWireguard;
+  final InitialIdentityState? initialIdentityState;
+}
+
+InitialIdentityState _decodeInitialIdentityState(_ProtoReader reader) {
+  String operationId = '';
+  String profileId = '';
+  int phase = 0;
+  String errorCode = '';
+  bool reused = false;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        operationId = reader.string(field);
+      case 2:
+        profileId = reader.string(field);
+      case 3:
+        phase = reader.varint(field);
+      case 4:
+        errorCode = reader.string(field);
+      case 5:
+        reused = reader.varint(field) != 0;
+      default:
+        reader.skip(field);
+    }
+  }
+  if (profileId.isEmpty || phase < 1 || phase > 5) {
+    throw const FormatException('Invalid initial identity state');
+  }
+  return InitialIdentityState(
+    operationId: operationId,
+    profileId: profileId,
+    phase: InitialIdentityPhase.values[phase - 1],
+    errorCode: errorCode,
+    reused: reused,
+  );
 }
 
 /// Minimal protobuf field writer for control request payloads.

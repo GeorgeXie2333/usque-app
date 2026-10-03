@@ -69,6 +69,7 @@ mod vpngate_connection_tests;
 mod warp_wireguard;
 
 mod active_runtime;
+mod initial_identity;
 mod reconfigure;
 
 use active_runtime::{ActiveDataPlane, ActiveProxyRuntime, ActiveRuntime};
@@ -749,6 +750,7 @@ impl ControlService {
     /// platform-vault failure. Non-secret profile deletion is committed first,
     /// so a removed profile can never be resurrected by this cleanup step.
     pub async fn reap_pending_identity_deletions(&self) -> Result<(), ControlServiceError> {
+        let _identity_lease = self.identity_execution_lease().await?;
         let _mutation = self.mutation_lock.lock().await;
         self.recover_pending_identity_replacements_locked().await?;
         self.reap_pending_identity_deletions_locked().await
@@ -916,6 +918,15 @@ impl ControlService {
             control_request::Payload::ProvisionIdentity(request) => {
                 self.provision_identity(request).await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
+            control_request::Payload::InitialIdentity(request) => {
+                let state = self.initial_identity(request).await?;
+                Ok(control_response::Payload::InitialIdentityState(state))
+            }
+            control_request::Payload::GetInitialIdentityState(request) => {
+                let profile_id = parse_profile_id(&request.profile_id)?;
+                let state = self.get_initial_identity_state(profile_id).await?;
+                Ok(control_response::Payload::InitialIdentityState(state))
             }
             control_request::Payload::CreateProfileWithIdentity(request) => {
                 let profile = request
@@ -2737,6 +2748,12 @@ impl ControlService {
         if !confirmed {
             return Err(ControlServiceError::ConfirmationRequired);
         }
+        self.update_config(|config| {
+            config.initial_identity_operation = None;
+            Ok(())
+        })
+        .await?;
+        let _identity_lease = self.identity_execution_lease().await?;
         let _diagnostics_lifecycle = self.diagnostics_lifecycle.lock().await;
         // Cancel a disconnected Deep probe before waiting for its mutation
         // lease, and exclude new captures through the entire reset.
@@ -3089,6 +3106,7 @@ impl ControlService {
         };
 
         let is_zero_trust = provisioned.is_zero_trust();
+        let _identity_lease = self.identity_execution_lease().await?;
         let _mutation = self.mutation_lock.lock().await;
         if let Err(error) = self.ensure_profile_exists(profile_id).await {
             return Err(Self::after_zero_trust_registration(error, is_zero_trust));
@@ -3152,74 +3170,13 @@ impl ControlService {
             )));
         }
 
-        let secret = Zeroizing::new(provisioning.warp_secret);
-        let method = v1::IdentityProvisioningMethod::try_from(provisioning.method)
-            .unwrap_or(v1::IdentityProvisioningMethod::Unspecified);
-        let provisioned = match method {
-            v1::IdentityProvisioningMethod::Register => {
-                if !secret.is_empty() {
-                    return Err(ControlServiceError::InvalidRequest(
-                        "registration provisioning must not contain a WARP Secret".to_owned(),
-                    ));
-                }
-                let options = registration_options(
-                    provisioning.device_name.clone(),
-                    provisioning.locale.clone(),
-                );
-                ProvisionedIdentity::consumer(
-                    ConsumerRegistrationClient::new()?
-                        .register(&options)
-                        .await?,
-                )
-            }
-            v1::IdentityProvisioningMethod::ImportSecret => {
-                return Err(ControlServiceError::FeatureRemoved("WARP Secret import"));
-            }
-            v1::IdentityProvisioningMethod::RegisterWithLicense => {
-                if !secret.is_empty() {
-                    return Err(ControlServiceError::InvalidRequest(
-                        "License provisioning must not contain a WARP Secret".to_owned(),
-                    ));
-                }
-                let license_key = Zeroizing::new(provisioning.license_key);
-                let license = std::str::from_utf8(&license_key)
-                    .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
-                let options = registration_options(provisioning.device_name, provisioning.locale);
-                ProvisionedIdentity::consumer(
-                    ConsumerRegistrationClient::new()?
-                        .register_with_license(&options, license)
-                        .await?,
-                )
-            }
-            v1::IdentityProvisioningMethod::RegisterZeroTrust => {
-                if !secret.is_empty() || !provisioning.license_key.is_empty() {
-                    return Err(ControlServiceError::IdentityOperationUnsupported);
-                }
-                let enrollment = provisioning.zero_trust.ok_or_else(|| {
-                    ControlServiceError::InvalidRequest(
-                        "Zero Trust enrollment details are missing".to_owned(),
-                    )
-                })?;
-                let callback = Zeroizing::new(enrollment.callback_uri);
-                let callback = std::str::from_utf8(&callback)
-                    .map_err(|_| RegistrationError::InvalidZeroTrustCallback)?;
-                let options = registration_options(provisioning.device_name, provisioning.locale);
-                let result = ConsumerRegistrationClient::new()?
-                    .register_zero_trust(&options, &enrollment.team_name, callback)
-                    .await?;
-                ProvisionedIdentity::zero_trust(result.identity, &result.endpoint)
-            }
-            v1::IdentityProvisioningMethod::Unspecified => {
-                return Err(ControlServiceError::InvalidRequest(
-                    "identity provisioning method is missing".to_owned(),
-                ));
-            }
-        };
+        let provisioned = self.register_initial_identity(provisioning).await?;
 
         let is_zero_trust = provisioned.is_zero_trust();
         let identity_provider = provisioned.identity().provider().clone();
         let managed_endpoint_ips = provisioned.managed_endpoint_ips().cloned();
 
+        let _identity_lease = self.identity_execution_lease().await?;
         let _mutation = self.mutation_lock.lock().await;
         let mut pending = self.config.read().await.clone();
         if pending
@@ -3462,6 +3419,7 @@ impl ControlService {
         self.ensure_profile_exists(profile_id).await?;
         let license = std::str::from_utf8(&license_key)
             .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
+        let _identity_lease = self.identity_execution_lease().await?;
         let _mutation = self.mutation_lock.lock().await;
         Self::require_consumer_identity(&self.load_identity_provider(profile_id).await?)?;
         let reconnect = self.connected_profile_id().await == Some(profile_id);
@@ -3485,6 +3443,7 @@ impl ControlService {
 
     async fn unbind_license_key(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
         self.ensure_profile_exists(profile_id).await?;
+        let _identity_lease = self.identity_execution_lease().await?;
         let _mutation = self.mutation_lock.lock().await;
         Self::require_consumer_identity(&self.load_identity_provider(profile_id).await?)?;
         let reconnect = self.connected_profile_id().await == Some(profile_id);
@@ -3721,6 +3680,16 @@ impl ControlService {
         new_identity: WarpIdentity,
         managed_endpoint_ips: Option<ManagedEndpointIps>,
     ) -> Result<(), ControlServiceError> {
+        self.replace_identity_records_locked(profile_id, &new_identity, managed_endpoint_ips)
+            .await
+    }
+
+    async fn replace_identity_records_locked(
+        &self,
+        profile_id: Uuid,
+        new_identity: &WarpIdentity,
+        managed_endpoint_ips: Option<ManagedEndpointIps>,
+    ) -> Result<(), ControlServiceError> {
         let new_provider = new_identity.provider().clone();
         let current = self.config.read().await.clone();
         if current.account(profile_id).is_none() {
@@ -3778,7 +3747,7 @@ impl ControlService {
             return Err(error);
         }
 
-        if let Err(error) = self.persist_identity(profile_id, &new_identity, None).await {
+        if let Err(error) = self.persist_identity(profile_id, new_identity, None).await {
             self.rollback_pending_identity_replacement_locked(
                 profile_id,
                 previous.as_ref(),
@@ -3794,7 +3763,7 @@ impl ControlService {
         if let Err(error) = self.persist(next).await {
             if new_identity.license().is_some() {
                 let _ = ConsumerRegistrationClient::new()?
-                    .unbind_license(&new_identity)
+                    .unbind_license(new_identity)
                     .await;
             }
             self.rollback_pending_identity_replacement_locked(
@@ -3964,6 +3933,18 @@ impl ControlService {
                 return Err(ControlServiceError::LastProfile);
             }
         }
+        self.update_config(move |config| {
+            if config
+                .initial_identity_operation
+                .as_ref()
+                .is_some_and(|operation| operation.profile_id == id)
+            {
+                config.initial_identity_operation = None;
+            }
+            Ok(())
+        })
+        .await?;
+        let _identity_lease = self.identity_execution_lease().await?;
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
@@ -4192,6 +4173,7 @@ impl ControlService {
     async fn persist(&self, mut next: AppConfig) -> Result<(), ControlServiceError> {
         self.update_config(move |latest| {
             next.network = latest.network.clone();
+            next.initial_identity_operation = latest.initial_identity_operation.clone();
             *latest = next;
             Ok(())
         })

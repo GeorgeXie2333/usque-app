@@ -1010,6 +1010,34 @@ message ProvisionIdentityRequest {
   ZeroTrustEnrollment zero_trust = 8;
 }
 
+// Initial provisioning never replaces an existing identity. Transport timeouts
+// are reconciled through the durable operation state instead of replayed.
+message InitialIdentityRequest {
+  string operation_id = 1;
+  string profile_id = 2;
+  IdentityProvisioning provisioning = 3;
+  // Recover local results only; never reserve an operation or register remotely.
+  bool resume_only = 4;
+}
+message GetInitialIdentityStateRequest {
+  string profile_id = 1;
+}
+enum InitialIdentityPhase {
+  INITIAL_IDENTITY_PHASE_UNSPECIFIED = 0;
+  INITIAL_IDENTITY_PHASE_IDLE = 1;
+  INITIAL_IDENTITY_PHASE_PENDING = 2;
+  INITIAL_IDENTITY_PHASE_INTERRUPTED = 3;
+  INITIAL_IDENTITY_PHASE_COMPLETED = 4;
+  INITIAL_IDENTITY_PHASE_FAILED = 5;
+}
+message InitialIdentityState {
+  string operation_id = 1;
+  string profile_id = 2;
+  InitialIdentityPhase phase = 3;
+  string error_code = 4;
+  bool reused = 5;
+}
+
 message ZeroTrustEnrollment {
   string team_name = 1;
   bytes callback_uri = 2;
@@ -1200,6 +1228,8 @@ message ControlRequest {
     RenameProfileRequest rename_profile = 46;
     ChainProfileRequest chain_profile = 47;
     WarpWireguardRequest warp_wireguard = 48;
+    InitialIdentityRequest initial_identity = 49;
+    GetInitialIdentityStateRequest get_initial_identity_state = 50;
   }
 }
 
@@ -1246,6 +1276,7 @@ message ControlResponse {
     VpnGateDirectory vpn_gate_directory = 23;
     ChainProfileResponse chain_profiles = 24;
     WarpWireguardResponse warp_wireguard = 25;
+    InitialIdentityState initial_identity_state = 26;
   }
 }
 

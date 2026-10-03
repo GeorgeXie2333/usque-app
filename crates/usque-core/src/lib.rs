@@ -22,11 +22,11 @@ pub mod warp_wireguard;
 pub use config::{
     Account, AppConfig, AppPreferences, CONSUMER_L4_SNI, ConfigError, CongestionControlAlgorithm,
     DEFAULT_PROFILE_ID, DataPlaneMode, DirectDnsMode, DirectDnsSettings, DnsMode,
-    EndpointSelection, EndpointSettings, FrontendSettings, IpPolicy, LogLevel,
-    MAX_GEO_DIRECT_COUNTRIES, ManagedEndpointIps, OperatingMode, PendingIdentityReplacement,
-    Profile, ProxyAuthCredentials, ProxyDnsMode, ProxySettings, SHARED_NETWORK_SECRET_ID,
-    SharedNetworkSettings, TransportPolicy, ZERO_TRUST_L4_SNI, l4_server_name,
-    validate_proxy_password, validate_proxy_username,
+    EndpointSelection, EndpointSettings, FrontendSettings, InitialIdentityOperation,
+    InitialIdentityPhase, IpPolicy, LogLevel, MAX_GEO_DIRECT_COUNTRIES, ManagedEndpointIps,
+    OperatingMode, PendingIdentityReplacement, Profile, ProxyAuthCredentials, ProxyDnsMode,
+    ProxySettings, SHARED_NETWORK_SECRET_ID, SharedNetworkSettings, TransportPolicy,
+    ZERO_TRUST_L4_SNI, l4_server_name, validate_proxy_password, validate_proxy_username,
 };
 pub use connector::{
     ConnectedPath, ConnectionAttempt, ConnectionOrchestrator, ConnectorError, TransportConnector,

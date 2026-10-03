@@ -10,6 +10,10 @@ Build and test commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Feature
 
 ## Editing and navigation
 
+- First launch keeps four steps: welcome, system permissions, Cloudflare terms and account setup. Android requires VPN authorization in the permissions step; notification authorization is optional and is requested afterward. Authorizing VPN may disconnect another VPN app, but onboarding does not start a connection. Previously completed installations enter Home normally, and connection startup rechecks revoked VPN authorization.
+- The terms step opens Cloudflare's application terms and the distinct personal WARP and Zero Trust privacy policies in the system browser. Confirmation and step progress are saved locally without credentials. Account setup uses the native initial-identity operation, preserves an existing ready account, and checks an uncertain result before allowing a new attempt. Interrupted attempts require fresh user input; License Keys and login callbacks are never replayed from a saved draft.
+- 首次引导仍为欢迎、系统权限、Cloudflare 条款、账号设置四步。Android 必须先授权 VPN，通知权限可拒绝；授权本身不启动连接，且可能断开其他 VPN。已注册账号会被保留；通信超时后先检查原操作结果，确定中断后才由用户重新输入并重试。
+
 - Accounts select WARP identities; network settings are shared across accounts.
 - Proxy addresses, ports, and DNS are drafts until **Apply changes** succeeds. Credentials use their separate **Save username and password** action and never enter the network draft.
 - Advanced settings have a persistent apply bar and a back-navigation guard for unapplied edits. Reset loads defaults into the draft; it does not apply them immediately.

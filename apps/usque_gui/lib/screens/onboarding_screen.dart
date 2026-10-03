@@ -8,20 +8,42 @@ import '../core/app_strings.dart';
 import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
+import '../models/onboarding_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/controller_selector.dart';
+import '../widgets/external_link.dart';
 import '../widgets/zero_trust_enrollment_editor.dart';
 
 class OnboardingScreen extends StatefulWidget {
-  const OnboardingScreen({required this.controller, super.key});
+  const OnboardingScreen({
+    required this.controller,
+    this.externalLinkLauncher,
+    super.key,
+  });
 
   final AppController controller;
+  final Future<bool> Function(Uri)? externalLinkLauncher;
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+typedef _OnboardingView = ({
+  bool busy,
+  int step,
+  bool terms,
+  OnboardingPhase phase,
+  bool operationPending,
+  bool permissionBusy,
+  OnboardingPermissionState? permissions,
+  InitialIdentityState? identity,
+  String? error,
+  LocalePreference locale,
+});
+
+class _OnboardingScreenState extends State<OnboardingScreen>
+    with WidgetsBindingObserver {
   static const int _stepCount = 4;
 
   final TextEditingController _licenseController = TextEditingController();
@@ -31,7 +53,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// Direction of the last step change, so a step slides in from the side the
   /// user came from.
   bool _forward = true;
-  bool _termsAccepted = false;
+  bool _savingTerms = false;
   IdentityProvisioningMethod _method = IdentityProvisioningMethod.register;
   bool _licenseVisible = false;
   bool _zeroTrustValid = false;
@@ -39,8 +61,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   AppStrings get strings => widget.controller.strings;
 
   @override
+  void initState() {
+    super.initState();
+    _step = widget.controller.onboardingStep;
+    if (_step > 1 &&
+        widget.controller.requiresOnboardingPermissions &&
+        widget.controller.onboardingPermissions?.vpnGranted != true) {
+      _step = 1;
+      unawaited(widget.controller.setOnboardingStep(_step));
+    } else if (_step == 3 && !widget.controller.onboardingTermsAccepted) {
+      _step = 2;
+      unawaited(widget.controller.setOnboardingStep(_step));
+    }
+    WidgetsBinding.instance.addObserver(this);
+    if (widget.controller.requiresOnboardingPermissions) {
+      unawaited(widget.controller.refreshOnboardingPermissions());
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        widget.controller.requiresOnboardingPermissions) {
+      unawaited(widget.controller.refreshOnboardingPermissions());
+    }
+  }
+
+  @override
   void dispose() {
-    unawaited(widget.controller.cancelZeroTrustLogin());
+    WidgetsBinding.instance.removeObserver(this);
     _licenseController
       ..clear()
       ..dispose();
@@ -54,8 +103,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       final editor = _zeroTrustKey.currentState;
       if (editor != null) {
         unawaited(editor.clearSensitive());
-      } else {
-        unawaited(widget.controller.cancelZeroTrustLogin());
       }
     }
     setState(() {
@@ -63,33 +110,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _step = step;
       if (step != _stepCount - 1) _zeroTrustValid = false;
     });
+    unawaited(widget.controller.setOnboardingStep(step));
   }
 
   void _changeMethod(IdentityProvisioningMethod value) {
-    if (value == _method || widget.controller.busy) return;
+    if (value == _method ||
+        widget.controller.busy ||
+        widget.controller.onboardingOperationPending) {
+      return;
+    }
     _licenseController.clear();
     if (_method == IdentityProvisioningMethod.zeroTrust) {
       final editor = _zeroTrustKey.currentState;
       if (editor != null) {
         unawaited(editor.clearSensitive());
-      } else {
-        unawaited(widget.controller.cancelZeroTrustLogin());
       }
     }
     setState(() {
       _method = value;
+      _licenseVisible = false;
       _zeroTrustValid = false;
     });
   }
 
-  Future<void> _finishSetup() async {
-    if (widget.controller.busy) return;
+  Future<void> _finishSetup({bool retryConfirmed = false}) async {
+    if (widget.controller.busy ||
+        widget.controller.onboardingOperationPending ||
+        !widget.controller.onboardingTermsAccepted) {
+      return;
+    }
+    if (widget.controller.onboardingPhase == OnboardingPhase.interrupted &&
+        !retryConfirmed) {
+      return;
+    }
     String? licenseKey;
     ZeroTrustEnrollmentDraft? enrollment;
-    if (_method == IdentityProvisioningMethod.registerWithLicense) {
+    final ready = widget.controller.onboardingPhase == OnboardingPhase.ready;
+    if (!ready && _method == IdentityProvisioningMethod.registerWithLicense) {
       licenseKey = _licenseController.text.trim();
       if (licenseKey.isEmpty) return;
-    } else if (_method == IdentityProvisioningMethod.zeroTrust) {
+    } else if (!ready && _method == IdentityProvisioningMethod.zeroTrust) {
       enrollment = _zeroTrustKey.currentState?.validateAndRead();
       if (enrollment == null) {
         if (mounted) setState(() => _zeroTrustValid = false);
@@ -110,22 +170,120 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final editor = _zeroTrustKey.currentState;
     if (editor != null) {
       await editor.clearSensitive();
-    } else {
-      await widget.controller.cancelZeroTrustLogin();
     }
     if (mounted && !success) {
       setState(() => _zeroTrustValid = false);
     }
   }
 
+  Future<void> _setTermsAccepted(bool accepted) async {
+    if (_savingTerms) return;
+    setState(() => _savingTerms = true);
+    try {
+      await widget.controller.setOnboardingTermsAccepted(accepted);
+    } finally {
+      if (mounted) setState(() => _savingTerms = false);
+    }
+  }
+
+  bool get _needsPermissions {
+    if (!widget.controller.requiresOnboardingPermissions) return false;
+    final permissions = widget.controller.onboardingPermissions;
+    return permissions == null ||
+        !permissions.vpnGranted ||
+        permissions.notification ==
+            OnboardingNotificationPermission.notRequested;
+  }
+
+  Future<void> _continue() async {
+    if (_step == 1 && _needsPermissions) {
+      if (!await widget.controller.prepareOnboardingPermissions() || !mounted) {
+        return;
+      }
+    }
+    if (!mounted) return;
+    if (_step < _stepCount - 1) {
+      _goTo(_step + 1);
+    } else {
+      await _finishSetup();
+    }
+  }
+
+  Future<void> _retryRegistration() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(strings.get('onboarding_retry_registration')),
+        content: Text(strings.get('onboarding_result_unknown')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(strings.get('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(strings.get('onboarding_retry_registration')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _finishSetup(retryConfirmed: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    return ControllerSelector<_OnboardingView>(
+      controller: widget.controller,
+      selector: (controller) => (
+        busy: controller.busy,
+        step: controller.onboardingStep,
+        terms: controller.onboardingTermsAccepted,
+        phase: controller.onboardingPhase,
+        operationPending: controller.onboardingOperationPending,
+        permissionBusy: controller.onboardingPermissionsBusy,
+        permissions: controller.onboardingPermissions,
+        identity: controller.initialIdentityState,
+        error: controller.lastError,
+        locale: controller.localePreference,
+      ),
+      builder: (context, view) {
+        var step = view.step;
+        if (step > 1 &&
+            widget.controller.requiresOnboardingPermissions &&
+            view.permissions?.vpnGranted != true) {
+          step = 1;
+        } else if (step == 3 && !view.terms) {
+          step = 2;
+        }
+        if (step != _step) {
+          _forward = step > _step;
+          _step = step;
+          _zeroTrustValid = false;
+        }
+        if (step != view.step) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && widget.controller.onboardingStep == view.step) {
+              unawaited(widget.controller.setOnboardingStep(step));
+            }
+          });
+        }
+        return _buildScreen(context);
+      },
+    );
+  }
+
+  Widget _buildScreen(BuildContext context) {
     return Scaffold(
       backgroundColor: UsqueTokens.of(context).canvas,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 820;
+            final wide =
+                constraints.maxWidth >= 820 &&
+                constraints.maxHeight >= 600 &&
+                MediaQuery.textScalerOf(context).scale(16) <= 24;
             return Row(
               children: <Widget>[
                 if (wide)
@@ -169,13 +327,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               strings: strings,
                             ),
                             const SizedBox(height: 30),
-                            AnimatedSize(
-                              duration: UsqueMotion.of(
-                                context,
-                                UsqueMotion.gentle,
-                              ),
-                              curve: UsqueMotion.emphasized,
-                              alignment: Alignment.topCenter,
+                            _OnboardingAnimatedSize(
                               child: _StepTransition(
                                 step: _step,
                                 forward: _forward,
@@ -213,15 +365,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _buildStep(BuildContext context) {
     return switch (_step) {
       0 => _IntroStep(strings: strings),
-      1 => _PermissionsStep(strings: strings),
+      1 => _PermissionsStep(strings: strings, controller: widget.controller),
       2 => _TermsStep(
         strings: strings,
-        accepted: _termsAccepted,
-        onChanged: (value) => setState(() => _termsAccepted = value),
+        accepted: widget.controller.onboardingTermsAccepted,
+        enabled: !_savingTerms,
+        onChanged: (value) => unawaited(_setTermsAccepted(value)),
+        externalLinkLauncher: widget.externalLinkLauncher,
       ),
       _ => _IdentityStep(
         strings: strings,
         controller: widget.controller,
+        enabled:
+            !widget.controller.busy &&
+            !widget.controller.onboardingOperationPending,
         method: _method,
         licenseVisible: _licenseVisible,
         licenseController: _licenseController,
@@ -242,16 +399,47 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Widget _buildActions(BuildContext context) {
     final isLast = _step == _stepCount - 1;
+    final phase = widget.controller.onboardingPhase;
+    final checking =
+        isLast &&
+        (phase == OnboardingPhase.interrupted ||
+            phase == OnboardingPhase.unavailable ||
+            phase == OnboardingPhase.reconciling ||
+            (phase == OnboardingPhase.failed &&
+                widget
+                        .controller
+                        .initialIdentityState
+                        ?.operationId
+                        .isNotEmpty ==
+                    true));
+    final waiting =
+        widget.controller.busy ||
+        widget.controller.onboardingPermissionsBusy ||
+        _savingTerms;
+    final blocked = waiting || widget.controller.onboardingOperationPending;
+    final primaryBlocked = checking ? waiting : blocked;
+    final draftValid = switch (_method) {
+      IdentityProvisioningMethod.register => true,
+      IdentityProvisioningMethod.registerWithLicense =>
+        _licenseController.text.trim().isNotEmpty,
+      IdentityProvisioningMethod.zeroTrust => _zeroTrustValid,
+    };
     final canContinue = switch (_step) {
-      2 => _termsAccepted,
-      3 => switch (_method) {
-        IdentityProvisioningMethod.register => true,
-        IdentityProvisioningMethod.registerWithLicense =>
-          _licenseController.text.trim().isNotEmpty,
-        IdentityProvisioningMethod.zeroTrust => _zeroTrustValid,
-      },
+      2 => widget.controller.onboardingTermsAccepted,
+      3 =>
+        widget.controller.onboardingTermsAccepted &&
+            (checking || phase == OnboardingPhase.ready || draftValid),
       _ => true,
     };
+    final label = isLast
+        ? checking
+              ? 'onboarding_check_result'
+              : phase == OnboardingPhase.ready
+              ? 'onboarding_continue_existing'
+              : 'finish_setup'
+        : _step == 1 && _needsPermissions
+        ? 'onboarding_grant_continue'
+        : 'continue';
     return OverflowBar(
       alignment: MainAxisAlignment.spaceBetween,
       overflowAlignment: OverflowBarAlignment.end,
@@ -260,21 +448,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       children: <Widget>[
         if (_step > 0)
           OutlinedButton.icon(
-            onPressed: widget.controller.busy ? null : () => _goTo(_step - 1),
+            onPressed: blocked ? null : () => _goTo(_step - 1),
             icon: const Icon(LucideIcons.arrowLeft),
             label: Text(strings.get('back')),
           ),
         FilledButton.icon(
-          onPressed: !canContinue || widget.controller.busy
+          onPressed: !canContinue || primaryBlocked
               ? null
-              : () async {
-                  if (!isLast) {
-                    _goTo(_step + 1);
-                    return;
-                  }
-                  await _finishSetup();
-                },
-          icon: widget.controller.busy
+              : checking
+              ? () => widget.controller.resumeInitialIdentityState()
+              : _continue,
+          icon: primaryBlocked
               ? SizedBox(
                   width: 18,
                   height: 18,
@@ -283,15 +467,55 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     color: Theme.of(context).colorScheme.onPrimary,
                   ),
                 )
-              : Icon(isLast ? LucideIcons.shieldCheck : LucideIcons.arrowRight),
-          label: Text(strings.get(isLast ? 'finish_setup' : 'continue')),
+              : Icon(
+                  checking
+                      ? LucideIcons.refreshCw
+                      : isLast
+                      ? LucideIcons.shieldCheck
+                      : LucideIcons.arrowRight,
+                ),
+          label: Text(strings.get(label)),
         ),
+        if (isLast &&
+            (phase == OnboardingPhase.interrupted ||
+                (phase == OnboardingPhase.failed &&
+                    widget
+                            .controller
+                            .initialIdentityState
+                            ?.operationId
+                            .isNotEmpty ==
+                        true)))
+          TextButton(
+            onPressed:
+                blocked ||
+                    !draftValid ||
+                    !widget.controller.onboardingTermsAccepted
+                ? null
+                : _retryRegistration,
+            child: Text(strings.get('onboarding_retry_registration')),
+          ),
       ],
     );
   }
 }
 
-/// Slides one step out and the next one in, in the direction of travel.
+class _OnboardingAnimatedSize extends StatelessWidget {
+  const _OnboardingAnimatedSize({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => UsqueMotion.reduced(context)
+      ? child
+      : AnimatedSize(
+          duration: UsqueMotion.gentle,
+          curve: UsqueMotion.emphasized,
+          alignment: Alignment.topCenter,
+          child: child,
+        );
+}
+
+/// Animates the incoming step while keeping one live form in the tree.
 class _StepTransition extends StatelessWidget {
   const _StepTransition({
     required this.step,
@@ -307,28 +531,19 @@ class _StepTransition extends StatelessWidget {
   Widget build(BuildContext context) {
     final Key key = ValueKey<int>(step);
     final double travel = forward ? 0.05 : -0.05;
-    return AnimatedSwitcher(
+    return TweenAnimationBuilder<double>(
+      key: key,
+      tween: Tween<double>(begin: 0, end: 1),
       duration: UsqueMotion.of(context, UsqueMotion.gentle),
-      switchInCurve: UsqueMotion.emphasized,
-      switchOutCurve: UsqueMotion.exit,
-      layoutBuilder: (currentChild, previousChildren) => Stack(
-        alignment: Alignment.topLeft,
-        children: <Widget>[...previousChildren, ?currentChild],
+      curve: UsqueMotion.emphasized,
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: FractionalTranslation(
+          translation: Offset(travel * (1 - value), 0),
+          child: child,
+        ),
       ),
-      transitionBuilder: (child, animation) {
-        final bool incoming = child.key == key;
-        return FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: Offset(incoming ? travel : -travel, 0),
-              end: Offset.zero,
-            ).animate(animation),
-            child: child,
-          ),
-        );
-      },
-      child: KeyedSubtree(key: key, child: child),
+      child: child,
     );
   }
 }
@@ -374,36 +589,45 @@ class _BrandPane extends StatelessWidget {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(48),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Image.asset(
-                  'assets/branding/usque-ui-icon.png',
-                  width: 72,
-                  height: 72,
-                  filterQuality: FilterQuality.medium,
-                ),
-                const Spacer(),
-                Text(
-                  'Usque',
-                  style: theme.textTheme.displayMedium?.copyWith(
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 320),
-                  child: Text(
-                    strings.get('unofficial'),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                      height: 1.5,
+          LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Padding(
+                    padding: const EdgeInsets.all(48),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Image.asset(
+                          'assets/branding/usque-ui-icon.png',
+                          width: 72,
+                          height: 72,
+                          filterQuality: FilterQuality.medium,
+                        ),
+                        const Spacer(),
+                        Text(
+                          'Usque',
+                          style: theme.textTheme.displayMedium?.copyWith(
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 320),
+                          child: Text(
+                            strings.get('unofficial'),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              height: 1.5,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ],
@@ -518,6 +742,7 @@ class _StepIndicator extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             '${step + 1} / $total',
+            textDirection: TextDirection.ltr,
             style: UsqueTheme.mono(
               context,
               size: 12,
@@ -576,9 +801,10 @@ class _IntroStep extends StatelessWidget {
 }
 
 class _PermissionsStep extends StatelessWidget {
-  const _PermissionsStep({required this.strings});
+  const _PermissionsStep({required this.strings, required this.controller});
 
   final AppStrings strings;
+  final AppController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -588,13 +814,43 @@ class _PermissionsStep extends StatelessWidget {
         _StepHeading(
           icon: LucideIcons.shield,
           title: strings.get('permissions_title'),
-          body: strings.get('permissions_body'),
+          body: strings.get(
+            controller.requiresOnboardingPermissions
+                ? 'onboarding_android_permissions_body'
+                : 'permissions_body',
+          ),
         ),
         const SizedBox(height: 22),
-        WarningBanner(
-          title: strings.get('heads_up'),
-          message: strings.get('permission_note'),
-        ),
+        if (controller.requiresOnboardingPermissions) ...[
+          InlineStatus(
+            label: strings.get(
+              controller.onboardingPermissions?.vpnGranted == true
+                  ? 'onboarding_vpn_granted'
+                  : 'onboarding_vpn_required',
+            ),
+            tone: controller.onboardingPermissions?.vpnGranted == true
+                ? StatusTone.success
+                : StatusTone.warning,
+          ),
+          const SizedBox(height: 12),
+          InlineStatus(
+            label: strings.get(
+              switch (controller.onboardingPermissions?.notification) {
+                OnboardingNotificationPermission.granted =>
+                  'onboarding_notifications_granted',
+                OnboardingNotificationPermission.notGranted =>
+                  'onboarding_notifications_denied',
+                _ => 'onboarding_notifications_optional',
+              },
+            ),
+            tone: StatusTone.neutral,
+            showIndicator: false,
+          ),
+        ] else
+          WarningBanner(
+            title: strings.get('heads_up'),
+            message: strings.get('permission_note'),
+          ),
       ],
     );
   }
@@ -604,12 +860,16 @@ class _TermsStep extends StatelessWidget {
   const _TermsStep({
     required this.strings,
     required this.accepted,
+    required this.enabled,
     required this.onChanged,
+    this.externalLinkLauncher,
   });
 
   final AppStrings strings;
   final bool accepted;
+  final bool enabled;
   final ValueChanged<bool> onChanged;
+  final Future<bool> Function(Uri)? externalLinkLauncher;
 
   @override
   Widget build(BuildContext context) {
@@ -622,13 +882,44 @@ class _TermsStep extends StatelessWidget {
           body: strings.get('terms_body'),
         ),
         const SizedBox(height: 18),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            for (final link in const [
+              (
+                'onboarding_application_terms',
+                'https://www.cloudflare.com/application/terms/',
+              ),
+              (
+                'onboarding_personal_privacy',
+                'https://www.cloudflare.com/application/privacypolicy/',
+              ),
+              (
+                'onboarding_zero_trust_privacy',
+                'https://www.cloudflare.com/privacypolicy/',
+              ),
+            ])
+              TextButton.icon(
+                onPressed: () => openExternalLink(
+                  context,
+                  strings,
+                  link.$2,
+                  launcher: externalLinkLauncher,
+                ),
+                icon: const Icon(LucideIcons.externalLink),
+                label: Text(strings.get(link.$1)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
         ContentSection(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           child: CheckboxListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
             controlAffinity: ListTileControlAffinity.leading,
             value: accepted,
-            onChanged: (value) => onChanged(value ?? false),
+            onChanged: enabled ? (value) => onChanged(value ?? false) : null,
             title: Text(strings.get('terms_accept')),
           ),
         ),
@@ -641,6 +932,7 @@ class _IdentityStep extends StatelessWidget {
   const _IdentityStep({
     required this.strings,
     required this.controller,
+    required this.enabled,
     required this.method,
     required this.licenseVisible,
     required this.licenseController,
@@ -654,6 +946,7 @@ class _IdentityStep extends StatelessWidget {
 
   final AppStrings strings;
   final AppController controller;
+  final bool enabled;
   final IdentityProvisioningMethod method;
   final bool licenseVisible;
   final TextEditingController licenseController;
@@ -666,6 +959,16 @@ class _IdentityStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final phase = controller.onboardingPhase;
+    final statusKey = switch (phase) {
+      OnboardingPhase.idle => null,
+      OnboardingPhase.submitting => 'onboarding_submitting',
+      OnboardingPhase.reconciling => 'onboarding_reconciling',
+      OnboardingPhase.ready => 'onboarding_ready',
+      OnboardingPhase.interrupted => 'onboarding_interrupted',
+      OnboardingPhase.failed => 'onboarding_failed',
+      OnboardingPhase.unavailable => 'onboarding_unavailable',
+    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -674,55 +977,69 @@ class _IdentityStep extends StatelessWidget {
           title: strings.get('configure_identity'),
         ),
         const SizedBox(height: 22),
-        IdentityProvisioningMethodSelector(
-          strings: strings,
-          value: method,
-          enabled: !controller.busy,
-          onChanged: onMethodChanged,
-        ),
-        AnimatedSize(
-          duration: UsqueMotion.of(context, UsqueMotion.gentle),
-          curve: UsqueMotion.emphasized,
-          alignment: Alignment.topCenter,
-          child: switch (method) {
-            IdentityProvisioningMethod.register => const SizedBox(
-              width: double.infinity,
+        if (statusKey != null) ...[
+          Semantics(
+            liveRegion: true,
+            child: InlineStatus(
+              label: strings.get(statusKey),
+              tone: phase == OnboardingPhase.ready
+                  ? StatusTone.success
+                  : phase == OnboardingPhase.failed ||
+                        phase == OnboardingPhase.interrupted
+                  ? StatusTone.warning
+                  : StatusTone.neutral,
             ),
-            IdentityProvisioningMethod.registerWithLicense => Padding(
-              padding: const EdgeInsets.only(top: 20),
-              child: TextField(
-                controller: licenseController,
-                enabled: !controller.busy,
-                obscureText: !licenseVisible,
-                enableSuggestions: false,
-                autocorrect: false,
-                onChanged: onLicenseChanged,
-                decoration: InputDecoration(
-                  labelText: strings.get('warp_license_key'),
-                  suffixIcon: IconButton(
-                    tooltip: strings.get(
-                      licenseVisible ? 'hide_license' : 'show_license',
-                    ),
-                    onPressed: onVisibilityChanged,
-                    icon: Icon(
-                      licenseVisible ? LucideIcons.eyeOff : LucideIcons.eye,
+          ),
+          const SizedBox(height: 18),
+        ],
+        if (phase != OnboardingPhase.ready) ...[
+          IdentityProvisioningMethodSelector(
+            strings: strings,
+            value: method,
+            enabled: enabled,
+            onChanged: onMethodChanged,
+          ),
+          _OnboardingAnimatedSize(
+            child: switch (method) {
+              IdentityProvisioningMethod.register => const SizedBox(
+                width: double.infinity,
+              ),
+              IdentityProvisioningMethod.registerWithLicense => Padding(
+                padding: const EdgeInsets.only(top: 20),
+                child: TextField(
+                  controller: licenseController,
+                  enabled: enabled,
+                  obscureText: !licenseVisible,
+                  enableSuggestions: false,
+                  autocorrect: false,
+                  onChanged: onLicenseChanged,
+                  decoration: InputDecoration(
+                    labelText: strings.get('warp_license_key'),
+                    suffixIcon: IconButton(
+                      tooltip: strings.get(
+                        licenseVisible ? 'hide_license' : 'show_license',
+                      ),
+                      onPressed: enabled ? onVisibilityChanged : null,
+                      icon: Icon(
+                        licenseVisible ? LucideIcons.eyeOff : LucideIcons.eye,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            IdentityProvisioningMethod.zeroTrust => Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: ZeroTrustEnrollmentEditor(
-                key: zeroTrustKey,
-                controller: controller,
-                enabled: !controller.busy,
-                onValidityChanged: onZeroTrustValidityChanged,
-                onSubmitted: onZeroTrustSubmitted,
+              IdentityProvisioningMethod.zeroTrust => Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: ZeroTrustEnrollmentEditor(
+                  key: zeroTrustKey,
+                  controller: controller,
+                  enabled: enabled,
+                  onValidityChanged: onZeroTrustValidityChanged,
+                  onSubmitted: onZeroTrustSubmitted,
+                ),
               ),
-            ),
-          },
-        ),
+            },
+          ),
+        ],
       ],
     );
   }

@@ -52,6 +52,7 @@ class AppController extends ChangeNotifier {
     EngineClient engine, {
     UpdateDownloader? updateDownloader,
     NetworkQualityController? qualityController,
+    @visibleForTesting this.onboardingCompletionWriter,
   }) : _engine = engine,
        _updateDownloader = updateDownloader ?? UpdateDownloader(engine),
        diagnostics = DiagnosticsController(engine),
@@ -75,6 +76,8 @@ class AppController extends ChangeNotifier {
   ];
 
   final EngineClient _engine;
+  @visibleForTesting
+  final Future<bool> Function()? onboardingCompletionWriter;
   String newVpnGateOperationId() => _newUuidV4();
   int get connectionIntent => _connectionIntent;
   Future<VpnGateDirectory> listVpnGate({
@@ -177,6 +180,26 @@ class AppController extends ChangeNotifier {
 
   bool initialized = false;
   bool onboardingComplete = false;
+  bool onboardingTermsAccepted = false;
+  int onboardingStep = 0;
+  OnboardingPhase onboardingPhase = OnboardingPhase.idle;
+  InitialIdentityState? initialIdentityState;
+  OnboardingPermissionState? onboardingPermissions;
+  bool onboardingPermissionsBusy = false;
+  String? _onboardingProfileId;
+  String? _onboardingOperationId;
+  Timer? _onboardingPollTimer;
+  Future<bool>? _initialIdentityRefresh;
+  bool _onboardingSubmitting = false;
+  Object? _onboardingSubmissionToken;
+  Future<void> _onboardingPreferenceWrites = Future<void>.value();
+
+  bool get requiresOnboardingPermissions =>
+      defaultTargetPlatform == TargetPlatform.android;
+  bool get onboardingOperationPending =>
+      _onboardingSubmitting ||
+      onboardingPhase == OnboardingPhase.submitting ||
+      onboardingPhase == OnboardingPhase.reconciling;
   bool busy = false;
   int _activeOperations = 0;
   bool updateChecksEnabled = true;
@@ -184,6 +207,10 @@ class AppController extends ChangeNotifier {
   bool closeToTray = true;
   PerAppProxySettings perAppProxy = const PerAppProxySettings();
   int zeroTrustCallbackTicket = 0;
+  Object? _zeroTrustCurrentOwner;
+  Object? _zeroTrustNativeOwner;
+  Future<void> _zeroTrustWork = Future<void>.value();
+  bool _zeroTrustCleanupFailed = false;
   ThemePreference themePreference = ThemePreference.system;
   LocalePreference localePreference = LocalePreference.system;
   AppSection section = AppSection.home;
@@ -347,6 +374,10 @@ class AppController extends ChangeNotifier {
     _preferences = await SharedPreferences.getInstance();
     if (_disposed || dataGeneration != _dataGeneration) return;
     onboardingComplete = _preferences?.getBool('onboarding_complete') ?? false;
+    onboardingTermsAccepted =
+        _preferences?.getBool('onboarding_terms_accepted') ?? false;
+    onboardingStep = (_preferences?.getInt('onboarding_step') ?? 0).clamp(0, 3);
+    _onboardingProfileId = _preferences?.getString('onboarding_profile_id');
     updateChecksEnabled =
         _preferences?.getBool('update_checks_enabled') ?? true;
     themePreference = _enumByName(
@@ -362,6 +393,11 @@ class AppController extends ChangeNotifier {
     await _loadProfiles();
     if (_disposed || dataGeneration != _dataGeneration) {
       return;
+    }
+    if (!onboardingComplete) {
+      await refreshOnboardingPermissions();
+      await refreshInitialIdentityState();
+      if (_disposed || dataGeneration != _dataGeneration) return;
     }
     try {
       final launchTarget = await _engine.consumeLaunchTarget();
@@ -593,19 +629,461 @@ class AppController extends ChangeNotifier {
     String? teamName,
     String? callbackUri,
   }) async {
+    if (_disposed || _clearing || _onboardingSubmitting) return false;
+    if (!onboardingTermsAccepted) {
+      lastError = strings.get('terms_accept');
+      _notifyListeners();
+      return false;
+    }
+    final generation = _dataGeneration;
+    final engine = _engine;
+    if (engine is! InitialIdentityClient) {
+      onboardingPhase = OnboardingPhase.unavailable;
+      lastError = strings.get('onboarding_unavailable');
+      _notifyListeners();
+      return false;
+    }
+    _onboardingSubmitting = true;
+    final submissionToken = Object();
+    _onboardingSubmissionToken = submissionToken;
+    try {
+      return await _run(() async {
+            await refreshOnboardingPermissions();
+            if (requiresOnboardingPermissions &&
+                onboardingPermissions?.vpnGranted != true) {
+              onboardingStep = 1;
+              throw const EngineException(
+                'VPN_PERMISSION_DENIED',
+                'VPN authorization is required.',
+              );
+            }
+            if (_disposed || generation != _dataGeneration || _clearing) return;
+            if (!await refreshInitialIdentityState()) return;
+            if (initialIdentityState?.phase == InitialIdentityPhase.pending) {
+              return;
+            }
+            if ((onboardingPhase == OnboardingPhase.interrupted ||
+                    onboardingPhase == OnboardingPhase.failed) &&
+                initialIdentityState?.operationId.isNotEmpty == true) {
+              final previous = initialIdentityState!;
+              final profile = profiles.firstWhere(
+                (profile) => profile.id == previous.profileId,
+              );
+              final resumed = await (engine as InitialIdentityClient)
+                  .initializeIdentity(
+                    profile,
+                    operationId: previous.operationId,
+                    method: IdentityProvisioningMethod.register,
+                    resumeOnly: true,
+                  );
+              if (_disposed || generation != _dataGeneration || _clearing) {
+                return;
+              }
+              _acceptInitialIdentityState(resumed, profile.id);
+              if (resumed.phase == InitialIdentityPhase.failed &&
+                  const {
+                    'INITIAL_IDENTITY_REPAIR_REQUIRED',
+                    'INITIAL_IDENTITY_CLEANUP_REQUIRED',
+                  }.contains(resumed.errorCode)) {
+                return;
+              }
+            }
+            if (onboardingPhase != OnboardingPhase.ready) {
+              if (onboardingPhase == OnboardingPhase.reconciling ||
+                  onboardingPhase == OnboardingPhase.unavailable) {
+                return;
+              }
+              final profileId = _onboardingProfileId ?? activeProfileId;
+              final profile = profiles.firstWhere(
+                (profile) => profile.id == profileId,
+              );
+              final savedProfile = await _writeOnboardingPreference(
+                (preferences) =>
+                    preferences.setString('onboarding_profile_id', profileId),
+              );
+              if (_disposed || generation != _dataGeneration || _clearing) {
+                return;
+              }
+              if (!savedProfile) {
+                throw const EngineException(
+                  'LOCAL_PREFERENCES_FAILED',
+                  'Setup could not be saved.',
+                );
+              }
+              _onboardingProfileId = profileId;
+              _onboardingOperationId = _newUuidV4();
+              onboardingPhase = OnboardingPhase.submitting;
+              _notifyListeners();
+              try {
+                final state = await (engine as InitialIdentityClient)
+                    .initializeIdentity(
+                      profile,
+                      operationId: _onboardingOperationId!,
+                      method: method,
+                      licenseKey: licenseKey,
+                      teamName: teamName,
+                      callbackUri: callbackUri,
+                    );
+                if (_disposed || generation != _dataGeneration || _clearing) {
+                  return;
+                }
+                _acceptInitialIdentityState(state, profileId);
+              } on Object {
+                if (_disposed || generation != _dataGeneration || _clearing) {
+                  return;
+                }
+                // A failed IPC response cannot establish that a mutating request failed.
+                onboardingPhase = OnboardingPhase.reconciling;
+                if (!await refreshInitialIdentityState()) {
+                  _scheduleOnboardingPoll();
+                  return;
+                }
+                if (initialIdentityState?.phase ==
+                    InitialIdentityPhase.pending) {
+                  return;
+                }
+                if (onboardingPhase != OnboardingPhase.ready) rethrow;
+              }
+              if (onboardingPhase != OnboardingPhase.ready) return;
+            }
+            if (initialIdentityState?.reused == true &&
+                initialIdentityState!.operationId.isNotEmpty) {
+              final profileId = initialIdentityState!.profileId;
+              final profile = profiles.firstWhere(
+                (profile) => profile.id == profileId,
+              );
+              final confirmed = await (engine as InitialIdentityClient)
+                  .initializeIdentity(
+                    profile,
+                    operationId: initialIdentityState!.operationId,
+                    method: IdentityProvisioningMethod.register,
+                    resumeOnly: true,
+                  );
+              if (_disposed || generation != _dataGeneration || _clearing) {
+                return;
+              }
+              _acceptInitialIdentityState(confirmed, profileId);
+              if (onboardingPhase != OnboardingPhase.ready) return;
+            }
+            await _refreshProfileCatalog();
+            if (_disposed || generation != _dataGeneration || _clearing) return;
+            await refreshOnboardingPermissions();
+            if (_disposed || generation != _dataGeneration || _clearing) return;
+            if (requiresOnboardingPermissions &&
+                onboardingPermissions?.vpnGranted != true) {
+              onboardingStep = 1;
+              throw const EngineException(
+                'VPN_PERMISSION_DENIED',
+                'VPN authorization is required.',
+              );
+            }
+            final saved = await _writeOnboardingPreference(
+              (preferences) =>
+                  onboardingCompletionWriter?.call() ??
+                  preferences.setBool('onboarding_complete', true),
+            );
+            if (_disposed || generation != _dataGeneration || _clearing) return;
+            if (!saved) {
+              throw const EngineException(
+                'LOCAL_PREFERENCES_FAILED',
+                'Setup could not be saved.',
+              );
+            }
+            onboardingComplete = true;
+            _onboardingPollTimer?.cancel();
+          }, affectsConnection: false) &&
+          onboardingComplete;
+    } finally {
+      if (generation == _dataGeneration &&
+          identical(_onboardingSubmissionToken, submissionToken)) {
+        _onboardingSubmitting = false;
+        _onboardingSubmissionToken = null;
+      }
+      _notifyListeners();
+    }
+  }
+
+  Future<bool> _writeOnboardingPreference(
+    Future<bool> Function(SharedPreferences preferences) write,
+  ) {
+    final generation = _dataGeneration;
+    final work = _onboardingPreferenceWrites.then((_) async {
+      if (_disposed || generation != _dataGeneration || _clearing) return false;
+      final preferences = _preferences ??=
+          await SharedPreferences.getInstance();
+      if (_disposed || generation != _dataGeneration || _clearing) return false;
+      return write(preferences);
+    });
+    _onboardingPreferenceWrites = work.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return work;
+  }
+
+  Future<bool> setOnboardingTermsAccepted(bool accepted) async {
+    if (_disposed || _clearing) return false;
+    final generation = _dataGeneration;
+    try {
+      final saved = await _writeOnboardingPreference(
+        (preferences) =>
+            preferences.setBool('onboarding_terms_accepted', accepted),
+      );
+      if (_disposed || generation != _dataGeneration || _clearing) return false;
+      if (saved) {
+        onboardingTermsAccepted = accepted;
+      } else {
+        lastError = strings.get('operation_failed');
+      }
+      _notifyListeners();
+      return saved;
+    } on Object catch (error) {
+      if (_disposed || generation != _dataGeneration || _clearing) return false;
+      lastError = userFacingError(strings, error);
+      _notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> setOnboardingStep(int step) async {
+    if (_disposed || _clearing) return;
+    final generation = _dataGeneration;
+    onboardingStep = step.clamp(0, 3);
+    final savedStep = onboardingStep;
+    try {
+      final saved = await _writeOnboardingPreference(
+        (preferences) => preferences.setInt('onboarding_step', savedStep),
+      );
+      if (_disposed || generation != _dataGeneration || _clearing) return;
+      if (!saved) {
+        lastError = strings.get('operation_failed');
+      }
+    } on Object catch (error) {
+      if (!_disposed && generation == _dataGeneration && !_clearing) {
+        lastError = userFacingError(strings, error);
+      }
+    }
+    if (!_disposed && generation == _dataGeneration && !_clearing) {
+      _notifyListeners();
+    }
+  }
+
+  Future<void> refreshOnboardingPermissions() async {
+    if (!requiresOnboardingPermissions || _disposed || _clearing) return;
+    final generation = _dataGeneration;
+    final engine = _engine;
+    if (engine is! OnboardingPermissionsClient) return;
+    try {
+      final value = await (engine as OnboardingPermissionsClient)
+          .getOnboardingPermissions();
+      if (_disposed || generation != _dataGeneration || _clearing) return;
+      onboardingPermissions = value;
+      _notifyListeners();
+    } on Object catch (error) {
+      if (_disposed || generation != _dataGeneration || _clearing) return;
+      onboardingPermissions = null;
+      lastError = userFacingError(strings, error);
+      _notifyListeners();
+    }
+  }
+
+  Future<bool> prepareOnboardingPermissions() async {
+    if (_disposed || _clearing || onboardingPermissionsBusy) return false;
+    final engine = _engine;
+    if (!requiresOnboardingPermissions) return true;
+    if (engine is! OnboardingPermissionsClient) return false;
+    final generation = _dataGeneration;
+    onboardingPermissionsBusy = true;
+    lastError = null;
+    _notifyListeners();
+    try {
+      final state = await (engine as OnboardingPermissionsClient)
+          .prepareOnboardingPermissions();
+      if (_disposed || generation != _dataGeneration || _clearing) return false;
+      onboardingPermissions = state;
+      if (!state.vpnGranted) lastError = strings.get('onboarding_vpn_required');
+      return state.vpnGranted;
+    } on Object catch (error) {
+      if (_disposed || generation != _dataGeneration || _clearing) return false;
+      lastError = userFacingError(strings, error);
+      return false;
+    } finally {
+      if (generation == _dataGeneration) onboardingPermissionsBusy = false;
+      _notifyListeners();
+    }
+  }
+
+  Future<bool> refreshInitialIdentityState() {
+    final pending = _initialIdentityRefresh;
+    if (pending != null) return pending;
+    late final Future<bool> work;
+    work = _readInitialIdentityState().whenComplete(() {
+      if (identical(work, _initialIdentityRefresh)) {
+        _initialIdentityRefresh = null;
+      }
+    });
+    _initialIdentityRefresh = work;
+    return work;
+  }
+
+  Future<bool> resumeInitialIdentityState() async {
+    if (_disposed || _clearing || busy || _onboardingSubmitting) return false;
+    if (!await refreshInitialIdentityState()) return false;
+    final state = initialIdentityState;
+    final engine = _engine;
+    if (state == null ||
+        state.operationId.isEmpty ||
+        state.phase == InitialIdentityPhase.pending ||
+        engine is! InitialIdentityClient ||
+        !onboardingTermsAccepted) {
+      return true;
+    }
     final generation = _dataGeneration;
     return _run(() async {
-      await _engine.provisionIdentity(
-        activeProfile,
-        method: method,
-        licenseKey: licenseKey,
-        teamName: teamName,
-        callbackUri: callbackUri,
+      final profile = profiles.firstWhere(
+        (profile) => profile.id == state.profileId,
       );
-      await _refreshProfileCatalog();
+      final resumed = await (engine as InitialIdentityClient)
+          .initializeIdentity(
+            profile,
+            operationId: state.operationId,
+            method: IdentityProvisioningMethod.register,
+            resumeOnly: true,
+          );
       if (_disposed || generation != _dataGeneration || _clearing) return;
-      onboardingComplete = true;
-      await _preferences?.setBool('onboarding_complete', true);
+      _acceptInitialIdentityState(resumed, profile.id);
+      if (resumed.phase == InitialIdentityPhase.completed) {
+        await _refreshProfileCatalog();
+      }
+    }, affectsConnection: false);
+  }
+
+  Future<bool> _readInitialIdentityState() async {
+    final engine = _engine;
+    if (_disposed || _clearing || onboardingComplete) return false;
+    if (engine is! InitialIdentityClient) {
+      onboardingPhase = OnboardingPhase.unavailable;
+      _notifyListeners();
+      return false;
+    }
+    final generation = _dataGeneration;
+    final profileId = _onboardingProfileId ?? activeProfileId;
+    try {
+      final state = await (engine as InitialIdentityClient)
+          .getInitialIdentityState(profileId);
+      if (_disposed || generation != _dataGeneration || _clearing) return false;
+      _acceptInitialIdentityState(state, profileId);
+      if (state.phase == InitialIdentityPhase.completed) {
+        await _refreshProfileCatalog();
+        if (_disposed || generation != _dataGeneration || _clearing) {
+          return false;
+        }
+      }
+      _notifyListeners();
+      return true;
+    } on Object catch (error) {
+      if (_disposed || generation != _dataGeneration || _clearing) return false;
+      if (error is EngineException &&
+          const {
+            'PROFILE_NOT_FOUND',
+            'INITIAL_IDENTITY_STATE_FAILED',
+          }.contains(error.code)) {
+        try {
+          await _refreshProfileCatalog().timeout(const Duration(seconds: 5));
+          if (_disposed || generation != _dataGeneration || _clearing) {
+            return false;
+          }
+          if (!profiles.any((profile) => profile.id == profileId)) {
+            final removed = await _writeOnboardingPreference((
+              preferences,
+            ) async {
+              return await preferences.remove('onboarding_profile_id') &&
+                  await preferences.setInt('onboarding_step', 0);
+            });
+            if (_disposed || generation != _dataGeneration || _clearing) {
+              return false;
+            }
+            if (!removed) {
+              throw const EngineException(
+                'LOCAL_PREFERENCES_FAILED',
+                'Setup could not be saved.',
+              );
+            }
+            _onboardingProfileId = null;
+            _onboardingOperationId = null;
+            initialIdentityState = null;
+            onboardingStep = 0;
+            _onboardingPollTimer?.cancel();
+            await _readInitialIdentityState();
+            if (_disposed || generation != _dataGeneration || _clearing) {
+              return false;
+            }
+            lastError = strings.get('onboarding_interrupted');
+            _notifyListeners();
+            // A Finish action for a removed account cannot target its replacement.
+            return false;
+          }
+        } on Object {
+          // An unavailable catalog never establishes that an account was deleted.
+        }
+      }
+      final unsupported =
+          error is EngineException &&
+          const {
+            'INITIAL_IDENTITY_UNSUPPORTED',
+            'ENGINE_UNAVAILABLE',
+            'FEATURE_REMOVED',
+            'INVALID_REQUEST',
+          }.contains(error.code);
+      onboardingPhase = unsupported
+          ? OnboardingPhase.unavailable
+          : OnboardingPhase.reconciling;
+      lastError = unsupported
+          ? strings.get('onboarding_unavailable')
+          : userFacingError(strings, error);
+      if (!unsupported) _scheduleOnboardingPoll();
+      _notifyListeners();
+      return false;
+    }
+  }
+
+  void _acceptInitialIdentityState(
+    InitialIdentityState state,
+    String profileId,
+  ) {
+    if (state.profileId != profileId) {
+      throw const FormatException('Setup account mismatch');
+    }
+    initialIdentityState = state;
+    _onboardingProfileId = profileId;
+    _onboardingOperationId = state.operationId.isEmpty
+        ? null
+        : state.operationId;
+    onboardingPhase = switch (state.phase) {
+      InitialIdentityPhase.idle => OnboardingPhase.idle,
+      InitialIdentityPhase.pending => OnboardingPhase.reconciling,
+      InitialIdentityPhase.interrupted => OnboardingPhase.interrupted,
+      InitialIdentityPhase.completed => OnboardingPhase.ready,
+      InitialIdentityPhase.failed => OnboardingPhase.failed,
+    };
+    if (state.phase == InitialIdentityPhase.failed &&
+        state.errorCode.isNotEmpty) {
+      lastError = userFacingFailure(strings, code: state.errorCode);
+    }
+    if (state.phase == InitialIdentityPhase.pending) {
+      _scheduleOnboardingPoll();
+    } else {
+      _onboardingPollTimer?.cancel();
+    }
+    _notifyListeners();
+  }
+
+  void _scheduleOnboardingPoll() {
+    _onboardingPollTimer?.cancel();
+    _onboardingPollTimer = Timer(const Duration(seconds: 2), () {
+      if (!_disposed && !_clearing && !onboardingComplete) {
+        unawaited(refreshInitialIdentityState());
+      }
     });
   }
 
@@ -1166,6 +1644,8 @@ class AppController extends ChangeNotifier {
     _clearing = true;
     busy = true;
     _dataGeneration++;
+    _zeroTrustCurrentOwner = null;
+    _onboardingPollTimer?.cancel();
     _connectionIntent++;
     _perAppSaveToken = null;
     _identityReconnectIntents.clear();
@@ -1197,6 +1677,7 @@ class AppController extends ChangeNotifier {
       await flushProfileWrites();
       success = await _run(
         () async {
+          await _onboardingPreferenceWrites;
           await _engine.clearAllData(confirmed: true);
           final preferences =
               _preferences ?? await SharedPreferences.getInstance();
@@ -1207,6 +1688,18 @@ class AppController extends ChangeNotifier {
             );
           }
           onboardingComplete = false;
+          onboardingTermsAccepted = false;
+          onboardingStep = 0;
+          onboardingPhase = OnboardingPhase.idle;
+          initialIdentityState = null;
+          onboardingPermissions = null;
+          onboardingPermissionsBusy = false;
+          _onboardingProfileId = null;
+          _onboardingOperationId = null;
+          _initialIdentityRefresh = null;
+          _onboardingSubmitting = false;
+          _onboardingSubmissionToken = null;
+          _onboardingPollTimer?.cancel();
           updateChecksEnabled = true;
           themePreference = ThemePreference.system;
           localePreference = LocalePreference.system;
@@ -1605,23 +2098,100 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  Future<String> beginZeroTrustLogin(String teamName) async {
-    final team = teamName.trim().toLowerCase();
-    final nativeUrl = await _engine.beginZeroTrustLogin(team);
-    return nativeUrl ?? 'https://$team.cloudflareaccess.com/warp';
+  Object createZeroTrustLoginOwner() {
+    final owner = Object();
+    _zeroTrustCurrentOwner = owner;
+    return owner;
   }
 
-  Future<String?> consumeZeroTrustCallback() =>
-      _engine.consumeZeroTrustCallback();
-
-  Future<void> cancelZeroTrustLogin() async {
-    try {
-      await _engine.cancelZeroTrustLogin();
-    } on Object catch (error) {
-      lastError = userFacingError(strings, error);
-      _notifyListeners();
+  void releaseZeroTrustLoginOwner(Object owner) {
+    if (identical(_zeroTrustCurrentOwner, owner)) {
+      _zeroTrustCurrentOwner = null;
+      _zeroTrustNativeOwner ??= owner;
     }
+    unawaited(cancelZeroTrustLogin(owner: owner));
   }
+
+  Future<T> _serializeZeroTrust<T>(Future<T> Function() operation) {
+    final work = _zeroTrustWork.then((_) => operation());
+    _zeroTrustWork = work.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return work;
+  }
+
+  Future<void> _prepareZeroTrustOwner(Object? owner) async {
+    if (owner != null && !identical(_zeroTrustCurrentOwner, owner)) {
+      throw const EngineException(
+        'ZERO_TRUST_LOGIN_CANCELLED',
+        'Login was cancelled.',
+      );
+    }
+    if (_zeroTrustCleanupFailed ||
+        (_zeroTrustNativeOwner != null &&
+            !identical(_zeroTrustNativeOwner, owner))) {
+      await _engine.cancelZeroTrustLogin();
+      _zeroTrustNativeOwner = null;
+      _zeroTrustCleanupFailed = false;
+    }
+    if (owner != null && !identical(_zeroTrustCurrentOwner, owner)) {
+      throw const EngineException(
+        'ZERO_TRUST_LOGIN_CANCELLED',
+        'Login was cancelled.',
+      );
+    }
+    _zeroTrustNativeOwner = owner;
+  }
+
+  Future<String> beginZeroTrustLogin(String teamName, {Object? owner}) =>
+      _serializeZeroTrust(() async {
+        await _prepareZeroTrustOwner(owner);
+        final team = teamName.trim().toLowerCase();
+        final nativeUrl = await _engine.beginZeroTrustLogin(team);
+        if (owner != null && !identical(_zeroTrustCurrentOwner, owner)) {
+          try {
+            await _engine.cancelZeroTrustLogin();
+            _zeroTrustNativeOwner = null;
+          } catch (_) {
+            _zeroTrustCleanupFailed = true;
+            rethrow;
+          }
+          throw const EngineException(
+            'ZERO_TRUST_LOGIN_CANCELLED',
+            'Login was cancelled.',
+          );
+        }
+        return nativeUrl ?? 'https://$team.cloudflareaccess.com/warp';
+      });
+
+  Future<String?> consumeZeroTrustCallback({Object? owner}) =>
+      _serializeZeroTrust(() async {
+        await _prepareZeroTrustOwner(owner);
+        final callback = await _engine.consumeZeroTrustCallback();
+        if (owner != null && !identical(_zeroTrustCurrentOwner, owner)) {
+          return null;
+        }
+        return callback;
+      });
+
+  Future<void> cancelZeroTrustLogin({Object? owner}) =>
+      _serializeZeroTrust(() async {
+        if (owner != null &&
+            !identical(_zeroTrustNativeOwner, owner) &&
+            !identical(_zeroTrustCurrentOwner, owner)) {
+          return;
+        }
+        try {
+          await _engine.cancelZeroTrustLogin();
+          _zeroTrustNativeOwner = null;
+          _zeroTrustCleanupFailed = false;
+        } on Object catch (error) {
+          _zeroTrustCleanupFailed = true;
+          lastError = userFacingError(strings, error);
+          _notifyListeners();
+        }
+      });
 
   void updateProfile(UsqueProfile updated) {
     updateNetwork(updated);
@@ -1948,6 +2518,8 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _zeroTrustCurrentOwner = null;
+    _onboardingPollTimer?.cancel();
     _bootstrapGeneration++;
     _bootstrapRetryTimer?.cancel();
     _connectionIntent++;

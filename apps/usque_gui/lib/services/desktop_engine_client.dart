@@ -30,7 +30,65 @@ class DesktopEngineClient
         EngineClient,
         VpnGateClient,
         ChainProfileClient,
-        WarpWireguardClient {
+        WarpWireguardClient,
+        InitialIdentityClient {
+  @override
+  Future<InitialIdentityState> initializeIdentity(
+    UsqueProfile profile, {
+    required String operationId,
+    required IdentityProvisioningMethod method,
+    bool resumeOnly = false,
+    String? licenseKey,
+    String? teamName,
+    String? callbackUri,
+  }) => _serialized(() async {
+    final license = Uint8List.fromList(utf8.encode(licenseKey ?? ''));
+    final callback = Uint8List.fromList(utf8.encode(callbackUri ?? ''));
+    try {
+      final provisioning = ControlPayloadWriter()
+        ..enumeration(1, _identityProvisioningWireValue(method))
+        ..boolean(3, true)
+        ..string(4, Platform.localeName)
+        ..bytes(6, license);
+      if (method == IdentityProvisioningMethod.zeroTrust) {
+        provisioning.message(
+          7,
+          (ControlPayloadWriter()
+                ..string(1, teamName ?? '')
+                ..bytes(2, callback))
+              .takeBytes(),
+        );
+      }
+      final payload = ControlPayloadWriter()
+        ..string(1, operationId)
+        ..string(2, profile.id)
+        ..message(3, provisioning.takeBytes())
+        ..boolean(4, resumeOnly);
+      return _requireInitialIdentityState(
+        await _request(49, payload.takeBytes()),
+      );
+    } finally {
+      license.fillRange(0, license.length, 0);
+      callback.fillRange(0, callback.length, 0);
+    }
+  });
+
+  @override
+  Future<InitialIdentityState> getInitialIdentityState(String profileId) =>
+      _serialized(() async {
+        final payload = ControlPayloadWriter()..string(1, profileId);
+        return _requireInitialIdentityState(
+          await _request(50, payload.takeBytes()),
+        );
+      });
+
+  InitialIdentityState _requireInitialIdentityState(ControlResponse response) =>
+      response.initialIdentityState ??
+      (throw const EngineException(
+        'INITIAL_IDENTITY_UNSUPPORTED',
+        'Initial setup unavailable.',
+      ));
+
   @override
   Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request) =>
       _serialized(() async {
@@ -826,6 +884,11 @@ class DesktopEngineClient
 @visibleForTesting
 Duration requestTimeoutForPayload(int payloadField) {
   switch (payloadField) {
+    case 49:
+      // Four bounded registration HTTP requests plus local commit margin.
+      return const Duration(seconds: 90);
+    case 50:
+      return const Duration(seconds: 5);
     case 12:
     case 14:
       // Covers the maximum automatic endpoint cycle, chain startup and native

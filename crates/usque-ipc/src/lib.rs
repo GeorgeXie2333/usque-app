@@ -75,6 +75,44 @@ pub enum FrameError {
 mod tests {
     use super::*;
     #[test]
+    fn initial_identity_wire_numbers_are_append_only() {
+        let initial = v1::ControlRequest {
+            request_id: String::new(),
+            payload: Some(v1::control_request::Payload::InitialIdentity(
+                Default::default(),
+            )),
+        };
+        assert_eq!(initial.encode_to_vec(), [0x8a, 0x03, 0]);
+        let get = v1::ControlRequest {
+            request_id: String::new(),
+            payload: Some(v1::control_request::Payload::GetInitialIdentityState(
+                Default::default(),
+            )),
+        };
+        assert_eq!(get.encode_to_vec(), [0x92, 0x03, 0]);
+        let response = v1::ControlResponse {
+            payload: Some(v1::control_response::Payload::InitialIdentityState(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(response.encode_to_vec(), [0xd2, 0x01, 0]);
+        assert_eq!(v1::InitialIdentityState::decode(&[][..]).unwrap().phase, 0);
+        assert!(
+            !v1::InitialIdentityRequest::decode(&[][..])
+                .unwrap()
+                .resume_only
+        );
+        assert_eq!(
+            v1::InitialIdentityRequest {
+                resume_only: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x20, 1]
+        );
+    }
+    #[test]
     fn automatic_endpoint_wire_fields_are_append_only() {
         let endpoint = v1::EndpointSettings {
             selection: v1::EndpointSelection::Automatic as i32,

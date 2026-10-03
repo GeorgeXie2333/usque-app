@@ -125,6 +125,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
   bool _callbackReceived = false;
   bool? _reportedValidity;
   late int _seenZeroTrustTicket;
+  late Object _loginOwner;
   int _inputGeneration = 0;
 
   AppStrings get _strings => widget.controller.strings;
@@ -138,6 +139,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
     _teamFocusNode = FocusNode()..addListener(_validateTeamAfterEditing);
     _callbackFocusNode = FocusNode();
     _seenZeroTrustTicket = widget.controller.zeroTrustCallbackTicket;
+    _loginOwner = widget.controller.createZeroTrustLoginOwner();
     widget.controller.addListener(_onControllerChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -158,6 +160,9 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
     }
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_onControllerChanged);
+      oldWidget.controller.releaseZeroTrustLoginOwner(_loginOwner);
+      _loginOwner = widget.controller.createZeroTrustLoginOwner();
+      _startingLogin = false;
       widget.controller.addListener(_onControllerChanged);
       _seenZeroTrustTicket = widget.controller.zeroTrustCallbackTicket;
     }
@@ -173,7 +178,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
     _inputGeneration++;
     widget.controller.removeListener(_onControllerChanged);
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(widget.controller.cancelZeroTrustLogin());
+    widget.controller.releaseZeroTrustLoginOwner(_loginOwner);
     _callbackController.clear();
     _teamFocusNode.dispose();
     _callbackFocusNode.dispose();
@@ -205,7 +210,9 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
     final valid = _isValid;
     if (_reportedValidity == valid) return;
     _reportedValidity = valid;
-    if (valid) unawaited(widget.controller.cancelZeroTrustLogin());
+    if (valid) {
+      unawaited(widget.controller.cancelZeroTrustLogin(owner: _loginOwner));
+    }
     widget.onValidityChanged?.call(valid);
   }
 
@@ -282,7 +289,9 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
 
   Future<void> _beginZeroTrustLogin() async {
     if (_startingLogin || !widget.enabled) return;
-    _inputGeneration++;
+    final generation = ++_inputGeneration;
+    final controller = widget.controller;
+    final owner = _loginOwner;
     final team = _normalizedTeam();
     if (team == null) {
       setState(() => _teamError = _strings.get('zero_trust_team_invalid'));
@@ -301,54 +310,77 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
     });
     _emitValidity();
     try {
-      final loginUrl = await widget.controller.beginZeroTrustLogin(team);
-      if (!mounted || _normalizedTeam() != team) {
-        await widget.controller.cancelZeroTrustLogin();
+      final loginUrl = await controller.beginZeroTrustLogin(team, owner: owner);
+      if (!_operationIsCurrent(generation, controller, owner) ||
+          _normalizedTeam() != team) {
+        await controller.cancelZeroTrustLogin(owner: owner);
         return;
       }
       final opened = await launchUrl(
         Uri.parse(loginUrl),
         mode: LaunchMode.externalApplication,
       );
+      if (!_operationIsCurrent(generation, controller, owner)) {
+        await controller.cancelZeroTrustLogin(owner: owner);
+        return;
+      }
       if (!opened) {
         throw StateError('The system browser could not be opened.');
       }
     } on Object catch (error) {
-      await widget.controller.cancelZeroTrustLogin();
-      if (!mounted) return;
+      await controller.cancelZeroTrustLogin(owner: owner);
+      if (!_operationIsCurrent(generation, controller, owner)) return;
       setState(() {
         _operationError = error is EngineException
             ? userFacingError(_strings, error)
             : _strings.get('zero_trust_browser_failed');
       });
     } finally {
-      if (mounted) setState(() => _startingLogin = false);
+      if (mounted && controller == widget.controller && owner == _loginOwner) {
+        setState(() => _startingLogin = false);
+      }
     }
   }
 
   Future<void> _consumeAutomaticCallback() async {
     if (!widget.enabled) return;
     final generation = _inputGeneration;
+    final controller = widget.controller;
+    final owner = _loginOwner;
     final team = _normalizedTeam();
     if (team == null) return;
-    final callback = await widget.controller.consumeZeroTrustCallback();
-    if (!mounted ||
-        !widget.enabled ||
-        generation != _inputGeneration ||
-        team != _normalizedTeam() ||
-        callback == null ||
-        callback.isEmpty) {
-      return;
+    try {
+      final callback = await controller.consumeZeroTrustCallback(owner: owner);
+      if (!_operationIsCurrent(generation, controller, owner) ||
+          team != _normalizedTeam() ||
+          callback == null ||
+          callback.isEmpty) {
+        return;
+      }
+      if (!ZeroTrustCallbackSession.isValidCallback(team, callback)) return;
+      _callbackController.text = callback;
+      setState(() {
+        _callbackReceived = true;
+        _callbackError = null;
+        _operationError = null;
+      });
+      _emitValidity();
+    } on Object catch (error) {
+      if (!_operationIsCurrent(generation, controller, owner)) return;
+      setState(() => _operationError = userFacingError(_strings, error));
     }
-    if (!ZeroTrustCallbackSession.isValidCallback(team, callback)) return;
-    _callbackController.text = callback;
-    setState(() {
-      _callbackReceived = true;
-      _callbackError = null;
-      _operationError = null;
-    });
-    _emitValidity();
   }
+
+  bool _operationIsCurrent(
+    int generation,
+    AppController controller,
+    Object owner,
+  ) =>
+      mounted &&
+      widget.enabled &&
+      generation == _inputGeneration &&
+      controller == widget.controller &&
+      owner == _loginOwner;
 
   ZeroTrustEnrollmentDraft? validateAndRead() {
     final team = _normalizedTeam();
@@ -383,7 +415,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
       });
       _emitValidity();
     }
-    await widget.controller.cancelZeroTrustLogin();
+    await widget.controller.cancelZeroTrustLogin(owner: _loginOwner);
   }
 
   @override

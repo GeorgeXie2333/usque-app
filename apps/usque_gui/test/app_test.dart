@@ -35,7 +35,91 @@ import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/controller_selector.dart';
 import 'package:usque/widgets/profile_identity_dialog.dart';
 
-class FakeEngineClient implements EngineClient {
+class FakeEngineClient
+    implements
+        EngineClient,
+        InitialIdentityClient,
+        OnboardingPermissionsClient {
+  InitialIdentityState? initialSetupState;
+  OnboardingPermissionState permissionState = const OnboardingPermissionState(
+    vpnGranted: true,
+    notification: OnboardingNotificationPermission.notRequired,
+  );
+
+  @override
+  Future<OnboardingPermissionState> getOnboardingPermissions() async =>
+      permissionState;
+
+  @override
+  Future<OnboardingPermissionState> prepareOnboardingPermissions() async =>
+      permissionState;
+
+  @override
+  Future<InitialIdentityState> getInitialIdentityState(String profileId) async {
+    if (initialSetupState?.phase == InitialIdentityPhase.pending) {
+      return initialSetupState!;
+    }
+    if (storedIdentityStatuses[profileId]?.state ==
+            ProfileIdentityState.ready ||
+        provisioned) {
+      return InitialIdentityState(
+        profileId: profileId,
+        phase: InitialIdentityPhase.completed,
+        reused: true,
+      );
+    }
+    return initialSetupState ??
+        InitialIdentityState(
+          profileId: profileId,
+          phase: InitialIdentityPhase.idle,
+        );
+  }
+
+  @override
+  Future<InitialIdentityState> initializeIdentity(
+    UsqueProfile profile, {
+    required String operationId,
+    required IdentityProvisioningMethod method,
+    bool resumeOnly = false,
+    String? licenseKey,
+    String? teamName,
+    String? callbackUri,
+  }) async {
+    final prior = await getInitialIdentityState(profile.id);
+    if (resumeOnly) return prior;
+    if (prior.phase == InitialIdentityPhase.completed ||
+        prior.phase == InitialIdentityPhase.pending) {
+      return prior;
+    }
+    initialSetupState = InitialIdentityState(
+      profileId: profile.id,
+      operationId: operationId,
+      phase: InitialIdentityPhase.pending,
+    );
+    try {
+      await provisionIdentity(
+        profile,
+        method: method,
+        licenseKey: licenseKey,
+        teamName: teamName,
+        callbackUri: callbackUri,
+      );
+      return initialSetupState = InitialIdentityState(
+        profileId: profile.id,
+        operationId: operationId,
+        phase: InitialIdentityPhase.completed,
+      );
+    } catch (_) {
+      initialSetupState = InitialIdentityState(
+        profileId: profile.id,
+        operationId: operationId,
+        phase: InitialIdentityPhase.failed,
+        errorCode: 'REGISTRATION_FAILED',
+      );
+      rethrow;
+    }
+  }
+
   NetworkSettingsState? settingsState;
   int settingsSequence = 0;
   int _dataResets = 0;
@@ -630,6 +714,8 @@ class FakeEngineClient implements EngineClient {
     storedActiveProfileId = UsqueProfile.defaultProfileId;
     legacyProfilesImported = false;
     provisioned = false;
+    initialSetupState = null;
+    storedIdentityStatuses = {};
     storedPerAppProxy = const PerAppProxySettings();
   }
 
@@ -731,7 +817,7 @@ Future<void> advanceToOnboardingIdentity(WidgetTester tester) async {
   final terms = find.byType(CheckboxListTile);
   await tester.ensureVisible(terms);
   await tester.tap(terms);
-  await tester.pump();
+  await tester.pumpAndSettle();
   continueButton = find.widgetWithText(FilledButton, 'Continue');
   await tester.ensureVisible(continueButton);
   await tester.tap(continueButton);
@@ -3034,11 +3120,15 @@ void main() {
     expect(find.text('Cloudflare terms'), findsOneWidget);
 
     await tester.tap(find.byType(CheckboxListTile));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Continue'));
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
     expect(find.text('Set up WARP account'), findsOneWidget);
 
+    await tester.ensureVisible(
+      find.widgetWithText(FilledButton, 'Finish setup'),
+    );
     await tester.tap(find.text('Finish setup'));
     await tester.pumpAndSettle();
 
@@ -3052,14 +3142,7 @@ void main() {
     await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byType(CheckboxListTile));
-    await tester.pump();
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
 
     await tester.tap(find.text('Use a WARP License Key'));
     await tester.pumpAndSettle();
@@ -3227,8 +3310,11 @@ void main() {
     expect(engine.zeroTrustCancelCount, greaterThan(0));
     expect(
       tester
-          .widget<FilledButton>(
-            find.widgetWithText(FilledButton, 'Finish setup'),
+          .widget<TextButton>(
+            find.widgetWithText(
+              TextButton,
+              controller.strings.get('onboarding_retry_registration'),
+            ),
           )
           .onPressed,
       isNull,

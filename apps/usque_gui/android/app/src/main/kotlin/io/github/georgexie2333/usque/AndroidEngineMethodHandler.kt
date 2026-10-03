@@ -5,6 +5,7 @@ import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicLong
 
@@ -25,6 +26,8 @@ internal class AndroidEngineMethodHandler(
     private val defaultIdentityProfile: String = DEFAULT_IDENTITY_PROFILE,
     private val warpSecretOkCode: Int = NativeEngine.OK,
     private val diagnosticsExecutor: Executor = identityExecutor,
+    private val initialIdentityStateExecutor: Executor = identityExecutor,
+    private val initialIdentityLease: () -> AutoCloseable? = { InitialIdentityCoordinator.acquire(profileConfigPath) },
 ) {
     companion object {
         const val DEFAULT_IDENTITY_PROFILE = "8c30b771-9ebd-457a-b67b-bbc74a1ddba6"
@@ -32,6 +35,33 @@ internal class AndroidEngineMethodHandler(
 
     private val connectionIntent = AtomicLong(0)
     private val dataGeneration = AtomicLong(0)
+    private val initialIdentityCoordinator by lazy {
+        InitialIdentityCoordinator(
+            command = { request ->
+                JSONObject(
+                    engineBridge.applyProfileCommand(profileConfigPath, request.toString())
+                        ?: throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_STATE_FAILED"),
+                )
+            },
+            lease = initialIdentityLease,
+            ready = { catalog, profileId -> initialIdentityReady(catalog, profileId) },
+            hasMaterial = { profileId ->
+                SecureIdentityStore.Record.entries.any { record ->
+                    if (record == SecureIdentityStore.Record.PROXY_PASSWORD) {
+                        false
+                    } else {
+                        val bytes = identityStore.get(profileId, record)
+                        try {
+                            bytes != null
+                        } finally {
+                            bytes?.fill(0)
+                        }
+                    }
+                }
+            },
+            recover = { request, catalog, commit -> recoverInitialIdentityCandidate(request, catalog, commit) },
+        )
+    }
 
     private val diagnosticsCoordinator =
         AndroidDiagnosticsCoordinator(
@@ -52,6 +82,14 @@ internal class AndroidEngineMethodHandler(
      * Activity-owned flows that require UI / permission surfaces.
      */
     interface ActivityCommands {
+        fun getOnboardingPermissions(result: MethodChannel.Result) {
+            result.notImplemented()
+        }
+
+        fun prepareOnboardingPermissions(result: MethodChannel.Result) {
+            result.notImplemented()
+        }
+
         fun cancelPendingVpnConnection(
             code: String,
             message: String,
@@ -300,6 +338,22 @@ internal class AndroidEngineMethodHandler(
             return
         }
         when (call.method) {
+            "getOnboardingPermissions" -> {
+                activityCommands.getOnboardingPermissions(result)
+            }
+
+            "prepareOnboardingPermissions" -> {
+                activityCommands.prepareOnboardingPermissions(result)
+            }
+
+            "getInitialIdentityState" -> {
+                getInitialIdentityState(call, result)
+            }
+
+            "initializeIdentity" -> {
+                initializeIdentity(call, result)
+            }
+
             "warpWireguard" -> {
                 val request =
                     JSONObject()
@@ -742,7 +796,10 @@ internal class AndroidEngineMethodHandler(
             if (!controlClient.claimInFlightClearAll(result)) {
                 return@execute
             }
+            var lease: AutoCloseable? = null
             try {
+                lease = initialIdentityLease() ?: throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_BUSY")
+                cleanupInitialEntitlements()
                 identityStore.clearAll()
                 engineBridge.applyProfileCommand(
                     profileConfigPath,
@@ -759,11 +816,25 @@ internal class AndroidEngineMethodHandler(
                 mainScheduler.post {
                     if (!controlClient.takeClaimedClearAll(result)) return@post
                     result.error(
-                        "CLEAR_ALL_FAILED",
-                        "Android could not clear all local Usque data.",
+                        if ((error as? InitialIdentityCoordinator.Failure)?.code ==
+                            "INITIAL_IDENTITY_CLEANUP_REQUIRED"
+                        ) {
+                            "INITIAL_IDENTITY_CLEANUP_REQUIRED"
+                        } else {
+                            "CLEAR_ALL_FAILED"
+                        },
+                        if ((error as? InitialIdentityCoordinator.Failure)?.code ==
+                            "INITIAL_IDENTITY_CLEANUP_REQUIRED"
+                        ) {
+                            "A newly registered WARP account could not release its license. Its encrypted cleanup record was retained; retry clearing when the network is available."
+                        } else {
+                            "Android could not clear all local Usque data."
+                        },
                         error.javaClass.simpleName,
                     )
                 }
+            } finally {
+                lease?.close()
             }
         }
     }
@@ -1164,6 +1235,7 @@ internal class AndroidEngineMethodHandler(
             return
         }
         identityExecutor.execute {
+            var initialLease: AutoCloseable? = null
             var oldIdentity: ByteArray? = null
             var oldMetadata: ByteArray? = null
             var oldLicense: ByteArray? = null
@@ -1172,6 +1244,8 @@ internal class AndroidEngineMethodHandler(
             var newLicense: ByteArray? = null
             var identityReplaced = false
             try {
+                initialLease =
+                    initialIdentityLease() ?: throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_BUSY")
                 requireConsumerIdentity(profileId)
                 oldIdentity =
                     identityStore.get(profileId, SecureIdentityStore.Record.WARP_SECRET)
@@ -1273,6 +1347,7 @@ internal class AndroidEngineMethodHandler(
                 newIdentity?.fill(0)
                 newMetadata?.fill(0)
                 newLicense?.fill(0)
+                initialLease?.close()
             }
         }
     }
@@ -1295,7 +1370,9 @@ internal class AndroidEngineMethodHandler(
     ) {
         if (!requireProfileEngine(result)) return
         identityExecutor.execute {
+            var lease: AutoCloseable? = null
             try {
+                lease = initialIdentityLease() ?: throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_BUSY")
                 var response =
                     engineBridge.applyProfileCommand(profileConfigPath, commandJson)
                         ?: throw IllegalStateException("Rust returned no profile catalog")
@@ -1370,6 +1447,8 @@ internal class AndroidEngineMethodHandler(
                         error.javaClass.simpleName,
                     )
                 }
+            } finally {
+                lease?.close()
             }
         }
     }
@@ -1593,6 +1672,474 @@ internal class AndroidEngineMethodHandler(
         controlClient.requestClearAllData(result)
     }
 
+    private fun cleanupInitialEntitlements() {
+        val profiles = loadProfileCatalog().getJSONArray("profiles")
+        for (index in 0 until profiles.length()) {
+            val profileId = profiles.getJSONObject(index).getString("id")
+            var secret = identityStore.get(profileId, SecureIdentityStore.Record.PENDING_CLEANUP_SECRET)
+            var candidate: InitialIdentityCandidate? = null
+            val encoded = identityStore.get(profileId, SecureIdentityStore.Record.INITIAL_IDENTITY_CANDIDATE)
+            try {
+                if (secret == null && encoded != null) {
+                    candidate = InitialIdentityCandidate.decode(encoded)
+                    if (candidate.license != null) secret = candidate.identity.clone()
+                }
+                if (secret != null && !engineBridge.unbindConsumerWarp(secret)) {
+                    throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_CLEANUP_REQUIRED")
+                }
+                if (secret != null) identityStore.delete(profileId, SecureIdentityStore.Record.PENDING_CLEANUP_SECRET)
+            } finally {
+                encoded?.fill(0)
+                secret?.fill(0)
+                candidate?.close()
+            }
+        }
+    }
+
+    private fun readInitialIdentityCatalog(profileId: String): JSONObject =
+        JSONObject(
+            engineBridge.applyProfileCommand(
+                profileConfigPath,
+                JSONObject().put("command", "get_initial_identity_state").put("profile_id", profileId).toString(),
+            )
+                ?: throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_STATE_FAILED"),
+        )
+
+    private fun requireInitialIdentityFence(
+        request: InitialIdentityCoordinator.Request,
+        generation: Long,
+    ) {
+        if (generation != dataGeneration.get() ||
+            controlClient.isClosed
+        ) {
+            throw InitialIdentityCoordinator.Failure("ENGINE_REQUEST_CANCELLED")
+        }
+        val catalog = readInitialIdentityCatalog(request.profileId)
+        val operation = catalog.optJSONObject("initial_identity_operation")
+        if (catalog.optString("active_profile_id") != request.profileId ||
+            operation?.optString("operation_id") != request.operationId ||
+            operation.optString("profile_id") != request.profileId || operation.optString("phase") != "pending"
+        ) {
+            throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_SUPERSEDED")
+        }
+    }
+
+    private fun candidateRecordsMatch(
+        candidate: InitialIdentityCandidate,
+        writeMissing: Boolean,
+    ): Boolean {
+        for ((record, expected) in listOf(
+            SecureIdentityStore.Record.WARP_SECRET to candidate.identity,
+            SecureIdentityStore.Record.IDENTITY_METADATA to candidate.metadata,
+            SecureIdentityStore.Record.LICENSE to candidate.license,
+        )) {
+            val actual = identityStore.get(candidate.request.profileId, record)
+            try {
+                if (actual == null && expected != null &&
+                    writeMissing
+                ) {
+                    identityStore.put(candidate.request.profileId, record, expected)
+                } else if (actual == null && expected == null) {
+                    continue
+                } else if (actual == null || expected == null || !actual.contentEquals(expected)) {
+                    return false
+                }
+            } finally {
+                actual?.fill(0)
+            }
+        }
+        return true
+    }
+
+    private fun recoverInitialIdentityCandidate(
+        request: InitialIdentityCoordinator.Request,
+        catalog: JSONObject,
+        commit: (JSONObject) -> Unit,
+    ): Boolean {
+        val bytes =
+            identityStore.get(request.profileId, SecureIdentityStore.Record.INITIAL_IDENTITY_CANDIDATE) ?: return false
+        try {
+            InitialIdentityCandidate.decode(bytes).use { candidate ->
+                val operation = catalog.optJSONObject("initial_identity_operation")
+                val intent = candidate.request
+                val organization = operation?.optString("organization")?.takeIf { it.isNotEmpty() && it != "null" }
+                if (intent.operationId != request.operationId || intent.profileId != request.profileId ||
+                    operation?.optString("operation_id") != intent.operationId ||
+                    operation.optString("profile_id") != intent.profileId ||
+                    operation.optString("method") != intent.method || organization != intent.organization ||
+                    catalog.optString("active_profile_id") != request.profileId ||
+                    engineBridge.validateWarpSecret(candidate.identity) != warpSecretOkCode
+                ) {
+                    throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_REPAIR_REQUIRED")
+                }
+                val metadata = JSONObject(candidate.metadata.toString(Charsets.UTF_8))
+                if (metadata.optInt("version") != 1 ||
+                    (
+                        intent.method == "zeroTrust" &&
+                            (
+                                metadata.optString("provider") != "zero_trust" ||
+                                    metadata.optString("organization") != intent.organization
+                            )
+                    ) ||
+                    (intent.method != "zeroTrust" && metadata.optString("provider") != "consumer")
+                ) {
+                    throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_REPAIR_REQUIRED")
+                }
+                when (operation.optString("phase")) {
+                    "pending" -> {
+                        val recoveryGeneration = dataGeneration.get()
+                        if (identityStore
+                                .get(
+                                    request.profileId,
+                                    SecureIdentityStore.Record.PENDING_CLEANUP_SECRET,
+                                )?.also { it.fill(0) } !=
+                            null
+                        ) {
+                            throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_REPAIR_REQUIRED")
+                        }
+                        requireInitialIdentityFence(intent, recoveryGeneration)
+                        if (!candidateRecordsMatch(
+                                candidate,
+                                writeMissing = true,
+                            )
+                        ) {
+                            throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_REPAIR_REQUIRED")
+                        }
+                        requireInitialIdentityFence(intent, recoveryGeneration)
+                        commit(candidate.endpoints)
+                    }
+
+                    "completed" -> {
+                        if (!candidateRecordsMatch(candidate, writeMissing = false) ||
+                            !initialIdentityReady(catalog, request.profileId)
+                        ) {
+                            throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_REPAIR_REQUIRED")
+                        }
+                    }
+
+                    else -> {
+                        throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_REPAIR_REQUIRED")
+                    }
+                }
+                runCatching {
+                    identityStore.delete(
+                        request.profileId,
+                        SecureIdentityStore.Record.INITIAL_IDENTITY_CANDIDATE,
+                    )
+                }
+                return true
+            }
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    private fun initialIdentityReady(
+        catalog: JSONObject,
+        profileId: String,
+    ): Boolean {
+        if (catalog.optString("active_profile_id") != profileId) return false
+        val candidateBytes = identityStore.get(profileId, SecureIdentityStore.Record.INITIAL_IDENTITY_CANDIDATE)
+        try {
+            if (candidateBytes != null) {
+                InitialIdentityCandidate.decode(candidateBytes).use { candidate ->
+                    if (!candidateRecordsMatch(candidate, writeMissing = false)) return false
+                }
+            }
+        } finally {
+            candidateBytes?.fill(0)
+        }
+        val cleanup = identityStore.get(profileId, SecureIdentityStore.Record.PENDING_CLEANUP_SECRET)
+        try {
+            if (cleanup != null) return false
+        } finally {
+            cleanup?.fill(0)
+        }
+        if (listOf(
+                "pending_identity_deletions",
+                "pending_identity_creations",
+                "pending_identity_replacements",
+                "armed_identity_replacements",
+            ).any { key ->
+                val entries = catalog.optJSONArray(key) ?: return@any false
+                (0 until entries.length()).any { entries.optString(it) == profileId }
+            }
+        ) {
+            return false
+        }
+        val profile = profileFromCatalog(catalog, profileId)
+        val provider = storedIdentityProvider(profileId, profile)
+        if (provider.provider == "zeroTrust" && profile.optString("identity_provider") != "zero_trust") return false
+        appendIdentityStatuses(catalog)
+        val states = catalog.getJSONArray("identity_statuses")
+        return (0 until states.length()).any {
+            val state = states.getJSONObject(it)
+            state.optString("profile_id") == profileId && state.optString("state") == "ready"
+        }
+    }
+
+    private fun getInitialIdentityState(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val profileId = call.argument<String>("profile_id")
+        if (profileId.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "The initial account identifier is missing.", null)
+            return
+        }
+        try {
+            initialIdentityStateExecutor.execute {
+                try {
+                    val state = initialIdentityCoordinator.status(profileId)
+                    mainScheduler.post { result.success(state) }
+                } catch (_: Exception) {
+                    mainScheduler.post {
+                        result.error(
+                            "INITIAL_IDENTITY_STATE_FAILED",
+                            "The initial account state is unavailable.",
+                            null,
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            result.error("INITIAL_IDENTITY_STATE_FAILED", "The initial account state is unavailable.", null)
+        }
+    }
+
+    private fun initializeIdentity(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val operationId = call.argument<String>("operation_id")
+        val profileId = call.argument<String>("profile_id")
+        val method = call.argument<String>("method")
+        val team = call.argument<String>("team_name")?.trim()?.lowercase(Locale.ROOT)
+        if (call.argument<Boolean>("terms_accepted") != true) {
+            result.error("TERMS_NOT_ACCEPTED", "Cloudflare terms must be accepted before registration.", null)
+            return
+        }
+        if (operationId == null || profileId == null || method == null ||
+            runCatching {
+                UUID.fromString(operationId)
+                UUID.fromString(profileId)
+            }.isFailure ||
+            method !in setOf("register", "registerWithLicense", "zeroTrust")
+        ) {
+            result.error("INVALID_ARGUMENT", "The initial account request is malformed.", null)
+            return
+        }
+        if (!engineBridge.isLinked()) {
+            result.error("ENGINE_UNAVAILABLE", "The Rust identity engine is not linked in this build.", null)
+            return
+        }
+        val generation = dataGeneration.get()
+        val request =
+            InitialIdentityCoordinator.Request(
+                operationId,
+                profileId,
+                method,
+                if (method ==
+                    "zeroTrust"
+                ) {
+                    team
+                } else {
+                    null
+                },
+                resumeOnly = call.argument<Boolean>("resume_only") ?: false,
+            )
+        try {
+            identityExecutor.execute {
+                try {
+                    if (generation != dataGeneration.get() || controlClient.isClosed) {
+                        throw InitialIdentityCoordinator.Failure("ENGINE_REQUEST_CANCELLED")
+                    }
+                    val state =
+                        initialIdentityCoordinator.initialize(request) { commit ->
+                            registerInitialIdentity(call, request, generation, commit)
+                        }
+                    mainScheduler.post { result.success(state) }
+                } catch (error: Exception) {
+                    val code = (error as? InitialIdentityCoordinator.Failure)?.code ?: "INITIAL_IDENTITY_STATE_FAILED"
+                    mainScheduler.post {
+                        result.error(
+                            code,
+                            "The initial account could not be initialized safely.",
+                            null,
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            result.error("INITIAL_IDENTITY_STATE_FAILED", "The initial account operation is unavailable.", null)
+        }
+    }
+
+    private fun registerInitialIdentity(
+        call: MethodCall,
+        request: InitialIdentityCoordinator.Request,
+        generation: Long,
+        commit: (JSONObject) -> Unit,
+    ) {
+        var identity: ByteArray? = null
+        var metadata: ByteArray? = null
+        var licenseBytes: ByteArray? = null
+        var stored = false
+        var remoteRegistered = false
+        val completion = JSONObject()
+        try {
+            if (request.method == "registerWithLicense" && call.argument<String>("license_key").isNullOrBlank()) {
+                throw InitialIdentityCoordinator.Failure("INVALID_LICENSE_KEY")
+            }
+            if (request.method == "zeroTrust" &&
+                (request.organization.isNullOrBlank() || call.argument<String>("callback_uri").isNullOrBlank())
+            ) {
+                throw InitialIdentityCoordinator.Failure("ZERO_TRUST_LOGIN_REQUIRED")
+            }
+            val locale = call.argument<String>("locale")?.replace('-', '_') ?: Locale.getDefault().toString()
+            when (request.method) {
+                "zeroTrust" -> {
+                    val envelopeBytes =
+                        engineBridge.registerZeroTrustWarp(
+                            locale,
+                            request.organization!!,
+                            call.argument<String>("callback_uri")!!,
+                        )
+                            ?: throw IllegalStateException("Registration returned no identity")
+                    remoteRegistered = true
+                    try {
+                        val envelope = JSONObject(envelopeBytes.toString(Charsets.UTF_8))
+                        identity = envelope.getString("warp_secret").toByteArray(Charsets.UTF_8)
+                        metadata = envelope.getString("identity_metadata").toByteArray(Charsets.UTF_8)
+                        completion
+                            .put("endpoint_ipv4", envelope.getString("endpoint_v4"))
+                            .put("endpoint_ipv6", envelope.getString("endpoint_v6"))
+                    } finally {
+                        envelopeBytes.fill(0)
+                    }
+                }
+
+                "registerWithLicense" -> {
+                    val license = call.argument<String>("license_key")!!.trim()
+                    licenseBytes = license.toByteArray(Charsets.UTF_8)
+                    identity = engineBridge.registerConsumerWarpWithLicense(locale, license)
+                        ?: throw IllegalStateException("Registration returned no identity")
+                    metadata = consumerIdentityMetadata(identity)
+                }
+
+                else -> {
+                    identity = engineBridge.registerConsumerWarp(locale)
+                        ?: throw IllegalStateException("Registration returned no identity")
+                    metadata = consumerIdentityMetadata(identity)
+                }
+            }
+            remoteRegistered = true
+            requireInitialIdentityFence(request, generation)
+            val verifiedIdentity = checkNotNull(identity)
+            if (engineBridge.validateWarpSecret(verifiedIdentity) != warpSecretOkCode) {
+                throw InitialIdentityCoordinator.Failure("IDENTITY_INVALID")
+            }
+            // A first initialization never backs up or replaces an existing account.
+            if (SecureIdentityStore.Record.entries.any { record ->
+                    if (record == SecureIdentityStore.Record.PROXY_PASSWORD) {
+                        false
+                    } else {
+                        val value = identityStore.get(request.profileId, record)
+                        try {
+                            value != null
+                        } finally {
+                            value?.fill(0)
+                        }
+                    }
+                }
+            ) {
+                throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_REPAIR_REQUIRED")
+            }
+            stored = true
+            val encoded =
+                InitialIdentityCandidate(
+                    request,
+                    verifiedIdentity,
+                    checkNotNull(metadata),
+                    licenseBytes,
+                    completion,
+                ).encode()
+            try {
+                identityStore.put(request.profileId, SecureIdentityStore.Record.INITIAL_IDENTITY_CANDIDATE, encoded)
+            } finally {
+                encoded.fill(0)
+            }
+            identityStore.put(request.profileId, SecureIdentityStore.Record.WARP_SECRET, verifiedIdentity)
+            identityStore.put(request.profileId, SecureIdentityStore.Record.IDENTITY_METADATA, metadata)
+            licenseBytes?.let { identityStore.put(request.profileId, SecureIdentityStore.Record.LICENSE, it) }
+            requireInitialIdentityFence(request, generation)
+            commit(completion)
+            runCatching {
+                identityStore.delete(
+                    request.profileId,
+                    SecureIdentityStore.Record.INITIAL_IDENTITY_CANDIDATE,
+                )
+            }
+        } catch (error: Exception) {
+            if ((error as? InitialIdentityCoordinator.Failure)?.uncertain == true) throw error
+            val remoteCleanupFailed =
+                request.method == "registerWithLicense" && remoteRegistered && identity != null &&
+                    !runCatching { engineBridge.unbindConsumerWarp(checkNotNull(identity)) }.getOrDefault(false)
+            if (stored) {
+                for (record in listOf(
+                    SecureIdentityStore.Record.WARP_SECRET,
+                    SecureIdentityStore.Record.IDENTITY_METADATA,
+                    SecureIdentityStore.Record.LICENSE,
+                )) {
+                    val expected =
+                        when (record) {
+                            SecureIdentityStore.Record.WARP_SECRET -> identity
+                            SecureIdentityStore.Record.IDENTITY_METADATA -> metadata
+                            else -> licenseBytes
+                        }
+                    runCatching {
+                        val actual = identityStore.get(request.profileId, record)
+                        try {
+                            if (actual != null && expected != null &&
+                                actual.contentEquals(expected)
+                            ) {
+                                identityStore.delete(request.profileId, record)
+                            }
+                        } finally {
+                            actual?.fill(0)
+                        }
+                    }
+                }
+                if (!remoteCleanupFailed) {
+                    runCatching {
+                        identityStore.delete(request.profileId, SecureIdentityStore.Record.INITIAL_IDENTITY_CANDIDATE)
+                    }
+                }
+            }
+            if (remoteCleanupFailed) {
+                runCatching {
+                    identityStore.put(
+                        request.profileId,
+                        SecureIdentityStore.Record.PENDING_CLEANUP_SECRET,
+                        checkNotNull(identity),
+                    )
+                }
+            }
+            if (remoteCleanupFailed) throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_COMMIT_FAILED")
+            val code =
+                (error as? InitialIdentityCoordinator.Failure)?.code ?: when (request.method) {
+                    "zeroTrust" -> zeroTrustErrorCode(error, remoteRegistered)
+                    "registerWithLicense" -> consumerRegistrationErrorCode(error, withLicense = true)
+                    else -> "REGISTRATION_FAILED"
+                }
+            throw InitialIdentityCoordinator.Failure(code)
+        } finally {
+            identity?.fill(0)
+            metadata?.fill(0)
+            licenseBytes?.fill(0)
+        }
+    }
+
     private fun provisionIdentity(
         call: MethodCall,
         result: MethodChannel.Result,
@@ -1655,7 +2202,10 @@ internal class AndroidEngineMethodHandler(
             var replacementBackupStored = false
             var replacementPrepared = false
             var replacementCommitted = false
+            var initialLease: AutoCloseable? = null
             try {
+                initialLease =
+                    initialIdentityLease() ?: throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_BUSY")
                 val provider = identityProvisioningBoundary(profileId)
                 if (provider != null && !provider.valid && !provider.repairable) {
                     throw IllegalStateException("Stored identity metadata is invalid")
@@ -1887,6 +2437,7 @@ internal class AndroidEngineMethodHandler(
                 newIdentity?.fill(0)
                 newMetadata?.fill(0)
                 licenseBytes?.fill(0)
+                initialLease?.close()
             }
         }
     }
@@ -1938,7 +2489,10 @@ internal class AndroidEngineMethodHandler(
             var remoteRegistered = false
             var committed = false
             var endpointIps: ZeroTrustEndpointIps? = null
+            var initialLease: AutoCloseable? = null
             try {
+                initialLease =
+                    initialIdentityLease() ?: throw InitialIdentityCoordinator.Failure("INITIAL_IDENTITY_BUSY")
                 val locale =
                     (arguments["locale"] as? String)
                         ?.replace('-', '_')
@@ -2092,6 +2646,7 @@ internal class AndroidEngineMethodHandler(
                 bytes?.fill(0)
                 metadata?.fill(0)
                 licenseBytes?.fill(0)
+                initialLease?.close()
             }
         }
     }

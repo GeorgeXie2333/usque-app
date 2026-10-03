@@ -44,6 +44,7 @@ internal class SecureIdentityStore(
         ENDPOINT_PIN("endpoint-pin"),
         IDENTITY_METADATA("identity-metadata"),
         PROXY_PASSWORD("proxy-password"),
+        INITIAL_IDENTITY_CANDIDATE("initial-identity-candidate"),
     }
 
     private val legacyPreferences =
