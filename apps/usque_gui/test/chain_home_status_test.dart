@@ -9,6 +9,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/home_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/connection_ring.dart';
 
 import 'app_test.dart' show FakeEngineClient;
 import 'ui_workflow_test.dart' show workflowHost;
@@ -105,6 +106,115 @@ void main() {
     expect(off.showChainRow, isFalse);
     expect(off.drivesHome, isFalse);
   });
+
+  for (final source in [ChainSource.httpProxy, ChainSource.socks5Proxy]) {
+    for (final locale in [
+      LocalePreference.english,
+      LocalePreference.simplifiedChinese,
+    ]) {
+      testWidgets(
+        'mobile $source/$locale keeps WARP status stable across sparse snapshots',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = const Size(390, 1000);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          addTearDown(tester.view.resetPhysicalSize);
+
+          EngineSnapshot sample({
+            String? warp,
+            String? legacyWarp,
+            String phase = 'connected',
+            String stage = 'connected',
+          }) => EngineSnapshot.fromMap({
+            'phase': phase,
+            'kill_switch_state': 'active',
+            'chain_exit': {
+              'stage': stage,
+              'warp_stage': ?warp,
+              'current_profile': {
+                'id': 'exit',
+                'revision': 'r1',
+                'name': 'NY ${source.label}',
+                'source': source.wire,
+                'protocol': source == ChainSource.httpProxy ? 'http' : 'socks5',
+                'endpoint': {'host': 'proxy.example', 'port': 1080},
+              },
+            },
+            'vpn_gate': {'stage': 'disabled', 'warp_stage': ?legacyWarp},
+            'frontends': [
+              {'kind': 'tunnel', 'phase': 'active'},
+            ],
+          });
+
+          final app = AppController(FakeEngineClient())
+            ..localePreference = locale
+            ..sharedNetwork = UsqueProfile.defaultProfile().copyWith(
+              chainExit: ChainExitSettings(enabled: true, source: source),
+            )
+            ..snapshot = sample(legacyWarp: 'connected');
+          addTearDown(app.dispose);
+          await tester.pumpWidget(
+            workflowHost(app, home: HomeScreen(controller: app)),
+          );
+          await tester.pumpAndSettle();
+          final connected = 'WARP: ${app.strings.get('connected')}';
+          expect(find.text(connected), findsOneWidget);
+          final ring = tester.getRect(find.byType(ConnectionRing));
+          for (final next in [
+            sample(),
+            sample(warp: 'connected'),
+            sample(legacyWarp: 'connected'),
+            sample(),
+          ]) {
+            app.snapshot = next;
+            app.selectSection(AppSection.home);
+            await tester.pumpAndSettle();
+            expect(find.text(connected), findsOneWidget);
+            expect(tester.getRect(find.byType(ConnectionRing)), ring);
+          }
+          expect(find.byKey(const ValueKey('home-chain-scope')), findsNothing);
+
+          for (final (snapshot, label) in [
+            (
+              sample(phase: 'preparing', stage: 'connecting_server'),
+              app.strings.get('connected'),
+            ),
+            (
+              sample(
+                phase: 'reconnecting',
+                stage: 'reconnecting',
+                warp: 'reconnecting',
+                legacyWarp: 'connected',
+              ),
+              app.strings.get('reconnecting'),
+            ),
+            (
+              sample(
+                phase: 'error',
+                stage: 'error',
+                warp: 'disconnected',
+                legacyWarp: 'connected',
+              ),
+              app.strings.get('disconnected'),
+            ),
+            (sample(phase: 'error', stage: 'error'), '—'),
+            (
+              sample(phase: 'disconnected', legacyWarp: 'connected'),
+              app.strings.get('disconnected'),
+            ),
+          ]) {
+            app.snapshot = snapshot;
+            app.selectSection(AppSection.home);
+            await tester.pumpAndSettle();
+            expect(find.text('WARP: $label'), findsOneWidget);
+            expect(tester.takeException(), isNull);
+          }
+          await tester.pumpWidget(const SizedBox());
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.android),
+      );
+    }
+  }
 
   testWidgets('Home keeps the mobile chain block and omits it on desktop', (
     tester,

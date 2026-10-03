@@ -56,6 +56,46 @@ class ChainHomeStatus {
     required String gateStage,
   }) => chainStage != 'disabled' ? chainStage : gateStage;
 
+  /// Sparse status refreshes can omit the separate WARP observation. Later
+  /// chain setup stages require WARP to be up; failure alone says nothing
+  /// about which hop failed. Unknown observations remain unknown.
+  static String? warpLabelKey({
+    required ConnectionPhase phase,
+    required String chainStage,
+    required String gateStage,
+    String? reportedStage,
+  }) {
+    if (phase == ConnectionPhase.disconnected) return 'disconnected';
+    if (phase == ConnectionPhase.disconnecting) return 'disconnecting';
+    final observed = switch (reportedStage) {
+      'connected' ||
+      'connecting' ||
+      'reconnecting' ||
+      'disconnected' ||
+      'error' => reportedStage,
+      _ => null,
+    };
+    if (observed != null) return observed;
+    final resolved = stage(chainStage: chainStage, gateStage: gateStage);
+    if (phase == ConnectionPhase.error || resolved == 'error') return null;
+    if (const {
+      'connecting_server',
+      'negotiating',
+      'configuring_network',
+      'connected',
+    }.contains(resolved)) {
+      return 'connected';
+    }
+    return switch (phase) {
+      ConnectionPhase.connected || ConnectionPhase.degraded => 'connected',
+      ConnectionPhase.preparing ||
+      ConnectionPhase.connectingH3 ||
+      ConnectionPhase.connectingH2 => 'connecting',
+      ConnectionPhase.reconnecting => 'reconnecting',
+      _ => null,
+    };
+  }
+
   static ChainHomeStatus of({
     required ConnectionPhase phase,
     required bool chainEnabled,

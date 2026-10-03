@@ -300,6 +300,12 @@ class _VpnGateReadout extends StatelessWidget {
           }
           final status = view.status;
           final server = status.server;
+          final warpKey = ChainHomeStatus.warpLabelKey(
+            phase: view.phase,
+            chainStage: view.chain.stage,
+            gateStage: status.stage,
+            reportedStage: view.chain.warpStage ?? status.warpStage,
+          );
           final phaseLabel =
               !homeStatus.showChainRow && view.phase == ConnectionPhase.error
               ? strings.get('error')
@@ -357,31 +363,11 @@ class _VpnGateReadout extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (!view.scope.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        view.scope.message(strings),
-                        key: const ValueKey('home-chain-scope'),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  if (status.warpStage != null || server != null)
-                    const SizedBox(height: 8),
-                  if (status.warpStage != null)
-                    Text(
-                      'WARP: ${strings.get(status.warpStage == 'connected'
-                          ? 'connected'
-                          : status.warpStage == 'reconnecting'
-                          ? 'reconnecting'
-                          : status.warpStage == 'error'
-                          ? 'error'
-                          : status.warpStage == 'disconnected'
-                          ? 'disconnected'
-                          : 'connecting')}',
-                    ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'WARP: ${warpKey == null ? '—' : strings.get(warpKey)}',
+                    key: const ValueKey('home-chain-warp-status'),
+                  ),
                   if (view.chain.currentProfile case final current?)
                     Text(current.source.label),
                   if (server != null && view.chain.currentProfile == null)

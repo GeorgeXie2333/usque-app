@@ -498,7 +498,7 @@ void main() {
 
   for (final surface in ['current', 'desktop', 'mobile']) {
     testWidgets(
-      '$surface uses the same limits and refreshes when runtime scope changes',
+      '$surface follows scope explanation placement across runtime changes',
       (tester) async {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = const Size(390, 1100);
@@ -550,13 +550,17 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.text(strings.chain('scope_proxy_only')), findsOneWidget);
+        void expectScope(Finder finder) => expect(
+          finder,
+          surface == 'current' ? findsOneWidget : findsNothing,
+        );
+        expectScope(find.text(strings.chain('scope_proxy_only')));
         if (surface == 'current') {
           expect(find.text(strings.chain('udp_available')), findsOneWidget);
         }
         expect(tester.takeException(), isNull);
-        // No chain status field changes: the selector must observe the shared
-        // scope presentation, including actual frontend state.
+        // The editor observes changes to actual frontend scope. Home keeps
+        // explanations out of its compact connection summary.
         app.snapshot = _snapshot(udp: 'available');
         app.networkSettings.accept(
           NetworkSettingsState(
@@ -574,7 +578,7 @@ void main() {
           applied,
           isAndroid: surface == 'mobile',
         ).message(strings);
-        expect(find.text(expected), findsOneWidget);
+        expectScope(find.text(expected));
         expect(find.text(strings.chain('scope_proxy_only')), findsNothing);
         expect(tester.takeException(), isNull);
 
@@ -598,10 +602,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(
-          find.textContaining(strings.chain('scope_interrupted')),
-          findsOneWidget,
-        );
+        expectScope(find.textContaining(strings.chain('scope_interrupted')));
         if (surface == 'current') {
           expect(find.text(strings.chain('proxy_ready')), findsNothing);
           expect(find.text(strings.chain('proxy_verified')), findsNothing);
@@ -628,10 +629,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(
-          find.textContaining(strings.chain('scope_interrupted')),
-          findsOneWidget,
-        );
+        expectScope(find.textContaining(strings.chain('scope_interrupted')));
         if (surface == 'current') {
           expect(find.text(strings.chain('proxy_ready')), findsNothing);
           expect(find.text(strings.chain('proxy_verified')), findsNothing);
@@ -655,7 +653,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.text(strings.chain('scope_proxy_only')), findsOneWidget);
+        expectScope(find.text(strings.chain('scope_proxy_only')));
         expect(
           find.textContaining(strings.chain('scope_interrupted')),
           findsNothing,

@@ -43,8 +43,8 @@ and saved/current markers. VPN Gate observations remain labeled as remote data.
 使用相同的单选控件及“已保存的选择”“当前连接”标记；VPN Gate 的远端观测说明
 保持可见。
 
-The current-connection section and both Home layouts share factual HTTP/SOCKS
-scope hints from the runtime snapshot and applied session profile. Proxy-only
+The chain editor's current-connection section shows factual HTTP/SOCKS scope
+hints from the runtime snapshot and applied session profile. Proxy-only
 connections describe their application-only coverage, including failed sessions
 whose scope is confirmed; tunnel connections keep explicit direct and per-app
 rules. A failed confirmed VPN session warns that
@@ -53,15 +53,20 @@ inactive. Saved changes and editor drafts do not imply that the running session
 changed. Unknown scope remains unknown; no new protection status is inferred.
 Android system-blocking advice is conditional because an absent Lockdown report
 does not prove it is disabled. A SOCKS5 UDP association accepted by the server is
-not evidence of working end-to-end UDP forwarding.
+not evidence of working end-to-end UDP forwarding. Home omits these explanatory
+paragraphs. Its phone layout retains the compact chain summary and WARP status
+row. Refreshes without a separate WARP observation use known connection stages;
+unknown states show a dash, and reported reconnects or failures remain visible.
 
-“当前连接”和桌面、手机首页共用 HTTP/SOCKS 范围提示，依据实际运行状态和已应用的
+链式代理编辑页的“当前连接”显示 HTTP/SOCKS 范围提示，依据实际运行状态和已应用的
 会话配置。已确认范围的仅代理会话即使失败，也说明只接管应用交给 Usque 的连接；
 VPN 模式说明显式直连与分应用规则继续生效。已确认的 VPN 会话失败且运行状态明确
 显示 Kill Switch 未启用时，
 才提示设备可能恢复普通网络。已保存修改和编辑草稿不会被当成当前会话；范围未知时
 不猜测，也不新增“已保护”状态。Android 系统阻断说明使用条件式文案，未上报
 Lockdown 不等于已关闭。SOCKS5 UDP 关联被服务器接受不等于端到端 UDP 转发已验证。
+首页不显示这些长篇说明，手机仍保留简短的链式摘要及 WARP 状态行。刷新缺少独立
+WARP 上报时使用已确认的连接阶段；无法确认时显示横线，明确上报的重连或失败仍会显示。
 
 WARP via WireGuard supports generated/imported configurations and editable
 endpoints. See [WARP via WireGuard](WARP_WIREGUARD.md).

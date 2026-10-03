@@ -229,6 +229,7 @@ class ChainExitStatus {
     this.tcpConnectVerified = false,
     this.proxyUdp,
     this.finalDnsTransport,
+    this.warpStage,
     this.stage = 'disabled',
     this.generation = 0,
     this.currentProfile,
@@ -241,7 +242,7 @@ class ChainExitStatus {
     this.attemptFailures = const [],
   });
   final bool tcpConnectVerified;
-  final String? proxyUdp, finalDnsTransport;
+  final String? proxyUdp, finalDnsTransport, warpStage;
   final String stage;
   final int generation;
   final ChainProfileSummary? currentProfile;
@@ -255,6 +256,7 @@ class ChainExitStatus {
     tcpConnectVerified: map['tcp_connect_verified'] == true,
     proxyUdp: map['proxy_udp'] as String?,
     finalDnsTransport: map['final_dns_transport'] as String?,
+    warpStage: map['warp_stage'] as String?,
     stage: map['stage'] as String? ?? 'disabled',
     generation: map['generation'] as int? ?? 0,
     currentProfile: map['current_profile'] is Map
@@ -277,6 +279,7 @@ class ChainExitStatus {
       tcpConnectVerified == other.tcpConnectVerified &&
       proxyUdp == other.proxyUdp &&
       finalDnsTransport == other.finalDnsTransport &&
+      warpStage == other.warpStage &&
       stage == other.stage &&
       generation == other.generation &&
       currentProfile == other.currentProfile &&
@@ -292,6 +295,7 @@ class ChainExitStatus {
     tcpConnectVerified,
     proxyUdp,
     finalDnsTransport,
+    warpStage,
     stage,
     generation,
     currentProfile,
