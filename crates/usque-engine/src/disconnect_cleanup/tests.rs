@@ -15,52 +15,76 @@ fn service() -> (tempfile::TempDir, ControlService) {
 
 #[tokio::test]
 async fn repeated_disconnect_retries_exact_failed_owner_and_connect_cannot_consume_the_failure() {
-    let (_directory, service) = service();
-    let mut profile = service.config_snapshot().await.active_profile().unwrap();
-    profile.frontends.tunnel = true;
-    profile.canonicalize_mode();
-    service
-        .install_test_session(profile.clone(), true, 0)
-        .await
-        .unwrap();
-    let (attempts, stopped) = {
-        let mut active = service.data_plane.lock().await;
-        let ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime else {
-            unreachable!()
+    for vpn in [false, true] {
+        let (_directory, service) = service();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.frontends.tunnel = vpn;
+        profile.frontends.http = true;
+        profile.proxy.system_proxy = true;
+        profile.canonicalize_mode();
+        service
+            .install_test_session(profile.clone(), vpn, 0)
+            .await
+            .unwrap();
+        let (attempts, stopped) = {
+            let mut active = service.data_plane.lock().await;
+            let ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime else {
+                unreachable!()
+            };
+            runtime.shutdown_failures = 2;
+            (runtime.shutdown_attempts.clone(), runtime.stopped.clone())
         };
-        runtime.shutdown_failures = 1;
-        (runtime.shutdown_attempts.clone(), runtime.stopped.clone())
-    };
-    service.disconnect().await.unwrap();
-    assert!(service.await_disconnect_cleanup().await.is_err());
-    assert!(service.data_plane.lock().await.is_none());
-    assert_eq!(service.disconnect_owners.lock().await.len(), 1);
-    assert_eq!(attempts.load(Ordering::SeqCst), 1);
-    assert!(!stopped.is_cancelled());
-    assert_eq!(
-        service.state.lock().await.snapshot().phase,
-        ConnectionPhase::Error
-    );
-    assert_eq!(
-        service.state.lock().await.snapshot().kill_switch_state,
-        KillSwitchState::Error
-    );
-    // Reading an already consumed JoinHandle error must not clear the gate.
-    assert!(service.await_disconnect_cleanup().await.is_err());
-    assert!(matches!(
-        service.connect(profile.id).await,
-        Err(ControlServiceError::DisconnectCleanup(_))
-    ));
-    assert_eq!(attempts.load(Ordering::SeqCst), 1);
-    service.disconnect().await.unwrap();
-    service.await_disconnect_cleanup().await.unwrap();
-    assert_eq!(attempts.load(Ordering::SeqCst), 2);
-    assert!(stopped.is_cancelled());
-    assert!(service.disconnect_owners.lock().await.is_empty());
-    assert_eq!(
-        service.state.lock().await.snapshot().phase,
-        ConnectionPhase::Disconnected
-    );
+        for attempt in 1..=2 {
+            service.disconnect().await.unwrap();
+            assert!(service.await_disconnect_cleanup().await.is_err());
+            assert!(service.data_plane.lock().await.is_none());
+            {
+                let owners = service.disconnect_owners.lock().await;
+                assert_eq!(owners.len(), 1);
+                let ActiveRuntime::Harness(runtime) = &owners.front().unwrap().runtime else {
+                    unreachable!()
+                };
+                assert_eq!(runtime.vpn, vpn);
+                assert!(Arc::ptr_eq(&runtime.shutdown_attempts, &attempts));
+                assert_eq!(runtime.shutdown_failures, 2 - attempt);
+                assert!(owners.front().unwrap().last_error.is_some());
+            }
+            assert_eq!(attempts.load(Ordering::SeqCst), attempt as usize);
+            assert!(!stopped.is_cancelled());
+            assert!(service.disconnect_cleanup_failed.load(Ordering::Acquire));
+            let snapshot = service.state.lock().await.snapshot().clone();
+            assert_eq!(snapshot.phase, ConnectionPhase::Error);
+            assert!(snapshot.error.is_some());
+            assert_eq!(
+                snapshot.kill_switch_state,
+                if vpn {
+                    KillSwitchState::Error
+                } else {
+                    KillSwitchState::NotApplicable
+                }
+            );
+            // Reading or attempting Connect cannot consume the failed owner
+            // or silently treat a previous restore attempt as confirmation.
+            assert!(service.await_disconnect_cleanup().await.is_err());
+            assert!(matches!(
+                service.connect(profile.id).await,
+                Err(ControlServiceError::DisconnectCleanup(_))
+            ));
+            assert_eq!(attempts.load(Ordering::SeqCst), attempt as usize);
+            assert_eq!(service.state.lock().await.snapshot().error, snapshot.error);
+            assert_eq!(service.disconnect_owners.lock().await.len(), 1);
+            assert!(service.disconnect_cleanup_failed.load(Ordering::Acquire));
+        }
+        service.disconnect().await.unwrap();
+        service.await_disconnect_cleanup().await.unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        assert!(stopped.is_cancelled());
+        assert!(service.disconnect_owners.lock().await.is_empty());
+        assert!(!service.disconnect_cleanup_failed.load(Ordering::Acquire));
+        let snapshot = service.state.lock().await.snapshot().clone();
+        assert_eq!(snapshot.phase, ConnectionPhase::Disconnected);
+        assert!(snapshot.error.is_none());
+    }
 }
 
 #[tokio::test]

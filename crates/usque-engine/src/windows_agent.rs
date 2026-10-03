@@ -89,6 +89,8 @@ const AUTOMATIC_RECOVERY_ATTEMPT_LIMIT: u32 = 3;
 
 mod device_owner;
 mod replacement;
+#[cfg(test)]
+mod system_proxy_cleanup_tests;
 pub(crate) use device_owner::WindowsDeviceOwner;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -686,6 +688,7 @@ pub(crate) struct WindowsSystemProxyGuard {
     lease_cancel: CancellationToken,
     lease_monitor: Option<JoinHandle<()>>,
     lease_failed: Arc<AtomicBool>,
+    cleanup_confirmed: bool,
 }
 
 impl WindowsSystemProxyGuard {
@@ -786,6 +789,7 @@ impl WindowsSystemProxyGuard {
             lease_cancel,
             lease_monitor: Some(lease_monitor),
             lease_failed,
+            cleanup_confirmed: false,
         }
     }
 
@@ -811,8 +815,29 @@ impl WindowsSystemProxyGuard {
     }
 
     pub(crate) async fn shutdown(&mut self) -> Result<(), WindowsVpnError> {
-        let Some(pipe) = self.pipe.take() else {
+        self.shutdown_with_timeout(AGENT_RPC_TIMEOUT).await
+    }
+
+    async fn shutdown_with_timeout(&mut self, budget: Duration) -> Result<(), WindowsVpnError> {
+        if self.cleanup_confirmed {
             return Ok(());
+        }
+        // A lost pipe or cancelled attempt retains its immutable operation ID.
+        // Only a durable Restore reply or a fully recovered Clean readback may
+        // complete this owner. Bound the whole attempt, including pipe startup.
+        timeout(budget, self.shutdown_unconfirmed())
+            .await
+            .map_err(|_| WindowsVpnError::RpcTimeout)??;
+        self.cleanup_confirmed = true;
+        Ok(())
+    }
+
+    async fn shutdown_unconfirmed(&mut self) -> Result<(), WindowsVpnError> {
+        let Some(pipe) = self.pipe.take() else {
+            return self
+                .client
+                .restore_owned_system_proxy(self.operation_id, self.tunnel_lease)
+                .await;
         };
         // The monitor is the only idle reader. Join it before the Restore RPC
         // so it cannot consume that response or keep the pipe open on failure.
@@ -820,29 +845,29 @@ impl WindowsSystemProxyGuard {
         if let Some(monitor) = self.lease_monitor.take() {
             let _ = monitor.await;
         }
-        let mut pipe = pipe.lock().await;
-        let result = timeout(
-            AGENT_RPC_TIMEOUT,
-            self.client
-                .restore_system_proxy(&mut pipe, self.operation_id),
-        )
-        .await
-        .map_err(|_| WindowsVpnError::RpcTimeout)
-        .and_then(|result| result);
-        let _ = pipe.shutdown().await;
-        let state = result?;
-        if system_proxy_restore_succeeded(self.tunnel_lease, self.operation_id, &state) {
-            Ok(())
-        } else {
-            Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
-        }
+        let result = {
+            let mut leased = pipe.lock().await;
+            let result = self
+                .client
+                .restore_system_proxy(&mut leased, self.operation_id)
+                .await;
+            let _ = leased.shutdown().await;
+            result
+        };
+        // Let lease EOF release its ownership before checking an ambiguous
+        // result on another pipe. EOF recovery itself is not confirmation.
+        drop(pipe);
+        self.client
+            .confirm_system_proxy_restore(self.operation_id, self.tunnel_lease, result)
+            .await
     }
 
     pub(crate) async fn shutdown_slot(slot: &mut Option<Self>) -> Result<(), WindowsVpnError> {
-        match slot.take() {
-            Some(mut previous) => previous.shutdown().await,
-            None => Ok(()),
+        if let Some(previous) = slot.as_mut() {
+            previous.shutdown().await?;
+            slot.take();
         }
+        Ok(())
     }
 }
 
@@ -3877,6 +3902,94 @@ impl WindowsAgentClient {
         }
     }
 
+    async fn restore_owned_system_proxy(
+        &self,
+        operation_id: Uuid,
+        tunnel_lease: bool,
+    ) -> Result<(), WindowsVpnError> {
+        let state = self.get_state().await?;
+        if system_proxy_clean(&state) {
+            // The original RPC, lease EOF or whole-tunnel rollback may have
+            // completed before this explicit retry acquired a fresh pipe.
+            return Ok(());
+        }
+        if replacement::pending_replacement(&state)?.is_some()
+            || state
+                .replacement
+                .as_ref()
+                .is_some_and(|replacement| replacement.guard_active)
+            || state.operation_id != operation_id.to_string()
+            || if tunnel_lease {
+                state.phase != agent_v1::AgentPhase::Active as i32 || state.plan.is_none()
+            } else {
+                !matches!(
+                    agent_v1::AgentPhase::try_from(state.phase),
+                    Ok(agent_v1::AgentPhase::Active | agent_v1::AgentPhase::RecoveryRequired)
+                ) || state.plan.is_some()
+                    || !state.profile_id.is_empty()
+                    || state.packet_session_active
+                    || state.kill_switch_active
+            }
+        {
+            return Err(WindowsVpnError::RecoveryConflict);
+        }
+        let capabilities = self.get_capabilities().await?;
+        if capabilities.protocol_version != AGENT_PROTOCOL_VERSION {
+            return Err(WindowsVpnError::ProtocolVersion(
+                capabilities.protocol_version,
+            ));
+        }
+        if !capabilities.system_proxy {
+            return Err(WindowsVpnError::MissingCapabilities("system_proxy".into()));
+        }
+        // GetState cannot expose SID/PID or Intended receipts. The exact-op
+        // Restore RPC reauthenticates ownership and durably clears those steps,
+        // even when system_proxy_active was already false in the query.
+        let result = self
+            .call(agent_request::Payload::RestoreSystemProxy(
+                RestoreSystemProxyRequest {
+                    operation_id: operation_id.to_string(),
+                },
+            ))
+            .await
+            .and_then(|payload| match payload {
+                agent_response::Payload::State(state) => Ok(state),
+                payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+            });
+        self.confirm_system_proxy_restore(operation_id, tunnel_lease, result)
+            .await
+    }
+
+    async fn confirm_system_proxy_restore(
+        &self,
+        operation_id: Uuid,
+        tunnel_lease: bool,
+        result: Result<AgentState, WindowsVpnError>,
+    ) -> Result<(), WindowsVpnError> {
+        let error = match result {
+            Ok(state)
+                if system_proxy_clean(&state)
+                    || system_proxy_restore_succeeded(tunnel_lease, operation_id, &state) =>
+            {
+                return Ok(());
+            }
+            Ok(state) => WindowsVpnError::UnexpectedAgentPhase(state.phase),
+            Err(error) => error,
+        };
+        // An ambiguous result may hide a completed standalone restore or a
+        // whole-tunnel rollback. Active/inactive is not enough: an Intended
+        // sidecar or failed journal write is invisible in that flag.
+        if self
+            .get_state()
+            .await
+            .is_ok_and(|state| system_proxy_clean(&state))
+        {
+            Ok(())
+        } else {
+            Err(error)
+        }
+    }
+
     async fn restore_retained_system_proxy(
         &self,
         operation_id: Uuid,
@@ -4345,9 +4458,26 @@ fn system_proxy_restore_succeeded(
     if tunnel_lease {
         state.phase == agent_v1::AgentPhase::Active as i32
             && state.operation_id == operation_id.to_string()
+            && state.plan.is_some()
+            && !state.system_proxy_active
+            && replacement::pending_replacement(state).is_ok_and(|pending| pending.is_none())
+            && state
+                .replacement
+                .as_ref()
+                .is_none_or(|replacement| !replacement.guard_active)
     } else {
-        state.phase == agent_v1::AgentPhase::Clean as i32
+        system_proxy_clean(state)
     }
+}
+
+fn system_proxy_clean(state: &AgentState) -> bool {
+    require_recovered_state(state).is_ok()
+        && state.plan.is_none()
+        && replacement::pending_replacement(state).is_ok_and(|pending| pending.is_none())
+        && state
+            .replacement
+            .as_ref()
+            .is_none_or(|replacement| !replacement.guard_active)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -6864,7 +6994,13 @@ mod tests {
     fn restore_state(phase: agent_v1::AgentPhase, operation_id: Uuid) -> AgentState {
         AgentState {
             phase: phase as i32,
-            operation_id: operation_id.to_string(),
+            operation_id: if phase == agent_v1::AgentPhase::Clean {
+                String::new()
+            } else {
+                operation_id.to_string()
+            },
+            plan: (phase == agent_v1::AgentPhase::Active)
+                .then(|| Box::new(agent_v1::TunnelPlan::default())),
             ..AgentState::default()
         }
     }
@@ -6911,12 +7047,15 @@ mod tests {
         };
         assert_eq!(failure.code, TransportFailureCode::AgentUnreachable);
         assert_eq!(reconnect_count, 2);
-        let error = timeout(Duration::from_secs(1), guard.shutdown())
-            .await
-            .expect("a dead lease must not block reattachment")
-            .unwrap_err();
-        assert!(matches!(error, WindowsVpnError::Io(error)
-            if matches!(error.kind(), io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof)));
+        let error = timeout(
+            Duration::from_secs(1),
+            guard.shutdown_with_timeout(Duration::from_millis(50)),
+        )
+        .await
+        .expect("a dead lease must not block reattachment")
+        .unwrap_err();
+        assert!(matches!(error, WindowsVpnError::RpcTimeout));
+        assert!(!guard.cleanup_confirmed);
     }
 
     #[tokio::test]
@@ -7189,6 +7328,7 @@ mod tests {
                 payload: Some(agent_response::Payload::State(AgentState {
                     phase: agent_v1::AgentPhase::Active as i32,
                     operation_id: response_operation_id,
+                    plan: Some(Box::new(agent_v1::TunnelPlan::default())),
                     ..AgentState::default()
                 })),
             };
@@ -7214,7 +7354,6 @@ mod tests {
             .create(&pipe_name)
             .expect("server");
         let operation_id = Uuid::new_v4();
-        let response_operation_id = operation_id.to_string();
         let server_task = tokio::spawn(async move {
             server.connect().await.expect("connect");
             let mut server = server;
@@ -7234,7 +7373,6 @@ mod tests {
                 error: None,
                 payload: Some(agent_response::Payload::State(AgentState {
                     phase: agent_v1::AgentPhase::Clean as i32,
-                    operation_id: response_operation_id,
                     ..AgentState::default()
                 })),
             };

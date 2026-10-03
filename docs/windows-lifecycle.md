@@ -94,6 +94,17 @@ applying the replacement, without discarding the tunnel's persistent protection.
 Failed frontend or tunnel-attachment changes restore the previous runtime when
 possible; if that compensation fails, the connection stops and reports failure.
 
+An unsuccessful proxy shutdown retains its recovery owner and operation ID even
+after the lease pipe closes. A later explicit Disconnect or exit cleanup retries
+that same operation over a new authenticated pipe, within one 30-second budget.
+It never restores a successor transaction. The owner is released only after a
+successful Restore reply confirms cleanup or a state query confirms fully Clean
+platform state. An Active tunnel with an inactive proxy flag alone is not proof:
+an unfinished proxy receipt may still need restoration. Fully Clean state also
+confirms cleanup when the entire tunnel was rolled back after a sidecar failure.
+Timeouts, cancellations and repeated failures retain the error and owner; they
+do not permit a new connection or schedule an automatic Engine retry.
+
 These ownership and failure paths have deterministic memory and named-pipe
 tests. Those tests do not prove Windows Settings UI synchronization, connection
 flags, WinINet notification across user/service contexts, or actual installed
