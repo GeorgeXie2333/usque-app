@@ -27,6 +27,7 @@ use crate::{
 };
 
 mod device_lifecycle;
+mod replacement;
 pub use device_lifecycle::{DeviceLeaseKey, DeviceRetirement};
 
 pub const MIN_PACKET_RING_CAPACITY: u32 = 128 * 1024;
@@ -70,6 +71,52 @@ pub enum TunnelInspection {
 
 #[async_trait]
 pub trait PrivilegedBackend: Send + Sync {
+    async fn plan_replacement_guard(
+        &self,
+        _plan: &crate::journal::ReplacementGuardPlan,
+    ) -> Result<MutationReceipt, BackendError> {
+        Err(BackendError::Unavailable(
+            "protected tunnel replacement".into(),
+        ))
+    }
+
+    async fn apply_replacement_guard(
+        &self,
+        _receipt: MutationReceipt,
+        _plan: &crate::journal::ReplacementGuardPlan,
+        _caller: &AuthenticatedCaller,
+    ) -> Result<MutationReceipt, BackendError> {
+        Err(BackendError::Unavailable(
+            "protected tunnel replacement".into(),
+        ))
+    }
+
+    async fn inspect_replacement_guard(
+        &self,
+        _receipt: &MutationReceipt,
+    ) -> Result<bool, BackendError> {
+        Err(BackendError::Unavailable(
+            "replacement guard inspection".into(),
+        ))
+    }
+
+    async fn restore_replacement_guard(
+        &self,
+        _receipt: &MutationReceipt,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Unavailable(
+            "replacement guard cleanup".into(),
+        ))
+    }
+
+    async fn inspect_persistent_policy(
+        &self,
+        _receipt: &MutationReceipt,
+    ) -> Result<bool, BackendError> {
+        Err(BackendError::Unavailable(
+            "persistent policy inspection".into(),
+        ))
+    }
     /// Creates the independent device described by a persisted creation intent.
     async fn create_device(
         &self,
@@ -323,7 +370,7 @@ where
     /// physical-interface split exclusions that still need explicit cleanup.
     pub async fn reconcile_removed_adapter_dependencies(&self) -> Result<bool, CoordinatorError> {
         let mut journal = self.journal.lock().await;
-        if journal.phase != RecoveryPhase::RecoveryRequired {
+        if journal.phase != RecoveryPhase::RecoveryRequired || journal.replacement_pending() {
             return Ok(false);
         }
 
@@ -552,6 +599,10 @@ where
         });
         *journal = RecoveryJournal {
             schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
+            replacement: journal
+                .replacement
+                .clone()
+                .filter(|replacement| replacement.pending()),
             device_binding: device.as_ref().map(crate::journal::ManagedDevice::binding),
             device,
             generation: journal.generation,
@@ -1165,6 +1216,10 @@ where
         }
         ensure_owner(&journal, operation_id, caller)?;
         ensure_operation_kind(&journal, OperationKind::Tunnel)?;
+        if journal.phase == RecoveryPhase::Active && journal.replacement_pending() {
+            self.complete_replacement_locked(&mut journal).await?;
+            return Ok(journal.clone());
+        }
         if journal.phase != RecoveryPhase::Prepared {
             return Err(CoordinatorError::InvalidPhase {
                 expected: "prepared",
@@ -1181,6 +1236,14 @@ where
             return Err(CoordinatorError::InvalidPlan(
                 "final network configuration is pending".into(),
             ));
+        }
+        if let Some(replacement) = journal
+            .replacement
+            .as_mut()
+            .filter(|replacement| replacement.pending())
+        {
+            replacement.phase = crate::journal::ReplacementPhase::Committing;
+            self.store.save(&mut journal)?;
         }
         let mut commit_steps = Vec::with_capacity(2);
         for kind in [
@@ -1207,7 +1270,11 @@ where
         {
             commit_steps.push(MutationKind::KillSwitch);
         }
-        commit_steps.push(MutationKind::DefaultRoutes);
+        if !journal.steps.iter().any(|step| {
+            step.kind == MutationKind::DefaultRoutes && step.state == MutationState::Applied
+        }) {
+            commit_steps.push(MutationKind::DefaultRoutes);
+        }
         for kind in commit_steps {
             if let Err(error) = self
                 .apply_new_step(&mut journal, kind, &plan, caller, StepParameter::None)
@@ -1240,6 +1307,7 @@ where
                 }),
             };
         }
+        self.complete_replacement_locked(&mut journal).await?;
         Ok(journal.clone())
     }
 
@@ -1389,6 +1457,7 @@ where
         }
         *journal = RecoveryJournal {
             schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
+            replacement: None,
             device: journal.device.clone(),
             device_binding: None,
             generation: journal.generation,
@@ -1682,6 +1751,9 @@ where
         journal: &mut RecoveryJournal,
         revoke_egress: impl std::future::Future<Output = ()> + Send,
     ) -> Result<(), CoordinatorError> {
+        if journal.replacement_pending() {
+            return Err(CoordinatorError::ReplacementPending);
+        }
         self.tunnel_lease_attached.store(false, Ordering::Release);
         self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel);
         journal.phase = RecoveryPhase::Recovering;
@@ -2052,6 +2124,10 @@ pub enum BackendError {
 
 #[derive(Debug, Error)]
 pub enum CoordinatorError {
+    #[error("a protected replacement is pending; retry replacement or explicitly abort it")]
+    ReplacementPending,
+    #[error("the replacement guard could not be confirmed; protection is retained")]
+    ReplacementGuardUnavailable,
     #[error("a valid exclusive device lease is required; use matching Engine and Agent versions")]
     DeviceLeaseRequired,
     #[error("the managed TUN device requires recovery before reuse")]
@@ -2160,6 +2236,7 @@ impl CoordinatorError {
 #[cfg(test)]
 mod tests {
     mod device_tests;
+    mod replacement_tests;
     use std::{
         collections::HashSet,
         fs,
@@ -2175,6 +2252,12 @@ mod tests {
 
     #[derive(Default)]
     struct MockBackend {
+        replacement_guard: AtomicBool,
+        fail_replacement_apply: AtomicBool,
+        fail_replacement_remove: AtomicBool,
+        hide_replacement_guard: AtomicBool,
+        replacement_events: Mutex<Vec<&'static str>>,
+        replacement_journal_path: Mutex<Option<PathBuf>>,
         diagnostic_release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
         diagnostic_calls: AtomicU64,
         applied: Mutex<Vec<MutationKind>>,
@@ -2194,6 +2277,75 @@ mod tests {
 
     #[async_trait]
     impl PrivilegedBackend for MockBackend {
+        async fn plan_replacement_guard(
+            &self,
+            _plan: &crate::journal::ReplacementGuardPlan,
+        ) -> Result<MutationReceipt, BackendError> {
+            Ok(MutationReceipt::KillSwitch {
+                provider_key: crate::journal::REPLACEMENT_WFP_PROVIDER_KEY,
+                sublayer_key: crate::journal::REPLACEMENT_WFP_SUBLAYER_KEY,
+                filter_keys: (0..2)
+                    .map(|index| {
+                        Uuid::from_u128(crate::journal::REPLACEMENT_FILTER_KEY_BASE + index)
+                    })
+                    .collect(),
+                filter_ids: vec![],
+            })
+        }
+        async fn apply_replacement_guard(
+            &self,
+            receipt: MutationReceipt,
+            _plan: &crate::journal::ReplacementGuardPlan,
+            _caller: &AuthenticatedCaller,
+        ) -> Result<MutationReceipt, BackendError> {
+            if let Some(path) = self.replacement_journal_path.lock().await.as_ref() {
+                let state = JournalStore::new(path)
+                    .load_or_clean()
+                    .map_err(|_| BackendError::Operation("guard intent is not durable".into()))?;
+                if !state.replacement.as_ref().is_some_and(|replacement| {
+                    replacement.phase == crate::journal::ReplacementPhase::InstallingGuard
+                        && replacement.guard.state == MutationState::Intended
+                }) {
+                    return Err(BackendError::Operation(
+                        "guard intent is not durable".into(),
+                    ));
+                }
+            }
+            if self.fail_replacement_apply.load(Ordering::Acquire) {
+                return Err(BackendError::Operation("guard installation failed".into()));
+            }
+            self.replacement_guard.store(true, Ordering::Release);
+            self.replacement_events.lock().await.push("guard_installed");
+            Ok(receipt)
+        }
+        async fn inspect_replacement_guard(
+            &self,
+            _receipt: &MutationReceipt,
+        ) -> Result<bool, BackendError> {
+            Ok(self.replacement_guard.load(Ordering::Acquire)
+                && !self.hide_replacement_guard.load(Ordering::Acquire))
+        }
+        async fn restore_replacement_guard(
+            &self,
+            _receipt: &MutationReceipt,
+        ) -> Result<(), BackendError> {
+            if self.fail_replacement_remove.load(Ordering::Acquire) {
+                return Err(BackendError::Operation("guard removal failed".into()));
+            }
+            self.replacement_guard.store(false, Ordering::Release);
+            self.replacement_events.lock().await.push("guard_removed");
+            Ok(())
+        }
+        async fn inspect_persistent_policy(
+            &self,
+            _receipt: &MutationReceipt,
+        ) -> Result<bool, BackendError> {
+            Ok(self
+                .applied
+                .lock()
+                .await
+                .contains(&MutationKind::KillSwitch))
+        }
         async fn create_device(
             &self,
             mut receipt: MutationReceipt,
@@ -2403,6 +2555,12 @@ mod tests {
 
         async fn restore_step(&self, receipt: &MutationReceipt) -> Result<(), BackendError> {
             let kind = receipt.kind();
+            if kind == MutationKind::KillSwitch {
+                self.replacement_events
+                    .lock()
+                    .await
+                    .push("normal_guard_removed");
+            }
             self.restored.lock().await.push(kind);
             if self.block_restore.swap(false, Ordering::AcqRel) {
                 self.restore_entered.notify_one();
@@ -4583,6 +4741,7 @@ mod tests {
         let owner = caller();
         let mut legacy = RecoveryJournal {
             schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
+            replacement: None,
             device: None,
             device_binding: None,
             generation: 1,

@@ -219,7 +219,7 @@ mod windows_main {
             .as_deref()
             .expect("normalized journal path");
         if arguments.emergency_remove_kill_switch {
-            wfp::emergency_remove_kill_switch()?;
+            wfp::emergency_remove_all_protection()?;
             info!("removed all stable Usque WFP Kill Switch resources");
             return Ok(());
         }
@@ -241,19 +241,15 @@ mod windows_main {
         secure_agent_state_path(journal_path)?;
         let backend = Arc::new(WindowsBackend::open(wintun_path)?);
         let capabilities = backend.capabilities();
-        let coordinator = match AgentCoordinator::open(JournalStore::new(journal_path), backend) {
-            Ok(coordinator) => Arc::new(coordinator),
-            Err(error) => {
-                // A corrupt journal must fail closed with respect to arbitrary
-                // mutations, but it must not leave a known Usque block-all WFP
-                // policy permanently attached to the host.
-                if let Err(cleanup_error) = wfp::emergency_remove_kill_switch() {
-                    error!(%cleanup_error, "emergency WFP cleanup after journal failure also failed");
-                }
-                return Err(error.into());
-            }
-        };
+        // Unknown/corrupt journal state never authorizes opening egress. An
+        // interrupted replacement may still rely solely on the source policy.
+        // Only explicit elevated recovery/emergency maintenance may release it.
+        let coordinator = Arc::new(AgentCoordinator::open(
+            JournalStore::new(journal_path),
+            backend,
+        )?);
         if arguments.recover_state {
+            coordinator.abort_replacement_for_maintenance().await?;
             let state = coordinator.state().await;
             if state.phase != RecoveryPhase::Clean {
                 coordinator.recover_stale().await?;

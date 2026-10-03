@@ -351,6 +351,11 @@ where
             self.automatic_recovery_status().await,
         );
         state.device = Some(self.coordinator.device_status(journal));
+        state.replacement = self
+            .coordinator
+            .replacement_status(journal)
+            .await
+            .map(Box::new);
         state
     }
 
@@ -415,9 +420,10 @@ where
             return;
         }
         let journal = self.coordinator.state().await;
-        let eligible_operation = (journal.phase == RecoveryPhase::RecoveryRequired)
-            .then_some(journal.operation_id)
-            .flatten();
+        let eligible_operation = (journal.phase == RecoveryPhase::RecoveryRequired
+            && !journal.replacement_pending())
+        .then_some(journal.operation_id)
+        .flatten();
         let mut runtime = self.automatic_recovery.lock().await;
         let changed = match eligible_operation {
             Some(operation_id) if runtime.operation_id != Some(operation_id) => {
@@ -914,6 +920,12 @@ where
         }
         let journal = self.state().await;
         let plan = validate_direct_context(&journal, operation_id, caller, true)?;
+        if journal.replacement_pending()
+            && purpose != EgressPurpose::AutomaticMasque
+            && !wfp::is_bootstrap_endpoint(plan, remote, protocol)
+        {
+            return Err(ServiceError::DirectEgressNotReady);
+        }
         if purpose == EgressPurpose::AutomaticMasque {
             validate_automatic_endpoint_egress(&journal, remote, protocol, expected_generation)?;
         }
@@ -960,12 +972,21 @@ where
                 protocol,
                 purpose,
                 || {
-                    wfp::acquire_dynamic_permit(
-                        remote,
-                        protocol,
-                        interface_luid,
-                        &caller.executable_path,
-                    )
+                    (if journal.replacement_pending() {
+                        wfp::acquire_replacement_control_permit(
+                            remote,
+                            protocol,
+                            interface_luid,
+                            &caller.executable_path,
+                        )
+                    } else {
+                        wfp::acquire_dynamic_permit(
+                            remote,
+                            protocol,
+                            interface_luid,
+                            &caller.executable_path,
+                        )
+                    })
                     .map_err(ServiceError::DirectEgress)
                 },
             )?;
@@ -1232,6 +1253,59 @@ where
                     .await
                     .map_err(|error| (request_id.clone(), error))?;
                 agent_response::Payload::DirectEgressLease(lease)
+            }
+            agent_request::Payload::ReplaceTunnel(request) => {
+                let source_operation_id = parse_operation_id(&request.source_operation_id)
+                    .map_err(|error| (request_id.clone(), error))?;
+                let operation_id = parse_operation_id(&request.operation_id)
+                    .map_err(|error| (request_id.clone(), error))?;
+                let key = crate::coordinator::DeviceLeaseKey {
+                    id: parse_operation_id(&request.device_lease_id)
+                        .map_err(|error| (request_id.clone(), error))?,
+                    generation: request.device_lease_generation,
+                };
+                let plan = request
+                    .plan
+                    .ok_or_else(|| (request_id.clone(), ServiceError::MissingTunnelPlan))?;
+                let plan = ValidatedTunnelPlan::try_from(plan)
+                    .map_err(|error| (request_id.clone(), ServiceError::Plan(error.to_string())))?;
+                let owner = caller.clone();
+                let state = self
+                    .mutate(MutationPolicy::Forward, |coordinator| async move {
+                        coordinator
+                            .replace_tunnel(
+                                source_operation_id,
+                                request.expected_journal_generation,
+                                operation_id,
+                                plan,
+                                owner,
+                                key,
+                                self.clear_direct_egress(),
+                            )
+                            .await
+                    })
+                    .await
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                agent_response::Payload::State(self.proto_state(&state).await)
+            }
+            agent_request::Payload::AbortReplacement(request) => {
+                let operation_id = parse_operation_id(&request.operation_id)
+                    .map_err(|error| (request_id.clone(), error))?;
+                let owner = caller.clone();
+                let state = self
+                    .mutate(MutationPolicy::Cleanup, |coordinator| async move {
+                        coordinator
+                            .abort_replacement(
+                                operation_id,
+                                request.expected_journal_generation,
+                                &owner,
+                                self.clear_direct_egress(),
+                            )
+                            .await
+                    })
+                    .await
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                agent_response::Payload::State(self.proto_state(&state).await)
             }
             agent_request::Payload::PrepareTunnel(request) => {
                 let key = crate::coordinator::DeviceLeaseKey {
@@ -1891,6 +1965,11 @@ where
                     _ => None,
                 };
                 let tunnel_lease_action = match request.payload.as_ref() {
+                    Some(agent_request::Payload::ReplaceTunnel(request)) => {
+                        Uuid::parse_str(request.operation_id.trim())
+                            .ok()
+                            .map(TunnelConnectionLease::Startup)
+                    }
                     Some(agent_request::Payload::PrepareTunnel(request)) => {
                         Uuid::parse_str(request.operation_id.trim())
                             .ok()
@@ -2269,6 +2348,7 @@ fn state_to_proto(
     }
     AgentState {
         device: None,
+        replacement: None,
         plan: journal.plan.as_ref().map(|plan| Box::new(plan.to_proto())),
         phase: match journal.phase {
             RecoveryPhase::Clean => agent_v1::AgentPhase::Clean as i32,
@@ -2598,6 +2678,12 @@ impl ServiceError {
             Self::Lifecycle(AgentLifecycleError::Coordinator(
                 CoordinatorError::DeviceRecoveryRequired,
             )) => ("AGENT_DEVICE_RECOVERY_REQUIRED", false),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(
+                CoordinatorError::ReplacementPending,
+            )) => ("AGENT_REPLACEMENT_PENDING", true),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(
+                CoordinatorError::ReplacementGuardUnavailable,
+            )) => ("AGENT_REPLACEMENT_GUARD_UNAVAILABLE", true),
             Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::Backend(
                 BackendError::EndpointUnreachable,
             ))) => ("AGENT_ENDPOINT_UNREACHABLE", true),
@@ -3730,6 +3816,7 @@ mod tests {
                 deferred_network_configuration: true,
                 reusable_tun_device: true,
                 automatic_endpoint_leases: false,
+                protected_tunnel_replacement: false,
                 wintun: false,
                 wfp_kill_switch: false,
                 interface_addresses: false,

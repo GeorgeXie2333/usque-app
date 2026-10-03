@@ -81,12 +81,70 @@ impl WindowsBackend {
             deferred_network_configuration: true,
             reusable_tun_device: true,
             automatic_endpoint_leases: true,
+            protected_tunnel_replacement: true,
         }
     }
 }
 
 #[async_trait]
 impl PrivilegedBackend for WindowsBackend {
+    async fn plan_replacement_guard(
+        &self,
+        plan: &crate::journal::ReplacementGuardPlan,
+    ) -> Result<MutationReceipt, BackendError> {
+        wfp::plan_replacement_guard(plan).map_err(wfp_backend_error)
+    }
+
+    async fn apply_replacement_guard(
+        &self,
+        receipt: MutationReceipt,
+        plan: &crate::journal::ReplacementGuardPlan,
+        caller: &AuthenticatedCaller,
+    ) -> Result<MutationReceipt, BackendError> {
+        let plan = plan.clone();
+        let path = caller.executable_path.clone();
+        tokio::task::spawn_blocking(move || {
+            wfp::apply_replacement_guard(receipt, &plan, &path).map_err(wfp_backend_error)
+        })
+        .await
+        .map_err(|_| backend_error("replacement guard worker failed"))?
+    }
+
+    async fn inspect_replacement_guard(
+        &self,
+        receipt: &MutationReceipt,
+    ) -> Result<bool, BackendError> {
+        let receipt = receipt.clone();
+        tokio::task::spawn_blocking(move || {
+            wfp::replacement_guard_present(&receipt).map_err(wfp_backend_error)
+        })
+        .await
+        .map_err(|_| backend_error("replacement guard inspection failed"))?
+    }
+
+    async fn restore_replacement_guard(
+        &self,
+        receipt: &MutationReceipt,
+    ) -> Result<(), BackendError> {
+        let receipt = receipt.clone();
+        tokio::task::spawn_blocking(move || {
+            wfp::restore_replacement_guard(&receipt).map_err(wfp_backend_error)
+        })
+        .await
+        .map_err(|_| backend_error("replacement guard cleanup failed"))?
+    }
+
+    async fn inspect_persistent_policy(
+        &self,
+        receipt: &MutationReceipt,
+    ) -> Result<bool, BackendError> {
+        let receipt = receipt.clone();
+        tokio::task::spawn_blocking(move || {
+            wfp::policy_present(&receipt, true).map_err(wfp_backend_error)
+        })
+        .await
+        .map_err(|_| backend_error("persistent policy inspection failed"))?
+    }
     async fn create_device(
         &self,
         receipt: MutationReceipt,

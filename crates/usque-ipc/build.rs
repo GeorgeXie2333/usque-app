@@ -39,6 +39,8 @@ fn main() {
     config.boxed(".usque.v1.ConnectionSnapshot.network_quality");
     config.boxed(".usque.v1.NetworkQualityUpdated.snapshot");
     config.boxed(".usque.agent.v1.AgentState.plan");
+    config.boxed(".usque.agent.v1.AgentState.replacement");
+    config.boxed(".usque.agent.v1.TunnelReplacementStatus.target_plan");
     // The optional diagnostic extension must not inflate every Agent envelope.
     config.boxed(".usque.agent.v1.PlatformState.recovery_diagnostics");
     config

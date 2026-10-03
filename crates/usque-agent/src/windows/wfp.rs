@@ -51,6 +51,12 @@ use windows_sys::{
 
 use crate::{journal::MutationReceipt, plan::ValidatedTunnelPlan};
 
+mod replacement;
+pub use replacement::{
+    acquire_replacement_control_permit, apply_replacement_guard, plan_replacement_guard,
+    replacement_guard_present, restore_replacement_guard,
+};
+
 const PROVIDER_NAME: &str = "Usque Kill Switch";
 const PROVIDER_DESCRIPTION: &str =
     "Persistent fail-closed policy for the active Usque VPN operation";
@@ -212,12 +218,18 @@ pub fn policy_present(receipt: &MutationReceipt, persistent: bool) -> Result<boo
     Ok(true)
 }
 
-/// Removes every resource that a current Usque build can create without
-/// consulting the journal. This is intentionally bounded and targets only
-/// stable Usque GUIDs; it is safe to run before MSI recovery and when journal
-/// validation fails.
+/// Removes the ordinary-operation namespace without consulting its journal.
+/// Journal validation failure must not implicitly remove independent retained
+/// replacement protection.
 pub fn emergency_remove_kill_switch() -> Result<(), WfpError> {
     remove_resources(PROVIDER_KEY, SUBLAYER_KEY, (0..MAX_FILTERS).map(filter_key))
+}
+
+/// Only explicit administrative recovery removes both protection namespaces.
+pub fn emergency_remove_all_protection() -> Result<(), WfpError> {
+    let normal = emergency_remove_kill_switch();
+    let replacement = replacement::remove_replacement_resources();
+    normal.and(replacement)
 }
 
 fn filter_key(index: usize) -> Uuid {
@@ -418,6 +430,17 @@ fn add_family_rules(
         ));
     }
 
+    add_link_control_rules(rules, family);
+    rules.push(FilterRule {
+        name: format!("Block all {family:?} physical traffic"),
+        family,
+        action: RuleAction::Block,
+        weight: BLOCK_WEIGHT,
+        conditions: Vec::new(),
+    });
+}
+
+fn add_link_control_rules(rules: &mut Vec<FilterRule>, family: AddressFamily) {
     match family {
         AddressFamily::V4 => rules.push(permit(
             family,
@@ -452,13 +475,6 @@ fn add_family_rules(
             }
         }
     }
-    rules.push(FilterRule {
-        name: format!("Block all {family:?} physical traffic"),
-        family,
-        action: RuleAction::Block,
-        weight: BLOCK_WEIGHT,
-        conditions: Vec::new(),
-    });
 }
 
 fn permit(family: AddressFamily, name: &str, conditions: Vec<ConditionSpec>) -> FilterRule {
@@ -604,7 +620,7 @@ fn add_filter(
 /// the filter even when the Engine pipe disappears or the Agent is terminated.
 pub struct DynamicPermit {
     engine: WfpEngine,
-    filter_key: Uuid,
+    filter_keys: Vec<Uuid>,
 }
 
 /// A connection-scoped blocking policy when persistent Kill Switch is off.
@@ -682,10 +698,12 @@ impl Drop for DynamicPermit {
     fn drop(&mut self) {
         // Best-effort eager cleanup. Dynamic-session close below is the
         // authoritative crash-safe cleanup path.
-        // SAFETY: the engine session remains open for this synchronous call,
-        // and the temporary GUID is valid for the duration of the call.
-        unsafe {
-            FwpmFilterDeleteByKey0(self.engine.0, &guid_from_uuid(self.filter_key));
+        for key in &self.filter_keys {
+            // SAFETY: each key belongs to this live dynamic session; a
+            // replacement mirror may already have been removed at handoff.
+            unsafe {
+                FwpmFilterDeleteByKey0(self.engine.0, &guid_from_uuid(*key));
+            }
         }
     }
 }
@@ -716,7 +734,10 @@ pub fn acquire_dynamic_permit(
         application_id.as_ptr(),
         0,
     )?;
-    Ok(DynamicPermit { engine, filter_key })
+    Ok(DynamicPermit {
+        engine,
+        filter_keys: vec![filter_key],
+    })
 }
 
 fn dynamic_direct_rule(
@@ -1164,6 +1185,14 @@ pub enum WfpError {
     UnsafeDynamicTarget,
     #[error("invalid built-in network prefix: {0}")]
     StaticNetwork(&'static str),
+    #[error("replacement guard plan or resource identity is invalid")]
+    ReplacementGuard,
+    #[error("replacement guard has too many filters or control permits")]
+    ReplacementCapacity,
+    #[error("replacement guard is not installed for both address families")]
+    ReplacementNotPresent,
+    #[error("WFP returned an invalid filter enumeration")]
+    FilterEnumeration,
 }
 
 #[cfg(test)]
@@ -1175,7 +1204,7 @@ mod tests {
 
     use super::*;
 
-    fn plan(endpoint: IpAddr, allow_lan: bool) -> ValidatedTunnelPlan {
+    pub(super) fn plan(endpoint: IpAddr, allow_lan: bool) -> ValidatedTunnelPlan {
         let endpoint = match endpoint {
             IpAddr::V4(address) => (address, 443).into(),
             IpAddr::V6(address) => SocketAddrV6::new(address, 443, 0, 0).into(),

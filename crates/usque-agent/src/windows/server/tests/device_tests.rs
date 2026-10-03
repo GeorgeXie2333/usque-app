@@ -73,6 +73,7 @@ async fn authenticated_device_lease_survives_an_old_pipes_eof_and_is_lazy() {
         AgentCapabilities {
             reusable_tun_device: true,
             automatic_endpoint_leases: false,
+            protected_tunnel_replacement: false,
             ..Default::default()
         },
     ));

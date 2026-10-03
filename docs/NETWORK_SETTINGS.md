@@ -561,3 +561,43 @@ non-persistent, TTL-limited and scoped to the current network generation.
 No new logs contain custom domains or target addresses. Workstation fake-engine,
 loopback and compile tests do not establish VPN cleanup or leak prevention;
 those require the isolated environments in CONTRIBUTING.md.
+
+## Protected Windows operation replacement
+
+The internal Agent capability `protected_tunnel_replacement` supports changing
+an operation while its applied Kill Switch is enabled. `ReplaceTunnel` checks
+the authenticated owner, device lease and journal generation, then installs a
+persistent WFP guard before restoring the old operation and preparing the new
+one. The guard has its own provider and sublayer. Journal schema 5 keeps its
+write-ahead record outside ordinary connection cleanup steps; schemas 2–4
+migrate without inventing a replacement record.
+
+The bridge preserves the intersection of the old and requested static LAN/CIDR
+bypasses. Retargeting a failed replacement can only narrow that bridge's existing
+exceptions. Exact Engine bootstrap targets remain available, including bounded
+automatic endpoint leases mirrored into both WFP sublayers. The bridge grants
+no general application, business-flow or TUN-interface exemption. Saved bypass
+and Kill Switch preferences are unchanged; the complete requested policy takes
+effect after the target is committed.
+
+`CommitTunnel` verifies target packet attachment and native network protection
+before removing the bridge. Failed preparation and ordinary rollback, recovery
+or lease expiry cannot remove it. The Engine must keep new business admission
+closed until commit succeeds or an authenticated state query confirms completion.
+`AbortReplacement` is the explicit-disconnect path. Both commit and abort retain
+enough journal state to recover a crash between native guard removal and the
+completion write. A changed retry uses a fresh target operation and an exact
+current generation; a matching retry accepts refreshed process/device ownership.
+
+Malformed or unsupported journals never trigger automatic WFP removal: the old
+operation may still be the only protection before the bridge installation.
+Explicit elevated recovery and emergency removal remain the release boundary.
+An older Agent must reject the new capability/schema rather than silently use
+an unprotected disconnect/reconnect sequence.
+
+Fake-backend lifecycle and pure WFP-rule tests exercise ordering, ownership,
+retargeting, readback and persistence failures without changing host networking.
+Native filter arbitration, retaining an automatic endpoint's normal permit while
+commit removes its guard mirror, atomic retarget rollback, and independently
+observed IPv4/IPv6 traffic require isolated Windows and network-observer runners;
+these checks are **not_run** on the development machine.

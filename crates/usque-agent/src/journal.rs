@@ -14,11 +14,20 @@ use uuid::Uuid;
 
 use crate::plan::{PlanError, ValidatedTunnelPlan};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 4;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 5;
 pub const MAX_JOURNAL_BYTES: u64 = 1024 * 1024;
 pub const MAX_JOURNAL_STEPS: usize = 16;
 pub(crate) const WFP_PROVIDER_KEY: Uuid = Uuid::from_u128(0x6d70fda5_3fa2_4c36_a86c_88650b58f013);
 pub(crate) const WFP_SUBLAYER_KEY: Uuid = Uuid::from_u128(0xc93b7042_7b1e_4ab5_96ba_96b4539b67ec);
+pub(crate) const REPLACEMENT_WFP_PROVIDER_KEY: Uuid =
+    Uuid::from_u128(0x1c691972_4a91_43e6_a728_c43863064c10);
+pub(crate) const REPLACEMENT_WFP_SUBLAYER_KEY: Uuid =
+    Uuid::from_u128(0xb4185a70_076b_4c44_b5dc_523ff03970d1);
+pub(crate) const REPLACEMENT_FILTER_KEY_BASE: u128 = 0x2a27df78_9086_4a9f_bf02_000000000000;
+pub(crate) const REPLACEMENT_MAX_FILTERS: usize = 512;
+
+pub(crate) mod replacement;
+pub use replacement::{ReplacementGuardPlan, ReplacementPhase, TunnelReplacement};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -237,6 +246,8 @@ pub struct RecoveryJournal {
     pub device: Option<ManagedDevice>,
     #[serde(default)]
     pub device_binding: Option<DeviceBinding>,
+    #[serde(default)]
+    pub replacement: Option<TunnelReplacement>,
     pub phase: RecoveryPhase,
     pub operation_kind: Option<OperationKind>,
     pub operation_id: Option<Uuid>,
@@ -256,7 +267,13 @@ impl Default for RecoveryJournal {
 
 impl RecoveryJournal {
     pub fn is_fully_clean(&self) -> bool {
-        self.phase == RecoveryPhase::Clean && self.device.is_none()
+        self.phase == RecoveryPhase::Clean && self.device.is_none() && !self.replacement_pending()
+    }
+
+    pub fn replacement_pending(&self) -> bool {
+        self.replacement
+            .as_ref()
+            .is_some_and(TunnelReplacement::pending)
     }
 
     pub fn adapter_receipt(&self) -> Option<&MutationReceipt> {
@@ -274,6 +291,7 @@ impl RecoveryJournal {
     pub fn disconnected(&self) -> Self {
         let mut clean = Self::clean(self.generation);
         clean.device = self.device.clone();
+        clean.replacement = self.replacement.clone();
         if let Some(device) = clean.device.as_mut()
             && device.state == DeviceState::InUse
         {
@@ -285,6 +303,7 @@ impl RecoveryJournal {
     pub fn clean(generation: u64) -> Self {
         Self {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            replacement: None,
             device: None,
             device_binding: None,
             generation,
@@ -308,6 +327,18 @@ impl RecoveryJournal {
         }
         if self.steps.len() > MAX_JOURNAL_STEPS {
             return Err(JournalError::TooManySteps(self.steps.len()));
+        }
+        if let Some(replacement) = &self.replacement {
+            replacement.validate()?;
+            if replacement.pending()
+                && (self.phase == RecoveryPhase::Clean
+                    || self.owner_sid.as_deref() != Some(replacement.owner_sid.as_str())
+                    || ![replacement.cleanup_operation_id, replacement.operation_id]
+                        .into_iter()
+                        .any(|id| self.operation_id == Some(id)))
+            {
+                return Err(JournalError::InvalidReplacement);
+            }
         }
         if let Some(device) = &self.device {
             device.validate()?;
@@ -702,6 +733,10 @@ pub struct JournalStore {
     path: PathBuf,
     #[cfg(test)]
     fail_clean_save: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    #[cfg(test)]
+    fail_replacement_completion_save: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    #[cfg(test)]
+    fail_replacement_intent_save: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl JournalStore {
@@ -710,6 +745,10 @@ impl JournalStore {
             path: path.into(),
             #[cfg(test)]
             fail_clean_save: std::sync::Arc::default(),
+            #[cfg(test)]
+            fail_replacement_completion_save: std::sync::Arc::default(),
+            #[cfg(test)]
+            fail_replacement_intent_save: std::sync::Arc::default(),
         }
     }
 
@@ -733,6 +772,9 @@ impl JournalStore {
             return Err(JournalError::TooLarge(bytes.len() as u64));
         }
         let mut journal: RecoveryJournal = serde_json::from_slice(&bytes)?;
+        if journal.schema_version < 5 && journal.replacement.is_some() {
+            return Err(JournalError::InvalidReplacement);
+        }
         if journal.schema_version == 2
             && (journal.device.is_some() || journal.device_binding.is_some())
         {
@@ -755,6 +797,9 @@ impl JournalStore {
             }
             journal.schema_version = JOURNAL_SCHEMA_VERSION;
         }
+        if journal.schema_version == 4 {
+            journal.schema_version = JOURNAL_SCHEMA_VERSION;
+        }
         journal.validate()?;
         Ok(journal)
     }
@@ -765,6 +810,28 @@ impl JournalStore {
             .checked_add(1)
             .ok_or(JournalError::GenerationOverflow)?;
         journal.validate()?;
+        #[cfg(test)]
+        if journal
+            .replacement
+            .as_ref()
+            .is_some_and(|replacement| replacement.phase == ReplacementPhase::InstallingGuard)
+            && self
+                .fail_replacement_intent_save
+                .swap(false, std::sync::atomic::Ordering::AcqRel)
+        {
+            return Err(io::Error::other("injected replacement intent save failure").into());
+        }
+        #[cfg(test)]
+        if journal
+            .replacement
+            .as_ref()
+            .is_some_and(|replacement| replacement.phase == ReplacementPhase::Complete)
+            && self
+                .fail_replacement_completion_save
+                .swap(false, std::sync::atomic::Ordering::AcqRel)
+        {
+            return Err(io::Error::other("injected replacement completion save failure").into());
+        }
         #[cfg(test)]
         if journal.phase == RecoveryPhase::Clean
             && self
@@ -799,6 +866,18 @@ impl JournalStore {
     #[cfg(test)]
     pub(crate) fn fail_next_clean_save(&self) {
         self.fail_clean_save_after(0);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_replacement_completion_save(&self) {
+        self.fail_replacement_completion_save
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_replacement_intent_save(&self) {
+        self.fail_replacement_intent_save
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     #[cfg(test)]
@@ -877,6 +956,8 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
 
 #[derive(Debug, Error)]
 pub enum JournalError {
+    #[error("journal replacement ownership, policy, phase, or guard receipt is inconsistent")]
+    InvalidReplacement,
     #[error("journal device ownership, identity, state, or connection binding is inconsistent")]
     InvalidDevice,
     #[error("journal I/O failed: {0}")]
@@ -968,6 +1049,7 @@ mod tests {
         let store = JournalStore::new(directory.path().join("recovery.json"));
         let mut journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            replacement: None,
             device: None,
             device_binding: None,
             generation: 0,
@@ -1038,6 +1120,7 @@ mod tests {
         });
         let mut journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            replacement: None,
             device: None,
             device_binding: None,
             generation: 1,
@@ -1091,6 +1174,7 @@ mod tests {
         let store = JournalStore::new(directory.path().join("recovery.json"));
         let mut journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            replacement: None,
             device: None,
             device_binding: None,
             generation: 0,
@@ -1152,6 +1236,7 @@ mod tests {
     fn recovery_receipt_cannot_target_an_unrelated_route() {
         let journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            replacement: None,
             device: None,
             device_binding: None,
             generation: 1,
@@ -1230,6 +1315,7 @@ mod tests {
         };
         let journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            replacement: None,
             device: None,
             device_binding: None,
             generation: 1,
@@ -1279,6 +1365,7 @@ mod tests {
         };
         let journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            replacement: None,
             device: None,
             device_binding: None,
             generation: 1,

@@ -120,6 +120,10 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
     ) -> Result<DeviceLeaseKey, CoordinatorError> {
         validate_caller(caller)?;
         let journal = self.journal.lock().await;
+        let replacement_takeover = journal.replacement.as_ref().is_some_and(|replacement| {
+            replacement.pending() && replacement.owner_sid == caller.user_sid
+        }) && !self.packet_session_attached()
+            && !self.tunnel_lease_attached();
         if let Some(device) = &journal.device {
             if device.owner_sid != caller.user_sid {
                 return Err(CoordinatorError::OwnerMismatch);
@@ -128,11 +132,14 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
                 device.state == DeviceState::Idle && device.agent_instance == self.agent_instance;
             let reattach =
                 journal.phase == RecoveryPhase::Active && device.state == DeviceState::InUse;
-            if !current_idle && !reattach {
+            if !current_idle && !reattach && !replacement_takeover {
                 return Err(CoordinatorError::DeviceRecoveryRequired);
             }
         }
-        if journal.phase != RecoveryPhase::Clean && journal.phase != RecoveryPhase::Active {
+        if journal.phase != RecoveryPhase::Clean
+            && journal.phase != RecoveryPhase::Active
+            && !replacement_takeover
+        {
             return Err(CoordinatorError::RecoveryRequired(journal.phase));
         }
         if journal.phase == RecoveryPhase::Active

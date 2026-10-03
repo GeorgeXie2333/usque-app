@@ -65,6 +65,8 @@ message AgentCapabilities {
   bool reusable_tun_device = 16;
   // Exact authenticated MASQUE endpoint leases authorized by a compact policy.
   bool automatic_endpoint_leases = 17;
+  // Durable protection across an authenticated operation replacement.
+  bool protected_tunnel_replacement = 18;
 }
 
 enum AutomaticEndpointPool {
@@ -142,6 +144,47 @@ message PrepareTunnelRequest {
   string device_lease_id = 3;
   uint64 device_lease_generation = 4;
   uint64 expected_journal_generation = 5;
+}
+
+// Installs a persistent bridge before restoring the source operation. A retry
+// with the same target and plan is idempotent; a changed target requires a new
+// operation ID and the exact current generation. Never fall back to Rollback.
+message ReplaceTunnelRequest {
+  string source_operation_id = 1;
+  uint64 expected_journal_generation = 2;
+  string operation_id = 3;
+  TunnelPlan plan = 4;
+  string device_lease_id = 5;
+  uint64 device_lease_generation = 6;
+}
+
+// Reserved for an explicit user disconnect, not a failed connection attempt.
+message AbortReplacementRequest {
+  string operation_id = 1;
+  uint64 expected_journal_generation = 2;
+}
+
+enum TunnelReplacementPhase {
+  TUNNEL_REPLACEMENT_PHASE_UNSPECIFIED = 0;
+  TUNNEL_REPLACEMENT_PHASE_INSTALLING_GUARD = 1;
+  TUNNEL_REPLACEMENT_PHASE_SOURCE_CLEANUP = 2;
+  TUNNEL_REPLACEMENT_PHASE_PREPARING_TARGET = 3;
+  TUNNEL_REPLACEMENT_PHASE_PREPARED = 4;
+  TUNNEL_REPLACEMENT_PHASE_COMMITTING = 5;
+  TUNNEL_REPLACEMENT_PHASE_ABORTING = 6;
+  TUNNEL_REPLACEMENT_PHASE_COMPLETE = 7;
+  TUNNEL_REPLACEMENT_PHASE_ABORTED = 8;
+}
+
+message TunnelReplacementStatus {
+  string source_operation_id = 1;
+  string operation_id = 2;
+  TunnelReplacementPhase phase = 3;
+  // True only after native inspection confirms the blocking guard exists.
+  bool guard_active = 4;
+  uint64 source_journal_generation = 5;
+  // Original validated preparation plan, even while state.plan is the source.
+  TunnelPlan target_plan = 6;
 }
 
 message AcquireDeviceLeaseRequest {}
@@ -480,6 +523,7 @@ message AgentState {
   // applying a newly negotiated final network to this operation.
   TunnelPlan plan = 10;
   ManagedDeviceStatus device = 11;
+  TunnelReplacementStatus replacement = 12;
 }
 
 message AutomaticRecoveryStatus {
@@ -531,6 +575,8 @@ message AgentRequest {
     BeginChainTransitionRequest begin_chain_transition = 29;
     AcquireDeviceLeaseRequest acquire_device_lease = 30;
     ReleaseDeviceLeaseRequest release_device_lease = 31;
+    ReplaceTunnelRequest replace_tunnel = 32;
+    AbortReplacementRequest abort_replacement = 33;
   }
 }
 

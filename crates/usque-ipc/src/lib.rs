@@ -279,6 +279,48 @@ mod tests {
     }
 
     #[test]
+    fn protected_tunnel_replacement_contract_is_append_only() {
+        use agent_v1::{AgentCapabilities, AgentRequest, AgentState, agent_request};
+        let capabilities = AgentCapabilities {
+            protected_tunnel_replacement: true,
+            ..Default::default()
+        };
+        assert_eq!(capabilities.encode_to_vec(), [0x90, 0x01, 1]);
+        assert!(
+            !AgentCapabilities::decode(&[][..])
+                .unwrap()
+                .protected_tunnel_replacement
+        );
+        assert_eq!(
+            LegacyAgentCapabilities::decode(capabilities.encode_to_vec().as_slice())
+                .unwrap()
+                .protocol_version,
+            0
+        );
+        let request = AgentRequest {
+            payload: Some(agent_request::Payload::ReplaceTunnel(Default::default())),
+            ..Default::default()
+        };
+        assert_eq!(request.encode_to_vec(), [0x82, 0x02, 0]);
+        let abort = AgentRequest {
+            payload: Some(agent_request::Payload::AbortReplacement(Default::default())),
+            ..Default::default()
+        };
+        assert_eq!(abort.encode_to_vec(), [0x8a, 0x02, 0]);
+        let state = AgentState {
+            replacement: Some(Box::default()),
+            ..Default::default()
+        };
+        assert_eq!(state.encode_to_vec(), [0x62, 0]);
+        assert_eq!(
+            LegacyAgentState::decode(state.encode_to_vec().as_slice())
+                .unwrap()
+                .journal_generation,
+            0
+        );
+    }
+
+    #[test]
     fn control_request_round_trips_through_a_bounded_frame() {
         let request = ControlRequest {
             request_id: "request-1".to_owned(),

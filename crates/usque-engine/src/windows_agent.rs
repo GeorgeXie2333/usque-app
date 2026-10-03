@@ -6019,6 +6019,7 @@ mod tests {
         let mut capabilities = AgentCapabilities {
             reusable_tun_device: true,
             automatic_endpoint_leases: true,
+            protected_tunnel_replacement: false,
             protocol_version: AGENT_PROTOCOL_VERSION,
             wintun: true,
             interface_addresses: true,
