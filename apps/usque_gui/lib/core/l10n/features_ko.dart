@@ -179,6 +179,7 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_transportToTun': '전송 → 기기',
   'nq_transportToProxy': '전송 → 프록시',
   'nq_directDns': '직접 DNS 요청',
+  'nq_finalDns': '최종 프록시를 통한 DNS 요청',
   'nq_unknown_queue': '기타 큐',
   'nq_trends': '최근 60초',
   'nq_samples': '샘플',
@@ -309,6 +310,12 @@ const Map<String, String> kNetworkSettingsKo = <String, String>{
 };
 
 const Map<String, String> kChainKo = <String, String>{
+  "dns_auto": "자동 (기본 DoH)",
+  "dns_doh": "암호화 DNS · Cloudflare",
+  "dns_tcp": "TCP DNS",
+  "dns_auto_hint":
+      "자동 모드는 이 출구를 통해 DoH를 사용하고 사용자 지정 DNS는 TCP를 사용합니다. DoH가 실패해도 출구를 우회하지 않습니다.",
+
   "add_proxy": "프록시 추가",
   "proxy_hint": "WARP를 통해 연결합니다. HTTP는 TCP를, SOCKS5는 H3/H2에서 UDP도 지원합니다.",
   "dns_inherit": "비워 두면 네트워크 DNS를 사용하며 쿼리는 이 출구를 통과합니다.",

@@ -297,6 +297,7 @@ impl Fixture {
             port: 8080,
             auth_mode: ProxyAuthMode::None,
             dns_servers: vec![],
+            dns_transport: Default::default(),
         });
         let parsed =
             usque_core::chain_exit::ValidatedProfile::parse(ChainSource::HttpProxy, &secrets)

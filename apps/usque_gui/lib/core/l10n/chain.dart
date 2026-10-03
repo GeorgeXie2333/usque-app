@@ -22,6 +22,12 @@ import 'features_zh_tw.dart';
 // live in features_*.dart. ChainStrings reads this table directly: keys such
 // as title and save would collide with the main catalog if get() consulted it.
 const kChainEn = <String, String>{
+  "dns_auto": "Automatic (DoH by default)",
+  "dns_doh": "Encrypted DNS · Cloudflare",
+  "dns_tcp": "DNS over TCP",
+  "dns_auto_hint":
+      "Automatic uses DoH through this exit; custom DNS uses TCP. DoH failures stay on this exit.",
+
   "add_proxy": "Add proxy",
   "proxy_hint":
       "Connect through WARP. HTTP carries TCP; SOCKS5 can also carry UDP with H3/H2.",
@@ -184,6 +190,11 @@ const kChainEn = <String, String>{
 };
 
 const kChainZhCn = <String, String>{
+  "dns_auto": "自动（默认 DoH）",
+  "dns_doh": "加密 DNS · Cloudflare",
+  "dns_tcp": "TCP DNS",
+  "dns_auto_hint": "自动模式通过此出口使用 DoH；自定义 DNS 使用 TCP。DoH 失败时不会绕过此出口。",
+
   "add_proxy": "添加代理",
   "proxy_hint": "通过 WARP 连接。HTTP 支持 TCP；SOCKS5 在 H3/H2 下还可支持 UDP。",
   "dns_inherit": "留空继承网络 DNS，查询经此出口发送。",

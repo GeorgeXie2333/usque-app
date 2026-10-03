@@ -479,6 +479,11 @@ async fn serve_udp_association(
         None
     };
     let opened = match context.channel.as_ref() {
+        Some(channel) if dns.is_some() => Ok(Arc::new(crate::proxy_udp::LazyAssociation::new(
+            channel.clone(),
+            association_cancel.clone(),
+        ))
+            as Arc<dyn crate::proxy_udp::UdpAssociation>),
         Some(channel) => {
             channel
                 .open(&association_cancel, Instant::now() + REMOTE_CONNECT_TIMEOUT)
@@ -531,11 +536,11 @@ async fn serve_udp_association(
         response_tx.clone(),
         association_cancel.clone(),
     ));
-    let direct_udp = if context.geo_policy.is_enabled() {
+    let direct_udp = Arc::new(if context.geo_policy.is_enabled() {
         DirectUdpSockets::new(context.protector.as_ref())
     } else {
         DirectUdpSockets::default()
-    };
+    });
     if let Some(socket) = &direct_udp.v4 {
         response_tasks.push(spawn_direct_udp_receiver(
             Arc::clone(socket),
@@ -561,6 +566,7 @@ async fn serve_udp_association(
     let mut client_endpoint = requested_port.map(|port| SocketAddr::new(peer.ip(), port.get()));
     let mut datagram = vec![0u8; packet_limit + 1];
     let mut dns_queries = JoinSet::<Option<UdpDnsReply>>::new();
+    let mut udp_sends = JoinSet::new();
     let idle = tokio::time::sleep(context.udp_idle_timeout);
     tokio::pin!(idle);
     let result = loop {
@@ -597,6 +603,7 @@ async fn serve_udp_association(
                 drop(reply);
                 idle.as_mut().reset(Instant::now() + context.udp_idle_timeout);
             }
+            _ = udp_sends.join_next(), if !udp_sends.is_empty() => {},
             received = relay.recv_from(&mut datagram) => {
                 let (length, source) = match received {
                     Ok(value) => value,
@@ -695,6 +702,31 @@ async fn serve_udp_association(
                     });
                     continue;
                 }
+                if dns.is_some() && route == GeoRoute::Tunnel {
+                    let lease = (udp_sends.len() < 4).then(|| context.admission.as_ref()
+                        .and_then(|admission| admission.reserve_udp_dns_query(parsed.payload.len()))).flatten();
+                    let Some(lease) = lease else { continue; };
+                    let payload = parsed.payload.to_vec();
+                    let target = parsed.target;
+                    let port = parsed.port;
+                    let send_context = context.clone();
+                    let association = association.clone();
+                    let direct = direct_udp.clone();
+                    let cancel = association_cancel.clone();
+                    udp_sends.spawn(async move {
+                        let _lease = lease;
+                        tokio::select! {
+                            _ = cancel.cancelled() => {},
+                            result = send_udp_routed(&send_context, &target, port, &payload, &direct,
+                                TunnelUdpSockets::Association(association.as_ref())) => {
+                                if let Err(error) = result { tracing::debug!(%error, "SOCKS5 UDP send failed"); }
+                            }
+                        }
+                    });
+                    client_endpoint.get_or_insert(source);
+                    idle.as_mut().reset(Instant::now() + context.udp_idle_timeout);
+                    continue;
+                }
                 if let Err(error) = send_udp_routed(
                     &context,
                     &parsed.target,
@@ -740,6 +772,8 @@ async fn serve_udp_association(
 
     association_cancel.cancel();
     drop(association_guard);
+    udp_sends.abort_all();
+    while udp_sends.join_next().await.is_some() {}
     dns_queries.abort_all();
     while dns_queries.join_next().await.is_some() {}
     for task in response_tasks {
@@ -956,6 +990,16 @@ async fn send_udp_routed(
     // must not bypass the tunnel policy, nor trigger an unnecessary DNS query.
     if context.traffic_policy.blocks_udp(port) {
         return Ok(());
+    }
+    match tunnel {
+        #[cfg(test)]
+        TunnelUdpSockets::Stack { .. } => {}
+        TunnelUdpSockets::Association(association) => {
+            association
+                .prepare()
+                .await
+                .map_err(|_| "final UDP unavailable".to_owned())?;
+        }
     }
     if context.edge_resolved
         && resolved_for_tunnel.is_none()

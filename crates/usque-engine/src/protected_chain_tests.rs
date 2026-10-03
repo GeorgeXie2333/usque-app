@@ -44,6 +44,7 @@ async fn fixture(
             port: 1080,
             auth_mode: ProxyAuthMode::None,
             dns_servers: vec!["1.1.1.1".parse().unwrap()],
+            dns_transport: Default::default(),
         }),
         username: String::new(),
         password: String::new(),

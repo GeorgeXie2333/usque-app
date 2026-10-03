@@ -187,6 +187,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
   'nq_transportToTun': 'ทรานสปอร์ต → อุปกรณ์',
   'nq_transportToProxy': 'ทรานสปอร์ต → พร็อกซี',
   'nq_directDns': 'คำขอ DNS ตรง',
+  'nq_finalDns': 'คำขอ DNS ผ่านพร็อกซีปลายทาง',
   'nq_unknown_queue': 'คิวอื่น',
   'nq_trends': '60 วินาทีล่าสุด',
   'nq_samples': 'ตัวอย่าง',
@@ -324,6 +325,12 @@ const Map<String, String> kNetworkSettingsTh = <String, String>{
 };
 
 const Map<String, String> kChainTh = <String, String>{
+  "dns_auto": "อัตโนมัติ (DoH เป็นค่าเริ่มต้น)",
+  "dns_doh": "DNS เข้ารหัส · Cloudflare",
+  "dns_tcp": "DNS ผ่าน TCP",
+  "dns_auto_hint":
+      "โหมดอัตโนมัติใช้ DoH ผ่านทางออกนี้ ส่วน DNS ที่กำหนดเองใช้ TCP หาก DoH ล้มเหลวจะไม่ข้ามทางออกนี้",
+
   "add_proxy": "เพิ่มพร็อกซี",
   "proxy_hint":
       "เชื่อมต่อผ่าน WARP โดย HTTP รองรับ TCP ส่วน SOCKS5 รองรับ UDP ได้ด้วยเมื่อใช้ H3/H2",

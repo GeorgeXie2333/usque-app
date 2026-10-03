@@ -198,6 +198,7 @@ const kNetworkQualityTr = <String, String>{
   'nq_transportToTun': 'Aktarım → cihaz',
   'nq_transportToProxy': 'Aktarım → proxy',
   'nq_directDns': 'Doğrudan DNS istekleri',
+  'nq_finalDns': 'Son proxy üzerinden DNS istekleri',
   'nq_unknown_queue': 'Diğer kuyruk',
   'nq_trends': 'Son 60 saniye',
   'nq_samples': 'örnek',
@@ -338,6 +339,12 @@ const Map<String, String> kNetworkSettingsTr = <String, String>{
 };
 
 const Map<String, String> kChainTr = <String, String>{
+  "dns_auto": "Otomatik (varsayılan DoH)",
+  "dns_doh": "Şifreli DNS · Cloudflare",
+  "dns_tcp": "TCP üzerinden DNS",
+  "dns_auto_hint":
+      "Otomatik mod bu çıkış üzerinden DoH kullanır; özel DNS TCP kullanır. DoH hataları bu çıkışı atlamaz.",
+
   "add_proxy": "Proxy ekle",
   "proxy_hint":
       "WARP üzerinden bağlanır. HTTP TCP taşır; SOCKS5 H3/H2 ile UDP de taşıyabilir.",

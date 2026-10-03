@@ -423,6 +423,7 @@ mod tests {
                 port: 80,
                 auth_mode: "none".into(),
                 dns_servers: vec![],
+                dns_transport: String::new(),
             }),
             ..Default::default()
         };
@@ -430,6 +431,18 @@ mod tests {
             request.encode_to_vec(),
             [82, 11, 10, 1, b'p', 16, 80, 26, 4, b'n', b'o', b'n', b'e']
         );
+        let mut encrypted = request.clone();
+        encrypted.proxy.as_mut().unwrap().dns_transport = "doh".into();
+        let mut expected = request.encode_to_vec();
+        expected[1] += 5;
+        expected.extend_from_slice(&[42, 3, b'd', b'o', b'h']);
+        assert_eq!(encrypted.encode_to_vec(), expected);
+        let capability = v1::Capabilities {
+            chain_proxy_encrypted_dns: true,
+            ..Default::default()
+        };
+        assert_eq!(capability.encode_to_vec(), [0xd8, 0x02, 1]);
+        assert_eq!(v1::QueueKind::FinalDns as i32, 9);
     }
 
     #[test]

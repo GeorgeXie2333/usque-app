@@ -175,6 +175,7 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'nq_transportToTun': '傳輸層 → 裝置',
   'nq_transportToProxy': '傳輸層 → 代理',
   'nq_directDns': '直連 DNS 查詢',
+  'nq_finalDns': '鏈出口 DNS 查詢',
   'nq_unknown_queue': '其他佇列',
   'nq_trends': '最近 60 秒',
   'nq_samples': '個取樣',
@@ -287,6 +288,11 @@ const Map<String, String> kNetworkSettingsZhHk = <String, String>{
 };
 
 const Map<String, String> kChainZhHk = <String, String>{
+  "dns_auto": "自動（預設 DoH）",
+  "dns_doh": "加密 DNS · Cloudflare",
+  "dns_tcp": "TCP DNS",
+  "dns_auto_hint": "自動模式經此出口使用 DoH；自訂 DNS 使用 TCP。DoH 失敗時不會繞過此出口。",
+
   "add_proxy": "新增代理",
   "proxy_hint": "透過 WARP 連線。HTTP 支援 TCP；SOCKS5 在 H3/H2 下亦可支援 UDP。",
   "dns_inherit": "留空以沿用網絡 DNS，查詢經此出口傳送。",

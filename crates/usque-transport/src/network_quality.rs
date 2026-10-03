@@ -528,7 +528,7 @@ struct NetworkQualityTelemetryInner {
     #[cfg(any(test, feature = "fault-injection"))]
     faults: std::sync::Mutex<Option<crate::fault_injection::NetworkFaults>>,
     state: RwLock<QualityState>,
-    queues: RwLock<[Arc<QueueMetrics>; 8]>,
+    queues: RwLock<[Arc<QueueMetrics>; 9]>,
     udp_io: UdpIoCounters,
     allocations: AllocationCounters,
     active_h2_ping_tasks: AtomicU64,
@@ -1027,14 +1027,14 @@ impl NetworkQualityTelemetry {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn queues_read(&self) -> RwLockReadGuard<'_, [Arc<QueueMetrics>; 8]> {
+    fn queues_read(&self) -> RwLockReadGuard<'_, [Arc<QueueMetrics>; 9]> {
         self.inner
             .queues
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn queues_write(&self) -> RwLockWriteGuard<'_, [Arc<QueueMetrics>; 8]> {
+    fn queues_write(&self) -> RwLockWriteGuard<'_, [Arc<QueueMetrics>; 9]> {
         self.inner
             .queues
             .write()
@@ -1729,6 +1729,7 @@ fn queue_index(kind: QueueKind) -> usize {
         QueueKind::TransportToTun => 5,
         QueueKind::TransportToProxy => 6,
         QueueKind::DirectDnsRequests => 7,
+        QueueKind::FinalDnsRequests => 8,
     }
 }
 

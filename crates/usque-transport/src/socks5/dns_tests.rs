@@ -309,6 +309,7 @@ impl Fixture {
             port: server_port,
             auth_mode: ProxyAuthMode::None,
             dns_servers: vec![],
+            dns_transport: Default::default(),
         });
         let parsed = usque_core::chain_exit::ValidatedProfile::parse(source, &secrets).unwrap();
         let summary = parsed
@@ -558,11 +559,7 @@ async fn every_valid_udp_command_refusal_preserves_tcp_dns_only_associations() {
         let (control, udp, relay) = fixture.associate().await;
         exchange(&udp, relay, &target, u16::from(reply) + 10).await;
         assert_eq!(fixture.peer.dns_queries.load(Ordering::SeqCst), 2);
-        assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 1);
-        assert_eq!(
-            fixture.proxy.status.borrow().proxy_udp.as_deref(),
-            Some("unavailable")
-        );
+        assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 0);
         // A DNS-only association never enables ordinary tunnel UDP.
         udp.send_to(
             &datagram(
@@ -579,7 +576,13 @@ async fn every_valid_udp_command_refusal_preserves_tcp_dns_only_associations() {
                 .await
                 .is_err()
         );
-        assert_eq!(fixture.peer.dns_queries.load(Ordering::SeqCst), 2);
+        assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            fixture.proxy.status.borrow().proxy_udp.as_deref(),
+            Some("unavailable")
+        );
+        exchange(&udp, relay, &target, u16::from(reply) + 20).await;
+        assert_eq!(fixture.peer.dns_queries.load(Ordering::SeqCst), 3);
         drop(control);
         fixture.shutdown().await;
     }
@@ -624,11 +627,22 @@ async fn upstream_socks_rejecting_udp_retains_independent_dns_only_associations(
     let (control_one, udp_one, relay_one) = fixture.associate().await;
     let (control_two, udp_two, relay_two) = fixture.associate().await;
     assert_ne!(relay_one, relay_two);
+    assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 0);
+    udp_one
+        .send_to(
+            &datagram(&TcpTarget::new("198.51.100.44", 9000).unwrap(), b"payload"),
+            relay_one,
+        )
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(2), async {
+        while fixture.proxy.status.borrow().proxy_udp.as_deref() != Some("unavailable") {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        fixture.proxy.status.borrow().proxy_udp.as_deref(),
-        Some("unavailable")
-    );
     let target = TcpTarget::new("resolver.example", 53).unwrap();
     exchange(&udp_one, relay_one, &target, 11).await;
     exchange(&udp_two, relay_two, &target, 12).await;
@@ -696,7 +710,7 @@ async fn associate_timeout_keeps_udp_unknown_and_dns_bound_to_the_final_exit() {
 async fn socks_udp_rejection_does_not_resolve_ordinary_remote_domain_datagrams() {
     let mut fixture = Fixture::with_mode(ChainSource::Socks5Proxy, ProxyDnsMode::Remote).await;
     let (control, udp, relay) = fixture.associate().await;
-    assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 0);
     let target = TcpTarget::new("ordinary.example", 9000).unwrap();
     // Even a well-formed DNS payload only receives conversion on port 53.
     udp.send_to(&datagram(&target, &query(41)), relay)
@@ -837,5 +851,312 @@ async fn dns_only_association_control_close_and_cancellation_release_pending_que
                 .is_err()
         );
     }
+    fixture.shutdown().await;
+}
+
+#[tokio::test]
+async fn regression_associate_timeout_must_not_disable_dns_only_frontend() {
+    let mut fixture = Fixture::new(ChainSource::Socks5Proxy).await;
+    fixture.peer.stall_associate.store(true, Ordering::SeqCst);
+    let target = TcpTarget::new("198.51.100.53", 53).unwrap();
+    let request = query(101);
+    assert_eq!(
+        fixture
+            .dns
+            .query_target(target, &request, Instant::now() + Duration::from_secs(2))
+            .await
+            .unwrap(),
+        answer(&request),
+    );
+    let mut control = TcpStream::connect(fixture.frontend.listeners()[0])
+        .await
+        .unwrap();
+    control.write_all(&[5, 1, 0]).await.unwrap();
+    let mut auth = [0; 2];
+    control.read_exact(&mut auth).await.unwrap();
+    assert_eq!(auth, [5, 0]);
+    control
+        .write_all(&[5, 3, 0, 1, 0, 0, 0, 0, 0, 0])
+        .await
+        .unwrap();
+    let mut reply = [0; 10];
+    timeout(
+        REMOTE_CONNECT_TIMEOUT + Duration::from_secs(2),
+        control.read_exact(&mut reply),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let reply_code = reply[1];
+    assert_eq!(fixture.peer.dns_queries.load(Ordering::SeqCst), 1);
+    drop(control);
+    fixture.shutdown().await;
+    assert_eq!(
+        reply_code, REPLY_SUCCEEDED,
+        "TCP DNS succeeded, but the local DNS-only association was rejected after a UDP-only timeout"
+    );
+}
+
+struct BackupDns {
+    targets: StdMutex<Vec<TcpTarget>>,
+    servfail_primary: bool,
+}
+
+#[async_trait]
+impl TcpDialer for BackupDns {
+    async fn connect(
+        &self,
+        target: TcpTarget,
+        _: Instant,
+        _: &CancellationToken,
+        class: FlowClass,
+    ) -> Result<crate::tcp::TcpStream, DialError> {
+        assert_eq!(class, FlowClass::Dns);
+        self.targets.lock().unwrap().push(target.clone());
+        let primary = target.host_port().0 == "198.51.100.53";
+        if primary && !self.servfail_primary {
+            return std::future::pending().await;
+        }
+        let (client, mut peer) = tokio::io::duplex(4096);
+        tokio::spawn(async move {
+            let length = peer.read_u16().await.unwrap();
+            let mut request = vec![0; usize::from(length)];
+            peer.read_exact(&mut request).await.unwrap();
+            let response = if primary {
+                crate::split_dns::l4_dns_error(&request)
+            } else {
+                answer(&request)
+            };
+            peer.write_u16(response.len() as u16).await.unwrap();
+            peer.write_all(&response).await.unwrap();
+        });
+        Ok(Box::new(MemoryStream(client)))
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn regression_tcp_only_chain_resolver_must_try_healthy_backup() {
+    let dialer = Arc::new(BackupDns {
+        targets: StdMutex::default(),
+        servfail_primary: false,
+    });
+    let physical = Arc::new(RejectedPhysicalNetwork::default());
+    let cancel = CancellationToken::new();
+    let dns = Arc::new(StreamDns::new(
+        dialer.clone(),
+        physical.clone(),
+        cancel.clone(),
+        Arc::default(),
+    ));
+    let resolver = Resolver::for_streams(
+        dns,
+        vec![
+            "198.51.100.53".parse().unwrap(),
+            "198.51.100.54".parse().unwrap(),
+        ],
+        ProxyDnsMode::Remote,
+        physical.clone(),
+    );
+    let result = resolver.resolve("example.test").await;
+    let attempted: Vec<_> = dialer
+        .targets
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|t| t.authority().to_owned())
+        .collect();
+    cancel.cancel();
+    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+    assert!(
+        result.is_ok(),
+        "healthy backup was starved by silent primary: {result:?}, attempts: {attempted:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn regression_tcp_only_chain_system_dns_must_try_healthy_backup() {
+    let dialer = Arc::new(BackupDns {
+        targets: StdMutex::default(),
+        servfail_primary: false,
+    });
+    let physical = Arc::new(RejectedPhysicalNetwork::default());
+    let cancel = CancellationToken::new();
+    let dns = Arc::new(StreamDns::new(
+        dialer.clone(),
+        physical.clone(),
+        cancel.clone(),
+        Arc::default(),
+    ));
+    let resolver = crate::split_dns::SplitDnsResolver::for_l4(
+        dns,
+        &[
+            "198.51.100.53".parse().unwrap(),
+            "198.51.100.54".parse().unwrap(),
+        ],
+        Arc::default(),
+        physical.clone(),
+        crate::NetworkQualityTelemetry::default(),
+    );
+    let request = query(102);
+    let response = resolver.handle_l4(&request, true).await;
+    let attempted: Vec<_> = dialer
+        .targets
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|t| t.authority().to_owned())
+        .collect();
+    cancel.cancel();
+    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        response,
+        answer(&request),
+        "healthy backup was starved by silent primary; attempts: {attempted:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn regression_system_dns_servfail_must_not_hide_healthy_backup() {
+    let dialer = Arc::new(BackupDns {
+        targets: StdMutex::default(),
+        servfail_primary: true,
+    });
+    let physical = Arc::new(RejectedPhysicalNetwork::default());
+    let cancel = CancellationToken::new();
+    let dns = Arc::new(StreamDns::new(
+        dialer.clone(),
+        physical.clone(),
+        cancel.clone(),
+        Arc::default(),
+    ));
+    let resolver = crate::split_dns::SplitDnsResolver::for_l4(
+        dns,
+        &[
+            "198.51.100.53".parse().unwrap(),
+            "198.51.100.54".parse().unwrap(),
+        ],
+        Arc::default(),
+        physical.clone(),
+        crate::NetworkQualityTelemetry::default(),
+    );
+    let request = query(103);
+    let response = resolver.handle_l4(&request, true).await;
+    let attempted: Vec<_> = dialer
+        .targets
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|t| t.authority().to_owned())
+        .collect();
+    cancel.cancel();
+    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        response,
+        answer(&request),
+        "SERVFAIL incorrectly terminated the configured-server search; attempts: {attempted:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn regression_control_healthy_server_answers_both_dns_paths() {
+    let dialer = Arc::new(BackupDns {
+        targets: StdMutex::default(),
+        servfail_primary: false,
+    });
+    let physical = Arc::new(RejectedPhysicalNetwork::default());
+    let cancel = CancellationToken::new();
+    let dns = Arc::new(StreamDns::new(
+        dialer,
+        physical.clone(),
+        cancel.clone(),
+        Arc::default(),
+    ));
+    let servers = vec!["198.51.100.54".parse().unwrap()];
+    let resolver = Resolver::for_streams(
+        dns.clone(),
+        servers.clone(),
+        ProxyDnsMode::Remote,
+        physical.clone(),
+    );
+    assert_eq!(
+        resolver.resolve("example.test").await.unwrap(),
+        vec!["203.0.113.7".parse::<IpAddr>().unwrap()]
+    );
+    let resolver = crate::split_dns::SplitDnsResolver::for_l4(
+        dns.clone(),
+        &servers,
+        Arc::default(),
+        physical.clone(),
+        crate::NetworkQualityTelemetry::default(),
+    );
+    let request = query(104);
+    assert_eq!(resolver.handle_l4(&request, true).await, answer(&request));
+    dns.clear();
+    cancel.cancel();
+    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn regression_control_domain_resolver_retries_servfail() {
+    let dialer = Arc::new(BackupDns {
+        targets: StdMutex::default(),
+        servfail_primary: true,
+    });
+    let physical = Arc::new(RejectedPhysicalNetwork::default());
+    let cancel = CancellationToken::new();
+    let dns = Arc::new(StreamDns::new(
+        dialer,
+        physical.clone(),
+        cancel.clone(),
+        Arc::default(),
+    ));
+    let resolver = Resolver::for_streams(
+        dns.clone(),
+        vec![
+            "198.51.100.53".parse().unwrap(),
+            "198.51.100.54".parse().unwrap(),
+        ],
+        ProxyDnsMode::Remote,
+        physical.clone(),
+    );
+    assert_eq!(
+        resolver.resolve("example.test").await.unwrap(),
+        vec!["203.0.113.7".parse::<IpAddr>().unwrap()]
+    );
+    dns.clear();
+    cancel.cancel();
+    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn pending_and_timed_out_udp_associate_do_not_block_local_dns() {
+    let mut fixture = Fixture::new(ChainSource::Socks5Proxy).await;
+    fixture.peer.stall_associate.store(true, Ordering::SeqCst);
+    let (control, udp, relay) = fixture.associate().await;
+    assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 0);
+    udp.send_to(
+        &datagram(&TcpTarget::new("198.51.100.44", 9000).unwrap(), b"payload"),
+        relay,
+    )
+    .await
+    .unwrap();
+    let target = TcpTarget::new("198.51.100.53", 53).unwrap();
+    // DNS completes while the unrelated UDP command is still pending.
+    exchange(&udp, relay, &target, 121).await;
+    timeout(
+        REMOTE_CONNECT_TIMEOUT + Duration::from_secs(2),
+        fixture.peer.associate_closed.notified(),
+    )
+    .await
+    .unwrap();
+    exchange(&udp, relay, &target, 122).await;
+    assert_eq!(fixture.peer.associate_commands.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.peer.dns_queries.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        fixture.proxy.status.borrow().proxy_udp.as_deref(),
+        Some("unknown")
+    );
+    assert_eq!(fixture.physical.0.load(Ordering::SeqCst), 0);
+    drop(control);
     fixture.shutdown().await;
 }

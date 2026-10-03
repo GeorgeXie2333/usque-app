@@ -82,6 +82,7 @@ internal object VpnGateFields {
                     "dns_unavailable",
                     "tcp_connect_verified",
                     "proxy_udp",
+                    "final_dns_transport",
                     "active_endpoint",
                     "attempt_count",
                     "candidate_count",

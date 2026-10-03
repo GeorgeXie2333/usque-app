@@ -140,6 +140,7 @@ internal object NetworkQualityFields {
             "chain_warp_wireguard",
             "chain_http_proxy",
             "chain_socks5_proxy",
+            "chain_proxy_encrypted_dns",
             "custom_bypass",
             "chain_openvpn_multi_endpoint",
             "application_quic_blocking",

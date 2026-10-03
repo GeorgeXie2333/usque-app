@@ -36,13 +36,15 @@ const imported = ChainProfileSummary(
 
 class ChainEngine extends GateEngine
     implements ChainProfileClient, WarpWireguardClient {
+  ChainEngine({this.encryptedDns = true});
+  final bool encryptedDns;
   @override
   Future<Map<Object?, Object?>> warpWireguard(
     Map<String, Object?> request,
   ) async => const {};
   List<ChainProfileSummary> library = [];
   final actions = <String>[];
-  Map<String, Object?>? lastRequest;
+  Map<String, Object?>? lastRequest, lastImport;
   final names = <String>[];
   String? picked;
   List<ChainConfigurationFile>? pickedFiles;
@@ -61,6 +63,7 @@ class ChainEngine extends GateEngine
     chainWarpWireguard: true,
     chainHttpProxy: true,
     chainSocks5Proxy: true,
+    chainProxyEncryptedDns: encryptedDns,
     chainOpenvpnMultiEndpoint: multiEndpoint,
   );
   @override
@@ -92,6 +95,7 @@ class ChainEngine extends GateEngine
       }
     }
     if (action == 'import') {
+      lastImport = Map.of(request);
       library = [previewProfile.copyWith(name: names.last)];
     }
     return ChainProfileResult(
@@ -224,6 +228,7 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('chain-proxy-save')));
         await tester.pumpAndSettle();
         expect(engine.actions, contains('import'));
+        expect((engine.lastImport!['proxy'] as Map)['dns_transport'], 'auto');
         expect(engine.library.single.source, source);
         expect(engine.library.single.requiresUdp, isFalse);
         expect(app.activeProfile.chainExit, before);
@@ -232,6 +237,78 @@ void main() {
       },
     );
   }
+  testWidgets(
+    'DoH hides custom DNS and preserves its draft when switching modes',
+    (tester) async {
+      final engine = ChainEngine();
+      final app = await hostChain(
+        tester,
+        engine,
+        source: ChainSource.httpProxy,
+      );
+      await tester.tap(
+        find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('chain-proxy-host')),
+        'proxy.example',
+      );
+      await tester.ensureVisible(
+        find.widgetWithText(ExpansionTile, app.strings.chain('dns')),
+      );
+      await tester.tap(
+        find.widgetWithText(ExpansionTile, app.strings.chain('dns')),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('chain-proxy-dns')),
+        '9.9.9.9',
+      );
+      Future<void> choose(String mode) async {
+        final picker = find.byKey(const ValueKey('chain-proxy-dns-transport'));
+        await tester.ensureVisible(picker);
+        await tester.tap(picker);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(app.strings.chain('dns_$mode')).last);
+        await tester.pumpAndSettle();
+      }
+
+      await choose('doh');
+      expect(find.byKey(const ValueKey('chain-proxy-dns')), findsNothing);
+      await choose('tcp');
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('chain-proxy-dns')))
+            .controller!
+            .text,
+        '9.9.9.9',
+      );
+      await choose('doh');
+      await tester.tap(find.byKey(const ValueKey('chain-proxy-save')));
+      await tester.pumpAndSettle();
+      final proxy = engine.lastImport!['proxy'] as Map;
+      expect(proxy['dns_transport'], 'doh');
+      expect(proxy['dns_servers'], isEmpty);
+    },
+  );
+  testWidgets('older engines offer TCP DNS without an encryption promise', (
+    tester,
+  ) async {
+    final engine = ChainEngine(encryptedDns: false);
+    final app = await hostChain(tester, engine, source: ChainSource.httpProxy);
+    await tester.tap(
+      find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('chain-proxy-host')),
+      'proxy.example',
+    );
+    await tester.tap(find.byKey(const ValueKey('chain-proxy-save')));
+    await tester.pumpAndSettle();
+    expect((engine.lastImport!['proxy'] as Map)['dns_transport'], 'tcp');
+  });
   test('older engines cannot enable new proxy sources', () {
     const capabilities = EngineCapabilities(chainProfileImport: true);
     expect(

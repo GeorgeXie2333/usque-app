@@ -1,4 +1,4 @@
-//! Explicit-bootstrap encrypted direct DNS. No encrypted error branch can
+//! Explicit-bootstrap encrypted DNS with separate direct and final-exit connectors. No encrypted error branch can
 //! invoke the system resolver, physical DNS discovery, or a port-53 fallback.
 
 use std::net::{IpAddr, SocketAddr};
@@ -15,7 +15,7 @@ use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpSocket, TcpStream};
+use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, MutexGuard, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::time::{Instant, MissedTickBehavior, interval, sleep, timeout_at};
 use tokio_rustls::client::TlsStream;
@@ -48,7 +48,90 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 const HAPPY_EYEBALLS_DELAY: Duration = Duration::from_millis(250);
 const GENERATION_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-type DnsTlsStream = TlsStream<LeasedIo<TcpStream>>;
+trait DnsIo: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin> DnsIo for T {}
+type DnsTlsStream = TlsStream<LeasedIo<Box<dyn DnsIo>>>;
+
+enum DnsConnector {
+    Direct,
+    Final {
+        dialer: Arc<dyn crate::tcp::TcpDialer>,
+        budget: Arc<crate::l4::BufferBudget>,
+    },
+}
+
+impl DnsConnector {
+    fn session_generation(&self) -> Option<u64> {
+        match self {
+            Self::Direct => None,
+            Self::Final { dialer, .. } => dialer.session_generation(),
+        }
+    }
+}
+
+/// Only the final-exit connector is available here. Errors cannot select direct DNS.
+pub(crate) struct FinalDohResolver {
+    inner: Arc<EncryptedResolver>,
+}
+impl FinalDohResolver {
+    pub(crate) fn new(
+        dialer: Arc<dyn crate::tcp::TcpDialer>,
+        protector: Arc<dyn SocketProtector>,
+        quality: NetworkQualityTelemetry,
+        cancellation: &CancellationToken,
+        budget: Arc<crate::l4::BufferBudget>,
+    ) -> Result<Arc<Self>, DirectDnsError> {
+        let settings = DirectDnsSettings {
+            mode: ConfigMode::Doh,
+            server_name: "cloudflare-dns.com".into(),
+            doh_path: "/dns-query".into(),
+            port: 443,
+            bootstrap_ips: [
+                "1.1.1.1",
+                "2606:4700:4700::1111",
+                "1.0.0.1",
+                "2606:4700:4700::1001",
+            ]
+            .into_iter()
+            .map(|ip| ip.parse().expect("constant bootstrap IP"))
+            .collect(),
+        };
+        settings
+            .validate()
+            .map_err(|_| DirectDnsError::InvalidConfiguration)?;
+        let tls = encrypted_tls_config(ConfigMode::Doh)?;
+        let connector = DnsConnector::Final { dialer, budget };
+        Ok(Arc::new(Self {
+            inner: EncryptedResolver::new(
+                settings,
+                protector,
+                quality,
+                cancellation,
+                tls,
+                connector,
+            ),
+        }))
+    }
+    pub(crate) async fn query(
+        &self,
+        query: &[u8],
+        deadline: Instant,
+    ) -> Result<Bytes, DirectDnsError> {
+        self.inner
+            .query(
+                Bytes::copy_from_slice(query),
+                DirectDnsQueryContext {
+                    deadline,
+                    network_generation: self
+                        .inner
+                        .protector
+                        .network_generation()
+                        .unwrap_or_default(),
+                },
+            )
+            .await
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct DirectDnsQueryContext {
@@ -176,64 +259,14 @@ impl DirectDnsResolver {
         settings
             .validate()
             .map_err(|_| DirectDnsError::InvalidConfiguration)?;
-        let lifetime = cancellation.child_token();
-        let generation = protector.network_generation().unwrap_or_default();
-        quality.set_direct_dns_mode(if mode == ConfigMode::Doh {
-            DirectDnsMode::Doh
-        } else {
-            DirectDnsMode::Dot
-        });
-        let queue = quality.register_unordered_queue(
-            QueueKind::DirectDnsRequests,
-            MAX_IN_FLIGHT,
-            MAX_IN_FLIGHT * MAX_DNS_MESSAGE,
-        );
-        let pool = if mode == ConfigMode::Doh {
-            ResolverPool::Doh(std::array::from_fn(|_| Mutex::new(None)))
-        } else {
-            ResolverPool::Dot(Box::new(std::array::from_fn(|_| Mutex::new(None))))
-        };
-        let inner = Arc::new(EncryptedResolver {
+        let inner = EncryptedResolver::new(
             settings,
             protector,
             quality,
-            queue,
-            tls: Arc::new(tls),
-            pool,
-            epoch: StdMutex::new(PoolEpoch {
-                generation,
-                cancellation: lifetime.child_token(),
-            }),
-            lifetime,
-            query_permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
-            dot_permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
-            socket_permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
-            changed: Arc::new(Notify::new()),
-            monitor: StdMutex::new(None),
-        });
-        let weak = Arc::downgrade(&inner);
-        let stop = inner.lifetime.clone();
-        let monitor = tokio::spawn(async move {
-            let mut tick = interval(GENERATION_POLL_INTERVAL);
-            tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
-            loop {
-                tokio::select! {
-                    _ = stop.cancelled() => {
-                        if let Some(inner) = weak.upgrade() { inner.clear_idle_pool(true); }
-                        break;
-                    },
-                    _ = tick.tick() => {
-                        let Some(inner) = weak.upgrade() else { break; };
-                        inner.sync_generation();
-                        inner.clear_idle_pool(false);
-                    }
-                }
-            }
-        });
-        *inner
-            .monitor
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some(AbortOnDropHandle::new(monitor));
+            cancellation,
+            tls,
+            DnsConnector::Direct,
+        );
         Ok(Arc::new(if mode == ConfigMode::Doh {
             Self::Doh(DohResolver { inner })
         } else {
@@ -302,6 +335,7 @@ impl DirectDnsResolver {
 
 struct PoolEpoch {
     generation: u64,
+    session_generation: Option<u64>,
     cancellation: CancellationToken,
 }
 
@@ -312,6 +346,7 @@ enum ResolverPool {
 
 struct EncryptedResolver {
     settings: DirectDnsSettings,
+    connector: DnsConnector,
     protector: Arc<dyn SocketProtector>,
     quality: NetworkQualityTelemetry,
     queue: Arc<QueueMetrics>,
@@ -465,16 +500,98 @@ impl Drop for RequestStream {
 }
 
 impl EncryptedResolver {
+    fn new(
+        settings: DirectDnsSettings,
+        protector: Arc<dyn SocketProtector>,
+        quality: NetworkQualityTelemetry,
+        cancellation: &CancellationToken,
+        tls: ClientConfig,
+        connector: DnsConnector,
+    ) -> Arc<Self> {
+        let mode = settings.mode;
+        let lifetime = cancellation.child_token();
+        let generation = protector.network_generation().unwrap_or_default();
+        if matches!(connector, DnsConnector::Direct) {
+            quality.set_direct_dns_mode(if mode == ConfigMode::Doh {
+                DirectDnsMode::Doh
+            } else {
+                DirectDnsMode::Dot
+            });
+        }
+        let queue = quality.register_unordered_queue(
+            if matches!(connector, DnsConnector::Direct) {
+                QueueKind::DirectDnsRequests
+            } else {
+                QueueKind::FinalDnsRequests
+            },
+            MAX_IN_FLIGHT,
+            MAX_IN_FLIGHT * MAX_DNS_MESSAGE,
+        );
+        let pool = if mode == ConfigMode::Doh {
+            ResolverPool::Doh(std::array::from_fn(|_| Mutex::new(None)))
+        } else {
+            ResolverPool::Dot(Box::new(std::array::from_fn(|_| Mutex::new(None))))
+        };
+        let inner = Arc::new(EncryptedResolver {
+            settings,
+            protector,
+            quality,
+            queue,
+            tls: Arc::new(tls),
+            pool,
+            epoch: StdMutex::new(PoolEpoch {
+                generation,
+                session_generation: connector.session_generation(),
+                cancellation: lifetime.child_token(),
+            }),
+            lifetime,
+            connector,
+            query_permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            dot_permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+            socket_permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+            changed: Arc::new(Notify::new()),
+            monitor: StdMutex::new(None),
+        });
+        let weak = Arc::downgrade(&inner);
+        let stop = inner.lifetime.clone();
+        let monitor = tokio::spawn(async move {
+            let mut tick = interval(GENERATION_POLL_INTERVAL);
+            tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = stop.cancelled() => {
+                        if let Some(inner) = weak.upgrade() { inner.clear_idle_pool(true); }
+                        break;
+                    },
+                    _ = tick.tick() => {
+                        let Some(inner) = weak.upgrade() else { break; };
+                        inner.sync_generation();
+                        inner.clear_idle_pool(false);
+                    }
+                }
+            }
+        });
+        *inner
+            .monitor
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(AbortOnDropHandle::new(monitor));
+        inner
+    }
+
     fn sync_generation(&self) {
         let generation = self.protector.network_generation().unwrap_or_default();
         let mut epoch = self.epoch.lock().unwrap_or_else(|error| error.into_inner());
-        if epoch.generation != generation {
+        let session_generation = self.connector.session_generation();
+        if epoch.generation != generation || epoch.session_generation != session_generation {
             epoch.cancellation.cancel();
             *epoch = PoolEpoch {
                 generation,
+                session_generation,
                 cancellation: self.lifetime.child_token(),
             };
             self.changed.notify_waiters();
+            drop(epoch);
+            self.clear_idle_pool(true);
         }
     }
 
@@ -492,6 +609,11 @@ impl EncryptedResolver {
     }
 
     fn ensure_current(&self, context: DirectDnsQueryContext) -> Result<(), DirectDnsError> {
+        if let DnsConnector::Final { dialer, .. } = &self.connector
+            && !dialer.is_ready()
+        {
+            return Err(DirectDnsError::Cancelled);
+        }
         if self.lifetime.is_cancelled() {
             return Err(DirectDnsError::Cancelled);
         }
@@ -511,6 +633,7 @@ impl EncryptedResolver {
                         let expired = slot.as_ref().is_some_and(|entry| {
                             all || entry.generation != generation
                                 || entry.closed.load(Ordering::Acquire)
+                                || entry.cancellation.is_cancelled()
                                 || entry.active.load(Ordering::Acquire) == 0
                                     && (entry.queries.load(Ordering::Acquire)
                                         >= MAX_QUERIES_PER_CONNECTION
@@ -550,17 +673,30 @@ impl EncryptedResolver {
         mut context: DirectDnsQueryContext,
     ) -> Result<Bytes, DirectDnsError> {
         context.deadline = context.deadline.min(Instant::now() + QUERY_TIMEOUT);
+        let direct = matches!(self.connector, DnsConnector::Direct);
+        let _buffer = match &self.connector {
+            DnsConnector::Direct => None,
+            DnsConnector::Final { budget, .. } => Some(
+                budget
+                    .reserve_admission(query.len() + 2 * MAX_DNS_MESSAGE)
+                    .ok_or(DirectDnsError::Busy)?,
+            ),
+        };
         let started = Instant::now();
         if query.len() > MAX_DNS_MESSAGE || query.len() < 12 {
-            self.quality
-                .record_direct_dns_failure(DirectDnsReasonCode::QueryFailed, false);
+            if direct {
+                self.quality
+                    .record_direct_dns_failure(DirectDnsReasonCode::QueryFailed, false);
+            }
             return Err(DirectDnsError::InvalidQuery);
         }
         let permit = self.query_permits.clone().try_acquire_owned();
         let Ok(_permit) = permit else {
             self.queue.record_rejected(query.len());
-            self.quality
-                .record_direct_dns_failure(DirectDnsReasonCode::QueryFailed, false);
+            if direct {
+                self.quality
+                    .record_direct_dns_failure(DirectDnsReasonCode::QueryFailed, false);
+            }
             return Err(DirectDnsError::Busy);
         };
         let entry = self.queue.start_entry(query.len());
@@ -582,12 +718,17 @@ impl EncryptedResolver {
                 }
             }
         }.await;
-        match &result {
-            Ok(_) => self.quality.record_direct_dns_success(started.elapsed()),
-            Err(error) => self.quality.record_direct_dns_failure(
-                error.quality_reason(),
-                *error == DirectDnsError::Timeout,
-            ),
+        if !direct && let Err(error) = &result {
+            tracing::debug!(reason_code = %error, "Final proxy DNS query failed");
+        }
+        if direct {
+            match &result {
+                Ok(_) => self.quality.record_direct_dns_success(started.elapsed()),
+                Err(error) => self.quality.record_direct_dns_failure(
+                    error.quality_reason(),
+                    *error == DirectDnsError::Timeout,
+                ),
+            }
         }
         entry.complete();
         result
@@ -599,13 +740,55 @@ impl EncryptedResolver {
         context: DirectDnsQueryContext,
         epoch: &CancellationToken,
     ) -> Result<Bytes, DirectDnsError> {
+        if matches!(self.connector, DnsConnector::Final { .. }) {
+            return crate::final_dns::query_doh(
+                &self.settings.bootstrap_ips,
+                context.deadline,
+                |ip, deadline| {
+                    let query = query.clone();
+                    async move {
+                        let mut visited = Vec::new();
+                        self.query_doh(
+                            query,
+                            DirectDnsQueryContext {
+                                deadline,
+                                ..context
+                            },
+                            epoch,
+                            &mut visited,
+                            None,
+                            Some(ip),
+                        )
+                        .await
+                        .map_err(|failure| failure.error.to_string())
+                    }
+                },
+            )
+            .await
+            .map_err(|code| match code.as_str() {
+                "DNS query timed out" | "DNS candidate timed out" | "timeout" => {
+                    DirectDnsError::Timeout
+                }
+                "tls_failed" => DirectDnsError::TlsFailed,
+                "alpn_mismatch" => DirectDnsError::AlpnMismatch,
+                "cancelled" => DirectDnsError::Cancelled,
+                "network_changed" => DirectDnsError::NetworkChanged,
+                "busy" => DirectDnsError::Busy,
+                "invalid_response" => DirectDnsError::InvalidResponse,
+                "http_rejected" => DirectDnsError::HttpRejected,
+                "invalid_content_type" => DirectDnsError::InvalidContentType,
+                "response_too_large" => DirectDnsError::ResponseTooLarge,
+                "connect_failed" => DirectDnsError::ConnectFailed,
+                _ => DirectDnsError::QueryFailed,
+            });
+        }
         let mut visited = Vec::with_capacity(2);
         let mut excluded = None;
         for attempt in 0..2 {
             self.ensure_current(context)?;
             let result = match self.pool {
                 ResolverPool::Doh(_) => {
-                    self.query_doh(query.clone(), context, epoch, &mut visited, excluded)
+                    self.query_doh(query.clone(), context, epoch, &mut visited, excluded, None)
                         .await
                 }
                 ResolverPool::Dot(_) => {
@@ -737,43 +920,74 @@ impl EncryptedResolver {
             .acquire_owned()
             .await
             .map_err(|_| DirectDnsError::Cancelled)?;
-        let socket = if endpoint.is_ipv4() {
-            TcpSocket::new_v4()
-        } else {
-            TcpSocket::new_v6()
-        }
-        .map_err(|_| DirectDnsError::ConnectFailed)?;
-        let lease = self
-            .protector
-            .protect_for_target_generation(
-                socket_handle(&socket),
-                endpoint,
-                DirectProtocol::Tcp,
-                context.network_generation,
-            )
-            .await
-            .map_err(|error| {
-                if error == STALE_GENERATION_REASON {
-                    DirectDnsError::NetworkChanged
+        let stream = match &self.connector {
+            DnsConnector::Final { dialer, .. } => {
+                let stream = dialer
+                    .connect(
+                        crate::tcp::TcpTarget::address(endpoint),
+                        context.deadline,
+                        &self.lifetime,
+                        crate::tcp::FlowClass::Dns,
+                    )
+                    .await
+                    .map_err(|error| match error {
+                        crate::tcp::DialError::Timeout => DirectDnsError::Timeout,
+                        crate::tcp::DialError::Cancelled | crate::tcp::DialError::Closed => {
+                            DirectDnsError::Cancelled
+                        }
+                        crate::tcp::DialError::Budget => DirectDnsError::Busy,
+                        _ => DirectDnsError::ConnectFailed,
+                    })?;
+                let stream: Box<dyn DnsIo> = Box::new(stream);
+                LeasedIo::new(
+                    stream,
+                    DirectEgressLease::hold_for_generation(budget, context.network_generation),
+                )
+            }
+            DnsConnector::Direct => {
+                let socket = if endpoint.is_ipv4() {
+                    TcpSocket::new_v4()
                 } else {
-                    DirectDnsError::SocketProtectFailed
+                    TcpSocket::new_v6()
                 }
-            })?;
-        self.ensure_current(context)?;
-        if lease.generation() != Some(context.network_generation) {
-            return Err(DirectDnsError::NetworkChanged);
-        }
-        let stream = socket
-            .connect(endpoint)
-            .await
-            .map_err(|_| DirectDnsError::ConnectFailed)?;
-        stream
-            .set_nodelay(true)
-            .map_err(|_| DirectDnsError::ConnectFailed)?;
-        let stream = LeasedIo::new(
-            stream,
-            DirectEgressLease::hold_for_generation((lease, budget), context.network_generation),
-        );
+                .map_err(|_| DirectDnsError::ConnectFailed)?;
+                let lease = self
+                    .protector
+                    .protect_for_target_generation(
+                        socket_handle(&socket),
+                        endpoint,
+                        DirectProtocol::Tcp,
+                        context.network_generation,
+                    )
+                    .await
+                    .map_err(|error| {
+                        if error == STALE_GENERATION_REASON {
+                            DirectDnsError::NetworkChanged
+                        } else {
+                            DirectDnsError::SocketProtectFailed
+                        }
+                    })?;
+                self.ensure_current(context)?;
+                if lease.generation() != Some(context.network_generation) {
+                    return Err(DirectDnsError::NetworkChanged);
+                }
+                let stream = socket
+                    .connect(endpoint)
+                    .await
+                    .map_err(|_| DirectDnsError::ConnectFailed)?;
+                stream
+                    .set_nodelay(true)
+                    .map_err(|_| DirectDnsError::ConnectFailed)?;
+                let stream: Box<dyn DnsIo> = Box::new(stream);
+                LeasedIo::new(
+                    stream,
+                    DirectEgressLease::hold_for_generation(
+                        (lease, budget),
+                        context.network_generation,
+                    ),
+                )
+            }
+        };
         self.ensure_current(context)?;
         let name = ServerName::try_from(self.settings.server_name.clone())
             .map_err(|_| DirectDnsError::InvalidConfiguration)?;
@@ -802,6 +1016,7 @@ impl EncryptedResolver {
         epoch: &CancellationToken,
         visited: &mut Vec<IpAddr>,
         excluded: Option<IpAddr>,
+        preferred: Option<IpAddr>,
     ) -> Result<DohReservation, QueryFailure> {
         let ResolverPool::Doh(slots) = &self.pool else {
             return Err(DirectDnsError::Unsupported.into());
@@ -816,11 +1031,13 @@ impl EncryptedResolver {
                     continue;
                 };
                 if let Some(connection) = slot.as_ref() {
-                    let endpoint_ok = Some(connection.endpoint.ip()) != excluded
+                    let endpoint_ok = preferred.is_none_or(|ip| ip == connection.endpoint.ip())
+                        && Some(connection.endpoint.ip()) != excluded
                         && (visited.len() < 2 || visited.contains(&connection.endpoint.ip()));
                     let active = connection.active.load(Ordering::Acquire);
                     let obsolete = connection.generation != context.network_generation
                         || connection.closed.load(Ordering::Acquire)
+                        || connection.cancellation.is_cancelled()
                         || connection.queries.load(Ordering::Acquire) >= MAX_QUERIES_PER_CONNECTION
                         || Instant::now().duration_since(
                             *connection
@@ -841,7 +1058,7 @@ impl EncryptedResolver {
                             changed: Arc::clone(&self.changed),
                         });
                     }
-                    if active != 0 || !obsolete && endpoint_ok {
+                    if active != 0 || !obsolete && (endpoint_ok || preferred.is_some()) {
                         continue;
                     }
                     slot.take();
@@ -850,7 +1067,13 @@ impl EncryptedResolver {
                     guard: Some(slot),
                     changed: Arc::clone(&self.changed),
                 };
-                let (tls, endpoint) = self.connect_bootstrap(context, visited, excluded).await?;
+                let (tls, endpoint) = if let Some(ip) = preferred {
+                    let endpoint = SocketAddr::new(ip, self.settings.port);
+                    let tls = self.connect_one(endpoint, context).await?;
+                    (tls, endpoint)
+                } else {
+                    self.connect_bootstrap(context, visited, excluded).await?
+                };
                 let deadline = context.deadline.min(Instant::now() + CONNECT_TIMEOUT);
                 let (sender, connection) = doh_handshake(tls, endpoint, deadline).await?;
                 self.ensure_current(context)?;
@@ -884,6 +1107,10 @@ impl EncryptedResolver {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "query binds wire data, deadline, epoch and bounded bootstrap selection"
+    )]
     async fn query_doh(
         &self,
         query: Bytes,
@@ -891,8 +1118,11 @@ impl EncryptedResolver {
         epoch: &CancellationToken,
         visited: &mut Vec<IpAddr>,
         excluded: Option<IpAddr>,
+        preferred: Option<IpAddr>,
     ) -> Result<Bytes, QueryFailure> {
-        let reservation = self.acquire_doh(context, epoch, visited, excluded).await?;
+        let reservation = self
+            .acquire_doh(context, epoch, visited, excluded, preferred)
+            .await?;
         let endpoint = reservation.connection.endpoint;
         let request_deadline = context.deadline.min(Instant::now() + REQUEST_TIMEOUT);
         let request = async {
@@ -963,6 +1193,10 @@ impl EncryptedResolver {
                     .map_err(|_| DirectDnsError::QueryFailed)?;
             }
             validate_dns_exchange(&query, &bytes).map_err(|_| DirectDnsError::InvalidResponse)?;
+            if matches!(self.connector, DnsConnector::Final { .. }) {
+                crate::split_dns::validate_resolver_response(&query, &bytes)
+                    .map_err(|_| DirectDnsError::InvalidResponse)?;
+            }
             self.ensure_current(context)?;
             stream.complete = true;
             Ok(bytes.freeze())
@@ -1361,4 +1595,4 @@ impl SocketProtector for ConfiguredDnsProtector {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

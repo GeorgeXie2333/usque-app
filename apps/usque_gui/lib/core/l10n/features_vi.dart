@@ -192,6 +192,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_transportToTun': 'Truyền tải → thiết bị',
   'nq_transportToProxy': 'Truyền tải → Proxy',
   'nq_directDns': 'Yêu cầu DNS trực tiếp',
+  'nq_finalDns': 'Truy vấn DNS qua proxy cuối',
   'nq_unknown_queue': 'Hàng đợi khác',
   'nq_trends': '60 giây gần nhất',
   'nq_samples': 'mẫu',
@@ -332,6 +333,12 @@ const Map<String, String> kNetworkSettingsVi = <String, String>{
 };
 
 const Map<String, String> kChainVi = <String, String>{
+  "dns_auto": "Tự động (mặc định DoH)",
+  "dns_doh": "DNS mã hóa · Cloudflare",
+  "dns_tcp": "DNS qua TCP",
+  "dns_auto_hint":
+      "Chế độ tự động dùng DoH qua lối ra này; DNS tùy chỉnh dùng TCP. Lỗi DoH không bỏ qua lối ra này.",
+
   "add_proxy": "Thêm proxy",
   "proxy_hint":
       "Kết nối qua WARP. HTTP truyền TCP; SOCKS5 còn có thể truyền UDP với H3/H2.",

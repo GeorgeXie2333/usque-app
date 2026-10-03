@@ -54,6 +54,7 @@ internal object ChainProfileFields {
             "address_family",
             "addresses",
             "dns_servers",
+            "dns_transport",
             "allowed_ips",
             "mtu",
             "requires_auth",

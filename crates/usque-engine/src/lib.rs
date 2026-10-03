@@ -5109,6 +5109,7 @@ fn current_capabilities() -> v1::Capabilities {
         chain_warp_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
         chain_http_proxy: cfg!(windows),
         chain_socks5_proxy: cfg!(windows),
+        chain_proxy_encrypted_dns: cfg!(windows),
         custom_bypass: cfg!(windows),
         automatic_endpoints: true,
         chain_openvpn_multi_endpoint: cfg!(windows),

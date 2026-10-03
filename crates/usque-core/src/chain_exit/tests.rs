@@ -1,4 +1,5 @@
 use super::*;
+use store::ProfileCipher;
 
 fn proxy_fixture(_source: ChainSource, auth: bool) -> ImportSecrets {
     ImportSecrets {
@@ -11,6 +12,7 @@ fn proxy_fixture(_source: ChainSource, auth: bool) -> ImportSecrets {
                 ProxyAuthMode::None
             },
             dns_servers: vec!["1.1.1.1".parse().unwrap()],
+            dns_transport: ProxyDnsTransport::Auto,
         }),
         username: if auth { "user".into() } else { String::new() },
         password: if auth {
@@ -458,4 +460,98 @@ fn aborted_cipher_write_preserves_previous_object_and_collects_only_orphan_temps
     assert_eq!(store.list().unwrap()[0].name, "Original");
     assert!(!orphan.exists());
     assert!(other.exists());
+}
+
+#[test]
+fn proxy_dns_defaults_and_explicit_choices_are_preserved() {
+    let mut secrets = proxy_fixture(ChainSource::HttpProxy, false);
+    secrets.proxy.as_mut().unwrap().dns_servers.clear();
+    let mut profile = crate::Profile::default();
+    for source in [ChainSource::HttpProxy, ChainSource::Socks5Proxy] {
+        let ValidatedProfile::Proxy(proxy) = ValidatedProfile::parse(source, &secrets).unwrap()
+        else {
+            panic!()
+        };
+        assert!(proxy.uses_doh(&profile));
+        profile.dns_servers = vec!["9.9.9.9".parse().unwrap()];
+        assert!(!proxy.uses_doh(&profile));
+        profile = crate::Profile::default();
+        profile.proxy.dns_mode = crate::ProxyDnsMode::LocalConfigured;
+        assert!(!proxy.uses_doh(&profile));
+        profile = crate::Profile::default();
+    }
+    let proxy = secrets.proxy.as_mut().unwrap();
+    proxy.dns_transport = ProxyDnsTransport::Tcp;
+    let ValidatedProfile::Proxy(parsed) =
+        ValidatedProfile::parse(ChainSource::HttpProxy, &secrets).unwrap()
+    else {
+        panic!()
+    };
+    assert!(!parsed.uses_doh(&profile));
+    secrets.proxy.as_mut().unwrap().dns_transport = ProxyDnsTransport::Doh;
+    secrets.proxy.as_mut().unwrap().dns_servers = vec!["1.1.1.1".parse().unwrap()];
+    assert!(ValidatedProfile::parse(ChainSource::HttpProxy, &secrets).is_err());
+    let mut value = serde_json::to_value(secrets.proxy.as_ref().unwrap()).unwrap();
+    value["dns_transport"] = "unknown".into();
+    assert!(serde_json::from_value::<ProxyExitConfiguration>(value).is_err());
+}
+
+#[test]
+fn proxy_v4_dns_metadata_migration_is_read_only_and_new_writes_are_v5() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = store::ChainProfileStore::new(directory.path(), &TestCipher);
+    let imported = store
+        .import(
+            ChainSource::Socks5Proxy,
+            "Legacy proxy",
+            proxy_fixture(ChainSource::Socks5Proxy, true),
+        )
+        .unwrap();
+    let path = directory
+        .path()
+        .join("chain-profiles")
+        .join(format!("{}.profile", imported.id));
+    let encrypted = std::fs::read(&path).unwrap();
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&TestCipher.open(imported.id, &encrypted).unwrap()).unwrap();
+    assert_eq!(record["version"], 5);
+    record["version"] = 4.into();
+    record["summary"]
+        .as_object_mut()
+        .unwrap()
+        .remove("dns_transport");
+    record["secrets"]["proxy"]
+        .as_object_mut()
+        .unwrap()
+        .remove("dns_transport");
+    let old = TestCipher
+        .seal(imported.id, &serde_json::to_vec(&record).unwrap())
+        .unwrap();
+    std::fs::write(&path, &old).unwrap();
+    assert_eq!(
+        store.list().unwrap()[0].dns_transport,
+        Some(ProxyDnsTransport::Auto)
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), old);
+    let renamed = store
+        .rename(imported.id, imported.edit_revision, "Renamed")
+        .unwrap();
+    assert_eq!(renamed.revision, imported.revision);
+    let saved: serde_json::Value = serde_json::from_slice(
+        &TestCipher
+            .open(imported.id, &std::fs::read(&path).unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(saved["version"], 5);
+    record["version"] = 5.into();
+    record["summary"]["dns_transport"] = "doh".into();
+    std::fs::write(
+        path,
+        TestCipher
+            .seal(imported.id, &serde_json::to_vec(&record).unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(store.list().is_err());
 }

@@ -165,8 +165,9 @@ Choose **HTTP** or **SOCKS5**, then **Add proxy**. Enter a name, server hostname
 or IPv4/IPv6 address and port (HTTP defaults to 8080, SOCKS5 to 1080). Enable
 username/password authentication when required. HTTP uses Basic authentication;
 SOCKS5 uses RFC 1929. The server field accepts an address, not a URL or embedded
-credentials. Optional DNS entries are numeric IP addresses, separated by spaces,
-commas or newlines. Blank DNS inherits the current network DNS at connection time.
+credentials. Expand **DNS** to choose its transport. Optional TCP DNS entries are
+numeric IP addresses, separated by spaces, commas or newlines. Blank entries use
+the automatic or inherited resolver policy described below.
 
 Save the configuration, enable chain proxy, select it and apply. Saving alone
 does not select or connect. Rename and credential changes retain the existing
@@ -221,7 +222,21 @@ app-exclusion rules remain outside that scope. This feature does not change
 network-interface address candidates that WebRTC or other browser APIs can expose to a page;
 it is not a guarantee that every browser-reported address is the proxy address.
 
-Remote DNS travels through the final proxy using TCP. Valid TUN and local SOCKS5
+HTTP/SOCKS5 defaults to encrypted DNS through the final proxy. In **Add proxy →
+DNS**, **Automatic (DoH by default)** uses Cloudflare DoH at
+`cloudflare-dns.com/dns-query` over verified TLS and HTTP/2. Fixed numeric
+bootstrap addresses also use the final exit. Custom chain DNS, non-default
+inherited DNS and an explicit local DNS choice retain TCP DNS. **Encrypted DNS ·
+Cloudflare** selects DoH explicitly; **DNS over TCP** retains numeric or inherited
+resolvers. Switching the form preserves the custom DNS draft; saving DoH excludes
+that list. DoH failure never switches to plaintext or another exit. Existing
+inherited defaults upgrade in memory; manually entering the exact built-in
+addresses is indistinguishable from inheriting them, so choose TCP explicitly to
+preserve that behavior. Other exits keep their own DNS settings. Older engines
+offer TCP only, without an encryption promise. The default DoH resolver also
+serves Android's synthetic VPN DNS address.
+
+Application-chosen resolver DNS travels through the final proxy using TCP. Valid TUN and local SOCKS5
 UDP/53 queries are converted to TCP DNS at the application's chosen resolver.
 The local SOCKS5 listener accepts DNS-only UDP associations even when HTTP, L4 or
 the final SOCKS5 server cannot carry ordinary UDP. Malformed DNS is not converted
@@ -230,7 +245,15 @@ cases. If the proxy refuses CONNECT to port 53, DNS fails explicitly. For local
 HTTP/SOCKS clients, **Resolve at the proxy server** sends target domain names to the final
 proxy; it cannot recover names from TUN IP packets. Explicit local/direct DNS
 policies and direct routes retain their existing semantics. No DoH or physical
-DNS fallback is added. If **Resolve at the proxy server** is selected and an
+DNS fallback replaces an application-chosen DNS server. Upstream UDP association
+is lazy; its refusal or timeout cannot block the independent DNS relay.
+Configured TCP DNS and DoH race at most two complete queries, starting the backup
+after 250 ms under one four-second deadline. TCP candidates get at most one
+second, and DoH candidates two seconds including TLS/HTTP setup. SERVFAIL and
+REFUSED try the backup; valid NXDOMAIN/NODATA are terminal. Session or network
+changes invalidate pooled connections and outstanding queries.
+
+If **Resolve at the proxy server** is selected and an
 exit or connection-mode change makes it unavailable, applying that change also
 switches proxy DNS to **Remote through tunnel**. Configured DNS addresses and
 other DNS choices are retained. Connections that still support server
@@ -238,8 +261,8 @@ resolution keep the selected method.
 
 选择 **HTTP** 或 **SOCKS5**，点击**添加代理**，填写名称、服务器域名或 IPv4/IPv6
 地址和端口；默认端口分别为 8080、1080。按需启用用户名／密码认证。地址栏不接受
-URL 或嵌入凭据。可选 DNS 填写数值 IP，以空格、逗号或换行分隔；留空表示连接时
-继承当前网络 DNS。保存后仍需启用链式代理、选用配置并应用。修改凭据在下次连接
+URL 或嵌入凭据。展开 **DNS** 可选择传输方式；可选的 TCP DNS 填写数值 IP，以空格、
+逗号或换行分隔，留空时按下述自动或继承策略解析。保存后仍需启用链式代理、选用配置并应用。修改凭据在下次连接
 生效；修改服务器、DNS 或认证模式时新增替代配置。
 
 使用本地 HTTP 代理的应用也可访问 IPv6 地址；CONNECT 目标及网址保留方括号，
@@ -268,12 +291,26 @@ VPN 防护从原生阻断成功安装开始，覆盖 HTTP/SOCKS 会话及其受�
 此功能不会修改浏览器通过 WebRTC 等接口向网页提供的网卡候选地址，因此不承诺
 浏览器报告的每个地址都等于代理出口地址。
 
-远程 DNS 经最终代理的 TCP 连接发送。TUN 和本地 SOCKS5 的有效 UDP/53 查询均转换
+HTTP/SOCKS5 默认通过最终代理出口使用加密 DNS。在**添加代理 → DNS** 中，
+**自动（默认 DoH）**通过固定引导 IP 连接 Cloudflare 的 `cloudflare-dns.com/dns-query`，
+校验 TLS 证书并使用 HTTP/2。链专属 DNS、非默认继承 DNS 和明确选择的本地 DNS
+保留 TCP DNS。**加密 DNS · Cloudflare**明确选择 DoH；**TCP DNS**保留数字地址或
+继承服务器。切换时保留自定义 DNS 草稿，保存 DoH 时不提交该列表。DoH 失败不改用
+明文 DNS 或其他出口。旧默认配置只在内存升级；手填与内置默认值完全相同的地址
+无法与继承区分，可明确选择 TCP 保留旧行为。其他出口和显式直连 DNS 策略保持自身
+设置；旧引擎仅提供 TCP，不显示加密承诺。
+
+默认 DoH 同时服务 Android VPN 的合成 DNS 地址。应用主动指定的 DNS 服务器仍经
+最终代理的 TCP 连接访问。TUN 和本地 SOCKS5 的有效 UDP/53 查询均转换
 为 TCP DNS，并保留应用指定的解析器。HTTP、L4 或最终 SOCKS5 服务器不支持普通
 UDP 时，本地 SOCKS5 仍接受仅供 DNS 的 UDP 关联；畸形 DNS 不会转换为 TCP 连接，
 普通代理 UDP 仍不可用。显式本地／直连 DNS 策略及直连规则保持原语义。代理不允许
 连接 DNS 端口时明确失败；本地 HTTP/SOCKS 客户端可选**由代理服务器解析**将域名交最终
-代理解析，TUN 不推测原始域名，也不会自动改用 DoH 或物理 DNS。
+代理解析，TUN 不推测原始域名，也不会替换应用指定的解析器。
+上游 UDP 关联延迟至普通 UDP 数据到来时建立，拒绝或超时不阻塞独立 DNS 中继。
+配置的 TCP DNS 和 DoH 最多并发两个完整查询，250 ms 后启动备用，共用 4 秒期限；
+TCP 单候选最多 1 秒，DoH 最多 2 秒并包含 TLS/HTTP 建连。SERVFAIL/REFUSED 尝试
+备用服务器，有效 NXDOMAIN/NODATA 为终态。网络或会话变化取消旧查询并清理连接池。
 若原来选择**由代理服务器解析**，且出口或连接模式变更后不再支持该方式，应用时会
 同时将代理 DNS 改为远程经隧道解析。已配置的 DNS 地址与其他已有解析方式保持不变；
 仍支持服务器解析的连接会保留原来的解析方式。
@@ -428,7 +465,7 @@ filtered out. With no usable DNS, the private tunnel and IP destinations remain
 available; the system VPN uses the in-app synthetic DNS service to return failure.
 It never leaves platform DNS unspecified to obtain physical fallback.
 
-Final-exit queries start with UDP and add an alternative after 250 ms. Configured
+VPN-protocol final-exit queries start with UDP and add an alternative after 250 ms. Configured
 servers receive their first UDP attempt before TCP alternatives; a single DNS
 server gets its TCP alternative after 250 ms. Servers and protocols share at most
 two concurrent attempts and one four-second question deadline. Each attempt has
@@ -579,9 +616,12 @@ for the workstation and isolated-runner boundaries.
 
 ## Imported record compatibility / 导入记录兼容
 
-Shared settings are schema 18 and store only configuration references, plus the
+Shared settings are schema 21 and store only configuration references, plus the
 optional **WARP via WireGuard** endpoint override (`ChainExitSettings` IPC fields
-5/6). HTTP/SOCKS5 records use version 4; VPN records are written as version 3, which records the exit source
+5/6). HTTP/SOCKS5 records use version 5, appending `dns_transport` (`auto`, `doh`, `tcp`);
+version 4 reads reconstruct only the appended metadata without rewriting credentials,
+IDs or revisions. Older clients reject v5. DNS-mode edits require a replacement
+proxy configuration; shared DNS policy edits reconnect the session. VPN records are written as version 3, which records the exit source
 explicitly, with a 192 KiB serialized plaintext limit and 256 KiB ciphertext
 limit. Versions 1 and 2 are read without changing IDs, revisions or saved
 selections; their source is recovered from the stored protocol, and a later edit
@@ -593,8 +633,11 @@ authentication mode before connecting. No automatic rewrite or batch deletion
 occurs. Windows selection commits and deletion hold the configuration transaction
 before the library lock, so concurrent operations cannot leave a dangling reference.
 
-共享设置为 schema 18，仅保存配置引用，以及 **WARP via WireGuard** 可选的端点
-覆盖（IPC `ChainExitSettings` 字段 5/6）。HTTP/SOCKS5 加密对象写入版本 4，VPN 对象仍写入版本 3，明确记录出口来源；
+共享设置为 schema 21，仅保存配置引用，以及 **WARP via WireGuard** 可选的端点
+覆盖（IPC `ChainExitSettings` 字段 5/6）。HTTP/SOCKS5 加密对象写入版本 5，新增 `dns_transport`（`auto`、`doh`、`tcp`）；
+读取版本 4 只补齐新元数据，不重写凭据、ID 或版本引用。旧客户端拒绝 v5。
+修改链 DNS 模式需添加替代配置，共享 DNS 策略变更会重建会话。VPN 对象仍写入
+版本 3，明确记录出口来源；
 序列化明文最多 192 KiB、密文最多 256 KiB。兼容读取版本 1 和 2，按保存的协议
 恢复来源，不改变 ID、版本引用或已保存选择；再次修改时改写为版本 3。
 历史较大记录可读取、删除，再次修改超限时保留原对象。旧版缺少认证方式的记录

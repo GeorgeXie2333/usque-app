@@ -119,6 +119,7 @@ class ChainProfileSummary {
     required this.port,
     this.addresses = const [],
     this.dns = const [],
+    this.dnsTransport = 'auto',
     this.allowedIps = const [],
     this.mtu,
     this.requiresAuth = false,
@@ -134,6 +135,7 @@ class ChainProfileSummary {
                : ChainSource.openvpnCustom);
   final String id, revision, editRevision, name, protocol, host;
   final String addressFamily;
+  final String dnsTransport;
   final int port;
   final List<String> addresses, dns, allowedIps;
   final int? mtu;
@@ -166,6 +168,7 @@ class ChainProfileSummary {
       port: endpoint['port'] as int,
       addresses: (map['addresses'] as List? ?? const []).cast<String>(),
       dns: (map['dns_servers'] as List? ?? const []).cast<String>(),
+      dnsTransport: map['dns_transport'] as String? ?? 'auto',
       allowedIps: (map['allowed_ips'] as List? ?? const []).cast<String>(),
       mtu: map['mtu'] as int?,
       candidates: (map['candidates'] as List? ?? const [])
@@ -225,6 +228,7 @@ class ChainExitStatus {
   const ChainExitStatus({
     this.tcpConnectVerified = false,
     this.proxyUdp,
+    this.finalDnsTransport,
     this.stage = 'disabled',
     this.generation = 0,
     this.currentProfile,
@@ -237,7 +241,7 @@ class ChainExitStatus {
     this.attemptFailures = const [],
   });
   final bool tcpConnectVerified;
-  final String? proxyUdp;
+  final String? proxyUdp, finalDnsTransport;
   final String stage;
   final int generation;
   final ChainProfileSummary? currentProfile;
@@ -250,6 +254,7 @@ class ChainExitStatus {
   factory ChainExitStatus.fromMap(Map<Object?, Object?> map) => ChainExitStatus(
     tcpConnectVerified: map['tcp_connect_verified'] == true,
     proxyUdp: map['proxy_udp'] as String?,
+    finalDnsTransport: map['final_dns_transport'] as String?,
     stage: map['stage'] as String? ?? 'disabled',
     generation: map['generation'] as int? ?? 0,
     currentProfile: map['current_profile'] is Map
@@ -271,6 +276,7 @@ class ChainExitStatus {
       other is ChainExitStatus &&
       tcpConnectVerified == other.tcpConnectVerified &&
       proxyUdp == other.proxyUdp &&
+      finalDnsTransport == other.finalDnsTransport &&
       stage == other.stage &&
       generation == other.generation &&
       currentProfile == other.currentProfile &&
@@ -285,6 +291,7 @@ class ChainExitStatus {
   int get hashCode => Object.hash(
     tcpConnectVerified,
     proxyUdp,
+    finalDnsTransport,
     stage,
     generation,
     currentProfile,

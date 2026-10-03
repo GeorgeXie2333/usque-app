@@ -68,6 +68,10 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.bypass_domains != next.bypass_domains
         || previous.geo_direct_countries != next.geo_direct_countries
         || previous.direct_dns != next.direct_dns
+        // Final proxy DNS is shared by TUN and local frontends for the session.
+        || previous.chain_enabled() && previous.chain_exit.as_ref().is_some_and(|chain| chain.source.is_proxy())
+            && (previous.proxy.dns_mode != next.proxy.dns_mode
+                || previous.proxy.dns_servers != next.proxy.dns_servers)
         // Automatic MASQUE sockets need leases owned by the new VPN operation.
         // A proxy runtime's no-op protector cannot supply those on hot attach.
         || !previous.frontends.tunnel
@@ -133,6 +137,42 @@ mod tests {
 
     fn base() -> Profile {
         Profile::default()
+    }
+
+    #[test]
+    fn final_proxy_dns_changes_reconnect_both_system_and_local_frontends() {
+        for source in [
+            crate::chain_exit::ChainSource::HttpProxy,
+            crate::chain_exit::ChainSource::Socks5Proxy,
+        ] {
+            let mut previous = base();
+            previous.chain_exit = Some(crate::chain_exit::ChainExitSettings {
+                enabled: true,
+                source,
+                profile_id: Some(uuid::Uuid::new_v4()),
+                revision: Some(uuid::Uuid::new_v4()),
+                ..Default::default()
+            });
+            let mut next = previous.clone();
+            next.proxy.dns_mode = crate::ProxyDnsMode::LocalConfigured;
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::ColdReconnect
+            );
+            next = previous.clone();
+            next.proxy.dns_servers = vec!["9.9.9.9".parse().unwrap()];
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::ColdReconnect
+            );
+        }
+        let previous = base();
+        let mut next = previous.clone();
+        next.proxy.dns_mode = crate::ProxyDnsMode::LocalConfigured;
+        assert_eq!(
+            classify_reconfigure(&previous, &next),
+            ReconfigureClass::HotFrontends
+        );
     }
 
     #[test]

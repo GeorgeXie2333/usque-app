@@ -193,6 +193,7 @@ impl Underlay {
             port: 1080,
             auth_mode: ProxyAuthMode::None,
             dns_servers: vec![],
+            dns_transport: Default::default(),
         });
         let parsed = usque_core::chain_exit::ValidatedProfile::parse(source, &secrets).unwrap();
         let summary = parsed

@@ -357,6 +357,7 @@ pub(crate) fn queue_kind(value: QueueKind) -> v1::QueueKind {
         QueueKind::TransportToTun => v1::QueueKind::TransportToTun,
         QueueKind::TransportToProxy => v1::QueueKind::TransportToProxy,
         QueueKind::DirectDnsRequests => v1::QueueKind::DirectDns,
+        QueueKind::FinalDnsRequests => v1::QueueKind::FinalDns,
     }
 }
 

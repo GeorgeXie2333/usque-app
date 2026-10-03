@@ -214,6 +214,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_transportToTun': 'Transportlaag → apparaat',
   'nq_transportToProxy': 'Transportlaag → proxy',
   'nq_directDns': 'Directe DNS-verzoeken',
+  'nq_finalDns': 'DNS-verzoeken via de laatste proxy',
   'nq_unknown_queue': 'Andere wachtrij',
   'nq_trends': 'Laatste 60 seconden',
   'nq_samples': 'metingen',
@@ -365,6 +366,12 @@ const Map<String, String> kNetworkSettingsNl = <String, String>{
 };
 
 const Map<String, String> kChainNl = <String, String>{
+  "dns_auto": "Automatisch (standaard DoH)",
+  "dns_doh": "Versleutelde DNS · Cloudflare",
+  "dns_tcp": "DNS via TCP",
+  "dns_auto_hint":
+      "Automatisch gebruikt DoH via deze uitgang; aangepaste DNS gebruikt TCP. Bij DoH-fouten wordt deze uitgang niet omzeild.",
+
   "add_proxy": "Proxy toevoegen",
   "proxy_hint":
       "Verbinding via WARP. HTTP ondersteunt TCP; SOCKS5 kan met H3/H2 ook UDP gebruiken.",

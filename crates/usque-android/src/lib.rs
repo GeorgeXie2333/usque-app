@@ -137,6 +137,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "chain_warp_wireguard": engine_ready() && cfg!(feature = "wireguard"),
             "chain_http_proxy": engine_ready(),
             "chain_socks5_proxy": engine_ready(),
+            "chain_proxy_encrypted_dns": engine_ready(),
             "custom_bypass": engine_ready(),
             "automatic_endpoints": engine_ready(),
             "chain_openvpn_multi_endpoint": engine_ready(),
@@ -2994,6 +2995,7 @@ fn native_queue_kind(value: QueueKind) -> &'static str {
         QueueKind::TransportToTun => "transportToTun",
         QueueKind::TransportToProxy => "transportToProxy",
         QueueKind::DirectDnsRequests => "directDns",
+        QueueKind::FinalDnsRequests => "finalDns",
     }
 }
 

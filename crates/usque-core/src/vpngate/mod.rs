@@ -142,6 +142,8 @@ pub struct GateStatus {
     pub tcp_connect_verified: bool,
     #[serde(default)]
     pub proxy_udp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_dns_transport: Option<String>,
     pub stage: GateStage,
     pub generation: u64,
     pub current_server: Option<ServerSummary>,

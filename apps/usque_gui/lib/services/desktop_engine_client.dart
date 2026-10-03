@@ -113,7 +113,8 @@ class DesktopEngineClient
           final nested = ControlPayloadWriter()
             ..string(1, proxy['host'] as String)
             ..unsigned(2, proxy['port'] as int)
-            ..string(3, proxy['auth_mode'] as String);
+            ..string(3, proxy['auth_mode'] as String)
+            ..string(5, proxy['dns_transport'] as String? ?? 'auto');
           for (final server in proxy['dns_servers'] as List? ?? const []) {
             nested.string(4, server as String);
           }

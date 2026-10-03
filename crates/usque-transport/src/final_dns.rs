@@ -52,6 +52,19 @@ where
     query_with_limit(servers, deadline, Duration::from_secs(1), query).await
 }
 
+/// DoH includes TLS and HTTP/2 setup in its per-candidate budget.
+pub(crate) async fn query_doh<S: Copy, T, F, Fut>(
+    servers: &[S],
+    deadline: Instant,
+    query: F,
+) -> Result<T, String>
+where
+    F: FnMut(S, Instant) -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    query_with_limit(servers, deadline, Duration::from_secs(2), query).await
+}
+
 async fn query_with_limit<S: Copy, T, F, Fut>(
     servers: &[S],
     deadline: Instant,

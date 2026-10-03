@@ -52,6 +52,15 @@ pub(crate) fn validate_response_bytes(query: &[u8], response: &[u8]) -> Result<(
     response_hints(response, &query).map(|_| ())
 }
 
+/// Failover applies to a configured resolver set, never an app-chosen target.
+pub(crate) fn validate_resolver_response(query: &[u8], response: &[u8]) -> Result<(), String> {
+    validate_response_bytes(query, response)?;
+    match u16::from_be_bytes([response[2], response[3]]) & 0x000f {
+        0 | 3 => Ok(()),
+        _ => Err("DNS resolver returned an error".into()),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QueryTransport {
     Udp,
@@ -215,6 +224,7 @@ pub(crate) struct SplitDnsResolver {
     tunnel_servers: Vec<SocketAddr>,
     final_exit: bool,
     final_tcp: Option<Arc<crate::dns_stream::StreamDns>>,
+    final_doh: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
     policy: Arc<GeoDirectPolicy>,
     protector: Arc<dyn SocketProtector>,
     hints: Arc<DnsRouteCache>,
@@ -239,6 +249,7 @@ impl SplitDnsResolver {
             assigned_ipv6: Ipv6Addr::UNSPECIFIED,
             final_exit: false,
             final_tcp: None,
+            final_doh: None,
             tunnel_servers: servers.iter().map(|ip| SocketAddr::new(*ip, 53)).collect(),
             policy,
             protector,
@@ -248,6 +259,14 @@ impl SplitDnsResolver {
             quality,
             direct_queue: None,
         }
+    }
+
+    pub(crate) fn with_doh(
+        mut self,
+        doh: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
+    ) -> Self {
+        self.final_doh = doh;
+        self
     }
 
     pub(crate) fn hints(&self) -> Arc<DnsRouteCache> {
@@ -394,6 +413,39 @@ impl SplitDnsResolver {
         query: &ParsedQuery,
         transport: QueryTransport,
     ) -> Result<Vec<u8>, String> {
+        if let Some(doh) = &self.final_doh {
+            let response = doh
+                .query(query_bytes, tokio::time::Instant::now() + DNS_TIMEOUT)
+                .await
+                .map_err(|error| error.to_string())?;
+            validate_resolver_response(query_bytes, &response)?;
+            return Ok(
+                if transport == QueryTransport::Udp && response.len() > MAX_UDP_MESSAGE {
+                    truncated_response(query_bytes)
+                } else {
+                    response.to_vec()
+                },
+            );
+        }
+        if self.stream_dns.is_some() {
+            return crate::final_dns::query(
+                &self.tunnel_servers,
+                tokio::time::Instant::now() + DNS_TIMEOUT,
+                |server, _| async move {
+                    let response = self
+                        .query_servers(query_bytes, query, QueryTransport::Tcp, &[server], false)
+                        .await?;
+                    Ok(
+                        if transport == QueryTransport::Udp && response.len() > MAX_UDP_MESSAGE {
+                            truncated_response(query_bytes)
+                        } else {
+                            response
+                        },
+                    )
+                },
+            )
+            .await;
+        }
         if self.final_exit {
             let deadline = tokio::time::Instant::now() + DNS_TIMEOUT;
             if transport == QueryTransport::Tcp {
@@ -487,7 +539,7 @@ impl SplitDnsResolver {
                     continue;
                 }
             }
-            if let Err(error) = response_hints(&response, query) {
+            if let Err(error) = validate_resolver_response(query_bytes, &response) {
                 failures.push(format!("{server}: {error}"));
                 continue;
             }
@@ -677,6 +729,7 @@ impl SplitDnsRuntime {
                 ))
             }),
             final_exit: config.final_exit,
+            final_doh: None,
             tunnel_servers: config
                 .tunnel_dns_servers
                 .into_iter()
@@ -1614,6 +1667,7 @@ pub(crate) mod tests {
             assigned_ipv6: Ipv6Addr::UNSPECIFIED,
             tunnel_servers: vec![SocketAddr::new(server_ip.into(), 53)],
             final_exit: true,
+            final_doh: None,
             final_tcp: Some(Arc::new(crate::dns_stream::StreamDns::over_stack(
                 client_channel.clone(),
                 client_ip,
@@ -1725,6 +1779,7 @@ pub(crate) mod tests {
             tunnel_servers: vec![],
             final_exit: true,
             final_tcp: None,
+            final_doh: None,
             policy: Arc::new(GeoDirectPolicy::disabled()),
             protector: Arc::new(crate::socket::NoopSocketProtector),
             hints: Arc::new(DnsRouteCache::default()),
@@ -1761,6 +1816,7 @@ pub(crate) mod tests {
             tunnel_servers: vec![],
             final_exit: true,
             final_tcp: None,
+            final_doh: None,
             policy: Arc::new(GeoDirectPolicy::disabled()),
             protector: Arc::new(crate::socket::NoopSocketProtector),
             hints: Arc::new(DnsRouteCache::default()),
@@ -1815,6 +1871,7 @@ pub(crate) mod tests {
             tunnel_servers: Vec::new(),
             final_exit: false,
             final_tcp: None,
+            final_doh: None,
             policy: Arc::new(policy()),
             protector,
             hints: Arc::new(DnsRouteCache::default()),

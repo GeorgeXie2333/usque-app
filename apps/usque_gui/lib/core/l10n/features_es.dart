@@ -211,6 +211,7 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
   'nq_transportToTun': 'Transporte → dispositivo',
   'nq_transportToProxy': 'Transporte → proxy',
   'nq_directDns': 'Solicitudes DNS directas',
+  'nq_finalDns': 'Consultas DNS por el proxy final',
   'nq_unknown_queue': 'Otra cola',
   'nq_trends': 'Últimos 60 segundos',
   'nq_samples': 'muestras',
@@ -362,6 +363,12 @@ const Map<String, String> kNetworkSettingsEs = <String, String>{
 };
 
 const Map<String, String> kChainEs = <String, String>{
+  "dns_auto": "Automático (DoH por defecto)",
+  "dns_doh": "DNS cifrado · Cloudflare",
+  "dns_tcp": "DNS por TCP",
+  "dns_auto_hint":
+      "El modo automático usa DoH por esta salida; el DNS personalizado usa TCP. Los fallos de DoH no omiten esta salida.",
+
   "add_proxy": "Añadir proxy",
   "proxy_hint":
       "Conexión mediante WARP. HTTP transporta TCP; SOCKS5 también puede transportar UDP con H3/H2.",

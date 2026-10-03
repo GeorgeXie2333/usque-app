@@ -20,6 +20,7 @@ pub enum QueueKind {
     TransportToTun,
     TransportToProxy,
     DirectDnsRequests,
+    FinalDnsRequests,
 }
 
 impl QueueKind {
@@ -33,11 +34,12 @@ impl QueueKind {
             Self::TransportToTun => "transport_to_tun",
             Self::TransportToProxy => "transport_to_proxy",
             Self::DirectDnsRequests => "direct_dns",
+            Self::FinalDnsRequests => "final_dns",
         }
     }
 }
 
-pub const ALL_QUEUE_KINDS: [QueueKind; 8] = [
+pub const ALL_QUEUE_KINDS: [QueueKind; 9] = [
     QueueKind::TunToTransport,
     QueueKind::ProxyToTransport,
     QueueKind::TransportOutgoingPackets,
@@ -46,6 +48,7 @@ pub const ALL_QUEUE_KINDS: [QueueKind; 8] = [
     QueueKind::TransportToTun,
     QueueKind::TransportToProxy,
     QueueKind::DirectDnsRequests,
+    QueueKind::FinalDnsRequests,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]

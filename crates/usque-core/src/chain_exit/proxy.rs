@@ -9,6 +9,16 @@ pub enum ProxyAuthMode {
     UsernamePassword,
 }
 
+/// DNS carried by the final proxy stream, independently of UDP availability.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyDnsTransport {
+    #[default]
+    Auto,
+    Doh,
+    Tcp,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProxyExitConfiguration {
@@ -18,6 +28,8 @@ pub struct ProxyExitConfiguration {
     pub auth_mode: ProxyAuthMode,
     #[serde(default)]
     pub dns_servers: Vec<IpAddr>,
+    #[serde(default)]
+    pub dns_transport: ProxyDnsTransport,
 }
 
 #[derive(Clone)]
@@ -26,6 +38,7 @@ pub struct ProxyProfile {
     pub endpoint: Endpoint,
     pub auth_mode: ProxyAuthMode,
     pub dns_servers: Vec<IpAddr>,
+    pub dns_transport: ProxyDnsTransport,
 }
 
 pub(super) fn parse(
@@ -47,6 +60,9 @@ pub(super) fn parse(
     {
         return Err(ImportError::new(0, "dns_servers", "invalid_dns"));
     }
+    if config.dns_transport == ProxyDnsTransport::Doh && !config.dns_servers.is_empty() {
+        return Err(ImportError::new(0, "dns_transport", "invalid_dns"));
+    }
     validate_credentials(source, config.auth_mode, secrets, false)?;
     Ok(ProxyProfile {
         protocol: if source == ChainSource::HttpProxy {
@@ -57,6 +73,7 @@ pub(super) fn parse(
         endpoint,
         auth_mode: config.auth_mode,
         dns_servers: config.dns_servers.clone(),
+        dns_transport: config.dns_transport,
     })
 }
 
@@ -87,4 +104,25 @@ pub(super) fn validate_credentials(
         return Err(ImportError::new(0, "credentials", "invalid_credential"));
     }
     Ok(())
+}
+
+impl ProxyProfile {
+    pub fn uses_doh(&self, profile: &crate::Profile) -> bool {
+        match self.dns_transport {
+            ProxyDnsTransport::Doh => true,
+            ProxyDnsTransport::Tcp => false,
+            ProxyDnsTransport::Auto => {
+                self.dns_servers.is_empty()
+                    && matches!(
+                        profile.proxy.dns_mode,
+                        crate::ProxyDnsMode::Remote | crate::ProxyDnsMode::EdgeResolved
+                    )
+                    && profile.dns_servers
+                        == [
+                            IpAddr::V4(crate::config::DEFAULT_DNS_V4),
+                            IpAddr::V6(crate::config::DEFAULT_DNS_V6),
+                        ]
+            }
+        }
+    }
 }

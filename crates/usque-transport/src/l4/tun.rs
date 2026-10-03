@@ -216,13 +216,16 @@ impl TunBridge {
             .set_ips([IpAddr::V4(SPLIT_DNS_IPV4), IpAddr::V6(SPLIT_DNS_IPV6)])
             .await
             .map_err(|_| TransportError::Netstack("L4 TUN addresses unavailable".to_owned()))?;
-        let resolver = Arc::new(SplitDnsResolver::for_l4(
-            dns.clone(),
-            &profile.dns_servers,
-            services.geo_policy.clone(),
-            services.protector.clone(),
-            quality,
-        ));
+        let resolver = Arc::new(
+            SplitDnsResolver::for_l4(
+                dns.clone(),
+                services.resolver.servers(),
+                services.geo_policy.clone(),
+                services.protector.clone(),
+                quality,
+            )
+            .with_doh(services.resolver.final_doh()),
+        );
         let flows = Arc::new(Mutex::new(Flows::default()));
         let (outgoing, mut packets) = mpsc::channel::<QueuedPacket>(PACKETS);
         let outgoing = MeasuredSender::new(outgoing, metrics.performance.tun_ingress.clone());

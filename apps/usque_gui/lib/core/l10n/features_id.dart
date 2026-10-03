@@ -203,6 +203,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_transportToTun': 'Transport → perangkat',
   'nq_transportToProxy': 'Transport → proksi',
   'nq_directDns': 'Permintaan DNS langsung',
+  'nq_finalDns': 'Permintaan DNS melalui proksi akhir',
   'nq_unknown_queue': 'Antrean lain',
   'nq_trends': '60 detik terakhir',
   'nq_samples': 'sampel',
@@ -342,6 +343,12 @@ const Map<String, String> kNetworkSettingsId = <String, String>{
 };
 
 const Map<String, String> kChainId = <String, String>{
+  "dns_auto": "Otomatis (DoH secara bawaan)",
+  "dns_doh": "DNS terenkripsi · Cloudflare",
+  "dns_tcp": "DNS melalui TCP",
+  "dns_auto_hint":
+      "Mode otomatis memakai DoH melalui keluaran ini; DNS khusus memakai TCP. Kegagalan DoH tidak melewati keluaran ini.",
+
   "add_proxy": "Tambah proksi",
   "proxy_hint":
       "Terhubung melalui WARP. HTTP membawa TCP; SOCKS5 juga dapat membawa UDP dengan H3/H2.",

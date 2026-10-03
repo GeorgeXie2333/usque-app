@@ -137,6 +137,7 @@ impl AdmissionFixture {
                     .unwrap(),
                 auth_mode: ProxyAuthMode::None,
                 dns_servers: vec![],
+                dns_transport: Default::default(),
             },
             credentials: Box::default(),
             cancellation,
@@ -449,6 +450,7 @@ async fn proxy_tcp_and_udp_use_underlay_and_release_cancelled_associations() {
         port: 1080,
         auth_mode: ProxyAuthMode::None,
         dns_servers: vec![],
+        dns_transport: Default::default(),
     });
     let parsed = usque_core::chain_exit::ValidatedProfile::parse(
         usque_core::chain_exit::ChainSource::Socks5Proxy,

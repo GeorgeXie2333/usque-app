@@ -97,6 +97,7 @@ impl ControlService {
                             "host": p.host, "port": p.port,
                             "auth_mode": if p.auth_mode.is_empty() { "none" } else { &p.auth_mode },
                             "dns_servers": p.dns_servers,
+                            "dns_transport": if p.dns_transport.is_empty() { "auto" } else { &p.dns_transport },
                         })).map_err(|_| ControlServiceError::InvalidRequest("Invalid proxy configuration".into()))
                     }).transpose()?,
                     configuration: String::from_utf8(request.configuration).map_err(|_| {

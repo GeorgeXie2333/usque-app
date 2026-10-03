@@ -33,11 +33,28 @@ pub(crate) struct Resolver {
     servers: Vec<IpAddr>,
     mode: ProxyDnsMode,
     final_exit: bool,
+    final_doh: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
     final_tcp: Option<Arc<crate::dns_stream::StreamDns>>,
     protector: Arc<dyn SocketProtector>,
 }
 
 impl Resolver {
+    pub(crate) fn with_doh(
+        mut self,
+        doh: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
+    ) -> Self {
+        if doh.is_some() && self.mode != ProxyDnsMode::EdgeResolved {
+            self.mode = ProxyDnsMode::Remote;
+        }
+        self.final_doh = doh;
+        self
+    }
+    pub(crate) fn final_doh(&self) -> Option<Arc<crate::encrypted_dns::FinalDohResolver>> {
+        self.final_doh.clone()
+    }
+    pub(crate) fn servers(&self) -> &[IpAddr] {
+        &self.servers
+    }
     pub(crate) fn stream_dns(&self) -> Option<Arc<crate::dns_stream::StreamDns>> {
         self.stream_dns.clone()
     }
@@ -73,6 +90,7 @@ impl Resolver {
             servers,
             mode,
             final_exit: false,
+            final_doh: None,
             final_tcp: None,
             protector,
         }
@@ -94,6 +112,7 @@ impl Resolver {
             servers,
             mode,
             final_exit: false,
+            final_doh: None,
             final_tcp: None,
             protector,
         }
@@ -156,7 +175,9 @@ impl Resolver {
                         future: bounded_query(
                             async move {
                                 let query_type = if ipv4 { TYPE_A } else { TYPE_AAAA };
-                                if resolver.mode == ProxyDnsMode::Remote {
+                                if resolver.mode == ProxyDnsMode::Remote
+                                    || resolver.final_doh.is_some()
+                                {
                                     resolver
                                         .query_through_tunnel(&name, query_type, deadline)
                                         .await
@@ -209,6 +230,13 @@ impl Resolver {
     ) -> Result<Vec<IpAddr>, TransportError> {
         let transaction_id = NEXT_DNS_ID.fetch_add(1, Ordering::Relaxed);
         let query = encode_query(transaction_id, name, query_type)?;
+        if let Some(doh) = &self.final_doh {
+            let response = doh
+                .query(&query, deadline)
+                .await
+                .map_err(|error| TransportError::Dns(error.to_string()))?;
+            return decode_query_response(&query, &response, query_type);
+        }
         let query_server = |server, transport, deadline| {
             let query = &query;
             async move {
@@ -217,6 +245,7 @@ impl Resolver {
                     let dns = self
                         .final_tcp
                         .as_ref()
+                        .or(self.stream_dns.as_ref())
                         .ok_or_else(|| TransportError::Dns("TCP DNS unavailable".into()))?;
                     let response = dns
                         .query(remote, query, deadline)
@@ -278,7 +307,14 @@ impl Resolver {
                 decode_query_response(query, &response, query_type)
             }
         };
-        if self.final_exit {
+        if self.stream_dns.is_some() {
+            crate::final_dns::query(&self.servers, deadline, |server, deadline| {
+                let future = query_server(server, crate::final_dns::Transport::Tcp, deadline);
+                async move { future.await.map_err(|error| error.to_string()) }
+            })
+            .await
+            .map_err(TransportError::Dns)
+        } else if self.final_exit {
             crate::final_dns::query_auto(&self.servers, deadline, |server, transport, deadline| {
                 let future = query_server(server, transport, deadline);
                 async move { future.await.map_err(|error| error.to_string()) }

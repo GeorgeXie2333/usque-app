@@ -1668,6 +1668,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
       chainWarpWireguard = false,
       chainHttpProxy = false,
       chainSocks5Proxy = false,
+      chainProxyEncryptedDns = false,
       chainOpenvpnMultiEndpoint = false;
   var customBypass = false;
   var automaticEndpoints = false;
@@ -1706,6 +1707,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         customBypass = reader.varint(field) != 0;
       case 42:
         automaticEndpoints = reader.varint(field) != 0;
+      case 43:
+        chainProxyEncryptedDns = reader.varint(field) != 0;
       case 40:
         chainSocks5Proxy = reader.varint(field) != 0;
       case 38:
@@ -1757,6 +1760,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     chainWarpWireguard: chainWarpWireguard,
     chainHttpProxy: chainHttpProxy,
     chainSocks5Proxy: chainSocks5Proxy,
+    chainProxyEncryptedDns: chainProxyEncryptedDns,
     customBypass: customBypass,
     automaticEndpoints: automaticEndpoints,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
@@ -2414,6 +2418,7 @@ NetworkQueueKind _decodeNetworkQueueKind(int value) => switch (value) {
   6 => NetworkQueueKind.transportToTun,
   7 => NetworkQueueKind.transportToProxy,
   8 => NetworkQueueKind.directDns,
+  9 => NetworkQueueKind.finalDns,
   _ => NetworkQueueKind.unknown,
 };
 

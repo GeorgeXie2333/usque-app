@@ -192,6 +192,7 @@ const kNetworkQualityFa = <String, String>{
   'nq_transportToTun': 'انتقال → دستگاه',
   'nq_transportToProxy': 'انتقال → پروکسی',
   'nq_directDns': 'درخواست‌های DNS مستقیم',
+  'nq_finalDns': 'درخواست‌های DNS از پراکسی نهایی',
   'nq_unknown_queue': 'صف دیگر',
   'nq_trends': '۶۰ ثانیهٔ اخیر',
   'nq_samples': 'نمونه',
@@ -331,6 +332,12 @@ const Map<String, String> kNetworkSettingsFa = <String, String>{
 };
 
 const Map<String, String> kChainFa = <String, String>{
+  "dns_auto": "خودکار (پیش‌فرض DoH)",
+  "dns_doh": "DNS رمزگذاری‌شده · Cloudflare",
+  "dns_tcp": "DNS روی TCP",
+  "dns_auto_hint":
+      "حالت خودکار از DoH از طریق این خروجی استفاده می‌کند؛ DNS سفارشی از TCP استفاده می‌کند. خطای DoH باعث دور زدن خروجی نمی‌شود.",
+
   "add_proxy": "افزودن پراکسی",
   "proxy_hint":
       "اتصال از طریق WARP. پروتکل HTTP از TCP و SOCKS5 با H3/H2 از UDP نیز پشتیبانی می‌کند.",

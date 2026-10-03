@@ -235,6 +235,7 @@ message ProxyExitConfiguration {
   uint32 port = 2;
   string auth_mode = 3;
   repeated string dns_servers = 4;
+  string dns_transport = 5;
 }
 
 // Metadata-only JSON shared with the Android JNI and Flutter model boundary.
@@ -463,6 +464,7 @@ message Capabilities {
   bool chain_socks5_proxy = 40;
   bool custom_bypass = 41;
   bool automatic_endpoints = 42;
+  bool chain_proxy_encrypted_dns = 43;
 }
 
 message FrontendStatus {
@@ -897,6 +899,7 @@ enum QueueKind {
   QUEUE_KIND_TRANSPORT_TO_TUN = 6;
   QUEUE_KIND_TRANSPORT_TO_PROXY = 7;
   QUEUE_KIND_DIRECT_DNS = 8;
+  QUEUE_KIND_FINAL_DNS = 9;
 }
 
 message QueueQuality {

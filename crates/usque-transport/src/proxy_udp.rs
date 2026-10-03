@@ -25,6 +25,9 @@ pub(crate) trait UdpAssociation: Send + Sync {
     fn accounts_traffic(&self) -> bool {
         true
     }
+    async fn prepare(&self) -> Result<(), DialError> {
+        Ok(())
+    }
     async fn send(&self, target: &TcpTarget, payload: &[u8]) -> Result<(), DialError>;
     async fn recv(&self) -> Result<(TcpTarget, Bytes), DialError>;
 }
@@ -47,6 +50,81 @@ impl UdpFactory for DirectOnly {
         _deadline: Instant,
     ) -> Result<Arc<dyn UdpAssociation>, DialError> {
         Ok(Arc::new(Self))
+    }
+}
+
+/// DNS-only associations never await an upstream UDP handshake. Only a send
+/// initializes this bounded, shared attempt; the receiver waits for its result.
+pub(crate) struct LazyAssociation {
+    factory: Arc<dyn UdpFactory>,
+    cancel: CancellationToken,
+    opened: tokio::sync::OnceCell<Result<Arc<dyn UdpAssociation>, DialError>>,
+    changed: tokio::sync::Notify,
+}
+impl LazyAssociation {
+    pub(crate) fn new(factory: Arc<dyn UdpFactory>, cancel: CancellationToken) -> Self {
+        Self {
+            factory,
+            cancel,
+            opened: tokio::sync::OnceCell::new(),
+            changed: tokio::sync::Notify::new(),
+        }
+    }
+}
+#[async_trait]
+impl UdpAssociation for LazyAssociation {
+    fn accounts_traffic(&self) -> bool {
+        self.opened
+            .get()
+            .and_then(|result| result.as_ref().ok())
+            .is_none_or(|association| association.accounts_traffic())
+    }
+    async fn prepare(&self) -> Result<(), DialError> {
+        let result = self
+            .opened
+            .get_or_init(|| {
+                self.factory.open(
+                    &self.cancel,
+                    Instant::now() + std::time::Duration::from_secs(10),
+                )
+            })
+            .await;
+        self.changed.notify_waiters();
+        match result {
+            Ok(_) => Ok(()),
+            Err(error) => Err(*error),
+        }
+    }
+    async fn send(&self, target: &TcpTarget, payload: &[u8]) -> Result<(), DialError> {
+        self.prepare().await?;
+        self.opened
+            .get()
+            .expect("prepared association")
+            .as_ref()
+            .map_err(|error| *error)?
+            .send(target, payload)
+            .await
+    }
+    async fn recv(&self) -> Result<(TcpTarget, Bytes), DialError> {
+        loop {
+            let notified = self.changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if let Some(result) = self.opened.get() {
+                match result {
+                    Ok(association) => return association.recv().await,
+                    // These disable ordinary UDP while DNS remains usable.
+                    Err(
+                        error @ (DialError::Protocol
+                        | DialError::Rejected(401 | 403 | 407)
+                        | DialError::Cancelled),
+                    ) => return Err(*error),
+                    Err(_) => self.cancel.cancelled().await,
+                }
+                return Err(DialError::Cancelled);
+            }
+            tokio::select! { _ = self.cancel.cancelled() => return Err(DialError::Cancelled), _ = notified => {} }
+        }
     }
 }
 

@@ -200,7 +200,36 @@ impl L4Runtime {
                 }
             }
         }));
-        let servers = dns_servers(profile);
+        let servers = client
+            .proxy
+            .as_ref()
+            .filter(|proxy| !proxy.config.dns_servers.is_empty())
+            .map(|proxy| proxy.config.dns_servers.clone())
+            .unwrap_or_else(|| dns_servers(profile));
+        let doh = client
+            .proxy
+            .as_ref()
+            .filter(|proxy| proxy.config.uses_doh(profile))
+            .map(|_| {
+                crate::encrypted_dns::FinalDohResolver::new(
+                    dialer.clone(),
+                    protector.clone(),
+                    quality.clone(),
+                    &cancellation,
+                    client.budget.clone(),
+                )
+            })
+            .transpose()
+            .map_err(|error| TransportError::Dns(error.to_string()))?;
+        if let Some(proxy) = &client.proxy {
+            proxy.status.send_modify(|status| {
+                status.final_dns_transport = Some(if doh.is_some() { "doh" } else { "tcp" }.into())
+            });
+            tracing::info!(
+                dns_transport = if doh.is_some() { "doh" } else { "tcp" },
+                "Final proxy DNS configured"
+            );
+        }
         let services = ProxyServices {
             traffic_policy: Arc::new(crate::application_traffic::ApplicationTrafficPolicy::new(
                 profile.disable_quic || client.proxy.is_some(),
@@ -235,7 +264,8 @@ impl L4Runtime {
                 servers,
                 profile.proxy.dns_mode,
                 protector.clone(),
-            ),
+            )
+            .with_doh(doh),
             protector,
             geo_policy,
             counters: counters.clone(),
@@ -392,10 +422,16 @@ impl L4Runtime {
         let mut services = self.services.clone();
         services.resolver = Resolver::for_streams(
             self.dns.clone(),
-            dns_servers(profile),
+            self.client
+                .proxy
+                .as_ref()
+                .filter(|proxy| !proxy.config.dns_servers.is_empty())
+                .map(|proxy| proxy.config.dns_servers.clone())
+                .unwrap_or_else(|| dns_servers(profile)),
             profile.proxy.dns_mode,
             services.protector.clone(),
-        );
+        )
+        .with_doh(self.services.resolver.final_doh());
         services
     }
 

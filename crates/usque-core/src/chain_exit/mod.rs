@@ -12,7 +12,7 @@ use std::net::{IpAddr, SocketAddr};
 use uuid::Uuid;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-pub use proxy::{ProxyAuthMode, ProxyExitConfiguration, ProxyProfile};
+pub use proxy::{ProxyAuthMode, ProxyDnsTransport, ProxyExitConfiguration, ProxyProfile};
 pub use wireguard::WireGuardProfile;
 pub const MAX_CONFIG_BYTES: usize = 128 * 1024;
 pub const MAX_IMPORTED_PROFILES: usize = 128;
@@ -238,6 +238,8 @@ pub struct ChainProfileSummary {
     pub address_family: String,
     pub addresses: Vec<String>,
     pub dns_servers: Vec<IpAddr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns_transport: Option<ProxyDnsTransport>,
     pub allowed_ips: Vec<String>,
     pub mtu: Option<u16>,
     pub requires_auth: bool,
@@ -377,6 +379,7 @@ impl ValidatedProfile {
             address_family: "IPv4/IPv6".into(),
             addresses: vec![],
             dns_servers: vec![],
+            dns_transport: None,
             allowed_ips: vec![],
             mtu: None,
             requires_auth: false,
@@ -390,6 +393,7 @@ impl ValidatedProfile {
                 result.source = p.protocol.source();
                 result.endpoint = p.endpoint.clone();
                 result.dns_servers = p.dns_servers.clone();
+                result.dns_transport = Some(p.dns_transport);
                 result.requires_auth = p.auth_mode == ProxyAuthMode::UsernamePassword;
             }
             Self::OpenVpn(p) => {

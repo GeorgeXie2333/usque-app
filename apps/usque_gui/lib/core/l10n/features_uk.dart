@@ -208,6 +208,7 @@ const kNetworkQualityUk = <String, String>{
   'nq_transportToTun': 'Транспорт → пристрій',
   'nq_transportToProxy': 'Транспорт → проксі',
   'nq_directDns': 'Запити DNS прямого доступу',
+  'nq_finalDns': 'Запити DNS через кінцевий проксі',
   'nq_unknown_queue': 'Інша черга',
   'nq_trends': 'Минулі 60 секунд',
   'nq_samples': 'зразків',
@@ -357,6 +358,12 @@ const Map<String, String> kNetworkSettingsUk = <String, String>{
 };
 
 const Map<String, String> kChainUk = <String, String>{
+  "dns_auto": "Автоматично (типово DoH)",
+  "dns_doh": "Зашифрований DNS · Cloudflare",
+  "dns_tcp": "DNS через TCP",
+  "dns_auto_hint":
+      "Автоматичний режим використовує DoH через цей вихід; власний DNS використовує TCP. Збій DoH не спричиняє обхід виходу.",
+
   "add_proxy": "Додати проксі",
   "proxy_hint":
       "З’єднання через WARP. HTTP передає TCP; SOCKS5 також підтримує UDP з H3/H2.",

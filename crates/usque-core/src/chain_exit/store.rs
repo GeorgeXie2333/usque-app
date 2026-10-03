@@ -113,8 +113,8 @@ impl<'a> ChainProfileStore<'a> {
             return Err(storage_error());
         }
         let mut record: Record = serde_json::from_slice(&plaintext).map_err(|_| storage_error())?;
-        if !matches!(record.version, 1..=4)
-            || record.summary.source.is_proxy() && record.version != 4
+        if !matches!(record.version, 1..=5)
+            || record.summary.source.is_proxy() && !matches!(record.version, 4 | 5)
             || record.summary.id != id
             || record.version >= 2 && plaintext.len() > MAX_RECORD_PLAINTEXT_BYTES
         {
@@ -159,6 +159,16 @@ impl<'a> ChainProfileStore<'a> {
                     .clone_from(&expected.endpoint.host);
             }
             record.summary.candidates = expected.candidates.clone();
+        }
+        if record.version == 4 && record.summary.source.is_proxy() {
+            // Only the appended metadata is reconstructed; all existing fields
+            // still must exactly match the authenticated configuration.
+            if record.summary.dns_transport.is_some()
+                || expected.dns_transport != Some(super::ProxyDnsTransport::Auto)
+            {
+                return Err(storage_error());
+            }
+            record.summary.dns_transport = expected.dns_transport;
         }
         if expected != record.summary {
             return Err(storage_error());
@@ -223,7 +233,7 @@ impl<'a> ChainProfileStore<'a> {
             return Err(ImportError::new(0, "profiles", "profile_limit"));
         }
         self.write(&Record {
-            version: if source.is_proxy() { 4 } else { 3 },
+            version: if source.is_proxy() { 5 } else { 3 },
             summary: summary.clone(),
             secrets,
         })?;
@@ -242,7 +252,7 @@ impl<'a> ChainProfileStore<'a> {
         expected.source = record.summary.source;
         if record.version
             != if record.summary.source.is_proxy() {
-                4
+                5
             } else {
                 3
             }
@@ -322,7 +332,7 @@ impl<'a> ChainProfileStore<'a> {
         record.summary.source = source;
         record.summary.edit_revision = Uuid::new_v4();
         record.version = if record.summary.source.is_proxy() {
-            4
+            5
         } else {
             3
         };
@@ -369,7 +379,7 @@ impl<'a> ChainProfileStore<'a> {
         }
         record.summary.edit_revision = Uuid::new_v4();
         record.version = if record.summary.source.is_proxy() {
-            4
+            5
         } else {
             3
         };

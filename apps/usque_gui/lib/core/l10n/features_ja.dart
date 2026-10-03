@@ -178,6 +178,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_transportToTun': 'トランスポート → 端末',
   'nq_transportToProxy': 'トランスポート → プロキシ',
   'nq_directDns': '直接 DNS リクエスト',
+  'nq_finalDns': '最終プロキシ経由の DNS 問い合わせ',
   'nq_unknown_queue': 'その他のキュー',
   'nq_trends': '直近 60 秒',
   'nq_samples': 'サンプル',
@@ -307,6 +308,12 @@ const Map<String, String> kNetworkSettingsJa = <String, String>{
 };
 
 const Map<String, String> kChainJa = <String, String>{
+  "dns_auto": "自動（既定は DoH）",
+  "dns_doh": "暗号化 DNS · Cloudflare",
+  "dns_tcp": "TCP DNS",
+  "dns_auto_hint":
+      "自動ではこの出口経由で DoH を使い、カスタム DNS は TCP を使います。DoH が失敗しても出口を迂回しません。",
+
   "add_proxy": "プロキシを追加",
   "proxy_hint": "WARP 経由で接続します。HTTP は TCP、SOCKS5 は H3/H2 で UDP にも対応します。",
   "dns_inherit": "空欄の場合はネットワーク DNS を継承し、この出口経由で問い合わせます。",

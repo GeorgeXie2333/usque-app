@@ -189,6 +189,7 @@ const kNetworkQualityAr = <String, String>{
   'nq_transportToTun': 'النقل → الجهاز',
   'nq_transportToProxy': 'النقل → الوكيل',
   'nq_directDns': 'طلبات DNS المباشرة',
+  'nq_finalDns': 'طلبات DNS عبر الوكيل النهائي',
   'nq_unknown_queue': 'قائمة أخرى',
   'nq_trends': 'آخر 60 ثانية',
   'nq_samples': 'عيّنة',
@@ -325,6 +326,12 @@ const Map<String, String> kNetworkSettingsAr = <String, String>{
 };
 
 const Map<String, String> kChainAr = <String, String>{
+  "dns_auto": "تلقائي (DoH افتراضيًا)",
+  "dns_doh": "DNS مشفّر · Cloudflare",
+  "dns_tcp": "DNS عبر TCP",
+  "dns_auto_hint":
+      "يستخدم الوضع التلقائي DoH عبر هذا المخرج؛ ويستخدم DNS المخصص TCP. لا يتم تجاوز المخرج عند فشل DoH.",
+
   "add_proxy": "إضافة وكيل",
   "proxy_hint":
       "الاتصال عبر WARP. ينقل HTTP حركة TCP؛ ويمكن لـ SOCKS5 نقل UDP أيضًا مع H3/H2.",

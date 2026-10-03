@@ -19,6 +19,9 @@ class _ProxyDialogState extends State<_ProxyDialog> {
   );
   bool _auth = false, _showPassword = false, _busy = false;
   String? _error;
+  bool get _canEncrypt =>
+      widget.controller.engineCapabilities?.chainProxyEncryptedDns ?? false;
+  late String _dnsTransport = _canEncrypt ? 'auto' : 'tcp';
 
   @override
   void dispose() {
@@ -52,7 +55,8 @@ class _ProxyDialogState extends State<_ProxyDialog> {
           'host': _host.text.trim(),
           'port': port,
           'auth_mode': _auth ? 'username_password' : 'none',
-          'dns_servers': _dns.text
+          'dns_transport': _dnsTransport,
+          'dns_servers': (_dnsTransport == 'doh' ? '' : _dns.text)
               .split(RegExp(r'[\s,]+'))
               .where((v) => v.isNotEmpty)
               .toList(),
@@ -152,18 +156,41 @@ class _ProxyDialogState extends State<_ProxyDialog> {
             ExpansionTile(
               title: Text(s.chain('dns')),
               children: [
-                Text(s.chain('dns_inherit')),
-                TextField(
-                  key: const ValueKey('chain-proxy-dns'),
-                  controller: _dns,
-                  enabled: !_busy,
-                  maxLines: 3,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: const InputDecoration(
-                    hintText: '1.1.1.1\n2606:4700:4700::1111',
+                DropdownButtonFormField<String>(
+                  key: const ValueKey('chain-proxy-dns-transport'),
+                  initialValue: _dnsTransport,
+                  isExpanded: true,
+                  items: [
+                    for (final mode in [
+                      if (_canEncrypt) ...['auto', 'doh'],
+                      'tcp',
+                    ])
+                      DropdownMenuItem(
+                        value: mode,
+                        child: Text(s.chain('dns_$mode')),
+                      ),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (value) => setState(() => _dnsTransport = value!),
+                ),
+                Text(
+                  s.chain(
+                    _dnsTransport == 'tcp' ? 'dns_inherit' : 'dns_auto_hint',
                   ),
                 ),
+                if (_dnsTransport != 'doh')
+                  TextField(
+                    key: const ValueKey('chain-proxy-dns'),
+                    controller: _dns,
+                    enabled: !_busy,
+                    maxLines: 3,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(
+                      hintText: '1.1.1.1\n2606:4700:4700::1111',
+                    ),
+                  ),
               ],
             ),
             if (_error != null)

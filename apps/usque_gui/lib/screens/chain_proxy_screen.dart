@@ -968,7 +968,17 @@ class _ProfileDetails extends StatelessWidget {
             label: s.chain('dns'),
             stackWhenNarrow: true,
             value: Text(
-              s.chain(profile.source.isProxy ? 'dns_inherit' : 'dns_fallback'),
+              s.chain(
+                profile.source.isProxy
+                    ? (profile.dnsTransport == 'tcp' ||
+                              !(controller
+                                      .engineCapabilities
+                                      ?.chainProxyEncryptedDns ??
+                                  false)
+                          ? 'dns_inherit'
+                          : 'dns_${profile.dnsTransport}')
+                    : 'dns_fallback',
+              ),
               textAlign: TextAlign.end,
               style: theme.textTheme.bodyMedium,
             ),

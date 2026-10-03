@@ -1229,6 +1229,7 @@ enum NetworkQueueKind {
   transportToTun,
   transportToProxy,
   directDns,
+  finalDns,
 }
 
 class NetworkConnectionMetrics {
@@ -1967,6 +1968,7 @@ class EngineCapabilities {
     this.chainWarpWireguard = false,
     this.chainHttpProxy = false,
     this.chainSocks5Proxy = false,
+    this.chainProxyEncryptedDns = false,
     this.customBypass = false,
     this.automaticEndpoints = false,
     this.chainOpenvpnMultiEndpoint = false,
@@ -1994,6 +1996,7 @@ class EngineCapabilities {
         chainWarpWireguard: map['chain_warp_wireguard'] == true,
         chainHttpProxy: map['chain_http_proxy'] == true,
         chainSocks5Proxy: map['chain_socks5_proxy'] == true,
+        chainProxyEncryptedDns: map['chain_proxy_encrypted_dns'] == true,
         customBypass: map['custom_bypass'] == true,
         automaticEndpoints: map['automatic_endpoints'] == true,
         chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
@@ -2031,6 +2034,7 @@ class EngineCapabilities {
       chainWarpWireguard,
       chainHttpProxy,
       chainSocks5Proxy,
+      chainProxyEncryptedDns,
       chainOpenvpnMultiEndpoint;
   final bool vpnGatePoolFavorites;
   final bool networkSettingsApplication;
@@ -2057,6 +2061,7 @@ class EngineCapabilities {
           chainWarpWireguard == other.chainWarpWireguard &&
           chainHttpProxy == other.chainHttpProxy &&
           chainSocks5Proxy == other.chainSocks5Proxy &&
+          chainProxyEncryptedDns == other.chainProxyEncryptedDns &&
           customBypass == other.customBypass &&
           automaticEndpoints == other.automaticEndpoints &&
           chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
@@ -2091,6 +2096,7 @@ class EngineCapabilities {
       chainWarpWireguard,
       chainHttpProxy,
       chainSocks5Proxy,
+      chainProxyEncryptedDns,
       customBypass,
       automaticEndpoints,
     ),
