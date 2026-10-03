@@ -152,7 +152,7 @@ internal data class AndroidVpnProfile(
                 allowLan = allowLan,
                 bypassCidrs = bypassCidrs,
                 geoDirectCountries = geoDirectCountries,
-                bypassDomains = source.optJSONArray("bypass_domains")?.strings() ?: emptyList(),
+                bypassDomains = source.optJSONArray("bypass_domains")?.domainStrings() ?: emptyList(),
                 directDnsMode = directDnsMode,
             )
         }
@@ -226,6 +226,15 @@ private fun JSONArray.strings(): List<String> =
     List(length()) { index ->
         val value = getString(index).trim()
         require(value.isNotEmpty() && value.length <= 128) { "Invalid bypass CIDR" }
+        value
+    }
+
+private fun JSONArray.domainStrings(): List<String> =
+    List(length()) { index ->
+        val value = getString(index).trim()
+        val name = value.removeSuffix(".")
+        // Match core's pre-IDNA bound; core validates normalized ASCII names and labels.
+        require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 253) { "Invalid bypass domain" }
         value
     }
 

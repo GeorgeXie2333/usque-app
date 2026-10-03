@@ -551,6 +551,14 @@ field 10 (`split_exclusions`) and Android JSON key `bypass_cidrs`.
 The page patches country selection, address exclusions and domains together;
 validation failure saves none of them. Core validates domain syntax and bounds,
 normalizes domain/network duplicates and retains VPN DNS exclusion checks.
+
+Domain names may contain up to 253 Unicode code points before IDNA normalization,
+excluding one optional trailing dot. Core also enforces the normalized ASCII DNS
+name and label bounds. Android checks the same input length separately from its
+CIDR parser, so valid long names, Unicode names and trailing-dot input can reach
+the shared validator during connection and reconfiguration. Its early parser
+does not implement a separate IDNA policy or change the existing CIDR limit.
+
 Domain changes require the existing cold-reconfigure path. Split DNS activates
 for country or custom domain rules, independently of the GEO cache. The direct
 policy also evaluates explicit address rules at HTTP/SOCKS5 IP targets. The

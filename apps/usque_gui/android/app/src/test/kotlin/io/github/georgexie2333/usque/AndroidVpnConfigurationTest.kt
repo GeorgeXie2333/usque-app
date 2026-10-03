@@ -1,6 +1,7 @@
 package io.github.georgexie2333.usque
 
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -77,14 +78,82 @@ class AndroidVpnConfigurationTest {
     }
 
     @Test
+    fun customDomainsAcceptDnsLengthBoundariesWithoutTheCidrLimit() {
+        for (length in listOf(128, 129, 253)) {
+            val domain = domainOfLength(length)
+            val source = jsonProfile().put("bypass_domains", JSONArray().put(domain))
+            assertEquals(listOf(domain), AndroidVpnProfile.parse(source.toString()).bypassDomains)
+        }
+        val source = jsonProfile().put("bypass_domains", JSONArray().put(domainOfLength(254)))
+        val error = assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+        assertEquals("Invalid bypass domain", error.message)
+    }
+
+    @Test
+    fun customDomainsKeepTrailingDotsAndUnicodeForCoreNormalization() {
+        val supplementary = List(4) { "\uD840\uDC00".repeat(32) }.joinToString(".")
+        assertTrue(supplementary.length > 253)
+        for (domain in listOf(domainOfLength(253) + ".", "BÜCHER.example.", "xn--bcher-kva.example", supplementary)) {
+            val source = jsonProfile().put("bypass_domains", JSONArray().put(" $domain "))
+            assertEquals(listOf(domain), AndroidVpnProfile.parse(source.toString()).bypassDomains)
+        }
+    }
+
+    @Test
+    fun absentNullAndEmptyCustomDomainsKeepSplitDnsDisabled() {
+        for (source in listOf(
+            jsonProfile(),
+            jsonProfile().put("bypass_domains", JSONObject.NULL),
+            jsonProfile().put("bypass_domains", JSONArray()),
+        )) {
+            val profile = AndroidVpnProfile.parse(source.toString())
+            assertTrue(profile.bypassDomains.isEmpty())
+            assertEquals(false, profile.splitDnsEnabled)
+            assertEquals(false, profile.requiresPhysicalDns)
+        }
+    }
+
+    @Test
+    fun emptyAndNullCustomDomainEntriesAreRejected() {
+        for (domain in listOf("", " \t ", ".")) {
+            val source = jsonProfile().put("bypass_domains", JSONArray().put(domain))
+            val error =
+                assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+            assertEquals("Invalid bypass domain", error.message)
+        }
+        val source = jsonProfile().put("bypass_domains", JSONArray().put(JSONObject.NULL))
+        assertThrows(JSONException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+    }
+
+    @Test
+    fun customDomainLengthDoesNotRelaxBypassCidrParsing() {
+        val cidrs = listOf("192.0.2.0/24", "2001:db8::/32")
+        val source =
+            jsonProfile()
+                .put("bypass_domains", JSONArray().put(domainOfLength(253)))
+                .put("bypass_cidrs", JSONArray(cidrs))
+        assertEquals(cidrs, AndroidVpnProfile.parse(source.toString()).bypassCidrs)
+        source.put("bypass_cidrs", JSONArray().put("a".repeat(129)))
+        val error = assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+        assertEquals("Invalid bypass CIDR", error.message)
+    }
+
+    @Test
     fun customDomainsEnableSplitDnsAndInvalidateTunIdentityWithoutCountries() {
-        val before = profile("automatic")
-        val after = before.copy(bypassDomains = listOf("example.com"))
+        val before = AndroidVpnProfile.parse(jsonProfile().toString())
+        val after =
+            AndroidVpnProfile.parse(
+                jsonProfile().put("bypass_domains", JSONArray().put(domainOfLength(253))).toString(),
+            )
         assertTrue(after.geoDirectCountries.isEmpty())
         assertTrue(after.splitDnsEnabled)
         assertTrue(after.requiresPhysicalDns)
-        assertTrue(!after.copy(directDnsMode = "doh").requiresPhysicalDns)
+        for (mode in listOf("doh", "dot")) {
+            assertEquals(false, after.copy(directDnsMode = mode).requiresPhysicalDns)
+        }
         assertTrue(!TunIdentity.from(before).sameForReuse(TunIdentity.from(after)))
+        val shorter = after.copy(bypassDomains = listOf("example.com"))
+        assertTrue(TunIdentity.from(shorter).sameForReuse(TunIdentity.from(after)))
     }
 
     @Test
@@ -157,6 +226,18 @@ class AndroidVpnConfigurationTest {
 
         assertTrue(profile.splitDnsEnabled)
         assertEquals(listOf(profile.dnsIpv4, profile.dnsIpv6), profile.dnsServers)
+    }
+
+    private fun domainOfLength(length: Int): String {
+        val labels = mutableListOf<String>()
+        var remaining = length
+        while (remaining > 63) {
+            val labelLength = minOf(63, remaining - 2)
+            labels += "a".repeat(labelLength)
+            remaining -= labelLength + 1
+        }
+        labels += "a".repeat(remaining)
+        return labels.joinToString(".")
     }
 
     private fun jsonProfile(): JSONObject =
