@@ -134,16 +134,17 @@ impl PrivilegedBackend for WindowsBackend {
         .map_err(|_| backend_error("replacement guard cleanup failed"))?
     }
 
-    async fn inspect_persistent_policy(
+    async fn inspect_guard_policy(
         &self,
         receipt: &MutationReceipt,
+        persistent: bool,
     ) -> Result<bool, BackendError> {
         let receipt = receipt.clone();
         tokio::task::spawn_blocking(move || {
-            wfp::policy_present(&receipt, true).map_err(wfp_backend_error)
+            wfp::policy_present(&receipt, persistent).map_err(wfp_backend_error)
         })
         .await
-        .map_err(|_| backend_error("persistent policy inspection failed"))?
+        .map_err(|_| backend_error("guard policy inspection failed"))?
     }
     async fn create_device(
         &self,

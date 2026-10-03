@@ -2,11 +2,18 @@ use super::*;
 use crate::journal::ReplacementPhase;
 
 async fn source(coordinator: &AgentCoordinator<MockBackend>) -> (Uuid, DeviceLeaseKey) {
+    source_with_plan(coordinator, plan()).await
+}
+
+async fn source_with_plan(
+    coordinator: &AgentCoordinator<MockBackend>,
+    plan: ValidatedTunnelPlan,
+) -> (Uuid, DeviceLeaseKey) {
     let key = coordinator.acquire_device_lease(&caller()).await.unwrap();
     let operation = Uuid::new_v4();
     let generation = coordinator.state().await.generation;
     coordinator
-        .prepare_managed(operation, plan(), caller(), key, generation)
+        .prepare_managed(operation, plan, caller(), key, generation)
         .await
         .unwrap();
     coordinator
@@ -39,10 +46,15 @@ async fn replace(
 
 #[tokio::test]
 async fn replacement_installs_guard_before_cleanup_and_commit_alone_releases_it() {
-    for kill_switch in [true, false] {
+    for (source_persistent, kill_switch) in
+        [(true, true), (true, false), (false, true), (false, false)]
+    {
         let backend = Arc::new(MockBackend::default());
         let (_dir, coordinator) = coordinator(Arc::clone(&backend));
-        let (old, key) = source(&coordinator).await;
+        let mut source_plan = plan();
+        source_plan.kill_switch = source_persistent;
+        source_plan.vpn_chain = !source_persistent;
+        let (old, key) = source_with_plan(&coordinator, source_plan).await;
         let new = Uuid::new_v4();
         let mut target = plan();
         target.kill_switch = kill_switch;
@@ -51,6 +63,19 @@ async fn replacement_installs_guard_before_cleanup_and_commit_alone_releases_it(
             .unwrap();
         assert_eq!(prepared.phase, RecoveryPhase::Prepared);
         assert!(prepared.replacement_pending());
+        assert_eq!(
+            *backend.source_policy_inspections.lock().await,
+            [source_persistent]
+        );
+        assert_eq!(
+            prepared
+                .replacement
+                .as_ref()
+                .unwrap()
+                .original_source_plan
+                .kill_switch,
+            source_persistent
+        );
         assert!(
             coordinator
                 .replacement_status(&prepared)
@@ -84,6 +109,82 @@ async fn replacement_installs_guard_before_cleanup_and_commit_alone_releases_it(
             ["guard_installed", "normal_guard_removed", "guard_removed"]
         );
     }
+}
+
+#[tokio::test]
+async fn live_session_guard_requires_exact_native_readback_for_replacement_and_retarget() {
+    let backend = Arc::new(MockBackend::default());
+    let (_dir, coordinator) = coordinator(Arc::clone(&backend));
+    let mut source_plan = plan();
+    source_plan.kill_switch = false;
+    source_plan.vpn_chain = true;
+    let (old, key) = source_with_plan(&coordinator, source_plan).await;
+    let first = Uuid::new_v4();
+    backend.hide_source_guard.store(true, Ordering::Release);
+    assert!(matches!(
+        replace(&coordinator, old, first, plan(), key).await,
+        Err(CoordinatorError::ReplacementGuardUnavailable)
+    ));
+    assert!(coordinator.state().await.replacement.is_none());
+    assert!(backend.replacement_events.lock().await.is_empty());
+    assert!(backend.restored.lock().await.is_empty());
+    backend.hide_source_guard.store(false, Ordering::Release);
+    backend
+        .fail_replacement_apply
+        .store(true, Ordering::Release);
+    assert!(
+        replace(&coordinator, old, first, plan(), key)
+            .await
+            .is_err()
+    );
+    let intended = coordinator.state().await;
+    assert_eq!(
+        intended.replacement.as_ref().unwrap().phase,
+        ReplacementPhase::InstallingGuard
+    );
+    let second = Uuid::new_v4();
+    backend.hide_source_guard.store(true, Ordering::Release);
+    assert!(matches!(
+        replace(&coordinator, first, second, plan(), key).await,
+        Err(CoordinatorError::ReplacementGuardUnavailable)
+    ));
+    assert_eq!(
+        coordinator
+            .state()
+            .await
+            .replacement
+            .as_ref()
+            .unwrap()
+            .operation_id,
+        first
+    );
+    assert!(backend.restored.lock().await.is_empty());
+    backend.hide_source_guard.store(false, Ordering::Release);
+    backend
+        .fail_replacement_apply
+        .store(false, Ordering::Release);
+    let prepared = replace(&coordinator, first, second, plan(), key)
+        .await
+        .unwrap();
+    prepared.validate().unwrap();
+    assert_eq!(*backend.source_policy_inspections.lock().await, [false; 4]);
+    assert_eq!(
+        *backend.replacement_events.lock().await,
+        ["guard_installed", "normal_guard_removed"]
+    );
+    // A plain, unguarded KS-off source never gains handoff eligibility merely
+    // because an ordinary receipt was copied into the replacement record.
+    let mut unguarded = prepared;
+    unguarded
+        .replacement
+        .as_mut()
+        .unwrap()
+        .original_source_plan
+        .vpn_chain = false;
+    assert!(matches!(
+        unguarded.validate(),
+        Err(JournalError::InvalidReplacement)
+    ));
 }
 
 #[tokio::test]

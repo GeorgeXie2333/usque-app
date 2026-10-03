@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::sync::Arc;
 use std::{net::SocketAddr, time::Instant};
 
 use usque_core::{FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus, Profile};
@@ -64,6 +66,11 @@ pub(crate) struct HarnessRuntime {
     pub(crate) warp_ready: bool,
     pub(crate) stop_requested: tokio_util::sync::CancellationToken,
     pub(crate) stopped: tokio_util::sync::CancellationToken,
+    pub(crate) failure_retained: bool,
+    pub(crate) fail_protected_reconnect: bool,
+    pub(crate) shutdown_failures: u32,
+    pub(crate) shutdown_attempts: Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) shutdown_release: Option<tokio_util::sync::CancellationToken>,
 }
 
 #[cfg(test)]
@@ -109,6 +116,11 @@ impl HarnessRuntime {
             warp_ready: true,
             stop_requested: tokio_util::sync::CancellationToken::new(),
             stopped: tokio_util::sync::CancellationToken::new(),
+            failure_retained: false,
+            fail_protected_reconnect: false,
+            shutdown_failures: 0,
+            shutdown_attempts: Arc::default(),
+            shutdown_release: None,
         }
     }
 
@@ -133,6 +145,8 @@ impl HarnessRuntime {
     }
 
     pub(crate) fn replace_gate(&mut self, profile: &Profile) {
+        self.failure_retained = false;
+        self.warp_ready = true;
         self.gate_replace_count += 1;
         self.gate_status = usque_core::vpngate::GateStatus {
             stage: if profile.chain_enabled() {
@@ -174,6 +188,67 @@ impl HarnessRuntime {
 }
 
 impl ActiveRuntime {
+    pub(crate) fn take_startup_error(&mut self) -> Option<ControlServiceError> {
+        #[cfg(windows)]
+        if let Self::Vpn(runtime) = self {
+            return runtime.take_startup_error().map(map_windows_vpn_error);
+        }
+        None
+    }
+
+    pub(crate) fn target_committed(&self) -> bool {
+        #[cfg(windows)]
+        if let Self::Vpn(runtime) = self {
+            return runtime.target_committed();
+        }
+        false
+    }
+
+    pub(crate) fn replacement_pending(&self) -> bool {
+        #[cfg(windows)]
+        if let Self::Vpn(runtime) = self {
+            return runtime.replacement_pending();
+        }
+        false
+    }
+
+    pub(crate) fn failure_retained(&self) -> bool {
+        match self {
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime.failure_retained(),
+            #[cfg(test)]
+            Self::Harness(runtime) => runtime.failure_retained,
+            _ => false,
+        }
+    }
+
+    pub(crate) async fn retain_failed_gate(
+        &mut self,
+        _reason: usque_core::vpngate::GateFailure,
+    ) -> Result<(), ControlServiceError> {
+        match self {
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime
+                .retain_failed_gate(_reason)
+                .await
+                .map_err(map_windows_vpn_error),
+            #[cfg(test)]
+            Self::Harness(runtime) => {
+                runtime.failure_retained = true;
+                runtime.gate_status.stage = usque_core::vpngate::GateStage::Error;
+                runtime.gate_status.failure = Some(_reason);
+                runtime.warp_ready = false;
+                runtime.listeners.clear();
+                runtime.socks5_listeners.clear();
+                runtime.http_listeners.clear();
+                Ok(())
+            }
+            _ => Err(ControlServiceError::InvalidRequest(
+                "only a VPN session can retain platform protection".into(),
+            )),
+        }
+    }
+
     pub(crate) fn quiesce_final(&mut self) {
         match self {
             Self::Proxy(r) => r.runtime.quiesce_final(),
@@ -489,6 +564,18 @@ impl ActiveRuntime {
             Self::Vpn(runtime) => runtime.shutdown().await.map_err(map_windows_vpn_error),
             #[cfg(test)]
             Self::Harness(runtime) => {
+                runtime
+                    .shutdown_attempts
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if let Some(release) = &runtime.shutdown_release {
+                    release.cancelled().await;
+                }
+                if runtime.shutdown_failures > 0 {
+                    runtime.shutdown_failures -= 1;
+                    return Err(ControlServiceError::DisconnectCleanup(
+                        "injected shutdown failure".into(),
+                    ));
+                }
                 runtime.timeline.record(
                     usque_transport::ConnectionEventType::Disconnected,
                     None,

@@ -59,6 +59,9 @@ pub mod logging;
 mod maintenance;
 mod network_quality;
 mod network_settings;
+mod protected_chain;
+#[cfg(test)]
+mod protected_chain_tests;
 mod sensitive_output;
 mod vpngate;
 #[cfg(test)]
@@ -76,6 +79,7 @@ mod windows_agent;
 
 mod congestion;
 mod data_plane;
+mod disconnect_cleanup;
 
 #[cfg(target_os = "macos")]
 pub mod macos_ipc;
@@ -108,6 +112,8 @@ pub struct ControlServiceState {
     vault: Arc<dyn SecretVault>,
     pub(crate) data_plane: Arc<Mutex<Option<ActiveDataPlane>>>,
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
+    disconnect_owners: Arc<Mutex<std::collections::VecDeque<disconnect_cleanup::ShutdownOwner>>>,
+    disconnect_cleanup_failed: std::sync::atomic::AtomicBool,
     exit_probe_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     maintenance: maintenance::Maintenance,
     diagnostics: diagnostics::DiagnosticsManager,
@@ -445,6 +451,8 @@ impl ControlService {
                 vault,
                 data_plane: Arc::new(Mutex::new(None)),
                 disconnect_cleanup: Mutex::new(None),
+                disconnect_owners: Arc::default(),
+                disconnect_cleanup_failed: std::sync::atomic::AtomicBool::new(false),
                 exit_probe_task: Mutex::new(None),
                 gate_directory: usque_core::vpngate::DirectoryDownloader::new(
                     usque_core::vpngate::CatalogueStore::new(&cache_dir),
@@ -719,7 +727,11 @@ impl ControlService {
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
+        let retry_cleanup = self.data_plane.lock().await.is_none();
         let disconnect = self.disconnect_locked().await;
+        if retry_cleanup {
+            self.retry_disconnect_cleanup().await;
+        }
         let cleanup = self.await_disconnect_cleanup().await;
         #[cfg(windows)]
         let release = self
@@ -1203,7 +1215,7 @@ impl ControlService {
                     }
                     RuntimeHealth::Failed {
                         message, failure, ..
-                    } => {
+                    } if !active.runtime.failure_retained() => {
                         state.mark_failure(failure, message);
                     }
                     _ => {}
@@ -1380,6 +1392,7 @@ impl ControlService {
         if self.data_plane.try_lock().ok()?.is_some()
             || self.state.try_lock().ok()?.snapshot().phase != ConnectionPhase::Disconnected
             || self.disconnect_cleanup.try_lock().ok()?.is_some()
+            || !self.disconnect_owners.try_lock().ok()?.is_empty()
         {
             return None;
         }
@@ -1903,6 +1916,13 @@ impl ControlService {
             return Ok(self.state.lock().await.snapshot().clone());
         }
         self.stop_failed_gate_locked().await?;
+        #[cfg(windows)]
+        if let Some(snapshot) = self
+            .retry_protected_target(profile_id, &startup_cancel, false)
+            .await?
+        {
+            return Ok(snapshot);
+        }
         if self.data_plane.lock().await.is_none() {
             *self.session_congestion_control.lock().await = None;
             *self.session_profile.lock().await = None;
@@ -2318,11 +2338,10 @@ impl ControlService {
         if startup_cancel.is_cancelled() {
             let mut runtime = runtime;
             runtime.cancel_immediately();
-            *self.disconnect_cleanup.lock().await =
-                Some(tokio::spawn(async move { runtime.shutdown().await }));
+            self.queue_runtime_shutdown(runtime, None).await;
             return self.disconnect_locked().await;
         }
-        let runtime = self.accept_gate_runtime(runtime).await?;
+        let runtime = self.accept_gate_runtime(runtime, &profile).await?;
         let path = runtime.path();
         let listener_auth = profile.proxy.listener_credentials().ok().flatten();
         let exit_probe = exit_probe_for_session(&profile, &runtime, listener_auth.as_ref());
@@ -2473,18 +2492,49 @@ impl ControlService {
         let _mutation = self.mutation_lock.lock().await;
         *self.session_congestion_control.lock().await = None;
         *self.session_profile.lock().await = None;
-        self.disconnect_locked().await
+        let retry_cleanup = self.data_plane.lock().await.is_none();
+        self.disconnect_locked().await?;
+        if retry_cleanup {
+            self.retry_disconnect_cleanup().await;
+        }
+        Ok(self.state.lock().await.snapshot().clone())
     }
 
     pub(crate) async fn disconnect_locked(
         &self,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.disconnect_locked_with_cleanup(false).await
+    }
+
+    pub(crate) async fn disconnect_locked_deferred(
+        &self,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.disconnect_locked_with_cleanup(true).await
+    }
+
+    async fn disconnect_locked_with_cleanup(
+        &self,
+        defer_cleanup: bool,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
         self.gate_status.send_replace(Default::default());
         self.abort_exit_probe().await;
         self.clear_network_quality_source().await;
         let mut data_plane = self.data_plane.lock().await;
         let phase = self.state.lock().await.snapshot().phase;
+        if data_plane.is_none() && self.disconnect_cleanup_failed.load(Ordering::Acquire) {
+            // A retry still has no cleanup proof. Keep its error/unknown safety
+            // state until the retained owner confirms restoration.
+            drop(data_plane);
+            if !defer_cleanup {
+                self.start_queued_shutdown().await;
+            }
+            return Ok(self.state.lock().await.snapshot().clone());
+        }
         if phase == ConnectionPhase::Disconnected && data_plane.is_none() {
+            drop(data_plane);
+            if !defer_cleanup {
+                self.start_queued_shutdown().await;
+            }
             return Ok(self.state.lock().await.snapshot().clone());
         }
         {
@@ -2493,7 +2543,7 @@ impl ControlService {
                 state.transition(ConnectionPhase::Disconnecting)?;
             }
         }
-        if let Some(mut active) = data_plane.take() {
+        let cleanup_owner = if let Some(mut active) = data_plane.take() {
             let evidence = connection_evidence::ConnectionEvidence::active(
                 &active,
                 self.state.lock().await.snapshot().clone(),
@@ -2506,38 +2556,14 @@ impl ControlService {
             // must not keep the Disconnect action or data plane alive.
             active.runtime.cancel_immediately();
             drop(data_plane);
-
-            let retained = Arc::clone(&self.retained_connection_evidence);
-            let cleanup = tokio::spawn(async move {
-                let result = active.runtime.shutdown().await;
-                let timeline = active.runtime.connection_timeline();
-                if let Some(evidence) = retained.lock().await.as_mut()
-                    && evidence.session_generation == generation
-                {
-                    evidence.timeline = timeline;
-                    // Returning from shutdown is not proof of OS restoration;
-                    // actual platform recovery remains independently observed.
-                    evidence.cleanup_status = if result.is_ok() {
-                        "shutdown_returned"
-                    } else {
-                        "shutdown_failed"
-                    };
-                }
-                result
-            });
-            let mut pending = self.disconnect_cleanup.lock().await;
-            debug_assert!(
-                pending.is_none(),
-                "a previous disconnect cleanup is still pending"
-            );
-            if pending.is_some() {
-                tracing::error!(
-                    "disconnect cleanup invariant violated; detaching the older cleanup task"
-                );
-            }
-            *pending = Some(cleanup);
+            Some((active.runtime, generation))
         } else {
             drop(data_plane);
+            None
+        };
+        if let Some((runtime, generation)) = cleanup_owner {
+            // Retain identity before any further fallible state transition.
+            self.queue_runtime_shutdown(runtime, Some(generation)).await;
         }
         let snapshot = self
             .state
@@ -2558,21 +2584,12 @@ impl ControlService {
             .collect();
         let store = usque_core::vpngate::CatalogueStore::new(&self.cache_dir);
         let _ = tokio::task::spawn_blocking(move || store.retain_selections(&retained)).await;
+        // Error paths finish publishing their original failure first, then
+        // explicitly start this queue so cleanup uncertainty takes precedence.
+        if !defer_cleanup {
+            self.start_queued_shutdown().await;
+        }
         Ok(snapshot)
-    }
-
-    async fn await_disconnect_cleanup(&self) -> Result<(), ControlServiceError> {
-        let mut pending = self.disconnect_cleanup.lock().await;
-        let Some(cleanup) = pending.as_mut() else {
-            return Ok(());
-        };
-        // Keep the handle in its owner while awaiting. Cancelling one Connect
-        // request must not let a later request bypass unfinished cleanup.
-        let result = cleanup
-            .await
-            .map_err(|error| ControlServiceError::DisconnectCleanup(error.to_string()));
-        pending.take();
-        result?
     }
 
     async fn retry(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
@@ -2589,6 +2606,10 @@ impl ControlService {
             .as_ref()
             .map(|active| active.profile_id);
         let profile_id = match connected_profile {
+            #[cfg(windows)]
+            Some(_) if self.protected_chain_present().await => {
+                self.config.read().await.active_profile_id
+            }
             Some(profile_id) => Some(profile_id),
             None => self.config.read().await.active_profile_id,
         }
@@ -2606,6 +2627,13 @@ impl ControlService {
         startup_cancel: tokio_util::sync::CancellationToken,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
         self.stop_failed_gate_locked().await?;
+        #[cfg(windows)]
+        if let Some(snapshot) = self
+            .retry_protected_target(profile_id, &startup_cancel, true)
+            .await?
+        {
+            return Ok(snapshot);
+        }
         *self.session_congestion_control.lock().await = None;
         *self.session_profile.lock().await = None;
         let gate_retry = self
@@ -3971,6 +3999,8 @@ impl ControlService {
             return Err(ControlServiceError::ProfileNotFound(id));
         }
         #[cfg(windows)]
+        let cancellation = self.gate_connection_request().await;
+        #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
         let mut next = self.config.read().await.clone();
@@ -3978,7 +4008,13 @@ impl ControlService {
             return Err(ControlServiceError::ProfileNotFound(id));
         }
         next.active_profile_id = Some(id);
-        self.persist(next).await
+        self.persist(next).await?;
+        #[cfg(windows)]
+        if !cancellation.is_cancelled() {
+            self.retry_protected_target(id, &cancellation, false)
+                .await?;
+        }
+        Ok(())
     }
 
     /// Roll back an identity replacement that was interrupted after its vault
@@ -4516,6 +4552,11 @@ pub(crate) fn map_windows_vpn_error(error: windows_agent::WindowsVpnError) -> Co
             Some(("WINDOWS_RECOVERY_CONFLICT", false))
         }
         windows_agent::WindowsVpnError::RecoveryUnsupported => {
+            Some(("WINDOWS_RECOVERY_UNSUPPORTED", false))
+        }
+        windows_agent::WindowsVpnError::MissingCapabilities(capabilities)
+            if capabilities.contains("protected_tunnel_replacement") =>
+        {
             Some(("WINDOWS_RECOVERY_UNSUPPORTED", false))
         }
         windows_agent::WindowsVpnError::DeviceReuseUnsupported => {

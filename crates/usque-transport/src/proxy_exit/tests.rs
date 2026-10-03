@@ -381,9 +381,24 @@ async fn proxy_tcp_and_udp_use_underlay_and_release_cancelled_associations() {
         loop {
             tokio::select! {
                 Some(p)=lp.rx.recv_async()=>{
-                    let meta = crate::direct_gateway::NatPacket::parse(&p).unwrap();
-                    assert_eq!(meta.destination, "203.0.113.2".parse::<std::net::IpAddr>().unwrap());
-                    assert_eq!(meta.destination_port, 9000, "only the final SOCKS relay may receive underlay UDP");
+                    if let Some(meta) = crate::direct_gateway::NatPacket::parse(&p) {
+                        assert_eq!(meta.protocol, 17);
+                        assert_eq!(meta.destination, "203.0.113.2".parse::<std::net::IpAddr>().unwrap());
+                        assert_eq!(meta.destination_port, 9000, "only the final SOCKS relay may receive underlay UDP");
+                    } else {
+                        // A relay response racing association cancellation can
+                        // reach its now-closed UDP port. The stack may answer
+                        // with ICMP; this is not a business datagram bypass.
+                        use smoltcp::wire::{Icmpv4Message, Icmpv4Packet, IpProtocol, Ipv4Packet};
+                        let ip = Ipv4Packet::new_checked(p.as_ref()).expect("valid stack packet");
+                        assert_eq!(ip.next_header(), IpProtocol::Icmp);
+                        assert_eq!(ip.dst_addr(), "203.0.113.2".parse::<std::net::Ipv4Addr>().unwrap());
+                        assert!(ip.verify_checksum());
+                        let icmp = Icmpv4Packet::new_checked(ip.payload()).unwrap();
+                        assert!(icmp.verify_checksum());
+                        assert_eq!(icmp.msg_type(), Icmpv4Message::DstUnreachable);
+                        assert_eq!(icmp.msg_code(), 3);
+                    }
                     rp.tx.send_owned_async(p).await;
                 },
                 Some(p)=rp.rx.recv_async()=>{ lp.tx.send_owned_async(p).await; },

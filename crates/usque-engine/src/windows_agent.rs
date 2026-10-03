@@ -88,6 +88,7 @@ const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const AUTOMATIC_RECOVERY_ATTEMPT_LIMIT: u32 = 3;
 
 mod device_owner;
+mod replacement;
 pub(crate) use device_owner::WindowsDeviceOwner;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -894,6 +895,12 @@ pub(crate) struct WindowsVpnRuntime {
     http_listeners: Vec<SocketAddr>,
     system_proxy: Option<WindowsSystemProxyGuard>,
     transaction_open: bool,
+    held_failure: bool,
+    target_committed: bool,
+    startup_error: Option<WindowsVpnError>,
+    handoff_intent: bool,
+    shutdown_replacement: Option<Box<agent_v1::TunnelReplacementStatus>>,
+    replacement_request: Option<agent_v1::ReplaceTunnelRequest>,
     tunnel: Option<DataPlaneRuntime>,
     bootstrap: Option<WarpBootstrap>,
     // Present when this runtime created the VPN-bound MASQUE protector.
@@ -1004,6 +1011,8 @@ impl WindowsVpnRuntime {
             _ if !failure.retryable => usque_core::vpngate::GateFailure::Configuration,
             _ => usque_core::vpngate::GateFailure::Transport,
         });
+        bootstrap.status.stage = usque_core::vpngate::GateStage::Error;
+        bootstrap.status.warp_stage = Some("error".into());
         let path = RuntimePath {
             transport: failure.transport.unwrap_or(usque_core::Transport::Http2),
             endpoint_family: failure
@@ -1034,6 +1043,12 @@ impl WindowsVpnRuntime {
             http_listeners: Vec::new(),
             system_proxy: None,
             transaction_open: true,
+            held_failure: false,
+            target_committed: false,
+            startup_error: None,
+            handoff_intent: false,
+            shutdown_replacement: None,
+            replacement_request: None,
             tunnel: None,
             bootstrap: Some(bootstrap),
             socket_protector: protector,
@@ -1065,9 +1080,91 @@ impl WindowsVpnRuntime {
         // Old DNS/WFP state can itself prevent endpoint resolution. Complete
         // guarded local recovery before ANY startup DNS or MASQUE operation.
         let state = agent.connection_state(&capabilities).await?;
+        if replacement::pending_replacement(&state)?.is_some()
+            || replacement::active_chain_needs_handoff(&state, profile.id)
+        {
+            let owned_id = replacement::pending_replacement(&state)?
+                .map_or(state.operation_id.as_str(), |r| r.operation_id.as_str());
+            let operation_id =
+                Uuid::parse_str(owned_id).map_err(|_| WindowsVpnError::InvalidAgentOperationId)?;
+            let registration_api =
+                replacement::state_bootstrap_candidates(&state).unwrap_or_default();
+            let status = gate
+                .status
+                .unwrap_or_else(|| watch::channel(Default::default()).0);
+            let mut runtime = Self::blocked_chain(
+                agent,
+                operation_id,
+                None,
+                WarpBootstrap {
+                    identity: identity.clone(),
+                    refresher: pin_refresher.clone(),
+                    registration_api,
+                    status: status.borrow().clone(),
+                },
+                None,
+                &TransportError::TunnelClosed,
+            );
+            runtime.held_failure = true;
+            let pending = replacement::pending_replacement(&state)?;
+            let mut requested_plan = tunnel_plan(
+                profile,
+                &identity,
+                &runtime
+                    .bootstrap
+                    .as_ref()
+                    .expect("bootstrap")
+                    .registration_api,
+                geo_enabled,
+            );
+            requested_plan.vpn_chain = true;
+            requested_plan.defer_network_configuration = true;
+            // Adopt a surviving guard before any fallible device/capability
+            // step. A fresh request likewise retains the old applied policy
+            // until the Agent can acknowledge its successor.
+            runtime.replacement_request = Some(agent_v1::ReplaceTunnelRequest {
+                source_operation_id: pending.map_or_else(
+                    || state.operation_id.clone(),
+                    |r| r.source_operation_id.clone(),
+                ),
+                operation_id: pending
+                    .map_or_else(|| Uuid::new_v4().to_string(), |r| r.operation_id.clone()),
+                expected_journal_generation: state.journal_generation,
+                plan: pending
+                    .and_then(|r| r.target_plan.as_deref().cloned())
+                    .or_else(|| Some(replacement::canonical_plan(requested_plan))),
+                ..Default::default()
+            });
+            // Even an unknown RPC outcome must retain the object that owns the
+            // requested replacement identity. Explicit disconnect can inspect
+            // and abort only that exact request; ordinary recovery is forbidden.
+            if let Err(error) = Box::pin(runtime.replace_protected_connection(
+                profile,
+                identity,
+                pin_refresher,
+                geo_policy,
+                gate.selected,
+                status,
+                &startup_cancel,
+                device,
+            ))
+            .await
+            {
+                if let Some(bootstrap) = runtime.bootstrap.as_mut() {
+                    bootstrap.status.stage = usque_core::vpngate::GateStage::Error;
+                    bootstrap.status.failure = Some(error.gate_failure());
+                    bootstrap.status.warp_stage = Some("error".into());
+                }
+                runtime.startup_error = Some(error);
+            }
+            return Ok(runtime);
+        }
         let device_lease = device.acquire(&agent, &capabilities).await?;
-        // Still resolve before installing a new fail-closed policy.
-        let registration_api = resolve_registration_api().await?;
+        let registration_api = if state.phase == agent_v1::AgentPhase::Active as i32 {
+            replacement::state_bootstrap_candidates(&state)?
+        } else {
+            resolve_registration_api().await?
+        };
         if startup_cancel.is_cancelled() {
             return Err(TransportError::TunnelClosed.into());
         }
@@ -1226,6 +1323,12 @@ impl WindowsVpnRuntime {
                 http_listeners: Vec::new(),
                 system_proxy: None,
                 transaction_open: true,
+                held_failure: false,
+                target_committed: false,
+                startup_error: None,
+                handoff_intent: false,
+                shutdown_replacement: None,
+                replacement_request: None,
                 tunnel: Some(tunnel),
                 bootstrap: None,
                 socket_protector: Some(protector),
@@ -1513,7 +1616,11 @@ impl WindowsVpnRuntime {
                 self.cancellation.clone(),
                 self.pump_failure_tx.clone(),
             );
-            self.agent.commit(self.operation_id).await?;
+            let committed = self.agent.commit(self.operation_id).await?;
+            self.target_committed = replacement::target_is_committed(&committed, self.operation_id);
+            if !self.target_committed {
+                return Err(WindowsVpnError::RecoveryConflict);
+            }
             if self.liveness.is_none() {
                 let lease = match self.startup_lease.take() {
                     Some(lease) => {
@@ -1568,6 +1675,13 @@ impl WindowsVpnRuntime {
             self.cancellation.cancel();
             if let Some(mapping) = &self.mapping {
                 mapping.signal_shutdown();
+            }
+            // A lost Commit reply may hide an applied target preference.
+            // Query only after closing all final admission and packet pumps.
+            if !self.target_committed
+                && let Ok(state) = self.agent.get_state().await
+            {
+                self.target_committed = replacement::target_is_committed(&state, self.operation_id);
             }
             let reason = error.gate_failure();
             tunnel.fail_gate(reason).await;
@@ -1736,6 +1850,8 @@ impl WindowsVpnRuntime {
         };
         if rollback.is_ok() {
             self.transaction_open = false;
+            self.handoff_intent = false;
+            self.replacement_request = None;
         }
         let state = rollback?;
         // Failure retains the Vpn runtime/profile in the caller. Never enable
@@ -1833,17 +1949,70 @@ impl WindowsVpnRuntime {
         if let Some(mut tunnel) = self.tunnel.take() {
             tunnel.shutdown().await;
         }
+        let current_state = if self.transaction_open {
+            let state = self.agent.get_state().await?;
+            if self
+                .shutdown_replacement
+                .as_deref()
+                .is_some_and(|expected| {
+                    replacement::abort_completed(
+                        &state,
+                        expected,
+                        expected.source_journal_generation,
+                    )
+                })
+            {
+                self.transaction_open = false;
+                self.handoff_intent = false;
+                self.replacement_request = None;
+                self.shutdown_replacement = None;
+                self.system_proxy = None;
+                return Ok(());
+            }
+            self.discard_retired_sidecar(&state);
+            Some(state)
+        } else {
+            None
+        };
+        let replacement_target = if let Some(state) = &current_state {
+            replacement::owned_pending_replacement(
+                state,
+                self.operation_id,
+                self.replacement_request.as_ref(),
+            )?
+            .cloned()
+        } else {
+            None
+        };
+        if replacement_target.is_some() {
+            // Abort owns restoration of both operations' journaled sidecars.
+            // The last Replace reply may have been lost, so never send an old
+            // sidecar Restore RPC against an already-transferred operation.
+            self.system_proxy = None;
+            self.shutdown_replacement = replacement_target.clone().map(Box::new);
+        }
         let system_proxy_result = match self.system_proxy.as_mut() {
             Some(system_proxy) => system_proxy.shutdown().await,
             None => Ok(()),
         };
-        let rollback = if self.transaction_open {
-            self.agent.rollback_for_disconnect(self.operation_id).await
+        let rollback = if let Some(state) = current_state {
+            if let Some(target) = replacement_target {
+                self.agent
+                    .abort_replacement(&target, state.journal_generation)
+                    .await
+            } else {
+                self.agent.rollback_for_disconnect(self.operation_id).await
+            }
         } else {
             Ok(AgentState::default())
         };
         if rollback.is_ok() {
             self.transaction_open = false;
+        }
+        if !self.transaction_open {
+            self.handoff_intent = false;
+            self.replacement_request = None;
+            self.shutdown_replacement = None;
         }
         system_proxy_result?;
         rollback.map(|_| ())
@@ -2216,6 +2385,12 @@ async fn bind_agent_session(
         http_listeners,
         system_proxy,
         transaction_open: true,
+        held_failure: false,
+        target_committed: true,
+        startup_error: None,
+        handoff_intent: false,
+        shutdown_replacement: None,
+        replacement_request: None,
         tunnel: Some(tunnel),
         bootstrap: None,
         socket_protector: None,
@@ -3140,6 +3315,14 @@ impl WindowsAgentClient {
         timeout(budget, async {
             loop {
                 let state = self.get_state().await.map_err(recovery_rpc_error)?;
+                if replacement::pending_replacement(&state)?.is_some() {
+                    if !capabilities.protected_tunnel_replacement {
+                        return Err(WindowsVpnError::MissingCapabilities(
+                            "protected_tunnel_replacement".into(),
+                        ));
+                    }
+                    return Ok(state);
+                }
                 if capabilities.reusable_tun_device && state.device.is_none() {
                     return Err(WindowsVpnError::DeviceRecoveryRequired);
                 }
@@ -3233,6 +3416,14 @@ impl WindowsAgentClient {
             return Ok(None);
         }
         let state = self.get_state().await?;
+        if replacement::pending_replacement(&state)?.is_some() {
+            if !capabilities.protected_tunnel_replacement {
+                return Err(WindowsVpnError::MissingCapabilities(
+                    "protected_tunnel_replacement".into(),
+                ));
+            }
+            return Ok(None);
+        }
         if state.phase == agent_v1::AgentPhase::Clean as i32 {
             require_recovered_state(&state)?;
         }
@@ -4704,7 +4895,7 @@ mod tests {
         ));
     }
 
-    fn scripted_recovery_client(
+    pub(super) fn scripted_recovery_client(
         script: Vec<AgentResponse>,
     ) -> (WindowsAgentClient, JoinHandle<Vec<agent_request::Payload>>) {
         scripted_recovery_client_paused(script, None)
@@ -6278,7 +6469,7 @@ mod tests {
         }
     }
 
-    fn identity() -> MasqueTlsIdentity {
+    pub(super) fn identity() -> MasqueTlsIdentity {
         let identity_key = MasqueKeyPair::generate();
         let endpoint_key = MasqueKeyPair::generate();
         MasqueTlsIdentity::new(

@@ -129,6 +129,13 @@ impl Resolver {
         Ok(addresses)
     }
 
+    /// Control bootstrap never inherits a frontend's System/Local DNS mode.
+    pub(crate) async fn resolve_remote(&self, name: &str) -> Result<Vec<IpAddr>, TransportError> {
+        let mut remote = self.clone();
+        remote.mode = ProxyDnsMode::Remote;
+        remote.resolve(name).await
+    }
+
     pub(crate) fn resolve_candidates(
         &self,
         name: &str,

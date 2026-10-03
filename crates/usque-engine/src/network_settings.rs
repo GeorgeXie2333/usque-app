@@ -342,7 +342,9 @@ impl ControlService {
                     Ok(()) => {
                         service.settings_applying.store(false, Ordering::SeqCst);
                         if service.settings_intent.load(Ordering::SeqCst) != intent {
-                            let _ = service.disconnect_locked().await;
+                            if !service.protected_chain_present().await {
+                                let _ = service.disconnect_locked().await;
+                            }
                             return;
                         }
                         let generation = {
@@ -506,7 +508,9 @@ impl ControlService {
                 return;
             }
             if self.settings_intent.load(Ordering::SeqCst) != pending.intent {
-                let _ = self.disconnect_locked().await;
+                if !self.protected_chain_present().await {
+                    let _ = self.disconnect_locked().await;
+                }
                 continue;
             }
             let confirmed = {
@@ -628,6 +632,16 @@ impl ControlService {
             ReconfigureClass::HotTunnelAttach => self.hot_tunnel_attach(target).await?,
             ReconfigureClass::HotVpnGate => self.hot_replace_gate(target).await?,
             ReconfigureClass::ColdReconnect => {
+                #[cfg(windows)]
+                {
+                    let cancellation = self.gate_startup_cancel.lock().await.clone();
+                    if Box::pin(self.reconnect_protected_chain(target, &cancellation))
+                        .await?
+                        .is_some()
+                    {
+                        return Ok(());
+                    }
+                }
                 self.disconnect_locked().await?;
                 self.await_disconnect_cleanup().await?;
                 if self.settings_intent.load(Ordering::SeqCst) != intent {

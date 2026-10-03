@@ -106,6 +106,26 @@ impl From<InternalHttpError> for DirectoryError {
 }
 
 impl InternalNetwork {
+    /// Refresh the fixed registration control host within this private network.
+    /// Failure or cancellation never falls back to physical/system DNS.
+    pub async fn resolve_registration_api(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<SocketAddr>, DirectoryError> {
+        let resolver = self.resolver.as_ref().ok_or(DirectoryError::Request)?;
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(DirectoryError::Cancelled),
+            _ = self.cancellation.cancelled() => Err(DirectoryError::Cancelled),
+            result = tokio::time::timeout(CONNECT_TIMEOUT, resolver.resolve_remote(usque_core::REGISTRATION_API_HOST)) => {
+                let addresses = result.map_err(|_| DirectoryError::Timeout)?.map_err(|_| DirectoryError::Request)?;
+                let addresses: Vec<_> = addresses.into_iter()
+                    .filter(|ip| !ip.is_unspecified() && !ip.is_multicast() && !ip.is_loopback())
+                    .map(|ip| SocketAddr::new(ip, usque_core::REGISTRATION_API_PORT)).collect();
+                if addresses.is_empty() { Err(DirectoryError::Request) } else { Ok(addresses) }
+            }
+        }
+    }
     /// A failed or changing final exit must never expose the healthy underlay
     /// through the ordinary network accessor. Explicit bootstrap still uses
     /// the separate WARP handle.
@@ -771,6 +791,9 @@ impl CatalogueHttp for InternalNetwork {
             .await
     }
 }
+
+#[cfg(test)]
+mod control_dns_tests;
 
 #[cfg(test)]
 mod catalogue_tests {

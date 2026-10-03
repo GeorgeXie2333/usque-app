@@ -126,7 +126,7 @@ impl TunnelReplacement {
             || self.source_journal_generation == 0
             || self.owner_process_id == 0
             || !valid_sid_text(&self.owner_sid)
-            || !self.original_source_plan.kill_switch
+            || !(self.original_source_plan.kill_switch || self.original_source_plan.vpn_chain)
         {
             return Err(JournalError::InvalidReplacement);
         }

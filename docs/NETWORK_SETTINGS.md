@@ -601,3 +601,29 @@ Native filter arbitration, retaining an automatic endpoint's normal permit while
 commit removes its guard mirror, atomic retarget rollback, and independently
 observed IPv4/IPv6 traffic require isolated Windows and network-observer runners;
 these checks are **not_run** on the development machine.
+
+The Engine retains a failed HTTP/SOCKS VPN owner while its applied Kill Switch
+is on. It stops final admission and packet forwarding without calling ordinary
+disconnect or dropping the Agent lease. Retry rebuilds a stopped WARP runtime;
+changing accounts or settings that need a new transaction uses the protected
+replacement capability. Live HTTP/SOCKS VPN sessions also use this handoff with
+Kill Switch off: that preference controls terminal-failure cleanup, not a gap
+between two running connections. A saved preference alone cannot release the old policy.
+Explicit Disconnect remains the release action, and terminal failures with an
+applied disabled Kill Switch may restore ordinary networking after safe cleanup.
+Selecting a proxy-only account explicitly removes VPN capture; its owned native
+cleanup must finish before that account's local proxy startup can proceed.
+
+Protected startup reuses verified numeric registration API candidates, or
+refreshes the fixed control host through a still-running WARP network. It never
+temporarily enables system DNS to make a guarded retry succeed. Unknown RPC
+outcomes are reconciled against the authenticated Agent replacement status;
+older Agents without this capability keep their existing protection and return
+an update-required error rather than disconnecting first.
+
+Explicit Disconnect keeps its exact runtime cleanup owner until native cleanup
+is confirmed. A failed cleanup remains retryable through Disconnect and prevents
+a new session from bypassing unfinished restoration. A lost replacement-abort
+reply is accepted as complete only after the authenticated Agent reports that
+same target aborted and all ordinary state clean; unrelated operations and
+unknown state never authorize removal of another session's protection.

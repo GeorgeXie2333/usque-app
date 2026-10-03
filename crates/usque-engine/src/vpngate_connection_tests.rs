@@ -99,7 +99,12 @@ async fn failed_gate_startup_cancels_warp_and_releases_the_runtime() {
             runtime.gate_status.failure = Some(reason);
             let stopped = runtime.stopped.clone();
             let stop_requested = runtime.stop_requested.clone();
-            assert!(service.accept_gate_runtime(active.runtime).await.is_err());
+            assert!(
+                service
+                    .accept_gate_runtime(active.runtime, &profile)
+                    .await
+                    .is_err()
+            );
             assert!(stop_requested.is_cancelled());
             assert!(service.data_plane.lock().await.is_none());
             service.await_disconnect_cleanup().await.unwrap();
@@ -162,7 +167,10 @@ async fn a_fresh_warp_runtime_clears_the_previous_gate_failure_status() {
     let runtime = ActiveRuntime::Harness(Box::new(active_runtime::HarnessRuntime::from_profile(
         &profile, false, 0,
     )));
-    let mut runtime = service.accept_gate_runtime(runtime).await.unwrap();
+    let mut runtime = service
+        .accept_gate_runtime(runtime, &profile)
+        .await
+        .unwrap();
     assert_eq!(service.gate_status.borrow().stage, GateStage::Disabled);
     assert!(service.gate_status.borrow().failure.is_none());
     runtime.shutdown().await.unwrap();

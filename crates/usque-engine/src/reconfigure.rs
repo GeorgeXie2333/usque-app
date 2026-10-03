@@ -73,6 +73,22 @@ impl ControlService {
             ReconfigureClass::ColdReconnect => {}
         }
 
+        #[cfg(windows)]
+        if profile.frontends.tunnel && self.protected_chain_present().await {
+            let applied = self.upsert_profile_locked(profile).await?;
+            let cancellation = self.gate_startup_cancel.lock().await.clone();
+            let snapshot = Box::pin(self.reconnect_protected_chain(&applied, &cancellation))
+                .await?
+                .ok_or_else(|| {
+                    ControlServiceError::InvalidRequest(
+                        "protected session changed during reconfiguration".into(),
+                    )
+                })?;
+            return Ok(v1::ReconfigureResult {
+                profile: Some(profile_to_proto(&applied)),
+                snapshot: Some(self.snapshot_with_quality_to_proto(&snapshot)),
+            });
+        }
         self.disconnect_locked().await?;
         let profile_id = profile.id;
         let applied = match self.upsert_profile_locked(profile).await {
@@ -274,8 +290,9 @@ impl ControlService {
             // listeners/proxy could not be restored. Keep cleanup owned by
             // the normal Disconnect path and preserve the first error.
             tracing::warn!("hot network update rollback failed; stopping the connection");
-            let _ = self.disconnect_locked().await;
+            let _ = self.disconnect_locked_deferred().await;
             self.mark_connection_error(error).await;
+            self.start_queued_shutdown().await;
         } else {
             self.apply_hot_profile_state(previous).await;
         }

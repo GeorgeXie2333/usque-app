@@ -55,6 +55,33 @@ impl ControlService {
         mut status: GateStatus,
         error: &ControlServiceError,
     ) -> Result<(), ControlServiceError> {
+        if self.retain_failed_proxy_chain(status.clone(), error).await {
+            return Ok(());
+        }
+        let failed_proxy_vpn = self
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .filter(|active| {
+                active.runtime.is_vpn()
+                    && active.profile.frontends.tunnel
+                    && !active.profile.kill_switch
+                    && active
+                        .profile
+                        .custom_chain()
+                        .is_some_and(|exit| exit.enabled && exit.source.is_proxy())
+            })
+            .map(|active| {
+                let mut frontends = active.runtime.frontend_statuses(active.frontends);
+                for frontend in &mut frontends {
+                    if frontend.phase != usque_core::FrontendPhase::Disabled {
+                        frontend.phase = usque_core::FrontendPhase::Error;
+                        frontend.listeners.clear();
+                    }
+                }
+                frontends
+            });
         if let Some(active) = self.data_plane.lock().await.as_mut() {
             active.runtime.cancel_immediately();
         }
@@ -63,12 +90,21 @@ impl ControlService {
         self.clear_windows_connection_intent().await;
         *self.session_congestion_control.lock().await = None;
         *self.session_profile.lock().await = None;
-        self.disconnect_locked().await?;
+        self.disconnect_locked_deferred().await?;
         status.stage = GateStage::Error;
         status.warp_stage = Some("disconnected".into());
         status.network = None;
         self.gate_status.send_replace(status);
         self.mark_connection_error(error).await;
+        if let Some(frontends) = failed_proxy_vpn {
+            let mut state = self.state.lock().await;
+            state.update_frontends(frontends);
+            state.update_safety_state(
+                usque_core::KillSwitchState::Inactive,
+                usque_core::LockdownState::NotSupported,
+            );
+        }
+        self.start_queued_shutdown().await;
         Ok(())
     }
 
@@ -78,6 +114,7 @@ impl ControlService {
             .lock()
             .await
             .as_ref()
+            .filter(|active| !active.runtime.failure_retained())
             .map(|active| active.runtime.gate_status())
             .filter(|status| status.stage == GateStage::Error);
         if let Some(status) = status {
@@ -92,17 +129,26 @@ impl ControlService {
     pub(crate) async fn accept_gate_runtime(
         &self,
         mut runtime: crate::active_runtime::ActiveRuntime,
+        profile: &usque_core::Profile,
     ) -> Result<crate::active_runtime::ActiveRuntime, ControlServiceError> {
         let status = runtime.gate_status();
         if status.stage == GateStage::Error {
             // A Windows startup may return its failed transaction so the
             // Engine can own asynchronous rollback, without keeping WARP alive.
-            let error = ControlServiceError::Transport(usque_transport::TransportError::VpnGate(
-                status.failure.unwrap_or(GateFailure::Transport),
-            ));
+            let error = runtime.take_startup_error().unwrap_or_else(|| {
+                ControlServiceError::Transport(usque_transport::TransportError::VpnGate(
+                    status.failure.unwrap_or(GateFailure::Transport),
+                ))
+            });
+            if runtime.is_vpn()
+                && (crate::protected_chain::requires_failure_retention(profile)
+                    || runtime.replacement_pending())
+            {
+                self.retain_failed_startup(profile, runtime, &error).await;
+                return Err(error);
+            }
             runtime.cancel_immediately();
-            *self.disconnect_cleanup.lock().await =
-                Some(tokio::spawn(async move { runtime.shutdown().await }));
+            self.queue_runtime_shutdown(runtime, None).await;
             self.stop_gate_connection_locked(status, &error).await?;
             return Err(error);
         }

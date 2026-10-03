@@ -109,13 +109,12 @@ pub trait PrivilegedBackend: Send + Sync {
         ))
     }
 
-    async fn inspect_persistent_policy(
+    async fn inspect_guard_policy(
         &self,
         _receipt: &MutationReceipt,
+        _persistent: bool,
     ) -> Result<bool, BackendError> {
-        Err(BackendError::Unavailable(
-            "persistent policy inspection".into(),
-        ))
+        Err(BackendError::Unavailable("guard policy inspection".into()))
     }
     /// Creates the independent device described by a persisted creation intent.
     async fn create_device(
@@ -2256,6 +2255,8 @@ mod tests {
         fail_replacement_apply: AtomicBool,
         fail_replacement_remove: AtomicBool,
         hide_replacement_guard: AtomicBool,
+        hide_source_guard: AtomicBool,
+        source_policy_inspections: Mutex<Vec<bool>>,
         replacement_events: Mutex<Vec<&'static str>>,
         replacement_journal_path: Mutex<Option<PathBuf>>,
         diagnostic_release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
@@ -2336,15 +2337,18 @@ mod tests {
             self.replacement_events.lock().await.push("guard_removed");
             Ok(())
         }
-        async fn inspect_persistent_policy(
+        async fn inspect_guard_policy(
             &self,
             _receipt: &MutationReceipt,
+            persistent: bool,
         ) -> Result<bool, BackendError> {
-            Ok(self
-                .applied
-                .lock()
-                .await
-                .contains(&MutationKind::KillSwitch))
+            self.source_policy_inspections.lock().await.push(persistent);
+            Ok(!self.hide_source_guard.load(Ordering::Acquire)
+                && self
+                    .applied
+                    .lock()
+                    .await
+                    .contains(&MutationKind::KillSwitch))
         }
         async fn create_device(
             &self,

@@ -135,11 +135,17 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
                         });
                         let source_still_protected = replacement.phase
                             == ReplacementPhase::InstallingGuard
-                            && journal.plan.as_ref().is_some_and(|plan| plan.kill_switch)
+                            && journal
+                                .plan
+                                .as_ref()
+                                .is_some_and(|plan| plan.kill_switch || plan.vpn_chain)
                             && source_policy.is_some()
                             && self
                                 .backend
-                                .inspect_persistent_policy(&source_policy.expect("checked").receipt)
+                                .inspect_guard_policy(
+                                    &source_policy.expect("checked").receipt,
+                                    journal.plan.as_ref().expect("checked").kill_switch,
+                                )
                                 .await?;
                         // A commit removal intent is enough to repair protection:
                         // the old device may no longer exist after service restart.
@@ -163,11 +169,14 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
                         step.kind == MutationKind::KillSwitch
                             && step.state == MutationState::Applied
                     });
-                    if !source_plan.kill_switch
+                    if !(source_plan.kill_switch || source_plan.vpn_chain)
                         || policy.is_none()
                         || !self
                             .backend
-                            .inspect_persistent_policy(&policy.expect("checked").receipt)
+                            .inspect_guard_policy(
+                                &policy.expect("checked").receipt,
+                                source_plan.kill_switch,
+                            )
                             .await?
                     {
                         return Err(CoordinatorError::ReplacementGuardUnavailable);
