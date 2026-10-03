@@ -766,6 +766,7 @@ internal class VpnControlClient(
         profileJson: String,
         result: MethodChannel.Result,
         authOnly: Boolean = false,
+        accountSelection: Boolean = false,
     ): Boolean {
         if (destroyed) {
             result.error(
@@ -777,6 +778,13 @@ internal class VpnControlClient(
         }
         val service = endpoint
         if (service == null) {
+            val previous = pendingReconfigure
+            if (accountSelection && previous?.accountSelection == true) {
+                pendingReconfigure = null
+                scheduler.cancel(reconfigurePendingToken(previous.result))
+                // Both selections are durable; only the newest needs delivery.
+                previous.result.success(null)
+            }
             if (pendingReconfigure != null) {
                 result.error(
                     "RECONFIGURE_IN_PROGRESS",
@@ -785,7 +793,7 @@ internal class VpnControlClient(
                 )
                 return true
             }
-            pendingReconfigure = PendingReconfigure(profileJson, result, authOnly)
+            pendingReconfigure = PendingReconfigure(profileJson, result, authOnly, accountSelection)
             bind()
             val token = reconfigurePendingToken(result)
             scheduler.postDelayed(reconfigureTimeoutMillis, token) {
@@ -805,7 +813,11 @@ internal class VpnControlClient(
         if (!service.send(
                 UsqueVpnService.MSG_RECONFIGURE,
                 requestId,
-                mapOf(UsqueVpnService.EXTRA_PROFILE_JSON to profileJson, "auth_only" to authOnly),
+                mapOf(
+                    UsqueVpnService.EXTRA_PROFILE_JSON to profileJson,
+                    "auth_only" to authOnly,
+                    "account_selection" to accountSelection,
+                ),
             )
         ) {
             pendingSnapshots.remove(requestId)
@@ -1369,7 +1381,7 @@ internal class VpnControlClient(
         pendingReconfigure?.let { pending ->
             pendingReconfigure = null
             scheduler.cancel(reconfigurePendingToken(pending.result))
-            requestReconfigure(pending.profileJson, pending.result, pending.authOnly)
+            requestReconfigure(pending.profileJson, pending.result, pending.authOnly, pending.accountSelection)
         }
     }
 
@@ -1377,6 +1389,7 @@ internal class VpnControlClient(
         val profileJson: String,
         val result: MethodChannel.Result,
         val authOnly: Boolean = false,
+        val accountSelection: Boolean = false,
     )
 
     private fun snapshotFromBundle(bundle: Bundle): Map<String, Any?> {

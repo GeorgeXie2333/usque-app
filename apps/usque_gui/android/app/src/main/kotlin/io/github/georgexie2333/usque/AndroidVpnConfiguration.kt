@@ -23,6 +23,7 @@ internal data class AndroidVpnProfile(
     val dataPlane: String = "connect_ip",
     val vpnGateEnabled: Boolean = false,
     val customChain: Boolean = false,
+    val proxyChainEnabled: Boolean = false,
 ) {
     // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
     // dual-stack regardless of which outer address family carries it.
@@ -144,6 +145,7 @@ internal data class AndroidVpnProfile(
                 dataPlane = dataPlane,
                 vpnGateEnabled = ChainProfileFields.enabled(source),
                 customChain = ChainProfileFields.custom(source),
+                proxyChainEnabled = ChainProfileFields.proxy(source),
                 dnsIpv4 = dnsIpv4,
                 dnsIpv6 = dnsIpv6,
                 killSwitch = source.getBoolean("kill_switch"),

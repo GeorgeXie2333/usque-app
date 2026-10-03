@@ -866,6 +866,9 @@ internal class AndroidEngineMethodHandler(
             return
         }
         if (!requireProfileEngine(result)) return
+        // Retire pending connect/identity continuations before persisting the
+        // account selection. The VPN process alone decides whether to replace.
+        val intent = connectionIntent.incrementAndGet()
         runProfileCommand(
             flutterValueToJson(
                 mapOf(
@@ -874,6 +877,7 @@ internal class AndroidEngineMethodHandler(
                 ),
             ),
             result,
+            accountSelectionIntent = intent,
         )
     }
 
@@ -1287,6 +1291,7 @@ internal class AndroidEngineMethodHandler(
         commandJson: String,
         result: MethodChannel.Result,
         returnCatalog: Boolean = false,
+        accountSelectionIntent: Long? = null,
     ) {
         if (!requireProfileEngine(result)) return
         identityExecutor.execute {
@@ -1342,7 +1347,21 @@ internal class AndroidEngineMethodHandler(
                     } else {
                         null
                     }
-                mainScheduler.post { result.success(catalog) }
+                val selectedProfile =
+                    if (accountSelectionIntent != null) CurrentAccountProfile.read(responseObject.toString()) else null
+                mainScheduler.post {
+                    if (accountSelectionIntent != null && accountSelectionIntent == connectionIntent.get()) {
+                        if (selectedProfile == null) {
+                            result.error("PROFILE_STORE_FAILED", "The selected account could not be loaded.", null)
+                        } else {
+                            controlClient.requestReconfigure(selectedProfile, result, accountSelection = true)
+                        }
+                    } else {
+                        // Superseded selections were still durably saved. Do
+                        // not resurrect them after a later select/disconnect.
+                        result.success(catalog)
+                    }
+                }
             } catch (error: Exception) {
                 mainScheduler.post {
                     result.error(

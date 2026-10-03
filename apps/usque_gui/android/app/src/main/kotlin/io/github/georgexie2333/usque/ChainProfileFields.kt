@@ -9,6 +9,11 @@ internal object ChainProfileFields {
 
     fun enabled(profile: JSONObject): Boolean = settings(profile)?.optBoolean("enabled") == true
 
+    fun proxy(profile: JSONObject): Boolean =
+        profile.optJSONObject("chain_exit")?.let {
+            it.optBoolean("enabled") && it.optString("source") in setOf("http_proxy", "socks5_proxy")
+        } == true
+
     fun custom(profile: JSONObject): Boolean =
         profile.optJSONObject("chain_exit")?.let { it.optString("source") != "vpn_gate" } == true
 

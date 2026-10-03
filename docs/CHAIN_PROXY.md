@@ -339,8 +339,27 @@ error snapshot arrives before the physical-network callback. Replacement network
 failures use 1/2/4/8/15/30-second backoff. The profile, blocking TUN and armed Kill
 Switch remain in place throughout recovery. Disconnect cancels recovery.
 Authentication, certificate, configuration and unconfirmed-cleanup failures stop
-automatic attempts while retaining the blocking VPN interface and error evidence;
-they require an explicit retry or disconnect. Underlay security failures keep
+automatic attempts and preserve the error evidence. For HTTP/SOCKS chains,
+terminal failure retains the blocking interface with Kill Switch on; with it off,
+the interface is released only after native cleanup is confirmed and only by its
+current owner. Unconfirmed cleanup always keeps it blocking. Other chain sources
+retain their existing interface behavior. Retry or disconnect remains explicit.
+Rebuilding an applied HTTP/SOCKS VPN session for a configuration change or
+activating another account starts a protected replacement, including when
+Kill Switch is off. For account changes, Android rereads the latest saved
+account in the VPN process. It retains the old interface until the
+replacement is running, and ignores superseded callbacks. Terminal failure
+retains the interface when the inherited applied source or the incoming target
+has Kill Switch on; when both are off, confirmed native cleanup releases it.
+An unknown inherited preference is retained conservatively. The selected new
+account remains available for Retry; explicit Disconnect still releases it.
+Qualification follows the profile actually established on the owned TUN,
+including initial startup or failure before a first
+successful connection; saved pending settings cannot supply that proof. Other
+account selections retain their prior behavior.
+HTTP/SOCKS cold startup establishes the VPN interface before waiting for a physical
+network; explicit LAN, CIDR, GEO, domain and per-app bypasses remain unchanged.
+Underlay security failures keep
 their original classification. Ordinary WARP mode keeps its existing native
 migration/reconnect behavior.
 
@@ -349,8 +368,20 @@ Android 上已建立的链式连接遇到物理网络变化时，会在确认原
 时等待恢复，连续变化会合并处理。可重试的链传输错误也进入同一恢复流程，
 包括错误快照先于网络回调到达的情况；重建中的网络失败按 1/2/4/8/15/30 秒
 退避重试。恢复期间保留配置、阻断用 TUN 和已开启的 Kill Switch。主动断开会
-取消恢复。认证、证书、配置错误或清理未确认会停止自动尝试，保留阻断接口和
-错误证据，等待用户明确重试或断开。底层安全错误保留原始分类；普通 WARP
+取消恢复。认证、证书、配置错误或清理未确认会停止自动尝试并保留错误证据。
+HTTP/SOCKS 链式终止失败时，开启 Kill Switch 会保留阻断接口；关闭时仅在确认
+原生实例停止后，由当前代次释放仍属自己的接口。清理未确认时始终保持阻断。
+其他链式来源保留原有接口行为，重试和主动断开仍由用户决定。已应用的 HTTP/SOCKS
+VPN 会话因配置变化重建或切换账号时，会自动交接，包括关闭 Kill Switch 时。
+切换账号会由 VPN 进程重新读取最新选择。新会话成功运行前保留旧接口和保护，
+忽略过期回调；终止失败时，原来
+已应用的来源或新目标任一开启 Kill Switch 都会保留接口，二者均关闭则在确认原生
+停止后释放。来源偏好不明时保守保留，新选择仍供重试，不能按尚未生效的新偏好
+提前解除已开启的阻断。是否接管以当前接口实际建立时应用的配置为依据，包含
+首次连接成功前的启动和失败阶段，不能借用尚未应用的保存值。
+主动断开仍会释放接口，其他模式的账号选择行为不变。HTTP/SOCKS 冷启动
+先建立 VPN 接口再等待物理网络；显式 LAN、CIDR、GEO、域名及分应用绕过规则不变。
+底层安全错误保留原始分类；普通 WARP
 模式保留原有原生迁移和重连行为。
 
 Endpoint names resolve inside the current WARP session. Protocol UDP uses the

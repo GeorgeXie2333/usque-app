@@ -642,6 +642,36 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun newestPendingAccountSelectionSurvivesRebinding() {
+        val b = RecordingResult()
+        val c = RecordingResult()
+        assertTrue(client.requestReconfigure("""{"id":"b"}""", b, accountSelection = true))
+        assertTrue(client.requestReconfigure("""{"id":"c"}""", c, accountSelection = true))
+        assertEquals(1, b.completionCount)
+        assertNull(b.errorCode)
+        assertSame(c, client.pendingReconfigureForTest())
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        assertEquals(UsqueVpnService.MSG_RECONFIGURE, endpoint.messages.single().what)
+        assertEquals(
+            true,
+            endpoint.messages
+                .single()
+                .extras
+                ?.get("account_selection"),
+        )
+        assertEquals(
+            """{"id":"c"}""",
+            endpoint.messages
+                .single()
+                .extras
+                ?.get(UsqueVpnService.EXTRA_PROFILE_JSON),
+        )
+        assertEquals(1, b.completionCount)
+        assertEquals(0, c.completionCount)
+    }
+
+    @Test
     fun reconfigureRejectsConcurrentUnboundRequest() {
         val first = RecordingResult()
         val second = RecordingResult()

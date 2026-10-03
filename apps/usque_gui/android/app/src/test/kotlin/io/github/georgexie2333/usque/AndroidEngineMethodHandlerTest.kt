@@ -150,6 +150,78 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun selectedAccountIsPersistedBeforeTheServiceDecidesProtectedReplacement() {
+        engineBridge.profileCatalogJson = """{"active_profile_id":"p2","profiles":[{"id":"p2"}]}"""
+        val result = RecordingResult()
+        handler.handle(MethodCall("setActiveProfile", mapOf("profile_id" to "p2")), result)
+        assertTrue(engineBridge.commands.single().contains("set_active_profile"))
+        assertEquals(listOf(UsqueVpnService.MSG_RECONFIGURE), endpoint.whats)
+        assertEquals(true, endpoint.lastExtras?.get("account_selection"))
+        assertEquals(
+            "p2",
+            JSONObject(endpoint.lastExtras?.get(UsqueVpnService.EXTRA_PROFILE_JSON) as String).getString("id"),
+        )
+        assertEquals(0, activityCommands.connectCount)
+        assertEquals(0, result.completionCount)
+    }
+
+    @Test
+    fun rapidAccountChangesDoNotDispatchTheSupersededSelection() {
+        val pending = mutableListOf<Runnable>()
+        val delayed =
+            AndroidEngineMethodHandler(
+                profileConfigPath = "/tmp/profiles-v2.json",
+                identityStore = identityStore,
+                identityExecutor = Executor { pending.add(it) },
+                mainScheduler = scheduler,
+                controlClient = controlClient,
+                activityCommands = activityCommands,
+                engineBridge = engineBridge,
+                maintenanceBridge = maintenance,
+                warpSecretOkCode = 0,
+            )
+        val b = RecordingResult()
+        delayed.handle(MethodCall("setActiveProfile", mapOf("profile_id" to "b")), b)
+        delayed.handle(MethodCall("setActiveProfile", mapOf("profile_id" to "c")), RecordingResult())
+        engineBridge.profileCatalogJson = """{"active_profile_id":"b","profiles":[{"id":"b"}]}"""
+        pending.removeAt(0).run()
+        assertEquals(1, b.completionCount)
+        assertTrue(endpoint.whats.isEmpty())
+        engineBridge.profileCatalogJson = """{"active_profile_id":"c","profiles":[{"id":"c"}]}"""
+        pending.removeAt(0).run()
+        assertEquals(listOf(UsqueVpnService.MSG_RECONFIGURE), endpoint.whats)
+        assertEquals(
+            "c",
+            JSONObject(endpoint.lastExtras?.get(UsqueVpnService.EXTRA_PROFILE_JSON) as String).getString("id"),
+        )
+    }
+
+    @Test
+    fun accountSelectionCancelsAnOlderPendingConnectContinuation() {
+        val pending = mutableListOf<Runnable>()
+        val delayed =
+            AndroidEngineMethodHandler(
+                profileConfigPath = "/tmp/profiles-v2.json",
+                identityStore = identityStore,
+                identityExecutor = Executor { pending.add(it) },
+                mainScheduler = scheduler,
+                controlClient = controlClient,
+                activityCommands = activityCommands,
+                engineBridge = engineBridge,
+                maintenanceBridge = maintenance,
+                warpSecretOkCode = 0,
+            )
+        engineBridge.profileCatalogJson =
+            """{"active_profile_id":"a","profiles":[{"id":"a","mode":"socks5","frontends":{"tunnel":false}}]}"""
+        val oldConnect = RecordingResult()
+        delayed.handle(MethodCall("connect", mapOf("id" to "a", "mode" to "socks5")), oldConnect)
+        delayed.handle(MethodCall("setActiveProfile", mapOf("profile_id" to "b")), RecordingResult())
+        pending.removeAt(0).run()
+        assertEquals("ENGINE_REQUEST_CANCELLED", oldConnect.errorCode)
+        assertEquals(0, activityCommands.connectCount)
+    }
+
+    @Test
     fun reconfigureActiveProfilePersistsAndNotifiesTheVpnServiceWithoutConnect() {
         engineBridge.profileCatalogJson =
             """{"profiles":[{"id":"p1"}]}"""

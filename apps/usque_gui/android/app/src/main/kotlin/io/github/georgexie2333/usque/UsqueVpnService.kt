@@ -145,6 +145,8 @@ class UsqueVpnService : VpnService() {
     private var settingsUncertain = false
     private var runtimeReconfigureInFlight = false
     private var confirmedSettingsProfile: String? = null
+    private val accountHandoff = ProtectedAccountHandoff()
+    private val establishedTunProtection = EstablishedTunProtection()
     private val settingsPath: String
         get() = File(noBackupFilesDir, "usque_config/profiles-v2.json").absolutePath
     private val activeMode = AtomicReference<String?>(null)
@@ -485,6 +487,7 @@ class UsqueVpnService : VpnService() {
             recordLog(AndroidLogStore.Event.SERVICE_DESTROYED, phase = snapshotState.phase)
         }
         destroyed = true
+        accountHandoff.disconnect()
         networkMonitor.cancelScheduledSelection()
         connectionGeneration.incrementAndGet()
         settingsApplication.cancel()
@@ -589,6 +592,13 @@ class UsqueVpnService : VpnService() {
             broadcastSnapshot()
             return
         }
+        // Cold settings changes own the same protected transition as an account
+        // change. Capture the established source preference before replacing it.
+        accountHandoff.inheritColdVpn(
+            appliedProfile = establishedTunProtection.profileFor(tunnel.get()),
+            tunnelOwned = tunnel.get()?.fileDescriptor?.valid() == true,
+            targetTunnel = tunnelEnabled,
+        )
         // Revoke polling before publishing the replacement generation. A
         // snapshot of the old ENGINE must never be stamped as the new session.
         val previousLogContext = currentLogContext()
@@ -637,6 +647,10 @@ class UsqueVpnService : VpnService() {
         } else {
             snapshotState.reset("preparing")
         }
+        if (accountHandoff.retained) {
+            snapshotState.killSwitchEnabled =
+                accountHandoff.retainAfterFailure(JSONObject(profileJson).optBoolean("kill_switch", true))
+        }
         notifyTileStateChanged()
         broadcastSnapshot()
 
@@ -649,20 +663,26 @@ class UsqueVpnService : VpnService() {
                 null
             }
         val decision =
-            TunRestartPolicy.decide(
-                killSwitch =
-                    incomingIdentity != null && (
-                        JSONObject(profileJson).optBoolean("kill_switch", false) ||
-                            incomingIdentity.vpnGateEnabled || lastTunIdentity.get()?.vpnGateEnabled == true
-                    ),
-                tunnelFrontend = tunnelEnabled,
-                hasCurrentFd = tunnel.get() != null,
-                sameIdentity =
-                    incomingIdentity != null &&
-                        lastTunIdentity.get()?.sameForReuse(incomingIdentity) == true,
-                userRequestedDisconnect = false,
-                networkRecovery = networkRecovery,
-            )
+            if (accountHandoff.retained && !tunnelEnabled && tunnel.get() != null) {
+                // A saved proxy-only target may replace a protected session.
+                // Keep capture until the replacement is actually running.
+                TunRestartDecision.RETAIN
+            } else {
+                TunRestartPolicy.decide(
+                    killSwitch =
+                        incomingIdentity != null && (
+                            accountHandoff.retained || JSONObject(profileJson).optBoolean("kill_switch", false) ||
+                                incomingIdentity.vpnGateEnabled || lastTunIdentity.get()?.vpnGateEnabled == true
+                        ),
+                    tunnelFrontend = tunnelEnabled,
+                    hasCurrentFd = tunnel.get() != null,
+                    sameIdentity =
+                        incomingIdentity != null &&
+                            lastTunIdentity.get()?.sameForReuse(incomingIdentity) == true,
+                    userRequestedDisconnect = false,
+                    networkRecovery = networkRecovery,
+                )
+            }
         pendingTunRestart = decision
 
         val staleDescriptor =
@@ -716,6 +736,68 @@ class UsqueVpnService : VpnService() {
         }
     }
 
+    private fun reconfigureSelectedAccount(request: Message) {
+        val token =
+            accountHandoff.request(
+                appliedProfile = establishedTunProtection.profileFor(tunnel.get()),
+                tunnelOwned = tunnel.get()?.fileDescriptor?.valid() == true,
+                mode = activeMode.get(),
+                runtimeProfile = activeProfileJson.get(),
+                phase = snapshotState.phase,
+            )
+        if (token == null) {
+            // Ordinary account selection still only changes the saved account.
+            replyWithSnapshot(request)
+            return
+        }
+        // Retire the old completion *before* waiting for the catalog. In
+        // particular, a proxy-only B must not close the inherited interface
+        // while a newer account C is already waiting for its durable read.
+        if (!accountHandoff.begin(token)) {
+            replyWithSnapshot(request)
+            return
+        }
+        sessionNetworkRecovery.cancel()
+        nativeRuntimeActive.set(false)
+        stopStatusTask()
+        val generation = connectionGeneration.incrementAndGet()
+        settingsApplication.cancel()
+        runtimeReconfigureInFlight = false
+        diagnosticProbes.cancel()
+        NativeEngine.cancel()
+        snapshotState.reset("preparing")
+        snapshotState.killSwitchEnabled = accountHandoff.retainAfterFailure(false)
+        updateNotification()
+        broadcastSnapshot()
+        settingsExecutor.execute {
+            // The UI payload may have waited behind another account write.
+            // Read the durable current selection inside the owning process.
+            val target =
+                runCatching {
+                    CurrentAccountProfile.read(
+                        requireNotNull(
+                            NativeEngine.applyProfileCommand(settingsPath, "{\"command\":\"list_profiles\"}"),
+                        ),
+                    )
+                }.getOrNull()
+            mainHandler.post {
+                if (!isCurrent(generation) || !accountHandoff.owns(token)) {
+                    replyWithSnapshot(request)
+                    return@post
+                }
+                if (target == null) {
+                    fail(generation, "PROFILE_STORE_FAILED", "The selected account could not be loaded.")
+                    replyControlError(request, "PROFILE_STORE_FAILED", "The selected account could not be loaded.")
+                    return@post
+                }
+                // A different WARP identity requires a cold native owner. The
+                // inherited TUN remains blocking and replacements use NEWFIRST.
+                beginConnection(target)
+                replyWithSnapshot(request)
+            }
+        }
+    }
+
     @SuppressLint("ApplySharedPref", "UseKtx")
     private fun reconfigureConnection(
         request: Message,
@@ -723,6 +805,10 @@ class UsqueVpnService : VpnService() {
     ) {
         if (request.data.getBoolean("auth_only", false)) {
             reconfigureProxyAuth(request)
+            return
+        }
+        if (request.data.getBoolean("account_selection", false)) {
+            reconfigureSelectedAccount(request)
             return
         }
         val settingsRequest = settingsToken != null
@@ -937,6 +1023,7 @@ class UsqueVpnService : VpnService() {
                         profile,
                         assignment,
                         routePlan,
+                        protectionProfile = profileJson,
                         retainExisting = false,
                         finalNetwork = network,
                     )
@@ -1192,24 +1279,25 @@ class UsqueVpnService : VpnService() {
                     fail(generation, "The bypass route configuration is unsafe: ${safeMessage(error)}")
                     return
                 }
-            if (!awaitPhysicalNetwork(generation, requireDns = profile.requiresPhysicalDns)) {
-                fail(
-                    generation,
-                    "ANDROID_WAITING_FOR_PHYSICAL_NETWORK",
-                    "Android did not provide a usable non-VPN physical network within 8 seconds.",
-                )
-                return
-            }
-            if (!isCurrent(generation)) return
             val restart = pendingTunRestart
-            val descriptor =
+            val startup =
                 try {
-                    ensureTunOnOwner(
-                        generation,
-                        profile,
-                        assignment,
-                        routePlan,
-                        retainExisting = restart == TunRestartDecision.RETAIN,
+                    ProxyChainVpnLifecycle.prepare(
+                        proxyChain = profile.proxyChainEnabled,
+                        isCurrent = { isCurrent(generation) },
+                        awaitPhysicalNetwork = {
+                            awaitPhysicalNetwork(generation, requireDns = profile.requiresPhysicalDns)
+                        },
+                        establishTun = {
+                            ensureTunOnOwner(
+                                generation,
+                                profile,
+                                assignment,
+                                routePlan,
+                                protectionProfile = profileJson,
+                                retainExisting = restart == TunRestartDecision.RETAIN,
+                            )
+                        },
                     )
                 } catch (error: PerAppProxyEmptyException) {
                     fail(
@@ -1222,13 +1310,31 @@ class UsqueVpnService : VpnService() {
                     fail(generation, "Android refused the VPN configuration: ${safeMessage(error)}")
                     return
                 }
-            if (descriptor == null) {
-                fail(generation, "Android refused to create the VPN interface.")
-                return
-            }
-            if (!isCurrent(generation)) {
-                return
-            }
+            val descriptor =
+                when (startup) {
+                    is ProxyChainVpnLifecycle.Startup.Ready -> {
+                        startup.descriptor
+                    }
+
+                    ProxyChainVpnLifecycle.Startup.Cancelled -> {
+                        return
+                    }
+
+                    ProxyChainVpnLifecycle.Startup.WaitingForNetwork -> {
+                        fail(
+                            generation,
+                            "ANDROID_WAITING_FOR_PHYSICAL_NETWORK",
+                            "Android did not provide a usable non-VPN physical network within 8 seconds.",
+                        )
+                        return
+                    }
+
+                    ProxyChainVpnLifecycle.Startup.TunUnavailable -> {
+                        fail(generation, "Android refused to create the VPN interface.")
+                        return
+                    }
+                }
+            if (!isCurrent(generation)) return
             postPhase(generation, "connectingH3", null)
             val proxyPassword = loadProxyPassword(profile.id, profileJson)
             val startResult =
@@ -1255,7 +1361,7 @@ class UsqueVpnService : VpnService() {
                     return
                 }
                 val failure = nativeStartFailure(startResult)
-                if (!profile.killSwitch && !networkRecovery) {
+                if (!profile.killSwitch && !networkRecovery && !profile.proxyChainEnabled && !accountHandoff.retained) {
                     closeOwnedTun(generation, descriptor)
                 }
                 fail(generation, failure.code, failure.message, failure.gateStatus, failure.details)
@@ -1289,7 +1395,7 @@ class UsqueVpnService : VpnService() {
                     }
                 val finalDescriptor =
                     try {
-                        ensureTunOnOwner(generation, profile, assignment, routePlan, false, finalNetwork)
+                        ensureTunOnOwner(generation, profile, assignment, routePlan, profileJson, false, finalNetwork)
                             ?: error("Android refused the final VPN interface")
                     } catch (_: Exception) {
                         stopNativeRuntime(beginNativeStop())
@@ -1318,6 +1424,7 @@ class UsqueVpnService : VpnService() {
                     nativeRuntimeActive.set(true)
                     sessionNetworkRecovery.connected()
                     snapshotState.killSwitchEnabled = profile.killSwitch
+                    accountHandoff.stable()
                     ensureStatusTask()
                     refreshNativeSnapshot()
                 }
@@ -1382,6 +1489,8 @@ class UsqueVpnService : VpnService() {
                 if (isCurrent(generation)) {
                     nativeRuntimeActive.set(true)
                     snapshotState.killSwitchEnabled = false
+                    if (accountHandoff.retained) tunnel.get()?.let { closeOwnedTun(generation, it) }
+                    accountHandoff.stable()
                     ensureStatusTask()
                     refreshNativeSnapshot()
                 }
@@ -1571,6 +1680,7 @@ class UsqueVpnService : VpnService() {
         profile: AndroidVpnProfile,
         assignment: WarpAddressAssignment,
         routePlan: RoutePlan,
+        protectionProfile: String,
         retainExisting: Boolean,
         finalNetwork: VpnGateNetwork? = null,
     ): ParcelFileDescriptor? {
@@ -1578,9 +1688,11 @@ class UsqueVpnService : VpnService() {
             generationOwner.submit(generation) {
                 // Establish and publish in one main-thread operation, serialized
                 // with network callbacks, Disconnect and replacement intents.
+                val previousDescriptor = tunnel.get()
                 ensureTun(profile, assignment, routePlan, retainExisting, finalNetwork)?.also {
                     lastTunIdentity.set(tunIdentity(profile))
-                    snapshotState.killSwitchEnabled = profile.killSwitch
+                    establishedTunProtection.published(it, previousDescriptor, protectionProfile)
+                    snapshotState.killSwitchEnabled = accountHandoff.retainAfterFailure(profile.killSwitch)
                 }
             }
         return try {
@@ -1741,6 +1853,7 @@ class UsqueVpnService : VpnService() {
         terminalFailure: ConnectionFailure? = null,
     ) {
         sessionNetworkRecovery.cancel()
+        accountHandoff.disconnect()
         diagnosticProbes.cancel()
         recoveryPreferences.edit().remove(RECOVERY_PROFILE).commit()
         lastTunIdentity.set(null)
@@ -1814,6 +1927,7 @@ class UsqueVpnService : VpnService() {
         }
         AndroidLocaleController.clear(this)
         sessionNetworkRecovery.cancel()
+        accountHandoff.disconnect()
         val previousLogContext = currentLogContext()
         val generation = connectionGeneration.incrementAndGet()
         settingsApplication.cancel()
@@ -2187,6 +2301,13 @@ class UsqueVpnService : VpnService() {
             snapshotState.phase in setOf("connected", "degraded") &&
                 nativeRuntimeActive.get() && profile != null &&
                 (!VpnReconfigure.tunnelFrontendEnabled(profile) || tunnel.get()?.fileDescriptor?.valid() == true)
+        if (stable && VpnReconfigure.tunnelFrontendEnabled(profile)) {
+            // A successful hot change may reuse the TUN. Only confirmed native
+            // application can advance its scope without establishing a new FD.
+            tunnel.get()?.takeIf { it.fileDescriptor.valid() }?.let {
+                establishedTunProtection.established(it, profile)
+            }
+        }
         val application = settingsApplication.current(generation)
         val failed = application != null && snapshotState.phase == "error"
         if (application != null && !stable && !failed) return
@@ -2420,8 +2541,10 @@ class UsqueVpnService : VpnService() {
         val stopTicket = beginNativeStop(previousLogContext)
         val stoppedGate =
             reason.gateStatus?.let { runCatching { VpnGateFields.stoppedStatus(JSONObject(it)) }.getOrNull() }
-        // Preserve the profile and protective TUN even for terminal failures.
-        // Explicit lifecycle operations retain ownership of descriptor closure.
+        // Keep the blocking interface until native cleanup is confirmed. Only
+        // HTTP/SOCKS with Kill Switch off may release it after terminal failure.
+        val failedProfileJson = activeProfileJson.get()
+        val failedDescriptor = tunnel.get()
         snapshotState.retainFailure(reason.copy(gateStatus = stoppedGate))
         updateNotification()
         notifyTileStateChanged()
@@ -2432,6 +2555,22 @@ class UsqueVpnService : VpnService() {
                     if (!confirmed) {
                         snapshotState.warning =
                             "${reason.message.take(384)}\nNative cleanup is not confirmed. Retry before reconnecting."
+                    }
+                    if (failedDescriptor != null) {
+                        val policy =
+                            ProxyChainVpnLifecycle.failurePolicy(
+                                profileJson = failedProfileJson,
+                                inheritedCapture = accountHandoff.retained,
+                                inheritedKillSwitch = accountHandoff.retainAfterFailure(false),
+                            )
+                        ProxyChainVpnLifecycle.releaseAfterStop(
+                            proxyChain = policy.protectedCapture,
+                            killSwitch = policy.killSwitch,
+                            confirmed = confirmed,
+                            isCurrent = { isCurrent(generation) },
+                            releaseOwnedTun = { closeOwnedTun(generation, failedDescriptor) },
+                        )
+                        if (policy.protectedCapture && confirmed && !policy.killSwitch) accountHandoff.stable()
                     }
                     broadcastSnapshot()
                 }
@@ -2888,6 +3027,7 @@ class UsqueVpnService : VpnService() {
     private fun safeMessage(error: Exception): String = (error.message ?: error.javaClass.simpleName).take(256)
 
     private fun closeQuietly(descriptor: ParcelFileDescriptor?) {
+        establishedTunProtection.closed(descriptor)
         try {
             descriptor?.close()
         } catch (_: Exception) {

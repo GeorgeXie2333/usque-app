@@ -12,6 +12,22 @@ import java.net.InetAddress
 
 class AndroidVpnConfigurationTest {
     @Test
+    fun onlyEnabledHttpAndSocksChainsCaptureBeforeWaitingForTheNetwork() {
+        for (source in listOf("http_proxy", "socks5_proxy", "wireguard_custom", "openvpn_custom", "vpn_gate")) {
+            for (enabled in listOf(false, true)) {
+                val json =
+                    jsonProfile()
+                        .put("chain_exit", JSONObject().put("enabled", enabled).put("source", source))
+                        .put("vpn_gate", JSONObject().put("enabled", true))
+                val profile = AndroidVpnProfile.parse(json.toString())
+                assertEquals(enabled && source in setOf("http_proxy", "socks5_proxy"), profile.proxyChainEnabled)
+                assertEquals(enabled, profile.vpnGateEnabled)
+            }
+        }
+        assertEquals(false, AndroidVpnProfile.parse(jsonProfile().toString()).proxyChainEnabled)
+    }
+
+    @Test
     fun automaticIgnoresDormantCustomDnsClashesButLegacyCustomRemainsStrict() {
         val source = jsonProfile().put("endpoint_v4", "1.1.1.1")
         assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
