@@ -260,9 +260,15 @@ class Application final : public CBootstrapperApplicationBase {
     return S_OK;
   }
 
-  STDMETHODIMP OnUnregisterBegin(BOOTSTRAPPER_REGISTRATION_TYPE, BOOTSTRAPPER_REGISTRATION_TYPE*) override {
+  STDMETHODIMP OnUnregisterBegin(BOOTSTRAPPER_REGISTRATION_TYPE registration, BOOTSTRAPPER_REGISTRATION_TYPE*) override {
+    // Burn also ends ordinary installation sessions here while retaining their
+    // registration. Keep that presentation distinct from removal and rollback.
+    const bool rolling_back = IsRollingBack() || cancel_stage_.load() == CancelStage::rollback;
+    const std::string key = rolling_back ? "rolling_back" :
+      action_ == BOOTSTRAPPER_ACTION_UNINSTALL || registration == BOOTSTRAPPER_REGISTRATION_TYPE_NONE ?
+        "uninstall_registration" : "installing";
     cancel_stage_ = CancelStage::registration_cleanup;
-    Post({EventType::status, S_OK, 0, "uninstall_registration"});
+    Post({EventType::status, S_OK, 0, key});
     return S_OK;
   }
 

@@ -45,6 +45,12 @@ outer window never substitutes successful progress for a successful final
 transaction result. A same-version package with a different ProductCode still
 uses the existing major-replacement policy, not MSI repair.
 
+Burn also finalizes registration after an ordinary installation. The window
+keeps installation wording when retaining those records, shows cleanup wording
+when removing records, and preserves rollback wording after rollback starts.
+Cancellation stays disabled throughout this finalization stage; its callback
+does not establish installation success.
+
 After successful installation, desktop-shortcut creation and login startup
 are current-user operations outside the completed MSI transaction. The native
 setup links the same shell-operation implementation as the Windows runner and
