@@ -53,9 +53,26 @@ pub struct Shared {
     pub prompt: Mutex<Option<Prompt>>,
     pub cancel: AtomicBool,
     pub error_code: Mutex<Option<u32>>,
+    registration: Mutex<Option<Completion>>,
 }
 
 impl Shared {
+    pub(super) fn begin_registration(&self, completion: &Completion) {
+        // Retain MSI's completed transaction before starting Burn. A worker
+        // failure cannot turn registration-only retry into another uninstall.
+        *self.registration.lock().unwrap_or_else(|e| e.into_inner()) = Some(completion.clone());
+        let mut lifecycle = self.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        lifecycle.stage = Stage::Registration;
+        lifecycle.purge_started = completion.purge_started;
+    }
+
+    pub fn registration_context(&self) -> Option<Completion> {
+        self.registration
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     pub fn snapshot(&self) -> Lifecycle {
         self.lifecycle
             .lock()
@@ -99,11 +116,7 @@ pub fn start(request: UninstallRequest, owner: HWND) -> Operation {
 
 pub fn retry_registration(previous: Completion) -> Operation {
     let shared = Arc::new(Shared::default());
-    shared
-        .lifecycle
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .stage = Stage::Registration;
+    shared.begin_registration(&previous);
     let (tx, rx) = mpsc::channel();
     let worker = thread::spawn(move || {
         // This entry point cannot call MSI or replay user-data deletion.
@@ -203,15 +216,11 @@ fn execute(request: UninstallRequest, owner: HWND, shared: &Arc<Shared>) -> Comp
     if !successful_installer_exit(code as i32) {
         return completion;
     }
-    shared
-        .lifecycle
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .stage = Stage::Registration;
+    shared.begin_registration(&completion);
     finish_registration(completion)
 }
 
-fn finish_registration(mut completion: Completion) -> Completion {
+fn finish_registration(completion: Completion) -> Completion {
     let code = if let Some(bundle) = &completion.bundle {
         // Reverify every attempt. The original window owns this exact trusted
         // cache path; retry never discovers a substitute or re-enters MSI.
@@ -226,6 +235,10 @@ fn finish_registration(mut completion: Completion) -> Completion {
     } else {
         0
     };
+    registration_result(completion, code)
+}
+
+pub(super) fn registration_result(mut completion: Completion, code: u32) -> Completion {
     if successful_installer_exit(code as i32) {
         completion.code = combine_success_codes(completion.msi_code as i32, code as i32) as u32;
         completion.outcome = if completion.code == 0 {
@@ -744,5 +757,56 @@ mod tests {
         assert_eq!(completed.outcome, Outcome::RebootRequired);
         assert_eq!(completed.code, 3010);
         assert!(completed.purge_started);
+    }
+
+    #[test]
+    fn registration_result_preserves_msi_identity_and_irreversible_data_flags() {
+        for msi_code in [0, 3010, 1641] {
+            for deleted_data in [false, true] {
+                for registration_code in [0, 3010, 1641, 1603, 1602, 1] {
+                    let previous = Completion {
+                        outcome: Outcome::RegistrationFailed,
+                        code: 1603,
+                        msi_code,
+                        purge_started: deleted_data,
+                        remove_user_data: deleted_data,
+                        bundle: Some(PathBuf::from(r"C:\inert-fixture\{bundle-id}\setup.exe")),
+                    };
+                    let result = registration_result(previous.clone(), registration_code);
+                    assert_eq!(result.msi_code, previous.msi_code);
+                    assert_eq!(result.purge_started, previous.purge_started);
+                    assert_eq!(result.remove_user_data, previous.remove_user_data);
+                    assert_eq!(result.bundle, previous.bundle);
+                    let expected = if matches!(registration_code, 1603 | 1602 | 1) {
+                        Outcome::RegistrationFailed
+                    } else if msi_code == 0 && registration_code == 0 {
+                        Outcome::Success
+                    } else {
+                        Outcome::RebootRequired
+                    };
+                    assert_eq!(result.outcome, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn registration_context_is_saved_before_worker_execution_and_cannot_cancel() {
+        let previous = Completion {
+            outcome: Outcome::Success,
+            code: 0,
+            msi_code: 0,
+            purge_started: true,
+            remove_user_data: true,
+            bundle: Some(PathBuf::from(r"C:\inert-fixture\{bundle-id}\setup.exe")),
+        };
+        let shared = Shared::default();
+        shared.begin_registration(&previous);
+        let retained = shared.registration_context().unwrap();
+        assert_eq!(retained.msi_code, 0);
+        assert_eq!(retained.bundle, previous.bundle);
+        assert!(retained.purge_started && retained.remove_user_data);
+        assert_eq!(shared.snapshot().stage, Stage::Registration);
+        assert!(!shared.request_cancel());
     }
 }

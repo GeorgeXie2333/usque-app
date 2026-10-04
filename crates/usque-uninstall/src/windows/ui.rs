@@ -128,6 +128,7 @@ struct State {
     restart: RestartFlow,
     operation: Option<Operation>,
     result: Option<Completion>,
+    pending_registration: Option<Completion>,
     prompt: Option<Prompt>,
     details: bool,
     scroll: i32,
@@ -144,8 +145,88 @@ struct State {
 }
 
 impl State {
+    fn new(
+        product: Option<String>,
+        preview: Option<Preview>,
+        preview_theme: Option<PreviewTheme>,
+        locale: &'static str,
+    ) -> Self {
+        Self {
+            product,
+            preview,
+            preview_theme,
+            locale,
+            page: Page::Confirm,
+            remove_data: false,
+            lifecycle: Lifecycle::default(),
+            restart: RestartFlow::Idle,
+            operation: None,
+            result: None,
+            pending_registration: None,
+            prompt: None,
+            details: false,
+            scroll: 0,
+            max_scroll: 0,
+            dpi: 96,
+            palette: palette(preview.is_some(), preview_theme),
+            fonts: fonts(96),
+            preview_ticks: 0,
+            save_code: None,
+            exit_code: crate::ERROR_INSTALL_USEREXIT,
+            controls: Vec::new(),
+            detail_accessible_name: "",
+            paint: Box::new(Cell::new(PaintStyle::default())),
+        }
+    }
+
     fn text(&self, key: &str) -> &'static str {
         l10n::setup_text(self.locale, key)
+    }
+
+    fn body_key(&self) -> &'static str {
+        if let Some(key) = self.restart.message_key() {
+            key
+        } else if let Some(result) = &self.result {
+            result.outcome.key()
+        } else if self.prompt.as_ref().is_some_and(|p| p.files_in_use) {
+            "uninstall_files_in_use"
+        } else if self.prompt.is_some() {
+            "uninstall_failed"
+        } else if self.page == Page::Running {
+            if self.lifecycle.stage == Stage::Registration {
+                "uninstall_registration"
+            } else {
+                "uninstall_progress_note"
+            }
+        } else {
+            "uninstall_body"
+        }
+    }
+
+    fn warning_key(&self) -> Option<&'static str> {
+        if self.prompt.as_ref().is_some_and(|p| p.files_in_use) {
+            Some("close_apps_save_work")
+        } else if self.page == Page::Confirm {
+            Some(if self.remove_data {
+                "uninstall_delete_warning"
+            } else {
+                "retained_data"
+            })
+        } else if let Some(result) = &self.result {
+            if matches!(result.outcome, Outcome::Success | Outcome::RebootRequired)
+                && result.remove_user_data
+            {
+                Some("uninstall_data_removed")
+            } else if !result.remove_user_data
+                || (!result.purge_started && result.outcome == Outcome::MsiFailed)
+            {
+                Some("uninstall_data_kept")
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     fn apply_preview(&mut self, scenario: Preview) {
@@ -184,7 +265,11 @@ impl State {
                 self.finish(Completion {
                     outcome,
                     code,
-                    msi_code: code,
+                    msi_code: if scenario == Preview::RegistrationFailure {
+                        0
+                    } else {
+                        code
+                    },
                     purge_started: scenario == Preview::PartialData,
                     remove_user_data: scenario == Preview::PartialData,
                     bundle: None,
@@ -201,6 +286,7 @@ impl State {
         self.exit_code = result.code as i32;
         self.page = Page::Finished;
         self.result = Some(result);
+        self.pending_registration = None;
         self.prompt = None;
         self.scroll = 0;
     }
@@ -209,6 +295,7 @@ impl State {
         self.restart = RestartFlow::Idle;
         self.save_code = None;
         self.result = None;
+        self.pending_registration = None;
         self.details = false;
         self.scroll = 0;
         self.page = Page::Running;
@@ -249,10 +336,15 @@ impl State {
                     }
                 }
             } else if result.outcome == Outcome::RegistrationFailed {
+                self.result = None;
+                self.pending_registration = Some(result.clone());
                 self.page = Page::Running;
                 self.lifecycle = Lifecycle::default();
                 self.lifecycle.stage = Stage::Registration;
+                self.lifecycle.purge_started = result.purge_started;
                 self.details = false;
+                self.save_code = None;
+                self.scroll = 0;
                 if self.preview.is_some() {
                     self.preview_ticks = 1;
                 } else {
@@ -312,6 +404,9 @@ impl State {
     fn tick(&mut self) {
         if let Some(operation) = &mut self.operation {
             self.lifecycle = operation.shared.snapshot();
+            if self.pending_registration.is_none() {
+                self.pending_registration = operation.shared.registration_context();
+            }
             if self.prompt.is_none() {
                 self.prompt = operation
                     .shared
@@ -329,19 +424,31 @@ impl State {
                     self.finish(result);
                 }
                 Err(TryRecvError::Disconnected) => {
+                    // The worker may have completed MSI after this tick's
+                    // first snapshot, then failed during Burn cleanup. Once
+                    // disconnected, its last registration context is stable.
+                    let previous = self
+                        .pending_registration
+                        .take()
+                        .or_else(|| operation.shared.registration_context());
                     self.operation = None;
-                    self.finish(Completion {
-                        outcome: if self.lifecycle.purge_started {
-                            Outcome::DataMayBeDeleted
-                        } else {
-                            Outcome::MsiFailed
-                        },
-                        code: 1,
-                        msi_code: 1,
-                        purge_started: self.lifecycle.purge_started,
-                        remove_user_data: self.remove_data,
-                        bundle: None,
-                    });
+                    let result = if let Some(previous) = previous {
+                        msi::registration_result(previous, 1)
+                    } else {
+                        Completion {
+                            outcome: if self.lifecycle.purge_started {
+                                Outcome::DataMayBeDeleted
+                            } else {
+                                Outcome::MsiFailed
+                            },
+                            code: 1,
+                            msi_code: 1,
+                            purge_started: self.lifecycle.purge_started,
+                            remove_user_data: self.remove_data,
+                            bundle: None,
+                        }
+                    };
+                    self.finish(result);
                 }
                 Err(TryRecvError::Empty) => {}
             }
@@ -349,22 +456,29 @@ impl State {
             // This timer exists only in the explicitly inert preview. The real
             // installer obtains every progress value from MSI records.
             self.preview_ticks += 1;
-            self.lifecycle.progress_record([0, 30, 0, 0]);
-            self.lifecycle
-                .progress_record([2, self.preview_ticks as i32, 0, 0]);
-            if self.preview_ticks == 10 {
-                self.lifecycle.action("RecoverAgentState");
+            if self.pending_registration.is_none() {
+                self.lifecycle.progress_record([0, 30, 0, 0]);
+                self.lifecycle
+                    .progress_record([2, self.preview_ticks as i32, 0, 0]);
+                if self.preview_ticks == 10 {
+                    self.lifecycle.action("RecoverAgentState");
+                }
             }
             if self.preview_ticks >= 30 {
                 self.preview_ticks = 0;
-                self.finish(Completion {
-                    outcome: Outcome::Success,
-                    code: 0,
-                    msi_code: 0,
-                    purge_started: false,
-                    remove_user_data: self.remove_data,
-                    bundle: None,
-                });
+                let result = if let Some(previous) = self.pending_registration.take() {
+                    msi::registration_result(previous, 0)
+                } else {
+                    Completion {
+                        outcome: Outcome::Success,
+                        code: 0,
+                        msi_code: 0,
+                        purge_started: false,
+                        remove_user_data: self.remove_data,
+                        bundle: None,
+                    }
+                };
+                self.finish(result);
             }
         }
     }
@@ -430,31 +544,7 @@ pub fn run(
     // SAFETY: null requests this process's executable module.
     let instance = unsafe { GetModuleHandleW(ptr::null()) };
     let locale = l10n::setup_locale(requested_locale.unwrap_or(&ui_locale_name()));
-    let mut state = State {
-        product,
-        preview,
-        preview_theme,
-        locale,
-        page: Page::Confirm,
-        remove_data: false,
-        lifecycle: Lifecycle::default(),
-        restart: RestartFlow::Idle,
-        operation: None,
-        result: None,
-        prompt: None,
-        details: false,
-        scroll: 0,
-        max_scroll: 0,
-        dpi: 96,
-        palette: palette(preview.is_some(), preview_theme),
-        fonts: fonts(96),
-        preview_ticks: 0,
-        save_code: None,
-        exit_code: crate::ERROR_INSTALL_USEREXIT,
-        controls: Vec::new(),
-        detail_accessible_name: "",
-        paint: Box::new(Cell::new(PaintStyle::default())),
-    };
+    let mut state = State::new(product, preview, preview_theme, locale);
     if let Some(scenario) = preview {
         state.apply_preview(scenario);
     }
@@ -983,47 +1073,10 @@ fn render(hwnd: HWND, state: &mut State) {
             "Usque"
         },
     );
-    let body_key = if let Some(key) = state.restart.message_key() {
-        key
-    } else if let Some(result) = &state.result {
-        result.outcome.key()
-    } else if state.prompt.as_ref().is_some_and(|p| p.files_in_use) {
-        "uninstall_files_in_use"
-    } else if state.prompt.is_some() {
-        "uninstall_failed"
-    } else if running {
-        "uninstall_progress_note"
-    } else {
-        "uninstall_body"
-    };
-    set_text(hwnd, BODY, state.text(body_key));
+    set_text(hwnd, BODY, state.text(state.body_key()));
     set_text(hwnd, CHECK, state.text("uninstall_delete_data"));
     set_text(hwnd, DESCRIPTION, state.text("uninstall_data_description"));
-    let warning = if state
-        .prompt
-        .as_ref()
-        .is_some_and(|prompt| prompt.files_in_use)
-    {
-        state.text("close_apps_save_work")
-    } else if confirming {
-        state.text(if state.remove_data {
-            "uninstall_delete_warning"
-        } else {
-            "retained_data"
-        })
-    } else if let Some(result) = &state.result {
-        if success && result.remove_user_data {
-            state.text("uninstall_data_removed")
-        } else if !result.remove_user_data
-            || (!result.purge_started && result.outcome == Outcome::MsiFailed)
-        {
-            state.text("uninstall_data_kept")
-        } else {
-            ""
-        }
-    } else {
-        ""
-    };
+    let warning = state.warning_key().map_or("", |key| state.text(key));
     set_text(hwnd, WARNING, warning);
     set_text(
         hwnd,
@@ -2162,6 +2215,7 @@ fn preview_shortcut(hwnd: HWND, key: u16, state: &mut State) {
             let next = scenes[(index + 1) % scenes.len()];
             state.page = Page::Confirm;
             state.result = None;
+            state.pending_registration = None;
             state.prompt = None;
             state.lifecycle = Lifecycle::default();
             state.restart = RestartFlow::Idle;
@@ -2209,5 +2263,159 @@ fn preview_shortcut(hwnd: HWND, key: u16, state: &mut State) {
             ptr::null_mut(),
             RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_ERASE,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{path::PathBuf, sync::Arc, sync::mpsc};
+
+    fn registration_failure(msi_code: u32, deleted_data: bool) -> Completion {
+        Completion {
+            outcome: Outcome::RegistrationFailed,
+            code: 1603,
+            msi_code,
+            purge_started: deleted_data,
+            remove_user_data: deleted_data,
+            // This path is only retained/compared. These tests never execute it.
+            bundle: Some(PathBuf::from(r"C:\inert-fixture\{bundle-id}\setup.exe")),
+        }
+    }
+
+    fn preview() -> State {
+        State::new(
+            None,
+            Some(Preview::RegistrationFailure),
+            Some(PreviewTheme::Light),
+            "en-US",
+        )
+    }
+
+    fn assert_context(result: &Completion, original: &Completion) {
+        assert_eq!(result.msi_code, original.msi_code);
+        assert_eq!(result.purge_started, original.purge_started);
+        assert_eq!(result.remove_user_data, original.remove_user_data);
+        assert_eq!(result.bundle, original.bundle);
+    }
+
+    #[test]
+    fn registration_retry_clears_old_failure_and_preserves_msi_result_in_preview() {
+        for msi_code in [0, 3010, 1641] {
+            for deleted_data in [false, true] {
+                let original = registration_failure(msi_code, deleted_data);
+                let mut state = preview();
+                state.finish(original.clone());
+                state.primary(ptr::null_mut());
+                assert!(state.result.is_none());
+                assert!(state.page == Page::Running);
+                assert_eq!(state.lifecycle.stage, Stage::Registration);
+                assert_eq!(state.body_key(), "uninstall_registration");
+                assert!(!state.lifecycle.can_cancel());
+                assert_context(state.pending_registration.as_ref().unwrap(), &original);
+                assert!(state.operation.is_none(), "preview never starts a worker");
+                for _ in 0..30 {
+                    state.tick();
+                }
+                assert!(state.page == Page::Finished);
+                assert!(state.pending_registration.is_none());
+                let result = state.result.as_ref().unwrap();
+                assert_context(result, &original);
+                assert_eq!(
+                    result.outcome,
+                    if msi_code == 0 {
+                        Outcome::Success
+                    } else {
+                        Outcome::RebootRequired
+                    }
+                );
+                assert_eq!(
+                    state.warning_key(),
+                    Some(if deleted_data {
+                        "uninstall_data_removed"
+                    } else {
+                        "uninstall_data_kept"
+                    })
+                );
+                assert_eq!(state.exit_code, msi_code as i32);
+            }
+        }
+    }
+
+    #[test]
+    fn registration_worker_results_and_disconnection_cannot_restart_msi() {
+        for disconnected in [false, true] {
+            let original = registration_failure(3010, true);
+            let mut state = preview();
+            state.finish(original.clone());
+            state.primary(ptr::null_mut());
+            let shared = Arc::new(msi::Shared::default());
+            let (tx, rx) = mpsc::channel();
+            if !disconnected {
+                tx.send(msi::registration_result(original.clone(), 1603))
+                    .unwrap();
+            }
+            drop(tx);
+            state.operation = Some(Operation {
+                shared,
+                completion: rx,
+                worker: None,
+            });
+            state.tick();
+            let failed = state.result.as_ref().unwrap();
+            assert_eq!(failed.outcome, Outcome::RegistrationFailed);
+            assert!(!failed.outcome.can_return_to_confirmation());
+            assert_context(failed, &original);
+            state.primary(ptr::null_mut());
+            assert_eq!(state.body_key(), "uninstall_registration");
+            assert!(!state.lifecycle.can_cancel());
+            assert_context(state.pending_registration.as_ref().unwrap(), &original);
+            for _ in 0..30 {
+                state.tick();
+            }
+            assert_eq!(
+                state.result.as_ref().unwrap().outcome,
+                Outcome::RebootRequired
+            );
+            assert_eq!(state.warning_key(), Some("uninstall_data_removed"));
+        }
+    }
+
+    #[test]
+    fn registration_failure_preview_starts_after_a_successful_msi() {
+        let mut state = preview();
+        state.apply_preview(Preview::RegistrationFailure);
+        let result = state.result.as_ref().unwrap();
+        assert_eq!(result.outcome, Outcome::RegistrationFailed);
+        assert_eq!(result.msi_code, 0);
+        assert_eq!(result.code, 1603);
+        state.primary(ptr::null_mut());
+        for _ in 0..30 {
+            state.tick();
+        }
+        assert_eq!(state.result.as_ref().unwrap().outcome, Outcome::Success);
+        assert_eq!(state.exit_code, 0);
+    }
+
+    #[test]
+    fn initial_registration_worker_disconnection_retains_completed_msi_context() {
+        let original = registration_failure(1641, true);
+        let shared = Arc::new(msi::Shared::default());
+        shared.begin_registration(&original);
+        let (tx, rx) = mpsc::channel();
+        drop(tx);
+        let mut state = preview();
+        state.page = Page::Running;
+        state.operation = Some(Operation {
+            shared,
+            completion: rx,
+            worker: None,
+        });
+        assert!(state.pending_registration.is_none());
+        state.tick();
+        let result = state.result.as_ref().unwrap();
+        assert_eq!(result.outcome, Outcome::RegistrationFailed);
+        assert_context(result, &original);
+        assert!(!result.outcome.can_return_to_confirmation());
     }
 }

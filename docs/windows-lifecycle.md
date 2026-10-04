@@ -287,6 +287,13 @@ failure copy states that some data may already be gone. Save-details exports
 only the version, stage and result codes, without paths, accounts,
 network addresses, raw logs or automatic upload.
 
+A registration retry clears the previous failure from the running page but
+retains the completed MSI result, user-data choice and trusted bundle path.
+Successful retry preserves any required restart and the data-removal result.
+If the cleanup worker ends without a result, the saved context still permits
+only registration cleanup; it cannot return to an MSI or data-deletion retry.
+The inert preview follows the same result-combination rules.
+
 Restart-required results offer later or immediate restart. Immediate restart
 first displays a save-work confirmation; only its explicit confirmation
 temporarily enables the current token's existing shutdown privilege and calls
