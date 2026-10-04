@@ -15,18 +15,35 @@ if (-not (Test-Path -LiteralPath $metadataPath)) {
 }
 
 $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
-$ephemeral = Join-Path $project "windows/flutter/ephemeral"
-$junctionRoot = Join-Path $ephemeral ".plugin_symlinks"
-New-Item -ItemType Directory -Path $junctionRoot -Force | Out-Null
-$junctionRoot = (Resolve-Path -LiteralPath $junctionRoot).Path
 
-foreach ($plugin in $metadata.plugins.windows) {
-    $source = (Resolve-Path -LiteralPath $plugin.path).Path
-    $destination = Join-Path $junctionRoot $plugin.name
-    if (Test-Path -LiteralPath $destination) {
-        continue
+function Install-PluginJunction {
+    param(
+        [Parameter(Mandatory = $true)][string]$PlatformName,
+        $Plugins
+    )
+    $platformRoot = Join-Path $project $PlatformName
+    if (-not (Test-Path -LiteralPath $platformRoot -PathType Container)) {
+        return
     }
-    New-Item -ItemType Junction -Path $destination -Target $source | Out-Null
+    $plugins = @($Plugins)
+    if ($plugins.Count -eq 0) {
+        return
+    }
+    $junctionRoot = Join-Path $platformRoot "flutter/ephemeral/.plugin_symlinks"
+    New-Item -ItemType Directory -Path $junctionRoot -Force | Out-Null
+    $junctionRoot = (Resolve-Path -LiteralPath $junctionRoot).Path
+    foreach ($plugin in $plugins) {
+        $source = (Resolve-Path -LiteralPath $plugin.path).Path
+        $destination = Join-Path $junctionRoot $plugin.name
+        if (Test-Path -LiteralPath $destination) {
+            continue
+        }
+        New-Item -ItemType Junction -Path $destination -Target $source | Out-Null
+    }
+    Write-Output ("{0}_PLUGIN_JUNCTIONS_READY={1}" -f $PlatformName.ToUpperInvariant(), $junctionRoot)
 }
 
-Write-Output "WINDOWS_PLUGIN_JUNCTIONS_READY=$junctionRoot"
+# flutter build windows also materializes Linux plugin links when that
+# embedder exists. Junctions avoid the Developer Mode symlink requirement.
+Install-PluginJunction -PlatformName "windows" -Plugins $metadata.plugins.windows
+Install-PluginJunction -PlatformName "linux" -Plugins $metadata.plugins.linux
