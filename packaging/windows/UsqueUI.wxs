@@ -47,6 +47,12 @@
       <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
       <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
 
+      <ProgressText Action="EmergencyRemoveKillSwitch" Message="$(UsqueProgressRecovery)" />
+      <ProgressText Action="RecoverAgentState" Message="$(UsqueProgressRecovery)" />
+      <ProgressText Action="PurgeUserData" Message="$(UsqueProgressPurge)" />
+      <ProgressText Action="RemoveUserStartupRegistration" Message="$(UsqueProgressRemove)" />
+      <ProgressText Action="FinalizeAgentUninstall" Message="$(UsqueProgressRemove)" />
+
       <DialogRef Id="BrowseDlg" />
       <DialogRef Id="DiskCostDlg" />
       <DialogRef Id="ErrorDlg" />

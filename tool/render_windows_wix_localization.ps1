@@ -72,6 +72,27 @@ foreach ($id in $requiredIds) {
     $escaped = [Security.SecurityElement]::Escape([string]$byId[$id])
     $lines.Add("  <?define $id = `"$escaped`" ?>")
 }
+# The MSI fallback and the native setup/uninstall windows use the same action
+# descriptions. Keep the existing WixUI localization dictionary independent.
+$setupPath = Join-Path $PSScriptRoot "../packaging/windows/setup/strings.json"
+$setupCatalog = Get-Content -LiteralPath $setupPath -Raw | ConvertFrom-Json -AsHashtable
+if (-not $setupCatalog.ContainsKey($ExpectedCulture)) {
+    throw "Missing shared setup language: $ExpectedCulture"
+}
+$progressCopy = @{
+    UsqueProgressRecovery = "uninstall_restoring_network"
+    UsqueProgressPurge = "uninstall_deleting_data"
+    UsqueProgressRemove = "uninstall_removing_files"
+}
+foreach ($id in ($progressCopy.Keys | Sort-Object)) {
+    $key = $progressCopy[$id]
+    $value = [string]$setupCatalog[$ExpectedCulture][$key]
+    if ([string]::IsNullOrWhiteSpace($value) -or $value.Contains("?>")) {
+        throw "Invalid shared setup action text: $ExpectedCulture/$key"
+    }
+    $escaped = [Security.SecurityElement]::Escape($value)
+    $lines.Add("  <?define $id = `"$escaped`" ?>")
+}
 $lines.Add('</Include>')
 $lines.Add('')
 

@@ -1,0 +1,14 @@
+Usque Windows setup
+
+The native setup program links WiX Toolset BootstrapperApplicationApi 5.0.2
+and DUtil 5.0.2, Copyright (c) .NET Foundation and contributors.
+These components are distributed under the Microsoft Reciprocal License
+(MS-RL). The complete license accompanies this notice in wix-license.txt.
+The native setup source and the library source are available at:
+
+https://github.com/GeorgeXie2333/usque-app/tree/main/packaging/windows/bootstrapper
+https://github.com/wixtoolset/wix/tree/aa65968c419420d32e3e1b647aea0082f5ca5b78
+
+Use the Usque release tag matching the installer for the exact setup source.
+Dependency package SHA-256 locks are recorded in setup/dependencies.json in
+that source tree. The upstream libraries are unmodified.

@@ -17,7 +17,9 @@ for direct exceptions, failure handling and validation limits.
 
 ## Installer language and contents
 
-The EXE selects its MSI interface from the current Windows UI language. It
+The EXE has a native C++ setup window backed by WiX 5.0.2 Burn and the existing
+MSI transaction. It initially selects the current Windows UI language and lets
+the user change it before applying the transaction. It
 ships Arabic, German, Spanish, Persian, French, Indonesian, Italian, Japanese,
 Korean, Dutch, Polish, Brazilian Portuguese, Russian, Thai, Turkish, Ukrainian,
 Vietnamese, Simplified Chinese, Hong Kong Chinese, and Taiwan Chinese
@@ -34,6 +36,44 @@ The interactive installer:
 - keeps that directory on a major upgrade;
 - installs the Agent as a demand-start service and does not leave it running;
 - does not start a VPN during install.
+
+The setup and uninstall windows share the 21-language catalog in
+`packaging/windows/setup/strings.json`. The MSI's existing custom UI remains
+available for direct MSI deployments; the EXE suppresses that inner UI and
+receives Burn progress, cancellation and files-in-use callbacks instead. The
+outer window never substitutes successful progress for a successful final
+transaction result. A same-version package with a different ProductCode still
+uses the existing major-replacement policy, not MSI repair.
+
+After successful installation, desktop-shortcut creation and login startup
+are current-user operations outside the completed MSI transaction. The native
+setup links the same shell-operation implementation as the Windows runner and
+uses its in-process query/apply entry point, passing only the completed MSI's
+known installation target. It never needs to launch the installed GUI to apply
+these choices, including when a restart leaves an older GUI awaiting replacement.
+The installed runner also handles `--query-setup-options` and `--setup-options` before
+creating Flutter or starting the Engine. The latter accepts exactly one
+`--desktop-shortcut=create|keep` and one
+`--start-on-login=enable|disable|keep`. Its versioned JSON response reports each
+option independently; retry does not repeat successful operations. Neither runner
+command accepts an executable or filesystem target argument. New setup operations
+reject elevated and service identities; they do not guess the original user
+from an administrator token. The existing MSI `--remove-startup` path retains
+its impersonation contract and removes only an owned desktop link with the
+matching target and product marker. Unknown links and startup entries remain.
+
+Successful installation that requires a restart still offers desktop and
+login-startup choices. Opening the app is disabled until after restart. The
+chosen shell operations complete before leaving or requesting restart; failed
+items remain separately retryable. A retry after a failed restart-bound
+completion returns to the restart choice instead of unexpectedly restarting.
+
+Native setup links the hash-locked WiX API and DUtil libraries. The lock,
+upstream provenance and license are under `packaging/windows/setup`; the
+bundle includes the complete WiX license and notices. The release signs the
+native setup EXE before embedding it, using the same identity as the MSI and
+other first-party Windows executables. Installer EXE inventories include these
+two native dependencies.
 
 ## Agent startup, device reuse and recovery
 
@@ -210,7 +250,11 @@ If privileged network state cannot be restored, the upgrade stops with an error.
 
 ## Uninstall and administrator automation
 
-Confirming Uninstall starts Windows Installer, which then:
+Confirming Uninstall keeps the original-user Rust/Win32 window open. A worker
+thread installs an external MSI record callback and uses
+`MsiConfigureProductExW` with `INSTALLSTATE_ABSENT`. Internal MSI UI is disabled
+with `INSTALLUILEVEL_NONE | INSTALLUILEVEL_UACONLY`, preserving the system UAC
+prompt and the authored cleanup sequence. It then:
 
 1. asks the GUI and Engine to disconnect and exit, with a bounded force fallback for an unresponsive older build;
 2. stops the Agent;
@@ -220,6 +264,29 @@ Confirming Uninstall starts Windows Installer, which then:
 6. removes the service, program files, shortcut, and clean machine journal.
 
 The shared Wintun driver package stays, because another application may use it. A successful uninstall must not leave an Usque Wintun adapter.
+
+The callback copies only known action names, numeric progress and error codes,
+and transient files-in-use display names. It does not retain MSI record handles
+or export arbitrary MSI records. Cancellation is enabled only when MSI allows
+it, before user-data deletion, and outside rollback or Burn cleanup. A request
+returns through the MSI callback and waits for the transaction to finish; it
+never kills the worker or implies that deleted data has been restored.
+
+MSI removal and hidden Burn registration cleanup are separate results. Both
+must finish before the window reports success; reboot-required status is
+retained across both phases. Only failed Burn cleanup can be retried directly
+in the current window. MSI failures recheck installed state and reset the data
+deletion choice before a new confirmation. Once deletion may have started,
+failure copy states that some data may already be gone. Save-details exports
+only the version, stage and result codes, without paths, accounts,
+network addresses, raw logs or automatic upload.
+
+Restart-required results offer later or immediate restart. Immediate restart
+first displays a save-work confirmation; only its explicit confirmation
+temporarily enables the current token's existing shutdown privilege and calls
+the non-forcing Windows restart API. Preview builds never call that API. A
+failed or cancelled restart request remains visible and does not change the
+uninstall transaction result.
 
 The data-deletion option cannot be undone and does not affect other Windows
 users. Leave it unchecked to keep local data for a later reinstall. The
@@ -240,8 +307,9 @@ default-off deletion checkbox on the maintenance remove path.
 MSI Repair, Modify, and Patch are not supported, and the Start Menu shortcut is
 non-advertised so launching it cannot trigger MSI self-repair. Repair could stop
 the Agent or overwrite the crash-recovery start mode while privileged network
-state is active. The installer explains this if Repair is selected, and
-command-line maintenance is rejected before `StopServices`. Use the supported
+state is active. The native installer has no Repair entry. The direct MSI
+interface explains this if Repair is selected, and command-line maintenance is
+rejected before `StopServices`. Use the supported
 major-upgrade path, or uninstall and reinstall while leaving the data-deletion
 checkbox off.
 

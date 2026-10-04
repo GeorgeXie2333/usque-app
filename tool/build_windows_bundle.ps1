@@ -8,6 +8,9 @@ param(
     [string]$MsiPath,
 
     [Parameter(Mandatory = $true)]
+    [string]$BootstrapperPath,
+
+    [Parameter(Mandatory = $true)]
     [string]$TransformDirectory,
 
     [Parameter(Mandatory = $true)]
@@ -53,10 +56,11 @@ $localizedCultures = @(
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $sourcePath = Join-Path $repositoryRoot "packaging\windows\UsqueBundle.wxs"
 $iconPath = Join-Path $repositoryRoot "assets\branding\usque-app-icon.ico"
-$logoPath = Join-Path $repositoryRoot "assets\branding\usque-app-icon.png"
+$licensePath = Join-Path $repositoryRoot "packaging\windows\LICENSE.rtf"
 $bootstrapperExtension = "WixToolset.BootstrapperApplications.wixext/5.0.2"
 
 $resolvedMsi = (Resolve-Path -LiteralPath $MsiPath -ErrorAction Stop).Path
+$resolvedBootstrapper = (Resolve-Path -LiteralPath $BootstrapperPath -ErrorAction Stop).Path
 $resolvedTransforms = (Resolve-Path -LiteralPath $TransformDirectory -ErrorAction Stop).Path
 if (-not (Test-Path -LiteralPath $resolvedMsi -PathType Leaf)) {
     throw "Bundle MSI payload is not a file: $resolvedMsi"
@@ -85,6 +89,13 @@ if (@(Compare-Object ($localizedCultures | Sort-Object) $actualTransforms).Count
 
 & (Join-Path $PSScriptRoot "verify_windows_authenticode.ps1") `
     -Path $resolvedMsi `
+    -SignerSha256 $SignerSha256 `
+    -AllowPinnedUntrustedRoot:$AllowPinnedUntrustedRoot | Out-Null
+
+# The UI launches installed helpers from the original user's context. It is
+# part of the signed product, not an unsigned wrapper around the MSI.
+& (Join-Path $PSScriptRoot "verify_windows_authenticode.ps1") `
+    -Path $resolvedBootstrapper `
     -SignerSha256 $SignerSha256 `
     -AllowPinnedUntrustedRoot:$AllowPinnedUntrustedRoot | Out-Null
 
@@ -128,7 +139,8 @@ try {
         -define "BundleUpgradeCode=$($bundleUpgradeCodes[$Variant])" `
         -define "Variant=$Variant" `
         -define "IconPath=$iconPath" `
-        -define "LogoPath=$logoPath" `
+        -define "BootstrapperPath=$resolvedBootstrapper" `
+        -define "LicensePath=$licensePath" `
         -define "MsiPath=$resolvedMsi" `
         -define "TransformDirectory=$resolvedTransforms" `
         -defaultcompressionlevel high `

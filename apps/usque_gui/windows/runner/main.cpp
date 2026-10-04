@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "flutter_window.h"
+#include "shell_integration.h"
 #include "utils.h"
 #include "window_geometry.h"
 #include "zero_trust_callback.h"
@@ -44,21 +45,16 @@ bool HasArgument(const std::vector<std::string>& arguments,
          arguments.end();
 }
 
-void RemoveStartupEntry() {
-  HKEY key = nullptr;
-  if (::RegOpenKeyExW(
-          HKEY_CURRENT_USER,
-          L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0,
-          KEY_SET_VALUE, &key) == ERROR_SUCCESS) {
-    ::RegDeleteValueW(key, L"Usque");
-    ::RegCloseKey(key);
-  }
-}
-
 }  // namespace
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  std::vector<std::string> command_line_arguments = GetCommandLineArguments();
+  if (const auto result =
+          usque::shell::HandleCommandLine(command_line_arguments)) {
+    return *result;
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -70,15 +66,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
   flutter::DartProject project(L"data");
-
-  std::vector<std::string> command_line_arguments =
-      GetCommandLineArguments();
-
-  if (HasArgument(command_line_arguments, "--remove-startup")) {
-    RemoveStartupEntry();
-    ::CoUninitialize();
-    return EXIT_SUCCESS;
-  }
 
   const std::wstring sid = CurrentUserSid();
   if (sid.empty()) {

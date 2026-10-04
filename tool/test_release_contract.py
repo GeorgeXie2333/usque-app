@@ -293,9 +293,11 @@ class WindowsInstallerValidationPolicyTests(unittest.TestCase):
     def test_ci_validates_every_compiled_culture_before_creating_transforms(self) -> None:
         root = Path(__file__).resolve().parent.parent
         workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("./tool/test_windows_installer_authoring.ps1", workflow)
+        authoring = (root / "tool/test_windows_installer_authoring.ps1").read_text(encoding="utf-8")
         culture_loop = re.search(
-            r"(?ms)^          foreach \(\$culture in \$cultures\) \{\n.*?^          \}",
-            workflow,
+            r"(?ms)^    foreach \(\$culture in \$cultures\) \{\n.*?^    \}",
+            authoring,
         )
         self.assertIsNotNone(culture_loop)
         assert culture_loop is not None
@@ -304,7 +306,8 @@ class WindowsInstallerValidationPolicyTests(unittest.TestCase):
             culture_loop.group(0),
         )
         self.assertIn('throw "MSI ICE validation failed for $culture."', culture_loop.group(0))
-        self.assertIn("tool/test_windows_msi_localization.ps1", workflow)
+        self.assertIn('"test_windows_msi_localization.ps1"', authoring)
+        self.assertIn("$summary.completed_checks", authoring)
 
     def test_language_builder_does_not_discard_native_diagnostics(self) -> None:
         root = Path(__file__).resolve().parent.parent
@@ -322,7 +325,9 @@ class WindowsInstallerValidationPolicyTests(unittest.TestCase):
         self.assertIn("-Path $detachedEngine", restored_check)
         self.assertIn("-SignerSha256 $SignerSha256", restored_check)
         workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        self.assertIn("tool/test_windows_burn_engine.ps1", workflow)
+        self.assertIn("./tool/test_windows_installer_authoring.ps1", workflow)
+        authoring = (root / "tool/test_windows_installer_authoring.ps1").read_text(encoding="utf-8")
+        self.assertIn('"test_windows_burn_engine.ps1"', authoring)
 
 
 class ReleaseVersionContractTests(unittest.TestCase):

@@ -1,8 +1,9 @@
 //! Confirmation helper launched from the Windows Apps uninstall entry.
 //!
 //! Settings does not show the MSI wizard. This binary owns the interactive
-//! confirm-and-optional-data-deletion prompt, runs `msiexec`, and then removes
-//! any hidden Burn registration that delivered the MSI.
+//! confirmation, native MSI progress, and completion pages, then removes any
+//! hidden Burn registration that delivered the MSI. Quiet automation retains
+//! its synchronous `msiexec` launcher. Preview never discovers installed state.
 
 use thiserror::Error;
 
@@ -13,6 +14,8 @@ mod l10n;
 
 #[cfg(windows)]
 mod windows;
+
+pub mod state;
 
 /// MSI `ERROR_INSTALL_USEREXIT`. Settings should keep the app listed.
 pub const ERROR_INSTALL_USEREXIT: i32 = 1602;
@@ -49,6 +52,7 @@ pub enum Mode {
     DryRun,
     StageQuiet(u32),
     VerifyQuiet(u32),
+    Preview(state::Preview),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +61,8 @@ pub struct Cli {
     pub product_code: Option<String>,
     pub remove_user_data: bool,
     pub wait_for_pid: Option<u32>,
+    pub preview_locale: Option<String>,
+    pub preview_theme: Option<state::PreviewTheme>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +85,9 @@ impl Cli {
         let mut wait_for_pid = None;
         let mut waiting_for_pid = false;
         let mut quiet_copy_mode = None;
+        let mut preview = None;
+        let mut preview_locale = None;
+        let mut preview_theme = None;
 
         for argument in arguments {
             let argument = argument.as_ref();
@@ -95,6 +104,30 @@ impl Cli {
             match argument {
                 "--dry-run" => dry_run = true,
                 "--quiet" => quiet = true,
+                "--preview" => preview = Some(state::Preview::Confirm),
+                value if let Some(locale) = value.strip_prefix("--preview-locale=") => {
+                    if locale.is_empty()
+                        || locale.len() > 32
+                        || !locale
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'-' | b'_'))
+                    {
+                        return Err(UninstallError::UnknownArgument(value.to_owned()));
+                    }
+                    preview_locale = Some(locale.to_owned());
+                }
+                value if let Some(theme) = value.strip_prefix("--preview-theme=") => {
+                    preview_theme = Some(
+                        state::PreviewTheme::parse(theme)
+                            .ok_or_else(|| UninstallError::UnknownArgument(value.to_owned()))?,
+                    );
+                }
+                value if let Some(scenario) = value.strip_prefix("--preview=") => {
+                    preview = Some(
+                        state::Preview::parse(scenario)
+                            .ok_or_else(|| UninstallError::UnknownArgument(value.to_owned()))?,
+                    );
+                }
                 "--remove-user-data" => remove_user_data = true,
                 "--product-code" => waiting_for_product_code = true,
                 "--wait-for-pid" => waiting_for_pid = true,
@@ -132,6 +165,19 @@ impl Cli {
         if dry_run && (quiet || wait_for_pid.is_some()) {
             return Err(UninstallError::ConflictingArguments);
         }
+        if preview.is_some()
+            && (dry_run
+                || quiet
+                || product_code.is_some()
+                || remove_user_data
+                || wait_for_pid.is_some()
+                || quiet_copy_mode.is_some())
+        {
+            return Err(UninstallError::ConflictingArguments);
+        }
+        if preview.is_none() && (preview_locale.is_some() || preview_theme.is_some()) {
+            return Err(UninstallError::ConflictingArguments);
+        }
         if quiet_copy_mode.is_some()
             && (dry_run
                 || quiet
@@ -141,16 +187,22 @@ impl Cli {
         {
             return Err(UninstallError::ConflictingArguments);
         }
-        let mode = quiet_copy_mode.unwrap_or(match (dry_run, quiet) {
-            (true, _) => Mode::DryRun,
-            (false, true) => Mode::Quiet,
-            (false, false) => Mode::Interactive,
-        });
+        let mode =
+            preview
+                .map(Mode::Preview)
+                .or(quiet_copy_mode)
+                .unwrap_or(match (dry_run, quiet) {
+                    (true, _) => Mode::DryRun,
+                    (false, true) => Mode::Quiet,
+                    (false, false) => Mode::Interactive,
+                });
         Ok(Self {
             mode,
             product_code,
             remove_user_data,
             wait_for_pid,
+            preview_locale,
+            preview_theme,
         })
     }
 }
@@ -257,6 +309,25 @@ where
         Mode::Quiet => run_quiet(cli.product_code, cli.remove_user_data, cli.wait_for_pid),
         Mode::StageQuiet(pid) => prepare_quiet_copy(pid, false),
         Mode::VerifyQuiet(pid) => prepare_quiet_copy(pid, true),
+        Mode::Preview(scenario) => {
+            run_preview(scenario, cli.preview_locale.as_deref(), cli.preview_theme)
+        }
+    }
+}
+
+fn run_preview(
+    scenario: state::Preview,
+    locale: Option<&str>,
+    theme: Option<state::PreviewTheme>,
+) -> Result<i32, UninstallError> {
+    #[cfg(windows)]
+    {
+        windows::run_preview(scenario, locale, theme)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (scenario, locale, theme);
+        Err(UninstallError::WindowsOnly)
     }
 }
 
@@ -457,6 +528,38 @@ mod tests {
         }
         assert!(Cli::parse(["--stage-quiet=0"]).is_err());
         assert!(Cli::parse(["--verify-quiet=invalid"]).is_err());
+    }
+
+    #[test]
+    fn preview_never_accepts_live_operation_arguments() {
+        assert_eq!(
+            Cli::parse(["--preview"]).unwrap().mode,
+            Mode::Preview(state::Preview::Confirm)
+        );
+        for argument in [
+            "--quiet",
+            "--remove-user-data",
+            "--dry-run",
+            "--wait-for-pid=1",
+            "--stage-quiet=1",
+            "--product-code={076CF387-E447-4666-9153-2DA16049A390}",
+        ] {
+            assert!(matches!(
+                Cli::parse(["--preview", argument]),
+                Err(UninstallError::ConflictingArguments)
+            ));
+        }
+        assert!(Cli::parse(["--preview=unknown"]).is_err());
+        assert!(Cli::parse(["--preview-theme=dark"]).is_err());
+        assert!(Cli::parse(["--preview-locale=zh-CN", "--quiet"]).is_err());
+        let preview = Cli::parse([
+            "--preview",
+            "--preview-theme=dark",
+            "--preview-locale=ar-SA",
+        ])
+        .unwrap();
+        assert_eq!(preview.preview_theme, Some(state::PreviewTheme::Dark));
+        assert_eq!(preview.preview_locale.as_deref(), Some("ar-SA"));
     }
 
     #[test]

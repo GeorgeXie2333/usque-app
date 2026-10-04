@@ -148,6 +148,14 @@ jobs:
         shell: pwsh
         run: ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}"
 
+      - name: Compile native setup interface and run inert tests
+        shell: pwsh
+        run: |
+          & ./tool/build_windows_bootstrapper.ps1 `
+            -Variant "${{ matrix.variant }}" `
+            -OutputDirectory (Join-Path $env:RUNNER_TEMP "windows-bootstrapper-${{ matrix.variant }}") `
+            -Test
+
       - name: Build Flutter Windows Release
         working-directory: apps/usque_gui
         shell: pwsh

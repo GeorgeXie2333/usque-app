@@ -318,6 +318,42 @@ Run the applicable checks and release build through the helper:
 
 For MSI or installer-bundle work, restore the pinned .NET tool and follow the multilingual CI fixture build. Table, transform, bundle extraction, detach/reattach, and ICE validation are safe; running the bundle or installing the MSI is not.
 
+The native setup window has its own compile-only gate. Run this for `x64-v2`
+and `arm64` with the corresponding Visual Studio C++ tools. The helper downloads
+only the exact hash-locked WiX 5.0.2 SDK libraries and generates the shared
+localization header. `-Test` runs only inert state/child-process tests on a
+matching host architecture; a cross-architecture test is recorded as `not_run`.
+
+```powershell
+& ./tool/build_windows_bootstrapper.ps1 -Variant x64-v2 -OutputDirectory target/bootstrapper-x64-v2 -Test
+& ./tool/build_windows_bootstrapper.ps1 -Variant arm64 -OutputDirectory target/bootstrapper-arm64 -Test
+```
+
+Pass `-PythonPath` when Python 3.10+ is not on PATH. To inspect only simulated
+pages, add `-Preview` and open the separate `usque-setup-preview.exe`; it cannot
+enter Burn or execute installation actions, even without command-line flags.
+For the Rust uninstall preview, initialize the native environment through the
+Windows Rust helper, then use `cargo build --locked --release --target
+x86_64-pc-windows-msvc -p usque-uninstall --features preview --bin
+usque-uninstall-preview`. The preview binary is not enabled by default or
+included in the application payload. Never substitute the real installed
+uninstaller for a preview.
+
+The complete inert MSI matrix can be run using the same helper as CI. Use a new
+empty output directory per run; none of its MSI/EXE artifacts are executed.
+
+```powershell
+& ./tool/test_windows_installer_authoring.ps1 -Variant x64-v2 -BootstrapperPath target/bootstrapper-x64-v2/usque-setup.exe -OutputDirectory target/installer-authoring-x64-v2
+& ./tool/test_windows_installer_authoring.ps1 -Variant arm64 -BootstrapperPath target/bootstrapper-arm64/usque-setup.exe -OutputDirectory target/installer-authoring-arm64
+```
+
+An explicitly inert matching-architecture PE can test the authoring when a
+native compiler is unavailable, but it does not establish that the actual
+bootstrapper compiled or ran. Report that distinction. The helper includes all
+language/ICE, transform, bundle, quiet-launcher, argument, replacement and
+temporary Burn-signing tests below; it does not install a product or access
+official signing material.
+
 Run ICE validation inside the culture loop for every MSI in both architecture
 sets. `tool/test_windows_msi_localization.ps1 -MsiPath <Japanese fixture MSI>`
 checks a valid package and then proves ICE03 rejects the malformed localized

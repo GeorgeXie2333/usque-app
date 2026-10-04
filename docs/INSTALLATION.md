@@ -135,11 +135,27 @@ does not match the release.
 ## Windows
 
 1. Choose the EXE for native x64 or ARM64 Windows and complete the checks above.
-2. Run it and approve the administrator prompt. Choose an installation directory
-   when asked. The installer selects its language from Windows; the app's
-   language is configured separately.
-3. Open Usque from the Start Menu and complete first-run setup. Installation
-   itself does not start a VPN.
+2. Run it, read the license agreement and select its acceptance checkbox. The
+   first page shows the version and installation folder. Use **Change
+   installation folder** to choose another location, or **Language** to change
+   the installer's language. Usque's app language is configured separately.
+3. Choose **Install** and approve Windows' administrator request. Progress and
+   the result stay in the same installer window.
+4. On **Installation complete**, optionally select **Create a desktop shortcut**
+   (off by default). **Open Usque after setup** is selected by default. Under
+   **More options**, **Start Usque when I sign in to Windows** reads your existing
+   setting and is off for a new user. These choices affect only the Windows user
+   who opened the installer. Choose **Finish** or **Finish and open**.
+
+If an optional setting fails, Usque remains installed. The page identifies the
+unfinished setting and offers a retry or **Skip and finish**. A shortcut owned
+by another application is not overwritten. You can always open Usque from the
+Start Menu and complete first-run setup. Installation itself does not start a
+VPN or change your saved automatic-connection preference.
+
+If installation requires a restart, desktop and login-startup choices remain
+available. Opening Usque is disabled until Windows restarts. Save your work
+before choosing **Restart now**, or choose **Restart later**.
 
 Usque installs a separate Agent service for privileged network operations.
 After installation, the app can start it without another UAC prompt. Ordinary
@@ -174,13 +190,22 @@ The implementation and recovery ordering are documented in
 
 1. Open **Settings → Apps → Installed apps**, or **Programs and Features**, and
    choose Usque's uninstall action.
-2. Confirm removal. On **Uninstall options**, leave **Delete profiles,
-   settings, logs, caches, and WARP identities for this Windows user.**
-   unchecked to retain your local accounts, settings and credentials for a later
-   reinstall. Selecting it permanently deletes only the current Windows user's
-   Usque data.
-3. Allow Windows to complete removal. It may ask for administrator approval
-   separately for the MSI and installer-bundle cleanup.
+2. Leave **Also delete my local data** unchecked to keep your accounts, profiles,
+   settings, logs, caches and saved credentials for a later reinstall. Selecting
+   it changes the final button to **Uninstall and delete data** and permanently
+   deletes only the current Windows user's Usque data.
+3. Choose **Uninstall** and keep the window open until it shows the result.
+   Windows may ask for administrator approval separately for removal and
+   installer-record cleanup. The window reports each stage; when a stage cannot
+   be cancelled, wait for it to finish.
+
+You can also reopen the installer EXE and choose **Uninstall** to use the same
+window. If the program was removed but its installer records could not be
+cleaned up, **Retry** repeats only that cleanup. Other failures return to the
+confirmation page after checking the installed state; deleting personal data
+is never automatically retried. A deletion that already started may have
+removed some data even when uninstall later fails. **View details** shows the
+stage and error code, and **Save details** writes only that limited report.
 
 Uninstall disconnects Usque, restores its route, DNS, proxy and firewall state,
 and removes its virtual adapter, service and program files. The shared Wintun
@@ -194,6 +219,11 @@ again also offers removal with the same default-off data-deletion option.
 Administrators should use the registered quiet uninstall command. Direct MSI
 removal cannot clean an EXE bundle's registration; see
 [administrator automation](windows-lifecycle.md#uninstall-and-administrator-automation).
+
+If the result says Windows must restart, choose **Restart later** or **Restart
+now**. The latter first asks you to save your work. Windows may still ask you
+to close applications with unsaved work; the uninstaller does not force them
+to close.
 
 ## Android and Android TV
 

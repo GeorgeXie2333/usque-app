@@ -11,6 +11,14 @@ repository.workspace = true
 name = "usque-uninstall"
 path = "src/main.rs"
 
+[[bin]]
+name = "usque-uninstall-preview"
+path = "src/bin/usque-uninstall-preview.rs"
+required-features = ["preview"]
+
+[features]
+preview = []
+
 [lib]
 name = "usque_uninstall"
 path = "src/lib.rs"
@@ -21,6 +29,10 @@ thiserror.workspace = true
 [target.'cfg(windows)'.dependencies]
 usque-platform = { path = "../usque-platform" }
 windows-sys.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true
+winresource.workspace = true
 
 [lints]
 workspace = true

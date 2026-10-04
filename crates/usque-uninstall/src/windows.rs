@@ -1,21 +1,19 @@
+use crate::{UninstallError, UninstallRequest};
 use std::{
+    os::windows::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::Command,
     ptr,
 };
-
 use usque_platform::windows_authenticode::verify_same_signer;
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_INVALID_PARAMETER, ERROR_PATH_NOT_FOUND,
     ERROR_SUCCESS, ERROR_SUCCESS_REBOOT_INITIATED, ERROR_SUCCESS_REBOOT_REQUIRED, GetLastError,
-    HANDLE, HWND, LPARAM, LRESULT, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
+    HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Globalization::{GetUserDefaultUILanguage, LCIDToLocaleName};
-use windows_sys::Win32::Graphics::Gdi::{
-    COLOR_WINDOW, DEFAULT_GUI_FONT, GetStockObject, UpdateWindow,
-};
+use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY, REG_SZ, RegCloseKey, RegOpenKeyExW,
     RegQueryValueExW,
@@ -24,22 +22,11 @@ use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
 use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
 };
-use windows_sys::Win32::UI::Controls::{BST_CHECKED, IsDlgButtonChecked};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CREATESTRUCTW, CW_USEDEFAULT,
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetDlgItem,
-    GetMessageW, GetSystemMetrics, GetWindowLongPtrW, IDC_ARROW, IDCANCEL, IDOK, IsDialogMessageW,
-    LoadCursorW, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PostQuitMessage, RegisterClassExW,
-    SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, SWP_NOZORDER, SendMessageW, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, TranslateMessage, UnregisterClassW, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY,
-    WM_SETFONT, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
-    WS_VISIBLE,
-};
-
-use crate::l10n::{self, UninstallCopy};
-use crate::{ERROR_INSTALL_USEREXIT, UninstallError, UninstallRequest};
-
+use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+mod accessibility;
+mod msi;
+mod restart;
+mod ui;
 const PRODUCT_KEY: &str = r"Software\Usque";
 const PRODUCT_VALUE: &str = "ProductCode";
 const BUNDLE_PROVIDER_KEYS: [&str; 2] = ["Usque.Windows.x64-v2", "Usque.Windows.arm64"];
@@ -48,24 +35,6 @@ const BUNDLE_UNINSTALL_KEY_PREFIX: &str = r"Software\Microsoft\Windows\CurrentVe
 const BUNDLE_PROVIDER_VALUE: &str = "BundleProviderKey";
 const BUNDLE_CACHE_PATH_VALUE: &str = "BundleCachePath";
 const PARENT_EXIT_TIMEOUT_MS: u32 = 60_000;
-const CLASS_NAME: &str = "Usque.UninstallConfirm";
-const IDC_BODY: i32 = 1001;
-const IDC_CHECK: i32 = 1002;
-const IDC_WARNING: i32 = 1003;
-const IDC_UNINSTALL: i32 = 1004;
-const IDC_CANCEL: i32 = 1005;
-
-#[derive(Clone, Copy)]
-enum Confirm {
-    Cancel,
-    Uninstall { remove_user_data: bool },
-}
-
-struct DialogState {
-    outcome: Confirm,
-    copy: UninstallCopy,
-}
-
 struct RegistryKey(HKEY);
 
 impl Drop for RegistryKey {
@@ -126,23 +95,23 @@ pub(crate) fn run_interactive(
     product_code: Option<String>,
     wait_for_pid: Option<u32>,
 ) -> Result<i32, UninstallError> {
-    if let Some(code) = relaunch_from_temp_if_needed(product_code.as_deref())? {
-        return Ok(code);
-    }
     if let Some(parent_pid) = wait_for_pid {
         wait_for_process(parent_pid)?;
     }
-    let product_code = crate::resolve_product_code(product_code, read_installed_product_code)?;
-    match confirm_uninstall()? {
-        Confirm::Cancel => Ok(ERROR_INSTALL_USEREXIT),
-        Confirm::Uninstall { remove_user_data } => execute_uninstall(
-            UninstallRequest {
-                product_code,
-                remove_user_data,
-            },
-            false,
-        ),
+    if let Some(code) = relaunch_from_temp_if_needed(product_code.as_deref())? {
+        return Ok(code);
     }
+    let product_code = crate::resolve_product_code(product_code, read_installed_product_code)?;
+    ui::run(Some(product_code), None, None, None)
+}
+
+pub(crate) fn run_preview(
+    scenario: crate::state::Preview,
+    locale: Option<&str>,
+    theme: Option<crate::state::PreviewTheme>,
+) -> Result<i32, UninstallError> {
+    // Deliberately bypass every installed-product and staging operation.
+    ui::run(None, Some(scenario), locale, theme)
 }
 
 pub(crate) fn run_quiet(
@@ -374,6 +343,7 @@ fn relaunch_from_temp_if_needed(product_code: Option<&str>) -> Result<Option<i32
             "failed to copy the helper to a temporary directory: {error}"
         ))
     })?;
+    let executable_lock = lock_executable(&destination)?;
     verify_same_signer(&current, &destination).map_err(|error| {
         UninstallError::Detail(format!(
             "temporary uninstall helper verification failed: {error}"
@@ -391,6 +361,7 @@ fn relaunch_from_temp_if_needed(product_code: Option<&str>) -> Result<Option<i32
         .map_err(|error| {
             UninstallError::Detail(format!("failed to start the temporary helper: {error}"))
         })?;
+    drop(executable_lock);
     Ok(Some(0))
 }
 
@@ -561,15 +532,40 @@ fn validate_bundle_cache_path(value: &str, bundle_id: &str) -> Result<PathBuf, U
 }
 
 fn run_bundle_cleanup(bundle: &Path) -> Result<i32, UninstallError> {
-    let status = Command::new(bundle)
+    let executable_lock = lock_executable(bundle)?;
+    let current = std::env::current_exe().map_err(|error| {
+        UninstallError::Detail(format!("failed to locate this helper: {error}"))
+    })?;
+    verify_same_signer(&current, bundle).map_err(|error| {
+        UninstallError::Detail(format!("cached installer verification failed: {error}"))
+    })?;
+    let mut child = Command::new(bundle)
         .args(["/uninstall", "/quiet", "/norestart"])
-        .status()
+        .spawn()
         .map_err(|error| {
             UninstallError::Detail(format!("failed to start installer bundle cleanup: {error}"))
         })?;
+    // CreateProcess has loaded the verified image. Release our extra lock so
+    // Burn can remove its cache after exit; the mapped image protects itself.
+    drop(executable_lock);
+    let status = child.wait().map_err(|error| {
+        UninstallError::Detail(format!(
+            "failed to wait for installer bundle cleanup: {error}"
+        ))
+    })?;
     status.code().ok_or_else(|| {
         UninstallError::Detail("installer bundle cleanup exited without a status code".to_owned())
     })
+}
+
+fn lock_executable(path: &Path) -> Result<std::fs::File, UninstallError> {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(path)
+        .map_err(|error| {
+            UninstallError::Detail(format!("failed to lock the verified executable: {error}"))
+        })
 }
 
 fn successful_installer_exit(code: i32) -> bool {
@@ -592,346 +588,6 @@ fn combine_success_codes(first: i32, second: i32) -> i32 {
         ERROR_SUCCESS_REBOOT_REQUIRED as i32
     } else {
         ERROR_SUCCESS as i32
-    }
-}
-
-fn confirm_uninstall() -> Result<Confirm, UninstallError> {
-    let class = wide(CLASS_NAME);
-    let instance = {
-        // SAFETY: a null module name returns the handle of this executable.
-        unsafe { GetModuleHandleW(ptr::null()) }
-    };
-    if instance.is_null() {
-        return Err(last_error("failed to get the helper module handle"));
-    }
-
-    let cursor = {
-        // SAFETY: IDC_ARROW is a predefined cursor identifier.
-        unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) }
-    };
-    let class_info = WNDCLASSEXW {
-        cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-        style: 0,
-        lpfnWndProc: Some(dialog_proc),
-        cbClsExtra: 0,
-        cbWndExtra: 0,
-        hInstance: instance,
-        hIcon: ptr::null_mut(),
-        hCursor: cursor,
-        hbrBackground: (COLOR_WINDOW + 1) as _,
-        lpszMenuName: ptr::null(),
-        lpszClassName: class.as_ptr(),
-        hIconSm: ptr::null_mut(),
-    };
-    // SAFETY: class_info points at a complete WNDCLASSEXW that outlives registration.
-    let atom = unsafe { RegisterClassExW(&class_info) };
-    if atom == 0 {
-        return Err(last_error("failed to register the uninstall dialog class"));
-    }
-
-    let copy = l10n::copy_for_locale(&ui_locale_name());
-    let mut state = DialogState {
-        outcome: Confirm::Cancel,
-        copy,
-    };
-    let title = wide(copy.title);
-    let hwnd = {
-        // SAFETY: the class was registered above; lpParam borrows state for WM_CREATE.
-        unsafe {
-            CreateWindowExW(
-                0,
-                class.as_ptr(),
-                title.as_ptr(),
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                520,
-                280,
-                ptr::null_mut(),
-                ptr::null_mut(),
-                instance,
-                ptr::from_mut(&mut state).cast(),
-            )
-        }
-    };
-    if hwnd.is_null() {
-        // SAFETY: the class was registered by this function.
-        unsafe {
-            UnregisterClassW(class.as_ptr(), instance);
-        }
-        return Err(last_error("failed to create the uninstall dialog"));
-    }
-
-    center_window(hwnd);
-    // SAFETY: hwnd is a window created by this function.
-    unsafe {
-        ShowWindow(hwnd, SW_SHOW);
-        UpdateWindow(hwnd);
-    }
-
-    let mut message = MSG::default();
-    loop {
-        // SAFETY: message is a writable MSG used only for this pump.
-        let result = unsafe { GetMessageW(&mut message, ptr::null_mut(), 0, 0) };
-        if result == 0 || result == -1 {
-            break;
-        }
-        // SAFETY: hwnd is still valid until WM_DESTROY posts the quit message.
-        if unsafe { IsDialogMessageW(hwnd, &message) } == 0 {
-            // SAFETY: message was filled by GetMessageW on this thread.
-            unsafe {
-                TranslateMessage(&message);
-                DispatchMessageW(&message);
-            }
-        }
-    }
-
-    // SAFETY: no windows remain that use this class.
-    unsafe {
-        UnregisterClassW(class.as_ptr(), instance);
-    }
-    Ok(state.outcome)
-}
-
-extern "system" fn dialog_proc(
-    hwnd: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    match message {
-        WM_CREATE => {
-            store_state_on_create(hwnd, lparam);
-            if create_children(hwnd).is_err() {
-                // SAFETY: this is the window currently being created.
-                unsafe {
-                    DestroyWindow(hwnd);
-                }
-            }
-            0
-        }
-        WM_COMMAND => {
-            let control_id = (wparam & 0xffff) as i32;
-            if control_id == IDC_UNINSTALL || control_id == IDOK {
-                finish_dialog(
-                    hwnd,
-                    Confirm::Uninstall {
-                        remove_user_data: checkbox_checked(hwnd),
-                    },
-                );
-            } else if control_id == IDC_CANCEL || control_id == IDCANCEL {
-                finish_dialog(hwnd, Confirm::Cancel);
-            }
-            0
-        }
-        WM_CLOSE => {
-            finish_dialog(hwnd, Confirm::Cancel);
-            0
-        }
-        WM_DESTROY => {
-            // SAFETY: posted from the dialog thread to end the local message pump.
-            unsafe {
-                PostQuitMessage(0);
-            }
-            0
-        }
-        _ => {
-            // SAFETY: default processing for an application-owned top-level window.
-            unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
-        }
-    }
-}
-
-fn create_children(hwnd: HWND) -> Result<(), UninstallError> {
-    let copy = dialog_state(hwnd)
-        .map(|state| state.copy)
-        .unwrap_or(l10n::EN);
-    let instance = {
-        // SAFETY: a null module name returns the handle of this executable.
-        unsafe { GetModuleHandleW(ptr::null()) }
-    };
-    let font = {
-        // SAFETY: DEFAULT_GUI_FONT is a predefined stock object.
-        unsafe { GetStockObject(DEFAULT_GUI_FONT) }
-    };
-
-    create_control(
-        hwnd,
-        instance,
-        ControlSpec {
-            class_name: "STATIC",
-            text: copy.body,
-            style: WS_CHILD | WS_VISIBLE,
-            id: IDC_BODY,
-            x: 20,
-            y: 16,
-            width: 460,
-            height: 40,
-        },
-    )?;
-    create_control(
-        hwnd,
-        instance,
-        ControlSpec {
-            class_name: "BUTTON",
-            text: copy.delete_data,
-            style: WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            id: IDC_CHECK,
-            x: 20,
-            y: 64,
-            width: 460,
-            height: 40,
-        },
-    )?;
-    create_control(
-        hwnd,
-        instance,
-        ControlSpec {
-            class_name: "STATIC",
-            text: copy.warning,
-            style: WS_CHILD | WS_VISIBLE,
-            id: IDC_WARNING,
-            x: 40,
-            y: 108,
-            width: 440,
-            height: 48,
-        },
-    )?;
-    create_control(
-        hwnd,
-        instance,
-        ControlSpec {
-            class_name: "BUTTON",
-            text: copy.uninstall,
-            style: WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
-            id: IDC_UNINSTALL,
-            x: 236,
-            y: 180,
-            width: 110,
-            height: 28,
-        },
-    )?;
-    let cancel = create_control(
-        hwnd,
-        instance,
-        ControlSpec {
-            class_name: "BUTTON",
-            text: copy.cancel,
-            style: WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
-            id: IDC_CANCEL,
-            x: 356,
-            y: 180,
-            width: 110,
-            height: 28,
-        },
-    )?;
-
-    if !font.is_null() {
-        for child in [IDC_BODY, IDC_CHECK, IDC_WARNING, IDC_UNINSTALL, IDC_CANCEL] {
-            if let Some(handle) = child_from_id(hwnd, child) {
-                // SAFETY: handle is a child of hwnd and font is a stock object.
-                unsafe {
-                    SendMessageW(handle, WM_SETFONT, font as WPARAM, 1);
-                }
-            }
-        }
-    }
-    // SAFETY: cancel is a child button created above.
-    unsafe {
-        SetFocus(cancel);
-    }
-    let _ = instance;
-    Ok(())
-}
-
-struct ControlSpec {
-    class_name: &'static str,
-    text: &'static str,
-    style: u32,
-    id: i32,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-}
-
-fn create_control(
-    parent: HWND,
-    instance: windows_sys::Win32::Foundation::HINSTANCE,
-    spec: ControlSpec,
-) -> Result<HWND, UninstallError> {
-    let class = wide(spec.class_name);
-    let caption = wide(spec.text);
-    // SAFETY: class and caption are null-terminated; parent is a live window.
-    let handle = unsafe {
-        CreateWindowExW(
-            0,
-            class.as_ptr(),
-            caption.as_ptr(),
-            spec.style,
-            spec.x,
-            spec.y,
-            spec.width,
-            spec.height,
-            parent,
-            spec.id as isize as _,
-            instance,
-            ptr::null(),
-        )
-    };
-    if handle.is_null() {
-        Err(last_error("failed to create an uninstall dialog control"))
-    } else {
-        Ok(handle)
-    }
-}
-
-fn child_from_id(parent: HWND, id: i32) -> Option<HWND> {
-    // SAFETY: parent is a live owner of the child id.
-    let handle = unsafe { GetDlgItem(parent, id) };
-    if handle.is_null() { None } else { Some(handle) }
-}
-
-fn checkbox_checked(hwnd: HWND) -> bool {
-    // SAFETY: IDC_CHECK is a checkbox child of hwnd.
-    unsafe { IsDlgButtonChecked(hwnd, IDC_CHECK) == BST_CHECKED }
-}
-
-fn finish_dialog(hwnd: HWND, outcome: Confirm) {
-    if let Some(state) = dialog_state(hwnd) {
-        state.outcome = outcome;
-    }
-    // SAFETY: hwnd is the top-level dialog owned by this helper.
-    unsafe {
-        DestroyWindow(hwnd);
-    }
-}
-
-fn dialog_state<'a>(hwnd: HWND) -> Option<&'a mut DialogState> {
-    // SAFETY: GWLP_USERDATA is set to the DialogState pointer in WM_CREATE
-    // and remains valid until the stack frame in confirm_uninstall returns,
-    // which is after the message pump ends.
-    let pointer = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut DialogState;
-    if pointer.is_null() {
-        None
-    } else {
-        // SAFETY: pointer refers to the confirm_uninstall stack value.
-        Some(unsafe { &mut *pointer })
-    }
-}
-
-fn center_window(hwnd: HWND) {
-    let width = 520;
-    let height = 280;
-    // SAFETY: SM_CXSCREEN and SM_CYSCREEN are predefined system metrics.
-    let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-    // SAFETY: SM_CYSCREEN is a predefined system metric.
-    let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    let x = (screen_width - width).max(0) / 2;
-    let y = (screen_height - height).max(0) / 2;
-    // SAFETY: hwnd is a live top-level window.
-    unsafe {
-        SetWindowPos(hwnd, ptr::null_mut(), x, y, width, height, SWP_NOZORDER);
     }
 }
 
@@ -965,17 +621,6 @@ fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-// Store the dialog state pointer when the window is created.
-// CreateWindowExW delivers WM_CREATE before returning; retrieve lpCreateParams.
-fn store_state_on_create(hwnd: HWND, lparam: LPARAM) {
-    // SAFETY: WM_CREATE lParam points at CREATESTRUCTW supplied by CreateWindowExW.
-    let created = unsafe { &*(lparam as *const CREATESTRUCTW) };
-    // SAFETY: lpCreateParams is the DialogState pointer passed by confirm_uninstall.
-    unsafe {
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, created.lpCreateParams as isize);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1001,6 +646,29 @@ mod tests {
         assert_eq!(combine_success_codes(0, 0), 0);
         assert_eq!(combine_success_codes(3010, 0), 3010);
         assert_eq!(combine_success_codes(0, 1641), 1641);
+    }
+
+    #[test]
+    fn executable_verification_lock_prevents_replacement_until_launch() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let fixture = std::env::temp_dir().join(format!(
+            "UsqueExecutableLockTest-{}-{unique}.exe",
+            std::process::id()
+        ));
+        std::fs::write(&fixture, b"inert fixture").expect("write fixture");
+        let lock = lock_executable(&fixture).expect("read-only image lock");
+        assert!(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&fixture)
+                .is_err()
+        );
+        assert!(std::fs::remove_file(&fixture).is_err());
+        drop(lock);
+        std::fs::remove_file(&fixture).expect("remove unlocked fixture");
     }
 
     #[test]

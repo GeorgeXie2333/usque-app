@@ -4,9 +4,9 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   RequiredVersion="5.0.2">
   <!--
-    The bundle is the user-facing Windows download. WixIUIBA deliberately
-    delegates all interaction to the existing MSI UI, preserving the custom
-    install-directory and uninstall-data flows. The bundle registration is
+    The bundle is the user-facing Windows download. The native bootstrapper
+    owns interaction while MSI retains installation and recovery transactions.
+    Direct MSI deployments retain their custom MSI UI. The bundle registration is
     hidden because Usque's MSI registers usque-uninstall.exe as the only
     visible uninstall entry. That helper resolves this bundle through the
     stable ProviderKey, verifies the cached EXE has the same signer, and runs
@@ -27,11 +27,15 @@
     IconSourceFile="$(IconPath)"
     Copyright="Copyright (c) Usque contributors">
 
-    <BootstrapperApplication>
-      <bal:WixInternalUIBootstrapperApplication
-        Theme="standard"
-        LogoFile="$(LogoPath)" />
+    <BootstrapperApplication SourceFile="$(BootstrapperPath)" Name="usque-setup.exe">
+      <Payload SourceFile="$(LicensePath)" Name="license.rtf" />
+      <Payload SourceFile="packaging/windows/setup/WIX-LICENSE.txt" Name="wix-license.txt" />
+      <Payload SourceFile="packaging/windows/setup/THIRD-PARTY-NOTICES.txt" Name="third-party-notices.txt" />
     </BootstrapperApplication>
+
+    <Variable Name="UsqueInstallFolder" Type="string" Value="" />
+    <Variable Name="UsqueDisplayVersion" Type="string" Value="$(DisplayVersion)" />
+    <Variable Name="UsqueVariant" Type="string" Value="$(Variant)" />
 
     <!--
       Keep the initial choice for maintenance runs of this exact bundle. A
@@ -168,8 +172,8 @@
     <Chain>
       <MsiPackage
         Id="UsqueMsi"
-        SourceFile="$(MsiPath)"
-        bal:PrimaryPackageType="default">
+        SourceFile="$(MsiPath)">
+        <MsiProperty Name="INSTALLFOLDER" Value="[UsqueInstallFolder]" Condition="UsqueInstallFolder" />
         <Payload SourceFile="$(TransformDirectory)\ar-SA.mst" Name="transforms\ar-SA.mst" />
         <Payload SourceFile="$(TransformDirectory)\de-DE.mst" Name="transforms\de-DE.mst" />
         <Payload SourceFile="$(TransformDirectory)\es-ES.mst" Name="transforms\es-ES.mst" />

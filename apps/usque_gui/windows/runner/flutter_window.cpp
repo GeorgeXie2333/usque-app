@@ -17,6 +17,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "maintenance_shutdown.h"
 #include "resource.h"
+#include "shell_integration.h"
 #include "utils.h"
 #include "window_frame.h"
 #include "zero_trust_protocol.h"
@@ -125,9 +126,6 @@ constexpr UINT kTrayDisconnectExit = 41003;
 constexpr wchar_t kUsqueSettingsKey[] =
     L"Software\\io.github.georgexie2333\\Usque";
 constexpr wchar_t kCloseToTrayValue[] = L"CloseToTray";
-constexpr wchar_t kRunKey[] =
-    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-constexpr wchar_t kRunValue[] = L"Usque";
 std::atomic<uint64_t> g_engine_event_generation = 0;
 const UINT kTaskbarCreated = ::RegisterWindowMessageW(L"TaskbarCreated");
 
@@ -151,42 +149,6 @@ bool WriteCloseToTray(bool enabled) {
   const LSTATUS status = ::RegSetValueExW(
       key, kCloseToTrayValue, 0, REG_DWORD,
       reinterpret_cast<const BYTE*>(&value), sizeof(value));
-  ::RegCloseKey(key);
-  return status == ERROR_SUCCESS;
-}
-
-bool IsStartOnLoginEnabled() {
-  wchar_t value[32768]{};
-  DWORD size = sizeof(value);
-  return ::RegGetValueW(HKEY_CURRENT_USER, kRunKey, kRunValue, RRF_RT_REG_SZ,
-                        nullptr, value, &size) == ERROR_SUCCESS;
-}
-
-bool SetStartOnLogin(bool enabled) {
-  HKEY key = nullptr;
-  if (::RegCreateKeyExW(HKEY_CURRENT_USER, kRunKey, 0, nullptr, 0,
-                        KEY_SET_VALUE, nullptr, &key, nullptr) !=
-      ERROR_SUCCESS) {
-    return false;
-  }
-  LSTATUS status = ERROR_SUCCESS;
-  if (enabled) {
-    wchar_t executable[MAX_PATH]{};
-    const DWORD length = ::GetModuleFileNameW(nullptr, executable, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH) {
-      ::RegCloseKey(key);
-      return false;
-    }
-    const std::wstring command = L"\"" + std::wstring(executable, length) +
-                                 L"\" --background";
-    status = ::RegSetValueExW(
-        key, kRunValue, 0, REG_SZ,
-        reinterpret_cast<const BYTE*>(command.c_str()),
-        static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
-  } else {
-    status = ::RegDeleteValueW(key, kRunValue);
-    if (status == ERROR_FILE_NOT_FOUND) status = ERROR_SUCCESS;
-  }
   ::RegCloseKey(key);
   return status == ERROR_SUCCESS;
 }
@@ -460,7 +422,7 @@ bool FlutterWindow::OnCreate() {
         if (call.method_name() == "platformPreferences") {
           flutter::EncodableMap preferences;
           preferences[flutter::EncodableValue("start_on_boot")] =
-              flutter::EncodableValue(IsStartOnLoginEnabled());
+              flutter::EncodableValue(usque::shell::IsStartOnLoginEnabled());
           preferences[flutter::EncodableValue("close_to_tray")] =
               flutter::EncodableValue(close_to_tray_);
           result->Success(flutter::EncodableValue(preferences));
@@ -538,7 +500,7 @@ bool FlutterWindow::OnCreate() {
           }
           const bool enabled = std::get<bool>(iterator->second);
           const bool saved = call.method_name() == "setStartOnBoot"
-                                 ? SetStartOnLogin(enabled)
+                                 ? usque::shell::SetStartOnLogin(enabled)
                                  : WriteCloseToTray(enabled);
           if (!saved) {
             result->Error("WINDOWS_SHELL_SETTING_FAILED",

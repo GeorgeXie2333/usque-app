@@ -292,11 +292,34 @@ try {
         "UsqueMsiTransform" `
         "bundle TRANSFORMSSECURE condition"
 
-    $primary = $baData.SelectSingleNode(
-        "//ba:WixBalPackageInfo[@PackageId='UsqueMsi']",
-        $baNs
-    )
-    Assert-Equal $primary.PrimaryPackageType "default" "WixIUIBA primary MSI"
+    $installFolderProperty = @($msiProperties | Where-Object Id -eq "INSTALLFOLDER")
+    if ($installFolderProperty.Count -ne 1) {
+        throw "Bundle must pass exactly one conditional installation folder property."
+    }
+    Assert-Equal $installFolderProperty[0].Value "[UsqueInstallFolder]" "installation folder value"
+    Assert-Equal $installFolderProperty[0].Condition "UsqueInstallFolder" "installation folder condition"
+
+    $bootstrapperPath = Join-Path $baRoot "usque-setup.exe"
+    $licensePath = Join-Path $baRoot "license.rtf"
+    if (-not (Test-Path -LiteralPath $bootstrapperPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+        throw "Bundle is missing its native setup interface or license agreement."
+    }
+    if ((Get-PeMachine -Path $bootstrapperPath) -ne $expectedMachine) {
+        throw "Native setup interface architecture does not match its bundle."
+    }
+    foreach ($notice in @("wix-license.txt", "third-party-notices.txt")) {
+        $noticePath = Join-Path $baRoot $notice
+        if (-not (Test-Path -LiteralPath $noticePath -PathType Leaf)) {
+            throw "Native setup interface is missing its license notice: $notice"
+        }
+    }
+    if ($VerifyAuthenticode) {
+        & (Join-Path $PSScriptRoot "verify_windows_authenticode.ps1") `
+            -Path $bootstrapperPath `
+            -SignerSha256 $SignerSha256 `
+            -AllowPinnedUntrustedRoot:$AllowPinnedUntrustedRoot | Out-Null
+    }
 
     $displayVersion = $Version.TrimStart("v")
     $expectedMsiName = "usque-v$displayVersion-windows-$Variant.msi"

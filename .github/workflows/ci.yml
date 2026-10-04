@@ -473,7 +473,7 @@ jobs:
   windows-installer-authoring:
     name: MSI authoring (${{ matrix.arch }})
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: windows-2025
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -482,9 +482,11 @@ jobs:
           - arch: x64
             variant: x64-v2
             wintun_arch: amd64
+            runner: windows-2025
           - arch: arm64
             variant: arm64
             wintun_arch: arm64
+            runner: windows-11-arm
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -496,235 +498,21 @@ jobs:
         with:
           dotnet-version: 8.0.412
 
-      - name: Restore pinned WiX tool
-        run: |
-          dotnet tool restore
-          dotnet tool run wix -- extension add WixToolset.UI.wixext/5.0.2
-          dotnet tool run wix -- extension add WixToolset.BootstrapperApplications.wixext/5.0.2
-
-      - name: Verify MSI version mapping
+      - name: Compile native setup interface and run inert tests
         shell: pwsh
         run: |
-          $stable = & ./tool/convert_to_msi_version.ps1 -SemVer "v0.2.9"
-          if ($stable -ne "0.2.999") {
-            throw "Stable MSI version mapping is invalid: $stable"
-          }
-
-          $beta = & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.9-beta.3"
-          if ($beta -ne "0.2.903") {
-            throw "Beta MSI version mapping is invalid: $beta"
-          }
-
-          $rejected = $false
-          try {
-            & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.9-beta.0"
-          } catch {
-            $rejected = $_.Exception.Message -like "Beta ordinal must be*"
-          }
-          if (-not $rejected) {
-            throw "Invalid beta ordinal was not rejected."
-          }
-
-      - name: Create inert authoring fixture
-        shell: pwsh
-        run: |
-          $payload = Join-Path $env:RUNNER_TEMP "msi-payload"
-          New-Item -ItemType Directory -Path (Join-Path $payload "data") -Force | Out-Null
-          $fixture = "third_party/wintun-0.14.1/wintun/bin/${{ matrix.wintun_arch }}/wintun.dll"
-          Copy-Item $fixture (Join-Path $payload "usque.exe")
-          Copy-Item $fixture (Join-Path $payload "usque-engine.exe")
-          Copy-Item $fixture (Join-Path $payload "usque-agent.exe")
-          Copy-Item $fixture (Join-Path $payload "usque-uninstall.exe")
-          Copy-Item $fixture (Join-Path $payload "usque-update.exe")
-          Copy-Item $fixture (Join-Path $payload "wintun.dll")
-          Copy-Item LICENSE.md (Join-Path $payload "data/LICENSE.md")
-
-      - name: Verify Windows MSI argument transport
-        shell: pwsh
-        run: |
-          & ./tool/test_windows_wix_arguments.ps1 -Variant "${{ matrix.variant }}"
-
-      - name: Verify signing identity cleanup with inert certificate doubles
-        run: pwsh -NoProfile -File tool/test_windows_release_signing.ps1
-
-      - name: Compile multilingual MSI and bundle authoring
-        shell: pwsh
-        run: |
-          $payload = Join-Path $env:RUNNER_TEMP "msi-payload"
-          $root = Join-Path $env:RUNNER_TEMP "windows-authoring-${{ matrix.arch }}"
-          $msiDirectory = Join-Path $root "msi"
-          $transformDirectory = Join-Path $root "transforms"
-          New-Item `
-            -ItemType Directory `
-            -Path $msiDirectory, $transformDirectory `
-            -Force | Out-Null
-          $productCode = "11111111-1111-1111-1111-111111111111"
-          $quietUninstallScript = & ./tool/get_windows_quiet_uninstall_command.ps1 -EncodedScriptOnly
-          & ./tool/test_windows_quiet_uninstall.ps1
-          & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" `
-            -NoProfile -NonInteractive -File ./tool/test_windows_quiet_uninstall.ps1
-          if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell quiet-uninstall tests failed." }
-          $cultures = Get-ChildItem "packaging/windows/loc" -Filter "*.wxl" |
-            ForEach-Object BaseName |
-            Sort-Object
-          foreach ($culture in $cultures) {
-            $language = [Globalization.CultureInfo]::GetCultureInfo($culture).LCID
-            $include = Join-Path $root "$culture.wxi"
-            & ./tool/render_windows_wix_localization.ps1 `
-              -LocalizationPath "packaging/windows/loc/$culture.wxl" `
-              -OutputPath $include `
-              -ExpectedCulture $culture | Out-Null
-            $name = if ($culture -eq "en-US") {
-              "usque-v0.2.9-windows-${{ matrix.variant }}.msi"
-            } else {
-              "usque-v0.2.9-windows-${{ matrix.variant }}-$culture.msi"
-            }
-            $output = Join-Path $msiDirectory $name
-            $arguments = @(
-              "build",
-              "-arch", "${{ matrix.arch }}",
-              "-ext", "WixToolset.UI.wixext/5.0.2",
-              "-bindpath", "app=$payload",
-              "-define", "DisplayVersion=0.2.9",
-              "-define", "MsiVersion=0.2.999",
-              "-define", "MsiLanguage=$language",
-              "-define", "MsiCodepage=65001",
-              "-define", "ProductCode=$productCode",
-              "-define", "Variant=${{ matrix.variant }}",
-              "-define", "SignerSha256=$("0" * 64)",
-              "-define", "IconPath=$((Resolve-Path "assets/branding/usque-app-icon.ico").Path)",
-              "-define", "LicensePath=$((Resolve-Path "packaging/windows/LICENSE.rtf").Path)",
-              "-define", "UsqueLocalizationPath=$include",
-              "-define", "UsqueQuietUninstallScript=$quietUninstallScript",
-              "-culture", $culture
-            )
-            if ($culture -ne "en-US") {
-              $arguments += @("-culture", "en-US")
-            }
-            $arguments += @(
-              "-defaultcompressionlevel", "high",
-              "-intermediateFolder", (Join-Path $root "wix-$culture"),
-              "-pdbtype", "none",
-              "-out", $output,
-              "packaging/windows/Usque.wxs",
-              "packaging/windows/UsqueUI.wxs"
-            )
-            dotnet tool run wix -- @arguments
-            if ($LASTEXITCODE -ne 0) {
-              throw "WiX build failed for $culture."
-            }
-            & ./tool/verify_windows_msi.ps1 `
-              -MsiPath $output `
-              -Variant "${{ matrix.variant }}" `
-              -ExpectedMsiVersion "0.2.999" `
-              -ExpectedDisplayVersion "0.2.9" `
-              -ExpectedAgentFileVersion "0.14.1.0" `
-              -ExpectedMsiLanguage $language `
-              -ExpectedProductCode $productCode `
-              -SignerSha256 ("0" * 64) | Out-Null
-
-            # Validate every compiled language, not only the loop's last MSI.
-            # Only ICE61 is suppressed for intentional equal-version upgrades.
-            dotnet tool run wix -- msi validate -sice ICE61 $output
-            if ($LASTEXITCODE -ne 0) {
-              throw "MSI ICE validation failed for $culture."
-            }
-          }
-
-          $baseMsi = Join-Path `
-            $msiDirectory `
-            "usque-v0.2.9-windows-${{ matrix.variant }}.msi"
-          foreach ($culture in @($cultures | Where-Object { $_ -ne "en-US" })) {
-            $localizedMsi = Join-Path `
-              $msiDirectory `
-              "usque-v0.2.9-windows-${{ matrix.variant }}-$culture.msi"
-            dotnet tool run wix -- msi transform `
-              $baseMsi `
-              $localizedMsi `
-              -out (Join-Path $transformDirectory "$culture.mst") `
-              -t language
-            if ($LASTEXITCODE -ne 0) {
-              throw "WiX transform generation failed for $culture."
-            }
-          }
-
-          $bundleUpgradeCode = if ("${{ matrix.variant }}" -eq "arm64") {
-            "EDE480D1-DE1B-4DC5-BE18-084CCABAE9D0"
-          } else {
-            "33C3EFF5-32C9-4BD6-B923-FA8FF6506CE3"
-          }
-          $bundle = Join-Path `
-            $root `
-            "usque-v0.2.9-windows-${{ matrix.variant }}.exe"
-          dotnet tool run wix -- build `
-            -arch "${{ matrix.arch }}" `
-            -ext "WixToolset.BootstrapperApplications.wixext/5.0.2" `
-            -define "DisplayVersion=0.2.9" `
-            -define "BundleVersion=0.2.9" `
-            -define "BundleUpgradeCode=$bundleUpgradeCode" `
-            -define "Variant=${{ matrix.variant }}" `
-            -define "IconPath=$((Resolve-Path "assets/branding/usque-app-icon.ico").Path)" `
-            -define "LogoPath=$((Resolve-Path "assets/branding/usque-app-icon.png").Path)" `
-            -define "MsiPath=$baseMsi" `
-            -define "TransformDirectory=$transformDirectory" `
-            -intermediateFolder (Join-Path $root "wix-bundle") `
-            -pdbtype none `
-            -out $bundle `
-            packaging/windows/UsqueBundle.wxs
-          if ($LASTEXITCODE -ne 0) { throw "WiX bundle build failed." }
-          & ./tool/verify_windows_bundle.ps1 `
-            -BundlePath $bundle `
+          & ./tool/build_windows_bootstrapper.ps1 `
             -Variant "${{ matrix.variant }}" `
-            -Version "0.2.9" `
-            -SignerSha256 ("0" * 64) `
-            -ExpectedAgentFileVersion "0.14.1.0" | Out-Null
+            -OutputDirectory (Join-Path $env:RUNNER_TEMP "windows-bootstrapper-${{ matrix.variant }}") `
+            -Test
 
-          $engine = Join-Path $root "burn-engine.exe"
-          $reattached = Join-Path $root "reattached.exe"
-          dotnet tool run wix -- burn detach $bundle -engine $engine
-          if ($LASTEXITCODE -ne 0) { throw "Burn engine detach failed." }
-          dotnet tool run wix -- burn reattach `
-            $bundle `
-            -engine $engine `
-            -out $reattached
-          if ($LASTEXITCODE -ne 0) { throw "Burn engine reattach failed." }
-          & ./tool/verify_windows_bundle.ps1 `
-            -BundlePath $reattached `
-            -Variant "${{ matrix.variant }}" `
-            -Version "0.2.9" `
-            -SignerSha256 ("0" * 64) `
-            -ExpectedAgentFileVersion "0.14.1.0" | Out-Null
-
-          # The inert EXE fixtures are copies of pinned Wintun 0.14.1.
-          & ./tool/verify_windows_msi.ps1 `
-            -MsiPath $baseMsi `
-            -Variant "${{ matrix.variant }}" `
-            -ExpectedMsiVersion "0.2.999" `
-            -ExpectedDisplayVersion "0.2.9" `
-            -ExpectedAgentFileVersion "0.14.1.0" `
-            -ExpectedProductCode $productCode `
-            -SignerSha256 ("0" * 64)
-
-          # Mutate only temporary copies of the inert MSI. No install, service,
-          # recovery, route, or WFP operation is executed by these tests.
-          & ./tool/test_windows_msi_replacement.ps1 `
-            -MsiPath $baseMsi `
-            -Variant "${{ matrix.variant }}" `
-            -ExpectedMsiVersion "0.2.999" `
-            -ExpectedDisplayVersion "0.2.9" `
-            -ExpectedAgentFileVersion "0.14.1.0" `
-            -SignerSha256 ("0" * 64)
-
-          # Reproduce the malformed Japanese format string on a temporary copy
-          # to prove ICE03 remains enabled. Never installs or runs an MSI.
-          & ./tool/test_windows_msi_localization.ps1 `
-            -MsiPath (Join-Path $msiDirectory "usque-v0.2.9-windows-${{ matrix.variant }}-ja-JP.msi")
-
-      - name: Verify signed Burn engine round trip without installation
+      - name: Verify complete inert installer authoring matrix
         shell: pwsh
         run: |
-          & ./tool/test_windows_burn_engine.ps1 `
-            -BundlePath (Join-Path $env:RUNNER_TEMP "windows-authoring-${{ matrix.arch }}/usque-v0.2.9-windows-${{ matrix.variant }}.exe")
+          & ./tool/test_windows_installer_authoring.ps1 `
+            -Variant "${{ matrix.variant }}" `
+            -BootstrapperPath (Join-Path $env:RUNNER_TEMP "windows-bootstrapper-${{ matrix.variant }}/usque-setup.exe") `
+            -OutputDirectory (Join-Path $env:RUNNER_TEMP "windows-authoring-${{ matrix.arch }}")
 
   gate:
     name: CI / gate

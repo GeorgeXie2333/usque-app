@@ -11,6 +11,7 @@ add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
   "maintenance_shutdown.cpp"
+  "shell_integration.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "window_frame.cpp"
@@ -40,6 +41,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "advapi32.lib" "comctl32.lib" "shell32.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "ole32.lib" "propsys.lib" "shlwapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
@@ -48,6 +50,8 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 add_executable(usque_zero_trust_test
   "engine_ipc.cpp"
   "maintenance_shutdown.cpp"
+  "shell_integration.cpp"
+  "shell_integration_test.cpp"
   "zero_trust_callback.cpp"
   "zero_trust_protocol.cpp"
   "zero_trust_windows_test.cpp"
@@ -58,4 +62,5 @@ set_target_properties(usque_zero_trust_test PROPERTIES
 apply_standard_settings(usque_zero_trust_test)
 target_compile_definitions(usque_zero_trust_test PRIVATE "NOMINMAX")
 target_link_libraries(usque_zero_trust_test PRIVATE "advapi32.lib" "user32.lib")
+target_link_libraries(usque_zero_trust_test PRIVATE "shell32.lib" "ole32.lib" "propsys.lib" "shlwapi.lib")
 target_include_directories(usque_zero_trust_test PRIVATE "${CMAKE_SOURCE_DIR}")

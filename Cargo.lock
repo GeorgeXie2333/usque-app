@@ -3198,9 +3198,11 @@ dependencies = [
 name = "usque-uninstall"
 version = "0.2.9"
 dependencies = [
+ "serde_json",
  "thiserror",
  "usque-platform",
  "windows-sys 0.61.2",
+ "winresource",
 ]
 
 [[package]]

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "WixToolset.BootstrapperApplicationApi",
+    "version": "5.0.2",
+    "folder": "api",
+    "sha256": "6e0d3c68a68dcedde4a3a68de896f124a7b19c4a823fac49856e2ee77cb16256",
+    "url": "https://api.nuget.org/v3-flatcontainer/wixtoolset.bootstrapperapplicationapi/5.0.2/wixtoolset.bootstrapperapplicationapi.5.0.2.nupkg",
+    "source": "https://github.com/wixtoolset/wix/tree/aa65968c419420d32e3e1b647aea0082f5ca5b78",
+    "license": "MS-RL"
+  },
+  {
+    "name": "WixToolset.DUtil",
+    "version": "5.0.2",
+    "folder": "dutil",
+    "sha256": "aa4f0668044318820e6c31ffef9f4141830c9fd8ebbe038281329423916547fe",
+    "url": "https://api.nuget.org/v3-flatcontainer/wixtoolset.dutil/5.0.2/wixtoolset.dutil.5.0.2.nupkg",
+    "source": "https://github.com/wixtoolset/wix/tree/aa65968c419420d32e3e1b647aea0082f5ca5b78",
+    "license": "MS-RL"
+  }
+]

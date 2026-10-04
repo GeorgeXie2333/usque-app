@@ -15,6 +15,8 @@
 #include "zero_trust_callback.h"
 #include "zero_trust_protocol.h"
 
+int RunShellIntegrationTests();
+
 namespace {
 
 int g_failures = 0;
@@ -508,6 +510,7 @@ void maintenanceShutdownMessagesAreClassified() {
 }  // namespace
 
 int main() {
+  g_failures += RunShellIntegrationTests();
   initialWindowStaysWithinMonitorWorkArea();
   matchingCallbackIsConsumedOnlyOnce();
   callbackRequiresAnActiveSameTeamLogin();

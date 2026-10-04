@@ -8,7 +8,7 @@ Only packages attached to a GitHub Release for this repository, with matching ch
 
 Pre-1.0 official packages use two fixed, project-controlled self-signed identities:
 
-- Windows Authenticode for the installer bundle, its detached Burn engine, the update MSI, and every EXE/DLL in the Windows application payload inside that MSI except the official Wintun DLL
+- Windows Authenticode for the installer bundle, its detached Burn engine, its native setup EXE, the update MSI, and every EXE/DLL in the Windows application payload inside that MSI except the official Wintun DLL
 - an Android release certificate for every official APK
 
 Those identities are not a public CA and are not in the Windows Root or Trusted Publisher stores. Windows will show an unknown-publisher warning. That is expected. The installer does not install the certificate into the machine trust stores.
@@ -32,7 +32,7 @@ before distribution. Developer verification does not authorize key rotation.
 
 | Artifact | Signer |
 | --- | --- |
-| Official Windows installer bundle and its detached Burn engine | project Authenticode identity |
+| Official Windows installer bundle, its detached Burn engine and embedded native setup EXE | project Authenticode identity |
 | Official Windows MSI | project Authenticode identity |
 | Every EXE/DLL in the Windows application payload inside that MSI, including Usque binaries and the Flutter engine and plugin DLLs from the Flutter release build, except the official Wintun DLL | same identity |
 | Official per-ABI and universal APKs | project Android release certificate |
@@ -40,7 +40,7 @@ before distribution. Developer verification does not authorize key rotation.
 | Local validation MSI/APK | a throwaway identity created on the build machine; never official |
 
 Unsigned project binaries must not ship in an official Windows package. The
-release signs the MSI before embedding it, then follows WiX's detach/sign/
+release signs the MSI and native setup EXE before embedding them, then follows WiX's detach/sign/
 reattach/sign sequence so both the Burn engine and final bundle carry the same
 project identity. A signer mismatch, a modified Wintun DLL, a malformed
 language transform, or a missing official fingerprint fails the release.

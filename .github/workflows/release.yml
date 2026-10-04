@@ -354,6 +354,28 @@ jobs:
             -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
             -AllowPinnedUntrustedRoot | Out-Null
 
+      - name: Build and sign native setup interface
+        shell: pwsh
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP "windows-bootstrapper-${{ matrix.variant }}"
+          & ./tool/build_windows_bootstrapper.ps1 `
+            -Variant "${{ matrix.variant }}" `
+            -OutputDirectory $directory `
+            -Test
+          $bootstrapper = Join-Path $directory "usque-setup.exe"
+          & $env:USQUE_SIGNTOOL sign `
+            /sha1 $env:USQUE_CERT_THUMBPRINT `
+            /s My `
+            /fd SHA256 `
+            /tr $env:WINDOWS_TIMESTAMP_URL `
+            /td SHA256 `
+            $bootstrapper
+          if ($LASTEXITCODE -ne 0) { throw "Native setup interface signing failed." }
+          & ./tool/verify_windows_authenticode.ps1 `
+            -Path $bootstrapper `
+            -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
+            -AllowPinnedUntrustedRoot | Out-Null
+
       - name: Build localized installer bundle
         shell: pwsh
         run: |
@@ -372,6 +394,7 @@ jobs:
           & ./tool/build_windows_bundle.ps1 `
             -Variant "${{ matrix.variant }}" `
             -MsiPath $msi `
+            -BootstrapperPath (Join-Path $env:RUNNER_TEMP "windows-bootstrapper-${{ matrix.variant }}/usque-setup.exe") `
             -TransformDirectory $transforms `
             -OutputPath $unsignedBundle `
             -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
@@ -770,6 +793,9 @@ jobs:
               -o "spdx-json=$artifact.spdx.json"
             test -s "$artifact.spdx.json"
             python tool/check_openvpn_sources.py --append-sbom "$artifact.spdx.json"
+            if [[ "$artifact" == *.exe ]]; then
+              python tool/windows_setup_dependencies.py --append-sbom "$artifact.spdx.json"
+            fi
             rm -rf -- "$context"
             count=$((count + 1))
           done < <(
