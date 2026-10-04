@@ -5,7 +5,7 @@ then export a local report if you need help investigating a problem.
 
 ## Run a check
 
-1. Open **Settings → Network quality** (also available from Home when supported).
+1. Open **Settings → Tools → Network quality**. Home no longer has a Doctor shortcut.
 2. Select **Run Network Doctor**. This starts Standard checks and opens Diagnostics.
 3. Read each result and its suggested action. For an additional check, wait for
    the current run to finish, select **Deep**, then **Start diagnostics**.
@@ -24,7 +24,7 @@ remain usable.
 | Mode | What it does | Network requests |
 | --- | --- | --- |
 | Standard | Reads saved settings and current local snapshots, including latency, loss availability, queues and DNS state. It targets a two-second run. | None. It does not change settings or platform network state. |
-| Deep | Checks configured encrypted-DNS reachability and, when safely disconnected, the configured QUIC endpoint. The whole session is limited to 15 seconds. | May send the fixed test query `example.invalid` to your configured resolver and make an authenticated QUIC handshake. It requires confirmation. |
+| Deep | Checks configured encrypted-DNS reachability and, when safely disconnected, the selected QUIC endpoint candidates. Automatic mode uses one common endpoint per family; Custom uses the saved pair. The whole session is limited to 15 seconds. | May send the fixed test query `example.invalid` to your configured resolver and make an authenticated QUIC handshake. It requires confirmation. |
 
 The QUIC probe is skipped while a connection is active, starting or stopping,
 or when a safe disconnected state cannot be established. It does not create
@@ -95,8 +95,10 @@ The reserved probe name is constant program behavior, never a user's query.
 
 Deep H3 checks use the same configured family ordering as normal connections:
 Auto and Prefer IPv6 try IPv6 then IPv4; Prefer IPv4 reverses that order; forced
-single-family policies never try the other family. Only configured endpoints
-with an available (or unknown) family are considered. Checks remain serial with
+single-family policies never try the other family. Automatic selection uses one
+representative endpoint per family from the Free/Plus-compatible common pool;
+Custom uses the configured pair. Only endpoints with an available (or unknown)
+family are considered; Deep does not race the full automatic pool. Checks remain serial with
 at most one live socket, share one 3.8-second deadline, and reserve time for an
 allowed alternate. A cancelled or changed-network check never starts fallback.
 

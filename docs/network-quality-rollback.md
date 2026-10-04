@@ -21,9 +21,9 @@ rebuild and the ordinary gates in `CONTRIBUTING.md`.
 
 Do not rewrite saved DoH/DoT to System. Users may explicitly select System,
 with its normal privacy meaning. Do not change protobuf field numbers,
-remove appended messages or lower `CURRENT_SCHEMA_VERSION` (currently 18;
+remove appended messages or lower `CURRENT_SCHEMA_VERSION` (currently 21;
 direct DNS was added in schema 13). `ConfigStore::load` rejects a configuration
-newer than the build supports, so a rollback build must still read schema 18.
+newer than the build supports, so a rollback build must still read schema 21.
 Old peers ignore unknown fields; absence of a capability disables only its new
 UI/control.
 

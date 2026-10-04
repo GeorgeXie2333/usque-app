@@ -63,8 +63,10 @@ For shared terminology, see the [technical reference index](README.md#technical-
 | Zero Trust | `zt-masque-proxy.cloudflareclient.com` |
 
 The TLS credential loader provides the identity; profile labels and manually
-entered SNI/IP values cannot change the provider. Consumer uses the configured
-endpoint IPs. Zero Trust retains the existing authenticated registration/managed
+entered SNI/IP values cannot change the provider. Consumer uses the selected
+[Automatic or Custom endpoint policy](NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点).
+Custom uses the saved numeric pair; Automatic races eligible account endpoints.
+Zero Trust retains the existing authenticated registration/managed
 endpoint hydration and reauthentication checks. The shared endpoint port remains
 configurable. The saved CONNECT-IP SNI is not overwritten and becomes editable
 again outside L4. A 403 never rotates SNI or enrolls a new identity. Pin refresh
@@ -99,8 +101,11 @@ fixture success is not a Cloudflare account test.
   their existing semantics. EdgeResolved is available only to L4 SOCKS/HTTP:
   the domain goes into CONNECT authority without a local lookup. It does not
   invent domain information for TUN IP packets.
-- A final HTTP/SOCKS5 proxy that refuses CONNECT to the selected DNS resolver's
-  port 53 causes an explicit DNS failure; there is no physical DNS fallback.
+- With a final HTTP/SOCKS5 proxy, Automatic chain DNS defaults to verified DoH
+  through that proxy. Custom or non-default inherited DNS retains TCP DNS.
+  Application-selected UDP/53 queries still use TCP to that resolver; a refused
+  port-53 CONNECT fails explicitly. DoH never falls back to plaintext or physical
+  DNS. See the [chain DNS choices](CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口).
 - Configured Geo TCP and direct DNS rules retain their protected direct
   paths. Encrypted direct DNS never falls back to plaintext. A TCP direct
   attempt falling back to L4 keeps its resolved IP and is subsequently treated

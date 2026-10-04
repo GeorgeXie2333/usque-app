@@ -21,11 +21,41 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
+## Preparing v0.2.9
+
+The development documentation and release-note template describe the changes
+planned for v0.2.9. The checked-in executable release contract still targets
+v0.2.8; editing documentation does not enable a v0.2.9 release. Before tagging,
+coordinate one reviewed version change across:
+
+- `Cargo.toml` and the first-party workspace package entries in `Cargo.lock`;
+- `apps/usque_gui/pubspec.yaml`, with an Android build number higher than 22;
+- the `app_version` entries in all 21 registered Dart locale catalogs;
+- the tag trigger, `RELEASE_TAG` and `ANDROID_VERSION_CODE` in
+  [release.yml](../.github/workflows/release.yml), and the release-version gate
+  in [ci.yml](../.github/workflows/ci.yml);
+- the current-target statements in this guide and
+  [GitHub governance](GITHUB_GOVERNANCE.md), and the development wording and
+  package examples in the six root READMEs and [Installation](INSTALLATION.md).
+
+Run `tool/release_contract.py verify-version` with `--root . --tag v0.2.9`
+and `--android-version-code` set to that chosen build number. The check must
+succeed before tagging. Version-number fixtures for MSI conversion and
+historical validation records may retain their original versions; they are not
+release targets. The tag must point at the resulting current `main` commit
+after its required CI succeeds. Keep the existing signing and publication
+approvals, cleanup checks and immutable-candidate requirements.
+
+The source planned for v0.2.9 uses configuration schema 21 and recovery journal schema 5,
+while Agent protocol 3 and sanitized recovery export schema 2 remain unchanged.
+Do not describe the old schema 18/3 combination as the new release contract.
+
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 
-- The tag must be `v0.2.8` and must point at the current `main` commit.
+- The currently accepted tag is `v0.2.8` and must point at the current `main`
+  commit. A v0.2.9 tag requires the coordinated version update above first.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.

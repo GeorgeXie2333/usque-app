@@ -304,7 +304,9 @@ network requests, runtime shutdown, and TUN operations stay outside the store
 transaction.
 
 Settings operation tracking does not add a configuration schema version; the
-current schema is 18. Epochs, sequences, operation IDs, and application
+current schema is 21. Schema 19 adds bypass domains, schema 20 preserves legacy
+endpoints in Custom mode, and schema 21 adds resumable initial-identity state.
+Epochs, sequences, operation IDs, and network-settings application
 state are in memory and do not create a durable operation log. Passwords are
 removed from published profiles. This change does not relax Kill Switch, TUN retention,
 Agent journal, privileged cleanup, or isolated-runner requirements.

@@ -5,6 +5,16 @@ uninstall. User steps are in [Installation and removal](INSTALLATION.md).
 Development-machine limits and isolated test requirements remain in
 [Contributing](../CONTRIBUTING.md#development-machines).
 
+Current recovery journals use schema 5. Schemas 2–4 migrate conservatively;
+older Agents cannot read schema 5. Agent protocol remains 3 and requires an
+explicit capability for protected tunnel replacement. During HTTP/SOCKS VPN
+settings or account replacement, the Agent journals a separate persistent WFP
+guard before restoring the old operation and retains it until the successor
+commits. An uncertain cleanup or RPC reply cannot authorize an unprotected
+replacement. Explicit disconnect uses the authenticated abort path. Read the
+[protected replacement contract](NETWORK_SETTINGS.md#protected-windows-operation-replacement)
+for direct exceptions, failure handling and validation limits.
+
 ## Installer language and contents
 
 The EXE selects its MSI interface from the current Windows UI language. It
@@ -188,8 +198,8 @@ unsupported. The setting is not a request to run an MSI repair.
 
 This ordering is also the supported bridge from `v0.2.4`, whose Agent could
 mistake asynchronous Wintun device removal for a permanent cleanup failure. A
-user whose `v0.2.4` uninstall failed should use a verified official `v0.2.8`
-Windows package containing this bridge, then uninstall the newer version if
+user whose `v0.2.4` uninstall failed should use a verified official Windows
+package from `v0.2.5` or later containing this bridge, then uninstall the newer version if
 removal was the original goal. If recovery still fails, stop and report the
 failure with sanitized diagnostics; development artifacts are not substitutes
 for the official package.

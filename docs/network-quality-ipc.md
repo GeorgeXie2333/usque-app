@@ -3,7 +3,7 @@
 Configuration schema 13 introduced the process-local network quality path
 without changing or reusing any established protobuf tag or enum value. Older
 profiles normalize to canonical physical-system direct DNS, preserving
-schema-12 behavior. The current configuration schema is 18; fields added after
+schema-12 behavior. The current configuration schema is 21; fields added after
 schema 13 below follow the same append-only rule.
 
 ## Append-only fields

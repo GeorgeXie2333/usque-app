@@ -5,9 +5,9 @@ Download packages from this repository's
 
 ## Version scope
 
-This guide describes the current v0.2.8 source checkout. Development branches can
-include changes that are not yet published. For an installed release, use its
-release notes and the guide at the matching Git tag.
+This guide describes the development source planned for v0.2.9. The example
+package names below do not establish that a release has been published. For an
+installed release, use its release notes and the guide at the matching Git tag.
 
 The Windows upgrade recovery fix was introduced in v0.2.5; the multilingual EXE
 installer arrived in v0.2.6. The original v0.2.4 MSI does not have those fixes.
@@ -22,17 +22,17 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Official package names (v0.2.8)
+### Package names (v0.2.9 examples)
 
-- `usque-v0.2.8-windows-x64-v2.exe`
-- `usque-v0.2.8-windows-arm64.exe`
-- `usque-v0.2.8-android-arm64-v8a.apk`
-- `usque-v0.2.8-android-x86_64.apk`
-- `usque-v0.2.8-android-armeabi-v7a.apk`
-- `usque-v0.2.8-android-universal.apk`
+- `usque-v0.2.9-windows-x64-v2.exe`
+- `usque-v0.2.9-windows-arm64.exe`
+- `usque-v0.2.9-android-arm64-v8a.apk`
+- `usque-v0.2.9-android-x86_64.apk`
+- `usque-v0.2.9-android-armeabi-v7a.apk`
+- `usque-v0.2.9-android-universal.apk`
 
-The release also provides `usque-v0.2.8-windows-x64-v2.msi` and
-`usque-v0.2.8-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The package set also includes `usque-v0.2.9-windows-x64-v2.msi` and
+`usque-v0.2.9-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation.
 
 Each release includes `SHA256SUMS`, `release-manifest.json` and a software
@@ -42,7 +42,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use v0.2.8; substitute the exact filename and tag you downloaded. These commands
+use v0.2.9; substitute the exact filename and tag you downloaded. These commands
 inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -50,7 +50,7 @@ inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.2.8-windows-x64-v2.exe'
+$package = '.\usque-v0.2.9-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -105,7 +105,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.2.8-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.2.9-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -119,7 +119,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.2.8 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.2.9 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 ```
 
 This checks the file against the repository, source tag and release workflow
@@ -159,8 +159,8 @@ caches and recovery records. Downgrades are rejected. Same-version replacement
 also replaces equal-version and unversioned application files together, so the
 GUI, Engine and Agent stay in sync.
 
-If v0.2.4 cannot uninstall, upgrade with a verified official v0.2.8 Windows
-package, then uninstall the newer version if removal is your goal. The newer
+If v0.2.4 cannot uninstall, upgrade with a verified official Windows package
+from v0.2.5 or later, then uninstall the newer version if removal is your goal. The newer
 Agent can recover state that the older package could not clean up. If recovery
 still fails, stop and report the error with sanitized diagnostics. Do not delete
 the Agent, recovery journal or Windows network objects to bypass the failure.
@@ -209,22 +209,33 @@ This verifies developer identity and key ownership; it is not Google Play
 distribution or a review of the app's content. Source-permission and sideloading
 prompts can still appear.
 
-Android requests VPN consent only when VPN output is first enabled. SOCKS5 and
-HTTP-only use does not request that permission.
+Android now requires VPN consent during first-run setup, even if you later
+choose only SOCKS5 or HTTP. Granting it may disconnect another active VPN but
+does not start a Usque connection. Notification permission is optional. Setup
+checks interrupted account operations before registering again; use **Check
+result** or **Continue with saved account** when offered.
+
+After setup, choose outputs in **Proxy → VPN and local proxies**, then connect
+from Home. Proxy-only operation does not start a VPN. If Android has revoked VPN
+consent, enabling VPN output requests it again.
 
 ### Keep apps blocked when the VPN ends
 
 The in-app Kill Switch protects connecting and recovery while the VPN remains
-running. It cannot survive the VPN process ending, and a terminal VPN Gate
-failure also closes the VPN. Without Android's system blocking, ordinary network
-access resumes after the VPN ends.
+running. HTTP/SOCKS chain startup and protected handoffs retain a blocking
+interface until the replacement is ready; terminal failures retain it according
+to the applied Kill Switch policy. Unconfirmed cleanup keeps protection.
+Other chain sources retain their documented lifecycle. The in-app protection
+cannot survive the VPN process ending. Without Android's system blocking,
+ordinary network access resumes after the VPN ends. See the
+[chain protection rules](CHAIN_PROXY.md).
 
-Open **Settings → System integration → Open Always-on VPN settings**. Enable
+Open **Settings → Connection & protection → Open Always-on VPN settings**. Enable
 both **Always-on VPN** and **Block connections without VPN**.
 
 For automatic startup after reboot, also enable **Start Usque when you sign in**
-under System integration and **Connect the current account automatically on
-start** for the active account. On Android this switch's description reads
+under **Settings → Application → System integration** and **Connect the current
+account automatically on start** under **Connection & protection**. On Android this switch's description reads
 **Start Usque after the device restarts. To connect automatically, also turn on “Connect the current account automatically on start”.** Windows
 shows the same switch title, which starts Usque when you sign in to Windows.
 

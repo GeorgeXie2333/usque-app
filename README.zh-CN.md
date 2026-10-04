@@ -7,6 +7,10 @@
   ·
   简体中文
   ·
+  <a href="README.ja.md">日本語</a>
+  ·
+  <a href="README.ko.md">한국어</a>
+  ·
   <a href="README.ru.md">Русский</a>
   ·
   <a href="README.fa.md">فارسی</a>
@@ -21,7 +25,7 @@
 
 # Usque
 
-Usque 是面向 Windows 和 Android / Android TV 的非官方 Cloudflare WARP 客户端。它将系统 VPN、SOCKS5 和 HTTP 代理整合在原生 Flutter 界面中，由 Rust MASQUE 引擎提供网络能力，不使用 WebView。
+Usque 是面向 Windows 和 Android / Android TV 的非官方 Cloudflare WARP 客户端。它将系统 VPN、SOCKS5 和 HTTP 代理整合在原生 Flutter 界面中，由 Rust MASQUE 引擎提供网络能力。
 
 > [!IMPORTANT]
 > 请仅从 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建及未打标签的二进制均非正式发布。开发分支文档可能包含尚未发布的改动；请以安装包对应的发布说明和标签下文档为准。
@@ -38,14 +42,16 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.jpg" alt="Usque Android 主界面" width="280">
+      <img src="assets/screenshots/usque-android-home.png" alt="Usque Android 主界面" width="280">
     </td>
   </tr>
 </table>
 
+当前源码渲染的英文界面预览，展示未连接状态。
+
 ## 下载与安装
 
-本文对应 **v0.2.8** 的源码和功能。已发布版本请查看 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)。安装包共六种，另外提供两个仅供应用内更新使用的 Windows MSI 文件：
+本文描述计划用于 **v0.2.9** 的开发分支功能。已发布版本请查看 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)。安装包共六种，另外提供两个仅供应用内更新使用的 Windows MSI 文件：
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |
@@ -62,8 +68,8 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 ## 首次连接
 
 1. 按[安装指南](docs/INSTALLATION.md#verify-before-installing)核验正式安装包，安装后打开 Usque。
-2. 完成首次启动的权限与条款步骤，注册个人版 WARP 账号；也可以填写 WARP License Key。目前不支持导入新的 WARP Secret。
-3. 在“VPN 与本地代理”中选择要启用的联网方式，然后在主页连接。Android 首次启用 VPN 时会请求授权；仅使用 SOCKS5 或 HTTP 代理时无需此授权。
+2. 完成首次启动的权限与条款步骤。Android 完成引导需要 VPN 授权，授权可能断开其他 VPN，但不会启动 Usque 连接；通知权限可选。注册个人版 WARP 账号，也可以填写 WARP License Key。若设置中断，先检查已保存结果再重新注册。目前不支持导入新的 WARP Secret。
+3. 在 Windows 的“代理 → 虚拟网卡与本地代理”或 Android 的“代理 → VPN 与本地代理”中选择联网方式，然后在主页连接。开关立即生效，监听地址与 DNS 表单修改需要点击“应用修改”。仅代理运行不会因已授权而启动 VPN。
 
 | 联网方式 | 用途 |
 | --- | --- |
@@ -86,7 +92,7 @@ VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们�
   未启用 OpenVPN TCP 链式出口时，它不转发普通 UDP 流量，需要 UDP 的应用可能无法正常使用。自动模式不会选择 L4。
 - 自动尝试 HTTP/3，失败时回退到 HTTP/2，并尝试通过 IPv4 和 IPv6 寻找可达入口。
   H3 在支持的网络切换场景下可以迁移连接，详见[路径行为](docs/h3-path-infrastructure.md)。
-- 全隧道 VPN、隧道内 DNS、Kill Switch（断网保护）、局域网访问和自定义 CIDR 绕过规则。
+- 全隧道 VPN、隧道内 DNS、Kill Switch（断网保护）、局域网访问和[自定义 CIDR、IP、域名绕过规则](docs/encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标)。域名包含子域名，自定义规则无需下载国家规则。
 - 可选的按国家直连：单独下载所选国家的 GeoIP 数据和全局 GeoSite 域名规则。
   能看到域名时按域名判断，否则按 IP 判断；无法识别的目标继续走隧道。
 - 本地[网络诊断](docs/network-doctor.md)和网络质量页面，展示延迟、丢包率及其测量状态、队列和最近 60 秒的趋势。
@@ -115,11 +121,13 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 
 ### DNS 隐私
 
-按国家直连默认使用 **System**：匹配规则的域名查询会发送给当前网络使用的 DNS 服务器，位于 VPN 隧道之外。
+按国家及自定义域名直连默认使用 **System**：匹配规则的域名查询会发送给当前网络使用的 DNS 服务器，位于 VPN 隧道之外。
 也可以选择 **DoH** 或 **DoT**，自行填写加密 DNS 服务器的域名和 IP 地址。
 查询会发送给该服务器；连接失败时不会改用明文 DNS。详见[配置步骤与示例](docs/encrypted-direct-dns.md)。
 
-其他远程 VPN 查询使用最终出口提供的 DNS：通常为 WARP，启用链式代理后使用所选最终出口。
+其他远程 VPN 查询使用 WARP 或所选最终链式出口。HTTP/SOCKS5 链 DNS 默认经该代理使用
+校验 TLS 的 Cloudflare DoH；自定义或非默认继承 DNS 保留 TCP。在这两种出口下，应用指定的 UDP/53
+查询转换为发往该解析器的 TCP，不回退到物理 DNS。详见[链 DNS 选择](docs/CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口)。
 手动设置的本地 DNS 和代理 DNS 仍按各自规则生效。
 应用自行使用加密 DNS 时，Usque 看不到域名，此时按 IP 判断是否直连。
 断开连接后下载规则，也仍受 Android 系统阻断设置和尚未解除的 Windows 断网保护约束。

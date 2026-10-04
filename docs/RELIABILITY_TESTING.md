@@ -23,7 +23,7 @@ separate static-configuration snapshot for rollback; DHCP values must not be
 persisted as static DNS. Bounded native-buffer fixtures cover IPv4/IPv6,
 missing interfaces, malformed pointers/lengths, cycles and duplicate LUIDs.
 
-Recovery uses journal schema v4, reads v2/v3 conservatively, and retains the
+Recovery uses journal schema v5, reads v2/v3/v4 conservatively, and retains the
 operation/owner/generation guards. Device ownership and connection receipts
 are recorded in the same atomically replaced protected journal. Legacy versions
 cannot claim the new automatic endpoint policy or WFP metadata receipts. The
@@ -36,6 +36,14 @@ an existence probe. A registry-read failure is no longer convertible into
 device absence. Both PnP and IP Helper must confirm absence before adapter
 cleanup succeeds; lingering rows remain pending, and query/identity failures
 retain recovery evidence.
+
+Schema v4 introduced automatic-endpoint and WFP-metadata receipts. Schema v5
+adds a write-ahead protected-replacement record outside ordinary connection
+cleanup steps. Legacy journals migrate without inventing either kind of new
+receipt; a pre-v5 journal containing a replacement record is rejected.
+Older Agents cannot read schema v5. The Agent protocol stays at version 3,
+with an explicit `protected_tunnel_replacement` capability. See the
+[protected replacement contract](NETWORK_SETTINGS.md#protected-windows-operation-replacement).
 
 A released LUID can identify another VPN's adapter. DNS/address/MTU rollback
 therefore receives the original adapter identity and never writes through an
@@ -96,6 +104,13 @@ settings replacement, and VPN Gate node changes do not call
 `WintunCloseAdapter` or wait for interface-table disappearance. Each replacement
 still ends its packet session and restores that connection's address, DNS,
 route, WFP, dynamic-egress and proxy receipts before another session starts.
+For protected HTTP/SOCKS operation replacement, a separate journaled WFP guard
+bridges that restoration and the successor's commit, including when the saved
+Kill Switch is off. Unconfirmed cleanup retains protection and blocks reuse;
+an explicit user disconnect follows the authenticated abort path. The guard
+preserves only validated direct exceptions and never authorizes a WARP-only
+fallback. Deterministic replacement and abort fixtures do not prove native WFP
+restoration or absence of traffic leaks; those require the isolated environments.
 Hot Gate transitions retain their existing guard and refresh final configuration.
 
 Schema v3 separates the managed device (creating, idle, in use, retiring or

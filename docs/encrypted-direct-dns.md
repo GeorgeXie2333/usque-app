@@ -18,7 +18,7 @@ Usque has no provider presets or embedded resolver addresses.
 
 ## Configure direct DNS
 
-1. In **Settings → VPN bypass settings**, select the countries and download
+1. In **Settings → TUN bypass settings** on Windows or **Settings → VPN bypass settings** on Android, select the countries and download
    their GeoIP rules and the global GeoSite catalog, then save the selection.
    Alternatively, enter custom domains under **Custom bypass targets**; these
    do not need geographic downloads. If no country or custom domain rule matches,
@@ -32,7 +32,8 @@ Usque has no provider presets or embedded resolver addresses.
 5. Check **Network quality → Direct DNS** while connected. To test reachability,
    run a confirmed [Deep diagnostic](network-doctor.md).
 
-In Simplified Chinese, the relevant pages are **设置 → 绕过VPN分流设置** and
+In Simplified Chinese, the bypass page is **设置 → 绕过虚拟网卡分流设置** on Windows
+or **设置 → 绕过VPN分流设置** on Android. Direct DNS is under
 **设置 → 高级网络设置 → 直连 DNS**. The System option is currently labelled
 **当前网络的 DNS**.
 
@@ -181,7 +182,7 @@ physical-system DNS. Users may explicitly change the Profile themselves.
 
 #### Profile/config schema 13 (introduction)
 
-Direct DNS was introduced in configuration schema 13; the current schema is 18,
+Direct DNS was introduced in configuration schema 13; the current schema is 21,
 and later migrations keep these fields.
 `AppConfig.shared_network.direct_dns` is hydrated into each account's runtime
 Profile. Old schema-12 configurations and missing protobuf Profile field 17
@@ -229,7 +230,7 @@ performance results.
 
 ## Custom bypass targets / 自定义绕过目标
 
-In **Settings → VPN bypass settings**, enter one CIDR, IPv4/IPv6 address or
+In **Settings → TUN bypass settings** on Windows or **Settings → VPN bypass settings** on Android, enter one CIDR, IPv4/IPv6 address or
 bare domain per line, then select **Apply changes**. Existing bypass CIDRs from
 Advanced settings appear here automatically. Address rules and domains each
 allow up to 256 entries. An IP becomes a /32 or /128 host rule; network addresses
@@ -249,8 +250,9 @@ Applications using their own encrypted DNS cannot be matched by hidden names;
 IP/CIDR matching remains available. Changing rules follows the existing reconnect
 and pending-settings workflow. An older Engine shows targets read-only.
 
-在 **设置 → 绕过VPN分流设置** 的 **自定义绕过目标** 中，每行填写一个 CIDR、
-IPv4/IPv6 地址或域名，点击 **应用更改**。原高级设置里的 CIDR 会自动显示在这里。
+在 Windows 的 **设置 → 绕过虚拟网卡分流设置** 或 Android 的 **设置 → 绕过VPN分流设置**
+的 **自定义绕过目标** 中，每行填写一个 CIDR、IPv4/IPv6 地址或域名，点击
+**应用修改**。原高级设置里的 CIDR 会自动显示在这里。
 域名匹配自身及全部子域名；不接受 URL、端口、路径、通配符或正则表达式。
 错误行会阻止整份草稿保存。自定义规则无需下载国家规则即可工作，设置跨账号共享，
 适用于 Windows、Android 的 VPN 和 HTTP/SOCKS5 入口。直连域名使用当前的直连 DNS

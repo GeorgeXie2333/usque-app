@@ -36,7 +36,7 @@ On wide layouts, VPN Gate stays inside the Proxy content area and the side
 navigation remains available. Selecting Proxy again returns to its overview;
 selecting another section leaves the subpage after its unsaved-change guard.
 The chain page shares its heading, enable switch, current connection and apply
-bar with the OpenVPN, WireGuard and WARP via WireGuard sources. Refresh and
+bar with the OpenVPN, WireGuard, WARP via WireGuard, HTTP and SOCKS5 sources. Refresh and
 filtering live with the public-node list. Saved and currently connected nodes use
 the same markers as imported configurations; the current connection remains
 visible when another source is being browsed.
@@ -45,9 +45,10 @@ Compact layouts keep the full-screen subpage and system Back behavior. Resizing
 preserves the subpage, draft, filters and scroll position. Connection status
 describes the live session; the persistent bottom bar describes the saved or
 pending selection and provides apply and configuration-preparation controls.
-The Home page's **WARP → VPN Gate** title and connection phase open this same
-settings subpage, with the Proxy navigation destination selected. This shortcut
-does not save a selection or change the connection.
+On compact Android layouts, Home's **WARP → VPN Gate** title and connection
+phase open this same settings subpage with Proxy selected. Desktop Home uses
+the chain-proxy settings shortcut instead of that summary above the connection
+control. Opening either shortcut does not save a selection or change the connection.
 
 ## Connection behavior
 

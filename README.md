@@ -7,6 +7,10 @@
   ·
   <a href="README.zh-CN.md">简体中文</a>
   ·
+  <a href="README.ja.md">日本語</a>
+  ·
+  <a href="README.ko.md">한국어</a>
+  ·
   <a href="README.ru.md">Русский</a>
   ·
   <a href="README.fa.md">فارسی</a>
@@ -21,7 +25,7 @@
 
 # Usque
 
-Usque is an unofficial Cloudflare WARP client for Windows and Android / Android TV. It combines a system VPN, SOCKS5, and HTTP proxy in a native Flutter interface, powered by a Rust MASQUE engine. There is no WebView.
+Usque is an unofficial Cloudflare WARP client for Windows and Android / Android TV. It combines a system VPN, SOCKS5, and HTTP proxy in a native Flutter interface, powered by a Rust MASQUE engine.
 
 > [!IMPORTANT]
 > Download official packages only from [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official. Development-branch documentation can describe changes not yet released; check the release notes and documentation at your package's tag.
@@ -38,14 +42,16 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.jpg" alt="Usque Home on Android" width="280">
+      <img src="assets/screenshots/usque-android-home.png" alt="Usque Home on Android" width="280">
     </td>
   </tr>
 </table>
 
+English interface previews rendered from the current source, shown disconnected.
+
 ## Download and install
 
-This checkout describes **v0.2.8**. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) for published versions. The package set has six installers; two additional Windows MSI files are reserved for in-app updates:
+This development checkout includes changes planned for **v0.2.9**. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) for published versions. The package set has six installers; two additional Windows MSI files are reserved for in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
@@ -62,8 +68,8 @@ See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, re
 ## First connection
 
 1. Install a [verified official package](docs/INSTALLATION.md#verify-before-installing) and open Usque.
-2. Complete the first-run permissions and terms steps. Register a Consumer WARP account, optionally with a WARP License Key. Usque does not accept new WARP Secret imports.
-3. Choose how applications should connect under **VPN and local proxies**, then connect from Home. Android requests VPN consent when VPN is first enabled; SOCKS5/HTTP-only use does not require it.
+2. Complete the first-run permissions and terms steps. Android requires VPN consent to finish setup; granting it may disconnect another VPN but does not start a Usque connection. Notifications are optional. Register a Consumer WARP account, optionally with a WARP License Key. If setup was interrupted, check the saved result before registering again. Usque does not accept new WARP Secret imports.
+3. Open **Proxy → TUN and local proxies** on Windows, or **Proxy → VPN and local proxies** on Android, choose the outputs, then connect from Home. These switches take effect immediately; listener and DNS form edits require **Apply changes**. Proxy-only operation does not use the granted VPN permission to start a VPN.
 
 | Connection option | When to use it |
 | --- | --- |
@@ -91,7 +97,7 @@ Network settings are shared by all accounts.
 - Automatic HTTP/3 connections with HTTP/2 fallback. IPv4 and IPv6 connection
   attempts help find a reachable endpoint; supported H3 network changes can
   migrate the connection. See [path behavior](docs/h3-path-infrastructure.md).
-- Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access and custom CIDR bypass rules.
+- Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access and [custom CIDR, IP and domain bypass rules](docs/encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标). Domains include subdomains; custom rules do not need country-rule downloads.
 - Optional country-based direct routing. Download the selected countries' GeoIP
   data and the global GeoSite catalog separately. Usque uses domain rules when
   the name is visible, otherwise IP rules; unknown destinations stay in the tunnel.
@@ -133,14 +139,18 @@ are blocked instead of bypassing the tunnel.
 
 ### DNS privacy
 
-Country-based direct rules use **System** DNS by default: matching domain queries
+Country-based and custom-domain direct rules use **System** DNS by default: matching domain queries
 go to the DNS servers on your current network, outside the VPN. You can instead
 choose **DoH** or **DoT** and supply an encrypted resolver's name and IP addresses.
 That resolver receives the queries; connection failures do not switch them to
 plaintext DNS. See [configuration steps and examples](docs/encrypted-direct-dns.md).
 
-Other remote VPN queries use the final tunnel's DNS: WARP normally, or the selected chain exit
-when enabled. Explicit local and proxy DNS settings still apply. Apps that use
+Other remote VPN queries use WARP or the selected final chain exit.
+HTTP/SOCKS5 chain DNS defaults to verified Cloudflare DoH through that proxy;
+custom or non-default inherited DNS retains TCP DNS. With these exits,
+application-selected UDP/53 queries use TCP to that resolver, with no physical DNS fallback. See the
+[chain DNS choices](docs/CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口).
+Explicit local and proxy DNS settings still apply. Apps that use
 their own encrypted DNS hide domain names from Usque, so direct routing uses IP
 rules. Rule downloads also respect Android Lockdown and any remaining Windows
 Kill Switch while disconnected.
