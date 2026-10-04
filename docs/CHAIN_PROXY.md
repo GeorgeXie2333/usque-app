@@ -253,8 +253,11 @@ policies and direct routes retain their existing semantics. No DoH or physical
 DNS fallback replaces an application-chosen DNS server. Upstream UDP association
 is lazy; its refusal or timeout cannot block the independent DNS relay.
 Configured TCP DNS and DoH race at most two complete queries, starting the backup
-after 250 ms under one four-second deadline. TCP candidates get at most one
-second, and DoH candidates two seconds including TLS/HTTP setup. SERVFAIL and
+after 250 ms under one four-second deadline. TCP DNS candidates share the remaining
+question budget, including queueing, proxy authentication, CONNECT and the DNS
+exchange; DoH candidates get two seconds including TLS/HTTP setup. An expired
+TCP query is counted even if the candidate race cancels it first; cancelling a
+losing candidate before its deadline does not count as a timeout. SERVFAIL and
 REFUSED try the backup; valid NXDOMAIN/NODATA are terminal. Session or network
 changes invalidate pooled connections and outstanding queries.
 
@@ -314,8 +317,10 @@ UDP 时，本地 SOCKS5 仍接受仅供 DNS 的 UDP 关联；畸形 DNS 不会�
 代理解析，TUN 不推测原始域名，也不会替换应用指定的解析器。
 上游 UDP 关联延迟至普通 UDP 数据到来时建立，拒绝或超时不阻塞独立 DNS 中继。
 配置的 TCP DNS 和 DoH 最多并发两个完整查询，250 ms 后启动备用，共用 4 秒期限；
-TCP 单候选最多 1 秒，DoH 最多 2 秒并包含 TLS/HTTP 建连。SERVFAIL/REFUSED 尝试
-备用服务器，有效 NXDOMAIN/NODATA 为终态。网络或会话变化取消旧查询并清理连接池。
+TCP DNS 候选共用问题剩余的期限，包含排队、代理认证、CONNECT 和 DNS 收发；
+DoH 最多 2 秒并包含 TLS/HTTP 建连。已到期的 TCP 查询即使先被外层竞速取消，仍计入
+超时；截止前因其他候选成功而取消的查询不计为超时。SERVFAIL/REFUSED 尝试备用
+服务器，有效 NXDOMAIN/NODATA 为终态。网络或会话变化取消旧查询并清理连接池。
 若原来选择**由代理服务器解析**，且出口或连接模式变更后不再支持该方式，应用时会
 同时将代理 DNS 改为远程经隧道解析。已配置的 DNS 地址与其他已有解析方式保持不变；
 仍支持服务器解析的连接会保留原来的解析方式。

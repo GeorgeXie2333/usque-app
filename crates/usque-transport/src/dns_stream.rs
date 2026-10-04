@@ -23,6 +23,41 @@ struct Entry {
     generation: Option<u64>,
 }
 
+/// A parent DNS race can drop this query before its own timeout branch is
+/// polled. Count expired work on drop, but not a losing candidate cancelled
+/// before its deadline. The stream and permits still belong to the future.
+struct QueryObservation<'a> {
+    metrics: &'a crate::l4::L4Metrics,
+    deadline: Instant,
+    recorded: bool,
+}
+
+impl QueryObservation<'_> {
+    fn record(&mut self, result: &Result<Vec<u8>, DialError>) {
+        self.metrics.update(|m| match result {
+            Ok(_) => m.dns_successes += 1,
+            Err(error) => {
+                m.dns_failures += 1;
+                if *error == DialError::Timeout {
+                    m.dns_timeouts += 1;
+                }
+            }
+        });
+        self.recorded = true;
+    }
+}
+
+impl Drop for QueryObservation<'_> {
+    fn drop(&mut self) {
+        if !self.recorded && Instant::now() >= self.deadline {
+            self.metrics.update(|m| {
+                m.dns_failures += 1;
+                m.dns_timeouts += 1;
+            });
+        }
+    }
+}
+
 pub(crate) struct StreamDns {
     dialer: Arc<dyn TcpDialer>,
     protector: Arc<dyn crate::SocketProtector>,
@@ -109,6 +144,11 @@ impl StreamDns {
                 value
             }
         };
+        let mut observation = QueryObservation {
+            metrics: &self.metrics,
+            deadline,
+            recorded: false,
+        };
         let work = async {
             // Acquire the resolver-local slot before the global active slot;
             // a slow resolver cannot occupy all sixteen active operations.
@@ -184,15 +224,7 @@ impl StreamDns {
             _ = self.cancellation.cancelled() => Err(DialError::Cancelled),
             result = timeout_at(deadline, work) => result.unwrap_or(Err(DialError::Timeout)),
         };
-        self.metrics.update(|m| match result {
-            Ok(_) => m.dns_successes += 1,
-            Err(error) => {
-                m.dns_failures += 1;
-                if error == DialError::Timeout {
-                    m.dns_timeouts += 1;
-                }
-            }
-        });
+        observation.record(&result);
         result
     }
 
@@ -301,6 +333,8 @@ mod tests {
         live: Arc<AtomicUsize>,
         queried: Arc<Notify>,
         silent: bool,
+        connect_delay: Duration,
+        response_delay: Duration,
     }
     #[async_trait]
     impl TcpDialer for MemoryDialer {
@@ -313,8 +347,13 @@ mod tests {
         ) -> Result<TcpStream, DialError> {
             assert_eq!(class, FlowClass::Dns);
             self.targets.lock().unwrap().push(target);
+            tokio::select! {
+                _ = cancel.cancelled() => return Err(DialError::Cancelled),
+                _ = tokio::time::sleep(self.connect_delay) => {},
+            }
             let (stream, mut peer) = tokio::io::duplex(4096);
             let silent = self.silent;
+            let response_delay = self.response_delay;
             let queried = self.queried.clone();
             let cancel = cancel.clone();
             tokio::spawn(async move {
@@ -331,6 +370,7 @@ mod tests {
                         if silent {
                             std::future::pending::<()>().await;
                         }
+                        tokio::time::sleep(response_delay).await;
                         query[2..4].copy_from_slice(&[0x81, 0x80]);
                         if peer.write_u16(query.len() as u16).await.is_err()
                             || peer.write_all(&query).await.is_err()
@@ -360,6 +400,126 @@ mod tests {
             cancel,
             Arc::default(),
         ))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_cold_proxy_dns_questions_finish_and_reuse_streams() {
+        let dialer = Arc::new(MemoryDialer {
+            connect_delay: Duration::from_millis(2100),
+            response_delay: Duration::from_millis(200),
+            ..Default::default()
+        });
+        let cancel = CancellationToken::new();
+        let dns = pool(dialer.clone(), cancel.clone());
+        let resolver = Arc::new(crate::split_dns::SplitDnsResolver::for_l4(
+            dns.clone(),
+            &["192.0.2.53".parse().unwrap()],
+            Arc::new(crate::geo_direct::GeoDirectPolicy::disabled()),
+            Arc::new(crate::socket::NoopSocketProtector),
+            crate::NetworkQualityTelemetry::default(),
+        ));
+        let start = Instant::now();
+        let mut questions = tokio::task::JoinSet::new();
+        for (id, kind) in [(1_u16, 1_u16), (2, 28), (3, 65)] {
+            let resolver = resolver.clone();
+            questions.spawn(async move {
+                let mut query = query();
+                query[..2].copy_from_slice(&id.to_be_bytes());
+                let at = query.len() - 4;
+                query[at..at + 2].copy_from_slice(&kind.to_be_bytes());
+                let response = resolver.handle_l4(&query, true).await;
+                crate::split_dns::validate_response_bytes(&query, &response).unwrap();
+                assert_eq!(response[3] & 15, 0, "proxy setup must not become SERVFAIL");
+            });
+        }
+        while let Some(result) = questions.join_next().await {
+            result.unwrap();
+        }
+        assert!(start.elapsed() >= Duration::from_millis(2300));
+        assert!(start.elapsed() < Duration::from_secs(4));
+        assert_eq!(dialer.targets.lock().unwrap().len(), 2);
+        assert_eq!(dialer.live.load(Ordering::SeqCst), 2);
+        let snapshot = dns.metrics.snapshot();
+        assert_eq!(snapshot.dns_successes, 3);
+        assert_eq!(snapshot.dns_failures, 0);
+        assert_eq!(snapshot.dns_timeouts, 0);
+        dns.clear();
+        assert_eq!(dialer.live.load(Ordering::SeqCst), 0);
+        assert_eq!(dns.admitted.available_permits(), 80);
+        assert_eq!(dns.operations.available_permits(), 16);
+        cancel.cancel();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn split_dns_candidate_deadline_counts_one_timeout_and_releases_stream() {
+        let dialer = Arc::new(MemoryDialer {
+            silent: true,
+            ..Default::default()
+        });
+        let cancel = CancellationToken::new();
+        let dns = pool(dialer.clone(), cancel.clone());
+        let resolver = crate::split_dns::SplitDnsResolver::for_l4(
+            dns.clone(),
+            &["192.0.2.53".parse().unwrap()],
+            Arc::new(crate::geo_direct::GeoDirectPolicy::disabled()),
+            Arc::new(crate::socket::NoopSocketProtector),
+            crate::NetworkQualityTelemetry::default(),
+        );
+        let start = Instant::now();
+        let response = resolver.handle_l4(&query(), true).await;
+        assert_eq!(response[3] & 15, 2);
+        assert_eq!(start.elapsed(), Duration::from_secs(4));
+        let snapshot = dns.metrics.snapshot();
+        assert_eq!(snapshot.dns_successes, 0);
+        assert_eq!(snapshot.dns_failures, 1);
+        assert_eq!(snapshot.dns_timeouts, 1);
+        assert_eq!(dialer.live.load(Ordering::SeqCst), 0);
+        assert!(dns.idle.lock().unwrap().is_empty());
+        assert_eq!(dns.admitted.available_permits(), 80);
+        assert_eq!(dns.operations.available_permits(), 16);
+        cancel.cancel();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropping_queries_counts_only_expired_work_and_releases_permits() {
+        for expired in [false, true] {
+            let dialer = Arc::new(MemoryDialer {
+                silent: true,
+                ..Default::default()
+            });
+            let cancel = CancellationToken::new();
+            let dns = pool(dialer.clone(), cancel.clone());
+            let query = query();
+            let mut operation = Box::pin(dns.query(
+                "192.0.2.53:53".parse().unwrap(),
+                &query,
+                Instant::now() + Duration::from_secs(1),
+            ));
+            tokio::select! {
+                result = &mut operation => panic!("silent query completed: {result:?}"),
+                _ = dialer.queried.notified() => {},
+            }
+            if expired {
+                tokio::time::advance(Duration::from_secs(1)).await;
+            }
+            // Drop without polling the inner timeout, as an enclosing race can.
+            drop(operation);
+            let snapshot = dns.metrics.snapshot();
+            assert_eq!(snapshot.dns_failures, u64::from(expired));
+            assert_eq!(snapshot.dns_timeouts, u64::from(expired));
+            assert_eq!(dialer.live.load(Ordering::SeqCst), 0);
+            assert!(dns.idle.lock().unwrap().is_empty());
+            assert_eq!(dns.admitted.available_permits(), 80);
+            assert_eq!(dns.operations.available_permits(), 16);
+            assert!(
+                dns.resolvers
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .all(|entry| entry.strong_count() == 0)
+            );
+            cancel.cancel();
+        }
     }
     #[tokio::test]
     async fn domain_resolver_targets_reuse_only_their_own_streams() {
@@ -414,6 +574,8 @@ mod tests {
             .unwrap();
         cancel.cancel();
         assert_eq!(operation.await.unwrap(), Err(DialError::Cancelled));
+        assert_eq!(dns.metrics.snapshot().dns_failures, 1);
+        assert_eq!(dns.metrics.snapshot().dns_timeouts, 0);
         assert_eq!(dialer.live.load(Ordering::SeqCst), 0);
         assert!(dns.idle.lock().unwrap().is_empty());
         assert_eq!(dns.admitted.available_permits(), 80);

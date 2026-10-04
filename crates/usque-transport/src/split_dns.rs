@@ -73,6 +73,11 @@ enum QueryRoute {
     Tunnel,
 }
 
+struct QueryContext {
+    route: QueryRoute,
+    deadline: tokio::time::Instant,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Question {
     name: String,
@@ -327,7 +332,10 @@ impl SplitDnsResolver {
                     )
                     .await
                 }
-                QueryRoute::Tunnel => self.query_tunnel(query_bytes, &query, transport).await,
+                QueryRoute::Tunnel => {
+                    self.query_tunnel(query_bytes, &query, transport, deadline)
+                        .await
+                }
             }
         })
         .await;
@@ -403,8 +411,17 @@ impl SplitDnsResolver {
         if servers.is_empty() {
             return Err("physical network supplied no DNS server".to_owned());
         }
-        self.query_servers(query_bytes, query, transport, &servers, true)
-            .await
+        self.query_servers(
+            query_bytes,
+            query,
+            transport,
+            &servers,
+            QueryContext {
+                route: QueryRoute::Direct,
+                deadline: context.deadline,
+            },
+        )
+        .await
     }
 
     async fn query_tunnel(
@@ -412,10 +429,11 @@ impl SplitDnsResolver {
         query_bytes: &[u8],
         query: &ParsedQuery,
         transport: QueryTransport,
+        deadline: tokio::time::Instant,
     ) -> Result<Vec<u8>, String> {
         if let Some(doh) = &self.final_doh {
             let response = doh
-                .query(query_bytes, tokio::time::Instant::now() + DNS_TIMEOUT)
+                .query(query_bytes, deadline)
                 .await
                 .map_err(|error| error.to_string())?;
             validate_resolver_response(query_bytes, &response)?;
@@ -428,12 +446,21 @@ impl SplitDnsResolver {
             );
         }
         if self.stream_dns.is_some() {
-            return crate::final_dns::query(
+            return crate::final_dns::query_tcp(
                 &self.tunnel_servers,
-                tokio::time::Instant::now() + DNS_TIMEOUT,
-                |server, _| async move {
+                deadline,
+                |server, deadline| async move {
                     let response = self
-                        .query_servers(query_bytes, query, QueryTransport::Tcp, &[server], false)
+                        .query_servers(
+                            query_bytes,
+                            query,
+                            QueryTransport::Tcp,
+                            &[server],
+                            QueryContext {
+                                route: QueryRoute::Tunnel,
+                                deadline,
+                            },
+                        )
                         .await?;
                     Ok(
                         if transport == QueryTransport::Udp && response.len() > MAX_UDP_MESSAGE {
@@ -447,18 +474,20 @@ impl SplitDnsResolver {
             .await;
         }
         if self.final_exit {
-            let deadline = tokio::time::Instant::now() + DNS_TIMEOUT;
             if transport == QueryTransport::Tcp {
                 return crate::final_dns::query(
                     &self.tunnel_servers,
                     deadline,
-                    |server, _| async move {
+                    |server, deadline| async move {
                         self.query_servers(
                             query_bytes,
                             query,
                             QueryTransport::Tcp,
                             &[server],
-                            false,
+                            QueryContext {
+                                route: QueryRoute::Tunnel,
+                                deadline,
+                            },
                         )
                         .await
                     },
@@ -468,13 +497,22 @@ impl SplitDnsResolver {
             crate::final_dns::query_auto(
                 &self.tunnel_servers,
                 deadline,
-                |server, method, _| async move {
+                |server, method, deadline| async move {
                     let method = match method {
                         crate::final_dns::Transport::Udp => QueryTransport::Udp,
                         crate::final_dns::Transport::Tcp => QueryTransport::Tcp,
                     };
                     let response = self
-                        .query_servers(query_bytes, query, method, &[server], false)
+                        .query_servers(
+                            query_bytes,
+                            query,
+                            method,
+                            &[server],
+                            QueryContext {
+                                route: QueryRoute::Tunnel,
+                                deadline,
+                            },
+                        )
                         .await?;
                     Ok(if response.len() > MAX_UDP_MESSAGE {
                         truncated_response(query_bytes)
@@ -485,8 +523,17 @@ impl SplitDnsResolver {
             )
             .await
         } else {
-            self.query_servers(query_bytes, query, transport, &self.tunnel_servers, false)
-                .await
+            self.query_servers(
+                query_bytes,
+                query,
+                transport,
+                &self.tunnel_servers,
+                QueryContext {
+                    route: QueryRoute::Tunnel,
+                    deadline,
+                },
+            )
+            .await
         }
     }
 
@@ -496,19 +543,24 @@ impl SplitDnsResolver {
         query: &ParsedQuery,
         transport: QueryTransport,
         servers: &[SocketAddr],
-        direct: bool,
+        context: QueryContext,
     ) -> Result<Vec<u8>, String> {
+        let QueryContext { route, deadline } = context;
         let mut failures = Vec::new();
         for server in servers {
-            let response = match (transport, direct) {
-                (QueryTransport::Udp, true) => {
+            let response = match (transport, route) {
+                (QueryTransport::Udp, QueryRoute::Direct) => {
                     direct_udp(self.protector.as_ref(), *server, query_bytes).await
                 }
-                (QueryTransport::Tcp, true) => {
+                (QueryTransport::Tcp, QueryRoute::Direct) => {
                     direct_tcp(self.protector.as_ref(), *server, query_bytes).await
                 }
-                (QueryTransport::Udp, false) => self.tunnel_udp(*server, query_bytes).await,
-                (QueryTransport::Tcp, false) => self.tunnel_tcp(*server, query_bytes).await,
+                (QueryTransport::Udp, QueryRoute::Tunnel) => {
+                    self.tunnel_udp(*server, query_bytes).await
+                }
+                (QueryTransport::Tcp, QueryRoute::Tunnel) => {
+                    self.tunnel_tcp(*server, query_bytes, deadline).await
+                }
             };
             let mut response = match response {
                 Ok(response) => response,
@@ -522,10 +574,10 @@ impl SplitDnsResolver {
                 continue;
             }
             if transport == QueryTransport::Udp && response_is_truncated(&response) {
-                let retry = if direct {
+                let retry = if route == QueryRoute::Direct {
                     direct_tcp(self.protector.as_ref(), *server, query_bytes).await
                 } else {
-                    self.tunnel_tcp(*server, query_bytes).await
+                    self.tunnel_tcp(*server, query_bytes, deadline).await
                 };
                 response = match retry {
                     Ok(response) => response,
@@ -591,10 +643,15 @@ impl SplitDnsResolver {
         Ok(response.to_vec())
     }
 
-    async fn tunnel_tcp(&self, server: SocketAddr, query: &[u8]) -> Result<Vec<u8>, String> {
+    async fn tunnel_tcp(
+        &self,
+        server: SocketAddr,
+        query: &[u8],
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<u8>, String> {
         if let Some(dns) = self.final_tcp.as_ref().or(self.stream_dns.as_ref()) {
             return dns
-                .query(server, query, tokio::time::Instant::now() + DNS_TIMEOUT)
+                .query(server, query, deadline)
                 .await
                 .map_err(|e| e.to_string());
         }
@@ -610,8 +667,8 @@ impl SplitDnsResolver {
             .tunnel_channel
             .as_ref()
             .ok_or_else(|| "DNS transport unavailable".to_owned())?;
-        let stream = timeout(
-            DNS_TIMEOUT,
+        let stream = tokio::time::timeout_at(
+            deadline,
             crate::stack_tcp::StackTcpStream::connect(channel.clone(), local, server),
         )
         .await

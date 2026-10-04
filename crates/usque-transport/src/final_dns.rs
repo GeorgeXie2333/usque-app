@@ -52,6 +52,21 @@ where
     query_with_limit(servers, deadline, Duration::from_secs(1), query).await
 }
 
+/// Stream exits include bounded queueing, proxy authentication and CONNECT
+/// before the DNS exchange. Both candidates share the remaining four-second
+/// question budget rather than a shorter limit that discards viable streams.
+pub(crate) async fn query_tcp<S: Copy, T, F, Fut>(
+    servers: &[S],
+    deadline: Instant,
+    query: F,
+) -> Result<T, String>
+where
+    F: FnMut(S, Instant) -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    query_with_limit(servers, deadline, Duration::from_secs(4), query).await
+}
+
 /// DoH includes TLS and HTTP/2 setup in its per-candidate budget.
 pub(crate) async fn query_doh<S: Copy, T, F, Fut>(
     servers: &[S],
@@ -134,6 +149,45 @@ async fn wait<F: Future + Unpin>(slot: &mut Option<F>) -> F::Output {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn stream_candidates_preserve_backup_start_and_whole_question_deadline() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let active = AtomicUsize::new(0);
+        let started = std::sync::Mutex::new(Vec::new());
+        struct Guard<'a>(&'a AtomicUsize);
+        impl Drop for Guard<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let start = Instant::now();
+        let result: Result<(), _> = query_tcp(
+            &[0; 8],
+            start + Duration::from_millis(2750),
+            |_, deadline| {
+                let active = &active;
+                let started = &started;
+                async move {
+                    let now = Instant::now();
+                    assert_eq!(deadline, start + Duration::from_millis(2750));
+                    started.lock().unwrap().push(now - start);
+                    assert!(active.fetch_add(1, Ordering::SeqCst) < 2);
+                    let _guard = Guard(active);
+                    std::future::pending().await
+                }
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(start.elapsed(), Duration::from_millis(2750));
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert_eq!(started.lock().unwrap().len(), 2);
+        assert_eq!(
+            started.lock().unwrap()[..2],
+            [Duration::ZERO, Duration::from_millis(250)]
+        );
+    }
     #[tokio::test(start_paused = true)]
     async fn silent_early_resolvers_do_not_starve_the_fifth_server() {
         let start = Instant::now();

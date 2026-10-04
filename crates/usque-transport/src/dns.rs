@@ -308,7 +308,7 @@ impl Resolver {
             }
         };
         if self.stream_dns.is_some() {
-            crate::final_dns::query(&self.servers, deadline, |server, deadline| {
+            crate::final_dns::query_tcp(&self.servers, deadline, |server, deadline| {
                 let future = query_server(server, crate::final_dns::Transport::Tcp, deadline);
                 async move { future.await.map_err(|error| error.to_string()) }
             })
