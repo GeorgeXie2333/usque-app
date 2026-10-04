@@ -255,9 +255,12 @@ If privileged network state cannot be restored, the upgrade stops with an error.
 
 Confirming Uninstall keeps the original-user Rust/Win32 window open. A worker
 thread installs an external MSI record callback and uses
-`MsiConfigureProductExW` with `INSTALLSTATE_ABSENT`. Internal MSI UI is disabled
-with `INSTALLUILEVEL_NONE | INSTALLUILEVEL_UACONLY`, preserving the system UAC
-prompt and the authored cleanup sequence. It then:
+`MsiConfigureProductExW` with `INSTALLSTATE_ABSENT`. Internal MSI UI uses
+`INSTALLUILEVEL_NONE | INSTALLUILEVEL_UACONLY | INSTALLUILEVEL_SOURCERESONLY`,
+preserving system UAC and source-location dialogs while the outer window handles
+other transaction prompts. MSI can request a matching original package when its
+cached source is unavailable. Rejecting this UI configuration stops before the
+uninstall transaction; quiet automation retains its silent launcher. It then:
 
 1. asks the GUI and Engine to disconnect and exit, with a bounded force fallback for an unresponsive older build;
 2. stops the Agent;

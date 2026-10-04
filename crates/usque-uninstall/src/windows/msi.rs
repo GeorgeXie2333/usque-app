@@ -12,7 +12,7 @@ use std::{
 };
 
 use windows_sys::Win32::{
-    Foundation::{ERROR_SUCCESS, HWND},
+    Foundation::{ERROR_INVALID_PARAMETER, ERROR_SUCCESS, HWND},
     System::ApplicationInstallationAndServicing::*,
     UI::WindowsAndMessaging::{
         IDABORT, IDCANCEL, IDNO, IDOK, IDRETRY, MB_ABORTRETRYIGNORE, MB_OKCANCEL, MB_RETRYCANCEL,
@@ -151,15 +151,10 @@ fn execute(request: UninstallRequest, owner: HWND, shared: &Arc<Shared>) -> Comp
     let mut context = CallbackContext {
         shared: shared.clone(),
     };
-    let mut owner = owner;
-    // SAFETY: the live window remains owned by the UI until this synchronous
-    // call and all callbacks return. No token change or runas is performed:
-    // MSI retains its original-user impersonation contract for PurgeUserData.
-    let previous_ui =
-        unsafe { MsiSetInternalUI(INSTALLUILEVEL_NONE | INSTALLUILEVEL_UACONLY, &mut owner) };
-    let _restore = RestoreMsiUi {
-        previous_ui,
-        previous_owner: owner,
+    let _restore = match configure_msi_ui(owner) {
+        Ok(restore) => restore,
+        // A rejected UI configuration must never reach the MSI transaction.
+        Err(code) => return failed(code),
     };
     let filter = INSTALLLOGMODE_ACTIONSTART
         | INSTALLLOGMODE_ACTIONDATA
@@ -248,6 +243,35 @@ fn finish_registration(mut completion: Completion) -> Completion {
 struct RestoreMsiUi {
     previous_ui: INSTALLUILEVEL,
     previous_owner: HWND,
+}
+
+fn configure_msi_ui(owner: HWND) -> Result<RestoreMsiUi, u32> {
+    configure_msi_ui_with(owner, |level, previous_owner| {
+        // SAFETY: the UI keeps the borrowed owner window alive until this
+        // synchronous operation and its callbacks return. The owner slot is
+        // writable. No token change or runas is performed: MSI retains its
+        // original-user impersonation contract for PurgeUserData.
+        unsafe { MsiSetInternalUI(level, previous_owner) }
+    })
+}
+
+fn configure_msi_ui_with(
+    mut owner: HWND,
+    set_ui: impl FnOnce(INSTALLUILEVEL, &mut HWND) -> INSTALLUILEVEL,
+) -> Result<RestoreMsiUi, u32> {
+    // Source resolution belongs to MSI, including its native source chooser.
+    // Every other transaction prompt remains handled by the external UI.
+    let previous_ui = set_ui(
+        INSTALLUILEVEL_NONE | INSTALLUILEVEL_UACONLY | INSTALLUILEVEL_SOURCERESONLY,
+        &mut owner,
+    );
+    if previous_ui == INSTALLUILEVEL_NOCHANGE {
+        return Err(ERROR_INVALID_PARAMETER);
+    }
+    Ok(RestoreMsiUi {
+        previous_ui,
+        previous_owner: owner,
+    })
 }
 
 impl Drop for RestoreMsiUi {
@@ -424,6 +448,287 @@ fn string_field(record: MSIHANDLE, field: u32) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows_sys::Win32::{
+        System::LibraryLoader::GetModuleHandleW,
+        UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, IsWindowVisible},
+    };
+
+    // MsiSetInternalUI and MsiSetExternalUIRecord change process-wide state.
+    // Every test that changes those hooks must hold this lock for its guards.
+    static MSI_UI_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[link(name = "msi")]
+    unsafe extern "system" {
+        // windows-sys 0.61 models this output as a callback rather than a
+        // pointer to a callback. Production passes null; the test needs the
+        // SDK's actual output-pointer signature to inspect hook restoration.
+        #[link_name = "MsiSetExternalUIRecord"]
+        fn query_external_ui_record(
+            handler: PINSTALLUI_HANDLER_RECORD,
+            filter: u32,
+            context: *const c_void,
+            previous: *mut PINSTALLUI_HANDLER_RECORD,
+        ) -> u32;
+    }
+
+    struct HiddenWindow(HWND);
+
+    impl HiddenWindow {
+        fn new() -> Self {
+            // SAFETY: STATIC is a predefined class; all supplied strings and
+            // arguments are valid. Without WS_VISIBLE this fixture is hidden.
+            let hwnd = unsafe {
+                CreateWindowExW(
+                    0,
+                    wide("STATIC").as_ptr(),
+                    wide("Usque inert MSI owner fixture").as_ptr(),
+                    0,
+                    0,
+                    0,
+                    1,
+                    1,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    GetModuleHandleW(ptr::null()),
+                    ptr::null(),
+                )
+            };
+            assert!(!hwnd.is_null(), "create hidden owner fixture");
+            // SAFETY: hwnd is the window just created on this test thread.
+            assert_eq!(unsafe { IsWindowVisible(hwnd) }, 0);
+            Self(hwnd)
+        }
+    }
+
+    impl Drop for HiddenWindow {
+        fn drop(&mut self) {
+            // SAFETY: this fixture owns a window on the current test thread.
+            unsafe { DestroyWindow(self.0) };
+        }
+    }
+
+    struct Record(MSIHANDLE);
+
+    impl Record {
+        fn new(fields: u32) -> Self {
+            // SAFETY: creating an in-memory record does not start an install.
+            let record = unsafe { MsiCreateRecord(fields) };
+            assert_ne!(record, 0, "create inert MSI record");
+            Self(record)
+        }
+
+        fn integer(&self, field: u32, value: i32) {
+            // SAFETY: this fixture owns the record; test fields are in range.
+            assert_eq!(unsafe { MsiRecordSetInteger(self.0, field, value) }, 0);
+        }
+
+        fn string(&self, field: u32, value: &str) {
+            // SAFETY: this fixture owns the record; the temporary wide string
+            // outlives the synchronous call, which copies the string.
+            assert_eq!(
+                // SAFETY: the owned record and copied wide string are live.
+                unsafe { MsiRecordSetStringW(self.0, field, wide(value).as_ptr()) },
+                0
+            );
+        }
+
+        fn send(&self, context: &mut CallbackContext, kind: u32) -> i32 {
+            // SAFETY: context and this borrowed record remain alive for the
+            // direct callback invocation. No MSI transaction is started.
+            unsafe { callback(ptr::from_mut(context).cast(), kind, self.0) }
+        }
+    }
+
+    impl Drop for Record {
+        fn drop(&mut self) {
+            // SAFETY: this fixture uniquely owns the MSI record handle.
+            unsafe { MsiCloseHandle(self.0) };
+        }
+    }
+
+    unsafe extern "system" fn inert_handler(
+        _context: *mut c_void,
+        _kind: u32,
+        _record: MSIHANDLE,
+    ) -> i32 {
+        // The hook is only registered and queried, never used by an install.
+        -1
+    }
+
+    #[test]
+    fn interactive_msi_ui_accepts_source_resolution_and_restores_owner_and_hooks() {
+        let _serial = MSI_UI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let old_owner = HiddenWindow::new();
+        let operation_owner = HiddenWindow::new();
+        let mut original_owner = old_owner.0;
+        // SAFETY: the fixture is a live hidden window; this only sets UI state.
+        let original_ui = unsafe { MsiSetInternalUI(INSTALLUILEVEL_BASIC, &mut original_owner) };
+        assert_ne!(original_ui, INSTALLUILEVEL_NOCHANGE);
+        // Also restore the test's initial process state on assertion failure.
+        // Both fixture windows outlive every restoration guard.
+        let _restore_original = RestoreMsiUi {
+            previous_ui: original_ui,
+            previous_owner: original_owner,
+        };
+        let expected = INSTALLUILEVEL_NONE | INSTALLUILEVEL_UACONLY | INSTALLUILEVEL_SOURCERESONLY;
+        let restore = configure_msi_ui_with(operation_owner.0, |level, owner| {
+            assert_eq!(level, expected, "send both source and UAC modifiers to MSI");
+            // SAFETY: owner is a writable slot containing the live hidden fixture.
+            unsafe { MsiSetInternalUI(level, owner) }
+        })
+        .expect("source and UAC UI accepted");
+        // Reapply the exact level while inspecting it: NOCHANGE alone clears
+        // source/UAC modifier flags even though it retains the base UI level.
+        assert_eq!(
+            // SAFETY: this only reapplies the same UI configuration, with no transaction.
+            unsafe { MsiSetInternalUI(expected, ptr::null_mut()) },
+            expected
+        );
+        let mut owner = operation_owner.0;
+        // SAFETY: setting the same live owner returns the configured owner.
+        assert_eq!(
+            // SAFETY: owner is the live hidden fixture window.
+            unsafe { MsiSetInternalUI(expected, &mut owner) },
+            expected
+        );
+        assert_eq!(owner, operation_owner.0);
+        // SAFETY: this inert hook is never called by a transaction; it borrows
+        // no context and is cleared by both production restoration guards.
+        assert_eq!(
+            // SAFETY: no transaction can invoke this context-free inert hook.
+            unsafe {
+                MsiSetExternalUIRecord(
+                    Some(inert_handler),
+                    INSTALLLOGMODE_RESOLVESOURCE as u32,
+                    ptr::null(),
+                    None,
+                )
+            },
+            ERROR_SUCCESS
+        );
+        drop(restore);
+        let mut restored_owner = old_owner.0;
+        // SAFETY: query the restored level while retaining its live owner.
+        assert_eq!(
+            // SAFETY: the restored owner fixture remains live until guards drop.
+            unsafe { MsiSetInternalUI(INSTALLUILEVEL_NOCHANGE, &mut restored_owner) },
+            INSTALLUILEVEL_BASIC
+        );
+        assert_eq!(restored_owner, old_owner.0);
+        let mut previous_handler = None;
+        // SAFETY: this only queries/clears the hook, with a writable output
+        // slot, while the process-wide test lock prevents concurrent changes.
+        assert_eq!(
+            // SAFETY: previous_handler is a writable SDK callback output slot.
+            unsafe { query_external_ui_record(None, 0, ptr::null(), &mut previous_handler) },
+            ERROR_SUCCESS
+        );
+        assert!(
+            previous_handler.is_none(),
+            "production guard cleared the hook"
+        );
+    }
+
+    #[test]
+    fn rejected_msi_ui_configuration_returns_an_error_without_a_guard() {
+        let _serial = MSI_UI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let result =
+            configure_msi_ui_with(ptr::null_mut(), |_level, _owner| INSTALLUILEVEL_NOCHANGE);
+        match result {
+            Err(code) => assert_eq!(code, ERROR_INVALID_PARAMETER),
+            Ok(_) => panic!("rejected MSI UI must not permit a transaction"),
+        }
+    }
+
+    #[test]
+    fn source_resolution_is_delegated_even_after_a_cancel_request() {
+        let shared = Arc::new(Shared::default());
+        let mut context = CallbackContext {
+            shared: shared.clone(),
+        };
+        let common_data = Record::new(2);
+        common_data.integer(1, 2);
+        common_data.integer(2, 1);
+        assert_eq!(
+            common_data.send(&mut context, INSTALLMESSAGE_COMMONDATA as u32),
+            IDOK
+        );
+        assert!(shared.request_cancel());
+        let source = Record::new(1);
+        source.string(1, r"C:\inert-source-fixture\missing.msi");
+        assert_eq!(
+            source.send(&mut context, INSTALLMESSAGE_RESOLVESOURCE as u32),
+            0
+        );
+        assert_eq!(
+            source.send(
+                &mut context,
+                INSTALLMESSAGE_RESOLVESOURCE as u32 | MB_RETRYCANCEL
+            ),
+            0
+        );
+        assert!(shared.snapshot().cancel_requested);
+        assert!(shared.prompt.lock().unwrap().is_none());
+        assert!(shared.error_code.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn record_callbacks_keep_non_source_errors_fail_closed() {
+        let shared = Arc::new(Shared::default());
+        let mut context = CallbackContext {
+            shared: shared.clone(),
+        };
+        let error = Record::new(2);
+        error.integer(1, 1722);
+        error.string(2, "RecoverAgentState");
+        for (kind, buttons, expected) in [
+            (INSTALLMESSAGE_ERROR, MB_ABORTRETRYIGNORE, IDABORT),
+            (INSTALLMESSAGE_ERROR, MB_RETRYCANCEL, IDCANCEL),
+            (INSTALLMESSAGE_WARNING, MB_YESNO, IDNO),
+            (INSTALLMESSAGE_USER, MB_OKCANCEL, IDCANCEL),
+        ] {
+            assert_eq!(error.send(&mut context, kind as u32 | buttons), expected);
+        }
+        assert_eq!(*shared.error_code.lock().unwrap(), Some(1722));
+        assert_eq!(shared.snapshot().finish(1603), Outcome::NetworkFailed);
+        assert!(shared.prompt.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn record_callbacks_cancel_execution_but_stop_before_data_deletion() {
+        let shared = Arc::new(Shared::default());
+        let mut context = CallbackContext {
+            shared: shared.clone(),
+        };
+        let common_data = Record::new(2);
+        common_data.integer(1, 2);
+        common_data.integer(2, 1);
+        assert_eq!(
+            common_data.send(&mut context, INSTALLMESSAGE_COMMONDATA as u32),
+            IDOK
+        );
+        assert!(shared.request_cancel());
+        let progress = Record::new(4);
+        for (field, value) in [(1, 0), (2, 100), (3, 0), (4, 0)] {
+            progress.integer(field, value);
+        }
+        assert_eq!(
+            progress.send(&mut context, INSTALLMESSAGE_PROGRESS as u32),
+            IDCANCEL
+        );
+        let action = Record::new(1);
+        action.string(1, "PurgeUserData");
+        assert_eq!(
+            action.send(&mut context, INSTALLMESSAGE_ACTIONSTART as u32),
+            IDOK
+        );
+        assert_eq!(
+            progress.send(&mut context, INSTALLMESSAGE_PROGRESS as u32),
+            IDOK
+        );
+        assert!(shared.snapshot().purge_started);
+        assert_eq!(shared.snapshot().finish(1602), Outcome::DataMayBeDeleted);
+    }
 
     #[test]
     fn registration_retry_has_no_msi_or_data_deletion_entrypoint() {
