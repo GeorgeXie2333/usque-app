@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Ukrainian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowUk = <String, String>{
+  'preview_banner': 'Попередній перегляд · тестові дані · без VPN',
+  'preview_reset': 'Скинути перегляд',
+  'preview_restart_onboarding': 'Почати налаштування заново',
   'home_local_proxies': 'Локальні проксі',
   'home_manage_proxies': 'Керування проксі',
   'home_enabled_interfaces': 'Увімкнено: {interfaces}',
@@ -358,6 +361,16 @@ const Map<String, String> kNetworkSettingsUk = <String, String>{
 };
 
 const Map<String, String> kChainUk = <String, String>{
+  'invalid_endpoint': 'Введіть коректну адресу сервера та порт від 1 до 65535.',
+  'missing_configuration': 'Введіть адресу та порт проксі-сервера.',
+  'source_mismatch':
+      'Використовуйте конфігурацію, що відповідає вибраному типу виходу.',
+  'invalid_dns': 'Перевірте адреси DNS-серверів і вибраний режим DNS.',
+  'unexpected_credentials':
+      'Увімкніть автентифікацію за іменем користувача та паролем або очистьте облікові дані.',
+  'missing_credentials': 'Введіть і ім’я користувача, і пароль.',
+  'invalid_credential':
+      'Перевірте, чи немає в облікових даних недопустимих символів або перевищення довжини.',
   "dns_auto": "Автоматично (типово DoH)",
   "dns_doh": "Зашифрований DNS · Cloudflare",
   "dns_tcp": "DNS через TCP",

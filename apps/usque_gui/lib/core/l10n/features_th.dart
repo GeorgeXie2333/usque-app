@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Thai.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowTh = <String, String>{
+  'preview_banner': 'ตัวอย่างหน้าจอ · ข้อมูลจำลอง · ไม่เปิด VPN',
+  'preview_reset': 'รีเซ็ตตัวอย่าง',
+  'preview_restart_onboarding': 'เริ่มการตั้งค่าครั้งแรกใหม่',
   'home_local_proxies': 'พร็อกซีในเครื่อง',
   'home_manage_proxies': 'จัดการพร็อกซี',
   'home_enabled_interfaces': 'เปิดใช้งาน: {interfaces}',
@@ -325,6 +328,16 @@ const Map<String, String> kNetworkSettingsTh = <String, String>{
 };
 
 const Map<String, String> kChainTh = <String, String>{
+  'invalid_endpoint':
+      'ป้อนที่อยู่เซิร์ฟเวอร์ที่ถูกต้องและพอร์ตระหว่าง 1 ถึง 65535',
+  'missing_configuration': 'ป้อนที่อยู่และพอร์ตของเซิร์ฟเวอร์พร็อกซี',
+  'source_mismatch': 'ใช้การตั้งค่าที่ตรงกับประเภททางออกที่เลือก',
+  'invalid_dns': 'ตรวจสอบที่อยู่เซิร์ฟเวอร์ DNS และโหมด DNS ที่เลือก',
+  'unexpected_credentials':
+      'เปิดการยืนยันตัวตนด้วยชื่อผู้ใช้และรหัสผ่าน หรือล้างข้อมูลเข้าสู่ระบบ',
+  'missing_credentials': 'ป้อนทั้งชื่อผู้ใช้และรหัสผ่าน',
+  'invalid_credential':
+      'ตรวจสอบว่าข้อมูลเข้าสู่ระบบมีอักขระที่ไม่ถูกต้องหรือยาวเกินกำหนดหรือไม่',
   "dns_auto": "อัตโนมัติ (DoH เป็นค่าเริ่มต้น)",
   "dns_doh": "DNS เข้ารหัส · Cloudflare",
   "dns_tcp": "DNS ผ่าน TCP",

@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Traditional Chinese (Hong Kong).
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowZhHk = <String, String>{
+  'preview_banner': '介面預覽 · 模擬資料 · 不啟動 VPN',
+  'preview_reset': '重設預覽',
+  'preview_restart_onboarding': '重新開始首次引導',
   'home_local_proxies': '本地代理',
   'home_manage_proxies': '管理代理',
   'home_enabled_interfaces': '已啟用：{interfaces}',
@@ -288,6 +291,13 @@ const Map<String, String> kNetworkSettingsZhHk = <String, String>{
 };
 
 const Map<String, String> kChainZhHk = <String, String>{
+  'invalid_endpoint': '請輸入有效的伺服器位址及 1–65535 之間的連接埠。',
+  'missing_configuration': '請填寫代理伺服器位址及連接埠。',
+  'source_mismatch': '請使用與所選出口來源相符的設定。',
+  'invalid_dns': '請檢查 DNS 伺服器位址及所選 DNS 方式。',
+  'unexpected_credentials': '請啟用用戶名稱及密碼驗證，或清空驗證資訊。',
+  'missing_credentials': '請同時填寫用戶名稱及密碼。',
+  'invalid_credential': '請檢查驗證資訊是否包含無效字元或超出長度限制。',
   "dns_auto": "自動（預設 DoH）",
   "dns_doh": "加密 DNS · Cloudflare",
   "dns_tcp": "TCP DNS",

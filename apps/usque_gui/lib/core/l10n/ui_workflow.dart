@@ -21,6 +21,9 @@ import 'features_zh_tw.dart';
 // Shared workflow copy is keyed by AppStrings catalog id. Missing ids fall
 // back to English. Companion locale maps live in features_*.dart.
 const Map<String, String> kUiWorkflowEn = <String, String>{
+  'preview_banner': 'UI preview · simulated data · no VPN',
+  'preview_reset': 'Reset preview',
+  'preview_restart_onboarding': 'Restart onboarding',
   'home_local_proxies': 'Local proxies',
   'home_manage_proxies': 'Manage proxies',
   'home_enabled_interfaces': 'Enabled: {interfaces}',
@@ -83,6 +86,9 @@ const Map<String, String> kUiWorkflowEn = <String, String>{
 };
 
 const Map<String, String> kUiWorkflowZhCn = <String, String>{
+  'preview_banner': '界面预览 · 模拟数据 · 不启动 VPN',
+  'preview_reset': '重置预览',
+  'preview_restart_onboarding': '重新开始首次引导',
   'home_local_proxies': '本地代理',
   'home_manage_proxies': '管理代理',
   'home_enabled_interfaces': '已启用：{interfaces}',

@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import '../app.dart';
+import '../core/app_strings.dart';
+import '../core/connection_presentation.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
@@ -75,11 +77,28 @@ class _PreviewAppState extends State<PreviewApp> {
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Usque UI preview',
-    debugShowCheckedModeBanner: false,
-    theme: UsqueTheme.light(),
-    home: Scaffold(
+  Widget build(BuildContext context) => !_ready
+      ? MaterialApp(
+          title: 'Usque',
+          debugShowCheckedModeBanner: false,
+          theme: UsqueTheme.light(),
+          home: const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          ),
+        )
+      : UsqueBootstrap(
+          key: ValueKey(_generation),
+          engine: _engine,
+          updateDownloader: PreviewUpdateDownloader(_engine),
+          builder: _buildPreview,
+        );
+
+  Widget _buildPreview(BuildContext context, Widget? child) {
+    final strings = AppStrings(
+      LocalePreference.system,
+      systemLocale: Localizations.localeOf(context),
+    );
+    return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
@@ -90,34 +109,29 @@ class _PreviewAppState extends State<PreviewApp> {
                 runSpacing: 8,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  const Text('UI preview · simulated data · no VPN'),
+                  Text(strings.get('preview_banner')),
                   SizedBox(
                     width: 280,
                     child: DropdownButton<ConnectionPhase>(
                       isExpanded: true,
                       value: _phase,
-                      hint: const Text('Connection state'),
-                      items: const [
-                        DropdownMenuItem(
-                          value: ConnectionPhase.disconnected,
-                          child: Text('Disconnected'),
-                        ),
-                        DropdownMenuItem(
-                          value: ConnectionPhase.connectingH3,
-                          child: Text('Connecting'),
-                        ),
-                        DropdownMenuItem(
-                          value: ConnectionPhase.connected,
-                          child: Text('Connected'),
-                        ),
-                        DropdownMenuItem(
-                          value: ConnectionPhase.reconnecting,
-                          child: Text('Reconnecting'),
-                        ),
-                        DropdownMenuItem(
-                          value: ConnectionPhase.error,
-                          child: Text('Error'),
-                        ),
+                      hint: Text(strings.get('connection_status')),
+                      items: [
+                        for (final phase in const [
+                          ConnectionPhase.disconnected,
+                          ConnectionPhase.connectingH3,
+                          ConnectionPhase.connected,
+                          ConnectionPhase.reconnecting,
+                          ConnectionPhase.error,
+                        ])
+                          DropdownMenuItem(
+                            value: phase,
+                            child: Text(
+                              strings.get(
+                                ConnectionPresentation.of(phase).labelKey,
+                              ),
+                            ),
+                          ),
                       ],
                       onChanged: !_ready
                           ? null
@@ -129,33 +143,27 @@ class _PreviewAppState extends State<PreviewApp> {
                     ),
                   ),
                   TextButton(
+                    key: const ValueKey('preview-reset'),
                     onPressed: _resetting
                         ? null
                         : () => _reset(onboarding: false),
-                    child: const Text('Reset preview'),
+                    child: Text(strings.get('preview_reset')),
                   ),
                   TextButton(
+                    key: const ValueKey('preview-restart-onboarding'),
                     onPressed: _resetting
                         ? null
                         : () => _reset(onboarding: true),
-                    child: const Text('Restart onboarding'),
+                    child: Text(strings.get('preview_restart_onboarding')),
                   ),
                 ],
               ),
             ),
             const Divider(height: 1),
-            Expanded(
-              child: !_ready
-                  ? const Center(child: CircularProgressIndicator())
-                  : UsqueBootstrap(
-                      key: ValueKey(_generation),
-                      engine: _engine,
-                      updateDownloader: PreviewUpdateDownloader(_engine),
-                    ),
-            ),
+            Expanded(child: child ?? const SizedBox.shrink()),
           ],
         ),
       ),
-    ),
-  );
+    );
+  }
 }

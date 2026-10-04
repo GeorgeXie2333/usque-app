@@ -1,6 +1,9 @@
 /// Supplemental feature strings for French.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowFr = <String, String>{
+  'preview_banner': 'Aperçu de l’interface · données simulées · sans VPN',
+  'preview_reset': 'Réinitialiser l’aperçu',
+  'preview_restart_onboarding': 'Recommencer la configuration initiale',
   'home_local_proxies': 'Proxys locaux',
   'home_manage_proxies': 'Gérer les proxys',
   'home_enabled_interfaces': 'Activés : {interfaces}',
@@ -365,6 +368,18 @@ const Map<String, String> kNetworkSettingsFr = <String, String>{
 };
 
 const Map<String, String> kChainFr = <String, String>{
+  'invalid_endpoint':
+      'Saisissez une adresse de serveur valide et un port entre 1 et 65535.',
+  'missing_configuration': 'Saisissez l’adresse et le port du serveur proxy.',
+  'source_mismatch':
+      'Utilisez une configuration correspondant au type de sortie sélectionné.',
+  'invalid_dns':
+      'Vérifiez les adresses des serveurs DNS et le mode DNS sélectionné.',
+  'unexpected_credentials':
+      'Activez l’authentification par nom d’utilisateur et mot de passe ou effacez les identifiants.',
+  'missing_credentials': 'Saisissez un nom d’utilisateur et un mot de passe.',
+  'invalid_credential':
+      'Vérifiez si les identifiants contiennent des caractères non valides ou sont trop longs.',
   "dns_auto": "Automatique (DoH par défaut)",
   "dns_doh": "DNS chiffré · Cloudflare",
   "dns_tcp": "DNS sur TCP",

@@ -37,7 +37,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
     final s = widget.controller.strings;
     final port = int.tryParse(_port.text.trim());
     if (port == null || port < 1 || port > 65535) {
-      setState(() => _error = s.chain('invalid_endpoint'));
+      setState(() => _error = s.get('invalid_port'));
       return;
     }
     setState(() {

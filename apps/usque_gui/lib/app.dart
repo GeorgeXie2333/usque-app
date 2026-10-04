@@ -25,10 +25,16 @@ typedef _BootstrapView = ({
 });
 
 class UsqueBootstrap extends StatefulWidget {
-  const UsqueBootstrap({super.key, this.engine, this.updateDownloader});
+  const UsqueBootstrap({
+    super.key,
+    this.engine,
+    this.updateDownloader,
+    this.builder,
+  });
 
   final EngineClient? engine;
   final UpdateDownloader? updateDownloader;
+  final TransitionBuilder? builder;
 
   @override
   State<UsqueBootstrap> createState() => _UsqueBootstrapState();
@@ -138,11 +144,16 @@ class _UsqueBootstrapState extends State<UsqueBootstrap> {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          builder: WindowFrame.instance.enabled
-              ? (context, child) => _WindowChrome(
-                  controller: controller,
-                  child: child ?? const SizedBox.shrink(),
-                )
+          builder: WindowFrame.instance.enabled || widget.builder != null
+              ? (context, child) {
+                  final content = WindowFrame.instance.enabled
+                      ? _WindowChrome(
+                          controller: controller,
+                          child: child ?? const SizedBox.shrink(),
+                        )
+                      : child ?? const SizedBox.shrink();
+                  return widget.builder?.call(context, content) ?? content;
+                }
               : null,
           home: !view.initialized
               ? const _LoadingScreen()

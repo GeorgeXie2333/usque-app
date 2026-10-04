@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Korean.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowKo = <String, String>{
+  'preview_banner': '화면 미리보기 · 모의 데이터 · VPN 실행 안 함',
+  'preview_reset': '미리보기 초기화',
+  'preview_restart_onboarding': '초기 설정 다시 시작',
   'home_local_proxies': '로컬 프록시',
   'home_manage_proxies': '프록시 관리',
   'home_enabled_interfaces': '활성화됨: {interfaces}',
@@ -310,6 +313,13 @@ const Map<String, String> kNetworkSettingsKo = <String, String>{
 };
 
 const Map<String, String> kChainKo = <String, String>{
+  'invalid_endpoint': '유효한 서버 주소와 1–65535 범위의 포트를 입력하세요.',
+  'missing_configuration': '프록시 서버 주소와 포트를 입력하세요.',
+  'source_mismatch': '선택한 출구 유형에 맞는 설정을 사용하세요.',
+  'invalid_dns': 'DNS 서버 주소와 선택한 DNS 방식을 확인하세요.',
+  'unexpected_credentials': '사용자 이름과 비밀번호 인증을 켜거나 인증 정보를 지우세요.',
+  'missing_credentials': '사용자 이름과 비밀번호를 모두 입력하세요.',
+  'invalid_credential': '인증 정보에 잘못된 문자가 있거나 길이 제한을 초과하는지 확인하세요.',
   "dns_auto": "자동 (기본 DoH)",
   "dns_doh": "암호화 DNS · Cloudflare",
   "dns_tcp": "TCP DNS",

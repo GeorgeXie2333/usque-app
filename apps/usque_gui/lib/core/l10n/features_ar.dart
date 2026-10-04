@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Arabic.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowAr = <String, String>{
+  'preview_banner': 'معاينة الواجهة · بيانات محاكاة · دون VPN',
+  'preview_reset': 'إعادة ضبط المعاينة',
+  'preview_restart_onboarding': 'إعادة بدء الإعداد الأولي',
   'home_local_proxies': 'الوكلاء المحليون',
   'home_manage_proxies': 'إدارة الوكلاء',
   'home_enabled_interfaces': 'مفعّل: {interfaces}',
@@ -326,6 +329,15 @@ const Map<String, String> kNetworkSettingsAr = <String, String>{
 };
 
 const Map<String, String> kChainAr = <String, String>{
+  'invalid_endpoint': 'أدخل عنوان خادم صالحاً ومنفذاً بين 1 و65535.',
+  'missing_configuration': 'أدخل عنوان خادم الوكيل ومنفذه.',
+  'source_mismatch': 'استخدم إعداداً يطابق نوع المخرج المحدد.',
+  'invalid_dns': 'تحقق من عناوين خوادم DNS ووضع DNS المحدد.',
+  'unexpected_credentials':
+      'فعّل المصادقة باسم المستخدم وكلمة المرور أو امسح بيانات الاعتماد.',
+  'missing_credentials': 'أدخل اسم المستخدم وكلمة المرور معاً.',
+  'invalid_credential':
+      'تحقق من بيانات الاعتماد بحثاً عن أحرف غير صالحة أو طول زائد.',
   "dns_auto": "تلقائي (DoH افتراضيًا)",
   "dns_doh": "DNS مشفّر · Cloudflare",
   "dns_tcp": "DNS عبر TCP",

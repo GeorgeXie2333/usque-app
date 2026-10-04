@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Dutch.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowNl = <String, String>{
+  'preview_banner': 'Interfacevoorbeeld · gesimuleerde gegevens · geen VPN',
+  'preview_reset': 'Voorbeeld resetten',
+  'preview_restart_onboarding': 'Eerste configuratie opnieuw starten',
   'home_local_proxies': 'Lokale proxy’s',
   'home_manage_proxies': 'Proxy’s beheren',
   'home_enabled_interfaces': 'Ingeschakeld: {interfaces}',
@@ -366,6 +369,17 @@ const Map<String, String> kNetworkSettingsNl = <String, String>{
 };
 
 const Map<String, String> kChainNl = <String, String>{
+  'invalid_endpoint':
+      'Voer een geldig serveradres en een poort van 1 tot 65535 in.',
+  'missing_configuration': 'Voer het adres en de poort van de proxyserver in.',
+  'source_mismatch':
+      'Gebruik een configuratie die past bij het gekozen type uitgang.',
+  'invalid_dns': 'Controleer de DNS-serveradressen en de gekozen DNS-modus.',
+  'unexpected_credentials':
+      'Schakel verificatie met gebruikersnaam en wachtwoord in of wis de inloggegevens.',
+  'missing_credentials': 'Voer zowel een gebruikersnaam als een wachtwoord in.',
+  'invalid_credential':
+      'Controleer of de inloggegevens ongeldige tekens bevatten of te lang zijn.',
   "dns_auto": "Automatisch (standaard DoH)",
   "dns_doh": "Versleutelde DNS · Cloudflare",
   "dns_tcp": "DNS via TCP",

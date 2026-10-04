@@ -45,6 +45,7 @@ class ChainEngine extends GateEngine
   List<ChainProfileSummary> library = [];
   final actions = <String>[];
   Map<String, Object?>? lastRequest, lastImport;
+  Map<String, Object?>? importError;
   final names = <String>[];
   String? picked;
   List<ChainConfigurationFile>? pickedFiles;
@@ -96,6 +97,9 @@ class ChainEngine extends GateEngine
     }
     if (action == 'import') {
       lastImport = Map.of(request);
+      if (importError != null) {
+        return ChainProfileResult(profiles: library, error: importError);
+      }
       library = [previewProfile.copyWith(name: names.last)];
     }
     return ChainProfileResult(
@@ -194,6 +198,42 @@ Future<void> chooseSource(WidgetTester tester, ChainSource source) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('proxy validation keeps port and DNS errors localized', (
+    tester,
+  ) async {
+    final engine = ChainEngine()
+      ..importError = const {'reason': 'invalid_dns', 'field': 'dns_servers'};
+    final app = await hostChain(tester, engine, source: ChainSource.httpProxy);
+    await app.setLocale(LocalePreference.simplifiedChinese);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('chain-proxy-host')),
+      'proxy.example',
+    );
+    await tester.enterText(find.byKey(const ValueKey('chain-proxy-port')), '0');
+    await tester.tap(find.byKey(const ValueKey('chain-proxy-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('请输入 1–65535 之间的端口。'), findsOneWidget);
+    expect(engine.actions, isNot(contains('import')));
+
+    await tester.enterText(
+      find.byKey(const ValueKey('chain-proxy-port')),
+      '8080',
+    );
+    await tester.tap(find.byKey(const ValueKey('chain-proxy-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('请检查 DNS 服务器地址及所选 DNS 方式。（dns_servers）'), findsOneWidget);
+    expect(
+      find.text(
+        'The configuration is invalid or contains unsupported options.',
+      ),
+      findsNothing,
+    );
+  });
   for (final source in [ChainSource.httpProxy, ChainSource.socks5Proxy]) {
     testWidgets(
       'manual ${source.label} saves structured fields without selecting or connecting',

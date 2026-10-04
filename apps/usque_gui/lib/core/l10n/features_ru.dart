@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Russian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowRu = <String, String>{
+  'preview_banner': 'Предпросмотр интерфейса · тестовые данные · без VPN',
+  'preview_reset': 'Сбросить предпросмотр',
+  'preview_restart_onboarding': 'Начать настройку заново',
   'home_local_proxies': 'Локальные прокси',
   'home_manage_proxies': 'Управление прокси',
   'home_enabled_interfaces': 'Включено: {interfaces}',
@@ -359,6 +362,16 @@ const Map<String, String> kNetworkSettingsRu = <String, String>{
 };
 
 const Map<String, String> kChainRu = <String, String>{
+  'invalid_endpoint': 'Введите корректный адрес сервера и порт от 1 до 65535.',
+  'missing_configuration': 'Введите адрес и порт прокси-сервера.',
+  'source_mismatch':
+      'Используйте конфигурацию, соответствующую выбранному типу выхода.',
+  'invalid_dns': 'Проверьте адреса DNS-серверов и выбранный режим DNS.',
+  'unexpected_credentials':
+      'Включите аутентификацию по имени пользователя и паролю или очистите учётные данные.',
+  'missing_credentials': 'Введите и имя пользователя, и пароль.',
+  'invalid_credential':
+      'Проверьте, нет ли в учётных данных недопустимых символов или превышения длины.',
   "dns_auto": "Автоматически (по умолчанию DoH)",
   "dns_doh": "Зашифрованный DNS · Cloudflare",
   "dns_tcp": "DNS по TCP",

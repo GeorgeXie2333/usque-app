@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Persian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowFa = <String, String>{
+  'preview_banner': 'پیش‌نمایش رابط · داده‌های شبیه‌سازی‌شده · بدون VPN',
+  'preview_reset': 'بازنشانی پیش‌نمایش',
+  'preview_restart_onboarding': 'شروع دوباره راه‌اندازی اولیه',
   'home_local_proxies': 'پروکسی‌های محلی',
   'home_manage_proxies': 'مدیریت پروکسی‌ها',
   'home_enabled_interfaces': 'فعال: {interfaces}',
@@ -332,6 +335,15 @@ const Map<String, String> kNetworkSettingsFa = <String, String>{
 };
 
 const Map<String, String> kChainFa = <String, String>{
+  'invalid_endpoint': 'نشانی معتبر سرور و پورتی بین 1 تا 65535 وارد کنید.',
+  'missing_configuration': 'نشانی و پورت سرور پراکسی را وارد کنید.',
+  'source_mismatch': 'از پیکربندی سازگار با نوع خروجی انتخاب‌شده استفاده کنید.',
+  'invalid_dns': 'نشانی‌های سرور DNS و حالت DNS انتخاب‌شده را بررسی کنید.',
+  'unexpected_credentials':
+      'احراز هویت با نام کاربری و گذرواژه را فعال کنید یا اطلاعات ورود را پاک کنید.',
+  'missing_credentials': 'هم نام کاربری و هم گذرواژه را وارد کنید.',
+  'invalid_credential':
+      'اطلاعات ورود را از نظر نویسه‌های نامعتبر یا طول بیش از حد بررسی کنید.',
   "dns_auto": "خودکار (پیش‌فرض DoH)",
   "dns_doh": "DNS رمزگذاری‌شده · Cloudflare",
   "dns_tcp": "DNS روی TCP",

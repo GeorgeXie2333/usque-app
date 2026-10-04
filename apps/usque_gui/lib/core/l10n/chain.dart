@@ -22,6 +22,17 @@ import 'features_zh_tw.dart';
 // live in features_*.dart. ChainStrings reads this table directly: keys such
 // as title and save would collide with the main catalog if get() consulted it.
 const kChainEn = <String, String>{
+  'invalid_endpoint':
+      'Enter a valid server address and a port from 1 to 65535.',
+  'missing_configuration': 'Enter the proxy server address and port.',
+  'source_mismatch':
+      'Use a configuration that matches the selected exit source.',
+  'invalid_dns': 'Check the DNS server addresses and the selected DNS mode.',
+  'unexpected_credentials':
+      'Turn on username and password authentication or clear the credentials.',
+  'missing_credentials': 'Enter both a username and a password.',
+  'invalid_credential':
+      'Check the credentials for invalid characters or excessive length.',
   "dns_auto": "Automatic (DoH by default)",
   "dns_doh": "Encrypted DNS · Cloudflare",
   "dns_tcp": "DNS over TCP",
@@ -190,6 +201,13 @@ const kChainEn = <String, String>{
 };
 
 const kChainZhCn = <String, String>{
+  'invalid_endpoint': '请输入有效的服务器地址和 1–65535 之间的端口。',
+  'missing_configuration': '请填写代理服务器地址和端口。',
+  'source_mismatch': '请使用与所选出口来源相符的配置。',
+  'invalid_dns': '请检查 DNS 服务器地址及所选 DNS 方式。',
+  'unexpected_credentials': '请启用用户名和密码认证，或清空凭据。',
+  'missing_credentials': '请同时填写用户名和密码。',
+  'invalid_credential': '请检查凭据是否包含无效字符或超出长度限制。',
   "dns_auto": "自动（默认 DoH）",
   "dns_doh": "加密 DNS · Cloudflare",
   "dns_tcp": "TCP DNS",

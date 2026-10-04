@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Italian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowIt = <String, String>{
+  'preview_banner': 'Anteprima dell’interfaccia · dati simulati · senza VPN',
+  'preview_reset': 'Reimposta anteprima',
+  'preview_restart_onboarding': 'Riavvia configurazione iniziale',
   'home_local_proxies': 'Proxy locali',
   'home_manage_proxies': 'Gestisci proxy',
   'home_enabled_interfaces': 'Abilitati: {interfaces}',
@@ -364,6 +367,18 @@ const Map<String, String> kNetworkSettingsIt = <String, String>{
 };
 
 const Map<String, String> kChainIt = <String, String>{
+  'invalid_endpoint':
+      'Immettere un indirizzo server valido e una porta da 1 a 65535.',
+  'missing_configuration': 'Immettere l’indirizzo e la porta del server proxy.',
+  'source_mismatch':
+      'Usare una configurazione corrispondente al tipo di uscita selezionato.',
+  'invalid_dns':
+      'Controllare gli indirizzi dei server DNS e la modalità DNS selezionata.',
+  'unexpected_credentials':
+      'Attivare l’autenticazione con nome utente e password oppure cancellare le credenziali.',
+  'missing_credentials': 'Immettere sia il nome utente sia la password.',
+  'invalid_credential':
+      'Controllare se le credenziali contengono caratteri non validi o sono troppo lunghe.',
   "dns_auto": "Automatico (DoH predefinito)",
   "dns_doh": "DNS cifrato · Cloudflare",
   "dns_tcp": "DNS su TCP",

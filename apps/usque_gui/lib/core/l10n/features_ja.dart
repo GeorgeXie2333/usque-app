@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Japanese.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowJa = <String, String>{
+  'preview_banner': '画面プレビュー · 模擬データ · VPN は起動しません',
+  'preview_reset': 'プレビューをリセット',
+  'preview_restart_onboarding': '初回設定をやり直す',
   'home_local_proxies': 'ローカルプロキシ',
   'home_manage_proxies': 'プロキシ管理',
   'home_enabled_interfaces': '有効：{interfaces}',
@@ -308,6 +311,13 @@ const Map<String, String> kNetworkSettingsJa = <String, String>{
 };
 
 const Map<String, String> kChainJa = <String, String>{
+  'invalid_endpoint': '有効なサーバーアドレスと 1～65535 のポートを入力してください。',
+  'missing_configuration': 'プロキシサーバーのアドレスとポートを入力してください。',
+  'source_mismatch': '選択した出口の種類に合う設定を使用してください。',
+  'invalid_dns': 'DNS サーバーのアドレスと選択した DNS 方式を確認してください。',
+  'unexpected_credentials': 'ユーザー名とパスワードによる認証を有効にするか、認証情報を消去してください。',
+  'missing_credentials': 'ユーザー名とパスワードの両方を入力してください。',
+  'invalid_credential': '認証情報に無効な文字が含まれていないか、長すぎないか確認してください。',
   "dns_auto": "自動（既定は DoH）",
   "dns_doh": "暗号化 DNS · Cloudflare",
   "dns_tcp": "TCP DNS",

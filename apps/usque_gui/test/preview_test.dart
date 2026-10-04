@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:usque/core/app_strings.dart';
 import 'package:usque/dev/preview_app.dart';
 import 'package:usque/dev/preview_engine.dart';
 import 'package:usque/dev/preview_update_downloader.dart';
@@ -121,5 +122,48 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('preview toolbar follows the app language and RTL direction', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const PreviewApp());
+    for (var frame = 0; frame < 5; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    final controller = tester
+        .widget<ShellScreen>(find.byType(ShellScreen))
+        .controller;
+    for (final locale in [
+      LocalePreference.simplifiedChinese,
+      LocalePreference.arabic,
+    ]) {
+      await controller.setLocale(locale);
+      await tester.pumpAndSettle();
+      final strings = AppStrings(locale);
+      expect(find.text(strings.get('preview_banner')), findsOneWidget);
+      expect(find.text(strings.get('preview_reset')), findsOneWidget);
+      expect(
+        find.text(strings.get('preview_restart_onboarding')),
+        findsOneWidget,
+      );
+      expect(find.text('UI preview · simulated data · no VPN'), findsNothing);
+      expect(
+        Directionality.of(
+          tester.element(find.byKey(const ValueKey('preview-reset'))),
+        ),
+        locale == LocalePreference.arabic
+            ? TextDirection.rtl
+            : TextDirection.ltr,
+      );
+    }
+    await tester.tap(find.byKey(const ValueKey('preview-restart-onboarding')));
+    for (var frame = 0; frame < 5; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.takeException(), isNull);
   });
 }

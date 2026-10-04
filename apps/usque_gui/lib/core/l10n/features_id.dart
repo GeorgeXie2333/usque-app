@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Indonesian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowId = <String, String>{
+  'preview_banner': 'Pratinjau antarmuka · data simulasi · tanpa VPN',
+  'preview_reset': 'Atur ulang pratinjau',
+  'preview_restart_onboarding': 'Mulai ulang penyiapan awal',
   'home_local_proxies': 'Proksi lokal',
   'home_manage_proxies': 'Kelola proksi',
   'home_enabled_interfaces': 'Diaktifkan: {interfaces}',
@@ -343,6 +346,17 @@ const Map<String, String> kNetworkSettingsId = <String, String>{
 };
 
 const Map<String, String> kChainId = <String, String>{
+  'invalid_endpoint':
+      'Masukkan alamat server yang valid dan port dari 1 sampai 65535.',
+  'missing_configuration': 'Masukkan alamat dan port server proxy.',
+  'source_mismatch':
+      'Gunakan konfigurasi yang sesuai dengan jenis jalur keluar yang dipilih.',
+  'invalid_dns': 'Periksa alamat server DNS dan mode DNS yang dipilih.',
+  'unexpected_credentials':
+      'Aktifkan autentikasi nama pengguna dan kata sandi atau hapus kredensial.',
+  'missing_credentials': 'Masukkan nama pengguna dan kata sandi.',
+  'invalid_credential':
+      'Periksa apakah kredensial berisi karakter tidak valid atau terlalu panjang.',
   "dns_auto": "Otomatis (DoH secara bawaan)",
   "dns_doh": "DNS terenkripsi · Cloudflare",
   "dns_tcp": "DNS melalui TCP",

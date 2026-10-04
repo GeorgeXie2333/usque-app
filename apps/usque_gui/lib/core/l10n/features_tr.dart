@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Turkish.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowTr = <String, String>{
+  'preview_banner': 'Arayüz önizlemesi · simüle edilmiş veriler · VPN yok',
+  'preview_reset': 'Önizlemeyi sıfırla',
+  'preview_restart_onboarding': 'İlk kurulumu yeniden başlat',
   'home_local_proxies': 'Yerel proxy’ler',
   'home_manage_proxies': 'Proxy’leri yönet',
   'home_enabled_interfaces': 'Etkin: {interfaces}',
@@ -339,6 +342,16 @@ const Map<String, String> kNetworkSettingsTr = <String, String>{
 };
 
 const Map<String, String> kChainTr = <String, String>{
+  'invalid_endpoint':
+      'Geçerli bir sunucu adresi ve 1 ile 65535 arasında bir port girin.',
+  'missing_configuration': 'Proxy sunucusunun adresini ve portunu girin.',
+  'source_mismatch': 'Seçilen çıkış türüyle eşleşen bir yapılandırma kullanın.',
+  'invalid_dns': 'DNS sunucusu adreslerini ve seçilen DNS modunu kontrol edin.',
+  'unexpected_credentials':
+      'Kullanıcı adı ve parola doğrulamasını açın veya kimlik bilgilerini temizleyin.',
+  'missing_credentials': 'Hem kullanıcı adını hem de parolayı girin.',
+  'invalid_credential':
+      'Kimlik bilgilerinde geçersiz karakter veya aşırı uzunluk olup olmadığını kontrol edin.',
   "dns_auto": "Otomatik (varsayılan DoH)",
   "dns_doh": "Şifreli DNS · Cloudflare",
   "dns_tcp": "TCP üzerinden DNS",

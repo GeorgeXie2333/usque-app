@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Vietnamese.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowVi = <String, String>{
+  'preview_banner': 'Xem trước giao diện · dữ liệu mô phỏng · không chạy VPN',
+  'preview_reset': 'Đặt lại bản xem trước',
+  'preview_restart_onboarding': 'Bắt đầu lại thiết lập ban đầu',
   'home_local_proxies': 'Proxy cục bộ',
   'home_manage_proxies': 'Quản lý proxy',
   'home_enabled_interfaces': 'Đã bật: {interfaces}',
@@ -333,6 +336,15 @@ const Map<String, String> kNetworkSettingsVi = <String, String>{
 };
 
 const Map<String, String> kChainVi = <String, String>{
+  'invalid_endpoint': 'Nhập địa chỉ máy chủ hợp lệ và cổng từ 1 đến 65535.',
+  'missing_configuration': 'Nhập địa chỉ và cổng máy chủ proxy.',
+  'source_mismatch': 'Dùng cấu hình phù hợp với loại đầu ra đã chọn.',
+  'invalid_dns': 'Kiểm tra địa chỉ máy chủ DNS và chế độ DNS đã chọn.',
+  'unexpected_credentials':
+      'Bật xác thực bằng tên người dùng và mật khẩu hoặc xóa thông tin đăng nhập.',
+  'missing_credentials': 'Nhập cả tên người dùng và mật khẩu.',
+  'invalid_credential':
+      'Kiểm tra thông tin đăng nhập có ký tự không hợp lệ hoặc vượt giới hạn độ dài hay không.',
   "dns_auto": "Tự động (mặc định DoH)",
   "dns_doh": "DNS mã hóa · Cloudflare",
   "dns_tcp": "DNS qua TCP",

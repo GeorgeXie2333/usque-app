@@ -65,13 +65,15 @@ bash tool/dev.sh preview
 
 This opens **Usque UI preview**. The toolbar identifies simulated data and lets
 you choose **Disconnected**, **Connecting**, **Connected**, **Reconnecting**
-or **Error**. Connected mode generates sample traffic for the charts. Use
+or **Connection error**. Connected mode generates sample traffic for the charts. Use
 **Restart onboarding** to inspect first-launch screens and **Reset preview**
 to restore Home with the sample account. Resize the window to inspect narrow
-layouts; use the application's Settings to change theme and language.
+layouts; use the application's Settings to change theme and language. The toolbar
+follows the selected language, including right-to-left text direction.
 
 在终端按 `r` 热重载、`R` 热重启、`q` 退出。顶部可切换连接状态，重新开始首次引导，
-或恢复示例账号。账号、偏好和设置只保存在当前进程内，重启后恢复初始数据。
+或恢复示例账号。工具栏会跟随应用设置中的语言及文字方向。账号、偏好和设置
+只保存在当前进程内，重启后恢复初始数据。
 
 The dedicated entry point is `lib/main_preview.dart`. The Linux runner accepts
 debug builds only; the entry point also rejects non-Linux and non-debug execution.
