@@ -117,6 +117,8 @@ upgrade notes and folded technical and DNS details in sync with that version,
 and recheck versioned facts such as configuration schema, Agent protocol, and
 recovery journal and export schema numbers against the source. Every statement is written in
 English first, followed immediately by its Simplified Chinese translation.
+Separate each bilingual list item from the next with a blank line so GitHub
+renders paragraph spacing after the Chinese text as well as before it.
 Keep the standard sections for official downloads, installation requirements,
 signature and evidence verification, and issue feedback.
 Keep the version summary, highlights, download table, official-source warning,
