@@ -5,13 +5,13 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The workflow currently accepts only `v0.2.8` and requires that tag to point at
+The workflow currently accepts only `v0.2.9` and requires that tag to point at
 the current `main` commit when its gate runs. The tag is maintainer-only.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
 local bundle, MSI, or APK cannot replace a failed Actions build.
 
-The v0.2.8 candidate retains the newer-Agent-first Windows upgrade sequence
+The v0.2.9 candidate retains the newer-Agent-first Windows upgrade sequence
 and complete payload replacement introduced in v0.2.5. Those fixes are not part
 of the original v0.2.4 release. The multilingual EXE installer and hidden-bundle
 uninstall lifecycle are new in v0.2.6, not the original v0.2.5 MSI-only release.
@@ -23,13 +23,11 @@ checks are not evidence of a successful real-machine upgrade.
 
 ## Preparing v0.2.9
 
-The development documentation and release-note template describe the changes
-planned for v0.2.9. The checked-in executable release contract still targets
-v0.2.8; editing documentation does not enable a v0.2.9 release. Before tagging,
-coordinate one reviewed version change across:
+The source, documentation and executable release contract target v0.2.9.
+Before tagging, verify the coordinated version change across:
 
 - `Cargo.toml` and the first-party workspace package entries in `Cargo.lock`;
-- `apps/usque_gui/pubspec.yaml`, with an Android build number higher than 22;
+- `apps/usque_gui/pubspec.yaml`, with version `0.2.9+23`;
 - the `app_version` entries in all 21 registered Dart locale catalogs;
 - the tag trigger, `RELEASE_TAG` and `ANDROID_VERSION_CODE` in
   [release.yml](../.github/workflows/release.yml), and the release-version gate
@@ -39,14 +37,15 @@ coordinate one reviewed version change across:
   package examples in the six root READMEs and [Installation](INSTALLATION.md).
 
 Run `tool/release_contract.py verify-version` with `--root . --tag v0.2.9`
-and `--android-version-code` set to that chosen build number. The check must
+and `--android-version-code 23`. Split APK version codes are 1023 (ARMv7),
+2023 (ARM64), and 4023 (x86_64); the universal APK uses 23. The check must
 succeed before tagging. Version-number fixtures for MSI conversion and
 historical validation records may retain their original versions; they are not
 release targets. The tag must point at the resulting current `main` commit
 after its required CI succeeds. Keep the existing signing and publication
 approvals, cleanup checks and immutable-candidate requirements.
 
-The source planned for v0.2.9 uses configuration schema 21 and recovery journal schema 5,
+The v0.2.9 source uses configuration schema 21 and recovery journal schema 5,
 while Agent protocol 3 and sanitized recovery export schema 2 remain unchanged.
 Do not describe the old schema 18/3 combination as the new release contract.
 
@@ -54,8 +53,8 @@ Which signatures count as official, how fingerprints are published, and what hap
 
 ## Before signing starts
 
-- The currently accepted tag is `v0.2.8` and must point at the current `main`
-  commit. A v0.2.9 tag requires the coordinated version update above first.
+- The currently accepted tag is `v0.2.9` and must point at the current `main`
+  commit after the coordinated version checks above pass.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
@@ -145,14 +144,14 @@ Keep the four required bilingual section names; decorative emoji may follow them
 
 Primary files:
 
-- `usque-v0.2.8-windows-x64-v2.exe`
-- `usque-v0.2.8-windows-arm64.exe`
-- `usque-v0.2.8-windows-x64-v2.msi`
-- `usque-v0.2.8-windows-arm64.msi`
-- `usque-v0.2.8-android-arm64-v8a.apk`
-- `usque-v0.2.8-android-x86_64.apk`
-- `usque-v0.2.8-android-armeabi-v7a.apk`
-- `usque-v0.2.8-android-universal.apk`
+- `usque-v0.2.9-windows-x64-v2.exe`
+- `usque-v0.2.9-windows-arm64.exe`
+- `usque-v0.2.9-windows-x64-v2.msi`
+- `usque-v0.2.9-windows-arm64.msi`
+- `usque-v0.2.9-android-arm64-v8a.apk`
+- `usque-v0.2.9-android-x86_64.apk`
+- `usque-v0.2.9-android-armeabi-v7a.apk`
+- `usque-v0.2.9-android-universal.apk`
 
 The two EXEs and four APKs are the user-facing installers; the two MSIs are
 update payloads consumed by the signed Windows updater. In addition to these
@@ -165,7 +164,7 @@ documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
 
-These rules describe the v0.2.8 authoring and verification code. The Agent
+These rules describe the v0.2.9 authoring and verification code. The Agent
 file-version check and late related-product removal sequence were added after
 the original v0.2.4 tag; they must not be presented as properties already
 verified in that older package. User-facing applicability is recorded in
@@ -178,7 +177,7 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.2.8` is therefore MSI ProductVersion `0.2.899`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (`0.2.899.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.2.9` is therefore MSI ProductVersion `0.2.999`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (`0.2.999.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
 
 The user-facing Windows artifact is a WiX Internal UI Bootstrapper Application
 bundle. It contains the signed English MSI plus 20 language transforms and

@@ -323,7 +323,7 @@ const Map<String, String> kFaCatalog = <String, String>{
       'مشکلات اتصال را بررسی کنید، گزارش‌ها را خروجی بگیرید و داده‌های محلی را مدیریت کنید.',
   'engine_status': 'اطلاعات اتصال',
   'version': 'نسخه',
-  'app_version': 'Usque 0.2.8',
+  'app_version': 'Usque 0.2.9',
   'logs': 'گزارش‌های محلی',
   'export_diagnostics': 'صادر کردن بستهٔ عیب‌یابی',
   'diagnostics_saved': 'بستهٔ عیب‌یابی در این مسیر ذخیره شد:',

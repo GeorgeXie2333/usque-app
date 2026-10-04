@@ -51,7 +51,7 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
-This development checkout includes changes planned for **v0.2.9**. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) for published versions. The package set has six installers; two additional Windows MSI files are reserved for in-app updates:
+This source targets **v0.2.9**. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) for published versions. The package set has six installers; two additional Windows MSI files are reserved for in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |

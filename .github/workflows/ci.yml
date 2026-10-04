@@ -463,12 +463,12 @@ jobs:
       - name: Test fail-closed artifact contract
         run: python -m unittest discover -s tool -p "test_*.py" -v
 
-      - name: Verify v0.2.8 release version contract
+      - name: Verify v0.2.9 release version contract
         run: |
           python tool/release_contract.py verify-version \
             --root . \
-            --tag v0.2.8 \
-            --android-version-code 22
+            --tag v0.2.9 \
+            --android-version-code 23
 
   windows-installer-authoring:
     name: MSI authoring (${{ matrix.arch }})
@@ -505,19 +505,19 @@ jobs:
       - name: Verify MSI version mapping
         shell: pwsh
         run: |
-          $stable = & ./tool/convert_to_msi_version.ps1 -SemVer "v0.2.8"
-          if ($stable -ne "0.2.899") {
+          $stable = & ./tool/convert_to_msi_version.ps1 -SemVer "v0.2.9"
+          if ($stable -ne "0.2.999") {
             throw "Stable MSI version mapping is invalid: $stable"
           }
 
-          $beta = & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.8-beta.3"
-          if ($beta -ne "0.2.803") {
+          $beta = & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.9-beta.3"
+          if ($beta -ne "0.2.903") {
             throw "Beta MSI version mapping is invalid: $beta"
           }
 
           $rejected = $false
           try {
-            & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.8-beta.0"
+            & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.9-beta.0"
           } catch {
             $rejected = $_.Exception.Message -like "Beta ordinal must be*"
           }
@@ -575,9 +575,9 @@ jobs:
               -OutputPath $include `
               -ExpectedCulture $culture | Out-Null
             $name = if ($culture -eq "en-US") {
-              "usque-v0.2.8-windows-${{ matrix.variant }}.msi"
+              "usque-v0.2.9-windows-${{ matrix.variant }}.msi"
             } else {
-              "usque-v0.2.8-windows-${{ matrix.variant }}-$culture.msi"
+              "usque-v0.2.9-windows-${{ matrix.variant }}-$culture.msi"
             }
             $output = Join-Path $msiDirectory $name
             $arguments = @(
@@ -585,8 +585,8 @@ jobs:
               "-arch", "${{ matrix.arch }}",
               "-ext", "WixToolset.UI.wixext/5.0.2",
               "-bindpath", "app=$payload",
-              "-define", "DisplayVersion=0.2.8",
-              "-define", "MsiVersion=0.2.899",
+              "-define", "DisplayVersion=0.2.9",
+              "-define", "MsiVersion=0.2.999",
               "-define", "MsiLanguage=$language",
               "-define", "MsiCodepage=65001",
               "-define", "ProductCode=$productCode",
@@ -616,8 +616,8 @@ jobs:
             & ./tool/verify_windows_msi.ps1 `
               -MsiPath $output `
               -Variant "${{ matrix.variant }}" `
-              -ExpectedMsiVersion "0.2.899" `
-              -ExpectedDisplayVersion "0.2.8" `
+              -ExpectedMsiVersion "0.2.999" `
+              -ExpectedDisplayVersion "0.2.9" `
               -ExpectedAgentFileVersion "0.14.1.0" `
               -ExpectedMsiLanguage $language `
               -ExpectedProductCode $productCode `
@@ -633,11 +633,11 @@ jobs:
 
           $baseMsi = Join-Path `
             $msiDirectory `
-            "usque-v0.2.8-windows-${{ matrix.variant }}.msi"
+            "usque-v0.2.9-windows-${{ matrix.variant }}.msi"
           foreach ($culture in @($cultures | Where-Object { $_ -ne "en-US" })) {
             $localizedMsi = Join-Path `
               $msiDirectory `
-              "usque-v0.2.8-windows-${{ matrix.variant }}-$culture.msi"
+              "usque-v0.2.9-windows-${{ matrix.variant }}-$culture.msi"
             dotnet tool run wix -- msi transform `
               $baseMsi `
               $localizedMsi `
@@ -655,12 +655,12 @@ jobs:
           }
           $bundle = Join-Path `
             $root `
-            "usque-v0.2.8-windows-${{ matrix.variant }}.exe"
+            "usque-v0.2.9-windows-${{ matrix.variant }}.exe"
           dotnet tool run wix -- build `
             -arch "${{ matrix.arch }}" `
             -ext "WixToolset.BootstrapperApplications.wixext/5.0.2" `
-            -define "DisplayVersion=0.2.8" `
-            -define "BundleVersion=0.2.8" `
+            -define "DisplayVersion=0.2.9" `
+            -define "BundleVersion=0.2.9" `
             -define "BundleUpgradeCode=$bundleUpgradeCode" `
             -define "Variant=${{ matrix.variant }}" `
             -define "IconPath=$((Resolve-Path "assets/branding/usque-app-icon.ico").Path)" `
@@ -675,7 +675,7 @@ jobs:
           & ./tool/verify_windows_bundle.ps1 `
             -BundlePath $bundle `
             -Variant "${{ matrix.variant }}" `
-            -Version "0.2.8" `
+            -Version "0.2.9" `
             -SignerSha256 ("0" * 64) `
             -ExpectedAgentFileVersion "0.14.1.0" | Out-Null
 
@@ -691,7 +691,7 @@ jobs:
           & ./tool/verify_windows_bundle.ps1 `
             -BundlePath $reattached `
             -Variant "${{ matrix.variant }}" `
-            -Version "0.2.8" `
+            -Version "0.2.9" `
             -SignerSha256 ("0" * 64) `
             -ExpectedAgentFileVersion "0.14.1.0" | Out-Null
 
@@ -699,8 +699,8 @@ jobs:
           & ./tool/verify_windows_msi.ps1 `
             -MsiPath $baseMsi `
             -Variant "${{ matrix.variant }}" `
-            -ExpectedMsiVersion "0.2.899" `
-            -ExpectedDisplayVersion "0.2.8" `
+            -ExpectedMsiVersion "0.2.999" `
+            -ExpectedDisplayVersion "0.2.9" `
             -ExpectedAgentFileVersion "0.14.1.0" `
             -ExpectedProductCode $productCode `
             -SignerSha256 ("0" * 64)
@@ -710,21 +710,21 @@ jobs:
           & ./tool/test_windows_msi_replacement.ps1 `
             -MsiPath $baseMsi `
             -Variant "${{ matrix.variant }}" `
-            -ExpectedMsiVersion "0.2.899" `
-            -ExpectedDisplayVersion "0.2.8" `
+            -ExpectedMsiVersion "0.2.999" `
+            -ExpectedDisplayVersion "0.2.9" `
             -ExpectedAgentFileVersion "0.14.1.0" `
             -SignerSha256 ("0" * 64)
 
           # Reproduce the malformed Japanese format string on a temporary copy
           # to prove ICE03 remains enabled. Never installs or runs an MSI.
           & ./tool/test_windows_msi_localization.ps1 `
-            -MsiPath (Join-Path $msiDirectory "usque-v0.2.8-windows-${{ matrix.variant }}-ja-JP.msi")
+            -MsiPath (Join-Path $msiDirectory "usque-v0.2.9-windows-${{ matrix.variant }}-ja-JP.msi")
 
       - name: Verify signed Burn engine round trip without installation
         shell: pwsh
         run: |
           & ./tool/test_windows_burn_engine.ps1 `
-            -BundlePath (Join-Path $env:RUNNER_TEMP "windows-authoring-${{ matrix.arch }}/usque-v0.2.8-windows-${{ matrix.variant }}.exe")
+            -BundlePath (Join-Path $env:RUNNER_TEMP "windows-authoring-${{ matrix.arch }}/usque-v0.2.9-windows-${{ matrix.variant }}.exe")
 
   gate:
     name: CI / gate

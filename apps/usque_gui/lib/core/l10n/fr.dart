@@ -333,7 +333,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Vérifiez les problèmes de connexion, exportez les journaux et gérez les données locales.',
   'engine_status': 'Informations de connexion',
   'version': 'Version',
-  'app_version': 'Usque 0.2.8',
+  'app_version': 'Usque 0.2.9',
   'logs': 'Journaux locaux',
   'export_diagnostics': 'Exporter l’archive de diagnostics',
   'diagnostics_saved': 'Archive de diagnostics enregistrée dans',

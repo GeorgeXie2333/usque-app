@@ -319,7 +319,7 @@ const Map<String, String> kViCatalog = <String, String>{
       'Kiểm tra sự cố kết nối, xuất nhật ký và quản lý dữ liệu cục bộ.',
   'engine_status': 'Thông tin kết nối',
   'version': 'Phiên bản',
-  'app_version': 'Usque 0.2.8',
+  'app_version': 'Usque 0.2.9',
   'logs': 'Nhật ký cục bộ',
   'export_diagnostics': 'Xuất gói chẩn đoán',
   'diagnostics_saved': 'Đã lưu gói chẩn đoán vào',

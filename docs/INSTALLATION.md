@@ -5,7 +5,7 @@ Download packages from this repository's
 
 ## Version scope
 
-This guide describes the development source planned for v0.2.9. The example
+This guide describes the v0.2.9 source. The example
 package names below do not establish that a release has been published. For an
 installed release, use its release notes and the guide at the matching Git tag.
 

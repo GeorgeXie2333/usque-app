@@ -17,7 +17,7 @@ The [documentation index](README.md) separates current contracts from historical
 records. [Reliability testing](RELIABILITY_TESTING.md) defines environments and
 evidence requirements; [Release process](RELEASE.md) defines publication.
 
-## Development changes planned for v0.2.9
+## Changes in the v0.2.9 source
 
 The changes since v0.2.8 add [HTTP/SOCKS5 chain exits](CHAIN_PROXY.md),
 [custom CIDR, IP and domain bypass targets](encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标),
@@ -40,8 +40,8 @@ Japanese, Korean, Russian and Persian.
 The source uses configuration schema 21 and recovery journal schema 5; Agent
 protocol remains 3 and recovery exports remain schema 2. These are implementation
 facts, not evidence that the candidate passed native lifecycle, leak or
-performance validation. The executable release target still requires the
-[coordinated v0.2.9 version update](RELEASE.md#preparing-v029).
+performance validation. The executable release target is v0.2.9 and requires
+the [coordinated version checks](RELEASE.md#preparing-v029).
 
 ## Architecture
 

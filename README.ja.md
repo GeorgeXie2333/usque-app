@@ -51,7 +51,7 @@ Usque は独立したプロジェクトです。Cloudflare との提携関係は
 
 ## ダウンロードとインストール
 
-この開発ブランチには **v0.2.9** 向けに予定している変更が含まれています。公開済みのバージョンは [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) で確認してください。インストール用パッケージは 6 種類で、別途 2 つの Windows MSI ファイルをアプリ内更新専用として提供します。
+このソースは **v0.2.9** を対象としています。公開済みのバージョンは [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) で確認してください。インストール用パッケージは 6 種類で、別途 2 つの Windows MSI ファイルをアプリ内更新専用として提供します。
 
 | プラットフォーム | 最低 OS 要件 | パッケージ |
 | --- | --- | --- |
