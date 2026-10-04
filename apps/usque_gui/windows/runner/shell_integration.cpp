@@ -1,4 +1,4 @@
-#include "shell_integration.h"
+#include "shell_integration_internal.h"
 
 #include <windows.h>
 #include <propkey.h>
@@ -406,7 +406,7 @@ bool ShortcutOwned(const std::wstring& target, const std::wstring& arguments,
 namespace {
 
 CommandResult ExecuteCommandImpl(const Command& command, Platform& platform,
-                                 bool installer_options) {
+                                 bool installer_options, bool desktop_available = true) {
   CommandResult result;
   if (command.mode == CommandMode::kInvalid || command.mode == CommandMode::kNone ||
       (installer_options && command.mode != CommandMode::kQuery &&
@@ -446,7 +446,9 @@ CommandResult ExecuteCommandImpl(const Command& command, Platform& platform,
     result.desktop = FromState(platform.DesktopState(executable), false);
     result.startup = FromState(platform.StartupState(executable), true);
   } else if (command.mode == CommandMode::kRemove) {
-    result.desktop = platform.RemoveDesktopLink(executable);
+    result.desktop = desktop_available
+        ? platform.RemoveDesktopLink(executable)
+        : ItemResult{ItemStatus::kError, std::nullopt};
     result.startup = platform.SetStartup(executable, false);
   } else {
     result.desktop = command.desktop == DesktopChoice::kCreate
@@ -457,7 +459,10 @@ CommandResult ExecuteCommandImpl(const Command& command, Platform& platform,
         : platform.SetStartup(executable, command.startup == StartupChoice::kEnable);
   }
   if (Failed(result.desktop) || Failed(result.startup)) {
-    result.exit_code = 1;
+    // Desktop cleanup is optional. A locked or unavailable Desktop must not
+    // fail MSI's checked startup-cleanup action after user data was deleted.
+    result.exit_code = Failed(result.startup) || command.mode != CommandMode::kRemove
+        ? 1 : 0;
     result.status = "partial";
   }
   return result;
@@ -468,6 +473,23 @@ CommandResult ExecuteCommandImpl(const Command& command, Platform& platform,
 CommandResult ExecuteCommand(const Command& command, Platform& platform) {
   return ExecuteCommandImpl(command, platform, false);
 }
+
+namespace detail {
+
+CommandResult ExecuteCommandWithComState(const Command& command, Platform& platform,
+                                        bool com_available) {
+  if (com_available || command.mode == CommandMode::kRemove) {
+    // Run-key cleanup does not need COM and retains the MSI user context.
+    return ExecuteCommandImpl(command, platform, false, com_available);
+  }
+  CommandResult result;
+  result.exit_code = 1;
+  result.status = "partial";
+  result.desktop = result.startup = {ItemStatus::kError, std::nullopt};
+  return result;
+}
+
+}  // namespace detail
 
 CommandResult ExecuteInstallerOptions(const Command& command, Platform& platform) {
   return ExecuteCommandImpl(command, platform, true);
@@ -614,14 +636,7 @@ std::optional<int> HandleCommandLine(const std::vector<std::string>& arguments) 
   if (command.mode == CommandMode::kNone) return std::nullopt;
   const HRESULT com = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   WindowsPlatform platform;
-  CommandResult result;
-  if (FAILED(com)) {
-    result.exit_code = 1;
-    result.status = "partial";
-    result.desktop = result.startup = {ItemStatus::kError, std::nullopt};
-  } else {
-    result = ExecuteCommand(command, platform);
-  }
+  const auto result = detail::ExecuteCommandWithComState(command, platform, SUCCEEDED(com));
   const std::string output = ResultJson(result);
   DWORD written = 0;
   const HANDLE out = ::GetStdHandle(STD_OUTPUT_HANDLE);

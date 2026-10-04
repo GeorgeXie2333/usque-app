@@ -1,4 +1,4 @@
-#include "shell_integration.h"
+#include "shell_integration_internal.h"
 
 #include <windows.h>
 #include <shlobj.h>
@@ -26,8 +26,11 @@ class FakePlatform final : public Platform {
   int context_reads = 0;
   int reads = 0;
   int writes = 0;
+  int desktop_removals = 0;
+  int startup_changes = 0;
   bool enable_requested = false;
   bool create_fails = false;
+  bool remove_fails = false;
   bool startup_fails = false;
   std::wstring executable = L"C:\\Program Files\\Usque\\usque.exe";
   EntryState desktop = EntryState::kAbsent;
@@ -51,13 +54,16 @@ class FakePlatform final : public Platform {
   }
   ItemResult RemoveDesktopLink(const std::wstring& target) override {
     ++writes;
+    ++desktop_removals;
     targets.push_back(target);
+    if (remove_fails) return {ItemStatus::kError, std::nullopt};
     if (desktop == EntryState::kForeign) return {ItemStatus::kKept, std::nullopt};
     desktop = EntryState::kAbsent;
     return {ItemStatus::kRemoved, false};
   }
   ItemResult SetStartup(const std::wstring& target, bool enabled) override {
     ++writes;
+    ++startup_changes;
     targets.push_back(target);
     enable_requested = enabled;
     if (startup_fails) return {ItemStatus::kError, std::nullopt};
@@ -189,6 +195,68 @@ void CommandsUseCurrentUserBoundaryAndIndependentResults() {
   result.status = "private path or token";
   Expect(ResultJson(result).find("private") == std::string::npos,
          "jsonRejectsArbitraryDetails");
+}
+
+void CleanupKeepsDesktopFailuresNonFatal() {
+  for (const bool desktop_fails : {false, true}) {
+    for (const bool startup_fails : {false, true}) {
+      FakePlatform platform;
+      platform.allowed = false;  // Legacy MSI cleanup keeps impersonation.
+      platform.desktop = platform.startup = EntryState::kOwned;
+      platform.remove_fails = desktop_fails;
+      platform.startup_fails = startup_fails;
+      const auto result = ExecuteCommand({CommandMode::kRemove}, platform);
+      Expect(result.exit_code == (startup_fails ? 1 : 0),
+             "cleanupExitDependsOnlyOnStartupFailure");
+      Expect(result.status == (desktop_fails || startup_fails ? "partial" : "ok") &&
+             result.desktop.status == (desktop_fails ? ItemStatus::kError : ItemStatus::kRemoved) &&
+             result.startup.status == (startup_fails ? ItemStatus::kError : ItemStatus::kDisabled),
+             "cleanupRetainsIndependentItemResults");
+      Expect(platform.desktop_removals == 1 && platform.startup_changes == 1 &&
+             !platform.enable_requested && platform.context_reads == 0,
+             "cleanupAttemptsBothItemsInMsiUserContext");
+      Expect(platform.startup == (startup_fails ? EntryState::kOwned : EntryState::kAbsent),
+             "startupCleanupRunsDespiteDesktopFailure");
+    }
+  }
+  FakePlatform foreign;
+  foreign.desktop = EntryState::kForeign;
+  const auto kept = ExecuteCommand({CommandMode::kRemove}, foreign);
+  Expect(kept.exit_code == 0 && kept.desktop.status == ItemStatus::kKept &&
+         foreign.desktop == EntryState::kForeign, "cleanupPreservesForeignDesktopItem");
+}
+
+void ComFailureStillRemovesStartup() {
+  for (const bool startup_fails : {false, true}) {
+    FakePlatform platform;
+    platform.allowed = false;
+    platform.desktop = platform.startup = EntryState::kOwned;
+    platform.startup_fails = startup_fails;
+    const auto result = detail::ExecuteCommandWithComState(
+        {CommandMode::kRemove}, platform, false);
+    Expect(result.exit_code == (startup_fails ? 1 : 0) && result.status == "partial" &&
+           result.desktop.status == ItemStatus::kError &&
+           result.startup.status == (startup_fails ? ItemStatus::kError : ItemStatus::kDisabled),
+           "comFailurePreservesStartupResult");
+    Expect(platform.desktop_removals == 0 && platform.startup_changes == 1 &&
+           platform.writes == 1 && !platform.enable_requested && platform.context_reads == 0 &&
+           platform.desktop == EntryState::kOwned,
+           "comFailureSkipsDesktopButStillClearsStartup");
+  }
+  for (const auto mode : {CommandMode::kQuery, CommandMode::kApply}) {
+    FakePlatform platform;
+    const auto result = detail::ExecuteCommandWithComState(
+        {mode, DesktopChoice::kCreate, StartupChoice::kEnable}, platform, false);
+    Expect(result.exit_code == 1 && result.status == "partial" &&
+           result.desktop.status == ItemStatus::kError && result.startup.status == ItemStatus::kError &&
+           platform.context_reads == 0 && platform.reads == 0 && platform.writes == 0,
+           "comFailureStillStopsSetupCommands");
+  }
+  FakePlatform available;
+  const auto result = detail::ExecuteCommandWithComState(
+      {CommandMode::kRemove}, available, true);
+  Expect(result.exit_code == 0 && available.desktop_removals == 1 &&
+         available.startup_changes == 1, "availableComRunsBothCleanupItems");
 }
 
 void InstallerOptionsRestrictModeIdentityAndTarget() {
@@ -397,6 +465,8 @@ int RunShellIntegrationTests() {
   ParsesOnlyFixedInternalCommands();
   PathsAndOwnershipAreStrict();
   CommandsUseCurrentUserBoundaryAndIndependentResults();
+  CleanupKeepsDesktopFailuresNonFatal();
+  ComFailureStillRemovesStartup();
   InstallerOptionsRestrictModeIdentityAndTarget();
   InstallerOptionsBalanceCallingThreadCom();
   const HRESULT com = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);

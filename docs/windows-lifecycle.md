@@ -61,6 +61,9 @@ reject elevated and service identities; they do not guess the original user
 from an administrator token. The existing MSI `--remove-startup` path retains
 its impersonation contract and removes only an owned desktop link with the
 matching target and product marker. Unknown links and startup entries remain.
+Desktop-link cleanup is best effort: an unavailable Desktop or a locked link
+does not fail uninstall or add a user prompt. Startup-entry cleanup remains
+checked independently, including when COM initialization prevents link cleanup.
 
 Successful installation that requires a restart still offers desktop and
 login-startup choices. Opening the app is disabled until after restart. The
