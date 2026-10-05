@@ -1,5 +1,13 @@
 /// French UI catalog.
 const Map<String, String> kFrCatalog = <String, String>{
+  'warp_dns_type': 'DNS WARP',
+  'warp_dns_plain': 'DNS classique',
+  'warp_dns_unsupported': 'DNS chiffré indisponible',
+  'warp_dns_invalid_mode': 'Type DNS non pris en charge',
+  'warp_dns_invalid_name': 'Saisissez le nom du serveur',
+  'warp_dns_invalid_path': 'Saisissez un chemin valide',
+  'warp_dns_invalid_bootstrap': 'Saisissez 1 à 8 adresses IP',
+
   'disable_quic': "Désactiver QUIC",
   'disable_quic_managed': 'Géré automatiquement par cette connexion',
   'disable_quic_help':

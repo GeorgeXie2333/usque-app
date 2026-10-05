@@ -69,11 +69,33 @@ impl DnsConnector {
     }
 }
 
-/// Only the final-exit connector is available here. Errors cannot select direct DNS.
+/// Tunnel-bound encrypted DNS. Errors cannot select physical or plaintext DNS.
 pub(crate) struct FinalDohResolver {
     inner: Arc<EncryptedResolver>,
 }
 impl FinalDohResolver {
+    pub(crate) fn for_warp(
+        settings: &usque_core::WarpDnsSettings,
+        dialer: Arc<dyn crate::tcp::TcpDialer>,
+        protector: Arc<dyn SocketProtector>,
+        quality: NetworkQualityTelemetry,
+        cancellation: &CancellationToken,
+        budget: Arc<crate::l4::BufferBudget>,
+    ) -> Result<Arc<Self>, DirectDnsError> {
+        if !ENCRYPTED_DIRECT_DNS_ENABLED {
+            return Err(DirectDnsError::Unsupported);
+        }
+        Self::with_settings(
+            settings
+                .encrypted_settings()
+                .ok_or(DirectDnsError::InvalidConfiguration)?,
+            dialer,
+            protector,
+            quality,
+            cancellation,
+            budget,
+        )
+    }
     pub(crate) fn new(
         dialer: Arc<dyn crate::tcp::TcpDialer>,
         protector: Arc<dyn SocketProtector>,
@@ -96,10 +118,25 @@ impl FinalDohResolver {
             .map(|ip| ip.parse().expect("constant bootstrap IP"))
             .collect(),
         };
+        Self::with_settings(settings, dialer, protector, quality, cancellation, budget)
+    }
+
+    pub(crate) fn with_settings(
+        mut settings: DirectDnsSettings,
+        dialer: Arc<dyn crate::tcp::TcpDialer>,
+        protector: Arc<dyn SocketProtector>,
+        quality: NetworkQualityTelemetry,
+        cancellation: &CancellationToken,
+        budget: Arc<crate::l4::BufferBudget>,
+    ) -> Result<Arc<Self>, DirectDnsError> {
+        settings.canonicalize();
+        if !matches!(settings.mode, ConfigMode::Doh | ConfigMode::Dot) {
+            return Err(DirectDnsError::InvalidConfiguration);
+        }
         settings
             .validate()
             .map_err(|_| DirectDnsError::InvalidConfiguration)?;
-        let tls = encrypted_tls_config(ConfigMode::Doh)?;
+        let tls = encrypted_tls_config(settings.mode)?;
         let connector = DnsConnector::Final { dialer, budget };
         Ok(Arc::new(Self {
             inner: EncryptedResolver::new(
@@ -339,6 +376,12 @@ struct PoolEpoch {
     cancellation: CancellationToken,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ConnectionGeneration {
+    network_generation: u64,
+    session_generation: Option<u64>,
+}
+
 enum ResolverPool {
     Doh([Mutex<Option<Arc<DohConnection>>>; MAX_CONNECTIONS]),
     Dot(Box<[Mutex<Option<DotConnection>>; MAX_CONNECTIONS]>),
@@ -365,7 +408,7 @@ struct EncryptedResolver {
 
 struct DohConnection {
     endpoint: SocketAddr,
-    generation: u64,
+    generation: ConnectionGeneration,
     sender: SendRequest<Bytes>,
     permits: Arc<Semaphore>,
     queries: AtomicU32,
@@ -385,7 +428,7 @@ impl Drop for DohConnection {
 struct DotConnection {
     stream: DnsTlsStream,
     endpoint: SocketAddr,
-    generation: u64,
+    generation: ConnectionGeneration,
     queries: u32,
     last_used: Instant,
 }
@@ -609,6 +652,7 @@ impl EncryptedResolver {
     }
 
     fn ensure_current(&self, context: DirectDnsQueryContext) -> Result<(), DirectDnsError> {
+        self.sync_generation();
         if let DnsConnector::Final { dialer, .. } = &self.connector
             && !dialer.is_ready()
         {
@@ -623,8 +667,27 @@ impl EncryptedResolver {
         Ok(())
     }
 
+    fn connection_generation(&self) -> ConnectionGeneration {
+        ConnectionGeneration {
+            network_generation: self.protector.network_generation().unwrap_or_default(),
+            session_generation: self.connector.session_generation(),
+        }
+    }
+
+    fn ensure_connection_current(
+        &self,
+        context: DirectDnsQueryContext,
+        generation: ConnectionGeneration,
+    ) -> Result<(), DirectDnsError> {
+        self.ensure_current(context)?;
+        if self.connection_generation() != generation {
+            return Err(DirectDnsError::NetworkChanged);
+        }
+        Ok(())
+    }
+
     fn clear_idle_pool(&self, all: bool) {
-        let generation = self.protector.network_generation().unwrap_or_default();
+        let generation = self.connection_generation();
         let now = Instant::now();
         match &self.pool {
             ResolverPool::Doh(slots) => {
@@ -719,7 +782,7 @@ impl EncryptedResolver {
             }
         }.await;
         if !direct && let Err(error) = &result {
-            tracing::debug!(reason_code = %error, "Final proxy DNS query failed");
+            tracing::debug!(reason_code = %error, "Encrypted tunnel DNS query failed");
         }
         if direct {
             match &result {
@@ -748,19 +811,26 @@ impl EncryptedResolver {
                     let query = query.clone();
                     async move {
                         let mut visited = Vec::new();
-                        self.query_doh(
-                            query,
-                            DirectDnsQueryContext {
-                                deadline,
-                                ..context
-                            },
-                            epoch,
-                            &mut visited,
-                            None,
-                            Some(ip),
-                        )
-                        .await
-                        .map_err(|failure| failure.error.to_string())
+                        let context = DirectDnsQueryContext {
+                            deadline,
+                            ..context
+                        };
+                        let result = match self.pool {
+                            ResolverPool::Doh(_) => {
+                                self.query_doh(query, context, epoch, &mut visited, None, Some(ip))
+                                    .await
+                            }
+                            ResolverPool::Dot(_) => {
+                                self.query_dot(&query, context, &mut visited, None, Some(ip))
+                                    .await
+                            }
+                        };
+                        self.ensure_current(context)
+                            .map_err(|error| error.to_string())?;
+                        if epoch.is_cancelled() {
+                            return Err(DirectDnsError::NetworkChanged.to_string());
+                        }
+                        result.map_err(|failure| failure.error.to_string())
                     }
                 },
             )
@@ -792,11 +862,14 @@ impl EncryptedResolver {
                         .await
                 }
                 ResolverPool::Dot(_) => {
-                    self.query_dot(&query, context, &mut visited, excluded)
+                    self.query_dot(&query, context, &mut visited, excluded, None)
                         .await
                 }
             };
             self.ensure_current(context)?;
+            if epoch.is_cancelled() {
+                return Err(DirectDnsError::NetworkChanged);
+            }
             match result {
                 Ok(response) => return Ok(response),
                 Err(failure) if attempt == 0 && failure.error.permits_retry() => {
@@ -914,6 +987,7 @@ impl EncryptedResolver {
         context: DirectDnsQueryContext,
     ) -> Result<DnsTlsStream, DirectDnsError> {
         self.ensure_current(context)?;
+        let generation = self.connection_generation();
         let budget = self
             .socket_permits
             .clone()
@@ -988,7 +1062,7 @@ impl EncryptedResolver {
                 )
             }
         };
-        self.ensure_current(context)?;
+        self.ensure_connection_current(context, generation)?;
         let name = ServerName::try_from(self.settings.server_name.clone())
             .map_err(|_| DirectDnsError::InvalidConfiguration)?;
         #[cfg(any(test, feature = "fault-injection"))]
@@ -1002,7 +1076,7 @@ impl EncryptedResolver {
         let tls = tokio_rustls::TlsConnector::from(Arc::clone(&self.tls))
             .connect(name, stream)
             .await;
-        self.ensure_current(context)?;
+        self.ensure_connection_current(context, generation)?;
         let tls = tls.map_err(|_| DirectDnsError::TlsFailed)?;
         if self.settings.mode == ConfigMode::Doh && tls.get_ref().1.alpn_protocol() != Some(b"h2") {
             return Err(DirectDnsError::AlpnMismatch);
@@ -1021,87 +1095,94 @@ impl EncryptedResolver {
         let ResolverPool::Doh(slots) = &self.pool else {
             return Err(DirectDnsError::Unsupported.into());
         };
-        loop {
+        'reserve: loop {
             let notified = self.changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
             self.ensure_current(context)?;
-            for slot in slots.iter() {
-                let Ok(mut slot) = slot.try_lock() else {
-                    continue;
-                };
-                if let Some(connection) = slot.as_ref() {
-                    let endpoint_ok = preferred.is_none_or(|ip| ip == connection.endpoint.ip())
-                        && Some(connection.endpoint.ip()) != excluded
-                        && (visited.len() < 2 || visited.contains(&connection.endpoint.ip()));
-                    let active = connection.active.load(Ordering::Acquire);
-                    let obsolete = connection.generation != context.network_generation
-                        || connection.closed.load(Ordering::Acquire)
-                        || connection.cancellation.is_cancelled()
-                        || connection.queries.load(Ordering::Acquire) >= MAX_QUERIES_PER_CONNECTION
-                        || Instant::now().duration_since(
-                            *connection
-                                .last_used
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner()),
-                        ) >= IDLE_TIMEOUT;
-                    if !obsolete
-                        && endpoint_ok
-                        && let Ok(permit) = connection.permits.clone().try_acquire_owned()
-                    {
-                        connection.queries.fetch_add(1, Ordering::AcqRel);
-                        connection.active.fetch_add(1, Ordering::AcqRel);
-                        remember_bootstrap(visited, connection.endpoint.ip());
-                        return Ok(DohReservation {
-                            connection: Arc::clone(connection),
-                            permit: Some(permit),
-                            changed: Arc::clone(&self.changed),
-                        });
-                    }
-                    if active != 0 || !obsolete && (endpoint_ok || preferred.is_some()) {
+            let generation = self.connection_generation();
+            for replace_idle in [false, true] {
+                for slot in slots.iter() {
+                    let Ok(mut slot) = slot.try_lock() else {
                         continue;
+                    };
+                    if let Some(connection) = slot.as_ref() {
+                        let endpoint_ok = preferred.is_none_or(|ip| ip == connection.endpoint.ip())
+                            && Some(connection.endpoint.ip()) != excluded
+                            && (visited.len() < 2 || visited.contains(&connection.endpoint.ip()));
+                        let active = connection.active.load(Ordering::Acquire);
+                        let obsolete = connection.generation != generation
+                            || connection.closed.load(Ordering::Acquire)
+                            || connection.cancellation.is_cancelled()
+                            || connection.queries.load(Ordering::Acquire)
+                                >= MAX_QUERIES_PER_CONNECTION
+                            || Instant::now().duration_since(
+                                *connection
+                                    .last_used
+                                    .lock()
+                                    .unwrap_or_else(|error| error.into_inner()),
+                            ) >= IDLE_TIMEOUT;
+                        if !obsolete
+                            && endpoint_ok
+                            && let Ok(permit) = connection.permits.clone().try_acquire_owned()
+                        {
+                            self.ensure_connection_current(context, connection.generation)?;
+                            connection.queries.fetch_add(1, Ordering::AcqRel);
+                            connection.active.fetch_add(1, Ordering::AcqRel);
+                            remember_bootstrap(visited, connection.endpoint.ip());
+                            return Ok(DohReservation {
+                                connection: Arc::clone(connection),
+                                permit: Some(permit),
+                                changed: Arc::clone(&self.changed),
+                            });
+                        }
+                        if active != 0
+                            || !obsolete && (endpoint_ok || preferred.is_some() && !replace_idle)
+                        {
+                            continue;
+                        }
+                        slot.take();
                     }
-                    slot.take();
+                    let mut slot = ChangingSlot {
+                        guard: Some(slot),
+                        changed: Arc::clone(&self.changed),
+                    };
+                    let (tls, endpoint) = if let Some(ip) = preferred {
+                        let endpoint = SocketAddr::new(ip, self.settings.port);
+                        let tls = self.connect_one(endpoint, context).await?;
+                        (tls, endpoint)
+                    } else {
+                        self.connect_bootstrap(context, visited, excluded).await?
+                    };
+                    let deadline = context.deadline.min(Instant::now() + CONNECT_TIMEOUT);
+                    let (sender, connection) = doh_handshake(tls, endpoint, deadline).await?;
+                    self.ensure_connection_current(context, generation)?;
+                    let cancellation = epoch.child_token();
+                    let stop = cancellation.clone();
+                    let closed = Arc::new(AtomicBool::new(false));
+                    let closed_guard = ClosedGuard(Arc::clone(&closed), Arc::clone(&self.changed));
+                    let driver = tokio::spawn(async move {
+                        let _closed = closed_guard;
+                        tokio::select! { _ = stop.cancelled() => {}, _ = connection => {} }
+                    });
+                    *slot = Some(Arc::new(DohConnection {
+                        endpoint,
+                        generation,
+                        sender,
+                        permits: Arc::new(Semaphore::new(H2_REQUESTS_PER_CONNECTION)),
+                        queries: AtomicU32::new(0),
+                        active: AtomicUsize::new(0),
+                        last_used: StdMutex::new(Instant::now()),
+                        closed,
+                        cancellation,
+                        _driver: AbortOnDropHandle::new(driver),
+                    }));
+                    self.changed.notify_waiters();
+                    // Re-enter the short reservation path, so even the first query
+                    // shares the same per-connection accounting and recycle bound.
+                    drop(slot);
+                    continue 'reserve;
                 }
-                let mut slot = ChangingSlot {
-                    guard: Some(slot),
-                    changed: Arc::clone(&self.changed),
-                };
-                let (tls, endpoint) = if let Some(ip) = preferred {
-                    let endpoint = SocketAddr::new(ip, self.settings.port);
-                    let tls = self.connect_one(endpoint, context).await?;
-                    (tls, endpoint)
-                } else {
-                    self.connect_bootstrap(context, visited, excluded).await?
-                };
-                let deadline = context.deadline.min(Instant::now() + CONNECT_TIMEOUT);
-                let (sender, connection) = doh_handshake(tls, endpoint, deadline).await?;
-                self.ensure_current(context)?;
-                let cancellation = epoch.child_token();
-                let stop = cancellation.clone();
-                let closed = Arc::new(AtomicBool::new(false));
-                let closed_guard = ClosedGuard(Arc::clone(&closed), Arc::clone(&self.changed));
-                let driver = tokio::spawn(async move {
-                    let _closed = closed_guard;
-                    tokio::select! { _ = stop.cancelled() => {}, _ = connection => {} }
-                });
-                *slot = Some(Arc::new(DohConnection {
-                    endpoint,
-                    generation: context.network_generation,
-                    sender,
-                    permits: Arc::new(Semaphore::new(H2_REQUESTS_PER_CONNECTION)),
-                    queries: AtomicU32::new(0),
-                    active: AtomicUsize::new(0),
-                    last_used: StdMutex::new(Instant::now()),
-                    closed,
-                    cancellation,
-                    _driver: AbortOnDropHandle::new(driver),
-                }));
-                self.changed.notify_waiters();
-                // Re-enter the short reservation path, so even the first query
-                // shares the same per-connection accounting and recycle bound.
-                drop(slot);
-                break;
             }
             notified.await;
         }
@@ -1126,7 +1207,7 @@ impl EncryptedResolver {
         let endpoint = reservation.connection.endpoint;
         let request_deadline = context.deadline.min(Instant::now() + REQUEST_TIMEOUT);
         let request = async {
-            self.ensure_current(context)?;
+            self.ensure_connection_current(context, reservation.connection.generation)?;
             let authority = if self.settings.port == 443 {
                 self.settings.server_name.clone()
             } else {
@@ -1196,8 +1277,11 @@ impl EncryptedResolver {
             if matches!(self.connector, DnsConnector::Final { .. }) {
                 crate::split_dns::validate_resolver_response(&query, &bytes)
                     .map_err(|_| DirectDnsError::InvalidResponse)?;
+                if bytes[2] & 2 != 0 {
+                    return Err(DirectDnsError::InvalidResponse);
+                }
             }
-            self.ensure_current(context)?;
+            self.ensure_connection_current(context, reservation.connection.generation)?;
             stream.complete = true;
             Ok(bytes.freeze())
         };
@@ -1217,6 +1301,7 @@ impl EncryptedResolver {
         context: DirectDnsQueryContext,
         visited: &mut Vec<IpAddr>,
         excluded: Option<IpAddr>,
+        preferred: Option<IpAddr>,
     ) -> Result<Bytes, QueryFailure> {
         let _active = self
             .dot_permits
@@ -1228,109 +1313,138 @@ impl EncryptedResolver {
             return Err(DirectDnsError::Unsupported.into());
         };
         loop {
+            let notified = self.changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             self.ensure_current(context)?;
-            for slot in slots.iter() {
-                let Ok(slot) = slot.try_lock() else {
-                    continue;
-                };
-                let mut slot = ChangingSlot {
-                    guard: Some(slot),
-                    changed: Arc::clone(&self.changed),
-                };
-                let mut connection = match slot.take() {
-                    Some(entry)
-                        if entry.generation == context.network_generation
-                            && Some(entry.endpoint.ip()) != excluded
-                            && (visited.len() < 2 || visited.contains(&entry.endpoint.ip()))
-                            && entry.queries < MAX_QUERIES_PER_CONNECTION
-                            && entry.last_used.elapsed() < IDLE_TIMEOUT =>
+            let generation = self.connection_generation();
+            for replace_idle in [false, true] {
+                for slot in slots.iter() {
+                    let Ok(slot) = slot.try_lock() else {
+                        continue;
+                    };
+                    if !replace_idle
+                        && slot.as_ref().is_some_and(|entry| {
+                            preferred.is_some_and(|ip| ip != entry.endpoint.ip())
+                                && entry.generation == generation
+                                && entry.queries < MAX_QUERIES_PER_CONNECTION
+                                && entry.last_used.elapsed() < IDLE_TIMEOUT
+                        })
                     {
-                        entry
+                        continue;
                     }
-                    _ => {
-                        let (stream, endpoint) =
-                            self.connect_bootstrap(context, visited, excluded).await?;
-                        DotConnection {
-                            stream,
-                            endpoint,
-                            generation: context.network_generation,
-                            queries: 0,
-                            last_used: Instant::now(),
+                    let mut slot = ChangingSlot {
+                        guard: Some(slot),
+                        changed: Arc::clone(&self.changed),
+                    };
+                    let mut connection = match slot.take() {
+                        Some(entry)
+                            if entry.generation == generation
+                                && preferred.is_none_or(|ip| ip == entry.endpoint.ip())
+                                && Some(entry.endpoint.ip()) != excluded
+                                && (visited.len() < 2
+                                    || visited.contains(&entry.endpoint.ip()))
+                                && entry.queries < MAX_QUERIES_PER_CONNECTION
+                                && entry.last_used.elapsed() < IDLE_TIMEOUT =>
+                        {
+                            entry
+                        }
+                        _ => {
+                            let (stream, endpoint) = if let Some(ip) = preferred {
+                                let endpoint = SocketAddr::new(ip, self.settings.port);
+                                (self.connect_one(endpoint, context).await?, endpoint)
+                            } else {
+                                self.connect_bootstrap(context, visited, excluded).await?
+                            };
+                            DotConnection {
+                                stream,
+                                endpoint,
+                                generation,
+                                queries: 0,
+                                last_used: Instant::now(),
+                            }
+                        }
+                    };
+                    let endpoint = connection.endpoint;
+                    remember_bootstrap(visited, endpoint.ip());
+                    let deadline = context.deadline.min(Instant::now() + REQUEST_TIMEOUT);
+                    let result = timeout_at(deadline, async {
+                        self.ensure_connection_current(context, connection.generation)?;
+                        connection
+                            .stream
+                            .write_u16(query.len() as u16)
+                            .await
+                            .map_err(|_| DirectDnsError::QueryFailed)?;
+                        connection
+                            .stream
+                            .write_all(query)
+                            .await
+                            .map_err(|_| DirectDnsError::QueryFailed)?;
+                        connection
+                            .stream
+                            .flush()
+                            .await
+                            .map_err(|_| DirectDnsError::QueryFailed)?;
+                        #[cfg(any(test, feature = "fault-injection"))]
+                        if self
+                            .quality
+                            .take_fault(crate::fault_injection::FaultPoint::DotPrefix)
+                            .is_some()
+                        {
+                            return Err(DirectDnsError::InvalidResponse);
+                        }
+                        let length = connection
+                            .stream
+                            .read_u16()
+                            .await
+                            .map_err(|_| DirectDnsError::QueryFailed)?;
+                        if length == 0 {
+                            return Err(DirectDnsError::InvalidResponse);
+                        }
+                        #[cfg(any(test, feature = "fault-injection"))]
+                        if self
+                            .quality
+                            .take_fault(crate::fault_injection::FaultPoint::DotBody)
+                            .is_some()
+                        {
+                            return Err(DirectDnsError::QueryFailed);
+                        }
+                        let mut response = vec![0; usize::from(length)];
+                        connection
+                            .stream
+                            .read_exact(&mut response)
+                            .await
+                            .map_err(|_| DirectDnsError::QueryFailed)?;
+                        validate_dns_exchange(query, &response)
+                            .map_err(|_| DirectDnsError::InvalidResponse)?;
+                        if matches!(self.connector, DnsConnector::Final { .. }) {
+                            crate::split_dns::validate_resolver_response(query, &response)
+                                .map_err(|_| DirectDnsError::InvalidResponse)?;
+                            if response[2] & 2 != 0 {
+                                return Err(DirectDnsError::InvalidResponse);
+                            }
+                        }
+                        self.ensure_connection_current(context, connection.generation)?;
+                        Ok(Bytes::from(response))
+                    })
+                    .await
+                    .map_err(|_| DirectDnsError::Timeout)
+                    .and_then(|result| result);
+                    if result.is_ok() {
+                        connection.queries += 1;
+                        connection.last_used = Instant::now();
+                        if connection.queries < MAX_QUERIES_PER_CONNECTION {
+                            *slot = Some(connection);
                         }
                     }
-                };
-                let endpoint = connection.endpoint;
-                remember_bootstrap(visited, endpoint.ip());
-                let deadline = context.deadline.min(Instant::now() + REQUEST_TIMEOUT);
-                let result = timeout_at(deadline, async {
-                    self.ensure_current(context)?;
-                    connection
-                        .stream
-                        .write_u16(query.len() as u16)
-                        .await
-                        .map_err(|_| DirectDnsError::QueryFailed)?;
-                    connection
-                        .stream
-                        .write_all(query)
-                        .await
-                        .map_err(|_| DirectDnsError::QueryFailed)?;
-                    connection
-                        .stream
-                        .flush()
-                        .await
-                        .map_err(|_| DirectDnsError::QueryFailed)?;
-                    #[cfg(any(test, feature = "fault-injection"))]
-                    if self
-                        .quality
-                        .take_fault(crate::fault_injection::FaultPoint::DotPrefix)
-                        .is_some()
-                    {
-                        return Err(DirectDnsError::InvalidResponse);
-                    }
-                    let length = connection
-                        .stream
-                        .read_u16()
-                        .await
-                        .map_err(|_| DirectDnsError::QueryFailed)?;
-                    if length == 0 {
-                        return Err(DirectDnsError::InvalidResponse);
-                    }
-                    #[cfg(any(test, feature = "fault-injection"))]
-                    if self
-                        .quality
-                        .take_fault(crate::fault_injection::FaultPoint::DotBody)
-                        .is_some()
-                    {
-                        return Err(DirectDnsError::QueryFailed);
-                    }
-                    let mut response = vec![0; usize::from(length)];
-                    connection
-                        .stream
-                        .read_exact(&mut response)
-                        .await
-                        .map_err(|_| DirectDnsError::QueryFailed)?;
-                    validate_dns_exchange(query, &response)
-                        .map_err(|_| DirectDnsError::InvalidResponse)?;
-                    self.ensure_current(context)?;
-                    Ok(Bytes::from(response))
-                })
-                .await
-                .map_err(|_| DirectDnsError::Timeout)
-                .and_then(|result| result);
-                if result.is_ok() {
-                    connection.queries += 1;
-                    connection.last_used = Instant::now();
-                    if connection.queries < MAX_QUERIES_PER_CONNECTION {
-                        *slot = Some(connection);
-                    }
+                    self.changed.notify_waiters();
+                    return result.map_err(|error| QueryFailure {
+                        error,
+                        endpoint: Some(endpoint),
+                    });
                 }
-                self.changed.notify_waiters();
-                return result.map_err(|error| QueryFailure {
-                    error,
-                    endpoint: Some(endpoint),
-                });
             }
-            tokio::task::yield_now().await;
+            notified.await;
         }
     }
 }
@@ -1505,6 +1619,15 @@ pub(crate) fn validate_direct_dns_support(
     settings: &DirectDnsSettings,
 ) -> Result<(), TransportError> {
     validate_direct_dns_capability(settings, ENCRYPTED_DIRECT_DNS_ENABLED)
+}
+
+pub(crate) fn validate_warp_dns_support(
+    profile: &usque_core::Profile,
+) -> Result<(), TransportError> {
+    if profile.uses_encrypted_warp_dns() && !ENCRYPTED_DIRECT_DNS_ENABLED {
+        return Err(TransportError::Dns(DirectDnsError::Unsupported.to_string()));
+    }
+    Ok(())
 }
 
 fn validate_direct_dns_capability(

@@ -1,5 +1,13 @@
 /// Indonesian UI catalog.
 const Map<String, String> kIdCatalog = <String, String>{
+  'warp_dns_type': 'DNS WARP',
+  'warp_dns_plain': 'DNS biasa',
+  'warp_dns_unsupported': 'DNS terenkripsi tidak tersedia',
+  'warp_dns_invalid_mode': 'Jenis DNS tidak didukung',
+  'warp_dns_invalid_name': 'Masukkan nama server',
+  'warp_dns_invalid_path': 'Masukkan jalur yang valid',
+  'warp_dns_invalid_bootstrap': 'Masukkan 1–8 alamat IP',
+
   'disable_quic': "Nonaktifkan QUIC",
   'disable_quic_managed': 'Dikelola otomatis oleh koneksi ini',
   'disable_quic_help':

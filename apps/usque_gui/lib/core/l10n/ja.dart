@@ -1,5 +1,13 @@
 /// Japanese UI catalog.
 const Map<String, String> kJaCatalog = <String, String>{
+  'warp_dns_type': 'WARP DNS',
+  'warp_dns_plain': '通常の DNS',
+  'warp_dns_unsupported': '暗号化 DNS は利用不可',
+  'warp_dns_invalid_mode': '未対応の DNS タイプ',
+  'warp_dns_invalid_name': 'サーバー名を入力',
+  'warp_dns_invalid_path': '有効なパスを入力',
+  'warp_dns_invalid_bootstrap': 'IP アドレスを 1〜8 個入力',
+
   'disable_quic': "QUIC を無効化",
   'disable_quic_managed': '現在の接続が自動的に管理します',
   'disable_quic_help':

@@ -277,6 +277,7 @@ impl DirectGatewayRouter {
             protector,
             counters,
             tunnel_dns,
+            None,
             parent_cancellation,
             NetworkQualityTelemetry::default(),
         )
@@ -293,18 +294,23 @@ impl DirectGatewayRouter {
         protector: Arc<dyn SocketProtector>,
         counters: Arc<TrafficCounters>,
         tunnel_dns: Option<(Channel, (Ipv4Addr, Ipv6Addr))>,
+        warp_dns: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
         parent_cancellation: &CancellationToken,
         quality: NetworkQualityTelemetry,
     ) -> Result<(Self, mpsc::Receiver<Bytes>), TransportError> {
+        if profile.uses_encrypted_warp_dns() && warp_dns.is_none() {
+            return Err(TransportError::Dns("encrypted_dns_unavailable".into()));
+        }
         let (incoming_tx, incoming_rx) = mpsc::channel(DIRECT_PACKET_CAPACITY);
         let cancellation = parent_cancellation.child_token();
         let flows = Arc::new(Mutex::new(NatTable::default()));
         // A pushed resolver may be inside a LAN bypass. Publish our synthetic
         // DNS address to the OS and forward its queries inside the final stack.
         let gate_dns = profile.frontends.tunnel
-            && profile.chain_enabled()
-            && (profile.dns_mode == usque_core::DnsMode::Tunnel
-                || profile.custom_chain().is_some());
+            && (profile.uses_encrypted_warp_dns()
+                || (profile.chain_enabled()
+                    && (profile.dns_mode == usque_core::DnsMode::Tunnel
+                        || profile.custom_chain().is_some())));
         let split_dns_enabled = gate_dns
             || (profile.frontends.tunnel
                 && profile.has_domain_direct_rules()
@@ -369,7 +375,8 @@ impl DirectGatewayRouter {
                     Arc::clone(&protector),
                     quality.clone(),
                 )
-                .with_final_exit(profile.chain_enabled()),
+                .with_final_exit(profile.chain_enabled())
+                .with_doh(warp_dns),
                 &cancellation,
             )
             .await

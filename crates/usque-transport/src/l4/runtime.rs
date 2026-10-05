@@ -59,12 +59,15 @@ impl L4Runtime {
             self.client.health.clone(),
             self.cancellation.clone(),
         )
-        .with_resolver(Resolver::for_streams(
-            self.dns.clone(),
-            self.warp_dns_servers.clone(),
-            ProxyDnsMode::Remote,
-            self.services.protector.clone(),
-        ))
+        .with_resolver(
+            Resolver::for_streams(
+                self.dns.clone(),
+                self.warp_dns_servers.clone(),
+                ProxyDnsMode::Remote,
+                self.services.protector.clone(),
+            )
+            .with_warp_dns(self.services.resolver.final_doh()),
+        )
     }
     pub(crate) async fn start(
         profile: &Profile,
@@ -85,6 +88,7 @@ impl L4Runtime {
             return Err(TransportError::InvalidIdentity);
         }
         crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
+        crate::encrypted_dns::validate_warp_dns_support(profile)?;
         profile
             .proxy
             .listener_credentials()
@@ -206,7 +210,7 @@ impl L4Runtime {
             .filter(|proxy| !proxy.config.dns_servers.is_empty())
             .map(|proxy| proxy.config.dns_servers.clone())
             .unwrap_or_else(|| dns_servers(profile));
-        let doh = client
+        let mut doh = client
             .proxy
             .as_ref()
             .filter(|proxy| proxy.config.uses_doh(profile))
@@ -221,6 +225,19 @@ impl L4Runtime {
             })
             .transpose()
             .map_err(|error| TransportError::Dns(error.to_string()))?;
+        if client.proxy.is_none() && profile.uses_encrypted_warp_dns() {
+            doh = Some(
+                crate::encrypted_dns::FinalDohResolver::for_warp(
+                    &profile.warp_dns,
+                    dialer.clone(),
+                    protector.clone(),
+                    quality.clone(),
+                    &cancellation,
+                    client.budget.clone(),
+                )
+                .map_err(|error| TransportError::Dns(error.to_string()))?,
+            );
+        }
         if let Some(proxy) = &client.proxy {
             proxy.status.send_modify(|status| {
                 status.final_dns_transport = Some(if doh.is_some() { "doh" } else { "tcp" }.into())
@@ -230,6 +247,17 @@ impl L4Runtime {
                 "Final proxy DNS configured"
             );
         }
+        let resolver = Resolver::for_streams(
+            dns.clone(),
+            servers,
+            profile.proxy.dns_mode,
+            protector.clone(),
+        );
+        let resolver = if client.proxy.is_some() {
+            resolver.with_doh(doh)
+        } else {
+            resolver.with_warp_dns(doh)
+        };
         let services = ProxyServices {
             traffic_policy: Arc::new(crate::application_traffic::ApplicationTrafficPolicy::new(
                 profile.disable_quic || client.proxy.is_some(),
@@ -259,13 +287,7 @@ impl L4Runtime {
                             as Arc<dyn crate::proxy_udp::UdpFactory>
                     })
                 }),
-            resolver: Resolver::for_streams(
-                dns.clone(),
-                servers,
-                profile.proxy.dns_mode,
-                protector.clone(),
-            )
-            .with_doh(doh),
+            resolver,
             protector,
             geo_policy,
             counters: counters.clone(),
@@ -430,8 +452,16 @@ impl L4Runtime {
                 .unwrap_or_else(|| dns_servers(profile)),
             profile.proxy.dns_mode,
             services.protector.clone(),
-        )
-        .with_doh(self.services.resolver.final_doh());
+        );
+        services.resolver = if self.client.proxy.is_some() {
+            services
+                .resolver
+                .with_doh(self.services.resolver.final_doh())
+        } else {
+            services
+                .resolver
+                .with_warp_dns(self.services.resolver.final_doh())
+        };
         services
     }
 

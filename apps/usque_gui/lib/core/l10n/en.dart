@@ -1,5 +1,13 @@
 /// English UI catalog.
 const Map<String, String> kEnCatalog = <String, String>{
+  'warp_dns_type': 'WARP DNS',
+  'warp_dns_plain': 'Plain DNS',
+  'warp_dns_unsupported': 'Encrypted DNS unavailable',
+  'warp_dns_invalid_mode': 'Unsupported DNS type',
+  'warp_dns_invalid_name': 'Enter a server name',
+  'warp_dns_invalid_path': 'Enter a valid path',
+  'warp_dns_invalid_bootstrap': 'Enter 1–8 IP addresses',
+
   'disable_quic': "Disable QUIC",
   'disable_quic_managed': 'Automatically managed by this connection',
   'disable_quic_help':

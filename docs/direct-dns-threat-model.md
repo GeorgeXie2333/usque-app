@@ -21,6 +21,12 @@ provider have separate visibility from an explicitly direct resolver. A chosen
 application resolver remains the TCP destination for converted UDP/53 queries;
 there is no physical fallback. See [chain DNS choices](CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口).
 
+Ordinary WARP also supports explicit-bootstrap DoH and DoT inside the tunnel;
+see [WARP exit DNS](WARP_DNS.md). Its encrypted connector never creates a
+physical resolver socket. The WARP pool is distinct from the direct-DNS pool,
+and final chain exits retain their own DNS choices. These source changes do
+not extend the independent review or establish isolated leak observations.
+
 Usque has one MASQUE runtime shared by VPN and proxy frontends. Country- or custom-domain-selected
 direct traffic consumes `DirectDnsSettings`: System, DoH or DoT.
 `SharedNetworkSettings` is hydrated into an account's runtime Profile;

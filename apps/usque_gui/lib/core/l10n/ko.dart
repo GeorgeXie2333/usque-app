@@ -1,5 +1,13 @@
 /// Korean UI catalog.
 const Map<String, String> kKoCatalog = <String, String>{
+  'warp_dns_type': 'WARP DNS',
+  'warp_dns_plain': '일반 DNS',
+  'warp_dns_unsupported': '암호화 DNS 사용 불가',
+  'warp_dns_invalid_mode': '지원하지 않는 DNS 유형',
+  'warp_dns_invalid_name': '서버 이름을 입력하세요',
+  'warp_dns_invalid_path': '올바른 경로를 입력하세요',
+  'warp_dns_invalid_bootstrap': 'IP 주소를 1–8개 입력하세요',
+
   'disable_quic': "QUIC 비활성화",
   'disable_quic_managed': '현재 연결에서 자동으로 관리합니다',
   'disable_quic_help':

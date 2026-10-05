@@ -1,5 +1,13 @@
 /// Dutch UI catalog.
 const Map<String, String> kNlCatalog = <String, String>{
+  'warp_dns_type': 'WARP-DNS',
+  'warp_dns_plain': 'Gewone DNS',
+  'warp_dns_unsupported': 'Versleutelde DNS niet beschikbaar',
+  'warp_dns_invalid_mode': 'Niet-ondersteund DNS-type',
+  'warp_dns_invalid_name': 'Voer een servernaam in',
+  'warp_dns_invalid_path': 'Voer een geldig pad in',
+  'warp_dns_invalid_bootstrap': 'Voer 1–8 IP-adressen in',
+
   'disable_quic': "QUIC uitschakelen",
   'disable_quic_managed': 'Automatisch beheerd door deze verbinding',
   'disable_quic_help':

@@ -535,6 +535,17 @@ async fn serve_doh<S>(tls: S, behavior: Behavior, counts: Arc<ServerCounts>)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    serve_doh_path(tls, behavior, counts, "/dns-query").await;
+}
+
+async fn serve_doh_path<S>(
+    tls: S,
+    behavior: Behavior,
+    counts: Arc<ServerCounts>,
+    path: &'static str,
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let Ok(mut connection) = h2::server::handshake(tls).await else {
         return;
     };
@@ -548,7 +559,7 @@ where
                     assert_eq!(request.method(), Method::POST);
                     assert_eq!(request.version(), Version::HTTP_2);
                     assert_eq!(request.uri().scheme_str(), Some("https"));
-                    assert_eq!(request.uri().path(), "/dns-query");
+                    assert_eq!(request.uri().path(), path);
                     assert!(request.uri().authority().unwrap().as_str().starts_with("resolver.test:"));
                     assert_eq!(request.headers()[http::header::CONTENT_TYPE], "application/dns-message");
                     assert_eq!(request.headers()[http::header::ACCEPT], "application/dns-message");
@@ -1483,6 +1494,8 @@ impl crate::tcp::TcpIo for FinalTestStream {
     }
 }
 struct FinalTestDialer {
+    mode: ConfigMode,
+    port: u16,
     server: Arc<ServerConfig>,
     primary: Behavior,
     backup: Behavior,
@@ -1490,11 +1503,18 @@ struct FinalTestDialer {
     leases: Arc<LeaseCounts>,
     queries: Arc<ServerCounts>,
     generation: std::sync::atomic::AtomicU64,
+    ready: AtomicBool,
+    handshake_delay: StdMutex<Duration>,
 }
 #[async_trait]
 impl crate::tcp::TcpDialer for FinalTestDialer {
+    fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire)
+    }
     fn session_generation(&self) -> Option<u64> {
-        Some(self.generation.load(Ordering::Acquire))
+        self.ready
+            .load(Ordering::Acquire)
+            .then(|| self.generation.load(Ordering::Acquire))
     }
     async fn connect(
         &self,
@@ -1507,7 +1527,7 @@ impl crate::tcp::TcpDialer for FinalTestDialer {
         let address = target
             .socket_address()
             .expect("numeric bootstrap, never host DNS");
-        assert_eq!(address.port(), 8443, "no TCP/53 fallback");
+        assert_eq!(address.port(), self.port, "no TCP/53 fallback");
         self.targets.lock().unwrap().push(target);
         let behavior = if address.ip() == "1.1.1.1".parse::<IpAddr>().unwrap() {
             self.primary
@@ -1518,10 +1538,17 @@ impl crate::tcp::TcpDialer for FinalTestDialer {
         let config = self.server.clone();
         let counts = self.queries.clone();
         let cancel = cancel.clone();
+        let mode = self.mode;
+        let handshake_delay = *self.handshake_delay.lock().unwrap();
         tokio::spawn(async move {
             let work = async {
+                sleep(handshake_delay).await;
                 if let Ok(tls) = tokio_rustls::TlsAcceptor::from(config).accept(peer).await {
-                    serve_doh(tls, behavior, counts).await;
+                    if mode == ConfigMode::Doh {
+                        serve_doh_path(tls, behavior, counts, "/warp-query").await;
+                    } else {
+                        serve_dot(tls, behavior, counts).await;
+                    }
                 }
             };
             tokio::select! { _ = cancel.cancelled() => {}, _ = work => {} }
@@ -1541,8 +1568,29 @@ struct FinalHarness {
 }
 impl FinalHarness {
     fn new(primary: Behavior, backup: Behavior, trusted: bool) -> Self {
+        Self::for_mode(ConfigMode::Doh, primary, backup, trusted)
+    }
+    fn for_mode(mode: ConfigMode, primary: Behavior, backup: Behavior, trusted: bool) -> Self {
+        Self::for_endpoints(
+            mode,
+            primary,
+            backup,
+            trusted,
+            vec![
+                "1.1.1.1".parse().unwrap(),
+                "2606:4700:4700::1111".parse().unwrap(),
+            ],
+        )
+    }
+    fn for_endpoints(
+        mode: ConfigMode,
+        primary: Behavior,
+        backup: Behavior,
+        trusted: bool,
+        bootstrap_ips: Vec<IpAddr>,
+    ) -> Self {
         let (server, tls) = test_certificates(
-            ConfigMode::Doh,
+            mode,
             if trusted {
                 "resolver.test"
             } else {
@@ -1551,6 +1599,8 @@ impl FinalHarness {
             false,
         );
         let dialer = Arc::new(FinalTestDialer {
+            mode,
+            port: if mode == ConfigMode::Doh { 8443 } else { 8853 },
             server: Arc::new(server),
             primary,
             backup,
@@ -1558,6 +1608,8 @@ impl FinalHarness {
             leases: Arc::default(),
             queries: Arc::default(),
             generation: std::sync::atomic::AtomicU64::new(1),
+            ready: AtomicBool::new(true),
+            handshake_delay: StdMutex::new(Duration::ZERO),
         });
         let protector = SpyProtector::new();
         // Final-exit IPv6 support is unrelated to physical IPv6 availability.
@@ -1570,14 +1622,15 @@ impl FinalHarness {
             Arc::new(Notify::new()),
         ));
         let settings = DirectDnsSettings {
-            mode: ConfigMode::Doh,
+            mode,
             server_name: "resolver.test".into(),
-            doh_path: "/dns-query".into(),
-            port: 8443,
-            bootstrap_ips: vec![
-                "1.1.1.1".parse().unwrap(),
-                "2606:4700:4700::1111".parse().unwrap(),
-            ],
+            doh_path: if mode == ConfigMode::Doh {
+                "/warp-query".into()
+            } else {
+                String::new()
+            },
+            port: dialer.port,
+            bootstrap_ips,
         };
         let inner = EncryptedResolver::new(
             settings,
@@ -1704,6 +1757,7 @@ async fn final_doh_rejects_tls_http_and_dns_errors_without_plaintext_or_direct_f
         (Behavior::WrongType, true),
         (Behavior::BadId, true),
         (Behavior::Oversized, true),
+        (Behavior::Truncated, true),
     ] {
         let harness = FinalHarness::new(behavior, behavior, trusted);
         assert!(
@@ -1798,6 +1852,346 @@ async fn final_doh_resource_denial_and_timeout_release_budget_without_alternate_
         Err(DirectDnsError::Timeout)
     );
     assert!(started.elapsed() <= QUERY_TIMEOUT);
+    assert_eq!(harness.dialer.targets.lock().unwrap().len(), 2);
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn final_dot_hedges_queries_and_preserves_negative_answers() {
+    for primary in [
+        Behavior::Delay(Duration::from_secs(10)),
+        Behavior::Servfail,
+        Behavior::Refused,
+    ] {
+        let harness = FinalHarness::for_mode(ConfigMode::Dot, primary, Behavior::Echo, true);
+        let query = test_query(31);
+        let started = Instant::now();
+        assert_eq!(
+            harness
+                .resolver
+                .query(&query, started + QUERY_TIMEOUT)
+                .await
+                .unwrap()
+                .as_ref(),
+            test_response(&query, Behavior::Echo)
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 2);
+        harness.stop().await;
+    }
+    for negative in [Behavior::Nxdomain, Behavior::Nodata] {
+        let harness = FinalHarness::for_mode(ConfigMode::Dot, negative, Behavior::Echo, true);
+        let query = test_query(32);
+        assert_eq!(
+            harness
+                .resolver
+                .query(&query, Instant::now() + QUERY_TIMEOUT)
+                .await
+                .unwrap()
+                .as_ref(),
+            test_response(&query, negative)
+        );
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 1);
+        harness.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn final_dot_rejects_tls_and_malformed_frames_without_fallback() {
+    for (behavior, trusted) in [
+        (Behavior::Echo, false),
+        (Behavior::ZeroLength, true),
+        (Behavior::Eof, true),
+        (Behavior::BadId, true),
+        (Behavior::BadQuestion, true),
+        (Behavior::Truncated, true),
+    ] {
+        let harness = FinalHarness::for_mode(ConfigMode::Dot, behavior, behavior, trusted);
+        assert!(
+            harness
+                .resolver
+                .query(&test_query(33), Instant::now() + QUERY_TIMEOUT)
+                .await
+                .is_err()
+        );
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 2);
+        harness.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn warp_encrypted_pools_reuse_connections_and_follow_runtime_readiness() {
+    for mode in [ConfigMode::Doh, ConfigMode::Dot] {
+        let harness = FinalHarness::for_mode(mode, Behavior::Echo, Behavior::Echo, true);
+        for id in [34, 35] {
+            harness
+                .resolver
+                .query(&test_query(id), Instant::now() + QUERY_TIMEOUT)
+                .await
+                .unwrap();
+        }
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 1);
+        harness.dialer.ready.store(false, Ordering::Release);
+        assert_eq!(
+            harness
+                .resolver
+                .query(&test_query(36), Instant::now() + QUERY_TIMEOUT)
+                .await,
+            Err(DirectDnsError::Cancelled)
+        );
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 1);
+        harness.dialer.generation.store(2, Ordering::Release);
+        harness.dialer.ready.store(true, Ordering::Release);
+        harness
+            .resolver
+            .query(&test_query(37), Instant::now() + QUERY_TIMEOUT)
+            .await
+            .unwrap();
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 2);
+        harness.protector.generation.store(8, Ordering::Release);
+        harness
+            .resolver
+            .query(&test_query(38), Instant::now() + QUERY_TIMEOUT)
+            .await
+            .unwrap();
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 3);
+        harness.stop().await;
+
+        let harness = FinalHarness::for_mode(
+            mode,
+            Behavior::Delay(Duration::from_secs(10)),
+            Behavior::Delay(Duration::from_secs(10)),
+            true,
+        );
+        let query = test_query(39);
+        let operation = harness
+            .resolver
+            .query(&query, Instant::now() + QUERY_TIMEOUT);
+        tokio::pin!(operation);
+        tokio::select! { result = &mut operation => panic!("query completed early: {result:?}"), _ = sleep(Duration::from_millis(50)) => harness.cancel.cancel() }
+        assert_eq!(operation.await, Err(DirectDnsError::Cancelled));
+        harness.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn encrypted_candidate_pools_can_try_all_eight_configured_endpoints() {
+    for mode in [ConfigMode::Doh, ConfigMode::Dot] {
+        let ips = (1..=8)
+            .map(|last| IpAddr::V4(Ipv4Addr::new(192, 0, 2, last)))
+            .collect();
+        let harness =
+            FinalHarness::for_endpoints(mode, Behavior::Servfail, Behavior::Servfail, true, ips);
+        assert!(
+            harness
+                .resolver
+                .query(&test_query(40), Instant::now() + QUERY_TIMEOUT)
+                .await
+                .is_err()
+        );
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 8);
+        harness.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn ordinary_warp_encrypted_dns_uses_synthetic_gateway_without_direct_rules() {
+    use ts_netstack_smoltcp::CreateSocket;
+    use ts_netstack_smoltcp::netcore::{HasChannel, NetstackControl};
+    for mode in [ConfigMode::Doh, ConfigMode::Dot] {
+        let harness = FinalHarness::for_mode(mode, Behavior::Echo, Behavior::Echo, true);
+        let mut profile = usque_core::Profile::default();
+        profile.frontends.tunnel = true;
+        profile.warp_dns = usque_core::WarpDnsSettings {
+            mode: if mode == ConfigMode::Doh {
+                usque_core::WarpDnsMode::Doh
+            } else {
+                usque_core::WarpDnsMode::Dot
+            },
+            server_name: "resolver.test".into(),
+            port: harness.dialer.port,
+            doh_path: if mode == ConfigMode::Doh {
+                "/warp-query".into()
+            } else {
+                String::new()
+            },
+            bootstrap_ips: vec!["1.1.1.1".parse().unwrap()],
+        };
+        let client_ip = Ipv4Addr::new(172, 16, 0, 2);
+        let (client, mut pipe) =
+            crate::netstack::bounded_piped(crate::netstack::proxy_netstack_config(&profile).0);
+        let channel = client.command_channel();
+        let task = AbortOnDropHandle::new(client.spawn_tokio());
+        channel.set_ips([IpAddr::V4(client_ip)]).await.unwrap();
+        let (mut gateway, mut incoming) =
+            crate::direct_gateway::DirectGatewayRouter::start_with_quality(
+                &profile,
+                Arc::new(crate::GeoDirectPolicy::disabled()),
+                Arc::new(crate::socket::NoopSocketProtector),
+                Arc::default(),
+                Some((channel.clone(), (client_ip, Ipv6Addr::UNSPECIFIED))),
+                Some(harness.resolver.clone()),
+                &harness.cancel,
+                harness.quality.clone(),
+            )
+            .await
+            .unwrap();
+        let query = test_query(41);
+        let socket = channel
+            .udp_bind(SocketAddr::new(IpAddr::V4(client_ip), 50003))
+            .await
+            .unwrap();
+        socket
+            .send_to(
+                SocketAddr::new(IpAddr::V4(crate::split_dns::SPLIT_DNS_IPV4), 53),
+                &query,
+            )
+            .await
+            .unwrap();
+        let packet = timeout(Duration::from_secs(2), pipe.rx.recv_async())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            gateway
+                .route_outgoing(&mut BytesMut::from(packet.as_ref()))
+                .await
+        );
+        let response = timeout(Duration::from_secs(2), incoming.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let meta = crate::direct_gateway::NatPacket::parse(&response).unwrap();
+        assert_eq!(meta.destination, IpAddr::V4(client_ip));
+        assert!(response.ends_with(&test_response(&query, Behavior::Echo)));
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 1);
+        harness.stop().await;
+        drop((gateway, task));
+    }
+}
+
+#[tokio::test]
+async fn warp_encryption_preserves_explicit_frontend_modes_and_remote_control_resolution() {
+    struct DeniedLocal(Arc<AtomicUsize>);
+    impl SocketProtector for DeniedLocal {
+        fn protect(&self, _: SocketHandle) -> Result<(), String> {
+            self.0.fetch_add(1, Ordering::AcqRel);
+            Err("local_test_denied".into())
+        }
+    }
+    for mode in [ConfigMode::Doh, ConfigMode::Dot] {
+        let harness = FinalHarness::for_mode(mode, Behavior::Echo, Behavior::Echo, true);
+        let dns = Arc::new(crate::dns_stream::StreamDns::new(
+            harness.dialer.clone(),
+            harness.protector.clone(),
+            harness.cancel.clone(),
+            Arc::default(),
+        ));
+        let local_calls = Arc::new(AtomicUsize::new(0));
+        let local = crate::dns::Resolver::for_streams(
+            dns.clone(),
+            vec!["192.0.2.53".parse().unwrap()],
+            usque_core::ProxyDnsMode::LocalConfigured,
+            Arc::new(DeniedLocal(local_calls.clone())),
+        )
+        .with_warp_dns(Some(harness.resolver.clone()));
+        assert!(local.resolve("direct.example.test").await.is_err());
+        assert_eq!(local_calls.load(Ordering::Acquire), 2);
+        assert!(harness.dialer.targets.lock().unwrap().is_empty());
+        let system = crate::dns::Resolver::for_streams(
+            dns.clone(),
+            vec![],
+            usque_core::ProxyDnsMode::System,
+            harness.protector.clone(),
+        )
+        .with_warp_dns(Some(harness.resolver.clone()));
+        assert!(
+            system
+                .resolve("localhost")
+                .await
+                .unwrap()
+                .iter()
+                .all(IpAddr::is_loopback)
+        );
+        assert!(harness.dialer.targets.lock().unwrap().is_empty());
+        let edge = crate::dns::Resolver::for_streams(
+            dns,
+            vec![],
+            usque_core::ProxyDnsMode::EdgeResolved,
+            harness.protector.clone(),
+        )
+        .with_warp_dns(Some(harness.resolver.clone()));
+        assert!(
+            edge.resolve_candidates("direct.example.test", Instant::now() + QUERY_TIMEOUT)
+                .is_err()
+        );
+        assert!(harness.dialer.targets.lock().unwrap().is_empty());
+        assert!(
+            local
+                .resolve_remote("direct.example.test")
+                .await
+                .unwrap()
+                .contains(&"192.0.2.17".parse().unwrap())
+        );
+        assert_eq!(local_calls.load(Ordering::Acquire), 2);
+        assert!(!harness.dialer.targets.lock().unwrap().is_empty());
+        harness.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn encrypted_tls_setup_cannot_assign_an_old_stream_to_a_new_session() {
+    for mode in [ConfigMode::Doh, ConfigMode::Dot] {
+        let harness = FinalHarness::for_mode(mode, Behavior::Echo, Behavior::Echo, true);
+        *harness.dialer.handshake_delay.lock().unwrap() = Duration::from_millis(50);
+        let endpoint = SocketAddr::new("1.1.1.1".parse().unwrap(), harness.dialer.port);
+        let operation = harness.resolver.inner.connect_one(endpoint, context());
+        tokio::pin!(operation);
+        tokio::select! {
+            _ = &mut operation => panic!("TLS setup completed before session change"),
+            _ = sleep(Duration::from_millis(5)) => {
+                harness.dialer.generation.store(2, Ordering::Release);
+                assert_eq!(operation.await.err(), Some(DirectDnsError::NetworkChanged));
+            }
+        }
+        harness.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn dot_pool_rejects_an_old_connection_completed_after_epoch_cleanup() {
+    let harness = FinalHarness::for_mode(ConfigMode::Dot, Behavior::Echo, Behavior::Echo, true);
+    let endpoint = SocketAddr::new("1.1.1.1".parse().unwrap(), harness.dialer.port);
+    let generation = harness.resolver.inner.connection_generation();
+    let stream = harness
+        .resolver
+        .inner
+        .connect_one(endpoint, context())
+        .await
+        .unwrap();
+    harness.dialer.generation.store(2, Ordering::Release);
+    harness.resolver.inner.sync_generation();
+    let ResolverPool::Dot(slots) = &harness.resolver.inner.pool else {
+        panic!("DoT pool");
+    };
+    // Model construction completing after the monitor has retired its epoch.
+    *slots[0].lock().await = Some(DotConnection {
+        stream,
+        endpoint,
+        generation,
+        queries: 0,
+        last_used: Instant::now(),
+    });
+    let query = test_query(42);
+    assert_eq!(
+        harness
+            .resolver
+            .query(&query, Instant::now() + QUERY_TIMEOUT)
+            .await
+            .unwrap()
+            .as_ref(),
+        test_response(&query, Behavior::Echo)
+    );
     assert_eq!(harness.dialer.targets.lock().unwrap().len(), 2);
     harness.stop().await;
 }

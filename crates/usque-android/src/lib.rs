@@ -38,8 +38,9 @@ use usque_core::{
     AppConfig, ConsumerEntitlement, ConsumerRegistrationClient, DirectDnsMode, DirectDnsSettings,
     DnsMode, EndpointSettings, FrontendSettings, IdentityProvider, IpPolicy, ManagedEndpointIps,
     OperatingMode, PendingIdentityReplacement, Profile, ProxyDnsMode, ProxySettings,
-    RegistrationError, RegistrationOptions, SharedNetworkSettings, TransportPolicy, WarpIdentity,
-    parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
+    RegistrationError, RegistrationOptions, SharedNetworkSettings, TransportPolicy, WarpDnsMode,
+    WarpDnsSettings, WarpIdentity, parse_manual_warp_secret, storage::ConfigStore,
+    update::UpdateChecker,
 };
 #[cfg(any(test, target_os = "android"))]
 use usque_transport::{
@@ -144,6 +145,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
+            "encrypted_warp_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
             "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
             "automatic_pmtu": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
             "h3_congestion_control_algorithms": if engine_ready() { usque_core::CongestionControlAlgorithm::ALL.to_vec() } else { Vec::new() },
@@ -1093,6 +1095,8 @@ struct AndroidProfile {
     bypass_domains: Vec<String>,
     #[serde(default)]
     direct_dns: AndroidDirectDns,
+    #[serde(default)]
+    warp_dns: AndroidWarpDns,
     proxy: AndroidProxy,
 }
 
@@ -1108,6 +1112,20 @@ struct AndroidDirectDns {
     bootstrap_ips: Vec<String>,
     #[serde(default)]
     port: u16,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct AndroidWarpDns {
+    #[serde(default)]
+    mode: String,
+    #[serde(default)]
+    server_name: String,
+    #[serde(default)]
+    doh_path: String,
+    #[serde(default)]
+    bootstrap_ips: Vec<String>,
+    #[serde(default)]
+    port: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1208,6 +1226,29 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         port: source.direct_dns.port,
     };
     direct_dns.canonicalize();
+    let mut warp_dns = WarpDnsSettings {
+        mode: match source.warp_dns.mode.as_str() {
+            "" | "plain" => WarpDnsMode::Plain,
+            "doh" => WarpDnsMode::Doh,
+            "dot" => WarpDnsMode::Dot,
+            _ => return Err("WARP_DNS_MODE_INVALID".to_owned()),
+        },
+        server_name: source.warp_dns.server_name,
+        doh_path: source.warp_dns.doh_path,
+        bootstrap_ips: source
+            .warp_dns
+            .bootstrap_ips
+            .iter()
+            .map(|value| {
+                value
+                    .parse::<IpAddr>()
+                    .map_err(|_| "WARP_DNS_BOOTSTRAP_INVALID".to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        port: u16::try_from(source.warp_dns.port)
+            .map_err(|_| "WARP_DNS_PORT_INVALID".to_owned())?,
+    };
+    warp_dns.canonicalize();
     let frontends = source
         .frontends
         .map(|frontends| FrontendSettings {
@@ -1269,6 +1310,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         geo_direct_countries: source.geo_direct_countries,
         bypass_domains: source.bypass_domains,
         direct_dns,
+        warp_dns,
         proxy: ProxySettings {
             socks5_listeners: source.proxy.socks5_listeners.unwrap_or_else(|| {
                 vec![
@@ -1297,7 +1339,11 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
     profile
         .canonicalize_geo_direct()
         .map_err(|error| error.to_string())?;
-    profile.validate().map_err(|error| error.to_string())?;
+    profile.validate().map_err(|error| {
+        error
+            .stable_code()
+            .map_or_else(|| error.to_string(), str::to_owned)
+    })?;
     Ok(profile)
 }
 
@@ -2130,6 +2176,17 @@ fn android_profile_value(
             .collect::<Vec<_>>(),
         "geo_direct_countries": profile.geo_direct_countries,
         "bypass_domains": profile.bypass_domains,
+        "warp_dns": {
+            "mode": match profile.warp_dns.mode {
+                WarpDnsMode::Plain => "plain",
+                WarpDnsMode::Doh => "doh",
+                WarpDnsMode::Dot => "dot",
+            },
+            "server_name": profile.warp_dns.server_name,
+            "doh_path": profile.warp_dns.doh_path,
+            "bootstrap_ips": profile.warp_dns.bootstrap_ips.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "port": profile.warp_dns.port,
+        },
         "direct_dns": {
             "mode": match profile.direct_dns.mode {
                 DirectDnsMode::PhysicalSystem => "physicalSystem",
@@ -3194,7 +3251,8 @@ fn start_engine(
         return START_PLATFORM_FAILURE;
     }
     if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
-        && profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
+        && (profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
+            || profile.warp_dns.is_encrypted())
     {
         return START_INVALID_PROFILE;
     }
@@ -3231,7 +3289,8 @@ fn start_proxy_engine(
         return START_PLATFORM_FAILURE;
     }
     if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
-        && profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
+        && (profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
+            || profile.warp_dns.is_encrypted())
     {
         return START_INVALID_PROFILE;
     }
@@ -3978,6 +4037,66 @@ mod tests {
         assert_eq!(
             exported["bypass_cidrs"],
             serde_json::json!(["192.0.2.0/24"])
+        );
+    }
+
+    #[test]
+    fn android_profile_roundtrips_warp_dns_and_defaults_legacy_to_plain() {
+        let legacy = parse_android_profile(&valid_profile_json()).unwrap();
+        assert_eq!(legacy.warp_dns, WarpDnsSettings::default());
+        for (mode, port, path) in [("doh", 443, "/dns-query"), ("dot", 853, "")] {
+            let mut source: serde_json::Value =
+                serde_json::from_str(&valid_profile_json()).unwrap();
+            source["warp_dns"] = serde_json::json!({
+                "mode": mode,
+                "server_name": "DNS.Example.COM",
+                "bootstrap_ips": ["192.0.2.53"],
+            });
+            let profile = parse_android_profile(&source.to_string()).unwrap();
+            assert!(profile.warp_dns.is_encrypted());
+            assert_eq!(profile.warp_dns.server_name, "dns.example.com");
+            assert_eq!(profile.warp_dns.port, port);
+            assert_eq!(profile.warp_dns.doh_path, path);
+            let exported = android_profile_value(&profile, None, false);
+            assert_eq!(exported["warp_dns"]["mode"], mode);
+            assert_eq!(
+                parse_android_profile(&exported.to_string())
+                    .unwrap()
+                    .warp_dns,
+                profile.warp_dns
+            );
+            assert_eq!(profile.dns_servers, legacy.dns_servers);
+        }
+    }
+
+    #[test]
+    fn android_warp_dns_rejects_unknown_mode_invalid_bootstrap_and_oversize_port() {
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["warp_dns"] = serde_json::json!({
+            "mode": "future",
+            "server_name": "dns.private.example",
+            "bootstrap_ips": ["192.0.2.53"],
+        });
+        assert_eq!(
+            parse_android_profile(&source.to_string()).unwrap_err(),
+            "WARP_DNS_MODE_INVALID"
+        );
+        source["warp_dns"]["mode"] = serde_json::json!("dot");
+        source["warp_dns"]["port"] = serde_json::json!(65536);
+        assert_eq!(
+            parse_android_profile(&source.to_string()).unwrap_err(),
+            "WARP_DNS_PORT_INVALID"
+        );
+        source["warp_dns"]["port"] = serde_json::json!(853);
+        source["warp_dns"]["bootstrap_ips"] = serde_json::json!(["invalid"]);
+        assert_eq!(
+            parse_android_profile(&source.to_string()).unwrap_err(),
+            "WARP_DNS_BOOTSTRAP_INVALID"
+        );
+        source["warp_dns"]["bootstrap_ips"] = serde_json::json!([]);
+        assert_eq!(
+            parse_android_profile(&source.to_string()).unwrap_err(),
+            "WARP_DNS_BOOTSTRAP_REQUIRED"
         );
     }
 

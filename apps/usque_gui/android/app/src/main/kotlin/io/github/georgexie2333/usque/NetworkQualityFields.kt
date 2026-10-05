@@ -127,6 +127,7 @@ internal object NetworkQualityFields {
         return listOf(
             "network_quality",
             "encrypted_direct_dns",
+            "encrypted_warp_dns",
             "quic_migration",
             "automatic_pmtu",
             "l4_tcp",

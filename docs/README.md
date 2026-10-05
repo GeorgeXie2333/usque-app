@@ -21,6 +21,7 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
 | [Network Doctor](network-doctor.md) | Run checks, read results, and export a local report / 运行检查、理解结果与导出诊断 |
 | [Direct DNS](encrypted-direct-dns.md) | Choose System, DoH or DoT and fill in resolver settings / 选择直连 DNS 模式与填写服务器配置 |
+| [WARP exit DNS](WARP_DNS.md) | Configure Plain DNS, DoH or DoT inside WARP / 配置 WARP 隧道内普通 DNS、DoH、DoT |
 | [WARP via WireGuard](WARP_WIREGUARD.md) | Generate/import WARP configurations and edit endpoints / 生成、导入 WARP 配置与编辑端点 |
 | [Chain proxy](CHAIN_PROXY.md) | OpenVPN, WireGuard, WARP via WireGuard, VPN Gate, HTTP, SOCKS5: configure, select and apply / 导入、选用与应用 |
 | Proton VPN over MASQUE: [English](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) / [简体中文](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE-zh-CN) | Download a WireGuard configuration, import, apply, verify the exit and troubleshoot / 下载 WireGuard 配置、导入、应用、验证出口与排障 |

@@ -1,5 +1,13 @@
 /// German UI catalog.
 const Map<String, String> kDeCatalog = <String, String>{
+  'warp_dns_type': 'WARP-DNS',
+  'warp_dns_plain': 'Normales DNS',
+  'warp_dns_unsupported': 'Verschlüsseltes DNS nicht verfügbar',
+  'warp_dns_invalid_mode': 'DNS-Typ nicht unterstützt',
+  'warp_dns_invalid_name': 'Servernamen eingeben',
+  'warp_dns_invalid_path': 'Gültigen Pfad eingeben',
+  'warp_dns_invalid_bootstrap': '1–8 IP-Adressen eingeben',
+
   'disable_quic': "QUIC deaktivieren",
   'disable_quic_managed': 'Automatisch von dieser Verbindung verwaltet',
   'disable_quic_help':

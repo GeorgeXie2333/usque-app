@@ -1286,6 +1286,13 @@ mod tests {
         let mut config = AppConfig::default();
         config.profiles[0].name = "private hotel name".to_owned();
         config.network.endpoint.sni = "private.example".to_owned();
+        config.network.warp_dns = usque_core::WarpDnsSettings {
+            mode: usque_core::WarpDnsMode::Doh,
+            server_name: "private-resolver.example".into(),
+            doh_path: "/private-dns-path".into(),
+            bootstrap_ips: vec!["198.51.100.74".parse().unwrap()],
+            port: 9443,
+        };
         let log_directory = directory.path().join("logs");
         fs::create_dir_all(&log_directory).unwrap();
         fs::write(
@@ -1306,6 +1313,10 @@ mod tests {
         let combined = String::from_utf8_lossy(&fs::read(destination).unwrap()).into_owned();
         assert!(!combined.contains("private hotel name"));
         assert!(!combined.contains("private.example"));
+        assert!(!combined.contains("private-resolver.example"));
+        assert!(!combined.contains("private-dns-path"));
+        assert!(!combined.contains("198.51.100.74"));
+        assert!(!combined.contains("9443"));
         assert!(!combined.contains("192.0.2.1"));
         assert!(!combined.contains("example.com"));
         assert!(combined.contains("uses_default_sni"));

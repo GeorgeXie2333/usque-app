@@ -1,5 +1,13 @@
 /// Ukrainian UI catalog.
 const Map<String, String> kUkCatalog = <String, String>{
+  'warp_dns_type': 'DNS WARP',
+  'warp_dns_plain': 'Звичайний DNS',
+  'warp_dns_unsupported': 'Шифрований DNS недоступний',
+  'warp_dns_invalid_mode': 'Тип DNS не підтримується',
+  'warp_dns_invalid_name': 'Введіть ім’я сервера',
+  'warp_dns_invalid_path': 'Введіть допустимий шлях',
+  'warp_dns_invalid_bootstrap': 'Введіть 1–8 IP-адрес',
+
   'disable_quic': "Вимкнути QUIC",
   'disable_quic_managed': 'Автоматично керується поточним з’єднанням',
   'disable_quic_help':

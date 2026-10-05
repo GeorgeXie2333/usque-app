@@ -694,12 +694,20 @@ pub(crate) struct SplitDnsConfig {
     assigned_addresses: (Ipv4Addr, Ipv6Addr),
     tunnel_dns_servers: Vec<IpAddr>,
     final_exit: bool,
+    final_doh: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
     policy: Arc<GeoDirectPolicy>,
     protector: Arc<dyn SocketProtector>,
     quality: NetworkQualityTelemetry,
 }
 
 impl SplitDnsConfig {
+    pub(crate) fn with_doh(
+        mut self,
+        resolver: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
+    ) -> Self {
+        self.final_doh = resolver;
+        self
+    }
     pub(crate) fn with_final_exit(mut self, enabled: bool) -> Self {
         self.final_exit = enabled;
         self
@@ -717,6 +725,7 @@ impl SplitDnsConfig {
             assigned_addresses,
             tunnel_dns_servers: tunnel_dns_servers.to_vec(),
             final_exit: false,
+            final_doh: None,
             policy,
             protector,
             quality,
@@ -786,7 +795,7 @@ impl SplitDnsRuntime {
                 ))
             }),
             final_exit: config.final_exit,
-            final_doh: None,
+            final_doh: config.final_doh,
             tunnel_servers: config
                 .tunnel_dns_servers
                 .into_iter()

@@ -1,5 +1,13 @@
 /// Arabic UI catalog.
 const Map<String, String> kArCatalog = <String, String>{
+  'warp_dns_type': 'DNS ‏WARP',
+  'warp_dns_plain': 'DNS عادي',
+  'warp_dns_unsupported': 'DNS المشفر غير متاح',
+  'warp_dns_invalid_mode': 'نوع DNS غير مدعوم',
+  'warp_dns_invalid_name': 'أدخل اسم الخادم',
+  'warp_dns_invalid_path': 'أدخل مسارًا صالحًا',
+  'warp_dns_invalid_bootstrap': 'أدخل من 1 إلى 8 عناوين IP',
+
   'disable_quic': "تعطيل QUIC",
   'disable_quic_managed': 'يديره الاتصال الحالي تلقائيًا',
   'disable_quic_help':

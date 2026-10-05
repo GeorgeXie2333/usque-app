@@ -29,6 +29,7 @@ Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状�
 - 首次引导仍为欢迎、系统权限、Cloudflare 条款、账号设置四步。Android 必须先授权 VPN，通知权限可拒绝；授权本身不启动连接，且可能断开其他 VPN。已注册账号会被保留；通信超时后先检查原操作结果，确定中断后才由用户重新输入并重试。
 
 - Accounts select WARP identities; network settings are shared across accounts.
+- Advanced → IP & DNS offers WARP DNS types Plain DNS, DNS over HTTPS and DNS over TLS, sharing the encrypted type names with Direct DNS. Encrypted modes use server name, port and bootstrap IP fields, plus a path for HTTPS. The editor uses concise labels and validation errors without explanatory paragraphs. It retains drafts when switching types and applies only the selected type through the existing save bar. See [WARP exit DNS](../../docs/WARP_DNS.md).
 - Proxy addresses, ports, and DNS are drafts until **Apply changes** succeeds. Credentials use their separate **Save username and password** action and never enter the network draft.
 - Advanced settings have a persistent apply bar and a back-navigation guard for unapplied edits. Reset loads defaults into the draft; it does not apply them immediately.
 - Endpoint selection defaults to **Automatic** for new installations and staged resets. **Custom** retains manually saved IPv4/IPv6 addresses; switching the picker keeps address drafts. Automatic saves retain the confirmed custom pair, while port and SNI remain editable (L4 keeps its identity-derived SNI). Existing configurations migrate to Custom; Zero Trust keeps registration-owned addresses. See [automatic endpoints](../../docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点).

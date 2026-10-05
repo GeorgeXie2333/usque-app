@@ -27,6 +27,7 @@ macro_rules! network_fields {
             "mtu" => mtu,
             "dns_mode" => dns_mode,
             "dns_servers" => dns_servers,
+            "warp_dns" => warp_dns,
             "allow_lan" => allow_lan,
             "disable_quic" => disable_quic,
             "split_exclusions" => split_exclusions,
@@ -230,6 +231,7 @@ fn normalize(profile: &mut Profile) -> Result<(), SettingsError> {
     profile.canonicalize_mode();
     profile.canonicalize_geo_direct()?;
     profile.canonicalize_direct_dns();
+    profile.canonicalize_warp_dns();
     profile.validate()?;
     Ok(())
 }
@@ -350,6 +352,36 @@ mod tests {
         assert_eq!(stored.proxy.dns_mode, crate::ProxyDnsMode::Remote);
         assert_eq!(stored.dns_servers, before.dns_servers);
         assert_eq!(stored.proxy.dns_servers, before.proxy.dns_servers);
+    }
+
+    #[test]
+    fn warp_dns_patch_is_canonical_field_scoped_and_cold() {
+        let mut config = AppConfig::default();
+        let previous = config.active_profile().unwrap();
+        let mut edit = patch(&config, &["warp_dns"]);
+        edit.values.warp_dns = crate::WarpDnsSettings {
+            mode: crate::WarpDnsMode::Doh,
+            server_name: "DNS.Example.COM".into(),
+            bootstrap_ips: vec!["192.0.2.53".parse().unwrap()],
+            ..Default::default()
+        };
+        edit.values.dns_servers = vec!["9.9.9.9".parse().unwrap()];
+        let stored = merge_patch(&mut config, &edit).unwrap();
+        assert_eq!(stored.warp_dns.server_name, "dns.example.com");
+        assert_eq!(stored.warp_dns.port, 443);
+        assert_eq!(stored.warp_dns.doh_path, "/dns-query");
+        assert_eq!(stored.dns_servers, previous.dns_servers);
+        assert_eq!(changed_fields(&previous, &stored), ["warp_dns"]);
+        let plan = plan_application(
+            Some(&previous),
+            &stored,
+            &edit.changed_fields,
+            ConnectionPhase::Connected,
+            true,
+        )
+        .unwrap();
+        assert_eq!(plan.class, ReconfigureClass::ColdReconnect);
+        assert_eq!(plan.target.unwrap().warp_dns, stored.warp_dns);
     }
 
     #[test]

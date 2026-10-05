@@ -454,6 +454,10 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.initial_identity_operation = None;
         config.schema_version = 21;
     }
+    if config.schema_version < 22 {
+        config.network.warp_dns = crate::WarpDnsSettings::default();
+        config.schema_version = 22;
+    }
 }
 
 #[cfg(not(windows))]
@@ -552,7 +556,7 @@ mod tests {
         };
         store.save(&config).unwrap();
         let loaded = store.load().unwrap();
-        assert_eq!(loaded.schema_version, 21);
+        assert_eq!(loaded.schema_version, CURRENT_SCHEMA_VERSION);
         assert!(loaded.initial_identity_operation.is_none());
         assert_eq!(loaded.profiles, config.profiles);
         assert_eq!(loaded.network, config.network);
@@ -1193,6 +1197,37 @@ mod tests {
         };
         assert_eq!(migrated.network.endpoint, legacy_defaults);
         assert_eq!(migrated.active_profile().unwrap().endpoint, legacy_defaults);
+    }
+
+    #[test]
+    fn schema_twenty_one_adds_plain_warp_dns_and_preserves_numeric_servers() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut config = AppConfig::default();
+        config.network.dns_servers =
+            vec!["9.9.9.9".parse().unwrap(), "2620:fe::fe".parse().unwrap()];
+        let saved_servers = config.network.dns_servers.clone();
+        let mut value = serde_json::to_value(config).unwrap();
+        value["schema_version"] = serde_json::json!(21);
+        value["network"].as_object_mut().unwrap().remove("warp_dns");
+        fs::write(store.path(), serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+
+        let migrated = store.load().unwrap();
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(migrated.network.warp_dns, crate::WarpDnsSettings::default());
+        assert_eq!(migrated.network.dns_servers, saved_servers);
+        assert_eq!(store.load().unwrap(), migrated);
+        assert!(store.backup_path().exists());
+    }
+
+    #[test]
+    fn stored_unknown_warp_dns_mode_fails_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value["network"]["warp_dns"] = serde_json::json!({"mode": "future"});
+        fs::write(store.path(), serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+        assert!(store.load().is_err());
     }
 
     #[test]

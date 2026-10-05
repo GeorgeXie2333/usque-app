@@ -2462,6 +2462,7 @@ fn tunnel_plan_from_assignment(
     split_dns: bool,
 ) -> agent_v1::TunnelPlan {
     let split_dns = split_dns
+        || profile.uses_encrypted_warp_dns()
         || profile.chain_enabled()
             && (profile.dns_mode == usque_core::DnsMode::Tunnel
                 || profile.custom_chain().is_some())
@@ -6659,6 +6660,38 @@ mod tests {
         );
 
         assert_eq!(plan.dns_servers, vec!["1.1.1.1", "2606:4700:4700::1111"]);
+    }
+
+    #[test]
+    fn encrypted_warp_dns_uses_internal_addresses_without_bypass_rules() {
+        for mode in [usque_core::WarpDnsMode::Doh, usque_core::WarpDnsMode::Dot] {
+            let mut profile = Profile {
+                dns_mode: usque_core::DnsMode::LocalConfigured,
+                warp_dns: usque_core::WarpDnsSettings {
+                    mode,
+                    server_name: "resolver.example".into(),
+                    bootstrap_ips: vec!["9.9.9.9".parse().unwrap()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            profile.canonicalize_warp_dns();
+            let plan = tunnel_plan(&profile, &identity(), &[], false);
+            assert!(plan.split_dns);
+            assert_eq!(plan.dns_servers, ["198.18.0.1", "fd00::1"]);
+            let ipv4_only = tunnel_plan_from_assignment(
+                &profile,
+                "172.16.0.2".parse().unwrap(),
+                Ipv6Addr::UNSPECIFIED,
+                &[],
+                false,
+            );
+            assert_eq!(ipv4_only.dns_servers, [SPLIT_DNS_IPV4.to_string()]);
+            profile.warp_dns = Default::default();
+            let plain = tunnel_plan(&profile, &identity(), &[], false);
+            assert!(!plain.split_dns);
+            assert_eq!(plain.dns_servers, ["1.1.1.1", "2606:4700:4700::1111"]);
+        }
     }
 
     #[test]

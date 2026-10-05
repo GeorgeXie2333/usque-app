@@ -13,6 +13,61 @@ import java.net.InetAddress
 
 class AndroidVpnConfigurationTest {
     @Test
+    fun encryptedWarpDnsCapturesWithoutBypassesAndChangesTunIdentity() {
+        val plain = AndroidVpnProfile.parse(jsonProfile().toString())
+        for (dataPlane in listOf("connect_ip", "l4_proxy")) {
+            for (mode in listOf("doh", "dot")) {
+                val encrypted =
+                    AndroidVpnProfile.parse(
+                        jsonProfile()
+                            .put("data_plane", dataPlane)
+                            .put("warp_dns", JSONObject().put("mode", mode))
+                            .toString(),
+                    )
+                assertTrue(encrypted.splitDnsEnabled)
+                assertEquals(false, encrypted.requiresPhysicalDns)
+                assertEquals(mode, encrypted.warpDnsMode)
+                assertTrue(!TunIdentity.from(plain).sameForReuse(TunIdentity.from(encrypted)))
+                assertTrue(
+                    !TunIdentity.from(encrypted).sameForReuse(TunIdentity.from(encrypted.copy(warpDnsMode = "plain"))),
+                )
+                assertEquals(
+                    false,
+                    encrypted.copy(vpnGateEnabled = true, dnsMode = "localConfigured").splitDnsEnabled,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun encryptedWarpDnsRetainsDormantPlainAddressesWithoutUsingTheirRouteChecks() {
+        for (address in listOf("162.159.198.2", "10.0.0.1")) {
+            val source =
+                jsonProfile()
+                    .put("allow_lan", true)
+                    .put("dns_v4", address)
+                    .put("warp_dns", JSONObject().put("mode", "doh"))
+            assertEquals(address, AndroidVpnProfile.parse(source.toString()).dnsIpv4.hostAddress)
+            source.put("warp_dns", JSONObject().put("mode", "plain"))
+            assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(source.toString()) }
+        }
+        val malformed =
+            jsonProfile()
+                .put("dns_v4", "dns.example")
+                .put("warp_dns", JSONObject().put("mode", "dot"))
+        assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(malformed.toString()) }
+        for (address in listOf("0.0.0.0", "127.0.0.1", "224.0.0.1")) {
+            val invalid =
+                jsonProfile()
+                    .put("dns_v4", address)
+                    .put("warp_dns", JSONObject().put("mode", "dot"))
+            assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(invalid.toString()) }
+        }
+        val unknown = jsonProfile().put("warp_dns", JSONObject().put("mode", "future"))
+        assertThrows(IllegalArgumentException::class.java) { AndroidVpnProfile.parse(unknown.toString()) }
+    }
+
+    @Test
     fun onlyEnabledHttpAndSocksChainsCaptureBeforeWaitingForTheNetwork() {
         for (source in listOf("http_proxy", "socks5_proxy", "wireguard_custom", "openvpn_custom", "vpn_gate")) {
             for (enabled in listOf(false, true)) {

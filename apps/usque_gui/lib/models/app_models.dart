@@ -59,6 +59,86 @@ enum DnsMode { tunnel, localConfigured, system }
 
 enum ProxyDnsMode { remote, localConfigured, system, edgeResolved }
 
+enum WarpDnsMode { unknown, plain, doh, dot }
+
+class WarpDnsSettings {
+  const WarpDnsSettings({
+    this.mode = WarpDnsMode.plain,
+    this.serverName = '',
+    this.dohPath = '',
+    this.bootstrapIps = const <String>[],
+    this.port = 0,
+  });
+
+  final WarpDnsMode mode;
+  final String serverName;
+  final String dohPath;
+  final List<String> bootstrapIps;
+  final int port;
+
+  WarpDnsSettings copyWith({
+    WarpDnsMode? mode,
+    String? serverName,
+    String? dohPath,
+    List<String>? bootstrapIps,
+    int? port,
+  }) {
+    return WarpDnsSettings(
+      mode: mode ?? this.mode,
+      serverName: serverName ?? this.serverName,
+      dohPath: dohPath ?? this.dohPath,
+      bootstrapIps: bootstrapIps ?? this.bootstrapIps,
+      port: port ?? this.port,
+    );
+  }
+
+  factory WarpDnsSettings.fromMap(Map<String, Object?> map) {
+    final modeName = map['mode'] as String? ?? 'plain';
+    final mode = WarpDnsMode.values.firstWhere(
+      (value) => value.name == modeName,
+      orElse: () => WarpDnsMode.unknown,
+    );
+    return WarpDnsSettings(
+      mode: mode,
+      serverName: _stringOr(map, 'server_name', ''),
+      dohPath: _stringOr(map, 'doh_path', ''),
+      bootstrapIps: List<String>.unmodifiable(
+        map.containsKey('bootstrap_ips')
+            ? _stringList(map, 'bootstrap_ips')
+            : const <String>[],
+      ),
+      port: (map['port'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'mode': mode.name,
+    'server_name': serverName,
+    'doh_path': dohPath,
+    'bootstrap_ips': bootstrapIps,
+    'port': port,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WarpDnsSettings &&
+          mode == other.mode &&
+          serverName == other.serverName &&
+          dohPath == other.dohPath &&
+          listEquals(bootstrapIps, other.bootstrapIps) &&
+          port == other.port;
+
+  @override
+  int get hashCode => Object.hash(
+    mode,
+    serverName,
+    dohPath,
+    Object.hashAll(bootstrapIps),
+    port,
+  );
+}
+
 enum DirectDnsMode { unknown, physicalSystem, doh, dot }
 
 class DirectDnsSettings {
@@ -758,6 +838,7 @@ class UsqueProfile {
     this.proxy = const ProxySettings(),
     this.frontends = const FrontendSettings.windowsDefault(),
     this.directDns = const DirectDnsSettings(),
+    this.warpDns = const WarpDnsSettings(),
     this.vpnGate = const VpnGateSettings(),
     this.chainExit,
   });
@@ -797,6 +878,7 @@ class UsqueProfile {
   final ProxySettings proxy;
   final FrontendSettings frontends;
   final DirectDnsSettings directDns;
+  final WarpDnsSettings warpDns;
   final VpnGateSettings vpnGate;
   final ChainExitSettings? chainExit;
   bool get chainEnabled => chainExit?.enabled ?? vpnGate.enabled;
@@ -816,6 +898,7 @@ class UsqueProfile {
           : const FrontendSettings.windowsDefault(),
       proxy: const ProxySettings(),
       directDns: const DirectDnsSettings(),
+      warpDns: const WarpDnsSettings(),
     );
   }
 
@@ -848,6 +931,7 @@ class UsqueProfile {
       disableQuic: false,
       proxy: const ProxySettings(),
       directDns: const DirectDnsSettings(),
+      warpDns: const WarpDnsSettings(),
     );
   }
 
@@ -878,6 +962,7 @@ class UsqueProfile {
     ProxySettings? proxy,
     FrontendSettings? frontends,
     DirectDnsSettings? directDns,
+    WarpDnsSettings? warpDns,
     VpnGateSettings? vpnGate,
     ChainExitSettings? chainExit,
     bool clearChainExit = false,
@@ -913,6 +998,7 @@ class UsqueProfile {
       proxy: proxy ?? this.proxy,
       frontends: nextFrontends,
       directDns: directDns ?? this.directDns,
+      warpDns: warpDns ?? this.warpDns,
       vpnGate: vpnGate ?? this.vpnGate,
       chainExit: clearChainExit ? null : chainExit ?? this.chainExit,
     );
@@ -948,6 +1034,7 @@ class UsqueProfile {
       'proxy': proxy.toMap(),
       'frontends': frontends.toMap(),
       'direct_dns': directDns.toMap(),
+      'warp_dns': warpDns.toMap(),
     };
   }
 
@@ -986,6 +1073,7 @@ class UsqueProfile {
 
     final frontends = map['frontends'];
     final directDns = map['direct_dns'];
+    final warpDns = map['warp_dns'];
     final legacyMode = _enumByName(OperatingMode.values, _string(map, 'mode'));
     final migratedFrontends = frontends is Map
         ? FrontendSettings.fromMap(Map<String, Object?>.from(frontends))
@@ -1045,6 +1133,9 @@ class UsqueProfile {
       directDns: directDns is Map
           ? DirectDnsSettings.fromMap(Map<String, Object?>.from(directDns))
           : const DirectDnsSettings(),
+      warpDns: warpDns is Map
+          ? WarpDnsSettings.fromMap(Map<String, Object?>.from(warpDns))
+          : const WarpDnsSettings(),
     );
   }
 }
@@ -1983,6 +2074,7 @@ class EngineCapabilities {
     this.h3CongestionControlAlgorithms = const <CongestionControlAlgorithm>[],
     this.networkQuality = false,
     this.encryptedDirectDns = false,
+    this.encryptedWarpDns = false,
     this.quicMigration = false,
     this.automaticPmtu = false,
   });
@@ -2020,6 +2112,7 @@ class EngineCapabilities {
             .toList(growable: false),
         networkQuality: map['network_quality'] == true,
         encryptedDirectDns: map['encrypted_direct_dns'] == true,
+        encryptedWarpDns: map['encrypted_warp_dns'] == true,
         quicMigration: map['quic_migration'] == true,
         automaticPmtu: map['automatic_pmtu'] == true,
       );
@@ -2047,6 +2140,7 @@ class EngineCapabilities {
   bool get l4Available => l4Tcp && l4TunTcp && l4DnsConversion;
   final List<CongestionControlAlgorithm> h3CongestionControlAlgorithms;
   final bool encryptedDirectDns;
+  final bool encryptedWarpDns;
   final bool quicMigration;
   final bool automaticPmtu;
 
@@ -2079,6 +2173,7 @@ class EngineCapabilities {
           ) &&
           networkQuality == other.networkQuality &&
           encryptedDirectDns == other.encryptedDirectDns &&
+          encryptedWarpDns == other.encryptedWarpDns &&
           quicMigration == other.quicMigration &&
           automaticPmtu == other.automaticPmtu;
 
@@ -2107,7 +2202,7 @@ class EngineCapabilities {
     l4DnsConversion,
     Object.hashAll(h3CongestionControlAlgorithms),
     networkQuality,
-    encryptedDirectDns,
+    Object.hash(encryptedDirectDns, encryptedWarpDns),
     quicMigration,
     automaticPmtu,
   );

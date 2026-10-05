@@ -68,6 +68,7 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.bypass_domains != next.bypass_domains
         || previous.geo_direct_countries != next.geo_direct_countries
         || previous.direct_dns != next.direct_dns
+        || previous.warp_dns != next.warp_dns
         // Final proxy DNS is shared by TUN and local frontends for the session.
         || previous.chain_enabled() && previous.chain_exit.as_ref().is_some_and(|chain| chain.source.is_proxy())
             && (previous.proxy.dns_mode != next.proxy.dns_mode
@@ -80,6 +81,8 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.frontends.tunnel != next.frontends.tunnel
             && (previous.has_domain_direct_rules()
                 || next.has_domain_direct_rules()
+                || previous.uses_encrypted_warp_dns()
+                || next.uses_encrypted_warp_dns()
                 // The final Gate gateway creates its synthetic DNS service at
                 // startup only when TUN is enabled. A hot attach cannot supply
                 // the resolver that both platforms advertise to the OS.
@@ -469,6 +472,44 @@ mod tests {
         );
         assert_eq!(
             classify_reconfigure(&vpn, &proxy_only),
+            ReconfigureClass::ColdReconnect
+        );
+    }
+
+    #[test]
+    fn warp_dns_configuration_and_encrypted_tunnel_toggle_cold_reconnect() {
+        let previous = base();
+        let mut next = previous.clone();
+        next.warp_dns = crate::WarpDnsSettings {
+            mode: crate::WarpDnsMode::Doh,
+            server_name: "dns.example.com".into(),
+            bootstrap_ips: vec!["192.0.2.53".parse().unwrap()],
+            ..Default::default()
+        };
+        next.canonicalize_warp_dns();
+        assert_eq!(
+            classify_reconfigure(&previous, &next),
+            ReconfigureClass::ColdReconnect
+        );
+        let mut proxy = next.clone();
+        proxy.endpoint.selection = crate::EndpointSelection::Custom;
+        proxy.frontends.tunnel = false;
+        proxy.canonicalize_mode();
+        let mut tunnel = proxy.clone();
+        tunnel.frontends.tunnel = true;
+        tunnel.canonicalize_mode();
+        assert_eq!(
+            classify_reconfigure(&proxy, &tunnel),
+            ReconfigureClass::ColdReconnect
+        );
+        assert_eq!(
+            classify_reconfigure(&tunnel, &proxy),
+            ReconfigureClass::ColdReconnect
+        );
+        next = previous.clone();
+        next.warp_dns.mode = crate::WarpDnsMode::Dot;
+        assert_eq!(
+            classify_reconfigure(&previous, &next),
             ReconfigureClass::ColdReconnect
         );
     }

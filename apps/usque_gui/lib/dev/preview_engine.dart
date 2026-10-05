@@ -36,6 +36,7 @@ class PreviewEngine
     customBypass: true,
     networkQuality: true,
     encryptedDirectDns: true,
+    encryptedWarpDns: true,
     h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
   );
 

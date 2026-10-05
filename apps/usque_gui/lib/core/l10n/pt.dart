@@ -1,5 +1,13 @@
 /// Portuguese (Brazil) UI catalog.
 const Map<String, String> kPtCatalog = <String, String>{
+  'warp_dns_type': 'DNS do WARP',
+  'warp_dns_plain': 'DNS comum',
+  'warp_dns_unsupported': 'DNS criptografado indisponível',
+  'warp_dns_invalid_mode': 'Tipo de DNS não compatível',
+  'warp_dns_invalid_name': 'Digite o nome do servidor',
+  'warp_dns_invalid_path': 'Digite um caminho válido',
+  'warp_dns_invalid_bootstrap': 'Digite de 1 a 8 endereços IP',
+
   'disable_quic': "Desativar QUIC",
   'disable_quic_managed': 'Gerenciado automaticamente por esta conexão',
   'disable_quic_help':

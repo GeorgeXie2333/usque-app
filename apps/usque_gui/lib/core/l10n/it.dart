@@ -1,5 +1,13 @@
 /// Italian UI catalog.
 const Map<String, String> kItCatalog = <String, String>{
+  'warp_dns_type': 'DNS WARP',
+  'warp_dns_plain': 'DNS normale',
+  'warp_dns_unsupported': 'DNS crittografato non disponibile',
+  'warp_dns_invalid_mode': 'Tipo DNS non supportato',
+  'warp_dns_invalid_name': 'Inserisci il nome del server',
+  'warp_dns_invalid_path': 'Inserisci un percorso valido',
+  'warp_dns_invalid_bootstrap': 'Inserisci da 1 a 8 indirizzi IP',
+
   'disable_quic': "Disattiva QUIC",
   'disable_quic_managed': 'Gestito automaticamente da questa connessione',
   'disable_quic_help':

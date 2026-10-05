@@ -48,9 +48,13 @@ impl StreamClient {
 #[async_trait]
 impl TcpDialer for StreamClient {
     fn is_ready(&self) -> bool {
-        self.proxy.as_ref().is_none_or(|p| p.is_ready())
+        matches!(*self.health.borrow(), RuntimeHealth::Connected { .. })
+            && self.proxy.as_ref().is_none_or(|p| p.is_ready())
     }
     fn session_generation(&self) -> Option<u64> {
+        if !self.is_ready() {
+            return None;
+        }
         self.l4
             .as_ref()
             .and_then(|c| c.session_generation())

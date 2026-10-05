@@ -1,5 +1,13 @@
 /// Turkish UI catalog.
 const Map<String, String> kTrCatalog = <String, String>{
+  'warp_dns_type': 'WARP DNS',
+  'warp_dns_plain': 'Normal DNS',
+  'warp_dns_unsupported': 'Şifreli DNS kullanılamıyor',
+  'warp_dns_invalid_mode': 'Desteklenmeyen DNS türü',
+  'warp_dns_invalid_name': 'Sunucu adını girin',
+  'warp_dns_invalid_path': 'Geçerli bir yol girin',
+  'warp_dns_invalid_bootstrap': '1–8 IP adresi girin',
+
   'disable_quic': "QUIC’i devre dışı bırak",
   'disable_quic_managed': 'Bu bağlantı tarafından otomatik olarak yönetilir',
   'disable_quic_help':

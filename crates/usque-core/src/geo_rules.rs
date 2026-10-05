@@ -109,7 +109,7 @@ pub fn validate_geo_direct_cache(profile: &Profile, cache_dir: &Path) -> Result<
             country.to_string(),
         ));
     }
-    if profile.frontends.tunnel {
+    if profile.frontends.tunnel && !profile.uses_encrypted_warp_dns() {
         for server in &profile.dns_servers {
             if classifier.lookup_ip(*server).is_some() {
                 return Err(ConfigError::VpnDnsServerBypassed(*server));
@@ -396,6 +396,34 @@ mod tests {
                 "1.2.3.4".parse().unwrap()
             ))
         );
+
+        profile.warp_dns = crate::WarpDnsSettings {
+            mode: crate::WarpDnsMode::Doh,
+            server_name: "dns.example.com".into(),
+            bootstrap_ips: vec!["1.2.3.4".parse().unwrap()],
+            ..Default::default()
+        };
+        profile.canonicalize_warp_dns();
+        assert_eq!(
+            validate_geo_direct_cache(&profile, directory.path()),
+            Ok(())
+        );
+        let missing_cache = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            validate_geo_direct_cache(&profile, missing_cache.path()),
+            Err(ConfigError::GeoDirectCountryNotDownloaded(_))
+        ));
+        profile.vpn_gate.enabled = true;
+        assert!(matches!(
+            validate_geo_direct_cache(&profile, directory.path()),
+            Err(ConfigError::VpnDnsServerBypassed(_))
+        ));
+        profile.vpn_gate.enabled = false;
+        profile.warp_dns = crate::WarpDnsSettings::default();
+        assert!(matches!(
+            validate_geo_direct_cache(&profile, directory.path()),
+            Err(ConfigError::VpnDnsServerBypassed(_))
+        ));
 
         profile.dns_servers = vec!["1.1.1.1".parse().unwrap()];
         assert_eq!(

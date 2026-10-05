@@ -230,7 +230,8 @@ impl InternalNetwork {
                     usque_core::ProxyDnsMode::Remote,
                     stack.protector.clone(),
                 )
-                .with_final_exit(profile.chain_enabled(), stack.cancellation.clone()),
+                .with_final_exit(profile.chain_enabled(), stack.cancellation.clone())
+                .with_warp_dns(stack.warp_dns.clone()),
             ),
             health: stack.subscribe_health(),
             cancellation: stack.cancellation.clone(),

@@ -24,6 +24,7 @@ import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/usque_dialog.dart';
 import 'package:usque/widgets/vpn_gate_entry.dart';
 import 'package:usque/widgets/vpn_gate_server_row.dart';
+import 'package:usque/widgets/warp_dns_editor.dart';
 import 'package:usque/widgets/window_titlebar.dart';
 
 import 'quality_test_support.dart' show qualityFixture;
@@ -66,6 +67,65 @@ void main() {
           .load();
     }
   });
+
+  for (final doh in [true, false]) {
+    testWidgets('compact WARP DNS ${doh ? 'doh_en_light' : 'dot_zh_dark'}', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(420, 650);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final boundary = GlobalKey();
+      final strings = AppStrings(
+        doh ? LocalePreference.english : LocalePreference.simplifiedChinese,
+      );
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: doh ? UsqueTheme.light() : UsqueTheme.dark(),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Form(
+                  child: ContentSection(
+                    icon: LucideIcons.network,
+                    title: strings.get('ip_dns'),
+                    children: [
+                      WarpDnsEditor(
+                        value: WarpDnsSettings(
+                          mode: doh ? WarpDnsMode.doh : WarpDnsMode.dot,
+                          serverName: 'dns.example.com',
+                          dohPath: doh ? '/dns-query' : '',
+                          port: doh ? 443 : 853,
+                          bootstrapIps: const ['192.0.2.1', '2001:db8::1'],
+                        ),
+                        enabled: true,
+                        strings: strings,
+                        onChanged: (_) {},
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text(strings.get('nq_dns_scope')), findsNothing);
+      expect(find.text(strings.get('nq_dns_no_fallback')), findsNothing);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile(
+          'goldens/warp_dns_${doh ? 'doh_en_light' : 'dot_zh_dark'}.png',
+        ),
+      );
+    }, tags: 'golden');
+  }
 
   for (final custom in [false, true]) {
     testWidgets('endpoint selection ${custom ? 'custom_zh' : 'automatic_en'}', (

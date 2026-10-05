@@ -66,7 +66,8 @@ numeric IP address.
 
 Other remote VPN queries use the final exit's DNS: WARP without a chain, or the
 active chain exit (custom OpenVPN or WireGuard, WARP via WireGuard, or VPN
-Gate). Explicit local DNS and proxy DNS settings keep their own scope.
+Gate). Ordinary WARP supports configurable Plain DNS, DoH and DoT; see
+[WARP exit DNS](WARP_DNS.md). Explicit local DNS and proxy DNS settings keep their own scope.
 See the [direct DNS threat model](direct-dns-threat-model.md) for platform
 protection and diagnostic limits.
 

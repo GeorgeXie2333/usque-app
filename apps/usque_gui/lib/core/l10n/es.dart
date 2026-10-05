@@ -1,5 +1,13 @@
 /// Spanish UI catalog.
 const Map<String, String> kEsCatalog = <String, String>{
+  'warp_dns_type': 'DNS de WARP',
+  'warp_dns_plain': 'DNS normal',
+  'warp_dns_unsupported': 'DNS cifrado no disponible',
+  'warp_dns_invalid_mode': 'Tipo DNS no compatible',
+  'warp_dns_invalid_name': 'Introduce el nombre del servidor',
+  'warp_dns_invalid_path': 'Introduce una ruta válida',
+  'warp_dns_invalid_bootstrap': 'Introduce de 1 a 8 direcciones IP',
+
   'disable_quic': "Desactivar QUIC",
   'disable_quic_managed': 'Esta conexión lo gestiona automáticamente',
   'disable_quic_help':

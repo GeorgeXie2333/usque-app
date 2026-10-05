@@ -1,5 +1,13 @@
 /// Thai UI catalog.
 const Map<String, String> kThCatalog = <String, String>{
+  'warp_dns_type': 'DNS ของ WARP',
+  'warp_dns_plain': 'DNS ปกติ',
+  'warp_dns_unsupported': 'DNS แบบเข้ารหัสไม่พร้อมใช้งาน',
+  'warp_dns_invalid_mode': 'ไม่รองรับประเภท DNS นี้',
+  'warp_dns_invalid_name': 'ป้อนชื่อเซิร์ฟเวอร์',
+  'warp_dns_invalid_path': 'ป้อนเส้นทางที่ถูกต้อง',
+  'warp_dns_invalid_bootstrap': 'ป้อนที่อยู่ IP 1–8 รายการ',
+
   'disable_quic': "ปิดใช้งาน QUIC",
   'disable_quic_managed': 'จัดการโดยอัตโนมัติตามการเชื่อมต่อปัจจุบัน',
   'disable_quic_help':

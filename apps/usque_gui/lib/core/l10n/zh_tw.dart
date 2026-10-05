@@ -1,5 +1,13 @@
 /// Traditional Chinese (Taiwan) UI catalog.
 const Map<String, String> kZhTwCatalog = <String, String>{
+  'warp_dns_type': 'WARP DNS',
+  'warp_dns_plain': '一般 DNS',
+  'warp_dns_unsupported': '暫不支援加密 DNS',
+  'warp_dns_invalid_mode': '不支援的 DNS 類型',
+  'warp_dns_invalid_name': '請輸入伺服器網域',
+  'warp_dns_invalid_path': '請輸入有效路徑',
+  'warp_dns_invalid_bootstrap': '請輸入 1–8 個 IP 位址',
+
   'disable_quic': "停用 QUIC",
   'disable_quic_managed': '由目前連線自動管理',
   'disable_quic_help':

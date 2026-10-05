@@ -24,6 +24,7 @@ internal data class TunIdentity(
     val perAppPackages: List<String> = emptyList(),
     val dataPlane: String = "connect_ip",
     val vpnGateEnabled: Boolean = false,
+    val warpDnsMode: String = "plain",
 ) {
     fun sameForReuse(other: TunIdentity): Boolean = this == other
 
@@ -36,6 +37,7 @@ internal data class TunIdentity(
                 profileId = profile.id,
                 dataPlane = profile.dataPlane,
                 vpnGateEnabled = profile.vpnGateEnabled,
+                warpDnsMode = profile.warpDnsMode,
                 mtu = profile.mtu,
                 dnsMode = profile.dnsMode,
                 dnsV4 = profile.dnsIpv4.hostAddress ?: profile.dnsIpv4.toString(),

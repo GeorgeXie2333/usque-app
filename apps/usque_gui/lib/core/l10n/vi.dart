@@ -1,5 +1,13 @@
 /// Vietnamese UI catalog.
 const Map<String, String> kViCatalog = <String, String>{
+  'warp_dns_type': 'DNS WARP',
+  'warp_dns_plain': 'DNS thường',
+  'warp_dns_unsupported': 'DNS mã hóa không khả dụng',
+  'warp_dns_invalid_mode': 'Loại DNS không được hỗ trợ',
+  'warp_dns_invalid_name': 'Nhập tên máy chủ',
+  'warp_dns_invalid_path': 'Nhập đường dẫn hợp lệ',
+  'warp_dns_invalid_bootstrap': 'Nhập 1–8 địa chỉ IP',
+
   'disable_quic': "Tắt QUIC",
   'disable_quic_managed': 'Được kết nối hiện tại quản lý tự động',
   'disable_quic_help':

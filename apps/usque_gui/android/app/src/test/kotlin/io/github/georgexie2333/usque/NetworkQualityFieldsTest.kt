@@ -11,6 +11,16 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 
 class NetworkQualityFieldsTest {
+    @Test fun encryptedWarpDnsCapabilityRequiresExplicitBooleanSupport() {
+        val key = "encrypted_warp_dns"
+        assertEquals(true, NetworkQualityFields.capabilities("{\"encrypted_warp_dns\":true}").getValue(key))
+        val unsupported =
+            listOf(null, "{}", "{\"encrypted_warp_dns\":false}", "{\"encrypted_warp_dns\":\"true\"}", "invalid")
+        for (source in unsupported) {
+            assertEquals(false, NetworkQualityFields.capabilities(source).getValue(key))
+        }
+    }
+
     @Test fun transportPerformanceKeepsOnlyNumbersAndBoundedHistograms() {
         val source =
             JSONObject()

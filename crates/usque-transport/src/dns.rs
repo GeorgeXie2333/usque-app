@@ -49,6 +49,15 @@ impl Resolver {
         self.final_doh = doh;
         self
     }
+    /// WARP encryption only changes remote queries. Explicit frontend-local
+    /// DNS modes retain their configured behavior.
+    pub(crate) fn with_warp_dns(
+        mut self,
+        resolver: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
+    ) -> Self {
+        self.final_doh = resolver;
+        self
+    }
     pub(crate) fn final_doh(&self) -> Option<Arc<crate::encrypted_dns::FinalDohResolver>> {
         self.final_doh.clone()
     }
@@ -175,9 +184,7 @@ impl Resolver {
                         future: bounded_query(
                             async move {
                                 let query_type = if ipv4 { TYPE_A } else { TYPE_AAAA };
-                                if resolver.mode == ProxyDnsMode::Remote
-                                    || resolver.final_doh.is_some()
-                                {
+                                if resolver.mode == ProxyDnsMode::Remote {
                                     resolver
                                         .query_through_tunnel(&name, query_type, deadline)
                                         .await

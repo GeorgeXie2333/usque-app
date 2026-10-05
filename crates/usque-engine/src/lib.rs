@@ -28,8 +28,9 @@ use usque_core::{
     KillSwitchState, LockdownState, ManagedEndpointIps, MasqueKeyPair, OperatingMode,
     PendingIdentityReplacement, Profile, ProxyAuthCredentials, ProxyDnsMode, ProxySettings,
     RegistrationError, RegistrationOptions, SHARED_NETWORK_SECRET_ID, SharedNetworkSettings,
-    StateMachine, Statistics, Transport, TransportFailure, TransportPolicy, WarpIdentity,
-    download_geo_rules, list_geo_rules, normalize_zero_trust_team,
+    StateMachine, Statistics, Transport, TransportFailure, TransportPolicy,
+    WarpDnsMode as ConfigWarpDnsMode, WarpDnsSettings, WarpIdentity, download_geo_rules,
+    list_geo_rules, normalize_zero_trust_team,
     storage::{ConfigStore, StoreError},
     update_all_geo_rules, validate_proxy_password, validate_proxy_username,
 };
@@ -1351,9 +1352,9 @@ impl ControlService {
             kill_switch_expected: active_profile
                 .as_ref()
                 .is_some_and(|profile| profile.kill_switch),
-            tunnel_dns_expected: active_profile
-                .as_ref()
-                .is_some_and(|profile| profile.dns_mode == DnsMode::Tunnel),
+            tunnel_dns_expected: active_profile.as_ref().is_some_and(|profile| {
+                profile.dns_mode == DnsMode::Tunnel || profile.uses_encrypted_warp_dns()
+            }),
             system_proxy_expected: active_profile
                 .as_ref()
                 .is_some_and(|profile| profile.proxy.system_proxy),
@@ -2088,6 +2089,11 @@ impl ControlService {
         {
             return Err(ControlServiceError::FeatureUnavailable(
                 "encrypted direct DNS is unavailable in this build",
+            ));
+        }
+        if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED && profile.warp_dns.is_encrypted() {
+            return Err(ControlServiceError::FeatureUnavailable(
+                "encrypted WARP DNS is unavailable in this build",
             ));
         }
         if profile.frontends.tunnel && !cfg!(windows) {
@@ -4226,6 +4232,8 @@ pub enum ControlServiceError {
     InvalidConfiguration(String),
     #[error("invalid direct DNS configuration: {message}")]
     InvalidDirectDnsConfiguration { code: &'static str, message: String },
+    #[error("invalid WARP DNS configuration: {message}")]
+    InvalidWarpDnsConfiguration { code: &'static str, message: String },
     #[error("profile does not exist: {0}")]
     ProfileNotFound(Uuid),
     #[error("profile {0} is already connected")]
@@ -4310,6 +4318,10 @@ impl ControlServiceError {
 
     fn profile_configuration(error: ConfigError) -> Self {
         match error.stable_code() {
+            Some(code) if code.starts_with("WARP_DNS_") => Self::InvalidWarpDnsConfiguration {
+                code,
+                message: error.to_string(),
+            },
             Some(code) => Self::InvalidDirectDnsConfiguration {
                 code,
                 message: error.to_string(),
@@ -4340,6 +4352,7 @@ impl ControlServiceError {
         let (code, retryable) = match self {
             Self::InvalidRequest(_) | Self::InvalidConfiguration(_) => ("INVALID_ARGUMENT", false),
             Self::InvalidDirectDnsConfiguration { code, .. } => (*code, false),
+            Self::InvalidWarpDnsConfiguration { code, .. } => (*code, false),
             Self::InvalidProxyAuth(_) => ("CONFIGURATION_INVALID", false),
             Self::ProxyAuthApplyFailed => ("PROXY_AUTH_APPLY_FAILED", true),
             Self::FeatureUnavailable(_) => ("FEATURE_UNAVAILABLE", false),
@@ -4758,6 +4771,44 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
         },
     };
     direct_dns.canonicalize();
+    let mut warp_dns = match source.warp_dns {
+        None => WarpDnsSettings::default(),
+        Some(settings) => WarpDnsSettings {
+            mode: match settings.mode {
+                value if value == v1::WarpDnsMode::Unspecified as i32 => ConfigWarpDnsMode::Plain,
+                value if value == v1::WarpDnsMode::Plain as i32 => ConfigWarpDnsMode::Plain,
+                value if value == v1::WarpDnsMode::Doh as i32 => ConfigWarpDnsMode::Doh,
+                value if value == v1::WarpDnsMode::Dot as i32 => ConfigWarpDnsMode::Dot,
+                _ => {
+                    return Err(ControlServiceError::InvalidWarpDnsConfiguration {
+                        code: "WARP_DNS_MODE_INVALID",
+                        message: "unknown WARP DNS mode".to_owned(),
+                    });
+                }
+            },
+            server_name: settings.server_name,
+            doh_path: settings.doh_path,
+            bootstrap_ips: settings
+                .bootstrap_ips
+                .iter()
+                .map(|value| {
+                    value.parse::<IpAddr>().map_err(|_| {
+                        ControlServiceError::InvalidWarpDnsConfiguration {
+                            code: "WARP_DNS_BOOTSTRAP_INVALID",
+                            message: "WARP DNS bootstrap IP is invalid".to_owned(),
+                        }
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            port: u16::try_from(settings.port).map_err(|_| {
+                ControlServiceError::InvalidWarpDnsConfiguration {
+                    code: "WARP_DNS_PORT_INVALID",
+                    message: "WARP DNS port exceeds 65535".to_owned(),
+                }
+            })?,
+        },
+    };
+    warp_dns.canonicalize();
 
     let mut profile = Profile {
         chain_exit: source
@@ -4898,6 +4949,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
         geo_direct_countries: source.geo_direct_countries,
         bypass_domains: source.bypass_domains,
         direct_dns,
+        warp_dns,
         vpn_gate: vpngate::settings_from_proto(source.vpn_gate)?,
     };
     profile.canonicalize_mode();
@@ -4987,6 +5039,22 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
         }),
         geo_direct_countries: profile.geo_direct_countries.clone(),
         bypass_domains: profile.bypass_domains.clone(),
+        warp_dns: Some(v1::WarpDnsSettings {
+            mode: match profile.warp_dns.mode {
+                ConfigWarpDnsMode::Plain => v1::WarpDnsMode::Plain as i32,
+                ConfigWarpDnsMode::Doh => v1::WarpDnsMode::Doh as i32,
+                ConfigWarpDnsMode::Dot => v1::WarpDnsMode::Dot as i32,
+            },
+            server_name: profile.warp_dns.server_name.clone(),
+            doh_path: profile.warp_dns.doh_path.clone(),
+            bootstrap_ips: profile
+                .warp_dns
+                .bootstrap_ips
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            port: u32::from(profile.warp_dns.port),
+        }),
         direct_dns: Some(v1::DirectDnsSettings {
             mode: match profile.direct_dns.mode {
                 ConfigDirectDnsMode::PhysicalSystem => v1::DirectDnsMode::PhysicalSystem as i32,
@@ -5147,6 +5215,7 @@ fn current_capabilities() -> v1::Capabilities {
         deep_diagnostics: true,
         network_quality: usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
         encrypted_direct_dns: usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
+        encrypted_warp_dns: usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
         quic_migration: usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
         automatic_pmtu: usque_transport::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
     }
@@ -6949,6 +7018,88 @@ mod tests {
             upsert.error.as_ref().map(|error| error.code.as_str()),
             Some("INVALID_ARGUMENT")
         );
+    }
+
+    #[test]
+    fn encrypted_warp_dns_appends_profile_and_capability_wire_fields() {
+        let profile = v1::Profile {
+            warp_dns: Some(v1::WarpDnsSettings {
+                mode: v1::WarpDnsMode::Dot as i32,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let frame = usque_ipc::encode_frame(&profile).unwrap();
+        assert_eq!(&frame[4..], &[0xc2, 0x01, 0x02, 0x08, 0x03]);
+        let capabilities = v1::Capabilities {
+            encrypted_warp_dns: true,
+            ..Default::default()
+        };
+        let frame = usque_ipc::encode_frame(&capabilities).unwrap();
+        assert_eq!(&frame[4..], &[0xe0, 0x02, 0x01]);
+    }
+
+    #[test]
+    fn warp_dns_proto_roundtrip_and_legacy_default() {
+        for mode in [ConfigWarpDnsMode::Doh, ConfigWarpDnsMode::Dot] {
+            let mut profile = Profile {
+                warp_dns: WarpDnsSettings {
+                    mode,
+                    server_name: "DNS.Example.COM".into(),
+                    bootstrap_ips: vec!["192.0.2.53".parse().unwrap()],
+                    ..Default::default()
+                },
+                ..Profile::default()
+            };
+            profile.canonicalize_warp_dns();
+            let decoded = profile_from_proto(profile_to_proto(&profile)).unwrap();
+            assert_eq!(decoded.warp_dns, profile.warp_dns);
+            assert_eq!(decoded.dns_servers, profile.dns_servers);
+        }
+        let mut legacy = profile_to_proto(&Profile::default());
+        legacy.warp_dns = None;
+        assert_eq!(
+            profile_from_proto(legacy).unwrap().warp_dns,
+            WarpDnsSettings::default()
+        );
+        assert!(current_capabilities().encrypted_warp_dns);
+    }
+
+    #[test]
+    fn invalid_warp_dns_proto_uses_stable_codes_without_disclosing_server_fields() {
+        let valid = v1::WarpDnsSettings {
+            mode: v1::WarpDnsMode::Doh as i32,
+            server_name: "dns.private.example".into(),
+            doh_path: "/private-query".into(),
+            bootstrap_ips: vec!["192.0.2.53".into()],
+            port: 443,
+        };
+        let mut cases = Vec::new();
+        let mut settings = valid.clone();
+        settings.mode = 99;
+        cases.push((settings, "WARP_DNS_MODE_INVALID"));
+        let mut settings = valid.clone();
+        settings.bootstrap_ips = vec!["invalid".into()];
+        cases.push((settings, "WARP_DNS_BOOTSTRAP_INVALID"));
+        let mut settings = valid.clone();
+        settings.port = 65536;
+        cases.push((settings, "WARP_DNS_PORT_INVALID"));
+        let mut settings = valid.clone();
+        settings.server_name = "https://dns.private.example".into();
+        cases.push((settings, "WARP_DNS_SERVER_NAME_INVALID"));
+        let mut settings = valid;
+        settings.mode = v1::WarpDnsMode::Dot as i32;
+        cases.push((settings, "WARP_DNS_DOT_PATH_FORBIDDEN"));
+        for (settings, code) in cases {
+            let mut wire = profile_to_proto(&Profile::default());
+            wire.warp_dns = Some(settings);
+            let error = profile_from_proto(wire).unwrap_err().as_structured_error();
+            assert_eq!(error.code, code);
+            assert!(!error.message.contains("dns.private.example"));
+            assert!(!error.message.contains("private-query"));
+            assert!(!error.message.contains("192.0.2.53"));
+            assert!(!error.retryable);
+        }
     }
 
     #[test]

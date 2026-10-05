@@ -165,6 +165,67 @@ pub(crate) struct StackDialer {
     pub(crate) ipv6: Ipv6Addr,
 }
 
+/// Encrypted DNS pools follow the packet runtime's reconnect epoch. Numeric
+/// bootstrap connections still use the private stack without direct rules.
+pub(crate) struct RuntimeStackDialer {
+    pub(crate) inner: StackDialer,
+    pub(crate) health: tokio::sync::watch::Receiver<crate::netstack::RuntimeHealth>,
+    pub(crate) cancellation: CancellationToken,
+}
+
+#[async_trait]
+impl TcpDialer for RuntimeStackDialer {
+    fn is_ready(&self) -> bool {
+        !self.cancellation.is_cancelled()
+            && matches!(
+                *self.health.borrow(),
+                crate::netstack::RuntimeHealth::Connected { .. }
+            )
+    }
+
+    fn session_generation(&self) -> Option<u64> {
+        if !self.is_ready() {
+            return None;
+        }
+        match *self.health.borrow() {
+            crate::netstack::RuntimeHealth::Connected {
+                reconnect_count, ..
+            } => Some(u64::from(reconnect_count)),
+            _ => None,
+        }
+    }
+
+    async fn connect(
+        &self,
+        target: TcpTarget,
+        deadline: Instant,
+        cancellation: &CancellationToken,
+        class: FlowClass,
+    ) -> Result<TcpStream, DialError> {
+        let generation = self.session_generation().ok_or(DialError::Closed)?;
+        let mut health = self.health.clone();
+        let operation = self.inner.connect(target, deadline, cancellation, class);
+        tokio::pin!(operation);
+        loop {
+            tokio::select! {
+                biased;
+                _ = self.cancellation.cancelled() => return Err(DialError::Cancelled),
+                changed = health.changed() => {
+                    if changed.is_err() || self.session_generation() != Some(generation) {
+                        return Err(DialError::Closed);
+                    }
+                },
+                result = &mut operation => {
+                    if self.session_generation() != Some(generation) {
+                        return Err(DialError::Closed);
+                    }
+                    return result;
+                },
+            }
+        }
+    }
+}
+
 #[async_trait]
 impl TcpDialer for StackDialer {
     async fn connect(
@@ -247,7 +308,8 @@ impl ProxyServices {
                 profile.proxy.dns_mode,
                 Arc::clone(&stack.protector),
             )
-            .with_final_exit(profile.chain_enabled(), stack.cancellation.clone()),
+            .with_final_exit(profile.chain_enabled(), stack.cancellation.clone())
+            .with_warp_dns(stack.warp_dns.clone()),
             protector: Arc::clone(&stack.protector),
             geo_policy: Arc::clone(&stack.geo_policy),
             counters: Arc::clone(&stack.counters),
@@ -308,6 +370,67 @@ impl FrontendAdmission {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn encrypted_stack_dialer_stops_during_reconnect_and_tracks_epochs() {
+        use crate::netstack::{RuntimeHealth, RuntimePath};
+        use ts_netstack_smoltcp::netcore::HasChannel;
+        let (stack, _pipe) = crate::netstack::bounded_piped(Default::default());
+        let path = RuntimePath {
+            transport: usque_core::Transport::Http2,
+            endpoint_family: usque_core::AddressFamily::Ipv4,
+            ipv4_available: true,
+            ipv6_available: true,
+        };
+        let (sender, health) = tokio::sync::watch::channel(RuntimeHealth::Connected {
+            path,
+            reconnect_count: 3,
+        });
+        let cancellation = CancellationToken::new();
+        let dialer = RuntimeStackDialer {
+            inner: StackDialer {
+                channel: stack.command_channel(),
+                ipv4: Ipv4Addr::new(172, 16, 0, 2),
+                ipv6: Ipv6Addr::UNSPECIFIED,
+            },
+            health,
+            cancellation: cancellation.clone(),
+        };
+        assert!(dialer.is_ready());
+        assert_eq!(dialer.session_generation(), Some(3));
+        sender.send_replace(RuntimeHealth::Reconnecting {
+            last_path: path,
+            attempt: 1,
+            reconnect_count: 3,
+            reason: "test_reconnect".into(),
+            failure: usque_core::TransportFailure::new(
+                usque_core::TransportFailureCode::PhysicalNetworkChanged,
+                usque_core::TransportStage::SocketConnect,
+            ),
+        });
+        assert!(!dialer.is_ready());
+        assert_eq!(dialer.session_generation(), None);
+        assert_eq!(
+            dialer
+                .connect(
+                    TcpTarget::address("1.1.1.1:853".parse().unwrap()),
+                    Instant::now() + std::time::Duration::from_secs(1),
+                    &cancellation,
+                    FlowClass::Dns
+                )
+                .await
+                .err(),
+            Some(DialError::Closed)
+        );
+        sender.send_replace(RuntimeHealth::Connected {
+            path,
+            reconnect_count: 4,
+        });
+        assert!(dialer.is_ready());
+        assert_eq!(dialer.session_generation(), Some(4));
+        cancellation.cancel();
+        assert!(!dialer.is_ready());
+        assert_eq!(dialer.session_generation(), None);
+    }
     #[test]
     fn authority_is_bounded_and_cannot_inject_headers() {
         assert_eq!(TcpTarget::new("::1", 443).unwrap().authority(), "[::1]:443");

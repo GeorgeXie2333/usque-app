@@ -1,5 +1,13 @@
 /// Simplified Chinese UI catalog.
 const Map<String, String> kZhCnCatalog = <String, String>{
+  'warp_dns_type': 'WARP DNS',
+  'warp_dns_plain': '普通 DNS',
+  'warp_dns_unsupported': '暂不支持加密 DNS',
+  'warp_dns_invalid_mode': '不支持的 DNS 类型',
+  'warp_dns_invalid_name': '请输入服务器域名',
+  'warp_dns_invalid_path': '请输入有效路径',
+  'warp_dns_invalid_bootstrap': '请输入 1–8 个 IP 地址',
+
   'disable_quic': "禁用 QUIC",
   'disable_quic_managed': '由当前连接自动管理',
   'disable_quic_help':

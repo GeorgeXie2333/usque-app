@@ -16,6 +16,7 @@ import '../widgets/direct_dns_editor.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
+import '../widgets/warp_dns_editor.dart';
 
 class AdvancedSettingsScreen extends StatefulWidget {
   const AdvancedSettingsScreen({
@@ -51,9 +52,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late bool _allowLan;
   late bool _disableQuic;
   late DirectDnsSettings _directDns;
+  late WarpDnsSettings _warpDns;
   late DnsMode _dnsMode;
   late ProxySettings _proxy;
   final _directDnsKey = GlobalKey<DirectDnsEditorState>();
+  final _warpDnsKey = GlobalKey<WarpDnsEditorState>();
+  int _warpDnsResetRevision = 0;
   final _killSwitchKey = GlobalKey();
   bool _saving = false;
   String? _saveError;
@@ -78,8 +82,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         : _endpointV6.text,
     _port.text,
     _sni.text,
-    _dnsV4.text,
-    _dnsV6.text,
+    _warpDns.mode == WarpDnsMode.plain
+        ? _dnsV4.text
+        : widget.controller.activeProfile.dnsIpv4,
+    _warpDns.mode == WarpDnsMode.plain
+        ? _dnsV6.text
+        : widget.controller.activeProfile.dnsIpv6,
     _mtu.text,
     _transport,
     _dataPlane,
@@ -97,6 +105,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _proxy.dnsIpv6,
     _proxy.systemProxy,
     _endpointSelection,
+    _warpDns,
   ];
   bool get _dirty => !listEquals(_values, _baseline);
   void _edited() {
@@ -159,6 +168,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _allowLan = profile.allowLan;
     _disableQuic = profile.disableQuic;
     _directDns = profile.directDns;
+    _warpDns = profile.warpDns;
     _dnsMode = profile.dnsMode;
     _proxy = profile.proxy;
     if (baseline) {
@@ -515,32 +525,54 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               },
                       ),
                       const SizedBox(height: 14),
+                      WarpDnsEditor(
+                        key: _warpDnsKey,
+                        value: _warpDns,
+                        resetRevision: _warpDnsResetRevision,
+                        enabled: !_saving,
+                        encryptedAvailable:
+                            widget
+                                .controller
+                                .engineCapabilities
+                                ?.encryptedWarpDns ??
+                            false,
+                        strings: strings,
+                        onChanged: (value) => setState(() {
+                          _warpDns = value;
+                          _saved = false;
+                          _validationError = null;
+                          _saveError = null;
+                        }),
+                      ),
+                      const SizedBox(height: 14),
                       _ResponsiveFields(
                         children: <Widget>[
-                          TextFormField(
-                            key: _fieldKeys[4],
-                            focusNode: _focus[4],
-                            enabled: !_saving,
-                            controller: _dnsV4,
-                            onChanged: (_) => _edited(),
-                            decoration: InputDecoration(
-                              labelText: strings.get('dns_ipv4'),
+                          if (_warpDns.mode == WarpDnsMode.plain)
+                            TextFormField(
+                              key: _fieldKeys[4],
+                              focusNode: _focus[4],
+                              enabled: !_saving,
+                              controller: _dnsV4,
+                              onChanged: (_) => _edited(),
+                              decoration: InputDecoration(
+                                labelText: strings.get('dns_ipv4'),
+                              ),
+                              validator: (value) =>
+                                  _validateIp(value, InternetAddressType.IPv4),
                             ),
-                            validator: (value) =>
-                                _validateIp(value, InternetAddressType.IPv4),
-                          ),
-                          TextFormField(
-                            key: _fieldKeys[5],
-                            focusNode: _focus[5],
-                            enabled: !_saving,
-                            controller: _dnsV6,
-                            onChanged: (_) => _edited(),
-                            decoration: InputDecoration(
-                              labelText: strings.get('dns_ipv6'),
+                          if (_warpDns.mode == WarpDnsMode.plain)
+                            TextFormField(
+                              key: _fieldKeys[5],
+                              focusNode: _focus[5],
+                              enabled: !_saving,
+                              controller: _dnsV6,
+                              onChanged: (_) => _edited(),
+                              decoration: InputDecoration(
+                                labelText: strings.get('dns_ipv6'),
+                              ),
+                              validator: (value) =>
+                                  _validateIp(value, InternetAddressType.IPv6),
                             ),
-                            validator: (value) =>
-                                _validateIp(value, InternetAddressType.IPv6),
-                          ),
                           TextFormField(
                             key: _fieldKeys[6],
                             focusNode: _focus[6],
@@ -776,6 +808,15 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       );
       return;
     }
+    if (_warpDns.mode != WarpDnsMode.plain &&
+        !(widget.controller.engineCapabilities?.encryptedWarpDns ?? false)) {
+      setState(
+        () => _validationError = widget.controller.strings.get(
+          'warp_dns_unsupported',
+        ),
+      );
+      return;
+    }
     setState(() => _validationAttempted = true);
     if (!(_formKey.currentState?.validate() ?? false)) {
       setState(
@@ -788,6 +829,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           return;
         }
       }
+      if (_warpDnsKey.currentState?.focusFirstError() ?? false) return;
       _directDnsKey.currentState?.focusFirstError();
       return;
     }
@@ -824,6 +866,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'proxy.dns_servers',
       'proxy.system_proxy',
       'endpoint.selection',
+      'warp_dns',
     ];
     final changedFields = <String>{
       for (var i = 0; i < paths.length; i++)
@@ -831,7 +874,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             !(i < 2 &&
                 (endpointIpsManaged ||
                     _endpointSelection == EndpointSelection.automatic)) &&
-            !(endpointIpsManaged && paths[i] == 'endpoint.selection'))
+            !(endpointIpsManaged && paths[i] == 'endpoint.selection') &&
+            !(_warpDns.mode != WarpDnsMode.plain && paths[i] == 'dns_servers'))
           paths[i],
     }.toList();
     final saved = await widget.controller.saveNetwork(
@@ -857,12 +901,17 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         endpointPort: int.parse(_port.text),
         sni: _sni.text.trim(),
         mtu: int.parse(_mtu.text),
-        dnsIpv4: _dnsV4.text.trim(),
-        dnsIpv6: _dnsV6.text.trim(),
+        dnsIpv4: _warpDns.mode == WarpDnsMode.plain
+            ? _dnsV4.text.trim()
+            : profile.dnsIpv4,
+        dnsIpv6: _warpDns.mode == WarpDnsMode.plain
+            ? _dnsV6.text.trim()
+            : profile.dnsIpv6,
         killSwitch: _killSwitch,
         allowLan: _allowLan,
         disableQuic: _disableQuic,
         directDns: _directDns,
+        warpDns: _warpDns,
         dnsMode: _dnsMode,
         proxy: _proxy.copyWith(authUsername: profile.proxy.authUsername),
       ),
@@ -932,6 +981,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     }
     setState(() {
       _load(reset, baseline: false);
+      _warpDnsResetRevision++;
       _saved = false;
       _validationError = null;
       _saveError = null;

@@ -1153,6 +1153,7 @@ fn final_mtu(profile: &Profile, negotiated: u16) -> u16 {
 }
 fn final_profile(profile: &Profile, network: &FinalNetworkParameters) -> Profile {
     let mut final_profile = profile.clone();
+    final_profile.warp_dns = usque_core::WarpDnsSettings::default();
     if !profile.custom_chain().is_some_and(|c| c.source.is_proxy()) {
         final_profile.data_plane = DataPlaneMode::ConnectIp;
     }
@@ -1319,6 +1320,35 @@ mod tests {
         };
         assert_eq!(final_profile(&profile, &network).mtu, 1420);
         assert_eq!(final_profile(&Profile::default(), &network).mtu, 1280);
+    }
+
+    #[test]
+    fn chain_final_profile_uses_its_own_dns_and_underlay_retains_warp_encryption() {
+        let mut profile = Profile::default();
+        profile.vpn_gate.enabled = true;
+        profile.warp_dns = usque_core::WarpDnsSettings {
+            mode: usque_core::WarpDnsMode::Dot,
+            server_name: "resolver.test".into(),
+            port: 853,
+            bootstrap_ips: vec!["1.1.1.1".parse().unwrap()],
+            ..Default::default()
+        };
+        let mut underlay = profile.clone();
+        underlay.disable_chain();
+        assert!(underlay.uses_encrypted_warp_dns());
+        assert_eq!(underlay.warp_dns, profile.warp_dns);
+        let network = FinalNetworkParameters {
+            ipv4: Some("10.8.0.2".parse().unwrap()),
+            ipv6: None,
+            dns_servers: vec!["10.8.0.1".parse().unwrap()],
+            mtu: 1280,
+        };
+        let final_profile = final_profile(&profile, &network);
+        assert_eq!(
+            final_profile.warp_dns,
+            usque_core::WarpDnsSettings::default()
+        );
+        assert_eq!(final_profile.dns_servers, network.dns_servers);
     }
 
     fn slab_udp(slab: &mut crate::android_tun_read_slab::TunReadSlab, mtu: usize) -> BytesMut {

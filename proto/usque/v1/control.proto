@@ -80,6 +80,13 @@ enum DirectDnsMode {
   DIRECT_DNS_MODE_DOT = 3;
 }
 
+enum WarpDnsMode {
+  WARP_DNS_MODE_UNSPECIFIED = 0;
+  WARP_DNS_MODE_PLAIN = 1;
+  WARP_DNS_MODE_DOH = 2;
+  WARP_DNS_MODE_DOT = 3;
+}
+
 enum IdentityProvisioningMethod {
   IDENTITY_PROVISIONING_METHOD_UNSPECIFIED = 0;
   IDENTITY_PROVISIONING_METHOD_REGISTER = 1;
@@ -181,6 +188,14 @@ message DirectDnsSettings {
   uint32 port = 5;
 }
 
+message WarpDnsSettings {
+  WarpDnsMode mode = 1;
+  string server_name = 2;
+  string doh_path = 3;
+  repeated string bootstrap_ips = 4;
+  uint32 port = 5;
+}
+
 message Profile {
   string id = 1;
   string name = 2;
@@ -205,6 +220,7 @@ message Profile {
   bool disable_quic = 21;
   ChainExitSettings chain_exit = 22;
   repeated string bypass_domains = 23;
+  WarpDnsSettings warp_dns = 24;
 }
 
 message ChainExitSettings {
@@ -465,6 +481,7 @@ message Capabilities {
   bool custom_bypass = 41;
   bool automatic_endpoints = 42;
   bool chain_proxy_encrypted_dns = 43;
+  bool encrypted_warp_dns = 44;
 }
 
 message FrontendStatus {
