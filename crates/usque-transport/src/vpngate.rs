@@ -1000,7 +1000,7 @@ impl Connection {
                 if udp {
                     let counts = UdpTransportCounts::default();
                     let socket = warp
-                        .bind_udp(remote, &cancel)
+                        .bind_protocol_udp(remote, &cancel)
                         .await
                         .map_err(std::io::Error::from)?;
                     tracing::info!(
@@ -1032,7 +1032,10 @@ impl Connection {
                                 .transport(generation)
                                 .await
                                 .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
-                            socket.send(&packet).await.map_err(std::io::Error::from)?;
+                            socket
+                                .send_owned(packet)
+                                .await
+                                .map_err(std::io::Error::from)?;
                             counts
                                 .sent
                                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

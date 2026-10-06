@@ -21,6 +21,18 @@ pub enum Command {
         endpoint: SocketAddr,
     },
 
+    /// Bind with bounded, caller-selected receive capacity. Transmit capacity
+    /// continues to use the stack configuration. The core accepts at most
+    /// 128 KiB and 512 packet metadata entries, and rejects zero capacity.
+    BindWithReceiveBuffer {
+        /// Local endpoint; the port must be nonzero.
+        endpoint: SocketAddr,
+        /// Receive payload bytes, in the inclusive range 1..=131072.
+        receive_buffer_size: usize,
+        /// Receive metadata entries, in the inclusive range 1..=512.
+        receive_message_count: usize,
+    },
+
     /// Send a message to the given endpoint.
     Send {
         /// The endpoint to send the message to.
@@ -51,6 +63,16 @@ impl Debug for Command {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Bind { endpoint } => f.debug_struct("Bind").field("endpoint", endpoint).finish(),
+            Self::BindWithReceiveBuffer {
+                endpoint,
+                receive_buffer_size,
+                receive_message_count,
+            } => f
+                .debug_struct("BindWithReceiveBuffer")
+                .field("endpoint", endpoint)
+                .field("receive_buffer_size", receive_buffer_size)
+                .field("receive_message_count", receive_message_count)
+                .finish(),
             Self::Send { endpoint, buf } => f
                 .debug_struct("Send")
                 .field("endpoint", endpoint)

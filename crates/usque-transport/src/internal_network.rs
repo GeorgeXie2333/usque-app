@@ -343,6 +343,23 @@ impl InternalNetwork {
         remote: SocketAddr,
         cancel: &CancellationToken,
     ) -> Result<InternalUdp, DialError> {
+        self.bind_udp_with_receive_policy(remote, cancel, false)
+            .await
+    }
+    pub(crate) async fn bind_protocol_udp(
+        &self,
+        remote: SocketAddr,
+        cancel: &CancellationToken,
+    ) -> Result<InternalUdp, DialError> {
+        self.bind_udp_with_receive_policy(remote, cancel, true)
+            .await
+    }
+    async fn bind_udp_with_receive_policy(
+        &self,
+        remote: SocketAddr,
+        cancel: &CancellationToken,
+        protocol: bool,
+    ) -> Result<InternalUdp, DialError> {
         let (channel, ipv4, ipv6) = self.packet_channel.as_ref().ok_or(DialError::Closed)?;
         if !matches!(self.health_snapshot(), RuntimeHealth::Connected { .. }) {
             return Err(DialError::Closed);
@@ -359,7 +376,10 @@ impl InternalNetwork {
             biased;
             _ = cancel.cancelled() => return Err(DialError::Cancelled),
             _ = self.cancellation.cancelled() => return Err(DialError::Closed),
-            result = UdpSocket::bind(channel.clone(), local) => result.map_err(|_| DialError::Closed)?,
+            result = async {
+                if protocol { UdpSocket::bind_protocol(channel.clone(), local).await }
+                else { UdpSocket::bind(channel.clone(), local).await }
+            } => result.map_err(|_| DialError::Closed)?,
         };
         let fragments = if remote.is_ipv6() {
             Some(tokio::select! {
@@ -733,6 +753,12 @@ impl InternalUdp {
         if packet.len() > 16 * 1024 - 48 {
             return Err(DialError::Protocol);
         }
+        self.send_owned(Bytes::copy_from_slice(packet)).await
+    }
+    pub(crate) async fn send_owned(&self, packet: Bytes) -> Result<(), DialError> {
+        if packet.len() > 16 * 1024 - 48 {
+            return Err(DialError::Protocol);
+        }
         if packet.len() + 48 > 1280
             && let (Some(raw), SocketAddr::V6(local), SocketAddr::V6(remote)) =
                 (&self.fragments, self.socket.local_addr(), self.remote)
@@ -742,7 +768,7 @@ impl InternalUdp {
             let fragments = crate::chain_udp::fragments(
                 local,
                 remote,
-                packet,
+                &packet,
                 NEXT_FRAGMENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             )
             .ok_or(DialError::Protocol)?;
@@ -750,7 +776,7 @@ impl InternalUdp {
                 tokio::select! {
                     biased;
                     _ = self.cancellation.cancelled() => return Err(DialError::Closed),
-                    result = raw.send(&fragment) => result.map_err(|_| DialError::Closed)?,
+                    result = raw.send_owned(Bytes::from(fragment)) => result.map_err(|_| DialError::Closed)?,
                 }
             }
             return Ok(());
@@ -758,7 +784,7 @@ impl InternalUdp {
         tokio::select! {
             biased;
             _ = self.cancellation.cancelled() => Err(DialError::Closed),
-            result = self.socket.send_to(self.remote, packet) => result.map_err(|_| DialError::Closed),
+            result = self.socket.send_to_owned(self.remote, packet) => result.map_err(|_| DialError::Closed),
         }
     }
     /// Only this cancellation-safe channel receive is exposed to callers.
@@ -802,6 +828,106 @@ mod catalogue_tests {
     use std::time::Duration;
     use ts_netstack_smoltcp::HasChannel;
     use ts_netstack_smoltcp::netcore::NetstackControl;
+    #[tokio::test]
+    async fn private_udp_accepts_ready_data_and_ack_bursts() {
+        use crate::netstack::RuntimePath;
+        use crate::tcp::StackDialer;
+        for (count, size) in [(64usize, 1248usize), (300, 80), (8, 16000)] {
+            let a: SocketAddr = "192.0.2.1:40001".parse().unwrap();
+            let b: SocketAddr = "192.0.2.2:51820".parse().unwrap();
+            // The third memory-only case avoids fragmentation to verify that
+            // complete large datagrams survive the ready receive burst.
+            let profile = usque_core::Profile {
+                mtu: if size > 1248 { 20000 } else { 1280 },
+                ..Default::default()
+            };
+            let (mut config, _) = crate::netstack::proxy_netstack_config(&profile);
+            // The fixture captures sender egress before releasing a ready burst.
+            config.udp_buffer_size = 512 * 1024;
+            config.udp_message_count = 512;
+            let (left, mut left_pipe) = crate::netstack::bounded_piped(config);
+            let (config, _) = crate::netstack::proxy_netstack_config(&profile);
+            let (right, right_pipe) = crate::netstack::bounded_piped(config);
+            let left_channel = left.command_channel();
+            let right_channel = right.command_channel();
+            let _left = AbortOnDropHandle::new(left.spawn_tokio());
+            let _right = AbortOnDropHandle::new(right.spawn_tokio());
+            left_channel.set_ips([a.ip()]).await.unwrap();
+            right_channel.set_ips([b.ip()]).await.unwrap();
+            let cancel = CancellationToken::new();
+            let (_status, health) = watch::channel(RuntimeHealth::Connected {
+                path: RuntimePath {
+                    transport: usque_core::Transport::Http3,
+                    endpoint_family: usque_core::AddressFamily::Ipv4,
+                    ipv4_available: true,
+                    ipv6_available: false,
+                },
+                reconnect_count: 0,
+            });
+            let mut network = InternalNetwork::for_streams(
+                Arc::new(StackDialer {
+                    channel: right_channel.clone(),
+                    ipv4: "192.0.2.2".parse().unwrap(),
+                    ipv6: Ipv6Addr::UNSPECIFIED,
+                }),
+                health,
+                cancel.clone(),
+            );
+            network.packet_channel = Some((
+                right_channel,
+                "192.0.2.2".parse().unwrap(),
+                Ipv6Addr::UNSPECIFIED,
+            ));
+            let receiver = network.bind_protocol_udp(a, &cancel).await.unwrap();
+            let destination = receiver.socket.local_addr();
+            let sender = UdpSocket::bind(left_channel, a).await.unwrap();
+            for sequence in 0..count {
+                let mut payload = vec![0x5a; size];
+                payload[..2].copy_from_slice(&(sequence as u16).to_be_bytes());
+                sender.send_to(destination, &payload).await.unwrap();
+            }
+            let mut packets = Vec::with_capacity(count);
+            for _ in 0..count {
+                packets.push(
+                    tokio::time::timeout(Duration::from_secs(2), left_pipe.rx.recv_async())
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                );
+            }
+            let mut abandoned = Box::pin(receiver.recv());
+            std::future::poll_fn(|cx| {
+                use std::future::Future;
+                assert!(abandoned.as_mut().poll(cx).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            // All queue slots are ready: these admissions do not yield to the
+            // stack between packets, matching a delivered transport batch.
+            for packet in packets {
+                assert!(right_pipe.tx.try_send(&packet));
+            }
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+            drop(abandoned);
+            let mut received = 0;
+            let completed = tokio::time::timeout(Duration::from_millis(250), async {
+                for expected in 0..count {
+                    let packet = receiver.recv().await.unwrap();
+                    assert_eq!(packet.len(), size);
+                    assert_eq!(u16::from_be_bytes([packet[0], packet[1]]), expected as u16);
+                    received += 1;
+                }
+            })
+            .await;
+            cancel.cancel();
+            assert!(
+                completed.is_ok(),
+                "private UDP delivered {received}/{count} packets of {size} bytes"
+            );
+        }
+    }
     #[cfg(feature = "wireguard")]
     async fn wireguard_through_fragmented_udp(left: &InternalUdp, right: &InternalUdp) {
         use boringtun::x25519::{PublicKey, StaticSecret};
@@ -991,7 +1117,9 @@ mod catalogue_tests {
                     std::task::Poll::Ready(())
                 })
                 .await;
-                left.send(&bytes).await.unwrap();
+                left.send_owned(Bytes::copy_from_slice(&bytes))
+                    .await
+                    .unwrap();
                 for _ in 0..8 {
                     tokio::task::yield_now().await;
                 }

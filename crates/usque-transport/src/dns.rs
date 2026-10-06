@@ -370,11 +370,36 @@ impl QuerySocket {
         channel: Channel,
         endpoint: SocketAddr,
     ) -> Result<Self, ts_netstack_smoltcp::netcore::Error> {
+        Self::bind_command(
+            channel,
+            ts_netstack_smoltcp::netcore::udp::Command::Bind { endpoint },
+        )
+        .await
+    }
+
+    pub(crate) async fn bind_protocol(
+        channel: Channel,
+        endpoint: SocketAddr,
+    ) -> Result<Self, ts_netstack_smoltcp::netcore::Error> {
+        // A normal 64-packet transport burst can exceed the shared 64 KiB UDP
+        // receive ring. ACK-sized bursts also need independent metadata slots.
+        Self::bind_command(
+            channel,
+            ts_netstack_smoltcp::netcore::udp::Command::BindWithReceiveBuffer {
+                endpoint,
+                receive_buffer_size: 128 * 1024,
+                receive_message_count: 512,
+            },
+        )
+        .await
+    }
+
+    async fn bind_command(
+        channel: Channel,
+        command: ts_netstack_smoltcp::netcore::udp::Command,
+    ) -> Result<Self, ts_netstack_smoltcp::netcore::Error> {
         use ts_netstack_smoltcp::netcore::{HasChannel, Response, udp};
-        match channel
-            .request(None, udp::Command::Bind { endpoint })
-            .await?
-        {
+        match channel.request(None, command).await? {
             Response::Udp(udp::Response::Bound { handle, local }) => Ok(Self {
                 channel,
                 handle,
@@ -394,13 +419,22 @@ impl QuerySocket {
         endpoint: SocketAddr,
         bytes: &[u8],
     ) -> Result<(), ts_netstack_smoltcp::netcore::Error> {
+        self.send_to_owned(endpoint, bytes::Bytes::copy_from_slice(bytes))
+            .await
+    }
+
+    pub(crate) async fn send_to_owned(
+        &self,
+        endpoint: SocketAddr,
+        bytes: bytes::Bytes,
+    ) -> Result<(), ts_netstack_smoltcp::netcore::Error> {
         use ts_netstack_smoltcp::netcore::{HasChannel, udp};
         self.channel
             .request(
                 Some(self.handle),
                 udp::Command::Send {
                     endpoint,
-                    buf: bytes::Bytes::copy_from_slice(bytes),
+                    buf: bytes,
                 },
             )
             .await?
@@ -764,6 +798,52 @@ fn deduplicate(addresses: &mut Vec<IpAddr>) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn owned_udp_send_preserves_payload_allocation_in_command() {
+        use std::future::Future;
+        use std::task::{Context, Waker};
+        use ts_netstack_smoltcp::netcore::{
+            Command, Config, HasChannel, Netstack, Request, Response, flume, udp,
+        };
+        let mut stack = Netstack::new(
+            Config::default(),
+            ts_netstack_smoltcp::netcore::smoltcp::time::Instant::from_millis(0),
+        );
+        let mut opening = Box::pin(QuerySocket::bind(
+            stack.command_channel(),
+            "192.0.2.1:40001".parse().unwrap(),
+        ));
+        assert!(
+            opening
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        stack.process_cmds();
+        let mut socket = opening.await.unwrap();
+        let (sender, receiver) = flume::bounded::<Request>(1);
+        socket.channel = sender.downgrade();
+        let payload = bytes::Bytes::from(vec![0x5a; 4096]);
+        let destination = "192.0.2.2:51820".parse().unwrap();
+        let submitted = socket.send_to_owned(destination, payload.clone());
+        let inspect = async {
+            let request = receiver.recv_async().await.unwrap();
+            let Command::Udp(udp::Command::Send { endpoint, buf }) = request.command else {
+                panic!("expected UDP send");
+            };
+            assert_eq!(endpoint, destination);
+            assert_eq!(
+                buf.as_ptr(),
+                payload.as_ptr(),
+                "owned input must not be copied at the command boundary"
+            );
+            assert_eq!(buf, payload);
+            request.resp.send(Response::Ok).unwrap();
+        };
+        let (result, ()) = tokio::join!(submitted, inspect);
+        result.unwrap();
+    }
+
     #[tokio::test]
     async fn full_command_queue_retries_socket_close_without_network_progress() {
         use std::future::Future;

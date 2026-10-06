@@ -17,7 +17,8 @@ mod tests;
 const GENERATION: u64 = 1;
 const MAX_PACKET: usize = 65535;
 // Two input queues total 48 packets; two output queues plus pending packets
-// total 48. This leaves room for private UDP readers within the old budget.
+// total 48. Private protocol UDP readers independently bound their receive
+// ring and persistent packet channel.
 const PACKET_QUEUE: usize = 23;
 #[derive(Clone)]
 pub(crate) struct Input {

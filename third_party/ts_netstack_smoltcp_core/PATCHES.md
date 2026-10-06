@@ -59,3 +59,15 @@ or after response delivery, including a saturated command queue. First-party
 UDP and raw wrappers own their handles exclusively and retry Close through the
 existing bounded cleanup path; the upstream best-effort socket Drop is not used
 for final DNS or chained protocol transport.
+
+An additive `BindWithReceiveBuffer` UDP command allows a bounded receive-only
+override (at most 128 KiB and 512 metadata entries). Ordinary binds and all
+transmit buffers retain the configured sizes. Only Usque's private VPN-protocol
+underlay selects this override; DNS and SOCKS UDP associations retain their
+existing allocation policy. A 64-packet burst of 1248-byte payloads previously
+delivered only 52 packets through the 64 KiB receive ring. The first-party memory
+regression also covers 300 ACK-sized packets, eight 16000-byte datagrams, packet
+order, and an abandoned public receive waiter.
+The new bind participates in the same cancelled-creation reclamation as the
+original bind. Invalid dimensions are rejected before allocation. This changes
+bounded in-memory buffering, with no physical socket, routing or platform change.

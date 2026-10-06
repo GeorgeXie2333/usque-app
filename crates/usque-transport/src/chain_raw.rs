@@ -29,14 +29,9 @@ impl RawSocket {
             _ => Err(Error::wrong_type()),
         }
     }
-    pub(crate) async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
+    pub(crate) async fn send_owned(&self, bytes: Bytes) -> Result<(), Error> {
         self.channel
-            .request(
-                Some(self.handle),
-                raw::Command::Send {
-                    buf: Bytes::copy_from_slice(bytes),
-                },
-            )
+            .request(Some(self.handle), raw::Command::Send { buf: bytes })
             .await?
             .to_ok()
     }
