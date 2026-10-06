@@ -13,6 +13,11 @@ Cancel, Escape and Back do not unlock the fields. Reset stages the latest
 registered pair without risky-edit confirmation; applying that pair clears the
 override. Signing in again also clears the override after successful registration.
 Port and SNI stay shared; ZT has no Automatic picker. A failed save retains drafts.
+Home shows a non-dismissible risk banner for a selected custom ZT pair or a
+still-active custom ZT session. It compares numeric addresses with registration
+metadata; alternate IPv6 spellings, port/SNI changes and unapplied drafts do not
+trigger it. A deferred restore retains the notice until the running session uses
+registered addresses or disconnects.
 
 Capability field 45, `zero_trust_endpoint_editing`, gates this editor. Missing
 support keeps the old read-only behavior. Registered addresses are read-only

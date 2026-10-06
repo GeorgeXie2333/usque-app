@@ -112,6 +112,10 @@ const Map<String, String> kThCatalog = <String, String>{
       'เข้าสู่ระบบองค์กรเดิมอีกครั้งเพื่อกู้คืนการเชื่อมต่อของบัญชีนี้',
   'zero_trust_metadata_missing':
       'ข้อมูลองค์กรที่บันทึกไว้ไม่ครบ เพิ่มบัญชี Zero Trust ใหม่แล้วเข้าสู่ระบบ',
+  "zero_trust_endpoint_home_risk_title":
+      "ความเสี่ยงของปลายทาง Zero Trust ที่กำหนดเอง",
+  "zero_trust_endpoint_home_risk_body":
+      "ปลายทาง Zero Trust ที่กำหนดเองอาจทำให้ความเป็นส่วนตัวและความปลอดภัยของข้อมูลมีความเสี่ยง ใช้เฉพาะปลายทางที่เชื่อถือได้และคุณได้รับอนุญาตให้เข้าถึง",
   "zero_trust_endpoint_edit": "แก้ไขปลายทาง Zero Trust",
   "zero_trust_endpoint_risk_title": "ความเสี่ยงในการเปลี่ยนปลายทาง Zero Trust",
   "zero_trust_endpoint_risk_body":

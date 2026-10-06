@@ -115,6 +115,10 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Meld je opnieuw aan bij dezelfde organisatie om dit account weer te verbinden.',
   'zero_trust_metadata_missing':
       'De opgeslagen organisatiegegevens zijn onvolledig. Voeg een nieuw Zero Trust-account toe en meld je opnieuw aan.',
+  "zero_trust_endpoint_home_risk_title":
+      "Risico van aangepaste Zero Trust-eindpunten",
+  "zero_trust_endpoint_home_risk_body":
+      "Aangepaste Zero Trust-eindpunten kunnen je privacy en gegevensbeveiliging in gevaar brengen. Gebruik alleen vertrouwde eindpunten waarvoor je toestemming hebt.",
   "zero_trust_endpoint_edit": "Zero Trust-eindpunten bewerken",
   "zero_trust_endpoint_risk_title":
       "Risico's van het wijzigen van Zero Trust-eindpunten",

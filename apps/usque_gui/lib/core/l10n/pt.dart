@@ -116,6 +116,10 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Entre novamente na mesma organização para recuperar a conexão desta conta.',
   'zero_trust_metadata_missing':
       'Os dados salvos da organização estão incompletos. Adicione outra conta Zero Trust e entre novamente.',
+  "zero_trust_endpoint_home_risk_title":
+      "Risco dos endpoints Zero Trust personalizados",
+  "zero_trust_endpoint_home_risk_body":
+      "Endpoints Zero Trust personalizados podem colocar sua privacidade e a segurança dos dados em risco. Use apenas endpoints confiáveis aos quais você tem autorização de acesso.",
   "zero_trust_endpoint_edit": "Editar endpoints Zero Trust",
   "zero_trust_endpoint_risk_title": "Riscos de alterar endpoints Zero Trust",
   "zero_trust_endpoint_risk_body":

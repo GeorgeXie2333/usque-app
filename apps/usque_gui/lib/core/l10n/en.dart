@@ -112,6 +112,9 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Sign in to the same organization again to reconnect this account.',
   'zero_trust_metadata_missing':
       'The saved organization details are incomplete. Add a new Zero Trust account and sign in again.',
+  "zero_trust_endpoint_home_risk_title": "Custom Zero Trust endpoint risk",
+  "zero_trust_endpoint_home_risk_body":
+      "Custom Zero Trust endpoints may put your privacy and data security at risk. Use only trusted endpoints you are authorized to access.",
   "zero_trust_endpoint_edit": "Edit Zero Trust endpoints",
   "zero_trust_endpoint_risk_title": "Risks of changing Zero Trust endpoints",
   "zero_trust_endpoint_risk_body":

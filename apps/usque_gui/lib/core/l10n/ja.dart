@@ -109,6 +109,9 @@ const Map<String, String> kJaCatalog = <String, String>{
   'zero_trust_repair_same_team': '同じ組織に再度ログインして、このアカウントの接続を復旧してください。',
   'zero_trust_metadata_missing':
       '保存された組織情報が不足しています。新しい Zero Trust アカウントを追加し、再度ログインしてください。',
+  "zero_trust_endpoint_home_risk_title": "カスタム Zero Trust エンドポイントのリスク",
+  "zero_trust_endpoint_home_risk_body":
+      "カスタム Zero Trust エンドポイントはプライバシーやデータの安全性を損なう可能性があります。利用を許可された信頼できるエンドポイントのみを使用してください。",
   "zero_trust_endpoint_edit": "Zero Trust エンドポイントを編集",
   "zero_trust_endpoint_risk_title": "Zero Trust エンドポイント変更のリスク",
   "zero_trust_endpoint_risk_body":

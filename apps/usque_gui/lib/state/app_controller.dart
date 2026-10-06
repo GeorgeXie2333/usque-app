@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -326,6 +327,37 @@ class AppController extends ChangeNotifier {
           ? account.endpointIpv6
           : sharedNetwork.endpointIpv6,
     );
+  }
+
+  /// Warn for a saved override or a still-running custom session. A draft
+  /// or a saved reset cannot describe what the active session is using.
+  bool get hasCustomZeroTrustEndpointRisk {
+    bool custom(UsqueProfile profile) {
+      final identity = identityStatus(profile.id);
+      if (identity.provider != IdentityProvider.zeroTrust) return false;
+      final registeredV4 = InternetAddress.tryParse(
+        identity.registeredEndpointIpv4,
+      );
+      final registeredV6 = InternetAddress.tryParse(
+        identity.registeredEndpointIpv6,
+      );
+      if (registeredV4?.type != InternetAddressType.IPv4 ||
+          registeredV6?.type != InternetAddressType.IPv6) {
+        return false;
+      }
+      final v4 = InternetAddress.tryParse(profile.endpointIpv4);
+      final v6 = InternetAddress.tryParse(profile.endpointIpv6);
+      return v4 != null &&
+          v6 != null &&
+          (!listEquals(v4.rawAddress, registeredV4!.rawAddress) ||
+              !listEquals(v6.rawAddress, registeredV6!.rawAddress));
+    }
+
+    if (custom(activeProfile)) return true;
+    final applied = networkSettings.state?.appliedProfile;
+    return (snapshot.isConnected || snapshot.isTransitional) &&
+        applied != null &&
+        custom(applied);
   }
 
   void _captureSharedNetwork() {

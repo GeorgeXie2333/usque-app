@@ -114,6 +114,9 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Masuk kembali ke organisasi yang sama untuk memulihkan koneksi akun ini.',
   'zero_trust_metadata_missing':
       'Informasi organisasi yang tersimpan tidak lengkap. Tambahkan akun Zero Trust baru dan masuk lagi.',
+  "zero_trust_endpoint_home_risk_title": "Risiko endpoint Zero Trust khusus",
+  "zero_trust_endpoint_home_risk_body":
+      "Endpoint Zero Trust khusus dapat membahayakan privasi dan keamanan data Anda. Gunakan hanya endpoint tepercaya yang boleh Anda akses.",
   "zero_trust_endpoint_edit": "Edit endpoint Zero Trust",
   "zero_trust_endpoint_risk_title": "Risiko mengubah endpoint Zero Trust",
   "zero_trust_endpoint_risk_body":

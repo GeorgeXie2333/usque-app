@@ -108,6 +108,9 @@ const Map<String, String> kKoCatalog = <String, String>{
   'zero_trust_repair_same_team': '같은 조직에 다시 로그인해 이 계정의 연결을 복구하세요.',
   'zero_trust_metadata_missing':
       '저장된 조직 정보가 불완전합니다. 새 Zero Trust 계정을 추가하고 다시 로그인하세요.',
+  "zero_trust_endpoint_home_risk_title": "사용자 지정 Zero Trust 엔드포인트 위험",
+  "zero_trust_endpoint_home_risk_body":
+      "사용자 지정 Zero Trust 엔드포인트는 개인정보와 데이터 보안을 위협할 수 있습니다. 사용 권한이 있는 신뢰할 수 있는 엔드포인트만 사용하세요.",
   "zero_trust_endpoint_edit": "Zero Trust 엔드포인트 편집",
   "zero_trust_endpoint_risk_title": "Zero Trust 엔드포인트 변경 위험",
   "zero_trust_endpoint_risk_body":

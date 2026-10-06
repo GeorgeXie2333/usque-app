@@ -117,6 +117,10 @@ const Map<String, String> kItCatalog = <String, String>{
       'Accedi di nuovo alla stessa organizzazione per ripristinare la connessione dell’account.',
   'zero_trust_metadata_missing':
       'Le informazioni salvate sull’organizzazione sono incomplete. Aggiungi un nuovo account Zero Trust e accedi di nuovo.',
+  "zero_trust_endpoint_home_risk_title":
+      "Rischio degli endpoint Zero Trust personalizzati",
+  "zero_trust_endpoint_home_risk_body":
+      "Gli endpoint Zero Trust personalizzati possono mettere a rischio la privacy e la sicurezza dei dati. Usa solo endpoint affidabili ai quali sei autorizzato ad accedere.",
   "zero_trust_endpoint_edit": "Modifica endpoint Zero Trust",
   "zero_trust_endpoint_risk_title":
       "Rischi della modifica degli endpoint Zero Trust",

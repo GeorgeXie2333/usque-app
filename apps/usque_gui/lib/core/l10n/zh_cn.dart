@@ -102,6 +102,9 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'zero_trust_scope_note': '实验性功能：此账号仅用于访问公网。暂不支持同步组织策略，也不支持检查设备是否满足组织的安全要求。',
   'zero_trust_repair_same_team': '请重新登录同一组织，以恢复此账号的连接。',
   'zero_trust_metadata_missing': '保存的组织信息不完整。请添加新的 Zero Trust 账号并重新登录。',
+  "zero_trust_endpoint_home_risk_title": "自定义 Zero Trust 端点风险",
+  "zero_trust_endpoint_home_risk_body":
+      "自定义 Zero Trust 端点可能带来隐私和数据安全风险。请仅使用可信且获授权的端点。",
   "zero_trust_endpoint_edit": "编辑 Zero Trust 端点",
   "zero_trust_endpoint_risk_title": "修改 Zero Trust 端点的风险",
   "zero_trust_endpoint_risk_body":

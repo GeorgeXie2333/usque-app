@@ -114,6 +114,10 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Zaloguj się ponownie do tej samej organizacji, aby przywrócić połączenie konta.',
   'zero_trust_metadata_missing':
       'Zapisane informacje o organizacji są niepełne. Dodaj nowe konto Zero Trust i zaloguj się.',
+  "zero_trust_endpoint_home_risk_title":
+      "Ryzyko niestandardowych punktów końcowych Zero Trust",
+  "zero_trust_endpoint_home_risk_body":
+      "Niestandardowe punkty końcowe Zero Trust mogą zagrozić prywatności i bezpieczeństwu danych. Korzystaj tylko z zaufanych punktów końcowych, do których masz uprawnienia.",
   "zero_trust_endpoint_edit": "Edytuj punkty końcowe Zero Trust",
   "zero_trust_endpoint_risk_title":
       "Ryzyko zmiany punktów końcowych Zero Trust",

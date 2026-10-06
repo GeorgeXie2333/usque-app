@@ -102,6 +102,9 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'zero_trust_scope_note': '實驗性功能：僅提供公開互聯網存取，不支援更新組織政策或檢查裝置是否符合組織的安全要求。',
   'zero_trust_repair_same_team': '請重新登入同一個組織，以恢復此帳戶的連接。',
   'zero_trust_metadata_missing': '已儲存的組織資料不完整。請新增 Zero Trust 帳戶並登入。',
+  "zero_trust_endpoint_home_risk_title": "自訂 Zero Trust 端點風險",
+  "zero_trust_endpoint_home_risk_body":
+      "自訂 Zero Trust 端點可能帶來私隱和資料安全風險。請只使用可信且獲得授權的端點。",
   "zero_trust_endpoint_edit": "編輯 Zero Trust 端點",
   "zero_trust_endpoint_risk_title": "修改 Zero Trust 端點的風險",
   "zero_trust_endpoint_risk_body":

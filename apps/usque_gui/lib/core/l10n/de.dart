@@ -117,6 +117,9 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Melde dich erneut bei derselben Organisation an, um die Kontoverbindung wiederherzustellen.',
   'zero_trust_metadata_missing':
       'Die gespeicherten Organisationsdaten sind unvollständig. Füge ein neues Zero-Trust-Konto hinzu und melde dich an.',
+  "zero_trust_endpoint_home_risk_title": "Risiko eigener Zero Trust-Endpunkte",
+  "zero_trust_endpoint_home_risk_body":
+      "Eigene Zero Trust-Endpunkte können deine Privatsphäre und Datensicherheit gefährden. Nutze nur vertrauenswürdige Endpunkte, für die du eine Zugriffsberechtigung hast.",
   "zero_trust_endpoint_edit": "Zero Trust-Endpunkte bearbeiten",
   "zero_trust_endpoint_risk_title":
       "Risiken beim Ändern von Zero Trust-Endpunkten",

@@ -75,6 +75,12 @@ Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状�
 
 - **Bypass settings** combines country rules and a line-based editor for custom CIDRs, IPs and domains. Domains include subdomains; custom rules work without GEO downloads. The editor uses the shared apply bar and leave guard. Advanced settings no longer edits bypass CIDRs. See [direct DNS and bypass targets](../../docs/encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标).
 
+Home shows a non-dismissible risk banner above the connection controls when the
+selected account has custom Zero Trust IPv4/IPv6 addresses or a still-active ZT
+session uses them. It reads saved/confirmed state, not editor drafts, and remains
+visible during a deferred reset until that session stops or registered addresses
+are applied. Ordinary WARP and unchanged registration addresses have no banner.
+
 ## Native UI composition
 
 - `ContentSection` and `ContentHeading` group ordinary content with typography and spacing, not a card background. `ContentList` separates adjacent entries; `ActionRow` provides native ink, keyboard/D-pad activation and a visible, layout-stable focus outline. `InlineStatus` pairs a readable state label with a supplementary icon.

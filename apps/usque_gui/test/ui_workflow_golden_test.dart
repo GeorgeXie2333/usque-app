@@ -11,6 +11,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
+import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/screens/vpn_gate_screen.dart';
@@ -34,6 +35,7 @@ import 'ui_workflow_test.dart' show WorkflowEngine, workflowHost;
 import 'vpn_gate_server_row_test.dart' show observationNow, observationServer;
 import 'vpn_gate_summary_test.dart' show current;
 import 'vpngate_test.dart' show GateEngine, server;
+import 'zero_trust_endpoint_test.dart' show ztEngine;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -130,6 +132,74 @@ void main() {
         find.byKey(boundary),
         matchesGoldenFile('goldens/${fixture.name}.png'),
       );
+    }, tags: 'golden');
+  }
+
+  for (final fixture in [
+    (
+      name: 'zt_home_risk_desktop_dark',
+      locale: LocalePreference.english,
+      size: const Size(1280, 900),
+      dark: true,
+      rtl: false,
+    ),
+    (
+      name: 'zt_home_risk_phone_light',
+      locale: LocalePreference.simplifiedChinese,
+      size: const Size(375, 812),
+      dark: false,
+      rtl: false,
+    ),
+    (
+      name: 'zt_home_risk_persian_landscape',
+      locale: LocalePreference.persian,
+      size: const Size(812, 375),
+      dark: true,
+      rtl: true,
+    ),
+  ]) {
+    testWidgets('ZT Home risk golden ${fixture.name}', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = fixture.size;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final engine = ztEngine(custom: true);
+      final app = AppController(engine)
+        ..profiles = engine.storedProfiles
+        ..activeProfileId = engine.storedActiveProfileId
+        ..profileIdentityStatuses = engine.storedIdentityStatuses
+        ..localePreference = fixture.locale;
+      try {
+        final boundary = GlobalKey();
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: workflowHost(
+              app,
+              dark: fixture.dark,
+              home: Directionality(
+                textDirection: fixture.rtl
+                    ? TextDirection.rtl
+                    : TextDirection.ltr,
+                child: HomeScreen(controller: app),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('home-zero-trust-endpoint-risk')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile('goldens/${fixture.name}.png'),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        app.dispose();
+      }
     }, tags: 'golden');
   }
 

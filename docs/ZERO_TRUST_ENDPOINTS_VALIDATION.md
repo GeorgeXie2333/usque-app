@@ -84,3 +84,53 @@ analysis tree. Generated JNI libraries, build outputs and logs remain ignored.
 
 Protected-runner evidence is supplemental and non-blocking. These unavailable
 checks are not passes, and the local builds are not official release packages.
+
+## Persistent Home notice follow-up — 2026-10-06
+
+This follow-up implements the
+[persistent-warning suggestion](https://github.com/GeorgeXie2333/usque-app/issues/92#issuecomment-6012739125).
+The tested source was `cceed2a5fb0f2c36f4b023e220d5b355df8e803a` plus
+uncommitted Home-warning changes; this likewise does not uniquely identify the
+complete source snapshot. The earlier validation counts above remain historical.
+
+Home now shows a non-dismissible danger banner above the connection controls when
+the selected account has saved custom ZT addresses, or a connected/transitional
+session still uses custom ZT addresses. A saved restore or account switch cannot
+hide the warning while that custom session remains active. Registered addresses,
+ordinary WARP, port/SNI-only edits and equivalent IPv6 spellings do not trigger
+it. Missing registration metadata does not classify unknown addresses as custom.
+The notice reads existing confirmed settings and identity metadata; it adds no
+native API, probe, timer, persistence, logging or telemetry. All 21 catalogs and
+the parallel user guides describe the warning.
+
+| Directory | Command | Result for this follow-up |
+| --- | --- | --- |
+| Root | `cargo fmt --all --check` | Passed |
+| Root | `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | Passed |
+| Root | `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | Passed |
+| Root | `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | Passed; compile-only |
+| `apps/usque_gui` | `flutter pub get --enforce-lockfile` | Passed with the same pinned SDK and unchanged lockfile |
+| `apps/usque_gui` | `dart format --output=none --set-exit-if-changed lib test` | Passed |
+| `apps/usque_gui` | `flutter analyze --no-pub` | Passed; no issues |
+| `apps/usque_gui` | `flutter test --no-pub test/home_zero_trust_endpoint_risk_test.dart` | Passed; 13 focused regressions |
+| `apps/usque_gui` | `flutter test --no-pub test/ui_workflow_golden_test.dart --plain-name 'ZT Home risk golden' --update-goldens` | Passed; three new Windows-pinned Home screenshots visually reviewed |
+| `apps/usque_gui` | `flutter test --no-pub` | Passed; 948 tests including all goldens |
+| `apps/usque_gui` | `& ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .` | Passed |
+| `apps/usque_gui` | `flutter build windows --release --no-pub --split-debug-info=build/symbols/windows` | Passed; compile-only |
+| Root | `python tool/check_repository_policy.py` | Passed |
+| Root | `git diff --check` | Passed |
+
+Regressions cover permanent display, confirmed save/restore updates without page
+recreation, account switching, retained custom applied sessions, transitional
+phases, ordinary WARP, numeric address equivalence, unavailable metadata,
+200% text, semantics and Persian RTL. Screenshots cover desktop dark, phone light
+and Persian landscape. The fake engine does not start a native VPN.
+
+The current ignored screenshot helper
+`apps/usque_gui/build/readme_screenshots_test.dart` was preserved at
+`target/preserved-readme-screenshots/readme_screenshots_test.dart` to keep
+generated screenshot code out of GUI analysis. No tracked helper was changed.
+
+Live organization/VPN/device/TV and Ubuntu-runner validation remain `not_run`.
+This UI change does not alter native networking or protocol behavior, and the
+existing isolation and release-evidence limits still apply.

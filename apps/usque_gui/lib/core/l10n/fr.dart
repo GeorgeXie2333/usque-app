@@ -119,6 +119,10 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Reconnectez-vous à la même organisation pour rétablir la connexion de ce compte.',
   'zero_trust_metadata_missing':
       'Les informations enregistrées sur l’organisation sont incomplètes. Ajoutez un nouveau compte Zero Trust et reconnectez-vous.',
+  "zero_trust_endpoint_home_risk_title":
+      "Risques des points de terminaison Zero Trust personnalisés",
+  "zero_trust_endpoint_home_risk_body":
+      "Les points de terminaison Zero Trust personnalisés peuvent compromettre votre confidentialité et la sécurité de vos données. Utilisez uniquement des points de terminaison fiables auxquels vous êtes autorisé à accéder.",
   "zero_trust_endpoint_edit": "Modifier les points de terminaison Zero Trust",
   "zero_trust_endpoint_risk_title":
       "Risques liés à la modification des points de terminaison Zero Trust",

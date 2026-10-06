@@ -48,6 +48,7 @@ class HomeScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          _ZeroTrustEndpointRiskNotice(controller: controller),
           if (!compact) _ErrorSlot(controller: controller, strings: strings),
           if (compact && defaultTargetPlatform == TargetPlatform.android)
             _VpnGateReadout(
@@ -104,6 +105,34 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ZeroTrustEndpointRiskNotice extends StatelessWidget {
+  const _ZeroTrustEndpointRiskNotice({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) => ControllerSelector<bool>(
+    controller: controller,
+    active: (app) => app.section == AppSection.home,
+    selector: (app) => app.hasCustomZeroTrustEndpointRisk,
+    builder: (context, show) => show
+        ? Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: WarningBanner(
+              key: const ValueKey('home-zero-trust-endpoint-risk'),
+              danger: true,
+              title: controller.strings.get(
+                'zero_trust_endpoint_home_risk_title',
+              ),
+              message: controller.strings.get(
+                'zero_trust_endpoint_home_risk_body',
+              ),
+            ),
+          )
+        : const SizedBox.shrink(),
+  );
 }
 
 class _DesktopHomeConnection extends StatelessWidget {

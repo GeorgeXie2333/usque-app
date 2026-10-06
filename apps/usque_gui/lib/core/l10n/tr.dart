@@ -115,6 +115,9 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Bu hesabın bağlantısını geri yüklemek için aynı kuruluşta yeniden oturum açın.',
   'zero_trust_metadata_missing':
       'Kaydedilen kuruluş bilgileri eksik. Yeni bir Zero Trust hesabı ekleyip oturum açın.',
+  "zero_trust_endpoint_home_risk_title": "Özel Zero Trust uç noktası riski",
+  "zero_trust_endpoint_home_risk_body":
+      "Özel Zero Trust uç noktaları gizliliğinizi ve veri güvenliğinizi riske atabilir. Yalnızca erişim yetkiniz olan güvenilir uç noktaları kullanın.",
   "zero_trust_endpoint_edit": "Zero Trust uç noktalarını düzenle",
   "zero_trust_endpoint_risk_title":
       "Zero Trust uç noktalarını değiştirme riskleri",

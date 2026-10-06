@@ -114,6 +114,9 @@ const Map<String, String> kFaCatalog = <String, String>{
       'برای بازیابی اتصال این حساب، دوباره وارد همان سازمان شوید.',
   'zero_trust_metadata_missing':
       'اطلاعات ذخیره‌شدهٔ سازمان ناقص است. یک حساب Zero Trust جدید اضافه کنید و وارد شوید.',
+  "zero_trust_endpoint_home_risk_title": "خطر نقطهٔ پایانی سفارشی Zero Trust",
+  "zero_trust_endpoint_home_risk_body":
+      "نقاط پایانی سفارشی Zero Trust ممکن است حریم خصوصی و امنیت داده‌های شما را به خطر بیندازند. فقط از نقاط پایانی مورد اعتماد که اجازهٔ استفاده از آن‌ها را دارید استفاده کنید.",
   "zero_trust_endpoint_edit": "ویرایش نقاط پایانی Zero Trust",
   "zero_trust_endpoint_risk_title": "خطرهای تغییر نقاط پایانی Zero Trust",
   "zero_trust_endpoint_risk_body":

@@ -117,6 +117,10 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Inicia sesión de nuevo en la misma organización para recuperar la conexión de esta cuenta.',
   'zero_trust_metadata_missing':
       'La información guardada de la organización está incompleta. Añade otra cuenta Zero Trust e inicia sesión.',
+  "zero_trust_endpoint_home_risk_title":
+      "Riesgo de los extremos personalizados de Zero Trust",
+  "zero_trust_endpoint_home_risk_body":
+      "Los extremos personalizados de Zero Trust pueden poner en riesgo tu privacidad y la seguridad de tus datos. Usa solo extremos de confianza para los que tengas autorización.",
   "zero_trust_endpoint_edit": "Editar extremos de Zero Trust",
   "zero_trust_endpoint_risk_title":
       "Riesgos de cambiar los extremos de Zero Trust",

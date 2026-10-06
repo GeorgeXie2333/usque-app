@@ -115,6 +115,9 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Щоб відновити з’єднання цього облікового запису, увійдіть знову до тієї самої організації.',
   'zero_trust_metadata_missing':
       'Збережені відомості про організацію неповні. Додайте новий обліковий запис Zero Trust і увійдіть.',
+  "zero_trust_endpoint_home_risk_title": "Ризики власних адрес Zero Trust",
+  "zero_trust_endpoint_home_risk_body":
+      "Власні вузли Zero Trust можуть загрожувати конфіденційності та безпеці даних. Використовуйте лише довірені вузли, доступ до яких вам дозволено.",
   "zero_trust_endpoint_edit": "Змінити адреси Zero Trust",
   "zero_trust_endpoint_risk_title": "Ризики зміни адрес Zero Trust",
   "zero_trust_endpoint_risk_body":

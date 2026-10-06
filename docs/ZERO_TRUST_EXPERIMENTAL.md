@@ -31,6 +31,10 @@ still apply, so an arbitrary server is not guaranteed to work.
 Choose **Apply changes** to save. The addresses belong only to the current ZT
 account. Cancel or Back leaves them locked; each new visit requires confirmation.
 ZT has no Automatic picker. Port and SNI remain shared settings.
+Home also keeps a non-dismissible privacy and data-security risk notice visible
+for the selected account's saved custom addresses and any still-active custom ZT
+session. Restoring saved defaults alone cannot dismiss the notice while the old
+custom session is still running.
 
 **Reset network defaults** stages the latest registered addresses in the draft
 without unlocking risky editing. Apply to restore them. Signing in again also
@@ -43,6 +47,8 @@ save or interrupted sign-in preserves the previous settings.
 网段，但仍需通过现有 TLS 和端点公钥校验。地址仅属于当前 ZT 账号，端口和 SNI
 继续共享。“恢复网络默认值”暂存注册地址，应用后恢复；重新登录成功也会恢复
 注册地址并移除自定义地址。保存失败或登录中断会保留之前的设置。
+当前账号配置自定义地址，或当前 ZT 连接仍在使用自定义地址时，首页还会常驻
+不可关闭的隐私和数据安全风险提示；仅恢复已保存设置不会提前清除仍在运行的连接警告。
 
 ## Account and registration rules
 

@@ -113,6 +113,10 @@ const Map<String, String> kViCatalog = <String, String>{
       'Đăng nhập lại vào cùng tổ chức để khôi phục kết nối cho tài khoản này.',
   'zero_trust_metadata_missing':
       'Thông tin tổ chức đã lưu chưa đầy đủ. Thêm tài khoản Zero Trust mới rồi đăng nhập.',
+  "zero_trust_endpoint_home_risk_title":
+      "Rủi ro của điểm cuối Zero Trust tùy chỉnh",
+  "zero_trust_endpoint_home_risk_body":
+      "Điểm cuối Zero Trust tùy chỉnh có thể gây rủi ro cho quyền riêng tư và bảo mật dữ liệu. Chỉ dùng điểm cuối đáng tin cậy mà bạn được phép truy cập.",
   "zero_trust_endpoint_edit": "Sửa điểm cuối Zero Trust",
   "zero_trust_endpoint_risk_title": "Rủi ro khi thay đổi điểm cuối Zero Trust",
   "zero_trust_endpoint_risk_body":

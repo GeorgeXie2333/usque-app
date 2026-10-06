@@ -114,6 +114,9 @@ const Map<String, String> kArCatalog = <String, String>{
       'سجّل الدخول مجددًا إلى المؤسسة نفسها لاستعادة اتصال هذا الحساب.',
   'zero_trust_metadata_missing':
       'معلومات المؤسسة المحفوظة غير مكتملة. أضف حساب Zero Trust جديدًا وسجّل الدخول.',
+  "zero_trust_endpoint_home_risk_title": "مخاطر نقطة نهاية Zero Trust المخصصة",
+  "zero_trust_endpoint_home_risk_body":
+      "قد تعرّض نقاط نهاية Zero Trust المخصصة خصوصيتك وأمان بياناتك للخطر. استخدم فقط نقاط النهاية الموثوقة التي لديك إذن باستخدامها.",
   "zero_trust_endpoint_edit": "تعديل نقاط نهاية Zero Trust",
   "zero_trust_endpoint_risk_title": "مخاطر تغيير نقاط نهاية Zero Trust",
   "zero_trust_endpoint_risk_body":
