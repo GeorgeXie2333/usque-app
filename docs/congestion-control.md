@@ -4,7 +4,7 @@ Advanced settings exposes the device-wide `cubic`, `reno`, `bbr` and `bbr3`
 selection. CUBIC remains the default. `bbr` uses quiche's existing BBRv2;
 `bbr3` is an independent, experimental BBRv3 implementation. This is a sender
 setting for the client's HTTP/3 MASQUE connection, not a request to change
-Cloudflare's sender, system TCP, proxy listeners, or application TCP stacks.
+Cloudflare, Inc.'s sender, system TCP, proxy listeners, or application TCP stacks.
 HTTP/2 remains controlled by the operating system.
 
 The selector sits below SNI. Its display order is `cubic`, `BBRv2`, `BBRv3`,
@@ -98,3 +98,7 @@ The change adds no privileged networking operation, system-proxy mutation,
 TLS bypass, credential field, diagnostic upload or telemetry. Existing cleanup,
 generation ownership, certificate pinning, queue limits and fallback safety
 rules remain in force. No installers or release APKs are installed for testing.
+
+---
+
+Cloudflare is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

@@ -355,7 +355,9 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Tidak dapat dibatalkan. Usque akan memutuskan koneksi, menghapus semua akun dan informasi masuk, lalu kembali ke penyiapan awal.',
   'clear_all_data_complete': 'Semua data Usque lokal telah dihapus.',
   'unofficial':
-      'Klien tidak resmi yang kompatibel dengan Cloudflare WARP. Tidak berafiliasi dengan atau didukung oleh Cloudflare.',
+      'Klien tidak resmi yang kompatibel dengan layanan Cloudflare® WARP®. Tidak berafiliasi dengan, disponsori, atau didukung oleh Cloudflare, Inc.',
+  'trademark_attribution':
+      'Cloudflare dan WARP adalah merek dagang dan/atau merek dagang terdaftar milik Cloudflare, Inc. di Amerika Serikat dan yurisdiksi lainnya.',
   'welcome_title': 'Selamat datang di Usque',
   'setup_progress': 'Langkah penyiapan {current} dari {total}',
   'get_started': 'Mulai',

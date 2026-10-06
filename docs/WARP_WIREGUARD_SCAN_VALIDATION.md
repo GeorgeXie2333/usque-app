@@ -1,4 +1,4 @@
-# WARP single-port scan / 单端口扫描验证
+# WARP® single-port scan / 单端口扫描验证
 
 Date: 2026-09-24. Environment: Windows x64 development workstation.
 Baseline: `ba76374fc255e92f4469e28dea13750a479d9156`; candidate: that commit
@@ -163,3 +163,7 @@ git diff --check
 
 扫描量已经按每个 IP 一个常用端口减少，但没有进行真实网络速度对照，不能把
 候选数量的减少倍数直接当作提速倍数。所有网络观测及隔离环境验收仍需分别实测。
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

@@ -336,7 +336,9 @@ const Map<String, String> kKoCatalog = <String, String>{
       '되돌릴 수 없습니다. Usque는 연결을 끊고 저장된 모든 계정과 로그인 정보를 삭제한 뒤 초기 설정으로 돌아갑니다.',
   'clear_all_data_complete': '로컬 Usque 데이터를 모두 지웠습니다.',
   'unofficial':
-      'Cloudflare WARP와 호환되는 비공식 클라이언트입니다. Cloudflare와 제휴하지 않으며 Cloudflare의 보증을 받지 않습니다.',
+      'Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트입니다. Usque는 Cloudflare, Inc.와 제휴하지 않으며 해당 회사의 후원이나 보증을 받지 않습니다.',
+  'trademark_attribution':
+      'Cloudflare 및 WARP는 미국 및 기타 관할 지역에서 Cloudflare, Inc.의 상표 또는 등록 상표입니다.',
   'welcome_title': 'Usque에 오신 것을 환영합니다',
   'setup_progress': '설정 단계 {current}/{total}',
   'get_started': '시작하기',

@@ -336,7 +336,10 @@ const Map<String, String> kJaCatalog = <String, String>{
   'clear_all_data_confirm':
       'この操作は取り消せません。Usque は接続を切断して全アカウントとログイン情報を削除し、初期設定に戻ります。',
   'clear_all_data_complete': 'Usque のローカルデータをすべて消去しました。',
-  'unofficial': 'Cloudflare WARP と互換性のある非公式クライアントです。Cloudflare との提携や承認はありません。',
+  'unofficial':
+      'Cloudflare® WARP® サービスと互換性のある非公式クライアントです。Usque は Cloudflare, Inc. と提携しておらず、同社からの支援や推奨も受けていません。',
+  'trademark_attribution':
+      'Cloudflare および WARP は、米国およびその他の法域における Cloudflare, Inc. の商標または登録商標です。',
   'welcome_title': 'Usque へようこそ',
   'setup_progress': 'セットアップ手順 {current} / {total}',
   'get_started': '始める',

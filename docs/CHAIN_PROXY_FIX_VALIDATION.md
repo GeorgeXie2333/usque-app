@@ -142,7 +142,7 @@ duplex echo across IPv4/IPv6, inner MTU 1280/1420/1500, 1/8 logical UDP port
 streams, simulated RTT 0/20/80 ms and five repetitions per combination. The
 in-flight limit is 32. Zero RTT replies are delivered immediately; positive RTT
 uses the host timer. Zero RTT has 8192 packets per repetition; others have 256.
-This is a protocol/queue/allocation measurement, not a WARP or Android network
+This is a protocol/queue/allocation measurement, not a WARP® or Android network
 benchmark. Logical port streams are not independent smoltcp TCP congestion flows.
 
 Build both with `cargo test -p usque-transport --release --lib --features wireguard --locked --no-run` in the
@@ -210,3 +210,7 @@ Missing isolated evidence is neither a pass nor a publication prerequisite.
 No MSI or release APK was made or installed; no official signing, push or
 publication was performed. Generated JNI libraries, build products and raw logs
 remain outside the committed source set.
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

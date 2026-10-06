@@ -1,4 +1,4 @@
-# WARP exit DNS / WARP 出口 DNS
+# WARP® exit DNS / WARP 出口 DNS
 
 ## Configure / 配置
 
@@ -62,3 +62,7 @@ externally observed DNS leaks require the isolated environments specified in
 [Contributing](../CONTRIBUTING.md#development-machines). Missing isolated
 validation is recorded as `not_run`, never as a pass. Diagnostic exports omit
 custom server names, paths, bootstrap addresses and DNS query contents.
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

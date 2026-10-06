@@ -351,7 +351,9 @@ const Map<String, String> kEnCatalog = <String, String>{
       'This cannot be undone. Usque will disconnect, delete all saved accounts and login information, then return to setup.',
   'clear_all_data_complete': 'All local Usque data was cleared.',
   'unofficial':
-      'Unofficial client compatible with Cloudflare WARP. Not affiliated with or endorsed by Cloudflare.',
+      'Unofficial client compatible with Cloudflare® WARP® services. Not affiliated with, sponsored by, or endorsed by Cloudflare, Inc.',
+  'trademark_attribution':
+      'Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.',
   'welcome_title': 'Welcome to Usque',
   'setup_progress': 'Setup step {current} of {total}',
   'get_started': 'Get started',

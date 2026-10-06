@@ -350,7 +350,9 @@ const Map<String, String> kArCatalog = <String, String>{
       'لا يمكن التراجع عن هذا الإجراء. سيُقطع الاتصال وتُحذف جميع الحسابات ومعلومات الدخول، وسيعود التطبيق إلى الإعداد الأولي.',
   'clear_all_data_complete': 'تم مسح جميع بيانات Usque المحلية.',
   'unofficial':
-      'عميل غير رسمي متوافق مع Cloudflare WARP. غير مرتبط بـ Cloudflare ولا يحظى بتأييده.',
+      'عميل غير رسمي متوافق مع خدمات Cloudflare® WARP®. غير تابع لشركة Cloudflare, Inc. ولا يحظى برعايتها أو تأييدها.',
+  'trademark_attribution':
+      'Cloudflare وWARP علامتان تجاريتان و/أو علامتان تجاريتان مسجلتان لشركة Cloudflare, Inc. في الولايات المتحدة وغيرها من الولايات القضائية.',
   'welcome_title': 'مرحبًا بك في Usque',
   'setup_progress': 'خطوة الإعداد {current} من {total}',
   'get_started': 'البدء',

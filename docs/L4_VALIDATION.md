@@ -6,7 +6,7 @@ backpressure/stop fix and its separate validation scope are recorded in
 
 Validation date: 2026-09-09. Scope: this uncommitted working tree on a Windows
 development machine. This is a development record, not signed release evidence
-or a claim about real Cloudflare throughput/leak safety.
+or a claim about real Cloudflare® throughput/leak safety.
 
 This record does not identify a complete source snapshot for the uncommitted
 changes. The results cannot be assigned to a later commit or reproduced from
@@ -78,3 +78,7 @@ remain in place; Auto and default networking behavior are unchanged.
 
 See [L4 behavior and limitations](L4_PROXY.md) and the
 [performance sampling contract](l4-performance-scenarios.json).
+
+---
+
+Cloudflare is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

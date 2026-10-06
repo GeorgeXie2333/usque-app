@@ -361,7 +361,9 @@ const Map<String, String> kEsCatalog = <String, String>{
       'No se puede deshacer. Usque desconectará, borrará todas las cuentas y sus datos de acceso y volverá a la configuración inicial.',
   'clear_all_data_complete': 'Se borraron todos los datos locales de Usque.',
   'unofficial':
-      'Cliente no oficial compatible con Cloudflare WARP. No está afiliado ni respaldado por Cloudflare.',
+      'Cliente no oficial compatible con los servicios Cloudflare® WARP®. No está afiliado, patrocinado ni respaldado por Cloudflare, Inc.',
+  'trademark_attribution':
+      'Cloudflare y WARP son marcas comerciales y/o marcas registradas de Cloudflare, Inc. en Estados Unidos y otras jurisdicciones.',
   'welcome_title': 'Bienvenido a Usque',
   'setup_progress': 'Paso de configuración {current} de {total}',
   'get_started': 'Empezar',

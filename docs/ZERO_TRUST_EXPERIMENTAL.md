@@ -1,6 +1,6 @@
-# Experimental Cloudflare Zero Trust enrollment
+# Experimental Cloudflare® Zero Trust enrollment
 
-Usque can experimentally register a new account with a Cloudflare Zero Trust organization on Windows and Android. This feature is intentionally narrower than the Cloudflare One Client: it uses the organization account to create a persistent device identity, then carries Internet traffic through Usque's existing MASQUE tunnel.
+Usque can experimentally register a new account with a Cloudflare Zero Trust organization on Windows and Android. This feature is intentionally narrower than the Cloudflare One™ Client: it uses the organization account to create a persistent device identity, then carries Internet traffic through Usque's existing MASQUE tunnel.
 
 It does not implement organization policy synchronization, device posture, managed DNS, Split Tunnels, private-network routing, WARP-to-WARP, service-token enrollment, or automatic client-session reauthentication. The Android per-app proxy picker is a local UID filter on this device; it is not Cloudflare One Split Tunnel or organization policy sync. Gateway policy can still affect traffic on Cloudflare's side, but Usque does not claim full Cloudflare One Client compatibility.
 
@@ -10,7 +10,7 @@ It does not implement organization policy synchronization, device posture, manag
 2. Enter the organization's single-label team name.
 3. Accept the existing Cloudflare terms and open `https://<team>.cloudflareaccess.com/warp` in the system browser.
 4. Complete the organization's Access/IdP login.
-5. After Access login, return to Usque. Android may show an app chooser if the official WARP client is also installed. On Windows, starting login temporarily registers Usque as the current-user Access callback handler so Windows can forward the callback to the open window. The handler is released when a valid callback arrives. You can also paste the complete `com.cloudflare.warp://.../auth?token=...` callback or fill it from the clipboard. Manual paste remains available on both platforms.
+5. After Access login, return to Usque. Android may show an app chooser if the official WARP® client is also installed. On Windows, starting login temporarily registers Usque as the current-user Access callback handler so Windows can forward the callback to the open window. The handler is released when a valid callback arrives. You can also paste the complete `com.cloudflare.warp://.../auth?token=...` callback or fill it from the clipboard. Manual paste remains available on both platforms.
 6. Wait for Usque to finish registration, then connect with the new account.
    Its initial IPv4 and IPv6 entry addresses come from registration.
    Port and SNI are shared network settings, initially `443` and
@@ -91,3 +91,7 @@ promote it to production-supported status. Product publication follows
 [Release process](RELEASE.md) and its required gates; supplemental protected-runner
 results do not block publication. Do not silently fall back to Consumer
 registration or probe undocumented API variants.
+
+---
+
+Cloudflare, WARP and Cloudflare One are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

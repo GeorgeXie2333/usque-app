@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — unofficial client compatible with Cloudflare WARP" width="100%">
+  <img src="assets/branding/usque-readme-banner.png" alt="Usque — Unofficial client compatible with Cloudflare® WARP® services" width="100%">
 </p>
 
 <p align="center">
@@ -25,12 +25,12 @@
 
 # Usque
 
-Usque is an unofficial Cloudflare WARP client for Windows and Android / Android TV. It combines a system VPN, SOCKS5, and HTTP proxy in a native Flutter interface, powered by a Rust MASQUE engine.
+Usque is an unofficial client compatible with Cloudflare® WARP® services for Windows and Android / Android TV. It combines a system VPN, SOCKS5, and HTTP proxy in a native Flutter interface, powered by a Rust MASQUE engine.
 
 > [!IMPORTANT]
 > Download official packages only from [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official. Development-branch documentation can describe changes not yet released; check the release notes and documentation at your package's tag.
 
-Usque is an independent project. It is not affiliated with, sponsored by, or endorsed by Cloudflare. Cloudflare and WARP are trademarks of Cloudflare, Inc. Use of consumer WARP remains subject to Cloudflare's terms and privacy policy.
+Usque is an independent project. It is not affiliated with, sponsored by, or endorsed by Cloudflare, Inc. Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions. Use of consumer WARP services remains subject to Cloudflare's terms and privacy policy.
 
 ## Screenshots
 
@@ -68,7 +68,7 @@ See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, re
 ## First connection
 
 1. Install a [verified official package](docs/INSTALLATION.md#verify-before-installing) and open Usque.
-2. Complete the first-run permissions and terms steps. Android requires VPN consent to finish setup; granting it may disconnect another VPN but does not start a Usque connection. Notifications are optional. Register a Consumer WARP account, optionally with a WARP License Key. If setup was interrupted, check the saved result before registering again. Usque does not accept new WARP Secret imports.
+2. Complete the first-run permissions and terms steps. Android requires VPN consent to finish setup; granting it may disconnect another VPN but does not start a Usque connection. Notifications are optional. Register a Consumer WARP® account, optionally with a WARP License Key. If setup was interrupted, check the saved result before registering again. Usque does not accept new WARP Secret imports.
 3. Open **Proxy → TUN and local proxies** on Windows, or **Proxy → VPN and local proxies** on Android, choose the outputs, then connect from Home. These switches take effect immediately; listener and DNS form edits require **Apply changes**. Proxy-only operation does not use the granted VPN permission to start a VPN.
 
 | Connection option | When to use it |
@@ -146,8 +146,8 @@ choose **DoH** or **DoT** and supply an encrypted resolver's name and IP address
 That resolver receives the queries; connection failures do not switch them to
 plaintext DNS. See [configuration steps and examples](docs/encrypted-direct-dns.md).
 
-Other remote VPN queries use WARP or the selected final chain exit.
-HTTP/SOCKS5 chain DNS defaults to verified Cloudflare DoH through that proxy;
+Other remote VPN queries use the WARP tunnel or the selected final chain exit.
+HTTP/SOCKS5 chain DNS defaults to verified Cloudflare® DoH through that proxy;
 custom or non-default inherited DNS retains TCP DNS. With these exits,
 application-selected UDP/53 queries use TCP to that resolver, with no physical DNS fallback. See the
 [chain DNS choices](docs/CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口).
@@ -160,7 +160,7 @@ Kill Switch while disconnected.
 
 [Zero Trust enrollment](docs/ZERO_TRUST_EXPERIMENTAL.md) is experimental. It uses
 an organization identity for the MASQUE Internet tunnel and does not provide full
-Cloudflare One Client compatibility. macOS source is retained but not built or
+Cloudflare One™ Client compatibility. macOS source is retained but not built or
 released. iOS, store distribution and a public CLI are outside this release's scope.
 
 ## Default network settings
@@ -194,7 +194,7 @@ Start with the [Wiki](https://github.com/GeorgeXie2333/usque-app/wiki/Home) for 
 | Need | Read |
 | --- | --- |
 | Install, update, uninstall, or recover | [Installation](docs/INSTALLATION.md) |
-| Connect to Proton VPN through WARP | [WireGuard over MASQUE tutorial](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) |
+| Connect to Proton VPN through the WARP tunnel | [WireGuard over MASQUE tutorial](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) |
 | Understand local quality checks | [Network Doctor](docs/network-doctor.md) |
 | Build and test changes safely | [Contributing](CONTRIBUTING.md) |
 | Understand implementation and verification status | [Implementation](docs/IMPLEMENTATION.md) |
@@ -212,3 +212,7 @@ Core under MPL-2.0 and Mbed TLS under Apache-2.0. Corresponding source, reviewed
 patches and license texts are included in `third_party`; the application exposes
 the notices from its VPN Gate page. WireGuard uses BoringTun 0.7.1 (BSD-3-Clause),
 and local SVG icons use flutter_svg 2.3.0 (MIT); their notices are in the app's license registry.
+
+---
+
+Cloudflare, WARP and Cloudflare One are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

@@ -356,7 +356,9 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Цю дію неможливо скасувати. З’єднання буде розірвано, всі облікові записи й дані входу видалено, а програма повернеться до початкового налаштування.',
   'clear_all_data_complete': 'Усі локальні дані Usque очищено.',
   'unofficial':
-      'Неофіційний клієнт, сумісний із Cloudflare WARP. Не повʼязаний із Cloudflare і не схвалений Cloudflare.',
+      'Неофіційний клієнт, сумісний із сервісами Cloudflare® WARP®. Не пов’язаний із Cloudflare, Inc., не спонсорується й не схвалений цією компанією.',
+  'trademark_attribution':
+      'Cloudflare і WARP є торговельними марками та/або зареєстрованими торговельними марками Cloudflare, Inc. у США та інших юрисдикціях.',
   'welcome_title': 'Вітаємо в Usque',
   'setup_progress': 'Крок налаштування {current} з {total}',
   'get_started': 'Почати',

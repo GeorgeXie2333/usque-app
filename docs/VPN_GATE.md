@@ -1,11 +1,11 @@
-# WARP → VPN Gate
+# WARP® → VPN Gate
 
 VPN Gate is the fourth source in [Chain proxy](CHAIN_PROXY.md), after
 **OpenVPN**, **WireGuard** and **WARP via WireGuard**. This reference describes
 the VPN Gate catalogue, trust restrictions and shared OpenVPN driver.
 
 VPN Gate lets you choose a volunteer server as the final Internet exit on
-Windows, Android and Android TV. Usque reaches that server through WARP.
+Windows, Android and Android TV. Usque reaches that server through the WARP tunnel.
 
 ## Set up an exit
 
@@ -85,7 +85,7 @@ keep their existing frontend-switch behavior.
 
 Traffic samples count packets entering and leaving the final VPN Gate channel.
 RTT, loss, congestion and HTTP/QUIC diagnostics describe the underlying WARP
-connection to Cloudflare; they do not measure the complete path through the
+connection to the Cloudflare® service; they do not measure the complete path through the
 volunteer server. The network quality page labels this scope. Replacing either
 the VPN Gate session or the active WARP transport starts a new sample history,
 so counters from different sessions cannot form a traffic-rate interval.
@@ -344,3 +344,7 @@ then independently exercise direct exceptions, unsupported IPv6, changed
 assignments, WARP loss, Gate loss, node switching and explicit disconnect.
 Record unavailable isolated validation as `not_run`. The shared validation and
 publication rules are in [Contributing](../CONTRIBUTING.md#development-machines).
+
+---
+
+Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

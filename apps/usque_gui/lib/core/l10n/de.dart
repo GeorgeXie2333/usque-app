@@ -362,7 +362,9 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Das lässt sich nicht rückgängig machen. Usque trennt die Verbindung, löscht alle Konten samt Anmeldedaten und kehrt zur Ersteinrichtung zurück.',
   'clear_all_data_complete': 'Alle lokalen Usque-Daten wurden gelöscht.',
   'unofficial':
-      'Inoffizieller Client, kompatibel mit Cloudflare WARP. Nicht mit Cloudflare verbunden und nicht von Cloudflare empfohlen.',
+      'Inoffizieller Client, kompatibel mit den Diensten von Cloudflare® WARP®. Nicht mit Cloudflare, Inc. verbunden und nicht von diesem Unternehmen gesponsert oder empfohlen.',
+  'trademark_attribution':
+      'Cloudflare und WARP sind Marken und/oder eingetragene Marken von Cloudflare, Inc. in den Vereinigten Staaten und anderen Rechtsordnungen.',
   'welcome_title': 'Willkommen bei Usque',
   'setup_progress': 'Einrichtungsschritt {current} von {total}',
   'get_started': 'Loslegen',

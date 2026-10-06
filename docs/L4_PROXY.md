@@ -59,7 +59,7 @@ For shared terminology, see the [technical reference index](README.md#technical-
 
 | Loaded credential provider | Effective L4 SNI |
 | --- | --- |
-| Consumer (Free or WARP+) | `consumer-masque-proxy.cloudflareclient.com` |
+| Consumer (Free or WARP+®) | `consumer-masque-proxy.cloudflareclient.com` |
 | Zero Trust | `zt-masque-proxy.cloudflareclient.com` |
 
 The TLS credential loader provides the identity; profile labels and manually
@@ -77,7 +77,7 @@ The Zero Trust mapping comes from
 official long-term protocol guarantee. Source-derived vectors and attribution
 are in the [L4 interoperability fixture](../crates/usque-transport/tests/fixtures/l4/README.md).
 Live Consumer and Zero Trust reachability must be recorded separately; offline
-fixture success is not a Cloudflare account test.
+fixture success is not a Cloudflare® account test.
 
 ### Traffic behavior
 
@@ -248,3 +248,7 @@ observed leak safety and controlled performance measurements are **not run on
 a development workstation**. They require the distinct protected environments
 in [Contributing](../CONTRIBUTING.md#development-machines). Record missing or failed validation as `not_run` or `failed`. Publication policy
 is defined in the shared contribution and release guides.
+
+---
+
+Cloudflare and WARP+ are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

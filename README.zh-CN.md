@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — 兼容 Cloudflare WARP 的非官方客户端" width="100%">
+  <img src="assets/branding/usque-readme-banner.png" alt="Usque — 兼容 Cloudflare® WARP® 服务的非官方客户端" width="100%">
 </p>
 
 <p align="center">
@@ -25,12 +25,12 @@
 
 # Usque
 
-Usque 是面向 Windows 和 Android / Android TV 的非官方 Cloudflare WARP 客户端。它将系统 VPN、SOCKS5 和 HTTP 代理整合在原生 Flutter 界面中，由 Rust MASQUE 引擎提供网络能力。
+Usque 是面向 Windows 和 Android / Android TV 的兼容 Cloudflare® WARP® 服务的非官方客户端。它将系统 VPN、SOCKS5 和 HTTP 代理整合在原生 Flutter 界面中，由 Rust MASQUE 引擎提供网络能力。
 
 > [!IMPORTANT]
 > 请仅从 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建及未打标签的二进制均非正式发布。开发分支文档可能包含尚未发布的改动；请以安装包对应的发布说明和标签下文档为准。
 
-Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloudflare 与 WARP 是 Cloudflare, Inc. 的商标。使用个人版 WARP 仍须遵守 Cloudflare 的适用条款与隐私政策。
+Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系。 Cloudflare 和 WARP 是 Cloudflare, Inc. 在美国及其他司法管辖区的商标和/或注册商标。 使用个人版 WARP 服务仍须遵守 Cloudflare 的适用条款与隐私政策。
 
 ## 界面展示
 
@@ -68,7 +68,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 ## 首次连接
 
 1. 按[安装指南](docs/INSTALLATION.md#verify-before-installing)核验正式安装包，安装后打开 Usque。
-2. 完成首次启动的权限与条款步骤。Android 完成引导需要 VPN 授权，授权可能断开其他 VPN，但不会启动 Usque 连接；通知权限可选。注册个人版 WARP 账号，也可以填写 WARP License Key。若设置中断，先检查已保存结果再重新注册。目前不支持导入新的 WARP Secret。
+2. 完成首次启动的权限与条款步骤。Android 完成引导需要 VPN 授权，授权可能断开其他 VPN，但不会启动 Usque 连接；通知权限可选。注册个人版 WARP® 账号，也可以填写 WARP License Key。若设置中断，先检查已保存结果再重新注册。目前不支持导入新的 WARP Secret。
 3. 在 Windows 的“代理 → 虚拟网卡与本地代理”或 Android 的“代理 → VPN 与本地代理”中选择联网方式，然后在主页连接。开关立即生效，监听地址与 DNS 表单修改需要点击“应用修改”。仅代理运行不会因已授权而启动 VPN。
 
 | 联网方式 | 用途 |
@@ -126,8 +126,8 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 也可以选择 **DoH** 或 **DoT**，自行填写加密 DNS 服务器的域名和 IP 地址。
 查询会发送给该服务器；连接失败时不会改用明文 DNS。详见[配置步骤与示例](docs/encrypted-direct-dns.md)。
 
-其他远程 VPN 查询使用 WARP 或所选最终链式出口。HTTP/SOCKS5 链 DNS 默认经该代理使用
-校验 TLS 的 Cloudflare DoH；自定义或非默认继承 DNS 保留 TCP。在这两种出口下，应用指定的 UDP/53
+其他远程 VPN 查询使用 WARP 隧道或所选最终链式出口。HTTP/SOCKS5 链 DNS 默认经该代理使用
+校验 TLS 的 Cloudflare® DoH；自定义或非默认继承 DNS 保留 TCP。在这两种出口下，应用指定的 UDP/53
 查询转换为发往该解析器的 TCP，不回退到物理 DNS。详见[链 DNS 选择](docs/CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口)。
 手动设置的本地 DNS 和代理 DNS 仍按各自规则生效。
 应用自行使用加密 DNS 时，Usque 看不到域名，此时按 IP 判断是否直连。
@@ -136,7 +136,7 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 ### 实验性功能与支持范围
 
 [Zero Trust 注册](docs/ZERO_TRUST_EXPERIMENTAL.md)仍属实验性功能：可以用组织身份建立 MASQUE 公网隧道，
-但不提供完整的 Cloudflare One Client 功能。仓库保留 macOS 源码，但不构建或发布；
+但不提供完整的 Cloudflare One™ Client 功能。仓库保留 macOS 源码，但不构建或发布；
 当前也不提供 iOS 版本、应用商店分发或公开命令行工具。
 
 ## 默认网络设置
@@ -168,7 +168,7 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 | 需要了解 | 阅读文档 |
 | --- | --- |
 | 安装、更新、卸载与恢复 | [安装指南](docs/INSTALLATION.md) |
-| 通过 WARP 连接 Proton VPN | [WireGuard over MASQUE 教程](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE-zh-CN) |
+| 通过 WARP 隧道连接 Proton VPN | [WireGuard over MASQUE 教程](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE-zh-CN) |
 | 本地网络质量检查 | [Network Doctor](docs/network-doctor.md) |
 | 安全地构建和测试改动 | [贡献指南](CONTRIBUTING.md) |
 | 实现与验证状态 | [实现进度](docs/IMPLEMENTATION.md) |
@@ -183,3 +183,7 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 第一方源码采用 [MIT License](LICENSE.md)，第三方组件保留各自许可证。可选的[链式代理](docs/CHAIN_PROXY.md)内嵌 OpenVPN 3 Core（MPL-2.0）和 Mbed TLS（Apache-2.0）。对应源码、补丁和许可文本保存在 `third_party`；应用中的 VPN Gate 页面可查看原生依赖许可声明。
 
 WireGuard 使用 BoringTun 0.7.1（BSD-3-Clause），本地 SVG 图标使用 flutter_svg 2.3.0（MIT）；相应声明已纳入应用许可证列表。
+
+---
+
+Cloudflare、WARP 和 Cloudflare One 是 Cloudflare, Inc. 在美国及其他司法管辖区的商标和/或注册商标。

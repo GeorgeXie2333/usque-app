@@ -1,4 +1,4 @@
-# WARP WireGuard validation / 实现验证
+# WARP® WireGuard validation / 实现验证
 
 Date: 2026-09-23. Environment: Windows x64 development workstation.
 Baseline: `93ba595a98953df81343b86b663bbfcf32729f4e`; candidate: that commit plus
@@ -39,7 +39,7 @@ metadata bounds and secret filtering; appended capabilities; draft editing,
 generation without automatic selection, locale completeness, 200% text and TV
 remote selection. Existing WireGuard authentication/data/AllowedIPs/rekey,
 userspace UDP/DNS and lifecycle regression suites also passed. These deterministic
-tests do not simulate every behavior of Cloudflare's live service.
+tests do not simulate every behavior of Cloudflare, Inc.'s live service.
 
 All changed golden images were visually reviewed on Windows with the pinned SDK
 and fonts. Coverage includes the four-source picker, icons, retained VPN Gate
@@ -147,3 +147,7 @@ pixel changes are confined to the WARP source icon regions, including 18/20/24/3
 pixel sizes, selection, disabled/focus colors, phone/desktop and light/dark
 themes. The earlier feature-size measurements remain historical and were not
 rewritten for this icon change.
+
+---
+
+Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

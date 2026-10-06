@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — Cloudflare WARP와 호환되는 비공식 클라이언트" width="100%">
+  <img src="assets/branding/usque-readme-banner.png" alt="Usque — Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트" width="100%">
 </p>
 
 <p align="center">
@@ -25,12 +25,12 @@
 
 # Usque
 
-Usque는 Windows와 Android / Android TV용 비공식 Cloudflare WARP 클라이언트입니다. 시스템 VPN, SOCKS5, HTTP 프록시를 네이티브 Flutter 인터페이스에 모으고, Rust로 구현한 MASQUE 엔진으로 통신을 처리합니다.
+Usque는 Windows와 Android / Android TV용 Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트입니다. 시스템 VPN, SOCKS5, HTTP 프록시를 네이티브 Flutter 인터페이스에 모으고, Rust로 구현한 MASQUE 엔진으로 통신을 처리합니다.
 
 > [!IMPORTANT]
 > 공식 패키지는 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)에서만 다운로드하세요. Pull Request 산출물, 로컬 빌드, 태그가 없는 바이너리는 공식 릴리스가 아닙니다. 개발 브랜치 문서에는 아직 배포되지 않은 변경 사항이 포함될 수 있습니다. 사용 중인 패키지의 태그에 해당하는 릴리스 노트와 문서를 확인하세요.
 
-Usque는 독립 프로젝트입니다. Cloudflare와 제휴 관계가 없으며, 해당 회사의 후원이나 추천을 받지 않습니다. Cloudflare와 WARP는 Cloudflare, Inc.의 상표입니다. 개인용 WARP 사용에는 여전히 Cloudflare의 이용 약관과 개인정보 처리방침이 적용됩니다.
+Usque는 독립 프로젝트입니다. Cloudflare, Inc.와 제휴 관계가 없으며, 해당 회사의 후원이나 추천을 받지 않습니다. Cloudflare 및 WARP는 미국 및 기타 관할 지역에서 Cloudflare, Inc.의 상표 또는 등록 상표입니다. 개인용 WARP 서비스 사용에는 여전히 Cloudflare의 이용 약관과 개인정보 처리방침이 적용됩니다.
 
 ## 스크린샷
 
@@ -68,7 +68,7 @@ Usque는 독립 프로젝트입니다. Cloudflare와 제휴 관계가 없으며,
 ## 첫 연결
 
 1. [검증된 공식 패키지](docs/INSTALLATION.md#verify-before-installing)를 설치하고 Usque를 엽니다.
-2. 첫 실행의 권한 및 약관 단계를 완료합니다. Android에서는 설정을 마치려면 VPN 권한이 필요합니다. 권한을 허용하면 다른 VPN의 연결이 끊길 수 있지만, 그 자체로 Usque 연결을 시작하지는 않습니다. 알림 권한은 선택 사항입니다. 개인용 WARP 계정을 등록하고, 필요하면 WARP License Key를 입력합니다. 설정이 중단되었다면 다시 등록하기 전에 저장된 결과를 확인하세요. 새 WARP Secret 가져오기는 지원하지 않습니다.
+2. 첫 실행의 권한 및 약관 단계를 완료합니다. Android에서는 설정을 마치려면 VPN 권한이 필요합니다. 권한을 허용하면 다른 VPN의 연결이 끊길 수 있지만, 그 자체로 Usque 연결을 시작하지는 않습니다. 알림 권한은 선택 사항입니다. 개인용 WARP® 계정을 등록하고, 필요하면 WARP License Key를 입력합니다. 설정이 중단되었다면 다시 등록하기 전에 저장된 결과를 확인하세요. 새 WARP Secret 가져오기는 지원하지 않습니다.
 3. Windows에서는 **프록시 → 가상 네트워크 어댑터 및 로컬 프록시**, Android에서는 **프록시 → VPN 및 로컬 프록시**를 열어 사용할 연결 방식을 선택한 다음 홈에서 연결합니다. 스위치는 즉시 적용됩니다. 수신 대기 주소나 DNS 양식을 수정했다면 **변경 적용**이 필요합니다. 프록시만 사용하는 모드에서는 이미 받은 VPN 권한으로 VPN을 시작하지 않습니다.
 
 | 연결 방식 | 용도 |
@@ -134,8 +134,8 @@ Android의 **VPN을 사용하지 않는 연결 차단**도 켜져 있으면, 선
 이 리졸버가 질의를 받으며, 연결에 실패해도 평문 DNS로 바뀌지 않습니다.
 [설정 단계와 예시](docs/encrypted-direct-dns.md)를 참고하세요.
 
-그 밖의 원격 VPN 질의는 WARP 또는 선택한 최종 체인 출구를 사용합니다.
-HTTP/SOCKS5 체인 DNS는 기본적으로 해당 프록시를 통해 TLS를 검증하는 Cloudflare DoH를 사용합니다.
+그 밖의 원격 VPN 질의는 WARP 터널 또는 선택한 최종 체인 출구를 사용합니다.
+HTTP/SOCKS5 체인 DNS는 기본적으로 해당 프록시를 통해 TLS를 검증하는 Cloudflare® DoH를 사용합니다.
 사용자 지정 DNS나 기본값과 다른 상속 DNS는 TCP DNS를 유지합니다. 이 두 출구에서는 앱이 선택한 리졸버로 보내는 UDP/53 질의를 같은 리졸버로 보내는 TCP 질의로 변환하며, 물리 네트워크 DNS로 폴백하지 않습니다.
 [체인 DNS 선택지](docs/CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口)를 참고하세요.
 명시적인 로컬 DNS 및 프록시 DNS 설정도 계속 적용됩니다.
@@ -144,7 +144,7 @@ HTTP/SOCKS5 체인 DNS는 기본적으로 해당 프록시를 통해 TLS를 검�
 
 ### 실험적 기능과 지원하지 않는 범위
 
-[Zero Trust 등록](docs/ZERO_TRUST_EXPERIMENTAL.md)은 실험적 기능입니다. 조직의 ID로 MASQUE 인터넷 터널을 구성하지만, Cloudflare One Client의 모든 기능과 호환되지는 않습니다.
+[Zero Trust 등록](docs/ZERO_TRUST_EXPERIMENTAL.md)은 실험적 기능입니다. 조직의 ID로 MASQUE 인터넷 터널을 구성하지만, Cloudflare One™ Client의 모든 기능과 호환되지는 않습니다.
 macOS 소스는 보존하고 있으나 빌드하거나 배포하지 않습니다.
 iOS, 앱 스토어 배포, 공개 CLI는 이번 릴리스 범위에 포함되지 않습니다.
 
@@ -195,3 +195,7 @@ HTTP/2는 시스템 TCP를 사용합니다. [HTTP/3 혼잡 제어](docs/congesti
 선택적인 [체인 프록시](docs/CHAIN_PROXY.md)는 MPL-2.0의 OpenVPN 3 Core와 Apache-2.0의 Mbed TLS를 포함합니다.
 해당 소스, 검토한 패치, 라이선스 전문은 `third_party`에 있으며, 앱의 VPN Gate 페이지에서 라이선스 고지를 확인할 수 있습니다.
 WireGuard는 BoringTun 0.7.1(BSD-3-Clause)을, 로컬 SVG 아이콘은 flutter_svg 2.3.0(MIT)을 사용합니다. 해당 고지는 앱의 라이선스 목록에도 포함되어 있습니다.
+
+---
+
+Cloudflare, WARP 및 Cloudflare One은 미국 및 기타 관할 지역에서 Cloudflare, Inc.의 상표 또는 등록 상표입니다.

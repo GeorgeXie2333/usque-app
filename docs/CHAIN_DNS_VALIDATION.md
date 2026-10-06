@@ -45,7 +45,7 @@ review found no further definite defect in those changes or the no-TUN harness.
 The user explicitly authorized a temporary local high-port SOCKS5 test and
 provided a temporary WireGuard configuration, while forbidding TUN. The harness
 copies the existing nonsecret app settings into a test-owned temporary directory,
-reads the existing WARP identity, and writes pin-refresh results only to a memory
+reads the existing WARP® identity, and writes pin-refresh results only to a memory
 vault. The supplied WireGuard configuration is imported into a temporary encrypted
 DPAPI record; its plaintext, keys and original file are not copied into the repo.
 
@@ -171,3 +171,7 @@ The required commands are the Windows helper Clippy/test/release commands,
 Android debug configuration-only, ktlint/unit tests/lint, repository policy and
 `git diff --check`, as specified in [Contributing](../CONTRIBUTING.md).
 No MSI/release APK, installation, official signing or publication is included.
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

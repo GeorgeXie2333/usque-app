@@ -386,7 +386,7 @@ contents are recorded or committed.
 Earlier third-party HTTP CLI results were not a valid absolute-throughput
 baseline. The official Ookla CLI and the same browser page both demonstrated
 substantially faster direct upload. The follow-up uses the browser page for
-the comparisons below. Different WARP exits and an uncontrolled workstation
+the comparisons below. Different WARP® exits and an uncontrolled workstation
 remain confounders: these results are not Android TUN or performance-lab
 certification.
 
@@ -1087,3 +1087,7 @@ remain `not_run`; no installation or system-network mutation was performed.
 This change reintroduces the sender change withdrawn with `197b1f2`. The
 device comparison that the baseline-restoration record requires for a
 reintroduction is `not_run`; the Windows SOCKS pairs above do not replace it.
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

@@ -1,4 +1,4 @@
-# WARP WireGuard registration fix / 注册修复验证
+# WARP® WireGuard registration fix / 注册修复验证
 
 Date: 2026-09-24. Environment: Windows x64 development workstation.
 Baseline: `fb66778d4369a411a343a9839fd0e1b2343f3773`; candidate: that commit plus
@@ -128,7 +128,7 @@ git diff --check
 
 | Validation | Status and reason |
 | --- | --- |
-| Live Cloudflare registration, generated-profile traffic and endpoint scanning | `not_run`: no dedicated MASQUE test configuration supplied through `USQUE_LIVE_CONFIG`; fixtures do not prove live service compatibility |
+| Live Cloudflare® registration, generated-profile traffic and endpoint scanning | `not_run`: no dedicated MASQUE test configuration supplied through `USQUE_LIVE_CONFIG`; fixtures do not prove live service compatibility |
 | Android/TV disconnected registration and scanning on device, process/Doze/Lockdown recovery | `not_run`: no dedicated device or isolated emulator |
 | Windows VPN/Wintun, platform changes and restoration | `not_run`: requires the isolated snapshot VM and independent management channel |
 | Externally observed IPv4/IPv6/DNS leak behavior | `not_run`: requires the network-observer environment |
@@ -138,3 +138,7 @@ git diff --check
 已修复注册响应与端口解析、临时会话的凭据依赖，并补充可区分失败阶段的错误
 提示。真实 Cloudflare 注册和 Android 真机复测尚未运行，不能据此断言用户设备
 上的问题已经通过黑盒验证。此次仅执行安全的源码检查、内存测试和编译验证。
+
+---
+
+Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

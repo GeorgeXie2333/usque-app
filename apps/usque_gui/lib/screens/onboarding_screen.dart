@@ -348,6 +348,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                             ),
                             const SizedBox(height: 28),
                             _buildActions(context),
+                            const SizedBox(height: 24),
+                            Text(
+                              strings.get('trademark_attribution'),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                    height: 1.5,
+                                  ),
+                            ),
                           ],
                         ),
                       ),

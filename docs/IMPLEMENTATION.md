@@ -101,7 +101,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Model strict endpoint-pin requirements and structured failures.
 - [x] Implement IP.SB dual-stack and geo-location probing interfaces.
 - [x] Add log redaction for secret fields and values.
-- [x] Implement Consumer WARP and WARP License Key registration; retain Secret parsing for stored identities with zeroized temporary buffers. New Secret import is removed from the UI and rejected by the provisioning API.
+- [x] Implement Consumer WARP® and WARP License Key registration; retain Secret parsing for stored identities with zeroized temporary buffers. New Secret import is removed from the UI and rejected by the provisioning API.
 - [x] Add experimental Zero Trust Access callback exchange, secure provider metadata plus a non-secret profile binding, registered endpoint discovery, and rollback-safe profile commits.
 - [x] Port the Abobo7 P-256 Endpoint Pin semantics and authenticated one-shot refresh.
 - [x] Implement bounded RFC 9484 ADDRESS_ASSIGN, ADDRESS_REQUEST, and ROUTE_ADVERTISEMENT codecs.
@@ -249,3 +249,7 @@ mismatched evidence is rejected. Broader per-artifact clean-machine coverage
 and numeric Go-oracle comparison targets remain outstanding.
 
 How the current stable tag is built and published is in [RELEASE.md](RELEASE.md).
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

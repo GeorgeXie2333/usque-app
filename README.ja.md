@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — Cloudflare WARP と互換性のある非公式クライアント" width="100%">
+  <img src="assets/branding/usque-readme-banner.png" alt="Usque — Cloudflare® WARP® サービスと互換性のある非公式クライアント" width="100%">
 </p>
 
 <p align="center">
@@ -25,12 +25,12 @@
 
 # Usque
 
-Usque は Windows と Android / Android TV 向けの非公式 Cloudflare WARP クライアントです。システム VPN、SOCKS5、HTTP プロキシをネイティブの Flutter インターフェースにまとめ、Rust 製の MASQUE エンジンで通信を処理します。
+Usque は Windows と Android / Android TV 向けのCloudflare® WARP® サービスと互換性のある非公式クライアントです。システム VPN、SOCKS5、HTTP プロキシをネイティブの Flutter インターフェースにまとめ、Rust 製の MASQUE エンジンで通信を処理します。
 
 > [!IMPORTANT]
 > 正式なパッケージは [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) からのみダウンロードしてください。Pull Request の成果物、ローカルビルド、タグのないバイナリは正式リリースではありません。開発ブランチの文書には未公開の変更が含まれる場合があります。使用するパッケージのタグに対応したリリースノートと文書を確認してください。
 
-Usque は独立したプロジェクトです。Cloudflare との提携関係はなく、同社からの支援や推奨も受けていません。Cloudflare と WARP は Cloudflare, Inc. の商標です。個人向け WARP の利用には、引き続き Cloudflare の利用規約とプライバシーポリシーが適用されます。
+Usque は独立したプロジェクトです。Cloudflare, Inc. との提携関係はなく、同社からの支援や推奨も受けていません。 Cloudflare および WARP は、米国およびその他の法域における Cloudflare, Inc. の商標または登録商標です。 個人向け WARP サービスの利用には、引き続き Cloudflare の利用規約とプライバシーポリシーが適用されます。
 
 ## スクリーンショット
 
@@ -68,7 +68,7 @@ Usque は独立したプロジェクトです。Cloudflare との提携関係は
 ## 初めての接続
 
 1. [検証済みの正式パッケージ](docs/INSTALLATION.md#verify-before-installing)をインストールし、Usque を開きます。
-2. 初回起動の権限と利用規約の手順を完了します。Android ではセットアップの完了に VPN の許可が必要です。許可すると別の VPN が切断される場合がありますが、それだけでは Usque の接続は開始されません。通知の許可は任意です。個人向け WARP アカウントを登録し、必要に応じて WARP License Key を入力します。セットアップが中断された場合は、再登録の前に保存済みの結果を確認してください。新しい WARP Secret のインポートには対応していません。
+2. 初回起動の権限と利用規約の手順を完了します。Android ではセットアップの完了に VPN の許可が必要です。許可すると別の VPN が切断される場合がありますが、それだけでは Usque の接続は開始されません。通知の許可は任意です。個人向け WARP® アカウントを登録し、必要に応じて WARP License Key を入力します。セットアップが中断された場合は、再登録の前に保存済みの結果を確認してください。新しい WARP Secret のインポートには対応していません。
 3. Windows では **プロキシ → 仮想ネットワークアダプター とローカルプロキシ**、Android では **プロキシ → VPN とローカルプロキシ** を開き、使用する接続方式を選んでホームから接続します。スイッチは即座に反映されます。待ち受けアドレスや DNS のフォームを編集した場合は、**変更を適用** が必要です。プロキシのみの動作では、取得済みの VPN 権限を使って VPN を開始することはありません。
 
 | 接続方式 | 用途 |
@@ -134,8 +134,8 @@ Android の **VPN 以外の接続をブロック** も有効にしている場�
 そのリゾルバーが問い合わせを受け取り、接続失敗時に平文 DNS へ切り替えることはありません。
 [設定手順と例](docs/encrypted-direct-dns.md)を参照してください。
 
-その他のリモート VPN 問い合わせには WARP または選択した最終チェーン出口を使用します。
-HTTP/SOCKS5 のチェーン DNS は、既定でそのプロキシ経由の TLS 検証付き Cloudflare DoH を使用します。
+その他のリモート VPN 問い合わせには WARP トンネルまたは選択した最終チェーン出口を使用します。
+HTTP/SOCKS5 のチェーン DNS は、既定でそのプロキシ経由の TLS 検証付き Cloudflare® DoH を使用します。
 カスタム DNS や既定値以外の継承 DNS は TCP DNS を維持します。この 2 種類の出口では、アプリが選んだリゾルバーへの UDP/53 問い合わせを、同じリゾルバーへの TCP 問い合わせに変換します。物理ネットワークの DNS にはフォールバックしません。
 [チェーン DNS の選択肢](docs/CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口)を参照してください。
 明示的なローカル DNS とプロキシ DNS の設定も引き続き適用されます。
@@ -144,7 +144,7 @@ HTTP/SOCKS5 のチェーン DNS は、既定でそのプロキシ経由の TLS �
 
 ### 実験的な機能と未対応の範囲
 
-[Zero Trust 登録](docs/ZERO_TRUST_EXPERIMENTAL.md)は実験的な機能です。組織の ID を使って MASQUE インターネットトンネルを構成しますが、Cloudflare One Client の全機能との互換性は提供しません。
+[Zero Trust 登録](docs/ZERO_TRUST_EXPERIMENTAL.md)は実験的な機能です。組織の ID を使って MASQUE インターネットトンネルを構成しますが、Cloudflare One™ Client の全機能との互換性は提供しません。
 macOS のソースは保持していますが、ビルドやリリースは行いません。
 iOS、アプリストアでの配布、公開 CLI は今回のリリース範囲に含まれません。
 
@@ -195,3 +195,7 @@ HTTP/2 はシステムの TCP を使用します。[HTTP/3 輻輳制御](docs/co
 任意の[チェーンプロキシ](docs/CHAIN_PROXY.md)は、MPL-2.0 の OpenVPN 3 Core と Apache-2.0 の Mbed TLS を組み込みます。
 対応するソース、レビュー済みのパッチ、ライセンス本文は `third_party` に含まれ、アプリの VPN Gate ページからライセンス表示を確認できます。
 WireGuard は BoringTun 0.7.1（BSD-3-Clause）、ローカル SVG アイコンは flutter_svg 2.3.0（MIT）を使用します。これらのライセンス表示もアプリのライセンス一覧に含まれています。
+
+---
+
+Cloudflare、WARP および Cloudflare One は、米国およびその他の法域における Cloudflare, Inc. の商標または登録商標です。

@@ -24,8 +24,9 @@ Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状�
 
 ## Editing and navigation
 
-- First launch keeps four steps: welcome, system permissions, Cloudflare terms and account setup. Android requires VPN authorization in the permissions step; notification authorization is optional and is requested afterward. Authorizing VPN may disconnect another VPN app, but onboarding does not start a connection. Previously completed installations enter Home normally, and connection startup rechecks revoked VPN authorization.
-- The terms step opens Cloudflare's application terms and the distinct personal WARP and Zero Trust privacy policies in the system browser. Confirmation and step progress are saved locally without credentials. Account setup uses the native initial-identity operation, preserves an existing ready account, and checks an uncertain result before allowing a new attempt. Interrupted attempts require fresh user input; License Keys and login callbacks are never replayed from a saved draft.
+- First launch keeps four steps: welcome, system permissions, Cloudflare, Inc. terms and account setup. Android requires VPN authorization in the permissions step; notification authorization is optional and is requested afterward. Authorizing VPN may disconnect another VPN app, but onboarding does not start a connection. Previously completed installations enter Home normally, and connection startup rechecks revoked VPN authorization.
+- The welcome copy identifies Usque as an unofficial client compatible with Cloudflare® WARP® services, with no affiliation, sponsorship or endorsement. All 21 language catalogs include a localized trademark attribution after the navigation actions on every setup step; it stays reachable by scrolling on small screens and with large text.
+- The terms step opens Cloudflare's application terms and the distinct personal WARP® and Zero Trust privacy policies in the system browser. Confirmation and step progress are saved locally without credentials. Account setup uses the native initial-identity operation, preserves an existing ready account, and checks an uncertain result before allowing a new attempt. Interrupted attempts require fresh user input; License Keys and login callbacks are never replayed from a saved draft.
 - 首次引导仍为欢迎、系统权限、Cloudflare 条款、账号设置四步。Android 必须先授权 VPN，通知权限可拒绝；授权本身不启动连接，且可能断开其他 VPN。已注册账号会被保留；通信超时后先检查原操作结果，确定中断后才由用户重新输入并重试。
 
 - Accounts select WARP identities; network settings are shared across accounts.
@@ -58,3 +59,7 @@ Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状�
 - Use the existing brand colors, bundled fonts and locale fallbacks. Primary controls have a minimum 48-pixel target; status indicators do not rely on color alone. Layout code must use the existing network observations without creating probes, sampling timers or history persistence.
 
 The workflow and native-layout widget tests use a fake engine and cover connected detail expansion, repeated collapse/restore, selectable-value copying, action-row focus and keyboard/D-pad activation, status-label contrast, narrow/landscape layouts, 200% text, and reduced motion. The `golden` suite additionally checks real-font layouts and exact Windows-pinned screenshots, including accounts, settings, proxy editors, onboarding, diagnostics, dialogs and expanded home details; neither suite starts a VPN or proves native networking behavior.
+
+---
+
+Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

@@ -358,7 +358,9 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Bu işlem geri alınamaz. Bağlantı kesilir, tüm hesaplar ve oturum açma bilgileri silinir, ilk kurulum ekranı açılır.',
   'clear_all_data_complete': 'Tüm yerel Usque verileri temizlendi.',
   'unofficial':
-      'Cloudflare WARP ile uyumlu, resmi olmayan bir istemci. Cloudflare ile bağlantılı değildir ve Cloudflare tarafından onaylanmamıştır.',
+      'Cloudflare® WARP® hizmetleriyle uyumlu, resmi olmayan bir istemci. Cloudflare, Inc. ile bağlantılı değildir; şirket tarafından desteklenmez veya onaylanmaz.',
+  'trademark_attribution':
+      'Cloudflare ve WARP, Cloudflare, Inc. şirketinin Amerika Birleşik Devletleri ve diğer yargı bölgelerindeki ticari markaları ve/veya tescilli ticari markalarıdır.',
   'welcome_title': 'Usque’ye hoş geldiniz',
   'setup_progress': 'Kurulum adımı {current} / {total}',
   'get_started': 'Başlayın',

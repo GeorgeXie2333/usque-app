@@ -282,7 +282,7 @@ instead of using the network directly.
 ### Remove the app
 
 Android removes Usque's private data and Keystore entries during uninstall.
-You can export a Consumer WARP Secret beforehand, but Usque does not accept new
+You can export a Consumer WARP® Secret beforehand, but Usque does not accept new
 Secret imports, so that export cannot restore the account in Usque after a
 reinstall. Secrets are excluded from diagnostics and ordinary settings backups.
 
@@ -313,7 +313,7 @@ Country-based direct rules are optional. System DNS sends matching domain
 queries to the current network's DNS servers outside the VPN; DoH and DoT send
 them to your chosen encrypted resolver without a plaintext fallback.
 
-Other remote VPN queries use the final tunnel's DNS: WARP normally, VPN Gate
+Other remote VPN queries use the final tunnel's DNS: the WARP tunnel normally, VPN Gate
 when enabled. Explicit local and proxy DNS choices still apply. Apps with their
 own encrypted DNS hide names from Usque, which then classifies destinations by IP.
 See [Direct DNS](encrypted-direct-dns.md) for setup and limitations.
@@ -339,3 +339,7 @@ for suspected vulnerabilities.
 Maintainers must use the [required isolated environments](../CONTRIBUTING.md#development-machines)
 for real install, upgrade, VPN and cleanup validation. A compile or file check
 does not establish those results.
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

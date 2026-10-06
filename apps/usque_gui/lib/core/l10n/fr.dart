@@ -367,7 +367,9 @@ const Map<String, String> kFrCatalog = <String, String>{
   'clear_all_data_complete':
       'Toutes les données locales Usque ont été effacées.',
   'unofficial':
-      'Client non officiel compatible avec Cloudflare WARP. Non affilié à Cloudflare ni approuvé par Cloudflare.',
+      'Client non officiel compatible avec les services Cloudflare® WARP®. Ni affilié à Cloudflare, Inc., ni parrainé ou approuvé par cette société.',
+  'trademark_attribution':
+      'Cloudflare et WARP sont des marques commerciales et/ou des marques déposées de Cloudflare, Inc. aux États-Unis et dans d’autres juridictions.',
   'welcome_title': 'Bienvenue dans Usque',
   'setup_progress': 'Étape {current} sur {total}',
   'get_started': 'Commencer',

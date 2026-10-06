@@ -98,7 +98,7 @@ change networking. No MSI or release APK was built.
   downloaded snapshot remains an ignored local input, not a source fixture.
 - Downloader fixtures exercise Raw priority, timeout, complete-response CDN
   racing, invalid winners, bounded responses, cancellation, coalescing, the one
-  WARP fallback and temporary-session close. Directory tests cover nullable
+  WARP® fallback and temporary-session close. Directory tests cover nullable
   required fields, IDs, hashes, limits, supported TCP profiles, country counts,
   pinned snapshots and stale selection rejection. Two 256-case property tests
   exercise arbitrary and mutated parser input.
@@ -200,3 +200,7 @@ these fixes; their separate UI/bitmap, IPC, interop-feature and tooling suites
 were not rerun. No MSI/release APK was built or installed. Real Android/Windows
 TUN handoff, DNS reachability, WFP and leak observation remain **not run** and
 require the isolated environments above.
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

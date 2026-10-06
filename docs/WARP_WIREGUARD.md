@@ -1,4 +1,4 @@
-# WARP via WireGuard / WARP WireGuard 出口
+# WARP® via WireGuard / WARP WireGuard 出口
 
 Open **Proxy → Chain proxy → WARP via WireGuard**. This source uses
 `Application → MASQUE WARP → WireGuard WARP → Internet` on Windows, Android
@@ -83,7 +83,7 @@ retired encrypted sidecar files after workers stop.
 
 Generation registers a new WireGuard identity. If it fails, the message
 distinguishes missing account credentials, temporary MASQUE
-startup failure, and Cloudflare registration failure. A registration code such
+startup failure, and Cloudflare® registration failure. A registration code such
 as `registration_create_http_403`, `registration_device_timeout` or
 `registration_create_tls` identifies the operation and HTTP/transport failure.
 Only bounded error codes are shown; tokens, private keys and server response
@@ -134,3 +134,7 @@ Historical validation: [implementation validation](WARP_WIREGUARD_VALIDATION.md)
 [registration fix](WARP_WIREGUARD_REGISTRATION_FIX.md), and
 [former scan validation](WARP_WIREGUARD_SCAN_VALIDATION.md). These records describe
 their original candidates, including the removed scanner.
+
+---
+
+Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

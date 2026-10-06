@@ -358,7 +358,9 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Não é possível desfazer. O Usque desconectará, apagará todas as contas e dados de login e voltará à configuração inicial.',
   'clear_all_data_complete': 'Todos os dados locais do Usque foram limpos.',
   'unofficial':
-      'Cliente não oficial compatível com Cloudflare WARP. Não é afiliado nem endossado pela Cloudflare.',
+      'Cliente não oficial compatível com os serviços Cloudflare® WARP®. Não é afiliado, patrocinado nem endossado pela Cloudflare, Inc.',
+  'trademark_attribution':
+      'Cloudflare e WARP são marcas comerciais e/ou marcas registradas da Cloudflare, Inc. nos Estados Unidos e em outras jurisdições.',
   'welcome_title': 'Bem-vindo ao Usque',
   'setup_progress': 'Etapa {current} de {total} da configuração',
   'get_started': 'Começar',

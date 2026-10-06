@@ -637,7 +637,7 @@ these checks are **not_run** on the development machine.
 
 The Engine retains a failed HTTP/SOCKS VPN owner while its applied Kill Switch
 is on. It stops final admission and packet forwarding without calling ordinary
-disconnect or dropping the Agent lease. Retry rebuilds a stopped WARP runtime;
+disconnect or dropping the Agent lease. Retry rebuilds a stopped WARP® runtime;
 changing accounts or settings that need a new transaction uses the protected
 replacement capability. Live HTTP/SOCKS VPN sessions also use this handoff with
 Kill Switch off: that preference controls terminal-failure cleanup, not a gap
@@ -660,3 +660,7 @@ a new session from bypassing unfinished restoration. A lost replacement-abort
 reply is accepted as complete only after the authenticated Agent reports that
 same target aborted and all ordinary state clean; unrelated operations and
 unknown state never authorize removal of another session's protection.
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

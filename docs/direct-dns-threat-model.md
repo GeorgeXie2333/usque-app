@@ -15,13 +15,13 @@ Root `SECURITY.md` is the applicable policy; no nested policy was found.
 Behavior notes follow the current development source, including HTTP/SOCKS5
 chain DNS. They do not extend the recorded independent review or turn its
 candidate-specific evidence into v0.2.9 leak validation. HTTP/SOCKS5 Automatic
-chain DNS defaults to Cloudflare DoH over verified TLS through the final proxy;
+chain DNS defaults to Cloudflare® DoH over verified TLS through the final proxy;
 custom or non-default inherited DNS retains TCP DNS. That final proxy and DNS
 provider have separate visibility from an explicitly direct resolver. A chosen
 application resolver remains the TCP destination for converted UDP/53 queries;
 there is no physical fallback. See [chain DNS choices](CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口).
 
-Ordinary WARP also supports explicit-bootstrap DoH and DoT inside the tunnel;
+The ordinary WARP® service also supports explicit-bootstrap DoH and DoT inside the tunnel;
 see [WARP exit DNS](WARP_DNS.md). Its encrypted connector never creates a
 physical resolver socket. The WARP pool is distinct from the direct-DNS pool,
 and final chain exits retain their own DNS choices. These source changes do
@@ -61,7 +61,7 @@ validity TLS, no early data, DoH h2 POST/200, and DoT length framing. DoH has
 
 | Deployment / consumer | Configuration chain and effective resource | Readers / writers / recipients | Enforcing control and evidence / unknowns |
 | --- | --- | --- | --- |
-| Windows VPN / System Split DNS | Shared Profile → physical snapshot → internal `198.18.0.1` / `fd00::1` → physical DNS endpoints | User config; Agent snapshot; physical provider receives direct QNAME; other names use WARP or the active chain exit's DNS policy, including HTTP/SOCKS5 DoH or TCP | Target-aware leases, generation checks, WFP permits when Kill Switch is on; `crates/usque-engine/src/windows_agent.rs` `WindowsVpnSocketProtector::protect_target_generation`; `crates/usque-transport/src/split_dns.rs` `SplitDnsResolver::query_direct`, `SplitDnsResolver::query_tunnel`. External observer `not_run`. |
+| Windows VPN / System Split DNS | Shared Profile → physical snapshot → internal `198.18.0.1` / `fd00::1` → physical DNS endpoints | User config; Agent snapshot; physical provider receives direct QNAME; other names use the WARP tunnel or the active chain exit's DNS policy, including HTTP/SOCKS5 DoH or TCP | Target-aware leases, generation checks, WFP permits when Kill Switch is on; `crates/usque-engine/src/windows_agent.rs` `WindowsVpnSocketProtector::protect_target_generation`; `crates/usque-transport/src/split_dns.rs` `SplitDnsResolver::query_direct`, `SplitDnsResolver::query_tunnel`. External observer `not_run`. |
 | Android VPN / System Split DNS | Profile → internal listeners → selected LinkProperties DNS, preserving IPv6 scope | User config; selected non-VPN Network DNS provider | VpnService protect + Network bind, stale-response SERVFAIL; `apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/PhysicalNetworkMonitor.kt` `selectUnderlyingNetwork`; `crates/usque-transport/src/split_dns.rs` `SplitDnsResolver::handle`, `reply_for_generation`. Device/observer `not_run`. |
 | Windows VPN / DoH or DoT | Profile → PacketStack → ConfiguredDnsProtector → explicit numeric bootstrap; encrypted bounds | User-selected encrypted provider sees direct QNAME; physical DNS metadata is not consumed by resolver | Agent exact-generation target TCP lease/interface/WFP; `crates/usque-agent/src/windows/server.rs` `AgentService::acquire_direct_egress`; `crates/usque-transport/src/encrypted_dns.rs` `EncryptedResolver::connect_one`. Startup still reads physical metadata for network state, not fallback. Observer `not_run`. |
 | Android VPN / DoH or DoT | Android JSON → core validation → exact-Network resolver; encrypted bounds | User-selected encrypted provider; no system bootstrap lookup | Protect before exact Network bind; `crates/usque-android/src/lib.rs` `AndroidSocketProtector::bind_socket_for_generation`; `crates/usque-transport/src/encrypted_dns.rs` `EncryptedResolver::connect_one`. PR-12 removes unnecessary physical-DNS-list startup dependency; a usable non-VPN network is still required. Device `not_run`. |
@@ -200,3 +200,7 @@ cannot rescue an enabled but invalid GEO catalog during startup. Proxy-only
 chain underlays clear custom targets together with GEO and address exclusions.
 Real VPN cleanup and externally observed leak tests remain `not_run` without
 the required isolated environments.
+
+---
+
+Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

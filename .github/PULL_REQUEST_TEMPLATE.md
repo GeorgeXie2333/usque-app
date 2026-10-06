@@ -36,6 +36,10 @@ deterministic checks, compile-only gates, and release approvals remain required.
 ## Checklist
 
 - [ ] The PR title follows Conventional Commits.
-- [ ] No signing key, WARP Secret, token, license, device ID, endpoint pin, diagnostic bundle, or generated package is committed.
+- [ ] No signing key, WARP® Secret, token, license, device ID, endpoint pin, diagnostic bundle, or generated package is committed.
 - [ ] This change does not add WebView UI, insecure TLS, automatic telemetry, or automatic diagnostic upload.
 - [ ] I read `CONTRIBUTING.md`, `SECURITY.md`, and the Code of Conduct.
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

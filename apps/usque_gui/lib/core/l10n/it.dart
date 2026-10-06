@@ -363,7 +363,9 @@ const Map<String, String> kItCatalog = <String, String>{
   'clear_all_data_complete':
       'Tutti i dati locali di Usque sono stati cancellati.',
   'unofficial':
-      'Client non ufficiale compatibile con Cloudflare WARP. Non affiliato né approvato da Cloudflare.',
+      'Client non ufficiale compatibile con i servizi Cloudflare® WARP®. Non affiliato, sponsorizzato né approvato da Cloudflare, Inc.',
+  'trademark_attribution':
+      'Cloudflare e WARP sono marchi e/o marchi registrati di Cloudflare, Inc. negli Stati Uniti e in altre giurisdizioni.',
   'welcome_title': 'Benvenuti in Usque',
   'setup_progress': 'Passaggio {current} di {total}',
   'get_started': 'Inizia',

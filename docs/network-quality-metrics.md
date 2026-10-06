@@ -14,7 +14,7 @@ One snapshot captures one selected attempt, and a promotion resets interval-loss
 and classification baselines without replacing the runtime's sampler.
 
 HTTP and SOCKS5 chain exits combine their own application traffic counters with
-the selected WARP transport's quality observations. Proxy handshakes and WARP
+the selected WARP® transport's quality observations. Proxy handshakes and WARP
 overhead are not counted again as application traffic. RTT, loss, congestion,
 PMTU and socket observations describe the WARP path, not an end-to-end probe of
 the final proxy or destination. Unsupported H2 and L4 metrics remain unavailable.
@@ -342,3 +342,7 @@ not measured zero. H2 and H3 groups are only present for the corresponding
 active transport. Detailed fields are exported locally through existing
 diagnostics, with fixed numeric allowlists and bounded histograms on Android.
 No packet data, destinations, credentials, or automatic upload are added.
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

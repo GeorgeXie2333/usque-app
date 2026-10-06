@@ -15,8 +15,8 @@ Usque {{release_tag}} 是一个功能与可靠性版本，新增 HTTP 与 SOCKS5
 
 ## Highlights / 更新亮点 ✨
 
-- **HTTP and SOCKS5 chain exits** — Add a proxy server in Proxy → Chain proxy alongside OpenVPN, WireGuard, WARP via WireGuard and VPN Gate. The final proxy connects through WARP and supports optional username/password authentication. Automatic chain DNS uses encrypted DoH by default; ordinary UDP depends on the exit's capabilities.
-  <br>**HTTP 与 SOCKS5 链式出口** — 在“代理 → 链式代理”添加代理服务器，与 OpenVPN、WireGuard、WARP via WireGuard 和 VPN Gate 一起选用。最终代理通过 WARP 连接，可选用户名与密码认证。自动链 DNS 默认使用加密 DoH；普通 UDP 是否可用取决于出口能力。
+- **HTTP and SOCKS5 chain exits** — Add a proxy server in Proxy → Chain proxy alongside OpenVPN, WireGuard, WARP® via WireGuard and VPN Gate. The final proxy connects through the WARP tunnel and supports optional username/password authentication. Automatic chain DNS uses encrypted DoH by default; ordinary UDP depends on the exit's capabilities.
+  <br>**HTTP 与 SOCKS5 链式出口** — 在“代理 → 链式代理”添加代理服务器，与 OpenVPN、WireGuard、WARP via WireGuard 和 VPN Gate 一起选用。最终代理通过 WARP 隧道连接，可选用户名与密码认证。自动链 DNS 默认使用加密 DoH；普通 UDP 是否可用取决于出口能力。
 
 - **Custom bypass targets** — Enter CIDRs, individual IP addresses or domains in Settings → bypass settings, then apply. Domains include their subdomains and work without downloading country rules. These are explicit direct-traffic exceptions, shared across accounts.
   <br>**自定义绕过目标** — 在“设置 → 绕过分流设置”填写 CIDR、单个 IP 或域名并应用。域名包含其子域名，无需下载国家规则即可使用。这些规则是明确的直连例外，由所有账号共用。
@@ -72,7 +72,7 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 <summary>Upgrade behavior and compatibility / 升级行为与兼容性</summary>
 
 - **The chain proxy is off for new installations; saved selections are retained.** Select and apply one exit to use it. A terminal exit failure stops final traffic without a WARP-only fallback. HTTP/SOCKS VPN sessions retain blocking according to the applied Kill Switch and handoff policy; unconfirmed cleanup never releases protection. Android system Always-on VPN and Block connections without VPN are still required for blocking after the VPN process ends. Explicit direct rules still apply.
-  <br>**新安装默认关闭链式代理，升级保留已保存的选择。** 选择并应用一个出口后才会使用。出口终止失败会停止最终流量，不会退回仅使用 WARP。HTTP/SOCKS VPN 会话按已生效的 Kill Switch 与交接策略保留阻断；清理未确认时不会解除保护。Android 若需要在 VPN 进程结束后继续阻断，仍须启用系统的“始终开启的 VPN”和“阻止未使用 VPN 的连接”。显式直连规则继续生效。
+  <br>**新安装默认关闭链式代理，升级保留已保存的选择。** 选择并应用一个出口后才会使用。出口终止失败会停止最终流量，不会退回仅使用 WARP 隧道。HTTP/SOCKS VPN 会话按已生效的 Kill Switch 与交接策略保留阻断；清理未确认时不会解除保护。Android 若需要在 VPN 进程结束后继续阻断，仍须启用系统的“始终开启的 VPN”和“阻止未使用 VPN 的连接”。显式直连规则继续生效。
 
 - **UDP-based exits require non-L4 mode.** OpenVPN over UDP, WireGuard and WARP via WireGuard cannot be enabled with experimental L4; the page prompts you to switch to non-L4 mode and apply.
   <br>**基于 UDP 的出口需要非 L4 模式。** OpenVPN UDP、WireGuard 和 WARP via WireGuard 不能在实验性 L4 下启用，页面会提示切换为非 L4 模式并应用。
@@ -91,16 +91,16 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 <details>
 <summary>Technical changes / 技术改动详情</summary>
 
-- VPN-protocol exits connect through WARP, negotiate and authenticate, apply their final network configuration, and only then admit traffic. HTTP/SOCKS5 exits also connect through WARP, with final TCP connections using CONNECT. Exit endpoint names resolve inside WARP and protocol UDP uses WARP's private network stack, so Usque opens no physical socket to the exit server. OpenVPN moves to its next listed server only after DNS, dial, transport-close or timeout failures, within a 120-second candidate budget; authentication, certificate and configuration errors stop immediately. WireGuard accepts one peer and enforces partial AllowedIPs in both directions. With H3, UDP-based exits cap TCP MSS for the nested encapsulation.
-  <br>VPN 协议出口先经 WARP 连接、完成协商与认证并应用最终网络配置，之后才接收流量。HTTP/SOCKS5 出口同样经 WARP 连接，最终 TCP 连接使用 CONNECT。出口服务器域名在 WARP 内解析，协议 UDP 使用 WARP 私有网络栈，Usque 不会为出口服务器打开物理网络套接字。OpenVPN 仅在 DNS、拨号、传输关闭或超时失败时尝试下一个服务器，候选阶段总计最多 120 秒；认证、证书和配置错误会立即停止。WireGuard 支持单个 Peer，并在收发两个方向执行部分 AllowedIPs。使用 H3 时，基于 UDP 的出口会按嵌套封装开销限制 TCP MSS。
+- VPN-protocol exits connect through the WARP tunnel, negotiate and authenticate, apply their final network configuration, and only then admit traffic. HTTP/SOCKS5 exits also connect through the WARP tunnel, with final TCP connections using CONNECT. Exit endpoint names resolve inside the WARP tunnel and protocol UDP uses the WARP service's private network stack, so Usque opens no physical socket to the exit server. OpenVPN moves to its next listed server only after DNS, dial, transport-close or timeout failures, within a 120-second candidate budget; authentication, certificate and configuration errors stop immediately. WireGuard accepts one peer and enforces partial AllowedIPs in both directions. With H3, UDP-based exits cap TCP MSS for the nested encapsulation.
+  <br>VPN 协议出口先经 WARP 隧道连接、完成协商与认证并应用最终网络配置，之后才接收流量。HTTP/SOCKS5 出口同样经 WARP 隧道连接，最终 TCP 连接使用 CONNECT。出口服务器域名在 WARP 隧道内解析，协议 UDP 使用 WARP 私有网络栈，Usque 不会为出口服务器打开物理网络套接字。OpenVPN 仅在 DNS、拨号、传输关闭或超时失败时尝试下一个服务器，候选阶段总计最多 120 秒；认证、证书和配置错误会立即停止。WireGuard 支持单个 Peer，并在收发两个方向执行部分 AllowedIPs。使用 H3 时，基于 UDP 的出口会按嵌套封装开销限制 TCP MSS。
 
 - Imported configurations are encrypted per record with current-user DPAPI on Windows and Android Keystore AES-256-GCM on Android, and are shared by all accounts on the device. WARP via WireGuard registers a separate identity through MASQUE and never converts the outer identity. Generation status is process-local; saved configurations and endpoint overrides remain encrypted. After MASQUE starts, WireGuard attempt limits are 3, 4, 5, 5, 5 and 5 seconds. Each failed session is cleaned up before another attempt; cancellation and the overall deadline still apply. Exhaustion stops the chain without a WARP-only fallback. Custom WireGuard exits retain their existing retry behavior.
-  <br>导入的配置逐条加密保存：Windows 使用当前用户 DPAPI，Android 使用 Android Keystore AES-256-GCM，并由设备上的所有账号共用。WARP via WireGuard 经 MASQUE 注册独立身份，不会转换外层身份。生成状态仅保留在当前进程，已保存配置与端点覆盖仍加密保存。MASQUE 建立后，WireGuard 各次尝试的时限依次为 3、4、5、5、5、5 秒。每次失败会话清理后才开始下一次，取消与总截止时间仍然有效；尝试耗尽会停止整条链路，不会回退为仅使用 WARP。自定义 WireGuard 出口保留原有重试行为。
+  <br>导入的配置逐条加密保存：Windows 使用当前用户 DPAPI，Android 使用 Android Keystore AES-256-GCM，并由设备上的所有账号共用。WARP via WireGuard 经 MASQUE 注册独立身份，不会转换外层身份。生成状态仅保留在当前进程，已保存配置与端点覆盖仍加密保存。MASQUE 建立后，WireGuard 各次尝试的时限依次为 3、4、5、5、5、5 秒。每次失败会话清理后才开始下一次，取消与总截止时间仍然有效；尝试耗尽会停止整条链路，不会回退为仅使用 WARP 隧道。自定义 WireGuard 出口保留原有重试行为。
 
 - OpenVPN and WireGuard retain batch file import, validation and filename-based names; an OpenVPN configuration accepts up to 16 servers. HTTP/SOCKS5 adds encrypted proxy records with optional authentication and a DNS transport choice. Their readiness confirms endpoint reachability; a real CONNECT is required for TCP-forwarding verification, and SOCKS5 UDP ASSOCIATE acceptance does not prove end-to-end UDP delivery.
   <br>OpenVPN 与 WireGuard 保留批量文件导入、校验与按文件名命名；OpenVPN 配置最多支持 16 个服务器。HTTP/SOCKS5 新增加密代理记录、可选认证与 DNS 传输选择。就绪状态确认端点可达；TCP 转发验证需要实际 CONNECT，SOCKS5 UDP ASSOCIATE 被接受不代表端到端 UDP 转发已验证。
 
-- VPN-protocol final DNS starts with UDP and adds alternatives after 250 ms under one four-second question deadline. HTTP/SOCKS5 Automatic DNS defaults to verified Cloudflare DoH through the final proxy; custom or non-default inherited DNS retains TCP DNS. Application-selected UDP/53 queries are converted to TCP at that resolver, including DNS-only local SOCKS5 associations. A refused port-53 CONNECT fails explicitly. DoH failure never switches to plaintext, physical DNS or another exit. See the chain guide for explicit DNS choices and budgets.
+- VPN-protocol final DNS starts with UDP and adds alternatives after 250 ms under one four-second question deadline. HTTP/SOCKS5 Automatic DNS defaults to verified Cloudflare® DoH through the final proxy; custom or non-default inherited DNS retains TCP DNS. Application-selected UDP/53 queries are converted to TCP at that resolver, including DNS-only local SOCKS5 associations. A refused port-53 CONNECT fails explicitly. DoH failure never switches to plaintext, physical DNS or another exit. See the chain guide for explicit DNS choices and budgets.
   <br>VPN 协议最终 DNS 先使用 UDP，250 ms 后加入备用候选，每个问题共用 4 秒期限。HTTP/SOCKS5 自动 DNS 默认经最终代理使用校验 TLS 的 Cloudflare DoH；自定义或非默认继承 DNS 保留 TCP。应用指定的 UDP/53 查询转换为发往该解析器的 TCP，包括仅承载 DNS 的本地 SOCKS5 关联。端口 53 的 CONNECT 被拒绝时明确失败。DoH 失败不会转为明文、物理 DNS 或另一出口；显式 DNS 选择与预算见链式代理指南。
 
 - Established CONNECT-IP sessions stop automatic reconnection after authentication, identity, configuration, address-assignment and socket-protection failures. Ordinary network failures keep bounded backoff; Android and Windows VPN network observations pause attempts while the device is confirmed offline and start one shortly after a usable network appears. An HTTP/2 PING without a reply ends the session after a 15 to 30 second final deadline.
@@ -123,9 +123,9 @@ Protected Windows, Android, leak-observer and performance validation is suppleme
 
 ### DNS privacy / DNS 隐私
 
-GeoSite-matched country queries and custom bypass-domain queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT uses the configured encrypted resolver with numeric bootstrap and strict TLS, with no plaintext fallback. Other remote queries use WARP or the selected final chain exit. WireGuard prefers its configured DNS; HTTP/SOCKS5 defaults to verified DoH through the final proxy, with explicit TCP and local DNS choices retaining their documented meaning. Apps using their own encrypted DNS hide domains from Usque, so routing uses IP rules.
+GeoSite-matched country queries and custom bypass-domain queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT uses the configured encrypted resolver with numeric bootstrap and strict TLS, with no plaintext fallback. Other remote queries use the WARP tunnel or the selected final chain exit. WireGuard prefers its configured DNS; HTTP/SOCKS5 defaults to verified DoH through the final proxy, with explicit TCP and local DNS choices retaining their documented meaning. Apps using their own encrypted DNS hide domains from Usque, so routing uses IP rules.
 
-与 GeoSite 匹配的国家查询及自定义绕过域名查询使用所选直连 DNS 模式。System（默认）将查询发送给当前网络的 DNS 服务器；DoH 或 DoT 使用填写的 IP 连接加密解析器并严格校验 TLS，失败时不改用明文。其他远端查询使用 WARP 或所选最终链式出口。WireGuard 优先使用配置中的 DNS；HTTP/SOCKS5 默认经最终代理使用校验 TLS 的 DoH，显式 TCP 与本地 DNS 选择保留其文档含义。应用自行使用加密 DNS 时域名不可见，路由按 IP 规则判断。
+与 GeoSite 匹配的国家查询及自定义绕过域名查询使用所选直连 DNS 模式。System（默认）将查询发送给当前网络的 DNS 服务器；DoH 或 DoT 使用填写的 IP 连接加密解析器并严格校验 TLS，失败时不改用明文。其他远端查询使用 WARP 隧道或所选最终链式出口。WireGuard 优先使用配置中的 DNS；HTTP/SOCKS5 默认经最终代理使用校验 TLS 的 DoH，显式 TCP 与本地 DNS 选择保留其文档含义。应用自行使用加密 DNS 时域名不可见，路由按 IP 规则判断。
 
 With the chain proxy enabled, the WARP provider carries the exit connection and the selected exit server provides final egress; its operator can observe traffic leaving that tunnel subject to application encryption. VPN Gate directory services also learn directory requests, and VPN Gate exits are public volunteer servers. Existing Geo, CIDR, LAN, system-proxy bypass and Android application exceptions retain their direct behavior. Public node scores and TCP observations are not local end-to-end measurements or promises of availability. No automatic telemetry or diagnostic upload is added. See the [chain proxy guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/CHAIN_PROXY.md) and the [VPN Gate guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/VPN_GATE.md) for the complete boundaries.
 
@@ -179,3 +179,9 @@ Detailed, reproducible reports are prioritized. Include the exact version, platf
 - Security issue / 安全问题: [Report privately / 私密报告](https://github.com/{{repository}}/security/advisories/new)
 
 </details>
+
+---
+
+Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.
+
+Cloudflare 和 WARP 是 Cloudflare, Inc. 在美国及其他司法管辖区的商标和/或注册商标。

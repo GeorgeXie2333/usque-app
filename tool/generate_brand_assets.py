@@ -117,7 +117,7 @@ def save_readme_banner(source: Image.Image) -> None:
     )
     subtitle_font = ImageFont.truetype(
         r"C:\Windows\Fonts\segoeui.ttf",
-        39,
+        34,
     )
     detail_font = ImageFont.truetype(
         r"C:\Windows\Fonts\segoeui.ttf",
@@ -126,7 +126,7 @@ def save_readme_banner(source: Image.Image) -> None:
     draw.text((520, 115), "Usque", fill=ORANGE, font=title_font)
     draw.text(
         (528, 265),
-        "Unofficial client compatible with Cloudflare WARP",
+        "Unofficial client compatible with Cloudflare® WARP® services",
         fill=INK,
         font=subtitle_font,
     )
@@ -135,6 +135,19 @@ def save_readme_banner(source: Image.Image) -> None:
         "Native Flutter interface · Rust networking core",
         fill="#66615E",
         font=detail_font,
+    )
+    attribution_font = ImageFont.truetype(r"C:\Windows\Fonts\segoeui.ttf", 17)
+    draw.text(
+        (530, 400),
+        "Cloudflare and WARP are trademarks and/or registered trademarks of",
+        fill="#66615E",
+        font=attribution_font,
+    )
+    draw.text(
+        (530, 428),
+        "Cloudflare, Inc. in the United States and other jurisdictions.",
+        fill="#66615E",
+        font=attribution_font,
     )
     banner.save(
         ROOT / "assets" / "branding" / "usque-readme-banner.png",

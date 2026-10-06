@@ -125,7 +125,7 @@ controlled memory benchmark. Their ignored status is not a pass.
 ## Network evidence and unavailable validation
 
 The IPv6 spelling is supported by the
-[Cloudflare IPv6 allocation list](https://www.cloudflare.com/ips-v6/).
+[Cloudflare® IPv6 allocation list](https://www.cloudflare.com/ips-v6/).
 [Published H2 experiments](https://github.com/vernette/warpscout/blob/master/masque.go#L65-L82)
 support cross-prefix sampling of `2606:4700:103::/48` and
 `2606:4700:104::/48`; neither source proves every address works or establishes
@@ -134,7 +134,7 @@ Consumer account eligibility. Free/Plus asymmetry follows the requested policy.
 Limited TCP/TLS sampling before implementation tested 18 IPv4 targets across
 198/199, including host values 0, 1, 2, 17, 63, 127, 193, 254 and 255, plus two
 out-of-pool controls. TCP/TLS responses, certificate rejection and lack of H2
-ALPN do not establish authenticated WARP CONNECT-IP availability. The local
+ALPN do not establish authenticated WARP® CONNECT-IP availability. The local
 machine had no public IPv6 route; IPv6 protocol measurement is `not_run`.
 
 | Validation | Status and limit |
@@ -263,3 +263,7 @@ external IPv4/IPv6/DNS/leak observation, and controlled performance validation
 remain `not_run`. The earlier live Android H3-to-H2 report remains unresolved;
 these deterministic fixes and compile-only builds do not establish its cause
 or a live-network resolution.
+
+---
+
+Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

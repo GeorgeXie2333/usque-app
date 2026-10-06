@@ -19,7 +19,7 @@ Examples:
 - IPv4, IPv6, DNS, route, or bypass traffic escaping the selected policy
 - Kill Switch, reconnect, crash, sleep/wake, upgrade, or uninstall leakage
 - endpoint-pin bypass, unsafe certificate acceptance, or unauthenticated pin refresh
-- exposure of a WARP Secret, private key, token, device identifier, license, or endpoint pin
+- exposure of a WARP® Secret, private key, token, device identifier, license, or endpoint pin
 - privilege problems in the Windows Agent, WFP/Wintun, Android `VpnService`, Binder, JNI, or secure storage
 - installer, updater, signature, provenance, dependency, or release-chain compromise
 - an unintended non-loopback proxy listener, authentication bypass, or cross-user IPC access
@@ -62,4 +62,8 @@ The [code signing policy](docs/CODE_SIGNING.md) covers official identities, fing
 
 ## Research
 
-Test only systems, devices, profiles, and accounts you own or are allowed to test. Do not disrupt Cloudflare or other people's services, keep extra personal data, or use denial-of-service. If testing exposes data or access outside the intended scope, stop and report privately.
+Test only systems, devices, profiles, and accounts you own or are allowed to test. Do not disrupt Cloudflare, Inc. or other people's services, keep extra personal data, or use denial-of-service. If testing exposes data or access outside the intended scope, stop and report privately.
+
+---
+
+Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

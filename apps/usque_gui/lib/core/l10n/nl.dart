@@ -357,7 +357,9 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Dit kan niet ongedaan worden gemaakt. Usque verbreekt de verbinding, verwijdert alle accounts en aanmeldgegevens en keert terug naar de eerste installatie.',
   'clear_all_data_complete': 'Alle lokale Usque-gegevens zijn gewist.',
   'unofficial':
-      'Onofficiële client die compatibel is met Cloudflare WARP. Niet gelieerd aan of goedgekeurd door Cloudflare.',
+      'Onofficiële client die compatibel is met de diensten van Cloudflare® WARP®. Niet gelieerd aan, gesponsord door of goedgekeurd door Cloudflare, Inc.',
+  'trademark_attribution':
+      'Cloudflare en WARP zijn handelsmerken en/of geregistreerde handelsmerken van Cloudflare, Inc. in de Verenigde Staten en andere rechtsgebieden.',
   'welcome_title': 'Welkom bij Usque',
   'setup_progress': 'Instelstap {current} van {total}',
   'get_started': 'Aan de slag',

@@ -358,7 +358,9 @@ const Map<String, String> kPlCatalog = <String, String>{
   'clear_all_data_complete':
       'Wszystkie lokalne dane Usque zostały wyczyszczone.',
   'unofficial':
-      'Nieoficjalny klient zgodny z Cloudflare WARP. Niepowiązany z Cloudflare i niezatwierdzony przez Cloudflare.',
+      'Nieoficjalny klient zgodny z usługami Cloudflare® WARP®. Niepowiązany z Cloudflare, Inc., niesponsorowany i niezatwierdzony przez tę firmę.',
+  'trademark_attribution':
+      'Cloudflare i WARP są znakami towarowymi i/lub zarejestrowanymi znakami towarowymi Cloudflare, Inc. w Stanach Zjednoczonych i innych jurysdykcjach.',
   'welcome_title': 'Witamy w Usque',
   'setup_progress': 'Krok konfiguracji {current} z {total}',
   'get_started': 'Rozpocznij',

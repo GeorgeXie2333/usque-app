@@ -316,7 +316,10 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'clear_all_data_help': '中斷連接，並永久刪除此裝置上的所有帳戶、WARP 登入資料、設定、快取和診斷資料。',
   'clear_all_data_confirm': '此操作無法復原。連接將中斷，所有帳戶和登入資料將刪除，並返回初始設定畫面。',
   'clear_all_data_complete': '已清除所有本機 Usque 資料。',
-  'unofficial': '相容於 Cloudflare WARP 的非官方用戶端。與 Cloudflare 沒有從屬或認可關係。',
+  'unofficial':
+      '相容於 Cloudflare® WARP® 服務的非官方用戶端。Usque 與 Cloudflare, Inc. 沒有從屬、贊助或認可關係。',
+  'trademark_attribution':
+      'Cloudflare 和 WARP 是 Cloudflare, Inc. 在美國及其他司法管轄區的商標及／或註冊商標。',
   'welcome_title': '歡迎使用 Usque',
   'setup_progress': '設定步驟 {current}／{total}',
   'get_started': '開始使用',

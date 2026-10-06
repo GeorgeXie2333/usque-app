@@ -355,7 +355,9 @@ const Map<String, String> kFaCatalog = <String, String>{
       'این کار برگشت‌پذیر نیست. اتصال قطع می‌شود، همهٔ حساب‌ها و اطلاعات ورود حذف می‌شوند و برنامه به صفحهٔ راه‌اندازی اولیه برمی‌گردد.',
   'clear_all_data_complete': 'همهٔ داده‌های محلی Usque پاک شد.',
   'unofficial':
-      'کلاینت غیررسمی سازگار با Cloudflare WARP. وابسته به Cloudflare نیست و از سوی آن تأیید نشده است.',
+      'کلاینت غیررسمی سازگار با خدمات Cloudflare® WARP®. به Cloudflare, Inc. وابسته نیست و از سوی این شرکت حمایت مالی یا تأیید نمی‌شود.',
+  'trademark_attribution':
+      'Cloudflare و WARP علائم تجاری و/یا علائم تجاری ثبت‌شدهٔ Cloudflare, Inc. در ایالات متحده و سایر حوزه‌های قضایی هستند.',
   'welcome_title': 'به Usque خوش آمدید',
   'setup_progress': 'گام راه‌اندازی {current} از {total}',
   'get_started': 'شروع کنید',

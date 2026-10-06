@@ -64,7 +64,7 @@ numeric IP address.
 - Apps using their own encrypted DNS hide names from Usque, so country routing
   uses IP rules. The direct-DNS selector does not control those apps' resolvers.
 
-Other remote VPN queries use the final exit's DNS: WARP without a chain, or the
+Other remote VPN queries use the final exit's DNS: WARP® without a chain, or the
 active chain exit (custom OpenVPN or WireGuard, WARP via WireGuard, or VPN
 Gate). Ordinary WARP supports configurable Plain DNS, DoH and DoT; see
 [WARP exit DNS](WARP_DNS.md). Explicit local DNS and proxy DNS settings keep their own scope.
@@ -258,3 +258,7 @@ and pending-settings workflow. An older Engine shows targets read-only.
 错误行会阻止整份草稿保存。自定义规则无需下载国家规则即可工作，设置跨账号共享，
 适用于 Windows、Android 的 VPN 和 HTTP/SOCKS5 入口。直连域名使用当前的直连 DNS
 设置；应用自行使用加密 DNS 时只能按地址分流。请查看应用结果，必要时重新连接。
+
+---
+
+WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.

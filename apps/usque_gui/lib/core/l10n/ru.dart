@@ -355,7 +355,9 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Отменить это нельзя. Usque отключится, удалит все аккаунты и данные входа, затем вернётся к первоначальной настройке.',
   'clear_all_data_complete': 'Все локальные данные Usque очищены.',
   'unofficial':
-      'Неофициальный клиент, совместимый с Cloudflare WARP. Не связан с Cloudflare и не одобрен этой компанией.',
+      'Неофициальный клиент, совместимый с сервисами Cloudflare® WARP®. Не связан с Cloudflare, Inc., не спонсируется и не одобрен этой компанией.',
+  'trademark_attribution':
+      'Cloudflare и WARP — товарные знаки и/или зарегистрированные товарные знаки Cloudflare, Inc. в США и других юрисдикциях.',
   'welcome_title': 'Добро пожаловать в Usque',
   'setup_progress': 'Шаг настройки {current} из {total}',
   'get_started': 'Начать работу',

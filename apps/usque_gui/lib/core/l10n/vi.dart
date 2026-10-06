@@ -351,7 +351,9 @@ const Map<String, String> kViCatalog = <String, String>{
       'Không thể hoàn tác thao tác này. Kết nối sẽ bị ngắt, mọi tài khoản và thông tin đăng nhập sẽ bị xóa, ứng dụng sẽ quay về bước thiết lập ban đầu.',
   'clear_all_data_complete': 'Đã xóa toàn bộ dữ liệu Usque cục bộ.',
   'unofficial':
-      'Ứng dụng không chính thức tương thích với Cloudflare WARP. Không liên kết với hoặc được Cloudflare xác nhận.',
+      'Ứng dụng không chính thức tương thích với dịch vụ Cloudflare® WARP®. Không liên kết, được tài trợ hay được xác nhận bởi Cloudflare, Inc.',
+  'trademark_attribution':
+      'Cloudflare và WARP là nhãn hiệu và/hoặc nhãn hiệu đã đăng ký của Cloudflare, Inc. tại Hoa Kỳ và các khu vực tài phán khác.',
   'welcome_title': 'Chào mừng đến với Usque',
   'setup_progress': 'Bước thiết lập {current} trên {total}',
   'get_started': 'Bắt đầu',
