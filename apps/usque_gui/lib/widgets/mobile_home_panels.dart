@@ -145,11 +145,7 @@ class MobileTrafficPanel extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       formatRate(rate),
-                      style: UsqueTheme.mono(
-                        context,
-                        size: 18,
-                        weight: FontWeight.w500,
-                      ),
+                      style: UsqueTheme.readout(context, size: 19),
                     ),
                     const SizedBox(height: 8),
                     Sparkline(

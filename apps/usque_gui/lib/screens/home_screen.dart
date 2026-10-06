@@ -77,6 +77,7 @@ class HomeScreen extends StatelessWidget {
                   details: _HomeDetails(
                     controller: controller,
                     strings: strings,
+                    compact: true,
                   ),
                 ),
               ],
@@ -209,7 +210,11 @@ class _DesktopLocalProxies extends StatelessWidget {
               const SizedBox(width: 8),
               Text(name, style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(width: 8),
-              Flexible(child: MonoValue(value: enabled ? address : '—')),
+              Flexible(
+                child: enabled
+                    ? _ListenerAddresses(addresses: address)
+                    : const MonoValue(value: '—'),
+              ),
             ],
           );
       final values = Wrap(
@@ -254,6 +259,57 @@ class _DesktopLocalProxies extends StatelessWidget {
       );
     },
   );
+}
+
+/// Selectable listener list; IPv6 listeners are secondary to the IPv4 one.
+class _ListenerAddresses extends StatefulWidget {
+  const _ListenerAddresses({required this.addresses});
+
+  /// Comma-separated listeners, kept as one string so selector equality holds.
+  final String addresses;
+
+  @override
+  State<_ListenerAddresses> createState() => _ListenerAddressesState();
+}
+
+class _ListenerAddressesState extends State<_ListenerAddresses> {
+  // See MonoValue: SelectableText must not inherit the page's storage slot.
+  final _textStorage = PageStorageBucket();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final parts = widget.addresses.split(', ');
+    final spans = <InlineSpan>[];
+    for (var i = 0; i < parts.length; i++) {
+      if (i > 0) {
+        spans.add(
+          TextSpan(
+            text: ', ',
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+        );
+      }
+      spans.add(
+        TextSpan(
+          text: parts[i],
+          style: parts[i].startsWith('[')
+              ? TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w400,
+                )
+              : null,
+        ),
+      );
+    }
+    return PageStorage(
+      bucket: _textStorage,
+      child: SelectableText.rich(
+        TextSpan(children: spans),
+        style: UsqueTheme.mono(context, weight: FontWeight.w500),
+      ),
+    );
+  }
 }
 
 class _NarrowBrandHeader extends StatelessWidget {
@@ -605,7 +661,7 @@ class _ConnectionHero extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.end,
-                      style: theme.textTheme.titleLarge,
+                      style: theme.textTheme.titleMedium,
                     ),
                   ),
                 ),
@@ -637,30 +693,23 @@ class _ConnectionHero extends StatelessWidget {
     Widget overview() => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              strings.get('active_profile'),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Tooltip(
-                message: view.profileName,
-                child: Text(
-                  view.profileName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium,
-                ),
-              ),
-            ),
-          ],
+        Text(
+          strings.get('active_profile'),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 5),
+        Tooltip(
+          message: view.profileName,
+          child: Text(
+            view.profileName,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium,
+          ),
+        ),
+        const SizedBox(height: 14),
         statusText(),
         const SizedBox(height: 20),
         _DesktopSessionReadout(controller: controller),
@@ -679,12 +728,12 @@ class _ConnectionHero extends StatelessWidget {
               constraints.maxWidth >= 560 &&
               MediaQuery.textScalerOf(context).scale(14) <= 21;
           if (split) {
-            final size = (constraints.maxWidth - 200 - 32).clamp(240.0, 330.0);
+            final size = (constraints.maxWidth - 220 - 24).clamp(224.0, 330.0);
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(width: size, child: ring(size)),
-                const SizedBox(width: 32),
+                const SizedBox(width: 24),
                 Expanded(child: overview()),
               ],
             );
@@ -834,10 +883,9 @@ class _TrafficReadout extends StatelessWidget {
               Text(
                 rate == null ? '—' : formatRate(rate),
                 key: ValueKey('home-desktop-$direction-rate'),
-                style: UsqueTheme.mono(
+                style: UsqueTheme.readout(
                   context,
-                  size: theme.textTheme.titleMedium?.fontSize,
-                  weight: FontWeight.w500,
+                  size: 16,
                   color: rate == null
                       ? theme.colorScheme.onSurfaceVariant
                       : null,
@@ -986,13 +1034,13 @@ class _DesktopSessionReadout extends StatelessWidget {
                 strings.get('protocol'),
                 view.transport == null
                     ? const EmptyValue(label: '—')
-                    : MonoValue(value: view.transport!),
+                    : Text(view.transport!, style: UsqueTheme.readout(context)),
               ),
               metric(
                 strings.get('address_family'),
                 view.family == null
                     ? const EmptyValue(label: '—')
-                    : MonoValue(value: view.family!),
+                    : Text(view.family!, style: UsqueTheme.readout(context)),
               ),
               metric(strings.get('duration'), LiveDuration(since: view.since)),
             ],
@@ -1064,25 +1112,43 @@ class _DesktopSessionReadout extends StatelessWidget {
 }
 
 class _HomeDetails extends StatelessWidget {
-  const _HomeDetails({required this.controller, required this.strings});
+  const _HomeDetails({
+    required this.controller,
+    required this.strings,
+    this.compact = false,
+  });
   final AppController controller;
   final AppStrings strings;
+  final bool compact;
+
+  // Leading geometry matches the neighbouring rows: ReadoutRow on phones and
+  // the Kill Switch/location rows on desktop.
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.transparent,
-    child: ExpansionTile(
-      key: const PageStorageKey('home-connection-details'),
-      leading: const Icon(LucideIcons.slidersHorizontal, size: 16),
-      title: Text(
-        strings.get('connection_details'),
-        style: Theme.of(context).textTheme.bodyMedium,
+    child: ListTileTheme.merge(
+      minLeadingWidth: compact ? 22 : 16,
+      horizontalTitleGap: compact ? 11 : 8,
+      child: ExpansionTile(
+        key: const PageStorageKey('home-connection-details'),
+        leading: compact
+            ? Icon(
+                LucideIcons.slidersHorizontal,
+                size: 17,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              )
+            : const Icon(LucideIcons.slidersHorizontal, size: 16),
+        title: Text(
+          strings.get('connection_details'),
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        dense: true,
+        minTileHeight: 48,
+        tilePadding: EdgeInsets.zero,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        children: [_ConnectionDetailsReadout(controller: controller)],
       ),
-      dense: true,
-      minTileHeight: 48,
-      tilePadding: EdgeInsets.zero,
-      shape: const Border(),
-      collapsedShape: const Border(),
-      children: [_ConnectionDetailsReadout(controller: controller)],
     ),
   );
 }

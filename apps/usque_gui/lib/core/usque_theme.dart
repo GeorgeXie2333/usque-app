@@ -338,6 +338,26 @@ class UsqueTheme {
     );
   }
 
+  /// Live readouts such as rates, protocols and durations. Tabular figures
+  /// keep changing digits from shifting adjacent text.
+  static TextStyle readout(
+    BuildContext context, {
+    double? size,
+    FontWeight weight = FontWeight.w600,
+    Color? color,
+  }) {
+    return TextStyle(
+      fontFamily: UsqueFonts.display,
+      fontFamilyFallback: UsqueFonts.fallback,
+      fontSize: size ?? 13.5,
+      fontWeight: weight,
+      height: 1.3,
+      letterSpacing: 0,
+      fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+      color: color ?? Theme.of(context).colorScheme.onSurface,
+    );
+  }
+
   static const TextTheme _textTheme = TextTheme(
     displayLarge: TextStyle(
       fontFamily: UsqueFonts.display,

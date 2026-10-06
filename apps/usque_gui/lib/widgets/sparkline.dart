@@ -48,6 +48,10 @@ class _SparklinePainter extends CustomPainter {
     final Paint baseline = Paint()
       ..strokeWidth = 1
       ..color = color.withValues(alpha: 0.18);
+    if (samples.every((sample) => sample == null)) {
+      _paintEmpty(canvas, size, baseline);
+      return;
+    }
     canvas.drawLine(
       Offset(0, size.height - 0.5),
       Offset(size.width, size.height - 0.5),
@@ -114,6 +118,32 @@ class _SparklinePainter extends CustomPainter {
           ..strokeJoin = StrokeJoin.round
           ..strokeCap = StrokeCap.round
           ..color = color,
+      );
+    }
+  }
+
+  /// An empty window draws a dashed frame so it reads as "no data yet" rather
+  /// than a missing chart.
+  void _paintEmpty(Canvas canvas, Size size, Paint baseline) {
+    final Paint guide = Paint()
+      ..strokeWidth = 1
+      ..color = color.withValues(alpha: 0.09);
+    final int guides = size.height >= 64 ? 2 : 1;
+    for (int i = 1; i <= guides; i += 1) {
+      final double y = (size.height * i / (guides + 1)).roundToDouble() + 0.5;
+      _dashedLine(canvas, y, size.width, guide);
+    }
+    _dashedLine(canvas, size.height - 0.5, size.width, baseline);
+  }
+
+  void _dashedLine(Canvas canvas, double y, double width, Paint paint) {
+    const double dash = 4;
+    const double gap = 4;
+    for (double x = 0; x < width; x += dash + gap) {
+      canvas.drawLine(
+        Offset(x, y),
+        Offset((x + dash).clamp(0, width).toDouble(), y),
+        paint,
       );
     }
   }

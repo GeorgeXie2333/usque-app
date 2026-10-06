@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/usque_theme.dart';
 import 'common.dart';
 
 /// Formats [since] as a running clock. Rebuilds once a second so a parent
@@ -62,6 +63,9 @@ class _LiveDurationState extends State<LiveDuration> {
     if (since == null) {
       return const EmptyValue(label: '—');
     }
-    return MonoValue(value: formatDuration(widget.now().difference(since)));
+    return Text(
+      formatDuration(widget.now().difference(since)),
+      style: UsqueTheme.readout(context),
+    );
   }
 }
