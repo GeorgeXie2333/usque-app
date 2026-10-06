@@ -400,20 +400,38 @@ void NativeLinksStayInsideTemporaryDirectory() {
     Expect(false, "temporaryDirectoryCreated");
     return;
   }
-  const std::wstring executable = directory + L"\\usque.exe";
+  const std::wstring installation = directory + L"\\Usque long installation path";
+  Expect(::CreateDirectoryW(installation.c_str(), nullptr) != FALSE,
+         "longInstallationFixture");
+  const std::wstring executable = installation + L"\\usque.exe";
   const std::wstring owned = directory + L"\\Usque.lnk";
   const std::wstring unmarked = directory + L"\\Unmarked.lnk";
   const std::wstring foreign = directory + L"\\Foreign.lnk";
   const std::wstring corrupt = directory + L"\\Corrupt.lnk";
   const std::wstring directory_link = directory + L"\\Directory.lnk";
   Expect(WriteBytes(executable, "inert fixture; never executed"), "inertExecutableFixture");
+  std::vector<wchar_t> short_path(32768);
+  const DWORD short_count = ::GetShortPathNameW(
+      executable.c_str(), short_path.data(), static_cast<DWORD>(short_path.size()));
+  const bool short_path_available = short_count > 0 && short_count < short_path.size();
+  Expect(short_path_available, "shortInstallationPathAvailable");
+  const std::wstring short_executable = short_path_available
+      ? std::wstring(short_path.data(), short_count) : executable;
+  Expect(SameExecutable(executable, short_executable) &&
+         SameExecutable(short_executable, executable), "longAndShortNamesShareTarget");
+  Expect(!SameExecutable(executable, installation + L"\\other.exe"),
+         "aliasComparisonRejectsDifferentTarget");
   Expect(InspectShortcut(owned, executable) == EntryState::kAbsent, "missingLink");
   Expect(CreateShortcut(owned, executable).status == ItemStatus::kCreated, "createsMarkedLink");
   Expect(InspectShortcut(owned, executable) == EntryState::kOwned, "readsMarkedLink");
+  Expect(InspectShortcut(owned, short_executable) == EntryState::kOwned,
+         "readsMarkedLinkThroughShortName");
   const auto original_bytes = ReadBytes(owned);
   Expect(!original_bytes.empty(), "shortcutBytesWritten");
   Expect(CreateShortcut(owned, executable).status == ItemStatus::kUnchanged &&
          ReadBytes(owned) == original_bytes, "createIsByteIdenticalWhenRepeated");
+  Expect(CreateShortcut(owned, short_executable).status == ItemStatus::kUnchanged &&
+         ReadBytes(owned) == original_bytes, "shortNameDoesNotRewriteMarkedLink");
   Expect(RemoveShortcut(owned, directory + L"\\other.exe").status == ItemStatus::kKept &&
          ReadBytes(owned) == original_bytes, "differentInstallPreserved");
   const HANDLE locked = ::CreateFileW(owned.c_str(), GENERIC_READ, 0, nullptr,
@@ -422,7 +440,7 @@ void NativeLinksStayInsideTemporaryDirectory() {
   Expect(RemoveShortcut(owned, executable).status == ItemStatus::kError,
          "lockedLinkFailureReported");
   if (locked != INVALID_HANDLE_VALUE) ::CloseHandle(locked);
-  Expect(RemoveShortcut(owned, executable).status == ItemStatus::kRemoved &&
+  Expect(RemoveShortcut(owned, short_executable).status == ItemStatus::kRemoved &&
          ::GetFileAttributesW(owned.c_str()) == INVALID_FILE_ATTRIBUTES,
          "removesOnlyMarkedMatchingLink");
   Expect(RemoveShortcut(owned, executable).status == ItemStatus::kAbsent,
@@ -455,6 +473,7 @@ void NativeLinksStayInsideTemporaryDirectory() {
     }
   }
   Expect(::RemoveDirectoryW(directory_link.c_str()) != FALSE, "fixtureSubdirectoryCleanup");
+  Expect(::RemoveDirectoryW(installation.c_str()) != FALSE, "fixtureInstallationCleanup");
   Expect(::RemoveDirectoryW(directory.c_str()) != FALSE, "fixtureDirectoryCleanup");
 }
 

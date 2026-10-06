@@ -377,9 +377,29 @@ std::optional<std::wstring> NormalizeAbsolutePath(const std::wstring& input) {
 bool SameExecutable(const std::wstring& left, const std::wstring& right) {
   const auto normalized_left = NormalizeAbsolutePath(left);
   const auto normalized_right = NormalizeAbsolutePath(right);
-  return normalized_left && normalized_right &&
-      ::CompareStringOrdinal(normalized_left->c_str(), -1,
-                             normalized_right->c_str(), -1, TRUE) == CSTR_EQUAL;
+  if (!normalized_left || !normalized_right) return false;
+  if (::CompareStringOrdinal(normalized_left->c_str(), -1,
+                             normalized_right->c_str(), -1, TRUE) == CSTR_EQUAL) {
+    return true;
+  }
+  // Shell link persistence expands DOS 8.3 names, including a runner's short
+  // TEMP path. Compare the existing paths' long-name spelling without resolving
+  // shortcuts or changing their targets. Missing or inaccessible aliases fail
+  // closed; the exact lexical comparison above still handles stale long paths.
+  const auto long_spelling = [](const std::wstring& path) {
+    std::vector<wchar_t> buffer(32768);
+    const DWORD count = ::GetLongPathNameW(
+        path.c_str(), buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (count == 0 || count >= buffer.size()) {
+      return std::optional<std::wstring>();
+    }
+    return NormalizeAbsolutePath(std::wstring(buffer.data(), count));
+  };
+  const auto long_left = long_spelling(*normalized_left);
+  const auto long_right = long_spelling(*normalized_right);
+  return long_left && long_right &&
+      ::CompareStringOrdinal(long_left->c_str(), -1,
+                             long_right->c_str(), -1, TRUE) == CSTR_EQUAL;
 }
 
 bool StartupCommandOwned(const std::wstring& command,
