@@ -726,6 +726,8 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
         var cleanupPending = false;
         var provider = IdentityProvider.consumer;
         var organization = '';
+        var registeredEndpointIpv4 = '';
+        var registeredEndpointIpv6 = '';
         while (!status.isDone) {
           final statusField = status.field();
           switch (statusField.number) {
@@ -752,6 +754,10 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
               }
             case 7:
               organization = status.string(statusField);
+            case 8:
+              registeredEndpointIpv4 = status.string(statusField);
+            case 9:
+              registeredEndpointIpv6 = status.string(statusField);
             default:
               status.skip(statusField);
           }
@@ -765,6 +771,8 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
             cleanupPending: cleanupPending,
             provider: provider,
             organization: organization,
+            registeredEndpointIpv4: registeredEndpointIpv4,
+            registeredEndpointIpv6: registeredEndpointIpv6,
           );
         }
       default:
@@ -1738,6 +1746,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var networkQuality = false;
   var encryptedDirectDns = false;
   var encryptedWarpDns = false;
+  var zeroTrustEndpointEditing = false;
   var quicMigration = false;
   var automaticPmtu = false;
   while (!reader.isDone) {
@@ -1773,6 +1782,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainProxyEncryptedDns = reader.varint(field) != 0;
       case 44:
         encryptedWarpDns = reader.varint(field) != 0;
+      case 45:
+        zeroTrustEndpointEditing = reader.varint(field) != 0;
       case 40:
         chainSocks5Proxy = reader.varint(field) != 0;
       case 38:
@@ -1833,6 +1844,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     networkQuality: networkQuality,
     encryptedDirectDns: encryptedDirectDns,
     encryptedWarpDns: encryptedWarpDns,
+    zeroTrustEndpointEditing: zeroTrustEndpointEditing,
     quicMigration: quicMigration,
     automaticPmtu: automaticPmtu,
   );

@@ -1048,6 +1048,10 @@ Map<String, ProfileIdentityStatus> _identityStatusesFromMap(
         orElse: () => IdentityProvider.consumer,
       ),
       organization: value['organization'] as String? ?? '',
+      registeredEndpointIpv4:
+          value['registered_endpoint_ipv4'] as String? ?? '',
+      registeredEndpointIpv6:
+          value['registered_endpoint_ipv6'] as String? ?? '',
     );
   }
   return Map<String, ProfileIdentityStatus>.unmodifiable(statuses);

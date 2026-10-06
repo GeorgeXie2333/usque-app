@@ -3336,6 +3336,16 @@ impl ControlService {
                 cleanup_pending,
                 provider: provider as i32,
                 organization,
+                registered_endpoint_ipv4: account
+                    .managed_endpoint_ips
+                    .as_ref()
+                    .map(|pair| pair.ipv4.to_string())
+                    .unwrap_or_default(),
+                registered_endpoint_ipv6: account
+                    .managed_endpoint_ips
+                    .as_ref()
+                    .map(|pair| pair.ipv6.to_string())
+                    .unwrap_or_default(),
             });
         }
         catalog
@@ -5180,6 +5190,7 @@ fn current_capabilities() -> v1::Capabilities {
         chain_proxy_encrypted_dns: cfg!(windows),
         custom_bypass: cfg!(windows),
         automatic_endpoints: true,
+        zero_trust_endpoint_editing: true,
         chain_openvpn_multi_endpoint: cfg!(windows),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
@@ -8065,6 +8076,19 @@ mod tests {
         assert_eq!(stored.endpoint.port, 8443);
         assert_eq!(stored.endpoint.sni, "shared.example.com");
 
+        service
+            .update_config(move |latest| {
+                latest
+                    .account_mut(profile_id)
+                    .unwrap()
+                    .zero_trust_endpoint_override = Some(ManagedEndpointIps {
+                    ipv4: "192.0.2.45".parse().unwrap(),
+                    ipv6: "2001:db8::45".parse().unwrap(),
+                });
+                Ok(())
+            })
+            .await
+            .unwrap();
         vault.delete_identity(profile_id).await.unwrap();
         let metadata = provider.to_metadata_json().unwrap();
         vault
@@ -8088,6 +8112,15 @@ mod tests {
         assert_eq!(repaired.endpoint.ipv6, repaired_ips.ipv6);
         assert_eq!(repaired.endpoint.port, 8443);
         assert_eq!(repaired.endpoint.sni, "shared.example.com");
+        assert!(
+            service
+                .config_snapshot()
+                .await
+                .account(profile_id)
+                .unwrap()
+                .zero_trust_endpoint_override
+                .is_none()
+        );
 
         let cross_team = service
             .provision_identity(v1::ProvisionIdentityRequest {
@@ -8171,11 +8204,19 @@ mod tests {
             ipv4: "162.159.197.8".parse().unwrap(),
             ipv6: "2606:4700:102::8".parse().unwrap(),
         };
+        let old_override = ManagedEndpointIps {
+            ipv4: "192.0.2.45".parse().unwrap(),
+            ipv6: "2001:db8::45".parse().unwrap(),
+        };
         let mut interrupted = service.config_snapshot().await;
         interrupted.identity_bindings.insert(profile_id, provider);
         interrupted
             .set_managed_endpoint_ips(profile_id, old_ips.clone())
             .unwrap();
+        interrupted
+            .account_mut(profile_id)
+            .unwrap()
+            .zero_trust_endpoint_override = Some(old_override.clone());
         interrupted.pending_identity_replacements.insert(
             profile_id,
             PendingIdentityReplacement {
@@ -8210,8 +8251,12 @@ mod tests {
         assert!(recovered.pending_identity_replacements.is_empty());
         assert!(recovered.pending_identity_local_deletions.is_empty());
         let endpoint = recovered.active_profile().unwrap().endpoint;
-        assert_eq!(endpoint.ipv4, old_ips.ipv4);
-        assert_eq!(endpoint.ipv6, old_ips.ipv6);
+        assert_eq!(endpoint.ipv4, old_override.ipv4);
+        assert_eq!(endpoint.ipv6, old_override.ipv6);
+        assert_eq!(
+            recovered.account(profile_id).unwrap().managed_endpoint_ips,
+            Some(old_ips)
+        );
     }
 
     #[tokio::test]

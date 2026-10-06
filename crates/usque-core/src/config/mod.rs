@@ -29,7 +29,7 @@ pub use data_plane::{CONSUMER_L4_SNI, DataPlaneMode, ZERO_TRUST_L4_SNI, l4_serve
 pub use initial_identity::{InitialIdentityOperation, InitialIdentityPhase};
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 22;
+pub const CURRENT_SCHEMA_VERSION: u32 = 23;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -67,7 +67,7 @@ pub struct AppConfig {
     pub schema_version: u32,
     pub active_profile_id: Option<Uuid>,
     /// Device-wide connection settings. Zero Trust accounts may replace only
-    /// the endpoint IPv4/IPv6 pair with registration-owned addresses.
+    /// the endpoint IPv4/IPv6 pair with registered or explicitly overridden addresses.
     #[serde(default)]
     pub network: SharedNetworkSettings,
     pub profiles: Vec<Account>,
@@ -190,6 +190,7 @@ impl AppConfig {
                     id,
                     name,
                     managed_endpoint_ips: None,
+                    zero_trust_endpoint_override: None,
                 });
             }
             Some(index) => {
@@ -226,6 +227,7 @@ impl AppConfig {
             id,
             name,
             managed_endpoint_ips,
+            zero_trust_endpoint_override: None,
         });
         let profile = self
             .runtime_profile(id)
@@ -239,9 +241,11 @@ impl AppConfig {
         id: Uuid,
         managed_endpoint_ips: ManagedEndpointIps,
     ) -> Result<Profile, ConfigError> {
-        self.account_mut(id)
-            .ok_or(ConfigError::MissingActiveProfile(id))?
-            .managed_endpoint_ips = Some(managed_endpoint_ips);
+        let account = self
+            .account_mut(id)
+            .ok_or(ConfigError::MissingActiveProfile(id))?;
+        account.managed_endpoint_ips = Some(managed_endpoint_ips);
+        account.zero_trust_endpoint_override = None;
         let profile = self
             .runtime_profile(id)
             .ok_or(ConfigError::MissingActiveProfile(id))?;

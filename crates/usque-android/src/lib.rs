@@ -141,6 +141,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "chain_proxy_encrypted_dns": engine_ready(),
             "custom_bypass": engine_ready(),
             "automatic_endpoints": engine_ready(),
+            "zero_trust_endpoint_editing": engine_ready(),
             "chain_openvpn_multi_endpoint": engine_ready(),
             "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
@@ -2057,11 +2058,16 @@ fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
             .iter()
             .filter_map(|account| {
                 let profile = config.runtime_profile(account.id)?;
-                Some(android_profile_value(
+                let mut value = android_profile_value(
                     &profile,
                     config.identity_bindings.get(&profile.id),
                     account.managed_endpoint_ips.is_some(),
-                ))
+                );
+                if let Some(pair) = &account.managed_endpoint_ips {
+                    value["registered_endpoint_ipv4"] = serde_json::json!(pair.ipv4.to_string());
+                    value["registered_endpoint_ipv6"] = serde_json::json!(pair.ipv6.to_string());
+                }
+                Some(value)
             })
             .collect::<Vec<_>>(),
         "active_profile_id": config
@@ -4173,6 +4179,50 @@ mod tests {
         );
         json["endpoint_selection"] = serde_json::json!("future");
         assert!(serde_json::from_value::<AndroidProfile>(json).is_err());
+    }
+
+    #[test]
+    fn android_catalog_keeps_registered_ips_separate_from_custom_runtime_ips() {
+        let mut config = AppConfig::default();
+        let id = config.active_profile_id.unwrap();
+        config
+            .set_managed_endpoint_ips(
+                id,
+                ManagedEndpointIps {
+                    ipv4: "162.159.197.2".parse().unwrap(),
+                    ipv6: "2606:4700:102::2".parse().unwrap(),
+                },
+            )
+            .unwrap();
+        config.account_mut(id).unwrap().zero_trust_endpoint_override = Some(ManagedEndpointIps {
+            ipv4: "192.0.2.42".parse().unwrap(),
+            ipv6: "2001:db8::42".parse().unwrap(),
+        });
+        let catalog = android_profile_catalog(&config);
+        assert_eq!(catalog["profiles"][0]["endpoint_v4"], "192.0.2.42");
+        assert_eq!(
+            catalog["profiles"][0]["registered_endpoint_ipv4"],
+            "162.159.197.2"
+        );
+        assert_eq!(
+            catalog["profiles"][0]["registered_endpoint_ipv6"],
+            "2606:4700:102::2"
+        );
+        let profile: AndroidProfile =
+            serde_json::from_value(catalog["profiles"][0].clone()).unwrap();
+        assert_eq!(
+            android_profile_to_core(profile)
+                .unwrap()
+                .endpoint
+                .ipv4
+                .to_string(),
+            "192.0.2.42"
+        );
+        assert!(
+            catalog["shared_network_profile"]
+                .get("registered_endpoint_ipv4")
+                .is_none()
+        );
     }
 
     #[test]

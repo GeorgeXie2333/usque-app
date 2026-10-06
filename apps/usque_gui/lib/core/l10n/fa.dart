@@ -114,8 +114,19 @@ const Map<String, String> kFaCatalog = <String, String>{
       'برای بازیابی اتصال این حساب، دوباره وارد همان سازمان شوید.',
   'zero_trust_metadata_missing':
       'اطلاعات ذخیره‌شدهٔ سازمان ناقص است. یک حساب Zero Trust جدید اضافه کنید و وارد شوید.',
-  'zero_trust_endpoint_managed':
-      'نشانی سرور را حساب سازمان تعیین می‌کند و نمی‌توان آن را اینجا تغییر داد.',
+  "zero_trust_endpoint_edit": "ویرایش نقاط پایانی Zero Trust",
+  "zero_trust_endpoint_risk_title": "خطرهای تغییر نقاط پایانی Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "نقاط پایانی با منشأ ناشناخته ممکن است حریم خصوصی و امنیت داده‌های شما را به خطر بیندازند.\n\nنشانی‌های نادرست ممکن است باعث شکست اتصال شوند.\n\nفقط از نقاط پایانی مورد اعتماد که اجازهٔ استفاده از آن‌ها را دارید استفاده کنید و الزامات سازمان را رعایت کنید.",
+  "zero_trust_endpoint_risk_ack":
+      "خطرها را می‌دانم و تأیید می‌کنم که اجازهٔ استفاده از این نقطهٔ پایانی را دارم.",
+  "zero_trust_endpoint_risk_continue": "پذیرش خطرها و ادامهٔ ویرایش",
+  "zero_trust_endpoint_risk_locked":
+      "پیش از ویرایش نشانی‌ها، خطرها را تأیید کنید.",
+  "zero_trust_endpoint_unsupported":
+      "برای ویرایش نقاط پایانی Zero Trust، Usque را به‌روز کنید.",
+  "zero_trust_reauth_endpoints":
+      "ورود دوباره نشانی‌های ثبت‌شدهٔ نقاط پایانی را بازیابی و نشانی‌های سفارشی را حذف می‌کند.",
   'experimental': 'آزمایشی',
   'show_license': 'نمایش License Key',
   'hide_license': 'پنهان کردن License Key',

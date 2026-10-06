@@ -2709,6 +2709,8 @@ internal class AndroidEngineMethodHandler(
                     .put("account_type", accountType)
                     .put("provider", provider.provider)
                     .put("organization", provider.organization ?: "")
+                    .put("registered_endpoint_ipv4", profile.optString("registered_endpoint_ipv4"))
+                    .put("registered_endpoint_ipv6", profile.optString("registered_endpoint_ipv6"))
                     .put("cleanup_pending", pendingCleanup != null),
             )
             pendingCleanup?.fill(0)

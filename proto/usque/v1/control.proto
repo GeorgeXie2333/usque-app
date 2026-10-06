@@ -482,6 +482,7 @@ message Capabilities {
   bool automatic_endpoints = 42;
   bool chain_proxy_encrypted_dns = 43;
   bool encrypted_warp_dns = 44;
+  bool zero_trust_endpoint_editing = 45;
 }
 
 message FrontendStatus {
@@ -1086,6 +1087,8 @@ message ProfileIdentityStatus {
   bool cleanup_pending = 5;
   IdentityProvider provider = 6;
   string organization = 7;
+  string registered_endpoint_ipv4 = 8;
+  string registered_endpoint_ipv6 = 9;
 }
 
 message ReconfigureActiveProfileRequest {

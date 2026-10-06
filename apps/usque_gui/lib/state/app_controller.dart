@@ -316,6 +316,9 @@ class AppController extends ChangeNotifier {
     return sharedNetwork.copyWith(
       id: account.id,
       name: account.name,
+      endpointSelection: zeroTrust
+          ? EndpointSelection.custom
+          : sharedNetwork.endpointSelection,
       endpointIpv4: zeroTrust
           ? account.endpointIpv4
           : sharedNetwork.endpointIpv4,
@@ -352,6 +355,22 @@ class AppController extends ChangeNotifier {
       return;
     }
     _acceptedSettings = state;
+    final accountProfile = state?.storedProfile;
+    if (accountProfile != null &&
+        state?.persisted == true &&
+        identityStatus(accountProfile.id).provider ==
+            IdentityProvider.zeroTrust) {
+      profiles = [
+        for (final account in profiles)
+          if (account.id == accountProfile.id)
+            account.copyWith(
+              endpointIpv4: accountProfile.endpointIpv4,
+              endpointIpv6: accountProfile.endpointIpv6,
+            )
+          else
+            account,
+      ];
+    }
     final stored = state?.sharedNetwork ?? state?.storedProfile;
     if (stored != null) {
       final managed =
@@ -2231,6 +2250,16 @@ class AppController extends ChangeNotifier {
     List<String>? changedFields,
   }) async {
     if (updated.id != activeProfileId) return Future.value(false);
+    if (identityStatus(updated.id).provider == IdentityProvider.zeroTrust &&
+        (changedFields ?? networkSettingsChangedFields(activeProfile, updated))
+            .any(
+              (field) => field == 'endpoint.ipv4' || field == 'endpoint.ipv6',
+            ) &&
+        !(engineCapabilities?.zeroTrustEndpointEditing ?? false)) {
+      lastError = strings.get('zero_trust_endpoint_unsupported');
+      _notifyListeners();
+      return false;
+    }
     if (updated.endpointSelection == EndpointSelection.automatic &&
         identityStatus(updated.id).provider != IdentityProvider.zeroTrust) {
       if (engineCapabilities == null) await _refreshCapabilities();

@@ -117,8 +117,21 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Melde dich erneut bei derselben Organisation an, um die Kontoverbindung wiederherzustellen.',
   'zero_trust_metadata_missing':
       'Die gespeicherten Organisationsdaten sind unvollständig. Füge ein neues Zero-Trust-Konto hinzu und melde dich an.',
-  'zero_trust_endpoint_managed':
-      'Diese Serveradresse wird vom Organisationskonto festgelegt und kann hier nicht geändert werden.',
+  "zero_trust_endpoint_edit": "Zero Trust-Endpunkte bearbeiten",
+  "zero_trust_endpoint_risk_title":
+      "Risiken beim Ändern von Zero Trust-Endpunkten",
+  "zero_trust_endpoint_risk_body":
+      "Endpunkte unbekannter Herkunft können deine Privatsphäre und Datensicherheit gefährden.\n\nFalsche Adressen können die Verbindung verhindern.\n\nNutze nur vertrauenswürdige Endpunkte, für die du eine Zugriffsberechtigung hast, und beachte die Vorgaben deiner Organisation.",
+  "zero_trust_endpoint_risk_ack":
+      "Ich verstehe die Risiken und bestätige, dass ich diesen Endpunkt nutzen darf.",
+  "zero_trust_endpoint_risk_continue":
+      "Risiken akzeptieren und weiter bearbeiten",
+  "zero_trust_endpoint_risk_locked":
+      "Bestätige die Risiken, bevor du diese Adressen bearbeitest.",
+  "zero_trust_endpoint_unsupported":
+      "Aktualisiere Usque, um Zero Trust-Endpunkte zu bearbeiten.",
+  "zero_trust_reauth_endpoints":
+      "Eine erneute Anmeldung stellt die registrierten Endpunktadressen wieder her und entfernt deine eigenen Adressen.",
   'experimental': 'Experimentell',
   'show_license': 'License Key anzeigen',
   'hide_license': 'License Key ausblenden',

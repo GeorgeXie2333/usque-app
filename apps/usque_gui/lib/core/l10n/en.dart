@@ -112,8 +112,19 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Sign in to the same organization again to reconnect this account.',
   'zero_trust_metadata_missing':
       'The saved organization details are incomplete. Add a new Zero Trust account and sign in again.',
-  'zero_trust_endpoint_managed':
-      'This server address is set by your organization account and cannot be changed here.',
+  "zero_trust_endpoint_edit": "Edit Zero Trust endpoints",
+  "zero_trust_endpoint_risk_title": "Risks of changing Zero Trust endpoints",
+  "zero_trust_endpoint_risk_body":
+      "Endpoints from unknown sources may put your privacy and data security at risk.\n\nIncorrect addresses may prevent your connection from working.\n\nUse only trusted endpoints you are authorized to access, and follow your organization's requirements.",
+  "zero_trust_endpoint_risk_ack":
+      "I understand the risks and confirm that I am authorized to use this endpoint.",
+  "zero_trust_endpoint_risk_continue": "Accept risks and continue editing",
+  "zero_trust_endpoint_risk_locked":
+      "Confirm the risks before editing these addresses.",
+  "zero_trust_endpoint_unsupported":
+      "Update Usque to edit Zero Trust endpoints.",
+  "zero_trust_reauth_endpoints":
+      "Signing in again restores the registered endpoint addresses and removes your custom addresses.",
   'experimental': 'Experimental',
   'show_license': 'Show License Key',
   'hide_license': 'Hide License Key',

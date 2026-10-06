@@ -115,8 +115,20 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Bu hesabın bağlantısını geri yüklemek için aynı kuruluşta yeniden oturum açın.',
   'zero_trust_metadata_missing':
       'Kaydedilen kuruluş bilgileri eksik. Yeni bir Zero Trust hesabı ekleyip oturum açın.',
-  'zero_trust_endpoint_managed':
-      'Sunucu adresini kuruluş hesabı belirler. Bu adres burada değiştirilemez.',
+  "zero_trust_endpoint_edit": "Zero Trust uç noktalarını düzenle",
+  "zero_trust_endpoint_risk_title":
+      "Zero Trust uç noktalarını değiştirme riskleri",
+  "zero_trust_endpoint_risk_body":
+      "Kaynağı bilinmeyen uç noktalar gizliliğinizi ve veri güvenliğinizi riske atabilir.\n\nYanlış adresler bağlantının başarısız olmasına neden olabilir.\n\nYalnızca erişim yetkiniz olan güvenilir uç noktaları kullanın ve kuruluşunuzun gereksinimlerine uyun.",
+  "zero_trust_endpoint_risk_ack":
+      "Riskleri anlıyorum ve bu uç noktayı kullanmaya yetkili olduğumu onaylıyorum.",
+  "zero_trust_endpoint_risk_continue": "Riskleri kabul et ve devam et",
+  "zero_trust_endpoint_risk_locked":
+      "Bu adresleri düzenlemeden önce riskleri onaylayın.",
+  "zero_trust_endpoint_unsupported":
+      "Zero Trust uç noktalarını düzenlemek için Usque'yi güncelleyin.",
+  "zero_trust_reauth_endpoints":
+      "Tekrar giriş yapmak kayıtlı uç nokta adreslerini geri yükler ve özel adreslerinizi kaldırır.",
   'experimental': 'Deneysel',
   'show_license': 'License Key’i göster',
   'hide_license': 'License Key’i gizle',

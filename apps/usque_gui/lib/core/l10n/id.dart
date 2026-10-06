@@ -114,8 +114,19 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Masuk kembali ke organisasi yang sama untuk memulihkan koneksi akun ini.',
   'zero_trust_metadata_missing':
       'Informasi organisasi yang tersimpan tidak lengkap. Tambahkan akun Zero Trust baru dan masuk lagi.',
-  'zero_trust_endpoint_managed':
-      'Alamat server ini diatur oleh akun organisasi dan tidak dapat diubah di sini.',
+  "zero_trust_endpoint_edit": "Edit endpoint Zero Trust",
+  "zero_trust_endpoint_risk_title": "Risiko mengubah endpoint Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "Endpoint dari sumber yang tidak dikenal dapat membahayakan privasi dan keamanan data Anda.\n\nAlamat yang salah dapat menyebabkan koneksi gagal.\n\nGunakan hanya endpoint tepercaya yang boleh Anda akses, dan patuhi persyaratan organisasi.",
+  "zero_trust_endpoint_risk_ack":
+      "Saya memahami risikonya dan memastikan bahwa saya berwenang menggunakan endpoint ini.",
+  "zero_trust_endpoint_risk_continue": "Terima risiko dan lanjutkan mengedit",
+  "zero_trust_endpoint_risk_locked":
+      "Konfirmasikan risiko sebelum mengedit alamat ini.",
+  "zero_trust_endpoint_unsupported":
+      "Perbarui Usque untuk mengedit endpoint Zero Trust.",
+  "zero_trust_reauth_endpoints":
+      "Masuk kembali memulihkan alamat endpoint terdaftar dan menghapus alamat khusus Anda.",
   'experimental': 'Eksperimental',
   'show_license': 'Tampilkan License Key',
   'hide_license': 'Sembunyikan License Key',

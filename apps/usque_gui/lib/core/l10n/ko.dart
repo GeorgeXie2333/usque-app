@@ -108,7 +108,16 @@ const Map<String, String> kKoCatalog = <String, String>{
   'zero_trust_repair_same_team': '같은 조직에 다시 로그인해 이 계정의 연결을 복구하세요.',
   'zero_trust_metadata_missing':
       '저장된 조직 정보가 불완전합니다. 새 Zero Trust 계정을 추가하고 다시 로그인하세요.',
-  'zero_trust_endpoint_managed': '이 서버 주소는 조직 계정에서 설정하므로 여기에서 변경할 수 없습니다.',
+  "zero_trust_endpoint_edit": "Zero Trust 엔드포인트 편집",
+  "zero_trust_endpoint_risk_title": "Zero Trust 엔드포인트 변경 위험",
+  "zero_trust_endpoint_risk_body":
+      "출처를 알 수 없는 엔드포인트는 개인정보와 데이터 보안을 위협할 수 있습니다.\n\n잘못된 주소로 인해 연결이 실패할 수 있습니다.\n\n사용 권한이 있는 신뢰할 수 있는 엔드포인트만 사용하고 조직의 요구 사항을 준수하세요.",
+  "zero_trust_endpoint_risk_ack": "위험을 이해했으며 이 엔드포인트를 사용할 권한이 있음을 확인합니다.",
+  "zero_trust_endpoint_risk_continue": "위험을 감수하고 편집 계속",
+  "zero_trust_endpoint_risk_locked": "주소를 편집하기 전에 위험을 확인하세요.",
+  "zero_trust_endpoint_unsupported": "Zero Trust 엔드포인트를 편집하려면 Usque를 업데이트하세요.",
+  "zero_trust_reauth_endpoints":
+      "다시 로그인하면 등록된 엔드포인트 주소가 복원되고 사용자 지정 주소가 제거됩니다.",
   'experimental': '실험적',
   'show_license': 'License Key 표시',
   'hide_license': 'License Key 숨기기',

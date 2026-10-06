@@ -115,8 +115,19 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Щоб відновити з’єднання цього облікового запису, увійдіть знову до тієї самої організації.',
   'zero_trust_metadata_missing':
       'Збережені відомості про організацію неповні. Додайте новий обліковий запис Zero Trust і увійдіть.',
-  'zero_trust_endpoint_managed':
-      'Адресу сервера визначає обліковий запис організації. Тут її змінити не можна.',
+  "zero_trust_endpoint_edit": "Змінити адреси Zero Trust",
+  "zero_trust_endpoint_risk_title": "Ризики зміни адрес Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "Вузли невідомого походження можуть загрожувати конфіденційності та безпеці даних.\n\nНеправильні адреси можуть спричинити збій з’єднання.\n\nВикористовуйте лише довірені вузли, доступ до яких вам дозволено, і дотримуйтеся вимог організації.",
+  "zero_trust_endpoint_risk_ack":
+      "Я розумію ризики та підтверджую, що маю право використовувати цей вузол.",
+  "zero_trust_endpoint_risk_continue": "Прийняти ризики й продовжити",
+  "zero_trust_endpoint_risk_locked":
+      "Підтвердьте ризики перед зміною цих адрес.",
+  "zero_trust_endpoint_unsupported":
+      "Оновіть Usque, щоб змінювати адреси Zero Trust.",
+  "zero_trust_reauth_endpoints":
+      "Повторний вхід відновлює зареєстровані адреси та видаляє власні адреси.",
   'experimental': 'Експериментально',
   'show_license': 'Показати License Key',
   'hide_license': 'Сховати License Key',

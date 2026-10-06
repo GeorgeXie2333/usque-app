@@ -113,8 +113,19 @@ const Map<String, String> kViCatalog = <String, String>{
       'Đăng nhập lại vào cùng tổ chức để khôi phục kết nối cho tài khoản này.',
   'zero_trust_metadata_missing':
       'Thông tin tổ chức đã lưu chưa đầy đủ. Thêm tài khoản Zero Trust mới rồi đăng nhập.',
-  'zero_trust_endpoint_managed':
-      'Tài khoản tổ chức quyết định địa chỉ máy chủ. Không thể sửa địa chỉ này tại đây.',
+  "zero_trust_endpoint_edit": "Sửa điểm cuối Zero Trust",
+  "zero_trust_endpoint_risk_title": "Rủi ro khi thay đổi điểm cuối Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "Điểm cuối không rõ nguồn gốc có thể gây rủi ro cho quyền riêng tư và bảo mật dữ liệu.\n\nĐịa chỉ sai có thể khiến kết nối thất bại.\n\nChỉ dùng điểm cuối đáng tin cậy mà bạn được phép truy cập và tuân thủ yêu cầu của tổ chức.",
+  "zero_trust_endpoint_risk_ack":
+      "Tôi hiểu rủi ro và xác nhận rằng tôi có quyền sử dụng điểm cuối này.",
+  "zero_trust_endpoint_risk_continue": "Chấp nhận rủi ro và tiếp tục sửa",
+  "zero_trust_endpoint_risk_locked":
+      "Xác nhận rủi ro trước khi sửa các địa chỉ này.",
+  "zero_trust_endpoint_unsupported":
+      "Cập nhật Usque để sửa điểm cuối Zero Trust.",
+  "zero_trust_reauth_endpoints":
+      "Đăng nhập lại khôi phục địa chỉ đã đăng ký và xóa địa chỉ tùy chỉnh.",
   'experimental': 'Thử nghiệm',
   'show_license': 'Hiện License Key',
   'hide_license': 'Ẩn License Key',

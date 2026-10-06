@@ -119,8 +119,20 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Reconnectez-vous à la même organisation pour rétablir la connexion de ce compte.',
   'zero_trust_metadata_missing':
       'Les informations enregistrées sur l’organisation sont incomplètes. Ajoutez un nouveau compte Zero Trust et reconnectez-vous.',
-  'zero_trust_endpoint_managed':
-      'L’adresse du serveur est définie par le compte de l’organisation et ne peut pas être modifiée ici.',
+  "zero_trust_endpoint_edit": "Modifier les points de terminaison Zero Trust",
+  "zero_trust_endpoint_risk_title":
+      "Risques liés à la modification des points de terminaison Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "Les points de terminaison de source inconnue peuvent compromettre votre confidentialité et la sécurité de vos données.\n\nDes adresses incorrectes peuvent empêcher la connexion.\n\nUtilisez uniquement des points de terminaison fiables auxquels vous êtes autorisé à accéder et respectez les exigences de votre organisation.",
+  "zero_trust_endpoint_risk_ack":
+      "Je comprends les risques et confirme être autorisé à utiliser ce point de terminaison.",
+  "zero_trust_endpoint_risk_continue": "Accepter les risques et poursuivre",
+  "zero_trust_endpoint_risk_locked":
+      "Confirmez les risques avant de modifier ces adresses.",
+  "zero_trust_endpoint_unsupported":
+      "Mettez Usque à jour pour modifier les points de terminaison Zero Trust.",
+  "zero_trust_reauth_endpoints":
+      "Une nouvelle connexion rétablit les adresses enregistrées et supprime vos adresses personnalisées.",
   'experimental': 'Expérimental',
   'show_license': 'Afficher la License Key',
   'hide_license': 'Masquer la License Key',

@@ -299,6 +299,7 @@ impl AppConfig {
                         id: profile.id,
                         name: profile.name,
                         managed_endpoint_ips,
+                        zero_trust_endpoint_override: None,
                     }
                 })
                 .collect(),
@@ -458,6 +459,12 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.network.warp_dns = crate::WarpDnsSettings::default();
         config.schema_version = 22;
     }
+    if config.schema_version < 23 {
+        for account in &mut config.profiles {
+            account.zero_trust_endpoint_override = None;
+        }
+        config.schema_version = 23;
+    }
 }
 
 #[cfg(not(windows))]
@@ -560,6 +567,63 @@ mod tests {
         assert!(loaded.initial_identity_operation.is_none());
         assert_eq!(loaded.profiles, config.profiles);
         assert_eq!(loaded.network, config.network);
+    }
+
+    #[test]
+    fn zero_trust_override_persists_and_schema_twenty_two_retains_registration() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = super::ConfigStore::new(directory.path().join("config.json"));
+        let mut config = crate::AppConfig::default();
+        let id = config.active_profile_id.unwrap();
+        let registered = ManagedEndpointIps {
+            ipv4: "162.159.197.2".parse().unwrap(),
+            ipv6: "2606:4700:102::2".parse().unwrap(),
+        };
+        config
+            .set_managed_endpoint_ips(id, registered.clone())
+            .unwrap();
+        config.schema_version = 22;
+        store.save(&config).unwrap();
+        let mut loaded = store.load().unwrap();
+        assert_eq!(loaded.schema_version, 23);
+        assert_eq!(
+            loaded.account(id).unwrap().managed_endpoint_ips,
+            Some(registered.clone())
+        );
+        assert!(
+            loaded
+                .account(id)
+                .unwrap()
+                .zero_trust_endpoint_override
+                .is_none()
+        );
+        let custom = ManagedEndpointIps {
+            ipv4: "192.0.2.45".parse().unwrap(),
+            ipv6: "2001:db8::45".parse().unwrap(),
+        };
+        loaded.account_mut(id).unwrap().zero_trust_endpoint_override = Some(custom.clone());
+        store.save(&loaded).unwrap();
+        let restored = store.load().unwrap();
+        assert_eq!(
+            restored.account(id).unwrap().managed_endpoint_ips,
+            Some(registered.clone())
+        );
+        assert_eq!(
+            restored.active_profile().unwrap().endpoint.ipv4,
+            custom.ipv4
+        );
+        assert_eq!(
+            restored.account(id).unwrap().zero_trust_endpoint_override,
+            Some(custom)
+        );
+        loaded.set_managed_endpoint_ips(id, registered).unwrap();
+        assert!(
+            loaded
+                .account(id)
+                .unwrap()
+                .zero_trust_endpoint_override
+                .is_none()
+        );
     }
     use super::*;
 

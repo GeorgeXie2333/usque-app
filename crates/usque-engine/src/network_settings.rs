@@ -743,6 +743,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn zero_trust_masked_override_and_restore_leave_shared_network_intact() {
+        let (_directory, service) = service();
+        let mut config = service.config_snapshot().await;
+        let id = config.active_profile_id.unwrap();
+        let registered = usque_core::ManagedEndpointIps {
+            ipv4: "162.159.197.2".parse().unwrap(),
+            ipv6: "2606:4700:102::2".parse().unwrap(),
+        };
+        config
+            .set_managed_endpoint_ips(id, registered.clone())
+            .unwrap();
+        let shared = config.network.clone();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.endpoint.ipv4 = "192.0.2.42".parse().unwrap();
+        profile.endpoint.ipv6 = "2001:db8::42".parse().unwrap();
+        let state = service
+            .save_network_settings(request(&profile, &["endpoint.ipv4", "endpoint.ipv6"]))
+            .await
+            .unwrap();
+        assert_eq!(state.persisted, Some(true));
+        assert_eq!(
+            state.stored_profile.unwrap().endpoint.unwrap().ipv4,
+            "192.0.2.42"
+        );
+        let config = service.config_snapshot().await;
+        assert_eq!(config.network, shared);
+        assert_eq!(
+            config.account(id).unwrap().managed_endpoint_ips,
+            Some(registered.clone())
+        );
+        assert!(
+            config
+                .account(id)
+                .unwrap()
+                .zero_trust_endpoint_override
+                .is_some()
+        );
+        profile.endpoint.ipv4 = registered.ipv4;
+        profile.endpoint.ipv6 = registered.ipv6;
+        service
+            .save_network_settings(request(&profile, &["endpoint.ipv4", "endpoint.ipv6"]))
+            .await
+            .unwrap();
+        assert!(
+            service
+                .config_snapshot()
+                .await
+                .account(id)
+                .unwrap()
+                .zero_trust_endpoint_override
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn http_shutdown_normalizes_its_old_wire_system_proxy_flag_before_validation() {
         let (_directory, service) = service();
         let mut profile = service.config_snapshot().await.active_profile().unwrap();

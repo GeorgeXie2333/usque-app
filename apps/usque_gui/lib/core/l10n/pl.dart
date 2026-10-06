@@ -114,8 +114,20 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Zaloguj się ponownie do tej samej organizacji, aby przywrócić połączenie konta.',
   'zero_trust_metadata_missing':
       'Zapisane informacje o organizacji są niepełne. Dodaj nowe konto Zero Trust i zaloguj się.',
-  'zero_trust_endpoint_managed':
-      'Adres serwera jest ustawiany przez konto organizacji. Nie można go tutaj zmienić.',
+  "zero_trust_endpoint_edit": "Edytuj punkty końcowe Zero Trust",
+  "zero_trust_endpoint_risk_title":
+      "Ryzyko zmiany punktów końcowych Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "Punkty końcowe nieznanego pochodzenia mogą zagrozić prywatności i bezpieczeństwu danych.\n\nNieprawidłowe adresy mogą uniemożliwić połączenie.\n\nKorzystaj tylko z zaufanych punktów końcowych, do których masz uprawnienia, i przestrzegaj wymagań organizacji.",
+  "zero_trust_endpoint_risk_ack":
+      "Rozumiem ryzyko i potwierdzam, że mam prawo korzystać z tego punktu końcowego.",
+  "zero_trust_endpoint_risk_continue": "Akceptuj ryzyko i kontynuuj",
+  "zero_trust_endpoint_risk_locked":
+      "Potwierdź ryzyko przed edycją tych adresów.",
+  "zero_trust_endpoint_unsupported":
+      "Zaktualizuj Usque, aby edytować punkty końcowe Zero Trust.",
+  "zero_trust_reauth_endpoints":
+      "Ponowne logowanie przywraca zarejestrowane adresy i usuwa adresy niestandardowe.",
   'experimental': 'Eksperymentalne',
   'show_license': 'Pokaż License Key',
   'hide_license': 'Ukryj License Key',

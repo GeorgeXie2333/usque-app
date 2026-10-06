@@ -116,8 +116,19 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Entre novamente na mesma organização para recuperar a conexão desta conta.',
   'zero_trust_metadata_missing':
       'Os dados salvos da organização estão incompletos. Adicione outra conta Zero Trust e entre novamente.',
-  'zero_trust_endpoint_managed':
-      'A conta da organização define este endereço de servidor. Ele não pode ser alterado aqui.',
+  "zero_trust_endpoint_edit": "Editar endpoints Zero Trust",
+  "zero_trust_endpoint_risk_title": "Riscos de alterar endpoints Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "Endpoints de origem desconhecida podem colocar sua privacidade e a segurança dos dados em risco.\n\nEndereços incorretos podem impedir a conexão.\n\nUse apenas endpoints confiáveis aos quais você tem autorização de acesso e respeite os requisitos da organização.",
+  "zero_trust_endpoint_risk_ack":
+      "Entendo os riscos e confirmo que tenho autorização para usar este endpoint.",
+  "zero_trust_endpoint_risk_continue": "Aceitar riscos e continuar",
+  "zero_trust_endpoint_risk_locked":
+      "Confirme os riscos antes de editar estes endereços.",
+  "zero_trust_endpoint_unsupported":
+      "Atualize o Usque para editar endpoints Zero Trust.",
+  "zero_trust_reauth_endpoints":
+      "Entrar novamente restaura os endereços registrados e remove seus endereços personalizados.",
   'experimental': 'Experimental',
   'show_license': 'Mostrar License Key',
   'hide_license': 'Ocultar License Key',

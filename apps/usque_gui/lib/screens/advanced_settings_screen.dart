@@ -17,6 +17,7 @@ import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
 import '../widgets/warp_dns_editor.dart';
+import '../widgets/zero_trust_endpoint_warning.dart';
 
 class AdvancedSettingsScreen extends StatefulWidget {
   const AdvancedSettingsScreen({
@@ -60,6 +61,9 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   int _warpDnsResetRevision = 0;
   final _killSwitchKey = GlobalKey();
   bool _saving = false;
+  String? _endpointAcknowledgedAccount;
+  bool _endpointWarningOpen = false;
+  int _endpointEditGeneration = 0;
   String? _saveError;
   String? _validationError;
   bool _loading = false;
@@ -74,10 +78,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   final _focus = List.generate(9, (_) => FocusNode());
 
   List<Object> get _values => [
-    _endpointSelection == EndpointSelection.automatic
+    !_zeroTrustEndpointIpsManaged &&
+            _endpointSelection == EndpointSelection.automatic
         ? widget.controller.activeProfile.endpointIpv4
         : _endpointV4.text,
-    _endpointSelection == EndpointSelection.automatic
+    !_zeroTrustEndpointIpsManaged &&
+            _endpointSelection == EndpointSelection.automatic
         ? widget.controller.activeProfile.endpointIpv6
         : _endpointV6.text,
     _port.text,
@@ -123,6 +129,62 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           .provider ==
       IdentityProvider.zeroTrust;
 
+  bool get _ztEndpointEditingSupported =>
+      widget.controller.engineCapabilities?.zeroTrustEndpointEditing ?? false;
+
+  bool get _ztRegisteredEndpointsAvailable {
+    final status = widget.controller.identityStatus(
+      widget.controller.activeProfile.id,
+    );
+    return InternetAddress.tryParse(status.registeredEndpointIpv4)?.type ==
+            InternetAddressType.IPv4 &&
+        InternetAddress.tryParse(status.registeredEndpointIpv6)?.type ==
+            InternetAddressType.IPv6;
+  }
+
+  bool get _ztEndpointsUnlocked =>
+      _ztEndpointEditingSupported &&
+      _ztRegisteredEndpointsAvailable &&
+      _endpointAcknowledgedAccount == widget.controller.activeProfile.id;
+
+  void _accountChanged() {
+    if (widget.controller.activeProfile.id != _editingAccountId) {
+      _endpointAcknowledgedAccount = null;
+      _endpointEditGeneration++;
+    }
+  }
+
+  Future<void> _unlockZtEndpoints() async {
+    if (_saving ||
+        _endpointWarningOpen ||
+        !_ztEndpointEditingSupported ||
+        !_ztRegisteredEndpointsAvailable) {
+      return;
+    }
+    final account = widget.controller.activeProfile.id;
+    final generation = _endpointEditGeneration;
+    if (account != _editingAccountId) return;
+    _endpointWarningOpen = true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) =>
+          ZeroTrustEndpointWarning(strings: widget.controller.strings),
+    );
+    _endpointWarningOpen = false;
+    if (!mounted ||
+        confirmed != true ||
+        generation != _endpointEditGeneration ||
+        account != widget.controller.activeProfile.id ||
+        !_zeroTrustEndpointIpsManaged ||
+        !_ztEndpointEditingSupported ||
+        !_ztRegisteredEndpointsAvailable) {
+      return;
+    }
+    setState(() => _endpointAcknowledgedAccount = account);
+    _focus[0].requestFocus();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -134,6 +196,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _dnsV4 = TextEditingController();
     _dnsV6 = TextEditingController();
     _load(widget.controller.activeProfile);
+    widget.controller.addListener(_accountChanged);
     if (widget.revealKillSwitch) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final target = _killSwitchKey.currentContext;
@@ -180,6 +243,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
 
   @override
   void dispose() {
+    widget.controller.removeListener(_accountChanged);
     for (final controller in <TextEditingController>[
       _endpointV4,
       _endpointV6,
@@ -200,13 +264,20 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   @override
   Widget build(BuildContext context) =>
       ControllerSelector<
-        ({EngineCapabilities? capabilities, bool managedQuic})
+        ({
+          EngineCapabilities? capabilities,
+          bool managedQuic,
+          String accountId,
+          ProfileIdentityStatus identity,
+        })
       >(
         controller: widget.controller,
         selector: (controller) {
           final profile = controller.activeProfile;
           return (
             capabilities: controller.engineCapabilities,
+            accountId: profile.id,
+            identity: controller.identityStatus(profile.id),
             managedQuic: profile.chainEnabled && profile.chainSource.isProxy,
           );
         },
@@ -418,6 +489,30 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                         ),
                         const SizedBox(height: 18),
                       ],
+                      if (_zeroTrustEndpointIpsManaged) ...[
+                        if (!_ztEndpointsUnlocked &&
+                            _ztEndpointEditingSupported &&
+                            _ztRegisteredEndpointsAvailable)
+                          OutlinedButton.icon(
+                            key: const ValueKey('zt-endpoint-edit'),
+                            onPressed: _saving ? null : _unlockZtEndpoints,
+                            icon: const Icon(LucideIcons.pencil),
+                            label: Text(
+                              strings.get('zero_trust_endpoint_edit'),
+                            ),
+                          ),
+                        if (!_ztEndpointsUnlocked)
+                          Text(
+                            strings.get(
+                              !_ztEndpointEditingSupported
+                                  ? 'zero_trust_endpoint_unsupported'
+                                  : !_ztRegisteredEndpointsAvailable
+                                  ? 'zero_trust_metadata_missing'
+                                  : 'zero_trust_endpoint_risk_locked',
+                            ),
+                          ),
+                        const SizedBox(height: 18),
+                      ],
                       _ResponsiveFields(
                         children: <Widget>[
                           if (_zeroTrustEndpointIpsManaged ||
@@ -428,7 +523,9 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               enabled: !_saving,
                               controller: _endpointV4,
                               onChanged: (_) => _edited(),
-                              readOnly: _zeroTrustEndpointIpsManaged,
+                              readOnly:
+                                  _zeroTrustEndpointIpsManaged &&
+                                  !_ztEndpointsUnlocked,
                               decoration: InputDecoration(
                                 labelText: strings.get('endpoint_ipv4'),
                               ),
@@ -443,7 +540,9 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               enabled: !_saving,
                               controller: _endpointV6,
                               onChanged: (_) => _edited(),
-                              readOnly: _zeroTrustEndpointIpsManaged,
+                              readOnly:
+                                  _zeroTrustEndpointIpsManaged &&
+                                  !_ztEndpointsUnlocked,
                               decoration: InputDecoration(
                                 labelText: strings.get('endpoint_ipv6'),
                               ),
@@ -800,6 +899,22 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
 
   Future<void> _save() async {
     if (_saving) return;
+    if (_zeroTrustEndpointIpsManaged &&
+        _ztEndpointEditingSupported &&
+        _ztRegisteredEndpointsAvailable &&
+        !_ztEndpointsUnlocked &&
+        (_values[0] != _baseline[0] || _values[1] != _baseline[1])) {
+      final status = widget.controller.identityStatus(
+        widget.controller.activeProfile.id,
+      );
+      final restoringRegistered =
+          _endpointV4.text.trim() == status.registeredEndpointIpv4 &&
+          _endpointV6.text.trim() == status.registeredEndpointIpv6;
+      if (!restoringRegistered) {
+        await _unlockZtEndpoints();
+        if (!mounted || !_ztEndpointsUnlocked) return;
+      }
+    }
     if (_dataPlane == DataPlaneMode.l4Proxy &&
         !(widget.controller.engineCapabilities?.l4Available ?? false)) {
       setState(
@@ -842,6 +957,9 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     });
     final profile = widget.controller.activeProfile;
     final endpointIpsManaged = _zeroTrustEndpointIpsManaged;
+    final preserveEndpointIps = endpointIpsManaged
+        ? !_ztEndpointEditingSupported || !_ztRegisteredEndpointsAvailable
+        : _endpointSelection == EndpointSelection.automatic;
     const paths = [
       'endpoint.ipv4',
       'endpoint.ipv6',
@@ -872,8 +990,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       for (var i = 0; i < paths.length; i++)
         if (_values[i] != _baseline[i] &&
             !(i < 2 &&
-                (endpointIpsManaged ||
-                    _endpointSelection == EndpointSelection.automatic)) &&
+                (endpointIpsManaged
+                    ? !_ztEndpointEditingSupported ||
+                          !_ztRegisteredEndpointsAvailable
+                    : _endpointSelection == EndpointSelection.automatic)) &&
             !(endpointIpsManaged && paths[i] == 'endpoint.selection') &&
             !(_warpDns.mode != WarpDnsMode.plain && paths[i] == 'dns_servers'))
           paths[i],
@@ -886,16 +1006,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         congestionControl: _congestionControl,
         ipPolicy: _ipPolicy,
         endpointSelection: endpointIpsManaged
-            ? profile.endpointSelection
+            ? EndpointSelection.custom
             : _endpointSelection,
-        endpointIpv4:
-            endpointIpsManaged ||
-                _endpointSelection == EndpointSelection.automatic
+        endpointIpv4: preserveEndpointIps
             ? profile.endpointIpv4
             : _endpointV4.text.trim(),
-        endpointIpv6:
-            endpointIpsManaged ||
-                _endpointSelection == EndpointSelection.automatic
+        endpointIpv6: preserveEndpointIps
             ? profile.endpointIpv6
             : _endpointV6.text.trim(),
         endpointPort: int.parse(_port.text),
@@ -973,10 +1089,17 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     final current = widget.controller.activeProfile;
     var reset = current.resetAdvancedDefaults();
     if (_zeroTrustEndpointIpsManaged) {
+      final status = widget.controller.identityStatus(current.id);
+      final restoreRegistered =
+          _ztEndpointEditingSupported && _ztRegisteredEndpointsAvailable;
       reset = reset.copyWith(
-        endpointSelection: current.endpointSelection,
-        endpointIpv4: current.endpointIpv4,
-        endpointIpv6: current.endpointIpv6,
+        endpointSelection: EndpointSelection.custom,
+        endpointIpv4: restoreRegistered
+            ? status.registeredEndpointIpv4
+            : current.endpointIpv4,
+        endpointIpv6: restoreRegistered
+            ? status.registeredEndpointIpv6
+            : current.endpointIpv6,
       );
     }
     setState(() {

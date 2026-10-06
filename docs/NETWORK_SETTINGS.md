@@ -4,6 +4,29 @@ Settings can be saved without changing the current connection. The API reports
 saving and application separately, so the GUI can show whether a change is saved,
 active, waiting for a later connection, or awaiting confirmation.
 
+## Zero Trust endpoint editing / Zero Trust 端点编辑
+
+Open **Settings → Advanced network settings → Edit Zero Trust endpoints**.
+Each page visit starts locked. Read the red fullscreen warning, acknowledge the
+risks and your authorization, then edit IPv4/IPv6 and choose **Apply changes**.
+Cancel, Escape and Back do not unlock the fields. Reset stages the latest
+registered pair without risky-edit confirmation; applying that pair clears the
+override. Signing in again also clears the override after successful registration.
+Port and SNI stay shared; ZT has no Automatic picker. A failed save retains drafts.
+
+Capability field 45, `zero_trust_endpoint_editing`, gates this editor. Missing
+support keeps the old read-only behavior. Registered addresses are read-only
+catalog metadata: `ProfileIdentityStatus` fields 8 and 9
+(`registered_endpoint_ipv4`, `registered_endpoint_ipv6`), mirrored in Android
+JSON. Missing registration requires sign-in, never a Consumer-default substitute.
+Saving addresses retains TLS and endpoint public-key pin checks and uses the
+existing controlled cold reconnect when the active session can apply the change.
+
+在 **设置 → 高级网络设置 → 编辑 Zero Trust 端点** 中阅读红色全屏警告并勾选风险
+及授权声明后编辑，点击 **应用修改** 保存。每次进入页面都需重新确认，取消、
+Esc 或返回不会解锁。恢复默认暂存注册地址，应用后清除覆盖；重新登录成功也会
+清除覆盖。端口和 SNI 继续共享，ZT 不提供自动选择。保存失败保留草稿。
+
 ## Automatic endpoints / 自动选择端点
 
 Open **Settings → Advanced network settings → Endpoint selection**, choose
@@ -13,7 +36,7 @@ in Custom mode. Switching the picker keeps custom drafts; automatic saves retain
 the previously saved address pair. Save new address drafts while Custom is
 selected. Port and SNI remain editable in both modes; L4 retains its
 identity-derived SNI. Zero Trust uses the
-registration-owned addresses and has no Consumer pool picker.
+registered addresses or a locally confirmed account override and has no Consumer pool picker.
 
 Custom accepts numeric IPv4/IPv6 addresses without a Consumer or organization
 prefix restriction. Only the active Custom pair is checked for VPN DNS conflicts;
@@ -26,7 +49,7 @@ The endpoint picker refreshes when capabilities arrive without replacing drafts.
 打开 **设置 → 高级网络设置 → 端点选择**，选择 **自动选择** 或 **自定义**，再点击
 **应用修改**。新安装和恢复默认使用自动选择；升级保留已有自定义端点。切换模式
 会保留手动地址草稿；自动模式应用修改时保留原来已保存的地址。要保存新的手动
-地址，请在自定义模式应用。端口和 SNI 在两种模式都可修改，组织账号仍使用注册地址。
+地址，请在自定义模式应用。端口和 SNI 在两种模式都可修改，组织账号使用注册地址或经风险确认的自定义地址。
 
 自定义端点可填写任意合法 IPv4/IPv6 地址，不限制所属网段。自动模式忽略已保存的
 自定义地址；仅对当前生效的自定义端点检查 VPN DNS 冲突。
@@ -113,7 +136,7 @@ the new capability cannot accept saves from the new GUI.
 Each save carries an operation UUID, account UUID, non-secret profile values,
 and an explicit field mask. The account must be the current edit context.
 The command cannot create or rename accounts, change identity, or write
-credentials. Unknown fields and managed Zero Trust endpoint edits are rejected.
+credentials. Unknown fields and Zero Trust endpoint-selection edits are rejected. ZT IPv4/IPv6 masks update only the current account's override, preserving the registration-owned pair and shared Consumer addresses/selection. A pair matching registration clears the override.
 Rust disables system proxy when HTTP is disabled.
 
 Proxy listener lists retain every address and port through desktop protobuf,
@@ -305,7 +328,7 @@ transaction.
 
 Settings operation tracking does not add a configuration schema version; the
 current schema is 21. Schema 19 adds bypass domains, schema 20 preserves legacy
-endpoints in Custom mode, and schema 21 adds resumable initial-identity state.
+endpoints in Custom mode, and schema 21 adds resumable initial-identity state. Schema 23 retains registered ZT addresses and adds an optional account-specific endpoint override.
 Epochs, sequences, operation IDs, and network-settings application
 state are in memory and do not create a durable operation log. Passwords are
 removed from published profiles. This change does not relax Kill Switch, TUN retention,

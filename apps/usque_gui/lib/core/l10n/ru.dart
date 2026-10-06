@@ -114,8 +114,19 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Войдите снова в ту же организацию, чтобы восстановить подключение аккаунта.',
   'zero_trust_metadata_missing':
       'Сохранённые сведения об организации неполны. Добавьте новый аккаунт Zero Trust и войдите снова.',
-  'zero_trust_endpoint_managed':
-      'Этот адрес сервера задаётся аккаунтом организации. Здесь его изменить нельзя.',
+  "zero_trust_endpoint_edit": "Изменить адреса Zero Trust",
+  "zero_trust_endpoint_risk_title": "Риски изменения адресов Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "Узлы неизвестного происхождения могут угрожать вашей конфиденциальности и безопасности данных.\n\nНеверные адреса могут привести к сбою подключения.\n\nИспользуйте только доверенные узлы, доступ к которым вам разрешён, и соблюдайте требования организации.",
+  "zero_trust_endpoint_risk_ack":
+      "Я понимаю риски и подтверждаю, что имею право использовать этот узел.",
+  "zero_trust_endpoint_risk_continue": "Принять риски и продолжить",
+  "zero_trust_endpoint_risk_locked":
+      "Подтвердите риски перед изменением этих адресов.",
+  "zero_trust_endpoint_unsupported":
+      "Обновите Usque для изменения адресов Zero Trust.",
+  "zero_trust_reauth_endpoints":
+      "Повторный вход восстанавливает зарегистрированные адреса и удаляет ваши собственные адреса.",
   'experimental': 'Экспериментально',
   'show_license': 'Показать License Key',
   'hide_license': 'Скрыть License Key',

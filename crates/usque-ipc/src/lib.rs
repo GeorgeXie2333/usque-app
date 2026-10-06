@@ -1188,6 +1188,28 @@ mod tests {
     }
 
     #[test]
+    fn zero_trust_endpoint_editing_wire_fields_are_append_only() {
+        let capabilities = crate::v1::Capabilities {
+            zero_trust_endpoint_editing: true,
+            ..Default::default()
+        };
+        assert_eq!(capabilities.encode_to_vec(), [0xe8, 0x02, 0x01]);
+        let status = crate::v1::ProfileIdentityStatus {
+            registered_endpoint_ipv4: "v4".into(),
+            registered_endpoint_ipv6: "v6".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            status.encode_to_vec(),
+            [0x42, 2, b'v', b'4', 0x4a, 2, b'v', b'6']
+        );
+        assert_eq!(
+            crate::v1::ProfileIdentityStatus::decode(status.encode_to_vec().as_slice()).unwrap(),
+            status
+        );
+    }
+
+    #[test]
     fn quic_policy_and_capability_use_appended_wire_numbers() {
         let profile = Profile {
             disable_quic: true,

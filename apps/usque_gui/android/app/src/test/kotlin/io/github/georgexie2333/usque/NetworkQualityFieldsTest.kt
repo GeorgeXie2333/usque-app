@@ -11,6 +11,22 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 
 class NetworkQualityFieldsTest {
+    @Test fun zeroTrustEndpointEditingRequiresExplicitBooleanSupport() {
+        val key = "zero_trust_endpoint_editing"
+        assertEquals(true, NetworkQualityFields.capabilities("{\"zero_trust_endpoint_editing\":true}").getValue(key))
+        val unsupported =
+            listOf(
+                null,
+                "{}",
+                "{\"zero_trust_endpoint_editing\":false}",
+                "{\"zero_trust_endpoint_editing\":\"true\"}",
+                "invalid",
+            )
+        for (source in unsupported) {
+            assertEquals(false, NetworkQualityFields.capabilities(source).getValue(key))
+        }
+    }
+
     @Test fun encryptedWarpDnsCapabilityRequiresExplicitBooleanSupport() {
         val key = "encrypted_warp_dns"
         assertEquals(true, NetworkQualityFields.capabilities("{\"encrypted_warp_dns\":true}").getValue(key))

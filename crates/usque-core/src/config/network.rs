@@ -10,7 +10,7 @@ use super::{
 };
 
 /// Device-wide MASQUE, DNS, proxy, and output settings. A Zero Trust account
-/// overlays its registration-owned endpoint IPv4/IPv6 pair during hydration.
+/// overlays its registered or explicitly overridden IPv4/IPv6 pair.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SharedNetworkSettings {
     pub frontends: FrontendSettings,
@@ -88,6 +88,10 @@ impl SharedNetworkSettings {
     pub fn hydrate(&self, account: &Account) -> Profile {
         let mut endpoint = self.endpoint.clone();
         if let Some(managed) = &account.managed_endpoint_ips {
+            let managed = account
+                .zero_trust_endpoint_override
+                .as_ref()
+                .unwrap_or(managed);
             endpoint.ipv4 = managed.ipv4;
             endpoint.ipv6 = managed.ipv6;
             endpoint.selection = super::EndpointSelection::Custom;

@@ -117,8 +117,20 @@ const Map<String, String> kItCatalog = <String, String>{
       'Accedi di nuovo alla stessa organizzazione per ripristinare la connessione dell’account.',
   'zero_trust_metadata_missing':
       'Le informazioni salvate sull’organizzazione sono incomplete. Aggiungi un nuovo account Zero Trust e accedi di nuovo.',
-  'zero_trust_endpoint_managed':
-      'L’indirizzo del server è impostato dall’account dell’organizzazione e non può essere modificato qui.',
+  "zero_trust_endpoint_edit": "Modifica endpoint Zero Trust",
+  "zero_trust_endpoint_risk_title":
+      "Rischi della modifica degli endpoint Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "Gli endpoint di origine sconosciuta possono mettere a rischio la privacy e la sicurezza dei dati.\n\nGli indirizzi errati possono impedire la connessione.\n\nUsa solo endpoint affidabili ai quali sei autorizzato ad accedere e rispetta i requisiti della tua organizzazione.",
+  "zero_trust_endpoint_risk_ack":
+      "Comprendo i rischi e confermo di essere autorizzato a usare questo endpoint.",
+  "zero_trust_endpoint_risk_continue": "Accetta i rischi e continua",
+  "zero_trust_endpoint_risk_locked":
+      "Conferma i rischi prima di modificare questi indirizzi.",
+  "zero_trust_endpoint_unsupported":
+      "Aggiorna Usque per modificare gli endpoint Zero Trust.",
+  "zero_trust_reauth_endpoints":
+      "Un nuovo accesso ripristina gli indirizzi registrati e rimuove quelli personalizzati.",
   'experimental': 'Sperimentale',
   'show_license': 'Mostra License Key',
   'hide_license': 'Nascondi License Key',

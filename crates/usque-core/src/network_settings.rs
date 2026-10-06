@@ -174,7 +174,7 @@ pub enum SettingsError {
     AccountChanged,
     #[error("the network settings patch contains an unsupported field")]
     InvalidField,
-    #[error("registration-owned endpoint addresses cannot be edited")]
+    #[error("Zero Trust endpoint selection is fixed or registered addresses are missing")]
     ManagedEndpoint,
     #[error("network settings validation failed: {0}")]
     Configuration(#[from] crate::ConfigError),
@@ -200,10 +200,11 @@ pub fn merge_patch(
         || config.is_zero_trust_account(patch.account_id);
     for field in &patch.changed_fields {
         if managed
-            && matches!(
-                field.as_str(),
-                "endpoint.ipv4" | "endpoint.ipv6" | "endpoint.selection"
-            )
+            && (field == "endpoint.selection"
+                || matches!(field.as_str(), "endpoint.ipv4" | "endpoint.ipv6")
+                    && config
+                        .account(patch.account_id)
+                        .is_none_or(|account| account.managed_endpoint_ips.is_none()))
         {
             return Err(SettingsError::ManagedEndpoint);
         }
@@ -215,6 +216,18 @@ pub fn merge_patch(
         network.endpoint.ipv4 = config.network.endpoint.ipv4;
         network.endpoint.ipv6 = config.network.endpoint.ipv6;
         network.endpoint.selection = config.network.endpoint.selection;
+        if patch
+            .changed_fields
+            .iter()
+            .any(|field| matches!(field.as_str(), "endpoint.ipv4" | "endpoint.ipv6"))
+        {
+            let pair = crate::ManagedEndpointIps::from_endpoint(&profile.endpoint);
+            let account = config
+                .account_mut(patch.account_id)
+                .ok_or(SettingsError::AccountChanged)?;
+            account.zero_trust_endpoint_override =
+                (account.managed_endpoint_ips.as_ref() != Some(&pair)).then_some(pair);
+        }
     }
     config.network = network;
     Ok(profile)
@@ -316,6 +329,76 @@ mod tests {
             values: config.active_profile().unwrap(),
             changed_fields: fields.iter().map(|value| (*value).to_owned()).collect(),
         }
+    }
+
+    #[test]
+    fn zero_trust_overrides_are_account_scoped_masked_cold_and_resettable() {
+        let mut config = AppConfig::default();
+        let id = config.active_profile_id.unwrap();
+        let registered = crate::ManagedEndpointIps {
+            ipv4: "162.159.197.2".parse().unwrap(),
+            ipv6: "2606:4700:102::2".parse().unwrap(),
+        };
+        config
+            .set_managed_endpoint_ips(id, registered.clone())
+            .unwrap();
+        config
+            .identity_bindings
+            .insert(id, crate::IdentityProvider::zero_trust("example").unwrap());
+        let other = Uuid::new_v4();
+        config
+            .insert_account(other, "Other".into(), Some(registered.clone()))
+            .unwrap();
+        let shared = config.network.clone();
+        let previous = config.active_profile().unwrap();
+        let mut edit = patch(&config, &["endpoint.ipv4"]);
+        edit.values.endpoint.ipv4 = "192.0.2.45".parse().unwrap();
+        // The IPv6 draft is omitted from the field mask.
+        edit.values.endpoint.ipv6 = "2001:db8::45".parse().unwrap();
+        let stored = merge_patch(&mut config, &edit).unwrap();
+        assert_eq!(stored.endpoint.ipv4, edit.values.endpoint.ipv4);
+        assert_eq!(stored.endpoint.ipv6, registered.ipv6);
+        assert_eq!(config.network, shared);
+        assert_eq!(
+            config.account(id).unwrap().managed_endpoint_ips,
+            Some(registered.clone())
+        );
+        assert_eq!(
+            config.runtime_profile(other).unwrap().endpoint,
+            previous.endpoint
+        );
+        let plan = plan_application(
+            Some(&previous),
+            &stored,
+            &edit.changed_fields,
+            ConnectionPhase::Connected,
+            true,
+        )
+        .unwrap();
+        assert_eq!(plan.class, ReconfigureClass::ColdReconnect);
+        assert_eq!(plan.target.unwrap().endpoint, stored.endpoint);
+        let mut reset = patch(&config, &["endpoint.ipv4", "endpoint.ipv6"]);
+        reset.values.endpoint.ipv4 = registered.ipv4;
+        reset.values.endpoint.ipv6 = registered.ipv6;
+        merge_patch(&mut config, &reset).unwrap();
+        assert!(
+            config
+                .account(id)
+                .unwrap()
+                .zero_trust_endpoint_override
+                .is_none()
+        );
+        assert_eq!(config.active_profile().unwrap(), previous);
+        edit.changed_fields.push("not_a_field".into());
+        let before = config.clone();
+        assert!(merge_patch(&mut config, &edit).is_err());
+        assert_eq!(config, before);
+        config.account_mut(id).unwrap().managed_endpoint_ips = None;
+        let edit = patch(&config, &["endpoint.ipv4"]);
+        assert!(matches!(
+            merge_patch(&mut config, &edit),
+            Err(SettingsError::ManagedEndpoint)
+        ));
     }
 
     #[test]

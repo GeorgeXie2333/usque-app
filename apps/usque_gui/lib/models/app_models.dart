@@ -598,6 +598,8 @@ class ProfileIdentityStatus {
     this.cleanupPending = false,
     this.provider = IdentityProvider.consumer,
     this.organization = '',
+    this.registeredEndpointIpv4 = '',
+    this.registeredEndpointIpv6 = '',
   });
 
   final ProfileIdentityState state;
@@ -606,6 +608,8 @@ class ProfileIdentityStatus {
   final bool cleanupPending;
   final IdentityProvider provider;
   final String organization;
+  final String registeredEndpointIpv4;
+  final String registeredEndpointIpv6;
 }
 
 class FrontendSettings {
@@ -2062,6 +2066,7 @@ class EngineCapabilities {
     this.chainProxyEncryptedDns = false,
     this.customBypass = false,
     this.automaticEndpoints = false,
+    this.zeroTrustEndpointEditing = false,
     this.chainOpenvpnMultiEndpoint = false,
     this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
@@ -2091,6 +2096,7 @@ class EngineCapabilities {
         chainProxyEncryptedDns: map['chain_proxy_encrypted_dns'] == true,
         customBypass: map['custom_bypass'] == true,
         automaticEndpoints: map['automatic_endpoints'] == true,
+        zeroTrustEndpointEditing: map['zero_trust_endpoint_editing'] == true,
         chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
         vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
@@ -2119,6 +2125,7 @@ class EngineCapabilities {
 
   final bool customBypass;
   final bool automaticEndpoints;
+  final bool zeroTrustEndpointEditing;
   final bool networkQuality;
   final bool vpnGateTcp;
   final bool chainProfileImport,
@@ -2158,6 +2165,7 @@ class EngineCapabilities {
           chainProxyEncryptedDns == other.chainProxyEncryptedDns &&
           customBypass == other.customBypass &&
           automaticEndpoints == other.automaticEndpoints &&
+          zeroTrustEndpointEditing == other.zeroTrustEndpointEditing &&
           chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
@@ -2194,6 +2202,7 @@ class EngineCapabilities {
       chainProxyEncryptedDns,
       customBypass,
       automaticEndpoints,
+      zeroTrustEndpointEditing,
     ),
     chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites,

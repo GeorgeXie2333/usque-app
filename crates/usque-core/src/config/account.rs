@@ -5,8 +5,9 @@ use uuid::Uuid;
 
 use super::{DEFAULT_PROFILE_ID, EndpointSettings};
 
-/// Registration-owned Zero Trust endpoint addresses. Port and SNI remain in
-/// the device-wide network settings.
+/// Account-scoped Zero Trust endpoint addresses. Port and SNI remain in
+/// the device-wide network settings. Only registration and legacy recovery
+/// require the official ingress ranges; manual overrides accept any IP pair.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ManagedEndpointIps {
     pub ipv4: Ipv4Addr,
@@ -43,6 +44,10 @@ pub struct Account {
         skip_serializing_if = "Option::is_none"
     )]
     pub managed_endpoint_ips: Option<ManagedEndpointIps>,
+    /// Explicit local override; the registration-owned pair remains available
+    /// for reset and is never replaced by a network-settings edit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zero_trust_endpoint_override: Option<ManagedEndpointIps>,
 }
 
 impl Account {
@@ -51,6 +56,7 @@ impl Account {
             id,
             name: name.into(),
             managed_endpoint_ips: None,
+            zero_trust_endpoint_override: None,
         }
     }
 

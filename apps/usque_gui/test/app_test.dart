@@ -2936,6 +2936,7 @@ void main() {
         endpointPort: 8443,
         sni: 'shared.example.com',
       ),
+      changedFields: ['endpoint.port', 'endpoint.sni'],
     );
     controller.setActiveProfile(consumer.id);
     await controller.flushProfileWrites();

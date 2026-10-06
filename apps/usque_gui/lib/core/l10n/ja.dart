@@ -109,7 +109,16 @@ const Map<String, String> kJaCatalog = <String, String>{
   'zero_trust_repair_same_team': '同じ組織に再度ログインして、このアカウントの接続を復旧してください。',
   'zero_trust_metadata_missing':
       '保存された組織情報が不足しています。新しい Zero Trust アカウントを追加し、再度ログインしてください。',
-  'zero_trust_endpoint_managed': 'このサーバーアドレスは組織アカウントが設定するため、ここでは変更できません。',
+  "zero_trust_endpoint_edit": "Zero Trust エンドポイントを編集",
+  "zero_trust_endpoint_risk_title": "Zero Trust エンドポイント変更のリスク",
+  "zero_trust_endpoint_risk_body":
+      "出所不明のエンドポイントは、プライバシーやデータの安全性を損なう可能性があります。\n\n誤ったアドレスは接続失敗の原因になります。\n\n利用を許可された信頼できるエンドポイントのみを使用し、組織の要件に従ってください。",
+  "zero_trust_endpoint_risk_ack": "リスクを理解し、このエンドポイントを利用する権限があることを確認しました。",
+  "zero_trust_endpoint_risk_continue": "リスクを受け入れて編集を続ける",
+  "zero_trust_endpoint_risk_locked": "アドレスの編集前にリスクを確認してください。",
+  "zero_trust_endpoint_unsupported":
+      "Zero Trust エンドポイントを編集するには Usque を更新してください。",
+  "zero_trust_reauth_endpoints": "再ログインすると登録時のエンドポイントアドレスに戻り、カスタムアドレスは削除されます。",
   'experimental': '実験的',
   'show_license': 'License Key を表示',
   'hide_license': 'License Key を隠す',

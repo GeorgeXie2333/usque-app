@@ -26,6 +26,7 @@ import 'package:usque/widgets/vpn_gate_entry.dart';
 import 'package:usque/widgets/vpn_gate_server_row.dart';
 import 'package:usque/widgets/warp_dns_editor.dart';
 import 'package:usque/widgets/window_titlebar.dart';
+import 'package:usque/widgets/zero_trust_endpoint_warning.dart';
 
 import 'quality_test_support.dart' show qualityFixture;
 import 'ui_workflow_test.dart' show WorkflowEngine, workflowHost;
@@ -57,6 +58,14 @@ void main() {
       await loader.load();
     }
     if (Platform.isWindows) {
+      await (FontLoader('Tahoma')..addFont(
+            SynchronousFuture(
+              ByteData.sublistView(
+                File(r'C:\Windows\Fonts\tahoma.ttf').readAsBytesSync(),
+              ),
+            ),
+          ))
+          .load();
       await (FontLoader('Microsoft YaHei UI')..addFont(
             SynchronousFuture(
               ByteData.sublistView(
@@ -67,6 +76,61 @@ void main() {
           .load();
     }
   });
+
+  for (final fixture in [
+    (
+      name: 'zt_warning_desktop_dark',
+      locale: LocalePreference.english,
+      size: const Size(1280, 900),
+      dark: true,
+      rtl: false,
+    ),
+    (
+      name: 'zt_warning_phone_light',
+      locale: LocalePreference.simplifiedChinese,
+      size: const Size(375, 812),
+      dark: false,
+      rtl: false,
+    ),
+    (
+      name: 'zt_warning_persian_landscape',
+      locale: LocalePreference.persian,
+      size: const Size(812, 375),
+      dark: true,
+      rtl: true,
+    ),
+  ]) {
+    testWidgets('ZT warning golden ${fixture.name}', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = fixture.size;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: fixture.dark ? UsqueTheme.dark() : UsqueTheme.light(),
+            home: Directionality(
+              textDirection: fixture.rtl
+                  ? TextDirection.rtl
+                  : TextDirection.ltr,
+              child: ZeroTrustEndpointWarning(
+                strings: AppStrings(fixture.locale),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile('goldens/${fixture.name}.png'),
+      );
+    }, tags: 'golden');
+  }
 
   for (final doh in [true, false]) {
     testWidgets('compact WARP DNS ${doh ? 'doh_en_light' : 'dot_zh_dark'}', (

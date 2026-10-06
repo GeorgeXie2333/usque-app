@@ -179,7 +179,7 @@ released. iOS, store distribution and a public CLI are outside this release's sc
 | SOCKS5 | `127.0.0.1:1080`, `[::1]:1080` |
 | HTTP proxy | `127.0.0.1:8080`, `[::1]:8080` |
 
-Proxy address, port, and DNS edits are drafts until applied. Advanced settings reset loads defaults into the draft; it does not apply them immediately. Zero Trust endpoint addresses come from registration and are not editable.
+Proxy address, port, and DNS edits are drafts until applied. Advanced settings reset loads defaults into the draft; it does not apply them immediately. Zero Trust endpoint addresses start with registered values. In Advanced network settings, choose **Edit Zero Trust endpoints**, read the red fullscreen warning and acknowledge the risks and your authorization before editing IPv4/IPv6; then **Apply changes**. Reset stages the registered addresses; signing in again restores them and removes custom addresses.
 
 In Advanced network settings, Automatic selection races eligible account endpoints; Custom keeps manual addresses. Port and SNI remain editable. See [automatic endpoints](docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点).
 

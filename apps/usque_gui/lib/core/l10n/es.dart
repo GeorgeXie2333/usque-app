@@ -117,8 +117,20 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Inicia sesión de nuevo en la misma organización para recuperar la conexión de esta cuenta.',
   'zero_trust_metadata_missing':
       'La información guardada de la organización está incompleta. Añade otra cuenta Zero Trust e inicia sesión.',
-  'zero_trust_endpoint_managed':
-      'La cuenta de la organización establece esta dirección del servidor. No puedes modificarla aquí.',
+  "zero_trust_endpoint_edit": "Editar extremos de Zero Trust",
+  "zero_trust_endpoint_risk_title":
+      "Riesgos de cambiar los extremos de Zero Trust",
+  "zero_trust_endpoint_risk_body":
+      "Los extremos de origen desconocido pueden poner en riesgo tu privacidad y la seguridad de tus datos.\n\nLas direcciones incorrectas pueden impedir la conexión.\n\nUsa solo extremos de confianza para los que tengas autorización y respeta los requisitos de tu organización.",
+  "zero_trust_endpoint_risk_ack":
+      "Entiendo los riesgos y confirmo que tengo autorización para usar este extremo.",
+  "zero_trust_endpoint_risk_continue": "Aceptar riesgos y seguir editando",
+  "zero_trust_endpoint_risk_locked":
+      "Confirma los riesgos antes de editar estas direcciones.",
+  "zero_trust_endpoint_unsupported":
+      "Actualiza Usque para editar los extremos de Zero Trust.",
+  "zero_trust_reauth_endpoints":
+      "Al iniciar sesión de nuevo se restauran las direcciones registradas y se eliminan tus direcciones personalizadas.",
   'experimental': 'Experimental',
   'show_license': 'Mostrar License Key',
   'hide_license': 'Ocultar License Key',

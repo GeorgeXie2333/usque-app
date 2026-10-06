@@ -299,6 +299,8 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
                 children: <Widget>[
                   Text(_strings.get('zero_trust_repair_same_team')),
                   const SizedBox(height: 6),
+                  Text(_strings.get('zero_trust_reauth_endpoints')),
+                  const SizedBox(height: 6),
                   ZeroTrustExperimentalBadge(strings: _strings),
                 ],
               ),
