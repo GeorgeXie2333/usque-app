@@ -99,24 +99,7 @@ impl MasqueTunIo {
 
     /// Transfers an already-owned packet without allocating or copying it.
     pub async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
-        crate::h2::validate_ip_packet(&packet)?;
-        let packet_len = packet.len();
-        self.outgoing
-            .send_cancellable(
-                TunOutbound {
-                    packet: packet.into(),
-                    attachment: self.cancellation.clone(),
-                },
-                packet_len,
-                &self.cancellation,
-            )
-            .await
-            .map_err(|error| match error.kind {
-                TrackedSendErrorKind::Closed
-                | TrackedSendErrorKind::Cancelled
-                | TrackedSendErrorKind::Full
-                | TrackedSendErrorKind::ByteLimit => TransportError::TunnelClosed,
-            })
+        self.start_send_owned_packet(packet).await
     }
 
     pub fn record_platform_packet_buffer_allocation(&self) {
@@ -1902,6 +1885,29 @@ mod tests {
                 .borrowed_to_owned_copy_bytes,
             borrowed.len() as u64
         );
+    }
+
+    #[tokio::test]
+    async fn cancelled_owned_tun_send_releases_capacity_without_enqueuing() {
+        let (io, mut outgoing_rx, _incoming_tx) = test_tun_io(1, 1);
+        let first = mux_udp_packet(50_000);
+        io.send_owned_packet(first.clone()).await.unwrap();
+
+        let mut waiting = Box::pin(io.send_owned_packet(mux_udp_packet(50_001)));
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        io.cancellation.cancel();
+        assert!(matches!(waiting.await, Err(TransportError::TunnelClosed)));
+
+        assert_eq!(
+            outgoing_rx.recv().await.unwrap().packet.as_ref(),
+            first.as_ref()
+        );
+        assert!(outgoing_rx.try_recv().is_err());
+        assert_eq!(io.outgoing.capacity(), io.outgoing.max_capacity());
     }
 
     #[tokio::test]

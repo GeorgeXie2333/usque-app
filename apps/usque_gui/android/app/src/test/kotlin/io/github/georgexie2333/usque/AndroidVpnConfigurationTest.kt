@@ -261,8 +261,6 @@ class AndroidVpnConfigurationTest {
     fun ipv4OnlyEndpointPolicyStillBuildsADualStackTunnel() {
         val profile = profile("ipv4Only")
 
-        assertTrue(profile.includeIpv4)
-        assertTrue(profile.includeIpv6)
         assertEquals(listOf(profile.dnsIpv4, profile.dnsIpv6), profile.dnsServers)
     }
 
@@ -270,9 +268,7 @@ class AndroidVpnConfigurationTest {
     fun ipv6OnlyEndpointPolicyStillBuildsADualStackTunnel() {
         val profile = profile("ipv6Only")
 
-        assertTrue(profile.includeIpv4)
-        assertTrue(profile.includeIpv6)
-        assertEquals(2, profile.dnsServers.size)
+        assertEquals(listOf(profile.dnsIpv4, profile.dnsIpv6), profile.dnsServers)
     }
 
     @Test

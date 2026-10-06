@@ -362,7 +362,7 @@ impl UdpAssociation for SocksAssociation {
     }
     async fn send(&self, target: &TcpTarget, payload: &[u8]) -> Result<(), DialError> {
         let mut packet = vec![0, 0, 0];
-        crate::proxy_exit::encode_target(target, &mut packet)?;
+        crate::proxy_exit::encode_target(target, &mut packet);
         if packet.len() + payload.len() > 16 * 1024 - 48 {
             return Err(DialError::Protocol);
         }
@@ -429,7 +429,7 @@ mod tests {
         for host in ["192.0.2.1", "2001:db8::1", "example.test"] {
             let target = TcpTarget::new(host, 443).unwrap();
             let mut bytes = vec![0, 0, 0];
-            crate::proxy_exit::encode_target(&target, &mut bytes).unwrap();
+            crate::proxy_exit::encode_target(&target, &mut bytes);
             bytes.extend_from_slice(b"payload");
             let (decoded, payload) = decode(&bytes).unwrap();
             assert_eq!(decoded, target);
@@ -438,6 +438,36 @@ mod tests {
             assert!(decode(&bytes).is_err());
         }
     }
+
+    #[test]
+    fn target_encoding_accepts_the_maximum_domain_length() {
+        let host = [
+            "a".repeat(63),
+            "b".repeat(63),
+            "c".repeat(63),
+            "d".repeat(61),
+        ]
+        .join(".");
+        assert_eq!(host.len(), 253);
+        let target = TcpTarget::new(&host, 443).unwrap();
+        let mut encoded = vec![0, 0, 0];
+        crate::proxy_exit::encode_target(&target, &mut encoded);
+        assert_eq!(&encoded[3..5], &[3, 253]);
+        assert_eq!(decode(&encoded).unwrap().0, target);
+        assert_eq!(
+            TcpTarget::new(&format!("{host}d"), 443),
+            Err(DialError::InvalidTarget)
+        );
+    }
+
+    #[test]
+    fn target_encoding_preserves_zero_port_for_udp_associate() {
+        let target = TcpTarget::address("0.0.0.0:0".parse().unwrap());
+        let mut encoded = Vec::new();
+        crate::proxy_exit::encode_target(&target, &mut encoded);
+        assert_eq!(encoded, [1, 0, 0, 0, 0, 0, 0]);
+    }
+
     proptest! {
         #[test]
         fn arbitrary_datagrams_are_bounded_and_never_panic(bytes in prop::collection::vec(any::<u8>(),0..17000)) {
@@ -445,7 +475,7 @@ mod tests {
                 prop_assert!(body.len() < 16384);
                 prop_assert!(target.host_port().1 > 0);
                 let mut encoded = vec![0,0,0];
-                crate::proxy_exit::encode_target(&target,&mut encoded).unwrap();
+                crate::proxy_exit::encode_target(&target,&mut encoded);
                 encoded.extend_from_slice(&body);
                 prop_assert_eq!(decode(&encoded).unwrap(),(target,body));
             }

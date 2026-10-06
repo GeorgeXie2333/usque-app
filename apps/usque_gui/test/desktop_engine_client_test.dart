@@ -526,6 +526,29 @@ void main() {
       },
     );
 
+    test('failed startup can retry without retaining its future', () async {
+      var starts = 0;
+      final failure = StateError('startup failed');
+      final transport = DesktopEngineTransport.forTest(
+        exchange: (_) async => _statusResponse('1'),
+        ensureStarted: () async {
+          if (++starts == 1) throw failure;
+        },
+      );
+      addTearDown(transport.dispose);
+
+      await expectLater(transport.ensureStarted(), throwsA(same(failure)));
+      expect(transport.startCount, 0);
+
+      await transport.ensureStarted();
+      expect(starts, 2);
+      expect(transport.startCount, 1);
+
+      await transport.ensureStarted();
+      expect(starts, 2);
+      expect(transport.startCount, 1);
+    });
+
     test('client requests share a single transport start', () async {
       var starts = 0;
       var idSeq = 0;
@@ -583,18 +606,18 @@ void main() {
         final client = DesktopEngineClient.forTest(transport: transport);
         final pending = client.snapshot();
         await entered.future;
+        final waiting = transport.ensureStarted();
+        final closed = throwsA(
+          isA<EngineException>().having((e) => e.code, 'code', 'ENGINE_CLOSED'),
+        );
+        final expectations = Future.wait(<Future<void>>[
+          expectLater(pending, closed),
+          expectLater(waiting, closed),
+        ]);
         client.dispose();
         release.complete();
-        await expectLater(
-          pending,
-          throwsA(
-            isA<EngineException>().having(
-              (e) => e.code,
-              'code',
-              'ENGINE_CLOSED',
-            ),
-          ),
-        );
+        await expectations;
+        expect(transport.startCount, 0);
       },
     );
 

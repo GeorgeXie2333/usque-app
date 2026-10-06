@@ -1,10 +1,5 @@
-use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -24,39 +19,6 @@ pub use macos_keychain::MacOsKeychainVault;
 
 #[cfg(windows)]
 pub use windows_vault::WindowsCredentialVault;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PlatformCapabilities {
-    pub tun: bool,
-    pub kill_switch: bool,
-    pub system_proxy: bool,
-    pub secure_storage: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TunnelPlan {
-    pub profile_id: Uuid,
-    pub endpoint: SocketAddr,
-    pub mtu: u16,
-    pub dns_servers: Vec<IpAddr>,
-    pub split_exclusions: Vec<String>,
-    pub allow_lan: bool,
-    pub kill_switch: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct AppliedPlatformState {
-    pub plan: Option<TunnelPlan>,
-}
-
-#[async_trait]
-pub trait PlatformAgent: Send + Sync {
-    fn capabilities(&self) -> PlatformCapabilities;
-    async fn prepare(&self, plan: TunnelPlan) -> Result<(), AgentError>;
-    async fn commit(&self) -> Result<(), AgentError>;
-    async fn rollback(&self) -> Result<(), AgentError>;
-    async fn state(&self) -> Result<AppliedPlatformState, AgentError>;
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SecretRecord {
@@ -133,58 +95,6 @@ pub trait SecretVault: Send + Sync {
         }
         first_error.map_or(Ok(()), Err)
     }
-}
-
-/// Deterministic agent used by core integration tests. Production platform
-/// crates must replace it before a release build is accepted.
-#[derive(Debug, Clone, Default)]
-pub struct MockPlatformAgent {
-    state: Arc<Mutex<AppliedPlatformState>>,
-}
-
-#[async_trait]
-impl PlatformAgent for MockPlatformAgent {
-    fn capabilities(&self) -> PlatformCapabilities {
-        PlatformCapabilities {
-            tun: true,
-            kill_switch: true,
-            system_proxy: true,
-            secure_storage: false,
-        }
-    }
-
-    async fn prepare(&self, plan: TunnelPlan) -> Result<(), AgentError> {
-        self.state.lock().await.plan = Some(plan);
-        Ok(())
-    }
-
-    async fn commit(&self) -> Result<(), AgentError> {
-        if self.state.lock().await.plan.is_none() {
-            return Err(AgentError::InvalidOrder(
-                "prepare must run before commit".to_owned(),
-            ));
-        }
-        Ok(())
-    }
-
-    async fn rollback(&self) -> Result<(), AgentError> {
-        *self.state.lock().await = AppliedPlatformState::default();
-        Ok(())
-    }
-
-    async fn state(&self) -> Result<AppliedPlatformState, AgentError> {
-        Ok(self.state.lock().await.clone())
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum AgentError {
-    #[error("platform operation was called in an invalid order: {0}")]
-    InvalidOrder(String),
-    #[error("platform permission was denied: {0}")]
-    PermissionDenied(String),
-    #[error("platform operation failed: {0}")]
-    Operation(String),
 }
 
 #[derive(Debug, Error)]

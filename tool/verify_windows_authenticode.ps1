@@ -14,22 +14,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Get-CertificateSha256 {
-    param(
-        [Parameter(Mandatory = $true)]
-        [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
-    )
-
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try {
-        return (
-            $sha.ComputeHash($Certificate.GetRawCertData()) |
-                ForEach-Object { $_.ToString("X2") }
-        ) -join ""
-    } finally {
-        $sha.Dispose()
-    }
-}
+. (Join-Path $PSScriptRoot "windows_certificate_hash.ps1")
 
 $resolvedPath = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
 if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {

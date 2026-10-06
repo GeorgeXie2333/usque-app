@@ -3065,7 +3065,7 @@ fn prepare_forwarded_packet(packet: &mut [u8]) -> Result<(), TransportError> {
     match packet.first().map(|byte| byte >> 4) {
         Some(4) => prepare_ipv4(packet),
         Some(6) => {
-            if packet.len() < 40 || packet[7] <= 1 {
+            if packet[7] <= 1 {
                 return Err(TransportError::MalformedIpPacket);
             }
             packet[7] -= 1;
@@ -3076,15 +3076,8 @@ fn prepare_forwarded_packet(packet: &mut [u8]) -> Result<(), TransportError> {
 }
 
 fn prepare_ipv4(packet: &mut [u8]) -> Result<(), TransportError> {
-    if packet.len() < 20 {
-        return Err(TransportError::MalformedIpPacket);
-    }
     let header_length = usize::from(packet[0] & 0x0f) * 4;
-    if header_length < 20 || packet.len() < header_length || packet[8] <= 1 {
-        return Err(TransportError::MalformedIpPacket);
-    }
-    let total_length = usize::from(u16::from_be_bytes([packet[2], packet[3]]));
-    if total_length < header_length || total_length > packet.len() {
+    if packet[8] <= 1 {
         return Err(TransportError::MalformedIpPacket);
     }
     packet[8] -= 1;
@@ -3473,6 +3466,35 @@ mod tests {
         packet[7] = 64;
         prepare_forwarded_packet(&mut packet).unwrap();
         assert_eq!(packet[7], 63);
+    }
+
+    #[test]
+    fn rejected_forwarded_packets_remain_unchanged() {
+        let ipv4 = [
+            0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
+        ];
+        let mut ipv6 = [0_u8; 40];
+        ipv6[0] = 0x60;
+        ipv6[7] = 64;
+        let mut packets = vec![Vec::new(), ipv4[..19].to_vec(), ipv6[..39].to_vec()];
+        for (offset, value) in [(0, 0x44), (0, 0x46), (3, 19), (3, 21), (8, 0), (8, 1)] {
+            let mut packet = ipv4;
+            packet[offset] = value;
+            packets.push(packet.to_vec());
+        }
+        for (offset, value) in [(5, 1), (7, 0), (7, 1)] {
+            let mut packet = ipv6;
+            packet[offset] = value;
+            packets.push(packet.to_vec());
+        }
+        for mut packet in packets {
+            let original = packet.clone();
+            assert!(matches!(
+                prepare_forwarded_packet(&mut packet),
+                Err(TransportError::MalformedIpPacket)
+            ));
+            assert_eq!(packet, original);
+        }
     }
 
     #[tokio::test]

@@ -175,13 +175,7 @@ class DesktopEngineTransport {
           },
           cancelOnError: false,
         );
-    if (identical(_rawEventController, controller)) {
-      _rawEventSubscription = subscription;
-    } else {
-      // A synchronously completed platform stream must not leave a stale
-      // subscription cached after onDone cleared this generation.
-      unawaited(subscription.cancel());
-    }
+    _rawEventSubscription = subscription;
     return stream;
   }
 
@@ -194,67 +188,33 @@ class DesktopEngineTransport {
   }
 
   Future<void> ensureStarted() async {
-    if (_disposed) {
-      throw const EngineException(
-        'ENGINE_CLOSED',
-        'The Usque Engine client has already closed.',
-      );
-    }
-    if (_isTestTransport) {
-      // Mirror production coalescing: start at most once, share in-flight work.
-      if (_startCount > 0) {
-        _throwIfDisposed();
-        return;
-      }
-      final existing = _starting;
-      if (existing != null) {
-        await existing;
-        _throwIfDisposed();
-        return;
-      }
-      final start = () async {
-        final testStart = _testEnsureStarted;
-        if (testStart != null) {
-          await testStart();
-        }
-        if (_disposed) {
-          throw const EngineException(
-            'ENGINE_CLOSED',
-            'The Usque Engine client has already closed.',
-          );
-        }
-        _startCount++;
-      }();
-      _starting = start;
-      try {
-        await start;
-      } finally {
-        _starting = null;
-      }
-      _throwIfDisposed();
-      return;
-    }
+    _throwIfDisposed();
+    if (_isTestTransport && _startCount > 0) return;
     final existing = _starting;
     if (existing != null) {
       await existing;
       _throwIfDisposed();
       return;
     }
-    if (_process != null) {
-      _throwIfDisposed();
-      return;
-    }
-    final start = _startEngine();
+    if (!_isTestTransport && _process != null) return;
+    final start = _isTestTransport ? _startTestTransport() : _startEngine();
     _starting = start;
     try {
       await start;
-      if (!_disposed) {
+      if (!_isTestTransport && !_disposed) {
         _startCount++;
       }
     } finally {
       _starting = null;
     }
     _throwIfDisposed();
+  }
+
+  Future<void> _startTestTransport() async {
+    final testStart = _testEnsureStarted;
+    if (testStart != null) await testStart();
+    _throwIfDisposed();
+    _startCount++;
   }
 
   Future<Uint8List> exchangeFrame(Uint8List request) async {

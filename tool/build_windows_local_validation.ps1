@@ -10,6 +10,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "windows_certificate_hash.ps1")
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $architecture = if ($Variant -eq "arm64") {
@@ -51,45 +52,6 @@ $certificate = $null
 $certificateThumbprint = $null
 $certificateSha256 = $null
 $finalMsi = Join-Path $OutputDirectory "usque-v$displayVersion-windows-$Variant-$BuildLabel.msi"
-
-function Get-CertificateSha256 {
-    param(
-        [Parameter(Mandatory = $true)]
-        [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
-    )
-
-    $sha256 = [Security.Cryptography.SHA256]::Create()
-    try {
-        return (($sha256.ComputeHash($Certificate.GetRawCertData()) |
-                    ForEach-Object { $_.ToString("X2") }) -join "")
-    }
-    finally {
-        $sha256.Dispose()
-    }
-}
-
-function Assert-PinnedLocalSignature {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$ExpectedSigner
-    )
-
-    $signature = Get-AuthenticodeSignature -LiteralPath $Path
-    if ($null -eq $signature.SignerCertificate) {
-        throw "No Authenticode signer was returned for $Path."
-    }
-    $actualSigner = Get-CertificateSha256 -Certificate $signature.SignerCertificate
-    if (-not [StringComparer]::OrdinalIgnoreCase.Equals($actualSigner, $ExpectedSigner)) {
-        throw "Unexpected Authenticode signer for $Path."
-    }
-    $valid = $signature.Status -eq [Management.Automation.SignatureStatus]::Valid
-    $pinnedSelfSigned =
-    $signature.Status -eq [Management.Automation.SignatureStatus]::UnknownError -and
-    $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer
-    if (-not $valid -and -not $pinnedSelfSigned) {
-        throw "Local Authenticode verification failed for $Path ($($signature.Status))."
-    }
-}
 
 try {
     Copy-Item -LiteralPath $FlutterReleaseDirectory -Destination $payload -Recurse
@@ -165,9 +127,10 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw "Signing failed for $($binary.FullName)."
         }
-        Assert-PinnedLocalSignature `
+        & (Join-Path $PSScriptRoot "verify_windows_authenticode.ps1") `
             -Path $binary.FullName `
-            -ExpectedSigner $certificateSha256
+            -SignerSha256 $certificateSha256 `
+            -AllowPinnedUntrustedRoot | Out-Null
     }
 
     & (Join-Path $PSScriptRoot "build_windows_msi.ps1") `
@@ -193,9 +156,10 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "MSI signing failed."
     }
-    Assert-PinnedLocalSignature `
+    & (Join-Path $PSScriptRoot "verify_windows_authenticode.ps1") `
         -Path $builtMsi `
-        -ExpectedSigner $certificateSha256
+        -SignerSha256 $certificateSha256 `
+        -AllowPinnedUntrustedRoot | Out-Null
 
     Copy-Item -LiteralPath $builtMsi -Destination $finalMsi -Force
     [PSCustomObject]@{

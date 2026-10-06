@@ -69,22 +69,6 @@ function Resolve-ExistingDirectory {
     return $resolved.Path
 }
 
-function Get-CertificateSha256 {
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
-    )
-
-    $sha256 = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $digest = $sha256.ComputeHash($Certificate.GetRawCertData())
-        return (($digest | ForEach-Object { $_.ToString("X2") }) -join "")
-    }
-    finally {
-        $sha256.Dispose()
-    }
-}
-
 function Assert-NoReparsePoint {
     param([Parameter(Mandatory = $true)][string]$Root)
 
@@ -125,24 +109,10 @@ function Assert-ReleaseSignature {
             continue
         }
 
-        $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath
-        $valid = $signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid
-        $pinnedSelfSigned =
-        $AllowUntrustedRoot -and
-        $signature.Status -eq [System.Management.Automation.SignatureStatus]::UnknownError -and
-        $null -ne $signature.SignerCertificate -and
-        $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer
-        if (-not $valid -and -not $pinnedSelfSigned) {
-            throw "Authenticode verification failed for $binaryPath ($($signature.Status))."
-        }
-        if ($null -eq $signature.SignerCertificate) {
-            throw "No signer certificate was returned for $binaryPath."
-        }
-
-        $actualSigner = Get-CertificateSha256 -Certificate $signature.SignerCertificate
-        if (-not [StringComparer]::OrdinalIgnoreCase.Equals($actualSigner, $ExpectedSigner)) {
-            throw "Unexpected signer for $binaryPath. Expected $ExpectedSigner, got $actualSigner."
-        }
+        & (Join-Path $PSScriptRoot "verify_windows_authenticode.ps1") `
+            -Path $binaryPath `
+            -SignerSha256 $ExpectedSigner `
+            -AllowPinnedUntrustedRoot:$AllowUntrustedRoot | Out-Null
     }
 }
 

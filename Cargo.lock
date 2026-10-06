@@ -3126,7 +3126,6 @@ version = "0.2.9"
 dependencies = [
  "async-trait",
  "security-framework",
- "serde",
  "thiserror",
  "tokio",
  "uuid",

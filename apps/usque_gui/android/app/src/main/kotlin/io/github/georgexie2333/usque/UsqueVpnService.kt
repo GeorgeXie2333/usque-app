@@ -542,7 +542,7 @@ class UsqueVpnService : VpnService() {
             broadcastSnapshot()
             return
         }
-        val (mode, tunnelEnabled) =
+        val (mode, tunnelEnabled, parsedVpnProfile) =
             try {
                 if (newSession) {
                     val configPath = File(noBackupFilesDir, "usque_config/profiles-v2.json").absolutePath
@@ -552,13 +552,15 @@ class UsqueVpnService : VpnService() {
                 }
                 val source = JSONObject(profileJson)
                 val tunnelEnabled = VpnReconfigure.tunnelFrontendEnabled(source)
-                if (tunnelEnabled) {
-                    AndroidVpnProfile.parse(profileJson)
-                } else {
-                    val parsedMode = source.optString("mode")
-                    require(parsedMode.isEmpty() || parsedMode in setOf("vpn", "socks5", "httpProxy"))
-                }
-                VpnReconfigure.canonicalMode(tunnelEnabled) to tunnelEnabled
+                val parsedVpnProfile =
+                    if (tunnelEnabled) {
+                        AndroidVpnProfile.parse(profileJson)
+                    } else {
+                        val parsedMode = source.optString("mode")
+                        require(parsedMode.isEmpty() || parsedMode in setOf("vpn", "socks5", "httpProxy"))
+                        null
+                    }
+                Triple(VpnReconfigure.canonicalMode(tunnelEnabled), tunnelEnabled, parsedVpnProfile)
             } catch (error: Exception) {
                 sessionNetworkRecovery.cancel()
                 startForeground(
@@ -658,12 +660,10 @@ class UsqueVpnService : VpnService() {
         broadcastSnapshot()
 
         val incomingIdentity =
-            if (tunnelEnabled) {
+            parsedVpnProfile?.let { profile ->
                 runCatching {
-                    tunIdentity(AndroidVpnProfile.parse(profileJson))
+                    tunIdentity(profile)
                 }.getOrNull()
-            } else {
-                null
             }
         val decision =
             if (accountHandoff.retained && !tunnelEnabled && tunnel.get() != null) {
@@ -1659,8 +1659,8 @@ class UsqueVpnService : VpnService() {
 
     private fun planRoutes(profile: AndroidVpnProfile): RoutePlan =
         VpnRoutePlanner.plan(
-            includeIpv4 = profile.includeIpv4,
-            includeIpv6 = profile.includeIpv6,
+            includeIpv4 = true,
+            includeIpv6 = true,
             allowLan = profile.allowLan,
             bypassCidrs = profile.bypassCidrs,
             supportsRouteExclusion = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
@@ -1747,8 +1747,8 @@ class UsqueVpnService : VpnService() {
             finalNetwork.ipv4?.let { builder.addAddress(it, 32) }
             finalNetwork.ipv6?.let { builder.addAddress(it, 128) }
         } else {
-            if (profile.includeIpv4) builder.addAddress(assignment.ipv4, 32)
-            if (profile.includeIpv6) builder.addAddress(assignment.ipv6, 128)
+            builder.addAddress(assignment.ipv4, 32)
+            builder.addAddress(assignment.ipv6, 128)
         }
         val advertisedDns =
             if (profile.splitDnsEnabled) {

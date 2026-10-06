@@ -2,7 +2,7 @@ use std::{io, sync::Arc};
 
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use usque_ipc::{MAX_FRAME_SIZE, decode_frame, encode_frame, split_frame, v1::ControlRequest};
+use usque_ipc::{decode_frame, encode_frame, split_frame, v1::ControlRequest};
 
 use crate::ControlService;
 
@@ -34,12 +34,6 @@ where
 
         loop {
             let Some(frame) = split_frame(&mut buffer).map_err(invalid_wire)? else {
-                if buffer.len() > MAX_FRAME_SIZE + 4 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "IPC frame buffer exceeded its bound",
-                    ));
-                }
                 break;
             };
             let request: ControlRequest = decode_frame(frame).map_err(invalid_wire)?;
@@ -59,7 +53,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
     use usque_core::storage::ConfigStore;
     use usque_ipc::{
-        decode_frame, encode_frame,
+        MAX_FRAME_SIZE, decode_frame, encode_frame,
         v1::{ControlRequest, ControlResponse, GetStatusRequest, control_request},
     };
 
@@ -116,6 +110,34 @@ mod tests {
 
         client.shutdown().await.expect("shutdown");
         task.await.expect("join").expect("server");
+    }
+
+    #[tokio::test]
+    async fn rejects_fragmented_oversized_header_without_waiting_for_body_or_eof() {
+        let (mut client, server) = duplex(2);
+        let task = tokio::spawn(handle_stream(server, service()));
+        let header = (MAX_FRAME_SIZE as u32 + 1).to_be_bytes();
+
+        client
+            .write_all(&header[..2])
+            .await
+            .expect("partial header");
+        // A two-byte pipe forces the reader to consume the first fragment
+        // before this write can finish. Keep it open without sending a body.
+        client
+            .write_all(&header[2..])
+            .await
+            .expect("complete header");
+
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), task)
+                .await
+                .expect("oversized header must be rejected before a body or EOF")
+                .expect("join")
+                .expect_err("must reject oversized frame")
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[tokio::test]

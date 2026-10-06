@@ -654,7 +654,7 @@ async fn serve_udp_association(
                         },
                     };
                     let mut packet = vec![0, 0, 0];
-                    if crate::proxy_exit::encode_target(&target, &mut packet).is_err() { continue; }
+                    crate::proxy_exit::encode_target(&target, &mut packet);
                     // Pin the first accepted client before asynchronous work.
                     // A pending query must not leave this association claimable
                     // by another endpoint sharing the TCP peer's address.
@@ -759,7 +759,7 @@ async fn serve_udp_association(
                     continue;
                 };
                 let mut packet = vec![0, 0, 0];
-                if crate::proxy_exit::encode_target(&response.source, &mut packet).is_err() { continue; }
+                crate::proxy_exit::encode_target(&response.source, &mut packet);
                 if packet.len() + response.payload.len() > packet_limit { continue; }
                 packet.extend_from_slice(&response.payload);
                 if let Err(error) = relay.send_to(&packet, client_endpoint).await {

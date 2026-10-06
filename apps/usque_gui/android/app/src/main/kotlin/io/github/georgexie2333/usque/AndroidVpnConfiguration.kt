@@ -28,18 +28,8 @@ internal data class AndroidVpnProfile(
 ) {
     // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
     // dual-stack regardless of which outer address family carries it.
-    val includeIpv4: Boolean
-        get() = true
-
-    val includeIpv6: Boolean
-        get() = true
-
     val dnsServers: List<InetAddress>
-        get() =
-            buildList {
-                if (includeIpv4) add(dnsIpv4)
-                if (includeIpv6) add(dnsIpv6)
-            }
+        get() = listOf(dnsIpv4, dnsIpv6)
 
     val splitDnsEnabled: Boolean
         get() =

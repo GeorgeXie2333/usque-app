@@ -115,6 +115,15 @@ try {
     & (Join-Path $PSScriptRoot "test_windows_release_signing.ps1")
     $summary.completed_checks += "signing_cleanup_doubles"
 
+    $summary.current_check = "authenticode_powershell7"
+    & (Join-Path $PSScriptRoot "test_windows_authenticode.ps1")
+    $summary.completed_checks += "authenticode_powershell7"
+    $summary.current_check = "authenticode_powershell51"
+    & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" `
+        -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot "test_windows_authenticode.ps1")
+    if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell Authenticode tests failed." }
+    $summary.completed_checks += "authenticode_powershell51"
+
     $summary.current_check = "quiet_uninstall_powershell7"
     & (Join-Path $PSScriptRoot "test_windows_quiet_uninstall.ps1")
     $summary.completed_checks += "quiet_uninstall_powershell7"

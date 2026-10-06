@@ -291,7 +291,7 @@ fn answer(query: &[u8]) -> Vec<u8> {
 }
 fn datagram(target: &TcpTarget, payload: &[u8]) -> Vec<u8> {
     let mut datagram = vec![0, 0, 0];
-    crate::proxy_exit::encode_target(target, &mut datagram).unwrap();
+    crate::proxy_exit::encode_target(target, &mut datagram);
     datagram.extend_from_slice(payload);
     datagram
 }

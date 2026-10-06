@@ -403,7 +403,7 @@ async fn socks_auth(
     Ok(())
 }
 
-pub(crate) fn encode_target(target: &TcpTarget, output: &mut Vec<u8>) -> Result<(), DialError> {
+pub(crate) fn encode_target(target: &TcpTarget, output: &mut Vec<u8>) {
     let (host, port) = target.host_port();
     match target.socket_address() {
         Some(SocketAddr::V4(addr)) => {
@@ -415,15 +415,12 @@ pub(crate) fn encode_target(target: &TcpTarget, output: &mut Vec<u8>) -> Result<
             output.extend_from_slice(&addr.ip().octets());
         }
         None => {
-            output.extend_from_slice(&[
-                3,
-                u8::try_from(host.len()).map_err(|_| DialError::InvalidTarget)?,
-            ]);
+            // TcpTarget::new bounds domain names to 253 ASCII bytes.
+            output.extend_from_slice(&[3, host.len() as u8]);
             output.extend_from_slice(host.as_bytes());
         }
     }
     output.extend_from_slice(&port.to_be_bytes());
-    Ok(())
 }
 
 pub(crate) async fn socks_command(
@@ -432,7 +429,7 @@ pub(crate) async fn socks_command(
     target: &TcpTarget,
 ) -> Result<(String, u16), DialError> {
     let mut request = vec![5, command, 0];
-    encode_target(target, &mut request)?;
+    encode_target(target, &mut request);
     stream
         .write_all(&request)
         .await
