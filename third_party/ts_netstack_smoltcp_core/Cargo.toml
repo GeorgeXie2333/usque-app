@@ -36,7 +36,7 @@ license = "BSD-3-Clause"
 repository = "https://github.com/tailscale/tailscale-rs"
 
 [features]
-std = []
+std = ["smoltcp/std"]
 
 [lib]
 name = "ts_netstack_smoltcp_core"
@@ -56,7 +56,7 @@ version = "0.12"
 version = "0.9"
 
 [dependencies.smoltcp]
-version = "0.13"
+version = "=0.14.0"
 features = [
     "alloc",
     "proto-ipv6",
@@ -82,8 +82,9 @@ features = ["attributes"]
 default-features = false
 
 [dev-dependencies.smoltcp]
-version = "0.13"
+version = "=0.14.0"
 features = [
+    "std",
     "alloc",
     "proto-ipv6",
     "proto-ipv6-fragmentation",

@@ -41,9 +41,10 @@ tracing-panic = { version = "0.1", features = ["capture-backtrace"] }
 ts_cli_util.workspace = true
 
 [dev-dependencies.smoltcp]
-version = "0.13"
+version = "=0.14.0"
 default-features = false
 features = [
+    "std",
     "alloc",
     "proto-ipv6",
     "proto-ipv6-fragmentation",
@@ -61,4 +62,4 @@ features = [
 
 [features]
 # provide From<Error> for std::io::Error
-std = []
+std = ["smoltcp/std"]

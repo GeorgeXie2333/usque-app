@@ -4,6 +4,17 @@ Source: `ts_netstack_smoltcp_core 0.4.0` from crates.io
 Upstream: <https://github.com/tailscale/tailscale-rs>
 License: BSD-3-Clause
 
+The runtime and test smoltcp dependencies are pinned to `=0.14.0`, matching
+Usque's workspace dependency. Keeping one version preserves feature unification:
+the core enables IPv4, IPv6 and socket support, while Usque selects the 16 KiB
+fragmentation buffer. Updating only the workspace would leave the core on 0.13
+and compile a separate 0.14 without the required protocol features. The core's
+standalone lockfile is updated together with the workspace lockfile.
+The core's existing `std` feature now forwards to `smoltcp/std`, and standalone
+tests enable it explicitly: smoltcp 0.14's CUBIC implementation uses standard
+floating-point operations. This retains CUBIC on the application's existing
+standard-library targets without enabling smoltcp's default physical devices.
+
 Usque carries one behavior fix in `src/lib.rs`:
 
 - Before replaying a command previously returned as `WouldBlock`, discard it
