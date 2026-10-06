@@ -66,6 +66,68 @@ class SessionNetworkRecoveryTest {
     }
 
     @Test
+    fun protectionFailureWaitsForANewerUsableNetworkAfterCleanup() {
+        val h = Harness()
+        h.recovery.failed(true, 10L, true, waitForNetworkChange = true)
+        h.stops.removeFirst()(true)
+        repeat(3) { h.recovery.networkChanged(10L, true) }
+        h.recovery.networkChanged(9L, true)
+        h.recovery.networkChanged(11L, false)
+        h.flush()
+        assertEquals(listOf("suspend", "stop"), h.events)
+        assertTrue(h.delays.isEmpty())
+        assertTrue(h.recovery.active)
+
+        h.recovery.networkChanged(12L, true)
+        repeat(3) { h.recovery.networkChanged(12L, true) }
+        h.flush()
+        assertEquals(listOf("suspend", "stop", "restart"), h.events)
+        assertEquals(listOf(250L), h.delays)
+    }
+
+    @Test
+    fun newNetworkDuringProtectionFailureCleanupWaitsForConfirmedStop() {
+        for (confirmed in listOf(false, true)) {
+            val h = Harness()
+            h.recovery.failed(true, 10L, true, waitForNetworkChange = true)
+            h.recovery.networkChanged(11L, true)
+            h.flush()
+            assertEquals(listOf("suspend", "stop"), h.events)
+            h.stops.removeFirst()(confirmed)
+            h.flush()
+            assertEquals(if (confirmed) "restart" else "cleanup_failed", h.events.last())
+        }
+    }
+
+    @Test
+    fun replacementProtectionFailureWaitsAgainInsteadOfRetryingOnTheSameNetwork() {
+        val h = Harness()
+        h.restartAfterFailure()
+        h.recovery.failed(true, 1L, true, waitForNetworkChange = true)
+        h.stops.removeFirst()(true)
+        h.flush()
+        assertEquals(1, h.events.count { it == "restart" })
+        assertEquals(listOf(250L), h.delays)
+        h.recovery.networkChanged(2L, true)
+        h.flush()
+        assertEquals(2, h.events.count { it == "restart" })
+        assertEquals(listOf(250L, 250L), h.delays)
+    }
+
+    @Test
+    fun manualCancelDuringProtectionFailureWaitPreventsNetworkRecovery() {
+        val h = Harness()
+        h.recovery.failed(true, 10L, true, waitForNetworkChange = true)
+        val stopped = h.stops.removeFirst()
+        h.recovery.cancel()
+        h.recovery.networkChanged(11L, true)
+        stopped(true)
+        h.flush()
+        assertEquals(listOf("suspend", "stop"), h.events)
+        assertFalse(h.recovery.active)
+    }
+
+    @Test
     fun offlineWaitPreservesIntentWithoutRepeatedCleanupOrHandshakes() {
         val h = Harness()
         h.fail(online = false)

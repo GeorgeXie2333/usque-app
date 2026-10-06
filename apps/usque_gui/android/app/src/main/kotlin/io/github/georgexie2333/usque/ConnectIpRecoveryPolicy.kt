@@ -33,6 +33,15 @@ internal object ConnectIpRecoveryPolicy {
         errorCode: String?,
     ): Boolean = failure != null && failure.retryable && failure.code == errorCode && failure.code in networkFailures
 
+    /** A failed protected socket is discarded; an established session may retry on a newer network. */
+    fun canRecoverOnNetworkChange(
+        failure: ServiceSnapshotState.FailureFields?,
+        errorCode: String?,
+        establishedSession: Boolean,
+    ): Boolean =
+        establishedSession && errorCode == "SOCKET_PROTECTION_FAILED" &&
+            failure?.code == errorCode && failure.stage == "socket_protection"
+
     /** Only continue a previously admitted recovery; this cannot authorize an initial restart. */
     fun canRecoverStartup(
         code: String?,

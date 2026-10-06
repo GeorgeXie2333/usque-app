@@ -104,6 +104,7 @@ class UsqueVpnService : VpnService() {
         )
     private val tunnel = AtomicReference<ParcelFileDescriptor?>()
     private val nativeRuntimeActive = AtomicBoolean()
+    private var nativeNetworkGeneration = 0L
     private val nativeStops = NativeStopTracker()
     private val sessionNetworkRecovery: SessionNetworkRecovery =
         loggedSessionNetworkRecovery(
@@ -630,6 +631,7 @@ class UsqueVpnService : VpnService() {
         // Recovery already retired the old native owner. Keep the physical
         // generation so retries on the same network retain their backoff.
         if (!networkRecovery) networkMonitor.bumpGeneration()
+        nativeNetworkGeneration = networkMonitor.generation()
         activeProfileJson.set(profileJson)
         activeMode.set(mode)
         recordLog(
@@ -2041,12 +2043,8 @@ class UsqueVpnService : VpnService() {
     ) {
         // A native error can already exist while the last periodic sample still
         // says Connected. Consume its typed cause before a physical callback
-        // authorizes rebuilding an established chain.
-        if (nativeRuntimeActive.get() &&
-            activeProfileJson.get()?.let { profile ->
-                runCatching { ChainProfileFields.enabled(JSONObject(profile)) }.getOrDefault(false)
-            } == true
-        ) {
+        // admits recovery on the new network.
+        if (nativeRuntimeActive.get()) {
             val pendingFailure =
                 readNativeSessionSnapshot(
                     generation = connectionGeneration::get,
@@ -2056,7 +2054,7 @@ class UsqueVpnService : VpnService() {
             if (pendingFailure != null && isCurrent(pendingFailure.generation) &&
                 pendingFailure.value.optString("phase") == "error"
             ) {
-                applyNativeSnapshot(pendingFailure.value)
+                applyNativeSnapshot(pendingFailure.value, failureNetworkGeneration = nativeNetworkGeneration)
             }
         }
         val chainRunning =
@@ -2068,6 +2066,7 @@ class UsqueVpnService : VpnService() {
         val recoveringSession =
             sessionNetworkRecovery.networkChanged(generation, selectedNetwork != null, chainRunning)
         NativeEngine.notifyNetworkChanged(generation)
+        nativeNetworkGeneration = generation
         recordLog(
             AndroidLogStore.Event.NETWORK_CHANGED,
             phase = snapshotState.phase,
@@ -2121,9 +2120,19 @@ class UsqueVpnService : VpnService() {
                     ConnectIpRecoveryPolicy.canRecoverChainFailure(reason.details, reason.code, gate)
                 }
             } else if (startup) {
-                ConnectIpRecoveryPolicy.canRecoverStartup(reason.code, reason.details)
+                ConnectIpRecoveryPolicy.canRecoverStartup(reason.code, reason.details) ||
+                    ConnectIpRecoveryPolicy.canRecoverOnNetworkChange(
+                        reason.details,
+                        reason.code,
+                        sessionNetworkRecovery.active,
+                    )
             } else {
-                ConnectIpRecoveryPolicy.canRecoverFailure(reason.details, reason.code)
+                ConnectIpRecoveryPolicy.canRecoverFailure(reason.details, reason.code) ||
+                    ConnectIpRecoveryPolicy.canRecoverOnNetworkChange(
+                        reason.details,
+                        reason.code,
+                        nativeRuntimeActive.get(),
+                    )
             }
         }.getOrDefault(false)
     }
@@ -2403,7 +2412,10 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun applyNativeSnapshot(source: JSONObject) {
+    private fun applyNativeSnapshot(
+        source: JSONObject,
+        failureNetworkGeneration: Long = networkMonitor.generation(),
+    ) {
         val merge = snapshotState.applyNativeSnapshot(source)
         val gate = source.optJSONObject("vpn_gate")
         val gateGeneration = gate?.optLong("generation", -1L) ?: -1L
@@ -2464,7 +2476,7 @@ class UsqueVpnService : VpnService() {
                     snapshotState.vpnGateJson,
                     snapshotState.failure,
                 )
-            handleSessionFailure(reason, canRecoverFailure(reason))
+            handleSessionFailure(reason, canRecoverFailure(reason), failureNetworkGeneration)
             return
         }
         if (merge.phaseChanged) {
@@ -2508,6 +2520,7 @@ class UsqueVpnService : VpnService() {
     private fun handleSessionFailure(
         reason: ConnectionFailure,
         recoverable: Boolean,
+        networkGeneration: Long = networkMonitor.generation(),
     ) {
         recordLog(
             AndroidLogStore.Event.CONNECTION_FAILED,
@@ -2519,8 +2532,9 @@ class UsqueVpnService : VpnService() {
         if (recoverable &&
             sessionNetworkRecovery.failed(
                 retryable = true,
-                networkGeneration = networkMonitor.generation(),
+                networkGeneration = networkGeneration,
                 networkPresent = networkMonitor.underlyingNetwork() != null,
+                waitForNetworkChange = reason.code == "SOCKET_PROTECTION_FAILED",
             )
         ) {
             return

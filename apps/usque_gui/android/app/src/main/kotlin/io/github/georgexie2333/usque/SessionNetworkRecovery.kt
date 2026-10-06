@@ -17,6 +17,7 @@ internal class SessionNetworkRecovery(
     private var stopped = false
     private var connecting = false
     private var timerScheduled = false
+    private var waitingForNetworkChange = false
     private var retryFailures = 0
     var active = false
         private set
@@ -26,12 +27,15 @@ internal class SessionNetworkRecovery(
         retryable: Boolean,
         networkGeneration: Long,
         networkPresent: Boolean,
+        waitForNetworkChange: Boolean = false,
     ): Boolean {
         lastObservedNetworkGeneration = maxOf(lastObservedNetworkGeneration, networkGeneration)
         if (!retryable) {
             cancel()
             return false
         }
+        waitingForNetworkChange = waitForNetworkChange
+        if (waitForNetworkChange) invalidateTimer()
         if (!active) {
             active = true
             this.networkGeneration = networkGeneration
@@ -68,6 +72,7 @@ internal class SessionNetworkRecovery(
         }
         if (networkGeneration <= this.networkGeneration) return true
         updateNetwork(networkGeneration, networkPresent)
+        if (networkPresent) waitingForNetworkChange = false
         if (connecting) {
             // Revoke the startup worker before stopping native so a late success
             // cannot publish a session on a superseded physical network.
@@ -114,7 +119,11 @@ internal class SessionNetworkRecovery(
     }
 
     private fun scheduleRestart() {
-        if (!active || !stopped || stopping || !online || connecting || timerScheduled) return
+        if (!active || !stopped || stopping || !online || connecting || timerScheduled ||
+            waitingForNetworkChange
+        ) {
+            return
+        }
         val owner = revision
         val timer = ++timerRevision
         timerScheduled = true
@@ -147,6 +156,7 @@ internal class SessionNetworkRecovery(
         stopping = false
         stopped = false
         connecting = false
+        waitingForNetworkChange = false
         retryFailures = 0
         // Keep consumed generations: a delayed duplicate physical callback
         // cannot reauthorize a canceled or successfully replaced session.

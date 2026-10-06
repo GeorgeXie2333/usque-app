@@ -127,8 +127,15 @@ confirms native cleanup, and starts one replacement on a usable physical network
 The first attempt waits 250 milliseconds; failed replacements use 1/2/4/8/15/30
 second delays. A newer usable physical generation resets that backoff, while
 duplicate callbacks do not. Offline recovery waits without handshakes. Manual
-connection, disconnect, service destruction, terminal failures, and unconfirmed
-cleanup revoke pending work. Initial connection failures do not start this loop.
+connection, disconnect, service destruction, other terminal failures, and
+unconfirmed cleanup revoke pending work. Initial connection failures do not start
+this loop.
+For an established Android CONNECT-IP session without a chain, a typed
+socket-protection failure retains the TUN and connection intent after confirmed
+cleanup, but waits for a newer usable physical-network generation before one
+replacement attempt. If protection fails again, it waits for another generation;
+there is no timed retry on the same network. Initial startup and chain failures
+keep their existing policy. Every replacement creates and protects new sockets.
 Live ordinary sessions continue using native migration and reconnect scheduling.
 Android chain exits share this service recovery owner and rebuild the whole chain
 on a physical-generation change or an explicitly retryable final transport error.
@@ -140,12 +147,13 @@ and native ingress while Java retains the blocking TUN and armed Kill Switch unt
 the user retries or disconnects. Clearing stale runtime observations during
 recovery does not clear that protection intent.
 
-Android socket binding keeps protection failures terminal. A binding failure
-caused by a changed generation or netd's `ENONET` (the selected network no longer
+Android socket binding always rejects a socket whose protection fails. A binding
+failure caused by a changed generation or netd's `ENONET` (the selected network no longer
 exists) rejects that socket as a stale path so native recovery can retry exact
 protection and binding. Other binding failures remain rejected; no unprotected
 socket or fallback route is authorized. Physical-network callbacks also preserve
-terminal error evidence until an explicit retry or disconnect.
+terminal error evidence until an explicit retry or disconnect, except for the
+established CONNECT-IP network-change recovery described above.
 
 ## HTTP/2 liveness
 

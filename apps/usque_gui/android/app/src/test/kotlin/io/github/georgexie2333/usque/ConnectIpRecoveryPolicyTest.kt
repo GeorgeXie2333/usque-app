@@ -97,6 +97,25 @@ class ConnectIpRecoveryPolicyTest {
     }
 
     @Test
+    fun protectionFailureRequiresAnEstablishedSessionAndItsExactNativeCause() {
+        val code = "SOCKET_PROTECTION_FAILED"
+        val failure = ServiceSnapshotState.FailureFields(code, "socket_protection", retryable = false)
+        assertTrue(ConnectIpRecoveryPolicy.canRecoverOnNetworkChange(failure, code, establishedSession = true))
+        assertFalse(ConnectIpRecoveryPolicy.canRecoverOnNetworkChange(failure, code, establishedSession = false))
+        assertFalse(ConnectIpRecoveryPolicy.canRecoverOnNetworkChange(null, code, establishedSession = true))
+        assertFalse(ConnectIpRecoveryPolicy.canRecoverOnNetworkChange(failure, "H3_UDP_UNREACHABLE", true))
+        assertFalse(ConnectIpRecoveryPolicy.canRecoverOnNetworkChange(failure(code), code, establishedSession = true))
+        assertFalse(ConnectIpRecoveryPolicy.canRecoverFailure(failure, code))
+        assertFalse(ConnectIpRecoveryPolicy.canRecoverStartup(code, failure))
+        assertFalse(ConnectIpRecoveryPolicy.canRecoverChainFailure(failure, code, null))
+        for (terminal in listOf("AUTHENTICATION_FAILED", "ENDPOINT_PIN_MISMATCH", "CONFIGURATION_INVALID")) {
+            assertFalse(
+                ConnectIpRecoveryPolicy.canRecoverOnNetworkChange(failure.copy(code = terminal), terminal, true),
+            )
+        }
+    }
+
+    @Test
     fun missingOrInconsistentFailureEvidenceCannotAuthorizeRecovery() {
         assertFalse(ConnectIpRecoveryPolicy.canRecoverFailure(null, "H3_UDP_UNREACHABLE"))
         assertFalse(ConnectIpRecoveryPolicy.canRecoverFailure(failure("H3_UDP_UNREACHABLE"), null))
