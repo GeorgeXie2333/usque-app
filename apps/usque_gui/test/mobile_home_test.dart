@@ -130,8 +130,9 @@ void main() {
       String? rate(String direction) => tester
           .widget<Text>(find.byKey(ValueKey('home-desktop-$direction-rate')))
           .data;
-      expect(tester.getSize(trace('download')).height, 96);
-      expect(tester.getSize(trace('upload')).height, 96);
+      final height = tester.getSize(trace('download')).height;
+      expect(height, inInclusiveRange(96, 240));
+      expect(tester.getSize(trace('upload')).height, height);
       expect(rate('download'), '2.0 KB/s');
       expect(rate('upload'), '1.0 KB/s');
 
@@ -139,8 +140,57 @@ void main() {
       await tester.pump();
       for (final direction in ['download', 'upload']) {
         expect(rate(direction), '—');
-        expect(tester.getSize(trace(direction)).height, 96);
+        expect(tester.getSize(trace(direction)).height, height);
       }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'desktop traffic charts take the spare page height down to their minimum',
+    (tester) async {
+      final fixture = _Fixture()..sample(1);
+      await _show(tester, fixture, size: const Size(1200, 800));
+      final download = find.byKey(
+        const ValueKey('home-desktop-download-trace'),
+      );
+      final upload = find.byKey(const ValueKey('home-desktop-upload-trace'));
+      ScrollPosition page() => tester
+          .state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byType(PageFrame),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          )
+          .position;
+
+      final open = tester.getSize(download).height;
+      expect(open, greaterThan(96));
+      expect(open, lessThanOrEqualTo(240));
+      expect(tester.getSize(upload).height, open);
+      expect(page().maxScrollExtent, 0);
+      expect(
+        tester.getRect(download).bottom,
+        moreOrLessEquals(tester.getRect(find.byType(PageFrame)).bottom - 34),
+      );
+
+      await tester.tap(
+        find.text(fixture.app.strings.get('connection_details')),
+      );
+      await tester.pumpAndSettle();
+      final expanded = tester.getSize(download).height;
+      expect(expanded, lessThan(open));
+      expect(expanded, greaterThanOrEqualTo(96));
+      expect(tester.getSize(upload).height, expanded);
+
+      tester.view.physicalSize = const Size(1200, 600);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(download).height, 96);
+      expect(tester.getSize(upload).height, 96);
+      expect(page().maxScrollExtent, greaterThan(0));
+      expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );

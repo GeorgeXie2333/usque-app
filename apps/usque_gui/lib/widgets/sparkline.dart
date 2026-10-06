@@ -128,7 +128,11 @@ class _SparklinePainter extends CustomPainter {
     final Paint guide = Paint()
       ..strokeWidth = 1
       ..color = color.withValues(alpha: 0.09);
-    final int guides = size.height >= 64 ? 2 : 1;
+    final int guides = size.height >= 160
+        ? 3
+        : size.height >= 64
+        ? 2
+        : 1;
     for (int i = 1; i <= guides; i += 1) {
       final double y = (size.height * i / (guides + 1)).roundToDouble() + 0.5;
       _dashedLine(canvas, y, size.width, guide);

@@ -41,28 +41,26 @@ class HomeScreen extends StatelessWidget {
         viewport.width < 760 ||
         defaultTargetPlatform == TargetPlatform.android &&
             viewport.shortestSide < 600;
-    return PageFrame(
-      title: strings.get('home'),
-      showHeading: defaultTargetPlatform != TargetPlatform.windows || compact,
-      titleWidget: compact ? const _NarrowBrandHeader() : null,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          _ZeroTrustEndpointRiskNotice(controller: controller),
-          if (!compact) _ErrorSlot(controller: controller, strings: strings),
-          if (compact && defaultTargetPlatform == TargetPlatform.android)
-            _VpnGateReadout(
-              controller: controller,
-              strings: strings,
-              onOpen:
-                  onOpenVpnGate ??
-                  () => Navigator.of(context).push<void>(
-                    MaterialPageRoute(
-                      builder: (_) => ChainProxyScreen(controller: controller),
-                    ),
-                  ),
-            ),
-          if (compact)
+    void openChainProxy() => Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ChainProxyScreen(controller: controller),
+      ),
+    );
+    final notice = _ZeroTrustEndpointRiskNotice(controller: controller);
+    if (compact) {
+      return PageFrame(
+        title: strings.get('home'),
+        titleWidget: const _NarrowBrandHeader(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            notice,
+            if (defaultTargetPlatform == TargetPlatform.android)
+              _VpnGateReadout(
+                controller: controller,
+                strings: strings,
+                onOpen: onOpenVpnGate ?? openChainProxy,
+              ),
             PanelStack(
               spacing: 24 + mobileHomeExpansion(context) * 8,
               children: [
@@ -81,27 +79,32 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
               ],
-            )
-          else
-            _DesktopHomeConnection(
-              controller: controller,
-              strings: strings,
-              onOpenChainProxy:
-                  onOpenVpnGate ??
-                  () => Navigator.of(context).push<void>(
-                    MaterialPageRoute(
-                      builder: (_) => ChainProxyScreen(controller: controller),
-                    ),
-                  ),
             ),
-          if (!compact) ...[
-            const SizedBox(height: 32),
-            Divider(height: 1, color: UsqueTokens.of(context).hairline),
-            _DesktopLocalProxies(controller: controller),
-            Divider(height: 1, color: UsqueTokens.of(context).hairline),
-            const SizedBox(height: 20),
-            _TrafficGrid(controller: controller, strings: strings),
           ],
+        ),
+      );
+    }
+    // Traffic is last so its charts take up the height left in the window and
+    // the page ends at the bottom margin rather than above an empty band.
+    return PageFrame(
+      title: strings.get('home'),
+      showHeading: defaultTargetPlatform != TargetPlatform.windows,
+      fillViewport: true,
+      child: FillColumn(
+        children: <Widget>[
+          notice,
+          _ErrorSlot(controller: controller, strings: strings),
+          _DesktopHomeConnection(
+            controller: controller,
+            strings: strings,
+            onOpenChainProxy: onOpenVpnGate ?? openChainProxy,
+          ),
+          const SizedBox(height: 32),
+          Divider(height: 1, color: UsqueTokens.of(context).hairline),
+          _DesktopLocalProxies(controller: controller),
+          Divider(height: 1, color: UsqueTokens.of(context).hairline),
+          const SizedBox(height: 20),
+          _TrafficGrid(controller: controller, strings: strings),
         ],
       ),
     );
@@ -770,6 +773,8 @@ class _ConnectionHero extends StatelessWidget {
   }
 }
 
+/// Desktop and phone charts share timestamped observations, including zeros
+/// and gaps. Widget rebuilds and unchanged values never alter the history.
 class _TrafficGrid extends StatelessWidget {
   const _TrafficGrid({required this.controller, required this.strings});
   final AppController controller;
@@ -801,9 +806,8 @@ class _TrafficGrid extends StatelessWidget {
                 up.any((value) => value != null),
           ),
         );
-        Widget card(bool download) => _TrafficReadout(
+        Widget readout(bool download) => _TrafficRate(
           direction: download ? 'download' : 'upload',
-          note: note,
           icon: download ? LucideIcons.arrowDown : LucideIcons.arrowUp,
           label: strings.get(download ? 'download' : 'upload'),
           bytesPerSecond: !snapshot.isConnected
@@ -812,97 +816,127 @@ class _TrafficGrid extends StatelessWidget {
               ? snapshot.downloadBytesPerSecond
               : snapshot.uploadBytesPerSecond,
           color: download ? tokens.inbound : tokens.outbound,
-          samples: download ? down : up,
         );
-        return ContentSection(
+        Widget trace(bool download) {
+          final direction = download ? 'download' : 'upload';
+          return Sparkline(
+            key: ValueKey('home-desktop-$direction-trace'),
+            samples: download ? down : up,
+            color: download ? tokens.inbound : tokens.outbound,
+            height: _minTraceHeight,
+            semanticLabel: '${strings.get(direction)} · $note',
+          );
+        }
+
+        final theme = Theme.of(context);
+        final heading = ContentHeading(
           title: strings.get('home_traffic'),
-          trailing: Text(note, style: Theme.of(context).textTheme.bodySmall),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              if (constraints.maxWidth >= 560 &&
-                  MediaQuery.textScalerOf(context).scale(14) <= 21) {
-                return Row(
-                  children: [
-                    Expanded(child: card(true)),
-                    const SizedBox(width: 16),
-                    Expanded(child: card(false)),
-                  ],
-                );
-              }
-              return Column(
-                children: [card(true), const SizedBox(height: 16), card(false)],
-              );
-            },
+          trailing: Text(
+            note,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
+        );
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 560 ||
+                MediaQuery.textScalerOf(context).scale(14) > 21) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  heading,
+                  const SizedBox(height: 16),
+                  readout(true),
+                  const SizedBox(height: 14),
+                  trace(true),
+                  const SizedBox(height: 24),
+                  readout(false),
+                  const SizedBox(height: 14),
+                  trace(false),
+                ],
+              );
+            }
+            // The fixed trace height is a minimum here: the chart row
+            // stretches to whatever height the page offers below it.
+            return FillColumn(
+              maxLastExtent: _maxTraceHeight,
+              children: [
+                heading,
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(child: readout(true)),
+                    const SizedBox(width: _traceGap),
+                    Expanded(child: readout(false)),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  height: _minTraceHeight,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: trace(true)),
+                      const SizedBox(width: _traceGap),
+                      Expanded(child: trace(false)),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     ),
   );
+
+  static const double _minTraceHeight = 96;
+  static const double _maxTraceHeight = 240;
+  static const double _traceGap = 32;
 }
 
-/// Desktop and phone charts share timestamped observations, including zeros
-/// and gaps. Widget rebuilds and unchanged values never alter the history.
-class _TrafficReadout extends StatelessWidget {
-  const _TrafficReadout({
+class _TrafficRate extends StatelessWidget {
+  const _TrafficRate({
     required this.direction,
-    required this.note,
     required this.icon,
     required this.label,
     required this.bytesPerSecond,
     required this.color,
-    required this.samples,
   });
   final String direction;
-  final String note;
   final IconData icon;
   final String label;
   final int? bytesPerSecond;
   final Color color;
-  final List<int?> samples;
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final rate = bytesPerSecond;
-    return ContentSection(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Icon(icon, size: 20, color: color),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  label,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                rate == null ? '—' : formatRate(rate),
-                key: ValueKey('home-desktop-$direction-rate'),
-                style: UsqueTheme.readout(
-                  context,
-                  size: 16,
-                  color: rate == null
-                      ? theme.colorScheme.onSurfaceVariant
-                      : null,
-                ),
-              ),
-            ],
+    return Row(
+      children: <Widget>[
+        Icon(icon, size: 20, color: color),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
-          const SizedBox(height: 14),
-          Sparkline(
-            key: ValueKey('home-desktop-$direction-trace'),
-            samples: samples,
-            color: color,
-            height: 96,
-            semanticLabel: '$label · $note',
+        ),
+        const SizedBox(width: 10),
+        Text(
+          rate == null ? '—' : formatRate(rate),
+          key: ValueKey('home-desktop-$direction-rate'),
+          style: UsqueTheme.readout(
+            context,
+            size: 16,
+            color: rate == null ? theme.colorScheme.onSurfaceVariant : null,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
