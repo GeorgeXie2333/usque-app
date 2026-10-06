@@ -5,6 +5,7 @@ fn main() {
     let strings = root.join("../../packaging/windows/setup/strings.json");
     println!("cargo:rerun-if-changed={}", strings.display());
     println!("cargo:rerun-if-changed=usque-uninstall.manifest");
+    println!("cargo:rerun-if-changed=../../apps/usque_gui/windows/runner/resources/app_icon.ico");
     let source = fs::read_to_string(&strings).expect("read shared setup translations");
     let locales: serde_json::Value =
         serde_json::from_str(&source).expect("setup translations JSON");

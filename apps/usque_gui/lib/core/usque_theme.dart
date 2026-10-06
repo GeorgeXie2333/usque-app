@@ -66,8 +66,8 @@ class UsqueRadii {
 class UsqueColors {
   const UsqueColors._();
 
-  /// Brand mark only: the logo, the onboarding pane, the scanning arc.
-  static const Color orange = Color(0xFFF48120);
+  /// Legacy alias for the light brand accent; themed decoration uses tokens.
+  static const Color orange = ember;
 
   /// Interactive accent, light theme. Reaches 4.5:1 on white.
   static const Color ember = Color(0xFFC2500C);
@@ -210,7 +210,7 @@ class UsqueTokens extends ThemeExtension<UsqueTokens> {
     canvas: UsqueColors.canvas,
     hairline: Color(0xFFE4E1DA),
     hairlineStrong: Color(0xFFCFCABF),
-    brand: UsqueColors.orange,
+    brand: UsqueColors.ember,
     brandSoft: Color(0xFFFFEDDD),
     success: UsqueColors.success,
     caution: UsqueColors.caution,
@@ -225,7 +225,7 @@ class UsqueTokens extends ThemeExtension<UsqueTokens> {
     canvas: UsqueColors.canvasDark,
     hairline: Color(0xFF2A2A2F),
     hairlineStrong: Color(0xFF3C3C43),
-    brand: UsqueColors.orange,
+    brand: UsqueColors.emberLight,
     brandSoft: Color(0xFF2A1A0E),
     success: UsqueColors.successLight,
     caution: UsqueColors.cautionLight,

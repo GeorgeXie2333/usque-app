@@ -22,6 +22,7 @@ import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/usque_dialog.dart';
+import 'package:usque/widgets/usque_logo.dart';
 import 'package:usque/widgets/vpn_gate_entry.dart';
 import 'package:usque/widgets/vpn_gate_server_row.dart';
 import 'package:usque/widgets/warp_dns_editor.dart';
@@ -592,7 +593,9 @@ void main() {
           final context = tester.element(find.byType(ShellScreen));
           await Future.wait([
             precacheImage(
-              const AssetImage('assets/branding/usque-ui-icon.png'),
+              AssetImage(
+                UsqueLogo.assetFor(dark ? Brightness.dark : Brightness.light),
+              ),
               context,
             ),
             if (phone)
@@ -678,10 +681,7 @@ void main() {
         final context = tester.element(find.byType(VpnGateScreen));
         await Future.wait([
           precacheImage(const AssetImage('assets/flags/w80/jp.png'), context),
-          precacheImage(
-            const AssetImage('assets/branding/usque-ui-icon.png'),
-            context,
-          ),
+          precacheImage(const AssetImage(UsqueLogo.darkAsset), context),
         ]);
       });
       await tester.pumpAndSettle();
@@ -751,10 +751,7 @@ void main() {
         await Future.wait([
           precacheImage(const AssetImage('assets/flags/w80/jp.png'), context),
           precacheImage(const AssetImage('assets/flags/w80/kr.png'), context),
-          precacheImage(
-            const AssetImage('assets/branding/usque-ui-icon.png'),
-            context,
-          ),
+          precacheImage(const AssetImage(UsqueLogo.darkAsset), context),
         ]);
       });
       await tester.pumpAndSettle();
@@ -1004,7 +1001,7 @@ void main() {
               if (dpi == 1.25 && !connected && zh) {
                 await tester.runAsync(
                   () => precacheImage(
-                    const AssetImage('assets/branding/usque-ui-icon.png'),
+                    const AssetImage(UsqueLogo.lightAsset),
                     tester.element(find.byType(MaterialApp)),
                   ),
                 );
@@ -1533,7 +1530,11 @@ void main() {
         await tester.runAsync(() async {
           final context = tester.element(find.byType(MaterialApp));
           await precacheImage(
-            const AssetImage('assets/branding/usque-ui-icon.png'),
+            AssetImage(
+              UsqueLogo.assetFor(
+                scene.dark ? Brightness.dark : Brightness.light,
+              ),
+            ),
             context,
           );
           if (scene.connected) {
@@ -1670,7 +1671,9 @@ void main() {
           );
           await tester.runAsync(
             () => precacheImage(
-              const AssetImage('assets/branding/usque-ui-icon.png'),
+              AssetImage(
+                UsqueLogo.assetFor(phone ? Brightness.light : Brightness.dark),
+              ),
               tester.element(find.byType(MaterialApp)),
             ),
           );

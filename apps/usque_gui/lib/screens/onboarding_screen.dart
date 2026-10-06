@@ -13,6 +13,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/external_link.dart';
+import '../widgets/usque_logo.dart';
 import '../widgets/zero_trust_enrollment_editor.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -304,12 +305,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                             if (!wide) ...<Widget>[
                               Row(
                                 children: <Widget>[
-                                  Image.asset(
-                                    'assets/branding/usque-ui-icon.png',
-                                    width: 42,
-                                    height: 42,
-                                    filterQuality: FilterQuality.medium,
-                                  ),
+                                  const UsqueLogo(size: 42),
                                   const SizedBox(width: 12),
                                   Text(
                                     'Usque',
@@ -610,12 +606,7 @@ class _BrandPane extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        Image.asset(
-                          'assets/branding/usque-ui-icon.png',
-                          width: 72,
-                          height: 72,
-                          filterQuality: FilterQuality.medium,
-                        ),
+                        const UsqueLogo(size: 72),
                         const Spacer(),
                         Text(
                           'Usque',

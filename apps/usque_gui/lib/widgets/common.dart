@@ -712,13 +712,7 @@ Color statusToneColor(BuildContext context, StatusTone tone) {
     StatusTone.success => tokens.success,
     StatusTone.warning => tokens.caution,
     StatusTone.danger => tokens.danger,
-    // The logo orange is deliberately vivid and misses the 3:1 graphical
-    // contrast threshold on its own light tint. Use the accessible ember for
-    // status indicators in light mode; dark surfaces can keep the brand hue.
-    StatusTone.brand =>
-      theme.brightness == Brightness.light
-          ? theme.colorScheme.primary
-          : tokens.brand,
+    StatusTone.brand => tokens.brand,
     StatusTone.neutral => theme.colorScheme.onSurfaceVariant,
   };
 }

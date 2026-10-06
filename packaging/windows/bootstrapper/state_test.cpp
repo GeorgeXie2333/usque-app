@@ -1,4 +1,5 @@
 #include "state.h"
+#include "brand_palette.h"
 #include "options_result.h"
 #include "process_output.h"
 
@@ -17,6 +18,12 @@ int main(int argc, char** argv) {
   const auto check = [&failures](bool condition, const char* label) {
     if (!condition) { std::fprintf(stderr, "FAILED: %s\n", label); ++failures; }
   };
+  check(BrandAccent(false) == RGB(194, 80, 12), "light brand accent");
+  check(BrandAccent(true) == RGB(255, 164, 92), "dark brand accent");
+  check(BrandOnAccent(false) == RGB(255, 255, 255), "light accent text");
+  check(BrandOnAccent(true) == RGB(68, 24, 0), "dark accent text");
+  check(BrandPressed(false) == RGB(175, 72, 11), "light pressed accent");
+  check(BrandPressed(true) == RGB(230, 148, 83), "dark pressed accent");
   check(SelectMode({}) == Mode::install, "fresh install");
   check(SelectMode({true, false, true, true, false}) == Mode::maintenance,
         "exact ProductCode maintenance");

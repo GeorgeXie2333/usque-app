@@ -16,6 +16,7 @@
 #include <BootstrapperApplicationBase.h>
 
 #include "platform.h"
+#include "brand_palette.h"
 #include "options_result.h"
 #include "setup_l10n.h"
 #include "state.h"
@@ -574,7 +575,7 @@ class Application final : public CBootstrapperApplicationBase {
     }
     if (C(progress)) {
       if (!high_contrast_) SetWindowTheme(C(progress), L"", nullptr);
-      SendMessageW(C(progress), PBM_SETBARCOLOR, 0, high_contrast_ ? SystemColor(COLOR_HIGHLIGHT) : RGB(244, 129, 32));
+      SendMessageW(C(progress), PBM_SETBARCOLOR, 0, high_contrast_ ? SystemColor(COLOR_HIGHLIGHT) : BrandAccent(dark_));
       SendMessageW(C(progress), PBM_SETBKCOLOR, 0, high_contrast_ ? SystemColor(COLOR_WINDOW) :
         dark_ ? RGB(43, 43, 47) : RGB(222, 220, 215));
     }
@@ -1415,10 +1416,10 @@ class Application final : public CBootstrapperApplicationBase {
       (draw.CtlID == secondary && emphasis == FooterButton::secondary));
     const bool disclosure = draw.CtlID == more;
     COLORREF fill = high_contrast_ ? SystemColor(accent ? COLOR_HIGHLIGHT : COLOR_BTNFACE) :
-      accent ? RGB(244, 129, 32) : disclosure ? background_color_ : dark_ ? RGB(43, 43, 47) : RGB(234, 232, 227);
-    if ((draw.itemState & ODS_SELECTED) && !high_contrast_) fill = accent ? RGB(220, 104, 41) : dark_ ? RGB(57, 57, 62) : RGB(221, 218, 211);
+      accent ? BrandAccent(dark_) : disclosure ? background_color_ : dark_ ? RGB(43, 43, 47) : RGB(234, 232, 227);
+    if ((draw.itemState & ODS_SELECTED) && !high_contrast_) fill = accent ? BrandPressed(dark_) : dark_ ? RGB(57, 57, 62) : RGB(221, 218, 211);
     const COLORREF text = high_contrast_ ? SystemColor(enabled ? (accent ? COLOR_HIGHLIGHTTEXT : COLOR_BTNTEXT) : COLOR_GRAYTEXT) :
-      !enabled ? (dark_ ? RGB(145, 145, 150) : RGB(116, 113, 107)) : accent ? RGB(28, 27, 24) : text_color_;
+      !enabled ? (dark_ ? RGB(145, 145, 150) : RGB(116, 113, 107)) : accent ? BrandOnAccent(dark_) : text_color_;
     const HBRUSH brush = CreateSolidBrush(fill);
     const HPEN pen = CreatePen(PS_SOLID, Scale(1), BorderColor());
     const auto old_brush = SelectObject(draw.hDC, brush); const auto old_pen = SelectObject(draw.hDC, pen);
@@ -1588,7 +1589,7 @@ class Application final : public CBootstrapperApplicationBase {
       const int box = app->Scale(20), left = app->Scale(2), top = (rect.bottom - box) / 2;
       const COLORREF ink = enabled ? app->text_color_ : app->high_contrast_ ? app->SystemColor(COLOR_GRAYTEXT) :
         app->dark_ ? RGB(145, 145, 150) : RGB(116, 113, 107);
-      const COLORREF accent = app->high_contrast_ ? app->SystemColor(COLOR_HIGHLIGHT) : RGB(244, 129, 32);
+      const COLORREF accent = app->high_contrast_ ? app->SystemColor(COLOR_HIGHLIGHT) : BrandAccent(app->dark_);
       const HBRUSH brush = CreateSolidBrush(checked ? accent : app->background_color_);
       const HPEN pen = CreatePen(PS_SOLID, app->Scale(1), checked ? accent : ink);
       auto old_brush = SelectObject(dc, brush); auto old_pen = SelectObject(dc, pen);
@@ -1596,7 +1597,7 @@ class Application final : public CBootstrapperApplicationBase {
       SelectObject(dc, old_brush); SelectObject(dc, old_pen); DeleteObject(brush); DeleteObject(pen);
       if (checked) {
         const HPEN check_pen = CreatePen(PS_SOLID, app->Scale(2), app->high_contrast_ ?
-          app->SystemColor(COLOR_HIGHLIGHTTEXT) : RGB(24, 27, 32));
+          app->SystemColor(COLOR_HIGHLIGHTTEXT) : BrandOnAccent(app->dark_));
         old_pen = SelectObject(dc, check_pen);
         MoveToEx(dc, left + box / 5, top + box / 2, nullptr);
         LineTo(dc, left + box * 2 / 5, top + box * 3 / 4); LineTo(dc, left + box * 4 / 5, top + box / 4);

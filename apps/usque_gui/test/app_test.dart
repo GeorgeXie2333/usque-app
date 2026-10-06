@@ -34,6 +34,7 @@ import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/controller_selector.dart';
 import 'package:usque/widgets/profile_identity_dialog.dart';
+import 'package:usque/widgets/usque_logo.dart';
 
 class FakeEngineClient
     implements
@@ -3578,8 +3579,10 @@ void main() {
         (widget) =>
             widget is Image &&
             widget.image is AssetImage &&
-            (widget.image as AssetImage).assetName ==
-                'assets/branding/usque-ui-icon.png' &&
+            <String>{
+              UsqueLogo.lightAsset,
+              UsqueLogo.darkAsset,
+            }.contains((widget.image as AssetImage).assetName) &&
             widget.width == 40,
       ),
       findsOneWidget,
@@ -3831,8 +3834,10 @@ void main() {
         (widget) =>
             widget is Image &&
             widget.image is AssetImage &&
-            (widget.image as AssetImage).assetName ==
-                'assets/branding/usque-ui-icon.png' &&
+            <String>{
+              UsqueLogo.lightAsset,
+              UsqueLogo.darkAsset,
+            }.contains((widget.image as AssetImage).assetName) &&
             widget.width == 30,
       );
       final Finder homeIcon = find.descendant(
@@ -3894,8 +3899,10 @@ void main() {
       (widget) =>
           widget is Image &&
           widget.image is AssetImage &&
-          (widget.image as AssetImage).assetName ==
-              'assets/branding/usque-ui-icon.png' &&
+          <String>{
+            UsqueLogo.lightAsset,
+            UsqueLogo.darkAsset,
+          }.contains((widget.image as AssetImage).assetName) &&
           widget.width == 30,
     );
     final Finder themeButton = find.descendant(

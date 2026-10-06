@@ -8,20 +8,95 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageMath
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "assets" / "branding" / "usque-app-icon.png"
 FLUTTER = ROOT / "apps" / "usque_gui"
-ORANGE = "#F48120"
+ORANGE = "#C2500C"
 INK = "#191C1E"
+LIGHT_FILL = (194, 80, 12)
+LIGHT_LINE = (245, 244, 241)
+DARK_FILL = (255, 164, 92)
+DARK_LINE = (68, 24, 0)
+
+
+def line_mask(source: Image.Image) -> Image.Image:
+    """Recover line coverage, including antialiasing, from the two source colours."""
+    red, green, blue, alpha = source.split()
+    delta = tuple(line - fill for line, fill in zip(LIGHT_LINE, LIGHT_FILL, strict=True))
+    denominator = sum(channel * channel for channel in delta)
+    coverage = ImageMath.lambda_eval(
+        lambda channels: (
+            (
+                (channels["r"] - LIGHT_FILL[0]) * delta[0]
+                + (channels["g"] - LIGHT_FILL[1]) * delta[1]
+                + (channels["b"] - LIGHT_FILL[2]) * delta[2]
+            )
+            * (255.0 / denominator)
+        ),
+        r=red.convert("F"),
+        g=green.convert("F"),
+        b=blue.convert("F"),
+    ).convert("L")
+    # The line artwork is entirely inside the opaque disk. Its exterior edge
+    # has quantized RGB values at low alpha; those are fill coverage, not line
+    # coverage, and must not become a faint ring in monochrome assets.
+    opaque = alpha.point(lambda value: 255 if value == 255 else 0)
+    return ImageMath.lambda_eval(
+        lambda channels: channels["coverage"] * channels["alpha"] / 255.0 + 0.5,
+        coverage=coverage.convert("F"),
+        alpha=opaque.convert("F"),
+    ).convert("L")
+
+
+def dark_logo(source: Image.Image, mask: Image.Image) -> Image.Image:
+    """Recolour before resizing; keep the source's exterior alpha unchanged."""
+    # Exterior pixels belong to the fill, not the line. Undo alpha only where
+    # coverage exists so partially transparent outer edges cannot acquire a halo.
+    coverage = ImageMath.lambda_eval(
+        lambda channels: channels["mask"] * 255.0 / channels["alpha"],
+        mask=mask.convert("F"),
+        alpha=source.getchannel("A").point(lambda value: max(1, value)).convert("F"),
+    ).convert("L")
+    channels = [
+        coverage.point(
+            lambda value, fill=fill, line=line: round(fill + (line - fill) * value / 255)
+        )
+        for fill, line in zip(DARK_FILL, DARK_LINE, strict=True)
+    ]
+    return Image.merge("RGBA", (*channels, source.getchannel("A")))
+
+
+def monochrome_logo(mask: Image.Image) -> Image.Image:
+    """The U/star artwork remains visible after Android applies a system tint."""
+    result = Image.new("RGBA", mask.size, "white")
+    result.putalpha(mask)
+    return result
+
+
+def fit_artwork(source: Image.Image, canvas_size: int, artwork_size: int) -> Image.Image:
+    bounds = source.getchannel("A").getbbox()
+    if bounds is None:
+        raise ValueError("Brand artwork is empty")
+    artwork = source.crop(bounds)
+    artwork.thumbnail((artwork_size, artwork_size), Image.Resampling.LANCZOS)
+    occupied = artwork.getchannel("A").getbbox()
+    if occupied is None:
+        raise ValueError("Brand artwork disappeared when resized")
+    artwork = artwork.crop(occupied)
+    canvas = Image.new("RGBA", (canvas_size, canvas_size))
+    canvas.alpha_composite(
+        artwork, ((canvas_size - artwork.width) // 2, (canvas_size - artwork.height) // 2)
+    )
+    return canvas
 
 
 def resize(source: Image.Image, size: int) -> Image.Image:
     return source.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def save_android(source: Image.Image) -> None:
+def save_android(source: Image.Image, monochrome: Image.Image) -> None:
     resources = FLUTTER / "android" / "app" / "src" / "main" / "res"
     # Android minSdk 26 uses adaptive launcher icons; only their foreground
     # layers need density-specific bitmap variants.
@@ -35,15 +110,20 @@ def save_android(source: Image.Image) -> None:
     for folder, size in foreground_sizes.items():
         destination = resources / folder
         destination.mkdir(parents=True, exist_ok=True)
-        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        artwork_size = round(size * 0.72)
-        artwork = resize(source, artwork_size)
-        offset = (size - artwork_size) // 2
-        canvas.alpha_composite(artwork, (offset, offset))
-        canvas.save(destination / "ic_launcher_foreground.png", optimize=True)
+        artwork_size = round(size * 66 / 108)
+        fit_artwork(source, size, artwork_size).save(
+            destination / "ic_launcher_foreground.png", optimize=True
+        )
+        fit_artwork(monochrome, size, artwork_size).save(
+            destination / "ic_launcher_monochrome.png", optimize=True
+        )
+        notification_dir = resources / folder.replace("mipmap-", "drawable-")
+        notification_dir.mkdir(parents=True, exist_ok=True)
+        notification_size = round(size * 24 / 108)
+        fit_artwork(monochrome, notification_size, round(notification_size * 20 / 24)).save(
+            notification_dir / "ic_stat_usque.png", optimize=True
+        )
 
-    banner_dir = resources / "drawable-xhdpi"
-    banner_dir.mkdir(parents=True, exist_ok=True)
     banner = Image.new("RGB", (320, 180), "white")
     draw = ImageDraw.Draw(banner)
     draw.ellipse((-60, -90, 180, 150), fill="#FFF0E3")
@@ -59,7 +139,13 @@ def save_android(source: Image.Image) -> None:
     )
     draw.text((158, 56), "Usque", fill=ORANGE, font=title_font)
     draw.text((160, 105), "Native WARP client", fill=INK, font=subtitle_font)
-    banner.save(banner_dir / "tv_banner.png", optimize=True)
+    # Notification bitmaps introduce all density folders. Keep the TV banner
+    # complete in those folders too, rather than suppressing IconDensities.
+    for folder, size in foreground_sizes.items():
+        destination = resources / folder.replace("mipmap-", "drawable-")
+        banner.resize(
+            (round(320 * size / 216), round(180 * size / 216)), Image.Resampling.LANCZOS
+        ).save(destination / "tv_banner.png", optimize=True)
 
 
 def save_macos(source: Image.Image) -> None:
@@ -96,11 +182,12 @@ def save_distribution_icons(source: Image.Image) -> None:
     )
 
 
-def save_flutter_ui_icon(source: Image.Image) -> None:
+def save_flutter_ui_icon(source: Image.Image, dark: Image.Image) -> None:
     """Write a compact texture used only by Flutter's in-app brand chrome."""
     destination = FLUTTER / "assets" / "branding" / "usque-ui-icon.png"
     destination.parent.mkdir(parents=True, exist_ok=True)
     resize(source, 256).save(destination, optimize=True)
+    resize(dark, 256).save(destination.with_name("usque-ui-icon-dark.png"), optimize=True)
 
 
 def save_readme_banner(source: Image.Image) -> None:
@@ -163,11 +250,12 @@ def main() -> None:
     if alpha.getextrema()[0] == 255:
         raise ValueError("App icon has no transparent pixels")
 
-    save_android(source)
+    mask = line_mask(source)
+    save_android(source, monochrome_logo(mask))
     save_macos(source)
     save_windows(source)
     save_distribution_icons(source)
-    save_flutter_ui_icon(source)
+    save_flutter_ui_icon(source, dark_logo(source, mask))
     save_readme_banner(source)
 
 

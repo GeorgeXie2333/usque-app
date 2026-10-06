@@ -6,6 +6,7 @@ import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/window_frame.dart';
+import 'usque_logo.dart';
 
 /// Height of the Flutter-drawn Windows caption, in logical pixels.
 /// Keep in sync with `kCaptionHeightLogical` in the runner.
@@ -59,12 +60,7 @@ class WindowTitleBar extends StatelessWidget {
                         padding: const EdgeInsetsDirectional.only(start: 12),
                         child: Row(
                           children: <Widget>[
-                            Image.asset(
-                              'assets/branding/usque-ui-icon.png',
-                              width: 17,
-                              height: 17,
-                              filterQuality: FilterQuality.medium,
-                            ),
+                            const UsqueLogo(size: 17),
                             const SizedBox(width: 9),
                             Text(
                               strings.get('app_name'),

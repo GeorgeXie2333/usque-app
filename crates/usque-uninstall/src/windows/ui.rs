@@ -61,7 +61,21 @@ const THEME_REQUEST_PROPERTY: &str = "Usque.UninstallThemeRequest";
 const STATIC_TYPE_MASK: u32 = 0x1f;
 const STATIC_RIGHT: u32 = 2;
 const STATIC_OWNER_DRAW: u32 = 13;
-const ACCENT: u32 = 0x002081f4;
+const fn brand_accent(dark: bool) -> u32 {
+    if dark { 0x005ca4ff } else { 0x000c50c2 }
+}
+
+const fn brand_on_accent(dark: bool) -> u32 {
+    if dark { 0x00001844 } else { 0x00ffffff }
+}
+
+const fn brand_pressed(dark: bool) -> u32 {
+    let color = brand_accent(dark);
+    let red = ((color & 0xff) * 9 + 5) / 10;
+    let green = (((color >> 8) & 0xff) * 9 + 5) / 10;
+    let blue = (((color >> 16) & 0xff) * 9 + 5) / 10;
+    red | (green << 8) | (blue << 16)
+}
 
 #[derive(Clone, Copy, Default)]
 struct PaintStyle {
@@ -2048,7 +2062,7 @@ fn apply_progress_theme(hwnd: HWND, palette: &Palette) {
             let fill = if palette.high_contrast {
                 GetSysColor(COLOR_HIGHLIGHT)
             } else {
-                ACCENT
+                brand_accent(palette.dark)
             };
             let track = if palette.high_contrast {
                 palette.background
@@ -2251,7 +2265,7 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
                 COLOR_BTNFACE
             })
         } else if accent {
-            ACCENT
+            brand_accent(style.dark)
         } else if auxiliary {
             style.background
         } else if style.dark {
@@ -2261,7 +2275,7 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
         };
         if item.itemState & ODS_SELECTED != 0 && !style.high_contrast {
             fill = if accent {
-                0x002968dc
+                brand_pressed(style.dark)
             } else if style.dark {
                 0x00343436
             } else {
@@ -2279,7 +2293,7 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
         } else if !enabled {
             if style.dark { 0x00797777 } else { 0x006f7476 }
         } else if accent {
-            0x00181b1c
+            brand_on_accent(style.dark)
         } else {
             style.foreground
         };
@@ -2354,7 +2368,7 @@ fn draw_warning_accent(item: &DRAWITEMSTRUCT, style: PaintStyle) {
         let accent = CreateSolidBrush(if style.high_contrast {
             style.foreground
         } else {
-            ACCENT
+            brand_accent(style.dark)
         });
         FillRect(item.hDC, &item.rcItem, accent);
         DeleteObject(accent);
@@ -2391,7 +2405,7 @@ unsafe extern "system" fn checkbox_proc(
             let checked_fill = if style.high_contrast {
                 GetSysColor(COLOR_HIGHLIGHT)
             } else {
-                ACCENT
+                brand_accent(style.dark)
             };
             let brush = CreateSolidBrush(if checked {
                 checked_fill
@@ -2425,7 +2439,7 @@ unsafe extern "system" fn checkbox_proc(
                     if style.high_contrast {
                         GetSysColor(COLOR_HIGHLIGHTTEXT)
                     } else {
-                        0x00181b1c
+                        brand_on_accent(style.dark)
                     },
                 );
                 let previous = SelectObject(dc, pen);
@@ -2562,6 +2576,16 @@ fn preview_shortcut(hwnd: HWND, key: u16, state: &mut State) {
 mod tests {
     use super::*;
     use std::{path::PathBuf, sync::Arc, sync::mpsc};
+
+    #[test]
+    fn brand_palette_matches_flutter_in_colorref_byte_order() {
+        assert_eq!(brand_accent(false), 0x000c50c2);
+        assert_eq!(brand_accent(true), 0x005ca4ff);
+        assert_eq!(brand_on_accent(false), 0x00ffffff);
+        assert_eq!(brand_on_accent(true), 0x00001844);
+        assert_eq!(brand_pressed(false), 0x000b48af);
+        assert_eq!(brand_pressed(true), 0x005394e6);
+    }
 
     #[test]
     fn registration_guidance_uses_current_cleanup_code_and_retains_msi_context() {

@@ -11,6 +11,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/models/onboarding_models.dart';
 import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/usque_logo.dart';
 
 import 'app_test.dart' show FakeEngineClient;
 
@@ -231,7 +232,9 @@ void _scene(
       );
       await tester.runAsync(
         () => precacheImage(
-          const AssetImage('assets/branding/usque-ui-icon.png'),
+          AssetImage(
+            UsqueLogo.assetFor(dark ? Brightness.dark : Brightness.light),
+          ),
           tester.element(find.byType(MaterialApp)),
         ),
       );

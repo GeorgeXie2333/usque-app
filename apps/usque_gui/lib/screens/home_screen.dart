@@ -19,6 +19,7 @@ import '../widgets/live_duration.dart';
 import '../widgets/mobile_home_panels.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
+import '../widgets/usque_logo.dart';
 import 'chain_proxy_screen.dart';
 
 /// The instrument panel: one connection control, one status readout, and the
@@ -236,12 +237,7 @@ class _NarrowBrandHeader extends StatelessWidget {
       header: true,
       child: Row(
         children: <Widget>[
-          Image.asset(
-            'assets/branding/usque-ui-icon.png',
-            width: 40,
-            height: 40,
-            filterQuality: FilterQuality.medium,
-          ),
+          const UsqueLogo(size: 40),
           const SizedBox(width: 12),
           Text('Usque', style: Theme.of(context).textTheme.titleLarge),
         ],

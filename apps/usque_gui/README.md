@@ -8,6 +8,32 @@ Desktop builds start the Rust sidecar and talk to it over current-user IPC. Andr
 
 Build and test commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Feature status is in [docs/IMPLEMENTATION.md](../../docs/IMPLEMENTATION.md).
 
+## Brand assets
+
+The transparent 1600-pixel [brand master](../../assets/branding/usque-app-icon.png)
+is the only editable artwork. Run `python tool/generate_brand_assets.py` from the
+repository root on Windows with Pillow and the Segoe UI fonts to regenerate
+platform resources and the shared README banner. Recolouring and alpha-mask
+extraction happen before resizing; do not edit generated variants individually.
+
+App, tray and distribution icons use `#C2500C` with `#F5F4F1` lines.
+`UsqueLogo` selects that light asset or the dark page asset (`#FFA45C` with
+`#441800` lines) from the active Flutter theme. It retains each caller's size
+and is decorative unless a standalone semantic label is supplied. Brand
+decoration follows the existing theme's primary colour. Native setup and
+uninstall controls use the same primary/on-primary pairs, retaining system
+colours in high-contrast mode.
+
+Android launcher artwork fits the centred 66dp safe area of a 108dp adaptive
+layer. The Android 13+ monochrome layer and notification icon contain the U/star
+lines on transparency, rather than the solid circular background. Notifications
+retain the `ic_stat_usque` resource name. The retained macOS icons are refreshed
+by the generator, without establishing macOS product support.
+
+品牌母版是唯一可编辑图形。应用图标固定使用浅色配色；页面 Logo 随主题切换，
+内部线条和透明边缘保持一致。Android 单色图标保留 U 形与星形线条，
+安装器和卸载器的高对比度模式继续使用系统颜色。
+
 ## Linux development preview
 
 Linux/WSL developers can run `bash tool/dev.sh preview` from the repository root

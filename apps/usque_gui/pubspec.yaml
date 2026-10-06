@@ -27,6 +27,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/usque-ui-icon.png
+    - assets/branding/usque-ui-icon-dark.png
     - assets/licenses/vpngate.txt
     - assets/licenses/boringtun.txt
     - assets/licenses/wgcf.txt

@@ -11,6 +11,7 @@ import '../state/app_controller.dart';
 import '../widgets/animated_index_stack.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/section_navigator.dart';
+import '../widgets/usque_logo.dart';
 import 'home_screen.dart';
 import 'profiles_screen.dart';
 import 'proxy_section.dart';
@@ -416,14 +417,7 @@ class _RailLeading extends StatelessWidget {
           children: <Widget>[
             SizedBox(
               width: _railMinWidth,
-              child: Center(
-                child: Image.asset(
-                  'assets/branding/usque-ui-icon.png',
-                  width: 30,
-                  height: 30,
-                  filterQuality: FilterQuality.medium,
-                ),
-              ),
+              child: Center(child: const UsqueLogo(size: 30)),
             ),
             Expanded(
               child: Text(
