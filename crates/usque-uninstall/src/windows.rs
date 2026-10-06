@@ -69,8 +69,15 @@ pub(crate) fn attach_parent_console() {
     }
 }
 
-pub(crate) fn show_error_message(error: &UninstallError) {
-    let text = wide(&error.to_string());
+pub(crate) fn show_error_message(_error: &UninstallError) {
+    // Pre-window failures can contain ProductCodes, filesystem paths, or raw
+    // signature/registry details. Keep those out of the graphical prompt.
+    let locale = crate::l10n::setup_locale(&ui_locale_name());
+    let text = wide(&format!(
+        "{}\r\n\r\n{}",
+        crate::l10n::setup_text(locale, "uninstall_launch_failed"),
+        crate::l10n::setup_text(locale, "error_source_hint")
+    ));
     let caption = wide("Usque");
     // SAFETY: both buffers are null-terminated wide strings that outlive the call.
     unsafe {

@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     UninstallError, UninstallRequest, l10n,
-    state::{Lifecycle, Outcome, Preview, PreviewTheme, RestartFlow, Stage},
+    state::{Lifecycle, Outcome, Preview, PreviewTheme, RestartFlow, Stage, error_hint_key},
 };
 use std::{
     cell::{Cell, RefCell},
@@ -51,13 +51,16 @@ const DETAILS: i32 = 111;
 const BADGE: i32 = 112;
 const SAVE: i32 = 113;
 const VIEWPORT: i32 = 114;
+const WARNING_ACCENT: i32 = 115;
 const TIMER: usize = 1;
 const WM_RESTART_ABORTED: u32 = WM_APP + 36;
 const PAINT_PROPERTY: &str = "Usque.UninstallPaint";
-// Winuser.h SS_TYPEMASK/SS_RIGHT. windows-sys groups these two immutable
+const THEME_REQUEST_PROPERTY: &str = "Usque.UninstallThemeRequest";
+// Winuser.h SS_TYPEMASK/SS_RIGHT/SS_OWNERDRAW. windows-sys groups these immutable
 // control-style constants under the unrelated SystemServices feature.
 const STATIC_TYPE_MASK: u32 = 0x1f;
 const STATIC_RIGHT: u32 = 2;
+const STATIC_OWNER_DRAW: u32 = 13;
 const ACCENT: u32 = 0x002081f4;
 
 #[derive(Clone, Copy, Default)]
@@ -73,6 +76,29 @@ struct PaintStyle {
     native_high_contrast: bool,
     accent_button: u32,
     rtl: bool,
+}
+
+struct NativeThemeRequest(HWND);
+
+impl NativeThemeRequest {
+    fn begin(hwnd: HWND) -> Option<Self> {
+        // SAFETY: the property is private to this UI-thread window. Its opaque
+        // non-null sentinel is only queried for presence, never dereferenced.
+        if unsafe { SetPropW(hwnd, wide(THEME_REQUEST_PROPERTY).as_ptr(), 1usize as _) } == 0 {
+            return None;
+        }
+        Some(Self(hwnd))
+    }
+}
+
+impl Drop for NativeThemeRequest {
+    fn drop(&mut self) {
+        // SAFETY: this guard owns the property's lifetime on the UI thread.
+        // Removing it restores normal handling of external OS theme messages.
+        unsafe {
+            RemovePropW(self.0, wide(THEME_REQUEST_PROPERTY).as_ptr());
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -131,6 +157,7 @@ struct State {
     pending_registration: Option<Completion>,
     prompt: Option<Prompt>,
     details: bool,
+    wait_on_close: bool,
     scroll: i32,
     max_scroll: i32,
     dpi: u32,
@@ -165,6 +192,7 @@ impl State {
             pending_registration: None,
             prompt: None,
             details: false,
+            wait_on_close: false,
             scroll: 0,
             max_scroll: 0,
             dpi: 96,
@@ -187,7 +215,13 @@ impl State {
         if let Some(key) = self.restart.message_key() {
             key
         } else if let Some(result) = &self.result {
-            result.outcome.key()
+            if result.outcome == Outcome::DataMayBeDeleted {
+                "uninstall_failed"
+            } else {
+                result.outcome.key()
+            }
+        } else if self.page == Page::Running && self.wait_on_close {
+            "wait_no_cancel"
         } else if self.prompt.as_ref().is_some_and(|p| p.files_in_use) {
             "uninstall_files_in_use"
         } else if self.prompt.is_some() {
@@ -213,7 +247,9 @@ impl State {
                 "retained_data"
             })
         } else if let Some(result) = &self.result {
-            if matches!(result.outcome, Outcome::Success | Outcome::RebootRequired)
+            if result.outcome == Outcome::DataMayBeDeleted {
+                Some("uninstall_partial_data")
+            } else if matches!(result.outcome, Outcome::Success | Outcome::RebootRequired)
                 && result.remove_user_data
             {
                 Some("uninstall_data_removed")
@@ -227,6 +263,40 @@ impl State {
         } else {
             None
         }
+    }
+
+    fn critical_warning(&self) -> bool {
+        (self.page == Page::Confirm && self.remove_data)
+            || self
+                .result
+                .as_ref()
+                .is_some_and(|result| result.outcome == Outcome::DataMayBeDeleted)
+    }
+
+    fn failure_hint(result: &Completion) -> Option<&'static str> {
+        if matches!(
+            result.outcome,
+            Outcome::Success | Outcome::RebootRequired | Outcome::Cancelled
+        ) {
+            return None;
+        }
+        if result.outcome == Outcome::PermissionDenied {
+            return Some("error_permission_hint");
+        }
+        let final_hint = error_hint_key(result.code);
+        if result.outcome == Outcome::RegistrationFailed {
+            // The MSI transaction already succeeded. Its historical record is
+            // diagnostic context, never the cause of this Burn cleanup result.
+            return Some(final_hint);
+        }
+        Some(result.record_code.map_or(final_hint, |code| {
+            let hint = error_hint_key(code);
+            if hint == "error_generic_hint" {
+                final_hint
+            } else {
+                hint
+            }
+        }))
     }
 
     fn apply_preview(&mut self, scenario: Preview) {
@@ -270,6 +340,7 @@ impl State {
                     } else {
                         code
                     },
+                    record_code: (scenario == Preview::Failure).then_some(1618),
                     purge_started: scenario == Preview::PartialData,
                     remove_user_data: scenario == Preview::PartialData,
                     bundle: None,
@@ -283,6 +354,7 @@ impl State {
 
     fn finish(&mut self, result: Completion) {
         self.restart = RestartFlow::Idle;
+        self.wait_on_close = false;
         self.exit_code = result.code as i32;
         self.page = Page::Finished;
         self.result = Some(result);
@@ -293,6 +365,7 @@ impl State {
 
     fn start(&mut self, hwnd: HWND) {
         self.restart = RestartFlow::Idle;
+        self.wait_on_close = false;
         self.save_code = None;
         self.result = None;
         self.pending_registration = None;
@@ -315,6 +388,7 @@ impl State {
     }
 
     fn primary(&mut self, hwnd: HWND) {
+        self.wait_on_close = false;
         if let Some(prompt) = self.prompt.take() {
             let _ = prompt.reply.send(prompt.accept);
             if self.preview.is_some() {
@@ -375,6 +449,7 @@ impl State {
         }
         if let Some(prompt) = self.prompt.take() {
             if self.lifecycle.purge_started || self.lifecycle.stage == Stage::RollingBack {
+                self.wait_on_close = true;
                 self.prompt = Some(prompt);
                 return;
             }
@@ -385,8 +460,14 @@ impl State {
             close_window(hwnd);
             return;
         }
+        if !self.lifecycle.can_cancel() {
+            self.wait_on_close = true;
+            return;
+        }
         if let Some(operation) = &self.operation {
-            operation.shared.request_cancel();
+            if !operation.shared.request_cancel() {
+                self.wait_on_close = true;
+            }
             self.lifecycle = operation.shared.snapshot();
         } else if self.preview.is_some() && self.lifecycle.can_cancel() {
             self.preview_ticks = 0;
@@ -394,6 +475,7 @@ impl State {
                 outcome: Outcome::Cancelled,
                 code: 1602,
                 msi_code: 1602,
+                record_code: None,
                 purge_started: false,
                 remove_user_data: self.remove_data,
                 bundle: None,
@@ -404,6 +486,9 @@ impl State {
     fn tick(&mut self) {
         if let Some(operation) = &mut self.operation {
             self.lifecycle = operation.shared.snapshot();
+            if self.lifecycle.can_cancel() {
+                self.wait_on_close = false;
+            }
             if self.pending_registration.is_none() {
                 self.pending_registration = operation.shared.registration_context();
             }
@@ -431,6 +516,11 @@ impl State {
                         .pending_registration
                         .take()
                         .or_else(|| operation.shared.registration_context());
+                    let record_code = *operation
+                        .shared
+                        .error_code
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
                     self.operation = None;
                     let result = if let Some(previous) = previous {
                         msi::registration_result(previous, 1)
@@ -443,6 +533,7 @@ impl State {
                             },
                             code: 1,
                             msi_code: 1,
+                            record_code,
                             purge_started: self.lifecycle.purge_started,
                             remove_user_data: self.remove_data,
                             bundle: None,
@@ -473,6 +564,7 @@ impl State {
                         outcome: Outcome::Success,
                         code: 0,
                         msi_code: 0,
+                        record_code: None,
                         purge_started: false,
                         remove_user_data: self.remove_data,
                         bundle: None,
@@ -496,6 +588,17 @@ impl State {
                 self.text("uninstall_error_code"),
                 result.code
             ));
+            if let Some(code) = result.record_code
+                && (code != result.code || result.outcome == Outcome::RegistrationFailed)
+            {
+                text.push_str(&format!(
+                    "\r\nMSI {}: {code}",
+                    self.text("uninstall_error_code")
+                ));
+            }
+            if let Some(key) = Self::failure_hint(result) {
+                text.push_str(&format!("\r\n{}", self.text(key)));
+            }
         }
         if let Some(operation) = &self.operation
             && let Some(code) = *operation
@@ -505,7 +608,7 @@ impl State {
                 .unwrap_or_else(|e| e.into_inner())
         {
             text.push_str(&format!(
-                "\r\n{}: {code}",
+                "\r\nMSI {}: {code}",
                 self.text("uninstall_error_code")
             ));
         }
@@ -665,6 +768,13 @@ extern "system" fn window_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    if message == WM_THEMECHANGED {
+        // SAFETY: the private property is an opaque presence flag. Filter only
+        // synchronous theme-request reentry before touching the State RefCell.
+        if !unsafe { GetPropW(hwnd, wide(THEME_REQUEST_PROPERTY).as_ptr()) }.is_null() {
+            return 0;
+        }
+    }
     if message == WM_ENDSESSION && wparam == 0 {
         // SAFETY: queue the cancellation so it is observed after any reentrant
         // ExitWindowsEx call and its current UI-state borrow have returned.
@@ -677,7 +787,11 @@ extern "system" fn window_proc(
         // SAFETY: an owner-draw control supplies this structure for the call.
         let item = unsafe { &*(lparam as *const DRAWITEMSTRUCT) };
         if let Some(style) = paint_style(hwnd) {
-            draw_button(item, style);
+            if item.CtlID == WARNING_ACCENT as u32 {
+                draw_warning_accent(item, style);
+            } else {
+                draw_button(item, style);
+            }
             return 1;
         }
     }
@@ -890,7 +1004,7 @@ extern "system" fn window_proc(
                     return 1;
                 }
                 WM_CLOSE => {
-                    if state.preview.is_some() || state.restart == RestartFlow::Confirming {
+                    if state.restart == RestartFlow::Confirming {
                         state.restart.back();
                         close_window(hwnd);
                     } else {
@@ -951,6 +1065,9 @@ fn create_controls(
         (BODY, "STATIC", 0),
         (DESCRIPTION, "STATIC", 0),
         (WARNING, "STATIC", 0),
+        // An empty native owner-drawn static is decoration only. WARNING keeps
+        // its native text, print handling, and accessible name independently.
+        (WARNING_ACCENT, "STATIC", STATIC_OWNER_DRAW),
         (STATUS, "STATIC", 0),
         (BADGE, "STATIC", 0),
         (
@@ -1053,10 +1170,8 @@ fn render(hwnd: HWND, state: &mut State) {
         state.restart,
         RestartFlow::Requested | RestartFlow::Previewed
     );
-    let title_key = if reboot {
-        "reboot_title"
-    } else if success {
-        "uninstall_complete_title"
+    let title_key = if let Some(result) = &state.result {
+        result.outcome.title_key()
     } else if running {
         "uninstall_running_title"
     } else {
@@ -1073,7 +1188,14 @@ fn render(hwnd: HWND, state: &mut State) {
             "Usque"
         },
     );
-    set_text(hwnd, BODY, state.text(state.body_key()));
+    let mut body = state.text(state.body_key()).to_owned();
+    if let Some(result) = &state.result
+        && let Some(key) = State::failure_hint(result)
+    {
+        body.push_str("\r\n\r\n");
+        body.push_str(state.text(key));
+    }
+    set_text(hwnd, BODY, &body);
     set_text(hwnd, CHECK, state.text("uninstall_delete_data"));
     set_text(hwnd, DESCRIPTION, state.text("uninstall_data_description"));
     let warning = state.warning_key().map_or("", |key| state.text(key));
@@ -1136,7 +1258,15 @@ fn render(hwnd: HWND, state: &mut State) {
             "cancel"
         }),
     );
-    set_text(hwnd, DETAILS, state.text("details"));
+    set_text(
+        hwnd,
+        DETAILS,
+        state.text(if state.details {
+            "hide_details"
+        } else {
+            "details"
+        }),
+    );
     set_text(hwnd, SAVE, state.text("save_details"));
     let detail = if let Some(prompt) = &state.prompt {
         prompt.items.join("\r\n")
@@ -1188,6 +1318,14 @@ fn render(hwnd: HWND, state: &mut State) {
                 if confirming { SW_SHOW } else { SW_HIDE },
             );
         }
+        ShowWindow(
+            control(hwnd, WARNING_ACCENT),
+            if state.critical_warning() {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
         ShowWindow(
             control(hwnd, STATUS),
             if running { SW_SHOW } else { SW_HIDE },
@@ -1323,6 +1461,79 @@ fn ensure_focus(hwnd: HWND, previous: HWND, state: &State) {
     }
 }
 
+#[derive(Debug)]
+struct FooterButton {
+    id: i32,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+/// Keep actions inside the work area and reserve their measured text height.
+/// The primary button stays in the last position when restart confirmation
+/// swaps button meanings, preserving the distinct-click safety boundary.
+fn footer_positions(
+    (width, height): (i32, i32),
+    margin: i32,
+    gap: i32,
+    padding: i32,
+    stacked: bool,
+    captions: [(i32, bool, i32); 3],
+) -> (i32, Vec<FooterButton>) {
+    let action_height = captions[1].2.max(captions[2].2);
+    let row_height = captions[0].2.max(action_height);
+    let visible_count = captions.iter().filter(|(_, visible, _)| *visible).count() as i32;
+    let footer_height = if stacked {
+        captions
+            .iter()
+            .filter(|(_, visible, _)| *visible)
+            .map(|(id, _, h)| if *id == DETAILS { *h } else { action_height })
+            .sum::<i32>()
+            + gap * (visible_count - 1).max(0)
+            + padding * 2
+    } else {
+        row_height + padding * 2
+    };
+    let button_width = if stacked {
+        width - margin * 2
+    } else {
+        (width - margin * 2 - gap * 2) / 3
+    }
+    .max(1);
+    let mut y = height - footer_height + padding;
+    let buttons = captions
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, (id, visible, h))| {
+            if !visible {
+                return None;
+            }
+            let h = if id == DETAILS { h } else { action_height };
+            let button = FooterButton {
+                id,
+                x: if stacked {
+                    margin
+                } else {
+                    margin + index as i32 * (button_width + gap)
+                },
+                y: if stacked {
+                    y
+                } else {
+                    height - padding - row_height + (row_height - h) / 2
+                },
+                width: button_width,
+                height: h,
+            };
+            if stacked {
+                y += h + gap;
+            }
+            Some(button)
+        })
+        .collect();
+    (footer_height, buttons)
+}
+
 fn layout(hwnd: HWND, state: &mut State) {
     let mut rect = RECT::default();
     // SAFETY: hwnd is a live window and rect is writable.
@@ -1334,7 +1545,37 @@ fn layout(hwnd: HWND, state: &mut State) {
     let height = rect.bottom.max(1);
     let margin = scale(32).min(width / 8);
     let body_width = (width - 2 * margin).max(40);
-    let footer = scale(90);
+    let stacked = body_width < scale(520);
+    let button_width = if stacked {
+        body_width
+    } else {
+        (body_width - scale(20)) / 3
+    };
+    let captions = [DETAILS, SECONDARY, PRIMARY].map(|id| {
+        let child = control(hwnd, id);
+        // SAFETY: these are the live native footer controls.
+        let visible = unsafe { GetWindowLongW(child, GWL_STYLE) } as u32 & WS_VISIBLE != 0;
+        let minimum = scale(if id == DETAILS { 36 } else { 48 });
+        (
+            id,
+            visible,
+            (measure(
+                hwnd,
+                child,
+                state.fonts.body,
+                (button_width - scale(20)).max(1),
+            ) + scale(12))
+            .max(minimum),
+        )
+    });
+    let (footer, footer_buttons) = footer_positions(
+        (width, height),
+        margin,
+        scale(10),
+        scale(20),
+        stacked,
+        captions,
+    );
     let viewport = (height - footer).max(1);
     let mut y = scale(24);
     let mut items = Vec::new();
@@ -1367,6 +1608,14 @@ fn layout(hwnd: HWND, state: &mut State) {
                 (body_width - scale(34)).max(30),
             )
             .max(scale(44)),
+            WARNING if state.critical_warning() => {
+                measure(
+                    hwnd,
+                    child,
+                    state.fonts.body,
+                    (body_width - scale(24)).max(1),
+                ) + scale(16)
+            }
             _ => measure(
                 hwnd,
                 child,
@@ -1383,10 +1632,25 @@ fn layout(hwnd: HWND, state: &mut State) {
         };
         let child_width = if id == SAVE {
             (text_width(hwnd, child, state.fonts.body) + scale(24)).min(body_width)
+        } else if id == WARNING && state.critical_warning() {
+            (body_width - scale(24)).max(1)
         } else {
             body_width
         };
-        items.push((child, y, h, child_width));
+        if id == WARNING && state.critical_warning() {
+            // Both controls use parent coordinates, so Windows mirrors their
+            // geometry together for RTL. Text itself remains a native STATIC.
+            items.push((
+                child,
+                margin + scale(16),
+                y + scale(8),
+                (h - scale(16)).max(1),
+                child_width,
+            ));
+            items.push((control(hwnd, WARNING_ACCENT), margin, y, h, scale(3).max(1)));
+        } else {
+            items.push((child, margin, y, h, child_width));
+        }
         y += h + scale(match id {
             TITLE | BODY => 20,
             CHECK => 8,
@@ -1408,36 +1672,19 @@ fn layout(hwnd: HWND, state: &mut State) {
         };
         SetScrollInfo(hwnd, SB_VERT, &info, 1);
         MoveWindow(GetDlgItem(hwnd, VIEWPORT), 0, 0, width, viewport, 1);
-        for (child, top, h, child_width) in items {
-            MoveWindow(child, margin, top - state.scroll, child_width, h, 1);
+        for (child, left, top, h, child_width) in items {
+            MoveWindow(child, left, top - state.scroll, child_width, h, 1);
         }
-        let button_width = ((width - margin * 2 - scale(20)) / 3).max(65);
-        let button_y = (height - scale(68)).max(0);
-        MoveWindow(
-            control(hwnd, DETAILS),
-            margin,
-            button_y + scale(6),
-            (text_width(hwnd, control(hwnd, DETAILS), state.fonts.body) + scale(24))
-                .min(button_width),
-            scale(36),
-            1,
-        );
-        MoveWindow(
-            control(hwnd, SECONDARY),
-            width - margin - button_width * 2 - scale(10),
-            button_y,
-            button_width,
-            scale(48),
-            1,
-        );
-        MoveWindow(
-            control(hwnd, PRIMARY),
-            width - margin - button_width,
-            button_y,
-            button_width,
-            scale(48),
-            1,
-        );
+        for button in footer_buttons {
+            MoveWindow(
+                control(hwnd, button.id),
+                button.x,
+                button.y,
+                button.width,
+                button.height,
+                1,
+            );
+        }
     }
 }
 
@@ -1724,9 +1971,9 @@ fn palette(preview: bool, preview_theme: Option<PreviewTheme>) -> Palette {
             )
         }
     } else if dark {
-        (0x00251d18, 0x00f7efeb, 0x00b7a69b)
+        (0x00100e0e, 0x00e9e8e8, 0x009fa5a7)
     } else {
-        (0x00fdfbfa, 0x002f241c, 0x00816f62)
+        (0x00f1f4f5, 0x00181b1c, 0x0061686b)
     };
     // SAFETY: creates an owned brush for the chosen COLORREF.
     let brush = unsafe { CreateSolidBrush(background) };
@@ -1757,6 +2004,37 @@ fn apply_title_theme(hwnd: HWND, dark: bool) {
 fn apply_progress_theme(hwnd: HWND, palette: &Palette) {
     let bar = control(hwnd, PROGRESS);
     let empty = [0u16];
+    let native_theme = wide(if palette.dark {
+        "DarkMode_Explorer"
+    } else {
+        "Explorer"
+    });
+    // SetWindowTheme sends WM_THEMECHANGED synchronously. This guard is
+    // independent of State and is removed even if this scope unwinds. If the
+    // property cannot be installed, leave the main window's system theme alone.
+    let theme_request = NativeThemeRequest::begin(hwnd);
+    // SAFETY: selecting the main window and edit/scrollbar themes affects only
+    // appearance. High contrast retains its system theme and all native input
+    // semantics stay unchanged. Rejected theme requests restore OS defaults.
+    unsafe {
+        for window in [hwnd, control(hwnd, DETAIL)] {
+            if window == hwnd && theme_request.is_none() {
+                continue;
+            }
+            if SetWindowTheme(
+                window,
+                if palette.high_contrast {
+                    ptr::null()
+                } else {
+                    native_theme.as_ptr()
+                },
+                ptr::null(),
+            ) < 0
+            {
+                SetWindowTheme(window, ptr::null(), ptr::null());
+            }
+        }
+    }
     // SAFETY: only the native progress control's colors/theme are changed.
     // Visual styles otherwise ignore PBM_SETBARCOLOR/PBM_SETBKCOLOR. The
     // native control continues to own its range, position and marquee timer.
@@ -1775,9 +2053,9 @@ fn apply_progress_theme(hwnd: HWND, palette: &Palette) {
             let track = if palette.high_contrast {
                 palette.background
             } else if palette.dark {
-                0x003a2f28
+                0x00262424
             } else {
-                0x00ebe4de
+                0x00e9eced
             };
             SendMessageW(bar, PBM_SETBARCOLOR, 0, fill as isize);
             SendMessageW(bar, PBM_SETBKCOLOR, 0, track as isize);
@@ -1806,7 +2084,7 @@ unsafe extern "system" fn progress_proc(
             let dc = GetDC(hwnd);
             let mut rect = RECT::default();
             GetClientRect(hwnd, &mut rect);
-            let border = CreateSolidBrush(if style.dark { 0x0052453a } else { 0x00d5c8bd });
+            let border = CreateSolidBrush(if style.dark { 0x00434141 } else { 0x00d0d4d6 });
             for _ in 0..(style.dpi / 96).max(1) {
                 FrameRect(dc, &rect, border);
                 InflateRect(&mut rect, -1, -1);
@@ -1977,17 +2255,17 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
         } else if auxiliary {
             style.background
         } else if style.dark {
-            0x003a2f28
+            0x00262424
         } else {
-            0x00f5f1ee
+            0x00e9eced
         };
         if item.itemState & ODS_SELECTED != 0 && !style.high_contrast {
             fill = if accent {
                 0x002968dc
             } else if style.dark {
-                0x0051443b
+                0x00343436
             } else {
-                0x00ebe4de
+                0x00dddfdf
             };
         }
         let ink = if style.high_contrast {
@@ -1999,9 +2277,9 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
                 COLOR_BTNTEXT
             })
         } else if !enabled {
-            if style.dark { 0x00998d84 } else { 0x00897e76 }
+            if style.dark { 0x00797777 } else { 0x006f7476 }
         } else if accent {
-            0x00201b18
+            0x00181b1c
         } else {
             style.foreground
         };
@@ -2014,9 +2292,9 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
             } else if auxiliary {
                 fill
             } else if style.dark {
-                0x0062544b
+                0x00434141
             } else {
-                0x00e5dad2
+                0x00d0d4d6
             },
         );
         FillRect(item.hDC, &item.rcItem, style.brush);
@@ -2066,6 +2344,20 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
             DrawFocusRect(item.hDC, &focus);
         }
         SelectObject(item.hDC, old_font);
+    }
+}
+
+fn draw_warning_accent(item: &DRAWITEMSTRUCT, style: PaintStyle) {
+    // SAFETY: the empty owner-drawn STATIC supplies its live DC and bounds for
+    // paint/print requests. The temporary brush is never selected into a DC.
+    unsafe {
+        let accent = CreateSolidBrush(if style.high_contrast {
+            style.foreground
+        } else {
+            ACCENT
+        });
+        FillRect(item.hDC, &item.rcItem, accent);
+        DeleteObject(accent);
     }
 }
 
@@ -2133,7 +2425,7 @@ unsafe extern "system" fn checkbox_proc(
                     if style.high_contrast {
                         GetSysColor(COLOR_HIGHLIGHTTEXT)
                     } else {
-                        0x00201b18
+                        0x00181b1c
                     },
                 );
                 let previous = SelectObject(dc, pen);
@@ -2271,11 +2563,37 @@ mod tests {
     use super::*;
     use std::{path::PathBuf, sync::Arc, sync::mpsc};
 
+    #[test]
+    fn registration_guidance_uses_current_cleanup_code_and_retains_msi_context() {
+        let cleanup_failure = Completion {
+            outcome: Outcome::RegistrationFailed,
+            code: 5,
+            msi_code: 0,
+            record_code: Some(1618),
+            purge_started: true,
+            remove_user_data: true,
+            bundle: None,
+        };
+        assert_eq!(
+            State::failure_hint(&cleanup_failure),
+            Some("error_permission_hint")
+        );
+        assert_eq!(cleanup_failure.record_code, Some(1618));
+        let msi_failure = Completion {
+            outcome: Outcome::MsiFailed,
+            code: 1603,
+            msi_code: 1603,
+            ..cleanup_failure
+        };
+        assert_eq!(State::failure_hint(&msi_failure), Some("error_busy_hint"));
+    }
+
     fn registration_failure(msi_code: u32, deleted_data: bool) -> Completion {
         Completion {
             outcome: Outcome::RegistrationFailed,
             code: 1603,
             msi_code,
+            record_code: Some(1722),
             purge_started: deleted_data,
             remove_user_data: deleted_data,
             // This path is only retained/compared. These tests never execute it.
@@ -2294,9 +2612,137 @@ mod tests {
 
     fn assert_context(result: &Completion, original: &Completion) {
         assert_eq!(result.msi_code, original.msi_code);
+        assert_eq!(result.record_code, original.record_code);
         assert_eq!(result.purge_started, original.purge_started);
         assert_eq!(result.remove_user_data, original.remove_user_data);
         assert_eq!(result.bundle, original.bundle);
+    }
+
+    #[test]
+    fn completed_failure_retains_specific_numeric_msi_error_and_guidance() {
+        let mut state = preview();
+        let mut result = registration_failure(1603, false);
+        result.outcome = Outcome::MsiFailed;
+        result.record_code = Some(1706);
+        state.finish(result);
+        let details = state.details_text();
+        assert!(details.contains("1603"));
+        assert!(details.contains("1706"));
+        assert!(details.contains(state.text("error_source_hint")));
+        assert!(!details.contains("inert-fixture"));
+        assert!(!details.contains("bundle-id"));
+    }
+
+    #[test]
+    fn disconnected_msi_worker_preserves_numeric_error_without_raw_record_data() {
+        let shared = Arc::new(msi::Shared::default());
+        *shared.error_code.lock().unwrap() = Some(1618);
+        let (tx, rx) = mpsc::channel();
+        drop(tx);
+        let mut state = preview();
+        state.page = Page::Running;
+        state.operation = Some(Operation {
+            shared,
+            completion: rx,
+            worker: None,
+        });
+        state.tick();
+        assert_eq!(state.result.as_ref().unwrap().record_code, Some(1618));
+        assert!(state.details_text().contains(state.text("error_busy_hint")));
+    }
+
+    #[test]
+    fn unavailable_cancel_explains_waiting_without_changing_the_transaction() {
+        for action in ["PurgeUserData", "Rollback"] {
+            let mut state = preview();
+            state.apply_preview(Preview::Progress);
+            state.lifecycle.action(action);
+            let stage = state.lifecycle.stage;
+            let purge_started = state.lifecycle.purge_started;
+            state.secondary(ptr::null_mut());
+            assert!(state.page == Page::Running);
+            assert!(state.result.is_none());
+            assert_eq!(state.lifecycle.stage, stage);
+            assert_eq!(state.lifecycle.purge_started, purge_started);
+            assert!(!state.lifecycle.cancel_requested);
+            assert_eq!(state.body_key(), "wait_no_cancel");
+        }
+    }
+
+    #[test]
+    fn returning_from_partial_deletion_never_reselects_data_deletion() {
+        let mut state = preview();
+        state.apply_preview(Preview::PartialData);
+        state.remove_data = true;
+        assert!(state.critical_warning());
+        assert_eq!(state.warning_key(), Some("uninstall_partial_data"));
+        state.primary(ptr::null_mut());
+        assert!(state.page == Page::Confirm);
+        assert!(!state.remove_data);
+        assert!(!state.critical_warning());
+        assert!(state.result.is_none());
+    }
+
+    #[test]
+    fn measured_footer_captions_fit_and_restart_confirmation_keeps_button_positions() {
+        for (scale, width, height, stacked) in [
+            (1, 680, 480, false),
+            (1, 320, 480, true),
+            (2, 1360, 960, false),
+            (2, 900, 800, true),
+        ] {
+            let captions = [
+                (DETAILS, true, 36 * scale),
+                (SECONDARY, true, 48 * scale),
+                (PRIMARY, true, 70 * scale),
+            ];
+            let (_, buttons) = footer_positions(
+                (width, height),
+                32 * scale,
+                10 * scale,
+                20 * scale,
+                stacked,
+                captions,
+            );
+            assert_eq!(buttons.len(), 3);
+            for (index, button) in buttons.iter().enumerate() {
+                assert!(button.x >= 0 && button.y >= 0);
+                assert!(button.x + button.width <= width);
+                assert!(button.y + button.height <= height);
+                assert!(button.height >= captions[index].2);
+                for other in &buttons[index + 1..] {
+                    assert!(
+                        button.x + button.width <= other.x
+                            || other.x + other.width <= button.x
+                            || button.y + button.height <= other.y
+                            || other.y + other.height <= button.y
+                    );
+                }
+            }
+            let swapped = [
+                (DETAILS, true, 36 * scale),
+                (SECONDARY, true, 70 * scale),
+                (PRIMARY, true, 48 * scale),
+            ];
+            let (_, confirmed) = footer_positions(
+                (width, height),
+                32 * scale,
+                10 * scale,
+                20 * scale,
+                stacked,
+                swapped,
+            );
+            let primary = &buttons[2];
+            assert_eq!(
+                (primary.x, primary.y, primary.width, primary.height),
+                (
+                    confirmed[2].x,
+                    confirmed[2].y,
+                    confirmed[2].width,
+                    confirmed[2].height
+                )
+            );
+        }
     }
 
     #[test]

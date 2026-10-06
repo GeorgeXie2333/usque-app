@@ -34,6 +34,8 @@ pub struct Completion {
     pub outcome: Outcome,
     pub code: u32,
     pub msi_code: u32,
+    /// Only MSI's numeric error field survives completion; raw records do not.
+    pub record_code: Option<u32>,
     pub purge_started: bool,
     pub remove_user_data: bool,
     pub bundle: Option<PathBuf>,
@@ -135,6 +137,7 @@ fn execute(request: UninstallRequest, owner: HWND, shared: &Arc<Shared>) -> Comp
         outcome: Outcome::MsiFailed,
         code,
         msi_code: code,
+        record_code: None,
         purge_started: false,
         remove_user_data: request.remove_user_data,
         bundle: None,
@@ -209,6 +212,7 @@ fn execute(request: UninstallRequest, owner: HWND, shared: &Arc<Shared>) -> Comp
         outcome: state.finish(code),
         code,
         msi_code: code,
+        record_code: *shared.error_code.lock().unwrap_or_else(|e| e.into_inner()),
         purge_started: state.purge_started,
         remove_user_data: request.remove_user_data,
         bundle,
@@ -749,6 +753,7 @@ mod tests {
             outcome: Outcome::RegistrationFailed,
             code: 1,
             msi_code: 3010,
+            record_code: Some(1722),
             purge_started: true,
             remove_user_data: true,
             bundle: None,
@@ -768,12 +773,14 @@ mod tests {
                         outcome: Outcome::RegistrationFailed,
                         code: 1603,
                         msi_code,
+                        record_code: Some(1706),
                         purge_started: deleted_data,
                         remove_user_data: deleted_data,
                         bundle: Some(PathBuf::from(r"C:\inert-fixture\{bundle-id}\setup.exe")),
                     };
                     let result = registration_result(previous.clone(), registration_code);
                     assert_eq!(result.msi_code, previous.msi_code);
+                    assert_eq!(result.record_code, previous.record_code);
                     assert_eq!(result.purge_started, previous.purge_started);
                     assert_eq!(result.remove_user_data, previous.remove_user_data);
                     assert_eq!(result.bundle, previous.bundle);
@@ -796,6 +803,7 @@ mod tests {
             outcome: Outcome::Success,
             code: 0,
             msi_code: 0,
+            record_code: Some(1722),
             purge_started: true,
             remove_user_data: true,
             bundle: Some(PathBuf::from(r"C:\inert-fixture\{bundle-id}\setup.exe")),

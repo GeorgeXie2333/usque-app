@@ -207,3 +207,121 @@ truncation in those samples. Its remaining footer-proportion feedback led to
 measured multi-line heights and narrow-work-area stacking. Real installation,
 restoration, ARM64 native execution and the full device/locale matrix remain
 `not_run` under the same limits.
+
+## Action hierarchy and visual review, 2026-10-06
+
+This follow-up was checked against base commit
+`ddedbd259b9d9bf4cb470217a71749a14feaaa7c` plus uncommitted source changes.
+It is workstation validation, not evidence for an immutable release candidate.
+The earlier dated results remain historical; the results below cover this
+follow-up.
+
+The already-installed page now makes **Open Usque** the primary action and
+**Uninstall** a secondary action. The completion page retains **Finish and
+open**. Action routing and native state tests cover the changed maintenance
+order. Ordinary themes use warm `#F5F4F1` and near-black `#0E0E10` canvases with
+neutral borders and the existing orange accent. License text has explicit
+foreground/background colors, and native rich-text and scrollbar themes use
+the public Windows theme API with a fallback and reentrancy guards. High
+contrast retains system colors.
+
+Invalid installation folders now explain the failed constraint inline.
+Cancelled, failed, partially deleted and restart-required outcomes have
+distinct descriptions. Failure guidance uses selected numeric result codes;
+raw MSI records, paths and ProductCodes are not retained or displayed. A failed
+installation requiring restart asks the user to save work and restart, rather
+than offering a retry that the current page cannot perform. Registration
+cleanup guidance follows its current result while retaining the historical
+numeric MSI code separately in details.
+
+Uninstall warning text uses native STATIC rendering; an independent owner-drawn
+decoration paints only the accent line. This removes duplicate text painting
+and respects measured wrapping and RTL layout. The footer measures translated
+button labels and stacks when the available work area is narrow. Details can
+be explicitly hidden, and a close request during a non-cancellable stage
+explains why the user must wait. Deletion remains opt-in; returning from a
+partial deletion clears the selection. Registration cleanup retries cannot
+repeat MSI removal or data deletion, and restart still requires a separate
+confirmation. These changes add no privileged operations or personal-data
+targets.
+
+The following commands completed successfully. Cargo and aggregate checks ran
+in the native environment initialized by the Windows Rust helper. Python was
+the verified bundled executable at the explicit path below. Flutter resolved
+from `android/local.properties` matched the CI pin, including full revision
+`84fc5cbb223bc12f83d65b647ff8a56caf779ffd`; locked dependency resolution completed
+without changes to the lockfiles.
+
+```powershell
+cargo fmt --all --check
+& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy
+& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test
+& .\tool\build_windows_rust_release.ps1 -Variant x64-v2
+cargo build --locked --release --target x86_64-pc-windows-msvc -p usque-uninstall --features preview --bin usque-uninstall-preview
+& ./tool/build_windows_bootstrapper.ps1 -Variant x64-v2 -OutputDirectory target/bootstrapper-ux-final -PythonPath 'C:\Users\George\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -Test -Preview
+flutter --version --machine
+Push-Location apps/usque_gui
+flutter pub get --enforce-lockfile
+Pop-Location
+pwsh -NoProfile -File tool/check_source.ps1
+python -m ruff check tool
+python -m ruff format --check tool
+python -m unittest discover -s tool -p 'test_*.py' -v
+python -m unittest discover -s tool -p 'test_windows_setup_*.py' -v
+python tool/check_repository_policy.py
+git diff --check
+```
+
+The full Rust suite passed 1,648 tests in 23 suites, with eight existing ignored
+tests, including 47 uninstall tests. The shipping and preview bootstrapper
+compiled with `/W4 /WX`; native state tests passed. All 21 catalog languages
+contain the same 126 keys, including localized recovery guidance and path
+constraints. The complete Python suite passed 108 tests and skipped five
+Linux-only tests; the focused setup suite passed all eight tests. The final
+aggregate check passed Rust, Dart/Flutter, Kotlin, Python, PowerShell and
+protobuf checks.
+
+The ignored generated README screenshot script had three pre-existing analyzer
+warnings. Only that file was temporarily moved within the workspace for the
+aggregate run and restored in a `finally` block, without source changes or lint
+exclusions. Its restored SHA-256 was
+`4812E7580267FE59EE80CF4C2EB410F3392B651AB0AF95BBA7613A66D34ABE19`.
+
+Both complete inert authoring matrices passed:
+
+```powershell
+& ./tool/test_windows_installer_authoring.ps1 -Variant x64-v2 -BootstrapperPath target/bootstrapper-ux-final/usque-setup.exe -OutputDirectory target/installer-authoring-ux-x64-final-20261006
+& ./tool/test_windows_installer_authoring.ps1 -Variant arm64 -BootstrapperPath target/installer-authoring-ba-fixture-arm64/usque-setup.exe -OutputDirectory target/installer-authoring-ux-arm64-20261006
+```
+
+Each matrix completed all 13 checks, including 21 ICE cultures, 20 transforms,
+PowerShell 7/5.1 quiet-launcher doubles, all three argument-transport modes,
+replacement rejection cases, malformed Japanese ICE03 rejection and inert Burn
+signing/detach/reattach tests. The x64 run used the final compiled bootstrapper.
+The ARM64 run used an explicitly inert matching-architecture PE fixture and
+proves authoring structure only. Temporary non-exportable test identities were
+removed with their keys; no trust store or official signing material was used.
+Neither matrix executed an MSI or a bundle.
+
+An ARM64 native bootstrapper build was attempted with
+`& ./tool/build_windows_bootstrapper.ps1 -Variant arm64 -OutputDirectory target/bootstrapper-arm64 -Test -Preview -PythonPath 'C:\Users\George\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'`.
+The workstation lacks the required Visual Studio ARM64 tools, so native ARM64
+compilation and tests remain `not_run`.
+
+Final visual review used 39 raw screenshots from the independent preview
+executables. Samples cover Chinese, English and Arabic RTL, light/dark themes,
+simulated high contrast and 200% layout, license text, invalid folders and
+scrolling, maintenance, completion, partial options, file-use prompts,
+cancellation, rollback, failures/details, deletion warnings, partial deletion
+and restart confirmation. Independent review found no remaining visible text
+overlap or button truncation in those samples. It confirmed the primary Open
+action, corrected failed/restart guidance and cleared deletion choice after
+returning to confirmation. Local screenshots and logs remain in ignored build
+directories; they are not published release evidence. All created preview
+windows were closed after inspection.
+
+Real installation, upgrade, removal, network restoration, cross-account UAC
+and reboot remain `not_run`, as do native ARM64 execution and the complete
+Windows/version/language/DPI/text-size/screen-reader matrix. Preview keyboard
+and semantic-control inspection do not establish a Narrator end-to-end pass.
+No official packaging, signing, upload or publication was requested or run.

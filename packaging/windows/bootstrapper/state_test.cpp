@@ -25,11 +25,39 @@ int main(int argc, char** argv) {
   check(SelectMode({false, false, true, false, false}) == Mode::residual,
         "residual bundle cleanup");
   check(SelectMode({true, true, true, true, true}) == Mode::blocked, "downgrade blocked");
+  check(ResolveMaintenanceAction(FooterButton::primary) == MaintenanceAction::open_app,
+        "installed product primary action opens the app");
+  check(ResolveMaintenanceAction(FooterButton::secondary) == MaintenanceAction::uninstall,
+        "uninstall remains an explicit secondary action");
+  check(ResolveMaintenanceAction(FooterButton::tertiary) == MaintenanceAction::close,
+        "maintenance close never delegates uninstall");
+  check(EmphasizedFooter(Page::complete, false) == FooterButton::primary,
+        "first restart screen emphasizes the initial restart choice");
+  check(EmphasizedFooter(Page::complete, true) == FooterButton::secondary,
+        "restart confirmation emphasizes the action on a different button");
+  check(EmphasizedFooter(Page::failed, true) == FooterButton::secondary,
+        "failed install restart uses the same confirmation action");
+  check(EmphasizedFooter(Page::working, false) == FooterButton::none,
+        "running cancellation is not an emphasized completion action");
   check(!CanInstall(Mode::install, false, true), "license is required");
   check(!CanInstall(Mode::maintenance, true, true), "maintenance never repairs");
   check(CanInstall(Mode::upgrade, true, true), "upgrade accepted");
   check(TerminalExitCode(Page::failed, 1603, true) == 1603, "failure survives reboot requirement");
   check(TerminalExitCode(Page::failed, 1223, false) == 1223, "UAC decline result is preserved");
+  check(TerminalExitCode(Page::cancelled, 1223, false) == 1223, "cancelled UAC decline is not success");
+  check(TerminalExitCode(Page::cancelled, 1602, true) == 1602, "cancelled install survives reboot requirement");
+  check(IsUserCancellation(1602) && IsUserCancellation(0x80070642U), "raw and HRESULT MSI cancellation");
+  check(IsUserCancellation(1223) && IsUserCancellation(0x800704C7U), "raw and HRESULT administrator decline");
+  check(!IsUserCancellation(1603) && !IsUserCancellation(0x80040642U), "unrelated failures never become cancellation");
+  check(FailureHintKey(5) == "error_permission_hint" && FailureHintKey(0x80070005U) == "error_permission_hint",
+        "permission guidance recognizes raw and HRESULT codes");
+  check(FailureHintKey(1618) == "error_busy_hint" && FailureHintKey(0x80070020U) == "error_busy_hint",
+        "busy install and locked file guidance");
+  check(FailureHintKey(1612) == "error_source_hint" && FailureHintKey(0x80070002U) == "error_source_hint",
+        "missing source guidance");
+  check(FailureHintKey(0x80070070U) == "error_disk_hint", "insufficient disk space guidance");
+  check(FailureHintKey(1603) == "error_generic_hint" && FailureHintKey(0x80040005U) == "error_generic_hint",
+        "unknown errors and unrelated facilities retain generic guidance");
   check(TerminalExitCode(Page::complete, 0, true) == 3010, "restart later returns reboot required");
   check(TerminalExitCode(Page::options_failed, 5, false) == 0, "optional failure does not undo successful install");
   check(!CanRetryFailure(false, true), "pending reboot blocks retry after failure");
@@ -60,10 +88,25 @@ int main(int argc, char** argv) {
   check(sanitized.find("Alice") == std::string::npos && sanitized.find("token") == std::string::npos &&
         sanitized.find("result=0x80070643") != std::string::npos, "saved details reject paths and untrusted text");
   check(ValidInstallFolder(L"C:\\Program Files\\Usque"), "valid folder");
+  check(ValidInstallFolder(L"C:\\Usque\\"), "existing trailing separator behavior is retained");
   for (auto path : {L"C:\\", L"relative", L"\\\\server\\share", L"C:\\Usque:stream",
                     L"C:\\Usque\\..\\Windows", L"C:\\Usque. ", L"C:\\Usque\""}) {
     check(!ValidInstallFolder(path), "invalid folder");
   }
+  check(InstallFolderProblem(L"C:\\") == FolderProblem::absolute_path &&
+        InstallFolderProblem(L"\\\\server\\share") == FolderProblem::absolute_path,
+        "drive roots and UNC paths receive local absolute-folder guidance");
+  check(InstallFolderProblem(L"C:\\Usque:stream") == FolderProblem::invalid_characters,
+        "ADS remains rejected with character guidance");
+  check(InstallFolderProblem(L"C:\\Usque\\..\\Windows") == FolderProblem::invalid_segment &&
+        InstallFolderProblem(L"C:\\Usque. ") == FolderProblem::invalid_segment,
+        "traversal and trailing segment punctuation receive segment guidance");
+  const std::wstring maximum_folder = L"C:\\" + std::wstring(237, L'a');
+  check(ValidInstallFolder(maximum_folder) &&
+        InstallFolderProblem(maximum_folder + L"a") == FolderProblem::too_long,
+        "strict 240-character boundary receives length guidance");
+  check(FolderProblemKey(InstallFolderProblem(L"C:\\Usque*")) == "folder_invalid_characters",
+        "path reason maps to a localized, controlled message");
   FinishState finish;
   check(!finish.desktop && finish.launch && !finish.startup, "finish defaults");
   finish.desktop = true;

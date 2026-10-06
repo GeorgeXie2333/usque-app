@@ -22,14 +22,19 @@ class SetupLocalizationTests(unittest.TestCase):
         catalog = load_catalog(SOURCE)
         sources = [
             ROOT / "packaging/windows/bootstrapper/main.cpp",
+            ROOT / "packaging/windows/bootstrapper/state.h",
             ROOT / "crates/usque-uninstall/src/state.rs",
+            ROOT / "crates/usque-uninstall/src/windows.rs",
             ROOT / "crates/usque-uninstall/src/windows/ui.rs",
         ]
         for path in sources:
             text = path.read_text(encoding="utf-8")
             keys = re.findall(r'\b(?:L|text|copy)\("([a-z][a-z0-9_]+)"\)', text)
-            if path.name == "state.rs":
-                keys += re.findall(r'=> "(uninstall_[a-z_]+)"', text)
+            keys += re.findall(r'\b(?:setup_text|Text)\([^,]*,\s*"([a-z][a-z0-9_]+)"', text)
+            keys += re.findall(
+                r'(?:return|=>)\s*"((?:error|folder|uninstall|cancelled)_[a-z_]+)"',
+                text,
+            )
             for key in keys:
                 self.assertIn(key, catalog["en-US"], f"{path.name}: {key}")
 

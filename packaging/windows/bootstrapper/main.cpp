@@ -36,7 +36,7 @@ constexpr UINT_PTR kPreviewTimer = 19;
 enum Control {
   title = 100, subtitle, version, folder_label, folder_edit, browse, language_label,
   language, license, accept, scope, progress, status, details, desktop, launch_app,
-  startup, more, license_text, folder_summary, change_folder, option_summary, save_details, primary, secondary, tertiary,
+  startup, more, license_text, folder_summary, folder_error, change_folder, option_summary, save_details, primary, secondary, tertiary,
 };
 enum class EventType { detected, planned, applied, progress, status, failed, options, queried, files_in_use, cancel_permission };
 enum class FinishIntent { normal, restart_later, restart_now };
@@ -387,7 +387,7 @@ class Application final : public CBootstrapperApplicationBase {
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
       if (preview_ && message.message == WM_KEYDOWN && message.wParam == VK_F6) {
-        constexpr std::wstring_view scenes[] = {L"install", L"upgrade", L"maintenance", L"residual", L"complete", L"partial", L"failed", L"reboot", L"files", L"failed-reboot"};
+        constexpr std::wstring_view scenes[] = {L"install", L"upgrade", L"maintenance", L"residual", L"complete", L"partial", L"failed", L"reboot", L"files", L"failed-reboot", L"cancelled"};
         preview_scene_ = (preview_scene_ + 1) % std::size(scenes);
         preview_state_ = scenes[preview_scene_];
         KillTimer(hwnd, kPreviewTimer); SetupPreview(); continue;
@@ -432,6 +432,7 @@ class Application final : public CBootstrapperApplicationBase {
     cancel_stage_ = CancelStage::before_start;
     native_cancel_enabled_ = true;
     option_rows_.clear(); scroll_ = 0; details_expanded_ = false;
+    terminal_failure_ = false; failure_key_ = "failed_description"; result_ = S_OK;
     mode_ = preview_state_ == L"maintenance" ? Mode::maintenance :
       preview_state_ == L"upgrade" ? Mode::upgrade :
       preview_state_ == L"residual" ? Mode::residual : Mode::install;
@@ -449,6 +450,8 @@ class Application final : public CBootstrapperApplicationBase {
       finish_.desktop = true; finish_.desktop_done = true; Check(desktop, true);
       finish_.startup = true; Check(startup, true);
       option_rows_ = {{"desktop_shortcut", true}, {"start_on_login", false}};
+    } else if (preview_state_ == L"cancelled") {
+      page_ = Page::cancelled; result_ = HRESULT_FROM_WIN32(ERROR_INSTALL_USEREXIT);
     }
     else if (preview_state_ == L"files") {
       page_ = Page::files_in_use; files_source_ = BOOTSTRAPPER_FILES_IN_USE_TYPE_MSI_RM;
@@ -463,7 +466,7 @@ class Application final : public CBootstrapperApplicationBase {
     SetWindowSubclass(body_, BodyProc, 1, reinterpret_cast<DWORD_PTR>(this));
     const auto add = [this](int id, const wchar_t* type, DWORD style) {
       const bool fixed = id == title || id == primary || id == secondary || id == tertiary;
-      const HWND child = CreateWindowExW(type == std::wstring_view(L"EDIT") ? WS_EX_CLIENTEDGE : 0,
+      const HWND child = CreateWindowExW(type == std::wstring_view(L"EDIT") && id != details ? WS_EX_CLIENTEDGE : 0,
         type, L"", WS_CHILD | style, 0, 0, 0, 0, fixed ? window_.load() : body_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
       controls_[static_cast<size_t>(id - title)] = child;
@@ -479,6 +482,7 @@ class Application final : public CBootstrapperApplicationBase {
     for (int id : {scope, status, option_summary}) add(id, L"STATIC", SS_LEFT | SS_NOPREFIX);
     SetWindowSubclass(C(option_summary), NoticeProc, 1, reinterpret_cast<DWORD_PTR>(this));
     add(folder_summary, L"STATIC", SS_LEFT | SS_NOPREFIX | SS_PATHELLIPSIS);
+    add(folder_error, L"STATIC", SS_LEFT | SS_NOPREFIX);
     for (int id : {browse, change_folder, license, more, save_details, primary, secondary, tertiary})
       add(id, L"BUTTON", WS_TABSTOP | BS_OWNERDRAW);
     for (int id : {accept, desktop, launch_app, startup}) {
@@ -486,10 +490,14 @@ class Application final : public CBootstrapperApplicationBase {
       SetWindowSubclass(checkbox, CheckboxProc, 1, reinterpret_cast<DWORD_PTR>(this));
     }
     add(progress, PROGRESS_CLASSW, PBS_SMOOTH);
-    add(details, L"EDIT", WS_TABSTOP | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL);
+    add(details, MSFTEDIT_CLASS, WS_TABSTOP | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL);
+    SendMessageW(C(details), EM_SETTEXTMODE, TM_PLAINTEXT, 0);
     add(license_text, MSFTEDIT_CLASS, WS_TABSTOP | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL);
+    for (int id : {details, license_text}) SetWindowSubclass(C(id), DocumentProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowTextW(C(folder_edit), folder_.c_str());
-    SendMessageW(C(folder_edit), EM_SETLIMITTEXT, 240, 0);
+    // Let an overlong value remain editable so validation can explain it,
+    // rather than silently truncating it to a different accepted folder.
+    SendMessageW(C(folder_edit), EM_SETLIMITTEXT, 1024, 0);
     for (size_t index = 0; index < std::size(kLanguages); ++index) {
       const std::wstring name(kLanguages[index].name);
       SendMessageW(C(language), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name.c_str()));
@@ -503,6 +511,12 @@ class Application final : public CBootstrapperApplicationBase {
   }
 
   void SetTheme() {
+    if (theme_active_) return;
+    theme_active_ = true;
+    struct ThemeReset {
+      bool& active;
+      ~ThemeReset() { active = false; }
+    } reset{theme_active_};
     HIGHCONTRASTW contrast{sizeof(contrast)};
     SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0);
     high_contrast_ = (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
@@ -513,12 +527,16 @@ class Application final : public CBootstrapperApplicationBase {
     if (preview_ && preview_theme_ >= 0) {
       high_contrast_ = preview_theme_ == 2; dark_ = preview_theme_ == 1;
     }
-    background_color_ = high_contrast_ ? SystemColor(COLOR_WINDOW) : dark_ ? RGB(24, 29, 37) : RGB(250, 251, 253);
-    text_color_ = high_contrast_ ? SystemColor(COLOR_WINDOWTEXT) : dark_ ? RGB(235, 239, 247) : RGB(28, 36, 47);
+    background_color_ = high_contrast_ ? SystemColor(COLOR_WINDOW) : dark_ ? RGB(14, 14, 16) : RGB(245, 244, 241);
+    text_color_ = high_contrast_ ? SystemColor(COLOR_WINDOWTEXT) : dark_ ? RGB(238, 238, 240) : RGB(28, 27, 24);
     if (background_) DeleteObject(background_);
     background_ = CreateSolidBrush(background_color_);
     const BOOL use_dark = dark_;
     DwmSetWindowAttribute(window_.load(), DWMWA_USE_IMMERSIVE_DARK_MODE, &use_dark, sizeof(use_dark));
+    const wchar_t* frame_theme = high_contrast_ && !PreviewContrast() ? nullptr :
+      dark_ ? L"DarkMode_Explorer" : PreviewContrast() ? L"" : L"Explorer";
+    if (FAILED(SetWindowTheme(window_.load(), frame_theme, nullptr)) && dark_)
+      SetWindowTheme(window_.load(), L"", nullptr);
     if (font_) DeleteObject(font_);
     if (title_font_) DeleteObject(title_font_);
     if (secondary_font_) DeleteObject(secondary_font_);
@@ -538,9 +556,17 @@ class Application final : public CBootstrapperApplicationBase {
     for (int id = title; id <= tertiary; ++id) if (C(id)) {
       const HFONT font = id == title ? title_font_ : IsSecondaryText(id) ? secondary_font_ : font_;
       SendMessageW(C(id), WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-      SetWindowTheme(C(id), dark_ || PreviewContrast() ? L"" : L"Explorer", nullptr);
+      const bool native_field = id == license_text || id == details || id == folder_edit;
+      const bool dark_field = dark_ && native_field;
+      const wchar_t* theme = native_field && high_contrast_ && !PreviewContrast() ? nullptr :
+        dark_field ? L"DarkMode_Explorer" : dark_ || PreviewContrast() ? L"" : L"Explorer";
+      // Request the native dark scrollbar without private theme APIs. Older
+      // Windows builds may retain system chrome; a failed request falls back
+      // to the existing unthemed control with explicit readable text colors.
+      if (FAILED(SetWindowTheme(C(id), theme, nullptr)) && dark_field)
+        SetWindowTheme(C(id), L"", nullptr);
     }
-    if (C(license_text)) SendMessageW(C(license_text), EM_SETBKGNDCOLOR, 0, background_color_);
+    ApplyDocumentColors();
     if (C(language)) {
       SendMessageW(C(language), CB_SHOWDROPDOWN, FALSE, 0);
       SendMessageW(C(language), CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), Scale(30));
@@ -550,7 +576,7 @@ class Application final : public CBootstrapperApplicationBase {
       if (!high_contrast_) SetWindowTheme(C(progress), L"", nullptr);
       SendMessageW(C(progress), PBM_SETBARCOLOR, 0, high_contrast_ ? SystemColor(COLOR_HIGHLIGHT) : RGB(244, 129, 32));
       SendMessageW(C(progress), PBM_SETBKCOLOR, 0, high_contrast_ ? SystemColor(COLOR_WINDOW) :
-        dark_ ? RGB(40, 47, 58) : RGB(224, 231, 239));
+        dark_ ? RGB(43, 43, 47) : RGB(222, 220, 215));
     }
     // The viewport is a separate clipped child window. Invalidating only the
     // frame leaves its old pixels behind across theme/RTL/DPI transitions.
@@ -563,15 +589,44 @@ class Application final : public CBootstrapperApplicationBase {
   bool PreviewContrast() const { return preview_ && preview_theme_ == 2; }
 
   static bool IsSecondaryText(int id) {
-    return id == version || id == scope || id == folder_label || id == language_label;
+    return id == version || id == scope || id == folder_label || id == language_label || id == folder_error;
   }
 
   COLORREF MutedColor() const {
-    return high_contrast_ ? SystemColor(COLOR_WINDOWTEXT) : dark_ ? RGB(155, 166, 183) : RGB(98, 111, 129);
+    return high_contrast_ ? SystemColor(COLOR_WINDOWTEXT) : dark_ ? RGB(170, 170, 175) : RGB(102, 100, 94);
   }
 
   COLORREF FieldColor() const {
-    return high_contrast_ ? SystemColor(COLOR_WINDOW) : dark_ ? RGB(34, 41, 52) : RGB(255, 255, 255);
+    return high_contrast_ ? SystemColor(COLOR_WINDOW) : dark_ ? RGB(28, 28, 31) : RGB(255, 255, 255);
+  }
+
+  COLORREF BorderColor() const {
+    return high_contrast_ ? SystemColor(COLOR_WINDOWTEXT) : dark_ ? RGB(73, 73, 79) : RGB(204, 201, 194);
+  }
+
+  COLORREF ErrorColor() const {
+    return high_contrast_ ? SystemColor(COLOR_WINDOWTEXT) : dark_ ? RGB(255, 180, 171) : RGB(179, 38, 30);
+  }
+
+  void ApplyDocumentColors() {
+    CHARFORMAT2W format{};
+    format.cbSize = sizeof(format); format.dwMask = CFM_COLOR | CFM_BACKCOLOR;
+    format.crTextColor = text_color_; format.crBackColor = background_color_;
+    // RTF carries its own color table; WM_CTLCOLOR alone cannot recolor it.
+    // SCF_ALL retains the license's text, emphasis and read-only behavior.
+    for (int id : {license_text, details}) if (C(id)) {
+      SendMessageW(C(id), EM_SETBKGNDCOLOR, 0, background_color_);
+      SendMessageW(C(id), EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&format));
+    }
+  }
+
+  void UpdateFolderValidation() {
+    const auto problem = InstallFolderProblem(ReadControl(C(folder_edit)));
+    const bool editable = page_ == Page::ready && (mode_ == Mode::install || mode_ == Mode::upgrade);
+    Text(folder_error, FolderProblemKey(problem));
+    Show(folder_error, editable && problem != FolderProblem::none);
+    AccessibleDescription(C(folder_edit), FolderProblemKey(problem));
+    EnableWindow(C(primary), CanInstall(mode_, Checked(accept), problem == FolderProblem::none));
   }
 
   void SizeToWorkspace() {
@@ -643,6 +698,15 @@ class Application final : public CBootstrapperApplicationBase {
     }
   }
 
+  void AccessibleDescription(HWND control, std::string_view key) {
+    IAccPropServices* service = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_AccPropServices, nullptr, CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(&service)))) {
+      service->SetHwndPropStr(control, static_cast<DWORD>(OBJID_CLIENT), CHILDID_SELF, PROPID_ACC_DESCRIPTION, L(key).c_str());
+      service->Release();
+    }
+  }
+
   void Place(int id, int x, int y, int width, int height, bool body = true) {
     MoveWindow(C(id), Scale(x), Scale(y - (body ? scroll_ + 72 : 0)), Scale(width), Scale(height), TRUE);
   }
@@ -686,7 +750,12 @@ class Application final : public CBootstrapperApplicationBase {
       Place(folder_summary, 32, y + 8, path_width, 24);
       Place(folder_edit, 32, y, path_width, 36);
       Place(browse, 32 + path_width + 8, y, browse_width, 36);
-      Place(change_folder, 32 + content - change_width, y, change_width, 36); y += 52;
+      Place(change_folder, 32 + content - change_width, y, change_width, 36); y += 36;
+      if (IsWindowVisible(C(folder_error))) {
+        const int error_height = (std::max)(22, TextHeight(ReadControl(C(folder_error)), content, secondary_font_));
+        Place(folder_error, 32, y + 6, content, error_height); y += 6 + error_height;
+      }
+      y += 16;
       const int language_height = (std::max)(18, TextHeight(ReadControl(C(language_label)), content, secondary_font_));
       Place(language_label, 32, y, content, language_height); y += language_height + 4;
       Place(language, 32, y, (std::min)(260, content), 280);
@@ -721,9 +790,10 @@ class Application final : public CBootstrapperApplicationBase {
         const int notice_height = NoticeHeight(content);
         Place(option_summary, 32, y + 14, content, notice_height);
         end = y + 14 + notice_height;
-        Place(details, 32, end + 12, content, 70);
-        Place(save_details, 32, end + 94, (std::min)(content, NaturalWidth(save_details)), 36);
-        if (details_expanded_) end += 130;
+        const int details_height = (std::max)(90, TextHeight(ReadControl(C(details)), content - 24, font_) + 24);
+        Place(details, 32, end + 12, content, details_height);
+        Place(save_details, 32, end + details_height + 24, (std::min)(content, NaturalWidth(save_details)), 36);
+        if (details_expanded_) end += details_height + 60;
       }
     } else if (page_ == Page::license) {
       const int license_height = (std::max)(90, footer - header_extra - end - 28);
@@ -734,10 +804,12 @@ class Application final : public CBootstrapperApplicationBase {
       const int status_height = (std::max)(44, TextHeight(ReadControl(C(status)), content, font_));
       Place(status, 32, end + 60, content, status_height); end += 60 + status_height;
     } else {
-      Place(details, 32, end + 24, content, 120);
-      Place(save_details, 32, end + 156, (std::min)(content, NaturalWidth(save_details)), 36);
-      if (page_ == Page::files_in_use) end += 144;
-      else if (details_expanded_) end += 192;
+      const int details_height = page_ == Page::files_in_use ? 120 :
+        (std::max)(100, TextHeight(ReadControl(C(details)), content - 24, font_) + 24);
+      Place(details, 32, end + 24, content, details_height);
+      Place(save_details, 32, end + details_height + 36, (std::min)(content, NaturalWidth(save_details)), 36);
+      if (page_ == Page::files_in_use) end += details_height + 24;
+      else if (details_expanded_) end += details_height + 72;
     }
     const int needed = end + 16 + header_extra + footer_height;
     SCROLLINFO scrolling{sizeof(scrolling), SIF_RANGE | SIF_PAGE | SIF_POS};
@@ -765,12 +837,13 @@ class Application final : public CBootstrapperApplicationBase {
       page_ == Page::license ? "license" : page_ == Page::files_in_use ? "uninstall_files_in_use" : page_ == Page::working ?
         (action_ == BOOTSTRAPPER_ACTION_UNINSTALL ? "uninstalling" : "installing") :
       page_ == Page::complete ? (finish_.reboot ? "reboot_title" : "complete_title") :
-      page_ == Page::failed ? "failed_title" : page_ == Page::options_failed ? "complete_title" :
+      page_ == Page::failed ? "failed_title" : page_ == Page::cancelled ? "cancelled_title" : page_ == Page::options_failed ? "complete_title" :
       mode_ == Mode::maintenance ? "maintenance_title" : mode_ == Mode::residual ? "residual_title" :
       mode_ == Mode::upgrade ? (current_version_ == target_version_ ? "reinstall" : "upgrade_title") : "install_title";
     Text(title, heading);
     Text(subtitle, page_ == Page::complete ? (finish_.reboot ? "reboot_description" : "complete_description") :
       page_ == Page::options_failed ? "options_failed" : page_ == Page::failed ? failure_key_ :
+      page_ == Page::cancelled ? "cancelled_description" : page_ == Page::license ? "license_description" :
       page_ == Page::working ? "install_scope" : page_ == Page::detecting ? "detecting" :
       mode_ == Mode::maintenance ? "maintenance_description" : mode_ == Mode::residual ? "residual_description" :
       mode_ == Mode::upgrade ? "upgrade_description" : "install_description");
@@ -794,11 +867,11 @@ class Application final : public CBootstrapperApplicationBase {
         // Moving an existing product during upgrade breaks the recovery bridge.
         EnableWindow(C(folder_edit), mode_ == Mode::install);
         EnableWindow(C(browse), mode_ == Mode::install);
-        EnableWindow(C(primary), CanInstall(mode_, Checked(accept), ValidInstallFolder(ReadControl(C(folder_edit)))));
+        UpdateFolderValidation();
       } else {
         EnableWindow(C(primary), TRUE);
         if (mode_ == Mode::maintenance) {
-          Text(primary, "uninstall"); Show(secondary); Text(secondary, "open_app");
+          Text(primary, "open_app"); Show(secondary); Text(secondary, "uninstall");
           Show(tertiary); Text(tertiary, "close");
         }
         if (mode_ == Mode::residual) { Text(primary, "cleanup"); Show(secondary); Text(secondary, "close"); }
@@ -809,15 +882,19 @@ class Application final : public CBootstrapperApplicationBase {
       AccessibleName(C(license_text), "license");
     } else if (page_ == Page::files_in_use) {
       Text(subtitle, "close_apps_save_work"); Show(details); SetWindowTextW(C(details), files_in_use_.c_str());
+      ApplyDocumentColors();
       AccessibleName(C(details), "uninstall_files_in_use");
       Text(primary, files_source_ == BOOTSTRAPPER_FILES_IN_USE_TYPE_MSI_RM ?
         "uninstall_close_apps" : "uninstall_check_again");
       Show(secondary); Text(secondary, "cancel"); EnableWindow(C(primary), TRUE);
       EnableWindow(C(secondary), ChooseCloseAction(page_, cancel_stage_, cancel_requested_, options_busy_, native_cancel_enabled_) == CloseAction::request_cancel);
+      if (!CanReturnCancellation(cancel_stage_, native_cancel_enabled_, true))
+        SetWindowTextW(C(subtitle), (L("close_apps_save_work") + L"\r\n" + L("wait_no_cancel")).c_str());
     } else if (page_ == Page::working || page_ == Page::detecting) {
       Show(progress); Show(status); Text(status, status_key_); Text(primary, "cancel");
       AccessibleName(C(progress), status_key_);
       EnableWindow(C(primary), ChooseCloseAction(page_, cancel_stage_, cancel_requested_, options_busy_, native_cancel_enabled_) == CloseAction::request_cancel);
+      if (!cancel_requested_ && !CanReturnCancellation(cancel_stage_, native_cancel_enabled_, true)) Text(subtitle, "wait_no_cancel");
       SendMessageW(C(progress), PBM_SETPOS, percent_, 0);
     } else if (page_ == Page::complete || page_ == Page::options_failed) {
       EnableWindow(C(primary), !options_busy_);
@@ -839,7 +916,7 @@ class Application final : public CBootstrapperApplicationBase {
         if (page_ == Page::options_failed) {
           Text(primary, "options_retry"); Show(secondary); Text(secondary, "skip_finish");
           Show(option_summary); SetWindowTextW(C(option_summary), OptionSummary().c_str());
-          Show(tertiary); Text(tertiary, "details");
+          Show(tertiary); Text(tertiary, details_expanded_ ? "hide_details" : "details");
           Show(details, details_expanded_); SetErrorText();
           Show(save_details, details_expanded_); Text(save_details, "save_details");
           // Results replace the optional section, avoiding overlapping controls.
@@ -851,13 +928,16 @@ class Application final : public CBootstrapperApplicationBase {
           if (reboot_confirmation_) Text(subtitle, "save_work");
         }
       }
-    } else if (page_ == Page::failed) {
-      Show(tertiary); Text(tertiary, "details");
+    } else if (page_ == Page::failed || page_ == Page::cancelled) {
+      const auto hint = L(FailureHintKey(static_cast<unsigned>(result_)));
+      const auto summary = page_ == Page::cancelled ? L("cancelled_description") :
+        failure_key_ == "failed_description" ? hint : L(failure_key_) + L"\r\n" + hint;
+      SetWindowTextW(C(subtitle), summary.c_str());
+      Show(tertiary); Text(tertiary, details_expanded_ ? "hide_details" : "details");
       Show(details, details_expanded_); SetErrorText();
       Show(save_details, details_expanded_); Text(save_details, "save_details");
       if (finish_.reboot) {
-        SetWindowTextW(C(subtitle), (reboot_confirmation_ ? L("save_work") :
-          L("reboot_title") + L"\r\n" + L("save_work")).c_str());
+        SetWindowTextW(C(subtitle), (L("reboot_title") + L"\r\n" + L("save_work")).c_str());
         Text(primary, reboot_confirmation_ ? "back" : "restart_now");
         Show(secondary); Text(secondary, reboot_confirmation_ ? "restart_now" : "restart_later");
       } else if (CanRetryFailure(terminal_failure_, finish_.reboot)) {
@@ -925,15 +1005,20 @@ class Application final : public CBootstrapperApplicationBase {
 
   void SetErrorText() {
     AccessibleName(C(details), "details");
-    wchar_t code[32]{};
-    swprintf_s(code, L"0x%08lX", static_cast<unsigned long>(result_));
-    SetWindowTextW(C(details), (L("uninstall_error_code") + L": " + code).c_str());
+    wchar_t code[48]{};
+    swprintf_s(code, L"%lu (0x%08lX)", static_cast<unsigned long>(NativeErrorCode(static_cast<unsigned>(result_))),
+      static_cast<unsigned long>(result_));
+    const auto hint = L(IsUserCancellation(static_cast<unsigned>(result_)) ? "cancelled_description" :
+      FailureHintKey(static_cast<unsigned>(result_)));
+    SetWindowTextW(C(details), (hint + L"\r\n\r\n" + L("uninstall_error_code") + L": " + code).c_str());
+    ApplyDocumentColors();
   }
 
   void Fail(HRESULT result, std::string key = "failed_description", bool terminal = false) {
     result_ = result; failure_key_ = std::move(key); terminal_failure_ = terminal;
     details_expanded_ = false;
-    page_ = Page::failed; cancel_requested_ = false; options_busy_ = false;
+    page_ = IsUserCancellation(static_cast<unsigned>(result)) ? Page::cancelled : Page::failed;
+    cancel_requested_ = false; options_busy_ = false;
     if (!Interactive()) { Quit(ExitCode(result)); return; }
     Render();
   }
@@ -1111,16 +1196,12 @@ class Application final : public CBootstrapperApplicationBase {
         if (!cancel_requested_) { status_key_ = event.key; Text(status, status_key_); }
         AccessibleName(C(progress), status_key_);
         if (event.key != "failed_description") detail_stage_ = event.key;
-        if (page_ == Page::working || page_ == Page::detecting)
-          EnableWindow(C(primary), ChooseCloseAction(page_, cancel_stage_, cancel_requested_, options_busy_, native_cancel_enabled_) == CloseAction::request_cancel);
         if (FAILED(event.result)) result_ = event.result;
+        if (page_ == Page::working || page_ == Page::detecting) Render();
         break;
       case EventType::failed: Fail(event.result); break;
       case EventType::cancel_permission:
-        if (page_ == Page::working || page_ == Page::detecting)
-          EnableWindow(C(primary), ChooseCloseAction(page_, cancel_stage_, cancel_requested_, options_busy_, native_cancel_enabled_) == CloseAction::request_cancel);
-        if (page_ == Page::files_in_use)
-          EnableWindow(C(secondary), ChooseCloseAction(page_, cancel_stage_, cancel_requested_, options_busy_, native_cancel_enabled_) == CloseAction::request_cancel);
+        if (page_ == Page::working || page_ == Page::detecting || page_ == Page::files_in_use) Render();
         break;
       case EventType::files_in_use:
         files_source_ = static_cast<BOOTSTRAPPER_FILES_IN_USE_TYPE>(event.number);
@@ -1174,6 +1255,7 @@ class Application final : public CBootstrapperApplicationBase {
     EDITSTREAM stream{reinterpret_cast<DWORD_PTR>(&data), 0, ReadRtf};
     SendMessageW(C(license_text), EM_STREAMIN, SF_RTF, reinterpret_cast<LPARAM>(&stream));
     if (stream.dwError) { Fail(HRESULT_FROM_WIN32(stream.dwError), "license_missing"); return; }
+    ApplyDocumentColors();
     page_ = Page::license; scroll_ = 0; Render(); SetFocus(C(license_text));
   }
 
@@ -1182,7 +1264,7 @@ class Application final : public CBootstrapperApplicationBase {
     if (id == IDOK) id = primary;
     if (id == primary && !IsWindowEnabled(C(primary))) return;
     if (id == folder_edit && notification == EN_CHANGE && page_ == Page::ready) {
-      EnableWindow(C(primary), CanInstall(mode_, Checked(accept), ValidInstallFolder(ReadControl(C(folder_edit)))));
+      UpdateFolderValidation(); Layout();
       return;
     }
     if (id == language && notification == CBN_SELENDCANCEL) {
@@ -1220,12 +1302,14 @@ class Application final : public CBootstrapperApplicationBase {
       return;
     }
     if (id == secondary && reboot_confirmation_ && finish_.reboot &&
-        (page_ == Page::complete || page_ == Page::failed)) {
+        (page_ == Page::complete || page_ == Page::failed || page_ == Page::cancelled)) {
       if (page_ == Page::complete && action_ == BOOTSTRAPPER_ACTION_INSTALL) FinishOptions(FinishIntent::restart_now);
       else { restart_requested_ = !preview_; Quit(TerminalExitCode(page_, ExitCode(result_), true)); }
       return;
     }
-    if (id == secondary && page_ == Page::ready && mode_ == Mode::maintenance) {
+    if (page_ == Page::ready && mode_ == Mode::maintenance && (id == primary || id == secondary)) {
+      const auto action = ResolveMaintenanceAction(id == primary ? FooterButton::primary : FooterButton::secondary);
+      if (action == MaintenanceAction::uninstall) { DelegateUninstall(); return; }
       if (preview_) { Quit(0); return; }
       if (!UnelevatedInteractiveUser()) { Fail(E_ACCESSDENIED, "elevated_options"); return; }
       DWORD error = 0;
@@ -1233,7 +1317,7 @@ class Application final : public CBootstrapperApplicationBase {
       else Fail(HRESULT_FROM_WIN32(error), "launch_failed");
       return;
     }
-    if (id == tertiary && (page_ == Page::failed || page_ == Page::options_failed)) {
+    if (id == tertiary && (page_ == Page::failed || page_ == Page::cancelled || page_ == Page::options_failed)) {
       details_expanded_ = !details_expanded_; Render(); return;
     }
     if (id == secondary && page_ == Page::options_failed) { SkipFailedOptions(); return; }
@@ -1245,7 +1329,7 @@ class Application final : public CBootstrapperApplicationBase {
       page_ = Page::working; Render(); SetEvent(choice_event_); return;
     }
     if (page_ == Page::detecting || page_ == Page::working) { Close(); return; }
-    if (finish_.reboot && (page_ == Page::complete || page_ == Page::failed)) {
+    if (finish_.reboot && (page_ == Page::complete || page_ == Page::failed || page_ == Page::cancelled)) {
       reboot_confirmation_ = !reboot_confirmation_; Render(); SetFocus(C(primary));
       return;
     }
@@ -1254,7 +1338,7 @@ class Application final : public CBootstrapperApplicationBase {
       else FinishOptions();
       return;
     }
-    if (page_ == Page::failed) {
+    if (page_ == Page::failed || page_ == Page::cancelled) {
       if (!CanRetryFailure(terminal_failure_, finish_.reboot)) Quit(ExitCode(result_));
       else if (preview_) SetupPreview();
       else {
@@ -1266,8 +1350,7 @@ class Application final : public CBootstrapperApplicationBase {
       }
       return;
     }
-    if (mode_ == Mode::maintenance) DelegateUninstall();
-    else if (mode_ == Mode::residual) BeginPlan(BOOTSTRAPPER_ACTION_UNINSTALL);
+    if (mode_ == Mode::residual) BeginPlan(BOOTSTRAPPER_ACTION_UNINSTALL);
     else if (mode_ == Mode::blocked) Quit(ERROR_PRODUCT_VERSION);
     else if (CanInstall(mode_, Checked(accept), ValidInstallFolder(ReadControl(C(folder_edit))))) BeginPlan(BOOTSTRAPPER_ACTION_INSTALL);
   }
@@ -1327,15 +1410,17 @@ class Application final : public CBootstrapperApplicationBase {
 
   void DrawButton(const DRAWITEMSTRUCT& draw) {
     const bool enabled = (draw.itemState & ODS_DISABLED) == 0;
-    const bool accent = draw.CtlID == primary && enabled;
+    const auto emphasis = EmphasizedFooter(page_, reboot_confirmation_ && finish_.reboot);
+    const bool accent = enabled && ((draw.CtlID == primary && emphasis == FooterButton::primary) ||
+      (draw.CtlID == secondary && emphasis == FooterButton::secondary));
     const bool disclosure = draw.CtlID == more;
     COLORREF fill = high_contrast_ ? SystemColor(accent ? COLOR_HIGHLIGHT : COLOR_BTNFACE) :
-      accent ? RGB(244, 129, 32) : disclosure ? background_color_ : dark_ ? RGB(40, 47, 58) : RGB(238, 241, 245);
-    if ((draw.itemState & ODS_SELECTED) && !high_contrast_) fill = accent ? RGB(220, 104, 41) : dark_ ? RGB(59, 68, 81) : RGB(222, 228, 235);
+      accent ? RGB(244, 129, 32) : disclosure ? background_color_ : dark_ ? RGB(43, 43, 47) : RGB(234, 232, 227);
+    if ((draw.itemState & ODS_SELECTED) && !high_contrast_) fill = accent ? RGB(220, 104, 41) : dark_ ? RGB(57, 57, 62) : RGB(221, 218, 211);
     const COLORREF text = high_contrast_ ? SystemColor(enabled ? (accent ? COLOR_HIGHLIGHTTEXT : COLOR_BTNTEXT) : COLOR_GRAYTEXT) :
-      !enabled ? (dark_ ? RGB(132, 141, 153) : RGB(118, 126, 137)) : accent ? RGB(28, 27, 24) : text_color_;
+      !enabled ? (dark_ ? RGB(145, 145, 150) : RGB(116, 113, 107)) : accent ? RGB(28, 27, 24) : text_color_;
     const HBRUSH brush = CreateSolidBrush(fill);
-    const HPEN pen = CreatePen(PS_SOLID, Scale(1), high_contrast_ ? SystemColor(COLOR_WINDOWTEXT) : dark_ ? RGB(75, 84, 98) : RGB(210, 218, 229));
+    const HPEN pen = CreatePen(PS_SOLID, Scale(1), BorderColor());
     const auto old_brush = SelectObject(draw.hDC, brush); const auto old_pen = SelectObject(draw.hDC, pen);
     if (disclosure && !high_contrast_) FillRect(draw.hDC, &draw.rcItem, brush);
     else RoundRect(draw.hDC, draw.rcItem.left, draw.rcItem.top, draw.rcItem.right, draw.rcItem.bottom, Scale(8), Scale(8));
@@ -1370,7 +1455,7 @@ class Application final : public CBootstrapperApplicationBase {
     const bool selected = (draw.itemState & ODS_SELECTED) != 0 && !(draw.itemState & ODS_COMBOBOXEDIT);
     const bool disabled = (draw.itemState & ODS_DISABLED) != 0;
     const COLORREF fill = selected ? (high_contrast_ ? SystemColor(COLOR_HIGHLIGHT) :
-      dark_ ? RGB(58, 69, 85) : RGB(227, 234, 243)) : FieldColor();
+      dark_ ? RGB(57, 57, 62) : RGB(234, 232, 227)) : FieldColor();
     const COLORREF ink = disabled ? (high_contrast_ ? SystemColor(COLOR_GRAYTEXT) : MutedColor()) :
       selected && high_contrast_ ? SystemColor(COLOR_HIGHLIGHTTEXT) : text_color_;
     const HBRUSH brush = CreateSolidBrush(fill);
@@ -1391,6 +1476,31 @@ class Application final : public CBootstrapperApplicationBase {
     RestoreDC(draw.hDC, saved);
   }
 
+  static LRESULT CALLBACK DocumentProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
+                                       UINT_PTR, DWORD_PTR reference) {
+    auto* app = reinterpret_cast<Application*>(reference);
+    const LRESULT result = DefSubclassProc(hwnd, message, wparam, lparam);
+    if (message == WM_SIZE) {
+      RECT text{}; GetClientRect(hwnd, &text);
+      InflateRect(&text, -app->Scale(10), -app->Scale(8));
+      SendMessageW(hwnd, EM_SETRECT, 0, reinterpret_cast<LPARAM>(&text));
+    }
+    if (message == WM_PAINT || message == WM_PRINTCLIENT) {
+      // Keep the native RichEdit scroll/input/accessibility behavior. A client
+      // frame avoids the bright WS_EX_CLIENTEDGE border in the dark palette;
+      // RichEdit also hides its scrollbar when all text already fits.
+      const HDC dc = message == WM_PAINT ? GetDC(hwnd) : reinterpret_cast<HDC>(wparam);
+      const int saved = SaveDC(dc);
+      RECT area{}; GetClientRect(hwnd, &area);
+      const HPEN pen = CreatePen(PS_SOLID, app->Scale(1), app->BorderColor());
+      SelectObject(dc, pen); SelectObject(dc, GetStockObject(NULL_BRUSH));
+      Rectangle(dc, area.left, area.top, area.right, area.bottom);
+      RestoreDC(dc, saved); DeleteObject(pen);
+      if (message == WM_PAINT) ReleaseDC(hwnd, dc);
+    }
+    return result;
+  }
+
   static LRESULT CALLBACK ComboProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
                                     UINT_PTR, DWORD_PTR reference) {
     auto* app = reinterpret_cast<Application*>(reference);
@@ -1404,8 +1514,7 @@ class Application final : public CBootstrapperApplicationBase {
       const HBRUSH fill = CreateSolidBrush(app->FieldColor());
       FillRect(dc, &area, fill); DeleteObject(fill);
       const COLORREF ink = IsWindowEnabled(hwnd) ? app->text_color_ : app->MutedColor();
-      const HPEN pen = CreatePen(PS_SOLID, app->Scale(1), app->high_contrast_ ? app->SystemColor(COLOR_WINDOWTEXT) :
-        app->dark_ ? RGB(83, 95, 113) : RGB(190, 201, 216));
+      const HPEN pen = CreatePen(PS_SOLID, app->Scale(1), app->BorderColor());
       SelectObject(dc, pen); SelectObject(dc, GetStockObject(NULL_BRUSH));
       Rectangle(dc, area.left, area.top, area.right, area.bottom);
       COMBOBOXINFO info{sizeof(info)}; GetComboBoxInfo(hwnd, &info);
@@ -1478,7 +1587,7 @@ class Application final : public CBootstrapperApplicationBase {
       const bool enabled = IsWindowEnabled(hwnd) != FALSE;
       const int box = app->Scale(20), left = app->Scale(2), top = (rect.bottom - box) / 2;
       const COLORREF ink = enabled ? app->text_color_ : app->high_contrast_ ? app->SystemColor(COLOR_GRAYTEXT) :
-        app->dark_ ? RGB(130, 139, 151) : RGB(121, 128, 138);
+        app->dark_ ? RGB(145, 145, 150) : RGB(116, 113, 107);
       const COLORREF accent = app->high_contrast_ ? app->SystemColor(COLOR_HIGHLIGHT) : RGB(244, 129, 32);
       const HBRUSH brush = CreateSolidBrush(checked ? accent : app->background_color_);
       const HPEN pen = CreatePen(PS_SOLID, app->Scale(1), checked ? accent : ink);
@@ -1559,6 +1668,10 @@ class Application final : public CBootstrapperApplicationBase {
         app->SetTheme(); app->Layout(); return 0;
       }
       case WM_SETTINGCHANGE: case WM_THEMECHANGED:
+        // SetWindowTheme synchronously sends WM_THEMECHANGED to this window.
+        // Suppress only a nested refresh; the outer update already refreshes
+        // all children, and later external theme notifications remain active.
+        if (app->theme_active_) return 0;
         app->SetTheme(); if (app->C(title)) app->Layout(); return 0;
       case WM_VSCROLL: {
         SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(hwnd, SB_VERT, &info);
@@ -1586,7 +1699,8 @@ class Application final : public CBootstrapperApplicationBase {
       case WM_CTLCOLORSTATIC: case WM_CTLCOLORBTN: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: {
         const HDC dc = reinterpret_cast<HDC>(wparam);
         const int id = GetDlgCtrlID(reinterpret_cast<HWND>(lparam));
-        SetTextColor(dc, IsSecondaryText(id) ? app->MutedColor() : app->text_color_); SetBkColor(dc, app->background_color_);
+        SetTextColor(dc, id == folder_error ? app->ErrorColor() : IsSecondaryText(id) ? app->MutedColor() : app->text_color_);
+        SetBkColor(dc, app->background_color_);
         return reinterpret_cast<LRESULT>(app->background_);
       }
       case WM_ERASEBKGND: {
@@ -1640,10 +1754,11 @@ class Application final : public CBootstrapperApplicationBase {
   UINT dpi_ = 96;
   int scroll_ = 0;
   bool layout_active_ = false;
+  bool theme_active_ = false;
   HFONT font_ = nullptr, title_font_ = nullptr, secondary_font_ = nullptr, strong_font_ = nullptr;
   HBRUSH background_ = nullptr;
   HMODULE rich_edit_ = nullptr;
-  COLORREF background_color_ = RGB(250, 251, 253), text_color_ = RGB(28, 36, 47);
+  COLORREF background_color_ = RGB(245, 244, 241), text_color_ = RGB(28, 27, 24);
 };
 }  // namespace usque::setup
 

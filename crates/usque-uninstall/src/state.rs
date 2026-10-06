@@ -150,6 +150,16 @@ pub enum Outcome {
 }
 
 impl Outcome {
+    pub fn title_key(self) -> &'static str {
+        match self {
+            Self::Success => "uninstall_complete_title",
+            Self::RebootRequired => "reboot_title",
+            Self::Cancelled => "uninstall_cancelled_title",
+            Self::DataMayBeDeleted => "uninstall_partial_data_title",
+            _ => "uninstall_failed_title",
+        }
+    }
+
     pub fn key(self) -> &'static str {
         match self {
             Self::Success => "uninstall_success",
@@ -172,6 +182,18 @@ impl Outcome {
                 | Self::PermissionDenied
                 | Self::DataMayBeDeleted
         )
+    }
+}
+
+/// Presentation-only guidance for a numeric installer error. Never format an
+/// MSI record, product code, or a path into user-facing failure guidance.
+pub fn error_hint_key(code: u32) -> &'static str {
+    match code {
+        5 | 1303 | 1310 | 1314 | 1402 | 1406 | 1925 => "error_permission_hint",
+        1618 => "error_busy_hint",
+        13 | 1605 | 1612 | 1619 | 1620 | 1635 | 1636 | 1706 => "error_source_hint",
+        112 | 1307 => "error_disk_hint",
+        _ => "error_generic_hint",
     }
 }
 
@@ -340,6 +362,35 @@ impl Lifecycle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn results_have_distinct_titles_and_actionable_numeric_error_guidance() {
+        assert_eq!(Outcome::Cancelled.title_key(), "uninstall_cancelled_title");
+        assert_eq!(
+            Outcome::DataMayBeDeleted.title_key(),
+            "uninstall_partial_data_title"
+        );
+        for outcome in [
+            Outcome::PermissionDenied,
+            Outcome::MsiFailed,
+            Outcome::NetworkFailed,
+            Outcome::RegistrationFailed,
+        ] {
+            assert_eq!(outcome.title_key(), "uninstall_failed_title");
+        }
+        for code in [5, 1303, 1310, 1314, 1402, 1406, 1925] {
+            assert_eq!(error_hint_key(code), "error_permission_hint");
+        }
+        assert_eq!(error_hint_key(1618), "error_busy_hint");
+        for code in [13, 1605, 1612, 1619, 1620, 1635, 1636, 1706] {
+            assert_eq!(error_hint_key(code), "error_source_hint");
+        }
+        for code in [112, 1307] {
+            assert_eq!(error_hint_key(code), "error_disk_hint");
+        }
+        assert_eq!(error_hint_key(1603), "error_generic_hint");
+        assert_eq!(error_hint_key(u32::MAX), "error_generic_hint");
+    }
 
     #[test]
     fn restart_requires_a_reboot_result_and_a_distinct_final_confirmation() {
