@@ -67,6 +67,7 @@ class UsqueVpnService : VpnService() {
         const val MSG_UPDATE_LOCALE = 18
         const val MSG_VPN_GATE = 19
         const val MSG_LOG_SNAPSHOT = 20
+        const val MSG_TILE_SNAPSHOT = 21
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -210,7 +211,7 @@ class UsqueVpnService : VpnService() {
                         true
                     }
 
-                    MSG_SNAPSHOT -> {
+                    MSG_SNAPSHOT, MSG_TILE_SNAPSHOT -> {
                         replyWithSnapshot(message)
                         true
                     }
@@ -2625,7 +2626,7 @@ class UsqueVpnService : VpnService() {
         val reply =
             Message.obtain(null, MSG_SNAPSHOT).apply {
                 arg1 = request.arg1
-                data = snapshotBundle()
+                data = controlSnapshotBundle(request.what)
             }
         try {
             request.replyTo?.send(reply)
@@ -2643,7 +2644,7 @@ class UsqueVpnService : VpnService() {
             Message.obtain(null, MSG_SNAPSHOT).apply {
                 arg1 = request.arg1
                 data =
-                    snapshotBundle().apply {
+                    controlSnapshotBundle(request.what).apply {
                         putString("control_error_code", code)
                         putString("control_error_message", message.take(512))
                     }
@@ -2657,6 +2658,7 @@ class UsqueVpnService : VpnService() {
 
     private fun broadcastSnapshot() {
         observeNetworkSettings()
+        if (eventClients.isEmpty()) return
         val snapshot = snapshotState.takeBroadcastBundle(platformFlags()) ?: return
         eventClients.forEach { client -> sendEvent(client, snapshot) }
     }
@@ -2675,6 +2677,18 @@ class UsqueVpnService : VpnService() {
             eventClients.remove(client)
         }
     }
+
+    private fun controlSnapshotBundle(what: Int): Bundle =
+        TileControlPolicy.snapshotFor(
+            what,
+            tileSnapshot = {
+                Bundle().apply {
+                    putString(ServiceSnapshotState.WireKeys.PHASE, snapshotState.phase)
+                    putBoolean(TILE_VPN_ACTIVE, activeProfileJson.get() != null && activeMode.get() == "vpn")
+                }
+            },
+            fullSnapshot = ::snapshotBundle,
+        )
 
     private fun snapshotBundle(): Bundle =
         snapshotState.toBundle(platformFlags()).apply {

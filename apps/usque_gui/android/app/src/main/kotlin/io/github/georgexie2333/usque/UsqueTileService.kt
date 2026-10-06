@@ -23,10 +23,10 @@ import android.service.quicksettings.TileService
 /**
  * Native Quick Settings control for the VPN frontend.
  *
- * The tile never starts Flutter and never infers a transition from cross-process
- * SharedPreferences alone. It asks the authoritative `:vpn` process for both
- * snapshots and toggles, so stopping a running foreground service does not go
- * through a new `startForegroundService()` contract.
+ * The tile shares the `:vpn` process and never starts Flutter or infers a
+ * transition from persisted recovery state alone. It asks the authoritative VPN
+ * service for both snapshots and toggles, so stopping a running foreground
+ * service does not go through a new `startForegroundService()` contract.
  */
 class UsqueTileService : TileService() {
     companion object {
@@ -43,9 +43,10 @@ class UsqueTileService : TileService() {
 
     override fun onStartListening() {
         super.onStartListening()
-        // Active tiles get one authoritative update per listening cycle. A
-        // durable fallback is used only when the VPN process cannot be queried.
-        sendControl(UsqueVpnService.MSG_SNAPSHOT, openAppOnFailure = false)
+        // Keep auto-creation: even a flags=0 bind cancels Android's pending
+        // service restart, so observing must also permit recovery to run.
+        // The tile reply itself stays small and skips native diagnostics.
+        sendControl(UsqueVpnService.MSG_TILE_SNAPSHOT, openAppOnFailure = false)
     }
 
     override fun onClick() {
@@ -238,14 +239,10 @@ class UsqueTileService : TileService() {
         return AndroidLocaleController.getString(this, id)
     }
 
-    private fun cachedPresentation(): QuickSettingsTileState.Presentation {
-        val recovery = AndroidPolicyStore.recovery(this)
-        return if (recovery.contains(UsqueVpnService.RECOVERY_PROFILE)) {
-            QuickSettingsTileState.active()
-        } else {
-            QuickSettingsTileState.inactive()
+    private fun cachedPresentation(): QuickSettingsTileState.Presentation =
+        TileControlPolicy.recoveryPresentation {
+            AndroidPolicyStore.recovery(this).contains(UsqueVpnService.RECOVERY_PROFILE)
         }
-    }
 
     private fun requestAuthoritativeRefresh() {
         requestListeningState(this, ComponentName(this, UsqueTileService::class.java))
