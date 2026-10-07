@@ -395,7 +395,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'profile_required': 'Pertahankan setidaknya satu akun.',
   'socks_capabilities': 'TCP dan UDP',
   'http_capabilities': 'CONNECT dan penerusan biasa',
-  'geo_direct': 'Pengaturan bypass {tunnel}',
+  'geo_direct': 'Pengaturan bypass',
   'bypass_custom': 'Target bypass khusus',
   'bypass_countries': 'Negara / wilayah',
   'bypass_targets_hint':
@@ -405,7 +405,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'bypass_line_error': 'Baris {line}: {reason}',
   'bypass_summary': '{countries} wilayah · {targets} target khusus',
   'geo_direct_help':
-      'Lalu lintas yang cocok dengan negara atau wilayah ini tidak melalui VPN. Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta. Aplikasi dengan DNS terenkripsi dicocokkan berdasarkan IP saja.',
+      'Lalu lintas yang cocok dengan negara atau wilayah ini melewati VPN/TUN Usque serta proksi lokal HTTP dan SOCKS5. Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta. Aplikasi dengan DNS terenkripsi dicocokkan berdasarkan IP saja.',
   'geo_update_all': 'Perbarui data geo',
   'geo_last_updated': 'Pembaruan berhasil terakhir: {current}',
   'geo_never_updated': 'Belum diperbarui',

@@ -352,7 +352,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'profile_required': '至少保留一个账号。',
   'socks_capabilities': 'TCP 与 UDP',
   'http_capabilities': 'CONNECT 与普通转发',
-  'geo_direct': '绕过{tunnel}分流设置',
+  'geo_direct': '分流设置',
   'bypass_custom': '自定义绕过目标',
   'bypass_countries': '国家/地区',
   'bypass_targets_hint':
@@ -362,7 +362,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'bypass_line_error': '第 {line} 行：{reason}',
   'bypass_summary': '{countries} 个地区 · {targets} 个自定义目标',
   'geo_direct_help':
-      '匹配这些国家／地区的流量不经过 VPN。查询的域名可能对当前网络的 DNS 服务商可见；使用加密 DNS 的应用仅按 IP 地址分流。',
+      '匹配这些国家／地区的流量不经过 Usque 的 VPN／虚拟网卡，也不经过本机 HTTP 与 SOCKS5 代理。查询的域名可能对当前网络的 DNS 服务商可见；使用加密 DNS 的应用仅按 IP 地址分流。',
   'geo_update_all': '更新地理数据',
   'geo_last_updated': '上次成功更新：{current}',
   'geo_never_updated': '尚未更新',

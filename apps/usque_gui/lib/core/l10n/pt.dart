@@ -399,7 +399,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'profile_required': 'Mantenha pelo menos uma conta.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e encaminhamento comum',
-  'geo_direct': 'Definições de desvio da {tunnel}',
+  'geo_direct': 'Definições de desvio',
   'bypass_custom': 'Destinos personalizados',
   'bypass_countries': 'Países / regiões',
   'bypass_targets_hint':
@@ -409,7 +409,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'bypass_line_error': 'Linha {line}: {reason}',
   'bypass_summary': '{countries} regiões · {targets} destinos personalizados',
   'geo_direct_help':
-      'O tráfego correspondente a esses países ou regiões não passa pela VPN. O provedor DNS da rede atual pode ver os domínios consultados. Aplicativos com DNS criptografado são classificados apenas pelo IP.',
+      'O tráfego correspondente a esses países ou regiões ignora a VPN/TUN do Usque e os proxies locais HTTP e SOCKS5. O provedor DNS da rede atual pode ver os domínios consultados. Aplicativos com DNS criptografado são classificados apenas pelo IP.',
   'geo_update_all': 'Atualizar dados geográficos',
   'geo_last_updated': 'Última atualização bem-sucedida: {current}',
   'geo_never_updated': 'Ainda não atualizado',

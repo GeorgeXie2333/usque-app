@@ -396,7 +396,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'profile_required': 'Залиште принаймні один обліковий запис.',
   'socks_capabilities': 'TCP і UDP',
   'http_capabilities': 'CONNECT і звичайне пересилання',
-  'geo_direct': 'Налаштування обходу {tunnel}',
+  'geo_direct': 'Налаштування обходу',
   'bypass_custom': 'Власні цілі обходу',
   'bypass_countries': 'Країни / регіони',
   'bypass_targets_hint':
@@ -406,7 +406,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'bypass_line_error': 'Рядок {line}: {reason}',
   'bypass_summary': 'Регіонів: {countries} · Власних цілей: {targets}',
   'geo_direct_help':
-      'Трафік, що відповідає цим правилам, оминає VPN. Постачальник DNS поточної мережі може бачити запитувані домени. Для програм із зашифрованим DNS маршрутизація визначається лише за IP-адресою.',
+      'Трафік, що відповідає цим країнам чи регіонам, оминає VPN/TUN Usque та локальні HTTP- і SOCKS5-проксі. Постачальник DNS поточної мережі може бачити запитувані домени. Для програм із зашифрованим DNS маршрутизація визначається лише за IP-адресою.',
   'geo_update_all': 'Оновити геодані',
   'geo_last_updated': 'Останнє успішне оновлення: {current}',
   'geo_never_updated': 'Ще не оновлювалось',

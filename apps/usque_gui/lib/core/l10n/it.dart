@@ -404,7 +404,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'profile_required': 'Mantenere almeno un account.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e inoltro ordinario',
-  'geo_direct': 'Impostazioni bypass {tunnel}',
+  'geo_direct': 'Impostazioni di bypass',
   'bypass_custom': 'Destinazioni personalizzate',
   'bypass_countries': 'Paesi / regioni',
   'bypass_targets_hint':
@@ -416,7 +416,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'bypass_summary':
       '{countries} regioni · {targets} destinazioni personalizzate',
   'geo_direct_help':
-      'Il traffico corrispondente a questi paesi o regioni non passa nella VPN. Il fornitore DNS della rete può vedere i domini richiesti. Le app con DNS cifrato vengono associate solo in base all’IP.',
+      'Il traffico corrispondente a questi paesi o regioni evita la VPN/TUN di Usque e i proxy locali HTTP e SOCKS5. Il fornitore DNS della rete può vedere i domini richiesti. Le app con DNS cifrato vengono associate solo in base all’IP.',
   'geo_update_all': 'Aggiorna dati geografici',
   'geo_last_updated': 'Ultimo aggiornamento riuscito: {current}',
   'geo_never_updated': 'Non ancora aggiornato',

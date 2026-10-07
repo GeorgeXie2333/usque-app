@@ -408,7 +408,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'profile_required': 'Conservez au moins un compte.',
   'socks_capabilities': 'TCP et UDP',
   'http_capabilities': 'CONNECT et transfert ordinaire',
-  'geo_direct': 'Paramètres de contournement {tunnel}',
+  'geo_direct': 'Paramètres de contournement',
   'bypass_custom': 'Destinations personnalisées',
   'bypass_countries': 'Pays / régions',
   'bypass_targets_hint':
@@ -420,7 +420,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'bypass_summary':
       '{countries} régions · {targets} destinations personnalisées',
   'geo_direct_help':
-      'Le trafic correspondant à ces pays ou régions ne passe pas par le VPN. Le fournisseur DNS du réseau actuel peut voir les domaines demandés. Les applications utilisant un DNS chiffré sont réparties selon l’adresse IP uniquement.',
+      'Le trafic correspondant à ces pays ou régions contourne le VPN/TUN Usque ainsi que les proxys locaux HTTP et SOCKS5. Le fournisseur DNS du réseau actuel peut voir les domaines demandés. Les applications utilisant un DNS chiffré sont réparties selon l’adresse IP uniquement.',
   'geo_update_all': 'Mettre à jour les données géographiques',
   'geo_last_updated': 'Dernière mise à jour réussie : {current}',
   'geo_never_updated': 'Pas encore mis à jour',

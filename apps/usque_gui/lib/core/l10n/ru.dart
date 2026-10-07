@@ -395,7 +395,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'profile_required': 'Оставьте хотя бы один аккаунт.',
   'socks_capabilities': 'TCP и UDP',
   'http_capabilities': 'CONNECT и обычная пересылка',
-  'geo_direct': 'Настройки обхода {tunnel}',
+  'geo_direct': 'Настройки обхода',
   'bypass_custom': 'Свои цели обхода',
   'bypass_countries': 'Страны / регионы',
   'bypass_targets_hint':
@@ -405,7 +405,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'bypass_line_error': 'Строка {line}: {reason}',
   'bypass_summary': 'Регионов: {countries} · Своих целей: {targets}',
   'geo_direct_help':
-      'Трафик для этих стран и регионов идёт в обход VPN. DNS-провайдер текущей сети может видеть запрашиваемые домены. Приложения с шифрованным DNS распределяются только по IP-адресу.',
+      'Трафик для этих стран и регионов обходит VPN/TUN Usque, а также локальные HTTP- и SOCKS5-прокси. DNS-провайдер текущей сети может видеть запрашиваемые домены. Приложения с шифрованным DNS распределяются только по IP-адресу.',
   'geo_update_all': 'Обновить геоданные',
   'geo_last_updated': 'Последнее успешное обновление: {current}',
   'geo_never_updated': 'Ещё не обновлялось',

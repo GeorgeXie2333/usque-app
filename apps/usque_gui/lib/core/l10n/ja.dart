@@ -374,7 +374,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'profile_required': '少なくとも 1 つのアカウントを残してください。',
   'socks_capabilities': 'TCP と UDP',
   'http_capabilities': 'CONNECT と通常の転送',
-  'geo_direct': '{tunnel}バイパス設定',
+  'geo_direct': 'バイパス設定',
   'bypass_custom': 'カスタムバイパス対象',
   'bypass_countries': '国・地域',
   'bypass_targets_hint':
@@ -384,7 +384,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'bypass_line_error': '{line}行目: {reason}',
   'bypass_summary': '地域 {countries}件 · カスタム対象 {targets}件',
   'geo_direct_help':
-      'これらの国・地域に一致する通信は VPN を経由しません。現在のネットワークの DNS 提供元にアクセス先ドメインが見える場合があります。暗号化 DNS を使うアプリは IP アドレスだけで振り分けます。',
+      'これらの国・地域に一致する通信は Usque の VPN／仮想アダプターと、ローカルの HTTP／SOCKS5 プロキシを経由しません。現在のネットワークの DNS 提供元にアクセス先ドメインが見える場合があります。暗号化 DNS を使うアプリは IP アドレスだけで振り分けます。',
   'geo_update_all': '地理データを更新',
   'geo_last_updated': '前回の成功した更新: {current}',
   'geo_never_updated': 'まだ更新されていません',

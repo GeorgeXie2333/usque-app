@@ -402,7 +402,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'profile_required': 'Conserve al menos una cuenta.',
   'socks_capabilities': 'TCP y UDP',
   'http_capabilities': 'CONNECT y reenvío ordinario',
-  'geo_direct': 'Ajustes de omisión de {tunnel}',
+  'geo_direct': 'Ajustes de omisión',
   'bypass_custom': 'Destinos personalizados',
   'bypass_countries': 'Países / regiones',
   'bypass_targets_hint':
@@ -412,7 +412,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'bypass_line_error': 'Línea {line}: {reason}',
   'bypass_summary': '{countries} regiones · {targets} destinos personalizados',
   'geo_direct_help':
-      'El tráfico que coincida con estos países o regiones no pasa por la VPN. El proveedor DNS de tu red puede ver los dominios consultados. Las aplicaciones con DNS cifrado se clasifican solo por IP.',
+      'El tráfico que coincida con estos países o regiones omite la VPN/TUN de Usque y los proxies locales HTTP y SOCKS5. El proveedor DNS de tu red puede ver los dominios consultados. Las aplicaciones con DNS cifrado se clasifican solo por IP.',
   'geo_update_all': 'Actualizar datos geográficos',
   'geo_last_updated': 'Última actualización correcta: {current}',
   'geo_never_updated': 'Aún no actualizado',

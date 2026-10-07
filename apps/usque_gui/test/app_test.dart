@@ -4144,7 +4144,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final directCountries = find.text('VPN bypass settings');
+      final directCountries = find.text('Bypass settings');
       expect(directCountries, findsOneWidget);
       await tester.ensureVisible(directCountries);
       await tester.pumpAndSettle();
@@ -4169,7 +4169,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(AdvancedSettingsScreen), findsOneWidget);
-      expect(find.text('VPN bypass settings'), findsNothing);
+      expect(find.text('Bypass settings'), findsNothing);
     },
   );
 

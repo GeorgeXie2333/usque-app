@@ -402,7 +402,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'profile_required': 'Behalten Sie mindestens ein Konto.',
   'socks_capabilities': 'TCP und UDP',
   'http_capabilities': 'CONNECT und gewöhnliche Weiterleitung',
-  'geo_direct': '{tunnel}-Umgehung',
+  'geo_direct': 'Umleitungseinstellungen',
   'bypass_custom': 'Eigene Umgehungsziele',
   'bypass_countries': 'Länder / Regionen',
   'bypass_targets_hint':
@@ -413,7 +413,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'bypass_line_error': 'Zeile {line}: {reason}',
   'bypass_summary': '{countries} Regionen · {targets} eigene Ziele',
   'geo_direct_help':
-      'Passender Datenverkehr umgeht das VPN. Der DNS-Anbieter des aktuellen Netzwerks kann abgefragte Domains sehen. Apps mit verschlüsseltem DNS werden nur anhand der IP-Adresse zugeordnet.',
+      'Passender Datenverkehr umgeht Usque-VPN/TUN sowie die lokalen HTTP- und SOCKS5-Proxys. Der DNS-Anbieter des aktuellen Netzwerks kann abgefragte Domains sehen. Apps mit verschlüsseltem DNS werden nur anhand der IP-Adresse zugeordnet.',
   'geo_update_all': 'Geodaten aktualisieren',
   'geo_last_updated': 'Letzte erfolgreiche Aktualisierung: {current}',
   'geo_never_updated': 'Noch nicht aktualisiert',

@@ -398,7 +398,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'profile_required': 'Behoud ten minste één account.',
   'socks_capabilities': 'TCP en UDP',
   'http_capabilities': 'CONNECT en gewone doorsturing',
-  'geo_direct': '{tunnel}-omzeiling instellen',
+  'geo_direct': 'Omzeilingsinstellingen',
   'bypass_custom': 'Eigen omzeilingsdoelen',
   'bypass_countries': 'Landen / regio’s',
   'bypass_targets_hint':
@@ -408,7 +408,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'bypass_line_error': 'Regel {line}: {reason}',
   'bypass_summary': '{countries} regio’s · {targets} eigen doelen',
   'geo_direct_help':
-      'Verkeer voor deze landen of regio’s gaat buiten de VPN om. De DNS-aanbieder van je huidige netwerk kan de opgevraagde domeinen zien. Apps met versleutelde DNS worden alleen op IP-adres ingedeeld.',
+      'Verkeer voor deze landen of regio’s omzeilt Usque VPN/TUN en de lokale HTTP- en SOCKS5-proxy’s. De DNS-aanbieder van je huidige netwerk kan de opgevraagde domeinen zien. Apps met versleutelde DNS worden alleen op IP-adres ingedeeld.',
   'geo_update_all': 'Geografische gegevens bijwerken',
   'geo_last_updated': 'Laatste geslaagde update: {current}',
   'geo_never_updated': 'Nog niet bijgewerkt',

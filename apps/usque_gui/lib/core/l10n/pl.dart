@@ -399,7 +399,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'profile_required': 'Zachowaj co najmniej jedno konto.',
   'socks_capabilities': 'TCP i UDP',
   'http_capabilities': 'CONNECT i zwykłe przekazywanie',
-  'geo_direct': 'Ustawienia omijania {tunnel}',
+  'geo_direct': 'Ustawienia omijania',
   'bypass_custom': 'Własne cele omijania',
   'bypass_countries': 'Kraje / regiony',
   'bypass_targets_hint':
@@ -409,7 +409,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'bypass_line_error': 'Wiersz {line}: {reason}',
   'bypass_summary': 'Regiony: {countries} · Własne cele: {targets}',
   'geo_direct_help':
-      'Ruch pasujący do tych krajów lub regionów omija VPN. Dostawca DNS bieżącej sieci może widzieć żądane domeny. Aplikacje z szyfrowanym DNS są dopasowywane wyłącznie według IP.',
+      'Ruch pasujący do tych krajów lub regionów omija VPN/TUN Usque oraz lokalne proxy HTTP i SOCKS5. Dostawca DNS bieżącej sieci może widzieć żądane domeny. Aplikacje z szyfrowanym DNS są dopasowywane wyłącznie według IP.',
   'geo_update_all': 'Aktualizuj dane geo',
   'geo_last_updated': 'Ostatnia udana aktualizacja: {current}',
   'geo_never_updated': 'Jeszcze nie zaktualizowano',

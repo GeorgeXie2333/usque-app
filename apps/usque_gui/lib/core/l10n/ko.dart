@@ -373,7 +373,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'profile_required': '계정을 하나 이상 유지해야 합니다.',
   'socks_capabilities': 'TCP 및 UDP',
   'http_capabilities': 'CONNECT 및 일반 전달',
-  'geo_direct': '{tunnel} 우회 설정',
+  'geo_direct': '우회 설정',
   'bypass_custom': '사용자 지정 우회 대상',
   'bypass_countries': '국가/지역',
   'bypass_targets_hint':
@@ -383,7 +383,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'bypass_line_error': '{line}행: {reason}',
   'bypass_summary': '지역 {countries}개 · 사용자 지정 대상 {targets}개',
   'geo_direct_help':
-      '이 국가나 지역에 해당하는 트래픽은 VPN을 거치지 않습니다. 현재 네트워크의 DNS 제공업체에 요청한 도메인이 보일 수 있습니다. 암호화 DNS를 쓰는 앱은 IP 주소로만 분류합니다.',
+      '이 국가나 지역에 해당하는 트래픽은 Usque VPN/TUN과 로컬 HTTP·SOCKS5 프록시를 거치지 않습니다. 현재 네트워크의 DNS 제공업체에 요청한 도메인이 보일 수 있습니다. 암호화 DNS를 쓰는 앱은 IP 주소로만 분류합니다.',
   'geo_update_all': '지리 데이터 업데이트',
   'geo_last_updated': '마지막 성공 업데이트: {current}',
   'geo_never_updated': '아직 업데이트되지 않음',

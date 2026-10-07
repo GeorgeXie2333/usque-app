@@ -395,7 +395,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'profile_required': 'حداقل یک حساب نگه دارید.',
   'socks_capabilities': 'TCP و UDP',
   'http_capabilities': 'CONNECT و هدایت معمولی',
-  'geo_direct': 'تنظیمات عبور از {tunnel}',
+  'geo_direct': 'تنظیمات عبور مستقیم',
   'bypass_custom': 'مقصدهای سفارشی',
   'bypass_countries': 'کشورها / مناطق',
   'bypass_targets_hint':
@@ -405,7 +405,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'bypass_line_error': 'خط {line}: {reason}',
   'bypass_summary': '{countries} منطقه · {targets} مقصد سفارشی',
   'geo_direct_help':
-      'ترافیک مطابق این قوانین از VPN عبور نمی‌کند. ارائه‌دهندهٔ DNS شبکهٔ فعلی ممکن است نام دامنه‌های درخواستی را ببیند. برنامه‌هایی که از DNS رمزگذاری‌شده استفاده می‌کنند فقط بر اساس نشانی IP مسیریابی می‌شوند.',
+      'ترافیک مطابق این کشورها یا مناطق از VPN/TUN یوسک و پروکسی‌های محلی HTTP و SOCKS5 عبور نمی‌کند. ارائه‌دهندهٔ DNS شبکهٔ فعلی ممکن است نام دامنه‌های درخواستی را ببیند. برنامه‌هایی که از DNS رمزگذاری‌شده استفاده می‌کنند فقط بر اساس نشانی IP مسیریابی می‌شوند.',
   'geo_update_all': 'به‌روزرسانی داده‌های جغرافیایی',
   'geo_last_updated': 'آخرین به‌روزرسانی موفق: {current}',
   'geo_never_updated': 'هنوز به‌روزرسانی نشده',

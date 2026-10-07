@@ -390,7 +390,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'profile_required': 'คงบัญชีไว้อย่างน้อยหนึ่งรายการ',
   'socks_capabilities': 'TCP และ UDP',
   'http_capabilities': 'CONNECT และการส่งต่อทั่วไป',
-  'geo_direct': 'การตั้งค่าข้าม {tunnel}',
+  'geo_direct': 'การตั้งค่าข้ามเส้นทาง',
   'bypass_custom': 'ปลายทางข้ามที่กำหนดเอง',
   'bypass_countries': 'ประเทศ / ภูมิภาค',
   'bypass_targets_hint':
@@ -400,7 +400,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'bypass_line_error': 'บรรทัด {line}: {reason}',
   'bypass_summary': '{countries} ภูมิภาค · {targets} ปลายทางที่กำหนดเอง',
   'geo_direct_help':
-      'ข้อมูลที่ตรงกับกฎเหล่านี้จะไม่ผ่าน VPN ผู้ให้บริการ DNS ของเครือข่ายปัจจุบันอาจเห็นชื่อโดเมนที่สอบถาม แอปที่ใช้ DNS แบบเข้ารหัสจะกำหนดเส้นทางตามที่อยู่ IP เท่านั้น',
+      'ทราฟฟิกที่ตรงกับประเทศหรือภูมิภาคเหล่านี้จะไม่ผ่าน VPN/TUN ของ Usque และพร็อกซี HTTP กับ SOCKS5 ในเครื่อง ผู้ให้บริการ DNS ของเครือข่ายปัจจุบันอาจเห็นชื่อโดเมนที่สอบถาม แอปที่ใช้ DNS แบบเข้ารหัสจะกำหนดเส้นทางตามที่อยู่ IP เท่านั้น',
   'geo_update_all': 'อัปเดตข้อมูลภูมิศาสตร์',
   'geo_last_updated': 'อัปเดตสำเร็จล่าสุด: {current}',
   'geo_never_updated': 'ยังไม่ได้อัปเดต',

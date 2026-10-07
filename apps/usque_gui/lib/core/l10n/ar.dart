@@ -389,7 +389,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'profile_required': 'أبقِ حسابًا واحدًا على الأقل.',
   'socks_capabilities': 'TCP وUDP',
   'http_capabilities': 'CONNECT وإعادة التوجيه العادية',
-  'geo_direct': 'إعدادات تجاوز {tunnel}',
+  'geo_direct': 'إعدادات التجاوز',
   'bypass_custom': 'وجهات تجاوز مخصصة',
   'bypass_countries': 'البلدان / المناطق',
   'bypass_targets_hint':
@@ -399,7 +399,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'bypass_line_error': 'السطر {line}: {reason}',
   'bypass_summary': '{countries} مناطق · {targets} وجهات مخصصة',
   'geo_direct_help':
-      'الحركة المطابقة لهذه القواعد تتجاوز VPN. قد يرى مزوّد DNS للشبكة الحالية أسماء النطاقات المطلوبة. تُوجّه التطبيقات التي تستخدم DNS مشفّرًا حسب عنوان IP فقط.',
+      'تتجاوز الحركة المطابقة لهذه البلدان أو المناطق مسار VPN/TUN في Usque والوكيلين المحليين HTTP وSOCKS5. قد يرى مزوّد DNS للشبكة الحالية أسماء النطاقات المطلوبة. تُوجّه التطبيقات التي تستخدم DNS مشفّرًا حسب عنوان IP فقط.',
   'geo_update_all': 'تحديث بيانات الجغرافيا',
   'geo_last_updated': 'آخر تحديث ناجح: {current}',
   'geo_never_updated': 'لم تُحدَّث بعد',

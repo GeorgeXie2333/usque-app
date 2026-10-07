@@ -392,7 +392,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'profile_required': 'Giữ ít nhất một tài khoản.',
   'socks_capabilities': 'TCP và UDP',
   'http_capabilities': 'CONNECT và chuyển tiếp thông thường',
-  'geo_direct': 'Cài đặt bỏ qua {tunnel}',
+  'geo_direct': 'Cài đặt bỏ qua',
   'bypass_custom': 'Đích bỏ qua tùy chỉnh',
   'bypass_countries': 'Quốc gia / khu vực',
   'bypass_targets_hint':
@@ -402,7 +402,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'bypass_line_error': 'Dòng {line}: {reason}',
   'bypass_summary': '{countries} khu vực · {targets} đích tùy chỉnh',
   'geo_direct_help':
-      'Lưu lượng khớp các quy tắc này sẽ không qua VPN. Nhà cung cấp DNS của mạng hiện tại có thể thấy các tên miền được truy vấn. Ứng dụng dùng DNS mã hóa chỉ được định tuyến theo địa chỉ IP.',
+      'Lưu lượng khớp các quốc gia hoặc khu vực này bỏ qua VPN/TUN của Usque và proxy cục bộ HTTP cùng SOCKS5. Nhà cung cấp DNS của mạng hiện tại có thể thấy các tên miền được truy vấn. Ứng dụng dùng DNS mã hóa chỉ được định tuyến theo địa chỉ IP.',
   'geo_update_all': 'Cập nhật dữ liệu địa lý',
   'geo_last_updated': 'Lần cập nhật thành công gần nhất: {current}',
   'geo_never_updated': 'Chưa cập nhật',

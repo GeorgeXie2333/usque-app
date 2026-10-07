@@ -353,7 +353,7 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'profile_required': '請至少保留一個帳號。',
   'socks_capabilities': 'TCP 與 UDP',
   'http_capabilities': 'CONNECT 與一般轉送',
-  'geo_direct': '繞過{tunnel}分流設定',
+  'geo_direct': '分流設定',
   'bypass_custom': '自訂繞過目標',
   'bypass_countries': '國家/地區',
   'bypass_targets_hint':
@@ -363,7 +363,7 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'bypass_line_error': '第 {line} 行：{reason}',
   'bypass_summary': '{countries} 個地區 · {targets} 個自訂目標',
   'geo_direct_help':
-      '符合規則的流量不會經過 VPN。目前網路的 DNS 服務供應商可能看見查詢的網域名稱。使用加密 DNS 的應用程式只會依 IP 位址決定路由。',
+      '符合這些國家／地區的流量不會經過 Usque 的 VPN／虛擬網卡，也不會經過本機 HTTP 與 SOCKS5 代理。目前網路的 DNS 服務供應商可能看見查詢的網域名稱。使用加密 DNS 的應用程式只會依 IP 位址決定路由。',
   'geo_update_all': '更新地理資料',
   'geo_last_updated': '上次成功更新：{current}',
   'geo_never_updated': '尚未更新',

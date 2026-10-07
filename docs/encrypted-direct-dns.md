@@ -18,7 +18,7 @@ Usque has no provider presets or embedded resolver addresses.
 
 ## Configure direct DNS
 
-1. In **Settings → TUN bypass settings** on Windows or **Settings → VPN bypass settings** on Android, select the countries and download
+1. In **Settings → Bypass settings**, select the countries and download
    their GeoIP rules and the global GeoSite catalog, then save the selection.
    Alternatively, enter custom domains under **Custom bypass targets**; these
    do not need geographic downloads. If no country or custom domain rule matches,
@@ -32,8 +32,7 @@ Usque has no provider presets or embedded resolver addresses.
 5. Check **Network quality → Direct DNS** while connected. To test reachability,
    run a confirmed [Deep diagnostic](network-doctor.md).
 
-In Simplified Chinese, the bypass page is **设置 → 绕过虚拟网卡分流设置** on Windows
-or **设置 → 绕过VPN分流设置** on Android. Direct DNS is under
+In Simplified Chinese, the bypass page is **设置 → 分流设置**. Direct DNS is under
 **设置 → 高级网络设置 → 直连 DNS**. The System option is currently labelled
 **当前网络的 DNS**.
 
@@ -231,7 +230,7 @@ performance results.
 
 ## Custom bypass targets / 自定义绕过目标
 
-In **Settings → TUN bypass settings** on Windows or **Settings → VPN bypass settings** on Android, enter one CIDR, IPv4/IPv6 address or
+In **Settings → Bypass settings**, enter one CIDR, IPv4/IPv6 address or
 bare domain per line, then select **Apply changes**. Existing bypass CIDRs from
 Advanced settings appear here automatically. Address rules and domains each
 allow up to 256 entries. An IP becomes a /32 or /128 host rule; network addresses
@@ -251,8 +250,7 @@ Applications using their own encrypted DNS cannot be matched by hidden names;
 IP/CIDR matching remains available. Changing rules follows the existing reconnect
 and pending-settings workflow. An older Engine shows targets read-only.
 
-在 Windows 的 **设置 → 绕过虚拟网卡分流设置** 或 Android 的 **设置 → 绕过VPN分流设置**
-的 **自定义绕过目标** 中，每行填写一个 CIDR、IPv4/IPv6 地址或域名，点击
+在 **设置 → 分流设置** 的 **自定义绕过目标** 中，每行填写一个 CIDR、IPv4/IPv6 地址或域名，点击
 **应用修改**。原高级设置里的 CIDR 会自动显示在这里。
 域名匹配自身及全部子域名；不接受 URL、端口、路径、通配符或正则表达式。
 错误行会阻止整份草稿保存。自定义规则无需下载国家规则即可工作，设置跨账号共享，

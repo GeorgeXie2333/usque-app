@@ -398,7 +398,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'profile_required': 'En az bir hesap bulundurun.',
   'socks_capabilities': 'TCP ve UDP',
   'http_capabilities': 'CONNECT ve olağan iletme',
-  'geo_direct': '{tunnel} atlama ayarları',
+  'geo_direct': 'Atlama ayarları',
   'bypass_custom': 'Özel atlama hedefleri',
   'bypass_countries': 'Ülkeler / bölgeler',
   'bypass_targets_hint':
@@ -408,7 +408,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'bypass_line_error': 'Satır {line}: {reason}',
   'bypass_summary': '{countries} bölge · {targets} özel hedef',
   'geo_direct_help':
-      'Bu kurallarla eşleşen trafik VPN’i kullanmaz. Mevcut ağın DNS sağlayıcısı sorgulanan alan adlarını görebilir. Şifreli DNS kullanan uygulamalar için yalnızca IP adresine göre yönlendirme yapılır.',
+      'Bu ülke veya bölgelerle eşleşen trafik Usque VPN/TUN ile yerel HTTP ve SOCKS5 vekil sunucularını kullanmaz. Mevcut ağın DNS sağlayıcısı sorgulanan alan adlarını görebilir. Şifreli DNS kullanan uygulamalar için yalnızca IP adresine göre yönlendirme yapılır.',
   'geo_update_all': 'Coğrafi verileri güncelle',
   'geo_last_updated': 'Son başarılı güncelleme: {current}',
   'geo_never_updated': 'Henüz güncellenmedi',
