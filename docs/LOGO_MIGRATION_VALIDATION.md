@@ -111,3 +111,53 @@ retains its brush/pen creation and deletion pairs. No new logging, account
 access, telemetry or networking operations were introduced. The installer
 authoring tests used inert fixtures and their existing temporary identity
 cleanup; no installer or installed uninstaller was executed.
+
+## Android transparent background follow-up / 安卓透明背景调整
+
+Follow-up date: 2026-10-07. Tested source: baseline
+`64e05304b4887a2bc2e76db8ea2674244da201e3` plus the uncommitted launcher
+background and documentation changes. The 2026-10-06 results above remain a
+historical record of the original migration.
+
+The rounded white tile came from `ic_launcher_background = #FFFFFF`, clipped
+by the launcher's adaptive mask. The shared colour is now `#00000000`; all four
+regular/round adaptive definitions, including Android 13+, use it. Existing
+foreground PNGs already contain the circular logo with transparent surroundings
+and require no regeneration. The 108dp layer, 66dp safe area and line-only
+monochrome layer remain in use. This changes only a visual resource; it adds no
+permissions, logging, networking or lifecycle operations.
+
+The launcher determines the final mask and effects, as described in
+[Android's adaptive icon documentation](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
+Transparency removes the application's white tile; it cannot force every OEM
+launcher to honour transparency or use a circular mask. Themed icons use the
+system's background and palette independently of this full-colour background.
+
+Resource checks inspected the four XML definitions and all five foreground
+densities, including dimensions, alpha, safe-area bounds and centring. At-rest
+resource composites with circular and rounded-square masks preserved the entire
+foreground alpha and showed the circular logo against light and dark surfaces.
+These composites are resource previews, not installed-device evidence.
+
+Checks for this follow-up used the Flutter 3.44.7 revision
+`84fc5cbb223bc12f83d65b647ff8a56caf779ffd` resolved from `local.properties`.
+The pinned SDK's binaries supplied the Flutter commands below; resource
+inspection used Python 3.12.14 and Pillow 12.3.0.
+
+| Command or check | Result |
+| --- | --- |
+| `flutter --version --machine` | passed; version and full revision match the CI pin |
+| `& ./tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed with locked dependencies |
+| `flutter pub get --enforce-lockfile` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed; configuration only |
+| `.\gradlew.bat --no-daemon :app:ktlintCheck` | passed |
+| `.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed; resource compilation and lint completed; unit-test task was up-to-date, with 415 tests and zero failures/errors/skips in its existing reports |
+| Resource XML, density, alpha and mask inspection | passed; both masks preserved the full logo without an application-supplied tile |
+
+The Gradle check also compiled debug JNI dependencies for all three supported
+ABIs. Its generated libraries and the resource preview remain ignored local
+artifacts. This is compile-only evidence, not Android runtime validation.
+
+Actual OEM launcher appearance and Android device validation are `not_run`:
+no dedicated device or isolated emulator was used. No release APK, device
+installation, signing or publication was performed.
