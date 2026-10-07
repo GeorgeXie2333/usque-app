@@ -1,6 +1,7 @@
 /// Turkish UI catalog.
 const Map<String, String> kTrCatalog = <String, String>{
   'warp_dns_type': 'WARP DNS',
+  'warp_dns_bootstrap_optional': 'İsteğe bağlı',
   'warp_dns_plain': 'Normal DNS',
   'warp_dns_unsupported': 'Şifreli DNS kullanılamıyor',
   'warp_dns_invalid_mode': 'Desteklenmeyen DNS türü',

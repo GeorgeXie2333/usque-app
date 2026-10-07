@@ -4100,9 +4100,12 @@ mod tests {
             "WARP_DNS_BOOTSTRAP_INVALID"
         );
         source["warp_dns"]["bootstrap_ips"] = serde_json::json!([]);
-        assert_eq!(
-            parse_android_profile(&source.to_string()).unwrap_err(),
-            "WARP_DNS_BOOTSTRAP_REQUIRED"
+        assert!(
+            parse_android_profile(&source.to_string())
+                .unwrap()
+                .warp_dns
+                .bootstrap_ips
+                .is_empty()
         );
     }
 

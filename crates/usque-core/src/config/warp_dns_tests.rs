@@ -50,9 +50,6 @@ fn validation_uses_stable_warp_codes_and_encrypted_dns_restrictions() {
     settings.port = 0;
     cases.push((settings, "WARP_DNS_PORT_INVALID"));
     let mut settings = valid.clone();
-    settings.bootstrap_ips.clear();
-    cases.push((settings, "WARP_DNS_BOOTSTRAP_REQUIRED"));
-    let mut settings = valid.clone();
     settings.bootstrap_ips = vec!["192.0.2.53".parse().unwrap(); 9];
     cases.push((settings, "WARP_DNS_BOOTSTRAP_TOO_MANY"));
     let mut settings = valid.clone();
@@ -70,6 +67,7 @@ fn validation_uses_stable_warp_codes_and_encrypted_dns_restrictions() {
         "/dns\r\nquery",
     ] {
         let mut settings = valid.clone();
+        settings.bootstrap_ips.clear();
         settings.doh_path = path.into();
         cases.push((settings, "WARP_DNS_DOH_PATH_INVALID"));
     }
@@ -84,6 +82,19 @@ fn validation_uses_stable_warp_codes_and_encrypted_dns_restrictions() {
     }
     settings.canonicalize();
     assert_eq!(settings, WarpDnsSettings::default());
+}
+
+#[test]
+fn encrypted_warp_bootstrap_ips_are_optional_but_direct_dns_stays_explicit() {
+    for mode in [WarpDnsMode::Doh, WarpDnsMode::Dot] {
+        let mut settings = encrypted(mode);
+        settings.bootstrap_ips.clear();
+        assert_eq!(settings.validate(), Ok(()));
+        assert_eq!(
+            settings.encrypted_settings().unwrap().validate(),
+            Err(ConfigError::MissingDirectDnsBootstrapIp)
+        );
+    }
 }
 
 #[test]

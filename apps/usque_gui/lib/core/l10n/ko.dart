@@ -1,6 +1,7 @@
 /// Korean UI catalog.
 const Map<String, String> kKoCatalog = <String, String>{
   'warp_dns_type': 'WARP DNS',
+  'warp_dns_bootstrap_optional': '선택 사항',
   'warp_dns_plain': '일반 DNS',
   'warp_dns_unsupported': '암호화 DNS 사용 불가',
   'warp_dns_invalid_mode': '지원하지 않는 DNS 유형',

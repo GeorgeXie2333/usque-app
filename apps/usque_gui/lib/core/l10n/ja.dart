@@ -1,6 +1,7 @@
 /// Japanese UI catalog.
 const Map<String, String> kJaCatalog = <String, String>{
   'warp_dns_type': 'WARP DNS',
+  'warp_dns_bootstrap_optional': '任意',
   'warp_dns_plain': '通常の DNS',
   'warp_dns_unsupported': '暗号化 DNS は利用不可',
   'warp_dns_invalid_mode': '未対応の DNS タイプ',

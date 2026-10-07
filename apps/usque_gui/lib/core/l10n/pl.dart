@@ -1,6 +1,7 @@
 /// Polish UI catalog.
 const Map<String, String> kPlCatalog = <String, String>{
   'warp_dns_type': 'DNS WARP',
+  'warp_dns_bootstrap_optional': 'Opcjonalnie',
   'warp_dns_plain': 'Zwykły DNS',
   'warp_dns_unsupported': 'Szyfrowany DNS jest niedostępny',
   'warp_dns_invalid_mode': 'Nieobsługiwany typ DNS',

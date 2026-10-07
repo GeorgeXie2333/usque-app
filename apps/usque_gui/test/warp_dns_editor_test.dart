@@ -287,6 +287,11 @@ void main() {
       await tester.enterText(find.byType(TextFormField).at(0), 'dns.example');
       await tester.enterText(find.byType(TextFormField).at(1), '/saved-path');
       await tester.enterText(find.byType(TextFormField).at(2), '8443');
+      expect(form.currentState!.validate(), isTrue);
+      expect(value.bootstrapIps, isEmpty);
+      expect(find.text('Optional'), findsOneWidget);
+      await tester.enterText(find.byType(TextFormField).at(3), 'invalid-ip');
+      expect(form.currentState!.validate(), isFalse);
       await tester.enterText(find.byType(TextFormField).at(3), '192.0.2.1');
       expect(form.currentState!.validate(), isTrue);
       await selectMode(
@@ -295,6 +300,9 @@ void main() {
       );
       expect(value.port, 853);
       expect(value.dohPath, isEmpty);
+      await tester.enterText(find.byType(TextFormField).at(2), '');
+      expect(form.currentState!.validate(), isTrue);
+      expect(value.bootstrapIps, isEmpty);
       await tester.enterText(find.byType(TextFormField).at(1), '8853');
       await selectMode(tester, 'Plain DNS');
       expect(value, const WarpDnsSettings());
@@ -397,6 +405,23 @@ void main() {
       tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).dirty,
       isFalse,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('encrypted WARP DNS saves without server IP addresses', (
+    tester,
+  ) async {
+    final engine = ScopedDnsEngine();
+    final app = await advancedHost(tester, engine);
+    await fillEncryptedDraft(tester, app);
+    await tester.enterText(
+      fieldWithLabel(app.strings.get('nq_dns_bootstrap')),
+      '',
+    );
+    await applyAdvanced(tester);
+    expect(engine.savedFields, ['warp_dns']);
+    expect(app.activeProfile.warpDns.mode, WarpDnsMode.doh);
+    expect(app.activeProfile.warpDns.bootstrapIps, isEmpty);
     expect(tester.takeException(), isNull);
   });
 

@@ -1,4 +1,4 @@
-//! Explicit-bootstrap encrypted DNS with separate direct and final-exit connectors. No encrypted error branch can
+//! Encrypted DNS with separate direct and final-exit connectors. No encrypted error branch can
 //! invoke the system resolver, physical DNS discovery, or a port-53 fallback.
 
 use std::net::{IpAddr, SocketAddr};
@@ -57,6 +57,7 @@ enum DnsConnector {
     Final {
         dialer: Arc<dyn crate::tcp::TcpDialer>,
         budget: Arc<crate::l4::BufferBudget>,
+        bootstrap: Option<crate::dns::Resolver>,
     },
 }
 
@@ -74,8 +75,13 @@ pub(crate) struct FinalDohResolver {
     inner: Arc<EncryptedResolver>,
 }
 impl FinalDohResolver {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "WARP bootstrap adds the existing tunnel resolver to the encrypted DNS dependencies"
+    )]
     pub(crate) fn for_warp(
         settings: &usque_core::WarpDnsSettings,
+        bootstrap: crate::dns::Resolver,
         dialer: Arc<dyn crate::tcp::TcpDialer>,
         protector: Arc<dyn SocketProtector>,
         quality: NetworkQualityTelemetry,
@@ -85,16 +91,29 @@ impl FinalDohResolver {
         if !ENCRYPTED_DIRECT_DNS_ENABLED {
             return Err(DirectDnsError::Unsupported);
         }
-        Self::with_settings(
-            settings
-                .encrypted_settings()
-                .ok_or(DirectDnsError::InvalidConfiguration)?,
-            dialer,
-            protector,
-            quality,
-            cancellation,
-            budget,
-        )
+        let mut settings = settings.clone();
+        settings.canonicalize();
+        settings
+            .validate()
+            .map_err(|_| DirectDnsError::InvalidConfiguration)?;
+        let settings = settings
+            .encrypted_settings()
+            .ok_or(DirectDnsError::InvalidConfiguration)?;
+        let tls = encrypted_tls_config(settings.mode)?;
+        Ok(Arc::new(Self {
+            inner: EncryptedResolver::new(
+                settings,
+                protector,
+                quality,
+                cancellation,
+                tls,
+                DnsConnector::Final {
+                    dialer,
+                    budget,
+                    bootstrap: Some(bootstrap),
+                },
+            ),
+        }))
     }
     pub(crate) fn new(
         dialer: Arc<dyn crate::tcp::TcpDialer>,
@@ -137,7 +156,11 @@ impl FinalDohResolver {
             .validate()
             .map_err(|_| DirectDnsError::InvalidConfiguration)?;
         let tls = encrypted_tls_config(settings.mode)?;
-        let connector = DnsConnector::Final { dialer, budget };
+        let connector = DnsConnector::Final {
+            dialer,
+            budget,
+            bootstrap: None,
+        };
         Ok(Arc::new(Self {
             inner: EncryptedResolver::new(
                 settings,
@@ -803,9 +826,33 @@ impl EncryptedResolver {
         context: DirectDnsQueryContext,
         epoch: &CancellationToken,
     ) -> Result<Bytes, DirectDnsError> {
-        if matches!(self.connector, DnsConnector::Final { .. }) {
+        if let DnsConnector::Final { bootstrap, .. } = &self.connector {
+            let bootstrap_ips = if self.settings.bootstrap_ips.is_empty() {
+                let resolver = bootstrap
+                    .as_ref()
+                    .ok_or(DirectDnsError::BootstrapUnavailable)?;
+                let mut candidates = resolver
+                    .resolve_candidates(&self.settings.server_name, context.deadline)
+                    .map_err(|_| DirectDnsError::BootstrapUnavailable)?;
+                let mut addresses = Vec::new();
+                while let Some(result) = candidates.next().await {
+                    if let Ok(mut values) = result
+                        && !values.is_empty()
+                    {
+                        values.truncate(usque_core::config::MAX_DIRECT_DNS_BOOTSTRAP_IPS);
+                        addresses = values;
+                        break;
+                    }
+                }
+                if addresses.is_empty() {
+                    return Err(DirectDnsError::BootstrapUnavailable);
+                }
+                addresses
+            } else {
+                self.settings.bootstrap_ips.clone()
+            };
             return crate::final_dns::query_doh(
-                &self.settings.bootstrap_ips,
+                &bootstrap_ips,
                 context.deadline,
                 |ip, deadline| {
                     let query = query.clone();

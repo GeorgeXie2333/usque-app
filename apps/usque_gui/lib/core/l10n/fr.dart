@@ -1,6 +1,7 @@
 /// French UI catalog.
 const Map<String, String> kFrCatalog = <String, String>{
   'warp_dns_type': 'DNS WARP',
+  'warp_dns_bootstrap_optional': 'Facultatif',
   'warp_dns_plain': 'DNS classique',
   'warp_dns_unsupported': 'DNS chiffré indisponible',
   'warp_dns_invalid_mode': 'Type DNS non pris en charge',

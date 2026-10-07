@@ -1580,6 +1580,7 @@ impl FinalHarness {
                 "1.1.1.1".parse().unwrap(),
                 "2606:4700:4700::1111".parse().unwrap(),
             ],
+            None,
         )
     }
     fn for_endpoints(
@@ -1588,6 +1589,7 @@ impl FinalHarness {
         backup: Behavior,
         trusted: bool,
         bootstrap_ips: Vec<IpAddr>,
+        bootstrap: Option<crate::dns::Resolver>,
     ) -> Self {
         let (server, tls) = test_certificates(
             mode,
@@ -1641,6 +1643,7 @@ impl FinalHarness {
             DnsConnector::Final {
                 dialer: dialer.clone(),
                 budget: budget.clone(),
+                bootstrap,
             },
         );
         Self {
@@ -1980,8 +1983,14 @@ async fn encrypted_candidate_pools_can_try_all_eight_configured_endpoints() {
         let ips = (1..=8)
             .map(|last| IpAddr::V4(Ipv4Addr::new(192, 0, 2, last)))
             .collect();
-        let harness =
-            FinalHarness::for_endpoints(mode, Behavior::Servfail, Behavior::Servfail, true, ips);
+        let harness = FinalHarness::for_endpoints(
+            mode,
+            Behavior::Servfail,
+            Behavior::Servfail,
+            true,
+            ips,
+            None,
+        );
         assert!(
             harness
                 .resolver
@@ -1990,6 +1999,196 @@ async fn encrypted_candidate_pools_can_try_all_eight_configured_endpoints() {
                 .is_err()
         );
         assert_eq!(harness.dialer.targets.lock().unwrap().len(), 8);
+        harness.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn empty_warp_bootstrap_resolves_only_provider_through_memory_warp_dns() {
+    struct BootstrapDialer {
+        targets: Arc<StdMutex<Vec<crate::tcp::TcpTarget>>>,
+        questions: Arc<StdMutex<Vec<Vec<u8>>>>,
+        unavailable: Arc<AtomicBool>,
+        leases: Arc<LeaseCounts>,
+    }
+    #[async_trait]
+    impl crate::tcp::TcpDialer for BootstrapDialer {
+        async fn connect(
+            &self,
+            target: crate::tcp::TcpTarget,
+            _: Instant,
+            cancel: &CancellationToken,
+            class: crate::tcp::FlowClass,
+        ) -> Result<crate::tcp::TcpStream, crate::tcp::DialError> {
+            assert_eq!(class, crate::tcp::FlowClass::Dns);
+            assert_eq!(
+                target.socket_address(),
+                Some("192.0.2.53:53".parse().unwrap())
+            );
+            self.targets.lock().unwrap().push(target);
+            let (client, mut peer) = tokio::io::duplex(4096);
+            let questions = self.questions.clone();
+            let unavailable = self.unavailable.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                let serve = async {
+                    while let Ok(length) = peer.read_u16().await {
+                        let mut query = vec![0; usize::from(length)];
+                        if peer.read_exact(&mut query).await.is_err() {
+                            break;
+                        }
+                        assert_eq!(&query[12..query.len() - 4], b"\x08resolver\x04test\x00");
+                        questions.lock().unwrap().push(query.clone());
+                        let kind =
+                            u16::from_be_bytes([query[query.len() - 4], query[query.len() - 3]]);
+                        let behavior = if unavailable.load(Ordering::Acquire) {
+                            Behavior::Nxdomain
+                        } else {
+                            // A silent AAAA lookup must not consume the remaining TLS budget.
+                            if kind == 28 {
+                                pending::<()>().await;
+                            }
+                            Behavior::Echo
+                        };
+                        let response = test_response(&query, behavior);
+                        if peer.write_u16(response.len() as u16).await.is_err()
+                            || peer.write_all(&response).await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                };
+                tokio::select! { _ = cancel.cancelled() => {}, _ = serve => {} }
+            });
+            let active = self.leases.active.fetch_add(1, Ordering::AcqRel) + 1;
+            self.leases.peak.fetch_max(active, Ordering::AcqRel);
+            Ok(Box::new(FinalTestStream(client, self.leases.clone())))
+        }
+    }
+    for mode in [ConfigMode::Doh, ConfigMode::Dot] {
+        let protector = SpyProtector::new();
+        let cancel = CancellationToken::new();
+        let targets = Arc::new(StdMutex::new(Vec::new()));
+        let questions = Arc::new(StdMutex::new(Vec::new()));
+        let unavailable = Arc::new(AtomicBool::new(false));
+        let leases = Arc::new(LeaseCounts::default());
+        let dns = Arc::new(crate::dns_stream::StreamDns::new(
+            Arc::new(BootstrapDialer {
+                targets: targets.clone(),
+                questions: questions.clone(),
+                unavailable: unavailable.clone(),
+                leases: leases.clone(),
+            }),
+            protector.clone(),
+            cancel.clone(),
+            Arc::default(),
+        ));
+        let bootstrap = crate::dns::Resolver::for_streams(
+            dns.clone(),
+            vec!["192.0.2.53".parse().unwrap()],
+            usque_core::ProxyDnsMode::Remote,
+            protector.clone(),
+        );
+        let settings = usque_core::WarpDnsSettings {
+            mode: if mode == ConfigMode::Doh {
+                usque_core::WarpDnsMode::Doh
+            } else {
+                usque_core::WarpDnsMode::Dot
+            },
+            server_name: "resolver.test".into(),
+            ..Default::default()
+        };
+        let constructed = FinalDohResolver::for_warp(
+            &settings,
+            bootstrap.clone(),
+            Arc::new(BootstrapDialer {
+                targets: targets.clone(),
+                questions: questions.clone(),
+                unavailable: unavailable.clone(),
+                leases: leases.clone(),
+            }),
+            protector.clone(),
+            NetworkQualityTelemetry::default(),
+            &cancel,
+            Arc::new(crate::l4::BufferBudget::new(
+                2 * 1024 * 1024,
+                Arc::default(),
+                Arc::new(Notify::new()),
+            )),
+        )
+        .unwrap();
+        assert!(
+            targets.lock().unwrap().is_empty(),
+            "construction must not query DNS"
+        );
+        drop(constructed);
+        let harness = FinalHarness::for_endpoints(
+            mode,
+            Behavior::Echo,
+            Behavior::Echo,
+            true,
+            vec![],
+            Some(bootstrap),
+        );
+        assert!(
+            targets.lock().unwrap().is_empty(),
+            "construction must not query DNS"
+        );
+        for id in [43, 44] {
+            let query = test_query(id);
+            let started = Instant::now();
+            assert_eq!(
+                harness
+                    .resolver
+                    .query(&query, started + QUERY_TIMEOUT)
+                    .await
+                    .unwrap()
+                    .as_ref(),
+                test_response(&query, Behavior::Echo),
+            );
+            assert!(started.elapsed() < QUERY_TIMEOUT / 2);
+        }
+        {
+            let encrypted = harness.dialer.targets.lock().unwrap();
+            assert_eq!(
+                encrypted.len(),
+                1,
+                "resolved endpoint should reuse its TLS connection"
+            );
+            assert_eq!(
+                encrypted[0].socket_address(),
+                Some(SocketAddr::new(
+                    "192.0.2.17".parse().unwrap(),
+                    harness.dialer.port,
+                ))
+            );
+        }
+        assert_eq!(
+            questions
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|query| query[query.len() - 3] == 1)
+                .count(),
+            2,
+            "provider addresses are not cached"
+        );
+        unavailable.store(true, Ordering::Release);
+        assert_eq!(
+            harness
+                .resolver
+                .query(&test_query(45), Instant::now() + QUERY_TIMEOUT)
+                .await,
+            Err(DirectDnsError::BootstrapUnavailable),
+        );
+        assert_eq!(harness.dialer.targets.lock().unwrap().len(), 1);
+        assert!(
+            protector.calls.lock().unwrap().is_empty(),
+            "no physical DNS egress"
+        );
+        cancel.cancel();
+        dns.clear();
+        assert_eq!(leases.active.load(Ordering::Acquire), 0);
         harness.stop().await;
     }
 }

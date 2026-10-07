@@ -1,6 +1,7 @@
 /// Ukrainian UI catalog.
 const Map<String, String> kUkCatalog = <String, String>{
   'warp_dns_type': 'DNS WARP',
+  'warp_dns_bootstrap_optional': 'Необов’язково',
   'warp_dns_plain': 'Звичайний DNS',
   'warp_dns_unsupported': 'Шифрований DNS недоступний',
   'warp_dns_invalid_mode': 'Тип DNS не підтримується',

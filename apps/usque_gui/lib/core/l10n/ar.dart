@@ -1,6 +1,7 @@
 /// Arabic UI catalog.
 const Map<String, String> kArCatalog = <String, String>{
   'warp_dns_type': 'DNS ‏WARP',
+  'warp_dns_bootstrap_optional': 'اختياري',
   'warp_dns_plain': 'DNS عادي',
   'warp_dns_unsupported': 'DNS المشفر غير متاح',
   'warp_dns_invalid_mode': 'نوع DNS غير مدعوم',

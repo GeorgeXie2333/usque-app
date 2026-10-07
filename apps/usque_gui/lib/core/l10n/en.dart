@@ -1,6 +1,7 @@
 /// English UI catalog.
 const Map<String, String> kEnCatalog = <String, String>{
   'warp_dns_type': 'WARP DNS',
+  'warp_dns_bootstrap_optional': 'Optional',
   'warp_dns_plain': 'Plain DNS',
   'warp_dns_unsupported': 'Encrypted DNS unavailable',
   'warp_dns_invalid_mode': 'Unsupported DNS type',

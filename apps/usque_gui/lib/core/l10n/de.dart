@@ -1,6 +1,7 @@
 /// German UI catalog.
 const Map<String, String> kDeCatalog = <String, String>{
   'warp_dns_type': 'WARP-DNS',
+  'warp_dns_bootstrap_optional': 'Optional',
   'warp_dns_plain': 'Normales DNS',
   'warp_dns_unsupported': 'Verschlüsseltes DNS nicht verfügbar',
   'warp_dns_invalid_mode': 'DNS-Typ nicht unterstützt',

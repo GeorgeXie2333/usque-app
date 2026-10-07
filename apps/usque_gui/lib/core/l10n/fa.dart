@@ -1,6 +1,7 @@
 /// Persian UI catalog.
 const Map<String, String> kFaCatalog = <String, String>{
   'warp_dns_type': 'DNS ‏WARP',
+  'warp_dns_bootstrap_optional': 'اختیاری',
   'warp_dns_plain': 'DNS معمولی',
   'warp_dns_unsupported': 'DNS رمزگذاری‌شده در دسترس نیست',
   'warp_dns_invalid_mode': 'نوع DNS پشتیبانی نمی‌شود',

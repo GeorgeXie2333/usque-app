@@ -5,18 +5,19 @@
 Open **Settings → Advanced → IP & DNS** and choose the WARP DNS type.
 **Plain DNS** keeps the existing IPv4 and IPv6 resolver addresses. For
 **DNS over HTTPS** (DoH) or **DNS over TLS** (DoT), enter the provider's server
-name and numeric bootstrap IP addresses.
+name. Numeric bootstrap IP addresses are optional; when omitted, the server name
+is resolved using the configured Plain DNS servers inside WARP.
 The server name must match its TLS certificate. DoH also needs a request path;
 the defaults are `/dns-query` and port `443`. DoT defaults to port `853`.
-Use the provider's published values; bootstrap addresses are not discovered
-through another DNS service. Select **Apply changes** to save and apply the
+Use the provider's published values. Select **Apply changes** to save and apply the
 configuration. Changing a connected session's DNS reconnects that session.
 
 打开**设置 → 高级设置 → IP 与 DNS**，选择 WARP DNS 类型。**普通 DNS**
-保留原 IPv4、IPv6 服务器地址；**DNS over HTTPS**、**DNS over TLS** 填写服务商的服务器域名和引导
-IP 地址。域名必须与 TLS 证书匹配。DoH 还需填写路径，默认 `/dns-query`、端口
-`443`；DoT 默认端口 `853`。按服务商公布的信息填写，程序不会通过其他 DNS
-服务查找引导地址。点击**应用更改**保存并生效；已连接时更改 DNS 会重新连接。
+保留原 IPv4、IPv6 服务器地址；**DNS over HTTPS**、**DNS over TLS** 填写服务商的服务器域名，
+引导 IP 地址可选，留空时通过 WARP 内配置的普通 DNS 解析服务器域名。
+域名必须与 TLS 证书匹配。DoH 还需填写路径，默认 `/dns-query`、端口
+`443`；DoT 默认端口 `853`。按服务商公布的信息填写。
+点击**应用更改**保存并生效；已连接时更改 DNS 会重新连接。
 
 Switching types retains the draft fields while this page is open. Only the
 selected type is applied. Resetting Advanced settings selects Plain DNS in the

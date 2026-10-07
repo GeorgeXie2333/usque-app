@@ -258,12 +258,13 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
             maxLength: 512,
             decoration: InputDecoration(
               labelText: s.get('nq_dns_bootstrap'),
+              hintText: s.get('warp_dns_bootstrap_optional'),
               counterText: '',
               errorMaxLines: 3,
             ),
             onChanged: _emit,
             validator: (value) {
-              if (!editable) return null;
+              if (!editable || (value ?? '').trim().isEmpty) return null;
               final issue = directDnsBootstrapError(value ?? '');
               return issue == null
                   ? null

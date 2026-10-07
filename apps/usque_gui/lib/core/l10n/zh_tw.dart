@@ -1,6 +1,7 @@
 /// Traditional Chinese (Taiwan) UI catalog.
 const Map<String, String> kZhTwCatalog = <String, String>{
   'warp_dns_type': 'WARP DNS',
+  'warp_dns_bootstrap_optional': '選填',
   'warp_dns_plain': '一般 DNS',
   'warp_dns_unsupported': '暫不支援加密 DNS',
   'warp_dns_invalid_mode': '不支援的 DNS 類型',

@@ -229,6 +229,12 @@ impl L4Runtime {
             doh = Some(
                 crate::encrypted_dns::FinalDohResolver::for_warp(
                     &profile.warp_dns,
+                    Resolver::for_streams(
+                        dns.clone(),
+                        profile.dns_servers.clone(),
+                        ProxyDnsMode::Remote,
+                        protector.clone(),
+                    ),
                     dialer.clone(),
                     protector.clone(),
                     quality.clone(),

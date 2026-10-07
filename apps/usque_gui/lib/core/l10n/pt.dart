@@ -1,6 +1,7 @@
 /// Portuguese (Brazil) UI catalog.
 const Map<String, String> kPtCatalog = <String, String>{
   'warp_dns_type': 'DNS do WARP',
+  'warp_dns_bootstrap_optional': 'Opcional',
   'warp_dns_plain': 'DNS comum',
   'warp_dns_unsupported': 'DNS criptografado indisponível',
   'warp_dns_invalid_mode': 'Tipo de DNS não compatível',

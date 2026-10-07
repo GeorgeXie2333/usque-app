@@ -1,6 +1,7 @@
 /// Italian UI catalog.
 const Map<String, String> kItCatalog = <String, String>{
   'warp_dns_type': 'DNS WARP',
+  'warp_dns_bootstrap_optional': 'Facoltativo',
   'warp_dns_plain': 'DNS normale',
   'warp_dns_unsupported': 'DNS crittografato non disponibile',
   'warp_dns_invalid_mode': 'Tipo DNS non supportato',

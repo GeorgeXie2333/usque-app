@@ -1,6 +1,7 @@
 /// Thai UI catalog.
 const Map<String, String> kThCatalog = <String, String>{
   'warp_dns_type': 'DNS ของ WARP',
+  'warp_dns_bootstrap_optional': 'ไม่บังคับ',
   'warp_dns_plain': 'DNS ปกติ',
   'warp_dns_unsupported': 'DNS แบบเข้ารหัสไม่พร้อมใช้งาน',
   'warp_dns_invalid_mode': 'ไม่รองรับประเภท DNS นี้',

@@ -386,6 +386,14 @@ impl PacketStack {
         self.warp_dns = Some(
             crate::encrypted_dns::FinalDohResolver::for_warp(
                 &profile.warp_dns,
+                crate::dns::Resolver::new(
+                    self.channel.clone(),
+                    ipv4,
+                    ipv6,
+                    profile.dns_servers.clone(),
+                    usque_core::ProxyDnsMode::Remote,
+                    self.protector.clone(),
+                ),
                 dialer,
                 self.protector.clone(),
                 self.telemetry.network_quality(),

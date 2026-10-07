@@ -1,6 +1,7 @@
 /// Spanish UI catalog.
 const Map<String, String> kEsCatalog = <String, String>{
   'warp_dns_type': 'DNS de WARP',
+  'warp_dns_bootstrap_optional': 'Opcional',
   'warp_dns_plain': 'DNS normal',
   'warp_dns_unsupported': 'DNS cifrado no disponible',
   'warp_dns_invalid_mode': 'Tipo DNS no compatible',

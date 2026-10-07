@@ -940,19 +940,23 @@ impl WarpDnsSettings {
                 Err(ConfigError::NonCanonicalPlainWarpDns)
             };
         };
-        settings.validate().map_err(|error| match error {
-            ConfigError::InvalidDirectDnsServerName => ConfigError::InvalidWarpDnsServerName,
-            ConfigError::InvalidDirectDnsPort => ConfigError::InvalidWarpDnsPort,
-            ConfigError::MissingDirectDnsBootstrapIp => ConfigError::MissingWarpDnsBootstrapIp,
-            ConfigError::TooManyDirectDnsBootstrapIps(count) => {
-                ConfigError::TooManyWarpDnsBootstrapIps(count)
-            }
-            ConfigError::DuplicateDirectDnsBootstrapIp => ConfigError::DuplicateWarpDnsBootstrapIp,
-            ConfigError::InvalidDirectDnsBootstrapIp => ConfigError::InvalidWarpDnsBootstrapIp,
-            ConfigError::InvalidDirectDnsDohPath => ConfigError::InvalidWarpDnsDohPath,
-            ConfigError::DirectDnsDotPathForbidden => ConfigError::WarpDnsDotPathForbidden,
-            other => other,
-        })
+        settings
+            .validate_with_bootstrap(false)
+            .map_err(|error| match error {
+                ConfigError::InvalidDirectDnsServerName => ConfigError::InvalidWarpDnsServerName,
+                ConfigError::InvalidDirectDnsPort => ConfigError::InvalidWarpDnsPort,
+                ConfigError::MissingDirectDnsBootstrapIp => ConfigError::MissingWarpDnsBootstrapIp,
+                ConfigError::TooManyDirectDnsBootstrapIps(count) => {
+                    ConfigError::TooManyWarpDnsBootstrapIps(count)
+                }
+                ConfigError::DuplicateDirectDnsBootstrapIp => {
+                    ConfigError::DuplicateWarpDnsBootstrapIp
+                }
+                ConfigError::InvalidDirectDnsBootstrapIp => ConfigError::InvalidWarpDnsBootstrapIp,
+                ConfigError::InvalidDirectDnsDohPath => ConfigError::InvalidWarpDnsDohPath,
+                ConfigError::DirectDnsDotPathForbidden => ConfigError::WarpDnsDotPathForbidden,
+                other => other,
+            })
     }
 }
 
@@ -1058,6 +1062,10 @@ impl DirectDnsSettings {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        self.validate_with_bootstrap(true)
+    }
+
+    fn validate_with_bootstrap(&self, required: bool) -> Result<(), ConfigError> {
         if self.mode == DirectDnsMode::PhysicalSystem {
             if self != &Self::default() {
                 return Err(ConfigError::NonCanonicalPhysicalDirectDns);
@@ -1070,7 +1078,7 @@ impl DirectDnsSettings {
         if self.port == 0 {
             return Err(ConfigError::InvalidDirectDnsPort);
         }
-        if self.bootstrap_ips.is_empty() {
+        if required && self.bootstrap_ips.is_empty() {
             return Err(ConfigError::MissingDirectDnsBootstrapIp);
         }
         if self.bootstrap_ips.len() > MAX_DIRECT_DNS_BOOTSTRAP_IPS {

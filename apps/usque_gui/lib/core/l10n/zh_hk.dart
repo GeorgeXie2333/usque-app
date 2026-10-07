@@ -1,6 +1,7 @@
 /// Traditional Chinese (Hong Kong) UI catalog.
 const Map<String, String> kZhHkCatalog = <String, String>{
   'warp_dns_type': 'WARP DNS',
+  'warp_dns_bootstrap_optional': '可選',
   'warp_dns_plain': '普通 DNS',
   'warp_dns_unsupported': '暫不支援加密 DNS',
   'warp_dns_invalid_mode': '不支援的 DNS 類型',

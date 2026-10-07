@@ -1,6 +1,7 @@
 /// Russian UI catalog.
 const Map<String, String> kRuCatalog = <String, String>{
   'warp_dns_type': 'DNS WARP',
+  'warp_dns_bootstrap_optional': 'Необязательно',
   'warp_dns_plain': 'Обычный DNS',
   'warp_dns_unsupported': 'Шифрованный DNS недоступен',
   'warp_dns_invalid_mode': 'Тип DNS не поддерживается',

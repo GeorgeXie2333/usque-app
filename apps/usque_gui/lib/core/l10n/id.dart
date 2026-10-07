@@ -1,6 +1,7 @@
 /// Indonesian UI catalog.
 const Map<String, String> kIdCatalog = <String, String>{
   'warp_dns_type': 'DNS WARP',
+  'warp_dns_bootstrap_optional': 'Opsional',
   'warp_dns_plain': 'DNS biasa',
   'warp_dns_unsupported': 'DNS terenkripsi tidak tersedia',
   'warp_dns_invalid_mode': 'Jenis DNS tidak didukung',
