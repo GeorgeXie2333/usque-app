@@ -8,8 +8,8 @@
 namespace usque {
 
 // Logical client size, including the Flutter-drawn caption.
-inline constexpr int kDefaultWindowWidth = 1200;
-inline constexpr int kDefaultWindowHeight = 840;
+inline constexpr int kDefaultWindowWidth = 1020;
+inline constexpr int kDefaultWindowHeight = 728;
 
 // Physical pixels. Keep the initial window and its minimum tracking size
 // inside the monitor's usable area, including at high DPI or above a taskbar.
