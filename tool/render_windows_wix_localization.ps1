@@ -28,7 +28,7 @@ if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
     throw "WiX localization source is not a file: $source"
 }
 
-[xml]$document = Get-Content -LiteralPath $source -Raw
+[xml]$document = Get-Content -LiteralPath $source -Raw -Encoding UTF8
 $actualCulture = [string]$document.WixLocalization.Culture
 if (-not [StringComparer]::OrdinalIgnoreCase.Equals($actualCulture, $ExpectedCulture)) {
     throw "WiX localization culture mismatch in $source. Expected $ExpectedCulture, got $actualCulture."
@@ -75,8 +75,12 @@ foreach ($id in $requiredIds) {
 # The MSI fallback and the native setup/uninstall windows use the same action
 # descriptions. Keep the existing WixUI localization dictionary independent.
 $setupPath = Join-Path $PSScriptRoot "../packaging/windows/setup/strings.json"
-$setupCatalog = Get-Content -LiteralPath $setupPath -Raw | ConvertFrom-Json -AsHashtable
-if (-not $setupCatalog.ContainsKey($ExpectedCulture)) {
+# Windows PowerShell 5.1 reads JSON as the ANSI code page unless UTF-8 is
+# explicit, and it has no ConvertFrom-Json -AsHashtable. Local MSI builds
+# run under powershell.exe.
+$setupCatalog = Get-Content -LiteralPath $setupPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$cultureStrings = $setupCatalog.$ExpectedCulture
+if ($null -eq $cultureStrings) {
     throw "Missing shared setup language: $ExpectedCulture"
 }
 $progressCopy = @{
@@ -86,7 +90,7 @@ $progressCopy = @{
 }
 foreach ($id in ($progressCopy.Keys | Sort-Object)) {
     $key = $progressCopy[$id]
-    $value = [string]$setupCatalog[$ExpectedCulture][$key]
+    $value = [string]$cultureStrings.$key
     if ([string]::IsNullOrWhiteSpace($value) -or $value.Contains("?>")) {
         throw "Invalid shared setup action text: $ExpectedCulture/$key"
     }
