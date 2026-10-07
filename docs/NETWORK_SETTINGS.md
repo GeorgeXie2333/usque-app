@@ -331,9 +331,13 @@ Desktop account commits preserve the latest network settings. Credential I/O,
 network requests, runtime shutdown, and TUN operations stay outside the store
 transaction.
 
-Settings operation tracking does not add a configuration schema version; the
-current schema is 21. Schema 19 adds bypass domains, schema 20 preserves legacy
-endpoints in Custom mode, and schema 21 adds resumable initial-identity state. Schema 23 retains registered ZT addresses and adds an optional account-specific endpoint override.
+Settings operation tracking does not add a configuration schema version. The
+current [configuration schema](../crates/usque-core/src/config/mod.rs) is 23.
+Schema 19 adds bypass domains, schema 20 preserves legacy endpoints in Custom
+mode, schema 21 adds resumable initial-identity state, and schema 22 adds WARP
+DNS. Schema 23 adds an optional account-specific Zero Trust endpoint override;
+registered addresses remain identity catalog metadata. See the
+[migration implementation](../crates/usque-core/src/storage.rs).
 Epochs, sequences, operation IDs, and network-settings application
 state are in memory and do not create a durable operation log. Passwords are
 removed from published profiles. This change does not relax Kill Switch, TUN retention,

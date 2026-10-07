@@ -360,7 +360,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Revisa problemas de conexión, exporta registros y administra los datos locales.',
   'engine_status': 'Información de conexión',
   'version': 'Versión',
-  'app_version': 'Usque 0.2.9',
+  'app_version': 'Usque 0.3.0',
   'logs': 'Registros locales',
   'export_diagnostics': 'Exportar paquete de diagnóstico',
   'diagnostics_saved': 'Paquete de diagnóstico guardado en',

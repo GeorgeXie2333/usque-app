@@ -183,9 +183,9 @@ physical-system DNS. Users may explicitly change the Profile themselves.
 
 #### Profile/config schema 13 (introduction)
 
-Direct DNS was introduced in configuration schema 13; the current schema is 21,
-and later migrations keep these fields.
-`AppConfig.shared_network.direct_dns` is hydrated into each account's runtime
+Direct DNS was introduced in configuration schema 13; later
+[configuration migrations](../crates/usque-core/src/storage.rs) keep these fields.
+`AppConfig.network.direct_dns` is hydrated into each account's runtime
 Profile. Old schema-12 configurations and missing protobuf Profile field 17
 canonicalize to System. Shared settings, not per-account endpoint overlays,
 select DNS. `DirectDnsSettings` wire fields 1–5 are mode, server name, DoH path,

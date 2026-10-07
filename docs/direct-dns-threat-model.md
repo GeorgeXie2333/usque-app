@@ -14,7 +14,7 @@ Root `SECURITY.md` is the applicable policy; no nested policy was found.
 
 Behavior notes follow the current development source, including HTTP/SOCKS5
 chain DNS. They do not extend the recorded independent review or turn its
-candidate-specific evidence into v0.2.9 leak validation. HTTP/SOCKS5 Automatic
+candidate-specific evidence into leak validation for a later release. HTTP/SOCKS5 Automatic
 chain DNS defaults to Cloudflare® DoH over verified TLS through the final proxy;
 custom or non-default inherited DNS retains TCP DNS. That final proxy and DNS
 provider have separate visibility from an explicitly direct resolver. A chosen

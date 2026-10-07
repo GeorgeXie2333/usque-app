@@ -17,10 +17,12 @@ A v1.0.0 change of signing identity is a separate release. Until then, the pre-1
 
 ## Android developer verification
 
-The Android package name `io.github.georgexie2333.usque` and current official
-release certificate are registered to a verified developer identity through
-Android developer verification. Registration records package-name and signing-key
-ownership; it is not an app-content review or Google Play distribution.
+Official Android releases require the package name
+`io.github.georgexie2333.usque` and current official release certificate to be
+registered to a verified developer identity through Android developer
+verification. Registration records package-name and signing-key ownership; it
+is not an app-content review or Google Play distribution. This document does
+not verify the live console registration state.
 
 Every official Android release must use that application ID and the certificate
 identified by `ANDROID_SIGNER_SHA256`, and that pair must remain **Registered**
@@ -59,6 +61,16 @@ Public fingerprints are repository or environment variables (`WINDOWS_SIGNER_SHA
 
 Only the release maintainer may approve `release-signing` and `release-publish`. A local bundle, MSI, or APK cannot replace a failed or missing GitHub Actions build.
 
+For `v0.3.0`, retain both pre-1.0 identities. Before approving signing, confirm
+the live environment protection settings, the two public certificate
+fingerprints, and Android's **Registered** application-ID/certificate pair.
+Before approving publication, review the exact tagged commit and staged
+`release-manifest.json`; its eight package names, sizes, SHA-256 values and
+signer fingerprints must describe the candidate produced by that release run.
+A documentation review, a previous release's signatures or a local compile is
+not that evidence. The coordinated `v0.3.0` contract and required checks are
+described in [Preparing v0.3.0](RELEASE.md#preparing-v030).
+
 ## What users should check
 
 Follow [Verify before installing](INSTALLATION.md#verify-before-installing) for
@@ -70,7 +82,11 @@ shows how to verify GitHub's build attestation.
 
 Do not import a signing certificate from an unofficial package, and do not turn off antivirus or the firewall to make an installer run.
 
-On Windows, after install, the Agent accepts the official self-signed identity only when Windows has checked the Authenticode digest and the certificate fingerprint matches the packaged value. Any other chain result is rejected.
+On Windows, after install, the Agent accepts the official self-signed identity
+only when Windows has checked the Authenticode digest and signature, the chain
+result is success (`0`) or the expected `CERT_E_UNTRUSTEDROOT`, and the
+certificate's DER SHA-256 matches the packaged value. Every other trust result
+is rejected; success never bypasses the fixed fingerprint check.
 
 ## Rotation and compromise
 

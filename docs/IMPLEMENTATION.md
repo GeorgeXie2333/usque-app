@@ -17,31 +17,38 @@ The [documentation index](README.md) separates current contracts from historical
 records. [Reliability testing](RELIABILITY_TESTING.md) defines environments and
 evidence requirements; [Release process](RELEASE.md) defines publication.
 
-## Changes in the v0.2.9 source
+## Source changes prepared for v0.3.0
 
-The changes since v0.2.8 add [HTTP/SOCKS5 chain exits](CHAIN_PROXY.md),
-[custom CIDR, IP and domain bypass targets](encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标),
-and [automatic endpoint racing](NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点).
-HTTP/SOCKS chain DNS defaults to verified DoH through the final proxy, with
-explicit TCP and application-selected resolver behavior documented separately.
-Android implements network-handoff recovery and protected interface handoffs;
-Windows journals [protected operation replacement](NETWORK_SETTINGS.md#protected-windows-operation-replacement).
+Since v0.2.9, the source adds [WARP exit DoH/DoT](WARP_DNS.md) and
+[confirmed Zero Trust endpoint editing](NETWORK_SETTINGS.md#zero-trust-endpoint-editing--zero-trust-端点编辑),
+including a persistent Home warning for custom Zero Trust addresses. These
+features retain separate WARP, direct and final-chain DNS policies, strict TLS,
+and endpoint public-key pin checks.
 
-[First-run setup](INSTALLATION.md#android-and-android-tv) requires Android VPN
-consent without starting a connection and reconciles interrupted initial-account
-operations. [GUI development](../apps/usque_gui/README.md) describes the revised
-Home, output controls and section navigation.
-[Diagnostics](diagnostics-observability.md) uses typed evidence, retained session
-timelines and bounded log owners. [Linux development](LINUX_DEVELOPMENT.md) adds
-native editing and a simulated UI preview, not a released Linux VPN client.
-The root product overview is now available in English, Simplified Chinese,
-Japanese, Korean, Russian and Persian.
+Windows adds a native localized setup and uninstall experience, tray status,
+background connection notices, restored window placement and desktop shortcuts.
+[Installation](INSTALLATION.md), [Windows lifecycle](windows-lifecycle.md) and
+[GUI development](../apps/usque_gui/README.md) describe their behavior. Home
+refines exit details and 60-second traffic charts; brand assets and screenshots
+have been refreshed across the supported Windows and Android surfaces.
 
-The source uses configuration schema 21 and recovery journal schema 5; Agent
-protocol remains 3 and recovery exports remain schema 2. These are implementation
-facts, not evidence that the candidate passed native lifecycle, leak or
-performance validation. The executable release target is v0.2.9 and requires
-the [coordinated version checks](RELEASE.md#preparing-v029).
+Android ordinary CONNECT-IP recovery can wait for a newer usable physical
+network after a socket-protection failure in an established session and
+confirmed cleanup. Initial-startup and chain failure policies remain distinct;
+see [H3 client reliability](h3-client-reliability.md). Chain UDP receive handling
+and the userspace netstack have also changed. Source changes alone do not
+establish throughput, leak prevention or native lifecycle results.
+
+The source uses configuration schema 23: schema 22 adds WARP DNS and schema 23
+adds per-account Zero Trust endpoint overrides. Recovery journal schema 5,
+Agent protocol 3 and recovery export schema 2 remain unchanged. A v0.2.9 client
+cannot read a configuration migrated beyond its schema 21 support.
+
+v0.3.0 is the preparation target. The executable version metadata and tag
+workflow still accept v0.2.9 until the coordinated version change is made.
+Use [release preparation](RELEASE.md#preparing-v030) and the
+[v0.3.0 readiness review](RELEASE_V0.3.0_READINESS.md) for open requirements;
+this checklist is not candidate-bound execution evidence.
 
 ## Architecture
 
@@ -193,7 +200,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 
 - [x] Responsive Home, Accounts, Proxy, Settings, Advanced, and Diagnostics/About pages.
 - [x] Four-step permissions, terms, and Consumer WARP or experimental Zero Trust identity onboarding.
-- [x] White/orange visual system, dark mode, and Lucide-only interface icons.
+- [x] White/orange visual system, dark mode, Lucide controls and bundled protocol, flag and brand assets.
 - [x] Exact default endpoints, SNI, MTU, DNS, listener addresses, and reset action.
 - [x] Composable VPN/SOCKS5/HTTP outputs, Windows system-proxy dependency, and non-loopback listener warning.
 - [x] Remote/custom/system Proxy DNS selection with dedicated IPv4/IPv6 servers and an explicit local-DNS leak warning.
@@ -210,10 +217,10 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Add shared network-output toggles across accounts, runtime-aware frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
 - [x] Validate and explicitly apply proxy drafts, report local save outcomes, guard unapplied advanced edits, and keep apply actions visible while scrolling.
 - [x] Apply online output changes through a rollback-capable desktop reconnect or one controlled Android reconnect.
-- [x] Keep the MASQUE session across SOCKS/HTTP listener changes, Windows system-proxy lease changes, and VPN attach/detach when GEO routing is disabled; reconnect when a mode-dependent GEO gateway must be rebuilt; advertise `hot_reconfigure`.
+- [x] Keep the MASQUE session across supported SOCKS/HTTP listener and Windows system-proxy lease changes; classify VPN attach/detach with the [core reconfiguration rules](../crates/usque-core/src/reconfigure.rs). Reconnect for mode-dependent routing, DNS or protection changes; advertise `hot_reconfigure`.
 - [x] Surface real Kill Switch / Always-on / Lockdown state on Home and wire Retry to the existing control retry path.
 - [x] Honor profile `auto_connect` once at process start (and Android boot when start-on-boot is also on).
-- [x] Replace controlled reconnects with true no-drop frontend hot mutation while retaining the same MASQUE channel.
+- [x] Apply supported frontend changes while retaining the same MASQUE channel. Replaced SOCKS/HTTP listeners close their existing client flows; retaining the underlay does not guarantee uninterrupted application traffic.
 - [x] Render bundled Flagpedia PNG flags by country code in Home, VPN Gate and Geo direct settings. Exit probes fetch only IP and location data; legacy flag wire fields remain compatible. See [country flag resources](COUNTRY_FLAGS.md).
 - [x] Add diagnostics content review plus Windows and Android native save pickers; exported bundles contain bounded sanitized summaries and logs.
 - [x] Add manual and rate-limited automatic GitHub release checks without automatic installation.

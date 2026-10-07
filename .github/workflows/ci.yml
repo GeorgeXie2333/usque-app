@@ -463,12 +463,12 @@ jobs:
       - name: Test fail-closed artifact contract
         run: python -m unittest discover -s tool -p "test_*.py" -v
 
-      - name: Verify v0.2.9 release version contract
+      - name: Verify v0.3.0 release version contract
         run: |
           python tool/release_contract.py verify-version \
             --root . \
-            --tag v0.2.9 \
-            --android-version-code 23
+            --tag v0.3.0 \
+            --android-version-code 24
 
   windows-installer-authoring:
     name: MSI authoring (${{ matrix.arch }})

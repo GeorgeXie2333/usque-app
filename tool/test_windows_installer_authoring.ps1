@@ -92,6 +92,12 @@ try {
     $stable = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "v0.2.9"
     $beta = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "0.2.9-beta.3"
     if ($stable -ne "0.2.999" -or $beta -ne "0.2.903") { throw "MSI version mapping is invalid." }
+    $nextStable = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "v0.3.0"
+    $nextBeta = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "0.3.0-beta.3"
+    if ($nextStable -ne "0.3.99" -or $nextBeta -ne "0.3.3" -or
+        [version]$nextStable -le [version]$stable) {
+        throw "Cross-minor MSI version mapping or upgrade ordering is invalid."
+    }
     $rejected = $false
     try { & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "0.2.9-beta.0" }
     catch { $rejected = $_.Exception.Message -like "Beta ordinal must be*" }

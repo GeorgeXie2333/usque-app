@@ -5,36 +5,39 @@ Technical changes block, such as the configuration schema, Agent protocol,
 recovery journal and recovery export schema numbers, against the source. Keep
 English first and put the Simplified Chinese translation immediately below the
 matching English text.
+This template describes the source changes after v0.2.9 for v0.3.0.
+The workflow and application version surfaces target v0.3.0;
+rendering this template does not establish that the release is approved.
 -->
 
 ## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 
-Usque {{release_tag}} is a feature and reliability release that adds HTTP and SOCKS5 chain exits, custom bypass targets and automatic endpoint selection, and improves connection recovery, first-run setup and local diagnostics.
+Usque {{release_tag}} is a feature and reliability release that adds custom WARP encrypted DNS, experimental Zero Trust endpoint editing, native Windows setup and removal interfaces, and desktop controls. It also refreshes Home and branding and fixes Android recovery and chain UDP receive handling.
 
-Usque {{release_tag}} 是一个功能与可靠性版本，新增 HTTP 与 SOCKS5 链式出口、自定义绕过目标和自动端点选择，并改进连接恢复、首次引导与本地诊断。
+Usque {{release_tag}} 是一个功能与可靠性版本，新增自定义 WARP 加密 DNS、实验性 Zero Trust 端点编辑、原生 Windows 安装卸载界面与桌面操作功能，并更新首页和品牌视觉，修复 Android 恢复及链式 UDP 接收处理。
 
 ## Highlights / 更新亮点 ✨
 
-- **HTTP and SOCKS5 chain exits** — Add a proxy server in Proxy → Chain proxy alongside OpenVPN, WireGuard, WARP® via WireGuard and VPN Gate. The final proxy connects through the WARP tunnel and supports optional username/password authentication. Automatic chain DNS uses encrypted DoH by default; ordinary UDP depends on the exit's capabilities.
-  <br>**HTTP 与 SOCKS5 链式出口** — 在“代理 → 链式代理”添加代理服务器，与 OpenVPN、WireGuard、WARP via WireGuard 和 VPN Gate 一起选用。最终代理通过 WARP 隧道连接，可选用户名与密码认证。自动链 DNS 默认使用加密 DoH；普通 UDP 是否可用取决于出口能力。
+- **Custom WARP DNS** — In Settings → Advanced network settings → IP & DNS, choose Plain DNS, DoH or DoT, then Apply changes. Encrypted queries use numeric bootstrap addresses and strict TLS inside the WARP session; failure does not fall back to physical or plaintext DNS. Direct DNS and the final chain exit retain their own policies.
+  <br>**自定义 WARP DNS** — 在“设置 → 高级网络设置 → IP 与 DNS”选择普通 DNS、DoH 或 DoT，再点击“应用修改”。加密查询使用 IP 引导地址并严格校验 TLS，在 WARP 会话内完成；失败时不会回退到本机或明文 DNS。直连 DNS 和最终链式出口保留各自策略。
 
-- **Custom bypass targets** — Enter CIDRs, individual IP addresses or domains in Settings → bypass settings, then apply. Domains include their subdomains and work without downloading country rules. These are explicit direct-traffic exceptions, shared across accounts.
-  <br>**自定义绕过目标** — 在“设置 → 绕过分流设置”填写 CIDR、单个 IP 或域名并应用。域名包含其子域名，无需下载国家规则即可使用。这些规则是明确的直连例外，由所有账号共用。
+- **Experimental Zero Trust endpoint editing** — Confirm the risk and your authorization before editing an account's IPv4/IPv6 entry addresses. Home keeps a visible warning while saved or active custom endpoints remain. Reset or a successful sign-in restores registered addresses; TLS and endpoint public-key checks still apply.
+  <br>**实验性 Zero Trust 端点编辑** — 确认风险及使用授权后，可编辑当前账号的 IPv4/IPv6 入口地址。已保存或仍在使用自定义端点时，首页持续显示风险提示。恢复默认或成功重新登录会还原注册地址；TLS 与端点公钥校验仍然生效。
 
-- **Automatic endpoint selection** — New installations race eligible Consumer endpoints and reuse the first authenticated, pinned connection. Existing settings keep Custom mode and their saved addresses. Choose Automatic or Custom in Advanced network settings; port and SNI remain editable.
-  <br>**自动端点选择** — 新安装并发尝试个人版账号可用端点，复用最先完成认证与 Pin 校验的连接。升级保留自定义模式及已保存地址。在高级网络设置选择“自动选择”或“自定义”，端口与 SNI 仍可编辑。
+- **Native Windows setup and removal** — The 21-language setup window shows installation, upgrade and completion in one interface. Completion offers current-user desktop shortcut and login-startup choices. Uninstall keeps its window open for progress, file-use questions and results; personal-data deletion stays off by default.
+  <br>**原生 Windows 安装与卸载** — 21 种语言的安装界面集中展示安装、升级及完成状态，完成后可选择当前用户的桌面快捷方式和登录启动。卸载窗口持续显示进度、文件占用问题与结果；默认不删除个人数据。
 
-- **Clearer Home and section navigation** — Home simplifies connection details and uses the shared 60-second traffic history. Proxy holds the TUN/VPN, SOCKS5, HTTP and Windows system-proxy switches; Settings groups protection, routing, tools and preferences. Subpages keep desktop section navigation and guard unapplied edits.
-  <br>**首页与分区导航调整** — 首页简化连接详情并使用共用的最近 60 秒流量记录。“代理”集中提供虚拟网卡／VPN、SOCKS5、HTTP 与 Windows 系统代理开关；“设置”按保护、分流、工具与偏好分组。桌面子页面保留分区导航，离开前提示未应用的修改。
+- **Windows tray, notices and shortcuts** — Tray status dots distinguish connecting, connected and error states, with TUN and system-proxy controls in the menu. Background connection notices respect Windows quiet hours. The app restores its window position and size and adds section, Back, Apply and Refresh keyboard shortcuts.
+  <br>**Windows 托盘、通知与快捷键** — 托盘状态点区分连接中、已连接及错误，菜单提供虚拟网卡和系统代理开关。后台连接通知遵守 Windows 免打扰设置；应用记住窗口位置和大小，并增加分区切换、返回、应用与刷新快捷键。
 
-- **Recovery and protected proxy handoffs** — Android improves ordinary WARP and chain recovery after physical-network changes. HTTP/SOCKS VPN startup, settings replacement and account handoffs retain blocking until the replacement is ready; terminal-failure retention follows the applied Kill Switch policy. Windows retains a journaled guard through protected tunnel replacement.
-  <br>**连接恢复与代理交接保护** — Android 改进物理网络变化后的普通 WARP 与链式恢复。HTTP/SOCKS VPN 启动、设置重建与账号交接在新连接就绪前保持阻断；终止失败按已生效的 Kill Switch 策略决定是否保留。Windows 在受保护的隧道替换中保留有日志记录的阻断保护。
+- **Refreshed Home and branding** — Desktop Home gives traffic charts the available height, adds direct output controls and simplifies location and selectable exit-IP details. Upload and download traces use distinct colours. Updated icons include Android adaptive and themed launcher artwork with a transparent full-colour background.
+  <br>**首页与品牌视觉更新** — 桌面首页的流量图使用可用高度，新增输出开关，并简化位置和可选择的出口 IP 信息；上传与下载曲线使用不同颜色。图标同步更新，Android 提供自适应及主题图标，全彩图层采用透明背景。
 
-- **Resumable first-run setup** — Interrupted account setup checks the saved result before registering again. Android now requires VPN consent during onboarding, without starting a connection; notification permission is optional.
-  <br>**可恢复的首次引导** — 账号设置中断后，先检查已保存结果再重新注册。Android 现在在首次引导中要求 VPN 授权，但不会因此建立连接；通知权限可选。
+- **Android recovery after socket-protection failure** — An established ordinary CONNECT-IP session retains its blocking TUN and connection intent after confirmed cleanup, then waits for a newer usable physical network before one replacement attempt. Each new socket must still pass protection; initial startup and chain failures retain their separate policies.
+  <br>**Android 套接字保护失败后的恢复** — 已建立的普通 CONNECT-IP 会话在确认清理后保留阻断 TUN 和连接意图，等待更新的可用物理网络后再尝试一次替换。每个新套接字仍须通过保护检查；首次启动与链式失败继续执行各自策略。
 
-- **More precise local diagnostics** — Results distinguish observed, inferred, unavailable and stale evidence. Retained timelines identify the last connection; bounded log owners and export barriers preserve complete records and strengthen redaction. No automatic upload is added.
-  <br>**更准确的本地诊断** — 结果区分已观测、推断、不可用和过期证据。保留的时间线标明上次连接；有界日志管理与导出同步保留完整记录并加强脱敏。不新增自动上传。
+- **Chain UDP receive fixes** — VPN-protocol sockets use bounded receive buffering for data and acknowledgement bursts, and abandoned receive waiters no longer consume later datagrams. These correctness changes do not establish a measured bandwidth gain.
+  <br>**链式 UDP 接收修复** — VPN 协议套接字使用有界接收缓冲处理数据与确认包突发，已取消的接收等待不再消耗后续数据报。这些正确性修复不代表已证实带宽提升。
 
 ## Download / 下载 📥
 
@@ -71,6 +74,15 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 <details>
 <summary>Upgrade behavior and compatibility / 升级行为与兼容性</summary>
 
+- **Configuration schema advances from 21 to 23.** Schema 22 adds WARP encrypted DNS and schema 23 adds per-account Zero Trust endpoint overrides. Once migrated, the configuration cannot be read by the v0.2.9 engine, which rejects newer schemas. Do not downgrade over migrated data or manually change the schema number. Agent protocol 3 and recovery journal 5 remaining unchanged do not establish downgrade compatibility.
+  <br>**配置 schema 从 21 升至 23。** schema 22 新增 WARP 加密 DNS，schema 23 新增每账号 Zero Trust 端点覆盖。迁移后的配置不能由 v0.2.9 Engine 读取，旧版会拒绝更新的 schema。不要在已迁移数据上直接降级或手动修改 schema 编号；Agent 协议仍为 3、恢复日志仍为 5，并不代表支持降级。
+
+- **WARP DNS remains Plain DNS by default.** Select and apply DoH or DoT to use it; applying a DNS change to a connected session reconnects that session. The selector does not replace explicit direct DNS, local/System/EdgeResolved proxy choices or the final chain exit's resolver policy.
+  <br>**WARP DNS 默认仍为普通 DNS。** 选择并应用 DoH 或 DoT 后才会启用；已连接时应用 DNS 更改会重新连接。该选项不替代直连 DNS、本地／System／EdgeResolved 代理选择或最终链出口的解析策略。
+
+- **Zero Trust remains experimental.** Manual endpoints are not restricted to Cloudflare address ranges. Use only trusted, authorized addresses after reading the risk notice; editing them does not add organization policy, posture checks or full Cloudflare One Client compatibility.
+  <br>**Zero Trust 仍属实验性功能。** 手动端点不限制 Cloudflare 地址范围。请阅读风险提示，仅使用可信且获授权的地址；端点编辑不增加组织策略、设备状态检查或完整 Cloudflare One Client 兼容能力。
+
 - **The chain proxy is off for new installations; saved selections are retained.** Select and apply one exit to use it. A terminal exit failure stops final traffic without a WARP-only fallback. HTTP/SOCKS VPN sessions retain blocking according to the applied Kill Switch and handoff policy; unconfirmed cleanup never releases protection. Android system Always-on VPN and Block connections without VPN are still required for blocking after the VPN process ends. Explicit direct rules still apply.
   <br>**新安装默认关闭链式代理，升级保留已保存的选择。** 选择并应用一个出口后才会使用。出口终止失败会停止最终流量，不会退回仅使用 WARP 隧道。HTTP/SOCKS VPN 会话按已生效的 Kill Switch 与交接策略保留阻断；清理未确认时不会解除保护。Android 若需要在 VPN 进程结束后继续阻断，仍须启用系统的“始终开启的 VPN”和“阻止未使用 VPN 的连接”。显式直连规则继续生效。
 
@@ -103,11 +115,11 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 - VPN-protocol final DNS starts with UDP and adds alternatives after 250 ms under one four-second question deadline. HTTP/SOCKS5 Automatic DNS defaults to verified Cloudflare® DoH through the final proxy; custom or non-default inherited DNS retains TCP DNS. Application-selected UDP/53 queries are converted to TCP at that resolver, including DNS-only local SOCKS5 associations. A refused port-53 CONNECT fails explicitly. DoH failure never switches to plaintext, physical DNS or another exit. See the chain guide for explicit DNS choices and budgets.
   <br>VPN 协议最终 DNS 先使用 UDP，250 ms 后加入备用候选，每个问题共用 4 秒期限。HTTP/SOCKS5 自动 DNS 默认经最终代理使用校验 TLS 的 Cloudflare DoH；自定义或非默认继承 DNS 保留 TCP。应用指定的 UDP/53 查询转换为发往该解析器的 TCP，包括仅承载 DNS 的本地 SOCKS5 关联。端口 53 的 CONNECT 被拒绝时明确失败。DoH 失败不会转为明文、物理 DNS 或另一出口；显式 DNS 选择与预算见链式代理指南。
 
-- Established CONNECT-IP sessions stop automatic reconnection after authentication, identity, configuration, address-assignment and socket-protection failures. Ordinary network failures keep bounded backoff; Android and Windows VPN network observations pause attempts while the device is confirmed offline and start one shortly after a usable network appears. An HTTP/2 PING without a reply ends the session after a 15 to 30 second final deadline.
-  <br>已建立的 CONNECT-IP 会话遇到认证、身份、配置、地址分配或套接字保护失败时，停止自动重连。普通网络故障保留有上限的退避重试；Android 和 Windows VPN 的网络观测在确认设备离线时暂停尝试，并在出现可用网络后很快发起连接。HTTP/2 PING 长时间无回复时，会在 15 到 30 秒的最终期限后结束会话。
+- The native established CONNECT-IP supervisor stops automatic attempts after authentication, identity, configuration, address-assignment and socket-protection failures. Android's service separately retains an established ordinary session after a typed protection failure and confirmed cleanup, waiting for a newer usable physical generation before one attempt; repeated protection failure waits for another generation. There is no timed protection retry on the same network. Ordinary network failures keep bounded backoff; offline observations pause attempts. An HTTP/2 PING without a reply ends the session after a 15 to 30 second final deadline.
+  <br>原生 CONNECT-IP 已建立会话的监督器在认证、身份、配置、地址分配或套接字保护失败后停止自动尝试。Android 服务另行处理已建立的普通会话：明确的保护失败及清理确认后，等待更新的可用物理网络代次再尝试一次；再次保护失败则等待下一个代次，不会在同一网络上定时重试。普通网络故障保留有上限的退避重试；离线观测暂停尝试。HTTP/2 PING 无回复时，会在 15 到 30 秒的最终期限后结束会话。
 
-- Configuration schema is 21: schema 19 adds custom bypass domains, schema 20 preserves legacy endpoints in Custom mode, and schema 21 adds resumable initial-account operation state. Agent protocol remains 3; recovery journal schema 5 adds protected tunnel replacement after schema 4's automatic-endpoint receipts. Journal versions 2, 3 and 4 are read conservatively; older Agents cannot read schema 5. Sanitized recovery exports remain schema 2. HTTP/SOCKS5 records use version 5 with DNS transport metadata; VPN records remain version 3. IPC fields are appended only, and diagnostic exports exclude sensitive identity and configuration data.
-  <br>配置 schema 为 21：schema 19 新增自定义绕过域名，schema 20 将旧端点保留在自定义模式，schema 21 新增可恢复的首次账号操作状态。Agent 协议仍为 3；恢复日志 schema 5 在 schema 4 自动端点记录基础上新增受保护的隧道替换。保守兼容读取日志版本 2、3、4；旧 Agent 无法读取 schema 5。脱敏恢复导出仍为 schema 2。HTTP/SOCKS5 对象使用版本 5 保存 DNS 传输元数据，VPN 对象仍为版本 3。IPC 字段仅追加，诊断导出排除敏感身份与配置数据。
+- Configuration schema is 23: schema 22 initializes Plain WARP DNS for older settings and schema 23 initializes Zero Trust endpoint overrides as unset, preserving registered addresses. Agent protocol remains 3, recovery journal remains 5 and sanitized recovery exports remain schema 2. HTTP/SOCKS5 records remain version 5 with DNS transport metadata; VPN records remain version 3. IPC fields are appended only. Diagnostic exports omit custom DNS names, paths, bootstrap addresses, query contents and sensitive identity/configuration data.
+  <br>配置 schema 为 23：schema 22 将旧设置初始化为普通 WARP DNS，schema 23 将 Zero Trust 端点覆盖初始化为未设置，保留注册地址。Agent 协议仍为 3，恢复日志仍为 5，脱敏恢复导出仍为 schema 2。HTTP/SOCKS5 对象保留版本 5 的 DNS 传输元数据，VPN 对象仍为版本 3。IPC 字段仅追加；诊断导出排除自定义 DNS 域名、路径、引导地址、查询内容及敏感身份／配置数据。
 
 - The multilingual Windows EXE installers introduced in v0.2.6 remain the user-facing packages; signed MSIs remain reserved for verified in-app updates. The newer-Agent-first upgrade bridge introduced in v0.2.5 remains in place for v0.2.4 upgrades. Release APKs compress native libraries, which Android extracts at installation, and Dart symbols are kept outside the installable packages. Download size is not installed disk usage.
   <br>v0.2.6 引入的多语言 Windows EXE 安装程序仍为用户安装入口；签名 MSI 仍仅供经过验证的应用内更新。v0.2.5 引入的新版 Agent 优先安装机制继续为 v0.2.4 升级提供兼容桥接。Release APK 压缩原生库，Android 会在安装时解压；Dart 符号不放入安装包。下载体积不等于安装后的磁盘占用。

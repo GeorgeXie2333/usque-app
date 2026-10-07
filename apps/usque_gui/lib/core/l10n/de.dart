@@ -360,7 +360,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Verbindungsprobleme prüfen, Protokolle exportieren und lokale Daten verwalten.',
   'engine_status': 'Verbindungsinformationen',
   'version': 'Version',
-  'app_version': 'Usque 0.2.9',
+  'app_version': 'Usque 0.3.0',
   'logs': 'Lokale Protokolle',
   'export_diagnostics': 'Diagnosepaket exportieren',
   'diagnostics_saved': 'Diagnosepaket gespeichert unter',

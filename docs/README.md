@@ -41,6 +41,7 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |
 | [Release process](RELEASE.md) | Candidate preparation, approval, signing, and publication / 候选包、审批、签名与发布 |
+| [v0.3.0 readiness review](RELEASE_V0.3.0_READINESS.md) | Reviewed source, documentation checks, version synchronization and remaining release requirements / 审查源码、文档检查、版本同步与发布待办 |
 | [Flutter release symbols](FLUTTER_SYMBOLS.md) | Separate and archive matching Dart symbols; restore stack traces / 分离、归档 Dart 符号与还原堆栈 |
 | [Code signing policy](CODE_SIGNING.md) | Official identities, key handling, and rotation / 官方签名身份、密钥管理与轮换 |
 | [GitHub governance](GITHUB_GOVERNANCE.md) | Repository checks, permissions, and maintainer rules / 仓库检查、权限与维护规则 |

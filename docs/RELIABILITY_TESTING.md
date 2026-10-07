@@ -15,6 +15,13 @@ microbenchmark correctness tests. Shared-runner wall-clock timings are never
 treated as performance truth. These jobs do not require a public endpoint and
 do not change host routes, DNS, firewall, proxy, or TUN state.
 
+The Windows native setup and uninstall interfaces also have compile-only and
+inert state/process tests. The x64 and ARM64 MSI authoring matrix validates
+language transforms, ICE, overwrite policy, quiet launchers and temporary Burn
+signing without executing a bundle or installing a product. These checks
+belong to the ordinary CI/Build gates and do not establish real installation,
+upgrade, removal, Windows accessibility or platform-state restoration.
+
 ## Windows Geo DNS and orphaned TUN regression coverage
 
 Windows physical DNS discovery uses `GetAdaptersAddresses` for effective
@@ -251,6 +258,14 @@ supplemental checks are not a publication prerequisite.
 
 ## Protected release runners
 
+For `v0.3.0`, record unavailable isolated checks as `not_run` against the final
+candidate. Historical setup, DNS, branding or endpoint-validation records may
+describe earlier commits or uncommitted source; their passing deterministic
+checks do not transfer to a new signed package. Any supplemental release
+evidence must bind the exact staged package manifest and commit. The current
+workflow accepts `v0.3.0`; its version coordination and checks are described
+in [Preparing v0.3.0](RELEASE.md#preparing-v030).
+
 Windows same-version MSI coverage includes compile-only, inert authoring
 fixtures for x64 and ARM64. `tool/test_windows_msi_replacement.ps1` verifies a
 valid fixture and rejects copies with an unscoped/weakened overwrite mode,
@@ -329,6 +344,12 @@ supplemental validation for a public release requires a separately configured
 private execution context bound to the exact signed candidate. Any future
 public summary export must rebuild an allowlisted, sanitized summary inside
 that context; the public workflow does not currently import such summaries.
+
+Do not use the aggregator with placeholder reports to manufacture a summary
+for a skipped run. A workflow job's success or skip is separate from its
+evidence's acceptance: only the exact-candidate validator can accept a report.
+The public release's eighteen assets contain no raw lab evidence or protected
+summary, and publication's `needs` includes only `stage-candidate`.
 
 The performance-lab report replaces the old
 `performance.informational_baseline` result with these required results:

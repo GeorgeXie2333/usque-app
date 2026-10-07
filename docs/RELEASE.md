@@ -5,13 +5,14 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The workflow currently accepts only `v0.2.9` and requires that tag to point at
+The current release contract targets `v0.3.0`. The checked-in workflow
+accepts only `v0.3.0` and requires that tag to point at
 the current `main` commit when its gate runs. The tag is maintainer-only.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
 local bundle, MSI, or APK cannot replace a failed Actions build.
 
-The v0.2.9 candidate retains the newer-Agent-first Windows upgrade sequence
+The current source retains the newer-Agent-first Windows upgrade sequence
 and complete payload replacement introduced in v0.2.5. Those fixes are not part
 of the original v0.2.4 release. The multilingual EXE installer and hidden-bundle
 uninstall lifecycle are new in v0.2.6, not the original v0.2.5 MSI-only release.
@@ -21,44 +22,88 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
-## Preparing v0.2.9
+## Preparing v0.3.0
 
-The source, documentation and executable release contract target v0.2.9.
-Before tagging, verify the coordinated version change across:
+The coordinated source version is `0.3.0`, with Flutter `0.3.0+24` and Android
+base versionCode `24`. Cargo's workspace and first-party lock entries, the
+registered locale catalogs, `release.yml`, and the CI version gate target
+`v0.3.0`. These declarations do not establish a passed candidate, authorize
+an approval or prove publication. Complete the exact-candidate checks before
+tagging; do not retag or reuse `v0.2.9` for the newer source.
+
+Verify that change across:
 
 - `Cargo.toml` and the first-party workspace package entries in `Cargo.lock`;
-- `apps/usque_gui/pubspec.yaml`, with version `0.2.9+23`;
+- `apps/usque_gui/pubspec.yaml`, with version `0.3.0+24`;
 - the `app_version` entries in all 21 registered Dart locale catalogs;
 - the tag trigger, `RELEASE_TAG` and `ANDROID_VERSION_CODE` in
   [release.yml](../.github/workflows/release.yml), and the release-version gate
   in [ci.yml](../.github/workflows/ci.yml);
-- the current-target statements in this guide and
+- the accepted-tag statements in this guide and
   [GitHub governance](GITHUB_GOVERNANCE.md), and the development wording and
   package examples in the six root READMEs and [Installation](INSTALLATION.md).
 
-Run `tool/release_contract.py verify-version` with `--root . --tag v0.2.9`
-and `--android-version-code 23`. Split APK version codes are 1023 (ARMv7),
-2023 (ARM64), and 4023 (x86_64); the universal APK uses 23. The check must
-succeed before tagging. Version-number fixtures for MSI conversion and
-historical validation records may retain their original versions; they are not
-release targets. The tag must point at the resulting current `main` commit
-after its required CI succeeds. Keep the existing signing and publication
-approvals, cleanup checks and immutable-candidate requirements.
+Base Android versionCode `24` follows the published `23`. Verify each derived
+APK code against the packages and update paths already distributed. Use
+`0.3.0+24`, keep `ANDROID_VERSION_CODE` and the CI check at `24`, and run:
 
-The v0.2.9 source uses configuration schema 21 and recovery journal schema 5,
-while Agent protocol 3 and sanitized recovery export schema 2 remain unchanged.
-Do not describe the old schema 18/3 combination as the new release contract.
+```shell
+python tool/release_contract.py verify-version --root . --tag v0.3.0 --android-version-code 24
+```
+
+That command must succeed for the coordinated checkout. Split APK version
+codes are 1024 (ARMv7), 2024 (ARM64), and 4024 (x86_64); the universal APK uses
+24. These advance the respective v0.2.9 codes 1023/2023/4023/23. Version-code
+comparison must cover the three ABI-specific updates and an installed
+universal APK updating to its device's ABI-specific APK. A split APK has a
+higher code than the same release's universal APK; do not assume manually
+switching from split to universal is an accepted upgrade or bypass Android's
+monotonic version check.
+
+The version helper verifies Cargo's workspace version, Flutter, registered locale catalogs
+and the release workflow; review first-party `Cargo.lock` entries and the CI
+invocation separately because the helper does not inspect them.
+
+Version-number fixtures for MSI conversion and historical validation records
+keep their original versions, candidates, test counts and `not_run` results.
+They do not prove the final `v0.3.0` candidate. The tag must point at the
+resulting current `main` commit after its required CI succeeds. Keep the
+existing signing and publication approvals, cleanup checks and immutable
+candidate requirements. Rerun applicable checks after the final source change
+and retain the exact commit and Actions run identities.
+
+The current source uses configuration schema 23: schema 22 adds WARP DoH/DoT
+settings and schema 23 adds account-specific Zero Trust endpoint overrides.
+Recovery journal schema 5, Agent protocol 3 and sanitized recovery export
+schema 2 remain unchanged. Once configuration is migrated, the `v0.2.9`
+engine rejects schema 23. Unchanged Agent and journal versions do not prove
+downgrade compatibility; do not edit schema numbers to bypass that check.
+Review the release-note summary and highlights
+against `v0.2.9..HEAD`: custom WARP encrypted DNS, experimental Zero Trust
+endpoint editing, native Windows setup/removal, desktop controls, Home and
+branding changes, Android recovery and chain UDP burst handling are the new
+scope. Existing HTTP/SOCKS5 chain exits and automatic Consumer endpoints must
+not be advertised as first introduced in `v0.3.0`.
 
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 
-- The currently accepted tag is `v0.2.9` and must point at the current `main`
-  commit after the coordinated version checks above pass.
+- For `v0.3.0`, complete the version and workflow changes above first. The
+  accepted tag must match `release.yml` and point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
 - Signing material stays in environment secrets. Do not put it in repository variables, files, artifacts, logs, or caches.
+
+Review the live `main` ruleset, tag restrictions and both environment approval
+settings before tagging. A checked-in document cannot establish their current
+GitHub configuration. `PR Check / gate`, `CI / gate` and `Build / gate` are the
+documented merge checks. The release gate separately requires a successful
+`ci.yml` **push** run for the exact tagged current `main` SHA; an earlier PR
+run or local check is insufficient. `publish` depends only on `stage-candidate`
+and requires `release-publish` approval; protected reliability jobs are not
+dependencies of publication.
 
 ## Signing inputs
 
@@ -86,7 +131,13 @@ The Windows job imports the private identity only into the runner user's persona
 
 Android builds verify the Gradle 9.5.1 distribution against its published SHA-256, use the checked-in `app/gradle.lockfile`, and check resolved artifacts against `gradle/verification-metadata.xml`. Updating an Android dependency means reviewing and regenerating both files by hand. CI and release jobs must not use `--write-locks` or `--write-verification-metadata`.
 
-The Windows bundle and MSI do not install the publisher certificate into the machine Root or TrustedPublisher stores. At runtime the Agent accepts only the `CERT_E_UNTRUSTEDROOT` result expected for this self-signed identity, after Windows has checked the Authenticode digest and signature, and then requires the embedded certificate fingerprint to match `WINDOWS_SIGNER_SHA256`. Any other trust result is fatal.
+The Windows bundle and MSI do not install the publisher certificate into the
+machine Root or TrustedPublisher stores. At runtime the Agent accepts Windows'
+successful Authenticode result (`0`) or the `CERT_E_UNTRUSTEDROOT` result
+expected for this self-signed identity, after the digest and signature checks.
+It then requires the embedded certificate fingerprint to match
+`WINDOWS_SIGNER_SHA256`. Every other trust result is fatal; success never
+bypasses the fingerprint check.
 
 ## Artifact flow
 
@@ -142,16 +193,16 @@ accurate system requirements, and descriptive image alt text when updating the
 table. Do not add third-party badge services or update-only MSI download buttons.
 Keep the four required bilingual section names; decorative emoji may follow them.
 
-Primary files:
+The v0.3.0 contract's primary files (official only after approved publication):
 
-- `usque-v0.2.9-windows-x64-v2.exe`
-- `usque-v0.2.9-windows-arm64.exe`
-- `usque-v0.2.9-windows-x64-v2.msi`
-- `usque-v0.2.9-windows-arm64.msi`
-- `usque-v0.2.9-android-arm64-v8a.apk`
-- `usque-v0.2.9-android-x86_64.apk`
-- `usque-v0.2.9-android-armeabi-v7a.apk`
-- `usque-v0.2.9-android-universal.apk`
+- `usque-v0.3.0-windows-x64-v2.exe`
+- `usque-v0.3.0-windows-arm64.exe`
+- `usque-v0.3.0-windows-x64-v2.msi`
+- `usque-v0.3.0-windows-arm64.msi`
+- `usque-v0.3.0-android-arm64-v8a.apk`
+- `usque-v0.3.0-android-x86_64.apk`
+- `usque-v0.3.0-android-armeabi-v7a.apk`
+- `usque-v0.3.0-android-universal.apk`
 
 The two EXEs and four APKs are the user-facing installers; the two MSIs are
 update payloads consumed by the signed Windows updater. In addition to these
@@ -164,7 +215,7 @@ documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
 
-These rules describe the v0.2.9 authoring and verification code. The Agent
+These rules describe the current authoring and verification code. The Agent
 file-version check and late related-product removal sequence were added after
 the original v0.2.4 tag; they must not be presented as properties already
 verified in that older package. User-facing applicability is recorded in
@@ -177,13 +228,25 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.2.9` is therefore MSI ProductVersion `0.2.999`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (`0.2.999.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.3.0` maps to MSI ProductVersion `0.3.99` and Agent PE file version
+`0.3.99.0`; `v0.3.0-beta.3` maps to `0.3.3`. The prior `v0.2.9` mapped to
+`0.2.999` / `0.2.999.0`; the increased minor component makes the new stable
+version higher despite its lower build component. The real SemVer stays in
+ProductName and the filenames, and packaging
+rejects an unversioned or mismatched Agent. Equal-version major upgrades are
+enabled so a validation build can replace the same product instead of
+installing a second copy under `Program Files\Usque`. WiX validation suppresses
+only ICE61, which assumes upgrades must raise the version; every other standard
+ICE check stays on.
 
-The user-facing Windows artifact is a WiX Internal UI Bootstrapper Application
-bundle. It contains the signed English MSI plus 20 language transforms and
-selects a transform from the current Windows UI language; unsupported UI
-languages fall back to English. Every localized MSI is compiled and fully
-ICE-validated from the same ProductCode before its transform is generated.
+The user-facing Windows artifact is a WiX Burn bundle with the repository's
+native C++ setup window. It contains the signed native setup EXE, signed English
+MSI and 20 language transforms. It initially uses the current Windows UI
+language, permits a language change before installation, and falls back to
+English for unsupported languages. The bundle suppresses the inner MSI UI;
+direct MSI deployments retain the custom MSI UI. Every localized MSI is
+compiled and fully ICE-validated from the same ProductCode before its transform
+is generated.
 `MajorUpgrade/@IgnoreLanguage` is required so a direct update MSI can replace
 an installation created with any transform. The tag workflow signs the base
 MSI first, builds the bundle, detaches and signs the Burn engine, reattaches it,
@@ -257,7 +320,13 @@ registers `usque-uninstall.exe` as the visible uninstall command. The bundle
 also sets `DisableModify=yes` and `DisableRemove=yes`, which keeps its Burn
 registration out of Programs and Features instead of creating a second
 uninstall route. The helper asks for confirmation in the Windows UI language,
-then copies itself out of the install directory before removal begins.
+then copies itself out of the install directory before removal begins. The
+temporary Rust/Win32 window remains open while the MSI worker reports progress,
+files-in-use questions, cancellation availability and the final result.
+Uninstall, current-user data deletion and hidden-bundle cleanup have separate
+results; an incomplete cleanup or restart requirement cannot become a false
+success. Window cancellation is disabled during irreversible deletion and
+registration cleanup.
 
 ### Hidden bundle cleanup
 

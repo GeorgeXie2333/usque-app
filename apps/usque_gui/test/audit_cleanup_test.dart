@@ -11,9 +11,9 @@ import 'package:usque/state/app_controller.dart';
 import 'app_test.dart' show FakeEngineClient;
 
 const package = UpdatePackage(
-  name: 'usque-v0.2.10-windows-x64-v2.msi',
+  name: 'usque-v0.3.1-windows-x64-v2.msi',
   downloadUrl:
-      'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.10/usque-v0.2.10-windows-x64-v2.msi',
+      'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.3.1/usque-v0.3.1-windows-x64-v2.msi',
   size: 1,
   sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   platform: 'windows',
@@ -21,7 +21,7 @@ const package = UpdatePackage(
 );
 const available = UpdateCheckResult(
   available: true,
-  version: '0.2.10',
+  version: '0.3.1',
   package: package,
 );
 

@@ -5,34 +5,56 @@ Download packages from this repository's
 
 ## Version scope
 
-This guide describes the v0.2.9 source. The example
-package names below do not establish that a release has been published. For an
-installed release, use its release notes and the guide at the matching Git tag.
+This guide covers v0.3.0. `Cargo.toml` and `apps/usque_gui/pubspec.yaml` declare
+application version 0.3.0. The version and package names below do not by
+themselves establish that a release has been published. The
+[v0.3.0 readiness review](RELEASE_V0.3.0_READINESS.md) retains its historical
+source and evidence limits. For an installed release, use its release notes and
+the guide at the matching Git tag.
 
 The Windows upgrade recovery fix was introduced in v0.2.5; the multilingual EXE
 installer arrived in v0.2.6. The original v0.2.4 MSI does not have those fixes.
 See [Upgrade](#upgrade) if that version cannot uninstall.
 
+### Configuration compatibility when upgrading
+
+v0.2.9 uses configuration schema 21; v0.3.0 uses
+schema 23 for WARP encrypted DNS and account-specific Zero Trust endpoint
+overrides. Opening the newer app migrates and saves older configuration. The
+older app rejects a newer schema, so installing v0.2.9 again cannot restore
+access to migrated data. Windows also rejects installer downgrades. No reverse
+configuration migration or WARP Secret import is provided.
+
+If returning to an older version is essential, arrange a recoverable pre-upgrade
+backup of the old installation and user data, including the platform-protected
+credentials, before upgrading. Confirm the device-specific restoration steps
+with the maintainer; a copied configuration file, diagnostic export or WARP
+Secret export is not a complete account or rollback backup. Do not lower
+`schema_version`, replace migration backups, or delete recovery records to make
+an older app accept the data. For a failed upgrade, keep the data and recovery
+records and use a newer official fix or obtain version-specific recovery
+guidance; do not assume that reinstalling an older package is supported.
+
 ## Choose a package
 
 | Platform | Requirements | Package |
 | --- | --- | --- |
-| Windows x64 | Windows 10 22H2, build 19045 or later | x64-v2 EXE |
+| Windows x64 | Windows 10 22H2, build 19045 or later; x86-64-v2 CPU | x64-v2 EXE |
 | Windows ARM64 | Windows 10 22H2, build 19045 or later, native ARM64 | ARM64 EXE |
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Package names (v0.2.9 examples)
+### Planned package names (v0.3.0 examples)
 
-- `usque-v0.2.9-windows-x64-v2.exe`
-- `usque-v0.2.9-windows-arm64.exe`
-- `usque-v0.2.9-android-arm64-v8a.apk`
-- `usque-v0.2.9-android-x86_64.apk`
-- `usque-v0.2.9-android-armeabi-v7a.apk`
-- `usque-v0.2.9-android-universal.apk`
+- `usque-v0.3.0-windows-x64-v2.exe`
+- `usque-v0.3.0-windows-arm64.exe`
+- `usque-v0.3.0-android-arm64-v8a.apk`
+- `usque-v0.3.0-android-x86_64.apk`
+- `usque-v0.3.0-android-armeabi-v7a.apk`
+- `usque-v0.3.0-android-universal.apk`
 
-The package set also includes `usque-v0.2.9-windows-x64-v2.msi` and
-`usque-v0.2.9-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The planned package set also includes `usque-v0.3.0-windows-x64-v2.msi` and
+`usque-v0.3.0-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation.
 
 Each release includes `SHA256SUMS`, `release-manifest.json` and a software
@@ -42,15 +64,15 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use v0.2.9; substitute the exact filename and tag you downloaded. These commands
-inspect files without installing or running them.
+use the planned v0.3.0 names; substitute the exact filename and published tag you
+downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
 
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.2.9-windows-x64-v2.exe'
+$package = '.\usque-v0.3.0-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -85,15 +107,17 @@ the package hash and from the certificate's usual SHA-1 `Thumbprint` field.
 [Microsoft's signature command reference](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/get-authenticodesignature)
 describes the signature information returned by the command.
 
-Pre-1.0 packages use the project's fixed self-signed certificate. Because that
-certificate is not in Windows trust stores, the expected `$signature.Status` is
-`UnknownError`; its `StatusMessage` reports that the certificate chain ends in a
-root certificate that is not trusted. Windows can also show an unknown-publisher
-warning. Only proceed with that expected result when the exact official package
-hash and the full certificate SHA-256 both match. Stop if the status is
-`NotTrusted`, `HashMismatch`, `NotSigned` or any other value, or if the signer
-certificate differs. Do not import the certificate into Root or Trusted
-Publisher to hide the warning. The identity policy is in
+Pre-1.0 packages use the project's fixed self-signed certificate. When that
+certificate is absent from Windows trust stores, the expected `$signature.Status`
+is `UnknownError`, with a `StatusMessage` reporting that the certificate chain
+ends in an untrusted root. Windows can also show an unknown-publisher warning.
+`Valid` is also accepted if Windows already trusts the signature. For either
+accepted result, the exact official package hash and full certificate SHA-256
+must both match. Accept `UnknownError` only for the expected untrusted-root
+result; stop for a different error message, `NotTrusted`, `HashMismatch`,
+`NotSigned`, any other status, or a different signer certificate. Do not import
+the certificate into Root or Trusted Publisher to change the status or hide
+the warning. The identity policy is in
 [Code signing](CODE_SIGNING.md).
 
 ### Check the Android signer
@@ -105,7 +129,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.2.9-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.0-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -119,7 +143,8 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.2.9 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.0 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+if ($LASTEXITCODE -ne 0) { throw 'Build provenance verification failed.' }
 ```
 
 This checks the file against the repository, source tag and release workflow
@@ -162,6 +187,34 @@ After installation, the app can start it without another UAC prompt. Ordinary
 disconnect restores that connection's network settings and keeps Usque's virtual
 adapter for reuse. Full app exit starts adapter removal; Windows can take time
 to finish it. See [Troubleshooting](#troubleshooting) if a restart or recovery fails.
+
+### Tray and keyboard controls
+
+The tray icon shows amber while connecting or reconnecting, green when
+connected, red on error and no status dot while disconnected. Right-click it to
+open Usque, connect or disconnect, or change **TUN** and **System proxy**.
+These switches use the same save and apply behavior as Home; system proxy is
+unavailable while the HTTP local proxy
+is off. **Disconnect and Exit** closes the app and starts adapter removal.
+
+While the window is hidden or in the background, notifications report a session
+that stays in reconnecting for five seconds, a connection error, and recovery
+after an interruption that was announced. Brief reconnections and manual
+disconnects stay silent. A notification names an active Kill Switch but does
+not include Engine error details. Windows quiet hours still apply; clicking a
+notification opens Usque. The app remembers its window position, size and
+maximized state.
+
+| Shortcut | Action |
+| --- | --- |
+| **Ctrl+1**, **Ctrl+2**, **Ctrl+3**, **Ctrl+4** | Open Home, Accounts, Proxy or Settings. |
+| **Esc** outside a text field, **Alt+Left**, mouse back button | Leave a subpage; unapplied changes still require a choice. |
+| **Ctrl+S** | Apply changes through the visible apply bar when available. |
+| **F5** | Refresh the VPN Gate list or diagnostics timeline on that page. |
+
+Apply and refresh shortcuts pause while their page is covered by a dialog or
+popup. Section changes still check for unapplied edits. These shortcuts do not
+apply to Android or Android TV.
 
 ### Upgrade
 
@@ -233,11 +286,14 @@ before installing or upgrading.
 
 The app is distributed outside Google Play. Android may ask you to allow
 installation from the browser or file manager you used to open the APK.
-The package name `io.github.georgexie2333.usque` and official signing certificate
-are registered through [Android developer verification](https://developer.android.com/developer-verification).
-This verifies developer identity and key ownership; it is not Google Play
-distribution or a review of the app's content. Source-permission and sideloading
-prompts can still appear.
+Official packages must use `io.github.georgexie2333.usque` and the published
+release signing certificate, and that pair must remain **Registered** through
+[Android developer verification](https://developer.android.com/developer-verification).
+The maintainer must confirm its status before distribution, as required by
+[Code signing](CODE_SIGNING.md#android-developer-verification); this guide does
+not verify a candidate's current registration. Verification records developer
+identity and key ownership; it is not Google Play distribution or a review of
+the app's content. Source-permission and sideloading prompts can still appear.
 
 Android now requires VPN consent during first-run setup, even if you later
 choose only SOCKS5 or HTTP. Granting it may disconnect another active VPN but
@@ -307,16 +363,27 @@ Failed and partial downloads are removed; abandoned packages expire after seven 
 Updates are not installed without confirmation. Detailed package checks are in
 [the update verification reference](RELEASE.md#in-app-update-verification).
 
-## Direct-country DNS privacy
+<a id="direct-country-dns-privacy"></a>
 
-Country-based direct rules are optional. System DNS sends matching domain
-queries to the current network's DNS servers outside the VPN; DoH and DoT send
-them to your chosen encrypted resolver without a plaintext fallback.
+## Direct-country and custom-domain DNS privacy
 
-Other remote VPN queries use the final tunnel's DNS: the WARP tunnel normally, VPN Gate
-when enabled. Explicit local and proxy DNS choices still apply. Apps with their
-own encrypted DNS hide names from Usque, which then classifies destinations by IP.
-See [Direct DNS](encrypted-direct-dns.md) for setup and limitations.
+Country-based and custom-domain direct rules are optional. System DNS sends
+matching domain queries to the current network's DNS servers outside the VPN;
+DoH and DoT send them to your chosen encrypted resolver without a plaintext
+fallback.
+
+Other remote VPN queries use the WARP tunnel or the selected final chain exit.
+Configure WARP Plain DNS, DoH or DoT in **Settings → Advanced network settings →
+IP & DNS**, then **Apply changes**; changing a connected session's DNS reconnects
+it. These settings do not replace the final chain exit's DNS policy.
+HTTP/SOCKS5 chain DNS defaults to verified Cloudflare® DoH through that proxy;
+explicit custom or non-default inherited DNS uses TCP. Application-selected
+UDP/53 queries through these exits use TCP to the selected resolver without a
+physical DNS fallback. Explicit local and proxy DNS choices still apply. Apps
+with their own encrypted DNS hide names from Usque, which then classifies
+destinations by IP. See [WARP exit DNS](WARP_DNS.md),
+[chain DNS choices](CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口) and
+[Direct DNS](encrypted-direct-dns.md) for setup and limitations.
 
 Rule downloads can start while disconnected, but still obey Android Lockdown
 and any remaining Windows Kill Switch. A blocked download can be retried and does

@@ -332,7 +332,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diagnostics_subtitle': '연결 문제를 확인하고 로그를 내보내거나 기기의 데이터를 관리합니다.',
   'engine_status': '연결 정보',
   'version': '버전',
-  'app_version': 'Usque 0.2.9',
+  'app_version': 'Usque 0.3.0',
   'logs': '로컬 로그',
   'export_diagnostics': '진단 번들 내보내기',
   'diagnostics_saved': '진단 번들을 저장한 위치',

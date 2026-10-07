@@ -51,7 +51,7 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
-This source targets **v0.2.9**. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) for published versions. The package set has six installers; two additional Windows MSI files are reserved for in-app updates:
+These docs describe **v0.3.0**, with checked-in application version **0.3.0**. A version declaration is not proof of publication: obtain approved packages from [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases). The [release readiness review](docs/RELEASE_V0.3.0_READINESS.md) records its historical source and validation limits. The package set has six installers; two additional Windows MSI files are reserved for in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
@@ -59,11 +59,13 @@ This source targets **v0.2.9**. Check [GitHub Releases](https://github.com/Georg
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64, or armeabi-v7a APK |
 | Android / Android TV | Android 8.0, API 26 | Universal APK containing all three ABIs |
 
-Choose the package matching your device architecture. Use the larger universal APK when the Android ABI is unknown. Before installing, compare the package SHA-256 with `SHA256SUMS` and GitHub's asset digest, then verify the signer fingerprint published in the release notes. Stop if any value differs.
+Choose the package matching your device architecture. Windows x64 requires a CPU supporting **x86-64-v2**; ARM64 Windows uses the native ARM64 package. Use the larger universal APK when the Android ABI is unknown. Before installing, compare the package SHA-256 with `SHA256SUMS` and GitHub's asset digest, then verify the signer fingerprint published in the release notes. Stop if any value differs.
 
 Pre-1.0 packages use fixed, project-controlled self-signed certificates. Windows may show an unknown-publisher warning; Android packages are installed outside Google Play. Do not disable antivirus or the firewall, or import certificates from unofficial packages, to bypass a warning.
 
 See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, recovery, and Android developer-verification details, and [Code signing](docs/CODE_SIGNING.md) for official identities. Updates require confirmation before downloading and use the platform installer; there is no unattended installation.
+
+Upgrading migrates local configuration to a schema that v0.2.9 cannot read. Review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup before upgrading; reinstalling an older package does not reverse the migration.
 
 ## First connection
 
@@ -98,7 +100,7 @@ Network settings are shared by all accounts.
   attempts help find a reachable endpoint; supported H3 network changes can
   migrate the connection. See [path behavior](docs/h3-path-infrastructure.md).
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access and [custom CIDR, IP and domain bypass rules](docs/encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标). Domains include subdomains; custom rules do not need country-rule downloads.
-- Custom [WARP exit DNS](docs/WARP_DNS.md): Plain DNS, DoH or DoT, configured in Advanced settings.
+- Custom [WARP exit DNS](docs/WARP_DNS.md): open **Settings → Advanced network settings → IP & DNS**, choose Plain DNS, DoH or DoT, and select **Apply changes**. Changing DNS reconnects an established session; the final chain exit keeps its own DNS policy.
 - Optional country-based direct routing. Download the selected countries' GeoIP
   data and the global GeoSite catalog separately. Usque uses domain rules when
   the name is visible, otherwise IP rules; unknown destinations stay in the tunnel.
@@ -107,9 +109,10 @@ Network settings are shared by all accounts.
   trends. Standard checks read local state; Deep checks send test requests only
   after confirmation.
 - Windows tray with a status badge, TUN and system-proxy switches, and
-  notifications when a connection drops or fails while the window is in the
-  background; single-instance activation, start on boot, close-to-tray, a
-  remembered window position and keyboard shortcuts.
+  background notifications for a reconnect lasting five seconds, a connection
+  error, and recovery after a reported interruption; single-instance activation,
+  start on boot, close-to-tray, a remembered window position and keyboard shortcuts.
+  **Ctrl+1–4** selects pages, **Ctrl+S** applies changes, and **F5** refreshes VPN Gate or diagnostics. See [tray and keyboard controls](docs/INSTALLATION.md#tray-and-keyboard-controls).
   Android Quick Settings tile, launcher shortcuts, boot recovery and TV navigation.
   Twenty-one languages, with light and dark themes.
 - Consumer WARP Secret export to a file you choose, after confirmation. Usque

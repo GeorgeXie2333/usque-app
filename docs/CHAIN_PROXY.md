@@ -626,7 +626,8 @@ for the workstation and isolated-runner boundaries.
 
 ## Imported record compatibility / 导入记录兼容
 
-Shared settings are schema 21 and store only configuration references, plus the
+The [shared configuration](../crates/usque-core/src/config/mod.rs) stores chain
+configuration references, plus the
 optional **WARP via WireGuard** endpoint override (`ChainExitSettings` IPC fields
 5/6). HTTP/SOCKS5 records use version 5, appending `dns_transport` (`auto`, `doh`, `tcp`);
 version 4 reads reconstruct only the appended metadata without rewriting credentials,
@@ -643,7 +644,7 @@ authentication mode before connecting. No automatic rewrite or batch deletion
 occurs. Windows selection commits and deletion hold the configuration transaction
 before the library lock, so concurrent operations cannot leave a dangling reference.
 
-共享设置为 schema 21，仅保存配置引用，以及 **WARP via WireGuard** 可选的端点
+共享配置保存链式配置引用，以及 **WARP via WireGuard** 可选的端点
 覆盖（IPC `ChainExitSettings` 字段 5/6）。HTTP/SOCKS5 加密对象写入版本 5，新增 `dns_transport`（`auto`、`doh`、`tcp`）；
 读取版本 4 只补齐新元数据，不重写凭据、ID 或版本引用。旧客户端拒绝 v5。
 修改链 DNS 模式需添加替代配置，共享 DNS 策略变更会重建会话。VPN 对象仍写入
