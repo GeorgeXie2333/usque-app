@@ -73,6 +73,7 @@ const Map<String, String> kUiWorkflowDe = <String, String>{
   'reset_draft_hint':
       'Standardwerte werden in dieses Formular geladen. Wenden Sie die '
       'Änderungen an, damit sie wirksam werden.',
+  'error_generic': 'Ein Fehler ist aufgetreten',
 };
 
 const Map<String, String> kNetworkQualityDe = <String, String>{

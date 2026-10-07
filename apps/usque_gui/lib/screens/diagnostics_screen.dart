@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/connection_presentation.dart';
 import '../core/diagnostics_strings.dart';
 import '../core/usque_theme.dart';
+import '../models/app_models.dart';
 import '../models/diagnostics_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
@@ -107,7 +108,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
               child: controller.lastError == null
                   ? null
                   : WarningBanner(
-                      title: strings.get('error'),
+                      title: strings.get('error_generic'),
                       message: controller.lastError!,
                       danger: true,
                       onDismiss: controller.clearError,
@@ -193,13 +194,6 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   icon: LucideIcons.info,
                   title: 'Usque',
                   subtitle: strings.get('unofficial'),
-                  trailing: InlineStatus(
-                    label: strings.get(presentation.labelKey),
-                    tone: presentation.tone,
-                    icon: controller.snapshot.isConnected
-                        ? LucideIcons.circleCheck
-                        : LucideIcons.circle,
-                  ),
                   children: <Widget>[
                     ReadoutRow(
                       icon: LucideIcons.tag,
@@ -374,6 +368,8 @@ class _DiagnosticControlPanel extends StatelessWidget {
         tone: presentation.tone,
         icon: controller.snapshot.isConnected
             ? LucideIcons.circleCheck
+            : controller.snapshot.phase == ConnectionPhase.error
+            ? LucideIcons.circleX
             : LucideIcons.circle,
       ),
       children: <Widget>[

@@ -61,6 +61,7 @@ const Map<String, String> kUiWorkflowZhHk = <String, String>{
   'application_group': '應用程式',
   'tools_group': '工具',
   'reset_draft_hint': '預設值會填入此表單，按「套用修改」後才會生效。',
+  'error_generic': '發生錯誤',
 };
 
 const Map<String, String> kNetworkQualityZhHk = <String, String>{

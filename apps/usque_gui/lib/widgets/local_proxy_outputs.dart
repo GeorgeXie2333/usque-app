@@ -30,7 +30,7 @@ class LocalProxyOutputs extends StatelessWidget {
       children: [
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          secondary: const Icon(LucideIcons.shield),
+          secondary: const Icon(LucideIcons.ethernetPort),
           title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
           value: frontends.tunnel,
           onChanged: !enabled
@@ -58,7 +58,7 @@ class LocalProxyOutputs extends StatelessWidget {
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          secondary: const Icon(LucideIcons.globe2),
+          secondary: const Icon(LucideIcons.globe),
           title: const Text('HTTP'),
           value: frontends.http,
           onChanged: !enabled
@@ -71,7 +71,7 @@ class LocalProxyOutputs extends StatelessWidget {
         if (defaultTargetPlatform == TargetPlatform.windows)
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            secondary: const Icon(LucideIcons.link),
+            secondary: const Icon(LucideIcons.monitorCog),
             title: Text(strings.get('system_proxy')),
             value: profile.proxy.systemProxy,
             onChanged: !enabled || !frontends.http

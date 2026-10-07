@@ -35,7 +35,7 @@ class SettingsScreen extends StatelessWidget {
             child: controller.lastError == null
                 ? null
                 : WarningBanner(
-                    title: strings.get('error'),
+                    title: strings.get('error_generic'),
                     message: controller.lastError!,
                     danger: true,
                     onDismiss: controller.clearError,
@@ -172,7 +172,7 @@ class SettingsScreen extends StatelessWidget {
                       horizontal: 8,
                       vertical: 16,
                     ),
-                    icon: LucideIcons.monitorCog,
+                    icon: LucideIcons.appWindow,
                     title: strings.get('system_integration'),
                     gap: 10,
                     children: <Widget>[
@@ -366,7 +366,7 @@ class _UpdateActions extends StatelessWidget {
         ],
         if (controller.updateError case final message?) ...<Widget>[
           WarningBanner(
-            title: strings.get('error'),
+            title: strings.get('error_generic'),
             message: message,
             danger: true,
           ),
@@ -576,24 +576,13 @@ class _GeoDirectRow extends StatelessWidget {
         icon: LucideIcons.route,
         title: controller.strings.get('geo_direct'),
         subtitle: summary,
+        // The subtitle already counts countries and custom targets.
         trailing: Semantics(
           label: summary,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                '${enabled.length}',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Icon(
-                LucideIcons.chevronRightDir,
-                size: 20,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ],
+          child: Icon(
+            LucideIcons.chevronRightDir,
+            size: 20,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
       ),

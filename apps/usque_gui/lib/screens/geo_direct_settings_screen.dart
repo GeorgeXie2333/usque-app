@@ -178,7 +178,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
                   child: widget.controller.lastError == null
                       ? null
                       : WarningBanner(
-                          title: strings.get('error'),
+                          title: strings.get('error_generic'),
                           message: widget.controller.lastError!,
                           danger: true,
                           onDismiss: widget.controller.clearError,

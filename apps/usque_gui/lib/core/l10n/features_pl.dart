@@ -67,6 +67,7 @@ const Map<String, String> kUiWorkflowPl = <String, String>{
   'reset_draft_hint':
       'W tym formularzu zostaną wczytane wartości domyślne. Zastosuj '
       'zmiany, aby zaczęły obowiązywać.',
+  'error_generic': 'Wystąpił błąd',
 };
 
 const Map<String, String> kNetworkQualityPl = <String, String>{

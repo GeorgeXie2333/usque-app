@@ -70,6 +70,7 @@ const Map<String, String> kUiWorkflowIt = <String, String>{
   'reset_draft_hint':
       'I valori predefiniti verranno caricati in questo modulo. Applicare le '
       'modifiche perché abbiano effetto.',
+  'error_generic': 'Si è verificato un errore',
 };
 
 const Map<String, String> kNetworkQualityIt = <String, String>{

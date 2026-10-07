@@ -64,6 +64,7 @@ const Map<String, String> kUiWorkflowFa = <String, String>{
   'tools_group': 'ابزارها',
   'reset_draft_hint':
       'پیش‌فرض‌ها در این فرم بارگذاری می‌شوند. برای مؤثر شدن، تغییرات را اعمال کنید.',
+  'error_generic': 'خطایی رخ داد',
 };
 
 const kNetworkQualityFa = <String, String>{

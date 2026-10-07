@@ -246,7 +246,7 @@ class _BatchImportDialogState extends State<_BatchImportDialog> {
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: WarningBanner(
-                  title: widget.controller.strings.get('error'),
+                  title: widget.controller.strings.get('error_generic'),
                   message: _text('batch_uncertain'),
                   danger: true,
                 ),

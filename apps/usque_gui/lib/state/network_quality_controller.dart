@@ -50,6 +50,10 @@ class NetworkQualityController extends ChangeNotifier {
   bool get enabled => _enabled;
   bool get refreshing => _refreshing;
   bool get paused => _pausedAt != null;
+
+  /// The engine reported the observation stream as unavailable. A live rate in
+  /// the connection snapshot does not make the history current.
+  bool get streamUnavailable => _streamUnavailable;
   DateTime get windowEnd => _pausedAt ?? _now();
   Duration? get sampleAge {
     final sampled = latest?.sampledAt;

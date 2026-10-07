@@ -63,6 +63,7 @@ const Map<String, String> kUiWorkflowAr = <String, String>{
   'tools_group': 'الأدوات',
   'reset_draft_hint':
       'ستُحمَّل القيم الافتراضية في هذا النموذج. طبّق التغييرات حتى تسري.',
+  'error_generic': 'حدث خطأ',
 };
 
 const kNetworkQualityAr = <String, String>{

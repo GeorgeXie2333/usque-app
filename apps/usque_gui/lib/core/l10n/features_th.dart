@@ -62,6 +62,7 @@ const Map<String, String> kUiWorkflowTh = <String, String>{
   'tools_group': 'เครื่องมือ',
   'reset_draft_hint':
       'ค่าเริ่มต้นจะถูกโหลดลงในแบบฟอร์มนี้ ใช้การเปลี่ยนแปลงจึงจะมีผล',
+  'error_generic': 'เกิดข้อผิดพลาด',
 };
 
 const Map<String, String> kNetworkQualityTh = <String, String>{

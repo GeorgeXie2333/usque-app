@@ -61,6 +61,7 @@ const Map<String, String> kUiWorkflowJa = <String, String>{
   'application_group': 'アプリ',
   'tools_group': 'ツール',
   'reset_draft_hint': '既定値がこのフォームに読み込まれます。適用すると反映されます。',
+  'error_generic': 'エラーが発生しました',
 };
 
 const Map<String, String> kNetworkQualityJa = <String, String>{

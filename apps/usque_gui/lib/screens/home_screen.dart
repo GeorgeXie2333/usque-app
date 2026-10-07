@@ -483,16 +483,21 @@ class _ErrorSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ControllerSelector<String?>(
+    return ControllerSelector<({String? error, bool failed})>(
       controller: controller,
       active: (controller) => controller.section == AppSection.home,
-      selector: (controller) => controller.lastError,
-      builder: (context, error) => BannerSlot(
-        child: error == null
+      selector: (controller) => (
+        error: controller.lastError,
+        failed: controller.snapshot.phase == ConnectionPhase.error,
+      ),
+      builder: (context, view) => BannerSlot(
+        child: view.error == null
             ? null
             : WarningBanner(
-                title: strings.get('error'),
-                message: error,
+                // The connection heading already names a failed connection.
+                // Other operations share this slot and get a neutral title.
+                title: view.failed ? null : strings.get('error_generic'),
+                message: view.error!,
                 danger: true,
                 onDismiss: controller.clearError,
               ),

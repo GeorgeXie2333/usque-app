@@ -67,6 +67,7 @@ const Map<String, String> kUiWorkflowTr = <String, String>{
   'tools_group': 'Araçlar',
   'reset_draft_hint':
       'Varsayılanlar bu forma yüklenecek. Geçerli olmaları için değişiklikleri uygulayın.',
+  'error_generic': 'Bir hata oluştu',
 };
 
 const kNetworkQualityTr = <String, String>{

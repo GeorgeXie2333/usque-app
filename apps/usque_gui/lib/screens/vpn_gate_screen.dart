@@ -706,7 +706,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                   children: [
                     if (!supported && !onChainPage)
                       WarningBanner(
-                        title: strings.get('error'),
+                        title: strings.get('error_generic'),
                         message: strings.vpnGateUnsupported,
                       ),
                     if (!onChainPage) toggle,
@@ -768,7 +768,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                           Padding(
                             padding: const EdgeInsets.only(bottom: 16),
                             child: WarningBanner(
-                              title: strings.get('error'),
+                              title: strings.get('error_generic'),
                               message: strings.get(_fetchError!),
                               danger: true,
                             ),
@@ -970,7 +970,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
             bottomBar: bottomBar,
             warning: !supported
                 ? WarningBanner(
-                    title: strings.get('error'),
+                    title: strings.get('error_generic'),
                     message: strings.vpnGateUnsupported,
                   )
                 : null,

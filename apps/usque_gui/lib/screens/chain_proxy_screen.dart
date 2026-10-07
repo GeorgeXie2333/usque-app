@@ -704,7 +704,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                       ? null
                       : WarningBanner(
                           key: const ValueKey('chain-library-error'),
-                          title: strings.get('error'),
+                          title: strings.get('error_generic'),
                           message: _libraryError!,
                           danger: true,
                           onDismiss: () => setState(() => _libraryError = null),
@@ -1303,7 +1303,7 @@ class _ImportDialogState extends State<_ImportDialog> {
                         padding: const EdgeInsets.only(top: 16),
                         child: WarningBanner(
                           key: const ValueKey('chain-import-error'),
-                          title: s.get('error'),
+                          title: s.get('error_generic'),
                           message: _error!,
                           danger: true,
                         ),

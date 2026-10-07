@@ -920,7 +920,8 @@ class WarningBanner extends StatelessWidget {
     super.key,
   });
 
-  final String title;
+  /// Omitted when an adjacent heading already names the failure.
+  final String? title;
   final String message;
   final VoidCallback? onDismiss;
   final bool danger;
@@ -956,14 +957,16 @@ class WarningBanner extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
-                      title,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: foreground,
-                        fontWeight: FontWeight.w700,
+                    if (title case final title?) ...<Widget>[
+                      Text(
+                        title,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: foreground,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 3),
+                      const SizedBox(height: 3),
+                    ],
                     Text(message, style: theme.textTheme.bodyMedium),
                   ],
                 ),

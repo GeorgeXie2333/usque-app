@@ -70,6 +70,7 @@ const Map<String, String> kUiWorkflowPt = <String, String>{
   'reset_draft_hint':
       'Os padrões serão carregados neste formulário. Aplique as alterações '
       'para que passem a valer.',
+  'error_generic': 'Ocorreu um erro',
 };
 
 const Map<String, String> kNetworkQualityPt = <String, String>{

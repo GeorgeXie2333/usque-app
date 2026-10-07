@@ -65,6 +65,7 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
   'tools_group': 'Công cụ',
   'reset_draft_hint':
       'Giá trị mặc định sẽ được nạp vào biểu mẫu này. Áp dụng thay đổi để chúng có hiệu lực.',
+  'error_generic': 'Đã xảy ra lỗi',
 };
 
 const Map<String, String> kNetworkQualityVi = <String, String>{

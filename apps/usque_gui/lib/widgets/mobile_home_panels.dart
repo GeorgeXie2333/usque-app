@@ -31,6 +31,11 @@ String homeTrafficNoteKey(
       ? 'home_traffic_unavailable'
       : quality.paused
       ? 'nq_paused'
+      // A known outage or an expired reading is not an empty start-up window.
+      : !hasSamples &&
+            (quality.streamUnavailable ||
+                (quality.latest != null && quality.stale))
+      ? 'home_traffic_stale'
       : !hasSamples
       ? 'home_traffic_waiting'
       : quality.stale
@@ -106,11 +111,11 @@ class MobileTrafficPanel extends StatelessWidget {
                     ? (download ? down : up)
                     : const <int?>[];
                 final label = strings.get(download ? 'download' : 'upload');
-                final rate = connected
+                final int? rate = connected
                     ? (download
                           ? snapshot.downloadBytesPerSecond
                           : snapshot.uploadBytesPerSecond)
-                    : 0;
+                    : null;
                 final color = download ? tokens.inbound : tokens.outbound;
                 final present = samples.whereType<int>().toList(
                   growable: false,
@@ -144,8 +149,17 @@ class MobileTrafficPanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      formatRate(rate),
-                      style: UsqueTheme.readout(context, size: 19),
+                      rate == null ? '—' : formatRate(rate),
+                      key: ValueKey(
+                        download ? 'home-download-rate' : 'home-upload-rate',
+                      ),
+                      style: UsqueTheme.readout(
+                        context,
+                        size: 19,
+                        color: rate == null
+                            ? theme.colorScheme.onSurfaceVariant
+                            : null,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Sparkline(

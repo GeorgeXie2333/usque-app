@@ -66,6 +66,7 @@ const Map<String, String> kUiWorkflowId = <String, String>{
   'tools_group': 'Alat',
   'reset_draft_hint':
       'Nilai default akan dimuat ke formulir ini. Terapkan perubahan agar berlaku.',
+  'error_generic': 'Terjadi kesalahan',
 };
 
 const Map<String, String> kNetworkQualityId = <String, String>{

@@ -536,4 +536,60 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('disconnected phone rates show a dash instead of zero', (
+    tester,
+  ) async {
+    final fixture = _Fixture();
+    await _show(tester, fixture);
+    for (final direction in ['download', 'upload']) {
+      expect(
+        tester.widget<Text>(find.byKey(ValueKey('home-$direction-rate'))).data,
+        '—',
+      );
+    }
+    expect(find.text('0 B/s'), findsNothing);
+  });
+
+  testWidgets('a stream outage without history is delayed, not waiting', (
+    tester,
+  ) async {
+    final fixture = _Fixture();
+    fixture.app.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.connected,
+      downloadBytesPerSecond: 2048,
+    );
+    await _show(tester, fixture);
+    final strings = fixture.app.strings;
+    expect(find.text(strings.get('home_traffic_waiting')), findsOneWidget);
+    fixture.quality.markStreamUnavailable(true);
+    await tester.pumpAndSettle();
+    expect(find.text(strings.get('home_traffic_waiting')), findsNothing);
+    expect(find.text(strings.get('home_traffic_stale')), findsOneWidget);
+    expect(_trace(tester, 'download').samples.whereType<int>(), isEmpty);
+  });
+
+  testWidgets('home error banner names only connection failures', (
+    tester,
+  ) async {
+    final fixture = _Fixture();
+    fixture.app.lastError = 'Saved accounts were reset.';
+    await _show(tester, fixture);
+    final strings = fixture.app.strings;
+    expect(find.text('Saved accounts were reset.'), findsOneWidget);
+    expect(find.text(strings.get('error_generic')), findsOneWidget);
+    expect(find.text(strings.get('error')), findsNothing);
+
+    fixture.app.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.error,
+      errorCode: 'TEST_FAILED',
+    );
+    fixture.app.lastError = 'The connection is unavailable.';
+    fixture.app.selectSection(AppSection.home);
+    await tester.pumpAndSettle();
+    expect(find.text('The connection is unavailable.'), findsOneWidget);
+    // The status heading names the failure; the banner adds only the message.
+    expect(find.text(strings.get('error')), findsOneWidget);
+    expect(find.text(strings.get('error_generic')), findsNothing);
+  });
 }

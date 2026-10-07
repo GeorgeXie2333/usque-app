@@ -61,6 +61,7 @@ const Map<String, String> kUiWorkflowKo = <String, String>{
   'application_group': '앱',
   'tools_group': '도구',
   'reset_draft_hint': '기본값이 이 양식에 로드됩니다. 적용해야 반영됩니다.',
+  'error_generic': '오류가 발생했습니다',
 };
 
 const Map<String, String> kNetworkQualityKo = <String, String>{

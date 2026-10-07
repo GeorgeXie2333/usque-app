@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
@@ -45,6 +46,29 @@ void main() {
           systemProxy,
           platform == TargetPlatform.windows ? findsOneWidget : findsNothing,
         );
+        // Each output keeps the icon Home uses for the same concept.
+        Finder rowIcon(Finder row, IconData icon) =>
+            find.descendant(of: row, matching: find.byIcon(icon));
+        expect(
+          rowIcon(
+            find.widgetWithText(
+              SwitchListTile,
+              app.strings.tunnelOutputLabel(platform),
+            ),
+            LucideIcons.ethernetPort,
+          ),
+          findsOneWidget,
+        );
+        expect(
+          rowIcon(
+            find.widgetWithText(SwitchListTile, 'HTTP'),
+            LucideIcons.globe,
+          ),
+          findsOneWidget,
+        );
+        if (platform == TargetPlatform.windows) {
+          expect(rowIcon(systemProxy, LucideIcons.monitorCog), findsOneWidget);
+        }
         final port = fieldWithLabel(app.strings.get('port'));
         await tester.ensureVisible(port);
         await tester.enterText(port, '9090');

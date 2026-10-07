@@ -70,6 +70,7 @@ const Map<String, String> kUiWorkflowNl = <String, String>{
   'reset_draft_hint':
       'Standaardwaarden worden in dit formulier geladen. Pas de wijzigingen '
       'toe om ze door te voeren.',
+  'error_generic': 'Er is een fout opgetreden',
 };
 
 const Map<String, String> kNetworkQualityNl = <String, String>{

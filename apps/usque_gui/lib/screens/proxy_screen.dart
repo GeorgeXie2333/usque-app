@@ -529,7 +529,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
         MediaQuery.sizeOf(context).width < 760 ||
         MediaQuery.textScalerOf(context).scale(14) > 21;
     return ContentSection(
-      icon: socks5 ? LucideIcons.route : LucideIcons.globe2,
+      icon: socks5 ? LucideIcons.network : LucideIcons.globe,
       title: strings.get(socks5 ? 'socks_listener' : 'http_listener'),
       subtitle: strings.get(
         enabled

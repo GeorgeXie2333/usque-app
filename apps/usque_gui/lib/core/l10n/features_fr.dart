@@ -72,6 +72,7 @@ const Map<String, String> kUiWorkflowFr = <String, String>{
   'reset_draft_hint':
       'Les valeurs par défaut seront chargées dans ce formulaire. Appliquez '
       'les modifications pour qu’elles prennent effet.',
+  'error_generic': 'Une erreur s’est produite',
 };
 
 const Map<String, String> kNetworkQualityFr = <String, String>{

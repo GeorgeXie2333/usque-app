@@ -142,7 +142,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
             child: _saveError == null
                 ? null
                 : WarningBanner(
-                    title: strings.get('error'),
+                    title: strings.get('error_generic'),
                     message: _saveError!,
                     danger: true,
                   ),

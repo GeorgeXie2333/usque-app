@@ -69,6 +69,7 @@ const Map<String, String> kUiWorkflowRu = <String, String>{
   'reset_draft_hint':
       'В форму будут загружены значения по умолчанию. Примените '
       'изменения, чтобы они вступили в силу.',
+  'error_generic': 'Произошла ошибка',
 };
 
 const kNetworkQualityRu = <String, String>{
