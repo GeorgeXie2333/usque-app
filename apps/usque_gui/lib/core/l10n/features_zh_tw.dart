@@ -6,6 +6,7 @@ const Map<String, String> kUiWorkflowZhTw = <String, String>{
   'preview_restart_onboarding': '重新開始首次引導',
   'home_local_proxies': '本機代理',
   'home_manage_proxies': '管理代理',
+  'home_exit_ip': '出口 IP：',
   'home_enabled_interfaces': '已啟用：{interfaces}',
   'home_system_proxy': '系統代理',
   'home_tun_hint': '接管本機應用程式的流量',

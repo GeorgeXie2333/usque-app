@@ -6,6 +6,7 @@ const Map<String, String> kUiWorkflowTh = <String, String>{
   'preview_restart_onboarding': 'เริ่มการตั้งค่าครั้งแรกใหม่',
   'home_local_proxies': 'พร็อกซีในเครื่อง',
   'home_manage_proxies': 'จัดการพร็อกซี',
+  'home_exit_ip': 'IP ขาออก:',
   'home_enabled_interfaces': 'เปิดใช้งาน: {interfaces}',
   'home_system_proxy': 'พร็อกซีของระบบ',
   'home_tun_hint': 'รับช่วงการรับส่งข้อมูลของแอปในอุปกรณ์นี้',

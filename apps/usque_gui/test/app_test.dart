@@ -4746,7 +4746,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       expect(find.text('Waiting to connect'), findsNothing);
       expect(find.byIcon(LucideIcons.mapPinOff), findsNothing);
-      expect(find.text('Singapore, Singapore'), findsOneWidget);
+      expect(find.text('Singapore'), findsOneWidget);
+      expect(find.text('Singapore, Singapore'), findsNothing);
       expect(find.text('1.2.3.4'), findsNothing);
       expect(find.text('2001:db8::1'), findsNothing);
       final details = find.byKey(

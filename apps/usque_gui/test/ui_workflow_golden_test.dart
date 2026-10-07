@@ -1008,6 +1008,11 @@ void main() {
               );
               await tester.pumpAndSettle();
               final reason = '$size dpi=$dpi connected=$connected zh=$zh';
+              expect(
+                tester.getTopLeft(find.text(app.strings.get('duration'))).dy,
+                tester.getTopLeft(find.text(app.strings.get('protocol'))).dy,
+                reason: reason,
+              );
               expect(tester.getSize(find.byType(WindowTitleBar)).height, 40);
               final scrollable = find
                   .descendant(

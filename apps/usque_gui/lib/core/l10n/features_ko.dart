@@ -6,6 +6,7 @@ const Map<String, String> kUiWorkflowKo = <String, String>{
   'preview_restart_onboarding': '초기 설정 다시 시작',
   'home_local_proxies': '로컬 프록시',
   'home_manage_proxies': '프록시 관리',
+  'home_exit_ip': '출구 IP:',
   'home_enabled_interfaces': '활성화됨: {interfaces}',
   'home_system_proxy': '시스템 프록시',
   'home_tun_hint': '이 기기의 앱 트래픽을 처리합니다',

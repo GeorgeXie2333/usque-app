@@ -6,6 +6,7 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
   'preview_restart_onboarding': 'Bắt đầu lại thiết lập ban đầu',
   'home_local_proxies': 'Proxy cục bộ',
   'home_manage_proxies': 'Quản lý proxy',
+  'home_exit_ip': 'IP đầu ra:',
   'home_enabled_interfaces': 'Đã bật: {interfaces}',
   'home_system_proxy': 'Proxy hệ thống',
   'home_tun_hint': 'Tiếp quản lưu lượng của ứng dụng trên thiết bị này',

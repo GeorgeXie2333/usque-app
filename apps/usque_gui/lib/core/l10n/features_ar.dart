@@ -6,6 +6,7 @@ const Map<String, String> kUiWorkflowAr = <String, String>{
   'preview_restart_onboarding': 'إعادة بدء الإعداد الأولي',
   'home_local_proxies': 'الوكلاء المحليون',
   'home_manage_proxies': 'إدارة الوكلاء',
+  'home_exit_ip': 'IP الخروج:',
   'home_enabled_interfaces': 'مفعّل: {interfaces}',
   'home_system_proxy': 'وكيل النظام',
   'home_tun_hint': 'يلتقط حركة مرور التطبيقات على هذا الجهاز',

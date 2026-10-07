@@ -125,7 +125,7 @@ void main() {
       );
       expect(find.text('Protocol'), findsNothing);
       expect(
-        find.descendant(of: details, matching: find.text('IPv4')),
+        find.descendant(of: details, matching: find.text('Exit IP:')),
         findsOneWidget,
       );
       expect(

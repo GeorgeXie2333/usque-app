@@ -1027,8 +1027,8 @@ class _DesktopSessionReadout extends StatelessWidget {
         family: snapshot.addressFamily,
         since: snapshot.connectedAt,
         connected: snapshot.isConnected,
-        location: snapshot.exit.hasLocation
-            ? snapshot.exit.location
+        location: snapshot.exit.country?.trim().isNotEmpty == true
+            ? snapshot.exit.country!.trim()
             : strings.get('not_available'),
         countryCode: snapshot.exit.countryCode,
         killKey: killSwitchStatusKey(
@@ -1122,19 +1122,27 @@ class _DesktopSessionReadout extends StatelessWidget {
             key: const ValueKey('home-exit-location'),
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (view.connected)
-                CountryFlag(countryCode: view.countryCode)
-              else
-                const Icon(LucideIcons.mapPin, size: 16),
+              const Icon(LucideIcons.mapPin, size: 16),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  view.connected
-                      ? view.location
-                      : strings.get('location_disconnected'),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (view.connected) ...[
+                      CountryFlag(countryCode: view.countryCode),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        view.connected
+                            ? view.location
+                            : strings.get('location_disconnected'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1215,14 +1223,11 @@ class _ConnectionDetailsReadout extends StatelessWidget {
     builder: (context, view) {
       final strings = controller.strings;
       final theme = Theme.of(context);
-      Widget address(String label, String? value) => ReadoutRow(
-        stackWhenNarrow: true,
-        icon: LucideIcons.network,
-        label: label,
-        value: value == null
-            ? const EmptyValue(label: '—')
-            : MonoValue(value: value),
-      );
+      final addresses = [view.ipv4, view.ipv6]
+          .whereType<String>()
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList();
       final interfaces = [
         if (view.tunnel) strings.tunnelOutputLabel(theme.platform),
         if (view.systemProxy) strings.get('home_system_proxy'),
@@ -1240,15 +1245,22 @@ class _ConnectionDetailsReadout extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            address(strings.get('ipv4'), view.ipv4),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Divider(
-                height: 1,
-                color: UsqueTokens.of(context).hairline,
-              ),
+            Wrap(
+              key: const ValueKey('home-exit-ip'),
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  strings.get('home_exit_ip'),
+                  style: theme.textTheme.bodyMedium,
+                ),
+                if (addresses.isEmpty)
+                  const EmptyValue(label: '—')
+                else
+                  for (final value in addresses) MonoValue(value: value),
+              ],
             ),
-            address(strings.get('ipv6'), view.ipv6),
             if (interfaces.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(

@@ -6,6 +6,7 @@ const Map<String, String> kUiWorkflowFa = <String, String>{
   'preview_restart_onboarding': 'شروع دوباره راه‌اندازی اولیه',
   'home_local_proxies': 'پروکسی‌های محلی',
   'home_manage_proxies': 'مدیریت پروکسی‌ها',
+  'home_exit_ip': 'IP خروجی:',
   'home_enabled_interfaces': 'فعال: {interfaces}',
   'home_system_proxy': 'پروکسی سیستم',
   'home_tun_hint': 'ترافیک برنامه‌های این دستگاه را در اختیار می‌گیرد',

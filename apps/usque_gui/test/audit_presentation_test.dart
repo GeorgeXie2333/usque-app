@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
@@ -9,6 +10,7 @@ import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/animated_index_stack.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/connection_ring.dart';
+import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/window_titlebar.dart';
 import 'app_test.dart' show FakeEngineClient;
 import 'ui_workflow_test.dart' show workflowHost;
@@ -203,6 +205,9 @@ void main() {
         find.descendant(of: details, matching: find.text(value));
     expect(detailText('198.51.100.10'), findsOneWidget);
     expect(detailText('2001:db8::10'), findsOneWidget);
+    expect(detailText('Exit IP:'), findsOneWidget);
+    expect(detailText('IPv4'), findsNothing);
+    expect(detailText('IPv6'), findsNothing);
     for (final key in [
       'protocol',
       'address_family',
@@ -244,12 +249,36 @@ void main() {
     expect(tester.widget<Text>(enabled).data, 'Enabled: ${names.join(', ')}');
     expect(
       find.descendant(of: details, matching: find.byType(Icon)),
-      findsNWidgets(2),
+      findsNothing,
+    );
+    expect(
+      tester.getTopLeft(find.text('Exit IP:')).dx,
+      tester.getTopLeft(enabled).dx,
     );
     expect(
       detailText(app.strings.get('geo_chip').replaceAll('{current}', 'CN')),
       findsNothing,
     );
+    for (final exit in const [
+      ExitInfo(ipv4: '198.51.100.10'),
+      ExitInfo(ipv6: '2001:db8::10'),
+      ExitInfo(ipv4: '198.51.100.10', ipv6: '  '),
+    ]) {
+      app.snapshot = EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        exit: exit,
+      );
+      await tester.pumpWidget(page());
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: details, matching: find.byType(MonoValue)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: details, matching: find.byType(EmptyValue)),
+        findsNothing,
+      );
+    }
     app.sharedNetwork = app.sharedNetwork.copyWith(
       frontends: const FrontendSettings(
         tunnel: false,
@@ -271,9 +300,59 @@ void main() {
     expect(detailText('2001:db8::10'), findsNothing);
     expect(
       find.descendant(of: details, matching: find.byType(EmptyValue)),
-      findsNWidgets(2),
+      findsOneWidget,
     );
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('desktop Location keeps its icon and shows flag before country', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1020, 728));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final app = AppController(FakeEngineClient())
+      ..localePreference = LocalePreference.english;
+    addTearDown(app.dispose);
+    for (final country in ['United States', null, '  ']) {
+      app.snapshot = EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        transport: 'HTTP/3',
+        addressFamily: 'IPv4',
+        connectedAt: DateTime.now().subtract(const Duration(minutes: 2)),
+        exit: ExitInfo(city: 'New York', country: country, countryCode: 'US'),
+      );
+      await tester.pumpWidget(workflowHost(app));
+      await tester.pumpAndSettle();
+      final location = find.byKey(const ValueKey('home-exit-location'));
+      final icon = find.descendant(
+        of: location,
+        matching: find.byIcon(LucideIcons.mapPin),
+      );
+      final flag = find.descendant(
+        of: location,
+        matching: find.byType(CountryFlag),
+      );
+      final value = find.descendant(
+        of: location,
+        matching: find.text(
+          country?.trim().isNotEmpty == true
+              ? country!
+              : app.strings.get('not_available'),
+        ),
+      );
+      expect(icon, findsOneWidget);
+      expect(flag, findsOneWidget);
+      expect(value, findsOneWidget);
+      expect(find.textContaining('New York'), findsNothing);
+      expect(tester.getRect(icon).right, lessThan(tester.getRect(flag).left));
+      expect(tester.getRect(flag).right, lessThan(tester.getRect(value).left));
+      expect(
+        tester.getTopLeft(find.text('Duration')).dy,
+        tester.getTopLeft(find.text('IP version')).dy,
+      );
+      expect(tester.takeException(), isNull);
+    }
     await tester.pumpWidget(const SizedBox());
   });
 }

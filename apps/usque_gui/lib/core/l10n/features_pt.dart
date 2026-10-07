@@ -6,6 +6,7 @@ const Map<String, String> kUiWorkflowPt = <String, String>{
   'preview_restart_onboarding': 'Reiniciar configuração inicial',
   'home_local_proxies': 'Proxies locais',
   'home_manage_proxies': 'Gerenciar proxies',
+  'home_exit_ip': 'IP de saída:',
   'home_enabled_interfaces': 'Ativados: {interfaces}',
   'home_system_proxy': 'Proxy do sistema',
   'home_tun_hint': 'Captura o tráfego dos apps deste dispositivo',

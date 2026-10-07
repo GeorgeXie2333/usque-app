@@ -6,6 +6,7 @@ const Map<String, String> kUiWorkflowNl = <String, String>{
   'preview_restart_onboarding': 'Eerste configuratie opnieuw starten',
   'home_local_proxies': 'Lokale proxy’s',
   'home_manage_proxies': 'Proxy’s beheren',
+  'home_exit_ip': 'Uitgaand IP:',
   'home_enabled_interfaces': 'Ingeschakeld: {interfaces}',
   'home_system_proxy': 'Systeemproxy',
   'home_tun_hint': 'Vangt het verkeer van apps op dit apparaat op',

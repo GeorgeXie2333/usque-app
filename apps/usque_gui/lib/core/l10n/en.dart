@@ -72,7 +72,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'error': 'Connection error',
   'active_profile': 'Current account',
   'protocol': 'Protocol',
-  'address_family': 'Address family',
+  'address_family': 'IP version',
   'duration': 'Duration',
   'download': 'Download',
   'upload': 'Upload',
