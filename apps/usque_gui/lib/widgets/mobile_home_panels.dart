@@ -77,6 +77,48 @@ class MobileTrafficPanel extends StatelessWidget {
     final note = strings.get(
       homeTrafficNoteKey(controller, hasSamples: hasSamples),
     );
+    
+    // Show empty state when disconnected
+    if (!connected) {
+      return ContentSection(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Semantics(
+                  header: true,
+                  child: Text(
+                    strings.get('home_next_steps'),
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _NextStepItem(
+              icon: LucideIcons.play,
+              text: strings.get('home_step_connect'),
+              theme: theme,
+            ),
+            const SizedBox(height: 12),
+            _NextStepItem(
+              icon: LucideIcons.user,
+              text: strings.get('home_step_choose_profile'),
+              theme: theme,
+            ),
+            const SizedBox(height: 12),
+            _NextStepItem(
+              icon: LucideIcons.settings,
+              text: strings.get('home_step_configure_proxy'),
+              theme: theme,
+            ),
+          ],
+        ),
+      );
+    }
+    
     return ContentSection(
       padding: EdgeInsets.zero,
       child: Column(
@@ -391,6 +433,37 @@ class _OverviewFact extends StatelessWidget {
       ),
       const SizedBox(height: 4),
       child,
+    ],
+  );
+}
+
+class _NextStepItem extends StatelessWidget {
+  const _NextStepItem({
+    required this.icon,
+    required this.text,
+    required this.theme,
+  });
+
+  final IconData icon;
+  final String text;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(
+        icon,
+        size: 20,
+        color: theme.colorScheme.primary,
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Text(
+          text,
+          style: theme.textTheme.bodyMedium,
+        ),
+      ),
     ],
   );
 }

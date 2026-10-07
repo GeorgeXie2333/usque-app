@@ -16,6 +16,7 @@ import '../widgets/controller_selector.dart';
 import '../widgets/country_flag.dart';
 import '../widgets/home_desktop_controls.dart';
 import '../widgets/live_duration.dart';
+import '../widgets/mobile_home_controls.dart';
 import '../widgets/mobile_home_panels.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
@@ -68,6 +69,10 @@ class HomeScreen extends StatelessWidget {
                   controller: controller,
                   strings: strings,
                   compact: true,
+                ),
+                MobileHomeControls(
+                  controller: controller,
+                  onOpenChainProxy: onOpenVpnGate ?? openChainProxy,
                 ),
                 MobileTrafficPanel(controller: controller),
                 MobileConnectionOverview(
