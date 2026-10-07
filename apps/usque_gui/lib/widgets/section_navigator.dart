@@ -44,6 +44,9 @@ class SectionNavigatorState extends State<SectionNavigator> {
 
   bool get closing => _closing;
 
+  /// True while a dialog or popup menu sits on this section's navigator.
+  bool get popupOpen => _observer.popups.isNotEmpty;
+
   void registerGuard(UnsavedChangesGuardState guard) {
     if (!_guards.contains(guard)) _guards.add(guard);
   }
@@ -137,22 +140,29 @@ class SectionNavigatorState extends State<SectionNavigator> {
   );
 }
 
-/// Tracks page routes, ignoring dialogs and popup menus.
+/// Tracks page routes; dialogs and popup menus are only counted.
 class _PageObserver extends NavigatorObserver {
   _PageObserver(this.onChanged);
 
   final void Function(Route<dynamic>? exiting) onChanged;
   final pages = <Route<dynamic>>[];
+  final popups = <Route<dynamic>>{};
 
   void _add(Route<dynamic>? route) {
     if (route is PageRoute) {
       pages.add(route);
       onChanged(null);
+    } else if (route != null) {
+      popups.add(route);
     }
   }
 
   void _remove(Route<dynamic>? route) {
-    if (route is PageRoute && pages.remove(route)) onChanged(route);
+    if (route is PageRoute && pages.remove(route)) {
+      onChanged(route);
+    } else {
+      popups.remove(route);
+    }
   }
 
   @override

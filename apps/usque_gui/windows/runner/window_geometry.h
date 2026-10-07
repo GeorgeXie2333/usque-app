@@ -29,6 +29,29 @@ inline RECT FitWindowBounds(RECT bounds, const RECT& work_area) {
   return {left, top, left + width, top + height};
 }
 
+// Physical pixels. Centres a window of |width| x |height| in |work_area|.
+inline RECT CenterWindowBounds(LONG width, LONG height, const RECT& work_area) {
+  const LONG left = work_area.left + (work_area.right - work_area.left - width) / 2;
+  const LONG top = work_area.top + (work_area.bottom - work_area.top - height) / 2;
+  return FitWindowBounds({left, top, left + width, top + height}, work_area);
+}
+
+// Physical pixels. Keeps a saved window's top-left corner and logical size
+// when its monitor's DPI changed between sessions.
+inline RECT RestoreWindowBounds(const RECT& saved, UINT saved_dpi, UINT dpi,
+                                const RECT& work_area) {
+  LONG width = saved.right - saved.left;
+  LONG height = saved.bottom - saved.top;
+  if (saved_dpi != 0 && dpi != 0 && saved_dpi != dpi) {
+    width = ::MulDiv(width, static_cast<int>(dpi), static_cast<int>(saved_dpi));
+    height =
+        ::MulDiv(height, static_cast<int>(dpi), static_cast<int>(saved_dpi));
+  }
+  return FitWindowBounds(
+      {saved.left, saved.top, saved.left + width, saved.top + height},
+      work_area);
+}
+
 }  // namespace usque
 
 #endif  // RUNNER_WINDOW_GEOMETRY_H_

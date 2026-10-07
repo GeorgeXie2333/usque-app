@@ -35,6 +35,11 @@ const Map<String, String> kKoCatalog = <String, String>{
   'tray_connect_profile': '현재 계정 연결',
   'tray_disconnect_profile': '현재 계정 연결 해제',
   'tray_disconnect_exit': '연결 해제 후 종료',
+  'notice_connection_interrupted': '연결이 끊겼습니다. Usque가 복구를 시도하고 있습니다.',
+  'notice_connection_failed': 'Usque가 연결을 유지하지 못했습니다. 자세한 내용은 Usque를 여세요.',
+  'notice_connection_restored': '연결이 복구되었습니다.',
+  'notice_kill_switch_blocking':
+      '연결이 복구되거나 연결을 해제할 때까지 Kill Switch가 네트워크 트래픽을 차단합니다.',
   'connection_status': '연결 상태',
   'outputs': '{tunnel} 및 로컬 프록시',
   'home': '홈',

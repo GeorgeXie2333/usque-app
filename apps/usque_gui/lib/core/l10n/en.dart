@@ -35,6 +35,13 @@ const Map<String, String> kEnCatalog = <String, String>{
   'tray_connect_profile': 'Connect Active Profile',
   'tray_disconnect_profile': 'Disconnect Active Profile',
   'tray_disconnect_exit': 'Disconnect and Exit',
+  'notice_connection_interrupted':
+      'The connection was interrupted. Usque is trying to restore it.',
+  'notice_connection_failed':
+      'Usque could not keep the connection. Open Usque for details.',
+  'notice_connection_restored': 'The connection has been restored.',
+  'notice_kill_switch_blocking':
+      'Kill Switch is blocking network traffic until the connection is restored or you disconnect.',
   'connection_status': 'Connection status',
   'outputs': '{tunnel} and local proxies',
   'home': 'Home',

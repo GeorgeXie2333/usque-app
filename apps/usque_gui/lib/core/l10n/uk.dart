@@ -35,6 +35,13 @@ const Map<String, String> kUkCatalog = <String, String>{
   'tray_connect_profile': 'Зʼєднати поточний обліковий запис',
   'tray_disconnect_profile': 'Відʼєднати поточний обліковий запис',
   'tray_disconnect_exit': 'Відʼєднати й вийти',
+  'notice_connection_interrupted':
+      'Зʼєднання перервано. Usque намагається його відновити.',
+  'notice_connection_failed':
+      'Usque не вдалося зберегти зʼєднання. Відкрийте Usque, щоб переглянути подробиці.',
+  'notice_connection_restored': 'Зʼєднання відновлено.',
+  'notice_kill_switch_blocking':
+      'Kill Switch блокує мережевий трафік, доки зʼєднання не відновиться або ви не відʼєднаєтеся.',
   'connection_status': 'Стан зʼєднання',
   'outputs': '{tunnel} і локальні проксі',
   'home': 'Головна',

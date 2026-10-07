@@ -35,6 +35,13 @@ const Map<String, String> kIdCatalog = <String, String>{
   'tray_connect_profile': 'Hubungkan akun aktif',
   'tray_disconnect_profile': 'Putuskan akun aktif',
   'tray_disconnect_exit': 'Putuskan dan keluar',
+  'notice_connection_interrupted':
+      'Koneksi terputus. Usque sedang mencoba memulihkannya.',
+  'notice_connection_failed':
+      'Usque tidak dapat mempertahankan koneksi. Buka Usque untuk melihat detailnya.',
+  'notice_connection_restored': 'Koneksi telah dipulihkan.',
+  'notice_kill_switch_blocking':
+      'Kill Switch memblokir lalu lintas jaringan hingga koneksi pulih atau Anda memutuskan koneksi.',
   'connection_status': 'Status koneksi',
   'outputs': '{tunnel} dan proksi lokal',
   'home': 'Beranda',

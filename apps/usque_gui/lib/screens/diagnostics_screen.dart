@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/connection_presentation.dart';
@@ -8,6 +9,7 @@ import '../models/diagnostics_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/connection_timeline.dart';
+import '../widgets/desktop_shortcuts.dart';
 import '../widgets/diagnostic_check_tile.dart';
 import '../widgets/external_link.dart';
 import '../widgets/usque_dialog.dart';
@@ -59,7 +61,13 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
         controller,
         controller.diagnostics,
       ]),
-      builder: (context, _) => _buildPage(context),
+      builder: (context, _) => PageShortcut(
+        activator: const SingleActivator(LogicalKeyboardKey.f5),
+        onInvoke: controller.diagnostics.timelineLoading
+            ? null
+            : controller.diagnostics.loadTimeline,
+        child: _buildPage(context),
+      ),
     );
   }
 

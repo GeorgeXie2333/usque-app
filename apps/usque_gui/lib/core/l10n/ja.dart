@@ -35,6 +35,11 @@ const Map<String, String> kJaCatalog = <String, String>{
   'tray_connect_profile': '現在のアカウントに接続',
   'tray_disconnect_profile': '現在のアカウントを切断',
   'tray_disconnect_exit': '切断して終了',
+  'notice_connection_interrupted': '接続が中断されました。Usque が復旧を試みています。',
+  'notice_connection_failed': 'Usque は接続を維持できませんでした。詳細は Usque を開いて確認してください。',
+  'notice_connection_restored': '接続が復旧しました。',
+  'notice_kill_switch_blocking':
+      '接続が復旧するか切断するまで、Kill Switch がネットワーク通信をブロックしています。',
   'connection_status': '接続状態',
   'outputs': '{tunnel} とローカルプロキシ',
   'home': 'ホーム',

@@ -38,6 +38,13 @@ const Map<String, String> kFrCatalog = <String, String>{
   'tray_connect_profile': 'Connecter le compte actif',
   'tray_disconnect_profile': 'Déconnecter le compte actif',
   'tray_disconnect_exit': 'Déconnecter et quitter',
+  'notice_connection_interrupted':
+      'La connexion a été interrompue. Usque tente de la rétablir.',
+  'notice_connection_failed':
+      'Usque n’a pas pu maintenir la connexion. Ouvrez Usque pour en savoir plus.',
+  'notice_connection_restored': 'La connexion a été rétablie.',
+  'notice_kill_switch_blocking':
+      'Le Kill Switch bloque le trafic réseau jusqu’au rétablissement de la connexion ou à votre déconnexion.',
   'connection_status': 'État de la connexion',
   'outputs': '{tunnel} et proxys locaux',
   'home': 'Accueil',

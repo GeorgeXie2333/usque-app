@@ -35,6 +35,13 @@ const Map<String, String> kRuCatalog = <String, String>{
   'tray_connect_profile': 'Подключить текущий аккаунт',
   'tray_disconnect_profile': 'Отключить текущий аккаунт',
   'tray_disconnect_exit': 'Отключить и выйти',
+  'notice_connection_interrupted':
+      'Подключение прервано. Usque пытается его восстановить.',
+  'notice_connection_failed':
+      'Usque не удалось сохранить подключение. Откройте Usque, чтобы узнать подробности.',
+  'notice_connection_restored': 'Подключение восстановлено.',
+  'notice_kill_switch_blocking':
+      'Kill Switch блокирует сетевой трафик, пока подключение не восстановится или вы не отключитесь.',
   'connection_status': 'Состояние подключения',
   'outputs': '{tunnel} и локальные прокси',
   'home': 'Главная',

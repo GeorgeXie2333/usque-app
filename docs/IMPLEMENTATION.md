@@ -205,6 +205,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Connect desktop and Android identity provisioning to their platform vaults.
 - [x] Add Windows manual Zero Trust callback entry and an Android process-local, same-team, single-consumption protocol callback.
 - [x] Add Windows clipboard fill, live Access-callback validation, login-scoped current-user HKCU protocol association with automatic restoration, and single-instance URI forwarding.
+- [x] Add a Windows tray status badge, tray TUN/system-proxy items, background connection notifications, restored window placement and desktop keyboard shortcuts.
 - [x] Keep identity plaintext hidden while supporting explicit, confirmed Secret export to a user-selected destination.
 - [x] Add shared network-output toggles across accounts, runtime-aware frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
 - [x] Validate and explicitly apply proxy drafts, report local save outcomes, guard unapplied advanced edits, and keep apply actions visible while scrolling.

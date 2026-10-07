@@ -35,6 +35,13 @@ const Map<String, String> kPlCatalog = <String, String>{
   'tray_connect_profile': 'Połącz aktywne konto',
   'tray_disconnect_profile': 'Rozłącz aktywne konto',
   'tray_disconnect_exit': 'Rozłącz i zakończ',
+  'notice_connection_interrupted':
+      'Połączenie zostało przerwane. Usque próbuje je przywrócić.',
+  'notice_connection_failed':
+      'Usque nie mógł utrzymać połączenia. Otwórz Usque, aby zobaczyć szczegóły.',
+  'notice_connection_restored': 'Połączenie zostało przywrócone.',
+  'notice_kill_switch_blocking':
+      'Kill Switch blokuje ruch sieciowy do czasu przywrócenia połączenia lub rozłączenia.',
   'connection_status': 'Stan połączenia',
   'outputs': '{tunnel} i lokalne proxy',
   'home': 'Główna',

@@ -35,6 +35,12 @@ const Map<String, String> kArCatalog = <String, String>{
   'tray_connect_profile': 'توصيل الحساب النشط',
   'tray_disconnect_profile': 'قطع الحساب النشط',
   'tray_disconnect_exit': 'قطع الاتصال والخروج',
+  'notice_connection_interrupted': 'انقطع الاتصال. يحاول Usque استعادته.',
+  'notice_connection_failed':
+      'تعذّر على Usque الحفاظ على الاتصال. افتح Usque لمعرفة التفاصيل.',
+  'notice_connection_restored': 'تمت استعادة الاتصال.',
+  'notice_kill_switch_blocking':
+      'يحظر Kill Switch حركة مرور الشبكة حتى تتم استعادة الاتصال أو تقطع الاتصال.',
   'connection_status': 'حالة الاتصال',
   'outputs': '{tunnel} والوكلاء المحليون',
   'home': 'الرئيسية',

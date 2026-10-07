@@ -36,6 +36,13 @@ const Map<String, String> kNlCatalog = <String, String>{
   'tray_connect_profile': 'Actief account verbinden',
   'tray_disconnect_profile': 'Actief account verbreken',
   'tray_disconnect_exit': 'Verbreken en afsluiten',
+  'notice_connection_interrupted':
+      'De verbinding is onderbroken. Usque probeert deze te herstellen.',
+  'notice_connection_failed':
+      'Usque kon de verbinding niet behouden. Open Usque voor details.',
+  'notice_connection_restored': 'De verbinding is hersteld.',
+  'notice_kill_switch_blocking':
+      'Kill Switch blokkeert netwerkverkeer totdat de verbinding is hersteld of je de verbinding verbreekt.',
   'connection_status': 'Verbindingsstatus',
   'outputs': '{tunnel} en lokale proxy’s',
   'home': 'Start',

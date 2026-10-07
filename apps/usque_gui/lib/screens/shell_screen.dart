@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -10,6 +11,7 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/animated_index_stack.dart';
 import '../widgets/controller_selector.dart';
+import '../widgets/desktop_shortcuts.dart';
 import '../widgets/section_navigator.dart';
 import '../widgets/usque_logo.dart';
 import 'home_screen.dart';
@@ -46,6 +48,71 @@ class _ShellScreenState extends State<ShellScreen> {
   final _subpageOpen = <AppSection>{};
   bool _changingSection = false;
   bool _openingVpnGate = false;
+
+  static const _sectionKeys = <LogicalKeyboardKey>[
+    LogicalKeyboardKey.digit1,
+    LogicalKeyboardKey.digit2,
+    LogicalKeyboardKey.digit3,
+    LogicalKeyboardKey.digit4,
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (desktopShortcutsSupported) {
+      HardwareKeyboard.instance.addHandler(_handleShortcut);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (desktopShortcutsSupported) {
+      HardwareKeyboard.instance.removeHandler(_handleShortcut);
+    }
+    super.dispose();
+  }
+
+  /// Ctrl+1–4 select a section; Escape and Alt+Left leave a subpage.
+  bool _handleShortcut(KeyEvent event) {
+    if (event is! KeyDownEvent || !mounted || !routeChainIsCurrent(context)) {
+      return false;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    final key = event.logicalKey;
+    final index = _sectionKeys.indexOf(key);
+    if (index >= 0 &&
+        keyboard.isControlPressed &&
+        !keyboard.isAltPressed &&
+        !keyboard.isShiftPressed &&
+        !keyboard.isMetaPressed) {
+      final sections = controller.availableSections;
+      if (index >= sections.length) return false;
+      unawaited(_selectSection(sections[index]));
+      return true;
+    }
+    final back =
+        key == LogicalKeyboardKey.escape &&
+            !keyboard.isControlPressed &&
+            !keyboard.isAltPressed &&
+            !textInputHasFocus ||
+        key == LogicalKeyboardKey.arrowLeft &&
+            keyboard.isAltPressed &&
+            !keyboard.isControlPressed &&
+            !keyboard.isShiftPressed;
+    return back && _leaveSubpage();
+  }
+
+  /// Pops the current section's subpage through its unsaved-changes guard.
+  bool _leaveSubpage() {
+    final section = controller.section;
+    if (!_subpageOpen.contains(section)) return false;
+    final sectionNavigator = _sectionNavigators[section]?.currentState;
+    final navigator = sectionNavigator?.navigator;
+    // A popup on the section navigator handles Escape itself.
+    if (navigator == null || sectionNavigator!.popupOpen) return false;
+    unawaited(navigator.maybePop());
+    return true;
+  }
 
   ValueChanged<bool> _onSubpageChanged(AppSection section) => (open) {
     if (!mounted) return;
@@ -276,7 +343,7 @@ class _ShellScreenState extends State<ShellScreen> {
           builder: (context, constraints) {
             final useRail = constraints.maxWidth >= _railBreakpoint;
             final extended = constraints.maxWidth >= _extendedBreakpoint;
-            return Scaffold(
+            final scaffold = Scaffold(
               body: SafeArea(
                 bottom: false,
                 child: Row(
@@ -375,6 +442,14 @@ class _ShellScreenState extends State<ShellScreen> {
                         ),
                       ),
                     ),
+            );
+            if (!desktopShortcutsSupported) return scaffold;
+            return Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (event) {
+                if (event.buttons & kBackMouseButton != 0) _leaveSubpage();
+              },
+              child: scaffold,
             );
           },
         );

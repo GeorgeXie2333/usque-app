@@ -164,6 +164,18 @@ class AppController extends ChangeNotifier {
   bool get networkSettingsCanReconnect =>
       networkSettings.state?.persisted == true &&
       networkSettings.state?.status == NetworkSettingsApplyStatus.failed;
+
+  /// True while the Home and tray output shortcuts must not start a save.
+  bool get networkShortcutsLocked =>
+      !initialized ||
+      busy ||
+      snapshot.isTransitional ||
+      snapshot.errorCode == 'WINDOWS_RECOVERY_BLOCKED' ||
+      !networkSettings.supported ||
+      networkSettings.unconfirmed ||
+      networkSettings.state?.status == NetworkSettingsApplyStatus.applying ||
+      networkSettings.state?.operationId != null &&
+          networkSettings.state?.status == NetworkSettingsApplyStatus.unknown;
   SharedPreferences? _preferences;
   Timer? _snapshotTimer;
   Future<void>? _snapshotRefresh;

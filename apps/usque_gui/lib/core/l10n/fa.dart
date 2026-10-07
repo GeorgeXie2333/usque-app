@@ -36,6 +36,13 @@ const Map<String, String> kFaCatalog = <String, String>{
   'tray_connect_profile': 'اتصال حساب فعال',
   'tray_disconnect_profile': 'قطع اتصال حساب فعال',
   'tray_disconnect_exit': 'قطع اتصال و خروج',
+  'notice_connection_interrupted':
+      'اتصال قطع شد. Usque در حال تلاش برای بازیابی آن است.',
+  'notice_connection_failed':
+      'Usque نتوانست اتصال را حفظ کند. برای جزئیات، Usque را باز کنید.',
+  'notice_connection_restored': 'اتصال بازیابی شد.',
+  'notice_kill_switch_blocking':
+      'Kill Switch تا زمان بازیابی اتصال یا قطع اتصال توسط شما، ترافیک شبکه را مسدود می‌کند.',
   'connection_status': 'وضعیت اتصال',
   'outputs': '{tunnel} و پروکسی‌های محلی',
   'home': 'خانه',

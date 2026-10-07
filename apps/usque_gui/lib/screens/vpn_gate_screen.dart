@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/app_strings.dart';
 import '../core/chain_strings.dart';
@@ -10,6 +11,7 @@ import '../state/app_controller.dart';
 import '../widgets/chain_editor_layout.dart';
 import '../widgets/common.dart';
 import '../widgets/controller_selector.dart';
+import '../widgets/desktop_shortcuts.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/vpn_gate_filters.dart';
 import '../widgets/vpn_gate_server_row.dart';
@@ -983,13 +985,20 @@ class _VpnGateScreenState extends State<VpnGateScreen>
             bottomBar: bottomBar,
             slivers: slivers,
           );
+      final refreshable = PageShortcut(
+        activator: const SingleActivator(LogicalKeyboardKey.f5),
+        onInvoke: _nodeOperation != null || _cancellingRefresh || refreshing
+            ? null
+            : () => unawaited(_refresh()),
+        child: page,
+      );
       return UnsavedChangesGuard(
         key: widget.leaveGuardKey,
         strings: strings,
         dirty: _dirty || widget.otherPending,
         saving: _saving,
         child: !_onChainPage
-            ? page
+            ? refreshable
             : RadioGroup<(String, String)>(
                 groupValue: (_draft.serverId, _draft.configSha256),
                 onChanged: (value) {
@@ -1006,7 +1015,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                       .firstOrNull;
                   if (server != null) _selectServer(server);
                 },
-                child: page,
+                child: refreshable,
               ),
       );
     },

@@ -12,6 +12,7 @@
 #include "engine_ipc.h"
 #include "maintenance_shutdown.h"
 #include "window_geometry.h"
+#include "window_placement.h"
 #include "zero_trust_callback.h"
 #include "zero_trust_protocol.h"
 
@@ -58,6 +59,73 @@ void initialWindowStaysWithinMonitorWorkArea() {
 
   const RECT unavailable = usque::FitWindowBounds(desired, {0, 0, 0, 0});
   Expect(::EqualRect(&desired, &unavailable), "windowBounds.invalidWorkAreaFallback");
+}
+
+void firstLaunchCentresAndRestoreRescales() {
+  const RECT centred = usque::CenterWindowBounds(1200, 840, {0, 0, 1920, 1032});
+  Expect(centred.left == 360 && centred.top == 96 && centred.right == 1560 &&
+             centred.bottom == 936,
+         "windowBounds.centredOnWorkArea");
+  const RECT secondary =
+      usque::CenterWindowBounds(1200, 840, {-1920, 40, 0, 1040});
+  Expect(secondary.left == -1560 && secondary.top == 120,
+         "windowBounds.centredOnNegativeMonitor");
+  const RECT oversized = usque::CenterWindowBounds(2000, 1200, {0, 0, 1024, 728});
+  Expect(oversized.left == 0 && oversized.top == 0 && oversized.right == 1024 &&
+             oversized.bottom == 728,
+         "windowBounds.centredClampsToWorkArea");
+
+  const RECT same =
+      usque::RestoreWindowBounds({100, 80, 1300, 920}, 96, 96, {0, 0, 1920, 1032});
+  Expect(same.left == 100 && same.top == 80 && same.right == 1300 &&
+             same.bottom == 920,
+         "windowBounds.restoreKeepsSavedFrame");
+  const RECT scaled = usque::RestoreWindowBounds({100, 80, 1300, 920}, 96, 144,
+                                                 {0, 0, 2560, 1400});
+  Expect(scaled.left == 100 && scaled.top == 80 && scaled.right == 1900 &&
+             scaled.bottom == 1340,
+         "windowBounds.restoreKeepsLogicalSizeAcrossDpi");
+  const RECT moved = usque::RestoreWindowBounds({1500, 900, 2700, 1740}, 96, 96,
+                                                {0, 0, 1920, 1032});
+  Expect(moved.left == 720 && moved.top == 192 && moved.right == 1920 &&
+             moved.bottom == 1032,
+         "windowBounds.restorePullsFrameIntoWorkArea");
+}
+
+void windowPlacementRoundTripsAndRejectsForeignValues() {
+  const std::wstring key =
+      L"Software\\io.github.georgexie2333\\Usque\\placement-test-" +
+      std::to_wstring(::GetCurrentProcessId());
+  Expect(!usque::ReadWindowPlacement(HKEY_CURRENT_USER, key.c_str()),
+         "windowPlacement.missing");
+
+  usque::WindowPlacement saved;
+  saved.bounds = {-1800, 60, -400, 1000};
+  saved.dpi = 144;
+  saved.maximized = true;
+  Expect(usque::WriteWindowPlacement(HKEY_CURRENT_USER, key.c_str(), saved),
+         "windowPlacement.write");
+  const auto restored = usque::ReadWindowPlacement(HKEY_CURRENT_USER, key.c_str());
+  Expect(restored.has_value() && ::EqualRect(&restored->bounds, &saved.bounds) &&
+             restored->dpi == 144 && restored->maximized,
+         "windowPlacement.roundTrip");
+
+  usque::WindowPlacement degenerate;
+  degenerate.bounds = {0, 0, 10, 10};
+  Expect(!usque::WriteWindowPlacement(HKEY_CURRENT_USER, key.c_str(), degenerate),
+         "windowPlacement.rejectsDegenerateWrite");
+
+  HKEY handle = nullptr;
+  if (::RegOpenKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, KEY_SET_VALUE,
+                      &handle) == ERROR_SUCCESS) {
+    const DWORD foreign = 1;
+    ::RegSetValueExW(handle, L"WindowPlacement", 0, REG_BINARY,
+                     reinterpret_cast<const BYTE*>(&foreign), sizeof(foreign));
+    ::RegCloseKey(handle);
+  }
+  Expect(!usque::ReadWindowPlacement(HKEY_CURRENT_USER, key.c_str()),
+         "windowPlacement.rejectsForeignValue");
+  ::RegDeleteTreeW(HKEY_CURRENT_USER, key.c_str());
 }
 
 void matchingCallbackIsConsumedOnlyOnce() {
@@ -512,6 +580,8 @@ void maintenanceShutdownMessagesAreClassified() {
 int main() {
   g_failures += RunShellIntegrationTests();
   initialWindowStaysWithinMonitorWorkArea();
+  firstLaunchCentresAndRestoreRescales();
+  windowPlacementRoundTripsAndRejectsForeignValues();
   matchingCallbackIsConsumedOnlyOnce();
   callbackRequiresAnActiveSameTeamLogin();
   cancellationAndProcessReplacementDiscardState();

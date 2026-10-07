@@ -35,6 +35,13 @@ const Map<String, String> kViCatalog = <String, String>{
   'tray_connect_profile': 'Kết nối tài khoản đang dùng',
   'tray_disconnect_profile': 'Ngắt tài khoản đang dùng',
   'tray_disconnect_exit': 'Ngắt kết nối và thoát',
+  'notice_connection_interrupted':
+      'Kết nối bị gián đoạn. Usque đang cố khôi phục kết nối.',
+  'notice_connection_failed':
+      'Usque không thể duy trì kết nối. Mở Usque để xem chi tiết.',
+  'notice_connection_restored': 'Đã khôi phục kết nối.',
+  'notice_kill_switch_blocking':
+      'Kill Switch đang chặn lưu lượng mạng cho đến khi kết nối được khôi phục hoặc bạn ngắt kết nối.',
   'connection_status': 'Trạng thái kết nối',
   'outputs': '{tunnel} và proxy cục bộ',
   'home': 'Trang chủ',

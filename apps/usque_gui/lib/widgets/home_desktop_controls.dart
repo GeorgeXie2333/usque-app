@@ -87,18 +87,7 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
     }
   }
 
-  bool _locked(AppController app) =>
-      !app.initialized ||
-      app.busy ||
-      app.snapshot.isTransitional ||
-      app.snapshot.errorCode == 'WINDOWS_RECOVERY_BLOCKED' ||
-      !app.networkSettings.supported ||
-      app.networkSettings.unconfirmed ||
-      app.networkSettings.state?.status ==
-          NetworkSettingsApplyStatus.applying ||
-      app.networkSettings.state?.operationId != null &&
-          app.networkSettings.state?.status ==
-              NetworkSettingsApplyStatus.unknown;
+  bool _locked(AppController app) => app.networkShortcutsLocked;
 
   _ControlsView _view(AppController app) {
     final profile = app.activeProfile;

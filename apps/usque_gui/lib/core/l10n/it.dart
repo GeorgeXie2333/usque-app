@@ -38,6 +38,13 @@ const Map<String, String> kItCatalog = <String, String>{
   'tray_connect_profile': 'Connetti l’account attivo',
   'tray_disconnect_profile': 'Disconnetti l’account attivo',
   'tray_disconnect_exit': 'Disconnetti e chiudi',
+  'notice_connection_interrupted':
+      'La connessione si è interrotta. Usque sta tentando di ripristinarla.',
+  'notice_connection_failed':
+      'Usque non è riuscito a mantenere la connessione. Apri Usque per i dettagli.',
+  'notice_connection_restored': 'La connessione è stata ripristinata.',
+  'notice_kill_switch_blocking':
+      'Il Kill Switch blocca il traffico di rete finché la connessione non viene ripristinata o non ti disconnetti.',
   'connection_status': 'Stato della connessione',
   'outputs': '{tunnel} e proxy locali',
   'home': 'Inizio',

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
 import '../core/usque_theme.dart';
 import 'common.dart';
+import 'desktop_shortcuts.dart';
 
 /// A persistent action area outside the form's scrollable content.
 class SaveChangesBar extends StatelessWidget {
@@ -68,6 +70,20 @@ class SaveChangesBar extends StatelessWidget {
             : saved
             ? savedLabel ?? strings.get('changes_applied')
             : idleHint ?? strings.get('changes_apply_hint'));
+    final save = saving || (!dirty && error == null) ? null : onSave;
+    return PageShortcut(
+      activator: const SingleActivator(LogicalKeyboardKey.keyS, control: true),
+      onInvoke: save,
+      child: _buildBar(context, theme, message, save),
+    );
+  }
+
+  Widget _buildBar(
+    BuildContext context,
+    ThemeData theme,
+    String message,
+    VoidCallback? onSaveEnabled,
+  ) {
     return Material(
       color: theme.colorScheme.surface,
       child: DecoratedBox(
@@ -117,9 +133,7 @@ class SaveChangesBar extends StatelessWidget {
                           );
                     final saveButton = FilledButton.icon(
                       key: saveButtonKey,
-                      onPressed: saving || (!dirty && error == null)
-                          ? null
-                          : onSave,
+                      onPressed: onSaveEnabled,
                       icon: saving
                           ? const SizedBox.square(
                               dimension: 18,

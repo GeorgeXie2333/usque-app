@@ -122,31 +122,41 @@ Win32Window::~Win32Window() {
 }
 
 bool Win32Window::Create(const std::wstring& title,
-                         const Point& origin,
-                         const Size& size) {
+                         const Size& size,
+                         const std::optional<usque::WindowPlacement>& saved) {
   Destroy();
 
   const wchar_t* window_class =
       WindowClassRegistrar::GetInstance()->GetWindowClass();
 
-  const POINT target_point = {static_cast<LONG>(origin.x),
-                              static_cast<LONG>(origin.y)};
-  HMONITOR monitor = MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
-  UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
-  double scale_factor = dpi / 96.0;
-
-  RECT bounds{Scale(origin.x, scale_factor), Scale(origin.y, scale_factor), 0, 0};
-  bounds.right = bounds.left + Scale(size.width, scale_factor);
-  bounds.bottom = bounds.top + Scale(size.height, scale_factor);
-  MONITORINFO monitor_info{sizeof(MONITORINFO)};
-  if (::GetMonitorInfoW(monitor, &monitor_info)) {
-    bounds = usque::FitWindowBounds(bounds, monitor_info.rcWork);
+  std::optional<RECT> bounds;
+  if (saved.has_value()) {
+    // A monitor that was unplugged since the last session cannot host it.
+    HMONITOR monitor = MonitorFromRect(&saved->bounds, MONITOR_DEFAULTTONULL);
+    MONITORINFO monitor_info{sizeof(MONITORINFO)};
+    if (monitor != nullptr && ::GetMonitorInfoW(monitor, &monitor_info)) {
+      bounds = usque::RestoreWindowBounds(
+          saved->bounds, saved->dpi, FlutterDesktopGetDpiForMonitor(monitor),
+          monitor_info.rcWork);
+    }
+  }
+  if (!bounds.has_value()) {
+    POINT pointer{};
+    ::GetCursorPos(&pointer);
+    HMONITOR monitor = MonitorFromPoint(pointer, MONITOR_DEFAULTTOPRIMARY);
+    const double scale_factor = FlutterDesktopGetDpiForMonitor(monitor) / 96.0;
+    const LONG width = Scale(size.width, scale_factor);
+    const LONG height = Scale(size.height, scale_factor);
+    MONITORINFO monitor_info{sizeof(MONITORINFO)};
+    bounds = ::GetMonitorInfoW(monitor, &monitor_info)
+                 ? usque::CenterWindowBounds(width, height, monitor_info.rcWork)
+                 : RECT{0, 0, width, height};
   }
 
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      bounds.left, bounds.top, bounds.right - bounds.left,
-      bounds.bottom - bounds.top,
+      bounds->left, bounds->top, bounds->right - bounds->left,
+      bounds->bottom - bounds->top,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {

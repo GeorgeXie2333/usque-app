@@ -37,6 +37,13 @@ const Map<String, String> kDeCatalog = <String, String>{
   'tray_connect_profile': 'Aktives Konto verbinden',
   'tray_disconnect_profile': 'Aktives Konto trennen',
   'tray_disconnect_exit': 'Trennen und beenden',
+  'notice_connection_interrupted':
+      'Die Verbindung wurde unterbrochen. Usque versucht, sie wiederherzustellen.',
+  'notice_connection_failed':
+      'Usque konnte die Verbindung nicht aufrechterhalten. Öffne Usque für Details.',
+  'notice_connection_restored': 'Die Verbindung wurde wiederhergestellt.',
+  'notice_kill_switch_blocking':
+      'Kill Switch blockiert den Netzwerkverkehr, bis die Verbindung wiederhergestellt ist oder du sie trennst.',
   'connection_status': 'Verbindungsstatus',
   'outputs': '{tunnel} und lokale Proxys',
   'home': 'Start',

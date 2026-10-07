@@ -5,7 +5,10 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+
+#include "window_placement.h"
 
 // A class abstraction for a high DPI-aware Win32 Window. Intended to be
 // inherited from by classes that wish to specialize with custom
@@ -28,13 +31,13 @@ class Win32Window {
   Win32Window();
   virtual ~Win32Window();
 
-  // Creates a win32 window with |title| that is positioned and sized using
-  // |origin| and |size|. New windows are created on the default monitor. Window
-  // sizes are specified to the OS in physical pixels, hence to ensure a
-  // consistent size this function will scale the inputted width and height as
-  // as appropriate for the default monitor. The window is invisible until
-  // |Show| is called. Returns true if the window was created successfully.
-  bool Create(const std::wstring& title, const Point& origin, const Size& size);
+  // Creates a win32 window with |title|. A |saved| placement that still
+  // overlaps a monitor is restored there; otherwise the window is centred on
+  // the monitor under the pointer at the logical |size|, scaled for that
+  // monitor's DPI. The window is invisible until |Show| is called. Returns
+  // true if the window was created successfully.
+  bool Create(const std::wstring& title, const Size& size,
+              const std::optional<usque::WindowPlacement>& saved);
 
   // Show the current window. Returns true if the window was successfully shown.
   bool Show();

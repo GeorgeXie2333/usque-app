@@ -106,7 +106,10 @@ Network settings are shared by all accounts.
   showing latency, packet-loss readings and availability, queues and 60-second
   trends. Standard checks read local state; Deep checks send test requests only
   after confirmation.
-- Windows tray, single-instance activation, start on boot and close-to-tray;
+- Windows tray with a status badge, TUN and system-proxy switches, and
+  notifications when a connection drops or fails while the window is in the
+  background; single-instance activation, start on boot, close-to-tray, a
+  remembered window position and keyboard shortcuts.
   Android Quick Settings tile, launcher shortcuts, boot recovery and TV navigation.
   Twenty-one languages, with light and dark themes.
 - Consumer WARP Secret export to a file you choose, after confirmation. Usque

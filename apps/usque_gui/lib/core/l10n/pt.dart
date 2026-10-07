@@ -36,6 +36,13 @@ const Map<String, String> kPtCatalog = <String, String>{
   'tray_connect_profile': 'Conectar a conta ativa',
   'tray_disconnect_profile': 'Desconectar a conta ativa',
   'tray_disconnect_exit': 'Desconectar e sair',
+  'notice_connection_interrupted':
+      'A conexão foi interrompida. O Usque está tentando restaurá-la.',
+  'notice_connection_failed':
+      'O Usque não conseguiu manter a conexão. Abra o Usque para ver os detalhes.',
+  'notice_connection_restored': 'A conexão foi restaurada.',
+  'notice_kill_switch_blocking':
+      'O Kill Switch está bloqueando o tráfego de rede até que a conexão seja restaurada ou você se desconecte.',
   'connection_status': 'Status da conexão',
   'outputs': '{tunnel} e proxies locais',
   'home': 'Início',

@@ -36,6 +36,13 @@ const Map<String, String> kTrCatalog = <String, String>{
   'tray_connect_profile': 'Etkin hesabı bağla',
   'tray_disconnect_profile': 'Etkin hesabın bağlantısını kes',
   'tray_disconnect_exit': 'Bağlantıyı kes ve çık',
+  'notice_connection_interrupted':
+      'Bağlantı kesildi. Usque bağlantıyı geri yüklemeye çalışıyor.',
+  'notice_connection_failed':
+      'Usque bağlantıyı sürdüremedi. Ayrıntılar için Usque’yu açın.',
+  'notice_connection_restored': 'Bağlantı geri yüklendi.',
+  'notice_kill_switch_blocking':
+      'Bağlantı geri yüklenene veya bağlantıyı kesene kadar Kill Switch ağ trafiğini engelliyor.',
   'connection_status': 'Bağlantı durumu',
   'outputs': '{tunnel} ve yerel proxy’ler',
   'home': 'Ana sayfa',

@@ -35,6 +35,13 @@ const Map<String, String> kThCatalog = <String, String>{
   'tray_connect_profile': 'เชื่อมต่อบัญชีที่ใช้งาน',
   'tray_disconnect_profile': 'ตัดการเชื่อมต่อบัญชีที่ใช้งาน',
   'tray_disconnect_exit': 'ตัดการเชื่อมต่อแล้วออก',
+  'notice_connection_interrupted':
+      'การเชื่อมต่อถูกขัดจังหวะ Usque กำลังพยายามกู้คืน',
+  'notice_connection_failed':
+      'Usque ไม่สามารถรักษาการเชื่อมต่อไว้ได้ เปิด Usque เพื่อดูรายละเอียด',
+  'notice_connection_restored': 'กู้คืนการเชื่อมต่อแล้ว',
+  'notice_kill_switch_blocking':
+      'Kill Switch กำลังบล็อกการรับส่งข้อมูลเครือข่ายจนกว่าการเชื่อมต่อจะกลับมาหรือคุณตัดการเชื่อมต่อ',
   'connection_status': 'สถานะการเชื่อมต่อ',
   'outputs': '{tunnel} และพร็อกซีภายในเครื่อง',
   'home': 'หน้าหลัก',

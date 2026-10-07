@@ -37,6 +37,13 @@ const Map<String, String> kEsCatalog = <String, String>{
   'tray_connect_profile': 'Conectar la cuenta activa',
   'tray_disconnect_profile': 'Desconectar la cuenta activa',
   'tray_disconnect_exit': 'Desconectar y salir',
+  'notice_connection_interrupted':
+      'La conexión se interrumpió. Usque está intentando restablecerla.',
+  'notice_connection_failed':
+      'Usque no pudo mantener la conexión. Abre Usque para ver los detalles.',
+  'notice_connection_restored': 'La conexión se ha restablecido.',
+  'notice_kill_switch_blocking':
+      'Kill Switch bloquea el tráfico de red hasta que se restablezca la conexión o te desconectes.',
   'connection_status': 'Estado de la conexión',
   'outputs': '{tunnel} y proxies locales',
   'home': 'Inicio',
