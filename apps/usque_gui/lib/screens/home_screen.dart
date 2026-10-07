@@ -297,10 +297,8 @@ class _ListenerAddressesState extends State<_ListenerAddresses> {
         TextSpan(
           text: parts[i],
           style: parts[i].startsWith('[')
-              ? TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w400,
-                )
+              // One weight per line; colour alone ranks the IPv6 listener.
+              ? TextStyle(color: scheme.onSurfaceVariant)
               : null,
         ),
       );
@@ -309,7 +307,7 @@ class _ListenerAddressesState extends State<_ListenerAddresses> {
       bucket: _textStorage,
       child: SelectableText.rich(
         TextSpan(children: spans),
-        style: UsqueTheme.mono(context, weight: FontWeight.w500),
+        style: UsqueTheme.address(context, weight: FontWeight.w500),
       ),
     );
   }
@@ -462,7 +460,9 @@ class _VpnGateReadout extends StatelessWidget {
                         Expanded(
                           child: Text(
                             '${strings.get(status.connected ? 'gate_current' : 'gate_draft')}: ${server.countryCode ?? '—'} · ${server.ip}',
-                            style: const TextStyle(fontFamily: UsqueFonts.mono),
+                            style: const TextStyle(
+                              fontFeatures: UsqueTheme.tabularFigures,
+                            ),
                           ),
                         ),
                       ],

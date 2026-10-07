@@ -186,7 +186,9 @@ class _VpnGateServerRowState extends State<VpnGateServerRow> {
                   Expanded(
                     child: Text(
                       '${server.countryCode ?? '—'} · ${server.ip}',
-                      style: const TextStyle(fontFamily: UsqueFonts.mono),
+                      style: const TextStyle(
+                        fontFeatures: UsqueTheme.tabularFigures,
+                      ),
                     ),
                   ),
                 ],
@@ -267,7 +269,9 @@ class _VpnGateServerRowState extends State<VpnGateServerRow> {
                         Expanded(
                           child: Text(
                             '${server.countryCode ?? '—'} · ${server.ip}',
-                            style: const TextStyle(fontFamily: UsqueFonts.mono),
+                            style: const TextStyle(
+                              fontFeatures: UsqueTheme.tabularFigures,
+                            ),
                           ),
                         ),
                       ],

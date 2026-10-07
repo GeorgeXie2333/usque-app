@@ -641,7 +641,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                     const SizedBox(height: 2),
                     Text(
                       '${(_draft.endpointOverride ?? ChainEndpoint(_selected!.host, _selected!.port)).label} · ${_selected!.transportLabel}',
-                      style: UsqueTheme.mono(
+                      style: UsqueTheme.address(
                         context,
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -856,7 +856,7 @@ class _ProfileRow extends StatelessWidget {
             children: [
               Text(
                 '${profile.host}:${profile.port} · ${profile.transportLabel}',
-                style: UsqueTheme.mono(
+                style: UsqueTheme.address(
                   context,
                   color: enabled
                       ? theme.colorScheme.onSurfaceVariant

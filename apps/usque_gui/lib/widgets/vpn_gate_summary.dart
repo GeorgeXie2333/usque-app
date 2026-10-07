@@ -23,9 +23,9 @@ class VpnGateNodeIdentity extends StatelessWidget {
       Expanded(
         child: Text(
           '${server.countryCode ?? '—'} · ${server.ip}',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(fontFamily: UsqueFonts.mono),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            fontFeatures: UsqueTheme.tabularFigures,
+          ),
         ),
       ),
     ],

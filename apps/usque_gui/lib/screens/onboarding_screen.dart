@@ -745,7 +745,7 @@ class _StepIndicator extends StatelessWidget {
           Text(
             '${step + 1} / $total',
             textDirection: TextDirection.ltr,
-            style: UsqueTheme.mono(
+            style: UsqueTheme.address(
               context,
               size: 12,
               color: theme.colorScheme.onSurfaceVariant,

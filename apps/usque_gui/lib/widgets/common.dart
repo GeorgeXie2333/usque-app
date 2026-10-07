@@ -1151,7 +1151,7 @@ class _MonoValueState extends State<MonoValue> {
       child: SelectableText(
         widget.value,
         textAlign: TextAlign.end,
-        style: UsqueTheme.mono(
+        style: UsqueTheme.address(
           context,
           size: widget.size,
           weight: FontWeight.w500,

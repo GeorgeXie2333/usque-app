@@ -494,4 +494,58 @@ void main() {
       });
     }
   });
+
+  group('Data colours and machine text', () {
+    for (final dark in <bool>[false, true]) {
+      testWidgets('upload trace stays apart from the accent: dark=$dark', (
+        tester,
+      ) async {
+        late UsqueTokens tokens;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dark ? UsqueTheme.dark() : UsqueTheme.light(),
+            home: Builder(
+              builder: (context) {
+                tokens = UsqueTokens.of(context);
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        );
+        double hue(Color color) => HSVColor.fromColor(color).hue;
+        double distance(double a, double b) {
+          final double raw = (a - b).abs();
+          return raw > 180 ? 360 - raw : raw;
+        }
+
+        // Orange marks what can be pressed; traffic must not read as action.
+        expect(
+          distance(hue(tokens.outbound), hue(tokens.brand)),
+          greaterThan(90),
+        );
+        expect(
+          distance(hue(tokens.outbound), hue(tokens.inbound)),
+          greaterThan(60),
+        );
+        expect(
+          _contrastRatio(tokens.outbound, tokens.canvas),
+          greaterThan(4.5),
+        );
+      });
+    }
+
+    testWidgets('addresses use the body face with tabular figures', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_host(const MonoValue(value: '127.0.0.1:8080')));
+      final SelectableText text = tester.widget<SelectableText>(
+        find.descendant(
+          of: find.byType(MonoValue),
+          matching: find.byType(SelectableText),
+        ),
+      );
+      expect(text.style?.fontFamily, UsqueFonts.body);
+      expect(text.style?.fontFeatures, UsqueTheme.tabularFigures);
+    });
+  });
 }

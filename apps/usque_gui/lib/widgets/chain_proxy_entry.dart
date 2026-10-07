@@ -182,7 +182,7 @@ class ChainProxyEntry extends StatelessWidget {
                         Text(
                           '${current.host}:${current.port} · ${current.transportLabel}',
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            fontFamily: UsqueFonts.mono,
+                            fontFeatures: UsqueTheme.tabularFigures,
                           ),
                         ),
                         if (connected) ...[

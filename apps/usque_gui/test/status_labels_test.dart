@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/core/connection_presentation.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
+import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/common.dart';
 
@@ -24,6 +25,23 @@ void main() {
     // The summary counts countries and custom targets; a lone trailing
     // country count would contradict it when only custom targets exist.
     expect(find.descendant(of: row, matching: find.text('0')), findsNothing);
+  });
+
+  testWidgets('settings group labels stay below the page title', (
+    tester,
+  ) async {
+    final app = await pumpWorkflow(
+      tester,
+      WorkflowEngine(),
+      section: AppSection.settings,
+    );
+    final context = tester.element(find.byType(SettingsScreen));
+    final theme = Theme.of(context).textTheme;
+    final label = tester.widget<Text>(
+      find.text(app.strings.get('connection_protection_group')),
+    );
+    expect(label.style?.fontSize, theme.titleSmall?.fontSize);
+    expect(label.style!.fontSize!, lessThan(theme.headlineSmall!.fontSize!));
   });
 
   testWidgets('diagnostics shows the connection state once', (tester) async {

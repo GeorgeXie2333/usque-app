@@ -60,10 +60,7 @@ class SettingsScreen extends StatelessWidget {
                   _KillSwitchRow(controller: controller),
                   if (android)
                     ContentSection(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 16,
-                      ),
+                      padding: _tilePadding,
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(LucideIcons.shield),
@@ -85,10 +82,7 @@ class SettingsScreen extends StatelessWidget {
                   _GeoDirectRow(controller: controller),
                   if (android)
                     ContentSection(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 16,
-                      ),
+                      padding: _tilePadding,
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(LucideIcons.layers3),
@@ -129,13 +123,10 @@ class SettingsScreen extends StatelessWidget {
                 title: strings.get('application_group'),
                 children: [
                   ContentSection(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 16,
-                    ),
+                    padding: _rowPadding,
                     icon: LucideIcons.paintbrush,
                     title: strings.get('appearance'),
-                    gap: 20,
+                    gap: 12,
                     children: <Widget>[
                       _SettingRow(
                         icon: LucideIcons.sunMoon,
@@ -168,10 +159,7 @@ class SettingsScreen extends StatelessWidget {
                     ],
                   ),
                   ContentSection(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 16,
-                    ),
+                    padding: _rowPadding,
                     icon: LucideIcons.appWindow,
                     title: strings.get('system_integration'),
                     gap: 10,
@@ -213,10 +201,7 @@ class SettingsScreen extends StatelessWidget {
                     ],
                   ),
                   ContentSection(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 16,
-                    ),
+                    padding: _rowPadding,
                     icon: LucideIcons.refreshCw,
                     title: strings.get('updates'),
                     gap: 10,
@@ -245,6 +230,17 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+/// Settings rows are denser than general content. Sections holding a single
+/// Material list tile rely on the tile's own height for the touch target.
+const EdgeInsets _rowPadding = EdgeInsets.symmetric(
+  horizontal: 8,
+  vertical: 12,
+);
+const EdgeInsets _tilePadding = EdgeInsets.symmetric(
+  horizontal: 8,
+  vertical: 4,
+);
+
 class _SettingsGroup extends StatelessWidget {
   const _SettingsGroup({required this.title, required this.children});
   final String title;
@@ -253,11 +249,20 @@ class _SettingsGroup extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Semantics(
-        header: true,
-        child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
+      // A quiet label, so groups never compete with the page title.
+      Padding(
+        padding: const EdgeInsetsDirectional.only(start: 8),
+        child: Semantics(
+          header: true,
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 4),
       ContentList(children: children),
     ],
   );
@@ -469,7 +474,7 @@ class _AutoConnectPanel extends StatelessWidget {
     final strings = controller.strings;
     final profile = controller.activeProfile;
     return ContentSection(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+      padding: _tilePadding,
       gap: 10,
       children: <Widget>[
         SwitchListTile(
@@ -514,6 +519,7 @@ class _KillSwitchRow extends StatelessWidget {
     final strings = controller.strings;
     final theme = Theme.of(context);
     return ActionRow(
+      padding: _rowPadding,
       key: const ValueKey('settings-kill-switch-row'),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -567,6 +573,7 @@ class _GeoDirectRow extends StatelessWidget {
           '${profile.bypassCidrs.length + profile.bypassDomains.length}',
         );
     return ActionRow(
+      padding: _rowPadding,
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => GeoDirectSettingsScreen(controller: controller),
@@ -599,6 +606,7 @@ class _NetworkQualityRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     return ActionRow(
+      padding: _rowPadding,
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => NetworkQualityScreen(controller: controller),
@@ -627,6 +635,7 @@ class _DiagnosticsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     return ActionRow(
+      padding: _rowPadding,
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => DiagnosticsScreen(controller: controller),
@@ -656,6 +665,7 @@ class _AdvancedRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     return ActionRow(
+      padding: _rowPadding,
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => AdvancedSettingsScreen(controller: controller),
@@ -681,7 +691,7 @@ class _RowDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Divider(height: 1, color: UsqueTokens.of(context).hairline),
     );
   }
