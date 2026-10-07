@@ -17,7 +17,9 @@ internal object QuickSettingsTileState {
 
     fun inactive(subtitle: String? = "disconnected") = Presentation(State.INACTIVE, subtitle)
 
-    fun pending(subtitle: String) = Presentation(State.UNAVAILABLE, subtitle)
+    // SystemUI can cache a tile after the app process dies. Temporary work must
+    // stay clickable so another tap can query the service and recover control.
+    fun pending(subtitle: String) = inactive(subtitle)
 
     fun fromSnapshot(
         phase: String?,
@@ -32,9 +34,9 @@ internal object QuickSettingsTileState {
     private fun fromActiveVpnPhase(phase: String?): Presentation =
         when (phase) {
             "connected", "degraded" -> active()
-            "preparing", "connectingH3", "connectingH2" -> pending("connecting")
-            "reconnecting" -> pending("reconnecting")
-            "disconnecting" -> pending("disconnecting")
+            "preparing", "connectingH3", "connectingH2" -> active("connecting")
+            "reconnecting" -> active("reconnecting")
+            "disconnecting" -> active("disconnecting")
             "disconnected", "error" -> inactive()
             else -> pending("checking")
         }

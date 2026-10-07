@@ -13,11 +13,13 @@ class TileControlPolicyTest {
     }
 
     @Test
-    fun failedRecoveryReadKeepsTheTileUnknownWithoutCrashingTheVpnProcess() {
+    fun failedRecoveryReadKeepsTheTileUnknownAndActionableWithoutCrashingTheVpnProcess() {
         listOf(IOException("Policy is unavailable"), IllegalStateException("Policy is corrupt")).forEach { failure ->
             val presentation = TileControlPolicy.recoveryPresentation { throw failure }
-            assertEquals(QuickSettingsTileState.pending("checking"), presentation)
-            assertEquals(QuickSettingsTileState.State.UNAVAILABLE, presentation.state)
+            assertEquals(
+                QuickSettingsTileState.Presentation(QuickSettingsTileState.State.INACTIVE, "checking"),
+                presentation,
+            )
         }
     }
 

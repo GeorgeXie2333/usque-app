@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -40,7 +41,8 @@ class UsqueBootstrap extends StatefulWidget {
   State<UsqueBootstrap> createState() => _UsqueBootstrapState();
 }
 
-class _UsqueBootstrapState extends State<UsqueBootstrap> {
+class _UsqueBootstrapState extends State<UsqueBootstrap>
+    with WidgetsBindingObserver {
   late final AppController controller;
   late final PlatformShellBridge shellBridge;
 
@@ -51,12 +53,33 @@ class _UsqueBootstrapState extends State<UsqueBootstrap> {
       widget.engine ?? createDefaultEngineClient(),
       updateDownloader: widget.updateDownloader,
     );
+    WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null) didChangeAppLifecycleState(lifecycle);
     shellBridge = PlatformShellBridge(controller);
     controller.initialize();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Desktop tray sessions keep observing while their window is hidden.
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    switch (state) {
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        controller.setObservationVisible(false);
+      case AppLifecycleState.resumed:
+        controller.setObservationVisible(true);
+      case AppLifecycleState.inactive:
+        // Focus loss (including permission dialogs) can leave the UI visible.
+        break;
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     shellBridge.dispose();
     controller.dispose();
     super.dispose();

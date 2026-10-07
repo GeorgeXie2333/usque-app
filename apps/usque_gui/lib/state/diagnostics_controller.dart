@@ -32,6 +32,8 @@ class DiagnosticsController extends ChangeNotifier {
   bool _cancelRequestedDuringStart = false;
   bool _startRequestInFlight = false;
   bool _disposed = false;
+  bool _observationVisible = true;
+  int _observationGeneration = 0;
   bool _resetting = false;
   bool _acceptUnownedEvents = true;
   int _dataGeneration = 0;
@@ -51,14 +53,35 @@ class DiagnosticsController extends ChangeNotifier {
   bool get isActive => session?.isActive ?? false;
   DiagnosticMode? get requestedMode => _requestedMode;
 
+  /// Visibility controls readback only; an explicit probe or export keeps ownership.
+  void setObservationVisible(bool visible) {
+    if (_disposed || visible == _observationVisible) return;
+    _observationVisible = visible;
+    _observationGeneration++;
+    if (!visible) {
+      _stopActiveRefresh();
+      _stopTimelineRefresh();
+      _restoreConflictTimer?.cancel();
+      _restoreConflictTimer = null;
+    } else {
+      _startActiveRefresh();
+      _startTimelineRefresh();
+      unawaited(restore(silent: true, refreshTimeline: _timelineObservers > 0));
+    }
+  }
+
   Future<void> restore({bool silent = false, bool refreshTimeline = true}) {
+    if (_disposed || !_observationVisible) return Future<void>.value();
     final generation = _dataGeneration;
     final operation = _operationGeneration;
+    final observation = _observationGeneration;
     Future<void> withTimeline(Future<void> restored) => !refreshTimeline
         ? restored
         : restored.then((_) async {
             if (!_disposed &&
                 !_resetting &&
+                _observationVisible &&
+                observation == _observationGeneration &&
                 generation == _dataGeneration &&
                 operation == _operationGeneration) {
               await loadTimeline(silent: true);
@@ -72,6 +95,14 @@ class DiagnosticsController extends ChangeNotifier {
     restore = _restore(silent: silent).whenComplete(() {
       if (identical(_restoreInFlight, restore)) {
         _restoreInFlight = null;
+        if (!_disposed &&
+            !_resetting &&
+            _observationVisible &&
+            observation != _observationGeneration) {
+          unawaited(
+            this.restore(silent: true, refreshTimeline: _timelineObservers > 0),
+          );
+        }
       }
     });
     _restoreInFlight = restore;
@@ -82,11 +113,14 @@ class DiagnosticsController extends ChangeNotifier {
     final generation = _dataGeneration;
     final operation = _operationGeneration;
     final version = _sessionVersion;
-    if (_resetting || _startRequestInFlight) return;
+    final observation = _observationGeneration;
+    if (_resetting || _startRequestInFlight || !_observationVisible) return;
     try {
       final recovered = await _engine.getDiagnostics();
       if (_disposed ||
           _resetting ||
+          !_observationVisible ||
+          observation != _observationGeneration ||
           generation != _dataGeneration ||
           operation != _operationGeneration ||
           _startRequestInFlight) {
@@ -110,6 +144,8 @@ class DiagnosticsController extends ChangeNotifier {
     } on EngineException catch (error) {
       if (!silent &&
           !_disposed &&
+          _observationVisible &&
+          observation == _observationGeneration &&
           generation == _dataGeneration &&
           operation == _operationGeneration &&
           !_startRequestInFlight) {
@@ -227,7 +263,10 @@ class DiagnosticsController extends ChangeNotifier {
   }
 
   void handleEngineEvent(EngineSnapshotEvent event) {
-    if (_disposed || _resetting || !event.diagnosticsChanged) {
+    if (_disposed ||
+        _resetting ||
+        !_observationVisible ||
+        !event.diagnosticsChanged) {
       return;
     }
     eventStreamDegraded = false;
@@ -273,7 +312,8 @@ class DiagnosticsController extends ChangeNotifier {
 
   Future<void> loadTimeline({bool silent = false}) async {
     final generation = _dataGeneration;
-    if (_resetting) return;
+    final observation = _observationGeneration;
+    if (_disposed || _resetting || !_observationVisible) return;
     if (timelineLoading || _timelineInFlight != null) {
       return;
     }
@@ -285,7 +325,16 @@ class DiagnosticsController extends ChangeNotifier {
       final request = _engine.getConnectionTimeline();
       _timelineInFlight = request;
       void release() {
-        if (identical(_timelineInFlight, request)) _timelineInFlight = null;
+        if (identical(_timelineInFlight, request)) {
+          _timelineInFlight = null;
+          if (!_disposed &&
+              !_resetting &&
+              _observationVisible &&
+              observation != _observationGeneration &&
+              _timelineObservers > 0) {
+            unawaited(loadTimeline(silent: true));
+          }
+        }
       }
 
       // A timed-out read may still be unwinding in the bridge. Keep ownership
@@ -297,17 +346,30 @@ class DiagnosticsController extends ChangeNotifier {
         ),
       );
       final next = await request.timeout(_timelineReadTimeout);
-      if (!_disposed && generation == _dataGeneration) {
+      if (!_disposed &&
+          _observationVisible &&
+          observation == _observationGeneration &&
+          generation == _dataGeneration) {
         timeline = next;
       }
     } on Object catch (error) {
-      if (!silent && !_disposed && generation == _dataGeneration) {
+      if (!silent &&
+          !_disposed &&
+          _observationVisible &&
+          observation == _observationGeneration &&
+          generation == _dataGeneration) {
         lastError = userFacingError(resolveStrings(), error);
       }
     } finally {
       if (!_disposed && generation == _dataGeneration) {
         timelineLoading = false;
-        notifyListeners();
+        if (_observationVisible) notifyListeners();
+        if (_observationVisible &&
+            observation != _observationGeneration &&
+            _timelineInFlight == null &&
+            _timelineObservers > 0) {
+          unawaited(loadTimeline(silent: true));
+        }
       }
     }
   }
@@ -328,6 +390,7 @@ class DiagnosticsController extends ChangeNotifier {
   void _startTimelineRefresh() {
     if (_disposed ||
         _resetting ||
+        !_observationVisible ||
         _timelineObservers == 0 ||
         _timelineRefreshTimer != null) {
       return;
@@ -451,7 +514,11 @@ class DiagnosticsController extends ChangeNotifier {
   }
 
   void _startActiveRefresh() {
-    if (_activeRefreshTimer != null || !isActive) {
+    if (_disposed ||
+        _resetting ||
+        !_observationVisible ||
+        _activeRefreshTimer != null ||
+        !isActive) {
       return;
     }
     _activeRefreshTimer = Timer.periodic(
@@ -466,13 +533,14 @@ class DiagnosticsController extends ChangeNotifier {
   }
 
   void _scheduleConflictRestore() {
-    if (_restoreConflictTimer != null) return;
+    if (!_observationVisible || _restoreConflictTimer != null) return;
     final generation = _dataGeneration;
     final operation = _operationGeneration;
     _restoreConflictTimer = Timer(_activeRefreshInterval, () {
       _restoreConflictTimer = null;
       if (!_disposed &&
           !_resetting &&
+          _observationVisible &&
           generation == _dataGeneration &&
           operation == _operationGeneration) {
         unawaited(restore(silent: true, refreshTimeline: false));

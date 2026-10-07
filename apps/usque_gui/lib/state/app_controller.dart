@@ -182,6 +182,9 @@ class AppController extends ChangeNotifier {
   int _snapshotRevision = 0;
   Timer? _snapshotReconnectTimer;
   StreamSubscription<EngineSnapshotEvent>? _snapshotSubscription;
+  Future<void>? _snapshotCancellation;
+  bool _observationVisible = true;
+  int _observationGeneration = 0;
   int _snapshotReconnectAttempt = 0;
   int _snapshotSubscriptionGeneration = 0;
   bool _snapshotStreamEstablished = false;
@@ -509,9 +512,17 @@ class AppController extends ChangeNotifier {
   Future<void> _finishBootstrap() {
     final pending = _bootstrapWork;
     if (pending != null) return pending;
+    final observation = _observationGeneration;
     late final Future<void> work;
     work = _bootstrapOnce().whenComplete(() {
-      if (identical(_bootstrapWork, work)) _bootstrapWork = null;
+      if (identical(_bootstrapWork, work)) {
+        _bootstrapWork = null;
+        if (!_disposed &&
+            _observationVisible &&
+            observation != _observationGeneration) {
+          unawaited(_finishBootstrap());
+        }
+      }
     });
     _bootstrapWork = work;
     return work;
@@ -526,7 +537,11 @@ class AppController extends ChangeNotifier {
         _refreshCapabilities(),
         refreshSnapshot(silent: true),
       ]);
-      if (_disposed || generation != _bootstrapGeneration) return;
+      if (_disposed ||
+          !_observationVisible ||
+          generation != _bootstrapGeneration) {
+        return;
+      }
       final needsCapabilities =
           activeProfile.dataPlane == DataPlaneMode.l4Proxy ||
           activeProfile.vpnGate.enabled ||
@@ -556,9 +571,10 @@ class AppController extends ChangeNotifier {
 
   void _scheduleBootstrapRetry() {
     _bootstrapRetryTimer?.cancel();
+    if (_disposed || !_observationVisible) return;
     _bootstrapRetryTimer = Timer(const Duration(seconds: 2), () {
       _bootstrapRetryTimer = null;
-      if (!_disposed) unawaited(_finishBootstrap());
+      if (!_disposed && _observationVisible) unawaited(_finishBootstrap());
     });
   }
 
@@ -1250,12 +1266,23 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshSnapshot({bool silent = false}) {
-    if (_clearing) return Future<void>.value();
+    if (_disposed || _clearing || !_observationVisible) {
+      return Future<void>.value();
+    }
     final pending = _snapshotRefresh;
     if (pending != null) return pending;
+    final observation = _observationGeneration;
     late final Future<void> work;
     work = _refreshSnapshotOnce(silent: silent).whenComplete(() {
-      if (identical(_snapshotRefresh, work)) _snapshotRefresh = null;
+      if (identical(_snapshotRefresh, work)) {
+        _snapshotRefresh = null;
+        if (!_disposed &&
+            !_clearing &&
+            _observationVisible &&
+            observation != _observationGeneration) {
+          unawaited(refreshSnapshot(silent: true));
+        }
+      }
     });
     _snapshotRefresh = work;
     return work;
@@ -1263,9 +1290,13 @@ class AppController extends ChangeNotifier {
 
   Future<void> _refreshSnapshotOnce({required bool silent}) async {
     final revision = _snapshotRevision;
+    final observation = _observationGeneration;
     try {
       final next = await _engine.snapshot();
-      if (_disposed || revision != _snapshotRevision) {
+      if (_disposed ||
+          !_observationVisible ||
+          observation != _observationGeneration ||
+          revision != _snapshotRevision) {
         return;
       }
       _initialStatusLoaded = true;
@@ -1273,9 +1304,21 @@ class AppController extends ChangeNotifier {
       if (!snapshot.isConnected && !snapshotStreamDegraded) {
         _stopPolling();
       }
+      // Ordinary bootstrap keeps its existing polling policy. A visibility
+      // resume must also recover engines whose authority changed while hidden.
+      if (_observationGeneration != 0 &&
+          (snapshot.isConnected ||
+              snapshot.isTransitional ||
+              snapshotStreamDegraded)) {
+        _startPolling(force: snapshotStreamDegraded);
+      }
       _notifyListeners();
     } on EngineException catch (error) {
-      if (!silent && !_disposed && revision == _snapshotRevision) {
+      if (!silent &&
+          !_disposed &&
+          _observationVisible &&
+          observation == _observationGeneration &&
+          revision == _snapshotRevision) {
         lastError = userFacingError(strings, error);
         _notifyListeners();
       }
@@ -2415,7 +2458,37 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  /// Suspend Android UI observations without cancelling user operations or VPN work.
+  void setObservationVisible(bool visible) {
+    if (_disposed || visible == _observationVisible) return;
+    _observationVisible = visible;
+    _observationGeneration++;
+    _snapshotRevision++;
+    quality.setObservationVisible(visible);
+    diagnostics.setObservationVisible(visible);
+    if (!visible) {
+      _stopPolling();
+      _snapshotReconnectTimer?.cancel();
+      _snapshotReconnectTimer = null;
+      _bootstrapRetryTimer?.cancel();
+      _bootstrapRetryTimer = null;
+      _snapshotSubscriptionGeneration++;
+      unawaited(_cancelSnapshotSubscription());
+    } else if (initialized) {
+      if (_engine.supportsSnapshotEvents) {
+        unawaited(_subscribeToSnapshotEvents());
+      }
+      if (snapshot.isConnected ||
+          snapshot.isTransitional ||
+          snapshotStreamDegraded) {
+        _startPolling(force: snapshotStreamDegraded);
+      }
+      unawaited(_finishBootstrap());
+    }
+  }
+
   void _startPolling({bool force = false}) {
+    if (_disposed || !_observationVisible) return;
     if (_engine.supportsSnapshotEvents && !force) {
       return;
     }
@@ -2434,19 +2507,16 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _subscribeToSnapshotEvents() async {
-    if (_disposed || !_engine.supportsSnapshotEvents) {
+    if (_disposed || !_observationVisible || !_engine.supportsSnapshotEvents) {
       return;
     }
     _snapshotReconnectTimer?.cancel();
     _snapshotReconnectTimer = null;
-    final previous = _snapshotSubscription;
-    _snapshotSubscription = null;
     final generation = ++_snapshotSubscriptionGeneration;
-    if (previous != null) {
-      await previous.cancel();
-    }
+    await _cancelSnapshotSubscription();
     if (_disposed ||
         _clearing ||
+        !_observationVisible ||
         generation != _snapshotSubscriptionGeneration) {
       return;
     }
@@ -2460,9 +2530,25 @@ class AppController extends ChangeNotifier {
     unawaited(networkSettings.refresh());
   }
 
+  Future<void> _cancelSnapshotSubscription() {
+    final previous = _snapshotSubscription;
+    _snapshotSubscription = null;
+    if (previous == null) return _snapshotCancellation ?? Future<void>.value();
+    final cancellation = previous.cancel();
+    late final Future<void> barrier;
+    barrier = cancellation.whenComplete(() {
+      if (identical(_snapshotCancellation, barrier)) {
+        _snapshotCancellation = null;
+      }
+    });
+    _snapshotCancellation = barrier;
+    return barrier;
+  }
+
   void _handleSnapshotEvent(EngineSnapshotEvent event, int generation) {
     if (_disposed ||
         _clearing ||
+        !_observationVisible ||
         generation != _snapshotSubscriptionGeneration) {
       return;
     }
@@ -2559,6 +2645,7 @@ class AppController extends ChangeNotifier {
   void _markSnapshotStreamUnavailable(int generation) {
     if (_disposed ||
         _clearing ||
+        !_observationVisible ||
         generation != _snapshotSubscriptionGeneration) {
       return;
     }
@@ -2603,8 +2690,7 @@ class AppController extends ChangeNotifier {
     _snapshotReconnectTimer?.cancel();
     _snapshotReconnectTimer = null;
     _snapshotSubscriptionGeneration += 1;
-    unawaited(_snapshotSubscription?.cancel());
-    _snapshotSubscription = null;
+    unawaited(_cancelSnapshotSubscription());
     diagnostics.dispose();
     quality.dispose();
     networkSettings.dispose();

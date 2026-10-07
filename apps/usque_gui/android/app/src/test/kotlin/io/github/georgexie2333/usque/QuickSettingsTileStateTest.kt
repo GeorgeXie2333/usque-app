@@ -16,14 +16,51 @@ class QuickSettingsTileStateTest {
     }
 
     @Test
-    fun `transition phases reject repeated tile taps`() {
-        listOf("preparing", "connectingH3", "connectingH2", "reconnecting", "disconnecting")
-            .forEach { phase ->
-                assertEquals(
-                    QuickSettingsTileState.State.UNAVAILABLE,
-                    QuickSettingsTileState.fromSnapshot(phase, vpnFrontendActive = true).state,
-                )
-            }
+    fun `active VPN transitions stay actionable with their status`() {
+        mapOf(
+            "preparing" to "connecting",
+            "connectingH3" to "connecting",
+            "connectingH2" to "connecting",
+            "reconnecting" to "reconnecting",
+            "disconnecting" to "disconnecting",
+        ).forEach { (phase, subtitle) ->
+            assertEquals(
+                QuickSettingsTileState.Presentation(QuickSettingsTileState.State.ACTIVE, subtitle),
+                QuickSettingsTileState.fromSnapshot(phase, vpnFrontendActive = true),
+            )
+        }
+    }
+
+    @Test
+    fun `temporary control work stays actionable`() {
+        listOf("working", "checking").forEach { subtitle ->
+            assertEquals(
+                QuickSettingsTileState.Presentation(QuickSettingsTileState.State.INACTIVE, subtitle),
+                QuickSettingsTileState.pending(subtitle),
+            )
+        }
+    }
+
+    @Test
+    fun `inactive VPN frontend stays off through every phase`() {
+        listOf(
+            "connected",
+            "degraded",
+            "preparing",
+            "connectingH3",
+            "connectingH2",
+            "reconnecting",
+            "disconnecting",
+            "disconnected",
+            "error",
+            "unknown",
+            null,
+        ).forEach { phase ->
+            assertEquals(
+                QuickSettingsTileState.inactive(),
+                QuickSettingsTileState.fromSnapshot(phase, vpnFrontendActive = false),
+            )
+        }
     }
 
     @Test
@@ -37,11 +74,13 @@ class QuickSettingsTileStateTest {
     }
 
     @Test
-    fun `unknown phase waits for an authoritative snapshot`() {
-        assertEquals(
-            QuickSettingsTileState.State.UNAVAILABLE,
-            QuickSettingsTileState.fromSnapshot(null, vpnFrontendActive = true).state,
-        )
+    fun `unknown phase remains actionable to query the authority`() {
+        listOf(null, "unknown").forEach { phase ->
+            assertEquals(
+                QuickSettingsTileState.Presentation(QuickSettingsTileState.State.INACTIVE, "checking"),
+                QuickSettingsTileState.fromSnapshot(phase, vpnFrontendActive = true),
+            )
+        }
     }
 
     @Test
@@ -65,7 +104,7 @@ class QuickSettingsTileStateTest {
 
         assertEquals(connecting, anotherConnectingPhase)
         assertEquals(QuickSettingsTileState.State.ACTIVE, connected.state)
-        assertEquals(QuickSettingsTileState.State.UNAVAILABLE, reconnecting.state)
+        assertEquals(QuickSettingsTileState.State.ACTIVE, reconnecting.state)
         assertNotEquals(connecting, connected)
         assertNotEquals(connected, reconnecting)
     }

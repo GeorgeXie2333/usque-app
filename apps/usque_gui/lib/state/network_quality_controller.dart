@@ -27,6 +27,9 @@ class NetworkQualityController extends ChangeNotifier {
   Timer? _timer;
   bool _disposed = false;
   bool _enabled = false;
+  bool _observationVisible = true;
+  int _observationGeneration = 0;
+  DateTime? _legacyAcceptAfter;
   bool _refreshing = false;
   bool _streamUnavailable = false;
   DateTime? _receivedAt;
@@ -97,6 +100,18 @@ class NetworkQualityController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Suspend UI reads without clearing history or the user's Pause selection.
+  void setObservationVisible(bool visible) {
+    if (_disposed || visible == _observationVisible) return;
+    _observationVisible = visible;
+    _observationGeneration++;
+    _counterEpoch++;
+    _legacyAcceptAfter = _now();
+    _lastSnapshot = null;
+    _syncTimer();
+    if (visible) unawaited(refresh());
+  }
+
   void reset() {
     if (_disposed) return;
     _clear(retire: true);
@@ -126,7 +141,7 @@ class NetworkQualityController extends ChangeNotifier {
     if (value.phase == ConnectionPhase.disconnected ||
         value.phase == ConnectionPhase.error) {
       _clear(retire: true);
-    } else if (_enabled) {
+    } else if (_enabled && _observationVisible) {
       if (clockRollback) {
         _clear(); // Wall-clock rollback cannot form a negative rate interval.
       }
@@ -169,7 +184,7 @@ class NetworkQualityController extends ChangeNotifier {
   }
 
   void accept(NetworkQualitySnapshot value) {
-    if (_disposed) return;
+    if (_disposed || !_observationVisible) return;
     _acceptQuality(value);
     notifyListeners();
   }
@@ -185,6 +200,11 @@ class NetworkQualityController extends ChangeNotifier {
     if (_retiredIds.contains(id) ||
         now.difference(at) > staleAfter ||
         at.isAfter(now)) {
+      return;
+    }
+    if (value.samples.isEmpty &&
+        _legacyAcceptAfter != null &&
+        !at.isAfter(_legacyAcceptAfter!)) {
       return;
     }
     if (id == _connectionId && latest?.sampledAt != null) {
@@ -310,6 +330,7 @@ class NetworkQualityController extends ChangeNotifier {
     _origin = null;
     _counterOrigin = null;
     _acceptAfter = null;
+    _legacyAcceptAfter = null;
     _counterStartSlot = 0;
     _lastSourceSequence = 0;
     _lastSourceMonotonic = null;
@@ -398,7 +419,10 @@ class NetworkQualityController extends ChangeNotifier {
   }
 
   void _syncTimer() {
-    if (!autoTick || !_enabled || !connection.isConnected) {
+    if (!autoTick ||
+        !_enabled ||
+        !_observationVisible ||
+        !connection.isConnected) {
       _timer?.cancel();
       _timer = null;
     } else {
@@ -408,7 +432,7 @@ class NetworkQualityController extends ChangeNotifier {
 
   @visibleForTesting
   void tick() {
-    if (_disposed || !_enabled) return;
+    if (_disposed || !_enabled || !_observationVisible) return;
     // Only age/repaint existing observations. A timer is not a measurement.
     if (!paused &&
         connection.isConnected &&
@@ -421,20 +445,29 @@ class NetworkQualityController extends ChangeNotifier {
 
   /// Exactly one outstanding IPC request. Epoch guards reject late replies.
   Future<void> refresh() async {
-    if (_disposed || !_enabled || _refreshing) return;
+    if (_disposed || !_enabled || !_observationVisible || _refreshing) return;
     _refreshing = true;
     final epoch = _epoch;
+    final observation = _observationGeneration;
     notifyListeners();
     try {
       final snapshot = await _engine.getNetworkQuality();
-      if (!_disposed && _enabled && epoch == _epoch && snapshot != null) {
+      if (!_disposed &&
+          _enabled &&
+          _observationVisible &&
+          observation == _observationGeneration &&
+          epoch == _epoch &&
+          snapshot != null) {
         accept(snapshot);
       }
     } on Object {
       // Existing readings age into Stale; raw transport errors stay out of UI.
     } finally {
       _refreshing = false;
-      if (!_disposed) notifyListeners();
+      if (!_disposed && _observationVisible) {
+        notifyListeners();
+        if (observation != _observationGeneration) unawaited(refresh());
+      }
     }
   }
 
