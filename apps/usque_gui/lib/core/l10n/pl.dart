@@ -1,5 +1,7 @@
 /// Polish UI catalog.
 const Map<String, String> kPlCatalog = <String, String>{
+  'dns_doh_url': 'Adres URL DoH',
+  'dns_invalid_doh_url': 'Wpisz prawidłowy adres URL HTTPS DNS',
   'warp_dns_type': 'DNS WARP',
   'warp_dns_bootstrap_optional': 'Opcjonalnie',
   'warp_dns_plain': 'Zwykły DNS',

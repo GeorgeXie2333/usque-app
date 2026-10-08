@@ -1,5 +1,7 @@
 /// Traditional Chinese (Taiwan) UI catalog.
 const Map<String, String> kZhTwCatalog = <String, String>{
+  'dns_doh_url': 'DoH 位址',
+  'dns_invalid_doh_url': '請輸入有效的 HTTPS DNS 位址',
   'warp_dns_type': 'WARP DNS',
   'warp_dns_bootstrap_optional': '選填',
   'warp_dns_plain': '一般 DNS',

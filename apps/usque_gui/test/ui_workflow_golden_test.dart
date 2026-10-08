@@ -8,6 +8,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/models/encrypted_dns_endpoint.dart';
 import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
@@ -299,10 +300,12 @@ void main() {
                       WarpDnsEditor(
                         value: WarpDnsSettings(
                           mode: doh ? WarpDnsMode.doh : WarpDnsMode.dot,
-                          serverName: 'dns.example.com',
+                          serverName: doh
+                              ? 'cloudflare-dns.com'
+                              : cloudflareDotServer,
                           dohPath: doh ? '/dns-query' : '',
                           port: doh ? 443 : 853,
-                          bootstrapIps: const ['192.0.2.1', '2001:db8::1'],
+                          bootstrapIps: cloudflareDnsBootstrapIps,
                         ),
                         enabled: true,
                         strings: strings,

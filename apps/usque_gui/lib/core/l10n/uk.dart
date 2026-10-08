@@ -1,5 +1,7 @@
 /// Ukrainian UI catalog.
 const Map<String, String> kUkCatalog = <String, String>{
+  'dns_doh_url': 'URL DoH',
+  'dns_invalid_doh_url': 'Введіть коректну HTTPS-адресу DNS',
   'warp_dns_type': 'DNS WARP',
   'warp_dns_bootstrap_optional': 'Необов’язково',
   'warp_dns_plain': 'Звичайний DNS',

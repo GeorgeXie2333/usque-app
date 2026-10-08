@@ -1,5 +1,7 @@
 /// Arabic UI catalog.
 const Map<String, String> kArCatalog = <String, String>{
+  'dns_doh_url': 'عنوان DoH',
+  'dns_invalid_doh_url': 'أدخل عنوان HTTPS صالحًا لـ DNS',
   'warp_dns_type': 'DNS ‏WARP',
   'warp_dns_bootstrap_optional': 'اختياري',
   'warp_dns_plain': 'DNS عادي',

@@ -1,5 +1,7 @@
 /// Italian UI catalog.
 const Map<String, String> kItCatalog = <String, String>{
+  'dns_doh_url': 'URL DoH',
+  'dns_invalid_doh_url': 'Inserisci un URL HTTPS DNS valido',
   'warp_dns_type': 'DNS WARP',
   'warp_dns_bootstrap_optional': 'Facoltativo',
   'warp_dns_plain': 'DNS normale',

@@ -1,5 +1,7 @@
 /// Persian UI catalog.
 const Map<String, String> kFaCatalog = <String, String>{
+  'dns_doh_url': 'نشانی DoH',
+  'dns_invalid_doh_url': 'نشانی HTTPS معتبر برای DNS وارد کنید',
   'warp_dns_type': 'DNS ‏WARP',
   'warp_dns_bootstrap_optional': 'اختیاری',
   'warp_dns_plain': 'DNS معمولی',

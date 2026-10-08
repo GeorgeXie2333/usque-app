@@ -3,20 +3,26 @@
 ## Configure / 配置
 
 Open **Settings → Advanced network settings → IP & DNS** and choose the WARP DNS type.
-**Plain DNS** keeps the existing IPv4 and IPv6 resolver addresses. For
-**DNS over HTTPS** (DoH) or **DNS over TLS** (DoT), enter the provider's server
-name. Numeric bootstrap IP addresses are optional; when omitted, the server name
-is resolved using the configured Plain DNS servers inside WARP.
-The server name must match its TLS certificate. DoH also needs a request path;
-the defaults are `/dns-query` and port `443`. DoT defaults to port `853`.
-Use the provider's published values. Select **Apply changes** to save and apply the
-configuration. Changing a connected session's DNS reconnects that session.
+**Plain DNS** keeps the existing IPv4 and IPv6 resolver addresses.
+**DNS over HTTPS** (DoH) uses one **DoH URL** field, including the HTTPS scheme,
+server name, optional port and path. New DoH drafts use
+`https://cloudflare-dns.com/dns-query`; new **DNS over TLS** (DoT) drafts use
+`one.one.one.one` on port `853`. Both prefill Cloudflare's server IPs:
+`1.1.1.1`, `1.0.0.1`, `2606:4700:4700::1111` and `2606:4700:4700::1001`.
+These values follow Cloudflare's [DoH](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/)
+and [DoT](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-tls/) documentation.
+All fields remain editable. WARP bootstrap IPs remain optional; clearing them
+resolves the server name using the configured Plain DNS servers inside WARP.
+Select **Apply changes** to save and apply the configuration. Changing a
+connected session's DNS reconnects that session.
 
 打开**设置 → 高级网络设置 → IP 与 DNS**，选择 WARP DNS 类型。**普通 DNS**
-保留原 IPv4、IPv6 服务器地址；**DNS over HTTPS**、**DNS over TLS** 填写服务商的服务器域名，
-引导 IP 地址可选，留空时通过 WARP 内配置的普通 DNS 解析服务器域名。
-域名必须与 TLS 证书匹配。DoH 还需填写路径，默认 `/dns-query`、端口
-`443`；DoT 默认端口 `853`。按服务商公布的信息填写。
+保留原 IPv4、IPv6 服务器地址。**DNS over HTTPS** 使用单个 **DoH 地址** 输入框，
+填写完整 HTTPS 链接，包括域名、可选端口和路径。新 DoH 草稿默认填入
+`https://cloudflare-dns.com/dns-query`；新 **DNS over TLS** 草稿默认填入
+`one.one.one.one`，端口 `853`。两者均预填 Cloudflare 的 IP：`1.1.1.1`、
+`1.0.0.1`、`2606:4700:4700::1111`、`2606:4700:4700::1001`，所有字段仍可修改。
+WARP 引导 IP 仍可选，清空后通过 WARP 内配置的普通 DNS 解析服务器域名。
 点击**应用修改**保存并生效；已连接时更改 DNS 会重新连接。
 
 Local HTTP/SOCKS5 proxies use remote resolution through the current exit by
@@ -32,12 +38,24 @@ saved configuration uses local or system resolution.
 在底层继续生效，前端不显示迁移面板或恢复操作。修改代理监听地址不会改变 DNS
 方式、DNS 地址或认证；已有配置使用本机或系统解析时，仍保留本机 DNS 风险提示。
 
-Switching types retains the draft fields while this page is open. Only the
-selected type is applied. Resetting Advanced settings selects Plain DNS in the
-draft and clears retained encrypted fields; it takes effect only after applying.
+Existing DoH settings automatically display as a complete URL, preserving the
+saved name, custom port, path and bootstrap IPs. Opening the editor does not
+rewrite settings or replace them with Cloudflare. The stored configuration and
+IPC fields stay compatible with previous versions. URLs must use HTTPS, a DNS
+name and a valid port; credentials, query strings and fragments are not supported.
+Omitting a URL port uses `443`; omitting the path uses `/dns-query`.
 
-页面内切换类型会保留草稿，只应用当前选中的类型。高级设置恢复默认后，草稿
-改回普通 DNS，并清空保留的加密配置，点击应用后才生效。
+Switching types retains separate drafts while this page is open. Only the
+selected type is applied. Resetting Advanced settings selects Plain DNS and
+clears retained drafts; selecting an encrypted type again prefills Cloudflare.
+The reset takes effect only after applying.
+
+旧版 DoH 配置会自动组合为完整链接，保留原域名、自定义端口、路径与引导 IP。
+打开页面不会重写配置或替换成 Cloudflare，保存格式与 IPC 字段继续兼容旧版。
+地址必须使用 HTTPS、服务器域名和有效端口，不支持用户名密码、查询参数或片段。
+省略端口时使用 `443`，省略路径时使用 `/dns-query`。
+页面内切换类型会分别保留草稿，只应用当前选中的类型。高级设置恢复默认后，草稿
+改回普通 DNS 并清空保留的加密草稿；再次选择加密类型时预填 Cloudflare，点击应用后才生效。
 
 ## Behavior and failures / 行为与失败
 

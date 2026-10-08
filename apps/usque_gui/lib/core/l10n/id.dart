@@ -1,5 +1,7 @@
 /// Indonesian UI catalog.
 const Map<String, String> kIdCatalog = <String, String>{
+  'dns_doh_url': 'URL DoH',
+  'dns_invalid_doh_url': 'Masukkan URL HTTPS DNS yang valid',
   'warp_dns_type': 'DNS WARP',
   'warp_dns_bootstrap_optional': 'Opsional',
   'warp_dns_plain': 'DNS biasa',

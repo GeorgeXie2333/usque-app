@@ -1,5 +1,7 @@
 /// Turkish UI catalog.
 const Map<String, String> kTrCatalog = <String, String>{
+  'dns_doh_url': 'DoH URL’si',
+  'dns_invalid_doh_url': 'Geçerli bir HTTPS DNS URL’si girin',
   'warp_dns_type': 'WARP DNS',
   'warp_dns_bootstrap_optional': 'İsteğe bağlı',
   'warp_dns_plain': 'Normal DNS',

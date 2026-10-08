@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
+import '../models/encrypted_dns_endpoint.dart';
 import 'direct_dns_editor.dart';
 
 class WarpDnsEditor extends StatefulWidget {
@@ -31,10 +32,10 @@ class WarpDnsEditor extends StatefulWidget {
 class WarpDnsEditorState extends State<WarpDnsEditor> {
   late WarpDnsMode _mode;
   final _server = TextEditingController();
-  final _path = TextEditingController();
+  final _url = TextEditingController();
   final _port = TextEditingController();
   final _bootstrap = TextEditingController();
-  final _ports = <WarpDnsMode, String>{};
+  final _bootstraps = <WarpDnsMode, String>{};
   final _modeFocus = FocusNode();
   final _keys = List<GlobalKey<FormFieldState<String>>>.generate(
     4,
@@ -58,24 +59,36 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
   }
 
   void _load(WarpDnsSettings value) {
-    _ports.clear();
+    _bootstraps.clear();
     _mode = value.mode;
-    _server.text = value.serverName;
-    _path.text = value.dohPath;
-    _port.text = '${value.port}';
-    _ports[value.mode] = _port.text;
+    final tls = _mode == WarpDnsMode.dot || _mode == WarpDnsMode.unknown;
+    _server.text = tls ? value.serverName : cloudflareDotServer;
+    _url.text = _mode == WarpDnsMode.doh
+        ? DohEndpoint(value.serverName, value.port, value.dohPath).url
+        : cloudflareDohUrl;
+    _port.text = tls && value.port != 0 ? '${value.port}' : '853';
     _bootstrap.text = value.bootstrapIps.join('\n');
+    _bootstraps[_mode] = _bootstrap.text;
   }
 
-  WarpDnsSettings _value() => _mode == WarpDnsMode.plain
-      ? const WarpDnsSettings()
-      : WarpDnsSettings(
-          mode: _mode,
-          serverName: _server.text,
-          dohPath: _mode == WarpDnsMode.doh ? _path.text : '',
-          port: int.tryParse(_port.text) ?? 0,
-          bootstrapIps: directDnsBootstrapValues(_bootstrap.text),
-        );
+  WarpDnsSettings _value() {
+    if (_mode == WarpDnsMode.plain) return const WarpDnsSettings();
+    final endpoint = _mode == WarpDnsMode.doh
+        ? DohEndpoint.tryParse(_url.text)
+        : null;
+    return WarpDnsSettings(
+      mode: _mode,
+      serverName: _mode == WarpDnsMode.doh
+          ? endpoint?.serverName ?? _url.text
+          : _server.text,
+      // Invalid URL drafts must fail core validation too, never become defaults.
+      dohPath: _mode == WarpDnsMode.doh ? endpoint?.path ?? 'invalid-url' : '',
+      port: _mode == WarpDnsMode.doh
+          ? endpoint?.port ?? 0
+          : int.tryParse(_port.text) ?? 0,
+      bootstrapIps: directDnsBootstrapValues(_bootstrap.text),
+    );
+  }
 
   void _emit(String _) {
     widget.onChanged(_value());
@@ -99,7 +112,7 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
   void dispose() {
     for (final controller in <TextEditingController>[
       _server,
-      _path,
+      _url,
       _port,
       _bootstrap,
     ]) {
@@ -160,18 +173,11 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
                     return;
                   }
                   setState(() {
-                    _ports[_mode] = _port.text;
+                    _bootstraps[_mode] = _bootstrap.text;
                     _mode = value;
-                    if (_mode == WarpDnsMode.doh && _path.text.isEmpty) {
-                      _path.text = '/dns-query';
-                    }
-                    _port.text =
-                        _ports[_mode] ??
-                        (_mode == WarpDnsMode.doh
-                            ? '443'
-                            : _mode == WarpDnsMode.dot
-                            ? '853'
-                            : '0');
+                    _bootstrap.text =
+                        _bootstraps[_mode] ??
+                        cloudflareDnsBootstrapIps.join('\n');
                   });
                   _emit('');
                 },
@@ -185,67 +191,72 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
         ],
         if (custom) ...<Widget>[
           const SizedBox(height: 20),
-          TextFormField(
-            key: _keys[0],
-            focusNode: _focus[0],
-            controller: _server,
-            readOnly: !editable,
-            autocorrect: false,
-            enableSuggestions: false,
-            maxLength: 253,
-            decoration: InputDecoration(
-              labelText: s.get('nq_dns_server'),
-              hintText: 'dns.example.com',
-              counterText: '',
-              errorMaxLines: 3,
-            ),
-            onChanged: _emit,
-            validator: (value) => !editable || validDirectDnsName(value ?? '')
-                ? null
-                : s.get('warp_dns_invalid_name'),
-          ),
-          const SizedBox(height: 12),
-          if (_mode == WarpDnsMode.doh) ...<Widget>[
+          if (_mode != WarpDnsMode.doh)
             TextFormField(
-              key: _keys[1],
-              focusNode: _focus[1],
-              controller: _path,
+              key: _keys[0],
+              focusNode: _focus[0],
+              controller: _server,
               readOnly: !editable,
               autocorrect: false,
               enableSuggestions: false,
-              maxLength: 256,
+              maxLength: 253,
               decoration: InputDecoration(
-                labelText: s.get('nq_dns_path'),
-                hintText: '/dns-query',
+                labelText: s.get('nq_dns_server'),
+                hintText: cloudflareDotServer,
                 counterText: '',
                 errorMaxLines: 3,
               ),
               onChanged: _emit,
-              validator: (value) => !editable || validDirectDnsPath(value ?? '')
+              validator: (value) => !editable || validDirectDnsName(value ?? '')
                   ? null
-                  : s.get('warp_dns_invalid_path'),
+                  : s.get('warp_dns_invalid_name'),
+            ),
+          if (_mode != WarpDnsMode.doh) const SizedBox(height: 12),
+          if (_mode == WarpDnsMode.doh) ...<Widget>[
+            TextFormField(
+              key: _keys[1],
+              focusNode: _focus[1],
+              controller: _url,
+              readOnly: !editable,
+              autocorrect: false,
+              enableSuggestions: false,
+              keyboardType: TextInputType.url,
+              textDirection: TextDirection.ltr,
+              maxLength: 522,
+              decoration: InputDecoration(
+                labelText: s.get('dns_doh_url'),
+                hintText: cloudflareDohUrl,
+                counterText: '',
+                errorMaxLines: 3,
+              ),
+              onChanged: _emit,
+              validator: (value) =>
+                  !editable || DohEndpoint.tryParse(value ?? '') != null
+                  ? null
+                  : s.get('dns_invalid_doh_url'),
             ),
             const SizedBox(height: 12),
           ],
-          TextFormField(
-            key: _keys[2],
-            focusNode: _focus[2],
-            controller: _port,
-            readOnly: !editable,
-            keyboardType: TextInputType.number,
-            inputFormatters: <TextInputFormatter>[
-              FilteringTextInputFormatter.digitsOnly,
-            ],
-            decoration: InputDecoration(labelText: s.get('port')),
-            onChanged: _emit,
-            validator: (value) {
-              final port = int.tryParse(value ?? '');
-              return !editable || port != null && port >= 1 && port <= 65535
-                  ? null
-                  : '1–65535';
-            },
-          ),
-          const SizedBox(height: 12),
+          if (_mode != WarpDnsMode.doh)
+            TextFormField(
+              key: _keys[2],
+              focusNode: _focus[2],
+              controller: _port,
+              readOnly: !editable,
+              keyboardType: TextInputType.number,
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              decoration: InputDecoration(labelText: s.get('port')),
+              onChanged: _emit,
+              validator: (value) {
+                final port = int.tryParse(value ?? '');
+                return !editable || port != null && port >= 1 && port <= 65535
+                    ? null
+                    : '1–65535';
+              },
+            ),
+          if (_mode != WarpDnsMode.doh) const SizedBox(height: 12),
           TextFormField(
             key: _keys[3],
             focusNode: _focus[3],

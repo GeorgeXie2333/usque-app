@@ -1,5 +1,7 @@
 /// Simplified Chinese UI catalog.
 const Map<String, String> kZhCnCatalog = <String, String>{
+  'dns_doh_url': 'DoH 地址',
+  'dns_invalid_doh_url': '请输入有效的 HTTPS DNS 地址',
   'warp_dns_type': 'WARP DNS',
   'warp_dns_bootstrap_optional': '可选',
   'warp_dns_plain': '普通 DNS',

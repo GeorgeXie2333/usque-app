@@ -1,5 +1,7 @@
 /// Thai UI catalog.
 const Map<String, String> kThCatalog = <String, String>{
+  'dns_doh_url': 'URL ของ DoH',
+  'dns_invalid_doh_url': 'ป้อน URL HTTPS ของ DNS ที่ถูกต้อง',
   'warp_dns_type': 'DNS ของ WARP',
   'warp_dns_bootstrap_optional': 'ไม่บังคับ',
   'warp_dns_plain': 'DNS ปกติ',

@@ -58,7 +58,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late ProxySettings _proxy;
   final _directDnsKey = GlobalKey<DirectDnsEditorState>();
   final _warpDnsKey = GlobalKey<WarpDnsEditorState>();
-  int _warpDnsResetRevision = 0;
+  int _dnsResetRevision = 0;
   final _killSwitchKey = GlobalKey();
   bool _saving = false;
   String? _endpointAcknowledgedAccount;
@@ -627,7 +627,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                       WarpDnsEditor(
                         key: _warpDnsKey,
                         value: _warpDns,
-                        resetRevision: _warpDnsResetRevision,
+                        resetRevision: _dnsResetRevision,
                         enabled: !_saving,
                         encryptedAvailable:
                             widget
@@ -761,6 +761,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                   DirectDnsEditor(
                     key: _directDnsKey,
                     value: _directDns,
+                    resetRevision: _dnsResetRevision,
                     enabled: !_saving,
                     encryptedAvailable:
                         widget
@@ -1104,7 +1105,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     }
     setState(() {
       _load(reset, baseline: false);
-      _warpDnsResetRevision++;
+      _dnsResetRevision++;
       _saved = false;
       _validationError = null;
       _saveError = null;

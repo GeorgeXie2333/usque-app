@@ -1,5 +1,7 @@
 /// German UI catalog.
 const Map<String, String> kDeCatalog = <String, String>{
+  'dns_doh_url': 'DoH-URL',
+  'dns_invalid_doh_url': 'Geben Sie eine gültige HTTPS-DNS-URL ein',
   'warp_dns_type': 'WARP-DNS',
   'warp_dns_bootstrap_optional': 'Optional',
   'warp_dns_plain': 'Normales DNS',

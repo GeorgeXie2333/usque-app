@@ -1,5 +1,7 @@
 /// French UI catalog.
 const Map<String, String> kFrCatalog = <String, String>{
+  'dns_doh_url': 'URL DoH',
+  'dns_invalid_doh_url': 'Saisissez une URL HTTPS DNS valide',
   'warp_dns_type': 'DNS WARP',
   'warp_dns_bootstrap_optional': 'Facultatif',
   'warp_dns_plain': 'DNS classique',

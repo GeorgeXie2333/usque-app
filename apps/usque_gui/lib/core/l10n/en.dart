@@ -1,5 +1,7 @@
 /// English UI catalog.
 const Map<String, String> kEnCatalog = <String, String>{
+  'dns_doh_url': 'DoH URL',
+  'dns_invalid_doh_url': 'Enter a valid HTTPS DNS URL',
   'warp_dns_type': 'WARP DNS',
   'warp_dns_bootstrap_optional': 'Optional',
   'warp_dns_plain': 'Plain DNS',

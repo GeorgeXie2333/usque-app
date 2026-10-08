@@ -6,42 +6,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
+import '../models/encrypted_dns_endpoint.dart';
 import 'common.dart';
 
-bool validDirectDnsName(String value) {
-  if (value.isEmpty ||
-      value.runes.length > 253 ||
-      value.trim() != value ||
-      InternetAddress.tryParse(value) != null) {
-    return false;
-  }
-  if (value.runes.any((rune) => rune <= 32 || rune == 127) ||
-      RegExp(r'[:/\\?#@%*\[\]\s]').hasMatch(value)) {
-    return false;
-  }
-  return value
-      .split('.')
-      .every(
-        (label) =>
-            label.isNotEmpty &&
-            label.runes.length <= 63 &&
-            !label.startsWith('-') &&
-            !label.endsWith('-') &&
-            label.runes.every(
-              (rune) =>
-                  rune > 127 ||
-                  RegExp(r'[a-zA-Z0-9-]').hasMatch(String.fromCharCode(rune)),
-            ),
-      );
-}
-
-bool validDirectDnsPath(String value) =>
-    value.startsWith('/') &&
-    !value.startsWith('//') &&
-    value.length <= 256 &&
-    !value.contains('://') &&
-    !RegExp(r'[?#\\\s]').hasMatch(value) &&
-    value.codeUnits.every((unit) => unit >= 33 && unit <= 126);
+export '../models/encrypted_dns_endpoint.dart'
+    show validDirectDnsName, validDirectDnsPath;
 
 List<String> directDnsBootstrapValues(String value) => value
     .split(RegExp(r'[,\s]+'))
@@ -82,6 +51,7 @@ class DirectDnsEditor extends StatefulWidget {
     required this.value,
     required this.enabled,
     this.encryptedAvailable = true,
+    this.resetRevision = 0,
     required this.strings,
     required this.onChanged,
     super.key,
@@ -89,6 +59,7 @@ class DirectDnsEditor extends StatefulWidget {
   final DirectDnsSettings value;
   final bool enabled;
   final bool encryptedAvailable;
+  final int resetRevision;
   final AppStrings strings;
   final ValueChanged<DirectDnsSettings> onChanged;
   @override
@@ -98,9 +69,10 @@ class DirectDnsEditor extends StatefulWidget {
 class DirectDnsEditorState extends State<DirectDnsEditor> {
   late DirectDnsMode _mode;
   final _server = TextEditingController();
-  final _path = TextEditingController();
+  final _url = TextEditingController();
   final _port = TextEditingController();
   final _bootstrap = TextEditingController();
+  final _bootstraps = <DirectDnsMode, String>{};
   final _keys = List<GlobalKey<FormFieldState<String>>>.generate(
     4,
     (_) => GlobalKey<FormFieldState<String>>(),
@@ -116,28 +88,45 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
   @override
   void didUpdateWidget(covariant DirectDnsEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.value != oldWidget.value && widget.value != _value()) {
+    if (widget.resetRevision != oldWidget.resetRevision ||
+        widget.value != oldWidget.value && widget.value != _value()) {
       _load(widget.value);
     }
   }
 
   void _load(DirectDnsSettings value) {
+    _bootstraps.clear();
     _mode = value.mode;
-    _server.text = value.serverName;
-    _path.text = value.dohPath;
-    _port.text = '${value.port}';
+    final tls = _mode == DirectDnsMode.dot || _mode == DirectDnsMode.unknown;
+    _server.text = tls ? value.serverName : cloudflareDotServer;
+    _url.text = _mode == DirectDnsMode.doh
+        ? DohEndpoint(value.serverName, value.port, value.dohPath).url
+        : cloudflareDohUrl;
+    _port.text = tls && value.port != 0 ? '${value.port}' : '853';
     _bootstrap.text = value.bootstrapIps.join('\n');
+    _bootstraps[_mode] = _bootstrap.text;
   }
 
-  DirectDnsSettings _value() => _mode == DirectDnsMode.physicalSystem
-      ? const DirectDnsSettings()
-      : DirectDnsSettings(
-          mode: _mode,
-          serverName: _server.text,
-          dohPath: _mode == DirectDnsMode.doh ? _path.text : '',
-          port: int.tryParse(_port.text) ?? 0,
-          bootstrapIps: directDnsBootstrapValues(_bootstrap.text),
-        );
+  DirectDnsSettings _value() {
+    if (_mode == DirectDnsMode.physicalSystem) return const DirectDnsSettings();
+    final endpoint = _mode == DirectDnsMode.doh
+        ? DohEndpoint.tryParse(_url.text)
+        : null;
+    return DirectDnsSettings(
+      mode: _mode,
+      serverName: _mode == DirectDnsMode.doh
+          ? endpoint?.serverName ?? _url.text
+          : _server.text,
+      // Invalid URL drafts must fail core validation too, never become defaults.
+      dohPath: _mode == DirectDnsMode.doh
+          ? endpoint?.path ?? 'invalid-url'
+          : '',
+      port: _mode == DirectDnsMode.doh
+          ? endpoint?.port ?? 0
+          : int.tryParse(_port.text) ?? 0,
+      bootstrapIps: directDnsBootstrapValues(_bootstrap.text),
+    );
+  }
 
   void _emit(String _) {
     widget.onChanged(_value());
@@ -156,7 +145,7 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
   void dispose() {
     for (final controller in <TextEditingController>[
       _server,
-      _path,
+      _url,
       _port,
       _bootstrap,
     ]) {
@@ -218,15 +207,11 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
                     return;
                   }
                   setState(() {
+                    _bootstraps[_mode] = _bootstrap.text;
                     _mode = value;
-                    if (_mode == DirectDnsMode.doh && _path.text.isEmpty) {
-                      _path.text = '/dns-query';
-                    }
-                    _port.text = _mode == DirectDnsMode.doh
-                        ? '443'
-                        : _mode == DirectDnsMode.dot
-                        ? '853'
-                        : '0';
+                    _bootstrap.text =
+                        _bootstraps[_mode] ??
+                        cloudflareDnsBootstrapIps.join('\n');
                   });
                   _emit('');
                 },
@@ -239,65 +224,71 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
         Text(s.get(custom ? 'nq_dns_no_fallback' : 'nq_dns_system_privacy')),
         if (custom) ...<Widget>[
           const SizedBox(height: 20),
-          TextFormField(
-            key: _keys[0],
-            focusNode: _focus[0],
-            controller: _server,
-            readOnly: !editable,
-            autocorrect: false,
-            enableSuggestions: false,
-            maxLength: 253,
-            decoration: InputDecoration(
-              labelText: s.get('nq_dns_server'),
-              hintText: 'dns.example.com',
-              errorMaxLines: 6,
+          if (_mode != DirectDnsMode.doh)
+            TextFormField(
+              key: _keys[0],
+              focusNode: _focus[0],
+              controller: _server,
+              readOnly: !editable,
+              autocorrect: false,
+              enableSuggestions: false,
+              maxLength: 253,
+              decoration: InputDecoration(
+                labelText: s.get('nq_dns_server'),
+                hintText: cloudflareDotServer,
+                errorMaxLines: 6,
+              ),
+              onChanged: _emit,
+              validator: (value) => !editable || validDirectDnsName(value ?? '')
+                  ? null
+                  : s.get('nq_dns_invalid_name'),
             ),
-            onChanged: _emit,
-            validator: (value) => !editable || validDirectDnsName(value ?? '')
-                ? null
-                : s.get('nq_dns_invalid_name'),
-          ),
-          const SizedBox(height: 12),
+          if (_mode != DirectDnsMode.doh) const SizedBox(height: 12),
           if (_mode == DirectDnsMode.doh) ...<Widget>[
             TextFormField(
               key: _keys[1],
               focusNode: _focus[1],
-              controller: _path,
+              controller: _url,
               readOnly: !editable,
               autocorrect: false,
               enableSuggestions: false,
-              maxLength: 256,
+              keyboardType: TextInputType.url,
+              textDirection: TextDirection.ltr,
+              maxLength: 522,
               decoration: InputDecoration(
-                labelText: s.get('nq_dns_path'),
-                hintText: '/dns-query',
+                labelText: s.get('dns_doh_url'),
+                hintText: cloudflareDohUrl,
+                counterText: '',
                 errorMaxLines: 6,
               ),
               onChanged: _emit,
-              validator: (value) => !editable || validDirectDnsPath(value ?? '')
+              validator: (value) =>
+                  !editable || DohEndpoint.tryParse(value ?? '') != null
                   ? null
-                  : s.get('nq_dns_invalid_path'),
+                  : s.get('dns_invalid_doh_url'),
             ),
             const SizedBox(height: 12),
           ],
-          TextFormField(
-            key: _keys[2],
-            focusNode: _focus[2],
-            controller: _port,
-            readOnly: !editable,
-            keyboardType: TextInputType.number,
-            inputFormatters: <TextInputFormatter>[
-              FilteringTextInputFormatter.digitsOnly,
-            ],
-            decoration: InputDecoration(labelText: s.get('nq_dns_port')),
-            onChanged: _emit,
-            validator: (value) {
-              final port = int.tryParse(value ?? '');
-              return !editable || port != null && port >= 0 && port <= 65535
-                  ? null
-                  : s.get('nq_dns_invalid_port');
-            },
-          ),
-          const SizedBox(height: 12),
+          if (_mode != DirectDnsMode.doh)
+            TextFormField(
+              key: _keys[2],
+              focusNode: _focus[2],
+              controller: _port,
+              readOnly: !editable,
+              keyboardType: TextInputType.number,
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              decoration: InputDecoration(labelText: s.get('nq_dns_port')),
+              onChanged: _emit,
+              validator: (value) {
+                final port = int.tryParse(value ?? '');
+                return !editable || port != null && port >= 0 && port <= 65535
+                    ? null
+                    : s.get('nq_dns_invalid_port');
+              },
+            ),
+          if (_mode != DirectDnsMode.doh) const SizedBox(height: 12),
           TextFormField(
             key: _keys[3],
             focusNode: _focus[3],

@@ -1,5 +1,7 @@
 /// Dutch UI catalog.
 const Map<String, String> kNlCatalog = <String, String>{
+  'dns_doh_url': 'DoH-URL',
+  'dns_invalid_doh_url': 'Voer een geldige HTTPS-DNS-URL in',
   'warp_dns_type': 'WARP-DNS',
   'warp_dns_bootstrap_optional': 'Optioneel',
   'warp_dns_plain': 'Gewone DNS',

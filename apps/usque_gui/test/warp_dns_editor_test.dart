@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/models/encrypted_dns_endpoint.dart';
 import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/services/control_codec.dart';
@@ -71,14 +72,9 @@ Future<AppController> advancedHost(
 Future<void> fillEncryptedDraft(WidgetTester tester, AppController app) async {
   await selectMode(tester, app.strings.get('nq_doh'));
   await tester.enterText(
-    fieldWithLabel(app.strings.get('nq_dns_server')),
-    'draft.example',
+    fieldWithLabel(app.strings.get('dns_doh_url')),
+    'https://draft.example:8443/draft-query',
   );
-  await tester.enterText(
-    fieldWithLabel(app.strings.get('nq_dns_path')),
-    '/draft-query',
-  );
-  await tester.enterText(warpFieldWithLabel(app.strings.get('port')), '8443');
   await tester.enterText(
     fieldWithLabel(app.strings.get('nq_dns_bootstrap')),
     '192.0.2.1\n2001:db8::1',
@@ -274,6 +270,13 @@ void main() {
       );
       expect(value.port, 443);
       expect(value.dohPath, '/dns-query');
+      expect(value.serverName, 'cloudflare-dns.com');
+      expect(value.bootstrapIps, cloudflareDnsBootstrapIps);
+      expect(form.currentState!.validate(), isTrue);
+      await tester.enterText(
+        find.byType(TextFormField).first,
+        'http://dns.example',
+      );
       expect(form.currentState!.validate(), isFalse);
       editor.currentState!.focusFirstError();
       await tester.pump();
@@ -284,15 +287,17 @@ void main() {
             .hasFocus,
         isTrue,
       );
-      await tester.enterText(find.byType(TextFormField).at(0), 'dns.example');
-      await tester.enterText(find.byType(TextFormField).at(1), '/saved-path');
-      await tester.enterText(find.byType(TextFormField).at(2), '8443');
+      await tester.enterText(
+        find.byType(TextFormField).at(0),
+        'https://dns.example:8443/saved-path',
+      );
+      await tester.enterText(find.byType(TextFormField).at(1), '');
       expect(form.currentState!.validate(), isTrue);
       expect(value.bootstrapIps, isEmpty);
       expect(find.text('Optional'), findsOneWidget);
-      await tester.enterText(find.byType(TextFormField).at(3), 'invalid-ip');
+      await tester.enterText(find.byType(TextFormField).at(1), 'invalid-ip');
       expect(form.currentState!.validate(), isFalse);
-      await tester.enterText(find.byType(TextFormField).at(3), '192.0.2.1');
+      await tester.enterText(find.byType(TextFormField).at(1), '192.0.2.1');
       expect(form.currentState!.validate(), isTrue);
       await selectMode(
         tester,
@@ -300,6 +305,7 @@ void main() {
       );
       expect(value.port, 853);
       expect(value.dohPath, isEmpty);
+      expect(value.serverName, cloudflareDotServer);
       await tester.enterText(find.byType(TextFormField).at(2), '');
       expect(form.currentState!.validate(), isTrue);
       expect(value.bootstrapIps, isEmpty);
@@ -445,18 +451,26 @@ void main() {
           tester,
           app.strings.get(mode == WarpDnsMode.doh ? 'nq_doh' : 'nq_dot'),
         );
-        expect(fieldText(tester, app.strings.get('nq_dns_server')), isEmpty);
-        expect(fieldText(tester, app.strings.get('nq_dns_bootstrap')), isEmpty);
         expect(
-          warpFieldText(tester, app.strings.get('port')),
-          mode == WarpDnsMode.doh ? '443' : '853',
+          fieldText(tester, app.strings.get('nq_dns_bootstrap')),
+          cloudflareDnsBootstrapIps.join('\n'),
         );
         if (mode == WarpDnsMode.doh) {
           expect(
-            fieldText(tester, app.strings.get('nq_dns_path')),
-            '/dns-query',
+            fieldText(tester, app.strings.get('dns_doh_url')),
+            cloudflareDohUrl,
+          );
+          expect(warpFieldWithLabel(app.strings.get('port')), findsNothing);
+          expect(
+            warpFieldWithLabel(app.strings.get('nq_dns_server')),
+            findsNothing,
           );
         } else {
+          expect(
+            fieldText(tester, app.strings.get('nq_dns_server')),
+            cloudflareDotServer,
+          );
+          expect(warpFieldText(tester, app.strings.get('port')), '853');
           expect(
             find.byWidgetPredicate(
               (widget) =>
@@ -488,11 +502,9 @@ void main() {
       await resetAdvanced(tester, app, confirm: false);
       await selectMode(tester, app.strings.get('nq_doh'));
       expect(
-        fieldText(tester, app.strings.get('nq_dns_server')),
-        'draft.example',
+        fieldText(tester, app.strings.get('dns_doh_url')),
+        'https://draft.example:8443/draft-query',
       );
-      expect(fieldText(tester, app.strings.get('nq_dns_path')), '/draft-query');
-      expect(warpFieldText(tester, app.strings.get('port')), '8443');
       expect(
         fieldText(tester, app.strings.get('nq_dns_bootstrap')),
         '192.0.2.1\n2001:db8::1',
@@ -501,7 +513,7 @@ void main() {
       expect(warpFieldText(tester, app.strings.get('port')), '8853');
       expect(
         fieldText(tester, app.strings.get('nq_dns_server')),
-        'draft.example',
+        cloudflareDotServer,
       );
       expect(engine.saves, 0);
       expect(app.activeProfile.warpDns, const WarpDnsSettings());
@@ -545,8 +557,8 @@ void main() {
         findsNothing,
       );
       await tester.enterText(
-        fieldWithLabel(app.strings.get('nq_dns_server')),
-        'dns.example',
+        fieldWithLabel(app.strings.get('dns_doh_url')),
+        'https://dns.example/dns-query',
       );
       await tester.enterText(
         fieldWithLabel(app.strings.get('nq_dns_bootstrap')),
@@ -562,18 +574,18 @@ void main() {
       expect(engine.savedFields, ['warp_dns']);
       engine.failProfileUpsert = true;
       await tester.enterText(
-        fieldWithLabel(app.strings.get('nq_dns_server')),
-        'changed.example',
+        fieldWithLabel(app.strings.get('dns_doh_url')),
+        'https://changed.example/dns-query',
       );
       tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).onSave!();
       await tester.pumpAndSettle();
       expect(app.activeProfile.warpDns.serverName, 'dns.example');
       expect(
         tester
-            .widget<TextField>(fieldWithLabel(app.strings.get('nq_dns_server')))
+            .widget<TextField>(fieldWithLabel(app.strings.get('dns_doh_url')))
             .controller!
             .text,
-        'changed.example',
+        'https://changed.example/dns-query',
       );
       await selectMode(tester, 'Plain DNS');
       expect(

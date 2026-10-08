@@ -148,7 +148,8 @@ are blocked instead of bypassing the tunnel.
 
 Country-based and custom-domain direct rules use **System** DNS by default: matching domain queries
 go to the DNS servers on your current network, outside the VPN. You can instead
-choose **DoH** or **DoT** and supply an encrypted resolver's name and IP addresses.
+choose **DoH** with a full HTTPS URL or **DoT** with a server name and port.
+New drafts prefill Cloudflare; saved custom settings are preserved.
 That resolver receives the queries; connection failures do not switch them to
 plaintext DNS. See [configuration steps and examples](docs/encrypted-direct-dns.md).
 

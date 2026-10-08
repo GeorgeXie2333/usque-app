@@ -9,12 +9,16 @@ intercept an application's own encrypted DNS, or decrypt unrelated traffic.
 | Mode in the app | Where matching queries go | What you need to configure |
 | --- | --- | --- |
 | Current network DNS (System, the default) | The DNS servers on your current network, outside the VPN. Those servers can see the queried names. | No custom resolver fields. |
-| DNS over HTTPS (DoH) | The encrypted resolver you choose, over HTTPS. | TLS server name, HTTPS path, port and bootstrap IP addresses. |
+| DNS over HTTPS (DoH) | The encrypted resolver you choose, over HTTPS. | Complete HTTPS URL and bootstrap IP addresses. |
 | DNS over TLS (DoT) | The encrypted resolver you choose, over TLS. | TLS server name, port and bootstrap IP addresses. |
 
 The chosen DoH/DoT provider can see the names it resolves. Encryption protects
 the connection to that provider; it does not make queries anonymous to it.
-Usque has no provider presets or embedded resolver addresses.
+New encrypted DNS drafts prefill Cloudflare: DoH uses
+`https://cloudflare-dns.com/dns-query`, and DoT uses `one.one.one.one:853`.
+Both prefill `1.1.1.1`, `1.0.0.1`, `2606:4700:4700::1111` and
+`2606:4700:4700::1001`. Existing saved values are preserved. These are editable
+drafts and do not change the System default until you select and apply a mode.
 
 ## Configure direct DNS
 
@@ -24,8 +28,8 @@ Usque has no provider presets or embedded resolver addresses.
    do not need geographic downloads. If no country or custom domain rule matches,
    these DNS settings are not used.
 2. Open **Settings → Advanced network settings → Direct DNS**.
-3. Choose System, DoH or DoT. For an encrypted resolver, enter the values from
-   your DNS provider using the field guide below.
+3. Choose System, DoH or DoT. Keep the Cloudflare defaults for a new encrypted
+   draft, or enter your provider's values using the field guide below.
 4. Select **Apply changes**. Editing or resetting fields alone does not apply
    them. Read the save result and pending-state message; reconnect manually if
    the change is saved for the next connection.
@@ -40,15 +44,21 @@ In Simplified Chinese, the bypass page is **设置 → 分流设置**. Direct DN
 
 | Field | What to enter | Format example |
 | --- | --- | --- |
-| DNS server name | The provider's certificate name, without `https://`, a port or a path. Do not enter an IP here. | `resolver.example` |
-| HTTPS path (DoH only) | The provider's path beginning with one slash, without a query string or fragment. | `/dns-query` |
-| Port (0 uses the default) | `443` for default DoH or `853` for default DoT. Use a different port only when specified by the provider. | `443` |
-| DNS server IP addresses | One to eight distinct IP addresses for that resolver, preferably one per line. Usque connects to these addresses without first using system DNS to find the server. | `192.0.2.53` and `2001:db8::53` |
+| DoH URL | Complete HTTPS URL with the provider's DNS name and path. An optional custom port belongs in the URL. No credentials, query string or fragment. | `https://cloudflare-dns.com/dns-query` |
+| DNS server name (DoT) | The provider's certificate name, without a scheme, port or path. Do not enter an IP here. | `one.one.one.one` |
+| Port (DoT; 0 uses the default) | `853`, or a custom port specified by the provider. | `853` |
+| DNS server IP addresses | One to eight distinct IP addresses for that resolver, preferably one per line. Usque connects to these addresses without first using system DNS to find the server. | `1.1.1.1` and `2606:4700:4700::1111` |
 
-These are documentation-only examples, not a working resolver. Replace the
-example name and IPs with your provider's real values. DoT has no HTTPS path.
-The TLS certificate must match the name even though the connection uses a
-numeric IP address.
+The Cloudflare endpoints above are working defaults; use the provider's actual
+IP addresses if you choose another resolver. Direct DNS still requires 1–8
+bootstrap IPs. DoT has no HTTPS path. The TLS certificate must match the name
+even though the connection uses a numeric IP address.
+
+Saved DoH name, port and path fields automatically display as one URL, without
+rewriting the stored configuration. Custom ports, paths and bootstrap IPs are
+preserved. Switching modes retains separate drafts. Resetting Advanced settings
+clears these drafts; selecting an encrypted mode afterward prefills Cloudflare.
+All changes still require **Apply changes**.
 
 ## If it does not work
 
@@ -79,6 +89,9 @@ validation, protocol handling and resource ownership.
 ### Configuration and trust
 
 `DirectDnsSettings` is validated in core before opening a connection. TLS
+server name, port and path remain the persisted and IPC representation; the
+editor splits the HTTPS URL into these fields without decoding its path.
+An omitted URL port uses `443`; an omitted path uses `/dns-query`. TLS
 server names are IDNA-normalized DNS names, at most 253 characters/ASCII bytes
 after normalization, and validated with rustls `ServerName`. URL syntax,
 wildcards, empty labels, control characters and whitespace are rejected rather

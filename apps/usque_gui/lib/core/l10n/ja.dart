@@ -1,5 +1,7 @@
 /// Japanese UI catalog.
 const Map<String, String> kJaCatalog = <String, String>{
+  'dns_doh_url': 'DoH URL',
+  'dns_invalid_doh_url': '有効な HTTPS DNS URL を入力してください',
   'warp_dns_type': 'WARP DNS',
   'warp_dns_bootstrap_optional': '任意',
   'warp_dns_plain': '通常の DNS',

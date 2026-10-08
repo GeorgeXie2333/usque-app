@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/models/encrypted_dns_endpoint.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/direct_dns_editor.dart';
 
@@ -137,8 +138,15 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(strings.get('nq_doh')).last);
       await tester.pumpAndSettle();
-      expect(find.byType(TextFormField), findsNWidgets(4));
+      expect(find.byType(TextFormField), findsNWidgets(2));
       expect(find.text(strings.get('nq_dns_no_fallback')), findsOneWidget);
+      expect(form.currentState!.validate(), isTrue);
+      expect(value.serverName, 'cloudflare-dns.com');
+      expect(value.bootstrapIps, cloudflareDnsBootstrapIps);
+      await tester.enterText(
+        find.byType(TextFormField).at(0),
+        'http://dns.example',
+      );
       expect(form.currentState!.validate(), isFalse);
       editor.currentState!.focusFirstError();
       await tester.pump();
@@ -146,8 +154,11 @@ void main() {
           .widgetList<TextField>(find.byType(TextField))
           .toList();
       expect(fields.first.focusNode!.hasFocus, isTrue);
-      await tester.enterText(find.byType(TextFormField).at(0), 'dns.example');
-      await tester.enterText(find.byType(TextFormField).at(3), '192.0.2.1');
+      await tester.enterText(
+        find.byType(TextFormField).at(0),
+        'https://dns.example/dns-query',
+      );
+      await tester.enterText(find.byType(TextFormField).at(1), '192.0.2.1');
       expect(form.currentState!.validate(), isTrue);
       expect(value.mode, DirectDnsMode.doh);
       expect(value.dohPath, '/dns-query');

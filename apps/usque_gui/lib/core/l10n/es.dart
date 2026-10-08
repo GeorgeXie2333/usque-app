@@ -1,5 +1,7 @@
 /// Spanish UI catalog.
 const Map<String, String> kEsCatalog = <String, String>{
+  'dns_doh_url': 'URL de DoH',
+  'dns_invalid_doh_url': 'Introduce una URL HTTPS de DNS válida',
   'warp_dns_type': 'DNS de WARP',
   'warp_dns_bootstrap_optional': 'Opcional',
   'warp_dns_plain': 'DNS normal',
