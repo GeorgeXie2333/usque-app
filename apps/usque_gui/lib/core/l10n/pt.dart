@@ -661,4 +661,22 @@ const Map<String, String> kPtCatalog = <String, String>{
   'dns_duplicate_address': 'Remova os endereços IP duplicados.',
   'dns_address_not_allowed':
       'Um endereço não pode ser usado para conectar ao servidor DNS. Use os IPs fornecidos pelo seu provedor DNS.',
+  "routing_rules": "Regras de encaminhamento personalizadas",
+  "routing_add": "Adicionar regra",
+  "routing_batch": "Colar regras",
+  "routing_action": "Ação",
+  "routing_target": "Domínio, IP ou CIDR",
+  "routing_priority":
+      "A regra mais específica tem prioridade. Regras próprias prevalecem sobre Ads e países; o bloqueio IP continua válido.",
+  "routing_conflict":
+      "Ações diferentes para o mesmo destino. Edite estas regras.",
+  "routing_overlap":
+      "A regra mais específica prevalece sobre a mais abrangente.",
+  "routing_duplicate": "Duplicatas serão unidas ao salvar.",
+  "routing_ads": "Ads · anúncios e rastreamento",
+  "routing_ads_ready": "Os dados de Ads estão disponíveis.",
+  "routing_ads_unavailable":
+      "Ads indisponível. Conexões e regras próprias continuam disponíveis.",
+  "routing_pending": "As regras baixadas entram em vigor após reconectar.",
+  'routing_current': "Conexão atual",
 };

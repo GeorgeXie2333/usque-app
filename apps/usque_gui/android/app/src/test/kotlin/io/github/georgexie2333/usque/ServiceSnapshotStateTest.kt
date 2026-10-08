@@ -11,6 +11,19 @@ import org.junit.Test
 
 class ServiceSnapshotStateTest {
     @Test
+    fun adsRevisionIsObservedValidatedAndCleared() {
+        val snapshot = state()
+        val revision = "a".repeat(64)
+        snapshot.applyNativeSnapshot(JSONObject().put("phase", "connected").put("ads_rule_revision", revision))
+        assertEquals(revision, snapshot.adsRuleRevision)
+        snapshot.applyNativeSnapshot(JSONObject().put("phase", "connected").put("ads_rule_revision", "invalid"))
+        assertNull(snapshot.adsRuleRevision)
+        snapshot.adsRuleRevision = revision
+        snapshot.reset("disconnected")
+        assertNull(snapshot.adsRuleRevision)
+    }
+
+    @Test
     fun failedGateDisconnectClearsProtectionAndLiveDataButPreservesTheError() {
         for (stage in listOf("connecting_server", "negotiating", "configuring_network", "connected")) {
             val snapshot = state()
@@ -286,6 +299,7 @@ class ServiceSnapshotStateTest {
                 keys.PENDING_CLEANUP,
                 keys.NETWORK_QUALITY,
                 keys.SESSION_CONGESTION_CONTROL,
+                keys.ADS_RULE_REVISION,
                 keys.DATA_PLANE,
                 keys.L4,
                 keys.VPN_GATE,

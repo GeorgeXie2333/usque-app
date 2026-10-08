@@ -6,14 +6,30 @@ use usque_ipc::v1;
 use crate::{ControlService, ControlServiceError, profile_to_proto};
 
 impl ControlService {
+    #[cfg(test)]
     pub(crate) async fn reconfigure_active_profile(
         &self,
+        profile: Profile,
+    ) -> Result<v1::ReconfigureResult, ControlServiceError> {
+        self.reconfigure_client_profile(profile, true).await
+    }
+
+    pub(crate) async fn reconfigure_client_profile(
+        &self,
         mut profile: Profile,
+        routing_present: bool,
     ) -> Result<v1::ReconfigureResult, ControlServiceError> {
         profile
             .validate()
             .map_err(ControlServiceError::profile_configuration)?;
         let _mutation = self.mutation_lock.lock().await;
+        if !routing_present
+            && self.config.read().await.network.routing != usque_core::RoutingSettings::default()
+        {
+            return Err(ControlServiceError::configuration(
+                usque_core::ConfigError::RoutingUpgradeRequired,
+            ));
+        }
         self.attach_proxy_auth(&mut profile).await?;
         let active_profile_id = self
             .data_plane
@@ -50,7 +66,9 @@ impl ControlService {
         }
         match class {
             ReconfigureClass::PersistOnly => {
-                let applied = self.upsert_profile_locked(profile).await?;
+                let applied = self
+                    .upsert_client_profile_locked(profile, routing_present)
+                    .await?;
                 let snapshot = self.status_snapshot().await;
                 return Ok(v1::ReconfigureResult {
                     profile: Some(profile_to_proto(&applied)),
@@ -68,14 +86,18 @@ impl ControlService {
             | ReconfigureClass::HotSystemProxy
             | ReconfigureClass::HotVpnGate
             | ReconfigureClass::HotTunnelAttach => {
-                return self.commit_hot(profile, previous, class).await;
+                return self
+                    .commit_hot(profile, previous, class, routing_present)
+                    .await;
             }
             ReconfigureClass::ColdReconnect => {}
         }
 
         #[cfg(windows)]
         if profile.frontends.tunnel && self.protected_chain_present().await {
-            let applied = self.upsert_profile_locked(profile).await?;
+            let applied = self
+                .upsert_client_profile_locked(profile, routing_present)
+                .await?;
             let cancellation = self.gate_startup_cancel.lock().await.clone();
             let snapshot = Box::pin(self.reconnect_protected_chain(&applied, &cancellation))
                 .await?
@@ -91,7 +113,10 @@ impl ControlService {
         }
         self.disconnect_locked().await?;
         let profile_id = profile.id;
-        let applied = match self.upsert_profile_locked(profile).await {
+        let applied = match self
+            .upsert_client_profile_locked(profile, routing_present)
+            .await
+        {
             Ok(applied) => applied,
             Err(error) => {
                 let _ = self.connect_locked(previous.id).await;
@@ -105,7 +130,8 @@ impl ControlService {
                 if previous.vpn_gate != applied.vpn_gate {
                     return Err(error);
                 }
-                self.upsert_profile_locked(previous.clone()).await?;
+                self.upsert_client_profile_locked(previous.clone(), routing_present)
+                    .await?;
                 *self.session_profile.lock().await = Some(previous.clone());
                 if let Err(rollback_error) = self.connect_locked(previous.id).await {
                     tracing::error!(%rollback_error, "failed to restore the previous active Profile");
@@ -124,9 +150,12 @@ impl ControlService {
         profile: Profile,
         previous: Profile,
         class: ReconfigureClass,
+        routing_present: bool,
     ) -> Result<v1::ReconfigureResult, ControlServiceError> {
         let session_algorithm = previous.congestion_control;
-        let applied = self.upsert_profile_locked(profile).await?;
+        let applied = self
+            .upsert_client_profile_locked(profile, routing_present)
+            .await?;
         let applied_result = match class {
             ReconfigureClass::HotTrafficPolicy => Ok(()),
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(&applied).await,
@@ -161,7 +190,9 @@ impl ControlService {
                     Ok(snapshot) => snapshot,
                     Err(error) => {
                         self.clear_windows_connection_intent().await;
-                        let _ = self.upsert_profile_locked(previous).await;
+                        let _ = self
+                            .upsert_client_profile_locked(previous, routing_present)
+                            .await;
                         return Err(error);
                     }
                 };
@@ -181,7 +212,9 @@ impl ControlService {
             if detach_committed {
                 self.apply_hot_profile_state(&applied).await;
             } else {
-                let _ = self.upsert_profile_locked(previous).await;
+                let _ = self
+                    .upsert_client_profile_locked(previous, routing_present)
+                    .await;
             }
             return Err(error);
         }

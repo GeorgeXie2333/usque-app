@@ -84,7 +84,7 @@ Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状�
 - Windows keyboard shortcuts: **Ctrl+1** to **Ctrl+4** select Home, Accounts, Proxy and Settings; **Esc** (outside a text field), **Alt+Left** and the mouse back button leave a subpage through its unapplied-edits prompt; **Ctrl+S** applies the visible apply bar; **F5** refreshes the VPN Gate list and the diagnostics timeline. Shortcuts are inactive while a dialog or popup is open and on Android.
 - Windows 托盘图标带状态圆点，托盘菜单可直接切换虚拟网卡和系统代理；窗口在后台时，持续 5 秒以上的重连、连接错误以及之后的恢复会弹出系统通知。窗口首次居中打开，之后恢复上次的位置、大小与最大化状态。快捷键：Ctrl+1～4 切换页面，Esc／Alt+←／鼠标后退键返回，Ctrl+S 应用修改，F5 刷新。
 
-- **Bypass settings** combines country rules and a line-based editor for custom CIDRs, IPs and domains. Domains include subdomains; custom rules work without GEO downloads. The editor uses the shared apply bar and leave guard. Advanced settings no longer edits bypass CIDRs. See [direct DNS and bypass targets](../../docs/encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标).
+- **Bypass settings** combines a custom DIRECT/REJECT/PROXY rule list, an independent Ads switch, and country direct presets. The editor supports individual edits and action-scoped bulk paste, highlights conflicting equal targets, and explains more-specific exceptions. It uses the shared apply bar and leave guard. Ads availability and the current session revision are distinct; downloads apply after reconnect. See [routing and Ads](../../docs/ROUTING.md).
 
 Home shows a non-dismissible risk banner above the connection controls when the
 selected account has custom Zero Trust IPv4/IPv6 addresses or a still-active ZT

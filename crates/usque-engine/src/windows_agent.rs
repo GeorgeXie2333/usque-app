@@ -1092,7 +1092,7 @@ impl WindowsVpnRuntime {
         device: &WindowsDeviceOwner,
     ) -> Result<Self, WindowsVpnError> {
         let startup_cancel = gate.cancellation.clone();
-        let geo_enabled = profile.has_domain_direct_rules();
+        let geo_enabled = profile.needs_domain_routing();
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
         validate_capabilities(&capabilities, profile.kill_switch)?;
@@ -1527,7 +1527,7 @@ impl WindowsVpnRuntime {
                         self.operation_id,
                         bootstrap.registration_api.clone(),
                         profile,
-                        profile.has_domain_direct_rules(),
+                        profile.needs_domain_routing(),
                     )
                     .await
                     .map_err(|error| TransportError::VpnGate(error.gate_failure()))?,
@@ -1615,7 +1615,7 @@ impl WindowsVpnRuntime {
                 tunnel.assigned_ipv4(),
                 tunnel.assigned_ipv6(),
                 &[],
-                profile.has_domain_direct_rules(),
+                profile.needs_domain_routing(),
             );
             plan.assigned_ipv4 = final_values.assigned_ipv4;
             plan.assigned_ipv6 = final_values.assigned_ipv6;
@@ -2527,11 +2527,7 @@ fn tunnel_plan_from_assignment(
                 .map(ToString::to_string)
                 .collect()
         },
-        split_exclusions: profile
-            .split_exclusions
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        split_exclusions: Vec::new(),
         allow_lan: profile.allow_lan,
         kill_switch: profile.kill_switch,
         assigned_ipv4: if assigned_ipv4.is_unspecified() {
@@ -6730,21 +6726,11 @@ mod tests {
             split_exclusions: vec!["192.0.2.0/24".parse().unwrap()],
             ..Default::default()
         };
-        let plan = tunnel_plan(
-            &profile,
-            &identity(),
-            &[],
-            profile.has_domain_direct_rules(),
-        );
+        let plan = tunnel_plan(&profile, &identity(), &[], profile.needs_domain_routing());
         assert!(!plan.split_dns);
-        assert_eq!(plan.split_exclusions, ["192.0.2.0/24"]);
+        assert!(plan.split_exclusions.is_empty());
         profile.bypass_domains.push("example.com".into());
-        let plan = tunnel_plan(
-            &profile,
-            &identity(),
-            &[],
-            profile.has_domain_direct_rules(),
-        );
+        let plan = tunnel_plan(&profile, &identity(), &[], profile.needs_domain_routing());
         assert!(plan.split_dns);
         assert_eq!(plan.dns_servers, ["198.18.0.1", "fd00::1"]);
     }

@@ -143,6 +143,7 @@ internal object NetworkQualityFields {
             "chain_socks5_proxy",
             "chain_proxy_encrypted_dns",
             "custom_bypass",
+            "routing_rules",
             "chain_openvpn_multi_endpoint",
             "application_quic_blocking",
             "account_metadata_mutations",

@@ -152,7 +152,8 @@ impl ControlService {
             identity: tokio::sync::Mutex::new(warp_identity),
         });
         let selected = self.prepare_gate_selection(target)?;
-        let policy = std::sync::Arc::new(crate::load_geo_direct_policy(target, &self.cache_dir));
+        let policy = std::sync::Arc::new(crate::load_geo_direct_policy(target, &self.cache_dir)?);
+        let ads_revision = policy.ads_revision().unwrap_or_default().to_owned();
         if !target.geo_direct_countries.is_empty() && !policy.is_enabled() {
             return Err(ControlServiceError::GeoRules(
                 "the configured direct-rule cache is missing or invalid".into(),
@@ -211,9 +212,15 @@ impl ControlService {
                 .await
         }
         .map_err(crate::map_windows_vpn_error);
-        self.finish_protected_reconnect(active, target, result)
+        let mut snapshot = self
+            .finish_protected_reconnect(active, target, result)
+            .await?;
+        self.state
+            .lock()
             .await
-            .map(Some)
+            .update_ads_revision(ads_revision.clone());
+        snapshot.ads_rule_revision = ads_revision;
+        Ok(Some(snapshot))
     }
 
     #[cfg(windows)]

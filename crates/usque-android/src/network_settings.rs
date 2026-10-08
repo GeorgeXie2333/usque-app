@@ -129,7 +129,7 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                     state.advance();
                     return encode(&state, None);
                 }
-                Err(_) => return Err("NETWORK_SETTINGS_SAVE_FAILED".into()),
+                Err(error) => return Err(save_failure(error)),
             };
             let phase = match phase.as_str() {
                 "connected" => ConnectionPhase::Connected,
@@ -217,6 +217,27 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
     encode(&state, target.as_ref())
 }
 
+fn save_failure(error: StoreError) -> String {
+    if let StoreError::NetworkSettings(message) = error {
+        let message = message
+            .strip_prefix("network settings validation failed: ")
+            .unwrap_or(&message);
+        let parts = message.split(':').collect::<Vec<_>>();
+        let count = match parts[0] {
+            "ROUTING_RULE_CONFLICT" => Some(2),
+            "ROUTING_RULE_INVALID" => Some(1),
+            "ROUTING_RULE_LIMIT" | "ROUTING_UPGRADE_REQUIRED" => Some(0),
+            _ => None,
+        };
+        if count.is_some_and(|count| parts.len() == count + 1)
+            && parts[1..].iter().all(|id| Uuid::parse_str(id).is_ok())
+        {
+            return message.to_owned();
+        }
+    }
+    "NETWORK_SETTINGS_SAVE_FAILED".into()
+}
+
 fn profile_value(profile: &usque_core::Profile) -> Value {
     android_profile_value(profile, None, false)
 }
@@ -249,6 +270,53 @@ fn encode(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn routing_validation_errors_are_definitive_and_preserve_rule_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        let config = usque_core::AppConfig::default();
+        store.save(&config).unwrap();
+        let mut profile = config.active_profile().unwrap();
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        profile.routing.rules = vec![
+            usque_core::RoutingRule {
+                id: first,
+                kind: usque_core::RoutingMatch::Domain,
+                target: "bücher.example".into(),
+                action: usque_core::RoutingAction::Direct,
+            },
+            usque_core::RoutingRule {
+                id: second,
+                kind: usque_core::RoutingMatch::Domain,
+                target: "xn--bcher-kva.example".into(),
+                action: usque_core::RoutingAction::Reject,
+            },
+        ];
+        let save = |profile: &usque_core::Profile, field| {
+            command(
+                path.to_str().unwrap(),
+                &json!({
+                    "command":"save", "operation_id":Uuid::new_v4(), "account_id":profile.id,
+                    "values":profile_value(profile), "changed_fields":[field],
+                    "phase":"disconnected", "available":false, "session_id":"1"
+                })
+                .to_string(),
+            )
+        };
+        assert_eq!(
+            save(&profile, "routing").unwrap_err(),
+            format!("ROUTING_RULE_CONFLICT:{first}:{second}")
+        );
+        profile.routing = Default::default();
+        assert_eq!(
+            save(&profile, "bypass_domains").unwrap_err(),
+            "ROUTING_UPGRADE_REQUIRED"
+        );
+        assert!(store.load().unwrap().network.routing.rules.is_empty());
+    }
 
     #[test]
     fn host_uses_shared_policy_and_never_activates_an_earlier_deferred_edit() {

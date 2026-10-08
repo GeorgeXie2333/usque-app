@@ -281,7 +281,12 @@ internal class VpnControlClient(
         pendingSettings.remove(id)?.result?.let { result ->
             val parsed = json?.let { runCatching { NetworkSettingsFields.decode(it) }.getOrNull() }
             if (parsed == null) {
-                result.error(error ?: "NETWORK_SETTINGS_UNCONFIRMED", "Network settings could not be confirmed.", null)
+                val routing = RoutingSettingsError.fromWire(error)
+                result.error(
+                    routing?.substringBefore(':') ?: error ?: "NETWORK_SETTINGS_UNCONFIRMED",
+                    routing ?: "Network settings could not be confirmed.",
+                    null,
+                )
             } else {
                 result.success(parsed)
             }
@@ -1449,6 +1454,7 @@ internal class VpnControlClient(
                         bundle.getStringArrayList(ServiceSnapshotState.WireKeys.ACTIVE_FRONTENDS)
                             ?: arrayListOf<String>()
                     ),
+                "ads_rule_revision" to bundle.getString(ServiceSnapshotState.WireKeys.ADS_RULE_REVISION),
                 "session_congestion_control" to
                     CongestionControlSettings.token(
                         bundle.getString(ServiceSnapshotState.WireKeys.SESSION_CONGESTION_CONTROL),

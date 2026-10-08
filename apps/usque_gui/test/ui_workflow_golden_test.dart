@@ -11,6 +11,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
+import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
@@ -79,6 +80,72 @@ void main() {
           .load();
     }
   });
+
+  for (final scene in [
+    (
+      name: 'routing_en_desktop',
+      size: Size(1200, 900),
+      locale: LocalePreference.english,
+      dark: false,
+      scale: 1.0,
+    ),
+    (
+      name: 'routing_zh_phone',
+      size: Size(400, 960),
+      locale: LocalePreference.simplifiedChinese,
+      dark: true,
+      scale: 1.0,
+    ),
+    (
+      name: 'routing_en_tv_large',
+      size: Size(1280, 900),
+      locale: LocalePreference.english,
+      dark: true,
+      scale: 2.0,
+    ),
+  ]) {
+    testWidgets('routing golden ${scene.name}', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = scene.size;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final app = AppController(WorkflowEngine())
+        ..localePreference = scene.locale
+        ..engineCapabilities = const EngineCapabilities(
+          routingRules: true,
+          automaticEndpoints: true,
+        );
+      app.sharedNetwork = app.sharedNetwork.copyWith(
+        routing: RoutingSettings(
+          adsEnabled: true,
+          rules: [
+            RoutingRule.create('example.com', RoutingAction.direct),
+            RoutingRule.create('ads.example.com', RoutingAction.reject),
+            RoutingRule.create('192.0.2.7', RoutingAction.proxy),
+          ],
+        ),
+      );
+      addTearDown(app.dispose);
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: scene.dark,
+            scale: scene.scale,
+            home: GeoDirectSettingsScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile('goldens/${scene.name}.png'),
+      );
+    }, tags: 'golden');
+  }
 
   for (final fixture in [
     (

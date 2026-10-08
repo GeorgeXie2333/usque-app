@@ -131,6 +131,7 @@ async fn worker(
                 if generation != services.protector.network_generation() { break; }
                 let remote = SocketAddr::new(meta.destination, meta.destination_port);
                 let route = hints.route_ip(remote.ip(), generation, &services.geo_policy);
+                if route == GeoRoute::Reject { rejector.reject(&packet, &meta); continue; }
                 if route != GeoRoute::Direct && services.traffic_policy.blocks_udp(remote.port()) {
                     rejector.reject(&packet, &meta); continue;
                 }

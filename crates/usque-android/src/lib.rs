@@ -142,6 +142,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "custom_bypass": engine_ready(),
             "automatic_endpoints": engine_ready(),
             "zero_trust_endpoint_editing": engine_ready(),
+            "routing_rules": engine_ready(),
             "chain_openvpn_multi_endpoint": engine_ready(),
             "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
@@ -1095,6 +1096,8 @@ struct AndroidProfile {
     #[serde(default)]
     bypass_domains: Vec<String>,
     #[serde(default)]
+    routing: Option<usque_core::RoutingSettings>,
+    #[serde(default)]
     direct_dns: AndroidDirectDns,
     #[serde(default)]
     warp_dns: AndroidWarpDns,
@@ -1310,6 +1313,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         auto_connect: source.auto_connect,
         geo_direct_countries: source.geo_direct_countries,
         bypass_domains: source.bypass_domains,
+        routing: source.routing.unwrap_or_default(),
         direct_dns,
         warp_dns,
         proxy: ProxySettings {
@@ -1460,6 +1464,20 @@ enum AndroidConfigCommand {
         country_code: String,
     },
     UpdateAllGeoRules,
+}
+
+fn validate_android_routing_client(
+    profile: &AndroidProfile,
+    config: &AppConfig,
+) -> Result<(), String> {
+    if !profile.bypass_cidrs.is_empty()
+        || !profile.bypass_domains.is_empty()
+        || profile.routing.is_none()
+            && config.network.routing != usque_core::RoutingSettings::default()
+    {
+        return Err("ROUTING_UPGRADE_REQUIRED".into());
+    }
+    Ok(())
 }
 
 fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String, String> {
@@ -1625,6 +1643,9 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                         return Err("chain_exit capability is required".into());
                     }
                     let mut network = SharedNetworkSettings::from_profile(active);
+                    network
+                        .routing
+                        .migrate_direct(&mut network.split_exclusions, &mut network.bypass_domains);
                     if active.endpoint.is_zero_trust_managed() {
                         network.endpoint = incoming
                             .iter()
@@ -1656,6 +1677,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             identity_provider,
             organization,
         } => {
+            validate_android_routing_client(&profile, &config)?;
             let binding = parse_identity_binding(identity_provider, organization)?;
             let profile = android_profile_to_core(*profile)?;
             let profile_id = profile.id;
@@ -1907,6 +1929,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
         }
         AndroidConfigCommand::ListProfiles => {}
         AndroidConfigCommand::ReconfigureActiveProfile { profile } => {
+            validate_android_routing_client(&profile, &config)?;
             let next = android_profile_to_core(*profile)?;
             if config.active_profile_id != Some(next.id) {
                 return Err("only the Active Profile can be reconfigured".to_owned());
@@ -2001,6 +2024,8 @@ fn apply_geo_command(
                 "last_successful_update_unix_milliseconds": last_successful_update_unix_milliseconds,
                 "has_global_geosite": has_global_geosite,
                 "global_geosite_updated_unix_milliseconds": global_geosite_updated_unix_milliseconds,
+                "has_ads": usque_geo::AdsRules::load(cache_dir).is_ok(),
+                "ads_revision": usque_geo::AdsRules::load(cache_dir).map(|ads| ads.revision().to_owned()).unwrap_or_default(),
             }))
             .map_err(|error| error.to_string())
         }
@@ -2182,6 +2207,7 @@ fn android_profile_value(
             .collect::<Vec<_>>(),
         "geo_direct_countries": profile.geo_direct_countries,
         "bypass_domains": profile.bypass_domains,
+        "routing": profile.routing,
         "warp_dns": {
             "mode": match profile.warp_dns.mode {
                 WarpDnsMode::Plain => "plain",
@@ -3127,6 +3153,7 @@ fn native_direct_dns_reason(value: DirectDnsReasonCode) -> &'static str {
 
 #[derive(Debug, Clone, Serialize)]
 struct NativeSnapshot {
+    ads_rule_revision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     vpn_gate: Option<usque_core::vpngate::GateStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3177,6 +3204,7 @@ impl NativeSnapshot {
     #[cfg(any(test, target_os = "android"))]
     fn finish_runtime(&mut self, mut gate: usque_core::vpngate::GateStatus) {
         use usque_core::vpngate::{GateFailure, GateStage};
+        self.ads_rule_revision.clear();
         self.active_frontends.clear();
         self.active_listeners.clear();
         self.final_network = None;
@@ -3198,6 +3226,7 @@ impl NativeSnapshot {
 
     fn disconnected() -> Self {
         Self {
+            ads_rule_revision: String::new(),
             vpn_gate: None,
             final_network: None,
             data_plane: None,

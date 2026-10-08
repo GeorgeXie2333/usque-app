@@ -221,6 +221,19 @@ message Profile {
   ChainExitSettings chain_exit = 22;
   repeated string bypass_domains = 23;
   WarpDnsSettings warp_dns = 24;
+  RoutingSettings routing = 25;
+}
+
+message RoutingSettings {
+  repeated RoutingRule rules = 1;
+  bool ads_enabled = 2;
+}
+
+message RoutingRule {
+  string id = 1;
+  string kind = 2;
+  string target = 3;
+  string action = 4;
 }
 
 message ChainExitSettings {
@@ -483,6 +496,7 @@ message Capabilities {
   bool chain_proxy_encrypted_dns = 43;
   bool encrypted_warp_dns = 44;
   bool zero_trust_endpoint_editing = 45;
+  bool routing_rules = 46;
 }
 
 message FrontendStatus {
@@ -516,6 +530,7 @@ message ConnectionSnapshot {
   L4Snapshot l4 = 20;
   VpnGateStatus vpn_gate = 21;
   ChainExitStatus chain_exit = 22;
+  string ads_rule_revision = 23;
 }
 
 // No destinations, DNS content, connection IDs, or credential material.
@@ -1141,6 +1156,8 @@ message GeoRulesList {
   int64 last_successful_update_unix_milliseconds = 2;
   bool has_global_geosite = 3;
   int64 global_geosite_updated_unix_milliseconds = 4;
+  bool has_ads = 5;
+  string ads_revision = 6;
 }
 
 enum GeoRulesUpdateStatus {

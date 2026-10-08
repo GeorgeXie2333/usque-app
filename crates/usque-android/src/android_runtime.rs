@@ -187,6 +187,10 @@ fn spawn_runtime(
     let mut initial_status = NativeSnapshot::preparing();
     initial_status.session_congestion_control = Some(profile.congestion_control);
     initial_status.data_plane = Some(profile.data_plane);
+    initial_status.ads_rule_revision = geo_policy.ads_revision().unwrap_or_default().to_owned();
+    if profile.routing.ads_enabled && initial_status.ads_rule_revision.is_empty() {
+        initial_status.warning = Some("ADS_UNAVAILABLE".into());
+    }
     let status = Arc::new(Mutex::new(initial_status));
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
     let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -293,6 +297,7 @@ fn load_geo_direct_policy(profile: &Profile, cache_dir: &Path) -> Result<GeoDire
     match GeoDirectPolicy::load(cache_dir, countries) {
         Ok(policy) => policy
             .with_custom_rules(profile)
+            .map(|policy| policy.with_ads(cache_dir))
             .map_err(|error| error.to_string()),
         Err(error) => Err(format!("Android GEO cache could not be loaded: {error}")),
     }
@@ -1042,6 +1047,12 @@ async fn handle_runtime_command(
                         .ok()
                         .flatten();
                     let policy = load_geo_direct_policy(&next, &gate_context.cache_dir);
+                    let ads_revision = policy
+                        .as_ref()
+                        .ok()
+                        .and_then(|policy| policy.ads_revision())
+                        .unwrap_or_default()
+                        .to_owned();
                     let result = match (selected, policy) {
                         (selected, Ok(policy)) if selected.is_some() || !next.chain_enabled() => {
                             tunnel
@@ -1059,6 +1070,11 @@ async fn handle_runtime_command(
                             usque_core::vpngate::GateFailure::Configuration,
                         )),
                     };
+                    if result.is_ok()
+                        && let Ok(mut snapshot) = status.lock()
+                    {
+                        snapshot.ads_rule_revision = ads_revision;
+                    }
                     *profile = next;
                     if super::jni_command_abandoned(&cancelled) {
                         tunnel.cancel_immediately();

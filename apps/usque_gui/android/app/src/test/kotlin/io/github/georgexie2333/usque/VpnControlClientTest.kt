@@ -324,6 +324,24 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun routingConflictReplyReachesFlutterAsADefinitiveError() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+        client.requestNetworkSettings("{}", result)
+        val token = "ROUTING_RULE_CONFLICT:00112233-4455-4677-8899-aabbccddeeff:11223344-5566-4788-9900-aabbccddeeff"
+        client.deliverSettingsReply(
+            endpoint.messages.single().requestId,
+            null,
+            RoutingSettingsError.nativeFailure("JNI: $token"),
+        )
+        assertEquals("ROUTING_RULE_CONFLICT", result.errorCode)
+        assertEquals(token, result.errorMessage)
+        scheduler.fireAllDelayed()
+        assertEquals(1, result.completionCount)
+    }
+
+    @Test
     fun timelineRequestIsSingleFlightTimesOutAndIgnoresLateReplies() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)

@@ -21,11 +21,11 @@ rebuild and the ordinary gates in `CONTRIBUTING.md`.
 
 Do not rewrite saved DoH/DoT to System. Users may explicitly select System,
 with its normal privacy meaning. Do not change protobuf field numbers,
-remove appended messages or lower `CURRENT_SCHEMA_VERSION` (currently 23;
+remove appended messages or lower `CURRENT_SCHEMA_VERSION` (currently 24;
 direct DNS was added in schema 13). `ConfigStore::load` rejects a configuration
 newer than the build supports, so a rollback build must still read the current
-schema, including WARP DNS and Zero Trust endpoint overrides. Reinstalling
-v0.2.9 does not provide that compatibility with migrated schema-23 settings.
+schema, including routing rules, Ads, WARP DNS and Zero Trust endpoint overrides. Reinstalling
+v0.2.9 does not provide that compatibility with migrated schema-24 settings.
 Old peers ignore unknown fields; absence of a capability disables only its new
 UI/control.
 

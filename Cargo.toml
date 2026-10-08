@@ -68,6 +68,7 @@ ipnet = { version = "2.11.0", features = ["serde"] }
 jni = "0.22.4"
 libc = "0.2.189"
 p256 = { version = "0.14.0", features = ["pem", "pkcs8"] }
+regex = "=1.13.1"
 prost = "0.14.1"
 prost-build = "0.14.1"
 proptest = "1.8.0"

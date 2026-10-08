@@ -93,6 +93,8 @@ pub struct ConnectionSnapshot {
     pub reconnect_count: u32,
     pub active_listeners: Vec<String>,
     pub warnings: Vec<ConnectionWarning>,
+    #[serde(default)]
+    pub ads_rule_revision: String,
     pub frontends: Vec<FrontendStatus>,
 }
 
@@ -117,6 +119,7 @@ impl Default for ConnectionSnapshot {
             reconnect_count: 0,
             active_listeners: Vec::new(),
             warnings: Vec::new(),
+            ads_rule_revision: String::new(),
             frontends: Vec::new(),
         }
     }
@@ -219,6 +222,7 @@ impl StateMachine {
             self.snapshot.reconnect_count = 0;
             self.snapshot.active_listeners.clear();
             self.snapshot.warnings.clear();
+            self.snapshot.ads_rule_revision.clear();
             self.snapshot.frontends.clear();
         }
         Ok(&self.snapshot)
@@ -290,6 +294,13 @@ impl StateMachine {
     pub fn update_data_plane(&mut self, mode: crate::DataPlaneMode, l4: Option<crate::L4Snapshot>) {
         self.snapshot.data_plane = Some(mode);
         self.snapshot.l4 = l4;
+    }
+
+    pub fn update_ads_revision(&mut self, revision: String) {
+        self.snapshot
+            .warnings
+            .retain(|warning| warning.code != "ADS_UNAVAILABLE");
+        self.snapshot.ads_rule_revision = revision;
     }
 
     pub fn update_runtime_metadata(

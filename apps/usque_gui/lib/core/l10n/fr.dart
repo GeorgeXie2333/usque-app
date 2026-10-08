@@ -674,4 +674,21 @@ const Map<String, String> kFrCatalog = <String, String>{
   'dns_duplicate_address': 'Supprimez les adresses IP en double.',
   'dns_address_not_allowed':
       'Une adresse ne permet pas de joindre un serveur DNS. Utilisez les IP de serveur fournies par votre fournisseur DNS.',
+  "routing_rules": "Règles de routage personnalisées",
+  "routing_add": "Ajouter une règle",
+  "routing_batch": "Coller des règles",
+  "routing_action": "Action",
+  "routing_target": "Domaine, IP ou CIDR",
+  "routing_priority":
+      "La règle la plus précise prime. Les règles personnalisées priment sur Ads et les pays ; le refus par IP reste actif.",
+  "routing_conflict":
+      "Actions différentes pour la même cible. Modifiez ces règles.",
+  "routing_overlap": "La règle la plus précise prime sur la règle plus large.",
+  "routing_duplicate": "Les doublons seront fusionnés à l’enregistrement.",
+  "routing_ads": "Ads · publicités et suivi",
+  "routing_ads_ready": "Les données Ads sont disponibles.",
+  "routing_ads_unavailable":
+      "Données Ads indisponibles. Les connexions et règles personnalisées restent disponibles.",
+  "routing_pending": "Les règles téléchargées s’appliquent après reconnexion.",
+  'routing_current': "Connexion actuelle",
 };

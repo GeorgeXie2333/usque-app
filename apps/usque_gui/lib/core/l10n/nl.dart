@@ -661,4 +661,21 @@ const Map<String, String> kNlCatalog = <String, String>{
   'dns_duplicate_address': 'Verwijder dubbele IP-adressen.',
   'dns_address_not_allowed':
       'Een adres kan niet worden gebruikt voor een DNS-serververbinding. Gebruik de server-IP’s van je DNS-provider.',
+  "routing_rules": "Aangepaste routeringsregels",
+  "routing_add": "Regel toevoegen",
+  "routing_batch": "Regels plakken",
+  "routing_action": "Actie",
+  "routing_target": "Domein, IP of CIDR",
+  "routing_priority":
+      "Specifiekere regels gaan voor. Eigen regels gaan boven Ads en landen; IP-blokkering blijft gelden.",
+  "routing_conflict":
+      "Verschillende acties voor hetzelfde doel. Pas deze regels aan.",
+  "routing_overlap": "De specifiekere regel gaat voor de bredere regel.",
+  "routing_duplicate": "Dubbele regels worden bij opslaan samengevoegd.",
+  "routing_ads": "Ads · advertenties en tracking",
+  "routing_ads_ready": "Ads-gegevens zijn beschikbaar.",
+  "routing_ads_unavailable":
+      "Ads-gegevens ontbreken. Verbindingen en eigen regels blijven beschikbaar.",
+  "routing_pending": "Gedownloade regels gelden na opnieuw verbinden.",
+  'routing_current': "Huidige verbinding",
 };

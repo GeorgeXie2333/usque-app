@@ -32,6 +32,7 @@ pub(crate) struct Resolver {
     assigned_ipv6: Ipv6Addr,
     servers: Vec<IpAddr>,
     mode: ProxyDnsMode,
+    routing: Arc<crate::geo_direct::GeoDirectPolicy>,
     final_exit: bool,
     final_doh: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
     final_tcp: Option<Arc<crate::dns_stream::StreamDns>>,
@@ -39,6 +40,24 @@ pub(crate) struct Resolver {
 }
 
 impl Resolver {
+    pub(crate) fn with_routing(mut self, policy: Arc<crate::geo_direct::GeoDirectPolicy>) -> Self {
+        self.routing = policy;
+        self
+    }
+    fn decode_routed(
+        &self,
+        query: &[u8],
+        response: &[u8],
+        query_type: u16,
+    ) -> Result<Vec<IpAddr>, TransportError> {
+        crate::split_dns::check_routing_dns_response(query, response, &self.routing)
+            .map_err(TransportError::Dns)?;
+        filter_routing_addresses(
+            decode_query_response(query, response, query_type)?,
+            &self.routing,
+        )
+    }
+
     pub(crate) fn with_doh(
         mut self,
         doh: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
@@ -98,6 +117,7 @@ impl Resolver {
             assigned_ipv6: Ipv6Addr::UNSPECIFIED,
             servers,
             mode,
+            routing: Arc::new(crate::geo_direct::GeoDirectPolicy::disabled()),
             final_exit: false,
             final_doh: None,
             final_tcp: None,
@@ -120,6 +140,7 @@ impl Resolver {
             assigned_ipv6,
             servers,
             mode,
+            routing: Arc::new(crate::geo_direct::GeoDirectPolicy::disabled()),
             final_exit: false,
             final_doh: None,
             final_tcp: None,
@@ -157,6 +178,17 @@ impl Resolver {
         Ok(addresses)
     }
 
+    pub(crate) async fn resolve_for_policy(
+        &self,
+        name: &str,
+    ) -> Result<Vec<IpAddr>, TransportError> {
+        if self.mode == ProxyDnsMode::EdgeResolved {
+            self.resolve_remote(name).await
+        } else {
+            self.resolve(name).await
+        }
+    }
+
     /// Control bootstrap never inherits a frontend's System/Local DNS mode.
     pub(crate) async fn resolve_remote(&self, name: &str) -> Result<Vec<IpAddr>, TransportError> {
         let mut remote = self.clone();
@@ -173,6 +205,9 @@ impl Resolver {
             return Ok(CandidateResolution::from_addresses(vec![address]));
         }
         validate_name(name)?;
+        if self.routing.route_host(name) == crate::geo_direct::GeoRoute::Reject {
+            return Err(TransportError::Dns("routing_rejected".into()));
+        }
         let deadline = deadline.min(Instant::now() + DNS_TIMEOUT);
         match self.mode {
             ProxyDnsMode::Remote | ProxyDnsMode::LocalConfigured => {
@@ -206,16 +241,18 @@ impl Resolver {
             }
             ProxyDnsMode::System => {
                 let name = name.to_owned();
+                let routing = self.routing.clone();
                 Ok(CandidateResolution {
                     ready: None,
                     first: Some(QuerySlot {
                         ipv4: None,
                         future: bounded_query(
                             async move {
-                                lookup_host((name.as_str(), 0))
+                                let values = lookup_host((name.as_str(), 0))
                                     .await
                                     .map(|values| values.map(|address| address.ip()).collect())
-                                    .map_err(|error| TransportError::Dns(error.to_string()))
+                                    .map_err(|error| TransportError::Dns(error.to_string()))?;
+                                filter_routing_addresses(values, &routing)
                             },
                             deadline,
                         ),
@@ -242,7 +279,7 @@ impl Resolver {
                 .query(&query, deadline)
                 .await
                 .map_err(|error| TransportError::Dns(error.to_string()))?;
-            return decode_query_response(&query, &response, query_type);
+            return self.decode_routed(&query, &response, query_type);
         }
         let query_server = |server, transport, deadline| {
             let query = &query;
@@ -258,14 +295,14 @@ impl Resolver {
                         .query(remote, query, deadline)
                         .await
                         .map_err(|error| TransportError::Dns(error.to_string()))?;
-                    return decode_query_response(query, &response, query_type);
+                    return checked_dns_wire(query, &response, query_type);
                 }
                 if let Some(dns) = &self.stream_dns {
                     let response = dns
                         .query(remote, query, deadline)
                         .await
                         .map_err(|error| TransportError::Dns(error.to_string()))?;
-                    return decode_query_response(query, &response, query_type);
+                    return checked_dns_wire(query, &response, query_type);
                 }
                 let local_ip = if server.is_ipv4() {
                     IpAddr::V4(self.assigned_ipv4)
@@ -309,12 +346,12 @@ impl Resolver {
                         .query(remote, query, deadline)
                         .await
                         .map_err(|error| TransportError::Dns(error.to_string()))?;
-                    return decode_query_response(query, &response, query_type);
+                    return checked_dns_wire(query, &response, query_type);
                 }
-                decode_query_response(query, &response, query_type)
+                checked_dns_wire(query, &response, query_type)
             }
         };
-        if self.stream_dns.is_some() {
+        let response = if self.stream_dns.is_some() {
             crate::final_dns::query_tcp(&self.servers, deadline, |server, deadline| {
                 let future = query_server(server, crate::final_dns::Transport::Tcp, deadline);
                 async move { future.await.map_err(|error| error.to_string()) }
@@ -333,7 +370,8 @@ impl Resolver {
                 query_server(server, crate::final_dns::Transport::Udp, deadline)
             })
             .await
-        }
+        }?;
+        self.decode_routed(&query, &response, query_type)
     }
 
     async fn query_with_configured_servers(
@@ -344,7 +382,7 @@ impl Resolver {
     ) -> Result<Vec<IpAddr>, TransportError> {
         let transaction_id = NEXT_DNS_ID.fetch_add(1, Ordering::Relaxed);
         let query = encode_query(transaction_id, name, query_type)?;
-        query_servers(&self.servers, deadline, |server| {
+        let response = query_servers(&self.servers, deadline, |server| {
             query_local_server(
                 self.protector.as_ref(),
                 SocketAddr::new(server, DNS_PORT),
@@ -353,7 +391,8 @@ impl Resolver {
                 deadline,
             )
         })
-        .await
+        .await?;
+        self.decode_routed(&query, &response, query_type)
     }
 }
 
@@ -548,6 +587,19 @@ fn dns_timeout() -> TransportError {
     TransportError::Dns("DNS query timed out".to_owned())
 }
 
+fn filter_routing_addresses(
+    mut values: Vec<IpAddr>,
+    policy: &crate::geo_direct::GeoDirectPolicy,
+) -> Result<Vec<IpAddr>, TransportError> {
+    let had_addresses = !values.is_empty();
+    values.retain(|ip| !policy.rejects_ip(*ip));
+    if had_addresses && values.is_empty() {
+        Err(TransportError::Dns("routing_rejected".into()))
+    } else {
+        Ok(values)
+    }
+}
+
 fn bounded_query(
     query: impl Future<Output = Result<Vec<IpAddr>, TransportError>> + Send + 'static,
     deadline: Instant,
@@ -565,14 +617,14 @@ fn bounded_query(
     })
 }
 
-async fn query_servers<F, Fut>(
+async fn query_servers<T, F, Fut>(
     servers: &[IpAddr],
     deadline: Instant,
     mut query: F,
-) -> Result<Vec<IpAddr>, TransportError>
+) -> Result<T, TransportError>
 where
     F: FnMut(IpAddr) -> Fut,
-    Fut: Future<Output = Result<Vec<IpAddr>, TransportError>>,
+    Fut: Future<Output = Result<T, TransportError>>,
 {
     let mut errors = Vec::new();
     for server in servers {
@@ -600,7 +652,7 @@ async fn query_local_server(
     query: &[u8],
     query_type: u16,
     deadline: Instant,
-) -> Result<Vec<IpAddr>, TransportError> {
+) -> Result<Vec<u8>, TransportError> {
     let work = async {
         let bind_address = if remote.is_ipv4() {
             SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
@@ -624,11 +676,22 @@ async fn query_local_server(
                 "DNS response source mismatch".to_owned(),
             ));
         }
-        decode_query_response(query, &response[..length], query_type)
+        checked_dns_wire(query, &response[..length], query_type)
     };
     timeout_at(deadline, work)
         .await
         .map_err(|_| dns_timeout())?
+}
+
+// Resolver failover selects a structurally valid answer first. Routing rejects
+// are applied afterwards and must never trigger another resolver/transport.
+fn checked_dns_wire(
+    query: &[u8],
+    response: &[u8],
+    query_type: u16,
+) -> Result<Vec<u8>, TransportError> {
+    decode_query_response(query, response, query_type)?;
+    Ok(response.to_vec())
 }
 
 fn decode_query_response(
@@ -798,6 +861,105 @@ fn deduplicate(addresses: &mut Vec<IpAddr>) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn routing_is_checked_after_server_selection_and_before_candidate_limits() {
+        use ts_netstack_smoltcp::CreateSocket;
+        use ts_netstack_smoltcp::netcore::{Config, HasChannel, NetstackControl};
+        for final_exit in [false, true] {
+            for case in 0..3 {
+                let (client, server) = ts_netstack_smoltcp::piped_pair(Config::default());
+                let channel = client.command_channel();
+                let server_channel = server.command_channel();
+                let mut tasks = vec![client.spawn_tokio(), server.spawn_tokio()];
+                channel
+                    .set_ips(["10.0.0.1".parse::<IpAddr>().unwrap()])
+                    .await
+                    .unwrap();
+                server_channel
+                    .set_ips([
+                        "10.0.0.2".parse::<IpAddr>().unwrap(),
+                        "10.0.0.3".parse().unwrap(),
+                    ])
+                    .await
+                    .unwrap();
+                let secondary = Arc::new(AtomicUsize::new(0));
+                for index in 0..2 {
+                    let socket = server_channel
+                        .udp_bind(format!("10.0.0.{}:53", index + 2).parse().unwrap())
+                        .await
+                        .unwrap();
+                    let secondary = secondary.clone();
+                    tasks.push(tokio::spawn(async move {
+                        while let Ok((peer, query)) = socket.recv_from_bytes().await {
+                            if index == 1 {
+                                secondary.fetch_add(1, Ordering::SeqCst);
+                            }
+                            let mut response = if index == 0 && case == 0 {
+                                crate::split_dns::test_cname_response(
+                                    &query,
+                                    &["blocked.test".into()],
+                                )
+                            } else {
+                                crate::split_dns::test_cname_response(&query, &[])
+                            };
+                            if index == 1 {
+                                let n = response.len();
+                                response[n - 4..].copy_from_slice(&[198, 51, 100, 7]);
+                            }
+                            if index == 0 && case == 2 {
+                                response = query.to_vec();
+                                response[2..4].copy_from_slice(&0x8180_u16.to_be_bytes());
+                                response[6..8].copy_from_slice(&17_u16.to_be_bytes());
+                                for n in 1..=16 {
+                                    response.extend([
+                                        0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 203, 0, 113, n,
+                                    ]);
+                                }
+                                response.extend([
+                                    0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 198, 51, 100, 7,
+                                ]);
+                            }
+                            socket.send_to(peer, &response).await.unwrap();
+                        }
+                    }));
+                }
+                let policy = Arc::new(crate::geo_direct::routing_test_policy(&[
+                    ("blocked.test", usque_core::RoutingAction::Reject),
+                    ("203.0.113.0/24", usque_core::RoutingAction::Reject),
+                ]));
+                let resolver = Resolver::new(
+                    channel,
+                    "10.0.0.1".parse().unwrap(),
+                    Ipv6Addr::UNSPECIFIED,
+                    vec!["10.0.0.2".parse().unwrap(), "10.0.0.3".parse().unwrap()],
+                    ProxyDnsMode::Remote,
+                    Arc::new(NoopSocketProtector),
+                )
+                .with_final_exit(final_exit, tokio_util::sync::CancellationToken::new())
+                .with_routing(policy);
+                let deadline = Instant::now() + DNS_TIMEOUT;
+                let result = bounded_query(
+                    async move {
+                        resolver
+                            .query_through_tunnel("allowed.test", TYPE_A, deadline)
+                            .await
+                    },
+                    deadline,
+                )
+                .await;
+                if case == 2 {
+                    assert_eq!(result.unwrap(), ["198.51.100.7".parse::<IpAddr>().unwrap()]);
+                } else {
+                    assert!(result.unwrap_err().to_string().contains("routing_rejected"));
+                }
+                assert_eq!(secondary.load(Ordering::SeqCst), 0);
+                for task in tasks {
+                    task.abort();
+                }
+            }
+        }
+    }
+
     #[tokio::test]
     async fn owned_udp_send_preserves_payload_allocation_in_command() {
         use std::future::Future;
@@ -1007,7 +1169,7 @@ mod tests {
         let servers = ["192.0.2.1".parse().unwrap(), "192.0.2.2".parse().unwrap()];
         let calls = AtomicUsize::new(0);
         let started = Instant::now();
-        let result = query_servers(&servers, started + DNS_TIMEOUT, |_| {
+        let result: Result<Vec<IpAddr>, _> = query_servers(&servers, started + DNS_TIMEOUT, |_| {
             calls.fetch_add(1, Ordering::SeqCst);
             async {
                 tokio::time::sleep(Duration::from_secs(3)).await;
@@ -1148,6 +1310,7 @@ mod tests {
         .await
         .unwrap();
         responder.await.unwrap();
+        let addresses = decode_query_response(&query, &addresses, TYPE_A).unwrap();
 
         assert_eq!(addresses, vec![IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9))]);
     }

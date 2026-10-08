@@ -603,4 +603,19 @@ const Map<String, String> kKoCatalog = <String, String>{
   'dns_duplicate_address': '중복된 IP 주소를 삭제하세요.',
   'dns_address_not_allowed':
       'DNS 서버 연결에 사용할 수 없는 주소가 있습니다. DNS 제공업체의 서버 IP를 입력하세요.',
+  "routing_rules": "사용자 지정 분할 라우팅 규칙",
+  "routing_add": "규칙 추가",
+  "routing_batch": "규칙 일괄 붙여넣기",
+  "routing_action": "동작",
+  "routing_target": "도메인, IP 또는 CIDR",
+  "routing_priority":
+      "더 구체적인 규칙이 우선합니다. 사용자 규칙은 Ads 및 국가 규칙보다 우선하지만 IP 거부는 계속 적용됩니다.",
+  "routing_conflict": "같은 대상에 서로 다른 동작이 있습니다. 규칙을 수정하세요.",
+  "routing_overlap": "더 구체적인 규칙이 넓은 범위의 규칙보다 우선합니다.",
+  "routing_duplicate": "중복 규칙은 저장할 때 병합됩니다.",
+  "routing_ads": "Ads · 광고 및 추적 차단",
+  "routing_ads_ready": "Ads 데이터를 사용할 수 있습니다.",
+  "routing_ads_unavailable": "Ads 데이터를 사용할 수 없습니다. 연결과 사용자 규칙은 계속 사용할 수 있습니다.",
+  "routing_pending": "다운로드한 규칙은 다시 연결한 후 적용됩니다.",
+  'routing_current': "현재 연결",
 };

@@ -670,4 +670,21 @@ const Map<String, String> kEsCatalog = <String, String>{
   'dns_duplicate_address': 'Elimina las direcciones IP duplicadas.',
   'dns_address_not_allowed':
       'Una dirección no sirve para conectar con un servidor DNS. Usa las IP del servidor facilitadas por tu proveedor DNS.',
+  "routing_rules": "Reglas de enrutamiento personalizadas",
+  "routing_add": "Añadir regla",
+  "routing_batch": "Pegar reglas",
+  "routing_action": "Acción",
+  "routing_target": "Dominio, IP o CIDR",
+  "routing_priority":
+      "Gana la regla más específica. Las reglas propias prevalecen sobre Ads y países; el bloqueo IP sigue vigente.",
+  "routing_conflict":
+      "Acciones distintas para el mismo destino. Modifica estas reglas.",
+  "routing_overlap": "La regla más específica prevalece sobre la más amplia.",
+  "routing_duplicate": "Los duplicados se combinarán al guardar.",
+  "routing_ads": "Ads · anuncios y rastreo",
+  "routing_ads_ready": "Los datos de Ads están disponibles.",
+  "routing_ads_unavailable":
+      "Ads no está disponible. Las conexiones y reglas propias siguen disponibles.",
+  "routing_pending": "Las reglas descargadas se aplican al volver a conectar.",
+  'routing_current': "Conexión actual",
 };

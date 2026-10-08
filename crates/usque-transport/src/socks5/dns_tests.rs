@@ -246,6 +246,14 @@ impl Fixture {
     }
 
     async fn with_mode(source: ChainSource, mode: ProxyDnsMode) -> Self {
+        Self::with_policy(source, mode, Arc::default()).await
+    }
+
+    async fn with_policy(
+        source: ChainSource,
+        mode: ProxyDnsMode,
+        policy: Arc<GeoDirectPolicy>,
+    ) -> Self {
         let cancellation = CancellationToken::new();
         let peer = Arc::new(ProxyPeer {
             source,
@@ -364,7 +372,7 @@ impl Fixture {
                 protector.clone(),
             ),
             protector: protector.clone(),
-            geo_policy: Arc::default(),
+            geo_policy: policy,
             counters: Arc::default(),
             cancellation: cancellation.clone(),
             health,
@@ -536,6 +544,66 @@ async fn http_exit_socks_udp_dns_uses_tcp_for_ipv4_ipv6_and_edge_domain() {
     assert_eq!(*fixture.peer.dns_targets.lock().unwrap(), targets);
     drop(control);
     fixture.shutdown().await;
+}
+
+#[tokio::test]
+async fn dns_server_domains_cannot_bypass_ip_rejection_in_either_resolution_mode() {
+    for mode in [ProxyDnsMode::EdgeResolved, ProxyDnsMode::Remote] {
+        let policy = Arc::new(crate::geo_direct::routing_test_policy(&[(
+            "203.0.113.0/24",
+            usque_core::RoutingAction::Reject,
+        )]));
+        let mut fixture = Fixture::with_policy(ChainSource::HttpProxy, mode, policy).await;
+        let (control, udp, relay) = fixture.associate().await;
+        let request = datagram(&TcpTarget::new("dns.example", 53).unwrap(), &query(51));
+        udp.send_to(&request, relay).await.unwrap();
+        assert!(
+            timeout(Duration::from_millis(200), udp.recv_from(&mut [0; 4096]))
+                .await
+                .is_err()
+        );
+        assert!(fixture.peer.dns_queries.load(Ordering::SeqCst) > 0);
+        assert!(
+            fixture
+                .peer
+                .dns_targets
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|target| target.authority() == "198.51.100.53:53")
+        );
+        drop(control);
+        fixture.frontend.shutdown().await;
+        fixture.cancellation.cancel();
+    }
+}
+
+#[tokio::test]
+async fn resolved_dns_server_ip_direct_uses_the_protected_direct_path_first() {
+    let policy = Arc::new(crate::geo_direct::routing_test_policy(&[(
+        "203.0.113.7",
+        usque_core::RoutingAction::Direct,
+    )]));
+    let mut fixture =
+        Fixture::with_policy(ChainSource::HttpProxy, ProxyDnsMode::EdgeResolved, policy).await;
+    let (control, udp, relay) = fixture.associate().await;
+    let before = fixture.physical.0.load(Ordering::SeqCst);
+    // The physical protector rejects without sending; the existing direct
+    // failure fallback may then query the same checked numeric target.
+    exchange(&udp, relay, &TcpTarget::new("dns.example", 53).unwrap(), 52).await;
+    assert!(fixture.physical.0.load(Ordering::SeqCst) > before);
+    assert!(
+        fixture
+            .peer
+            .dns_targets
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|target| target.authority() == "203.0.113.7:53")
+    );
+    drop(control);
+    fixture.frontend.shutdown().await;
+    fixture.cancellation.cancel();
 }
 
 #[tokio::test]

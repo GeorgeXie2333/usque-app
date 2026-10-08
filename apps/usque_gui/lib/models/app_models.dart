@@ -5,11 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'chain_exit_models.dart';
 import 'diagnostics_models.dart';
 import 'l4_performance.dart';
+import 'routing_settings.dart';
 import 'transport_performance.dart';
 import 'vpngate_models.dart';
 
 export 'chain_exit_models.dart';
 export 'l4_performance.dart';
+export 'routing_settings.dart';
 export 'transport_performance.dart';
 export 'vpngate_models.dart';
 
@@ -336,12 +338,16 @@ class GeoRulesList {
     this.entries = const <GeoRulesEntry>[],
     this.lastSuccessfulUpdateUnixMilliseconds = 0,
     this.hasGlobalGeosite = false,
+    this.hasAds = false,
+    this.adsRevision = '',
     this.globalGeositeUpdatedUnixMilliseconds = 0,
   });
 
   final List<GeoRulesEntry> entries;
   final int lastSuccessfulUpdateUnixMilliseconds;
   final bool hasGlobalGeosite;
+  final bool hasAds;
+  final String adsRevision;
   final int globalGeositeUpdatedUnixMilliseconds;
 }
 
@@ -839,6 +845,7 @@ class UsqueProfile {
     this.bypassCidrs = const <String>[],
     this.geoDirectCountries = const <String>[],
     this.bypassDomains = const <String>[],
+    this.routing = const RoutingSettings(),
     this.proxy = const ProxySettings(),
     this.frontends = const FrontendSettings.windowsDefault(),
     this.directDns = const DirectDnsSettings(),
@@ -879,6 +886,7 @@ class UsqueProfile {
   final List<String> bypassCidrs;
   final List<String> geoDirectCountries;
   final List<String> bypassDomains;
+  final RoutingSettings routing;
   final ProxySettings proxy;
   final FrontendSettings frontends;
   final DirectDnsSettings directDns;
@@ -963,6 +971,7 @@ class UsqueProfile {
     List<String>? bypassCidrs,
     List<String>? geoDirectCountries,
     List<String>? bypassDomains,
+    RoutingSettings? routing,
     ProxySettings? proxy,
     FrontendSettings? frontends,
     DirectDnsSettings? directDns,
@@ -999,6 +1008,7 @@ class UsqueProfile {
       bypassCidrs: bypassCidrs ?? this.bypassCidrs,
       geoDirectCountries: geoDirectCountries ?? this.geoDirectCountries,
       bypassDomains: bypassDomains ?? this.bypassDomains,
+      routing: routing ?? this.routing,
       proxy: proxy ?? this.proxy,
       frontends: nextFrontends,
       directDns: directDns ?? this.directDns,
@@ -1035,6 +1045,7 @@ class UsqueProfile {
       'bypass_cidrs': bypassCidrs,
       'geo_direct_countries': geoDirectCountries,
       'bypass_domains': bypassDomains,
+      'routing': routing.toMap(),
       'proxy': proxy.toMap(),
       'frontends': frontends.toMap(),
       'direct_dns': directDns.toMap(),
@@ -1132,6 +1143,9 @@ class UsqueProfile {
       bypassCidrs: List<String>.unmodifiable(bypass),
       geoDirectCountries: List<String>.unmodifiable(geoDirect),
       bypassDomains: List<String>.unmodifiable(domains),
+      routing: map['routing'] is Map
+          ? RoutingSettings.fromMap(map['routing'] as Map)
+          : const RoutingSettings(),
       proxy: ProxySettings.fromMap(Map<String, Object?>.from(proxy)),
       frontends: migratedFrontends,
       directDns: directDns is Map
@@ -2065,6 +2079,7 @@ class EngineCapabilities {
     this.chainSocks5Proxy = false,
     this.chainProxyEncryptedDns = false,
     this.customBypass = false,
+    this.routingRules = false,
     this.automaticEndpoints = false,
     this.zeroTrustEndpointEditing = false,
     this.chainOpenvpnMultiEndpoint = false,
@@ -2095,6 +2110,7 @@ class EngineCapabilities {
         chainSocks5Proxy: map['chain_socks5_proxy'] == true,
         chainProxyEncryptedDns: map['chain_proxy_encrypted_dns'] == true,
         customBypass: map['custom_bypass'] == true,
+        routingRules: map['routing_rules'] == true,
         automaticEndpoints: map['automatic_endpoints'] == true,
         zeroTrustEndpointEditing: map['zero_trust_endpoint_editing'] == true,
         chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
@@ -2124,6 +2140,7 @@ class EngineCapabilities {
       );
 
   final bool customBypass;
+  final bool routingRules;
   final bool automaticEndpoints;
   final bool zeroTrustEndpointEditing;
   final bool networkQuality;
@@ -2164,6 +2181,7 @@ class EngineCapabilities {
           chainSocks5Proxy == other.chainSocks5Proxy &&
           chainProxyEncryptedDns == other.chainProxyEncryptedDns &&
           customBypass == other.customBypass &&
+          routingRules == other.routingRules &&
           automaticEndpoints == other.automaticEndpoints &&
           zeroTrustEndpointEditing == other.zeroTrustEndpointEditing &&
           chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
@@ -2201,6 +2219,7 @@ class EngineCapabilities {
       chainSocks5Proxy,
       chainProxyEncryptedDns,
       customBypass,
+      routingRules,
       automaticEndpoints,
       zeroTrustEndpointEditing,
     ),
@@ -2352,6 +2371,7 @@ class L4Snapshot {
 
 class EngineSnapshot {
   const EngineSnapshot({
+    this.adsRuleRevision = '',
     this.vpnGate = const VpnGateStatus(),
     this.chainExit = const ChainExitStatus(),
     this.sessionCongestionControl,
@@ -2379,6 +2399,7 @@ class EngineSnapshot {
     this.networkQuality,
   });
 
+  final String adsRuleRevision;
   final ConnectionPhase phase;
   final VpnGateStatus vpnGate;
   final ChainExitStatus chainExit;
@@ -2425,6 +2446,7 @@ class EngineSnapshot {
 
     final connectedAt = map['connected_at'] as String?;
     return EngineSnapshot(
+      adsRuleRevision: map['ads_rule_revision'] as String? ?? '',
       phase: parsePhase(map['phase'] as String?),
       dataPlane: DataPlaneMode.fromWire(map['data_plane']),
       l4: map['l4'] is Map ? L4Snapshot.fromMap(map['l4'] as Map) : null,
@@ -2512,6 +2534,7 @@ class EngineSnapshot {
   bool operator ==(Object other) {
     return identical(this, other) ||
         other is EngineSnapshot &&
+            adsRuleRevision == other.adsRuleRevision &&
             sessionCongestionControl == other.sessionCongestionControl &&
             dataPlane == other.dataPlane &&
             vpnGate == other.vpnGate &&
@@ -2541,6 +2564,7 @@ class EngineSnapshot {
 
   @override
   int get hashCode => Object.hashAll(<Object?>[
+    adsRuleRevision,
     sessionCongestionControl,
     dataPlane,
     vpnGate,

@@ -648,4 +648,21 @@ const Map<String, String> kViCatalog = <String, String>{
   'dns_duplicate_address': 'Hãy xóa các địa chỉ IP trùng lặp.',
   'dns_address_not_allowed':
       'Có địa chỉ không dùng được để kết nối máy chủ DNS. Hãy dùng IP máy chủ do nhà cung cấp DNS cung cấp.',
+  "routing_rules": "Quy tắc định tuyến tùy chỉnh",
+  "routing_add": "Thêm quy tắc",
+  "routing_batch": "Dán nhiều quy tắc",
+  "routing_action": "Hành động",
+  "routing_target": "Tên miền, IP hoặc CIDR",
+  "routing_priority":
+      "Quy tắc cụ thể hơn được ưu tiên. Quy tắc tùy chỉnh ghi đè Ads và quốc gia; chặn IP vẫn có hiệu lực.",
+  "routing_conflict":
+      "Cùng một đích có hành động khác nhau. Hãy sửa các quy tắc.",
+  "routing_overlap": "Quy tắc cụ thể hơn ghi đè quy tắc rộng hơn.",
+  "routing_duplicate": "Quy tắc trùng lặp sẽ được gộp khi lưu.",
+  "routing_ads": "Ads · quảng cáo và theo dõi",
+  "routing_ads_ready": "Dữ liệu Ads đã sẵn sàng.",
+  "routing_ads_unavailable":
+      "Dữ liệu Ads không khả dụng. Kết nối và quy tắc tùy chỉnh vẫn hoạt động.",
+  "routing_pending": "Quy tắc đã tải áp dụng sau khi kết nối lại.",
+  'routing_current': "Kết nối hiện tại",
 };

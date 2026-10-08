@@ -53,6 +53,7 @@ mod proxy_udp;
 mod queue_metrics;
 mod recovery_policy;
 mod relay;
+mod routing_reject;
 mod socket;
 mod socks5;
 mod split_dns;

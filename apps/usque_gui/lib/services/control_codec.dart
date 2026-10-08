@@ -111,6 +111,22 @@ class ControlCodec {
     for (final domain in profile.bypassDomains) {
       writer.string(23, domain);
     }
+    {
+      final routing = ControlPayloadWriter()
+        ..boolean(2, profile.routing.adsEnabled);
+      for (final rule in profile.routing.rules) {
+        routing.message(
+          1,
+          (ControlPayloadWriter()
+                ..string(1, rule.id)
+                ..string(2, rule.kind.name)
+                ..string(3, rule.target)
+                ..string(4, rule.action.name))
+              .takeBytes(),
+        );
+      }
+      writer.message(25, routing.takeBytes());
+    }
     writer.message(17, directDns.takeBytes());
     if (profile.warpDns != const WarpDnsSettings()) {
       writer.message(24, warpDns.takeBytes());
@@ -829,6 +845,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var frontendsSeen = false;
   final geoDirectCountries = <String>[];
   final bypassDomains = <String>[];
+  var routing = const RoutingSettings();
   var directDns = defaults.directDns;
   var warpDns = defaults.warpDns;
 
@@ -932,6 +949,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         directDns = _decodeDirectDnsSettings(reader.message(field));
       case 24:
         warpDns = _decodeWarpDnsSettings(reader.message(field));
+      case 25:
+        routing = _decodeRoutingSettings(reader.message(field));
       case 18:
         final value = reader.varint(field);
         congestionControl = value == 0
@@ -993,6 +1012,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     bypassCidrs: List<String>.unmodifiable(bypassCidrs),
     geoDirectCountries: List<String>.unmodifiable(geoDirectCountries),
     bypassDomains: List<String>.unmodifiable(bypassDomains),
+    routing: routing,
     proxy: proxy,
     frontends: frontends,
     directDns: directDns,
@@ -1096,6 +1116,8 @@ GeoRulesList _decodeGeoRulesList(_ProtoReader reader) {
   final entries = <GeoRulesEntry>[];
   var lastSuccessfulUpdateUnixMilliseconds = 0;
   var hasGlobalGeosite = false;
+  var hasAds = false;
+  var adsRevision = '';
   var globalGeositeUpdatedUnixMilliseconds = 0;
   while (!reader.isDone) {
     final field = reader.field();
@@ -1108,6 +1130,10 @@ GeoRulesList _decodeGeoRulesList(_ProtoReader reader) {
         hasGlobalGeosite = reader.varint(field) != 0;
       case 4:
         globalGeositeUpdatedUnixMilliseconds = reader.varint(field);
+      case 5:
+        hasAds = reader.varint(field) != 0;
+      case 6:
+        adsRevision = reader.string(field);
       default:
         reader.skip(field);
     }
@@ -1116,6 +1142,8 @@ GeoRulesList _decodeGeoRulesList(_ProtoReader reader) {
     entries: List<GeoRulesEntry>.unmodifiable(entries),
     lastSuccessfulUpdateUnixMilliseconds: lastSuccessfulUpdateUnixMilliseconds,
     hasGlobalGeosite: hasGlobalGeosite,
+    hasAds: hasAds,
+    adsRevision: adsRevision,
     globalGeositeUpdatedUnixMilliseconds: globalGeositeUpdatedUnixMilliseconds,
   );
 }
@@ -1740,6 +1768,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
       chainProxyEncryptedDns = false,
       chainOpenvpnMultiEndpoint = false;
   var customBypass = false;
+  var routingRules = false;
   var automaticEndpoints = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
@@ -1774,6 +1803,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainOpenvpnUdp = reader.varint(field) != 0;
       case 39:
         chainHttpProxy = reader.varint(field) != 0;
+      case 46:
+        routingRules = reader.varint(field) != 0;
       case 41:
         customBypass = reader.varint(field) != 0;
       case 42:
@@ -1837,6 +1868,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     chainSocks5Proxy: chainSocks5Proxy,
     chainProxyEncryptedDns: chainProxyEncryptedDns,
     customBypass: customBypass,
+    routingRules: routingRules,
     automaticEndpoints: automaticEndpoints,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
@@ -2733,6 +2765,7 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   CongestionControlAlgorithm? sessionCongestionControl;
   DataPlaneMode? dataPlane;
   L4Snapshot? l4;
+  var adsRuleRevision = '';
   var phase = ConnectionPhase.error;
   String? transport;
   String? family;
@@ -2755,6 +2788,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
+      case 23:
+        adsRuleRevision = reader.string(field);
       case 1:
         phase = _decodePhase(reader.varint(field));
       case 2:
@@ -2832,6 +2867,7 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
     vpnGate = VpnGateStatus.fromMap(chainMetadata);
   }
   return EngineSnapshot(
+    adsRuleRevision: adsRuleRevision,
     phase: phase,
     sessionCongestionControl: sessionCongestionControl,
     dataPlane: dataPlane,
@@ -3362,4 +3398,32 @@ TransportPerformanceSnapshot _decodeTransportPerformance(_ProtoReader reader) {
     h2BatchSizes: List.unmodifiable(h2Buckets),
     h3BatchSizes: List.unmodifiable(h3Buckets),
   );
+}
+
+RoutingSettings _decodeRoutingSettings(_ProtoReader reader) {
+  final rules = <RoutingRule>[];
+  var adsEnabled = false;
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number == 2) {
+      adsEnabled = reader.varint(field) != 0;
+    } else if (field.number == 1) {
+      final rule = reader.message(field);
+      final values = <String, Object?>{};
+      const keys = {1: 'id', 2: 'kind', 3: 'target', 4: 'action'};
+      while (!rule.isDone) {
+        final item = rule.field();
+        final key = keys[item.number];
+        if (key != null) {
+          values[key] = rule.string(item);
+        } else {
+          rule.skip(item);
+        }
+      }
+      rules.add(RoutingRule.fromMap(values));
+    } else {
+      reader.skip(field);
+    }
+  }
+  return RoutingSettings(rules: rules, adsEnabled: adsEnabled);
 }

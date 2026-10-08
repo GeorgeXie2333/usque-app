@@ -1536,6 +1536,11 @@ void main() {
           ),
         );
         expect(localized.catalogId, catalog.key);
+        // Routing is shared by TUN and local proxies, so its heading is platform independent.
+        expect(
+          localized.get('geo_direct', platform: TargetPlatform.windows),
+          localized.get('geo_direct', platform: TargetPlatform.android),
+        );
         expect(localized.tunnelOutputLabel(TargetPlatform.android), 'VPN');
         for (final platform in [
           TargetPlatform.windows,
@@ -1546,7 +1551,6 @@ void main() {
             'outputs',
             'channel_only',
             'channel_only_warning',
-            'geo_direct',
           ]) {
             final text = localized.get(key, platform: platform);
             expect(

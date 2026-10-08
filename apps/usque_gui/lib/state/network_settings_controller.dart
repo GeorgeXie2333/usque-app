@@ -16,6 +16,8 @@ class NetworkSettingsController extends ChangeNotifier {
   String? saveError;
   // Only an ordinal is retained; backend target text never reaches diagnostics.
   int? invalidBypassDomainEntry;
+  List<String> routingErrorIds = [];
+  String? routingErrorKey;
   bool _queryUnconfirmed = false;
   final Map<String, _SaveAttempt> _saveAttempts = {};
   int _observationRevision = 0;
@@ -120,6 +122,8 @@ class NetworkSettingsController extends ChangeNotifier {
       _saveAttempts[operationId] = attempt;
       saveError = null;
       invalidBypassDomainEntry = null;
+      routingErrorIds = [];
+      routingErrorKey = null;
       _notify();
       try {
         // Earlier queued saves may have changed the DNS mode or exit. Rebase
@@ -149,6 +153,17 @@ class NetworkSettingsController extends ChangeNotifier {
         if (definitive) {
           _saveAttempts.remove(operationId);
           saveError = error.code;
+          routingErrorIds = [];
+          routingErrorKey = null;
+          final routingError = RegExp(
+            r'ROUTING_RULE_(CONFLICT|INVALID):([a-fA-F0-9:-]+)',
+          ).firstMatch(error.message);
+          if (routingError != null) {
+            routingErrorIds = routingError.group(2)!.split(':');
+            routingErrorKey = routingError.group(1) == 'CONFLICT'
+                ? 'routing_conflict'
+                : 'invalid_dns_name';
+          }
           final invalidDomain = RegExp(
             r'invalid bypass domain at entry (\d+)',
           ).firstMatch(error.message);
@@ -191,6 +206,8 @@ class NetworkSettingsController extends ChangeNotifier {
     state = null;
     saveError = null;
     invalidBypassDomainEntry = null;
+    routingErrorIds = [];
+    routingErrorKey = null;
     _saveAttempts.clear();
     _queryUnconfirmed = false;
     _resetting = false;

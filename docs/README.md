@@ -20,6 +20,7 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | --- | --- |
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
 | [Network Doctor](network-doctor.md) | Run checks, read results, and export a local report / 运行检查、理解结果与导出诊断 |
+| [Routing and Ads](ROUTING.md) | Configure DIRECT, REJECT, PROXY, exceptions and Ads / 配置分流动作、例外与广告拦截 |
 | [Direct DNS](encrypted-direct-dns.md) | Choose System, DoH or DoT and fill in resolver settings / 选择直连 DNS 模式与填写服务器配置 |
 | [WARP® exit DNS](WARP_DNS.md) | Configure Plain DNS, DoH or DoT inside the WARP tunnel / 配置 WARP 隧道内普通 DNS、DoH、DoT |
 | [WARP via WireGuard](WARP_WIREGUARD.md) | Generate/import WARP configurations and edit endpoints / 生成、导入 WARP 配置与编辑端点 |
@@ -37,6 +38,7 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | [Contributing](../CONTRIBUTING.md) | Toolchain setup and change-scoped checks / 工具链准备与检查矩阵 |
 | [Development-machine safety](../CONTRIBUTING.md#development-machines) | Workstation limits, isolation, and evidence requirements / 开发机安全边界与验证要求 |
 | [Implementation progress](IMPLEMENTATION.md) | Source-tree milestones, not proof of a test run / 源码实现进度，不等同于测试通过 |
+| [Routing validation record](ROUTING_VALIDATION.md) | Workstation commands, results and unavailable isolated checks / 分流功能开发机验证与未运行的隔离检查 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |

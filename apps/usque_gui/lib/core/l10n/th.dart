@@ -639,4 +639,21 @@ const Map<String, String> kThCatalog = <String, String>{
   'dns_duplicate_address': 'โปรดลบที่อยู่ IP ที่ซ้ำกัน',
   'dns_address_not_allowed':
       'มีที่อยู่ที่ใช้เชื่อมต่อเซิร์ฟเวอร์ DNS ไม่ได้ โปรดใช้ IP เซิร์ฟเวอร์ที่ผู้ให้บริการ DNS ระบุ',
+  "routing_rules": "กฎการกำหนดเส้นทางที่กำหนดเอง",
+  "routing_add": "เพิ่มกฎ",
+  "routing_batch": "วางหลายกฎ",
+  "routing_action": "การดำเนินการ",
+  "routing_target": "โดเมน, IP หรือ CIDR",
+  "routing_priority":
+      "กฎที่เจาะจงกว่ามีลำดับสูงกว่า กฎกำหนดเองมีผลเหนือ Ads และประเทศ แต่ยังคงปฏิเสธ IP ที่ถูกบล็อก",
+  "routing_conflict":
+      "มีการดำเนินการต่างกันสำหรับเป้าหมายเดียวกัน โปรดแก้ไขกฎเหล่านี้",
+  "routing_overlap": "กฎที่เจาะจงกว่ามีผลเหนือกฎที่ครอบคลุมกว้างกว่า",
+  "routing_duplicate": "กฎซ้ำจะถูกรวมเมื่อบันทึก",
+  "routing_ads": "Ads · โฆษณาและการติดตาม",
+  "routing_ads_ready": "ข้อมูล Ads พร้อมใช้งาน",
+  "routing_ads_unavailable":
+      "ข้อมูล Ads ไม่พร้อมใช้งาน การเชื่อมต่อและกฎกำหนดเองยังใช้งานได้",
+  "routing_pending": "กฎที่ดาวน์โหลดจะมีผลหลังเชื่อมต่อใหม่",
+  'routing_current': "การเชื่อมต่อปัจจุบัน",
 };

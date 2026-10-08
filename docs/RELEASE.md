@@ -72,11 +72,12 @@ existing signing and publication approvals, cleanup checks and immutable
 candidate requirements. Rerun applicable checks after the final source change
 and retain the exact commit and Actions run identities.
 
-The current source uses configuration schema 23: schema 22 adds WARP DoH/DoT
-settings and schema 23 adds account-specific Zero Trust endpoint overrides.
+The current source uses configuration schema 24: schema 22 adds WARP DoH/DoT
+settings, schema 23 adds account-specific Zero Trust endpoint overrides, and
+schema 24 migrates custom bypasses to unified routing rules with Ads.
 Recovery journal schema 5, Agent protocol 3 and sanitized recovery export
 schema 2 remain unchanged. Once configuration is migrated, the `v0.2.9`
-engine rejects schema 23. Unchanged Agent and journal versions do not prove
+engine rejects schema 24. Unchanged Agent and journal versions do not prove
 downgrade compatibility; do not edit schema numbers to bypass that check.
 Review the release-note summary and highlights
 against `v0.2.9..HEAD`: custom WARP encrypted DNS, experimental Zero Trust

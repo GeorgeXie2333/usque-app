@@ -669,4 +669,21 @@ const Map<String, String> kDeCatalog = <String, String>{
   'dns_duplicate_address': 'Entferne doppelte IP-Adressen.',
   'dns_address_not_allowed':
       'Eine Adresse eignet sich nicht für eine DNS-Serververbindung. Verwende die Server-IP-Adressen deines DNS-Anbieters.',
+  "routing_rules": "Eigene Routingregeln",
+  "routing_add": "Regel hinzufügen",
+  "routing_batch": "Regeln einfügen",
+  "routing_action": "Aktion",
+  "routing_target": "Domain, IP oder CIDR",
+  "routing_priority":
+      "Genauere Regeln haben Vorrang. Eigene Regeln übersteuern Ads und Länder; IP-Sperren gelten weiterhin.",
+  "routing_conflict":
+      "Unterschiedliche Aktionen für dasselbe Ziel. Regeln bitte ändern.",
+  "routing_overlap": "Die genauere Regel übersteuert die allgemeinere.",
+  "routing_duplicate": "Doppelte Regeln werden beim Speichern zusammengeführt.",
+  "routing_ads": "Ads · Werbung und Tracking",
+  "routing_ads_ready": "Ads-Daten sind verfügbar.",
+  "routing_ads_unavailable":
+      "Ads-Daten nicht verfügbar. Verbindungen und eigene Regeln bleiben verfügbar.",
+  "routing_pending": "Heruntergeladene Regeln gelten nach erneutem Verbinden.",
+  'routing_current': "Aktuelle Verbindung",
 };

@@ -21,7 +21,7 @@ mod tun_reject;
 #[cfg(test)]
 mod tun_tests;
 mod tun_udp;
-mod tun_wire;
+pub(crate) mod tun_wire;
 
 pub(crate) use actor::{L4Actor, SessionHandle};
 pub(crate) use client::L4Client;

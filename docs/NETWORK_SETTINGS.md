@@ -673,3 +673,11 @@ unknown state never authorize removal of another session's protection.
 ---
 
 WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the United States and other jurisdictions.
+
+## Routing and Ads
+
+Schema 24 stores custom DIRECT/REJECT/PROXY rules and the Ads preference in the
+shared `routing` field. Changes require cold reconfiguration; downloaded Ads data
+is used on the next connection. Legacy `split_exclusions` and `bypass_domains`
+are import-only compatibility fields and cannot be edited by settings patches.
+See [routing and Ads](ROUTING.md) for priority, migration and visibility limits.

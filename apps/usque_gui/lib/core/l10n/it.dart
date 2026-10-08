@@ -672,4 +672,21 @@ const Map<String, String> kItCatalog = <String, String>{
   'dns_duplicate_address': 'Rimuovi gli indirizzi IP duplicati.',
   'dns_address_not_allowed':
       'Un indirizzo non è adatto alla connessione a un server DNS. Usa gli IP forniti dal tuo provider DNS.',
+  "routing_rules": "Regole di instradamento personalizzate",
+  "routing_add": "Aggiungi regola",
+  "routing_batch": "Incolla regole",
+  "routing_action": "Azione",
+  "routing_target": "Dominio, IP o CIDR",
+  "routing_priority":
+      "Prevale la regola più specifica. Le regole personalizzate prevalgono su Ads e paesi; il blocco IP resta attivo.",
+  "routing_conflict":
+      "Azioni diverse per la stessa destinazione. Modifica queste regole.",
+  "routing_overlap": "La regola più specifica prevale su quella più ampia.",
+  "routing_duplicate": "I duplicati verranno uniti al salvataggio.",
+  "routing_ads": "Ads · pubblicità e tracciamento",
+  "routing_ads_ready": "I dati Ads sono disponibili.",
+  "routing_ads_unavailable":
+      "Dati Ads non disponibili. Connessioni e regole personalizzate restano disponibili.",
+  "routing_pending": "Le regole scaricate si applicano dopo la riconnessione.",
+  'routing_current': "Connessione attuale",
 };

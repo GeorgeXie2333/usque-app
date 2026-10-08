@@ -970,6 +970,8 @@ GeoRulesList _geoRulesListFromMap(Map<Object?, Object?> map) {
     lastSuccessfulUpdateUnixMilliseconds:
         (map['last_successful_update_unix_milliseconds'] as num?)?.toInt() ?? 0,
     hasGlobalGeosite: map['has_global_geosite'] as bool? ?? false,
+    hasAds: map['has_ads'] == true,
+    adsRevision: map['ads_revision'] as String? ?? '',
     globalGeositeUpdatedUnixMilliseconds:
         (map['global_geosite_updated_unix_milliseconds'] as num?)?.toInt() ?? 0,
   );

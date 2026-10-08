@@ -662,4 +662,20 @@ const Map<String, String> kPlCatalog = <String, String>{
   'dns_duplicate_address': 'Usuń powtarzające się adresy IP.',
   'dns_address_not_allowed':
       'Jednego z adresów nie można użyć do połączenia z serwerem DNS. Użyj adresów IP podanych przez dostawcę DNS.',
+  "routing_rules": "Własne reguły routingu",
+  "routing_add": "Dodaj regułę",
+  "routing_batch": "Wklej reguły",
+  "routing_action": "Działanie",
+  "routing_target": "Domena, IP lub CIDR",
+  "routing_priority":
+      "Dokładniejsza reguła ma pierwszeństwo. Własne reguły zastępują Ads i kraje; blokada IP nadal obowiązuje.",
+  "routing_conflict": "Różne działania dla tego samego celu. Popraw te reguły.",
+  "routing_overlap": "Dokładniejsza reguła zastępuje szerszą.",
+  "routing_duplicate": "Duplikaty zostaną połączone przy zapisie.",
+  "routing_ads": "Ads · reklamy i śledzenie",
+  "routing_ads_ready": "Dane Ads są dostępne.",
+  "routing_ads_unavailable":
+      "Dane Ads są niedostępne. Połączenia i własne reguły nadal działają.",
+  "routing_pending": "Pobrane reguły obowiązują po ponownym połączeniu.",
+  'routing_current': "Bieżące połączenie",
 };

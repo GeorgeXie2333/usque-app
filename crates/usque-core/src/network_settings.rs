@@ -35,6 +35,7 @@ macro_rules! network_fields {
             "auto_connect" => auto_connect,
             "geo_direct_countries" => geo_direct_countries,
             "bypass_domains" => bypass_domains,
+            "routing" => routing,
             "direct_dns" => direct_dns,
             "vpn_gate" => vpn_gate,
             "chain_exit" => chain_exit,
@@ -199,6 +200,9 @@ pub fn merge_patch(
         .is_some_and(|account| account.managed_endpoint_ips.is_some())
         || config.is_zero_trust_account(patch.account_id);
     for field in &patch.changed_fields {
+        if matches!(field.as_str(), "split_exclusions" | "bypass_domains") {
+            return Err(crate::ConfigError::RoutingUpgradeRequired.into());
+        }
         if managed
             && (field == "endpoint.selection"
                 || matches!(field.as_str(), "endpoint.ipv4" | "endpoint.ipv6")
@@ -329,6 +333,28 @@ mod tests {
             values: config.active_profile().unwrap(),
             changed_fields: fields.iter().map(|value| (*value).to_owned()).collect(),
         }
+    }
+
+    #[test]
+    fn legacy_routing_edits_are_atomic_and_other_fields_preserve_new_rules() {
+        let mut config = AppConfig::default();
+        config.network.routing.ads_enabled = true;
+        for field in ["split_exclusions", "bypass_domains"] {
+            let old = config.clone();
+            let edit = patch(&config, &[field]);
+            assert!(matches!(
+                merge_patch(&mut config, &edit),
+                Err(SettingsError::Configuration(
+                    crate::ConfigError::RoutingUpgradeRequired
+                ))
+            ));
+            assert_eq!(config, old);
+        }
+        let mut edit = patch(&config, &["auto_connect"]);
+        edit.values.auto_connect = true;
+        edit.values.routing = Default::default();
+        merge_patch(&mut config, &edit).unwrap();
+        assert!(config.network.routing.ads_enabled);
     }
 
     #[test]

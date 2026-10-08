@@ -570,7 +570,7 @@ class _GeoDirectRow extends StatelessWidget {
         .replaceAll('{countries}', '${enabled.length}')
         .replaceAll(
           '{targets}',
-          '${profile.bypassCidrs.length + profile.bypassDomains.length}',
+          '${profile.routing.rules.length + profile.bypassCidrs.length + profile.bypassDomains.length}',
         );
     return ActionRow(
       padding: _rowPadding,

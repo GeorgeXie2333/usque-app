@@ -1257,8 +1257,9 @@ async fn proxy_dns_failure_is_terminal_and_data_fallback_reuses_encrypted_answer
             (
                 crate::geo_direct::GeoTarget::Host("direct.example.test"),
                 443,
+                None,
             ),
-            || "encrypted_failure",
+            (|| "encrypted_failure", || "routing_rejected"),
             |resolved| async {
                 fallback.store(true, Ordering::Release);
                 assert!(resolved.unwrap().contains(&"192.0.2.17".parse().unwrap()));

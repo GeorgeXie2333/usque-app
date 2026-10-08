@@ -603,4 +603,18 @@ const Map<String, String> kJaCatalog = <String, String>{
   'dns_duplicate_address': '重複する IP アドレスを削除してください。',
   'dns_address_not_allowed':
       'DNS サーバーに接続できない種類のアドレスが含まれています。DNS 提供元のサーバー IP を入力してください。',
+  "routing_rules": "カスタム振り分けルール",
+  "routing_add": "ルールを追加",
+  "routing_batch": "ルールを一括貼り付け",
+  "routing_action": "動作",
+  "routing_target": "ドメイン、IP または CIDR",
+  "routing_priority": "具体的なルールが優先されます。カスタムルールは Ads・国別ルールより優先されますが、IP の拒否は有効です。",
+  "routing_conflict": "同じ対象に異なる動作があります。ルールを修正してください。",
+  "routing_overlap": "具体的なルールが広範囲のルールを上書きします。",
+  "routing_duplicate": "重複ルールは保存時に統合されます。",
+  "routing_ads": "Ads · 広告と追跡のブロック",
+  "routing_ads_ready": "Ads データを利用できます。",
+  "routing_ads_unavailable": "Ads データを利用できません。接続とカスタムルールは利用できます。",
+  "routing_pending": "ダウンロードしたルールは再接続後に適用されます。",
+  'routing_current': "現在の接続",
 };

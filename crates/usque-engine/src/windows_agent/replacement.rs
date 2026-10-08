@@ -377,7 +377,7 @@ impl WindowsVpnRuntime {
             profile,
             &identity,
             &registration_api,
-            profile.has_domain_direct_rules(),
+            profile.needs_domain_routing(),
         );
         plan.vpn_chain = true;
         plan.defer_network_configuration = true;

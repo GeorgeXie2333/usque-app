@@ -4,6 +4,8 @@
 //! GeoSite downloads use v2fly's checksummed global protobuf catalog, while
 //! any unknown rule type remains fail-closed.
 
+mod ads;
+pub use ads::AdsRules;
 mod cache;
 mod country;
 mod error;

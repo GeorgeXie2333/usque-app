@@ -18,9 +18,9 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 
 ### Configuration compatibility when upgrading
 
-v0.2.9 uses configuration schema 21; v0.3.0 uses
-schema 23 for WARP encrypted DNS and account-specific Zero Trust endpoint
-overrides. Opening the newer app migrates and saves older configuration. The
+v0.2.9 uses configuration schema 21. The current source uses schema 24,
+adding unified routing rules and Ads to the WARP encrypted DNS and account-specific
+Zero Trust endpoint settings introduced in schemas 22 and 23. Opening the newer app migrates and saves older configuration. The
 older app rejects a newer schema, so installing v0.2.9 again cannot restore
 access to migrated data. Windows also rejects installer downgrades. No reverse
 configuration migration or WARP Secret import is provided.

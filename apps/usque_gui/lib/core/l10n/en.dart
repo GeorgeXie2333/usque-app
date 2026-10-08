@@ -647,4 +647,21 @@ const Map<String, String> kEnCatalog = <String, String>{
   'dns_duplicate_address': 'Remove repeated IP addresses.',
   'dns_address_not_allowed':
       'One of these addresses cannot be used to connect to a DNS server. Use the server IPs supplied by your DNS provider.',
+  "routing_rules": "Custom routing rules",
+  "routing_add": "Add rule",
+  "routing_batch": "Paste rules",
+  "routing_action": "Action",
+  "routing_target": "Domain, IP or CIDR",
+  "routing_priority":
+      "More specific rules win. Custom rules override Ads and countries; IP rejection still applies.",
+  "routing_conflict":
+      "Different actions for the same target. Edit these rules.",
+  "routing_overlap": "The more specific rule overrides the broader rule.",
+  "routing_duplicate": "Duplicate rules will be merged.",
+  "routing_ads": "Ads · advertising and tracking",
+  "routing_ads_ready": "Ads data is ready.",
+  "routing_ads_unavailable":
+      "Ads unavailable. Connections and custom rules remain available.",
+  "routing_pending": "Downloaded rules apply after reconnecting.",
+  'routing_current': "Current connection",
 };

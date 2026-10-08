@@ -105,7 +105,7 @@ impl L4Runtime {
             &cancellation,
         )?;
         if profile.frontends.tunnel
-            && geo_policy.is_enabled()
+            && geo_policy.needs_direct_dns()
             && protector.direct_dns_resolver().is_none()
             && protector.physical_dns_servers().is_empty()
         {
@@ -287,7 +287,7 @@ impl L4Runtime {
                 .or_else(|| {
                     (client.proxy.is_some()
                         && profile.data_plane != usque_core::DataPlaneMode::L4Proxy
-                        && geo_policy.is_enabled())
+                        && geo_policy.has_direct_routes())
                     .then(|| {
                         Arc::new(crate::proxy_udp::DirectOnly)
                             as Arc<dyn crate::proxy_udp::UdpFactory>

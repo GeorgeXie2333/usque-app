@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -39,6 +39,7 @@ const MAX_HINT_TTL: Duration = Duration::from_secs(60 * 60);
 const HINT_PRUNE_INTERVAL: Duration = Duration::from_secs(30);
 const RCODE_FORMERR: u16 = 1;
 const RCODE_SERVFAIL: u16 = 2;
+const RCODE_REFUSED: u16 = 5;
 
 pub(crate) fn validate_query_bytes(bytes: &[u8]) -> Result<(), String> {
     parse_query(bytes)
@@ -96,6 +97,8 @@ struct ParsedQuery {
 struct HintState {
     direct_until: Option<Instant>,
     tunnel_until: Option<Instant>,
+    explicit_proxy_until: Option<Instant>,
+    explicit_direct_until: Option<Instant>,
     last_seen: Instant,
 }
 
@@ -138,6 +141,26 @@ impl DnsRouteCache {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         sync_generation(&mut table, generation, now);
         prune_hints_if_needed(&mut table, now, false);
+        if policy.rejects_ip(ip) {
+            return GeoRoute::Reject;
+        }
+        if let Some(hint) = table.hints.get(&ip)
+            && (hint.explicit_proxy_until.is_some_and(|until| until > now)
+                || hint.direct_until.is_some_and(|until| until > now)
+                    && hint.tunnel_until.is_some_and(|until| until > now))
+        {
+            return GeoRoute::Tunnel;
+        }
+        if table
+            .hints
+            .get(&ip)
+            .is_some_and(|hint| hint.explicit_direct_until.is_some_and(|until| until > now))
+        {
+            return GeoRoute::Direct;
+        }
+        if let Some(route) = policy.custom_ip(ip) {
+            return route;
+        }
         let dns_direct = table.hints.get(&ip).is_some_and(|hint| {
             hint.direct_until.is_some_and(|until| until > now)
                 && !hint.tunnel_until.is_some_and(|until| until > now)
@@ -146,6 +169,47 @@ impl DnsRouteCache {
             GeoRoute::Direct
         } else {
             policy.route_ip(ip)
+        }
+    }
+
+    fn observe_policy(
+        &self,
+        response: &[u8],
+        query: &ParsedQuery,
+        route: QueryRoute,
+        generation: Option<u64>,
+        policy: &GeoDirectPolicy,
+    ) {
+        self.observe(response, query, route, generation);
+        let direct = query
+            .questions
+            .iter()
+            .any(|question| policy.custom_host(&question.name) == Some(GeoRoute::Direct));
+        let proxy = query
+            .questions
+            .iter()
+            .any(|question| policy.custom_host(&question.name) == Some(GeoRoute::Tunnel));
+        if !direct && !proxy {
+            return;
+        }
+        let mut table = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if table.generation != generation {
+            return;
+        }
+        let now = Instant::now();
+        for (ip, ttl) in response_hints(response, query).unwrap_or_default() {
+            if ttl == 0 {
+                continue;
+            }
+            let until = Some(now + Duration::from_secs(u64::from(ttl)).min(MAX_HINT_TTL));
+            if let Some(hint) = table.hints.get_mut(&ip) {
+                if proxy {
+                    hint.explicit_proxy_until = hint.explicit_proxy_until.max(until);
+                }
+                if direct {
+                    hint.explicit_direct_until = hint.explicit_direct_until.max(until);
+                }
+            }
         }
     }
 
@@ -185,11 +249,13 @@ impl DnsRouteCache {
             let hint = table.hints.entry(ip).or_insert(HintState {
                 direct_until: None,
                 tunnel_until: None,
+                explicit_proxy_until: None,
+                explicit_direct_until: None,
                 last_seen: now,
             });
             match route {
-                QueryRoute::Direct => hint.direct_until = Some(until),
-                QueryRoute::Tunnel => hint.tunnel_until = Some(until),
+                QueryRoute::Direct => hint.direct_until = hint.direct_until.max(Some(until)),
+                QueryRoute::Tunnel => hint.tunnel_until = hint.tunnel_until.max(Some(until)),
             }
             hint.last_seen = now;
         }
@@ -216,6 +282,8 @@ fn prune_hints(table: &mut HintTable, now: Instant) {
     table.hints.retain(|_, hint| {
         hint.direct_until.is_some_and(|until| until > now)
             || hint.tunnel_until.is_some_and(|until| until > now)
+            || hint.explicit_proxy_until.is_some_and(|until| until > now)
+            || hint.explicit_direct_until.is_some_and(|until| until > now)
     });
 }
 
@@ -277,6 +345,14 @@ impl SplitDnsResolver {
         self.hints.clone()
     }
 
+    pub(crate) fn routing_refusal(&self, query: &[u8]) -> Option<Vec<u8>> {
+        routing_dns_refused(query, &self.policy)
+    }
+
+    pub(crate) fn filter_routing_response(&self, query: &[u8], response: Vec<u8>) -> Vec<u8> {
+        filter_routing_dns_response(query, response, &self.policy)
+    }
+
     pub(crate) async fn handle_l4(&self, query: &[u8], udp: bool) -> Vec<u8> {
         self.handle(
             query,
@@ -295,6 +371,13 @@ impl SplitDnsResolver {
             Ok(query) => query,
             Err(_) => return error_response(query_bytes, RCODE_FORMERR),
         };
+        if query
+            .questions
+            .iter()
+            .any(|question| self.policy.route_host(&question.name) == GeoRoute::Reject)
+        {
+            return error_response(query_bytes, RCODE_REFUSED);
+        }
         let route = match classify_query(&query, &self.policy) {
             Ok(route) => route,
             Err(()) => return error_response(query_bytes, RCODE_SERVFAIL),
@@ -352,8 +435,23 @@ impl SplitDnsResolver {
                     complete_queue_entry(&mut direct_queue_entry);
                     return error_response(query_bytes, RCODE_SERVFAIL);
                 }
-                self.hints
-                    .observe(&response, &query, route, network_generation);
+                if let Err(error) = response_hints_filtered(&response, &query, Some(&self.policy)) {
+                    return error_response(
+                        query_bytes,
+                        if error == "routing_rejected" {
+                            RCODE_REFUSED
+                        } else {
+                            RCODE_SERVFAIL
+                        },
+                    );
+                }
+                self.hints.observe_policy(
+                    &response,
+                    &query,
+                    route,
+                    network_generation,
+                    &self.policy,
+                );
                 if system_metrics {
                     self.quality.record_direct_dns_success(started.elapsed());
                 }
@@ -739,7 +837,7 @@ impl SplitDnsRuntime {
         cancellation: &CancellationToken,
     ) -> Result<Self, String> {
         let encrypted = config.protector.direct_dns_resolver().is_some();
-        if config.policy.is_enabled()
+        if config.policy.needs_direct_dns()
             && !encrypted
             && config.protector.physical_dns_servers().is_empty()
         {
@@ -1003,7 +1101,7 @@ async fn run_tcp_server(
     }
 }
 
-async fn direct_udp(
+pub(crate) async fn direct_udp(
     protector: &dyn SocketProtector,
     server: SocketAddr,
     query: &[u8],
@@ -1219,6 +1317,69 @@ pub(crate) async fn physical_wire_query(
     Err("query_failed".to_owned())
 }
 
+/// Resolve known direct traffic while checking observable CNAME answers before
+/// opening a data socket. Opaque platform resolvers retain their existing path.
+pub(crate) async fn resolve_direct_routed(
+    protector: &dyn SocketProtector,
+    host: &str,
+    port: u16,
+    policy: &GeoDirectPolicy,
+) -> Result<Vec<SocketAddr>, String> {
+    let encrypted = protector.direct_dns_resolver();
+    if encrypted.is_none() && protector.physical_dns_servers().is_empty() {
+        return protector.resolve_direct(host, port).await;
+    }
+    let generation = protector.network_generation().unwrap_or_default();
+    let context = DirectDnsQueryContext {
+        network_generation: generation,
+        deadline: tokio::time::Instant::now() + DNS_TIMEOUT,
+    };
+    let query = |kind| {
+        let encrypted = encrypted.clone();
+        async move {
+            let wire = build_host_query(host, kind, next_udp_port())?;
+            let parsed = parse_query(&wire)?;
+            let response = if let Some(resolver) = encrypted {
+                resolver
+                    .query(Bytes::from(wire), context)
+                    .await
+                    .map_err(|error| error.to_string())?
+            } else {
+                Bytes::from(physical_wire_query(protector, &wire, generation).await?)
+            };
+            response_hints_filtered(&response, &parsed, Some(policy))
+        }
+    };
+    let (v4, v6) = tokio::join!(query(1), query(28));
+    if protector.network_generation().unwrap_or_default() != generation {
+        return Err("network_changed".into());
+    }
+    let mut addresses = Vec::new();
+    for result in [v4, v6] {
+        match result {
+            Ok(values) => {
+                addresses.extend(values.into_iter().map(|(ip, _)| SocketAddr::new(ip, port)))
+            }
+            Err(error) if error == "routing_rejected" => return Err(error),
+            Err(_) => {}
+        }
+    }
+    addresses.retain(|address| !address.ip().is_unspecified() && !address.ip().is_multicast());
+    let had_addresses = !addresses.is_empty();
+    addresses.retain(|address| !policy.rejects_ip(address.ip()));
+    if had_addresses && addresses.is_empty() {
+        return Err("routing_rejected".into());
+    }
+    addresses.sort();
+    addresses.dedup();
+    addresses.truncate(16);
+    if addresses.is_empty() {
+        Err("direct_resolution_failed".into())
+    } else {
+        Ok(addresses)
+    }
+}
+
 pub(crate) async fn resolve_encrypted_host(
     resolver: &DirectDnsResolver,
     protector: &dyn SocketProtector,
@@ -1274,6 +1435,103 @@ fn response_is_truncated(response: &[u8]) -> bool {
 }
 
 fn response_hints(response: &[u8], query: &ParsedQuery) -> Result<Vec<(IpAddr, u32)>, String> {
+    response_hints_filtered(response, query, None)
+}
+
+pub(crate) fn routing_dns_refused(query: &[u8], policy: &GeoDirectPolicy) -> Option<Vec<u8>> {
+    let parsed = parse_query(query).ok()?;
+    parsed
+        .questions
+        .iter()
+        .any(|question| policy.route_host(&question.name) == GeoRoute::Reject)
+        .then(|| error_response(query, RCODE_REFUSED))
+}
+
+pub(crate) fn check_routing_dns_response(
+    query: &[u8],
+    response: &[u8],
+    policy: &GeoDirectPolicy,
+) -> Result<(), String> {
+    let parsed = parse_query(query)?;
+    response_hints_filtered(response, &parsed, Some(policy)).map(|_| ())
+}
+
+pub(crate) fn filter_routing_dns_response(
+    query: &[u8],
+    response: Vec<u8>,
+    policy: &GeoDirectPolicy,
+) -> Vec<u8> {
+    match check_routing_dns_response(query, &response, policy) {
+        Ok(()) => response,
+        Err(error) => error_response(
+            query,
+            if error == "routing_rejected" {
+                RCODE_REFUSED
+            } else {
+                RCODE_SERVFAIL
+            },
+        ),
+    }
+}
+
+/// Per-association correlation for raw SOCKS UDP DNS. At most four 4 KiB queries
+/// survive for four seconds; unmatched/late responses never bypass inspection.
+#[derive(Default)]
+pub(crate) struct RoutingDnsQueries {
+    pending: VecDeque<(Instant, SocketAddr, ParsedQuery, Vec<u8>)>,
+}
+
+impl RoutingDnsQueries {
+    pub(crate) fn record(&mut self, server: SocketAddr, query: &[u8]) -> bool {
+        self.prune();
+        if query.len() > MAX_UDP_MESSAGE {
+            return false;
+        }
+        let Ok(parsed) = parse_query(query) else {
+            return false;
+        };
+        self.pending.retain(|(_, endpoint, existing, _)| {
+            *endpoint != server
+                || existing.id != parsed.id
+                || existing.questions != parsed.questions
+        });
+        if self.pending.len() >= 4 {
+            return false;
+        }
+        self.pending
+            .push_back((Instant::now(), server, parsed, query.to_vec()));
+        true
+    }
+
+    pub(crate) fn filter(
+        &mut self,
+        server: SocketAddr,
+        response: &[u8],
+        policy: &GeoDirectPolicy,
+    ) -> Option<Vec<u8>> {
+        self.prune();
+        let index = self.pending.iter().position(|(_, endpoint, parsed, _)| {
+            *endpoint == server && validate_response(parsed, response).is_ok()
+        })?;
+        let (_, _, _, query) = self.pending.remove(index)?;
+        Some(filter_routing_dns_response(
+            &query,
+            response.to_vec(),
+            policy,
+        ))
+    }
+
+    fn prune(&mut self) {
+        self.pending
+            .retain(|(created, _, _, _)| created.elapsed() < DNS_TIMEOUT);
+    }
+}
+
+fn response_hints_filtered(
+    response: &[u8],
+    query: &ParsedQuery,
+    policy: Option<&GeoDirectPolicy>,
+) -> Result<Vec<(IpAddr, u32)>, String> {
     let mut offset = validate_response(query, response)?;
     let answer_count = usize::from(read_u16(response, 6)?);
     let authority_count = usize::from(read_u16(response, 8)?);
@@ -1348,9 +1606,20 @@ fn response_hints(response: &[u8], query: &ParsedQuery) -> Result<Vec<(IpAddr, u
         let mut name = question.name.clone();
         let mut chain_ttl = u32::MAX;
         let mut seen = HashSet::new();
-        for _ in 0..=MAX_CNAME_DEPTH {
+        for depth in 0..=MAX_CNAME_DEPTH {
             if !seen.insert(name.clone()) {
-                break;
+                return Err("CNAME chain cycle".into());
+            }
+            if let Some(policy) = policy {
+                let explicit_allow = matches!(
+                    policy.custom_host(&question.name),
+                    Some(GeoRoute::Direct | GeoRoute::Tunnel)
+                );
+                if policy.custom_host(&name) == Some(GeoRoute::Reject)
+                    || !explicit_allow && policy.route_host(&name) == GeoRoute::Reject
+                {
+                    return Err("routing_rejected".into());
+                }
             }
             if let Some(values) = addresses.get(&name) {
                 for (ip, ttl) in values {
@@ -1364,6 +1633,9 @@ fn response_hints(response: &[u8], query: &ParsedQuery) -> Result<Vec<(IpAddr, u
             let Some((target, ttl)) = cnames.get(&name) else {
                 break;
             };
+            if depth == MAX_CNAME_DEPTH {
+                return Err("CNAME chain exceeds the supported bound".into());
+            }
             chain_ttl = chain_ttl.min(*ttl);
             name.clone_from(target);
         }
@@ -1661,6 +1933,34 @@ fn read_u32(packet: &[u8], offset: usize) -> Result<u32, String> {
         .get(offset..offset + 4)
         .ok_or_else(|| "truncated DNS field".to_owned())?;
     Ok(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+#[cfg(test)]
+pub(crate) fn test_host_query(name: &str) -> Vec<u8> {
+    build_host_query(name, 1, 123).unwrap()
+}
+
+#[cfg(test)]
+pub(crate) fn test_cname_response(query: &[u8], targets: &[String]) -> Vec<u8> {
+    let parsed = parse_query(query).unwrap();
+    let mut owner = parsed.questions[0].name.clone();
+    let wire_name = |name: &str| {
+        let wire = test_host_query(name);
+        wire[12..wire.len() - 4].to_vec()
+    };
+    let mut response = error_response(query, 0);
+    response[6..8].copy_from_slice(&((targets.len() + 1) as u16).to_be_bytes());
+    for target in targets {
+        response.extend(wire_name(&owner));
+        response.extend([0, 5, 0, 1, 0, 0, 0, 60]);
+        let target_wire = wire_name(target);
+        response.extend((target_wire.len() as u16).to_be_bytes());
+        response.extend(target_wire);
+        owner.clone_from(target);
+    }
+    response.extend(wire_name(&owner));
+    response.extend([0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 203, 0, 113, 7]);
+    response
 }
 
 #[cfg(test)]
@@ -2044,6 +2344,153 @@ pub(crate) mod tests {
         response
     }
 
+    #[tokio::test]
+    async fn reject_only_dns_refuses_before_upstream_or_admission() {
+        let policy = crate::geo_direct::routing_test_policy(&[(
+            "example.com",
+            usque_core::RoutingAction::Reject,
+        )]);
+        let resolver = SplitDnsResolver {
+            tunnel_channel: None,
+            stream_dns: None,
+            assigned_ipv4: Ipv4Addr::UNSPECIFIED,
+            assigned_ipv6: Ipv6Addr::UNSPECIFIED,
+            tunnel_servers: Vec::new(),
+            final_exit: false,
+            final_tcp: None,
+            final_doh: None,
+            policy: Arc::new(policy),
+            protector: Arc::new(crate::socket::NoopSocketProtector),
+            hints: Arc::new(DnsRouteCache::default()),
+            permits: Arc::new(Semaphore::new(0)),
+            service_tasks: Arc::new(Semaphore::new(0)),
+            quality: NetworkQualityTelemetry::default(),
+            direct_queue: None,
+        };
+        for transport in [QueryTransport::Udp, QueryTransport::Tcp] {
+            for request in [query(11, "example.com"), mixed_query()] {
+                let response = resolver.handle(&request, transport).await;
+                assert_eq!(read_u16(&response, 2).unwrap() & 15, RCODE_REFUSED);
+                assert_eq!(&response[..2], &request[..2]);
+            }
+        }
+        assert!(resolver.hints.inner.lock().unwrap().hints.is_empty());
+    }
+
+    #[test]
+    fn cname_rejection_and_explicit_proxy_hints() {
+        let policy = crate::geo_direct::routing_test_policy(&[
+            ("alias.test", usque_core::RoutingAction::Reject),
+            ("proxy.test", usque_core::RoutingAction::Proxy),
+        ]);
+        let request = query(13, "allowed.test");
+        let mut response = error_response(&request, 0);
+        response[6..8].copy_from_slice(&1_u16.to_be_bytes());
+        response.extend_from_slice(&[0xc0, 0x0c, 0, 5, 0, 1, 0, 0, 0, 60]);
+        let alias = query(0, "alias.test");
+        let encoded = &alias[12..alias.len() - 4];
+        response.extend_from_slice(&(encoded.len() as u16).to_be_bytes());
+        response.extend_from_slice(encoded);
+        assert_eq!(
+            check_routing_dns_response(&request, &response, &policy).unwrap_err(),
+            "routing_rejected"
+        );
+        let request = query(14, "proxy.test");
+        let parsed = parse_query(&request).unwrap();
+        let response = a_response(&request, 60, [203, 0, 113, 9]);
+        let cache = DnsRouteCache::default();
+        cache.observe_policy(&response, &parsed, QueryRoute::Tunnel, Some(1), &policy);
+        assert_eq!(
+            cache.route_ip(
+                "203.0.113.9".parse().unwrap(),
+                Some(1),
+                &super::tests::policy()
+            ),
+            GeoRoute::Tunnel
+        );
+        assert_eq!(
+            cache.route_ip(
+                "203.0.113.9".parse().unwrap(),
+                Some(2),
+                &super::tests::policy()
+            ),
+            GeoRoute::Direct
+        );
+    }
+
+    #[test]
+    fn explicit_proxy_survives_shorter_shared_ip_observations_and_pruning() {
+        let policy = crate::geo_direct::routing_test_policy(&[
+            ("proxy.test", usque_core::RoutingAction::Proxy),
+            ("203.0.113.7", usque_core::RoutingAction::Direct),
+        ]);
+        let cache = DnsRouteCache::default();
+        for (host, ttl) in [("proxy.test", 3600), ("other.test", 1), ("proxy.test", 1)] {
+            let request = query(9, host);
+            cache.observe_policy(
+                &a_response(&request, ttl, [203, 0, 113, 7]),
+                &parse_query(&request).unwrap(),
+                QueryRoute::Tunnel,
+                Some(1),
+                &policy,
+            );
+        }
+        let ip = "203.0.113.7".parse().unwrap();
+        {
+            let mut table = cache.inner.lock().unwrap();
+            let future = Instant::now() + Duration::from_secs(30);
+            // Explicit lifetimes remain meaningful independently of ordinary observations.
+            table.hints.get_mut(&ip).unwrap().tunnel_until = Some(Instant::now());
+            prune_hints(&mut table, future);
+            assert!(table.hints[&ip].explicit_proxy_until.unwrap() > future);
+        }
+        assert_eq!(cache.route_ip(ip, Some(1), &policy), GeoRoute::Tunnel);
+        assert_eq!(cache.route_ip(ip, Some(2), &policy), GeoRoute::Direct);
+    }
+
+    #[test]
+    fn cname_depth_bound_is_terminal_and_raw_udp_replies_are_correlated() {
+        let policy = crate::geo_direct::routing_test_policy(&[(
+            "blocked.test",
+            usque_core::RoutingAction::Reject,
+        )]);
+        let request = query(20, "allowed.test");
+        let mut names = (0..MAX_CNAME_DEPTH)
+            .map(|n| format!("hop{n}.test"))
+            .collect::<Vec<_>>();
+        names.push("blocked.test".into());
+        let too_deep = test_cname_response(&request, &names);
+        assert!(check_routing_dns_response(&request, &too_deep, &policy).is_err());
+        assert_eq!(
+            filter_routing_dns_response(&request, too_deep, &policy)[3] & 15,
+            RCODE_SERVFAIL as u8
+        );
+        let response = test_cname_response(&request, &["blocked.test".into()]);
+        let server = "192.0.2.53:53".parse().unwrap();
+        let other = "192.0.2.54:53".parse().unwrap();
+        let mut pending = RoutingDnsQueries::default();
+        assert!(pending.filter(server, &response, &policy).is_none());
+        assert!(pending.record(server, &request));
+        assert_eq!(
+            pending.filter(server, &response, &policy).unwrap()[3] & 15,
+            RCODE_REFUSED as u8
+        );
+        assert!(pending.filter(server, &response, &policy).is_none());
+        for id in 0..4 {
+            assert!(pending.record(server, &query(id, "allowed.test")));
+        }
+        assert!(!pending.record(server, &query(5, "allowed.test")));
+        for (created, _, _, _) in &mut pending.pending {
+            *created -= DNS_TIMEOUT;
+        }
+        assert!(pending.record(server, &request));
+        assert_eq!(pending.pending.len(), 1);
+        assert!(pending.record(other, &request));
+        let failure = error_response(&request, RCODE_SERVFAIL);
+        assert!(pending.filter(server, &failure, &policy).is_some());
+        assert!(pending.filter(other, &response, &policy).is_some());
+    }
+
     #[test]
     fn classifies_before_upstream_selection() {
         let direct = parse_query(&query(1, "www.example.cn")).unwrap();
@@ -2226,6 +2673,8 @@ pub(crate) mod tests {
                     HintState {
                         direct_until: Some(now - Duration::from_secs(1)),
                         tunnel_until: None,
+                        explicit_proxy_until: None,
+                        explicit_direct_until: None,
                         last_seen: now - Duration::from_secs(1),
                     },
                 )]),
@@ -2244,6 +2693,8 @@ pub(crate) mod tests {
         let expired = HintState {
             direct_until: Some(now - Duration::from_secs(1)),
             tunnel_until: None,
+            explicit_proxy_until: None,
+            explicit_direct_until: None,
             last_seen: now - Duration::from_secs(1),
         };
         let mut table = HintTable {
@@ -2279,6 +2730,49 @@ pub(crate) mod tests {
         fn network_generation(&self) -> Option<u64> {
             Some(self.generation.load(Ordering::Acquire))
         }
+    }
+
+    #[tokio::test]
+    async fn direct_candidate_limit_is_applied_after_ip_rejection() {
+        let server = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let protector = LocalDnsProtector {
+            server: server.local_addr().unwrap(),
+            generation: Arc::new(AtomicU64::new(1)),
+        };
+        let task = tokio::spawn(async move {
+            for _ in 0..2 {
+                let mut wire = [0; 4096];
+                let (length, peer) = server.recv_from(&mut wire).await.unwrap();
+                let request = &wire[..length];
+                let parsed = parse_query(request).unwrap();
+                let mut response = error_response(request, 0);
+                if parsed.questions[0].query_type == 1 {
+                    response[6..8].copy_from_slice(&16_u16.to_be_bytes());
+                    for n in 1..=16 {
+                        response.extend([0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 192, 0, 2, n]);
+                    }
+                } else {
+                    response[6..8].copy_from_slice(&1_u16.to_be_bytes());
+                    response.extend([0xc0, 12, 0, 28, 0, 1, 0, 0, 0, 60, 0, 16]);
+                    response.extend("2001:db8::7".parse::<Ipv6Addr>().unwrap().octets());
+                }
+                server.send_to(&response, peer).await.unwrap();
+            }
+        });
+        let policy = crate::geo_direct::routing_test_policy(&[(
+            "192.0.2.0/24",
+            usque_core::RoutingAction::Reject,
+        )]);
+        let addresses = resolve_direct_routed(&protector, "service.test", 443, &policy)
+            .await
+            .unwrap();
+        assert_eq!(
+            addresses,
+            ["[2001:db8::7]:443".parse::<SocketAddr>().unwrap()]
+        );
+        task.await.unwrap();
     }
 
     #[tokio::test]

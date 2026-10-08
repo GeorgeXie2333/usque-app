@@ -656,4 +656,21 @@ const Map<String, String> kTrCatalog = <String, String>{
   'dns_duplicate_address': 'Yinelenen IP adreslerini kaldırın.',
   'dns_address_not_allowed':
       'Bir adres DNS sunucusuna bağlanmak için kullanılamıyor. DNS sağlayıcınızın verdiği sunucu IP’lerini kullanın.',
+  "routing_rules": "Özel yönlendirme kuralları",
+  "routing_add": "Kural ekle",
+  "routing_batch": "Kuralları yapıştır",
+  "routing_action": "İşlem",
+  "routing_target": "Alan adı, IP veya CIDR",
+  "routing_priority":
+      "Daha özel kurallar önceliklidir. Özel kurallar Ads ve ülkeleri geçersiz kılar; IP engeli uygulanmaya devam eder.",
+  "routing_conflict":
+      "Aynı hedef için farklı işlemler var. Bu kuralları düzenleyin.",
+  "routing_overlap": "Daha özel kural, daha geniş kuralın önüne geçer.",
+  "routing_duplicate": "Yinelenen kurallar kaydedilirken birleştirilir.",
+  "routing_ads": "Ads · reklam ve izleme",
+  "routing_ads_ready": "Ads verileri hazır.",
+  "routing_ads_unavailable":
+      "Ads verileri kullanılamıyor. Bağlantılar ve özel kurallar çalışmaya devam eder.",
+  "routing_pending": "İndirilen kurallar yeniden bağlanınca uygulanır.",
+  'routing_current': "Geçerli bağlantı",
 };

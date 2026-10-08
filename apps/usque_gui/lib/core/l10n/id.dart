@@ -650,4 +650,23 @@ const Map<String, String> kIdCatalog = <String, String>{
   'dns_duplicate_address': 'Hapus alamat IP yang duplikat.',
   'dns_address_not_allowed':
       'Salah satu alamat tidak bisa digunakan untuk terhubung ke server DNS. Gunakan IP server dari penyedia DNS Anda.',
+  "routing_rules": "Aturan perutean khusus",
+  "routing_add": "Tambah aturan",
+  "routing_batch": "Tempel aturan",
+  "routing_action": "Tindakan",
+  "routing_target": "Domain, IP, atau CIDR",
+  "routing_priority":
+      "Aturan lebih spesifik didahulukan. Aturan khusus mengesampingkan Ads dan negara; penolakan IP tetap berlaku.",
+  "routing_conflict":
+      "Tindakan berbeda untuk tujuan yang sama. Ubah aturan ini.",
+  "routing_overlap":
+      "Aturan lebih spesifik mengesampingkan aturan yang lebih luas.",
+  "routing_duplicate": "Aturan duplikat digabungkan saat disimpan.",
+  "routing_ads": "Ads · iklan dan pelacakan",
+  "routing_ads_ready": "Data Ads tersedia.",
+  "routing_ads_unavailable":
+      "Data Ads tidak tersedia. Koneksi dan aturan khusus tetap tersedia.",
+  "routing_pending":
+      "Aturan yang diunduh diterapkan setelah tersambung kembali.",
+  'routing_current': "Koneksi saat ini",
 };

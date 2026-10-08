@@ -637,4 +637,20 @@ const Map<String, String> kArCatalog = <String, String>{
   'dns_duplicate_address': 'احذف عناوين IP المكررة.',
   'dns_address_not_allowed':
       'لا يمكن استخدام أحد العناوين للاتصال بخادم DNS. استخدم عناوين الخادم التي يوفرها مزود DNS.',
+  "routing_rules": "قواعد التوجيه المخصصة",
+  "routing_add": "إضافة قاعدة",
+  "routing_batch": "لصق القواعد",
+  "routing_action": "الإجراء",
+  "routing_target": "نطاق أو IP أو CIDR",
+  "routing_priority":
+      "للأكثر تحديدًا الأولوية. تتقدم القواعد المخصصة على Ads والدول؛ يبقى حظر IP ساريًا.",
+  "routing_conflict": "إجراءات مختلفة للهدف نفسه. عدّل هذه القواعد.",
+  "routing_overlap": "تتقدم القاعدة الأكثر تحديدًا على القاعدة الأوسع.",
+  "routing_duplicate": "تُدمج القواعد المكررة عند الحفظ.",
+  "routing_ads": "Ads · الإعلانات والتتبع",
+  "routing_ads_ready": "بيانات Ads جاهزة.",
+  "routing_ads_unavailable":
+      "بيانات Ads غير متاحة. تظل الاتصالات والقواعد المخصصة متاحة.",
+  "routing_pending": "تُطبق القواعد المنزلة بعد إعادة الاتصال.",
+  'routing_current': "الاتصال الحالي",
 };

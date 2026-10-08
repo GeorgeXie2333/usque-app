@@ -280,6 +280,9 @@ impl AppConfig {
                 .unwrap_or_default();
         }
         network.endpoint.selection = crate::EndpointSelection::Custom;
+        network
+            .routing
+            .migrate_direct(&mut network.split_exclusions, &mut network.bypass_domains);
         Self {
             schema_version: CURRENT_SCHEMA_VERSION,
             active_profile_id: legacy.active_profile_id,
@@ -465,6 +468,13 @@ fn migrate_app_config(config: &mut AppConfig) {
         }
         config.schema_version = 23;
     }
+    if config.schema_version < 24 {
+        config.network.routing.migrate_direct(
+            &mut config.network.split_exclusions,
+            &mut config.network.bypass_domains,
+        );
+        config.schema_version = 24;
+    }
 }
 
 #[cfg(not(windows))]
@@ -538,6 +548,39 @@ pub enum StoreError {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn schema_23_moves_targets_to_stable_shared_routing_rules() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let mut config = crate::AppConfig {
+            schema_version: 23,
+            ..Default::default()
+        };
+        config.network.bypass_domains = vec!["Example.COM.".into()];
+        config.network.split_exclusions = vec!["192.0.2.0/24".parse().unwrap()];
+        std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+        let store = super::ConfigStore::new(path);
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.schema_version, 24);
+        assert!(loaded.network.bypass_domains.is_empty());
+        assert!(loaded.network.split_exclusions.is_empty());
+        assert_eq!(loaded.network.routing.rules.len(), 2);
+        assert!(
+            loaded
+                .network
+                .routing
+                .rules
+                .iter()
+                .all(|rule| rule.action == crate::RoutingAction::Direct)
+        );
+        assert!(!loaded.network.routing.ads_enabled);
+        assert_eq!(
+            store.load().unwrap().network.routing,
+            loaded.network.routing
+        );
+        assert!(loaded.active_profile().unwrap().needs_domain_routing());
+    }
+
+    #[test]
     fn initial_execution_lease_is_shared_and_released_with_its_owner() {
         let directory = tempfile::tempdir().unwrap();
         let store = super::ConfigStore::new(directory.path().join("config.json"));
@@ -585,7 +628,7 @@ mod tests {
         config.schema_version = 22;
         store.save(&config).unwrap();
         let mut loaded = store.load().unwrap();
-        assert_eq!(loaded.schema_version, 23);
+        assert_eq!(loaded.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(
             loaded.account(id).unwrap().managed_endpoint_ips,
             Some(registered.clone())
@@ -1058,9 +1101,11 @@ mod tests {
         migrate_app_config(&mut legacy);
         assert_eq!(legacy.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(legacy.network.geo_direct_countries, ["CN"]);
+        assert!(legacy.network.split_exclusions.is_empty());
+        assert_eq!(legacy.network.routing.rules[0].target, "192.0.2.0/24");
         assert_eq!(
-            legacy.network.split_exclusions,
-            config.network.split_exclusions
+            legacy.network.routing.rules[0].action,
+            crate::RoutingAction::Direct
         );
         assert!(legacy.network.bypass_domains.is_empty());
     }

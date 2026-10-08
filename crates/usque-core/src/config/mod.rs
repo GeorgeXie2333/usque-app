@@ -20,6 +20,7 @@ mod congestion;
 mod data_plane;
 mod initial_identity;
 mod network;
+mod routing;
 #[cfg(test)]
 mod warp_dns_tests;
 
@@ -28,8 +29,11 @@ pub use congestion::CongestionControlAlgorithm;
 pub use data_plane::{CONSUMER_L4_SNI, DataPlaneMode, ZERO_TRUST_L4_SNI, l4_server_name};
 pub use initial_identity::{InitialIdentityOperation, InitialIdentityPhase};
 pub use network::SharedNetworkSettings;
+pub use routing::{
+    MAX_ROUTING_RULES_PER_KIND, RoutingAction, RoutingMatch, RoutingRule, RoutingSettings,
+};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 23;
+pub const CURRENT_SCHEMA_VERSION: u32 = 24;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -491,6 +495,8 @@ pub struct Profile {
     pub geo_direct_countries: Vec<String>,
     #[serde(default)]
     pub bypass_domains: Vec<String>,
+    #[serde(default)]
+    pub routing: RoutingSettings,
     /// Resolver used only for GeoSite traffic routed directly over the
     /// physical network. The default preserves the system-resolver behavior.
     #[serde(default)]
@@ -526,6 +532,7 @@ impl Default for Profile {
             proxy: ProxySettings::default(),
             geo_direct_countries: Vec::new(),
             bypass_domains: Vec::new(),
+            routing: RoutingSettings::default(),
             direct_dns: DirectDnsSettings::default(),
             vpn_gate: crate::vpngate::VpnGateSettings::default(),
             chain_exit: None,
@@ -619,6 +626,7 @@ impl Profile {
         }
         normalize_geo_direct_countries(&self.geo_direct_countries)?;
         normalize_bypass_domains(&self.bypass_domains)?;
+        self.routing.normalized()?;
         self.direct_dns.validate()?;
         self.warp_dns.validate()?;
         if self.frontends.tunnel {
@@ -694,18 +702,27 @@ impl Profile {
         self.proxy = ProxySettings::default();
         self.geo_direct_countries.clear();
         self.bypass_domains.clear();
+        self.routing = RoutingSettings::default();
         self.direct_dns = DirectDnsSettings::default();
         self.vpn_gate = crate::vpngate::VpnGateSettings::default();
         self.chain_exit = None;
     }
 
     pub fn has_domain_direct_rules(&self) -> bool {
-        !self.geo_direct_countries.is_empty() || !self.bypass_domains.is_empty()
+        !self.geo_direct_countries.is_empty()
+            || !self.bypass_domains.is_empty()
+            || self.routing.has_direct_domains()
+    }
+
+    pub fn needs_domain_routing(&self) -> bool {
+        self.has_domain_direct_rules() || self.routing.has_domain_rules()
     }
 
     pub fn canonicalize_geo_direct(&mut self) -> Result<(), ConfigError> {
+        self.routing = self.routing.normalized()?;
         self.geo_direct_countries = normalize_geo_direct_countries(&self.geo_direct_countries)?;
         self.bypass_domains = normalize_bypass_domains(&self.bypass_domains)?;
+        self.routing.normalized()?;
         let mut seen = HashSet::new();
         self.split_exclusions = self
             .split_exclusions
@@ -1463,6 +1480,14 @@ fn valid_dns_name(value: &str) -> bool {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
+    #[error("ROUTING_RULE_INVALID:{0}")]
+    InvalidRoutingRule(Uuid),
+    #[error("ROUTING_RULE_CONFLICT:{0}:{1}")]
+    RoutingConflict(Uuid, Uuid),
+    #[error("ROUTING_RULE_LIMIT")]
+    RoutingLimit,
+    #[error("ROUTING_UPGRADE_REQUIRED")]
+    RoutingUpgradeRequired,
     #[error("initial identity operation is invalid")]
     InvalidInitialIdentityOperation,
     #[error("no more than 256 bypass domains are allowed")]

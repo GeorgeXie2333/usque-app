@@ -59,6 +59,13 @@ impl<F: HttpFetch> GeoDownloader<F> {
     /// Fetches and verifies v2fly's global `dlc.dat` release artifact.
     pub async fn download_geosite(&self) -> Result<(), GeoError> {
         let bytes = self.fetch_verified_geosite().await?;
+        if let Ok(previous) = std::fs::read(global_geosite_cache_path(&self.cache_dir)) {
+            crate::ads::retain_valid_ads(&self.cache_dir, &previous)?;
+        }
+        if crate::AdsRules::load(&self.cache_dir).is_ok() && crate::AdsRules::parse(&bytes).is_err()
+        {
+            return Err(GeoError::InvalidGeoSite);
+        }
         atomic_write(&global_geosite_cache_path(&self.cache_dir), &bytes)
     }
 
@@ -150,6 +157,13 @@ impl<F: HttpFetch> GeoDownloader<F> {
             return Err(GeoError::ChecksumMismatch);
         }
         GeoSiteSet::validate_v2ray_dat(&bytes)?;
+        if let Ok(previous) = std::fs::read(&path) {
+            crate::ads::retain_valid_ads(&self.cache_dir, &previous)?;
+        }
+        if crate::AdsRules::load(&self.cache_dir).is_ok() && crate::AdsRules::parse(&bytes).is_err()
+        {
+            return Err(GeoError::InvalidGeoSite);
+        }
         atomic_write(&path, &bytes)?;
         Ok(UpdateStatus::Updated)
     }
@@ -248,6 +262,67 @@ pub(crate) fn parse_sha256sum(text: &str) -> Result<[u8; 32], GeoError> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use prost::Message;
+
+    struct AdsFetch(Vec<u8>);
+    impl HttpFetch for AdsFetch {
+        async fn get_capped(&self, url: &str, _: usize) -> Result<crate::FetchedBody, GeoError> {
+            let body = if url.ends_with(".sha256sum") {
+                sha256_digest(&self.0)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+                    .into_bytes()
+            } else {
+                self.0.clone()
+            };
+            Ok(crate::FetchedBody {
+                status: 200,
+                url: url.into(),
+                body: body.into(),
+            })
+        }
+    }
+
+    fn ads_catalogue(host: &str) -> Vec<u8> {
+        crate::proto::GeoSiteList {
+            entry: vec![crate::proto::GeoSite {
+                country_code: "category-ads-all".into(),
+                domain: vec![crate::proto::Domain {
+                    r#type: crate::proto::DOMAIN_DOMAIN,
+                    value: host.into(),
+                }],
+            }],
+        }
+        .encode_to_vec()
+    }
+
+    #[tokio::test]
+    async fn failed_primary_commit_preserves_the_only_valid_ads_library() {
+        for automatic in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let primary = global_geosite_cache_path(dir.path());
+            std::fs::create_dir_all(&primary).unwrap(); // A deterministic replace failure.
+            let old = ads_catalogue("old.test");
+            crate::ads::retain_valid_ads(dir.path(), &old).unwrap();
+            let downloader = GeoDownloader::new(AdsFetch(ads_catalogue("new.test")), dir.path());
+            let failed = if automatic {
+                downloader.update_geosite_inner().await.is_err()
+            } else {
+                downloader.download_geosite().await.is_err()
+            };
+            assert!(failed);
+            let retained = crate::AdsRules::load(dir.path()).unwrap();
+            assert!(retained.contains("old.test"));
+            assert!(!retained.contains("new.test"));
+            assert_eq!(
+                std::fs::read(dir.path().join("geo/geosite/ads-last-good.dat")).unwrap(),
+                old
+            );
+        }
+    }
+
     use super::parse_sha256sum;
     use crate::error::GeoError;
 

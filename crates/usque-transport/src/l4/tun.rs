@@ -273,6 +273,7 @@ impl TunBridge {
         let tracked_flows = flow_tasks.clone();
         let udp_idle = profile.proxy.udp_idle_timeout_seconds;
         let udp_enabled = profile.data_plane != usque_core::DataPlaneMode::L4Proxy;
+        let routing_rejector = crate::routing_reject::RoutingRejector::default();
         let udp_rejector =
             UdpRejector::new(response_tx.clone(), metrics.clone(), cancellation.clone());
         let task = tokio::spawn(async move {
@@ -295,6 +296,22 @@ impl TunBridge {
                     }
                     packet = packets.recv() => match packet { Some(p) => p.into_bytes(), None => break },
                 };
+                let internal_dns = NatPacket::parse(&packet).is_some_and(|meta| {
+                    meta.destination_port == 53
+                        && matches!(
+                            meta.destination,
+                            IpAddr::V4(SPLIT_DNS_IPV4) | IpAddr::V6(SPLIT_DNS_IPV6)
+                        )
+                });
+                if !internal_dns
+                    && crate::routing_reject::destination(&packet)
+                        .is_some_and(|ip| services.geo_policy.rejects_ip(ip))
+                {
+                    if let Some(reply) = routing_rejector.reply(&packet) {
+                        let _ = response_tx.try_send(reply);
+                    }
+                    continue;
+                }
                 let Some(meta) = NatPacket::parse(&packet) else {
                     pump_metrics.update(|m| m.unsupported_packets += 1);
                     continue;
@@ -693,6 +710,9 @@ async fn connect_target(
     route: GeoRoute,
     services: &ProxyServices,
 ) -> Result<RoutedTcpStream, ()> {
+    if route == GeoRoute::Reject {
+        return Err(());
+    }
     if route == GeoRoute::Direct
         && let Ok((stream, lease)) = connect_direct_ip(services.protector.as_ref(), remote).await
     {
@@ -721,19 +741,24 @@ async fn dns_query(
     meta: &NatPacket,
     query: &[u8],
 ) -> Vec<u8> {
+    if let Some(refused) = resolver.routing_refusal(query) {
+        return refused;
+    }
     if matches!(
         meta.destination,
         IpAddr::V4(SPLIT_DNS_IPV4) | IpAddr::V6(SPLIT_DNS_IPV6)
     ) {
         resolver.handle_l4(query, true).await
     } else {
-        dns.query(
-            SocketAddr::new(meta.destination, 53),
-            query,
-            Instant::now() + Duration::from_secs(4),
-        )
-        .await
-        .unwrap_or_else(|_| crate::split_dns::l4_dns_error(query))
+        let response = dns
+            .query(
+                SocketAddr::new(meta.destination, 53),
+                query,
+                Instant::now() + Duration::from_secs(4),
+            )
+            .await
+            .unwrap_or_else(|_| crate::split_dns::l4_dns_error(query));
+        resolver.filter_routing_response(query, response)
     }
 }
 

@@ -189,9 +189,11 @@ impl ControlService {
             state.clear_exit_info();
             let _ = state.transition(usque_core::ConnectionPhase::Reconnecting);
         }
+        let mut ads_revision = String::new();
         let result = async {
             let selected = self.prepare_gate_selection(profile)?;
-            let policy = Arc::new(crate::load_geo_direct_policy(profile, &self.cache_dir));
+            let policy = Arc::new(crate::load_geo_direct_policy(profile, &self.cache_dir)?);
+            ads_revision = policy.ads_revision().unwrap_or_default().to_owned();
             match &mut active.runtime {
                 crate::active_runtime::ActiveRuntime::Proxy(runtime) => {
                     runtime
@@ -272,6 +274,7 @@ impl ControlService {
             self.stop_gate_connection_locked(status, &error).await?;
             return Err(error);
         }
+        self.state.lock().await.update_ads_revision(ads_revision);
         self.install_network_quality_source(quality).await;
         self.spawn_gate_exit_probe(profile.id, generation).await;
         Ok(())

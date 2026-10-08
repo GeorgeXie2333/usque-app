@@ -13,6 +13,37 @@ import java.net.InetAddress
 
 class AndroidVpnConfigurationTest {
     @Test
+    fun rejectAndAdsNeedSyntheticDnsButNotPhysicalDns() {
+        for (action in listOf("reject", "proxy", "direct")) {
+            val routing =
+                JSONObject().put(
+                    "rules",
+                    JSONArray().put(JSONObject().put("kind", "domain").put("action", action)),
+                )
+            val profile = AndroidVpnProfile.parse(jsonProfile().put("routing", routing).toString())
+            assertTrue(profile.splitDnsEnabled)
+            assertEquals(action == "direct", profile.requiresPhysicalDns)
+        }
+        val ads =
+            AndroidVpnProfile.parse(
+                jsonProfile().put("routing", JSONObject().put("ads_enabled", true)).toString(),
+            )
+        assertTrue(ads.splitDnsEnabled)
+        assertEquals(false, ads.requiresPhysicalDns)
+        assertThrows(IllegalArgumentException::class.java) {
+            ApplicationRoutingFields.parse(
+                JSONObject().put(
+                    "routing",
+                    JSONObject().put(
+                        "rules",
+                        JSONArray().put(JSONObject().put("kind", "domain").put("action", "unknown")),
+                    ),
+                ),
+            )
+        }
+    }
+
+    @Test
     fun encryptedWarpDnsCapturesWithoutBypassesAndChangesTunIdentity() {
         val plain = AndroidVpnProfile.parse(jsonProfile().toString())
         for (dataPlane in listOf("connect_ip", "l4_proxy")) {

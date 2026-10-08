@@ -1662,7 +1662,7 @@ class UsqueVpnService : VpnService() {
             includeIpv4 = true,
             includeIpv6 = true,
             allowLan = profile.allowLan,
-            bypassCidrs = profile.bypassCidrs,
+            bypassCidrs = emptyList(),
             supportsRouteExclusion = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
         )
 
@@ -2223,11 +2223,10 @@ class UsqueVpnService : VpnService() {
                 val source = outcome.getOrNull()
                 if (source == null) {
                     if (token != null) settingsApplication.finish(token, generation)
-                    val rejected = outcome.exceptionOrNull()?.message?.contains("NETWORK_SETTINGS_SAVE_FAILED") == true
                     replySettings(
                         request,
                         null,
-                        if (rejected) "NETWORK_SETTINGS_SAVE_FAILED" else "NETWORK_SETTINGS_UNCONFIRMED",
+                        RoutingSettingsError.nativeFailure(outcome.exceptionOrNull()?.message),
                     )
                     return@post
                 }

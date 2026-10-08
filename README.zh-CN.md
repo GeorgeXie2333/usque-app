@@ -94,7 +94,7 @@ VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们�
   未启用 OpenVPN TCP 链式出口时，它不转发普通 UDP 流量，需要 UDP 的应用可能无法正常使用。自动模式不会选择 L4。
 - 自动尝试 HTTP/3，失败时回退到 HTTP/2，并尝试通过 IPv4 和 IPv6 寻找可达入口。
   H3 在支持的网络切换场景下可以迁移连接，详见[路径行为](docs/h3-path-infrastructure.md)。
-- 全隧道 VPN、隧道内 DNS、Kill Switch（断网保护）、局域网访问和[自定义 CIDR、IP、域名绕过规则](docs/encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标)。域名包含子域名，自定义规则无需下载国家规则。
+- 全隧道 VPN、隧道内 DNS、Kill Switch（断网保护）、局域网访问和 [DIRECT／REJECT／PROXY 分流及 Ads 广告拦截](docs/ROUTING.md)。自定义域名、IP 和 CIDR 支持更具体的例外规则，保存时检查冲突。
 - 自定义 [WARP 出口 DNS](docs/WARP_DNS.md)：打开“设置 → 高级网络设置 → IP 与 DNS”，选择普通 DNS、DoH 或 DoT，再点击“应用修改”。修改 DNS 会重新连接当前会话；最终链式出口仍使用自己的 DNS 策略。
 - 可选的按国家直连：单独下载所选国家的 GeoIP 数据和全局 GeoSite 域名规则。
   能看到域名时按域名判断，否则按 IP 判断；无法识别的目标继续走隧道。

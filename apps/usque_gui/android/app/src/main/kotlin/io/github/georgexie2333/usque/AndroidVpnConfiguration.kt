@@ -25,6 +25,8 @@ internal data class AndroidVpnProfile(
     val customChain: Boolean = false,
     val proxyChainEnabled: Boolean = false,
     val warpDnsMode: String = "plain",
+    val routingDomainRules: Boolean = false,
+    val routingDirectDomains: Boolean = false,
 ) {
     // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
     // dual-stack regardless of which outer address family carries it.
@@ -33,13 +35,15 @@ internal data class AndroidVpnProfile(
 
     val splitDnsEnabled: Boolean
         get() =
-            (geoDirectCountries.isNotEmpty() || bypassDomains.isNotEmpty()) ||
+            (geoDirectCountries.isNotEmpty() || bypassDomains.isNotEmpty() || routingDomainRules) ||
                 (vpnGateEnabled && (dnsMode == "tunnel" || customChain)) ||
                 (dataPlane == "l4_proxy" && !vpnGateEnabled) ||
                 (warpDnsMode != "plain" && !vpnGateEnabled)
 
     val requiresPhysicalDns: Boolean
-        get() = (geoDirectCountries.isNotEmpty() || bypassDomains.isNotEmpty()) && directDnsMode == "physicalSystem"
+        get() =
+            (geoDirectCountries.isNotEmpty() || bypassDomains.isNotEmpty() || routingDirectDomains) &&
+                directDnsMode == "physicalSystem"
 
     companion object {
         private val profileIdPattern =
@@ -126,13 +130,14 @@ internal data class AndroidVpnProfile(
             ) { "VPN DNS server must be a routable unicast address" }
             require(
                 activeDnsServers.none { server ->
-                    VpnRoutePlanner.isAddressExcluded(server, allowLan, bypassCidrs)
+                    VpnRoutePlanner.isAddressExcluded(server, allowLan, emptyList())
                 },
             ) { "VPN DNS server cannot be covered by a LAN or CIDR bypass" }
             // Encrypted DNS uses numeric bootstrap, not physical DNS metadata.
             val directDnsMode =
                 source.optJSONObject("direct_dns")?.optString("mode", "physicalSystem") ?: "physicalSystem"
             require(directDnsMode in setOf("physicalSystem", "doh", "dot")) { "Invalid direct DNS mode" }
+            val routing = ApplicationRoutingFields.parse(source)
             return AndroidVpnProfile(
                 id = id,
                 name = name,
@@ -152,6 +157,8 @@ internal data class AndroidVpnProfile(
                 bypassDomains = source.optJSONArray("bypass_domains")?.domainStrings() ?: emptyList(),
                 directDnsMode = directDnsMode,
                 warpDnsMode = warpDnsMode,
+                routingDomainRules = routing.needsDns,
+                routingDirectDomains = routing.directDns,
             )
         }
     }

@@ -650,4 +650,21 @@ const Map<String, String> kFaCatalog = <String, String>{
   'dns_duplicate_address': 'نشانی‌های IP تکراری را حذف کنید.',
   'dns_address_not_allowed':
       'یکی از نشانی‌ها برای اتصال به سرور DNS مناسب نیست. از IPهای ارائه‌شده توسط سرویس DNS استفاده کنید.',
+  "routing_rules": "قواعد مسیریابی سفارشی",
+  "routing_add": "افزودن قاعده",
+  "routing_batch": "چسباندن قواعد",
+  "routing_action": "عملکرد",
+  "routing_target": "دامنه، IP یا CIDR",
+  "routing_priority":
+      "قاعده دقیق‌تر اولویت دارد. قواعد سفارشی بر Ads و کشورها مقدم‌اند؛ مسدودسازی IP همچنان اعمال می‌شود.",
+  "routing_conflict":
+      "برای یک مقصد عملکردهای متفاوت تعیین شده است. قواعد را اصلاح کنید.",
+  "routing_overlap": "قاعده دقیق‌تر جایگزین قاعده گسترده‌تر می‌شود.",
+  "routing_duplicate": "قواعد تکراری هنگام ذخیره ادغام می‌شوند.",
+  "routing_ads": "Ads · تبلیغات و ردیابی",
+  "routing_ads_ready": "داده‌های Ads آماده است.",
+  "routing_ads_unavailable":
+      "داده‌های Ads در دسترس نیست. اتصال‌ها و قواعد سفارشی همچنان فعال‌اند.",
+  "routing_pending": "قواعد دانلودشده پس از اتصال مجدد اعمال می‌شوند.",
+  'routing_current': "اتصال فعلی",
 };

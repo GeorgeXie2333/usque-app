@@ -63,6 +63,7 @@ mod network_settings;
 mod protected_chain;
 #[cfg(test)]
 mod protected_chain_tests;
+mod routing;
 mod sensitive_output;
 mod vpngate;
 #[cfg(test)]
@@ -861,15 +862,15 @@ impl ControlService {
                 ))
             }
             control_request::Payload::UpsertProfile(request) => {
-                let profile = request
-                    .profile
-                    .ok_or_else(|| {
-                        ControlServiceError::InvalidRequest(
-                            "upsert profile payload is missing".to_owned(),
-                        )
-                    })
-                    .and_then(profile_from_proto)?;
-                let stored = self.upsert_profile(profile).await?;
+                let source = request.profile.ok_or_else(|| {
+                    ControlServiceError::InvalidRequest("upsert profile payload is missing".into())
+                })?;
+                let _mutation = self.mutation_lock.lock().await;
+                self.validate_client_routing(&source).await?;
+                let routing_present = source.routing.is_some();
+                let stored = self
+                    .upsert_client_profile_locked(profile_from_proto(source)?, routing_present)
+                    .await?;
                 Ok(control_response::Payload::Profile(Box::new(
                     profile_to_proto(&stored),
                 )))
@@ -949,15 +950,20 @@ impl ControlService {
                 ))
             }
             control_request::Payload::ReconfigureActiveProfile(request) => {
-                let profile = request
-                    .profile
-                    .ok_or_else(|| {
-                        ControlServiceError::InvalidRequest(
-                            "reconfigure profile payload is missing".to_owned(),
-                        )
-                    })
-                    .and_then(profile_from_proto)?;
-                let result = self.reconfigure_active_profile(profile).await?;
+                let source = request.profile.ok_or_else(|| {
+                    ControlServiceError::InvalidRequest(
+                        "reconfigure profile payload is missing".into(),
+                    )
+                })?;
+                let routing_present = source.routing.is_some();
+                if !source.split_exclusions.is_empty() || !source.bypass_domains.is_empty() {
+                    return Err(ControlServiceError::configuration(
+                        ConfigError::RoutingUpgradeRequired,
+                    ));
+                }
+                let result = self
+                    .reconfigure_client_profile(profile_from_proto(source)?, routing_present)
+                    .await?;
                 Ok(control_response::Payload::Reconfigure(Box::new(result)))
             }
             control_request::Payload::CopyLicenseKey(request) => {
@@ -1492,6 +1498,10 @@ impl ControlService {
             last_successful_update_unix_milliseconds,
             has_global_geosite,
             global_geosite_updated_unix_milliseconds,
+            has_ads: usque_geo::AdsRules::load(&self.cache_dir).is_ok(),
+            ads_revision: usque_geo::AdsRules::load(&self.cache_dir)
+                .map(|ads| ads.revision().to_owned())
+                .unwrap_or_default(),
         })
     }
 
@@ -2177,7 +2187,15 @@ impl ControlService {
             vault: Arc::clone(&self.vault),
             identity: Mutex::new(warp_identity),
         });
-        let geo_policy = load_geo_direct_policy(&profile, &self.cache_dir);
+        let geo_policy = match load_geo_direct_policy(&profile, &self.cache_dir) {
+            Ok(policy) => policy,
+            Err(error) => {
+                self.mark_connection_error(&error).await;
+                return Err(error);
+            }
+        };
+        let ads_rule_revision = geo_policy.ads_revision().unwrap_or_default().to_owned();
+        let ads_unavailable = profile.routing.ads_enabled && geo_policy.ads_revision().is_none();
         let selected_gate = self.prepare_gate_selection(&profile)?;
         if !profile.geo_direct_countries.is_empty() && !geo_policy.is_enabled() {
             let error = ControlServiceError::GeoRules(
@@ -2384,7 +2402,14 @@ impl ControlService {
                     )?;
                 }
             }
+            state.update_ads_revision(ads_rule_revision);
             let mut warnings = Vec::new();
+            if ads_unavailable {
+                warnings.push(ConnectionWarning {
+                    code: "ADS_UNAVAILABLE".into(),
+                    message: "Ads rules unavailable; custom routing remains active".into(),
+                });
+            }
             if (profile.frontends.socks5 && profile.proxy.socks5_exposes_lan())
                 || (profile.frontends.http && profile.proxy.http_exposes_lan())
             {
@@ -3825,6 +3850,24 @@ impl ControlService {
         Ok(())
     }
 
+    async fn validate_client_routing(
+        &self,
+        source: &v1::Profile,
+    ) -> Result<(), ControlServiceError> {
+        if !source.split_exclusions.is_empty()
+            || !source.bypass_domains.is_empty()
+            || source.routing.is_none()
+                && self.config.read().await.network.routing
+                    != usque_core::RoutingSettings::default()
+        {
+            return Err(ControlServiceError::configuration(
+                ConfigError::RoutingUpgradeRequired,
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
     async fn upsert_profile(&self, profile: Profile) -> Result<Profile, ControlServiceError> {
         profile
             .validate()
@@ -3833,9 +3876,18 @@ impl ControlService {
         self.upsert_profile_locked(profile).await
     }
 
+    #[cfg(test)]
     pub(crate) async fn upsert_profile_locked(
         &self,
         profile: Profile,
+    ) -> Result<Profile, ControlServiceError> {
+        self.upsert_client_profile_locked(profile, true).await
+    }
+
+    pub(crate) async fn upsert_client_profile_locked(
+        &self,
+        profile: Profile,
+        routing_present: bool,
     ) -> Result<Profile, ControlServiceError> {
         // All profile APIs, including older clients, must pin an exact Gate
         // configuration before persisting its reference.
@@ -3844,6 +3896,14 @@ impl ControlService {
         }
         self.validate_chain_selection(&profile)?;
         self.update_config(move |latest| {
+            // Field-scoped saves intentionally do not wait for mutation_lock.
+            // Recheck against the actual transaction, after all awaited work.
+            if !routing_present && latest.network.routing != usque_core::RoutingSettings::default()
+            {
+                return Err(ControlServiceError::configuration(
+                    ConfigError::RoutingUpgradeRequired,
+                ));
+            }
             let stored = latest
                 .upsert_runtime_profile(profile)
                 .map_err(ControlServiceError::configuration)?;
@@ -3906,6 +3966,9 @@ impl ControlService {
                 }
                 self.pin_gate_settings(&active.vpn_gate).await?;
                 let mut network = SharedNetworkSettings::from_profile(active);
+                network
+                    .routing
+                    .migrate_direct(&mut network.split_exclusions, &mut network.bypass_domains);
                 if active.endpoint.is_zero_trust_managed() {
                     network.endpoint = profiles
                         .iter()
@@ -4958,6 +5021,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
         },
         geo_direct_countries: source.geo_direct_countries,
         bypass_domains: source.bypass_domains,
+        routing: routing::from_proto(source.routing)?,
         direct_dns,
         warp_dns,
         vpn_gate: vpngate::settings_from_proto(source.vpn_gate)?,
@@ -5049,6 +5113,7 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
         }),
         geo_direct_countries: profile.geo_direct_countries.clone(),
         bypass_domains: profile.bypass_domains.clone(),
+        routing: Some(routing::to_proto(&profile.routing)),
         warp_dns: Some(v1::WarpDnsSettings {
             mode: match profile.warp_dns.mode {
                 ConfigWarpDnsMode::Plain => v1::WarpDnsMode::Plain as i32,
@@ -5084,29 +5149,21 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
     }
 }
 
-fn load_geo_direct_policy(profile: &Profile, cache_dir: &std::path::Path) -> GeoDirectPolicy {
-    let countries = match profile
+fn load_geo_direct_policy(
+    profile: &Profile,
+    cache_dir: &std::path::Path,
+) -> Result<GeoDirectPolicy, ControlServiceError> {
+    let countries = profile
         .geo_direct_countries
         .iter()
         .map(|country| CountryCode::parse(country))
         .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(countries) => countries,
-        Err(error) => {
-            tracing::warn!(%error, "invalid GEO direct policy; using tunnel-only routing");
-            return GeoDirectPolicy::disabled();
-        }
-    };
-    match GeoDirectPolicy::load(cache_dir, countries) {
-        Ok(policy) => policy.with_custom_rules(profile).unwrap_or_else(|error| {
-            tracing::warn!(%error, "invalid custom direct policy; using tunnel-only routing");
-            GeoDirectPolicy::disabled()
-        }),
-        Err(error) => {
-            tracing::warn!(%error, "GEO rule cache could not be loaded; using tunnel-only routing");
-            GeoDirectPolicy::disabled()
-        }
-    }
+        .map_err(ControlServiceError::geo_rules)?;
+    GeoDirectPolicy::load(cache_dir, countries)
+        .map_err(ControlServiceError::geo_rules)?
+        .with_custom_rules(profile)
+        .map(|policy| policy.with_ads(cache_dir))
+        .map_err(ControlServiceError::configuration)
 }
 
 fn geo_results_to_proto(results: Vec<usque_core::GeoRulesUpdate>) -> v1::GeoRulesUpdateResults {
@@ -5191,6 +5248,7 @@ fn current_capabilities() -> v1::Capabilities {
         custom_bypass: cfg!(windows),
         automatic_endpoints: true,
         zero_trust_endpoint_editing: true,
+        routing_rules: cfg!(windows),
         chain_openvpn_multi_endpoint: cfg!(windows),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
@@ -5234,6 +5292,7 @@ fn current_capabilities() -> v1::Capabilities {
 
 pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
     v1::ConnectionSnapshot {
+        ads_rule_revision: snapshot.ads_rule_revision.clone(),
         chain_exit: None,
         vpn_gate: None,
         data_plane: snapshot
@@ -5482,6 +5541,75 @@ mod tests {
         // Same minimal fixture is decoded by the Dart audit_accounts suite.
         let frame = usque_ipc::encode_frame(&profile).unwrap();
         assert_eq!(&frame[4..], &[10, 1, b'p', 18, 1, b'X']);
+    }
+
+    #[tokio::test]
+    async fn old_whole_profile_writes_cannot_clear_routing_but_explicit_empty_can() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        service
+            .update_config(|config| {
+                config.network.routing.ads_enabled = true;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        let mut old = profile_to_proto(&profile);
+        old.routing = None;
+        let result = service
+            .handle_payload(control_request::Payload::UpsertProfile(Box::new(
+                v1::UpsertProfileRequest { profile: Some(old) },
+            )))
+            .await;
+        assert!(result.is_err());
+        assert!(service.config_snapshot().await.network.routing.ads_enabled);
+        let mut cleared = profile;
+        cleared.routing = Default::default();
+        service
+            .handle_payload(control_request::Payload::UpsertProfile(Box::new(
+                v1::UpsertProfileRequest {
+                    profile: Some(profile_to_proto(&cleared)),
+                },
+            )))
+            .await
+            .unwrap();
+        assert!(!service.config_snapshot().await.network.routing.ads_enabled);
+    }
+
+    #[tokio::test]
+    async fn legacy_commit_rechecks_routing_after_a_concurrent_field_save() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let old = service.config_snapshot().await.active_profile().unwrap();
+        let mut wire = profile_to_proto(&old);
+        wire.routing = None;
+        let _lifecycle = service.mutation_lock.lock().await;
+        service.validate_client_routing(&wire).await.unwrap();
+        let mut modern = old.clone();
+        modern.routing.ads_enabled = true;
+        // This save must remain possible while the old lifecycle owns its lock.
+        service
+            .save_network_settings(v1::SaveNetworkSettingsRequest {
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                account_id: old.id.to_string(),
+                values: Some(profile_to_proto(&modern)),
+                changed_fields: vec!["routing".into()],
+            })
+            .await
+            .unwrap();
+        let result = service.upsert_client_profile_locked(old, false).await;
+        assert!(result.is_err());
+        assert!(service.config_snapshot().await.network.routing.ads_enabled);
+        assert!(service.store.load().unwrap().network.routing.ads_enabled);
     }
 
     #[tokio::test]

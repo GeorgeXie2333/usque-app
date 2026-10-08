@@ -66,6 +66,7 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.split_exclusions != next.split_exclusions
         || previous.kill_switch != next.kill_switch
         || previous.bypass_domains != next.bypass_domains
+        || previous.routing != next.routing
         || previous.geo_direct_countries != next.geo_direct_countries
         || previous.direct_dns != next.direct_dns
         || previous.warp_dns != next.warp_dns
@@ -79,8 +80,8 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
             && next.frontends.tunnel
             && next.endpoint.selection == crate::EndpointSelection::Automatic
         || previous.frontends.tunnel != next.frontends.tunnel
-            && (previous.has_domain_direct_rules()
-                || next.has_domain_direct_rules()
+            && (previous.needs_domain_routing()
+                || next.needs_domain_routing()
                 || previous.uses_encrypted_warp_dns()
                 || next.uses_encrypted_warp_dns()
                 // The final Gate gateway creates its synthetic DNS service at

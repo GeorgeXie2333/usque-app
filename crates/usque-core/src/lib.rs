@@ -28,6 +28,7 @@ pub use config::{
     WarpDnsSettings, ZERO_TRUST_L4_SNI, l4_server_name, validate_proxy_password,
     validate_proxy_username,
 };
+pub use config::{RoutingAction, RoutingMatch, RoutingRule, RoutingSettings};
 pub use diagnostics::{
     DiagnosticCategory, DiagnosticCheckStatus, DiagnosticEvidence, DiagnosticFinding,
     DiagnosticMode, DiagnosticObservation, DiagnosticObservationAvailability,

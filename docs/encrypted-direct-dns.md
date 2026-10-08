@@ -230,32 +230,16 @@ performance results.
 
 ## Custom bypass targets / 自定义绕过目标
 
-In **Settings → Bypass settings**, enter one CIDR, IPv4/IPv6 address or
-bare domain per line, then select **Apply changes**. Existing bypass CIDRs from
-Advanced settings appear here automatically. Address rules and domains each
-allow up to 256 entries. An IP becomes a /32 or /128 host rule; network addresses
-are normalized and duplicates removed. Domains include themselves and every
-subdomain, using label boundaries: `example.com` matches `a.example.com`, not
-`notexample.com`. Case, a final dot, and IDNA names are normalized. URLs, ports,
-paths, wildcards and regular expressions are rejected. Invalid lines prevent
-saving the entire draft; a failed apply retains the draft for correction.
+Custom targets now use the [routing rule editor](ROUTING.md): select DIRECT,
+REJECT or PROXY for each domain, IP or CIDR. More-specific domains and longer
+prefixes win. Legacy targets migrate to DIRECT in schema 24; custom CIDRs no
+longer create OS-level bypass routes. Direct hostname resolution still uses the
+Direct DNS settings described above. Rejecting a hostname prevents its DNS
+query; explicit IP rejection is checked before opening a data socket.
 
-Windows and Android share these settings across accounts and use them for VPN,
-HTTP and SOCKS5 frontends, including traffic otherwise sent through a chain.
-Custom rules work without selecting a country. Address literals use address
-rules; hostnames use domain rules. VPN DNS observations associate matching names
-with addresses only within the existing bounded TTL/generation cache. Conflicting
-names sharing an address fall back to explicit IP/CIDR or GeoIP matching.
-Applications using their own encrypted DNS cannot be matched by hidden names;
-IP/CIDR matching remains available. Changing rules follows the existing reconnect
-and pending-settings workflow. An older Engine shows targets read-only.
-
-在 **设置 → 分流设置** 的 **自定义绕过目标** 中，每行填写一个 CIDR、IPv4/IPv6 地址或域名，点击
-**应用修改**。原高级设置里的 CIDR 会自动显示在这里。
-域名匹配自身及全部子域名；不接受 URL、端口、路径、通配符或正则表达式。
-错误行会阻止整份草稿保存。自定义规则无需下载国家规则即可工作，设置跨账号共享，
-适用于 Windows、Android 的 VPN 和 HTTP/SOCKS5 入口。直连域名使用当前的直连 DNS
-设置；应用自行使用加密 DNS 时只能按地址分流。请查看应用结果，必要时重新连接。
+在 **设置 → 分流设置** 中为目标选择 DIRECT、REJECT 或 PROXY，点击 **应用修改**。
+旧绕过目标自动迁移为 DIRECT；更具体的域名和更长的网段前缀优先。Ads 开关、冲突提示、
+重连生效及可见性边界见[分流规则与 Ads](ROUTING.md)。直连域名继续使用本页的直连 DNS 设置。
 
 ---
 

@@ -24,6 +24,7 @@ internal class ServiceSnapshotState {
     var reconnectCount: Int = 0
     var networkQualityJson: String? = null
     var sessionCongestionControl: String? = null
+    var adsRuleRevision: String? = null
     var dataPlane: String? = null
     var l4Json: String? = null
     var vpnGateJson: String? = null
@@ -117,6 +118,7 @@ internal class ServiceSnapshotState {
         val pendingCleanup: Boolean,
         val networkQualityJson: String? = null,
         val sessionCongestionControl: String? = null,
+        val adsRuleRevision: String? = null,
         val dataPlane: String? = null,
         val l4Json: String? = null,
         val vpnGateJson: String? = null,
@@ -173,6 +175,7 @@ internal class ServiceSnapshotState {
         const val PENDING_CLEANUP = "pending_cleanup"
         const val NETWORK_QUALITY = "network_quality_json"
         const val SESSION_CONGESTION_CONTROL = "session_congestion_control"
+        const val ADS_RULE_REVISION = "ads_rule_revision"
         const val DATA_PLANE = "data_plane"
         const val L4 = "l4_json"
         const val VPN_GATE = "vpn_gate_json"
@@ -201,6 +204,7 @@ internal class ServiceSnapshotState {
         reconnectCount = 0
         networkQualityJson = null
         sessionCongestionControl = null
+        adsRuleRevision = null
         dataPlane = null
         l4Json = null
         vpnGateJson = null
@@ -341,6 +345,7 @@ internal class ServiceSnapshotState {
         val exitFlagSvg: String? = null,
         val networkQualityJson: String? = null,
         val sessionCongestionControl: String? = null,
+        val adsRuleRevision: String? = null,
         val dataPlane: String? = null,
         val l4Json: String? = null,
         val vpnGateJson: String? = null,
@@ -362,6 +367,7 @@ internal class ServiceSnapshotState {
         uploadedBytes = source.uploadedBytes.coerceAtLeast(0)
         reconnectCount = source.reconnectCount.coerceAtLeast(0)
         sessionCongestionControl = CongestionControlSettings.token(source.sessionCongestionControl)
+        adsRuleRevision = source.adsRuleRevision?.takeIf { it.matches(Regex("^[a-f0-9]{64}$")) }
         dataPlane = L4StatusFields.mode(source.dataPlane)
         vpnGateJson = VpnGateFields.decodeStatus(source.vpnGateJson)?.let { JSONObject(it).toString() }
         l4Json = source.l4Json?.let { L4StatusFields.decode(it)?.let { counters -> JSONObject(counters).toString() } }
@@ -425,6 +431,11 @@ internal class ServiceSnapshotState {
                 reconnectCount = source.optInt("reconnect_count", 0),
                 networkQualityJson = NetworkQualityFields.encode(source.optJSONObject("network_quality")),
                 sessionCongestionControl = CongestionControlSettings.token(source.opt("session_congestion_control")),
+                adsRuleRevision =
+                    source
+                        .optString(
+                            WireKeys.ADS_RULE_REVISION,
+                        ).takeIf { it.matches(Regex("^[a-f0-9]{64}$")) },
                 dataPlane = L4StatusFields.mode(source.opt("data_plane")),
                 l4Json = L4StatusFields.encode(source.optJSONObject("l4")),
                 vpnGateJson = VpnGateFields.status(source.optJSONObject("vpn_gate"))?.let { JSONObject(it).toString() },
@@ -523,6 +534,7 @@ internal class ServiceSnapshotState {
             pendingCleanup = platform.pendingCleanup,
             networkQualityJson = networkQualityJson,
             sessionCongestionControl = sessionCongestionControl,
+            adsRuleRevision = adsRuleRevision,
             dataPlane = dataPlane,
             l4Json = l4Json,
             vpnGateJson = vpnGateJson,
@@ -589,6 +601,7 @@ internal class ServiceSnapshotState {
             WireKeys.PENDING_CLEANUP to fields.pendingCleanup,
             WireKeys.NETWORK_QUALITY to fields.networkQualityJson,
             WireKeys.SESSION_CONGESTION_CONTROL to fields.sessionCongestionControl,
+            WireKeys.ADS_RULE_REVISION to fields.adsRuleRevision,
             WireKeys.DATA_PLANE to fields.dataPlane,
             WireKeys.L4 to fields.l4Json,
             WireKeys.VPN_GATE to fields.vpnGateJson,
@@ -603,6 +616,7 @@ internal class ServiceSnapshotState {
             putString(WireKeys.L4, entries[WireKeys.L4] as String?)
             putString(WireKeys.VPN_GATE, entries[WireKeys.VPN_GATE] as String?)
             putString(WireKeys.SESSION_CONGESTION_CONTROL, entries[WireKeys.SESSION_CONGESTION_CONTROL] as String?)
+            putString(WireKeys.ADS_RULE_REVISION, entries[WireKeys.ADS_RULE_REVISION] as String?)
             putString(WireKeys.PHASE, entries[WireKeys.PHASE] as String?)
             putString(WireKeys.WARNING, entries[WireKeys.WARNING] as String?)
             putString(WireKeys.ERROR_CODE, entries[WireKeys.ERROR_CODE] as String?)
@@ -724,6 +738,7 @@ internal class ServiceSnapshotState {
             reconnectCount,
             networkQualityJson,
             sessionCongestionControl,
+            adsRuleRevision,
             dataPlane,
             l4Json,
             vpnGateJson,

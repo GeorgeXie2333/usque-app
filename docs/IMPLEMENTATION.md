@@ -39,8 +39,9 @@ see [H3 client reliability](h3-client-reliability.md). Chain UDP receive handlin
 and the userspace netstack have also changed. Source changes alone do not
 establish throughput, leak prevention or native lifecycle results.
 
-The source uses configuration schema 23: schema 22 adds WARP DNS and schema 23
-adds per-account Zero Trust endpoint overrides. Recovery journal schema 5,
+The source uses configuration schema 24: schema 22 adds WARP DNS, schema 23
+adds per-account Zero Trust endpoint overrides, and schema 24 adds unified
+DIRECT/REJECT/PROXY routing and Ads. Recovery journal schema 5,
 Agent protocol 3 and recovery export schema 2 remain unchanged. A v0.2.9 client
 cannot read a configuration migrated beyond its schema 21 support.
 

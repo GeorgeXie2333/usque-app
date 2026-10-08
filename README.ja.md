@@ -97,7 +97,7 @@ VPN、SOCKS5、HTTP は既定で有効、Windows システムプロキシは無�
   自動モードでは L4 を選びません。
 - HTTP/3 に自動接続し、失敗時は HTTP/2 にフォールバックします。IPv4 と IPv6 の接続試行で到達可能なエンドポイントを探します。
   対応するネットワーク変更では H3 接続を移行できます。[経路の動作](docs/h3-path-infrastructure.md)を参照してください。
-- フルトンネル VPN、トンネル内 DNS、Kill Switch、LAN アクセス、[カスタム CIDR・IP・ドメインのバイパス規則](docs/encrypted-direct-dns.md#custom-bypass-targets--自定义绕过目标)。ドメイン規則はサブドメインも含み、国別規則のダウンロードなしで利用できます。
+- フルトンネル VPN、トンネル内 DNS、Kill Switch、LAN アクセス、[DIRECT／REJECT／PROXY ルールと Ads](docs/ROUTING.md)。ドメインと CIDR は具体的な例外に対応し、保存前に競合を確認します。
 - [WARP 出口 DNS](docs/WARP_DNS.md) をカスタマイズ：**設定 → 高度なネットワーク設定 → IP と DNS** を開き、通常の DNS、DoH、DoT を選んで **変更を適用** します。DNS を変更すると接続中のセッションを再接続します。最終チェーン出口は独自の DNS 方針を維持します。
 - 任意の国別直結ルーティング。選択した国の GeoIP データと全体の GeoSite カタログを別々にダウンロードします。
   ドメイン名が見える場合はドメイン規則、それ以外は IP 規則で判定し、分類できない宛先はトンネル経由のままにします。

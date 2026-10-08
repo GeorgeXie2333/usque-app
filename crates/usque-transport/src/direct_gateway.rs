@@ -257,6 +257,8 @@ pub(crate) struct DirectGatewayRouter {
     incoming_task: Option<JoinHandle<()>>,
     split_dns: Option<SplitDnsRuntime>,
     dns_hints: Arc<DnsRouteCache>,
+    rejection_tx: mpsc::Sender<Bytes>,
+    rejector: crate::routing_reject::RoutingRejector,
     #[cfg(test)]
     tcp_metrics: ts_netstack_smoltcp::netcore::TcpBufferMetrics,
 }
@@ -302,6 +304,7 @@ impl DirectGatewayRouter {
             return Err(TransportError::Dns("encrypted_dns_unavailable".into()));
         }
         let (incoming_tx, incoming_rx) = mpsc::channel(DIRECT_PACKET_CAPACITY);
+        let rejection_tx = incoming_tx.clone();
         let cancellation = parent_cancellation.child_token();
         let flows = Arc::new(Mutex::new(NatTable::default()));
         // A pushed resolver may be inside a LAN bypass. Publish our synthetic
@@ -312,16 +315,14 @@ impl DirectGatewayRouter {
                     && (profile.dns_mode == usque_core::DnsMode::Tunnel
                         || profile.custom_chain().is_some())));
         let split_dns_enabled = gate_dns
-            || (profile.frontends.tunnel
-                && profile.has_domain_direct_rules()
-                && policy.is_enabled());
-        if split_dns_enabled && policy.is_enabled() && !protector.tun_direct_available() {
+            || (profile.frontends.tunnel && profile.needs_domain_routing() && policy.is_enabled());
+        if split_dns_enabled && policy.has_direct_routes() && !protector.tun_direct_available() {
             return Err(TransportError::Dns(
                 "platform cannot safely bypass the TUN for Split DNS".to_owned(),
             ));
         }
         if (!policy.is_enabled() && !split_dns_enabled)
-            || (!protector.tun_direct_available() && !gate_dns)
+            || (!protector.tun_direct_available() && !split_dns_enabled)
         {
             return Ok((
                 Self {
@@ -336,6 +337,8 @@ impl DirectGatewayRouter {
                     incoming_task: None,
                     split_dns: None,
                     dns_hints: Arc::new(DnsRouteCache::default()),
+                    rejection_tx,
+                    rejector: Default::default(),
                     #[cfg(test)]
                     tcp_metrics: Default::default(),
                 },
@@ -437,6 +440,8 @@ impl DirectGatewayRouter {
                 incoming_task: Some(incoming_task),
                 split_dns,
                 dns_hints,
+                rejection_tx,
+                rejector: Default::default(),
                 #[cfg(test)]
                 tcp_metrics: _tcp_metrics,
             },
@@ -446,6 +451,17 @@ impl DirectGatewayRouter {
 
     /// Returns true when the packet was consumed by the direct gateway.
     pub(crate) async fn route_outgoing(&mut self, packet: &mut BytesMut) -> bool {
+        let internal_dns = self.split_dns.is_some()
+            && NatPacket::parse(packet).is_some_and(|meta| is_split_dns_client_packet(&meta));
+        if !internal_dns
+            && crate::routing_reject::destination(packet)
+                .is_some_and(|ip| self.policy.rejects_ip(ip))
+        {
+            if let Some(reply) = self.rejector.reply(packet) {
+                let _ = self.rejection_tx.try_send(reply);
+            }
+            return true;
+        }
         let worker_failed = self
             .stack_task
             .as_ref()
@@ -1309,6 +1325,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejection_consumes_fragmented_and_other_ip_packets_without_a_direct_gateway() {
+        let policy = Arc::new(crate::geo_direct::routing_test_policy(&[
+            ("192.0.2.0/24", usque_core::RoutingAction::Reject),
+            ("2001:db8::/32", usque_core::RoutingAction::Reject),
+        ]));
+        let protector = Arc::new(TestProtector {
+            direct_available: false,
+            reject_protection: true,
+            protect_calls: AtomicUsize::new(0),
+        });
+        let (mut gateway, mut incoming) = DirectGatewayRouter::start(
+            &Profile::default(),
+            policy,
+            protector.clone(),
+            Arc::default(),
+            None,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        for protocol in [1, 6, 17] {
+            let mut packet = vec![0; 28];
+            packet[0] = 0x46;
+            packet[2..4].copy_from_slice(&28_u16.to_be_bytes());
+            packet[6] = 0x20;
+            packet[9] = protocol;
+            packet[16..20].copy_from_slice(&[192, 0, 2, 7]);
+            let original = BytesMut::from(packet.as_slice());
+            let mut packet = original.clone();
+            assert!(gateway.route_outgoing(&mut packet).await);
+            assert_eq!(packet, original);
+        }
+        let mut v6 = vec![0; 48];
+        v6[0] = 0x60;
+        v6[4..6].copy_from_slice(&8_u16.to_be_bytes());
+        v6[6] = 44;
+        v6[24..40].copy_from_slice(&"2001:db8::7".parse::<Ipv6Addr>().unwrap().octets());
+        assert!(
+            gateway
+                .route_outgoing(&mut BytesMut::from(v6.as_slice()))
+                .await
+        );
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
+        assert!(gateway.flows.lock().unwrap().forward.is_empty());
+        assert!(incoming.try_recv().is_err());
+    }
+
+    #[tokio::test]
     async fn platform_without_safe_tun_bypass_never_consumes_packets() {
         let profile = Profile::default();
         let protector = Arc::new(TestProtector {
@@ -1332,6 +1396,7 @@ mod tests {
         let mut packet = original.clone();
         assert!(!gateway.route_outgoing(&mut packet).await);
         assert_eq!(packet, original);
+        drop(gateway);
         assert!(incoming.recv().await.is_none());
         assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
     }
