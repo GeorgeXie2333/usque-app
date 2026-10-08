@@ -52,7 +52,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'WARP hesapları arasında geçiş yapın ve bunları yönetin.',
   'proxy': 'Proxy',
   'proxy_subtitle':
-      'Tüm hesapların kullandığı proxy adreslerini ve DNS ayarlarını belirleyin.',
+      'Paylaşılan proxy dinleme adreslerini ve kimlik doğrulamasını yapılandırın.',
   'settings': 'Ayarlar',
   'settings_subtitle': 'Bağlantı, proxy ve uygulama ayarları.',
   'diagnostics': 'Tanılama',
@@ -183,7 +183,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'proxy_dns_system': 'Sistem DNS',
   'dns_leak_warning': 'Yerel DNS, istenen adları açığa çıkarabilir',
   'dns_leak_warning_body':
-      'Özel ve sistem DNS’si tünel üzerinden çözümlenmez; bu nedenle mevcut ağınız ziyaret ettiğiniz alan adlarını görebilir. Bunu kabul etmiyorsanız “Tünel üzerinden uzak DNS çözümlemesi” seçeneğini kullanın.',
+      'Yerel ve sistem DNS’i, istenen alan adlarını mevcut ağınıza gösterebilir.',
   'system_proxy': 'Sistem proxy’sini yapılandır',
   'output_disabled_in_profile': 'Ayarlarda devre dışı',
   'auto_connect': 'Başlangıçta geçerli hesaba otomatik bağlan',

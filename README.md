@@ -71,7 +71,7 @@ Upgrading migrates local configuration to a schema that v0.2.9 cannot read. Revi
 
 1. Install a [verified official package](docs/INSTALLATION.md#verify-before-installing) and open Usque.
 2. Complete the first-run permissions and terms steps. Android requires VPN consent to finish setup; granting it may disconnect another VPN but does not start a Usque connection. Notifications are optional. Register a Consumer WARP® account, optionally with a WARP License Key. If setup was interrupted, check the saved result before registering again. Usque does not accept new WARP Secret imports.
-3. Open **Proxy → TUN and local proxies** on Windows, or **Proxy → VPN and local proxies** on Android, choose the outputs, then connect from Home. These switches take effect immediately; listener and DNS form edits require **Apply changes**. Proxy-only operation does not use the granted VPN permission to start a VPN.
+3. Open **Proxy → TUN and local proxies** on Windows, or **Proxy → VPN and local proxies** on Android, choose the outputs, then connect from Home. These switches take effect immediately; listener form edits require **Apply changes**. Proxy-only operation does not use the granted VPN permission to start a VPN.
 
 | Connection option | When to use it |
 | --- | --- |
@@ -185,7 +185,7 @@ released. iOS, store distribution and a public CLI are outside this release's sc
 | SOCKS5 | `127.0.0.1:1080`, `[::1]:1080` |
 | HTTP proxy | `127.0.0.1:8080`, `[::1]:8080` |
 
-Proxy address, port, and DNS edits are drafts until applied. Advanced settings reset loads defaults into the draft; it does not apply them immediately. Zero Trust endpoint addresses start with registered values. In Advanced network settings, choose **Edit Zero Trust endpoints**, read the red fullscreen warning and acknowledge the risks and your authorization before editing IPv4/IPv6; then **Apply changes**. Reset stages the registered addresses; signing in again restores them and removes custom addresses. Home keeps a risk notice visible while the selected account has custom Zero Trust addresses or a running ZT session still uses them; the notice cannot be dismissed.
+Proxy address and port edits are drafts until applied. Proxy DNS uses the current exit by default: configure [WARP DNS](docs/WARP_DNS.md) in Advanced settings or the final DNS in the chain configuration. Existing proxy DNS settings are preserved internally; the Proxy page has no DNS controls. Advanced settings reset loads defaults into the draft; it does not apply them immediately. Zero Trust endpoint addresses start with registered values. In Advanced network settings, choose **Edit Zero Trust endpoints**, read the red fullscreen warning and acknowledge the risks and your authorization before editing IPv4/IPv6; then **Apply changes**. Reset stages the registered addresses; signing in again restores them and removes custom addresses. Home keeps a risk notice visible while the selected account has custom Zero Trust addresses or a running ZT session still uses them; the notice cannot be dismissed.
 
 In Advanced network settings, Automatic selection races eligible account endpoints; Custom keeps manual addresses. Port and SNI remain editable. See [automatic endpoints](docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点).
 

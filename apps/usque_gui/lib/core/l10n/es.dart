@@ -52,7 +52,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'profiles_subtitle': 'Cambiar y administrar las cuentas WARP.',
   'proxy': 'Proxy',
   'proxy_subtitle':
-      'Configura las direcciones de proxy y DNS compartidas por todas las cuentas.',
+      'Configura las direcciones de escucha y la autenticación del proxy compartidas.',
   'settings': 'Ajustes',
   'settings_subtitle': 'Ajustes de conexión, proxy y aplicación.',
   'diagnostics': 'Diagnóstico',
@@ -186,7 +186,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'proxy_dns_system': 'DNS del sistema',
   'dns_leak_warning': 'El DNS local puede revelar los nombres solicitados',
   'dns_leak_warning_body':
-      'El DNS personalizado y el del sistema no se resuelven a través del túnel, por lo que su red actual puede ver los dominios que visita. Use “Remoto a través del túnel” salvo que lo acepte.',
+      'El DNS local y del sistema puede revelar los dominios solicitados a tu red actual.',
   'system_proxy': 'Configurar el proxy del sistema',
   'output_disabled_in_profile': 'Desactivado en Ajustes',
   'auto_connect': 'Conectar la cuenta actual automáticamente al iniciar',

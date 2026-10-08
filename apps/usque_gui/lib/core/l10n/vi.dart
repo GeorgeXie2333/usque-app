@@ -49,7 +49,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'profiles': 'Tài khoản',
   'profiles_subtitle': 'Chuyển đổi và quản lý tài khoản WARP.',
   'proxy': 'Proxy',
-  'proxy_subtitle': 'Đặt địa chỉ proxy và DNS dùng chung cho mọi tài khoản.',
+  'proxy_subtitle': 'Thiết lập địa chỉ lắng nghe và xác thực proxy dùng chung.',
   'settings': 'Cài đặt',
   'settings_subtitle': 'Cài đặt kết nối, proxy và ứng dụng.',
   'diagnostics': 'Chẩn đoán',
@@ -180,7 +180,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'proxy_dns_system': 'DNS hệ thống',
   'dns_leak_warning': 'DNS cục bộ có thể lộ tên đã yêu cầu',
   'dns_leak_warning_body':
-      'DNS tùy chỉnh và DNS hệ thống không phân giải qua đường hầm, nên mạng hiện tại có thể thấy các tên miền bạn truy cập. Hãy dùng “Từ xa qua đường hầm” trừ khi bạn chấp nhận điều này.',
+      'DNS cục bộ và hệ thống có thể tiết lộ các miền được yêu cầu cho mạng hiện tại.',
   'system_proxy': 'Cấu hình proxy hệ thống',
   'output_disabled_in_profile': 'Đã tắt trong Cài đặt',
   'auto_connect': 'Tự kết nối tài khoản hiện tại khi khởi động',

@@ -50,7 +50,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'profiles': 'Accounts',
   'profiles_subtitle': 'Wissel en beheer WARP-accounts.',
   'proxy': 'Proxy',
-  'proxy_subtitle': 'Stel proxy-adressen en DNS in voor alle accounts.',
+  'proxy_subtitle': 'Stel gedeelde proxy-luisteradressen en authenticatie in.',
   'settings': 'Instellingen',
   'settings_subtitle': 'Verbindings-, proxy- en applicatie-instellingen.',
   'diagnostics': 'Diagnostiek',
@@ -183,7 +183,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'proxy_dns_system': 'Systeem-DNS',
   'dns_leak_warning': 'Lokale DNS kan opgevraagde namen prijsgeven',
   'dns_leak_warning_body':
-      'Aangepaste en systeem-DNS worden niet via de tunnel omgezet, dus uw huidige netwerk kan zien welke domeinen u bezoekt. Gebruik “Op afstand via de tunnel”, tenzij u dit accepteert.',
+      'Lokale en systeem-DNS kunnen aangevraagde domeinen aan je huidige netwerk onthullen.',
   'system_proxy': 'Systeemproxy configureren',
   'output_disabled_in_profile': 'Uitgeschakeld in Instellingen',
   'auto_connect': 'Het huidige account bij het starten automatisch verbinden',

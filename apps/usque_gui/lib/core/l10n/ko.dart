@@ -47,7 +47,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'profiles': '계정',
   'profiles_subtitle': 'WARP 계정을 전환하고 관리합니다.',
   'proxy': '프록시',
-  'proxy_subtitle': '모든 계정이 공유하는 프록시 주소와 DNS를 설정합니다.',
+  'proxy_subtitle': '모든 계정에서 공유하는 프록시 수신 주소와 인증을 설정합니다.',
   'settings': '설정',
   'settings_subtitle': '연결, 프록시, 앱 설정입니다.',
   'diagnostics': '진단',
@@ -168,8 +168,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'proxy_dns_configured': '사용자 지정 DNS 서버',
   'proxy_dns_system': '시스템 DNS',
   'dns_leak_warning': '로컬 DNS가 요청한 이름을 노출할 수 있습니다',
-  'dns_leak_warning_body':
-      '사용자 지정 DNS와 시스템 DNS는 터널을 통해 확인되지 않으므로 현재 네트워크에서 방문하는 도메인이 보일 수 있습니다. 이를 감수하지 않는다면 ‘터널을 통해 원격에서 이름 확인’을 사용하세요.',
+  'dns_leak_warning_body': '로컬 및 시스템 DNS는 요청한 도메인을 현재 네트워크에 노출할 수 있습니다.',
   'system_proxy': '시스템 프록시 구성',
   'output_disabled_in_profile': '설정에서 사용 안 함',
   'auto_connect': '시작 시 현재 계정을 자동으로 연결합니다',

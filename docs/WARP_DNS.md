@@ -19,6 +19,19 @@ configuration. Changing a connected session's DNS reconnects that session.
 `443`；DoT 默认端口 `853`。按服务商公布的信息填写。
 点击**应用修改**保存并生效；已连接时更改 DNS 会重新连接。
 
+Local HTTP/SOCKS5 proxies use remote resolution through the current exit by
+default: ordinary connections use WARP DNS, while chains use their final-exit
+DNS. The Proxy page does not offer a DNS mode picker or DNS address fields.
+Existing non-default settings remain active internally, without a migration
+panel or restore action. Editing proxy listeners does not change DNS mode,
+DNS addresses or credentials. Existing local-DNS risk warnings remain when the
+saved configuration uses local or system resolution.
+
+本地 HTTP/SOCKS5 代理默认通过当前出口解析：普通连接使用 WARP DNS，链式连接
+使用最终出口的 DNS。代理页不再提供 DNS 方式选择器或地址输入框。已有非默认配置
+在底层继续生效，前端不显示迁移面板或恢复操作。修改代理监听地址不会改变 DNS
+方式、DNS 地址或认证；已有配置使用本机或系统解析时，仍保留本机 DNS 风险提示。
+
 Switching types retains the draft fields while this page is open. Only the
 selected type is applied. Resetting Advanced settings selects Plain DNS in the
 draft and clears retained encrypted fields; it takes effect only after applying.

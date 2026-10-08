@@ -49,7 +49,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'profiles': 'Accounts',
   'profiles_subtitle': 'Switch and manage WARP accounts.',
   'proxy': 'Proxy',
-  'proxy_subtitle': 'Set proxy addresses and DNS for all accounts.',
+  'proxy_subtitle': 'Configure shared proxy listeners and authentication.',
   'settings': 'Settings',
   'settings_subtitle': 'Connection, proxy and application settings.',
   'diagnostics': 'Diagnostics',
@@ -178,7 +178,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'proxy_dns_system': 'System DNS',
   'dns_leak_warning': 'Local DNS may reveal requested names',
   'dns_leak_warning_body':
-      'Custom and system DNS do not resolve through the tunnel, so your current network may see the domains you visit. Use “Remote through tunnel” unless you accept this.',
+      'Local and system DNS may reveal requested domains to your current network.',
   'system_proxy': 'Configure system proxy',
   'output_disabled_in_profile': 'Disabled in Settings',
   'auto_connect': 'Connect the current account automatically on start',

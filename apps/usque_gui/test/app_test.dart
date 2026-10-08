@@ -2400,83 +2400,58 @@ void main() {
     expect(settings.exposesLan, isTrue);
   });
 
-  testWidgets(
-    'custom proxy DNS reveals Cloudflare address fields and saves valid edits',
-    (tester) async {
-      SharedPreferences.setMockInitialValues(<String, Object>{});
-      final engine = FakeEngineClient();
-      final controller = AppController(engine);
-      await controller.initialize();
-      controller.updateProfile(
-        controller.activeProfile.copyWith(
-          dnsIpv4: '8.8.8.8',
-          dnsIpv6: '2001:4860:4860::8888',
+  testWidgets('default proxy page omits DNS controls and preserves WARP DNS', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    controller.updateProfile(
+      controller.activeProfile.copyWith(
+        dnsIpv4: '8.8.8.8',
+        dnsIpv6: '2001:4860:4860::8888',
+      ),
+    );
+    await controller.flushProfileWrites();
+    await controller.setLocale(LocalePreference.simplifiedChinese);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: ListenableBuilder(
+          listenable: controller,
+          builder: (context, _) => ProxyScreen(controller: controller),
         ),
-      );
-      await controller.flushProfileWrites();
-      await controller.setLocale(LocalePreference.simplifiedChinese);
-      addTearDown(controller.dispose);
-      addTearDown(() => tester.view.resetPhysicalSize());
-      addTearDown(() => tester.view.resetDevicePixelRatio());
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(1200, 900);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: UsqueTheme.light(),
-          home: ListenableBuilder(
-            listenable: controller,
-            builder: (context, _) => ProxyScreen(controller: controller),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(const ValueKey<String>('proxy-dns-ipv4')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('proxy-dns-ipv6')),
-        findsNothing,
-      );
-
-      final dnsMode = find.byKey(const ValueKey<String>('proxy-dns-mode'));
-      await tester.ensureVisible(dnsMode);
-      await tester.pumpAndSettle();
-      await tester.tap(dnsMode);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('自定义 DNS 服务器').last);
-      await tester.pumpAndSettle();
-
-      final ipv4 = find.byKey(const ValueKey<String>('proxy-dns-ipv4'));
-      final ipv6 = find.byKey(const ValueKey<String>('proxy-dns-ipv6'));
-      expect(ipv4, findsOneWidget);
-      expect(ipv6, findsOneWidget);
-      expect(tester.widget<TextFormField>(ipv4).controller?.text, '1.1.1.1');
-      expect(
-        tester.widget<TextFormField>(ipv6).controller?.text,
-        '2606:4700:4700::1111',
-      );
-
-      await tester.enterText(ipv4, '9.9.9.9');
-      await tester.pump();
-      // Draft changes do not alter live DNS until explicitly applied.
-      expect(controller.activeProfile.proxy.dnsMode, ProxyDnsMode.remote);
-      await tester.tap(find.widgetWithText(FilledButton, '应用修改'));
-      await tester.pumpAndSettle();
-      await controller.flushProfileWrites();
-
-      expect(
-        controller.activeProfile.proxy.dnsMode,
-        ProxyDnsMode.localConfigured,
-      );
-      expect(controller.activeProfile.proxy.dnsIpv4, '9.9.9.9');
-      expect(controller.activeProfile.dnsIpv4, '8.8.8.8');
-      expect(engine.storedProfiles.single.proxy.dnsIpv4, '9.9.9.9');
-    },
-  );
-
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (final key in [
+      'proxy-dns-mode',
+      'proxy-dns-ipv4',
+      'proxy-dns-ipv6',
+      'proxy-dns-override',
+      'proxy-dns-restore',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsNothing);
+    }
+    final port = find
+        .byWidgetPredicate(
+          (widget) =>
+              widget is TextField &&
+              widget.decoration?.labelText == controller.strings.get('port'),
+        )
+        .first;
+    await tester.ensureVisible(port);
+    await tester.enterText(port, '9090');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '应用修改'));
+    await tester.pumpAndSettle();
+    expect(controller.activeProfile.proxy.socksPort, 9090);
+    expect(controller.activeProfile.proxy.dnsMode, ProxyDnsMode.remote);
+    expect(controller.activeProfile.dnsIpv4, '8.8.8.8');
+    expect(controller.activeProfile.dnsIpv6, '2001:4860:4860::8888');
+  });
   test('proxy profile JSON stores username and never password bytes', () {
     final profile = UsqueProfile.defaultProfile().copyWith(
       proxy: const ProxySettings(authUsername: 'lan-user'),

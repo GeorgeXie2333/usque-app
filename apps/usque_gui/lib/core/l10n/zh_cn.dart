@@ -45,7 +45,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'profiles': '账号',
   'profiles_subtitle': '切换和管理 WARP 账号。',
   'proxy': '代理',
-  'proxy_subtitle': '设置所有账号共用的代理地址和 DNS。',
+  'proxy_subtitle': '设置所有账号共用的代理监听地址和认证。',
   'settings': '设置',
   'settings_subtitle': '连接、代理与应用设置。',
   'diagnostics': '诊断',
@@ -157,8 +157,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'proxy_dns_configured': '自定义 DNS 服务器',
   'proxy_dns_system': '使用系统 DNS',
   'dns_leak_warning': '本地 DNS 可能暴露访问的域名',
-  'dns_leak_warning_body':
-      '自定义 DNS 和系统 DNS 不通过隧道解析，当前网络可能看到你访问的域名。建议使用“通过隧道远程解析”。',
+  'dns_leak_warning_body': '本机和系统 DNS 可能向当前网络暴露访问的域名。',
   'system_proxy': '配置系统代理',
   'output_disabled_in_profile': '已在设置中关闭',
   'auto_connect': '启动时自动连接当前账号',

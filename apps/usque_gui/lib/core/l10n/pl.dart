@@ -49,7 +49,8 @@ const Map<String, String> kPlCatalog = <String, String>{
   'profiles': 'Konta',
   'profiles_subtitle': 'Przełączanie i zarządzanie kontami WARP.',
   'proxy': 'Proxy',
-  'proxy_subtitle': 'Ustaw adresy proxy i DNS wspólne dla wszystkich kont.',
+  'proxy_subtitle':
+      'Skonfiguruj wspólne adresy nasłuchiwania i uwierzytelnianie proxy.',
   'settings': 'Ustawienia',
   'settings_subtitle': 'Ustawienia połączenia, proxy i aplikacji.',
   'diagnostics': 'Diagnostyka',
@@ -182,7 +183,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'proxy_dns_system': 'Systemowy DNS',
   'dns_leak_warning': 'Lokalny DNS może ujawnić żądane nazwy',
   'dns_leak_warning_body':
-      'Niestandardowy i systemowy DNS nie rozwiązują nazw przez tunel, więc bieżąca sieć może widzieć odwiedzane przez Ciebie domeny. Używaj „Zdalnie przez tunel”, chyba że to akceptujesz.',
+      'Lokalny i systemowy DNS mogą ujawniać żądane domeny bieżącej sieci.',
   'system_proxy': 'Konfiguruj systemowe proxy',
   'output_disabled_in_profile': 'Wyłączone w Ustawieniach',
   'auto_connect': 'Łącz automatycznie bieżące konto przy uruchomieniu',

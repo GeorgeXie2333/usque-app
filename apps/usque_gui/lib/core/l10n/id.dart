@@ -49,8 +49,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'profiles': 'Akun',
   'profiles_subtitle': 'Beralih dan kelola akun WARP.',
   'proxy': 'Proksi',
-  'proxy_subtitle':
-      'Atur alamat proksi dan DNS yang digunakan bersama oleh semua akun.',
+  'proxy_subtitle': 'Atur alamat pendengar dan autentikasi proksi bersama.',
   'settings': 'Pengaturan',
   'settings_subtitle': 'Pengaturan koneksi, proksi, dan aplikasi.',
   'diagnostics': 'Diagnostik',
@@ -181,7 +180,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'proxy_dns_system': 'DNS sistem',
   'dns_leak_warning': 'DNS lokal dapat mengungkapkan nama yang diminta',
   'dns_leak_warning_body':
-      'DNS kustom dan sistem tidak diselesaikan melalui terowongan, sehingga jaringan Anda saat ini dapat melihat domain yang Anda kunjungi. Gunakan “Jarak jauh melalui terowongan” kecuali Anda menerimanya.',
+      'DNS lokal dan sistem dapat mengungkap domain yang diminta ke jaringan saat ini.',
   'system_proxy': 'Konfigurasikan proksi sistem',
   'output_disabled_in_profile': 'Dinonaktifkan di Pengaturan',
   'auto_connect': 'Sambungkan akun saat ini secara otomatis saat mulai',

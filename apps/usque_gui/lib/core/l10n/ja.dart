@@ -47,7 +47,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'profiles': 'アカウント',
   'profiles_subtitle': 'WARP アカウントの切り替えと管理。',
   'proxy': 'プロキシ',
-  'proxy_subtitle': '全アカウント共通のプロキシアドレスと DNS を設定します。',
+  'proxy_subtitle': '全アカウント共通のプロキシの待ち受けと認証を設定します。',
   'settings': '設定',
   'settings_subtitle': '接続、プロキシ、アプリの設定。',
   'diagnostics': '診断',
@@ -170,7 +170,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'proxy_dns_system': 'システムの DNS',
   'dns_leak_warning': '要求した名前がローカル DNS に漏れる可能性があります',
   'dns_leak_warning_body':
-      'カスタム DNS とシステム DNS はトンネル経由で解決されないため、現在のネットワークに閲覧先のドメインが見える可能性があります。これを許容しない場合は「トンネル経由のリモート」を使用してください。',
+      'ローカル DNS とシステム DNS は、問い合わせたドメインを現在のネットワークに公開する可能性があります。',
   'system_proxy': 'システムプロキシを設定',
   'output_disabled_in_profile': '設定で無効',
   'auto_connect': '起動時に現在のアカウントへ自動接続',

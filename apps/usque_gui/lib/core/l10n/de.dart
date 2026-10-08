@@ -51,7 +51,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'profiles': 'Konten',
   'profiles_subtitle': 'WARP-Konten wechseln und verwalten.',
   'proxy': 'Proxy',
-  'proxy_subtitle': 'Proxy-Adressen und DNS für alle Konten festlegen.',
+  'proxy_subtitle':
+      'Gemeinsame Proxy-Lauschadressen und Authentifizierung konfigurieren.',
   'settings': 'Einstellungen',
   'settings_subtitle': 'Verbindungs-, Proxy- und Anwendungseinstellungen.',
   'diagnostics': 'Diagnose',
@@ -185,7 +186,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'proxy_dns_system': 'System-DNS',
   'dns_leak_warning': 'Lokales DNS kann angeforderte Namen preisgeben',
   'dns_leak_warning_body':
-      'Eigenes DNS und System-DNS werden nicht über den Tunnel aufgelöst, daher kann Ihr aktuelles Netzwerk die besuchten Domains sehen. Verwenden Sie „Remote über den Tunnel“, sofern Sie das nicht in Kauf nehmen.',
+      'Lokales und System-DNS können angefragte Domains im aktuellen Netzwerk offenlegen.',
   'system_proxy': 'Systemproxy konfigurieren',
   'output_disabled_in_profile': 'In Einstellungen deaktiviert',
   'auto_connect': 'Aktuelles Konto beim Start automatisch verbinden',

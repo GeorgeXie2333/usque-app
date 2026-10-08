@@ -263,7 +263,7 @@ changes invalidate pooled connections and outstanding queries.
 
 If **Resolve at the proxy server** is selected and an
 exit or connection-mode change makes it unavailable, applying that change also
-switches proxy DNS to **Remote through tunnel**. Configured DNS addresses and
+switches proxy DNS to remote resolution through the current exit. Configured DNS addresses and
 other DNS choices are retained. Connections that still support server
 resolution keep the selected method.
 

@@ -53,7 +53,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'profiles_subtitle': 'Changez et gérez les comptes WARP.',
   'proxy': 'Proxy',
   'proxy_subtitle':
-      'Configurez les adresses des proxys et le DNS communs à tous les comptes.',
+      'Configurez les adresses d’écoute et l’authentification partagées du proxy.',
   'settings': 'Paramètres',
   'settings_subtitle': 'Paramètres de connexion, de proxy et de l’application.',
   'diagnostics': 'Diagnostics',
@@ -188,7 +188,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'proxy_dns_system': 'DNS système',
   'dns_leak_warning': 'Le DNS local peut révéler les noms demandés',
   'dns_leak_warning_body':
-      'Le DNS personnalisé et le DNS système ne passent pas par le tunnel : votre réseau actuel peut donc voir les domaines que vous consultez. Utilisez « Distant via le tunnel », sauf si vous l’acceptez.',
+      'Le DNS local et système peut révéler les domaines demandés au réseau actuel.',
   'system_proxy': 'Configurer le proxy système',
   'output_disabled_in_profile': 'Désactivé dans Paramètres',
   'auto_connect': 'Connecter automatiquement le compte actuel au démarrage',

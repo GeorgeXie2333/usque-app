@@ -232,13 +232,10 @@ void main() {
       final app = appFor(engine);
       app.sharedNetwork = app.sharedNetwork.copyWith(
         dataPlane: DataPlaneMode.l4Proxy,
+        proxy: const ProxySettings(dnsMode: ProxyDnsMode.edgeResolved),
       );
       Widget page() => workflowHost(app, home: ProxyScreen(controller: app));
       await tester.pumpWidget(page());
-      final menu = find.byKey(const ValueKey('proxy-dns-mode'));
-      tester.widget<DropdownButtonFormField<ProxyDnsMode>>(menu).onChanged!(
-        ProxyDnsMode.edgeResolved,
-      );
       final port = find
           .byWidgetPredicate(
             (w) => w is TextField && w.decoration?.labelText == 'Port',
@@ -251,21 +248,26 @@ void main() {
       await tester.pumpWidget(page());
       expect(tester.takeException(), isNull);
       expect(tester.widget<TextField>(port).controller!.text, '9090');
-      expect(find.text(app.strings.get('l4_edge_requires_l4')), findsOneWidget);
+      expect(find.text(app.strings.get('l4_edge_requires_l4')), findsNothing);
       apply(tester);
       await tester.pump();
       expect(engine.saves, 0);
+      expect(find.text(app.strings.get('l4_edge_requires_l4')), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     },
   );
-  testWidgets('custom listeners preserve every port during DNS edits', (
+  testWidgets('custom listeners retain saved DNS when updating ports', (
     tester,
   ) async {
     final engine = FormEngine();
     final app = appFor(engine);
     app.sharedNetwork = app.sharedNetwork.copyWith(
-      proxy: const ProxySettings(socksListeners: listeners),
+      proxy: const ProxySettings(
+        socksListeners: listeners,
+        dnsMode: ProxyDnsMode.system,
+      ),
     );
+    engine.storedProfiles = [app.activeProfile];
     await tester.pumpWidget(
       workflowHost(app, home: ProxyScreen(controller: app)),
     );
@@ -279,16 +281,6 @@ void main() {
           .text,
       listeners.join('\n'),
     );
-    tester
-        .widget<DropdownButtonFormField<ProxyDnsMode>>(
-          find.byKey(const ValueKey('proxy-dns-mode')),
-        )
-        .onChanged!(ProxyDnsMode.system);
-    await tester.pump();
-    apply(tester);
-    await tester.pumpAndSettle();
-    expect(engine.savedValues?.proxy.socksListeners, listeners);
-    expect(engine.savedFields, ['proxy.dns_mode']);
     final editor = find.byKey(const ValueKey('socks-listener-addresses'));
     const changed = ['127.0.0.1:2080', '127.0.0.2:2081', '[::1]:2082'];
     await tester.enterText(editor, changed.join('\n'));
@@ -296,6 +288,7 @@ void main() {
     apply(tester);
     await tester.pumpAndSettle();
     expect(engine.savedValues?.proxy.socksListeners, changed);
+    expect(engine.savedValues?.proxy.dnsMode, ProxyDnsMode.system);
     expect(engine.savedFields, ['proxy.socks5_listeners']);
     final saves = engine.saves;
     await tester.enterText(editor, '127.0.0.1:0');

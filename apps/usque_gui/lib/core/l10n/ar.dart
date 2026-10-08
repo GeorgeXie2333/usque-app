@@ -48,8 +48,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'profiles': 'الحسابات',
   'profiles_subtitle': 'بدّل حسابات WARP وأدرها.',
   'proxy': 'الوكيل',
-  'proxy_subtitle':
-      'اضبط عناوين الوكلاء وإعدادات DNS المشتركة بين جميع الحسابات.',
+  'proxy_subtitle': 'اضبط عناوين الاستماع والمصادقة المشتركة للوكيل.',
   'settings': 'الإعدادات',
   'settings_subtitle': 'إعدادات الاتصال والوكيل والتطبيق.',
   'diagnostics': 'التشخيص',
@@ -177,7 +176,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'proxy_dns_system': 'DNS النظام',
   'dns_leak_warning': 'قد يكشف DNS المحلي الأسماء المطلوبة',
   'dns_leak_warning_body':
-      'لا يُحلّ DNS المخصص وDNS النظام عبر النفق، لذا قد ترى شبكتك الحالية النطاقات التي تزورها. استخدم «عن بُعد عبر النفق» ما لم تقبل ذلك.',
+      'قد يكشف DNS المحلي وDNS النظام النطاقات المطلوبة لشبكتك الحالية.',
   'system_proxy': 'تهيئة وكيل النظام',
   'output_disabled_in_profile': 'معطَّل في الإعدادات',
   'auto_connect': 'الاتصال بالحساب الحالي تلقائيًا عند البدء',

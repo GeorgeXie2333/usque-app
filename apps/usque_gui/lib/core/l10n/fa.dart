@@ -50,8 +50,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'profiles': 'حساب‌ها',
   'profiles_subtitle': 'حساب‌های WARP را عوض و مدیریت کنید.',
   'proxy': 'پروکسی',
-  'proxy_subtitle':
-      'نشانی پروکسی‌ها و DNS مشترک میان همهٔ حساب‌ها را تنظیم کنید.',
+  'proxy_subtitle': 'نشانی‌های شنود و احراز هویت مشترک پروکسی را تنظیم کنید.',
   'settings': 'تنظیمات',
   'settings_subtitle': 'تنظیمات اتصال، پروکسی و برنامه.',
   'diagnostics': 'عیب‌یابی',
@@ -180,7 +179,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'proxy_dns_system': 'DNS سیستم',
   'dns_leak_warning': 'DNS محلی ممکن است نام‌های درخواستی را فاش کند',
   'dns_leak_warning_body':
-      'DNS سفارشی و DNS سیستم از طریق تونل حل نمی‌شوند، بنابراین شبکهٔ فعلی شما ممکن است دامنه‌هایی را که بازدید می‌کنید ببیند. مگر اینکه این را بپذیرید، گزینهٔ «از راه دور از طریق تونل» را به کار ببرید.',
+      'DNS محلی و سیستم ممکن است دامنه‌های درخواستی را به شبکهٔ فعلی نشان دهند.',
   'system_proxy': 'پیکربندی پروکسی سیستم',
   'output_disabled_in_profile': 'در تنظیمات غیرفعال شده',
   'auto_connect': 'اتصال خودکار حساب جاری هنگام شروع',

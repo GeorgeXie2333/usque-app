@@ -51,7 +51,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'profiles_subtitle': 'Alterne e gerencie contas WARP.',
   'proxy': 'Proxy',
   'proxy_subtitle':
-      'Defina os endereços de proxy e DNS compartilhados por todas as contas.',
+      'Configure os endereços de escuta e a autenticação compartilhados do proxy.',
   'settings': 'Configurações',
   'settings_subtitle': 'Configurações de conexão, proxy e aplicativo.',
   'diagnostics': 'Diagnósticos',
@@ -184,7 +184,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'proxy_dns_system': 'DNS do sistema',
   'dns_leak_warning': 'O DNS local pode revelar os nomes solicitados',
   'dns_leak_warning_body':
-      'O DNS personalizado e o do sistema não são resolvidos pelo túnel, então sua rede atual pode ver os domínios que você acessa. Use “Remoto pelo túnel”, a menos que aceite isso.',
+      'O DNS local e do sistema pode revelar os domínios solicitados à rede atual.',
   'system_proxy': 'Configurar proxy do sistema',
   'output_disabled_in_profile': 'Desabilitado em Configurações',
   'auto_connect': 'Conectar a conta atual automaticamente ao iniciar',

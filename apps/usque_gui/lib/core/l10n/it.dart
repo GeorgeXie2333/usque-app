@@ -53,7 +53,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'profiles_subtitle': 'Cambia e gestisci gli account WARP.',
   'proxy': 'Proxy',
   'proxy_subtitle':
-      'Configura indirizzi proxy e DNS condivisi da tutti gli account.',
+      'Configura gli indirizzi di ascolto e l’autenticazione condivisi del proxy.',
   'settings': 'Impostazioni',
   'settings_subtitle': 'Impostazioni di connessione, proxy e applicazione.',
   'diagnostics': 'Diagnostica',
@@ -186,7 +186,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'proxy_dns_system': 'DNS di sistema',
   'dns_leak_warning': 'Il DNS locale può rivelare i nomi richiesti',
   'dns_leak_warning_body':
-      'Il DNS personalizzato e quello di sistema non vengono risolti tramite il tunnel, quindi la rete attuale può vedere i domini che visiti. Usa “Remoto tramite il tunnel”, a meno che tu non lo accetti.',
+      'Il DNS locale e di sistema può rivelare i domini richiesti alla rete attuale.',
   'system_proxy': 'Configura il proxy di sistema',
   'output_disabled_in_profile': 'Disattivato in Impostazioni',
   'auto_connect': 'Connetti automaticamente l’account corrente all’avvio',
