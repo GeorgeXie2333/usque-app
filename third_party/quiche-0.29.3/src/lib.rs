@@ -7690,6 +7690,38 @@ impl<F: BufFactory> Connection<F> {
         }
     }
 
+    /// Reports an explicit UDP message-too-large error for a generated PMTU
+    /// probe on the exact active, validated path. `payload_len` is the UDP
+    /// payload length returned by `send_on_path()`, excluding IP/UDP headers.
+    /// Call only after UDP I/O rejects that datagram; never for loss or timeout.
+    ///
+    /// Returns whether the current probe was matched and the search narrowed.
+    /// No smaller PMTU is confirmed until acknowledged by the peer. Normal
+    /// recovery still retires the rejected packet's in-flight accounting; its
+    /// delayed callbacks cannot reset the newer size probe. Other paths and
+    /// the connection's configured ceiling remain unchanged.
+    pub fn on_pmtu_probe_send_error(
+        &mut self, local_addr: SocketAddr, peer_addr: SocketAddr,
+        payload_len: usize,
+    ) -> bool {
+        let Ok(path) = self.paths.get_active_mut() else {
+            return false;
+        };
+        if path.local_addr() != local_addr || path.peer_addr() != peer_addr ||
+            !path.validated()
+        {
+            return false;
+        }
+        let Some(pmtud) = path.pmtud.as_mut() else {
+            return false;
+        };
+        if !pmtud.reject_probe_send(payload_len) {
+            return false;
+        }
+        path.recovery.pmtud_update_max_datagram_size(pmtud.get_current_mtu());
+        true
+    }
+
     /// Revalidates the PMTU for the active path by sending a new probe packet
     /// of PMTU size. If the probe is dropped PMTUD will restart and find a new
     /// valid PMTU.

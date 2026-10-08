@@ -518,6 +518,7 @@ impl MigrationActor {
                     drive.pmtu,
                     self.attempt.as_ref(),
                     &self.quality,
+                    false,
                 )?;
                 self.defer_probe();
                 return Ok(());
@@ -865,7 +866,15 @@ async fn drain_active_output(
                 drive.io_cancel,
             )
             .await?;
-            if sent == WireSendOutcome::MessageTooLarge {
+            if matches!(sent, WireSendOutcome::MessageTooLarge { .. }) {
+                // Migration keeps its conservative active-path drain policy;
+                // a failed drain must not authorize candidate promotion.
+                super::discard_pending_wire_datagrams(
+                    drive.wire_datagrams,
+                    drive.free_wire_buffers,
+                    drive.wire_queue,
+                    quality,
+                );
                 return Ok(ActiveDrain::MessageTooLarge);
             }
             let completed = before.saturating_sub(drive.wire_datagrams.len());
@@ -1509,7 +1518,8 @@ mod tests {
                 &mut harness.client,
                 &mut harness.pmtu,
                 None,
-                &harness.quality
+                &harness.quality,
+                false,
             ),
             Err(TransportError::PmtuRevalidationExhausted)
         ));

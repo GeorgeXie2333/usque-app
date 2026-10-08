@@ -39,6 +39,11 @@ pub struct Pmtud {
     /// The maximum supported MTU.
     maximum_supported_mtu: usize,
 
+    /// Exclusive upper bound rejected by local UDP I/O on this path. Retain
+    /// it across revalidation so delayed recovery callbacks cannot revive a
+    /// rejected size. A newly created path starts without this bound.
+    locally_rejected_size: Option<usize>,
+
     /// The size of the smallest failed probe.
     smallest_failed_probe_size: Option<usize>,
 
@@ -167,6 +172,9 @@ impl Pmtud {
 
     /// Records a successful probe and returns the largest successful probe size
     pub fn successful_probe(&mut self, probe_size: usize) -> Option<usize> {
+        if self.locally_rejected_size.is_some_and(|size| probe_size >= size) {
+            return None;
+        }
         self.probe_failure_count = 0;
 
         self.largest_successful_probe_size = std::cmp::max(
@@ -183,6 +191,9 @@ impl Pmtud {
 
     /// Records a failed probe
     pub fn failed_probe(&mut self, probe_size: usize) {
+        if self.locally_rejected_size.is_some_and(|size| probe_size >= size) {
+            return;
+        }
         // Treat errant probes as if they failed at the minimum supported MTU
         let probe_size = std::cmp::max(probe_size, MIN_PLPMTU);
         self.probe_failure_count += 1;
@@ -212,6 +223,32 @@ impl Pmtud {
         self.probe_failure_count = 0;
         self.update_probe_size();
         self.in_flight = false;
+    }
+
+    /// The application reports that UDP I/O explicitly rejected the current
+    /// probe as too large. Unlike loss, this needs no repeated attempts or PTO.
+    /// Only constrain the search: a smaller size still needs a peer ACK.
+    pub fn reject_probe_send(&mut self, probe_size: usize) -> bool {
+        if !self.in_flight || self.pmtu.is_some() ||
+            probe_size != self.probe_size ||
+            probe_size <= self.get_current_mtu()
+        {
+            return false;
+        }
+
+        self.locally_rejected_size = Some(
+            self.locally_rejected_size.map_or(probe_size, |s| s.min(probe_size)),
+        );
+        self.maximum_supported_mtu =
+            self.maximum_supported_mtu.min(probe_size - 1);
+        self.smallest_failed_probe_size = Some(
+            self.smallest_failed_probe_size
+                .map_or(probe_size, |s| s.min(probe_size)),
+        );
+        self.probe_failure_count = 0;
+        self.in_flight = false;
+        self.update_probe_size();
+        true
     }
 
     // Resets PMTUD internals such that PMTUD will be recalculated
@@ -260,6 +297,87 @@ impl std::fmt::Debug for Pmtud {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_size_rejection_narrows_once_but_loss_keeps_retry_budget() {
+        for explicit in [false, true] {
+            let mut pmtud = Pmtud::new(1472, 3);
+            let mut rejected = Vec::new();
+            for _ in 0..64 {
+                let size = pmtud.get_probe_size();
+                pmtud.set_in_flight(true);
+                if size <= 1464 {
+                    pmtud.successful_probe(size);
+                } else {
+                    rejected.push(size);
+                    if explicit {
+                        assert!(pmtud.reject_probe_send(size));
+                    } else {
+                        pmtud.failed_probe(size);
+                    }
+                }
+                if pmtud.get_pmtu().is_some() {
+                    break;
+                }
+            }
+            assert_eq!(pmtud.get_pmtu(), Some(1464));
+            assert_eq!(
+                rejected,
+                if explicit {
+                    vec![1472, 1467, 1465]
+                } else {
+                    vec![1472, 1472, 1472, 1467, 1467, 1467, 1465, 1465, 1465]
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn rejected_probe_callbacks_cannot_retire_or_ack_the_next_probe() {
+        let mut pmtud = Pmtud::new(1472, 3);
+        pmtud.set_in_flight(true);
+        assert!(pmtud.reject_probe_send(1472));
+        assert_eq!(pmtud.get_current_mtu(), MIN_PLPMTU);
+        assert_eq!(pmtud.get_pmtu(), None);
+        assert_eq!(pmtud.get_probe_size(), 1336);
+        assert!(pmtud.should_probe());
+        pmtud.set_in_flight(true);
+        pmtud.failed_probe(1472);
+        assert_eq!(pmtud.successful_probe(1472), None);
+        assert!(pmtud.in_flight);
+        assert_eq!(pmtud.probe_failure_count, 0);
+        assert_eq!(pmtud.get_probe_size(), 1336);
+        assert_eq!(pmtud.get_current_mtu(), MIN_PLPMTU);
+        assert!(!pmtud.reject_probe_send(1472));
+        pmtud.successful_probe(1336);
+        assert_eq!(pmtud.get_current_mtu(), 1336);
+
+        // A search restart retains the hard local ceiling. A different path
+        // starts with the full configured ceiling instead.
+        pmtud.restart_pmtud();
+        assert_eq!(pmtud.get_probe_size(), 1471);
+        pmtud.set_in_flight(true);
+        pmtud.failed_probe(1472);
+        assert!(pmtud.in_flight);
+        assert_eq!(Pmtud::new(1472, 3).get_probe_size(), 1472);
+    }
+
+    #[test]
+    fn local_rejection_requires_an_outstanding_exact_above_floor_probe() {
+        let mut pmtud = Pmtud::new(1472, 3);
+        assert!(!pmtud.reject_probe_send(1472));
+        pmtud.set_in_flight(true);
+        for size in [0, 1199, 1200, 1336, 1473, usize::MAX] {
+            assert!(!pmtud.reject_probe_send(size));
+        }
+        assert!(pmtud.in_flight);
+        assert_eq!(pmtud.get_probe_size(), 1472);
+        pmtud.successful_probe(1472);
+        assert!(!pmtud.reject_probe_send(1472));
+        let mut floor = Pmtud::new(MIN_PLPMTU, 3);
+        floor.set_in_flight(true);
+        assert!(!floor.reject_probe_send(MIN_PLPMTU));
+    }
 
     #[test]
     fn pmtud_initial_state() {

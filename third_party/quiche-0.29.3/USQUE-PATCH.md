@@ -15,7 +15,8 @@ fixtures are retained. See [COPYING](COPYING) (BSD-2-Clause) and
   (also recorded in `.cargo_vcs_info.json`).
 - All 87 published files were verified byte-for-byte against that archive
   before patching. The retained PMTU changes are in `src/lib.rs` and
-  `src/path.rs`. The congestion-control additions are confined to `recovery/`,
+  `src/path.rs`; explicit local probe rejection also changes `src/pmtud.rs`.
+  The congestion-control additions are confined to `recovery/`,
   its public C algorithm enum, and license/package metadata. Original BBRv2,
   Reno and CUBIC implementation files remain unchanged.
 - The root `[patch.crates-io]` selects this directory. The workspace lockfile
@@ -40,6 +41,17 @@ fixtures are retained. See [COPYING](COPYING) (BSD-2-Clause) and
    after processing losses. The existing too-large-queue-entry discard then
    prevents an old oversized head from blocking smaller DATAGRAMs after
    revalidation. The existing ordinary packetization cap is retained.
+4. Add the Rust-only `Connection::on_pmtu_probe_send_error()` for an explicit
+   UDP message-too-large error. It requires the exact active, validated path
+   and an outstanding above-floor probe with the rejected payload length.
+   The path's search ceiling is reduced immediately, without the ordinary
+   loss retry budget or PTO wait. Only peer ACKs confirm a usable PMTU.
+   Locally rejected sizes remain excluded across search restarts/revalidation;
+   their late loss/ACK callbacks cannot retire a newer probe or revive a rejected
+   size. Recovery still owns packet accounting and no congestion algorithm is
+   changed. Newly created paths retain the original configured ceiling.
+   Unmatched/stale errors, ordinary packets, disabled discovery and the QUIC
+   minimum size are rejected by this API for the caller's existing handling.
 
 Related upstream work, inspected on 2026-09-03:
 [runtime-path PMTUD PR #2573](https://github.com/cloudflare/quiche/pull/2573)
@@ -77,7 +89,16 @@ cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib -
 On Windows, first initialize the supported environment with the root helper.
 The standalone crate also needs the root's BoringSSL dev-CRT profile settings
 (`--config profile.dev.package.boring-sys.opt-level=1` and
-`--config profile.dev.package.boring-sys.debug=false`). Its default TLS tests
+`--config profile.dev.package.boring-sys.debug=false`). Unlike the workspace's
+patched `boring-sys`, the standalone registry build needs the native
+`--target=x86_64-pc-windows-msvc` and imported MSVC/SDK include directories
+forwarded through `BINDGEN_EXTRA_CLANG_ARGS` on x64 Windows. Restore these
+native-only arguments before running Android checks. If the selected NDK
+libclang cannot load its `libwinpthread-1.dll`, make that same pinned DLL
+available beside each generated `boring-sys` build-script executable; feature
+sets such as qlog may create a different build-script directory. Do not change
+the NDK revision or trust configuration to work around a loader failure.
+Its default TLS tests
 read the Windows root certificate store; an access-denied sandbox is not
 evidence of a TLS regression, and verification must never be disabled to pass.
 
@@ -87,6 +108,14 @@ They use Usque's real QUIC buffer factory and ephemeral mutually pinned TLS
 identities; no sockets, TUN, platform-network changes or external peers are
 involved. See the
 [issue/validation record](../../docs/pmtu-path-fixes.md).
+
+Local-send rejection regressions additionally compare a 1464-byte limit with
+ordinary packet loss: explicit rejection tries 1472, 1467 and 1465 once each,
+while loss retains three attempts per failed size. The transport suite runs
+real in-memory QUIC flights with all four congestion algorithms, verifies
+continued small-packet delivery, exact path/size matching, peer-ACK validation
+and an independent full-ceiling path after migration. PMTUD unit tests cover
+late callbacks, search restart and rejection at the minimum size.
 
 On Windows, establish the supported native environment using the repository
 helper and run the required root Rust gates; do not run a plain release Cargo

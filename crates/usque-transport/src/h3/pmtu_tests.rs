@@ -302,6 +302,135 @@ fn hold_client_probe(pair: &mut Pair) -> Vec<Wire> {
     packets
 }
 
+#[test]
+fn oversized_discovery_probe_does_not_pause_ordinary_traffic() {
+    let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
+    let _flight = hold_client_probe(&mut pair);
+    let quality = NetworkQualityTelemetry::default();
+    let mut controller = PmtuController::new(PmtuPathKey::new(pair.client_addr, pair.server_addr));
+    assert!(is_discovery_probe_rejection(
+        &pair.client,
+        IPV4_MAX_UDP_PAYLOAD,
+        &quality
+    ));
+    assert!(!is_discovery_probe_rejection(
+        &pair.client,
+        QUIC_MIN_PAYLOAD,
+        &quality
+    ));
+    handle_pmtu_send_too_large(&mut pair.client, &mut controller, None, &quality, true).unwrap();
+    assert!(
+        controller
+            .send_suppressed_until(StdInstant::now())
+            .is_none(),
+        "a rejected size probe must not impose a one-second connection-wide send pause"
+    );
+}
+
+#[test]
+fn completed_pmtu_send_errors_keep_the_ordinary_revalidation_policy() {
+    let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
+    pair.settle();
+    assert_eq!(pair.client.pmtu(), Some(IPV4_MAX_UDP_PAYLOAD));
+    let quality = NetworkQualityTelemetry::default();
+    assert!(!is_discovery_probe_rejection(
+        &pair.client,
+        IPV4_MAX_UDP_PAYLOAD,
+        &quality
+    ));
+    let mut controller = PmtuController::new(PmtuPathKey::new(pair.client_addr, pair.server_addr));
+    handle_pmtu_send_too_large(&mut pair.client, &mut controller, None, &quality, false).unwrap();
+    assert!(
+        controller
+            .send_suppressed_until(StdInstant::now())
+            .is_some()
+    );
+    assert!(pair.client.pmtu().is_none());
+}
+
+#[test]
+fn explicit_1464_byte_limit_converges_without_repeating_rejected_sizes() {
+    for algorithm in usque_core::CongestionControlAlgorithm::ALL {
+        let mut pair = Pair::new(|client, server| {
+            client.set_cc_algorithm(quiche_congestion_control(algorithm));
+            client.enable_pacing(false);
+            server.enable_pacing(false);
+            server.discover_pmtu(false);
+        });
+        let mut rejected = Vec::new();
+        let mut delivered = 0;
+        for _ in 0..256 {
+            pair.client.dgram_send(&[0x55; 64]).unwrap();
+            for packet in collect(&mut pair.client, None, None) {
+                if packet.bytes.len() > 1464 {
+                    rejected.push(packet.bytes.len());
+                    assert!(pair.client.on_pmtu_probe_send_error(
+                        packet.from,
+                        packet.to,
+                        packet.bytes.len()
+                    ));
+                } else {
+                    deliver(&mut pair.server, packet);
+                }
+            }
+            while let Ok(packet) = pair.server.dgram_recv_buf() {
+                assert_eq!(packet.as_ref(), &[0x55; 64]);
+                delivered += 1;
+            }
+            for packet in collect(&mut pair.server, None, None) {
+                deliver(&mut pair.client, packet);
+            }
+            pair.client.on_timeout();
+            pair.server.on_timeout();
+            if pair.client.pmtu() == Some(1464) {
+                break;
+            }
+        }
+        assert_eq!(pair.client.pmtu(), Some(1464), "{}", algorithm.as_str());
+        assert_eq!(rejected, [1472, 1467, 1465], "{}", algorithm.as_str());
+        assert!(delivered > 0);
+        // A local send limit belongs to this socket/path, not the connection's
+        // configured ceiling or the next network path.
+        pair.exchange_ids();
+        let candidate = "127.0.0.1:12341".parse().unwrap();
+        pair.validate_candidate(candidate, IPV4_MAX_UDP_PAYLOAD);
+        pair.client.migrate(candidate, pair.server_addr).unwrap();
+        pair.client_addr = candidate;
+        pair.settle();
+        assert_eq!(pair.client.pmtu(), Some(IPV4_MAX_UDP_PAYLOAD));
+    }
+}
+
+#[test]
+fn local_probe_rejection_requires_the_exact_active_path_and_size() {
+    let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
+    let flight = hold_client_probe(&mut pair);
+    let size = flight
+        .iter()
+        .map(|packet| packet.bytes.len())
+        .max()
+        .unwrap();
+    for (from, to, length) in [
+        ("127.0.0.1:12341".parse().unwrap(), pair.server_addr, size),
+        (pair.client_addr, "127.0.0.1:44331".parse().unwrap(), size),
+        (pair.client_addr, pair.server_addr, QUIC_MIN_PAYLOAD),
+        (pair.client_addr, pair.server_addr, size - 1),
+    ] {
+        assert!(!pair.client.on_pmtu_probe_send_error(from, to, length));
+    }
+    assert!(
+        pair.client
+            .on_pmtu_probe_send_error(pair.client_addr, pair.server_addr, size)
+    );
+    assert!(
+        !pair
+            .client
+            .on_pmtu_probe_send_error(pair.client_addr, pair.server_addr, size)
+    );
+    assert_eq!(pair.client.pmtu(), None);
+    assert!(pair.client.dgram_max_writable_len().unwrap() < QUIC_MIN_PAYLOAD);
+}
+
 struct BatchQueue {
     pending: Option<OutgoingBatch>,
     result: oneshot::Receiver<PacketBatchResult>,

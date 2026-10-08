@@ -19,6 +19,124 @@ fn outgoing(count: usize) -> (OutgoingBatch, oneshot::Receiver<PacketBatchResult
     )
 }
 
+#[tokio::test]
+async fn oversized_probe_preserves_unsent_tail_after_partial_udp_send() {
+    use crate::{FaultKind, FaultScript, ScheduledFault};
+    let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let from = socket.local_addr().unwrap();
+    let to = receiver.local_addr().unwrap();
+    let quality = NetworkQualityTelemetry::default();
+    let path = PathSocket::spawn(
+        PathId::new(0),
+        from,
+        to,
+        0,
+        PathSocketRole::Active,
+        socket,
+        DirectEgressLease::for_generation(0),
+        quality.clone(),
+        UdpReceivePool::default(),
+    )
+    .unwrap();
+    let mut paths = PathSocketSet::with_active(path).unwrap();
+    let queue = quality.register_queue(QueueKind::H3WireSend, 64, 64 * 1472);
+    let mut pending = VecDeque::new();
+    for (marker, length) in [(1, 100), (2, 1472), (3, 100)] {
+        pending.push_back(WireDatagram {
+            bytes: vec![marker; length],
+            send_info: quiche::SendInfo {
+                from,
+                to,
+                at: StdInstant::now(),
+            },
+            queue_entry: queue.start_entry(length),
+        });
+    }
+    quality.inject_fault_script(
+        FaultScript::new(
+            2,
+            vec![
+                ScheduledFault {
+                    at: Duration::ZERO,
+                    fault: FaultKind::SendMmsgPartial(1),
+                },
+                ScheduledFault {
+                    at: Duration::ZERO,
+                    fault: FaultKind::SendMessageTooLarge,
+                },
+            ],
+        )
+        .unwrap(),
+    );
+    let mut free = Vec::new();
+    let cancel = CancellationToken::new();
+    assert_eq!(
+        send_due_wire_datagrams(
+            &paths,
+            &mut pending,
+            &mut free,
+            4096,
+            &queue,
+            &quality,
+            &cancel
+        )
+        .await
+        .unwrap(),
+        WireSendOutcome::Sent
+    );
+    assert_eq!(pending.len(), 2);
+    assert_eq!(
+        send_due_wire_datagrams(
+            &paths,
+            &mut pending,
+            &mut free,
+            4096,
+            &queue,
+            &quality,
+            &cancel
+        )
+        .await
+        .unwrap(),
+        WireSendOutcome::MessageTooLarge {
+            payload_len: 1472,
+            from,
+            to
+        }
+    );
+    assert_eq!(
+        pending.len(),
+        1,
+        "an oversized probe must not discard the following small packet"
+    );
+    assert_eq!(pending.front().unwrap().bytes, vec![3; 100]);
+    assert_eq!(
+        send_due_wire_datagrams(
+            &paths,
+            &mut pending,
+            &mut free,
+            4096,
+            &queue,
+            &quality,
+            &cancel
+        )
+        .await
+        .unwrap(),
+        WireSendOutcome::Sent
+    );
+    assert!(pending.is_empty());
+    for marker in [1, 3] {
+        let mut received = [0; 2048];
+        let length = timeout(Duration::from_millis(250), receiver.recv(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&received[..length], &[marker; 100]);
+    }
+    assert_eq!(queue.snapshot(Instant::now()).current_items, 0);
+    paths.shutdown_all().await;
+}
+
 #[test]
 fn one_ready_batch_queries_the_effective_payload_limit_once() {
     let (mut connection, _, _, _) = established_test_pair();

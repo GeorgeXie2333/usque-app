@@ -55,9 +55,30 @@ only restart quiche's existing discovery; probe acknowledgements determine
 the usable size. There is no forced unverified MTU reduction and no bypass of
 congestion control. Probe-only loss, sparse random loss, idle samples, an
 unfinished search, disabled automatic PMTU, and a completed 1200-byte floor do
-not trigger this mechanism. Promotion resets loss history. EMSGSIZE retains
-its separate suppression and exhaustion budget. Confirmed insufficient IPv6
-minimum MTU still follows the existing fail-closed termination policy.
+not trigger this mechanism. Promotion resets loss history.
+
+An EMSGSIZE rejection during unfinished discovery is treated as a failed size
+probe only when its UDP payload exceeds the active path's current ordinary-send
+bound. The actor releases that rejected datagram and retains the unsent tail,
+including smaller DNS, TLS and ACK packets. It does not pause ordinary traffic
+for one second on each rejected probe. It reports the exact local/peer socket
+addresses and rejected UDP length to quiche. Only an outstanding probe of that
+size on the active, validated path can narrow the search immediately, without
+repeating that size or waiting for its loss timer. Ordinary network loss still
+uses the configured retry budget. The error does not publish or force an
+unverified PMTU: smaller sizes still require peer acknowledgements.
+The local rejection bounds only this path's search; delayed ACK/loss callbacks
+for rejected sizes cannot clear the new probe or restore a rejected ceiling.
+Normal recovery still retires their packet accounting. A new path starts with
+the configured ceiling independently of this limit.
+Both UDP backends report a successfully sent prefix before a later error, so
+the rejected datagram is the first remaining queue entry.
+
+Errors at or below the ordinary-send bound, errors after discovery completes,
+and migration-drain errors retain the conservative queue reset, suppression and
+revalidation policy. The finite discovery-error and revalidation budgets remain
+in force. Confirmed insufficient IPv6 minimum MTU still follows the existing
+fail-closed termination policy.
 
 ## GOAWAY and automatic recovery
 

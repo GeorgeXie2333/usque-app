@@ -1330,8 +1330,13 @@ async fn drive_h3_actor(
                 quality,
                 &io_cancel,
             ), if wire_is_due && wire_fits_quantum && pmtu_suppressed_until.is_none() => {
-                if sent? == WireSendOutcome::MessageTooLarge {
-                    handle_pmtu_send_too_large(&mut connection, &mut pmtu, attempt, quality)?;
+                if let WireSendOutcome::MessageTooLarge { payload_len, from, to } = sent? {
+                    let probe_only = is_discovery_probe_rejection(&connection, payload_len, quality)
+                        && connection.on_pmtu_probe_send_error(from, to, payload_len);
+                    if !probe_only {
+                        discard_pending_wire_datagrams(&mut wire_datagrams, &mut free_wire_buffers, wire_queue, quality);
+                    }
+                    handle_pmtu_send_too_large(&mut connection, &mut pmtu, attempt, quality, probe_only)?;
                 }
             }
             _ = sleep_until(wire_deadline), if !wire_datagrams.is_empty() && !wire_is_due => {}
@@ -1387,11 +1392,28 @@ async fn wait_l4_work(actor: &Option<crate::l4::L4Actor>) {
     }
 }
 
+fn is_discovery_probe_rejection(
+    connection: &H3QuicConnection,
+    payload_len: usize,
+    quality: &NetworkQualityTelemetry,
+) -> bool {
+    // Ordinary QUIC packetization is capped at this path's current PMTU.
+    // A larger packet during discovery is a size probe, not evidence that the
+    // current ordinary-send bound failed. Never infer this for a stable path.
+    quality.features().automatic_pmtu
+        && connection.pmtu().is_none()
+        && connection
+            .path_stats()
+            .find(|path| path.active)
+            .is_some_and(|path| payload_len > path.pmtu)
+}
+
 fn handle_pmtu_send_too_large(
     connection: &mut H3QuicConnection,
     pmtu: &mut PmtuController,
     attempt: Option<&ConnectionAttemptTelemetry>,
     quality: &NetworkQualityTelemetry,
+    probe_only: bool,
 ) -> Result<(), TransportError> {
     let Some(path) = connection.path_stats().find(|path| path.active) else {
         return Err(TransportError::Http3(
@@ -1400,7 +1422,11 @@ fn handle_pmtu_send_too_large(
     };
     let key = PmtuPathKey::new(path.local_addr, path.peer_addr);
     quality.record_pmtu_send_too_large();
-    let action = pmtu.on_send_too_large(key, connection.pmtu(), StdInstant::now());
+    let action = if probe_only {
+        pmtu.on_probe_send_too_large(key, StdInstant::now())
+    } else {
+        pmtu.on_send_too_large(key, connection.pmtu(), StdInstant::now())
+    };
     #[cfg(any(test, feature = "fault-injection"))]
     let action = if quality
         .take_fault(crate::fault_injection::FaultPoint::Pmtu)
@@ -2199,7 +2225,11 @@ fn observe_outgoing_batch(quality: &NetworkQualityTelemetry, batch: &OutgoingBat
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WireSendOutcome {
     Sent,
-    MessageTooLarge,
+    MessageTooLarge {
+        payload_len: usize,
+        from: SocketAddr,
+        to: SocketAddr,
+    },
 }
 
 #[expect(
@@ -2263,8 +2293,17 @@ async fn send_due_wire_datagrams(
         Ok(sent) => sent,
         Err(error) if is_message_too_long(&error) => {
             crate::transport_performance::add(&quality.performance().h3.udp_message_too_large, 1);
-            discard_pending_wire_datagrams(pending, free_buffers, wire_queue, quality);
-            return Ok(WireSendOutcome::MessageTooLarge);
+            // Both backends return a successful prefix before surfacing a
+            // later error. An error here rejects exactly the first remaining
+            // datagram. Retain the tail until the caller classifies the path;
+            // it can contain DNS, TLS or ACK packets behind a PMTU probe.
+            let payload_len = pending.front().expect("nonempty send batch").bytes.len();
+            complete_wire_sends(pending, free_buffers, 1, wire_queue, quality);
+            return Ok(WireSendOutcome::MessageTooLarge {
+                payload_len,
+                from: source,
+                to: destination,
+            });
         }
         Err(error) => return Err(error.into()),
     };

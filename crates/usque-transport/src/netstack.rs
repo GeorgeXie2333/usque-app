@@ -1602,6 +1602,10 @@ async fn connect_endpoint_cancellable(
                             None,
                         );
                     }
+                    // Automatic endpoint races cooperatively close losing
+                    // candidates. Keep cleanup, but do not report that local
+                    // cancellation as a remote H3/H2 connection failure.
+                    Err(TransportError::TunnelClosed) if cancellation.is_cancelled() => {}
                     Err(error) => {
                         let failure = error.failure(Some(transport), Some(family));
                         telemetry.record(
@@ -3177,6 +3181,85 @@ mod tests {
         .unwrap();
         identity.entitlement = Some(usque_core::ConsumerEntitlement::Free);
         identity
+    }
+
+    #[tokio::test]
+    async fn cancelled_h3_candidate_does_not_report_connection_failure() {
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let identity = automatic_test_identity();
+        let telemetry = ConnectionTelemetry::default();
+        let cancellation = CancellationToken::new();
+        let connecting = connect_endpoint_cancellable(
+            Transport::Http3,
+            EndpointCandidate::new(peer.local_addr().unwrap(), AddressFamily::Ipv4),
+            "cancelled-candidate.test",
+            &identity,
+            usize::from(usque_core::config::DEFAULT_MTU),
+            Default::default(),
+            crate::socket::noop_socket_protector(),
+            &telemetry,
+            cancellation.clone(),
+        );
+        let cancel_after_first_packet = async {
+            let mut packet = [0; 2048];
+            peer.recv_from(&mut packet).await.unwrap();
+            // A winning sibling cancels this candidate after its driver starts.
+            cancellation.cancel();
+        };
+        let (result, ()) = timeout(Duration::from_secs(2), async {
+            tokio::join!(connecting, cancel_after_first_packet)
+        })
+        .await
+        .expect("cancelled handshake must finish driver cleanup");
+        assert!(matches!(result, Err(TransportError::TunnelClosed)));
+        assert!(
+            telemetry
+                .snapshot()
+                .events
+                .iter()
+                .all(|event| event.event_type != ConnectionEventType::Failed),
+            "an intentionally cancelled candidate is not a failed connection"
+        );
+    }
+
+    #[tokio::test]
+    async fn candidate_cancellation_does_not_hide_socket_protection_failure() {
+        struct Denied(CancellationToken);
+        #[async_trait::async_trait]
+        impl SocketProtector for Denied {
+            fn protect(&self, _: crate::socket::SocketHandle) -> Result<(), String> {
+                // Reproduce a real setup error concurrent with race cleanup.
+                self.0.cancel();
+                Err("fixture protection failure".into())
+            }
+        }
+        let identity = automatic_test_identity();
+        let telemetry = ConnectionTelemetry::default();
+        let cancellation = CancellationToken::new();
+        let result = connect_endpoint_cancellable(
+            Transport::Http3,
+            EndpointCandidate::new("127.0.0.1:443".parse().unwrap(), AddressFamily::Ipv4),
+            "denied-candidate.test",
+            &identity,
+            usize::from(usque_core::config::DEFAULT_MTU),
+            Default::default(),
+            Arc::new(Denied(cancellation.clone())),
+            &telemetry,
+            cancellation,
+        )
+        .await;
+        assert!(matches!(result, Err(TransportError::SocketProtection(_))));
+        let failed = telemetry
+            .snapshot()
+            .events
+            .into_iter()
+            .filter(|event| event.event_type == ConnectionEventType::Failed)
+            .collect::<Vec<_>>();
+        assert_eq!(failed.len(), 1);
+        assert_eq!(
+            failed[0].failure.as_ref().unwrap().code,
+            TransportFailureCode::SocketProtectionFailed
+        );
     }
 
     async fn wait_for_endpoint_calls(protector: &DeferredEndpointProtection, expected: usize) {

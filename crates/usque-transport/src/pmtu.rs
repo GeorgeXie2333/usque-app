@@ -243,6 +243,26 @@ impl PmtuController {
         completed_outer_payload: Option<usize>,
         now: Instant,
     ) -> PmtuRevalidationAction {
+        self.on_send_error(key, completed_outer_payload, now, false)
+    }
+
+    /// Only for a rejected discovery packet larger than quiche's current
+    /// ordinary-send bound. Losing a probe does not invalidate smaller traffic.
+    pub(crate) fn on_probe_send_too_large(
+        &mut self,
+        key: PmtuPathKey,
+        now: Instant,
+    ) -> PmtuRevalidationAction {
+        self.on_send_error(key, None, now, true)
+    }
+
+    fn on_send_error(
+        &mut self,
+        key: PmtuPathKey,
+        completed_outer_payload: Option<usize>,
+        now: Instant,
+        probe_only: bool,
+    ) -> PmtuRevalidationAction {
         self.activate_path(key);
         let automatic = self.automatic;
         let state = self.active_state_mut();
@@ -258,7 +278,9 @@ impl PmtuController {
         }
         state.published_outer_payload = None;
         state.effective_connect_ip_payload = None;
-        state.send_suppressed_until = Some(now + SEND_ERROR_SUPPRESSION);
+        if !probe_only {
+            state.send_suppressed_until = Some(now + SEND_ERROR_SUPPRESSION);
+        }
         if completed_outer_payload.is_none() {
             state.discovery_send_errors = state.discovery_send_errors.saturating_add(1);
             if state.discovery_send_errors >= MAX_DISCOVERY_SEND_ERRORS {
@@ -954,6 +976,41 @@ mod tests {
         assert_eq!(completed.outer_payload_bytes, Some(1_336));
         assert_eq!(completed.phase, PmtuPhase::Stable);
         assert_eq!(controller.path_state(key).unwrap().discovery_send_errors, 0);
+    }
+
+    #[test]
+    fn probe_send_errors_do_not_pause_data_but_still_exhaust_the_discovery_budget() {
+        let key = path("192.0.2.10:1000", "192.0.2.20:443");
+        let mut controller = PmtuController::new(key);
+        let now = Instant::now();
+        for _ in 1..MAX_DISCOVERY_SEND_ERRORS {
+            assert!(matches!(
+                controller.on_probe_send_too_large(key, now),
+                PmtuRevalidationAction::ContinueDiscovery(_)
+            ));
+            assert!(controller.send_suppressed_until(now).is_none());
+        }
+        assert!(matches!(
+            controller.on_probe_send_too_large(key, now),
+            PmtuRevalidationAction::Exhausted(_)
+        ));
+    }
+
+    #[test]
+    fn probe_send_error_cannot_clear_an_ordinary_send_error_pause() {
+        let key = path("192.0.2.10:1000", "192.0.2.20:443");
+        let mut controller = PmtuController::new(key);
+        let now = Instant::now();
+        controller.on_send_too_large(key, None, now);
+        controller.on_probe_send_too_large(key, now + Duration::from_millis(10));
+        assert_eq!(
+            controller.send_suppressed_until(now),
+            Some(now + SEND_ERROR_SUPPRESSION)
+        );
+        assert!(matches!(
+            PmtuController::with_automatic(key, false).on_probe_send_too_large(key, now),
+            PmtuRevalidationAction::Exhausted(_)
+        ));
     }
 
     #[test]
