@@ -97,7 +97,9 @@ impl ProxyRuntime {
             identity,
             protector,
             pin_refresher,
-            GeoDirectPolicy::disabled(),
+            GeoDirectPolicy::disabled()
+                .with_custom_rules(profile)
+                .map_err(|error| TransportError::Netstack(error.to_string()))?,
         )
         .await
     }

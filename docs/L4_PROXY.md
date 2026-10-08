@@ -99,8 +99,10 @@ fixture success is not a Cloudflare® account test.
   Oversized UDP replies use TC, not arbitrary IP fragmentation.
 - Remote proxy DNS uses L4 TCP DNS. Explicit LocalConfigured/System retain
   their existing semantics. EdgeResolved is available only to L4 SOCKS/HTTP:
-  the domain goes into CONNECT authority without a local lookup. It does not
-  invent domain information for TUN IP packets.
+  the domain goes into CONNECT authority without a local lookup. With Allow
+  local network or custom address rules enabled, existing exit DNS resolves
+  the name first so routing checks can submit a checked numerical target.
+  It does not invent domain information for TUN IP packets.
 - With a final HTTP/SOCKS5 proxy, Automatic chain DNS defaults to verified DoH
   through that proxy. Custom or non-default inherited DNS retains TCP DNS.
   Application-selected UDP/53 queries still use TCP to that resolver; a refused
@@ -110,8 +112,9 @@ fixture success is not a Cloudflare® account test.
   paths. Encrypted direct DNS never falls back to plaintext. A TCP direct
   attempt falling back to L4 keeps its resolved IP and is subsequently treated
   as an L4 flow, including migration ownership.
-- Existing application/LAN/CIDR bypass rules remain explicit platform rules.
-  Traffic excluded from TUN is outside its UDP rejection boundary.
+- Allow local network also selects protected direct TCP paths in HTTP and
+  SOCKS5. Existing platform exclusions remain outside TUN's UDP rejection
+  boundary; the setting does not enable ordinary UDP forwarding in L4 alone.
 
 IPv4 options, fragments, IPv6 extension headers, general UDP and remote ICMP
 Echo are not transparently supported. Some applications do not fall back from

@@ -648,7 +648,8 @@ async fn serve_udp_association(
                     let _ = relay.send_to(&response, source).await;
                     continue;
                 }
-                if tunnel_udp_unavailable && route == GeoRoute::Tunnel && !valid_dns {
+                if tunnel_udp_unavailable && route == GeoRoute::Tunnel && !valid_dns
+                    && !(context.geo_policy.has_ip_rules() && matches!(&parsed.target, Target::Domain(_))) {
                     continue;
                 }
                 if valid_dns
@@ -1873,6 +1874,51 @@ mod tests {
         assert_eq!(&encoded[..4], &[0, 0, 0, ADDRESS_IPV6]);
         assert_eq!(&encoded[20..22], &5353u16.to_be_bytes());
         assert_eq!(&encoded[22..], b"dns");
+    }
+
+    #[tokio::test]
+    async fn allow_lan_socks_connect_and_udp_attempt_protected_direct_egress() {
+        use crate::geo_direct::{LanProbeProtector, lan_test_policy};
+        for allow_lan in [false, true] {
+            let protector = Arc::new(LanProbeProtector::default());
+            let (mut context, tunnel, server, tasks) = test_socks_context(protector.clone()).await;
+            context.geo_policy = Arc::new(lan_test_policy(allow_lan));
+            let remote: SocketAddr = "10.0.0.2:9000".parse().unwrap();
+            let tcp = server.tcp_listen(remote).await.unwrap();
+            let stream =
+                connect_remote(&context, &Target::Address(remote.ip()), remote.port()).await;
+            assert!(matches!(stream, Ok(RoutedTcpStream::Tunnel(_))));
+            let _accepted = tcp.accept().await.unwrap();
+            let udp = server.udp_bind(remote).await.unwrap();
+            let direct = DirectUdpSockets::new(protector.as_ref());
+            send_udp_routed(
+                &context,
+                &Target::Address(remote.ip()),
+                remote.port(),
+                b"lan",
+                &direct,
+                TunnelUdpSockets::Stack {
+                    v4: &tunnel,
+                    v6: &tunnel,
+                },
+            )
+            .await
+            .unwrap();
+            let (_, payload) = timeout(Duration::from_secs(1), udp.recv_from_bytes())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(&payload[..], b"lan");
+            let expected = if allow_lan {
+                vec![(remote, DirectProtocol::Tcp), (remote, DirectProtocol::Udp)]
+            } else {
+                vec![]
+            };
+            assert_eq!(*protector.attempts.lock().unwrap(), expected);
+            for task in tasks {
+                task.abort();
+            }
+        }
     }
 
     #[tokio::test]

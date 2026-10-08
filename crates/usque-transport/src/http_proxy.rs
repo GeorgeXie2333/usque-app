@@ -1202,6 +1202,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn allow_lan_http_forward_and_connect_attempt_protected_direct_egress() {
+        use crate::geo_direct::{LanProbeProtector, lan_test_policy};
+        for allow_lan in [false, true] {
+            let mut fixture = StackedProxy::new().await;
+            let protector = Arc::new(LanProbeProtector::default());
+            let context = Arc::get_mut(&mut fixture.context).unwrap();
+            context.geo_policy = Arc::new(lan_test_policy(allow_lan));
+            context.protector = protector.clone();
+            let origin = fixture.origin;
+            let upstream = tokio::spawn(async move {
+                let stream = origin.accept().await.unwrap();
+                hyper::server::conn::http1::Builder::new()
+                    .keep_alive(false)
+                    .serve_connection(
+                        TokioIo::new(stream),
+                        service_fn(|_request| async {
+                            Ok::<_, Infallible>(Response::new(Full::new(Bytes::from_static(b"ok"))))
+                        }),
+                    )
+                    .await
+                    .unwrap();
+                let _stream = origin.accept().await.unwrap();
+            });
+            let frontend = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = frontend.local_addr().unwrap();
+            let task = tokio::spawn(run_listener(frontend, fixture.context.clone()));
+            for request in [
+                b"GET http://10.0.0.2:8080/ HTTP/1.1\r\nHost: 10.0.0.2:8080\r\nConnection: close\r\n\r\n".as_slice(),
+                b"CONNECT 10.0.0.2:8080 HTTP/1.1\r\nHost: 10.0.0.2:8080\r\nConnection: close\r\n\r\n".as_slice(),
+            ] {
+                let mut client = TcpStream::connect(address).await.unwrap();
+                client.write_all(request).await.unwrap();
+                let mut response = Vec::new();
+                tokio::time::timeout(Duration::from_secs(2), client.read_to_end(&mut response))
+                    .await.unwrap().unwrap();
+                assert!(response.starts_with(b"HTTP/1.1 200"));
+            }
+            upstream.await.unwrap();
+            let expected = if allow_lan {
+                vec![
+                    (
+                        "10.0.0.2:8080".parse().unwrap(),
+                        crate::socket::DirectProtocol::Tcp
+                    );
+                    2
+                ]
+            } else {
+                vec![]
+            };
+            assert_eq!(*protector.attempts.lock().unwrap(), expected);
+            task.abort();
+        }
+    }
+
+    #[tokio::test]
     async fn routing_reject_returns_403_without_opening_or_admitting_an_upstream() {
         let mut fixture = StackedProxy::new().await;
         Arc::get_mut(&mut fixture.context).unwrap().geo_policy =

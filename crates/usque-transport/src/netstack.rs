@@ -259,6 +259,11 @@ impl PacketStack {
     ) -> Result<Self, TransportError> {
         crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         crate::encrypted_dns::validate_warp_dns_support(profile)?;
+        let geo_policy = Arc::new(
+            GeoDirectPolicy::disabled()
+                .with_custom_rules(profile)
+                .map_err(|error| TransportError::Netstack(error.to_string()))?,
+        );
         let telemetry = ConnectionTelemetry::default();
         telemetry.reset_attempt();
         let (tunnel, endpoint_family, identity, pin_refresh_attempted) =
@@ -346,7 +351,7 @@ impl PacketStack {
                 profile.disable_quic,
             )),
             protector: direct_protector,
-            geo_policy: Arc::new(GeoDirectPolicy::disabled()),
+            geo_policy,
             cancellation,
             failure,
             counters,

@@ -143,6 +143,21 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(mode: ProxyDnsMode, form: RequestForm) -> Self {
+        Self::with_policy(
+            mode,
+            form,
+            Arc::new(GeoDirectPolicy::disabled()),
+            Arc::new(NoPhysicalNetwork),
+        )
+        .await
+    }
+
+    async fn with_policy(
+        mode: ProxyDnsMode,
+        form: RequestForm,
+        policy: Arc<GeoDirectPolicy>,
+        protector: Arc<dyn SocketProtector>,
+    ) -> Self {
         let cancellation = CancellationToken::new();
         let dialer = Arc::new(RecordingDialer {
             form,
@@ -151,7 +166,6 @@ impl Fixture {
             peers: TaskTracker::new(),
             cancellation: cancellation.clone(),
         });
-        let protector: Arc<dyn SocketProtector> = Arc::new(NoPhysicalNetwork);
         let dns = Arc::new(StreamDns::new(
             dialer.clone(),
             protector.clone(),
@@ -182,7 +196,7 @@ impl Fixture {
                 protector.clone(),
             ),
             protector,
-            geo_policy: Arc::new(GeoDirectPolicy::disabled()),
+            geo_policy: policy,
             counters: Arc::default(),
             cancellation: cancellation.clone(),
             health: receiver,
@@ -238,6 +252,53 @@ const REQUEST_FORMS: [RequestForm; 3] = [
     RequestForm::Absolute,
     RequestForm::Origin,
 ];
+
+#[tokio::test]
+async fn allow_lan_ipv6_http_targets_use_protected_egress_in_every_request_form() {
+    use crate::geo_direct::{LanProbeProtector, lan_test_policy};
+    let authority = "[fd00::1]:443";
+    for allow_lan in [false, true] {
+        for mode in DNS_MODES {
+            for form in REQUEST_FORMS {
+                let protector = Arc::new(LanProbeProtector::default());
+                let fixture = Fixture::with_policy(
+                    mode,
+                    form,
+                    Arc::new(lan_test_policy(allow_lan)),
+                    protector.clone(),
+                )
+                .await;
+                let (mut client, header) = fixture.request(authority).await;
+                assert!(
+                    header.starts_with("HTTP/1.1 200 "),
+                    "{allow_lan} {mode:?} {form:?}: {header}"
+                );
+                let expected: &[u8] = if matches!(form, RequestForm::Connect) {
+                    b"WORLD"
+                } else {
+                    b"ok"
+                };
+                let mut body = vec![0; expected.len()];
+                tokio::time::timeout(Duration::from_secs(2), client.read_exact(&mut body))
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(body, expected);
+                let attempts = if allow_lan {
+                    vec![(
+                        authority.parse().unwrap(),
+                        crate::socket::DirectProtocol::Tcp,
+                    )]
+                } else {
+                    vec![]
+                };
+                assert_eq!(*protector.attempts.lock().unwrap(), attempts);
+                drop(client);
+                fixture.shutdown().await;
+            }
+        }
+    }
+}
 
 #[tokio::test]
 async fn ipv6_targets_reach_the_http_frontend_dialer_in_every_dns_mode() {

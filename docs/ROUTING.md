@@ -8,6 +8,25 @@ DIRECT, REJECT or PROXY for the entry or pasted batch, then **Apply changes**.
 Settings are shared across accounts. Changes use the existing reconnect and
 pending-settings workflow; a saved draft does not establish runtime behavior.
 
+**Advanced network settings → Allow local network** applies to every output:
+VPN/TUN, HTTP forwarding and CONNECT (including Windows system proxy), and
+SOCKS5 TCP/UDP where the selected data plane supports it. Save/apply the setting
+and reconnect when requested. It selects the protected direct path for
+`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `fc00::/7`
+and `fe80::/10`, including IPv4-mapped IPv6 destinations. Turning it off removes
+this automatic selection; explicit DIRECT rules can still allow those targets.
+This setting controls destination access, not exposure of proxy listeners to
+other devices.
+
+For traffic entering the engine, explicit domain/address rules and Ads rejection
+retain priority over automatic LAN routing. Hostnames use the configured proxy
+DNS path; returned private/link-local addresses can go direct, without adding a
+physical DNS query. Edge-resolved mode therefore resolves through the existing
+exit DNS and submits checked numerical targets while LAN routing is enabled.
+Direct failures retain the existing tunnel fallback and socket-protection rules.
+VPN platform exclusions and Windows' fixed loopback/simple-hostname proxy
+exceptions retain their existing boundaries.
+
 | Action | Application traffic |
 | --- | --- |
 | DIRECT | Uses the existing protected TCP/UDP direct path and its tunnel fallback on connection failure. |
@@ -103,6 +122,17 @@ validation; unavailable isolated checks are `not_run`.
 打开 **设置 → 分流设置 → 自定义分流规则**，添加单条规则，或按指定动作批量粘贴。
 每行填写域名、IP 或 CIDR，然后点击 **应用修改**。DIRECT 为直连，REJECT 为拒绝，
 PROXY 使用当前隧道及链式出口。设置跨账号共享；查看应用结果，必要时重新连接。
+
+**高级网络设置 → 允许访问局域网** 对所有输出生效：VPN/TUN、HTTP 转发及 CONNECT
+（包括 Windows 系统代理）、SOCKS5 TCP/UDP；UDP 仍受所选数据平面能力限制。
+保存并应用后，按提示重新连接。开启时，上述 IPv4 私有地址、链路本地地址以及 IPv6
+ULA/链路本地网段自动走受保护的直连路径；关闭后取消自动直连，显式 DIRECT 规则仍可生效。
+这个开关控制目标局域网访问，不控制其他设备能否使用本机代理。
+
+进入引擎的流量仍优先遵循自定义域名/IP 规则和 Ads 拒绝。域名沿用当前代理 DNS 设置，
+解析得到的内网地址可直连，不额外查询物理网络 DNS；边缘解析模式在开启此选项时通过现有
+出口 DNS 获取并检查 IP。直连失败仍按现有规则回退到隧道，系统 VPN 排除规则和 Windows
+固定的回环地址/简单主机名例外保持原有边界。
 
 域名包含自身及子域名，更具体的域名优先；IP 使用最长前缀匹配。列表顺序不影响结果。
 父子域名和包含网段可作为例外，只显示覆盖提示；同一规范化目标配置不同动作时阻止保存，

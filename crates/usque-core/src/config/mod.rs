@@ -818,8 +818,10 @@ fn invalid_direct_dns_bootstrap(address: IpAddr) -> bool {
     }
 }
 
-fn is_lan_bypass_address(address: IpAddr) -> bool {
-    match address {
+/// The private and link-local ranges excluded by the Allow LAN setting.
+/// IPv4-mapped IPv6 addresses follow the corresponding IPv4 policy.
+pub fn is_lan_bypass_address(address: IpAddr) -> bool {
+    match address.to_canonical() {
         IpAddr::V4(address) => {
             let [first, second, ..] = address.octets();
             first == 10
