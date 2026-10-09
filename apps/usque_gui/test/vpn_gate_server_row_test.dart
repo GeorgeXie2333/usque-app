@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
-import 'package:usque/screens/vpn_gate_screen.dart';
+import 'package:usque/screens/chain_proxy_screen.dart';
 import 'package:usque/widgets/vpn_gate_server_row.dart';
 
 import 'ui_workflow_test.dart' show workflowHost;
@@ -123,11 +123,11 @@ void main() {
       expect(observations, findsNothing);
       expect(
         tester
-            .widget<ListTile>(
+            .widget<RadioListTile<(String, String)>>(
               find.byKey(const ValueKey('vpn-gate-node-observed')),
             )
-            .onTap,
-        isNull,
+            .enabled,
+        isFalse,
       );
       await tester.ensureVisible(find.byKey(const ValueKey('vpn-gate-toggle')));
       await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
@@ -137,7 +137,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         tester
-            .widget<ListTile>(
+            .widget<RadioListTile<(String, String)>>(
               find.byKey(const ValueKey('vpn-gate-node-observed')),
             )
             .selected,
@@ -157,7 +157,7 @@ void main() {
       await tester.pumpWidget(
         workflowHost(
           app,
-          home: VpnGateScreen(controller: app, now: () => now),
+          home: ChainProxyScreen(controller: app, now: () => now),
         ),
       );
       await tester.pumpAndSettle();

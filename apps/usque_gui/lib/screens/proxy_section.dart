@@ -30,7 +30,7 @@ class ProxySection extends StatefulWidget {
 
 class ProxySectionState extends State<ProxySection> {
   late final _active = ValueNotifier(widget.active);
-  MaterialPageRoute<void>? _gateRoute;
+  MaterialPageRoute<void>? _chainRoute;
 
   @override
   void didUpdateWidget(covariant ProxySection oldWidget) {
@@ -44,10 +44,10 @@ class ProxySectionState extends State<ProxySection> {
     super.dispose();
   }
 
-  Future<void> openVpnGate() async {
+  Future<void> openChainProxy() async {
     final section = widget.navigatorKey.currentState;
     final navigator = section?.navigator;
-    if (_gateRoute != null || navigator == null || section!.closing) return;
+    if (_chainRoute != null || navigator == null || section!.closing) return;
     final route = MaterialPageRoute<void>(
       settings: const RouteSettings(name: '/proxy/chain-proxy'),
       builder: (context) => ValueListenableBuilder<bool>(
@@ -56,12 +56,12 @@ class ProxySectionState extends State<ProxySection> {
             ChainProxyScreen(controller: widget.controller, active: active),
       ),
     );
-    _gateRoute = route;
+    _chainRoute = route;
     try {
       await navigator.push(route);
       await route.completed;
     } finally {
-      if (_gateRoute == route) _gateRoute = null;
+      if (_chainRoute == route) _chainRoute = null;
     }
   }
 
@@ -77,7 +77,7 @@ class ProxySectionState extends State<ProxySection> {
       selector: (controller) => controller.activeProfile,
       builder: (context, _) => ProxyScreen(
         controller: widget.controller,
-        onOpenVpnGate: () => unawaited(openVpnGate()),
+        onOpenChainProxy: () => unawaited(openChainProxy()),
       ),
     ),
   );

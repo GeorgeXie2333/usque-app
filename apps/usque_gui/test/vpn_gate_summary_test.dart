@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/chain_strings.dart';
 import 'package:usque/core/vpn_gate_presentation.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/widgets/chain_current_connection.dart';
 import 'package:usque/widgets/vpn_gate_summary.dart';
 
 import 'ui_workflow_test.dart' show workflowHost;
-import 'vpngate_test.dart' show GateEngine, host, server;
+import 'vpngate_test.dart' show GateEngine, host, server, showGateControl;
 
 const current = VpnGateServer(
   id: 'current',
@@ -123,6 +125,10 @@ void main() {
       final app = await host(tester, engine);
       app.sharedNetwork = app.activeProfile.copyWith(
         vpnGate: const VpnGateSettings(enabled: true).copyWith(server: current),
+        chainExit: const ChainExitSettings(
+          source: ChainSource.vpnGate,
+          enabled: true,
+        ),
       );
       app.snapshot = const EngineSnapshot(
         phase: ConnectionPhase.connected,
@@ -134,11 +140,21 @@ void main() {
       );
       app.selectSection(app.section);
       await tester.pumpAndSettle();
-      final status = find.byType(VpnGateConnectionSummary);
+      final status = find.byType(ChainCurrentConnection);
       final bar = find.byType(VpnGateSelectionBar);
-      expect(tester.widget<VpnGateSelectionBar>(bar).actionKey, 'gate_switch');
+      await showGateControl(
+        tester,
+        find.byKey(ValueKey('vpn-gate-node-${server.id}')),
+      );
       await tester.tap(find.byKey(ValueKey('vpn-gate-node-${server.id}')));
       await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: bar,
+          matching: find.text(app.strings.chain('apply_reconnect')),
+        ),
+        findsOneWidget,
+      );
       expect(
         find.descendant(of: status, matching: find.text('KR · ${current.ip}')),
         findsOneWidget,
@@ -150,9 +166,30 @@ void main() {
       expect(
         find.descendant(
           of: bar,
-          matching: find.text(app.strings.get('gate_draft')),
+          matching: find.text('${app.strings.chain('draft')}: VPN Gate'),
         ),
         findsOneWidget,
+      );
+      app.sharedNetwork = app.activeProfile.copyWith(
+        vpnGate: const VpnGateSettings(enabled: true).copyWith(
+          server: VpnGateServer(
+            id: current.id,
+            ip: current.ip,
+            hostname: current.hostname,
+            countryCode: current.countryCode,
+            configSha256: 'new-confirmed-version',
+          ),
+        ),
+      );
+      app.selectSection(app.section);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<VpnGateSelectionBar>(bar).draft.configSha256,
+        server.configSha256,
+      );
+      await showGateControl(
+        tester,
+        find.byKey(const ValueKey('vpn-gate-toggle')),
       );
       await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
       await tester.pumpAndSettle();
@@ -166,7 +203,7 @@ void main() {
       expect(
         find.descendant(
           of: bar,
-          matching: find.text(app.strings.get('gate_pending_disable')),
+          matching: find.text(app.strings.chain('pending_disable')),
         ),
         findsOneWidget,
       );
@@ -211,7 +248,7 @@ void main() {
       expect(
         find.descendant(
           of: bar,
-          matching: find.text(app.strings.get('gate_pending_save')),
+          matching: find.text('${app.strings.chain('draft')}: VPN Gate'),
         ),
         findsOneWidget,
       );
@@ -220,7 +257,7 @@ void main() {
       expect(
         find.descendant(
           of: bar,
-          matching: find.text(app.strings.get('gate_saved')),
+          matching: find.text(app.strings.get('settings_deferred')),
         ),
         findsOneWidget,
       );
@@ -290,7 +327,6 @@ void main() {
                     connected: true,
                     saving: false,
                     preparing: false,
-                    actionKey: 'gate_enable_reconnect',
                     onApply: () {},
                     onCancel: () {},
                     server: server,

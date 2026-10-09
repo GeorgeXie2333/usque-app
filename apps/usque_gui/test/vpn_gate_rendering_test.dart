@@ -162,7 +162,10 @@ void main() {
         maxScrolls: 60,
       );
       await tester.pumpAndSettle();
-      expect(tester.widget<ListTile>(first).selected, isTrue);
+      expect(
+        tester.widget<RadioListTile<(String, String)>>(first).selected,
+        isTrue,
+      );
       expect(expanded, findsOneWidget);
       // Scrolling and expansion never apply the local draft.
       expect(app.activeProfile.vpnGate.hasSelection, isFalse);

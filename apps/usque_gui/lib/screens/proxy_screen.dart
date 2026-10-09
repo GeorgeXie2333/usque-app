@@ -38,9 +38,13 @@ import 'chain_proxy_screen.dart';
 }
 
 class ProxyScreen extends StatefulWidget {
-  const ProxyScreen({required this.controller, this.onOpenVpnGate, super.key});
+  const ProxyScreen({
+    required this.controller,
+    this.onOpenChainProxy,
+    super.key,
+  });
   final AppController controller;
-  final VoidCallback? onOpenVpnGate;
+  final VoidCallback? onOpenChainProxy;
   @override
   State<ProxyScreen> createState() => _ProxyScreenState();
 }
@@ -304,7 +308,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
                       ChainProxyEntry(
                         controller: widget.controller,
                         onOpen:
-                            widget.onOpenVpnGate ??
+                            widget.onOpenChainProxy ??
                             () => Navigator.of(context).push<void>(
                               MaterialPageRoute(
                                 builder: (_) => ChainProxyScreen(

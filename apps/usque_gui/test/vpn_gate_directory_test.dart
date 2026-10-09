@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/models/app_models.dart';
 
-import 'vpngate_test.dart' show GateEngine, host;
+import 'vpngate_test.dart' show GateEngine, host, showGateControl;
 
 void main() {
   for (final platform in [TargetPlatform.windows, TargetPlatform.android]) {
@@ -32,12 +32,17 @@ void main() {
           size: phone ? const Size(390, 844) : const Size(1280, 800),
         );
         // Start a refresh, then scroll while its response is pending.
+        await showGateControl(
+          tester,
+          find.byKey(const ValueKey('vpn-gate-refresh')),
+        );
         await tester.tap(find.text(app.strings.get('gate_refresh')));
         await tester.pump();
+        expect(engine.refreshes, 1);
         final page = tester.state<ScrollableState>(
           find
               .descendant(
-                of: find.byKey(const PageStorageKey<String>('VPN Gate')),
+                of: find.byType(CustomScrollView),
                 matching: find.byType(Scrollable),
               )
               .first,

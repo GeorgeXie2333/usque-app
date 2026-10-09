@@ -47,7 +47,7 @@ class _ShellScreenState extends State<ShellScreen> {
   };
   final _subpageOpen = <AppSection>{};
   bool _changingSection = false;
-  bool _openingVpnGate = false;
+  bool _openingChainProxy = false;
 
   static const _sectionKeys = <LogicalKeyboardKey>[
     LogicalKeyboardKey.digit1,
@@ -125,9 +125,9 @@ class _ShellScreenState extends State<ShellScreen> {
     });
   };
 
-  Future<void> _openVpnGate() async {
-    if (_openingVpnGate) return;
-    _openingVpnGate = true;
+  Future<void> _openChainProxy() async {
+    if (_openingChainProxy) return;
+    _openingChainProxy = true;
     final selectedController = controller;
     try {
       if (!await _selectSection(AppSection.proxy)) return;
@@ -138,9 +138,9 @@ class _ShellScreenState extends State<ShellScreen> {
           controller.section != AppSection.proxy) {
         return;
       }
-      unawaited(_proxySection.currentState?.openVpnGate());
+      unawaited(_proxySection.currentState?.openChainProxy());
     } finally {
-      _openingVpnGate = false;
+      _openingChainProxy = false;
     }
   }
 
@@ -257,7 +257,7 @@ class _ShellScreenState extends State<ShellScreen> {
           HomeScreen(
             key: const ValueKey<String>('home-page'),
             controller: controller,
-            onOpenVpnGate: () => unawaited(_openVpnGate()),
+            onOpenChainProxy: () => unawaited(_openChainProxy()),
           ),
           ControllerSelector<
             ({

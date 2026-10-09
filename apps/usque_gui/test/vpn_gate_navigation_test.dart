@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/chain_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/shell_screen.dart';
-import 'package:usque/screens/vpn_gate_screen.dart';
+import 'package:usque/screens/vpn_gate_chain_editor.dart';
 import 'package:usque/state/app_controller.dart';
 
 import 'ui_workflow_test.dart' show workflowHost;
@@ -35,7 +35,7 @@ Future<AppController> openGate(
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('proxy-chain-proxy-entry')));
   await tester.pumpAndSettle();
-  if (find.byType(VpnGateScreen).evaluate().isEmpty) {
+  if (find.byType(VpnGateChainEditor).evaluate().isEmpty) {
     await tester.tap(find.byKey(const ValueKey('chain-source-vpn_gate')));
   }
   await tester.pumpAndSettle();
@@ -120,7 +120,7 @@ void main() {
             if (width >= 760) await tester.tap(entry);
           }
           await tester.pumpAndSettle();
-          expect(find.byType(VpnGateScreen), findsOneWidget);
+          expect(find.byType(VpnGateChainEditor), findsOneWidget);
           expect(app.section, AppSection.proxy);
           expect(app.activeProfile.vpnGate, settings);
           expect(app.snapshot, snapshot);
@@ -138,7 +138,10 @@ void main() {
             await tester.binding.handlePopRoute();
           }
           await tester.pumpAndSettle();
-          expect(find.byType(VpnGateScreen, skipOffstage: false), findsNothing);
+          expect(
+            find.byType(VpnGateChainEditor, skipOffstage: false),
+            findsNothing,
+          );
           expect(app.section, AppSection.proxy);
           expect(tester.takeException(), isNull);
         } finally {
@@ -160,10 +163,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(find.byType(VpnGateScreen), findsOneWidget);
+      expect(find.byType(VpnGateChainEditor), findsOneWidget);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(find.byType(VpnGateScreen), findsNothing);
+      expect(find.byType(VpnGateChainEditor), findsNothing);
       expect(find.byType(NavigationBar), findsOneWidget);
     },
   );
@@ -192,7 +195,7 @@ void main() {
       final scroll = tester.state<ScrollableState>(
         find
             .descendant(
-              of: find.byType(VpnGateScreen),
+              of: find.byType(VpnGateChainEditor),
               matching: find.byType(Scrollable),
             )
             .first,
@@ -202,7 +205,7 @@ void main() {
       expect(find.text(app.strings.get('back')).hitTestable(), findsNothing);
       await tester.tap(railItem(app, 'nav_proxy'));
       await tester.pumpAndSettle();
-      expect(find.byType(VpnGateScreen), findsNothing);
+      expect(find.byType(VpnGateChainEditor), findsNothing);
       expect(app.section, AppSection.proxy);
       expect(
         find.text(app.strings.chain('disabled')).hitTestable(),
@@ -227,13 +230,16 @@ void main() {
       );
       await tester.tap(find.text(app.strings.get('keep_editing')));
       await tester.pumpAndSettle();
-      expect(find.byType(VpnGateScreen), findsOneWidget);
+      expect(find.byType(VpnGateChainEditor), findsOneWidget);
       await tester.tap(railItem(app, 'nav_home'));
       await tester.pumpAndSettle();
       await tester.tap(find.text(app.strings.get('discard_changes')));
       await tester.pumpAndSettle();
       expect(app.section, AppSection.home);
-      expect(find.byType(VpnGateScreen, skipOffstage: false), findsNothing);
+      expect(
+        find.byType(VpnGateChainEditor, skipOffstage: false),
+        findsNothing,
+      );
       expect(engine.saves, 0);
     },
   );
@@ -251,7 +257,7 @@ void main() {
     expect(app.section, AppSection.proxy);
     await tester.tap(find.text(app.strings.get('keep_editing')));
     await tester.pumpAndSettle();
-    expect(find.byType(VpnGateScreen), findsOneWidget);
+    expect(find.byType(VpnGateChainEditor), findsOneWidget);
   });
 
   testWidgets(
@@ -264,17 +270,17 @@ void main() {
       await tester.ensureVisible(node);
       await tester.tap(node);
       await tester.pumpAndSettle();
-      final state = tester.state(find.byType(VpnGateScreen));
+      final state = tester.state(find.byType(VpnGateChainEditor));
       final scrollable = find
           .descendant(
-            of: find.byType(VpnGateScreen),
+            of: find.byType(VpnGateChainEditor),
             matching: find.byType(Scrollable),
           )
           .first;
       for (final width in [900.0, 700.0, 390.0, 1200.0, 390.0]) {
         tester.view.physicalSize = Size(width, 1000);
         await tester.pumpAndSettle();
-        expect(tester.state(find.byType(VpnGateScreen)), same(state));
+        expect(tester.state(find.byType(VpnGateChainEditor)), same(state));
         // The taller phone layout can lay the row out beyond the viewport;
         // the draft must survive regardless of where the row ends up.
         if (node.evaluate().isEmpty) {
@@ -304,7 +310,7 @@ void main() {
       );
       await tester.tap(find.text(app.strings.get('discard_changes')));
       await tester.pumpAndSettle();
-      expect(find.byType(VpnGateScreen), findsNothing);
+      expect(find.byType(VpnGateChainEditor), findsNothing);
       expect(find.byType(NavigationBar), findsOneWidget);
       expect(app.section, AppSection.proxy);
     },
@@ -325,7 +331,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
     expect(app.section, AppSection.settings);
-    expect(find.byType(VpnGateScreen, skipOffstage: false), findsNothing);
+    expect(find.byType(VpnGateChainEditor, skipOffstage: false), findsNothing);
     expect(
       engine.nodeRequests.any((request) => request.action == 'cancel'),
       isTrue,

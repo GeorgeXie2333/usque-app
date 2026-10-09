@@ -28,10 +28,14 @@ import 'chain_proxy_screen.dart';
 /// Each block subscribes to its own slice of the controller, so a traffic
 /// sample arriving every second repaints two counters instead of the page.
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({required this.controller, this.onOpenVpnGate, super.key});
+  const HomeScreen({
+    required this.controller,
+    this.onOpenChainProxy,
+    super.key,
+  });
 
   final AppController controller;
-  final VoidCallback? onOpenVpnGate;
+  final VoidCallback? onOpenChainProxy;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +63,7 @@ class HomeScreen extends StatelessWidget {
               _VpnGateReadout(
                 controller: controller,
                 strings: strings,
-                onOpen: onOpenVpnGate ?? openChainProxy,
+                onOpen: onOpenChainProxy ?? openChainProxy,
               ),
             PanelStack(
               spacing: 24 + mobileHomeExpansion(context) * 8,
@@ -97,7 +101,7 @@ class HomeScreen extends StatelessWidget {
           _DesktopHomeConnection(
             controller: controller,
             strings: strings,
-            onOpenChainProxy: onOpenVpnGate ?? openChainProxy,
+            onOpenChainProxy: onOpenChainProxy ?? openChainProxy,
           ),
           const SizedBox(height: 32),
           Divider(height: 1, color: UsqueTokens.of(context).hairline),

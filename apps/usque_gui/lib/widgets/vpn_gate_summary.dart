@@ -4,9 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/app_strings.dart';
 import '../core/chain_strings.dart';
 import '../core/usque_theme.dart';
-import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
-import 'common.dart';
 import 'country_flag.dart';
 import 'save_changes_bar.dart';
 import 'usque_dialog.dart';
@@ -32,66 +30,6 @@ class VpnGateNodeIdentity extends StatelessWidget {
   );
 }
 
-class VpnGateConnectionSummary extends StatelessWidget {
-  const VpnGateConnectionSummary({
-    required this.strings,
-    required this.view,
-    this.error,
-    super.key,
-  });
-  final AppStrings strings;
-  final VpnGatePresentation view;
-  final String? error;
-
-  @override
-  Widget build(BuildContext context) => ContentSection(
-    key: const ValueKey('vpn-gate-connection-status'),
-    title: strings.get('connection_status'),
-    gap: 12,
-    child: PanelStack(
-      spacing: 8,
-      children: [
-        Semantics(
-          liveRegion: true,
-          child: InlineStatus(
-            label: strings.get(view.statusKey),
-            tone: view.failed
-                ? StatusTone.danger
-                : view.connected
-                ? StatusTone.success
-                : view.busy
-                ? StatusTone.brand
-                : StatusTone.neutral,
-          ),
-        ),
-        if (view.warpKey != null)
-          Text(
-            'WARP: ${strings.get(view.warpKey!)}',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        if (view.server case final server?) ...[
-          Text(
-            strings.get(view.serverLabelKey),
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-          VpnGateNodeIdentity(server: server),
-        ],
-        if (view.failed && error != null)
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: TextButton.icon(
-              onPressed: () => showVpnGateError(context, strings, error!),
-              icon: const Icon(LucideIcons.info, size: 18),
-              label: Text(strings.get('gate_error_details')),
-            ),
-          ),
-      ],
-    ),
-  );
-}
-
 class VpnGateSelectionBar extends StatelessWidget {
   const VpnGateSelectionBar({
     required this.strings,
@@ -101,13 +39,11 @@ class VpnGateSelectionBar extends StatelessWidget {
     required this.connected,
     required this.saving,
     required this.preparing,
-    required this.actionKey,
     required this.onApply,
     required this.onCancel,
     this.server,
     this.saveError,
     this.nodeError,
-    this.chainPage = false,
     this.statusLabel,
     super.key,
   });
@@ -115,9 +51,7 @@ class VpnGateSelectionBar extends StatelessWidget {
   final VpnGateSettings draft;
   final bool savedEnabled, dirty, connected, saving, preparing;
   final VpnGateServer? server;
-  final String actionKey;
   final String? saveError, nodeError;
-  final bool chainPage;
   final String? statusLabel;
   final VoidCallback? onApply;
   final VoidCallback onCancel;
@@ -126,246 +60,84 @@ class VpnGateSelectionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final disabling = dirty && savedEnabled && !draft.enabled;
-    if (chainPage) {
-      final error = nodeError != null
-          ? strings.get('gate_prepare_error')
-          : saveError == null
-          ? null
-          : strings.get(saveError!);
-      return SaveChangesBar(
-        key: const ValueKey('vpn-gate-selection-bar'),
-        saveButtonKey: const ValueKey('vpn-gate-apply'),
-        strings: strings,
-        contentWidth: 880,
-        matchPageGutter: true,
-        dirty: dirty,
-        saving: saving && !preparing,
-        onSave: onApply,
-        error: error,
-        validationError: dirty && draft.enabled && !draft.hasSelection
-            ? strings.get('gate_not_selected')
-            : null,
-        statusLabel: error == null && !preparing ? statusLabel : null,
-        saveLabel: connected && dirty
-            ? strings.chain('apply_reconnect')
-            : strings.get('save_changes'),
-        summary: !dirty
-            ? null
-            : disabling
-            ? Text(
-                strings.chain('pending_disable'),
-                style: theme.textTheme.labelLarge,
-              )
-            : draft.enabled && draft.hasSelection
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '${strings.chain('draft')}: VPN Gate',
-                    style: theme.textTheme.labelLarge,
-                  ),
-                  const SizedBox(height: 2),
-                  if (server != null && server!.matches(draft))
-                    VpnGateNodeIdentity(server: server!)
-                  else
-                    Text(draft.serverId, style: UsqueTheme.mono(context)),
-                ],
-              )
-            : null,
-        activity: preparing || nodeError != null
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (preparing) ...[
-                    const LinearProgressIndicator(minHeight: 2),
-                    Row(
-                      children: [
-                        Expanded(child: Text(strings.get('gate_preparing'))),
-                        TextButton.icon(
-                          key: const ValueKey('vpn-gate-cancel-node'),
-                          onPressed: onCancel,
-                          icon: const Icon(LucideIcons.x, size: 18),
-                          label: Text(strings.get('cancel')),
-                        ),
-                      ],
-                    ),
-                  ],
-                  if (nodeError != null)
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: TextButton.icon(
-                        onPressed: () =>
-                            showVpnGateError(context, strings, nodeError!),
-                        icon: const Icon(LucideIcons.info, size: 18),
-                        label: Text(strings.get('gate_error_details')),
-                      ),
-                    ),
-                ],
-              )
-            : null,
-      );
-    }
-    final label = disabling
-        ? 'gate_pending_disable'
-        : !draft.hasSelection
-        ? 'gate_not_selected'
-        : !dirty
-        ? 'gate_saved'
-        : connected
-        ? 'gate_draft'
-        : 'gate_pending_save';
-    final summary = PanelStack(
-      spacing: 6,
-      children: [
-        Text(strings.get(label), style: theme.textTheme.labelLarge),
-        if (!disabling && draft.hasSelection)
-          if (server != null && server!.matches(draft))
-            VpnGateNodeIdentity(server: server!)
-          else
-            Text(draft.serverId, style: theme.textTheme.bodyMedium)
-        else if (!disabling && !draft.enabled)
-          Text(
-            strings.get('gate_enable_to_choose'),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-      ],
-    );
-    final apply = FilledButton.icon(
-      key: const ValueKey('vpn-gate-apply'),
-      onPressed: onApply,
-      icon: saving && !preparing
-          ? const SizedBox.square(
-              dimension: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(LucideIcons.check, size: 18),
-      label: Text(
-        strings.get(saving && !preparing ? 'saving_changes' : actionKey),
-        textAlign: TextAlign.center,
-      ),
-    );
-    return Material(
+    final error = nodeError != null
+        ? strings.get('gate_prepare_error')
+        : saveError == null
+        ? null
+        : strings.get(saveError!);
+    return SaveChangesBar(
       key: const ValueKey('vpn-gate-selection-bar'),
-      color: theme.colorScheme.surface,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(color: UsqueTokens.of(context).hairline),
-          ),
-        ),
-        child: SafeArea(
-          top: false,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * .45,
-            ),
-            child: SingleChildScrollView(
-              primary: false,
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: MediaQuery.sizeOf(context).width < 600 ? 16 : 32,
-                  vertical: 12,
+      saveButtonKey: const ValueKey('vpn-gate-apply'),
+      strings: strings,
+      contentWidth: 880,
+      matchPageGutter: true,
+      dirty: dirty,
+      saving: saving && !preparing,
+      onSave: onApply,
+      error: error,
+      validationError: dirty && draft.enabled && !draft.hasSelection
+          ? strings.get('gate_not_selected')
+          : null,
+      statusLabel: error == null && !preparing ? statusLabel : null,
+      saveLabel: connected && dirty
+          ? strings.chain('apply_reconnect')
+          : strings.get('save_changes'),
+      summary: !dirty
+          ? null
+          : disabling
+          ? Text(
+              strings.chain('pending_disable'),
+              style: theme.textTheme.labelLarge,
+            )
+          : draft.enabled && draft.hasSelection
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${strings.chain('draft')}: VPN Gate',
+                  style: theme.textTheme.labelLarge,
                 ),
-                child: Center(
-                  heightFactor: 1,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 880),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final stacked =
-                            constraints.maxWidth < 600 ||
-                            MediaQuery.textScalerOf(context).scale(14) > 21;
-                        return PanelStack(
-                          spacing: 12,
-                          children: [
-                            if (preparing) ...[
-                              const LinearProgressIndicator(minHeight: 2),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(strings.get('gate_preparing')),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  TextButton.icon(
-                                    key: const ValueKey('vpn-gate-cancel-node'),
-                                    onPressed: onCancel,
-                                    icon: const Icon(LucideIcons.x, size: 18),
-                                    label: Text(strings.get('cancel')),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            if (saveError != null || nodeError != null)
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      strings.get(
-                                        nodeError != null
-                                            ? 'gate_prepare_error'
-                                            : saveError!,
-                                      ),
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: theme.colorScheme.error,
-                                          ),
-                                    ),
-                                  ),
-                                  if (nodeError != null)
-                                    IconButton(
-                                      tooltip: strings.get(
-                                        'gate_error_details',
-                                      ),
-                                      onPressed: () => showVpnGateError(
-                                        context,
-                                        strings,
-                                        nodeError!,
-                                      ),
-                                      icon: const Icon(
-                                        LucideIcons.info,
-                                        size: 20,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            if (stacked)
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  summary,
-                                  const SizedBox(height: 12),
-                                  apply,
-                                ],
-                              )
-                            else
-                              Row(
-                                children: [
-                                  Expanded(child: summary),
-                                  const SizedBox(width: 24),
-                                  ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      maxWidth: constraints.maxWidth * .42,
-                                    ),
-                                    child: apply,
-                                  ),
-                                ],
-                              ),
-                          ],
-                        );
-                      },
+                const SizedBox(height: 2),
+                if (server != null && server!.matches(draft))
+                  VpnGateNodeIdentity(server: server!)
+                else
+                  Text(draft.serverId, style: UsqueTheme.mono(context)),
+              ],
+            )
+          : null,
+      activity: preparing || nodeError != null
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (preparing) ...[
+                  const LinearProgressIndicator(minHeight: 2),
+                  Row(
+                    children: [
+                      Expanded(child: Text(strings.get('gate_preparing'))),
+                      TextButton.icon(
+                        key: const ValueKey('vpn-gate-cancel-node'),
+                        onPressed: onCancel,
+                        icon: const Icon(LucideIcons.x, size: 18),
+                        label: Text(strings.get('cancel')),
+                      ),
+                    ],
+                  ),
+                ],
+                if (nodeError != null)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      onPressed: () =>
+                          showVpnGateError(context, strings, nodeError!),
+                      icon: const Icon(LucideIcons.info, size: 18),
+                      label: Text(strings.get('gate_error_details')),
                     ),
                   ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+              ],
+            )
+          : null,
     );
   }
 }

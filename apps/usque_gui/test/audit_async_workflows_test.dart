@@ -5,12 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
-import 'package:usque/screens/vpn_gate_screen.dart';
+import 'package:usque/screens/chain_proxy_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/zero_trust_enrollment_editor.dart';
 
 import 'app_test.dart' show FakeEngineClient;
-import 'vpngate_test.dart' show GateEngine;
+import 'vpngate_test.dart' show GateEngine, showGateControl;
 
 Widget shell(Widget child) => MaterialApp(
   theme: UsqueTheme.light(),
@@ -100,18 +100,23 @@ void main() {
   ) async {
     final engine = GateEngine()..pending = Completer<VpnGateDirectory>();
     final app = AppController(engine)
-      ..localePreference = LocalePreference.english;
+      ..localePreference = LocalePreference.english
+      ..sharedNetwork = UsqueProfile.defaultProfile().copyWith(
+        chainExit: const ChainExitSettings(source: ChainSource.vpnGate),
+      );
     addTearDown(app.dispose);
     await tester.pumpWidget(
       MaterialApp(
         theme: UsqueTheme.light(),
-        home: VpnGateScreen(controller: app),
+        home: ChainProxyScreen(controller: app),
       ),
     );
+    await showGateControl(
+      tester,
+      find.byKey(const ValueKey('vpn-gate-refresh')),
+    );
     tester
-        .widget<TextButton>(
-          find.widgetWithText(TextButton, app.strings.get('gate_refresh')),
-        )
+        .widget<OutlinedButton>(find.byKey(const ValueKey('vpn-gate-refresh')))
         .onPressed!();
     await tester.pump();
     expect(engine.refreshes, 1);
@@ -129,18 +134,25 @@ void main() {
     (tester) async {
       final engine = HeldRefreshEngine();
       final app = AppController(engine)
-        ..localePreference = LocalePreference.english;
+        ..localePreference = LocalePreference.english
+        ..sharedNetwork = UsqueProfile.defaultProfile().copyWith(
+          chainExit: const ChainExitSettings(source: ChainSource.vpnGate),
+        );
       addTearDown(app.dispose);
       await tester.pumpWidget(
         MaterialApp(
           theme: UsqueTheme.light(),
-          home: VpnGateScreen(controller: app),
+          home: ChainProxyScreen(controller: app),
         ),
       );
       await tester.pumpAndSettle();
+      await showGateControl(
+        tester,
+        find.byKey(const ValueKey('vpn-gate-refresh')),
+      );
       tester
-          .widget<TextButton>(
-            find.widgetWithText(TextButton, app.strings.get('gate_refresh')),
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('vpn-gate-refresh')),
           )
           .onPressed!();
       await tester.pump();

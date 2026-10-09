@@ -6,14 +6,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/chain_strings.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/chain_proxy_screen.dart';
 import 'package:usque/screens/home_screen.dart';
-import 'package:usque/screens/vpn_gate_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/country_flag.dart';
+import 'package:usque/widgets/vpn_gate_summary.dart';
 
 import 'app_test.dart' show FakeEngineClient;
 import 'ui_workflow_test.dart' show workflowHost;
@@ -176,6 +178,10 @@ Future<AppController> host(
   tester.view.physicalSize = size;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
+  engine.legacyProfilesImported = true;
+  engine.storedProfiles[0] = engine.storedProfiles[0].copyWith(
+    chainExit: const ChainExitSettings(source: ChainSource.vpnGate),
+  );
   final app = AppController(engine);
   await app.initialize();
   app.localePreference = locale;
@@ -185,11 +191,29 @@ Future<AppController> host(
       app,
       dark: dark,
       scale: scale,
-      home: VpnGateScreen(controller: app),
+      home: ChainProxyScreen(controller: app),
     ),
   );
   await tester.pumpAndSettle();
   return app;
+}
+
+Future<void> showGateControl(
+  WidgetTester tester,
+  Finder control, {
+  double delta = 200,
+}) async {
+  await tester.scrollUntilVisible(
+    control,
+    delta,
+    scrollable: find
+        .descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
+  await tester.pump();
 }
 
 void main() {
@@ -267,11 +291,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         tester
-            .widget<ListTile>(
+            .widget<RadioListTile<(String, String)>>(
               find.byKey(const ValueKey('vpn-gate-node-v1:node')),
             )
-            .onTap,
-        isNull,
+            .enabled,
+        isFalse,
       );
       engine.nodes = [];
       await tester.tap(find.text('Refresh list'));
@@ -495,7 +519,7 @@ void main() {
       final engine = GateEngine();
       final app = await host(tester, engine);
       expect(engine.refreshes, 0);
-      expect(find.text(app.strings.get('gate_disabled')), findsOneWidget);
+      expect(find.text(app.strings.chain('disabled')), findsOneWidget);
       expect(find.text('Connected server'), findsNothing);
       await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
       await tester.pumpAndSettle();
@@ -515,7 +539,9 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('vpn-gate-apply')));
       await tester.pumpAndSettle();
       expect(engine.saves, 1);
-      expect(engine.fields, ['vpn_gate']);
+      expect(engine.fields, ['vpn_gate', 'chain_exit']);
+      expect(app.activeProfile.chainSource, ChainSource.vpnGate);
+      expect(app.activeProfile.chainEnabled, isTrue);
       expect(
         app.activeProfile.vpnGate,
         const VpnGateSettings(enabled: true).copyWith(server: server),
@@ -569,7 +595,7 @@ void main() {
         ),
       );
       await tester.pumpWidget(
-        workflowHost(app, home: VpnGateScreen(controller: app)),
+        workflowHost(app, home: ChainProxyScreen(controller: app)),
       );
       await tester.pumpAndSettle();
       final toggle = find.byKey(const ValueKey('vpn-gate-toggle'));
@@ -580,7 +606,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(toggle);
       await tester.pumpAndSettle();
-      expect(tester.widget<ListTile>(node).onTap, isNull);
+      expect(
+        tester.widget<RadioListTile<(String, String)>>(node).enabled,
+        isFalse,
+      );
       expect(
         tester
             .widget<CountryFlag>(
@@ -598,7 +627,13 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
       await tester.pumpAndSettle();
       expect(node, findsNothing);
-      expect(find.text('JP · ${server.ip}'), findsOneWidget);
+      expect(
+        tester
+            .widget<VpnGateSelectionBar>(find.byType(VpnGateSelectionBar))
+            .draft
+            .configSha256,
+        server.configSha256,
+      );
       expect(find.text('KR · 203.0.113.9'), findsOneWidget);
       expect(engine.saves, 0);
       await tester.pumpWidget(const SizedBox());
@@ -663,7 +698,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(app.activeProfile.vpnGate.hasSelection, isFalse);
           Focus.of(
-            tester.element(find.text(app.strings.get('gate_save'))),
+            tester.element(find.text(app.strings.get('save_changes'))),
           ).requestFocus();
           await tester.pump();
           await tester.sendKeyEvent(LogicalKeyboardKey.enter);
