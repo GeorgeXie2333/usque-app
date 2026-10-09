@@ -5,9 +5,10 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The current release contract targets `v0.3.0`. The checked-in workflow
-accepts only `v0.3.0` and requires that tag to point at
-the current `main` commit when its gate runs. The tag is maintainer-only.
+The current release candidate is `v0.3.1`. The checked-in application metadata
+and workflow target `v0.3.1` / `0.3.1+25`; this does not establish publication.
+The workflow accepts only `v0.3.1`. Its accepted tag must point at the current
+`main` commit when the gate runs. Only the release maintainer creates the tag.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
 local bundle, MSI, or APK cannot replace a failed Actions build.
@@ -22,75 +23,88 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
-## Preparing v0.3.0
+## Preparing v0.3.1
 
-The coordinated source version is `0.3.0`, with Flutter `0.3.0+24` and Android
-base versionCode `24`. Cargo's workspace and first-party lock entries, the
-registered locale catalogs, `release.yml`, and the CI version gate target
-`v0.3.0`. These declarations do not establish a passed candidate, authorize
-an approval or prove publication. Complete the exact-candidate checks before
-tagging; do not retag or reuse `v0.2.9` for the newer source.
+The [v0.3.1 readiness review](RELEASE_V0.3.1_READINESS.md) records the reviewed
+source, completed documentation checks and open release requirements. It is
+not final-candidate certification. The coordinated candidate inputs are:
 
-Verify that change across:
+| Input | Previous v0.3.0 value | Current v0.3.1 value |
+| --- | --- | --- |
+| Cargo workspace and first-party `Cargo.lock` package entries | `0.3.0` | `0.3.1` |
+| Flutter `pubspec.yaml` | `0.3.0+24` | `0.3.1+25` |
+| All 21 registered Dart `app_version` catalogs | `Usque 0.3.0` | `Usque 0.3.1` |
+| Release tag trigger and `RELEASE_TAG` | `v0.3.0` | `v0.3.1` |
+| Release `ANDROID_VERSION_CODE` and CI version gate | `24`, `v0.3.0` | `25`, `v0.3.1` |
 
-- `Cargo.toml` and the first-party workspace package entries in `Cargo.lock`;
-- `apps/usque_gui/pubspec.yaml`, with version `0.3.0+24`;
-- the `app_version` entries in all 21 registered Dart locale catalogs;
-- the tag trigger, `RELEASE_TAG` and `ANDROID_VERSION_CODE` in
-  [release.yml](../.github/workflows/release.yml), and the release-version gate
-  in [ci.yml](../.github/workflows/ci.yml);
-- the accepted-tag statements in this guide and
-  [GitHub governance](GITHUB_GOVERNANCE.md), and the development wording and
-  package examples in the six root READMEs and [Installation](INSTALLATION.md).
-
-Base Android versionCode `24` follows the published `23`. Verify each derived
-APK code against the packages and update paths already distributed. Use
-`0.3.0+24`, keep `ANDROID_VERSION_CODE` and the CI check at `24`, and run:
+Then run the exact version check from the repository root:
 
 ```shell
-python tool/release_contract.py verify-version --root . --tag v0.3.0 --android-version-code 24
+python tool/release_contract.py verify-version --root . --tag v0.3.1 --android-version-code 25
 ```
 
-That command must succeed for the coordinated checkout. Split APK version
-codes are 1024 (ARMv7), 2024 (ARM64), and 4024 (x86_64); the universal APK uses
-24. These advance the respective v0.2.9 codes 1023/2023/4023/23. Version-code
-comparison must cover the three ABI-specific updates and an installed
-universal APK updating to its device's ABI-specific APK. A split APK has a
-higher code than the same release's universal APK; do not assume manually
-switching from split to universal is an accepted upgrade or bypass Android's
-monotonic version check.
+This command must pass for the final candidate. The
+helper checks Cargo's workspace version, Flutter, registered locale catalogs
+and the release workflow. Review first-party `Cargo.lock` entries and the CI
+invocation separately because the helper does not inspect them. Recheck this
+guide, [GitHub governance](GITHUB_GOVERNANCE.md), signing and reliability
+references, six root READMEs and [Installation](INSTALLATION.md) after updating
+the executable contract. Do not move or reuse the published `v0.3.0` tag.
 
-The version helper verifies Cargo's workspace version, Flutter, registered locale catalogs
-and the release workflow; review first-party `Cargo.lock` entries and the CI
-invocation separately because the helper does not inspect them.
+The Android base versionCode `25` follows v0.3.0's `24`. Derived
+codes will be 1025 (ARMv7), 2025 (ARM64), 4025 (x86_64) and 25 (universal),
+advancing 1024/2024/4024/24. Verify these values in the actual signed APKs,
+including all ABI-specific update paths and universal-to-ABI updates. A split
+APK has a higher code than the same release's universal APK; switching from
+split to universal may be rejected. Do not bypass Android's monotonic version
+check or treat source arithmetic as a device-upgrade result.
 
-Version-number fixtures for MSI conversion and historical validation records
-keep their original versions, candidates, test counts and `not_run` results.
-They do not prove the final `v0.3.0` candidate. The tag must point at the
-resulting current `main` commit after its required CI succeeds. Keep the
-existing signing and publication approvals, cleanup checks and immutable
-candidate requirements. Rerun applicable checks after the final source change
-and retain the exact commit and Actions run identities.
+The v0.3.0 tag uses configuration schema 23; current source uses schema 24.
+Schema 24 migrates custom bypass domains and CIDRs to DIRECT routing rules,
+retains countries, and adds REJECT/PROXY actions and optional Ads. Custom CIDRs
+now route in the application data plane instead of creating physical bypass
+routes. Once migrated, v0.3.0 and older engines reject the configuration. Keep
+recoverable pre-upgrade data when rollback is required; never lower schema
+numbers or replace recovery records to bypass validation. Recovery journal 5,
+Agent protocol 3 and sanitized recovery export schema 2 remain unchanged and
+do not prove downgrade compatibility.
 
-The current source uses configuration schema 24: schema 22 adds WARP DoH/DoT
-settings, schema 23 adds account-specific Zero Trust endpoint overrides, and
-schema 24 migrates custom bypasses to unified routing rules with Ads.
-Recovery journal schema 5, Agent protocol 3 and sanitized recovery export
-schema 2 remain unchanged. Once configuration is migrated, the `v0.2.9`
-engine rejects schema 24. Unchanged Agent and journal versions do not prove
-downgrade compatibility; do not edit schema numbers to bypass that check.
-Review the release-note summary and highlights
-against `v0.2.9..HEAD`: custom WARP encrypted DNS, experimental Zero Trust
-endpoint editing, native Windows setup/removal, desktop controls, Home and
-branding changes, Android recovery and chain UDP burst handling are the new
-scope. Existing HTTP/SOCKS5 chain exits and automatic Consumer endpoints must
-not be advertised as first introduced in `v0.3.0`.
+Review [.github/RELEASE_NOTES_TEMPLATE.md](../.github/RELEASE_NOTES_TEMPLATE.md)
+against `v0.3.0..HEAD`: routing/Ads, LAN access across outputs, H3 PMTU startup,
+DoH URL editing, removal of local-proxy DNS controls, reorganized settings and
+the single chain-proxy VPN Gate editor, Android tile recovery, hidden UI polling
+and opaque adaptive-icon backgrounds. WARP encrypted DNS, experimental Zero
+Trust endpoint editing, native Windows setup/removal and desktop shortcuts
+already existed in v0.3.0; do not advertise them as newly introduced here.
+
+The final candidate commit must equal current `main` and have successful required
+CI before tagging. Rerun applicable checks after the final change, retain
+commit and Actions run identities, preserve immutable candidate and approval
+requirements, and keep historical validation records unchanged.
+
+For this release, the maintainer authorized direct fast-forward promotion of
+the fully validated dev candidate through the existing owner exception, without
+a PR or Squash. Record `PR Check / gate` as `not_run`, not passed. Save main/dev
+backup refs, verify main remains an ancestor, and bind the push lease to its
+exact observed old SHA. Stop on concurrent changes or protection rejection;
+do not change repository rules. Require final-candidate CI, Build and CodeQL,
+then exact-SHA main push CI and CodeQL before tagging. Keep local main unchanged.
+
+## Preparing v0.3.0
+
+This anchor is retained for historical review links. v0.3.0 was published on
+2026-10-07 from `274bc3c2a51f78d141972ea78d0828b7d43f8f8e`, using `0.3.0+24`
+and configuration schema 23. Its [tagged release guide](https://github.com/GeorgeXie2333/usque-app/blob/v0.3.0/docs/RELEASE.md)
+and [published release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.0)
+define that version's scope. The earlier [readiness review](RELEASE_V0.3.0_READINESS.md)
+retains its original source and unavailable checks; later publication does not
+retroactively make that review final-candidate validation.
 
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 
-- For `v0.3.0`, complete the version and workflow changes above first. The
+- For `v0.3.1`, complete the version and workflow changes above first. The
   accepted tag must match `release.yml` and point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
@@ -194,16 +208,16 @@ accurate system requirements, and descriptive image alt text when updating the
 table. Do not add third-party badge services or update-only MSI download buttons.
 Keep the four required bilingual section names; decorative emoji may follow them.
 
-The v0.3.0 contract's primary files (official only after approved publication):
+The v0.3.1 primary files (official only after approved publication):
 
-- `usque-v0.3.0-windows-x64-v2.exe`
-- `usque-v0.3.0-windows-arm64.exe`
-- `usque-v0.3.0-windows-x64-v2.msi`
-- `usque-v0.3.0-windows-arm64.msi`
-- `usque-v0.3.0-android-arm64-v8a.apk`
-- `usque-v0.3.0-android-x86_64.apk`
-- `usque-v0.3.0-android-armeabi-v7a.apk`
-- `usque-v0.3.0-android-universal.apk`
+- `usque-v0.3.1-windows-x64-v2.exe`
+- `usque-v0.3.1-windows-arm64.exe`
+- `usque-v0.3.1-windows-x64-v2.msi`
+- `usque-v0.3.1-windows-arm64.msi`
+- `usque-v0.3.1-android-arm64-v8a.apk`
+- `usque-v0.3.1-android-x86_64.apk`
+- `usque-v0.3.1-android-armeabi-v7a.apk`
+- `usque-v0.3.1-android-universal.apk`
 
 The two EXEs and four APKs are the user-facing installers; the two MSIs are
 update payloads consumed by the signed Windows updater. In addition to these
@@ -229,10 +243,10 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.3.0` maps to MSI ProductVersion `0.3.99` and Agent PE file version
-`0.3.99.0`; `v0.3.0-beta.3` maps to `0.3.3`. The prior `v0.2.9` mapped to
-`0.2.999` / `0.2.999.0`; the increased minor component makes the new stable
-version higher despite its lower build component. The real SemVer stays in
+Stable `v0.3.1` maps to MSI ProductVersion `0.3.199` and Agent PE file version
+`0.3.199.0`; `v0.3.1-beta.3` maps to `0.3.103`. The prior `v0.3.0` maps to
+`0.3.99` / `0.3.99.0`, so the new stable package advances the build component.
+The real SemVer stays in
 ProductName and the filenames, and packaging
 rejects an unversioned or mismatched Agent. Equal-version major upgrades are
 enabled so a validation build can replace the same product instead of

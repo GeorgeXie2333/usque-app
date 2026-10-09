@@ -5,39 +5,36 @@ Technical changes block, such as the configuration schema, Agent protocol,
 recovery journal and recovery export schema numbers, against the source. Keep
 English first and put the Simplified Chinese translation immediately below the
 matching English text.
-This template describes the source changes after v0.2.9 for v0.3.0.
-The workflow and application version surfaces target v0.3.0;
-rendering this template does not establish that the release is approved.
+This template prepares v0.3.1 from source changes after the v0.3.0 tag.
+The workflow and application version surfaces target v0.3.1 / 0.3.1+25.
+Validate the exact candidate before tagging; rendering is not release approval.
 -->
 
 ## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 
-Usque {{release_tag}} is a feature and reliability release that adds custom WARP encrypted DNS, experimental Zero Trust endpoint editing, native Windows setup and removal interfaces, and desktop controls. It also refreshes Home and branding and fixes Android recovery and chain UDP receive handling.
+Usque {{release_tag}} is a feature and reliability release that adds DIRECT/REJECT/PROXY routing rules and optional Ads filtering, fixes local-network access and HTTP/3 startup during MTU discovery, and simplifies DNS and chain-proxy settings. It also improves Android Quick Settings recovery, background UI polling and adaptive icons.
 
-Usque {{release_tag}} 是一个功能与可靠性版本，新增自定义 WARP 加密 DNS、实验性 Zero Trust 端点编辑、原生 Windows 安装卸载界面与桌面操作功能，并更新首页和品牌视觉，修复 Android 恢复及链式 UDP 接收处理。
+Usque {{release_tag}} 是一个功能与可靠性版本，新增 DIRECT／REJECT／PROXY 分流规则和可选 Ads 拦截，修复局域网访问及 MTU 探测期间的 HTTP/3 启动问题，并简化 DNS 与链式代理设置。同时改进 Android 快捷设置恢复、后台界面轮询和自适应图标。
 
 ## Highlights / 更新亮点 ✨
 
-- **Custom WARP DNS** — In Settings → Advanced network settings → WARP DNS, choose Plain DNS, DoH or DoT, then Apply changes. Encrypted queries use numeric bootstrap addresses and strict TLS inside the WARP session; failure does not fall back to physical or plaintext DNS. Direct DNS and the final chain exit retain their own policies.
-  <br>**自定义 WARP DNS** — 在“设置 → 高级网络设置 → WARP DNS”选择普通 DNS、DoH 或 DoT，再点击“应用修改”。加密查询使用 IP 引导地址并严格校验 TLS，在 WARP 会话内完成；失败时不会回退到本机或明文 DNS。直连 DNS 和最终链式出口保留各自策略。
+- **Routing rules and Ads** — In Settings → Bypass settings, add or paste domains, IPs and CIDRs with DIRECT, REJECT or PROXY actions. More-specific rules win, and conflicting actions for the same target prevent saving. Ads is off by default and uses the downloaded GeoSite advertising/tracking category. Apply changes and reconnect when prompted; see the [routing guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/ROUTING.md) for visibility and catalog limits.
+  <br>**分流规则与 Ads** — 在“设置 → 分流设置”添加或粘贴域名、IP、CIDR，并指定 DIRECT、REJECT 或 PROXY。更具体的规则优先，同一目标的冲突动作会阻止保存。Ads 默认关闭，使用下载的 GeoSite 广告与跟踪分类。应用修改并按提示重连；可见性与规则库限制见[分流指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/ROUTING.md)。
 
-- **Experimental Zero Trust endpoint editing** — Confirm the risk and your authorization before editing an account's IPv4/IPv6 entry addresses. Home keeps a visible warning while saved or active custom endpoints remain. Reset or a successful sign-in restores registered addresses; TLS and endpoint public-key checks still apply.
-  <br>**实验性 Zero Trust 端点编辑** — 确认风险及使用授权后，可编辑当前账号的 IPv4/IPv6 入口地址。已保存或仍在使用自定义端点时，首页持续显示风险提示。恢复默认或成功重新登录会还原注册地址；TLS 与端点公钥校验仍然生效。
+- **Local-network access across outputs** — Allow local network now applies to VPN/TUN, HTTP forwarding and CONNECT, and SOCKS5 TCP/UDP where supported. Explicit routing rules and Ads retain priority for traffic entering the Engine. Proxy listener exposure and platform exclusions retain their own boundaries.
+  <br>**各输出的局域网访问** — “允许访问局域网”现对 VPN/TUN、HTTP 转发与 CONNECT、以及受支持的 SOCKS5 TCP/UDP 生效。进入 Engine 的流量仍优先遵循显式分流规则与 Ads；代理监听暴露范围和平台排除规则保留各自边界。
 
-- **Native Windows setup and removal** — The 21-language setup window shows installation, upgrade and completion in one interface. Completion offers current-user desktop shortcut and login-startup choices. Uninstall keeps its window open for progress, file-use questions and results; personal-data deletion stays off by default.
-  <br>**原生 Windows 安装与卸载** — 21 种语言的安装界面集中展示安装、升级及完成状态，完成后可选择当前用户的桌面快捷方式和登录启动。卸载窗口持续显示进度、文件占用问题与结果；默认不删除个人数据。
+- **HTTP/3 startup fixes** — MTU discovery no longer blocks ordinary CONNECT-IP traffic while waiting for a probe acknowledgement. Oversized probe send errors reduce the discovery bound without discarding ordinary queued traffic; errors outside discovery retain the existing recovery policy. These fixes do not establish a measured throughput gain.
+  <br>**HTTP/3 启动修复** — MTU 探测等待探测包确认时不再阻塞普通 CONNECT-IP 流量。探测包过大导致的发送错误会降低探测上限，不会丢弃普通待发流量；探测范围外的错误仍执行原有恢复策略。这些修复不代表已证实吞吐提升。
 
-- **Windows tray, notices and shortcuts** — Tray status dots distinguish connecting, connected and error states, with TUN and system-proxy controls in the menu. Background connection notices respect Windows quiet hours. The app restores its window position and size and adds section, Back, Apply and Refresh keyboard shortcuts.
-  <br>**Windows 托盘、通知与快捷键** — 托盘状态点区分连接中、已连接及错误，菜单提供虚拟网卡和系统代理开关。后台连接通知遵守 Windows 免打扰设置；应用记住窗口位置和大小，并增加分区切换、返回、应用与刷新快捷键。
+- **Simpler DNS editing** — WARP and Direct DNS use one complete DoH URL field. New encrypted drafts prefill editable Cloudflare values; saved custom values are preserved. WARP bootstrap IPs are optional, while Direct DNS requires them. Local proxy DNS controls are removed; existing DNS settings remain active internally and listener edits preserve them.
+  <br>**简化 DNS 编辑** — WARP DNS 与直连 DNS 使用完整 DoH 地址输入框。新加密 DNS 草稿预填可编辑的 Cloudflare 配置，已有自定义值保留。WARP 引导 IP 可选，直连 DNS 仍要求填写。本地代理 DNS 控件已移除；已有 DNS 设置继续在底层生效，修改监听地址会保留这些设置。
 
-- **Refreshed Home and branding** — Desktop Home gives traffic charts the available height, adds direct output controls and simplifies location and selectable exit-IP details. Upload and download traces use distinct colours. Updated icons include Android adaptive and themed launcher artwork with a transparent full-colour background.
-  <br>**首页与品牌视觉更新** — 桌面首页的流量图使用可用高度，新增输出开关，并简化位置和可选择的出口 IP 信息；上传与下载曲线使用不同颜色。图标同步更新，Android 提供自适应及主题图标，全彩图层采用透明背景。
+- **Settings and VPN Gate navigation** — Advanced network settings are grouped by routing/protection, WARP DNS, Direct DNS, endpoint and transport. Rows, hints and dropdowns are aligned across layouts. VPN Gate is available inside Proxy → Chain proxy, with refresh, filters and favorites in the shared editor; the separate VPN Gate page is removed.
+  <br>**设置与 VPN Gate 导航** — 高级网络设置按路由与保护、WARP DNS、直连 DNS、端点和传输分组，不同布局的行、提示与下拉框统一对齐。VPN Gate 位于“代理 → 链式代理”，在共用编辑器内刷新、筛选和管理收藏；独立 VPN Gate 页面已移除。
 
-- **Android recovery after socket-protection failure** — An established ordinary CONNECT-IP session retains its blocking TUN and connection intent after confirmed cleanup, then waits for a newer usable physical network before one replacement attempt. Each new socket must still pass protection; initial startup and chain failures retain their separate policies.
-  <br>**Android 套接字保护失败后的恢复** — 已建立的普通 CONNECT-IP 会话在确认清理后保留阻断 TUN 和连接意图，等待更新的可用物理网络后再尝试一次替换。每个新套接字仍须通过保护检查；首次启动与链式失败继续执行各自策略。
-
-- **Chain UDP receive fixes** — VPN-protocol sockets use bounded receive buffering for data and acknowledgement bursts, and abandoned receive waiters no longer consume later datagrams. These correctness changes do not establish a measured bandwidth gain.
-  <br>**链式 UDP 接收修复** — VPN 协议套接字使用有界接收缓冲处理数据与确认包突发，已取消的接收等待不再消耗后续数据报。这些正确性修复不代表已证实带宽提升。
+- **Android tile, observation and icons** — Quick Settings can recover connection intent after process or control-channel loss. Hidden UI pauses quality and diagnostics polling and refreshes when visible again; it does not stop the VPN service. Full-colour adaptive icons use an opaque brand-orange background so launchers do not expose a black tile; themed icons remain available.
+  <br>**Android 磁贴、观测与图标** — 进程或控制通道丢失后，快捷设置可恢复连接意图。界面隐藏时暂停网络质量与诊断轮询，重新可见时刷新，不会因此停止 VPN 服务。全彩自适应图标采用不透明品牌橙色背景，避免启动器显示黑底；主题图标继续保留。
 
 ## Download / 下载 📥
 
@@ -74,8 +71,11 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 <details>
 <summary>Upgrade behavior and compatibility / 升级行为与兼容性</summary>
 
-- **Configuration schema advances from 21 to 24.** Schema 22 adds WARP encrypted DNS, schema 23 adds per-account Zero Trust endpoint overrides and schema 24 adds unified routing rules, migrating custom bypass targets to DIRECT. Once migrated, the configuration cannot be read by the v0.2.9 engine, which rejects newer schemas. Do not downgrade over migrated data or manually change the schema number. Agent protocol 3 and recovery journal 5 remaining unchanged do not establish downgrade compatibility.
-  <br>**配置 schema 从 21 升至 24。** schema 22 新增 WARP 加密 DNS，schema 23 新增每账号 Zero Trust 端点覆盖，schema 24 新增统一分流规则，并将自定义绕过目标迁移为 DIRECT。迁移后的配置不能由 v0.2.9 Engine 读取，旧版会拒绝更新的 schema。不要在已迁移数据上直接降级或手动修改 schema 编号；Agent 协议仍为 3、恢复日志仍为 5，并不代表支持降级。
+- **Configuration schema advances from v0.3.0's 23 to 24.** Legacy custom domains and CIDRs migrate to DIRECT rules, preserving country selections. Custom CIDRs now route in the application data plane instead of installing physical bypass routes. The v0.3.0 engine, and older engines such as v0.2.9, reject schema 24. Arrange any recoverable pre-upgrade backup before upgrading; do not downgrade over migrated data or manually change schema numbers. Agent protocol 3 and recovery journal 5 remaining unchanged do not establish downgrade compatibility.
+  <br>**配置 schema 从 v0.3.0 的 23 升至 24。** 旧自定义域名与 CIDR 迁移为 DIRECT 规则，国家选择保留。自定义 CIDR 改由应用数据平面分流，不再安装物理网络绕过路由。v0.3.0 及 v0.2.9 等旧 Engine 会拒绝 schema 24。请在升级前安排可恢复的备份；不要在已迁移数据上直接降级或手动修改 schema 编号。Agent 协议仍为 3、恢复日志仍为 5，并不代表支持降级。
+
+- **Ads requires a valid downloaded catalog and is off by default.** Failed updates keep the last complete catalog. With no valid catalog, Usque reports Ads unavailable but allows connections; custom rules remain active. Reconnect to load updated data. Apps' own encrypted DNS, Android excluded apps and platform exclusions limit what the rules can inspect or control. This is not a system-wide firewall.
+  <br>**Ads 需要有效的已下载规则库，默认关闭。** 更新失败保留上一个完整规则库；完全没有有效库时，应用提示 Ads 不可用，但允许连接，自定义规则继续生效。更新数据后需重连加载。应用自行加密的 DNS、Android 排除应用及平台排除规则限制可检查和控制的范围；该功能不是全系统防火墙。
 
 - **WARP DNS remains Plain DNS by default.** Select and apply DoH or DoT to use it; applying a DNS change to a connected session reconnects that session. The selector does not replace direct DNS, proxy DNS choices saved by older versions, or the final chain exit's resolver policy.
   <br>**WARP DNS 默认仍为普通 DNS。** 选择并应用 DoH 或 DoT 后才会启用；已连接时应用 DNS 更改会重新连接。该选项不替代直连 DNS、旧版本保存的代理 DNS 选择或最终链出口的解析策略。
@@ -95,8 +95,8 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 - **New installations use Automatic endpoint selection.** Existing configurations retain Custom and their saved addresses. CONNECT-IP with Auto transport and CUBIC remain the defaults. Disable QUIC remains off as a saved preference, but HTTP/SOCKS5 exits always block proxied UDP/443 to prefer TCP web traffic. Direct traffic and Usque's outer HTTP/3 connection are unaffected. L4 and BBRv3 remain experimental. New installations enable Allow local network; upgrades retain its saved value.
   <br>**新安装使用自动端点选择。** 升级保留自定义模式与已保存地址。默认仍为 CONNECT-IP、Auto 传输与 CUBIC。“禁用 QUIC”的保存偏好仍默认关闭，但 HTTP/SOCKS5 出口始终拦截经代理的 UDP/443，使网页流量优先使用 TCP。直连流量与 Usque 外层 HTTP/3 连接不受影响。L4、BBRv3 仍属实验性；新安装开启“允许访问局域网”，升级保留其保存值。
 
-- **Android first-run permissions changed.** VPN consent is required to finish onboarding, even if you later choose only local proxies; granting it may disconnect another VPN. It does not start Usque's connection. Notifications are optional. Open Always-on VPN settings from Settings → Connection & protection; startup preferences remain under Application → System integration.
-  <br>**Android 首次引导权限已调整。** 完成引导需要 VPN 授权，即使之后只使用本地代理；授权可能断开其他 VPN，但不会启动 Usque 连接。通知权限可选。“始终开启的 VPN”入口位于“设置 → 连接与保护”，启动偏好仍位于“应用 → 系统集成”。
+- **Android first-run VPN consent remains required.** This applies even if you later choose only local proxies; granting it may disconnect another VPN. It does not start Usque's connection. Notifications are optional. Open Always-on VPN settings from Settings → Connection & protection; startup preferences remain under Application → System integration.
+  <br>**Android 首次引导仍要求 VPN 授权。** 即使之后只使用本地代理，也需完成授权；授权可能断开其他 VPN，但不会启动 Usque 连接。通知权限可选。“始终开启的 VPN”入口位于“设置 → 连接与保护”，启动偏好仍位于“应用 → 系统集成”。
 
 </details>
 
@@ -109,8 +109,8 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 - Imported configurations are encrypted per record with current-user DPAPI on Windows and Android Keystore AES-256-GCM on Android, and are shared by all accounts on the device. WARP via WireGuard registers a separate identity through MASQUE and never converts the outer identity. Generation status is process-local; saved configurations and endpoint overrides remain encrypted. After MASQUE starts, WireGuard attempt limits are 3, 4, 5, 5, 5 and 5 seconds. Each failed session is cleaned up before another attempt; cancellation and the overall deadline still apply. Exhaustion stops the chain without a WARP-only fallback. Custom WireGuard exits retain their existing retry behavior.
   <br>导入的配置逐条加密保存：Windows 使用当前用户 DPAPI，Android 使用 Android Keystore AES-256-GCM，并由设备上的所有账号共用。WARP via WireGuard 经 MASQUE 注册独立身份，不会转换外层身份。生成状态仅保留在当前进程，已保存配置与端点覆盖仍加密保存。MASQUE 建立后，WireGuard 各次尝试的时限依次为 3、4、5、5、5、5 秒。每次失败会话清理后才开始下一次，取消与总截止时间仍然有效；尝试耗尽会停止整条链路，不会回退为仅使用 WARP 隧道。自定义 WireGuard 出口保留原有重试行为。
 
-- OpenVPN and WireGuard retain batch file import, validation and filename-based names; an OpenVPN configuration accepts up to 16 servers. HTTP/SOCKS5 adds encrypted proxy records with optional authentication and a DNS transport choice. Their readiness confirms endpoint reachability; a real CONNECT is required for TCP-forwarding verification, and SOCKS5 UDP ASSOCIATE acceptance does not prove end-to-end UDP delivery.
-  <br>OpenVPN 与 WireGuard 保留批量文件导入、校验与按文件名命名；OpenVPN 配置最多支持 16 个服务器。HTTP/SOCKS5 新增加密代理记录、可选认证与 DNS 传输选择。就绪状态确认端点可达；TCP 转发验证需要实际 CONNECT，SOCKS5 UDP ASSOCIATE 被接受不代表端到端 UDP 转发已验证。
+- OpenVPN and WireGuard retain batch file import, validation and filename-based names; an OpenVPN configuration accepts up to 16 servers. HTTP/SOCKS5 chain records retain encrypted storage, optional authentication and their Add proxy DNS choices. These are separate from the removed local-proxy DNS controls. Readiness confirms endpoint reachability; a real CONNECT is required for TCP-forwarding verification, and SOCKS5 UDP ASSOCIATE acceptance does not prove end-to-end UDP delivery.
+  <br>OpenVPN 与 WireGuard 保留批量文件导入、校验与按文件名命名；OpenVPN 配置最多支持 16 个服务器。HTTP/SOCKS5 链式记录保留加密存储、可选认证及“添加代理”中的 DNS 选项，与已移除的本地代理 DNS 控件不同。就绪状态确认端点可达；TCP 转发验证需要实际 CONNECT，SOCKS5 UDP ASSOCIATE 被接受不代表端到端 UDP 转发已验证。
 
 - VPN-protocol final DNS starts with UDP and adds alternatives after 250 ms under one four-second question deadline. HTTP/SOCKS5 Automatic DNS defaults to verified Cloudflare® DoH through the final proxy; custom or non-default inherited DNS retains TCP DNS. Application-selected UDP/53 queries are converted to TCP at that resolver, including DNS-only local SOCKS5 associations. A refused port-53 CONNECT fails explicitly. DoH failure never switches to plaintext, physical DNS or another exit. See the chain guide for explicit DNS choices and budgets.
   <br>VPN 协议最终 DNS 先使用 UDP，250 ms 后加入备用候选，每个问题共用 4 秒期限。HTTP/SOCKS5 自动 DNS 默认经最终代理使用校验 TLS 的 Cloudflare DoH；自定义或非默认继承 DNS 保留 TCP。应用指定的 UDP/53 查询转换为发往该解析器的 TCP，包括仅承载 DNS 的本地 SOCKS5 关联。端口 53 的 CONNECT 被拒绝时明确失败。DoH 失败不会转为明文、物理 DNS 或另一出口；显式 DNS 选择与预算见链式代理指南。
@@ -135,9 +135,9 @@ Protected Windows, Android, leak-observer and performance validation is suppleme
 
 ### DNS privacy / DNS 隐私
 
-GeoSite-matched country queries and custom bypass-domain queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT uses the configured encrypted resolver with numeric bootstrap and strict TLS, with no plaintext fallback. Other remote queries use the WARP tunnel or the selected final chain exit. WireGuard prefers its configured DNS; HTTP/SOCKS5 defaults to verified DoH through the final proxy, with explicit TCP and local DNS choices retaining their documented meaning. Apps using their own encrypted DNS hide domains from Usque, so routing uses IP rules.
+GeoSite-matched country queries and custom DIRECT-domain queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT uses the configured encrypted resolver with numeric bootstrap and strict TLS, with no plaintext fallback. REJECT names receive a local refusal without an upstream query. Other remote queries use the WARP tunnel or the selected final chain exit. WARP encrypted DNS may omit bootstrap IPs and resolve its server name through configured Plain DNS inside WARP; Direct DNS requires bootstrap IPs. WireGuard prefers its configured DNS; HTTP/SOCKS5 chain DNS defaults to verified DoH through the final proxy, retaining explicit TCP and older local choices. The local Proxy page has no DNS editor. Apps using their own encrypted DNS hide domains from Usque, so routing uses IP rules.
 
-与 GeoSite 匹配的国家查询及自定义绕过域名查询使用所选直连 DNS 模式。System（默认）将查询发送给当前网络的 DNS 服务器；DoH 或 DoT 使用填写的 IP 连接加密解析器并严格校验 TLS，失败时不改用明文。其他远端查询使用 WARP 隧道或所选最终链式出口。WireGuard 优先使用配置中的 DNS；HTTP/SOCKS5 默认经最终代理使用校验 TLS 的 DoH，显式 TCP 与本地 DNS 选择保留其文档含义。应用自行使用加密 DNS 时域名不可见，路由按 IP 规则判断。
+与 GeoSite 匹配的国家查询及自定义 DIRECT 域名查询使用所选直连 DNS 模式。System（默认）将查询发送给当前网络的 DNS 服务器；DoH 或 DoT 使用填写的 IP 连接加密解析器并严格校验 TLS，失败时不改用明文。REJECT 域名在本地拒绝，不查询上游。其他远端查询使用 WARP 隧道或所选最终链式出口。WARP 加密 DNS 可省略引导 IP，改由 WARP 内配置的普通 DNS 解析服务器域名；直连 DNS 仍要求引导 IP。WireGuard 优先使用配置中的 DNS；HTTP/SOCKS5 链式 DNS 默认经最终代理使用校验 TLS 的 DoH，保留显式 TCP 与旧本机选择。本地代理页没有 DNS 编辑器。应用自行使用加密 DNS 时域名不可见，路由按 IP 规则判断。
 
 With the chain proxy enabled, the WARP provider carries the exit connection and the selected exit server provides final egress; its operator can observe traffic leaving that tunnel subject to application encryption. VPN Gate directory services also learn directory requests, and VPN Gate exits are public volunteer servers. Existing Geo, CIDR, LAN, system-proxy bypass and Android application exceptions retain their direct behavior. Public node scores and TCP observations are not local end-to-end measurements or promises of availability. No automatic telemetry or diagnostic upload is added. See the [chain proxy guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/CHAIN_PROXY.md) and the [VPN Gate guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/VPN_GATE.md) for the complete boundaries.
 

@@ -5,12 +5,13 @@ Download packages from this repository's
 
 ## Version scope
 
-This guide covers v0.3.0. `Cargo.toml` and `apps/usque_gui/pubspec.yaml` declare
-application version 0.3.0. The version and package names below do not by
-themselves establish that a release has been published. The
-[v0.3.0 readiness review](RELEASE_V0.3.0_READINESS.md) retains its historical
-source and evidence limits. For an installed release, use its release notes and
-the guide at the matching Git tag.
+This development guide prepares v0.3.1. `Cargo.toml`, `pubspec.yaml` and the
+release workflow now declare v0.3.1 / 0.3.1+25. Planned
+package names below do not establish publication. The [v0.3.1 readiness review](RELEASE_V0.3.1_READINESS.md)
+records the reviewed source and outstanding requirements. For an installed
+release, use its release notes and the guide at the matching Git tag; the
+[v0.3.0 installation guide](https://github.com/GeorgeXie2333/usque-app/blob/v0.3.0/docs/INSTALLATION.md)
+describes that published version.
 
 The Windows upgrade recovery fix was introduced in v0.2.5; the multilingual EXE
 installer arrived in v0.2.6. The original v0.2.4 MSI does not have those fixes.
@@ -18,10 +19,13 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 
 ### Configuration compatibility when upgrading
 
-v0.2.9 uses configuration schema 21. The current source uses schema 24,
-adding unified routing rules and Ads to the WARP encrypted DNS and account-specific
-Zero Trust endpoint settings introduced in schemas 22 and 23. Opening the newer app migrates and saves older configuration. The
-older app rejects a newer schema, so installing v0.2.9 again cannot restore
+v0.3.0 uses configuration schema 23; v0.2.9 uses schema 21. Current source uses
+schema 24, adding unified routing rules and Ads to existing WARP encrypted DNS
+and account-specific Zero Trust endpoint settings. Older custom domains and
+CIDRs migrate to DIRECT rules; country selections remain. Custom CIDRs now
+route in the application data plane rather than through physical bypass routes.
+Opening the newer app migrates and saves older configuration. Older apps reject
+newer schemas, so installing v0.3.0 or v0.2.9 again cannot restore
 access to migrated data. Windows also rejects installer downgrades. No reverse
 configuration migration or WARP Secret import is provided.
 
@@ -44,17 +48,17 @@ guidance; do not assume that reinstalling an older package is supported.
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Planned package names (v0.3.0 examples)
+### Planned package names (v0.3.1 examples)
 
-- `usque-v0.3.0-windows-x64-v2.exe`
-- `usque-v0.3.0-windows-arm64.exe`
-- `usque-v0.3.0-android-arm64-v8a.apk`
-- `usque-v0.3.0-android-x86_64.apk`
-- `usque-v0.3.0-android-armeabi-v7a.apk`
-- `usque-v0.3.0-android-universal.apk`
+- `usque-v0.3.1-windows-x64-v2.exe`
+- `usque-v0.3.1-windows-arm64.exe`
+- `usque-v0.3.1-android-arm64-v8a.apk`
+- `usque-v0.3.1-android-x86_64.apk`
+- `usque-v0.3.1-android-armeabi-v7a.apk`
+- `usque-v0.3.1-android-universal.apk`
 
-The planned package set also includes `usque-v0.3.0-windows-x64-v2.msi` and
-`usque-v0.3.0-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The planned package set also includes `usque-v0.3.1-windows-x64-v2.msi` and
+`usque-v0.3.1-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation.
 
 Each release includes `SHA256SUMS`, `release-manifest.json` and a software
@@ -64,7 +68,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use the planned v0.3.0 names; substitute the exact filename and published tag you
+use the planned v0.3.1 names; substitute the exact filename and published tag you
 downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -72,7 +76,7 @@ downloaded. These commands inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.3.0-windows-x64-v2.exe'
+$package = '.\usque-v0.3.1-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -129,7 +133,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.0-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.1-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -143,7 +147,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.0 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.1 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 if ($LASTEXITCODE -ne 0) { throw 'Build provenance verification failed.' }
 ```
 
@@ -304,6 +308,16 @@ result** or **Continue with saved account** when offered.
 After setup, choose outputs in **Proxy → VPN and local proxies**, then connect
 from Home. Proxy-only operation does not start a VPN. If Android has revoked VPN
 consent, enabling VPN output requests it again.
+
+### Quick Settings control
+
+Add Usque's tile in Android's Quick Settings editor. Opening Quick Settings asks
+the VPN service for current state; tapping the tile toggles the VPN frontend
+without starting Flutter. A temporary checking/working state remains clickable,
+so a later tap can recover control after a lost reply or process restart. Read
+the returned service state rather than assuming that a tap completed a connection.
+If control cannot recover, the tile can open the app for permission or error
+handling. These controls do not replace Always-on VPN and system blocking.
 
 ### Keep apps blocked when the VPN ends
 

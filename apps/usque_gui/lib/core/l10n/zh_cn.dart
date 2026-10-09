@@ -312,7 +312,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'diagnostics_subtitle': '检查连接问题、导出日志和管理本地数据。',
   'engine_status': '连接信息',
   'version': '版本',
-  'app_version': 'Usque 0.3.0',
+  'app_version': 'Usque 0.3.1',
   'logs': '本地日志',
   'export_diagnostics': '导出诊断包',
   'diagnostics_saved': '诊断包已保存至',

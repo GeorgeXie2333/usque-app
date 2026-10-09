@@ -3,7 +3,7 @@ name: Public release
 on:
   push:
     tags:
-      - "v0.3.0"
+      - "v0.3.1"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,8 +17,8 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.3.0
-  ANDROID_VERSION_CODE: "24"
+  RELEASE_TAG: v0.3.1
+  ANDROID_VERSION_CODE: "25"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:

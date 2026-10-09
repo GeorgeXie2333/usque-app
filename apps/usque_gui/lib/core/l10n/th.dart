@@ -349,7 +349,7 @@ const Map<String, String> kThCatalog = <String, String>{
       'ตรวจสอบปัญหาการเชื่อมต่อ ส่งออกบันทึก และจัดการข้อมูลในเครื่อง',
   'engine_status': 'ข้อมูลการเชื่อมต่อ',
   'version': 'เวอร์ชัน',
-  'app_version': 'Usque 0.3.0',
+  'app_version': 'Usque 0.3.1',
   'logs': 'บันทึกในเครื่อง',
   'export_diagnostics': 'ส่งออกชุดการวินิจฉัย',
   'diagnostics_saved': 'บันทึกชุดการวินิจฉัยไปที่',

@@ -52,7 +52,7 @@ class SymbolsTests(unittest.TestCase):
             "artifact": str(self.root / "app.so"),
             "symbols": str(self.symbols),
             "output": str(self.root / "archive"),
-            "version": "0.3.0+24",
+            "version": "0.3.1+25",
             "source_commit": "a" * 40,
             "platform": "windows",
             "kind": "windows",

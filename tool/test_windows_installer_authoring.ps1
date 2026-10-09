@@ -104,6 +104,14 @@ try {
     if (-not $rejected) { throw "Invalid beta ordinal was not rejected." }
     $summary.completed_checks += "version_mapping"
 
+    $currentStable = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "v0.3.1"
+    $currentBeta = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "0.3.1-beta.3"
+    if ($currentStable -ne "0.3.199" -or $currentBeta -ne "0.3.103" -or
+        [version]$currentStable -le [version]$nextStable) {
+        throw "Current MSI version mapping or upgrade ordering is invalid."
+    }
+    $summary.completed_checks += "current_version_mapping"
+
     $summary.current_check = "inert_payload"
     New-Item -ItemType Directory -Path (Join-Path $payload "data") -Force | Out-Null
     $fixture = Join-Path $repositoryRoot "third_party/wintun-0.14.1/wintun/bin/$wintunArchitecture/wintun.dll"

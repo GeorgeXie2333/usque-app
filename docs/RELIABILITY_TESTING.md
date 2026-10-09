@@ -258,13 +258,15 @@ supplemental checks are not a publication prerequisite.
 
 ## Protected release runners
 
-For `v0.3.0`, record unavailable isolated checks as `not_run` against the final
+For the planned `v0.3.1`, record unavailable isolated checks as `not_run` against the final
 candidate. Historical setup, DNS, branding or endpoint-validation records may
 describe earlier commits or uncommitted source; their passing deterministic
 checks do not transfer to a new signed package. Any supplemental release
 evidence must bind the exact staged package manifest and commit. The current
-workflow accepts `v0.3.0`; its version coordination and checks are described
-in [Preparing v0.3.0](RELEASE.md#preparing-v030).
+workflow accepts `v0.3.1`; the coordinated version contract and
+checks are described in [Preparing v0.3.1](RELEASE.md#preparing-v031). Optional
+protected-runner results do not gate publication, and cannot substitute for
+required CI, compile-only, signing, package or provenance checks.
 
 Windows same-version MSI coverage includes compile-only, inert authoring
 fixtures for x64 and ARM64. `tool/test_windows_msi_replacement.ps1` verifies a

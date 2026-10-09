@@ -19,8 +19,10 @@ A v1.0.0 change of signing identity is a separate release. Until then, the pre-1
 
 Official Android releases require the package name
 `io.github.georgexie2333.usque` and current official release certificate to be
-registered to a verified developer identity through Android developer
-verification. Registration records package-name and signing-key ownership; it
+registered to a verified developer identity through
+[Android developer verification](https://developer.android.com/developer-verification).
+This is Usque's release policy; platform enforcement scope follows Android's
+current documentation. Registration records package-name and signing-key ownership; it
 is not an app-content review or Google Play distribution. This document does
 not verify the live console registration state.
 
@@ -61,15 +63,17 @@ Public fingerprints are repository or environment variables (`WINDOWS_SIGNER_SHA
 
 Only the release maintainer may approve `release-signing` and `release-publish`. A local bundle, MSI, or APK cannot replace a failed or missing GitHub Actions build.
 
-For `v0.3.0`, retain both pre-1.0 identities. Before approving signing, confirm
+For the planned `v0.3.1`, retain both pre-1.0 identities. Before approving signing, confirm
 the live environment protection settings, the two public certificate
 fingerprints, and Android's **Registered** application-ID/certificate pair.
 Before approving publication, review the exact tagged commit and staged
 `release-manifest.json`; its eight package names, sizes, SHA-256 values and
 signer fingerprints must describe the candidate produced by that release run.
 A documentation review, a previous release's signatures or a local compile is
-not that evidence. The coordinated `v0.3.0` contract and required checks are
-described in [Preparing v0.3.0](RELEASE.md#preparing-v030).
+not that evidence. The workflow accepts only `v0.3.1`; complete the exact-candidate
+checks in [Preparing v0.3.1](RELEASE.md#preparing-v031)
+before creating the new tag. Documentation preparation does not authorize key
+access, signing or publication.
 
 ## What users should check
 

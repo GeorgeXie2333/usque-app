@@ -40,8 +40,10 @@ saved configuration uses local or system resolution.
 
 Existing DoH settings automatically display as a complete URL, preserving the
 saved name, custom port, path and bootstrap IPs. Opening the editor does not
-rewrite settings or replace them with Cloudflare. Saved settings stay compatible
-with previous versions. URLs must use HTTPS, a DNS
+rewrite settings or replace them with Cloudflare. The editor retains the stored
+name/port/path representation; this does not establish application downgrade
+compatibility. See [configuration compatibility](INSTALLATION.md#configuration-compatibility-when-upgrading).
+URLs must use HTTPS, a DNS
 name and a valid port; credentials, query strings and fragments are not supported.
 Omitting a URL port uses `443`; omitting the path uses `/dns-query`.
 
@@ -51,7 +53,8 @@ clears retained drafts; selecting an encrypted type again prefills Cloudflare.
 The reset takes effect only after applying.
 
 旧版 DoH 配置会自动组合为完整链接，保留原域名、自定义端口、路径与引导 IP。
-打开页面不会重写配置或替换成 Cloudflare，保存的配置继续兼容旧版。
+打开页面不会重写配置或替换成 Cloudflare，保存时仍使用原有域名、端口、路径字段。
+这不代表应用可以降级；整体配置迁移限制见[配置兼容性说明](INSTALLATION.md#configuration-compatibility-when-upgrading)。
 地址必须使用 HTTPS、服务器域名和有效端口，不支持用户名密码、查询参数或片段。
 省略端口时使用 `443`，省略路径时使用 `/dns-query`。
 页面内切换类型会分别保留草稿，只应用当前选中的类型。高级设置恢复默认后，草稿

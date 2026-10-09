@@ -313,7 +313,7 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'diagnostics_subtitle': '檢查連線問題、匯出紀錄及管理本機資料。',
   'engine_status': '連線資訊',
   'version': '版本',
-  'app_version': 'Usque 0.3.0',
+  'app_version': 'Usque 0.3.1',
   'logs': '本機記錄',
   'export_diagnostics': '匯出診斷套件',
   'diagnostics_saved': '診斷套件已儲存至',

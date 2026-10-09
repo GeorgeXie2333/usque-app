@@ -51,7 +51,7 @@ Usque는 독립 프로젝트입니다. Cloudflare, Inc.와 제휴 관계가 없�
 
 ## 다운로드 및 설치
 
-이 문서는 **v0.3.0** 기준입니다. 아직 배포되지 않았을 수 있으니 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)에서 확인하세요. [릴리스 준비 검토](docs/RELEASE_V0.3.0_READINESS.md)에 이 버전의 확인 범위가 기록되어 있습니다. 설치 패키지는 6종이며, Windows MSI 파일 2개를 앱 내 업데이트 전용으로 별도 제공합니다.
+이 개발 문서는 **v0.3.1** 준비용입니다. 앱 버전 메타데이터와 릴리스 워크플로는 **v0.3.1 / 0.3.1+25**로 동기화되었습니다. [v0.3.1 릴리스 준비 검토](docs/RELEASE_V0.3.1_READINESS.md)에 검사 결과와 남은 요구 사항을 기록했습니다. 배포된 패키지는 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)와 해당 태그의 문서를 확인하세요. 계획된 설치 패키지는 6종이며, Windows MSI 파일 2개를 앱 내 업데이트 전용으로 별도 제공합니다.
 
 | 플랫폼 | 최소 OS | 패키지 |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ Usque는 독립 프로젝트입니다. Cloudflare, Inc.와 제휴 관계가 없�
 
 업그레이드, 제거, 복구, Android 개발자 인증에 관한 설명은 [설치 및 제거](docs/INSTALLATION.md)를, 공식 서명에 사용하는 인증서 정보는 [코드 서명](docs/CODE_SIGNING.md)을 참고하세요. 업데이트는 다운로드 전에 확인이 필요하며, 플랫폼 설치 프로그램으로 설치합니다. 사용자 확인 없이 자동으로 설치하지 않습니다.
 
-업그레이드하면 로컬 구성이 v0.2.9에서 읽을 수 없는 형식으로 마이그레이션됩니다. 업그레이드 전에 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)과 필요한 백업을 확인하세요. 이전 패키지를 다시 설치해도 마이그레이션은 되돌려지지 않습니다.
+v0.3.0에서 업그레이드하면 구성 스키마가 23에서 24로 바뀌며 v0.3.0 및 이전 클라이언트에서는 읽을 수 없습니다. 업그레이드 전에 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)과 필요한 백업을 확인하세요. 이전 패키지를 다시 설치해도 마이그레이션은 되돌려지지 않습니다.
 
 ## 첫 연결
 

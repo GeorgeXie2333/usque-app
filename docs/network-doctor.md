@@ -19,6 +19,12 @@ In Simplified Chinese, these controls are **网络质量 → 运行网络诊断*
 Engine may not advertise the required capability; existing connection controls
 remain usable.
 
+When the app UI is hidden, its periodic quality, diagnostic-status and timeline
+reads pause. Returning to the app requests fresh state. This does not disconnect
+the VPN service, cancel an already running native diagnostic session, or change
+your manual Pause selection. A stale or missing observation is still unavailable
+evidence; background time is not filled with invented samples.
+
 ## Choose Standard or Deep
 
 | Mode | What it does | Network requests |

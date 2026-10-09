@@ -51,7 +51,7 @@ Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系�
 
 ## 下载与安装
 
-本文对应 **v0.3.0**，该版本可能尚未发布，请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 为准。[发布准备审查](docs/RELEASE_V0.3.0_READINESS.md) 记录了该版本的检查范围。每个版本提供六种安装包，另有两个仅供应用内更新使用的 Windows MSI 文件：
+本文为 **v0.3.1** 准备开发文档；应用版本元数据与发布流程已同步为 **v0.3.1 / 0.3.1+25**。[v0.3.1 发布准备审查](docs/RELEASE_V0.3.1_READINESS.md) 记录了检查结果与发布待办。安装已发布版本时，请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。计划提供六种安装包，另有两个仅供应用内更新使用的 Windows MSI 文件：
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系�
 
 升级、卸载、恢复及 Android 开发者验证说明见[安装指南](docs/INSTALLATION.md)，官方签名身份见[代码签名策略](docs/CODE_SIGNING.md)。更新下载需要用户确认，安装通过平台安装程序完成，不会未经确认自动安装。
 
-升级会将本地配置迁移至 v0.2.9 无法读取的格式。请先阅读[配置兼容性说明](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)，按需要安排升级前备份；重新安装旧包不会逆转迁移。
+从 v0.3.0 升级会将配置从 schema 23 迁移至 24，v0.3.0 及更旧客户端无法读取。请先阅读[配置兼容性说明](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)，按需要安排升级前备份；重新安装旧包不会逆转迁移。
 
 ## 首次连接
 

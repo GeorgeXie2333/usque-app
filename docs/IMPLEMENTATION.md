@@ -17,38 +17,39 @@ The [documentation index](README.md) separates current contracts from historical
 records. [Reliability testing](RELIABILITY_TESTING.md) defines environments and
 evidence requirements; [Release process](RELEASE.md) defines publication.
 
-## Source changes prepared for v0.3.0
+## Source changes prepared for v0.3.1
 
-Since v0.2.9, the source adds [WARP exit DoH/DoT](WARP_DNS.md) and
-[confirmed Zero Trust endpoint editing](NETWORK_SETTINGS.md#zero-trust-endpoint-editing--zero-trust-端点编辑),
-including a persistent Home warning for custom Zero Trust addresses. These
-features retain separate WARP, direct and final-chain DNS policies, strict TLS,
-and endpoint public-key pin checks.
+Since the v0.3.0 tag, source adds [DIRECT/REJECT/PROXY rules and Ads](ROUTING.md),
+migrates legacy bypass targets, and applies Allow local network across outputs.
+The [H3 startup and PMTU fixes](h3-client-reliability.md#pmtu-and-fragmentation)
+retain ordinary traffic during discovery and oversized-probe rejection.
+These are source behaviors, not measured throughput or external leak results.
 
-Windows adds a native localized setup and uninstall experience, tray status,
-background connection notices, restored window placement and desktop shortcuts.
-[Installation](INSTALLATION.md), [Windows lifecycle](windows-lifecycle.md) and
-[GUI development](../apps/usque_gui/README.md) describe their behavior. Home
-refines exit details and 60-second traffic charts; brand assets and screenshots
-have been refreshed across the supported Windows and Android surfaces.
+[WARP DNS](WARP_DNS.md) and [Direct DNS](encrypted-direct-dns.md) now use complete
+DoH URL fields and editable Cloudflare defaults for new encrypted drafts.
+Local proxy DNS controls have been removed while saved settings remain active
+internally; HTTP/SOCKS5 chain DNS choices remain in Add proxy. Settings are
+organized by topic and VPN Gate uses only the shared chain-proxy editor.
+Android tile recovery and hidden-UI observation have changed; adaptive icons use
+an opaque brand-orange background. [GUI development](../apps/usque_gui/README.md)
+describes the current components and layout.
 
-Android ordinary CONNECT-IP recovery can wait for a newer usable physical
-network after a socket-protection failure in an established session and
-confirmed cleanup. Initial-startup and chain failure policies remain distinct;
-see [H3 client reliability](h3-client-reliability.md). Chain UDP receive handling
-and the userspace netstack have also changed. Source changes alone do not
-establish throughput, leak prevention or native lifecycle results.
+The current source retains v0.3.0's WARP encrypted DNS, confirmed experimental
+Zero Trust endpoint editing, native Windows setup/removal, tray controls,
+desktop shortcuts and established Android protection-failure recovery. They
+are not newly introduced v0.3.1 features. TLS, endpoint pins and distinct WARP,
+direct and final-chain DNS policies remain in force.
 
-The source uses configuration schema 24: schema 22 adds WARP DNS, schema 23
-adds per-account Zero Trust endpoint overrides, and schema 24 adds unified
-DIRECT/REJECT/PROXY routing and Ads. Recovery journal schema 5,
-Agent protocol 3 and recovery export schema 2 remain unchanged. A v0.2.9 client
-cannot read a configuration migrated beyond its schema 21 support.
+Configuration schema advances from v0.3.0's 23 to 24: legacy domains and CIDRs
+migrate to DIRECT and countries are retained. Custom CIDRs now route inside the
+application data plane. Recovery journal 5, Agent protocol 3 and sanitized
+recovery export 2 remain unchanged. A v0.3.0 or older engine rejects schema 24;
+see [upgrade compatibility](INSTALLATION.md#configuration-compatibility-when-upgrading).
 
-v0.3.0 is the preparation target. The executable version metadata and tag
-workflow still accept v0.2.9 until the coordinated version change is made.
-Use [release preparation](RELEASE.md#preparing-v030) and the
-[v0.3.0 readiness review](RELEASE_V0.3.0_READINESS.md) for open requirements;
+v0.3.1 is the preparation target. Executable version metadata and the tag
+workflow now target v0.3.1 / 0.3.1+25; this does not establish publication.
+Use [release preparation](RELEASE.md#preparing-v031) and the
+[v0.3.1 readiness review](RELEASE_V0.3.1_READINESS.md) for open requirements;
 this checklist is not candidate-bound execution evidence.
 
 ## Architecture

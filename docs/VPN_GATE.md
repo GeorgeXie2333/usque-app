@@ -2,7 +2,10 @@
 
 VPN Gate is the fourth source in [Chain proxy](CHAIN_PROXY.md), after
 **OpenVPN**, **WireGuard** and **WARP via WireGuard**. This reference describes
-the VPN Gate catalogue, trust restrictions and shared OpenVPN driver.
+the VPN Gate catalogue, trust restrictions and shared OpenVPN driver. The
+current interface uses this source inside the shared chain-proxy editor; there
+is no separate VPN Gate settings page. Refresh, filters and favorites remain
+available in that editor.
 
 VPN Gate lets you choose a volunteer server as the final Internet exit on
 Windows, Android and Android TV. Usque reaches that server through the WARP tunnel.

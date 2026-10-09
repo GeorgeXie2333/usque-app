@@ -346,7 +346,7 @@ const Map<String, String> kArCatalog = <String, String>{
       'تحقق من مشكلات الاتصال وصدّر السجلات وأدِر البيانات المحلية.',
   'engine_status': 'معلومات الاتصال',
   'version': 'الإصدار',
-  'app_version': 'Usque 0.3.0',
+  'app_version': 'Usque 0.3.1',
   'logs': 'السجلات المحلية',
   'export_diagnostics': 'تصدير حزمة التشخيص',
   'diagnostics_saved': 'تم حفظ حزمة التشخيص في',

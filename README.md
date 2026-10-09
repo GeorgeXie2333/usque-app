@@ -51,7 +51,7 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
-These docs describe **v0.3.0**, which may not be published yet; check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases). The [release readiness review](docs/RELEASE_V0.3.0_READINESS.md) records what was checked for this version. Each release has six installers, plus two Windows MSI files used only by in-app updates:
+These development docs prepare **v0.3.1**; application metadata and the release workflow now target **v0.3.1 / 0.3.1+25**. The [v0.3.1 readiness review](docs/RELEASE_V0.3.1_READINESS.md) records checks and remaining requirements. For published packages, use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. The planned package set has six installers, plus two Windows MSI files used only by in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ Pre-1.0 packages use fixed, project-controlled self-signed certificates. Windows
 
 See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, recovery, and Android developer-verification details, and [Code signing](docs/CODE_SIGNING.md) for official identities. Updates require confirmation before downloading and use the platform installer; there is no unattended installation.
 
-Upgrading migrates local configuration to a schema that v0.2.9 cannot read. Review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup before upgrading; reinstalling an older package does not reverse the migration.
+Upgrading from v0.3.0 migrates configuration from schema 23 to 24, which v0.3.0 and older clients cannot read. Review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup before upgrading; reinstalling an older package does not reverse the migration.
 
 ## First connection
 
