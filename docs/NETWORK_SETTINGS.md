@@ -13,13 +13,19 @@ Cancel, Escape and Back do not unlock the fields. Reset stages the latest
 registered pair without risky-edit confirmation; applying that pair clears the
 override. Signing in again also clears the override after successful registration.
 Port and SNI stay shared; ZT has no Automatic picker. A failed save retains drafts.
-Home shows a non-dismissible risk banner for a selected custom ZT pair or a
-still-active custom ZT session. It compares numeric addresses with registration
-metadata; alternate IPv6 spellings, port/SNI changes and unapplied drafts do not
-trigger it. A deferred restore retains the notice until the running session uses
-registered addresses or disconnects.
+Home shows a risk banner that cannot be dismissed while the selected account
+uses custom ZT addresses, or a running ZT session still uses them. Only a
+different numeric address triggers it; another spelling of the same IPv6
+address, port/SNI changes and unapplied drafts do not. If restoring the
+registered addresses is deferred to a later connection, the banner stays until
+the running session uses them or disconnects.
 
-Capability field 45, `zero_trust_endpoint_editing`, gates this editor. Missing
+在 **设置 → 高级网络设置 → 编辑 Zero Trust 端点** 中阅读红色全屏警告并勾选风险
+及授权声明后编辑，点击 **应用修改** 保存。每次进入页面都需重新确认，取消、
+Esc 或返回不会解锁。恢复默认暂存注册地址，应用后清除覆盖；重新登录成功也会
+清除覆盖。端口和 SNI 继续共享，ZT 不提供自动选择。保存失败保留草稿。
+
+Implementation notes: capability field 45, `zero_trust_endpoint_editing`, gates this editor. Missing
 support keeps the old read-only behavior. Registered addresses are read-only
 catalog metadata: `ProfileIdentityStatus` fields 8 and 9
 (`registered_endpoint_ipv4`, `registered_endpoint_ipv6`), mirrored in Android
@@ -27,17 +33,12 @@ JSON. Missing registration requires sign-in, never a Consumer-default substitute
 Saving addresses retains TLS and endpoint public-key pin checks and uses the
 existing controlled cold reconnect when the active session can apply the change.
 
-在 **设置 → 高级网络设置 → 编辑 Zero Trust 端点** 中阅读红色全屏警告并勾选风险
-及授权声明后编辑，点击 **应用修改** 保存。每次进入页面都需重新确认，取消、
-Esc 或返回不会解锁。恢复默认暂存注册地址，应用后清除覆盖；重新登录成功也会
-清除覆盖。端口和 SNI 继续共享，ZT 不提供自动选择。保存失败保留草稿。
-
 ## Automatic endpoints / 自动选择端点
 
 Open **Settings → Advanced network settings → Endpoint**, choose
 **Automatic** or **Custom**, then **Apply changes**. New installations and staged
-network resets use Automatic selection. Schema 20 preserves existing addresses
-in Custom mode. Switching the picker keeps custom drafts; automatic saves retain
+network resets use Automatic selection. Upgrading keeps existing addresses in
+Custom mode. Switching the picker keeps custom drafts; automatic saves retain
 the previously saved address pair. Save new address drafts while Custom is
 selected. Port and SNI remain editable in both modes; L4 retains its
 identity-derived SNI. Zero Trust uses the
@@ -46,8 +47,8 @@ registered addresses or a locally confirmed account override and has no Consumer
 Custom accepts numeric IPv4/IPv6 addresses without a Consumer or organization
 prefix restriction. Only the active Custom pair is checked for VPN DNS conflicts;
 Automatic ignores the saved custom pair, including organization-range addresses.
-Enabling the VPN output from an Automatic proxy-only connection reconnects the
-underlay so its sockets acquire the new VPN operation's exact protection leases.
+Turning on the VPN output during an Automatic proxy-only connection reconnects
+once, so the connection's sockets are protected by the new VPN.
 Startup retries temporary capability-query failures before automatic connection.
 The endpoint picker refreshes when capabilities arrive without replacing drafts.
 

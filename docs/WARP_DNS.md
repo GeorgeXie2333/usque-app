@@ -40,8 +40,8 @@ saved configuration uses local or system resolution.
 
 Existing DoH settings automatically display as a complete URL, preserving the
 saved name, custom port, path and bootstrap IPs. Opening the editor does not
-rewrite settings or replace them with Cloudflare. The stored configuration and
-IPC fields stay compatible with previous versions. URLs must use HTTPS, a DNS
+rewrite settings or replace them with Cloudflare. Saved settings stay compatible
+with previous versions. URLs must use HTTPS, a DNS
 name and a valid port; credentials, query strings and fragments are not supported.
 Omitting a URL port uses `443`; omitting the path uses `/dns-query`.
 
@@ -51,7 +51,7 @@ clears retained drafts; selecting an encrypted type again prefills Cloudflare.
 The reset takes effect only after applying.
 
 旧版 DoH 配置会自动组合为完整链接，保留原域名、自定义端口、路径与引导 IP。
-打开页面不会重写配置或替换成 Cloudflare，保存格式与 IPC 字段继续兼容旧版。
+打开页面不会重写配置或替换成 Cloudflare，保存的配置继续兼容旧版。
 地址必须使用 HTTPS、服务器域名和有效端口，不支持用户名密码、查询参数或片段。
 省略端口时使用 `443`，省略路径时使用 `/dns-query`。
 页面内切换类型会分别保留草稿，只应用当前选中的类型。高级设置恢复默认后，草稿
@@ -61,8 +61,8 @@ The reset takes effect only after applying.
 
 WARP DoH and DoT run inside the selected WARP session, in CONNECT-IP and L4
 modes. They serve ordinary VPN DNS and local HTTP/SOCKS5 remote hostname
-resolution. Explicit local/System/EdgeResolved proxy DNS choices retain their
-own behavior. [Direct DNS](encrypted-direct-dns.md) still controls names matched
+resolution. Older proxy DNS configurations that resolve locally or at the
+proxy server keep that behavior. [Direct DNS](encrypted-direct-dns.md) still controls names matched
 by direct bypass rules. Apps using their own DNS retain their own resolver.
 
 When a chain is enabled, its WARP underlay uses these settings for underlay
@@ -72,18 +72,19 @@ does not customize WARP via WireGuard or another final chain exit.
 An unreachable server, rejected TLS certificate or invalid response fails the
 query. VPN clients receive SERVFAIL and proxy hostname requests fail; there is
 no automatic retry through Plain DNS, physical DNS or another exit. Check the
-configured server name, path, port and bootstrap addresses. An incompatible
-Engine cannot use saved encrypted settings and will not downgrade them.
+configured server name, path, port and bootstrap addresses. If the installed
+Engine is too old for encrypted WARP DNS, it does not use the saved DoH/DoT
+settings and does not quietly switch to Plain DNS.
 
 WARP DoH、DoT 在当前 WARP 会话内运行，支持 CONNECT-IP 和 L4，处理普通 VPN
-DNS 与本地 HTTP/SOCKS5 的远程域名解析。显式本地、System、EdgeResolved 代理
-DNS 仍按自身设置工作；绕过规则命中的域名继续使用[直连 DNS](encrypted-direct-dns.md)。
+DNS 与本地 HTTP/SOCKS5 的远程域名解析。旧配置中设为本机解析或由代理服务器
+解析的代理 DNS 保持原行为；绕过规则命中的域名继续使用[直连 DNS](encrypted-direct-dns.md)。
 应用自带的 DNS 不受此选择控制。启用链式出口时，此配置用于 WARP 底层的域名
 查询，最终链出口仍使用自己的 DNS 策略。
 
 服务器不可达、证书验证失败或响应无效时，VPN 查询返回 SERVFAIL，代理域名
 请求失败，不会自动改用普通 DNS、本机 DNS 或其他出口。请检查服务器域名、
-路径、端口和引导地址。不兼容的 Engine 不能使用已保存的加密配置，也不会自动降级。
+路径、端口和引导地址。Engine 版本过旧、不支持加密 WARP DNS 时，不会使用已保存的 DoH/DoT 配置，也不会悄悄改用普通 DNS。
 
 ## Validation limits / 验证范围
 

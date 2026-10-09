@@ -204,7 +204,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] White/orange visual system, dark mode, Lucide controls and bundled protocol, flag and brand assets.
 - [x] Exact default endpoints, SNI, MTU, DNS, listener addresses, and reset action.
 - [x] Composable VPN/SOCKS5/HTTP outputs, Windows system-proxy dependency, and non-loopback listener warning.
-- [x] Remote/custom/system Proxy DNS selection with dedicated IPv4/IPv6 servers and an explicit local-DNS leak warning.
+- [x] Proxy DNS through the current exit by default. The Proxy page DNS selector was removed; saved custom/system/proxy-server modes remain supported, with the local-DNS leak warning.
 - [x] Exit location, IPv4, IPv6, protocol, family, duration, and traffic UI.
 - [x] Twenty-one string catalogs, including English and three Chinese regional catalogs.
 - [x] Adaptive desktop/mobile navigation and focusable Material controls.

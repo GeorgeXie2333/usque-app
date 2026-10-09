@@ -227,45 +227,44 @@ app-exclusion rules remain outside that scope. This feature does not change
 network-interface address candidates that WebRTC or other browser APIs can expose to a page;
 it is not a guarantee that every browser-reported address is the proxy address.
 
-HTTP/SOCKS5 defaults to encrypted DNS through the final proxy. In **Add proxy →
-DNS**, **Automatic (DoH by default)** uses Cloudflare® DoH at
-`cloudflare-dns.com/dns-query` over verified TLS and HTTP/2. Fixed numeric
-bootstrap addresses also use the final exit. Custom chain DNS, non-default
-inherited DNS and an explicit local DNS choice retain TCP DNS. **Encrypted DNS ·
-Cloudflare** selects DoH explicitly; **DNS over TCP** retains numeric or inherited
-resolvers. Switching the form preserves the custom DNS draft; saving DoH excludes
-that list. DoH failure never switches to plaintext or another exit. Existing
-inherited defaults upgrade in memory; manually entering the exact built-in
-addresses is indistinguishable from inheriting them, so choose TCP explicitly to
-preserve that behavior. Other exits keep their own DNS settings. Older engines
-offer TCP only, without an encryption promise. The default DoH resolver also
-serves Android's synthetic VPN DNS address.
+HTTP/SOCKS5 exits resolve names through the final proxy. Choose the method in
+**Add proxy → DNS**:
 
-Application-chosen resolver DNS travels through the final proxy using TCP. Valid TUN and local SOCKS5
-UDP/53 queries are converted to TCP DNS at the application's chosen resolver.
-The local SOCKS5 listener accepts DNS-only UDP associations even when HTTP, L4 or
-the final SOCKS5 server cannot carry ordinary UDP. Malformed DNS is not converted
-into a TCP connection, and ordinary proxied UDP remains unavailable in those
-cases. If the proxy refuses CONNECT to port 53, DNS fails explicitly. For local
-HTTP/SOCKS clients, **Resolve at the proxy server** sends target domain names to the final
-proxy; it cannot recover names from TUN IP packets. Explicit local/direct DNS
-policies and direct routes retain their existing semantics. No DoH or physical
-DNS fallback replaces an application-chosen DNS server. Upstream UDP association
-is lazy; its refusal or timeout cannot block the independent DNS relay.
-Configured TCP DNS and DoH race at most two complete queries, starting the backup
-after 250 ms under one four-second deadline. TCP DNS candidates share the remaining
-question budget, including queueing, proxy authentication, CONNECT and the DNS
-exchange; DoH candidates get two seconds including TLS/HTTP setup. An expired
-TCP query is counted even if the candidate race cancels it first; cancelling a
-losing candidate before its deadline does not count as a timeout. SERVFAIL and
-REFUSED try the backup; valid NXDOMAIN/NODATA are terminal. Session or network
-changes invalidate pooled connections and outstanding queries.
+| Choice | What it does |
+| --- | --- |
+| **Automatic (DoH by default)** | Uses Cloudflare® DoH at `cloudflare-dns.com/dns-query` through the final proxy, with verified TLS and fixed bootstrap IPs. Custom chain DNS or non-default inherited DNS makes it use TCP DNS instead. |
+| **Encrypted DNS · Cloudflare** | Always uses that Cloudflare DoH resolver. |
+| **DNS over TCP** | Sends DNS over TCP to the numeric servers you enter, or to the inherited servers when the list is empty. |
 
-If **Resolve at the proxy server** is selected and an
-exit or connection-mode change makes it unavailable, applying that change also
-switches proxy DNS to remote resolution through the current exit. Configured DNS addresses and
-other DNS choices are retained. Connections that still support server
-resolution keep the selected method.
+DoH failure never switches to plaintext DNS or another exit. Switching choices
+keeps your custom server list as a draft; saving DoH does not submit it. Typing
+the exact built-in addresses counts as inheriting them, so pick **DNS over TCP**
+explicitly if you want TCP. Other exits keep their own DNS settings; older
+Engines offer TCP only. The default DoH resolver also answers Android's VPN DNS
+address.
+
+Apps that pick their own DNS server keep it: valid UDP/53 queries from TUN or
+the local SOCKS5 listener are sent as TCP DNS to that server through the final
+proxy, with no DoH or physical DNS substitute. This works even when the exit
+cannot carry ordinary UDP; other proxied UDP stays unavailable. If the proxy
+refuses connections to port 53, those queries fail. Direct DNS settings and
+direct routes are unchanged.
+
+The Proxy page no longer offers a DNS mode. Older configurations that already
+send hostnames to the final proxy keep doing so for local HTTP/SOCKS clients;
+TUN traffic arrives as IP packets, so it cannot use that method. If a later exit
+or connection-mode change no longer supports it, applying that change switches
+proxy DNS to remote resolution through the current exit and keeps the other
+saved DNS values.
+
+Timing details: configured TCP DNS and DoH race at most two complete queries,
+starting the backup after 250 ms, within a four-second total deadline. Each DoH
+attempt has two seconds including TLS/HTTP setup. SERVFAIL and REFUSED try the
+backup; a valid NXDOMAIN/NODATA answer is final. An expired TCP query counts as
+a timeout even if the race cancels it first; a loser cancelled before its
+deadline does not. Session or network changes cancel outstanding queries and
+clear pooled connections. Upstream UDP association starts only when ordinary
+UDP arrives, so its refusal or timeout never blocks the DNS relay.
 
 选择 **HTTP** 或 **SOCKS5**，点击**添加代理**，填写名称、服务器域名或 IPv4/IPv6
 地址和端口；默认端口分别为 8080、1080。按需启用用户名／密码认证。地址栏不接受
@@ -299,31 +298,34 @@ VPN 防护从原生阻断成功安装开始，覆盖 HTTP/SOCKS 会话及其受�
 此功能不会修改浏览器通过 WebRTC 等接口向网页提供的网卡候选地址，因此不承诺
 浏览器报告的每个地址都等于代理出口地址。
 
-HTTP/SOCKS5 默认通过最终代理出口使用加密 DNS。在**添加代理 → DNS** 中，
-**自动（默认 DoH）**通过固定引导 IP 连接 Cloudflare 的 `cloudflare-dns.com/dns-query`，
-校验 TLS 证书并使用 HTTP/2。链专属 DNS、非默认继承 DNS 和明确选择的本地 DNS
-保留 TCP DNS。**加密 DNS · Cloudflare**明确选择 DoH；**TCP DNS**保留数字地址或
-继承服务器。切换时保留自定义 DNS 草稿，保存 DoH 时不提交该列表。DoH 失败不改用
-明文 DNS 或其他出口。旧默认配置只在内存升级；手填与内置默认值完全相同的地址
-无法与继承区分，可明确选择 TCP 保留旧行为。其他出口和显式直连 DNS 策略保持自身
-设置；旧引擎仅提供 TCP，不显示加密承诺。
+HTTP/SOCKS5 出口通过最终代理解析域名，在**添加代理 → DNS** 中选择方式：
 
-默认 DoH 同时服务 Android VPN 的合成 DNS 地址。应用主动指定的 DNS 服务器仍经
-最终代理的 TCP 连接访问。TUN 和本地 SOCKS5 的有效 UDP/53 查询均转换
-为 TCP DNS，并保留应用指定的解析器。HTTP、L4 或最终 SOCKS5 服务器不支持普通
-UDP 时，本地 SOCKS5 仍接受仅供 DNS 的 UDP 关联；畸形 DNS 不会转换为 TCP 连接，
-普通代理 UDP 仍不可用。显式本地／直连 DNS 策略及直连规则保持原语义。代理不允许
-连接 DNS 端口时明确失败；本地 HTTP/SOCKS 客户端可选**由代理服务器解析**将域名交最终
-代理解析，TUN 不推测原始域名，也不会替换应用指定的解析器。
-上游 UDP 关联延迟至普通 UDP 数据到来时建立，拒绝或超时不阻塞独立 DNS 中继。
-配置的 TCP DNS 和 DoH 最多并发两个完整查询，250 ms 后启动备用，共用 4 秒期限；
-TCP DNS 候选共用问题剩余的期限，包含排队、代理认证、CONNECT 和 DNS 收发；
-DoH 最多 2 秒并包含 TLS/HTTP 建连。已到期的 TCP 查询即使先被外层竞速取消，仍计入
-超时；截止前因其他候选成功而取消的查询不计为超时。SERVFAIL/REFUSED 尝试备用
-服务器，有效 NXDOMAIN/NODATA 为终态。网络或会话变化取消旧查询并清理连接池。
-若原来选择**由代理服务器解析**，且出口或连接模式变更后不再支持该方式，应用时会
-同时将代理 DNS 改为远程经隧道解析。已配置的 DNS 地址与其他已有解析方式保持不变；
-仍支持服务器解析的连接会保留原来的解析方式。
+| 选项 | 作用 |
+| --- | --- |
+| **自动（默认 DoH）** | 经最终代理使用 Cloudflare 的 `cloudflare-dns.com/dns-query`，校验 TLS 证书并使用固定引导 IP。设置了链专属 DNS 或非默认继承 DNS 时改用 TCP DNS。 |
+| **加密 DNS · Cloudflare** | 始终使用上述 Cloudflare DoH。 |
+| **TCP DNS** | 通过 TCP 查询填写的数字地址；留空时使用继承的服务器。 |
+
+DoH 失败不会改用明文 DNS 或其他出口。切换选项时保留自定义服务器草稿，保存 DoH
+时不提交该列表。手填与内置默认值完全相同的地址等同于继承，如需 TCP 请明确选择
+**TCP DNS**。其他出口保持自身 DNS 设置；旧引擎仅提供 TCP。默认 DoH 同时应答
+Android VPN 的 DNS 地址。
+
+应用自己指定的 DNS 服务器保持不变：TUN 和本地 SOCKS5 的有效 UDP/53 查询会经最终
+代理以 TCP 发往该服务器，不会换成 DoH 或本机 DNS。即使出口不支持普通 UDP 也可
+使用，其他代理 UDP 仍不可用。代理拒绝连接 53 端口时，这些查询失败。直连 DNS
+设置和直连规则不受影响。
+
+代理页不再提供 DNS 方式选择。旧配置若已设为把域名交给最终代理解析，本地 HTTP/SOCKS
+客户端会继续这样做；TUN 流量只有 IP 包，无法使用该方式。之后若更换出口或连接模式
+导致该方式不可用，应用修改时会改为经当前出口远程解析，其他已保存的 DNS 设置不变。
+
+时间细节：配置的 TCP DNS 和 DoH 最多并发两个完整查询，250 ms 后启动备用，总期限
+4 秒；每次 DoH 尝试最多 2 秒（含 TLS/HTTP 建连）。SERVFAIL/REFUSED 尝试备用，
+有效的 NXDOMAIN/NODATA 为最终结果。已到期的 TCP 查询即使先被竞速取消仍计为超时，
+截止前被取消的落败查询不计。会话或网络变化会取消未完成查询并清理连接池。上游 UDP
+关联在普通 UDP 数据到来时才建立，拒绝或超时不会阻塞 DNS 中继。
+
 HTTP 出口未使用到代理服务器的 TLS；HTTP Basic 和 SOCKS5 认证在 WARP 到代理
 这一段不提供额外加密，应用自身的 HTTPS 加密继续有效。凭据仅在设备加密库保存，
 不会进入设置、摘要或诊断。

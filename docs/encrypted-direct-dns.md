@@ -24,9 +24,9 @@ drafts and do not change the System default until you select and apply a mode.
 
 1. In **Settings → Bypass settings**, select the countries and download
    their GeoIP rules and the global GeoSite catalog, then save the selection.
-   Alternatively, enter custom domains under **Custom bypass targets**; these
-   do not need geographic downloads. If no country or custom domain rule matches,
-   these DNS settings are not used.
+   Alternatively, add domains with the **DIRECT** action under **Custom routing
+   rules**; these do not need geographic downloads. If no country rule or DIRECT
+   domain rule matches, these DNS settings are not used.
 2. Open **Settings → Advanced network settings → Direct DNS**.
 3. Choose System, DoH or DoT. Keep the Cloudflare defaults for a new encrypted
    draft, or enter your provider's values using the field guide below.
@@ -76,7 +76,7 @@ All changes still require **Apply changes**.
 Other remote VPN queries use the final exit's DNS: WARP® without a chain, or the
 active chain exit (custom OpenVPN or WireGuard, WARP via WireGuard, or VPN
 Gate). Ordinary WARP supports configurable Plain DNS, DoH and DoT; see
-[WARP exit DNS](WARP_DNS.md). Explicit local DNS and proxy DNS settings keep their own scope.
+[WARP exit DNS](WARP_DNS.md).
 See the [direct DNS threat model](direct-dns-threat-model.md) for platform
 protection and diagnostic limits.
 

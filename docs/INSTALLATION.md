@@ -379,7 +379,7 @@ it. These settings do not replace the final chain exit's DNS policy.
 HTTP/SOCKS5 chain DNS defaults to verified Cloudflare® DoH through that proxy;
 explicit custom or non-default inherited DNS uses TCP. Application-selected
 UDP/53 queries through these exits use TCP to the selected resolver without a
-physical DNS fallback. Explicit local and proxy DNS choices still apply. Apps
+physical DNS fallback. Apps
 with their own encrypted DNS hide names from Usque, which then classifies
 destinations by IP. See [WARP exit DNS](WARP_DNS.md),
 [chain DNS choices](CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口) and
