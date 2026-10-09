@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
 import '../models/bypass_targets.dart';
+import 'common.dart';
 
 class RoutingRulesEditor extends StatelessWidget {
   const RoutingRulesEditor({
@@ -48,7 +49,10 @@ class RoutingRulesEditor extends StatelessWidget {
                 children: [
                   DropdownButtonFormField<RoutingAction>(
                     initialValue: action,
-                    decoration: InputDecoration(
+                    style: FieldDropdown.valueStyle(context),
+                    iconSize: FieldDropdown.iconSize,
+                    decoration: FieldDropdown.decoration(
+                      context,
                       labelText: strings.get('routing_action'),
                     ),
                     items: RoutingAction.values
@@ -160,12 +164,11 @@ class RoutingRulesEditor extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          strings.get('routing_rules'),
-          style: Theme.of(context).textTheme.titleMedium,
+        ContentHeading(
+          icon: LucideIcons.listFilter,
+          title: strings.get('routing_rules'),
+          subtitle: strings.get('routing_priority'),
         ),
-        const SizedBox(height: 8),
-        Text(strings.get('routing_priority')),
         const SizedBox(height: 12),
         for (var index = 0; index < value.rules.length; index++) ...[
           ListTile(

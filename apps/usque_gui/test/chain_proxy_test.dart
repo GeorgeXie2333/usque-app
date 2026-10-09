@@ -1912,4 +1912,38 @@ void main() {
     },
     tags: 'golden',
   );
+
+  testWidgets('proxy dialog DNS section shares the form edge and spacing', (
+    tester,
+  ) async {
+    final app = await hostChain(
+      tester,
+      ChainEngine(),
+      source: ChainSource.socks5Proxy,
+    );
+    await tester.tap(
+      find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
+    );
+    await tester.pumpAndSettle();
+    final dialog = find.byType(AlertDialog);
+    final dns = find.descendant(
+      of: dialog,
+      matching: find.text(app.strings.chain('dns')),
+    );
+    await tester.ensureVisible(dns);
+    await tester.pumpAndSettle();
+    await tester.tap(dns);
+    await tester.pumpAndSettle();
+    final firstField = find
+        .descendant(of: dialog, matching: find.byType(TextField))
+        .first;
+    expect(tester.getTopLeft(dns).dx, tester.getTopLeft(firstField).dx);
+    final picker = find.byKey(const ValueKey('chain-proxy-dns-transport'));
+    final hint = find.descendant(of: dialog, matching: find.byType(HintText));
+    expect(hint, findsOneWidget);
+    expect(
+      tester.getTopLeft(hint).dy,
+      greaterThan(tester.getBottomLeft(picker).dy),
+    );
+  });
 }

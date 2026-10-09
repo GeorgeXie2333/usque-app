@@ -5,6 +5,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
+import 'package:usque/screens/diagnostics_screen.dart';
+import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/state/app_controller.dart';
@@ -211,14 +213,16 @@ void main() {
       section: AppSection.settings,
     );
     final settings = find.byType(SettingsScreen);
-    for (final key in ['appearance', 'system_integration', 'updates']) {
+    // The former subheadings are gone from the Application group.
+    for (final text in [
+      'Appearance',
+      'System integration',
+      app.strings.get('updates'),
+    ]) {
       expect(
-        find.descendant(
-          of: settings,
-          matching: find.text(app.strings.get(key)),
-        ),
+        find.descendant(of: settings, matching: find.text(text)),
         findsNothing,
-        reason: key,
+        reason: text,
       );
     }
     final version = find.byKey(const ValueKey('settings-app-version'));
@@ -451,5 +455,49 @@ void main() {
         isTrue,
       );
     });
+  });
+
+  testWidgets('Diagnostics technical details share the section edge', (
+    tester,
+  ) async {
+    final app = await pumpWorkflow(
+      tester,
+      WorkflowEngine(),
+      section: AppSection.settings,
+      size: const Size(1280, 1600),
+    );
+    await tester.pumpWidget(
+      workflowHost(app, home: DiagnosticsScreen(controller: app)),
+    );
+    await tester.pumpAndSettle();
+    final details = find.text(app.strings.get('technical_details'));
+    await tester.ensureVisible(details);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(details).dx,
+      tester.getTopLeft(find.byType(ExpansionTile)).dx,
+    );
+  });
+
+  testWidgets('Bypass apply bar lines up with the form column', (tester) async {
+    final app = await pumpWorkflow(
+      tester,
+      WorkflowEngine(),
+      section: AppSection.settings,
+    );
+    await tester.pumpWidget(
+      workflowHost(app, home: GeoDirectSettingsScreen(controller: app)),
+    );
+    await tester.pumpAndSettle();
+    final search = find.byType(TextField).first;
+    final apply = find.widgetWithText(
+      FilledButton,
+      app.strings.get('save_changes'),
+    );
+    expect(tester.getTopRight(apply).dx, tester.getTopRight(search).dx);
+    expect(
+      find.widgetWithText(ContentHeading, app.strings.get('bypass_countries')),
+      findsOneWidget,
+    );
   });
 }

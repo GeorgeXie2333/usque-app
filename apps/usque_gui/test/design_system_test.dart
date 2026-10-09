@@ -395,6 +395,65 @@ void main() {
     });
   });
 
+  group('FieldDropdown', () {
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets('matches a text field height at ${scale}x', (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: UsqueTheme.light(),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        key: const ValueKey('picker'),
+                        initialValue: 1,
+                        isExpanded: true,
+                        style: FieldDropdown.valueStyle(context),
+                        iconSize: FieldDropdown.iconSize,
+                        decoration: FieldDropdown.decoration(
+                          context,
+                          labelText: 'Picker',
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 1, child: Text('One')),
+                        ],
+                        onChanged: (_) {},
+                      ),
+                    ),
+                    const Expanded(
+                      child: TextField(
+                        key: ValueKey('field'),
+                        decoration: InputDecoration(labelText: 'Field'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.enterText(find.byKey(const ValueKey('field')), '1280');
+        await tester.pump();
+        expect(
+          tester.getSize(find.byKey(const ValueKey('picker'))).height,
+          closeTo(
+            tester.getSize(find.byKey(const ValueKey('field'))).height,
+            0.5,
+          ),
+        );
+      });
+    }
+  });
+
   group('LinkRow', () {
     Future<void> pumpRow(
       WidgetTester tester,

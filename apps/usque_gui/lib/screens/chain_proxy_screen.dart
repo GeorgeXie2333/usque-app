@@ -198,17 +198,20 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
           child: PanelStack(
             spacing: 20,
             children: [
-              SwitchListTile.adaptive(
-                key: ValueKey(
-                  _source == ChainSource.vpnGate
-                      ? 'vpn-gate-toggle'
-                      : 'chain-proxy-toggle',
+              RowTileTheme(
+                child: SwitchListTile.adaptive(
+                  key: ValueKey(
+                    _source == ChainSource.vpnGate
+                        ? 'vpn-gate-toggle'
+                        : 'chain-proxy-toggle',
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const Icon(LucideIcons.link),
+                  title: Text(_app.strings.chain('enable')),
+                  subtitle: Text(_app.strings.chain('scope')),
+                  value: enabled,
+                  onChanged: onEnabledChanged,
                 ),
-                contentPadding: EdgeInsets.zero,
-                title: Text(_app.strings.chain('enable')),
-                subtitle: Text(_app.strings.chain('scope')),
-                value: enabled,
-                onChanged: onEnabledChanged,
               ),
               ChainSourcePicker(
                 controller: _app,
@@ -711,6 +714,8 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                         ),
                 ),
                 if (_loading) const LinearProgressIndicator(minHeight: 2),
+                // Explanations keep a gap below the action buttons.
+                if (!_loading && profiles.isEmpty) const SizedBox(height: 8),
                 if (!_loading && profiles.isEmpty)
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

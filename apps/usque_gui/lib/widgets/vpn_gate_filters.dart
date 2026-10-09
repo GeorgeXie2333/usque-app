@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
+import 'common.dart';
 import 'country_flag.dart';
 
 class VpnGateFilters extends StatelessWidget {
@@ -72,6 +73,9 @@ class VpnGateFilters extends StatelessWidget {
             key: ValueKey('vpn-gate-country-$country'),
             initialValue: country,
             isExpanded: true,
+            style: FieldDropdown.valueStyle(context),
+            iconSize: FieldDropdown.iconSize,
+            decoration: FieldDropdown.decoration(context),
             items: [
               DropdownMenuItem(
                 value: 'ALL',

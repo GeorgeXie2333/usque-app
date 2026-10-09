@@ -206,7 +206,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                         'app-technical-details',
                       ),
                       title: Text(strings.get('technical_details')),
-                      childrenPadding: const EdgeInsets.all(16),
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: const EdgeInsets.only(bottom: 16),
                       expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
                       children: const <Widget>[
                         SelectableText(

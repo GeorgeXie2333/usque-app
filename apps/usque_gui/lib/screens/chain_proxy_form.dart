@@ -155,11 +155,17 @@ class _ProxyDialogState extends State<_ProxyDialog> {
             ],
             ExpansionTile(
               title: Text(s.chain('dns')),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 8),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 DropdownButtonFormField<String>(
                   key: const ValueKey('chain-proxy-dns-transport'),
                   initialValue: _dnsTransport,
                   isExpanded: true,
+                  style: FieldDropdown.valueStyle(context),
+                  iconSize: FieldDropdown.iconSize,
+                  decoration: FieldDropdown.decoration(context),
                   items: [
                     for (final mode in [
                       if (_canEncrypt) ...['auto', 'doh'],
@@ -174,11 +180,13 @@ class _ProxyDialogState extends State<_ProxyDialog> {
                       ? null
                       : (value) => setState(() => _dnsTransport = value!),
                 ),
-                Text(
+                const SizedBox(height: 8),
+                HintText(
                   s.chain(
                     _dnsTransport == 'tcp' ? 'dns_inherit' : 'dns_auto_hint',
                   ),
                 ),
+                if (_dnsTransport != 'doh') const SizedBox(height: 12),
                 if (_dnsTransport != 'doh')
                   TextField(
                     key: const ValueKey('chain-proxy-dns'),

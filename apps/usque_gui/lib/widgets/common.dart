@@ -672,10 +672,7 @@ abstract final class FieldDropdown {
 
   /// The dense minimum exceeds one line of input text at small scales, so
   /// that difference comes back out of the vertical padding.
-  static InputDecoration decoration(
-    BuildContext context, {
-    required String labelText,
-  }) {
+  static InputDecoration decoration(BuildContext context, {String? labelText}) {
     final style = valueStyle(context);
     final line =
         MediaQuery.textScalerOf(context).scale(style?.fontSize ?? 14) *

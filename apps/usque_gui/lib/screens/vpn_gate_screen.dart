@@ -684,22 +684,25 @@ class _VpnGateScreenState extends State<VpnGateScreen>
             child: Builder(
               builder: (context) {
                 final onChainPage = widget.chainPageBuilder != null;
-                final toggle = SwitchListTile.adaptive(
-                  key: const ValueKey('vpn-gate-toggle'),
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    onChainPage ? strings.chain('enable') : 'WARP → VPN Gate',
-                  ),
-                  subtitle: Text(strings.get('gate_scope')),
-                  value: _draft.enabled,
-                  onChanged: _saving || !supported
-                      ? null
-                      : (enabled) => setState(
-                          () => _updateDraft(
-                            _draft.copyWith(enabled: enabled),
-                            _draftServer,
+                final toggle = RowTileTheme(
+                  child: SwitchListTile.adaptive(
+                    key: const ValueKey('vpn-gate-toggle'),
+                    contentPadding: EdgeInsets.zero,
+                    secondary: const Icon(LucideIcons.link),
+                    title: Text(
+                      onChainPage ? strings.chain('enable') : 'WARP → VPN Gate',
+                    ),
+                    subtitle: Text(strings.get('gate_scope')),
+                    value: _draft.enabled,
+                    onChanged: _saving || !supported
+                        ? null
+                        : (enabled) => setState(
+                            () => _updateDraft(
+                              _draft.copyWith(enabled: enabled),
+                              _draftServer,
+                            ),
                           ),
-                        ),
+                  ),
                 );
                 return PanelStack(
                   spacing: onChainPage ? 20 : 28,
