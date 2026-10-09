@@ -75,8 +75,14 @@ def monochrome_logo(mask: Image.Image) -> Image.Image:
     return result
 
 
-def fit_artwork(source: Image.Image, canvas_size: int, artwork_size: int) -> Image.Image:
-    bounds = source.getchannel("A").getbbox()
+def fit_artwork(
+    source: Image.Image,
+    canvas_size: int,
+    artwork_size: int,
+    *,
+    reference_bounds: tuple[int, int, int, int] | None = None,
+) -> Image.Image:
+    bounds = reference_bounds or source.getchannel("A").getbbox()
     if bounds is None:
         raise ValueError("Brand artwork is empty")
     artwork = source.crop(bounds)
@@ -84,7 +90,10 @@ def fit_artwork(source: Image.Image, canvas_size: int, artwork_size: int) -> Ima
     occupied = artwork.getchannel("A").getbbox()
     if occupied is None:
         raise ValueError("Brand artwork disappeared when resized")
-    artwork = artwork.crop(occupied)
+    # Keep the lines in their original position when the disk moves into the
+    # adaptive background. Other assets still centre their occupied artwork.
+    if reference_bounds is None:
+        artwork = artwork.crop(occupied)
     canvas = Image.new("RGBA", (canvas_size, canvas_size))
     canvas.alpha_composite(
         artwork, ((canvas_size - artwork.width) // 2, (canvas_size - artwork.height) // 2)
@@ -107,13 +116,19 @@ def save_android(source: Image.Image, monochrome: Image.Image) -> None:
         "mipmap-xxhdpi": 324,
         "mipmap-xxxhdpi": 432,
     }
+    # Android composites adaptive icons over black. Use an opaque brand-colour
+    # background in XML and derive a line-only foreground from the same master.
+    disk_bounds = source.getchannel("A").getbbox()
     for folder, size in foreground_sizes.items():
         destination = resources / folder
         destination.mkdir(parents=True, exist_ok=True)
         artwork_size = round(size * 66 / 108)
-        fit_artwork(source, size, artwork_size).save(
-            destination / "ic_launcher_foreground.png", optimize=True
-        )
+        line_layer = fit_artwork(monochrome, size, artwork_size, reference_bounds=disk_bounds)
+        # Resize coverage independently so premultiplied RGBA interpolation
+        # cannot shift the line colour at antialiased edges.
+        foreground = Image.new("RGBA", line_layer.size, LIGHT_LINE)
+        foreground.putalpha(line_layer.getchannel("A"))
+        foreground.save(destination / "ic_launcher_foreground.png", optimize=True)
         fit_artwork(monochrome, size, artwork_size).save(
             destination / "ic_launcher_monochrome.png", optimize=True
         )

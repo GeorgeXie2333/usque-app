@@ -114,6 +114,10 @@ cleanup; no installer or installed uninstaller was executed.
 
 ## Android transparent background follow-up / 安卓透明背景调整
 
+This experiment is superseded by the 2026-10-09 correction below. Its resource
+composites omitted Android's black underlay and did not predict device rendering.
+The original date and check results remain historical records.
+
 Follow-up date: 2026-10-07. Tested source: baseline
 `64e05304b4887a2bc2e76db8ea2674244da201e3` plus the uncommitted launcher
 background and documentation changes. The 2026-10-06 results above remain a
@@ -161,3 +165,67 @@ artifacts. This is compile-only evidence, not Android runtime validation.
 Actual OEM launcher appearance and Android device validation are `not_run`:
 no dedicated device or isolated emulator was used. No release APK, device
 installation, signing or publication was performed.
+
+## Android opaque background correction / 安卓不透明背景修正
+
+Correction date: 2026-10-09. Tested source: baseline
+`d8a8baa3b21d712ab1a5b2142ca22cd73222a462` plus the uncommitted generator,
+Android resource, brand-documentation and comparison-image changes in this
+working tree. This does not identify a committed release candidate.
+
+The user reported a black background on an actual Android device after the
+transparent-background change. In the
+[Android 35 framework source](https://android.googlesource.com/platform/prebuilts/fullsdk/sources/+/refs/heads/androidx-constraintlayout-release/android-35/android/graphics/drawable/AdaptiveIconDrawable.java),
+`AdaptiveIconDrawable.draw()` fills its composition bitmap with black before
+drawing the background and foreground. A transparent background cannot cover
+that black underlay. The earlier PNG-only preview did not model this step;
+its successful resource checks were insufficient to establish transparency on
+Android. Clearing launcher caches would not correct this resource design.
+
+The shared launcher background is now opaque `#C2500C`. All four regular/round
+adaptive definitions continue to reference it. Five regenerated foregrounds
+contain only the `#F5F4F1` U/star lines on transparency. The generator preserves
+their position and scale relative to the master disk inside the 66dp safe area
+of each 108dp layer. It resizes alpha coverage separately and applies the exact
+line colour, avoiding colour shifts from premultiplied RGBA interpolation.
+Android 13+ monochrome and notification assets are byte-identical to the
+baseline. Other platform assets and the editable master remain unchanged.
+
+![Android adaptive icon comparison](images/android-adaptive-icon-opaque.png)
+
+The comparison models the actual resource layering order: black underlay,
+background, foreground, then the viewport mask. It reproduces the previous
+black tile and shows the corrected full orange background under circular and
+rounded-square masks on light and dark surfaces. Checks verified that the
+composition is opaque, contains no exposed black underlay, and preserves the
+complete line artwork under both masks. It is a resource model, not a device
+screenshot or independent OEM runtime evidence. The launcher still determines
+the final shape and effects.
+
+Resource inspection covered the four XML definitions, five density dimensions,
+safe-area bounds, alpha and exact line colours. Regenerating all 34 source and
+derived resources produced identical bytes with Python 3.12.14, Pillow 12.3.0
+and Windows Segoe UI fonts. Flutter checks used 3.44.7, revision
+`84fc5cbb223bc12f83d65b647ff8a56caf779ffd`, resolved from `local.properties`.
+
+| Command or check | Result |
+| --- | --- |
+| `python tool/generate_brand_assets.py` | passed; five changed line-only foreground PNGs; other generated resources unchanged |
+| Resource colour, alpha, XML, mask and regeneration inspection | passed; all 34 resource hashes identical on repeat generation; every visible foreground pixel has RGB `#F5F4F1` |
+| `flutter --version --machine` | passed; version and full revision match the CI pin |
+| `& ./tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed with locked dependencies |
+| `flutter pub get --enforce-lockfile` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed; configuration only |
+| `.\gradlew.bat --no-daemon :app:ktlintCheck` | passed |
+| `.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed; 422 tests with zero failures/errors/skips; the final invocation reused the unit-test result and recompiled the final icon resources |
+| `ruff check tool` / `ruff format --check tool` | passed with Ruff 0.16.0 through the verified Python executable's `-m ruff` entry point |
+| `python -m unittest discover -s tool -p "test_*.py" -v` | passed; 113 tests including five existing Linux-only skips |
+| `& ./tool/build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | passed; also initialized the supported native environment for the next command |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed in the helper-initialized environment after the final generator adjustment |
+
+Independent device/launcher verification of this correction is `not_run`; no
+dedicated device or isolated emulator was used. The user's report establishes
+the preceding failure, not verification of this correction. No release APK,
+installation, signing or publication was performed. Changes affect only visual
+resources and their generator; permission, networking, update and lifecycle
+contracts retain their existing paths, with no new logging or personal data.

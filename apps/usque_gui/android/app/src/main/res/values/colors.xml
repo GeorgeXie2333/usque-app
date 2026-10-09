@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Full-colour launcher icons show only the circular brand artwork. -->
-    <color name="ic_launcher_background">#00000000</color>
+    <!-- Adaptive icons are composited over black; keep the brand background opaque. -->
+    <color name="ic_launcher_background">#C2500C</color>
 </resources>

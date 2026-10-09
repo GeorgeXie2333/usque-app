@@ -25,18 +25,22 @@ uninstall controls use the same primary/on-primary pairs, retaining system
 colours in high-contrast mode.
 
 Android launcher artwork fits the centred 66dp safe area of a 108dp adaptive
-layer. The full-colour icon uses a transparent background, so only the circular
-brand artwork is drawn; no white tile is added. The launcher controls the mask
-and may apply its own background or effects. Android 13+ themed icons use the
-system's palette and background. The monochrome layer and notification icon
-contain the U/star lines on transparency, rather than the solid circular
-background. Notifications
-retain the `ic_stat_usque` resource name. The retained macOS icons are refreshed
+layer. The full-colour icon uses an opaque `#C2500C` background and a transparent
+foreground containing only the `#F5F4F1` U/star lines. The foreground retains
+the lines' position relative to the master disk. Android composites adaptive
+icons over black, so a transparent background would expose a black tile.
+The launcher determines the final mask and effects; circular and rounded-square
+icons both have the same full brand-colour background. Android 13+ themed icons
+use the system's palette and background. The monochrome layer and notification
+icon contain the U/star lines on transparency, rather than the solid circular
+background. Notifications retain the `ic_stat_usque` resource name.
+The retained macOS icons are refreshed
 by the generator, without establishing macOS product support.
 
 品牌母版是唯一可编辑图形。应用图标固定使用浅色配色；页面 Logo 随主题切换，
-内部线条和透明边缘保持一致。Android 彩色启动图标只显示圆形 Logo，圆外透明；
-桌面仍决定最终裁切和效果，系统主题图标使用系统背景与配色。单色图标保留 U 形与星形线条，
+内部线条和透明边缘保持一致。Android 彩色启动图标使用不透明的品牌橙色满底，
+前景仅保留米白色 U 形与星形线条，并保留母版中的位置和比例，避免透明背景露出系统黑底。
+桌面决定圆形或圆角方形裁切，系统主题图标使用系统背景与配色。单色图标保留 U 形与星形线条，
 安装器和卸载器的高对比度模式继续使用系统颜色。
 
 ## Linux development preview
