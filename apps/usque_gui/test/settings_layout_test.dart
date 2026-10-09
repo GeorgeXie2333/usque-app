@@ -7,6 +7,7 @@ import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
+import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/local_proxy_outputs.dart';
 
@@ -336,5 +337,119 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('proxy-save-bar')), findsOneWidget);
     expect(httpPort.hitTestable(), findsOneWidget);
+  });
+
+  group('Advanced network settings', () {
+    Future<AppController> pumpAdvanced(
+      WidgetTester tester, {
+      Size size = const Size(1280, 900),
+    }) async {
+      final app = await pumpWorkflow(
+        tester,
+        WorkflowEngine(),
+        section: AppSection.settings,
+        size: size,
+      );
+      app.engineCapabilities = const EngineCapabilities(
+        automaticEndpoints: true,
+        h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
+      );
+      await tester.pumpWidget(
+        workflowHost(app, home: AdvancedSettingsScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      return app;
+    }
+
+    Finder heading(String title) => find.widgetWithText(ContentHeading, title);
+
+    testWidgets('sections run from protection to transport', (tester) async {
+      final app = await pumpAdvanced(tester);
+      final order = <Finder>[
+        heading(app.strings.get('routing_protection')),
+        find.byType(WarningBanner),
+        heading(app.strings.get('warp_dns_type')),
+        heading(app.strings.get('nq_direct_dns')),
+        heading(app.strings.get('endpoint_section')),
+        heading(app.strings.get('transport')),
+      ];
+      final tops = [for (final finder in order) tester.getTopLeft(finder).dy];
+      for (var index = 1; index < tops.length; index++) {
+        expect(tops[index], greaterThan(tops[index - 1]), reason: '$index');
+      }
+      // The banner no longer repeats the page title.
+      expect(tester.widget<WarningBanner>(order[1]).title, isNull);
+      expect(find.text(app.strings.get('advanced_subtitle')), findsNothing);
+      expect(
+        find.text(app.strings.get('shared_network_scope')),
+        findsOneWidget,
+      );
+      // Endpoint IP version and MTU live with the endpoint and transport.
+      expect(
+        tester.getTopLeft(find.text(app.strings.get('ip_policy'))).dy,
+        greaterThan(tops[4]),
+      );
+      expect(
+        tester.getTopLeft(find.text(app.strings.get('mtu'))).dy,
+        greaterThan(tops[5]),
+      );
+    });
+
+    testWidgets('congestion control and MTU share one row and height', (
+      tester,
+    ) async {
+      final app = await pumpAdvanced(tester);
+      final cc = find.byKey(const ValueKey('congestion-control'));
+      final mtu = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == app.strings.get('mtu'),
+      );
+      await tester.ensureVisible(mtu);
+      await tester.pumpAndSettle();
+      final ccRect = tester.getRect(cc);
+      final mtuRect = tester.getRect(mtu);
+      expect(ccRect.top, mtuRect.top);
+      expect(ccRect.height, closeTo(mtuRect.height, 0.5));
+      expect(mtuRect.left, greaterThan(ccRect.right));
+      // The apply bar lines up with the 880 px form column.
+      final apply = find.widgetWithText(
+        FilledButton,
+        app.strings.get('save_changes'),
+      );
+      expect(tester.getTopRight(apply).dx, closeTo(mtuRect.right, 0.5));
+    });
+
+    testWidgets('phone keeps endpoint choices side by side', (tester) async {
+      await pumpAdvanced(tester, size: const Size(375, 812));
+      final selector = find.byType(SegmentedButton<EndpointSelection>);
+      expect(
+        tester.widget<SegmentedButton<EndpointSelection>>(selector).direction,
+        Axis.horizontal,
+      );
+    });
+
+    testWidgets('validation focuses the first invalid field on the page', (
+      tester,
+    ) async {
+      final app = await pumpAdvanced(tester);
+      Finder field(String key) => find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == app.strings.get(key),
+      );
+      await tester.enterText(field('port'), '70000');
+      await tester.enterText(field('dns_ipv4'), 'not-an-address');
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(FilledButton, app.strings.get('save_changes')),
+      );
+      await tester.pumpAndSettle();
+      // WARP DNS now precedes the endpoint, so its error is focused first.
+      expect(
+        tester.widget<TextField>(field('dns_ipv4')).focusNode!.hasFocus,
+        isTrue,
+      );
+    });
   });
 }

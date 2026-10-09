@@ -277,6 +277,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Pemilihan endpoint',
+  'endpoint_section': 'Endpoint',
   'endpoint_automatic': 'Otomatis',
   'endpoint_custom': 'Kustom',
   'endpoint_automatic_help':

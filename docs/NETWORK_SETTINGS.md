@@ -34,7 +34,7 @@ Esc 或返回不会解锁。恢复默认暂存注册地址，应用后清除覆�
 
 ## Automatic endpoints / 自动选择端点
 
-Open **Settings → Advanced network settings → Endpoint selection**, choose
+Open **Settings → Advanced network settings → Endpoint**, choose
 **Automatic** or **Custom**, then **Apply changes**. New installations and staged
 network resets use Automatic selection. Schema 20 preserves existing addresses
 in Custom mode. Switching the picker keeps custom drafts; automatic saves retain
@@ -51,7 +51,7 @@ underlay so its sockets acquire the new VPN operation's exact protection leases.
 Startup retries temporary capability-query failures before automatic connection.
 The endpoint picker refreshes when capabilities arrive without replacing drafts.
 
-打开 **设置 → 高级网络设置 → 端点选择**，选择 **自动选择** 或 **自定义**，再点击
+打开 **设置 → 高级网络设置 → 端点**，选择 **自动选择** 或 **自定义**，再点击
 **应用修改**。新安装和恢复默认使用自动选择；升级保留已有自定义端点。切换模式
 会保留手动地址草稿；自动模式应用修改时保留原来已保存的地址。要保存新的手动
 地址，请在自定义模式应用。端口和 SNI 在两种模式都可修改，组织账号使用注册地址或经风险确认的自定义地址。

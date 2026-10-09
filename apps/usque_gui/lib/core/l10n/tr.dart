@@ -281,6 +281,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Uç nokta seçimi',
+  'endpoint_section': 'Uç nokta',
   'endpoint_automatic': 'Otomatik',
   'endpoint_custom': 'Özel',
   'endpoint_automatic_help':

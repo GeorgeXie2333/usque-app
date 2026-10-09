@@ -374,7 +374,7 @@ fallback.
 
 Other remote VPN queries use the WARP tunnel or the selected final chain exit.
 Configure WARP Plain DNS, DoH or DoT in **Settings → Advanced network settings →
-IP & DNS**, then **Apply changes**; changing a connected session's DNS reconnects
+WARP DNS**, then **Apply changes**; changing a connected session's DNS reconnects
 it. These settings do not replace the final chain exit's DNS policy.
 HTTP/SOCKS5 chain DNS defaults to verified Cloudflare® DoH through that proxy;
 explicit custom or non-default inherited DNS uses TCP. Application-selected

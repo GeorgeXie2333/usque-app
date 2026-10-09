@@ -289,6 +289,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Sélection du point de terminaison',
+  'endpoint_section': 'Point de terminaison',
   'endpoint_automatic': 'Automatique',
   'endpoint_custom': 'Personnalisée',
   'endpoint_automatic_help':

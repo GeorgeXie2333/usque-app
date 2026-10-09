@@ -271,6 +271,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'اختيار نقطة النهاية',
+  'endpoint_section': 'نقطة النهاية',
   'endpoint_automatic': 'تلقائي',
   'endpoint_custom': 'مخصص',
   'endpoint_automatic_help':

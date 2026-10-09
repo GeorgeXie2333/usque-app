@@ -635,6 +635,67 @@ class LinkRow extends StatelessWidget {
   }
 }
 
+/// Explanatory copy under a control, styled like a field's helper text so it
+/// never reads as a value.
+class HintText extends StatelessWidget {
+  const HintText(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Text(
+      text,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
+  }
+}
+
+/// Dropdown fields that sit among text fields show their value in the typed
+/// input's face and line height, with an arrow no taller than that line, so
+/// a picker and a text field side by side keep one height at any text scale.
+abstract final class FieldDropdown {
+  static const double iconSize = 20;
+
+  /// Flutter keeps at least this much content height in a dense dropdown.
+  static const double _denseMinimum = 24;
+
+  static TextStyle? valueStyle(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.textTheme.bodyLarge?.copyWith(
+      color: theme.colorScheme.onSurface,
+    );
+  }
+
+  /// The dense minimum exceeds one line of input text at small scales, so
+  /// that difference comes back out of the vertical padding.
+  static InputDecoration decoration(
+    BuildContext context, {
+    required String labelText,
+  }) {
+    final style = valueStyle(context);
+    final line =
+        MediaQuery.textScalerOf(context).scale(style?.fontSize ?? 14) *
+        (style?.height ?? 1);
+    final excess = math.max(0.0, _denseMinimum - line) / 2;
+    final padding =
+        Theme.of(context).inputDecorationTheme.contentPadding?.resolve(
+          Directionality.of(context),
+        ) ??
+        const EdgeInsets.all(14);
+    return InputDecoration(
+      labelText: labelText,
+      contentPadding: padding.copyWith(
+        top: padding.top - excess,
+        bottom: padding.bottom - excess,
+      ),
+    );
+  }
+}
+
 /// Material list tiles drawn with the [LinkRow] and [ContentHeading] metrics:
 /// 20 px icons, a 12 px title gap and the row title style, so switch rows and
 /// navigation rows share one text column.

@@ -285,6 +285,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Selección de extremo',
+  'endpoint_section': 'Extremo',
   'endpoint_automatic': 'Automática',
   'endpoint_custom': 'Personalizada',
   'endpoint_automatic_help':

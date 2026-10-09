@@ -275,6 +275,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Endpoint selection',
+  'endpoint_section': 'Endpoint',
   'endpoint_automatic': 'Automatic',
   'endpoint_custom': 'Custom',
   'endpoint_automatic_help':

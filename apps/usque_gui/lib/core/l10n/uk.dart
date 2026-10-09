@@ -279,6 +279,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Вибір кінцевої точки',
+  'endpoint_section': 'Кінцева точка',
   'endpoint_automatic': 'Автоматично',
   'endpoint_custom': 'Власна',
   'endpoint_automatic_help':

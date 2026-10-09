@@ -282,6 +282,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Seleção de endpoint',
+  'endpoint_section': 'Endpoint',
   'endpoint_automatic': 'Automática',
   'endpoint_custom': 'Personalizada',
   'endpoint_automatic_help':

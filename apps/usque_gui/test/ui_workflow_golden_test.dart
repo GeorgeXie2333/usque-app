@@ -294,8 +294,8 @@ void main() {
                 padding: const EdgeInsets.all(24),
                 child: Form(
                   child: ContentSection(
-                    icon: LucideIcons.network,
-                    title: strings.get('ip_dns'),
+                    icon: LucideIcons.globeLock,
+                    title: strings.get('warp_dns_type'),
                     children: [
                       WarpDnsEditor(
                         value: WarpDnsSettings(

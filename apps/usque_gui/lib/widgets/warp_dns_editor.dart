@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
 import '../models/encrypted_dns_endpoint.dart';
+import 'common.dart';
 import 'direct_dns_editor.dart';
 
 class WarpDnsEditor extends StatefulWidget {
@@ -134,11 +135,16 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         DropdownButtonFormField<WarpDnsMode>(
+          style: FieldDropdown.valueStyle(context),
+          iconSize: FieldDropdown.iconSize,
           key: ValueKey<WarpDnsMode>(_mode),
           initialValue: _mode,
           focusNode: _modeFocus,
           isExpanded: true,
-          decoration: InputDecoration(labelText: s.get('warp_dns_type')),
+          decoration: FieldDropdown.decoration(
+            context,
+            labelText: s.get('warp_dns_type'),
+          ),
           items:
               <WarpDnsMode>[
                     WarpDnsMode.plain,
@@ -187,7 +193,7 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
         ),
         if (custom && !widget.encryptedAvailable) ...<Widget>[
           const SizedBox(height: 8),
-          Text(s.get('warp_dns_unsupported')),
+          HintText(s.get('warp_dns_unsupported')),
         ],
         if (custom) ...<Widget>[
           const SizedBox(height: 20),

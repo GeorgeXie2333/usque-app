@@ -277,6 +277,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'انتخاب نقطهٔ پایانی',
+  'endpoint_section': 'نقطهٔ پایانی',
   'endpoint_automatic': 'انتخاب خودکار',
   'endpoint_custom': 'سفارشی',
   'endpoint_automatic_help':

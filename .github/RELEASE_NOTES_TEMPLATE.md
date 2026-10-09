@@ -18,8 +18,8 @@ Usque {{release_tag}} 是一个功能与可靠性版本，新增自定义 WARP �
 
 ## Highlights / 更新亮点 ✨
 
-- **Custom WARP DNS** — In Settings → Advanced network settings → IP & DNS, choose Plain DNS, DoH or DoT, then Apply changes. Encrypted queries use numeric bootstrap addresses and strict TLS inside the WARP session; failure does not fall back to physical or plaintext DNS. Direct DNS and the final chain exit retain their own policies.
-  <br>**自定义 WARP DNS** — 在“设置 → 高级网络设置 → IP 与 DNS”选择普通 DNS、DoH 或 DoT，再点击“应用修改”。加密查询使用 IP 引导地址并严格校验 TLS，在 WARP 会话内完成；失败时不会回退到本机或明文 DNS。直连 DNS 和最终链式出口保留各自策略。
+- **Custom WARP DNS** — In Settings → Advanced network settings → WARP DNS, choose Plain DNS, DoH or DoT, then Apply changes. Encrypted queries use numeric bootstrap addresses and strict TLS inside the WARP session; failure does not fall back to physical or plaintext DNS. Direct DNS and the final chain exit retain their own policies.
+  <br>**自定义 WARP DNS** — 在“设置 → 高级网络设置 → WARP DNS”选择普通 DNS、DoH 或 DoT，再点击“应用修改”。加密查询使用 IP 引导地址并严格校验 TLS，在 WARP 会话内完成；失败时不会回退到本机或明文 DNS。直连 DNS 和最终链式出口保留各自策略。
 
 - **Experimental Zero Trust endpoint editing** — Confirm the risk and your authorization before editing an account's IPv4/IPv6 entry addresses. Home keeps a visible warning while saved or active custom endpoints remain. Reset or a successful sign-in restores registered addresses; TLS and endpoint public-key checks still apply.
   <br>**实验性 Zero Trust 端点编辑** — 确认风险及使用授权后，可编辑当前账号的 IPv4/IPv6 入口地址。已保存或仍在使用自定义端点时，首页持续显示风险提示。恢复默认或成功重新登录会还原注册地址；TLS 与端点公钥校验仍然生效。

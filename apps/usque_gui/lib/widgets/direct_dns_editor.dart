@@ -132,13 +132,14 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
     widget.onChanged(_value());
   }
 
-  void focusFirstError() {
+  bool focusFirstError() {
     for (var index = 0; index < _keys.length; index++) {
       if (_keys[index].currentState?.hasError ?? false) {
         _focus[index].requestFocus();
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   @override
@@ -162,17 +163,23 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
     final s = widget.strings;
     final custom = _mode != DirectDnsMode.physicalSystem;
     final editable = widget.enabled && widget.encryptedAvailable;
+    // Direct DNS serves bypassed traffic, so it shares the Bypass route icon.
     return ContentSection(
-      icon: LucideIcons.shieldCheck,
+      icon: LucideIcons.route,
       title: s.get('nq_direct_dns'),
+      subtitle: s.get('nq_dns_scope'),
+      gap: 20,
       children: <Widget>[
-        Text(s.get('nq_dns_scope')),
-        const SizedBox(height: 12),
         DropdownButtonFormField<DirectDnsMode>(
+          style: FieldDropdown.valueStyle(context),
+          iconSize: FieldDropdown.iconSize,
           key: ValueKey<DirectDnsMode>(_mode),
           initialValue: _mode,
           isExpanded: true,
-          decoration: InputDecoration(labelText: s.get('nq_direct_dns')),
+          decoration: FieldDropdown.decoration(
+            context,
+            labelText: s.get('nq_direct_dns'),
+          ),
           items:
               <DirectDnsMode>[
                     DirectDnsMode.physicalSystem,
@@ -219,9 +226,11 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
               ? s.get('nq_dns_invalid_mode')
               : null,
         ),
-        const SizedBox(height: 12),
-        if (!widget.encryptedAvailable) Text(s.get('nq_dns_no_capability')),
-        Text(s.get(custom ? 'nq_dns_no_fallback' : 'nq_dns_system_privacy')),
+        const SizedBox(height: 8),
+        if (!widget.encryptedAvailable) HintText(s.get('nq_dns_no_capability')),
+        HintText(
+          s.get(custom ? 'nq_dns_no_fallback' : 'nq_dns_system_privacy'),
+        ),
         if (custom) ...<Widget>[
           const SizedBox(height: 20),
           if (_mode != DirectDnsMode.doh)

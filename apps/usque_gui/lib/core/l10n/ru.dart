@@ -279,6 +279,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Выбор конечной точки',
+  'endpoint_section': 'Конечная точка',
   'endpoint_automatic': 'Автоматически',
   'endpoint_custom': 'Вручную',
   'endpoint_automatic_help':

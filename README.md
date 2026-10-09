@@ -100,7 +100,7 @@ Network settings are shared by all accounts.
   attempts help find a reachable endpoint; supported H3 network changes can
   migrate the connection. See [path behavior](docs/h3-path-infrastructure.md).
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access and [DIRECT/REJECT/PROXY routing rules with Ads](docs/ROUTING.md). Custom domains and CIDRs support more-specific exceptions; conflicts are checked before saving.
-- Custom [WARP exit DNS](docs/WARP_DNS.md): open **Settings → Advanced network settings → IP & DNS**, choose Plain DNS, DoH or DoT, and select **Apply changes**. Changing DNS reconnects an established session; the final chain exit keeps its own DNS policy.
+- Custom [WARP exit DNS](docs/WARP_DNS.md): open **Settings → Advanced network settings → WARP DNS**, choose Plain DNS, DoH or DoT, and select **Apply changes**. Changing DNS reconnects an established session; the final chain exit keeps its own DNS policy.
 - Optional country-based direct routing. Download the selected countries' GeoIP
   data and the global GeoSite catalog separately. Usque uses domain rules when
   the name is visible, otherwise IP rules; unknown destinations stay in the tunnel.

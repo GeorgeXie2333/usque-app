@@ -275,6 +275,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'การเลือกปลายทาง',
+  'endpoint_section': 'ปลายทาง',
   'endpoint_automatic': 'อัตโนมัติ',
   'endpoint_custom': 'กำหนดเอง',
   'endpoint_automatic_help':

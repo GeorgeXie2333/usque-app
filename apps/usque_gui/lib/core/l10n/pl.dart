@@ -282,6 +282,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Wybór punktu końcowego',
+  'endpoint_section': 'Punkt końcowy',
   'endpoint_automatic': 'Automatyczny',
   'endpoint_custom': 'Własny',
   'endpoint_automatic_help':

@@ -286,6 +286,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Selezione endpoint',
+  'endpoint_section': 'Endpoint',
   'endpoint_automatic': 'Automatica',
   'endpoint_custom': 'Personalizzata',
   'endpoint_automatic_help':

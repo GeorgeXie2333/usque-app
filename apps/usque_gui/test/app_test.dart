@@ -2850,14 +2850,16 @@ void main() {
       ),
       findsNothing,
     );
-    final endpointFields = tester
-        .widgetList<TextField>(find.byType(TextField))
-        .take(4)
-        .toList(growable: false);
-    expect(endpointFields[0].readOnly, isTrue);
-    expect(endpointFields[1].readOnly, isTrue);
-    expect(endpointFields[2].readOnly, isFalse);
-    expect(endpointFields[3].readOnly, isFalse);
+    TextField endpointField(String label) => tester.widget<TextField>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField && widget.decoration?.labelText == label,
+      ),
+    );
+    expect(endpointField('Endpoint IPv4').readOnly, isTrue);
+    expect(endpointField('Endpoint IPv6').readOnly, isTrue);
+    expect(endpointField('Port').readOnly, isFalse);
+    expect(endpointField('SNI').readOnly, isFalse);
     await tester.enterText(find.widgetWithText(TextFormField, 'Port'), '8443');
     await tester.enterText(
       find.widgetWithText(TextFormField, 'SNI'),

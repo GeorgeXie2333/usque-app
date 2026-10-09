@@ -285,6 +285,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Endpunktauswahl',
+  'endpoint_section': 'Endpunkt',
   'endpoint_automatic': 'Automatisch',
   'endpoint_custom': 'Benutzerdefiniert',
   'endpoint_automatic_help':

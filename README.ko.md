@@ -98,7 +98,7 @@ VPN, SOCKS5, HTTP는 기본적으로 켜져 있고, Windows 시스템 프록시�
 - HTTP/3 자동 연결과 실패 시 HTTP/2 폴백. IPv4와 IPv6 연결 시도로 접근 가능한 엔드포인트를 찾습니다.
   지원되는 네트워크 변경에서는 H3 연결을 이동할 수 있습니다. [경로 동작](docs/h3-path-infrastructure.md)을 참고하세요.
 - 전체 터널 VPN, 터널 내 DNS, Kill Switch, LAN 접근 및 [DIRECT/REJECT/PROXY 분할 라우팅과 Ads](docs/ROUTING.md). 도메인과 CIDR은 더 구체적인 예외를 지원하며 저장 전에 충돌을 검사합니다.
-- 사용자 지정 [WARP 출구 DNS](docs/WARP_DNS.md): **설정 → 고급 네트워크 설정 → IP 및 DNS**를 열어 일반 DNS, DoH 또는 DoT를 선택하고 **변경 적용**을 누릅니다. DNS를 변경하면 연결 중인 세션이 다시 연결되며, 최종 체인 출구는 자체 DNS 정책을 유지합니다.
+- 사용자 지정 [WARP 출구 DNS](docs/WARP_DNS.md): **설정 → 고급 네트워크 설정 → WARP DNS**를 열어 일반 DNS, DoH 또는 DoT를 선택하고 **변경 적용**을 누릅니다. DNS를 변경하면 연결 중인 세션이 다시 연결되며, 최종 체인 출구는 자체 DNS 정책을 유지합니다.
 - 선택적인 국가별 직접 연결 라우팅. 선택한 국가의 GeoIP 데이터와 전체 GeoSite 목록을 별도로 다운로드합니다.
   도메인 이름이 보이면 도메인 규칙을, 그렇지 않으면 IP 규칙을 사용합니다. 분류하지 못한 대상은 계속 터널을 사용합니다.
 - 로컬 [네트워크 진단](docs/network-doctor.md)과 네트워크 품질 페이지. 지연 시간, 패킷 손실과 측정 가능 여부, 대기열, 최근 60초 추이를 표시합니다.

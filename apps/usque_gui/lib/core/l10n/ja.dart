@@ -261,6 +261,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'エンドポイントの選択',
+  'endpoint_section': 'エンドポイント',
   'endpoint_automatic': '自動選択',
   'endpoint_custom': 'カスタム',
   'endpoint_automatic_help':

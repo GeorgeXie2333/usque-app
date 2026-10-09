@@ -296,7 +296,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       child: SubPage(
         title: strings.get('advanced'),
         contentWidth: 880,
-        subtitle: strings.get('advanced_subtitle'),
+        subtitle: strings.get('shared_network_scope'),
         backLabel: strings.get('back'),
         actions: <Widget>[
           OutlinedButton.icon(
@@ -323,6 +323,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                 : null,
             error: _saveError,
             validationError: _validationError,
+            contentWidth: 880,
+            matchPageGutter: true,
             onSave: _save,
           ),
         ),
@@ -331,457 +333,421 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           autovalidateMode: _validationAttempted
               ? AutovalidateMode.onUserInteraction
               : AutovalidateMode.disabled,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          // Everyday protection comes first; the caution introduces the
+          // settings that can stop the tunnel from connecting.
+          child: PanelStack(
+            spacing: 32,
             children: <Widget>[
-              Text(strings.get('shared_network_scope')),
-              const SizedBox(height: 12),
+              _protectionSection(managedQuic: managedQuic),
               WarningBanner(
-                title: strings.get('advanced'),
+                title: null,
                 message: strings.get('advanced_warning'),
               ),
-              const SizedBox(height: 16),
-              PanelStack(
-                spacing: 32,
-                children: <Widget>[
-                  ContentSection(
-                    icon: LucideIcons.cable,
-                    title: strings.get('transport'),
-                    gap: 20,
-                    children: <Widget>[
-                      LayoutBuilder(
-                        builder: (context, constraints) =>
-                            SegmentedButton<String>(
-                              direction:
-                                  constraints.maxWidth < 560 ||
-                                      MediaQuery.textScalerOf(
-                                            context,
-                                          ).scale(1) >
-                                          1.3
-                                  ? Axis.vertical
-                                  : Axis.horizontal,
-                              segments: <ButtonSegment<String>>[
-                                ButtonSegment(
-                                  value: 'automatic',
-                                  label: Text(strings.get('automatic')),
-                                ),
-                                ButtonSegment(
-                                  value: 'http3',
-                                  label: Text(strings.get('http3')),
-                                ),
-                                ButtonSegment(
-                                  value: 'http2',
-                                  label: Text(strings.get('http2')),
-                                ),
-                                ButtonSegment(
-                                  value: 'l4',
-                                  label: Text(strings.get('l4_mode')),
-                                  enabled: l4Available,
-                                  tooltip: l4Available
-                                      ? null
-                                      : strings.get('l4_unsupported'),
-                                ),
-                              ],
-                              selected: <String>{
-                                _dataPlane == DataPlaneMode.l4Proxy
-                                    ? 'l4'
-                                    : _transport.name,
-                              },
-                              onSelectionChanged: _saving
-                                  ? null
-                                  : (selection) {
-                                      setState(() {
-                                        if (selection.first == 'l4') {
-                                          _dataPlane = DataPlaneMode.l4Proxy;
-                                        } else {
-                                          _dataPlane = DataPlaneMode.connectIp;
-                                          _transport = TransportPolicy.values
-                                              .byName(selection.first);
-                                        }
-                                        _saved = false;
-                                        _validationError = null;
-                                        _saveError = null;
-                                      });
-                                    },
-                              showSelectedIcon: false,
-                            ),
-                      ),
-                      if (_dataPlane == DataPlaneMode.l4Proxy) ...[
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Expanded(
-                              child: Semantics(
-                                key: const ValueKey('l4-transport-hint'),
-                                liveRegion: true,
-                                child: Text(strings.get('l4_transport_hint')),
-                              ),
-                            ),
-                            ContextHelpButton(
-                              title: strings.get('l4_mode'),
-                              message: strings.get('l4_explanation'),
-                              strings: strings,
-                            ),
-                          ],
-                        ),
-                        if (!l4Available) Text(strings.get('l4_unsupported')),
-                      ],
-                      const SizedBox(height: 18),
-                      if (!_zeroTrustEndpointIpsManaged) ...[
-                        Text(strings.get('endpoint_selection')),
-                        const SizedBox(height: 8),
-                        LayoutBuilder(
-                          builder: (context, constraints) =>
-                              SegmentedButton<EndpointSelection>(
-                                key: const ValueKey('endpoint-selection'),
-                                direction:
-                                    constraints.maxWidth < 400 ||
-                                        MediaQuery.textScalerOf(
-                                              context,
-                                            ).scale(1) >
-                                            1.3
-                                    ? Axis.vertical
-                                    : Axis.horizontal,
-                                segments: [
-                                  ButtonSegment(
-                                    value: EndpointSelection.automatic,
-                                    label: Text(
-                                      strings.get('endpoint_automatic'),
-                                    ),
-                                    enabled:
-                                        widget
-                                            .controller
-                                            .engineCapabilities
-                                            ?.automaticEndpoints ??
-                                        false,
-                                  ),
-                                  ButtonSegment(
-                                    value: EndpointSelection.custom,
-                                    label: Text(strings.get('endpoint_custom')),
-                                  ),
-                                ],
-                                selected: {_endpointSelection},
-                                onSelectionChanged: _saving
-                                    ? null
-                                    : (values) {
-                                        setState(() {
-                                          _endpointSelection = values.first;
-                                        });
-                                        _edited();
-                                      },
-                                showSelectedIcon: false,
-                              ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          widget
-                                      .controller
-                                      .engineCapabilities
-                                      ?.automaticEndpoints ==
-                                  true
-                              ? strings.get(
-                                  _endpointSelection ==
-                                          EndpointSelection.automatic
-                                      ? 'endpoint_automatic_help'
-                                      : 'endpoint_custom_help',
-                                )
-                              : strings.get('endpoint_unsupported'),
-                        ),
-                        const SizedBox(height: 18),
-                      ],
-                      if (_zeroTrustEndpointIpsManaged) ...[
-                        if (!_ztEndpointsUnlocked &&
-                            _ztEndpointEditingSupported &&
-                            _ztRegisteredEndpointsAvailable)
-                          OutlinedButton.icon(
-                            key: const ValueKey('zt-endpoint-edit'),
-                            onPressed: _saving ? null : _unlockZtEndpoints,
-                            icon: const Icon(LucideIcons.pencil),
-                            label: Text(
-                              strings.get('zero_trust_endpoint_edit'),
-                            ),
-                          ),
-                        if (!_ztEndpointsUnlocked)
-                          Text(
-                            strings.get(
-                              !_ztEndpointEditingSupported
-                                  ? 'zero_trust_endpoint_unsupported'
-                                  : !_ztRegisteredEndpointsAvailable
-                                  ? 'zero_trust_metadata_missing'
-                                  : 'zero_trust_endpoint_risk_locked',
-                            ),
-                          ),
-                        const SizedBox(height: 18),
-                      ],
-                      _ResponsiveFields(
-                        children: <Widget>[
-                          if (_zeroTrustEndpointIpsManaged ||
-                              _endpointSelection == EndpointSelection.custom)
-                            TextFormField(
-                              key: _fieldKeys[0],
-                              focusNode: _focus[0],
-                              enabled: !_saving,
-                              controller: _endpointV4,
-                              onChanged: (_) => _edited(),
-                              readOnly:
-                                  _zeroTrustEndpointIpsManaged &&
-                                  !_ztEndpointsUnlocked,
-                              decoration: InputDecoration(
-                                labelText: strings.get('endpoint_ipv4'),
-                              ),
-                              validator: (value) =>
-                                  _validateIp(value, InternetAddressType.IPv4),
-                            ),
-                          if (_zeroTrustEndpointIpsManaged ||
-                              _endpointSelection == EndpointSelection.custom)
-                            TextFormField(
-                              key: _fieldKeys[1],
-                              focusNode: _focus[1],
-                              enabled: !_saving,
-                              controller: _endpointV6,
-                              onChanged: (_) => _edited(),
-                              readOnly:
-                                  _zeroTrustEndpointIpsManaged &&
-                                  !_ztEndpointsUnlocked,
-                              decoration: InputDecoration(
-                                labelText: strings.get('endpoint_ipv6'),
-                              ),
-                              validator: (value) =>
-                                  _validateIp(value, InternetAddressType.IPv6),
-                            ),
-                          TextFormField(
-                            key: _fieldKeys[2],
-                            focusNode: _focus[2],
-                            enabled: !_saving,
-                            controller: _port,
-                            onChanged: (_) => _edited(),
-                            keyboardType: TextInputType.number,
-                            inputFormatters: <TextInputFormatter>[
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            decoration: InputDecoration(
-                              labelText: strings.get('port'),
-                            ),
-                            validator: _validatePort,
-                          ),
-                          if (_dataPlane == DataPlaneMode.l4Proxy)
-                            TextFormField(
-                              key: ValueKey(_zeroTrustEndpointIpsManaged),
-                              initialValue: _zeroTrustEndpointIpsManaged
-                                  ? 'zt-masque-proxy.cloudflareclient.com'
-                                  : 'consumer-masque-proxy.cloudflareclient.com',
-                              readOnly: true,
-                              decoration: InputDecoration(
-                                labelText: strings.get('sni'),
-                                helperText: strings.get('l4_sni_identity'),
-                                helperMaxLines: 6,
-                              ),
-                            )
-                          else
-                            TextFormField(
-                              key: _fieldKeys[3],
-                              focusNode: _focus[3],
-                              enabled: !_saving,
-                              controller: _sni,
-                              onChanged: (_) => _edited(),
-                              keyboardType: TextInputType.url,
-                              decoration: InputDecoration(
-                                labelText: strings.get('sni'),
-                              ),
-                              validator: _validateSni,
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      _congestionControlField(),
-                    ],
-                  ),
-                  ContentSection(
-                    icon: LucideIcons.network,
-                    title: strings.get('ip_dns'),
-                    gap: 20,
-                    children: <Widget>[
-                      DropdownButtonFormField<IpPolicy>(
-                        initialValue: _ipPolicy,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          labelText: strings.get('ip_policy'),
-                        ),
-                        items: IpPolicy.values
-                            .map(
-                              (value) => DropdownMenuItem<IpPolicy>(
-                                value: value,
-                                child: Text(_ipPolicyLabel(value)),
-                              ),
-                            )
-                            .toList(growable: false),
-                        onChanged: _saving
-                            ? null
-                            : (value) {
-                                if (value != null) {
-                                  setState(() => _ipPolicy = value);
-                                }
-                              },
-                      ),
-                      const SizedBox(height: 14),
-                      WarpDnsEditor(
-                        key: _warpDnsKey,
-                        value: _warpDns,
-                        resetRevision: _dnsResetRevision,
-                        enabled: !_saving,
-                        encryptedAvailable:
-                            widget
-                                .controller
-                                .engineCapabilities
-                                ?.encryptedWarpDns ??
-                            false,
-                        strings: strings,
-                        onChanged: (value) => setState(() {
-                          _warpDns = value;
-                          _saved = false;
-                          _validationError = null;
-                          _saveError = null;
-                        }),
-                      ),
-                      const SizedBox(height: 14),
-                      _ResponsiveFields(
-                        children: <Widget>[
-                          if (_warpDns.mode == WarpDnsMode.plain)
-                            TextFormField(
-                              key: _fieldKeys[4],
-                              focusNode: _focus[4],
-                              enabled: !_saving,
-                              controller: _dnsV4,
-                              onChanged: (_) => _edited(),
-                              decoration: InputDecoration(
-                                labelText: strings.get('dns_ipv4'),
-                              ),
-                              validator: (value) =>
-                                  _validateIp(value, InternetAddressType.IPv4),
-                            ),
-                          if (_warpDns.mode == WarpDnsMode.plain)
-                            TextFormField(
-                              key: _fieldKeys[5],
-                              focusNode: _focus[5],
-                              enabled: !_saving,
-                              controller: _dnsV6,
-                              onChanged: (_) => _edited(),
-                              decoration: InputDecoration(
-                                labelText: strings.get('dns_ipv6'),
-                              ),
-                              validator: (value) =>
-                                  _validateIp(value, InternetAddressType.IPv6),
-                            ),
-                          TextFormField(
-                            key: _fieldKeys[6],
-                            focusNode: _focus[6],
-                            enabled: !_saving,
-                            controller: _mtu,
-                            onChanged: (_) => _edited(),
-                            keyboardType: TextInputType.number,
-                            inputFormatters: <TextInputFormatter>[
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            decoration: InputDecoration(
-                              labelText: strings.get('mtu'),
-                            ),
-                            validator: _validateMtu,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  ContentSection(
-                    icon: LucideIcons.shieldCheck,
-                    title: strings.get('routing_protection'),
-                    gap: 10,
-                    children: <Widget>[
-                      SwitchListTile(
-                        key: _killSwitchKey,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(strings.get('kill_switch')),
-                        subtitle: Text(
-                          strings.get(
-                            defaultTargetPlatform == TargetPlatform.android
-                                ? 'kill_switch_help_android'
-                                : 'kill_switch_help',
-                          ),
-                        ),
-                        value: _killSwitch,
-                        onChanged: _saving
-                            ? null
-                            : (value) => setState(() => _killSwitch = value),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(strings.get('allow_lan')),
-                        value: _allowLan,
-                        onChanged: _saving
-                            ? null
-                            : (value) => setState(() => _allowLan = value),
-                      ),
-                      SwitchListTile(
-                        key: const ValueKey('disable-quic-switch'),
-                        focusNode: _focus[8],
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(strings.get('disable_quic')),
-                        subtitle: Text(
-                          managedQuic
-                              ? strings.get('disable_quic_managed')
-                              : widget
-                                        .controller
-                                        .engineCapabilities
-                                        ?.applicationQuicBlocking ==
-                                    true
-                              ? strings.get('disable_quic_help')
-                              : strings.get('disable_quic_unsupported'),
-                        ),
-                        // The exit policy is effective without changing the
-                        // user's saved preference or this page's manual draft.
-                        value: managedQuic || _disableQuic,
-                        onChanged:
-                            _saving ||
-                                managedQuic ||
-                                widget
-                                        .controller
-                                        .engineCapabilities
-                                        ?.applicationQuicBlocking !=
-                                    true
-                            ? null
-                            : (value) => setState(() {
-                                _disableQuic = value;
-                                _saved = false;
-                                _validationError = null;
-                                _saveError = null;
-                              }),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                  ),
-                  DirectDnsEditor(
-                    key: _directDnsKey,
-                    value: _directDns,
-                    resetRevision: _dnsResetRevision,
-                    enabled: !_saving,
-                    encryptedAvailable:
-                        widget
-                            .controller
-                            .engineCapabilities
-                            ?.encryptedDirectDns ??
-                        false,
-                    strings: strings,
-                    onChanged: (value) => setState(() {
-                      _directDns = value;
-                      _saved = false;
-                      _validationError = null;
-                    }),
-                  ),
-                ],
+              _warpDnsSection(),
+              DirectDnsEditor(
+                key: _directDnsKey,
+                value: _directDns,
+                resetRevision: _dnsResetRevision,
+                enabled: !_saving,
+                encryptedAvailable:
+                    widget.controller.engineCapabilities?.encryptedDirectDns ??
+                    false,
+                strings: strings,
+                onChanged: (value) => setState(() {
+                  _directDns = value;
+                  _saved = false;
+                  _validationError = null;
+                }),
               ),
+              _endpointSection(),
+              _transportSection(l4Available: l4Available),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _protectionSection({required bool managedQuic}) {
+    final strings = widget.controller.strings;
+    final quicBlocking =
+        widget.controller.engineCapabilities?.applicationQuicBlocking == true;
+    return ContentSection(
+      icon: LucideIcons.shield,
+      title: strings.get('routing_protection'),
+      gap: 10,
+      child: RowTileTheme(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            SwitchListTile(
+              key: _killSwitchKey,
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(LucideIcons.shieldCheck),
+              title: Text(strings.get('kill_switch')),
+              subtitle: Text(
+                strings.get(
+                  defaultTargetPlatform == TargetPlatform.android
+                      ? 'kill_switch_help_android'
+                      : 'kill_switch_help',
+                ),
+              ),
+              value: _killSwitch,
+              onChanged: _saving
+                  ? null
+                  : (value) => setState(() => _killSwitch = value),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(LucideIcons.house),
+              title: Text(strings.get('allow_lan')),
+              value: _allowLan,
+              onChanged: _saving
+                  ? null
+                  : (value) => setState(() => _allowLan = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('disable-quic-switch'),
+              focusNode: _focus[8],
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(LucideIcons.ban),
+              title: Text(strings.get('disable_quic')),
+              subtitle: Text(
+                managedQuic
+                    ? strings.get('disable_quic_managed')
+                    : quicBlocking
+                    ? strings.get('disable_quic_help')
+                    : strings.get('disable_quic_unsupported'),
+              ),
+              // The exit policy is effective without changing the
+              // user's saved preference or this page's manual draft.
+              value: managedQuic || _disableQuic,
+              onChanged: _saving || managedQuic || !quicBlocking
+                  ? null
+                  : (value) => setState(() {
+                      _disableQuic = value;
+                      _saved = false;
+                      _validationError = null;
+                      _saveError = null;
+                    }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _warpDnsSection() {
+    final strings = widget.controller.strings;
+    return ContentSection(
+      icon: LucideIcons.globeLock,
+      title: strings.get('warp_dns_type'),
+      gap: 20,
+      children: <Widget>[
+        WarpDnsEditor(
+          key: _warpDnsKey,
+          value: _warpDns,
+          resetRevision: _dnsResetRevision,
+          enabled: !_saving,
+          encryptedAvailable:
+              widget.controller.engineCapabilities?.encryptedWarpDns ?? false,
+          strings: strings,
+          onChanged: (value) => setState(() {
+            _warpDns = value;
+            _saved = false;
+            _validationError = null;
+            _saveError = null;
+          }),
+        ),
+        if (_warpDns.mode == WarpDnsMode.plain) ...<Widget>[
+          const SizedBox(height: 12),
+          _ResponsiveFields(
+            children: <Widget>[
+              TextFormField(
+                key: _fieldKeys[4],
+                focusNode: _focus[4],
+                enabled: !_saving,
+                controller: _dnsV4,
+                onChanged: (_) => _edited(),
+                decoration: InputDecoration(labelText: strings.get('dns_ipv4')),
+                validator: (value) =>
+                    _validateIp(value, InternetAddressType.IPv4),
+              ),
+              TextFormField(
+                key: _fieldKeys[5],
+                focusNode: _focus[5],
+                enabled: !_saving,
+                controller: _dnsV6,
+                onChanged: (_) => _edited(),
+                decoration: InputDecoration(labelText: strings.get('dns_ipv6')),
+                validator: (value) =>
+                    _validateIp(value, InternetAddressType.IPv6),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _endpointSection() {
+    final strings = widget.controller.strings;
+    final automaticAvailable =
+        widget.controller.engineCapabilities?.automaticEndpoints ?? false;
+    final managed = _zeroTrustEndpointIpsManaged;
+    final addresses = managed || _endpointSelection == EndpointSelection.custom;
+    return ContentSection(
+      icon: LucideIcons.mapPin,
+      title: strings.get('endpoint_section'),
+      gap: 20,
+      children: <Widget>[
+        if (!managed) ...<Widget>[
+          LayoutBuilder(
+            // Two short choices fit side by side on a phone; only very
+            // narrow layouts and large text stack them.
+            builder: (context, constraints) => Semantics(
+              container: true,
+              label: strings.get('endpoint_selection'),
+              child: SegmentedButton<EndpointSelection>(
+                key: const ValueKey('endpoint-selection'),
+                direction:
+                    constraints.maxWidth < 300 ||
+                        MediaQuery.textScalerOf(context).scale(1) > 1.3
+                    ? Axis.vertical
+                    : Axis.horizontal,
+                segments: [
+                  ButtonSegment(
+                    value: EndpointSelection.automatic,
+                    label: Text(strings.get('endpoint_automatic')),
+                    enabled: automaticAvailable,
+                  ),
+                  ButtonSegment(
+                    value: EndpointSelection.custom,
+                    label: Text(strings.get('endpoint_custom')),
+                  ),
+                ],
+                selected: {_endpointSelection},
+                onSelectionChanged: _saving
+                    ? null
+                    : (values) {
+                        setState(() {
+                          _endpointSelection = values.first;
+                        });
+                        _edited();
+                      },
+                showSelectedIcon: false,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          HintText(
+            automaticAvailable
+                ? strings.get(
+                    _endpointSelection == EndpointSelection.automatic
+                        ? 'endpoint_automatic_help'
+                        : 'endpoint_custom_help',
+                  )
+                : strings.get('endpoint_unsupported'),
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (managed && !_ztEndpointsUnlocked) ...<Widget>[
+          if (_ztEndpointEditingSupported && _ztRegisteredEndpointsAvailable)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: OutlinedButton.icon(
+                key: const ValueKey('zt-endpoint-edit'),
+                onPressed: _saving ? null : _unlockZtEndpoints,
+                icon: const Icon(LucideIcons.pencil),
+                label: Text(strings.get('zero_trust_endpoint_edit')),
+              ),
+            ),
+          const SizedBox(height: 8),
+          HintText(
+            strings.get(
+              !_ztEndpointEditingSupported
+                  ? 'zero_trust_endpoint_unsupported'
+                  : !_ztRegisteredEndpointsAvailable
+                  ? 'zero_trust_metadata_missing'
+                  : 'zero_trust_endpoint_risk_locked',
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        _ResponsiveFields(
+          children: <Widget>[
+            if (addresses)
+              TextFormField(
+                key: _fieldKeys[0],
+                focusNode: _focus[0],
+                enabled: !_saving,
+                controller: _endpointV4,
+                onChanged: (_) => _edited(),
+                readOnly: managed && !_ztEndpointsUnlocked,
+                decoration: InputDecoration(
+                  labelText: strings.get('endpoint_ipv4'),
+                ),
+                validator: (value) =>
+                    _validateIp(value, InternetAddressType.IPv4),
+              ),
+            if (addresses)
+              TextFormField(
+                key: _fieldKeys[1],
+                focusNode: _focus[1],
+                enabled: !_saving,
+                controller: _endpointV6,
+                onChanged: (_) => _edited(),
+                readOnly: managed && !_ztEndpointsUnlocked,
+                decoration: InputDecoration(
+                  labelText: strings.get('endpoint_ipv6'),
+                ),
+                validator: (value) =>
+                    _validateIp(value, InternetAddressType.IPv6),
+              ),
+            TextFormField(
+              key: _fieldKeys[2],
+              focusNode: _focus[2],
+              enabled: !_saving,
+              controller: _port,
+              onChanged: (_) => _edited(),
+              keyboardType: TextInputType.number,
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              decoration: InputDecoration(labelText: strings.get('port')),
+              validator: _validatePort,
+            ),
+            if (_dataPlane == DataPlaneMode.l4Proxy)
+              TextFormField(
+                key: ValueKey(managed),
+                initialValue: managed
+                    ? 'zt-masque-proxy.cloudflareclient.com'
+                    : 'consumer-masque-proxy.cloudflareclient.com',
+                readOnly: true,
+                decoration: InputDecoration(
+                  labelText: strings.get('sni'),
+                  helperText: strings.get('l4_sni_identity'),
+                  helperMaxLines: 6,
+                ),
+              )
+            else
+              TextFormField(
+                key: _fieldKeys[3],
+                focusNode: _focus[3],
+                enabled: !_saving,
+                controller: _sni,
+                onChanged: (_) => _edited(),
+                keyboardType: TextInputType.url,
+                decoration: InputDecoration(labelText: strings.get('sni')),
+                validator: _validateSni,
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<IpPolicy>(
+          style: FieldDropdown.valueStyle(context),
+          iconSize: FieldDropdown.iconSize,
+          initialValue: _ipPolicy,
+          isExpanded: true,
+          decoration: FieldDropdown.decoration(
+            context,
+            labelText: strings.get('ip_policy'),
+          ),
+          items: IpPolicy.values
+              .map(
+                (value) => DropdownMenuItem<IpPolicy>(
+                  value: value,
+                  child: Text(_ipPolicyLabel(value)),
+                ),
+              )
+              .toList(growable: false),
+          onChanged: _saving
+              ? null
+              : (value) {
+                  if (value != null) {
+                    setState(() => _ipPolicy = value);
+                  }
+                },
+        ),
+      ],
+    );
+  }
+
+  Widget _transportSection({required bool l4Available}) {
+    final strings = widget.controller.strings;
+    return ContentSection(
+      icon: LucideIcons.cable,
+      title: strings.get('transport'),
+      gap: 20,
+      children: <Widget>[
+        LayoutBuilder(
+          builder: (context, constraints) => SegmentedButton<String>(
+            direction:
+                constraints.maxWidth < 560 ||
+                    MediaQuery.textScalerOf(context).scale(1) > 1.3
+                ? Axis.vertical
+                : Axis.horizontal,
+            segments: <ButtonSegment<String>>[
+              ButtonSegment(
+                value: 'automatic',
+                label: Text(strings.get('automatic')),
+              ),
+              ButtonSegment(value: 'http3', label: Text(strings.get('http3'))),
+              ButtonSegment(value: 'http2', label: Text(strings.get('http2'))),
+              ButtonSegment(
+                value: 'l4',
+                label: Text(strings.get('l4_mode')),
+                enabled: l4Available,
+                tooltip: l4Available ? null : strings.get('l4_unsupported'),
+              ),
+            ],
+            selected: <String>{
+              _dataPlane == DataPlaneMode.l4Proxy ? 'l4' : _transport.name,
+            },
+            onSelectionChanged: _saving
+                ? null
+                : (selection) {
+                    setState(() {
+                      if (selection.first == 'l4') {
+                        _dataPlane = DataPlaneMode.l4Proxy;
+                      } else {
+                        _dataPlane = DataPlaneMode.connectIp;
+                        _transport = TransportPolicy.values.byName(
+                          selection.first,
+                        );
+                      }
+                      _saved = false;
+                      _validationError = null;
+                      _saveError = null;
+                    });
+                  },
+            showSelectedIcon: false,
+          ),
+        ),
+        if (_dataPlane == DataPlaneMode.l4Proxy) ...<Widget>[
+          const SizedBox(height: 4),
+          // The help button follows its sentence instead of the row's end.
+          Row(
+            children: <Widget>[
+              Flexible(
+                child: Semantics(
+                  key: const ValueKey('l4-transport-hint'),
+                  liveRegion: true,
+                  child: HintText(strings.get('l4_transport_hint')),
+                ),
+              ),
+              ContextHelpButton(
+                title: strings.get('l4_mode'),
+                message: strings.get('l4_explanation'),
+                strings: strings,
+              ),
+            ],
+          ),
+          if (!l4Available) HintText(strings.get('l4_unsupported')),
+        ],
+        const SizedBox(height: 16),
+        _transportTuning(),
+      ],
     );
   }
 
@@ -813,7 +779,9 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     return mtu == null || mtu < 1280 || mtu > 9000 ? '1280–9000' : null;
   }
 
-  Widget _congestionControlField() => AnimatedBuilder(
+  /// Congestion control and MTU share a row; the congestion-control status
+  /// follows the live session, so this part rebuilds with the controller.
+  Widget _transportTuning() => AnimatedBuilder(
     animation: widget.controller,
     builder: (context, _) {
       final controller = widget.controller;
@@ -840,45 +808,64 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           : pending
           ? strings.get('cc_pending')
           : strings.get('cc_help');
+      final ccPicker = DropdownButtonFormField<CongestionControlAlgorithm>(
+        style: FieldDropdown.valueStyle(context),
+        iconSize: FieldDropdown.iconSize,
+        key: const ValueKey('congestion-control'),
+        initialValue: _congestionControl,
+        isExpanded: true,
+        decoration: FieldDropdown.decoration(
+          context,
+          labelText: strings.get('cc_label'),
+        ),
+        items:
+            const [
+                  CongestionControlAlgorithm.cubic,
+                  CongestionControlAlgorithm.bbr,
+                  CongestionControlAlgorithm.bbr3,
+                  CongestionControlAlgorithm.reno,
+                ]
+                .map(
+                  (algorithm) => DropdownMenuItem(
+                    value: algorithm,
+                    enabled: algorithms.contains(algorithm),
+                    child: Text(algorithm.label),
+                  ),
+                )
+                .toList(),
+        onChanged:
+            _saving ||
+                (_dataPlane == DataPlaneMode.connectIp &&
+                    _transport == TransportPolicy.http2) ||
+                algorithms.isEmpty
+            ? null
+            : (value) {
+                if (value == null) return;
+                setState(() => _congestionControl = value);
+                _edited();
+              },
+      );
+      final mtu = TextFormField(
+        key: _fieldKeys[6],
+        focusNode: _focus[6],
+        enabled: !_saving,
+        controller: _mtu,
+        onChanged: (_) => _edited(),
+        keyboardType: TextInputType.number,
+        inputFormatters: <TextInputFormatter>[
+          FilteringTextInputFormatter.digitsOnly,
+        ],
+        decoration: InputDecoration(labelText: strings.get('mtu')),
+        validator: _validateMtu,
+      );
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DropdownButtonFormField<CongestionControlAlgorithm>(
-            key: const ValueKey('congestion-control'),
-            initialValue: _congestionControl,
-            isExpanded: true,
-            decoration: InputDecoration(labelText: strings.get('cc_label')),
-            items:
-                const [
-                      CongestionControlAlgorithm.cubic,
-                      CongestionControlAlgorithm.bbr,
-                      CongestionControlAlgorithm.bbr3,
-                      CongestionControlAlgorithm.reno,
-                    ]
-                    .map(
-                      (algorithm) => DropdownMenuItem(
-                        value: algorithm,
-                        enabled: algorithms.contains(algorithm),
-                        child: Text(algorithm.label),
-                      ),
-                    )
-                    .toList(),
-            onChanged:
-                _saving ||
-                    (_dataPlane == DataPlaneMode.connectIp &&
-                        _transport == TransportPolicy.http2) ||
-                    algorithms.isEmpty
-                ? null
-                : (value) {
-                    if (value == null) return;
-                    setState(() => _congestionControl = value);
-                    _edited();
-                  },
-          ),
+          _ResponsiveFields(children: [ccPicker, mtu]),
           const SizedBox(height: 8),
           Semantics(
             liveRegion: true,
-            child: Text(
+            child: HintText(
               hint,
               key: pending && !h2 && algorithms.isNotEmpty
                   ? const ValueKey('congestion-control-pending')
@@ -938,15 +925,20 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       setState(
         () => _validationError = widget.controller.strings.get('form_errors'),
       );
-      for (var i = 0; i < _fieldKeys.length; i++) {
-        if (_fieldKeys[i].currentState?.hasError ?? false) {
-          _focus[i].requestFocus();
-          unawaited(Scrollable.ensureVisible(_fieldKeys[i].currentContext!));
-          return;
-        }
+      bool focusField(int index) {
+        if (!(_fieldKeys[index].currentState?.hasError ?? false)) return false;
+        _focus[index].requestFocus();
+        unawaited(Scrollable.ensureVisible(_fieldKeys[index].currentContext!));
+        return true;
       }
+
+      // Page order: WARP DNS, Direct DNS, endpoint, then MTU under Transport.
+      if (focusField(4) || focusField(5)) return;
       if (_warpDnsKey.currentState?.focusFirstError() ?? false) return;
-      _directDnsKey.currentState?.focusFirstError();
+      if (_directDnsKey.currentState?.focusFirstError() ?? false) return;
+      for (final index in const [0, 1, 2, 3, 6]) {
+        if (focusField(index)) return;
+      }
       return;
     }
     FocusScope.of(context).unfocus();

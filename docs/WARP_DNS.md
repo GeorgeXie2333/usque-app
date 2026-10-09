@@ -2,7 +2,7 @@
 
 ## Configure / 配置
 
-Open **Settings → Advanced network settings → IP & DNS** and choose the WARP DNS type.
+Open **Settings → Advanced network settings → WARP DNS** and choose the WARP DNS type.
 **Plain DNS** keeps the existing IPv4 and IPv6 resolver addresses.
 **DNS over HTTPS** (DoH) uses one **DoH URL** field, including the HTTPS scheme,
 server name, optional port and path. New DoH drafts use
@@ -16,7 +16,7 @@ resolves the server name using the configured Plain DNS servers inside WARP.
 Select **Apply changes** to save and apply the configuration. Changing a
 connected session's DNS reconnects that session.
 
-打开**设置 → 高级网络设置 → IP 与 DNS**，选择 WARP DNS 类型。**普通 DNS**
+打开**设置 → 高级网络设置 → WARP DNS**，选择 WARP DNS 类型。**普通 DNS**
 保留原 IPv4、IPv6 服务器地址。**DNS over HTTPS** 使用单个 **DoH 地址** 输入框，
 填写完整 HTTPS 链接，包括域名、可选端口和路径。新 DoH 草稿默认填入
 `https://cloudflare-dns.com/dns-query`；新 **DNS over TLS** 草稿默认填入

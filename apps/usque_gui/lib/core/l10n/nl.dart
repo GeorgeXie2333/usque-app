@@ -282,6 +282,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Endpointselectie',
+  'endpoint_section': 'Eindpunt',
   'endpoint_automatic': 'Automatisch',
   'endpoint_custom': 'Aangepast',
   'endpoint_automatic_help':

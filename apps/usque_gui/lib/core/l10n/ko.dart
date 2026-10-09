@@ -260,6 +260,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': '엔드포인트 선택',
+  'endpoint_section': '엔드포인트',
   'endpoint_automatic': '자동 선택',
   'endpoint_custom': '사용자 지정',
   'endpoint_automatic_help':

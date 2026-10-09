@@ -275,6 +275,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': 'Chọn điểm cuối',
+  'endpoint_section': 'Điểm cuối',
   'endpoint_automatic': 'Tự động',
   'endpoint_custom': 'Tùy chỉnh',
   'endpoint_automatic_help':

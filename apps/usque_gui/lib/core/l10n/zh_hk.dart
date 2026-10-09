@@ -247,6 +247,7 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
   'endpoint_selection': '端點選擇',
+  'endpoint_section': '端點',
   'endpoint_automatic': '自動選擇',
   'endpoint_custom': '自訂',
   'endpoint_automatic_help': '自動選擇目前帳戶最快可用的端點。自訂地址的修改只會在「自訂」模式下儲存。',

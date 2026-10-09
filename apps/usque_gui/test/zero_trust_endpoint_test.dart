@@ -102,6 +102,7 @@ Finder field(String family) =>
 Future<void> openWarning(WidgetTester tester) async {
   final edit = find.byKey(const ValueKey('zt-endpoint-edit'));
   await tester.ensureVisible(edit);
+  await tester.pumpAndSettle();
   await tester.tap(edit);
   await tester.pumpAndSettle();
 }
