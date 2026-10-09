@@ -174,17 +174,11 @@ void main() {
           );
           expect(qualityCard, findsOneWidget);
           expect(diagnosticsCard, findsOneWidget);
-          final qualityTitle = tester.widget<ContentHeading>(
-            find.descendant(
-              of: qualityCard,
-              matching: find.byType(ContentHeading),
-            ),
+          final qualityTitle = tester.widget<LinkRow>(
+            find.widgetWithText(LinkRow, app.strings.get('network_quality')),
           );
-          final diagnosticsTitle = tester.widget<ContentHeading>(
-            find.descendant(
-              of: diagnosticsCard,
-              matching: find.byType(ContentHeading),
-            ),
+          final diagnosticsTitle = tester.widget<LinkRow>(
+            find.widgetWithText(LinkRow, app.strings.get('diagnostics')),
           );
           expect(qualityTitle.icon, LucideIcons.gauge);
           expect(qualityTitle.icon, isNot(diagnosticsTitle.icon));

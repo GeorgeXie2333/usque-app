@@ -320,7 +320,7 @@ Open **Settings → Connection & protection → Open Always-on VPN settings**. E
 both **Always-on VPN** and **Block connections without VPN**.
 
 For automatic startup after reboot, also enable **Start Usque when you sign in**
-under **Settings → Application → System integration** and **Connect the current
+under **Settings → Application** and **Connect the current
 account automatically on start** under **Connection & protection**. On Android this switch's description reads
 **Start Usque after the device restarts. To connect automatically, also turn on “Connect the current account automatically on start”.** Windows
 shows the same switch title, which starts Usque when you sign in to Windows.

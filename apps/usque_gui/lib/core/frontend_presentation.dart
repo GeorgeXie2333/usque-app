@@ -25,7 +25,7 @@ class FrontendPresentation {
     const waiting = FrontendPresentation(
       'output_waiting',
       StatusTone.neutral,
-      LucideIcons.pause,
+      LucideIcons.clock,
     );
     const stopping = FrontendPresentation(
       'output_stopping',

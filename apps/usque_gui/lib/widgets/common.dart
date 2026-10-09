@@ -457,6 +457,8 @@ class ContentHeading extends StatelessWidget {
             children: [heading, const SizedBox(height: 8), trailing!],
           );
         }
+        // The trailing piece keeps its natural width so the heading takes the
+        // rest of the row; a flexible trailing slot would split it in half.
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -465,11 +467,11 @@ class ContentHeading extends StatelessWidget {
             if (trailing is Icon)
               trailing!
             else
-              Flexible(
-                child: Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: trailing!,
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: constraints.maxWidth * 0.45,
                 ),
+                child: trailing!,
               ),
           ],
         );
@@ -541,6 +543,112 @@ class _ActionRowState extends State<ActionRow> {
         ),
       ),
     ),
+  );
+}
+
+/// A settings row that opens another page or system screen. The chevron always
+/// stays at the trailing edge; on narrow layouts or at large text the value
+/// moves under the summary instead of squeezing the title.
+class LinkRow extends StatelessWidget {
+  const LinkRow({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.subtitle,
+    this.value,
+    this.valueKey,
+    this.padding = const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final String? value;
+  final Key? valueKey;
+  final VoidCallback? onTap;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    Widget valueText() => Text(
+      value!,
+      key: valueKey,
+      style: theme.textTheme.labelLarge?.copyWith(color: muted),
+    );
+    return ActionRow(
+      padding: padding,
+      onTap: onTap,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked =
+              value != null &&
+              (constraints.maxWidth < 480 ||
+                  MediaQuery.textScalerOf(context).scale(14) > 21);
+          return Row(
+            children: [
+              ExcludeSemantics(child: Icon(icon, size: 20, color: muted)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: theme.textTheme.titleMedium),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: muted,
+                        ),
+                      ),
+                    ],
+                    if (stacked) ...[const SizedBox(height: 6), valueText()],
+                  ],
+                ),
+              ),
+              if (value != null && !stacked) ...[
+                const SizedBox(width: 16),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: constraints.maxWidth * 0.4,
+                  ),
+                  child: valueText(),
+                ),
+              ],
+              const SizedBox(width: 8),
+              ExcludeSemantics(
+                child: Icon(
+                  LucideIcons.chevronRightDir,
+                  size: 20,
+                  color: muted,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Material list tiles drawn with the [LinkRow] and [ContentHeading] metrics:
+/// 20 px icons, a 12 px title gap and the row title style, so switch rows and
+/// navigation rows share one text column.
+class RowTileTheme extends StatelessWidget {
+  const RowTileTheme({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => ListTileTheme.merge(
+    titleTextStyle: Theme.of(context).textTheme.titleMedium,
+    minLeadingWidth: 20,
+    horizontalTitleGap: 12,
+    child: IconTheme.merge(data: const IconThemeData(size: 20), child: child),
   );
 }
 

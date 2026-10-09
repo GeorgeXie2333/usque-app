@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/frontend_presentation.dart';
+import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/chain_proxy_entry.dart';
@@ -242,6 +243,22 @@ class _ProxyScreenState extends State<ProxyScreen> {
       socksListeners: _customSocks ? _listenerValues(0) : null,
       httpListeners: _customHttp ? _listenerValues(1) : null,
     );
+    final settings = widget.controller.networkSettings;
+    final statusLabel =
+        !_dirty || settings.unconfirmed || settings.saveError != null
+        ? widget.controller.networkSettingsMessage
+        : null;
+    final onReconnect = widget.controller.networkSettingsCanReconnect
+        ? widget.controller.retry
+        : null;
+    final showBar =
+        _dirty ||
+        _saving ||
+        _saved ||
+        _saveError != null ||
+        _validationError != null ||
+        statusLabel != null ||
+        onReconnect != null;
     return Column(
       children: [
         Expanded(
@@ -313,24 +330,33 @@ class _ProxyScreenState extends State<ProxyScreen> {
             ),
           ),
         ),
-        SaveChangesBar(
-          key: const ValueKey('proxy-save-bar'),
-          strings: strings,
-          dirty: _dirty,
-          saving: _saving,
-          saved: _saved,
-          statusLabel:
-              !_dirty ||
-                  widget.controller.networkSettings.unconfirmed ||
-                  widget.controller.networkSettings.saveError != null
-              ? widget.controller.networkSettingsMessage
-              : null,
-          onReconnect: widget.controller.networkSettingsCanReconnect
-              ? widget.controller.retry
-              : null,
-          error: _saveError,
-          validationError: _validationError,
-          onSave: _save,
+        // With nothing to apply or report, the bar would only hold a disabled
+        // button, so it appears with the first edit, save or status instead.
+        AnimatedSwitcher(
+          duration: UsqueMotion.of(context, UsqueMotion.fast),
+          switchInCurve: UsqueMotion.standard,
+          switchOutCurve: UsqueMotion.exit,
+          transitionBuilder: (child, animation) => SizeTransition(
+            sizeFactor: animation,
+            alignment: AlignmentDirectional.topStart,
+            child: child,
+          ),
+          child: showBar
+              ? SaveChangesBar(
+                  key: const ValueKey('proxy-save-bar'),
+                  strings: strings,
+                  dirty: _dirty,
+                  saving: _saving,
+                  saved: _saved,
+                  statusLabel: statusLabel,
+                  onReconnect: onReconnect,
+                  error: _saveError,
+                  validationError: _validationError,
+                  contentWidth: 880,
+                  matchPageGutter: true,
+                  onSave: _save,
+                )
+              : const SizedBox(width: double.infinity),
         ),
       ],
     );
@@ -555,6 +581,7 @@ class _AuthPanelState extends State<_AuthPanel> {
               decoration: InputDecoration(
                 labelText: strings.get('proxy_username'),
                 errorText: _authError,
+                errorMaxLines: 6,
               ),
             );
             final password = TextField(
@@ -569,6 +596,7 @@ class _AuthPanelState extends State<_AuthPanel> {
               decoration: InputDecoration(
                 labelText: strings.get('proxy_password'),
                 helperText: strings.get('proxy_password_hint'),
+                helperMaxLines: 6,
               ),
             );
             if (constraints.maxWidth < 640) {
@@ -607,7 +635,8 @@ class _AuthPanelState extends State<_AuthPanel> {
         ],
         Align(
           alignment: AlignmentDirectional.centerEnd,
-          child: FilledButton(
+          // Tonal, so it never competes with the page's Apply changes bar.
+          child: FilledButton.tonal(
             key: const ValueKey<String>('proxy-auth-apply'),
             onPressed: !widget.enabled || _saving || widget.controller.busy
                 ? null

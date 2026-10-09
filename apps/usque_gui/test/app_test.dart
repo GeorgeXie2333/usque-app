@@ -3967,13 +3967,19 @@ void main() {
         tester.getSemantics(themePicker).rect.height,
         greaterThanOrEqualTo(48),
       );
-      expect(find.text('System integration'), findsOneWidget);
+      // Application rows sit directly under the group label.
+      expect(find.text('System integration'), findsNothing);
+      expect(find.text('Updates'), findsNothing);
       expect(find.text('Start Usque when you sign in'), findsOneWidget);
-      expect(find.text('Add Quick Settings Tile'), findsOneWidget);
-      expect(find.text('Open Always-on VPN settings'), findsOneWidget);
-      expect(find.text('Per-app proxy'), findsOneWidget);
+      expect(find.text('Check for updates'), findsOneWidget);
+      for (final row in [
+        'Add Quick Settings Tile',
+        'Open Always-on VPN settings',
+        'Per-app proxy',
+      ]) {
+        expect(find.widgetWithText(LinkRow, row), findsOneWidget, reason: row);
+      }
       expect(find.text('All apps use the VPN'), findsOneWidget);
-      expect(find.text('Updates'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -4088,8 +4094,12 @@ void main() {
               home: SettingsScreen(controller: controller),
             ),
           );
-          await tester.ensureVisible(find.text('Updates'));
+          await tester.ensureVisible(find.text('Restart and update'));
           await tester.pump();
+          expect(
+            find.byKey(const ValueKey('settings-app-version')),
+            findsOneWidget,
+          );
           expect(tester.takeException(), isNull);
         }
 

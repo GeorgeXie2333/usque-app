@@ -1,13 +1,17 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
+import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/local_proxy_outputs.dart';
 
-import 'ui_workflow_test.dart' show WorkflowEngine, pumpWorkflow, workflowHost;
+import 'ui_workflow_test.dart'
+    show WorkflowEngine, fieldWithLabel, pumpWorkflow, workflowHost;
 
 void main() {
   testWidgets('Settings groups tools apart and leaves outputs to Proxy', (
@@ -152,5 +156,185 @@ void main() {
     await tester.pumpAndSettle();
     expect(engine.writes, 1);
     expect(app.activeProfile.frontends.tunnel, isFalse);
+  });
+
+  testWidgets('phone Settings rows keep their chevron beside the text', (
+    tester,
+  ) async {
+    final app = await pumpWorkflow(
+      tester,
+      WorkflowEngine(),
+      section: AppSection.settings,
+      size: const Size(375, 812),
+    );
+    for (final key in ['kill_switch', 'geo_direct']) {
+      final row = find.widgetWithText(LinkRow, app.strings.get(key));
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      final rowRect = tester.getRect(row);
+      final title = tester.getRect(
+        find.descendant(of: row, matching: find.text(app.strings.get(key))),
+      );
+      final chevron = tester.getRect(
+        find.descendant(
+          of: row,
+          matching: find.byIcon(LucideIcons.chevronRightDir),
+        ),
+      );
+      expect(chevron.right, closeTo(rowRect.right - 8, 1), reason: key);
+      expect(chevron.left, greaterThan(title.right), reason: key);
+      // Vertically centred on the row, not pushed onto a line of its own.
+      expect(chevron.center.dy, closeTo(rowRect.center.dy, 1), reason: key);
+    }
+    final value = find.byKey(const ValueKey('settings-kill-switch-value'));
+    expect(value, findsOneWidget);
+    expect(
+      tester.getTopLeft(value).dx,
+      tester
+          .getTopLeft(
+            find.descendant(
+              of: find.byKey(const ValueKey('settings-kill-switch-row')),
+              matching: find.text(app.strings.get('kill_switch')),
+            ),
+          )
+          .dx,
+    );
+  });
+
+  testWidgets('Application rows are flat and show the installed version', (
+    tester,
+  ) async {
+    final app = await pumpWorkflow(
+      tester,
+      WorkflowEngine(),
+      section: AppSection.settings,
+    );
+    final settings = find.byType(SettingsScreen);
+    for (final key in ['appearance', 'system_integration', 'updates']) {
+      expect(
+        find.descendant(
+          of: settings,
+          matching: find.text(app.strings.get(key)),
+        ),
+        findsNothing,
+        reason: key,
+      );
+    }
+    final version = find.byKey(const ValueKey('settings-app-version'));
+    await tester.ensureVisible(version);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(version).data, app.strings.get('app_version'));
+    final checkNow = find.text(app.strings.get('check_now'));
+    expect(
+      tester.getCenter(version).dy,
+      closeTo(tester.getCenter(checkNow).dy, 2),
+    );
+    // Theme and language labels share the switch rows' text column.
+    expect(
+      tester.getTopLeft(find.text(app.strings.get('theme'))).dx,
+      tester.getTopLeft(find.text(app.strings.get('check_updates'))).dx,
+    );
+  });
+
+  testWidgets('Settings reports only network-settings problems', (
+    tester,
+  ) async {
+    final app = await pumpWorkflow(
+      tester,
+      WorkflowEngine(),
+      section: AppSection.settings,
+    );
+    Future<void> show(NetworkSettingsApplyStatus status, int sequence) async {
+      app.networkSettings.accept(
+        NetworkSettingsState(
+          sourceEpoch: 'settings-status',
+          sequence: sequence,
+          operationId: 'operation-$sequence',
+          status: status,
+          persisted: true,
+        ),
+      );
+      await tester.pumpWidget(
+        workflowHost(app, home: SettingsScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    final settings = find.byType(SettingsScreen);
+    Finder text(String key) => find.descendant(
+      of: settings,
+      matching: find.text(app.strings.get(key)),
+    );
+    await show(NetworkSettingsApplyStatus.applied, 1);
+    expect(app.networkSettingsMessage, app.strings.get('settings_applied'));
+    expect(text('settings_applied'), findsNothing);
+    expect(find.byType(WarningBanner), findsNothing);
+
+    await show(NetworkSettingsApplyStatus.failed, 2);
+    expect(text('settings_failed'), findsOneWidget);
+    final banner = find.ancestor(
+      of: text('settings_failed'),
+      matching: find.byType(WarningBanner),
+    );
+    expect(tester.widget<WarningBanner>(banner).danger, isTrue);
+    expect(
+      find.widgetWithText(
+        OutlinedButton,
+        app.strings.get('settings_reconnect'),
+      ),
+      findsOneWidget,
+    );
+    // Shown above the groups, not inside the auto-connect row.
+    expect(
+      tester.getBottomLeft(banner).dy,
+      lessThan(tester.getTopLeft(text('connection_protection_group')).dy),
+    );
+  });
+
+  testWidgets('Proxy apply bar appears with edits and lines up with the form', (
+    tester,
+  ) async {
+    final app = await pumpWorkflow(tester, WorkflowEngine());
+    final bar = find.byKey(const ValueKey('proxy-save-bar'));
+    expect(app.networkSettingsMessage, isNull);
+    expect(bar, findsNothing);
+    final port = fieldWithLabel(app.strings.get('port'));
+    await tester.enterText(port, '9090');
+    await tester.pumpAndSettle();
+    expect(bar, findsOneWidget);
+    final apply = find.widgetWithText(
+      FilledButton,
+      app.strings.get('save_changes'),
+    );
+    // The bar uses the form's 880 px column and page gutter.
+    expect(tester.getTopRight(apply).dx, tester.getTopRight(port).dx);
+    await tester.enterText(port, '1080');
+    await tester.pumpAndSettle();
+    expect(bar, findsNothing);
+  });
+
+  testWidgets('phone keeps the last listener field visible as the bar opens', (
+    tester,
+  ) async {
+    final app = await pumpWorkflow(
+      tester,
+      WorkflowEngine(),
+      size: const Size(375, 812),
+    );
+    final httpPort = find
+        .byWidgetPredicate(
+          (widget) =>
+              widget is TextField &&
+              widget.decoration?.labelText == app.strings.get('port'),
+        )
+        .last;
+    await tester.ensureVisible(httpPort);
+    await tester.pumpAndSettle();
+    await tester.tap(httpPort);
+    await tester.pumpAndSettle();
+    await tester.enterText(httpPort, '8081');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('proxy-save-bar')), findsOneWidget);
+    expect(httpPort.hitTestable(), findsOneWidget);
   });
 }

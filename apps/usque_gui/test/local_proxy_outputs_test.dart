@@ -96,4 +96,59 @@ void main() {
       variant: TargetPlatformVariant.only(platform),
     );
   }
+
+  testWidgets(
+    'system proxy explains its HTTP requirement and can always be turned off',
+    (tester) async {
+      final app = await pumpWorkflow(tester, WorkflowEngine());
+      Future<SwitchListTile> show({
+        required bool http,
+        required bool systemProxy,
+      }) async {
+        app.sharedNetwork = app.sharedNetwork.copyWith(
+          frontends: app.sharedNetwork.frontends.copyWith(http: http),
+          proxy: app.sharedNetwork.proxy.copyWith(systemProxy: systemProxy),
+        );
+        await tester.pumpWidget(
+          workflowHost(app, home: ProxyScreen(controller: app)),
+        );
+        await tester.pumpAndSettle();
+        return tester.widget<SwitchListTile>(
+          find.widgetWithText(SwitchListTile, app.strings.get('system_proxy')),
+        );
+      }
+
+      Finder hint(String key) => find.descendant(
+        of: find.widgetWithText(
+          SwitchListTile,
+          app.strings.get('system_proxy'),
+        ),
+        matching: find.text(app.strings.get(key)),
+      );
+
+      var tile = await show(http: true, systemProxy: false);
+      expect(tile.onChanged, isNotNull);
+      expect(hint('home_system_proxy_hint'), findsOneWidget);
+
+      tile = await show(http: false, systemProxy: false);
+      expect(tile.onChanged, isNull);
+      expect(hint('home_system_proxy_requires_http'), findsOneWidget);
+
+      // Matches Home: an enabled system proxy stays switchable off.
+      tile = await show(http: false, systemProxy: true);
+      expect(tile.onChanged, isNotNull);
+      expect(hint('home_system_proxy_hint'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.widgetWithText(
+            SwitchListTile,
+            app.strings.tunnelOutputLabel(TargetPlatform.windows),
+          ),
+          matching: find.text(app.strings.get('home_tun_hint')),
+        ),
+        findsOneWidget,
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
 }
