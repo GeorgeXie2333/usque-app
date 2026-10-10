@@ -17,6 +17,7 @@ use crate::identity::{
 };
 
 const API_ROOT: &str = "https://api.cloudflareclient.com/";
+const FALLBACK_API_ROOT: &str = "https://api.devices.cloudflare.com/";
 const API_VERSION: &str = "v0a4471";
 const CF_CLIENT_VERSION: &str = "a-6.35-4471";
 const MAX_API_RESPONSE_BYTES: usize = 1024 * 1024;
@@ -272,6 +273,7 @@ pub fn parse_endpoint_pin_refresh_response(
 pub struct ConsumerRegistrationClient {
     http: Client,
     api_root: Url,
+    fallback_api_root: Option<Url>,
 }
 
 impl ConsumerRegistrationClient {
@@ -281,7 +283,13 @@ impl ConsumerRegistrationClient {
             .timeout(Duration::from_secs(20))
             .build()?;
         let api_root = Url::parse(API_ROOT).map_err(|_| RegistrationError::InvalidApiUrl)?;
-        Ok(Self { http, api_root })
+        let fallback_api_root =
+            Some(Url::parse(FALLBACK_API_ROOT).map_err(|_| RegistrationError::InvalidApiUrl)?);
+        Ok(Self {
+            http,
+            api_root,
+            fallback_api_root,
+        })
     }
 
     #[cfg(test)]
@@ -290,7 +298,11 @@ impl ConsumerRegistrationClient {
             .connect_timeout(Duration::from_secs(2))
             .timeout(Duration::from_secs(5))
             .build()?;
-        Ok(Self { http, api_root })
+        Ok(Self {
+            http,
+            api_root,
+            fallback_api_root: None,
+        })
     }
 
     /// Creates a Consumer WARP registration and immediately enrolls a fresh
@@ -541,8 +553,8 @@ impl ConsumerRegistrationClient {
             }
         }
 
-        let response = request
-            .send()
+        let response = self
+            .send(request)
             .await
             .map_err(|error| request_error_for_context(error_context, error))?;
         let (status, bytes) = bounded_response(response)
@@ -568,15 +580,14 @@ impl ConsumerRegistrationClient {
     where
         Response: DeserializeOwned,
     {
-        let response = self
+        let request = self
             .http
             .request(method, url)
             .header("User-Agent", "WARP for Android")
             .header("CF-Client-Version", CF_CLIENT_VERSION)
             .header("Connection", "Keep-Alive")
-            .bearer_auth(bearer_token)
-            .send()
-            .await?;
+            .bearer_auth(bearer_token);
+        let response = self.send(request).await?;
         let (status, bytes) = bounded_response(response).await?;
         if status != StatusCode::OK {
             return Err(api_error(status, &bytes));
@@ -606,12 +617,44 @@ impl ConsumerRegistrationClient {
                 .header("Content-Type", "application/json; charset=UTF-8")
                 .json(body);
         }
-        let response = request.send().await?;
+        let response = self.send(request).await?;
         let (status, bytes) = bounded_response(response).await?;
         if status != StatusCode::OK {
             return Err(api_error(status, &bytes));
         }
         Ok(())
+    }
+
+    async fn send(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        let mut request = request.build()?;
+        let response = self
+            .http
+            .execute(
+                request
+                    .try_clone()
+                    .expect("registration requests have buffered JSON bodies"),
+            )
+            .await;
+        let retry = match &response {
+            Ok(response) => {
+                response.status().is_server_error()
+                    || response.status() == StatusCode::TOO_MANY_REQUESTS
+            }
+            Err(_) => true,
+        };
+        if retry && let Some(root) = &self.fallback_api_root {
+            // Retry the same operation once, including enrollment and license
+            // binding, so registration can finish when the primary is blocked.
+            let mut url = root.clone();
+            url.set_path(request.url().path());
+            url.set_query(request.url().query());
+            *request.url_mut() = url;
+            return self.http.execute(request).await;
+        }
+        response
     }
 
     fn registration_url(&self, device_id: Option<&str>) -> Result<Url, RegistrationError> {
@@ -1158,6 +1201,14 @@ mod tests {
         listener: &tokio::net::TcpListener,
         response: &[u8],
     ) -> String {
+        serve_api_response(listener, Some(StatusCode::OK), response).await
+    }
+
+    async fn serve_api_response(
+        listener: &tokio::net::TcpListener,
+        status: Option<StatusCode>,
+        response: &[u8],
+    ) -> String {
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut request = Vec::new();
         let header_end = loop {
@@ -1181,14 +1232,155 @@ mod tests {
             assert!(read > 0);
             request.extend_from_slice(&chunk[..read]);
         }
-        let head = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            response.len()
-        );
-        stream.write_all(head.as_bytes()).await.unwrap();
-        stream.write_all(response).await.unwrap();
+        if let Some(status) = status {
+            let head = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                response.len()
+            );
+            stream.write_all(head.as_bytes()).await.unwrap();
+            stream.write_all(response).await.unwrap();
+        }
         stream.shutdown().await.unwrap();
         String::from_utf8_lossy(&request).into_owned()
+    }
+
+    #[tokio::test]
+    async fn fallback_completes_registration_enrollment_and_license_binding() {
+        for primary_status in [
+            None,
+            Some(StatusCode::BAD_GATEWAY),
+            Some(StatusCode::TOO_MANY_REQUESTS),
+        ] {
+            let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let fallback = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let primary_addr = primary.local_addr().unwrap();
+            let fallback_addr = fallback.local_addr().unwrap();
+            let primary_server = tokio::spawn(async move {
+                let mut requests = Vec::new();
+                for _ in 0..5 {
+                    requests.push(serve_api_response(&primary, primary_status, b"").await);
+                }
+                requests
+            });
+            let mut enrolled = enrollment(&MasqueKeyPair::generate());
+            enrolled.token = "device-bearer".to_owned();
+            enrolled.account.account_type = "unlimited".to_owned();
+            enrolled.account.license = Some("12345678-abcdefgh-ABCDEFGH".to_owned());
+            let account = serde_json::to_vec(&enrolled.account).unwrap();
+            let enrolled = serde_json::to_vec(&enrolled).unwrap();
+            let fallback_server = tokio::spawn(async move {
+                let mut requests = Vec::new();
+                for body in [&enrolled[..], &enrolled, b"", &enrolled, &account] {
+                    requests.push(serve_registration_response(&fallback, body).await);
+                }
+                requests
+            });
+            let mut client = ConsumerRegistrationClient::with_api_root(
+                Url::parse(&format!("http://{primary_addr}/")).unwrap(),
+            )
+            .unwrap();
+            client.fallback_api_root =
+                Some(Url::parse(&format!("http://{fallback_addr}/")).unwrap());
+            let identity = client
+                .register_with_license(
+                    &RegistrationOptions {
+                        terms_accepted: true,
+                        ..RegistrationOptions::default()
+                    },
+                    "12345678-abcdefgh-ABCDEFGH",
+                )
+                .await
+                .unwrap();
+            assert_eq!(identity.device_id(), "device-123");
+            assert_eq!(identity.access_token(), "device-bearer");
+            assert_eq!(identity.license(), Some("12345678-abcdefgh-ABCDEFGH"));
+            assert_eq!(
+                client.account_status(&identity).await.unwrap().entitlement,
+                ConsumerEntitlement::WarpPlus
+            );
+            let primary_requests = primary_server.await.unwrap();
+            let fallback_requests = fallback_server.await.unwrap();
+            for ((primary, fallback), path) in
+                primary_requests.iter().zip(&fallback_requests).zip([
+                    "POST /v0a4471/reg ",
+                    "PATCH /v0a4471/reg/device-123 ",
+                    "PUT /v0a4471/reg/device-123/account ",
+                    "PATCH /v0a4471/reg/device-123 ",
+                    "GET /v0a4471/reg/device-123/account ",
+                ])
+            {
+                assert!(fallback.starts_with(path));
+                assert_eq!(
+                    primary.replace(&primary_addr.to_string(), &fallback_addr.to_string()),
+                    *fallback
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn success_and_other_client_errors_do_not_contact_fallback() {
+        for status in [200, 400, 401, 403] {
+            let status = StatusCode::from_u16(status).unwrap();
+            let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let fallback = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let mut client = ConsumerRegistrationClient::with_api_root(
+                Url::parse(&format!("http://{}/", primary.local_addr().unwrap())).unwrap(),
+            )
+            .unwrap();
+            client.fallback_api_root =
+                Some(Url::parse(&format!("http://{}/", fallback.local_addr().unwrap())).unwrap());
+            let server =
+                tokio::spawn(
+                    async move { serve_api_response(&primary, Some(status), b"{}").await },
+                );
+            let response = client
+                .send(client.http.post(client.registration_url(None).unwrap()))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), status);
+            server.await.unwrap();
+            assert!(
+                tokio::time::timeout(Duration::from_millis(20), fallback.accept())
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fallback_failure_is_returned_without_further_retries() {
+        for fallback_status in [
+            None,
+            Some(StatusCode::SERVICE_UNAVAILABLE),
+            Some(StatusCode::TOO_MANY_REQUESTS),
+        ] {
+            let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let fallback = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let mut client = ConsumerRegistrationClient::with_api_root(
+                Url::parse(&format!("http://{}/", primary.local_addr().unwrap())).unwrap(),
+            )
+            .unwrap();
+            client.fallback_api_root =
+                Some(Url::parse(&format!("http://{}/", fallback.local_addr().unwrap())).unwrap());
+            let primary_server = tokio::spawn(async move {
+                serve_api_response(&primary, Some(StatusCode::BAD_GATEWAY), b"").await
+            });
+            let fallback_server =
+                tokio::spawn(
+                    async move { serve_api_response(&fallback, fallback_status, b"").await },
+                );
+            let response = client
+                .send(client.http.post(client.registration_url(None).unwrap()))
+                .await;
+            if let Some(status) = fallback_status {
+                assert_eq!(response.unwrap().status(), status);
+            } else {
+                assert!(response.is_err());
+            }
+            primary_server.await.unwrap();
+            fallback_server.await.unwrap();
+        }
     }
 
     #[test]
