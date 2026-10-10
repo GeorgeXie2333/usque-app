@@ -44,7 +44,7 @@ internal object AndroidMaintenance {
     fun cleanupLegacyUpdateState(context: Context) {
         context
             .getSharedPreferences(UPDATE_PREFERENCES, Context.MODE_PRIVATE)
-            .edit { clear() }
+            .edit(commit = true) { clear() }
     }
 
     fun writeDiagnostics(

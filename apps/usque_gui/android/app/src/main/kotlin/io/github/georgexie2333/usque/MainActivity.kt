@@ -99,11 +99,11 @@ class MainActivity : FlutterFragmentActivity() {
 
                 override fun launchNotification() {
                     val preferences = getSharedPreferences("usque_ui_permissions", MODE_PRIVATE)
-                    preferences.edit { putBoolean("notification_requested", true) }
+                    preferences.edit(commit = true) { putBoolean("notification_requested", true) }
                     try {
                         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } catch (error: Exception) {
-                        preferences.edit { putBoolean("notification_requested", false) }
+                        preferences.edit(commit = true) { putBoolean("notification_requested", false) }
                         throw error
                     }
                 }
@@ -434,7 +434,10 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
+        // The default Fragment starts Dart before this hook. Register only the
+        // tracked preferences implementation, without briefly exposing the
+        // upstream background handlers through super.configureFlutterEngine.
+        AndroidUiPluginRegistration.registerWith(flutterEngine)
         ensureEngineComponents()
         engineMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         engineMethodChannel?.setMethodCallHandler { call, result ->
@@ -541,10 +544,16 @@ class MainActivity : FlutterFragmentActivity() {
         if (::controlClient.isInitialized) {
             controlClient.destroy()
         }
-        updateInstallExecutor.shutdownNow()
-        diagnosticsExecutor.shutdownNow()
-        identityExecutor.shutdownNow()
-        initialIdentityStateExecutor.shutdownNow()
+        // Let accepted writes finish: interrupting SharedPreferences.commit can
+        // return before its queued disk write finishes. Pending UI flows above
+        // are cancelled, and process exit waits for these workers to terminate.
+        updateInstallExecutor.shutdown()
+        diagnosticsExecutor.shutdown()
+        identityExecutor.shutdown()
+        initialIdentityStateExecutor.shutdown()
+        UiProcessReclaimer.awaitCleanup(
+            listOf(updateInstallExecutor, diagnosticsExecutor, identityExecutor, initialIdentityStateExecutor),
+        )
         super.onDestroy()
     }
 
