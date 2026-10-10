@@ -88,6 +88,28 @@ Widget _host(Widget child) {
 
 void main() {
   group('AnimatedIndexStack', () {
+    testWidgets('mounts only the selected section on first build', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          const AnimatedIndexStack(
+            index: 2,
+            children: <Widget>[
+              _Counter(label: 'first'),
+              _Counter(label: 'second'),
+              _Counter(label: 'third'),
+            ],
+          ),
+        ),
+      );
+
+      expect(find.byType(_Counter, skipOffstage: false), findsOneWidget);
+      expect(find.text('third:0'), findsOneWidget);
+      expect(find.text('first:0', skipOffstage: false), findsNothing);
+      expect(find.text('second:0', skipOffstage: false), findsNothing);
+    });
+
     testWidgets('keeps hidden sections mounted with their state', (
       tester,
     ) async {
@@ -116,6 +138,7 @@ void main() {
         ),
       );
 
+      expect(find.text('second:0', skipOffstage: false), findsNothing);
       await tester.tap(find.text('first:0'));
       await tester.pumpAndSettle();
       expect(find.text('first:1'), findsOneWidget);
@@ -136,21 +159,55 @@ void main() {
     testWidgets('hidden sections do not take taps or run tickers', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        _host(
-          const AnimatedIndexStack(
-            index: 0,
-            children: <Widget>[
-              _TickerProbe(label: 'front'),
-              _TickerProbe(label: 'back'),
-            ],
-          ),
+      Widget page(int index) => _host(
+        AnimatedIndexStack(
+          index: index,
+          children: const <Widget>[
+            _TickerProbe(label: 'front'),
+            _TickerProbe(label: 'back'),
+          ],
         ),
       );
+
+      // A hidden section exists only after its first visit.
+      await tester.pumpWidget(page(1));
+      await tester.pumpWidget(page(0));
+      await tester.pumpAndSettle();
 
       expect(find.text('front:true'), findsOneWidget);
       expect(find.text('back:false', skipOffstage: false), findsOneWidget);
     });
+
+    testWidgets(
+      'rapid first visits preserve state and settle on the last tab',
+      (tester) async {
+        Widget page(int index) => _host(
+          AnimatedIndexStack(
+            index: index,
+            children: const <Widget>[
+              _Counter(label: 'first'),
+              _Counter(label: 'second'),
+              _Counter(label: 'third'),
+            ],
+          ),
+        );
+
+        await tester.pumpWidget(page(0));
+        await tester.tap(find.text('first:0'));
+        await tester.pump();
+        await tester.pumpWidget(page(1));
+        await tester.pump(const Duration(milliseconds: 40));
+        await tester.pumpWidget(page(2));
+        await tester.pump(const Duration(milliseconds: 40));
+        await tester.pumpWidget(page(0));
+        await tester.pumpAndSettle();
+
+        expect(find.text('first:1'), findsOneWidget);
+        expect(find.byType(_Counter), findsOneWidget);
+        expect(find.byType(_Counter, skipOffstage: false), findsNWidgets(3));
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 
   group('ConnectionRing', () {

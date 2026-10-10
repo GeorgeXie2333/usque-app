@@ -3618,6 +3618,11 @@ void main() {
         await tester.pumpAndSettle();
         expect(controller.section, expected);
         expect(
+          Focus.of(tester.element(homeLabel)).hasFocus,
+          isTrue,
+          reason: 'the first visit to $expected must keep bar focus',
+        );
+        expect(
           tester.takeException(),
           isNull,
           reason: 'after moving to ${expected.name}',

@@ -9,6 +9,7 @@ import '../core/connection_presentation.dart';
 import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
+import '../models/network_quality_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/connection_ring.dart';
@@ -802,10 +803,10 @@ class _TrafficGrid extends StatelessWidget {
         final snapshot = controller.snapshot;
         final quality = controller.quality;
         final down = snapshot.isConnected
-            ? quality.trace((point) => point.downloadBytesPerSecond)
+            ? quality.traceFor(NetworkQualityTrace.download)
             : const <int?>[];
         final up = snapshot.isConnected
-            ? quality.trace((point) => point.uploadBytesPerSecond)
+            ? quality.traceFor(NetworkQualityTrace.upload)
             : const <int?>[];
         final note = strings.get(
           homeTrafficNoteKey(

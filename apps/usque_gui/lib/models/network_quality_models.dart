@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'app_models.dart';
 
+enum NetworkQualityTrace { rtt, loss, download, upload }
+
 class NetworkQualityPoint {
   const NetworkQualityPoint({
     required this.at,
