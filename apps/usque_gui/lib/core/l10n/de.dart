@@ -273,7 +273,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'export_warp_secret': 'WARP Secret exportieren',
   'close': 'Schließen',
   'advanced': 'Erweiterte Netzwerkeinstellungen',
-  'advanced_subtitle': 'Endpunkte, DNS, MTU, Routing und Kill Switch.',
+  'advanced_subtitle': 'Endpunkte, DNS, MTU und Routing.',
   'advanced_warning':
       'Falsche Endpunkte, SNI, DNS oder MTU können verhindern, dass eine Tunnelverbindung hergestellt wird.',
   'routing_protection': 'Routing & Schutz',
@@ -313,9 +313,9 @@ const Map<String, String> kDeCatalog = <String, String>{
   'lockdown': 'Ohne VPN blockieren',
   'not_used_proxy': 'Im Proxy-Modus nicht verwendet',
   'kill_switch_help':
-      'Blockiert Datenverkehr beim Verbinden und Wiederverbinden sowie bei einem Ausfall des Verbindungsdienstes.',
+      'Blockiert Verkehr beim Verbinden, Wiederverbinden oder bei Fehlern.',
   'kill_switch_help_android':
-      'Blockiert Datenverkehr beim Verbinden und Wiederverbinden sowie bei einem Ausfall des Verbindungsdienstes. Dies funktioniert nur, solange der VPN-Dienst läuft. Um auch nach dem Beenden von Usque geschützt zu bleiben, aktivieren Sie in den Systemeinstellungen Immer aktives VPN und Verbindungen ohne VPN blockieren.',
+      'Blockiert Verkehr beim Verbinden, Wiederverbinden oder bei Fehlern. Nur bei laufendem VPN-Dienst.',
   'start_on_boot_android':
       'Usque nach einem Neustart des Geräts starten. Für automatisches Verbinden aktivieren Sie außerdem „Aktuelles Konto beim Start automatisch verbinden“.',
   'add_quick_settings_tile_help':

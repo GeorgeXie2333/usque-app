@@ -5,6 +5,7 @@ version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
       day: monday
@@ -20,6 +21,7 @@ updates:
 
   - package-ecosystem: cargo
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
       day: monday
@@ -35,6 +37,7 @@ updates:
 
   - package-ecosystem: pub
     directory: /apps/usque_gui
+    target-branch: dev
     schedule:
       interval: weekly
       day: monday
@@ -50,6 +53,7 @@ updates:
 
   - package-ecosystem: gradle
     directory: /apps/usque_gui/android
+    target-branch: dev
     schedule:
       interval: weekly
       day: monday
@@ -73,6 +77,7 @@ updates:
 
   - package-ecosystem: nuget
     directory: /.config
+    target-branch: dev
     schedule:
       interval: weekly
       day: monday

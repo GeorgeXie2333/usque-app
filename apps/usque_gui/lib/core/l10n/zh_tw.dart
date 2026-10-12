@@ -236,7 +236,7 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'export_warp_secret': '匯出 WARP Secret',
   'close': '關閉',
   'advanced': '進階網路設定',
-  'advanced_subtitle': '端點、DNS、MTU、路由與 Kill Switch。',
+  'advanced_subtitle': '端點、DNS、MTU 與路由。',
   'advanced_warning': '錯誤的端點、SNI、DNS 或 MTU 可能導致通道無法連線。',
   'routing_protection': '路由與防護',
   'transport': '傳輸',
@@ -272,9 +272,8 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'always_on': '一律開啟 VPN',
   'lockdown': '沒有 VPN 時封鎖連線',
   'not_used_proxy': '代理模式不適用',
-  'kill_switch_help': '在連線、重新連線期間或連線服務發生錯誤時封鎖流量。',
-  'kill_switch_help_android':
-      '在連線、重新連線期間或連線服務發生錯誤時封鎖流量。僅在 VPN 服務執行時有效；若要在 Usque 停止後持續保護，請在系統設定中開啟「一律開啟 VPN」與「沒有 VPN 時封鎖連線」。',
+  'kill_switch_help': '連線、重新連線或故障時封鎖流量。',
+  'kill_switch_help_android': '連線、重新連線或故障時封鎖流量。僅在 VPN 服務執行時有效。',
   'start_on_boot_android': '裝置重新開機後啟動 Usque。如要自動連線，也請開啟「啟動時自動連線目前帳號」。',
   'add_quick_settings_tile_help':
       '在 Android 13 或更新版本新增 Usque 圖塊。較舊版本請在快速設定中手動新增。',

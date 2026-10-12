@@ -55,7 +55,7 @@ Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系�
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |
-| Windows | Windows 10 22H2，Build 19045 | x64-v2 安装程序 EXE 或 ARM64 安装程序 EXE |
+| Windows | Windows 10 2004，Build 19041 | x64-v2 安装程序 EXE 或 ARM64 安装程序 EXE |
 | Android / Android TV | Android 8.0，API 26 | arm64-v8a、x86_64 或 armeabi-v7a APK |
 | Android / Android TV | Android 8.0，API 26 | 包含上述三种 ABI 的通用 APK |
 

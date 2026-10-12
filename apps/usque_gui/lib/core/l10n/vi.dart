@@ -263,7 +263,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'export_warp_secret': 'Xuất WARP Secret',
   'close': 'Đóng',
   'advanced': 'Cài đặt mạng nâng cao',
-  'advanced_subtitle': 'Endpoint, DNS, MTU, định tuyến và Kill Switch.',
+  'advanced_subtitle': 'Endpoint, DNS, MTU và định tuyến.',
   'advanced_warning':
       'Endpoint, SNI, DNS hoặc MTU sai có thể khiến đường hầm không kết nối được.',
   'routing_protection': 'Định tuyến & bảo vệ',
@@ -302,10 +302,9 @@ const Map<String, String> kViCatalog = <String, String>{
   'always_on': 'VPN luôn bật',
   'lockdown': 'Chặn khi không có VPN',
   'not_used_proxy': 'Không dùng ở chế độ proxy',
-  'kill_switch_help':
-      'Chặn lưu lượng khi đang kết nối hoặc kết nối lại, hoặc khi dịch vụ kết nối gặp lỗi.',
+  'kill_switch_help': 'Chặn lưu lượng khi kết nối, kết nối lại hoặc gặp lỗi.',
   'kill_switch_help_android':
-      'Chặn lưu lượng khi đang kết nối hoặc kết nối lại, hoặc khi dịch vụ kết nối gặp lỗi. Chỉ hoạt động khi dịch vụ VPN đang chạy. Để tiếp tục được bảo vệ sau khi Usque dừng, hãy bật VPN luôn bật và Chặn kết nối khi không có VPN trong cài đặt hệ thống.',
+      'Chặn lưu lượng khi kết nối, kết nối lại hoặc gặp lỗi. Chỉ khi dịch vụ VPN đang chạy.',
   'start_on_boot_android':
       'Khởi chạy Usque sau khi thiết bị khởi động lại. Để tự kết nối, hãy bật thêm “Tự kết nối tài khoản hiện tại khi khởi động”.',
   'add_quick_settings_tile_help':

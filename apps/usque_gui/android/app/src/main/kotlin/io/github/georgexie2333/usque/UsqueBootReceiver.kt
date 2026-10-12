@@ -19,14 +19,19 @@ class UsqueBootReceiver : BroadcastReceiver() {
         val userManager = context.getSystemService(UserManager::class.java)
         if (intent.action != Intent.ACTION_BOOT_COMPLETED || !userManager.isUserUnlocked) return
         val pending = goAsync()
+        val backgroundWork = UiProcessReclaimer.holdBackgroundWork()
         val completed = AtomicBoolean(false)
         val worker = Executors.newSingleThreadExecutor()
+        UiProcessReclaimer.awaitCleanup(listOf(worker))
         val handler = Handler(Looper.getMainLooper())
         val timeout =
             Runnable {
                 if (completed.compareAndSet(false, true)) {
-                    worker.shutdownNow()
+                    // End the broadcast deadline without interrupting an accepted
+                    // policy write. The completed gate prevents a late VPN start.
+                    worker.shutdown()
                     pending.finish()
+                    backgroundWork.close()
                 }
             }
         handler.postDelayed(timeout, 8_000L)
@@ -54,6 +59,7 @@ class UsqueBootReceiver : BroadcastReceiver() {
                         } finally {
                             handler.removeCallbacks(timeout)
                             pending.finish()
+                            backgroundWork.close()
                         }
                     }
                 }
@@ -65,6 +71,7 @@ class UsqueBootReceiver : BroadcastReceiver() {
                     if (completed.compareAndSet(false, true)) {
                         handler.removeCallbacks(timeout)
                         pending.finish()
+                        backgroundWork.close()
                     }
                 }
             }

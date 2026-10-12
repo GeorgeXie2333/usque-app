@@ -3604,12 +3604,12 @@ fn check_for_updates() -> Result<String, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|error| format!("update runtime failed: {error}"))?;
-    let checker = UpdateChecker::new().map_err(|error| error.to_string())?;
+        .map_err(|_| "UPDATE_CHECK_FAILED".to_owned())?;
+    let checker = UpdateChecker::new().map_err(|error| error.code().to_owned())?;
     let result = runtime
         .block_on(checker.check(env!("CARGO_PKG_VERSION")))
-        .map_err(|error| error.to_string())?;
-    serde_json::to_string(&result).map_err(|error| error.to_string())
+        .map_err(|error| error.code().to_owned())?;
+    serde_json::to_string(&result).map_err(|_| "UPDATE_CHECK_FAILED".to_owned())
 }
 
 fn throw_io_error(environment: &mut Env<'_>, message: &str) {

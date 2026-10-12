@@ -67,10 +67,10 @@ class NetworkQualityScreen extends StatelessWidget {
         : '$value ms';
     String exactBytes(int? value) =>
         value == null ? s.get('nq_unavailable') : '$value B';
-    final rtt = state.trace((point) => point.rttMilliseconds);
-    final down = state.trace((point) => point.downloadBytesPerSecond);
-    final up = state.trace((point) => point.uploadBytesPerSecond);
-    final loss = state.trace((point) => point.lossBasisPoints);
+    final rtt = state.traceFor(NetworkQualityTrace.rtt);
+    final down = state.traceFor(NetworkQualityTrace.download);
+    final up = state.traceFor(NetworkQualityTrace.upload);
+    final loss = state.traceFor(NetworkQualityTrace.loss);
     final lossValue = h2
         ? null
         : availableMetric(
