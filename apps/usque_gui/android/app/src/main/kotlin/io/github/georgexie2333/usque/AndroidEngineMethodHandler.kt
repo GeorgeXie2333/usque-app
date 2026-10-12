@@ -1598,7 +1598,7 @@ internal class AndroidEngineMethodHandler(
             } catch (error: Exception) {
                 mainScheduler.post {
                     result.error(
-                        "UPDATE_CHECK_FAILED",
+                        AndroidMaintenance.updateCheckErrorCode(error),
                         "The GitHub release update check failed.",
                         error.javaClass.simpleName,
                     )

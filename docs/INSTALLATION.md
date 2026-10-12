@@ -43,8 +43,8 @@ guidance; do not assume that reinstalling an older package is supported.
 
 | Platform | Requirements | Package |
 | --- | --- | --- |
-| Windows x64 | Windows 10 22H2, build 19045 or later; x86-64-v2 CPU | x64-v2 EXE |
-| Windows ARM64 | Windows 10 22H2, build 19045 or later, native ARM64 | ARM64 EXE |
+| Windows x64 | Windows 10 2004, build 19041 or later; x86-64-v2 CPU | x64-v2 EXE |
+| Windows ARM64 | Windows 10 2004, build 19041 or later, native ARM64 | ARM64 EXE |
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 

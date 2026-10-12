@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/user_facing_errors.dart';
@@ -30,6 +31,49 @@ class _FailingConnection extends FakeEngineClient {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'update errors are localized on both native bridges without private text',
+    () {
+      const codes = {
+        'UPDATE_CHECK_FAILED': 'update_check_failed',
+        'UPDATE_CHECK_NETWORK': 'update_check_network',
+        'UPDATE_CHECK_RATE_LIMITED': 'update_check_rate_limited',
+        'UPDATE_CHECK_UNAVAILABLE': 'update_check_unavailable',
+        'UPDATE_CHECK_RESPONSE_TOO_LARGE': 'update_check_response_too_large',
+        'UPDATE_CHECK_INVALID_RESPONSE': 'update_check_invalid_response',
+      };
+      for (final locale in LocalePreference.values.where(
+        (l) => l != LocalePreference.system,
+      )) {
+        final strings = AppStrings(locale);
+        final messages = <String>{};
+        for (final entry in codes.entries) {
+          final expected = strings.get(entry.value);
+          expect(expected, isNot(entry.value));
+          expect(expected, isNot(strings.get('operation_failed')));
+          messages.add(expected);
+          for (final error in [
+            EngineException(entry.key, _privateError),
+            PlatformException(code: entry.key, message: _privateError),
+          ]) {
+            expect(userFacingError(strings, error), expected);
+            expect(
+              userFacingError(strings, error),
+              isNot(contains(_privateError)),
+            );
+          }
+          if (locale != LocalePreference.english) {
+            expect(
+              expected,
+              isNot(AppStrings(LocalePreference.english).get(entry.value)),
+            );
+          }
+        }
+        expect(messages, hasLength(codes.length));
+      }
+    },
+  );
 
   test('credential persistence and application failures remain distinct', () {
     for (final locale in [

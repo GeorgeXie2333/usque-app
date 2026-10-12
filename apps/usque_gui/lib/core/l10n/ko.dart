@@ -249,7 +249,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'export_warp_secret': 'WARP Secret 내보내기',
   'close': '닫기',
   'advanced': '고급 네트워크 설정',
-  'advanced_subtitle': '엔드포인트, DNS, MTU, 라우팅, Kill Switch입니다.',
+  'advanced_subtitle': '엔드포인트, DNS, MTU, 라우팅입니다.',
   'advanced_warning': '잘못된 엔드포인트, SNI, DNS, MTU는 터널 연결을 막을 수 있습니다.',
   'routing_protection': '라우팅 및 보호',
   'transport': '전송',
@@ -286,9 +286,8 @@ const Map<String, String> kKoCatalog = <String, String>{
   'always_on': '항상 사용 VPN',
   'lockdown': 'VPN 없이 차단',
   'not_used_proxy': '프록시 모드에서는 사용하지 않습니다',
-  'kill_switch_help': '연결 또는 재연결 중이거나 연결 서비스에 오류가 발생하면 트래픽을 차단합니다.',
-  'kill_switch_help_android':
-      '연결 또는 재연결 중이거나 연결 서비스에 오류가 발생하면 트래픽을 차단합니다. VPN 서비스가 실행 중일 때만 작동합니다. Usque가 중지된 후에도 보호하려면 시스템 설정에서 ‘항상 사용 VPN’과 ‘VPN 없이 연결 차단’을 켜세요.',
+  'kill_switch_help': '연결·재연결·오류 시 트래픽 차단.',
+  'kill_switch_help_android': '연결·재연결·오류 시 트래픽 차단. VPN 서비스 실행 중에만 작동합니다.',
   'start_on_boot_android':
       '기기를 다시 시작한 뒤 Usque를 시작합니다. 자동으로 연결하려면 ‘시작 시 현재 계정을 자동으로 연결합니다’도 켜세요.',
   'add_quick_settings_tile_help':

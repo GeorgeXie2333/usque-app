@@ -131,7 +131,8 @@ class _ShellScreenState extends State<ShellScreen> {
     final selectedController = controller;
     try {
       if (!await _selectSection(AppSection.proxy)) return;
-      // Activate the section before its subpage starts foreground work.
+      // First visits mount lazily. Wait for the section's navigator and state
+      // before its subpage starts foreground work.
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted ||
           controller != selectedController ||
@@ -205,14 +206,22 @@ class _ShellScreenState extends State<ShellScreen> {
         sections.length;
     final selected = sections[next];
     final selectedController = controller;
+    final navigationFocus = FocusManager.instance.primaryFocus;
     unawaited(
       _selectSection(selected).then((changed) {
-        if (changed && vertical) {
-          // Selection alone does not reveal destinations in a scrollable rail.
+        if (changed) {
+          // A section's first visit creates its Navigator, which can request
+          // focus. Keep arrow-key navigation in the bar or rail after mounting.
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted ||
                 controller != selectedController ||
                 controller.section != selected) {
+              return;
+            }
+            if (!vertical) {
+              if (navigationFocus?.context?.mounted ?? false) {
+                navigationFocus!.requestFocus();
+              }
               return;
             }
             final destinationContext =
@@ -220,6 +229,7 @@ class _ShellScreenState extends State<ShellScreen> {
             if (destinationContext == null) return;
             final destinationFocus = Focus.of(destinationContext);
             destinationFocus.requestFocus();
+            // Selection alone does not reveal a scrollable rail destination.
             unawaited(
               Scrollable.ensureVisible(
                 destinationFocus.context ?? destinationContext,

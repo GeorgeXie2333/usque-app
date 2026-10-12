@@ -1075,6 +1075,28 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun updateFailuresForwardOnlyKnownNativeCodes() {
+        engineBridge.linked = true
+        for (code in listOf(
+            "UPDATE_CHECK_NETWORK",
+            "UPDATE_CHECK_RATE_LIMITED",
+            "UPDATE_CHECK_UNAVAILABLE",
+            "UPDATE_CHECK_RESPONSE_TOO_LARGE",
+            "UPDATE_CHECK_INVALID_RESPONSE",
+        )) {
+            maintenance.checkError = java.io.IOException(code)
+            val result = RecordingResult()
+            handler.handle(MethodCall("checkForUpdates", mapOf("manual" to true)), result)
+            assertEquals(code, result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        maintenance.checkError = java.io.IOException("private/path token=secret UPDATE_CHECK_NETWORK")
+        val unknown = RecordingResult()
+        handler.handle(MethodCall("checkForUpdates", mapOf("manual" to true)), unknown)
+        assertEquals("UPDATE_CHECK_FAILED", unknown.errorCode)
+    }
+
+    @Test
     fun createProfileWithIdentityRejectsMalformedRequest() {
         val missingTerms = RecordingResult()
         handler.handle(
@@ -2035,8 +2057,10 @@ class AndroidEngineMethodHandlerTest {
         var checkCount = 0
         var lastManual: Boolean? = null
         var clearCount = 0
+        var checkError: Exception? = null
 
         override fun checkForUpdates(manual: Boolean): Map<String, Any?> {
+            checkError?.let { throw it }
             checkCount += 1
             lastManual = manual
             return mapOf("manual" to manual, "available" to false)

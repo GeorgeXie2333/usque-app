@@ -4,10 +4,11 @@ import '../core/usque_motion.dart';
 
 /// [IndexedStack] with a fade-through between sections.
 ///
-/// Every child stays mounted, so scroll offsets and half-typed fields survive a
-/// section switch exactly as they did with a plain [IndexedStack]. Hidden
-/// children are taken out of paint, hit testing, and semantics, and their
-/// tickers are muted so background pages cannot animate.
+/// A section mounts on its first visit and stays mounted afterward, so scroll
+/// offsets and half-typed fields survive a section switch. Unvisited sections
+/// have no element or render tree. Hidden, visited children are taken out of
+/// paint, hit testing, and semantics, and their tickers are muted so background
+/// pages cannot animate.
 class AnimatedIndexStack extends StatefulWidget {
   const AnimatedIndexStack({
     required this.index,
@@ -49,11 +50,15 @@ class _AnimatedIndexStackState extends State<AnimatedIndexStack>
   ).animate(_enter);
 
   late int _incoming = widget.index;
+  late final Set<int> _visited = <int>{widget.index};
   int? _outgoing;
 
   @override
   void didUpdateWidget(covariant AnimatedIndexStack oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _visited
+      ..removeWhere((index) => index >= widget.children.length)
+      ..add(widget.index);
     if (oldWidget.index == widget.index) {
       return;
     }
@@ -82,14 +87,15 @@ class _AnimatedIndexStackState extends State<AnimatedIndexStack>
       fit: StackFit.expand,
       children: <Widget>[
         for (int i = 0; i < widget.children.length; i += 1)
-          _Section(
-            key: ValueKey<int>(i),
-            visible: i == _incoming || i == _outgoing,
-            interactive: i == _incoming,
-            opacity: i == _incoming ? _enter : _leaveOpacity,
-            offset: i == _incoming ? _enterOffset : _Section.still,
-            child: widget.children[i],
-          ),
+          if (_visited.contains(i))
+            _Section(
+              key: ValueKey<int>(i),
+              visible: i == _incoming || i == _outgoing,
+              interactive: i == _incoming,
+              opacity: i == _incoming ? _enter : _leaveOpacity,
+              offset: i == _incoming ? _enterOffset : _Section.still,
+              child: widget.children[i],
+            ),
       ],
     );
   }

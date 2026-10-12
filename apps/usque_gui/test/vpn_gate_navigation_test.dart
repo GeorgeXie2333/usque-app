@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/chain_strings.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/proxy_section.dart';
 import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/screens/vpn_gate_chain_editor.dart';
 import 'package:usque/state/app_controller.dart';
@@ -84,6 +85,8 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+          // A Home shortcut must also work before Proxy has ever mounted.
+          expect(find.byType(ProxySection, skipOffstage: false), findsNothing);
           expect(
             find.byKey(const ValueKey('home-vpn-gate-settings')),
             width < 760 ? findsOneWidget : findsNothing,

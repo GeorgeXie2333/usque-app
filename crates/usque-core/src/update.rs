@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const RELEASES_ENDPOINT: &str =
-    "https://api.github.com/repos/GeorgeXie2333/usque-app/releases?per_page=20";
+    "https://api.github.com/repos/GeorgeXie2333/usque-app/releases/latest";
 const RELEASE_URL_PREFIX: &str = "https://github.com/GeorgeXie2333/usque-app/releases/";
 const RELEASE_DOWNLOAD_PREFIX: &str =
     "https://github.com/GeorgeXie2333/usque-app/releases/download/";
@@ -154,10 +154,13 @@ impl UpdateChecker {
     pub async fn check(&self, current_version: &str) -> Result<UpdateInfo, UpdateError> {
         let current = parse_version(current_version)?;
         let bytes = fetch_bounded(&self.client, &self.endpoint, MAX_RELEASE_RESPONSE_BYTES).await?;
-        let releases: Vec<GitHubRelease> = serde_json::from_slice(&bytes)?;
-        let Some((_, release)) = select_newest_release(&current, releases) else {
+        // Fetch one official release: historical notes and assets must not grow
+        // this response past the bounded reader's limit as releases accumulate.
+        let release: GitHubRelease = serde_json::from_slice(&bytes)?;
+        let version = validate_stable_release(&release)?;
+        if version <= current {
             return Ok(UpdateInfo::current());
-        };
+        }
         let package = if let Some(target) = current_update_target() {
             resolve_release_package(&self.client, &release, target)
                 .await
@@ -194,6 +197,16 @@ fn approved_github_url(url: &reqwest::Url) -> bool {
 
 async fn fetch_bounded(client: &Client, url: &str, maximum: u64) -> Result<Vec<u8>, UpdateError> {
     let response = client.get(url).send().await?;
+    if response.status() == StatusCode::TOO_MANY_REQUESTS
+        || (response.status() == StatusCode::FORBIDDEN
+            && (response
+                .headers()
+                .get("x-ratelimit-remaining")
+                .is_some_and(|value| value == "0")
+                || response.headers().contains_key("retry-after")))
+    {
+        return Err(UpdateError::RateLimited);
+    }
     if response.status() != StatusCode::OK {
         return Err(UpdateError::HttpStatus(response.status()));
     }
@@ -252,22 +265,16 @@ struct ManifestArtifact {
     size: u64,
 }
 
-fn select_newest_release(
-    current: &ComparableVersion,
-    releases: Vec<GitHubRelease>,
-) -> Option<(ComparableVersion, GitHubRelease)> {
-    releases
-        .into_iter()
-        .filter(|release| {
-            !release.draft
-                && !release.prerelease
-                && release.html_url.starts_with(RELEASE_URL_PREFIX)
-        })
-        .filter_map(|release| {
-            let version = parse_version(&release.tag_name).ok()?;
-            (version.prerelease.is_empty() && version > *current).then_some((version, release))
-        })
-        .max_by(|left, right| left.0.cmp(&right.0))
+fn validate_stable_release(release: &GitHubRelease) -> Result<ComparableVersion, UpdateError> {
+    let version = parse_version(&release.tag_name)?;
+    if release.draft
+        || release.prerelease
+        || !version.prerelease.is_empty()
+        || release.html_url != format!("{RELEASE_URL_PREFIX}tag/{}", release.tag_name)
+    {
+        return Err(UpdateError::InvalidRelease);
+    }
+    Ok(version)
 }
 
 async fn resolve_release_package(
@@ -536,6 +543,8 @@ pub enum UpdateError {
     Request(#[from] reqwest::Error),
     #[error("the GitHub update endpoint returned HTTP {0}")]
     HttpStatus(StatusCode),
+    #[error("the GitHub update endpoint rate limit was reached")]
+    RateLimited,
     #[error("the GitHub update response exceeded 512 KiB")]
     ResponseTooLarge,
     #[error("the GitHub update response was invalid JSON: {0}")]
@@ -544,6 +553,29 @@ pub enum UpdateError {
     InvalidManifest(String),
     #[error("an application or release version was not valid SemVer: {0}")]
     InvalidVersion(String),
+    #[error("the GitHub update endpoint did not return an official stable release")]
+    InvalidRelease,
+}
+
+impl UpdateError {
+    /// Fixed, non-sensitive codes shared by desktop IPC and Android JNI.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Request(_) => "UPDATE_CHECK_NETWORK",
+            Self::RateLimited => "UPDATE_CHECK_RATE_LIMITED",
+            Self::HttpStatus(_) => "UPDATE_CHECK_UNAVAILABLE",
+            Self::ResponseTooLarge => "UPDATE_CHECK_RESPONSE_TOO_LARGE",
+            Self::Json(_)
+            | Self::InvalidManifest(_)
+            | Self::InvalidVersion(_)
+            | Self::InvalidRelease => "UPDATE_CHECK_INVALID_RESPONSE",
+        }
+    }
+
+    pub fn retryable(&self) -> bool {
+        matches!(self, Self::Request(_) | Self::RateLimited)
+            || matches!(self, Self::HttpStatus(status) if status.is_server_error())
+    }
 }
 
 #[cfg(test)]
@@ -552,56 +584,152 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn selects_newest_stable_release() {
-        let releases = vec![
-            GitHubRelease {
-                tag_name: "v0.1.0-beta.2".to_owned(),
-                html_url: "https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.0-beta.2"
-                    .to_owned(),
-                draft: false,
-                prerelease: true,
-                assets: Vec::new(),
-            },
-            GitHubRelease {
-                tag_name: "v9.0.0".to_owned(),
-                html_url: "https://attacker.invalid/release".to_owned(),
-                draft: false,
-                prerelease: false,
-                assets: Vec::new(),
-            },
-            GitHubRelease {
-                tag_name: "v1.0.0".to_owned(),
-                html_url: "https://github.com/GeorgeXie2333/usque-app/releases/tag/v1.0.0"
-                    .to_owned(),
-                draft: true,
-                prerelease: false,
-                assets: Vec::new(),
-            },
-            GitHubRelease {
-                tag_name: "v0.2.0".to_owned(),
-                html_url: "https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.2.0"
-                    .to_owned(),
-                draft: false,
-                prerelease: false,
-                assets: Vec::new(),
-            },
-        ];
-        let selected = select_newest_release(&parse_version("0.1.0-beta.1").unwrap(), releases);
-        assert_eq!(selected.unwrap().1.tag_name, "v0.2.0");
+    fn release_json(tag: &str) -> serde_json::Value {
+        serde_json::json!({
+            "tag_name": tag,
+            "html_url": format!("{RELEASE_URL_PREFIX}tag/{tag}"),
+            "draft": false,
+            "prerelease": false,
+            "assets": [],
+        })
     }
 
-    #[test]
-    fn ignores_current_and_older_versions() {
-        let releases = vec![GitHubRelease {
-            tag_name: "v0.1.0-beta.1".to_owned(),
-            html_url: "https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.0-beta.1"
-                .to_owned(),
-            draft: false,
-            prerelease: true,
-            assets: Vec::new(),
-        }];
-        assert!(select_newest_release(&parse_version("0.1.0-beta.1").unwrap(), releases).is_none());
+    async fn check_response(
+        status: &str,
+        headers: &str,
+        body: &str,
+        current: &str,
+    ) -> Result<UpdateInfo, UpdateError> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/releases/latest", listener.local_addr().unwrap());
+        let response = format!(
+            "HTTP/1.1 {status}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 2048];
+            let length = stream.read(&mut request).await.unwrap();
+            assert!(
+                String::from_utf8_lossy(&request[..length])
+                    .starts_with("GET /releases/latest HTTP/1.1\r\n")
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+        let result = UpdateChecker::with_endpoint(endpoint)
+            .unwrap()
+            .check(current)
+            .await;
+        server.await.unwrap();
+        result
+    }
+
+    #[tokio::test]
+    async fn latest_release_object_supports_updates_and_current_or_newer_installs() {
+        assert!(RELEASES_ENDPOINT.ends_with("/releases/latest"));
+        let body = release_json("v0.3.1").to_string();
+        let update = check_response("200 OK", "", &body, "0.3.0").await.unwrap();
+        assert!(update.available);
+        assert_eq!(update.version, "v0.3.1");
+        assert_eq!(
+            update.release_url,
+            format!("{RELEASE_URL_PREFIX}tag/v0.3.1")
+        );
+        // Discovery cannot manufacture a verified package from missing assets.
+        assert!(update.package.is_none());
+        for current in ["0.3.1", "0.3.2"] {
+            assert_eq!(
+                check_response("200 OK", "", &body, current).await.unwrap(),
+                UpdateInfo::current()
+            );
+        }
+        assert!(
+            check_response("200 OK", "", &body, "0.3.1-beta.1")
+                .await
+                .unwrap()
+                .available
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_drafts_prereleases_foreign_urls_and_malformed_latest_responses() {
+        let mut invalid = Vec::new();
+        for field in ["draft", "prerelease"] {
+            let mut release = release_json("v0.3.1");
+            release[field] = serde_json::json!(true);
+            invalid.push(release);
+        }
+        invalid.push(release_json("v0.3.1-beta.1"));
+        invalid.push(release_json("not-semver"));
+        for url in [
+            "https://attacker.invalid/release",
+            "https://github.com/GeorgeXie2333/usque-app/releases/tag/v9.0.0",
+        ] {
+            let mut release = release_json("v0.3.1");
+            release["html_url"] = serde_json::json!(url);
+            invalid.push(release);
+        }
+        invalid.push(serde_json::json!([release_json("v0.3.1")]));
+        invalid.push(serde_json::json!({}));
+        for value in invalid {
+            let error = check_response("200 OK", "", &value.to_string(), "0.3.0")
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), "UPDATE_CHECK_INVALID_RESPONSE");
+            assert!(!error.retryable());
+        }
+        assert!(matches!(
+            check_response("200 OK", "", "not-json", "0.3.0").await,
+            Err(UpdateError::Json(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn http_errors_preserve_rate_limit_and_unavailable_categories() {
+        for (status, headers, code, retryable) in [
+            (
+                "429 Too Many Requests",
+                "",
+                "UPDATE_CHECK_RATE_LIMITED",
+                true,
+            ),
+            (
+                "403 Forbidden",
+                "X-RateLimit-Remaining: 0\r\n",
+                "UPDATE_CHECK_RATE_LIMITED",
+                true,
+            ),
+            (
+                "403 Forbidden",
+                "Retry-After: 60\r\n",
+                "UPDATE_CHECK_RATE_LIMITED",
+                true,
+            ),
+            ("403 Forbidden", "", "UPDATE_CHECK_UNAVAILABLE", false),
+            ("404 Not Found", "", "UPDATE_CHECK_UNAVAILABLE", false),
+            (
+                "503 Service Unavailable",
+                "",
+                "UPDATE_CHECK_UNAVAILABLE",
+                true,
+            ),
+        ] {
+            let error = check_response(status, headers, "{}", "0.3.0")
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), code);
+            assert_eq!(error.retryable(), retryable);
+        }
+        assert_eq!(
+            UpdateError::ResponseTooLarge.code(),
+            "UPDATE_CHECK_RESPONSE_TOO_LARGE"
+        );
+        assert!(!UpdateError::ResponseTooLarge.retryable());
+        let request_error = Client::new().get("http://[").send().await.unwrap_err();
+        assert_eq!(
+            UpdateError::Request(request_error).code(),
+            "UPDATE_CHECK_NETWORK"
+        );
     }
 
     #[test]
@@ -650,6 +778,14 @@ mod tests {
         assert!(package_from_manifest(target, name, &asset, &wrong_size).is_err());
         wrong_size.artifacts[0].size = 4096;
         wrong_size.artifacts[0].variant = "arm64".to_owned();
+        assert!(package_from_manifest(target, name, &asset, &wrong_size).is_err());
+        wrong_size.artifacts[0].variant = target.variant.to_owned();
+        wrong_size.artifacts[0].platform = "android".to_owned();
+        assert!(package_from_manifest(target, name, &asset, &wrong_size).is_err());
+        wrong_size.artifacts[0].platform = target.platform.to_owned();
+        wrong_size.artifacts[0].sha256 = "b6".repeat(32);
+        assert!(package_from_manifest(target, name, &asset, &wrong_size).is_err());
+        wrong_size.artifacts[0].sha256 = "invalid".to_owned();
         assert!(package_from_manifest(target, name, &asset, &wrong_size).is_err());
     }
 

@@ -263,7 +263,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'export_warp_secret': 'Export WARP Secret',
   'close': 'Close',
   'advanced': 'Advanced network settings',
-  'advanced_subtitle': 'Endpoints, DNS, MTU, routing, and Kill Switch.',
+  'advanced_subtitle': 'Endpoints, DNS, MTU, and routing.',
   'advanced_warning':
       'Incorrect endpoints, SNI, DNS, or MTU can prevent the tunnel from connecting.',
   'routing_protection': 'Routing & protection',
@@ -302,9 +302,9 @@ const Map<String, String> kEnCatalog = <String, String>{
   'lockdown': 'Block without VPN',
   'not_used_proxy': 'Not used in proxy mode',
   'kill_switch_help':
-      'Block traffic while connecting or reconnecting, or if the connection service fails.',
+      'Block traffic while connecting, reconnecting or on failure.',
   'kill_switch_help_android':
-      'Block traffic while connecting or reconnecting, or if the connection service fails. This works only while the VPN service runs. To stay protected after Usque stops, turn on Always-on VPN and Block connections without VPN in system settings.',
+      'Block traffic while connecting, reconnecting or on failure. Only while the VPN service runs.',
   'start_on_boot_android':
       'Start Usque after the device restarts. To connect automatically, also turn on “Connect the current account automatically on start”.',
   'add_quick_settings_tile_help':

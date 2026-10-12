@@ -5,6 +5,7 @@ import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/chain_home_status.dart';
 import 'package:usque/core/chain_strings.dart';
 import 'package:usque/core/connection_presentation.dart';
+import 'package:usque/core/usque_motion.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/home_screen.dart';
 import 'package:usque/state/app_controller.dart';
@@ -106,6 +107,108 @@ void main() {
     expect(off.showChainRow, isFalse);
     expect(off.drivesHome, isFalse);
   });
+
+  for (final legacyGate in [false, true]) {
+    for (final phase in [
+      ConnectionPhase.preparing,
+      ConnectionPhase.connectingH3,
+      ConnectionPhase.connectingH2,
+      ConnectionPhase.reconnecting,
+    ]) {
+      testWidgets(
+        'chain success quiets the power button as the ring starts closing: '
+        'legacyGate=$legacyGate, phase=$phase',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize =
+              defaultTargetPlatform == TargetPlatform.android
+              ? const Size(390, 1000)
+              : const Size(1280, 900);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          addTearDown(tester.view.resetPhysicalSize);
+
+          EngineSnapshot sample(String stage, ConnectionPhase phase) =>
+              EngineSnapshot(
+                phase: phase,
+                chainExit: ChainExitStatus(
+                  stage: legacyGate ? 'disabled' : stage,
+                ),
+                vpnGate: VpnGateStatus(stage: legacyGate ? stage : 'disabled'),
+              );
+
+          final app = AppController(FakeEngineClient())
+            ..sharedNetwork = UsqueProfile.defaultProfile().copyWith(
+              chainExit: legacyGate ? vpnGate : custom,
+            )
+            ..busy = true
+            ..snapshot = sample('configuring_network', phase);
+          addTearDown(app.dispose);
+          await tester.pumpWidget(
+            workflowHost(
+              app,
+              reducedMotion: false,
+              home: HomeScreen(controller: app),
+            ),
+          );
+          final ring = find.byType(ConnectionRing);
+          final powerSurface = find.descendant(
+            of: ring,
+            matching: find.byWidgetPredicate(
+              (widget) => widget is Material && widget.shape is CircleBorder,
+            ),
+          );
+          final scheme = Theme.of(tester.element(ring)).colorScheme;
+          final animation = tester
+              .widgetList<AnimatedBuilder>(
+                find.descendant(
+                  of: ring,
+                  matching: find.byType(AnimatedBuilder),
+                ),
+              )
+              .map((widget) => widget.animation)
+              .whereType<AnimationController>()
+              .first;
+          expect(tester.widget<Material>(powerSurface).color, scheme.primary);
+
+          app.snapshot = sample('connected', phase);
+          app.selectSection(AppSection.home);
+          await tester.pump();
+
+          // Check the first closing frame, before either the phase or the
+          // animation has caught up with the final exit's connected stage.
+          expect(animation.duration, UsqueMotion.lock);
+          expect(animation.isAnimating, isTrue);
+          expect(animation.value, 0);
+          expect(
+            tester.widget<Material>(powerSurface).color,
+            scheme.surfaceContainerHigh,
+          );
+          expect(tester.widget<ConnectionRing>(ring).phase, phase);
+          expect(tester.widget<ConnectionRing>(ring).onPressed, isNotNull);
+
+          await tester.pump(const Duration(milliseconds: 200));
+          final closingProgress = animation.value;
+          expect(closingProgress, greaterThan(0));
+          expect(closingProgress, lessThan(1));
+          app.snapshot = sample('connected', ConnectionPhase.connected);
+          app.busy = false;
+          app.selectSection(AppSection.home);
+          await tester.pump();
+          expect(animation.value, closingProgress);
+          expect(
+            tester.widget<Material>(powerSurface).color,
+            scheme.surfaceContainerHigh,
+          );
+          expect(tester.widget<ConnectionRing>(ring).onPressed, isNotNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+        variant: TargetPlatformVariant({
+          TargetPlatform.android,
+          TargetPlatform.windows,
+        }),
+      );
+    }
+  }
 
   for (final source in [ChainSource.httpProxy, ChainSource.socks5Proxy]) {
     for (final locale in [

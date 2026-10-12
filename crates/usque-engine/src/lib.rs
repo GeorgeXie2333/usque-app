@@ -4495,8 +4495,8 @@ impl ControlServiceError {
             Self::Registration(_) => ("REGISTRATION_FAILED", true),
             Self::Vault(_) => ("SECURE_STORAGE_FAILED", false),
             Self::Persistence(_) | Self::PersistenceWorker(_) => ("PERSISTENCE_FAILED", true),
-            Self::Maintenance(maintenance::MaintenanceError::Update(_)) => {
-                ("UPDATE_CHECK_FAILED", true)
+            Self::Maintenance(maintenance::MaintenanceError::Update(error)) => {
+                (error.code(), error.retryable())
             }
             Self::Maintenance(_) => ("DIAGNOSTICS_EXPORT_FAILED", false),
             Self::Diagnostics(diagnostics::DiagnosticsError::AlreadyRunning) => {
@@ -5508,6 +5508,25 @@ fn location_to_proto(location: &usque_core::GeoLocation) -> v1::GeoLocation {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn update_errors_preserve_shared_codes_and_retryability_in_control_responses() {
+        use usque_core::update::UpdateError;
+
+        for error in [
+            UpdateError::ResponseTooLarge,
+            UpdateError::RateLimited,
+            UpdateError::InvalidRelease,
+        ] {
+            let expected_code = error.code();
+            let expected_retryable = error.retryable();
+            let response =
+                ControlServiceError::Maintenance(maintenance::MaintenanceError::Update(error))
+                    .as_structured_error();
+            assert_eq!(response.code, expected_code);
+            assert_eq!(response.retryable, expected_retryable);
+        }
+    }
 
     #[test]
     fn terminal_transport_failure_is_consistent_in_snapshot_and_control_response() {

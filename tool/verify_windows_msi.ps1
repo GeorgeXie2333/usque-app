@@ -796,9 +796,9 @@ try {
     $launchConditions = @($launchRows | ForEach-Object { $_.Condition })
     if (
         $launchConditions -notcontains
-        "Installed OR (VersionNT64 AND WINDOWSBUILDNUMBER >= 19045)"
+        "Installed OR (VersionNT64 AND WINDOWSBUILDNUMBER >= 19041)"
     ) {
-        throw "MSI does not enforce Windows 10 22H2 build 19045+."
+        throw "MSI does not enforce Windows 10 2004 build 19041+."
     }
     if ($launchConditions -notcontains "NOT WIX_DOWNGRADE_DETECTED") {
         throw "MSI does not block downgrades."

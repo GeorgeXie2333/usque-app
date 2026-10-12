@@ -55,7 +55,7 @@ Usque پروژه‌ای مستقل است. به Cloudflare, Inc. وابسته ن
 
 | سکو | حداقل سیستم | بسته‌ها |
 | --- | --- | --- |
-| Windows | Windows 10 22H2، build 19045 | نصب‌کنندهٔ EXE برای x64-v2 یا نصب‌کنندهٔ EXE برای ARM64 |
+| Windows | Windows 10 2004، build 19041 | نصب‌کنندهٔ EXE برای x64-v2 یا نصب‌کنندهٔ EXE برای ARM64 |
 | Android / Android TV | Android 8.0، API 26 | APK برای arm64-v8a، x86_64 یا armeabi-v7a |
 | Android / Android TV | Android 8.0، API 26 | APK یکپارچه شامل هر سه ABI |
 

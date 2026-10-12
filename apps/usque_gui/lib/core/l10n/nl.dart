@@ -270,7 +270,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'export_warp_secret': 'WARP Secret exporteren',
   'close': 'Sluiten',
   'advanced': 'Geavanceerde netwerkinstellingen',
-  'advanced_subtitle': 'Eindpunten, DNS, MTU, routering en Kill Switch.',
+  'advanced_subtitle': 'Eindpunten, DNS, MTU en routering.',
   'advanced_warning':
       'Onjuiste eindpunten, SNI, DNS of MTU kunnen verhinderen dat de tunnel verbinding maakt.',
   'routing_protection': 'Routering en bescherming',
@@ -309,9 +309,9 @@ const Map<String, String> kNlCatalog = <String, String>{
   'lockdown': 'Blokkeren zonder VPN',
   'not_used_proxy': 'Niet gebruikt in proxymodus',
   'kill_switch_help':
-      'Blokkeert verkeer tijdens verbinden of opnieuw verbinden, of als de verbindingsdienst uitvalt.',
+      'Blokkeert verkeer bij verbinden, opnieuw verbinden of storingen.',
   'kill_switch_help_android':
-      'Blokkeert verkeer tijdens verbinden of opnieuw verbinden, of als de verbindingsdienst uitvalt. Dit werkt alleen zolang de VPN-dienst draait. Zet Altijd-aan-VPN en Verbindingen zonder VPN blokkeren aan in de systeeminstellingen om beschermd te blijven nadat Usque is gestopt.',
+      'Blokkeert verkeer bij verbinden, opnieuw verbinden of storingen. Alleen zolang de VPN-dienst draait.',
   'start_on_boot_android':
       'Start Usque nadat het apparaat opnieuw is opgestart. Zet ook “Het huidige account bij het starten automatisch verbinden” aan om automatisch te verbinden.',
   'add_quick_settings_tile_help':

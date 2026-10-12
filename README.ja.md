@@ -55,7 +55,7 @@ Usque は独立したプロジェクトです。Cloudflare, Inc. との提携関
 
 | プラットフォーム | 最低 OS 要件 | パッケージ |
 | --- | --- | --- |
-| Windows | Windows 10 22H2、ビルド 19045 | x64-v2 または ARM64 の EXE インストーラー |
+| Windows | Windows 10 2004、ビルド 19041 | x64-v2 または ARM64 の EXE インストーラー |
 | Android / Android TV | Android 8.0、API 26 | arm64-v8a、x86_64、armeabi-v7a の APK |
 | Android / Android TV | Android 8.0、API 26 | 上記 3 種類の ABI を含むユニバーサル APK |
 

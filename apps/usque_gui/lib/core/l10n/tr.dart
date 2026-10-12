@@ -269,7 +269,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'export_warp_secret': 'WARP Secret’ı dışa aktar',
   'close': 'Kapat',
   'advanced': 'Gelişmiş ağ ayarları',
-  'advanced_subtitle': 'Uç noktalar, DNS, MTU, yönlendirme ve Kill Switch.',
+  'advanced_subtitle': 'Uç noktalar, DNS, MTU ve yönlendirme.',
   'advanced_warning':
       'Yanlış uç noktalar, SNI, DNS veya MTU tünelin bağlanmasını engelleyebilir.',
   'routing_protection': 'Yönlendirme ve koruma',
@@ -309,9 +309,9 @@ const Map<String, String> kTrCatalog = <String, String>{
   'lockdown': 'VPN olmadan engelle',
   'not_used_proxy': 'Proxy modunda kullanılmaz',
   'kill_switch_help':
-      'Bağlanırken, yeniden bağlanırken veya bağlantı hizmeti hata verdiğinde trafiği engeller.',
+      'Bağlanırken, yeniden bağlanırken veya hata durumunda trafiği engeller.',
   'kill_switch_help_android':
-      'Bağlanırken, yeniden bağlanırken veya bağlantı hizmeti hata verdiğinde trafiği engeller. Yalnızca VPN hizmeti çalışırken etkindir. Usque durduktan sonra da korunmak için sistem ayarlarında “Her zaman açık VPN” ve “VPN olmadan bağlantıları engelle” seçeneklerini açın.',
+      'Bağlanırken, yeniden bağlanırken veya hata durumunda trafiği engeller. Yalnızca VPN hizmeti çalışırken.',
   'start_on_boot_android':
       'Cihaz yeniden başladıktan sonra Usque’yi başlatır. Otomatik bağlanmak için “Başlangıçta geçerli hesaba otomatik bağlan” seçeneğini de açın.',
   'add_quick_settings_tile_help':
