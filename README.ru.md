@@ -55,7 +55,7 @@ Usque — независимый проект. Он не принадлежит 
 
 | Платформа | Минимальная ОС | Пакеты |
 | --- | --- | --- |
-| Windows | Windows 10 22H2, сборка 19045 | установщик EXE для x64-v2 или установщик EXE для ARM64 |
+| Windows | Windows 10 2004, сборка 19041 | установщик EXE для x64-v2 или установщик EXE для ARM64 |
 | Android / Android TV | Android 8.0, API 26 | APK arm64-v8a, x86_64 или armeabi-v7a |
 | Android / Android TV | Android 8.0, API 26 | универсальный APK со всеми тремя ABI |
 

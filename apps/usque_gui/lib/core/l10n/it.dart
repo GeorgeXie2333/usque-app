@@ -274,7 +274,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'export_warp_secret': 'Esporta WARP Secret',
   'close': 'Chiudi',
   'advanced': 'Impostazioni di rete avanzate',
-  'advanced_subtitle': 'Endpoint, DNS, MTU, instradamento e Kill Switch.',
+  'advanced_subtitle': 'Endpoint, DNS, MTU e instradamento.',
   'advanced_warning':
       'Endpoint, SNI, DNS o MTU non corretti possono impedire la connessione del tunnel.',
   'routing_protection': 'Instradamento e protezione',
@@ -314,9 +314,9 @@ const Map<String, String> kItCatalog = <String, String>{
   'lockdown': 'Blocca senza VPN',
   'not_used_proxy': 'Non usato in modalità proxy',
   'kill_switch_help':
-      'Blocca il traffico durante la connessione o la riconnessione, o in caso di errore del servizio di connessione.',
+      'Blocca il traffico in connessione, riconnessione o in caso di errore.',
   'kill_switch_help_android':
-      'Blocca il traffico durante la connessione o la riconnessione, o in caso di errore del servizio di connessione. Funziona solo mentre il servizio VPN è attivo. Per restare protetto dopo l’arresto di Usque, attiva VPN sempre attiva e Blocca connessioni senza VPN nelle impostazioni di sistema.',
+      'Blocca il traffico in connessione, riconnessione o in caso di errore. Solo con il servizio VPN attivo.',
   'start_on_boot_android':
       'Avvia Usque dopo il riavvio del dispositivo. Per connetterti automaticamente, attiva anche “Connetti automaticamente l’account corrente all’avvio”.',
   'add_quick_settings_tile_help':

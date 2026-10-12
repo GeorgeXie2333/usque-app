@@ -24,6 +24,19 @@ internal object AndroidMaintenance {
     private val UPDATE_SHA256 = Regex("^[0-9a-f]{64}$")
     private val UPDATE_VARIANTS = setOf("arm64-v8a", "x86_64", "armeabi-v7a")
 
+    // JNI throws only fixed codes. Never forward arbitrary exception text to UI.
+    fun updateCheckErrorCode(error: Exception): String =
+        when (val code = error.message) {
+            "UPDATE_CHECK_NETWORK",
+            "UPDATE_CHECK_RATE_LIMITED",
+            "UPDATE_CHECK_UNAVAILABLE",
+            "UPDATE_CHECK_RESPONSE_TOO_LARGE",
+            "UPDATE_CHECK_INVALID_RESPONSE",
+            -> code
+
+            else -> "UPDATE_CHECK_FAILED"
+        }
+
     @Suppress("UNUSED_PARAMETER")
     fun checkForUpdates(
         context: Context,
@@ -44,7 +57,7 @@ internal object AndroidMaintenance {
     fun cleanupLegacyUpdateState(context: Context) {
         context
             .getSharedPreferences(UPDATE_PREFERENCES, Context.MODE_PRIVATE)
-            .edit { clear() }
+            .edit(commit = true) { clear() }
     }
 
     fun writeDiagnostics(

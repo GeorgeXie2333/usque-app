@@ -270,7 +270,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'export_warp_secret': 'Eksportuj WARP Secret',
   'close': 'Zamknij',
   'advanced': 'Zaawansowane ustawienia sieci',
-  'advanced_subtitle': 'Punkty końcowe, DNS, MTU, trasowanie i Kill Switch.',
+  'advanced_subtitle': 'Punkty końcowe, DNS, MTU i trasowanie.',
   'advanced_warning':
       'Nieprawidłowe punkty końcowe, SNI, DNS lub MTU mogą uniemożliwić połączenie tunelu.',
   'routing_protection': 'Trasowanie i ochrona',
@@ -310,9 +310,9 @@ const Map<String, String> kPlCatalog = <String, String>{
   'lockdown': 'Blokuj bez VPN',
   'not_used_proxy': 'Nieużywane w trybie proxy',
   'kill_switch_help':
-      'Blokuje ruch podczas łączenia i ponownego łączenia oraz w razie awarii usługi połączenia.',
+      'Blokuje ruch podczas łączenia, ponownego łączenia lub awarii.',
   'kill_switch_help_android':
-      'Blokuje ruch podczas łączenia i ponownego łączenia oraz w razie awarii usługi połączenia. Działa tylko przy uruchomionej usłudze VPN. Aby zachować ochronę po zatrzymaniu Usque, włącz w ustawieniach systemu „Zawsze włączony VPN” i „Blokuj połączenia bez VPN”.',
+      'Blokuje ruch podczas łączenia, ponownego łączenia lub awarii. Tylko gdy działa usługa VPN.',
   'start_on_boot_android':
       'Uruchamiaj Usque po ponownym uruchomieniu urządzenia. Aby łączyć się automatycznie, włącz też „Łącz automatycznie bieżące konto przy uruchomieniu”.',
   'add_quick_settings_tile_help':

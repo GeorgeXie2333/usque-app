@@ -265,7 +265,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'export_warp_secret': 'Ekspor WARP Secret',
   'close': 'Tutup',
   'advanced': 'Pengaturan jaringan lanjutan',
-  'advanced_subtitle': 'Endpoint, DNS, MTU, perutean, dan Kill Switch.',
+  'advanced_subtitle': 'Endpoint, DNS, MTU, dan perutean.',
   'advanced_warning':
       'Endpoint, SNI, DNS, atau MTU yang salah dapat mencegah terowongan tersambung.',
   'routing_protection': 'Perutean & perlindungan',
@@ -305,9 +305,9 @@ const Map<String, String> kIdCatalog = <String, String>{
   'lockdown': 'Blokir tanpa VPN',
   'not_used_proxy': 'Tidak digunakan dalam mode proksi',
   'kill_switch_help':
-      'Blokir lalu lintas saat menyambung atau menyambung ulang, atau jika layanan koneksi gagal.',
+      'Blokir lalu lintas saat menyambung, menyambung ulang, atau gagal.',
   'kill_switch_help_android':
-      'Blokir lalu lintas saat menyambung atau menyambung ulang, atau jika layanan koneksi gagal. Ini hanya berlaku saat layanan VPN berjalan. Agar tetap terlindungi setelah Usque berhenti, aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN di pengaturan sistem.',
+      'Blokir lalu lintas saat menyambung, menyambung ulang, atau gagal. Hanya saat layanan VPN berjalan.',
   'start_on_boot_android':
       'Jalankan Usque setelah perangkat dimulai ulang. Untuk menyambung otomatis, aktifkan juga “Sambungkan akun saat ini secara otomatis saat mulai”.',
   'add_quick_settings_tile_help':

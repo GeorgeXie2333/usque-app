@@ -9,6 +9,7 @@ import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/screens/per_app_proxy_screen.dart';
 import 'package:usque/screens/profiles_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
+import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
@@ -305,6 +306,7 @@ void main() {
       final engine = FormEngine();
       final app = appFor(engine);
       app.sharedNetwork = app.sharedNetwork.copyWith(
+        killSwitch: false,
         dataPlane: DataPlaneMode.l4Proxy,
         dnsMode: DnsMode.system,
         proxy: const ProxySettings(
@@ -333,6 +335,8 @@ void main() {
       expect(engine.savedValues?.proxy.dnsMode, ProxyDnsMode.remote);
       expect(engine.savedValues?.dnsMode, DnsMode.tunnel);
       expect(engine.savedValues?.proxy.authUsername, 'existing-user');
+      expect(engine.savedValues?.killSwitch, isFalse);
+      expect(engine.savedFields, isNot(contains('kill_switch')));
       expect(
         engine.savedFields,
         containsAll([
@@ -381,17 +385,20 @@ void main() {
       try {
         final app = appFor(FormEngine());
         await tester.pumpWidget(
-          workflowHost(app, home: AdvancedSettingsScreen(controller: app)),
+          workflowHost(app, home: SettingsScreen(controller: app)),
         );
         await tester.pumpAndSettle();
 
         final help = find.textContaining(
-          'Block traffic while connecting or reconnecting',
+          'Block traffic while connecting, reconnecting or on failure.',
           skipOffstage: false,
         );
         expect(help, findsOneWidget);
         expect(
-          tester.widget<Text>(help).data!.contains('Always-on VPN'),
+          tester
+              .widget<Text>(help)
+              .data!
+              .contains('Only while the VPN service runs.'),
           android,
         );
       } finally {

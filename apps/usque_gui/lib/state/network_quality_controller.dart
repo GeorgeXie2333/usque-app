@@ -17,13 +17,19 @@ class NetworkQualityController extends ChangeNotifier {
   }) : _now = now ?? DateTime.now;
 
   static const int historyCapacity = 300;
+  static const int traceCapacity = 60;
   static const Duration staleAfter = Duration(seconds: 3);
+  static final _emptyTrace = List<int?>.unmodifiable(
+    List<int?>.filled(traceCapacity, null),
+  );
   final EngineClient _engine;
   final DateTime Function() _now;
   final bool autoTick;
   final _quality = SplayTreeMap<int, ({int? rtt, int? loss})>();
   final _counters = SplayTreeMap<int, _CounterReading>();
   final _retiredIds = ListQueue<String>();
+  final _traces = <NetworkQualityTrace, _TraceCache>{};
+  int _historyRevision = 0;
   Timer? _timer;
   bool _disposed = false;
   bool _enabled = false;
@@ -170,6 +176,7 @@ class NetworkQualityController extends ChangeNotifier {
           value.uploadedBytes,
           _counterEpoch,
         );
+        _historyRevision++;
         _trim();
       }
       _lastSnapshot = value;
@@ -245,6 +252,7 @@ class NetworkQualityController extends ChangeNotifier {
           value.metrics.intervalLossAvailability,
         ),
       );
+      _historyRevision++;
       _trim();
     }
   }
@@ -278,6 +286,7 @@ class NetworkQualityController extends ChangeNotifier {
         rtt: sample.rttMilliseconds,
         loss: sample.lossBasisPoints,
       );
+      _historyRevision++;
       final down = sample.downloadedBytes;
       final up = sample.uploadedBytes;
       if (down != null && up != null && down >= 0 && up >= 0) {
@@ -327,6 +336,8 @@ class NetworkQualityController extends ChangeNotifier {
     latest = null;
     _quality.clear();
     _counters.clear();
+    _historyRevision++;
+    _traces.clear();
     _origin = null;
     _counterOrigin = null;
     _acceptAfter = null;
@@ -395,14 +406,54 @@ class NetworkQualityController extends ChangeNotifier {
   }
 
   List<int?> trace(int? Function(NetworkQualityPoint point) value) {
-    final samples = List<int?>.filled(60, null);
-    if (_origin == null) return List.unmodifiable(samples);
+    if (_origin == null) return _emptyTrace;
+    final samples = List<int?>.filled(traceCapacity, null);
     final end = _windowLastSlot;
-    for (final point in history) {
-      final index = _slot(point.at) - (end - 59);
-      if (index >= 0 && index < samples.length) samples[index] = value(point);
+    final start = end - traceCapacity + 1;
+    for (var slot = start; slot <= end; slot++) {
+      if (!_quality.containsKey(slot) && !_counters.containsKey(slot)) continue;
+      final metrics = _quality[slot];
+      samples[slot - start] = value(
+        NetworkQualityPoint(
+          at: _origin!.add(Duration(seconds: slot)),
+          rttMilliseconds: metrics?.rtt,
+          lossBasisPoints: metrics?.loss,
+          downloadBytesPerSecond: _intervalRate(slot, true),
+          uploadBytesPerSecond: _intervalRate(slot, false),
+        ),
+      );
     }
     return List.unmodifiable(samples);
+  }
+
+  /// Only the four displayed metrics are cached, never caller-owned closures.
+  /// A timer may move the window without new data, while Pause freezes it.
+  List<int?> traceFor(NetworkQualityTrace metric) {
+    if (_origin == null) return _emptyTrace;
+    final end = _windowLastSlot;
+    final previous = _traces[metric];
+    if (previous != null &&
+        previous.revision == _historyRevision &&
+        previous.end == end) {
+      return previous.samples;
+    }
+    final start = end - traceCapacity + 1;
+    final samples = List<int?>.generate(traceCapacity, (index) {
+      final slot = start + index;
+      return switch (metric) {
+        NetworkQualityTrace.rtt => _quality[slot]?.rtt,
+        NetworkQualityTrace.loss => _quality[slot]?.loss,
+        NetworkQualityTrace.download => _intervalRate(slot, true),
+        NetworkQualityTrace.upload => _intervalRate(slot, false),
+      };
+    }, growable: false);
+    // New observations still enter history, even when a constant trace looks
+    // identical. Reusing its immutable list also avoids an unchanged repaint.
+    final result = previous != null && listEquals(previous.samples, samples)
+        ? previous.samples
+        : List<int?>.unmodifiable(samples);
+    _traces[metric] = _TraceCache(_historyRevision, end, result);
+    return result;
   }
 
   int? rateAverage({required bool download, required int seconds}) {
@@ -477,8 +528,17 @@ class NetworkQualityController extends ChangeNotifier {
     _timer?.cancel();
     _quality.clear();
     _counters.clear();
+    _traces.clear();
     super.dispose();
   }
+}
+
+class _TraceCache {
+  const _TraceCache(this.revision, this.end, this.samples);
+
+  final int revision;
+  final int end;
+  final List<int?> samples;
 }
 
 class _CounterReading {

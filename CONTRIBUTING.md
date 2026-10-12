@@ -83,7 +83,7 @@ or isolated checks in the matrix below.
 
 ## Branches, commits, and pull requests
 
-1. Branch from an up-to-date `main`. Long-lived local branches are fine; the pull request still targets `main`.
+1. For dependency updates, branch from an up-to-date `dev` and target `dev`. Other pull requests branch from and target `main`. Long-lived local branches are fine; keep the target branch current before merging.
 2. Leave unrelated formatting and generated-file noise out of the change.
 3. Add or update tests before opening the pull request.
 4. Fill in the pull request template and list tests you did not run.

@@ -265,7 +265,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'export_warp_secret': 'صادر کردن WARP Secret',
   'close': 'بستن',
   'advanced': 'تنظیمات پیشرفتهٔ شبکه',
-  'advanced_subtitle': 'نقاط پایانی، DNS، MTU، مسیریابی و Kill Switch.',
+  'advanced_subtitle': 'نقاط پایانی، DNS، MTU و مسیریابی.',
   'advanced_warning':
       'نقاط پایانی، SNI، DNS یا MTU نادرست می‌تواند مانع اتصال تونل شود.',
   'routing_protection': 'مسیریابی و حفاظت',
@@ -304,10 +304,9 @@ const Map<String, String> kFaCatalog = <String, String>{
   'always_on': 'VPN همیشه روشن',
   'lockdown': 'مسدودسازی بدون VPN',
   'not_used_proxy': 'در حالت پروکسی استفاده نمی‌شود',
-  'kill_switch_help':
-      'هنگام اتصال یا اتصال دوباره، یا اگر سرویس اتصال از کار بیفتد، ترافیک را مسدود می‌کند.',
+  'kill_switch_help': 'مسدودسازی ترافیک هنگام اتصال، اتصال مجدد یا خطا.',
   'kill_switch_help_android':
-      'هنگام اتصال یا اتصال دوباره، یا اگر سرویس اتصال از کار بیفتد، ترافیک را مسدود می‌کند. این فقط تا زمانی کار می‌کند که سرویس VPN در حال اجرا باشد. برای ادامهٔ محافظت پس از توقف Usque، «VPN همیشه روشن» و «مسدود کردن اتصال‌های بدون VPN» را در تنظیمات سیستم روشن کنید.',
+      'مسدودسازی ترافیک هنگام اتصال، اتصال مجدد یا خطا. فقط هنگام اجرای سرویس VPN.',
   'start_on_boot_android':
       'Usque را پس از راه‌اندازی مجدد دستگاه اجرا می‌کند. برای اتصال خودکار، «اتصال خودکار حساب جاری هنگام شروع» را نیز روشن کنید.',
   'add_quick_settings_tile_help':

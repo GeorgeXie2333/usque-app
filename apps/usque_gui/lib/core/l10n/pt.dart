@@ -270,7 +270,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'export_warp_secret': 'Exportar WARP Secret',
   'close': 'Fechar',
   'advanced': 'Configurações avançadas de rede',
-  'advanced_subtitle': 'Endpoints, DNS, MTU, roteamento e Kill Switch.',
+  'advanced_subtitle': 'Endpoints, DNS, MTU e roteamento.',
   'advanced_warning':
       'Endpoints, SNI, DNS ou MTU incorretos podem impedir a conexão do túnel.',
   'routing_protection': 'Roteamento e proteção',
@@ -310,9 +310,9 @@ const Map<String, String> kPtCatalog = <String, String>{
   'lockdown': 'Bloquear sem VPN',
   'not_used_proxy': 'Não usado no modo proxy',
   'kill_switch_help':
-      'Bloqueia o tráfego durante a conexão ou reconexão, ou se o serviço de conexão falhar.',
+      'Bloqueia o tráfego ao conectar, reconectar ou em caso de falha.',
   'kill_switch_help_android':
-      'Bloqueia o tráfego durante a conexão ou reconexão, ou se o serviço de conexão falhar. Funciona apenas enquanto o serviço VPN está ativo. Para continuar protegido depois que o Usque parar, ative VPN sempre ativada e Bloquear conexões sem VPN nas configurações do sistema.',
+      'Bloqueia o tráfego ao conectar, reconectar ou em caso de falha. Só com o serviço VPN ativo.',
   'start_on_boot_android':
       'Inicie o Usque quando o dispositivo reiniciar. Para conectar automaticamente, ative também “Conectar a conta atual automaticamente ao iniciar”.',
   'add_quick_settings_tile_help':

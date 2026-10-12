@@ -55,7 +55,7 @@ These development docs prepare **v0.3.1**; application metadata and the release 
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
-| Windows | Windows 10 22H2, build 19045 | x64-v2 installer EXE or ARM64 installer EXE |
+| Windows | Windows 10 2004, build 19041 | x64-v2 installer EXE or ARM64 installer EXE |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64, or armeabi-v7a APK |
 | Android / Android TV | Android 8.0, API 26 | Universal APK containing all three ABIs |
 

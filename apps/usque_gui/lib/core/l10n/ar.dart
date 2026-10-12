@@ -259,7 +259,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'export_warp_secret': 'تصدير WARP Secret',
   'close': 'إغلاق',
   'advanced': 'إعدادات الشبكة المتقدمة',
-  'advanced_subtitle': 'نقاط النهاية، وDNS، وMTU، والتوجيه، وKill Switch.',
+  'advanced_subtitle': 'نقاط النهاية، وDNS، وMTU، والتوجيه.',
   'advanced_warning':
       'قد تمنع نقاط النهاية أو SNI أو DNS أو MTU غير الصحيحة النفق من الاتصال.',
   'routing_protection': 'التوجيه والحماية',
@@ -298,10 +298,9 @@ const Map<String, String> kArCatalog = <String, String>{
   'always_on': 'VPN دائم التشغيل',
   'lockdown': 'الحظر دون VPN',
   'not_used_proxy': 'غير مستخدم في وضع الوكيل',
-  'kill_switch_help':
-      'يمنع حركة البيانات أثناء الاتصال أو إعادة الاتصال، أو عند تعطل خدمة الاتصال.',
+  'kill_switch_help': 'يحظر البيانات أثناء الاتصال أو إعادته أو عند حدوث خلل.',
   'kill_switch_help_android':
-      'يمنع حركة البيانات أثناء الاتصال أو إعادة الاتصال، أو عند تعطل خدمة الاتصال. يعمل هذا فقط أثناء تشغيل خدمة VPN. لاستمرار الحماية بعد توقف Usque، فعّل «VPN دائم التشغيل» و«حظر الاتصالات دون VPN» في إعدادات النظام.',
+      'يحظر البيانات أثناء الاتصال أو إعادته أو عند حدوث خلل. فقط أثناء تشغيل خدمة VPN.',
   'start_on_boot_android':
       'يشغّل Usque بعد إعادة تشغيل الجهاز. للاتصال تلقائيًا، فعّل أيضًا «الاتصال بالحساب الحالي تلقائيًا عند البدء».',
   'add_quick_settings_tile_help':

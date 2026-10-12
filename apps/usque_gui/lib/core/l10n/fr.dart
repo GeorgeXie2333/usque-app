@@ -276,8 +276,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'export_warp_secret': 'Exporter le WARP Secret',
   'close': 'Fermer',
   'advanced': 'Paramètres réseau avancés',
-  'advanced_subtitle':
-      'Points de terminaison, DNS, MTU, routage et Kill Switch.',
+  'advanced_subtitle': 'Points de terminaison, DNS, MTU et routage.',
   'advanced_warning':
       'Des points de terminaison, SNI, DNS ou MTU incorrects peuvent empêcher le tunnel de se connecter.',
   'routing_protection': 'Routage et protection',
@@ -317,9 +316,9 @@ const Map<String, String> kFrCatalog = <String, String>{
   'lockdown': 'Bloquer sans VPN',
   'not_used_proxy': 'Non utilisé en mode proxy',
   'kill_switch_help':
-      'Bloque le trafic pendant la connexion ou la reconnexion, ou en cas de défaillance du service de connexion.',
+      'Bloque le trafic à la connexion, reconnexion ou en cas de panne.',
   'kill_switch_help_android':
-      'Bloque le trafic pendant la connexion ou la reconnexion, ou en cas de défaillance du service de connexion. Cela ne fonctionne que lorsque le service VPN est actif. Pour rester protégé après l’arrêt d’Usque, activez VPN toujours actif et Bloquer les connexions sans VPN dans les paramètres système.',
+      'Bloque le trafic à la connexion, reconnexion ou en cas de panne. Uniquement si le service VPN est actif.',
   'start_on_boot_android':
       'Démarrer Usque après le redémarrage de l’appareil. Pour vous connecter automatiquement, activez aussi « Connecter automatiquement le compte actuel au démarrage ».',
   'add_quick_settings_tile_help':
