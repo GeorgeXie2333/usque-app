@@ -250,7 +250,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'export_warp_secret': 'WARP Secret をエクスポート',
   'close': '閉じる',
   'advanced': '高度なネットワーク設定',
-  'advanced_subtitle': 'エンドポイント、DNS、MTU、ルーティング、Kill Switch。',
+  'advanced_subtitle': 'エンドポイント、DNS、MTU、ルーティング。',
   'advanced_warning': 'エンドポイント、SNI、DNS、MTU が正しくないと、トンネルに接続できなくなることがあります。',
   'routing_protection': 'ルーティングと保護',
   'transport': 'トランスポート',
@@ -287,9 +287,8 @@ const Map<String, String> kJaCatalog = <String, String>{
   'always_on': '常時オン VPN',
   'lockdown': 'VPN なしではブロック',
   'not_used_proxy': 'プロキシモードでは使用しません',
-  'kill_switch_help': '接続中、再接続中、または接続サービスの障害時に通信を遮断します。',
-  'kill_switch_help_android':
-      '接続中、再接続中、または接続サービスの障害時に通信を遮断します。VPN サービスの動作中のみ有効です。Usque の停止後も保護するには、システム設定で「常時オン VPN」と「VPN なしでは接続をブロック」を有効にしてください。',
+  'kill_switch_help': '接続・再接続・障害時に通信を遮断。',
+  'kill_switch_help_android': '接続・再接続・障害時に通信を遮断。VPN サービス動作中のみ有効。',
   'start_on_boot_android':
       '端末の再起動後に Usque を起動します。自動で接続するには、「起動時に現在のアカウントへ自動接続」もオンにしてください。',
   'add_quick_settings_tile_help':

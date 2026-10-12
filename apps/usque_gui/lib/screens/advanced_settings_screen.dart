@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
@@ -20,16 +19,9 @@ import '../widgets/warp_dns_editor.dart';
 import '../widgets/zero_trust_endpoint_warning.dart';
 
 class AdvancedSettingsScreen extends StatefulWidget {
-  const AdvancedSettingsScreen({
-    required this.controller,
-    this.revealKillSwitch = false,
-    super.key,
-  });
+  const AdvancedSettingsScreen({required this.controller, super.key});
 
   final AppController controller;
-
-  /// Scrolls the Kill Switch draft switch into view once the page is laid out.
-  final bool revealKillSwitch;
 
   @override
   State<AdvancedSettingsScreen> createState() => _AdvancedSettingsScreenState();
@@ -49,7 +41,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late CongestionControlAlgorithm _congestionControl;
   late IpPolicy _ipPolicy;
   late EndpointSelection _endpointSelection;
-  late bool _killSwitch;
   late bool _allowLan;
   late bool _disableQuic;
   late DirectDnsSettings _directDns;
@@ -59,7 +50,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   final _directDnsKey = GlobalKey<DirectDnsEditorState>();
   final _warpDnsKey = GlobalKey<WarpDnsEditorState>();
   int _dnsResetRevision = 0;
-  final _killSwitchKey = GlobalKey();
   bool _saving = false;
   String? _endpointAcknowledgedAccount;
   bool _endpointWarningOpen = false;
@@ -99,7 +89,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _dataPlane,
     _congestionControl,
     _ipPolicy,
-    _killSwitch,
     _allowLan,
     _disableQuic,
     _directDns,
@@ -197,20 +186,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _dnsV6 = TextEditingController();
     _load(widget.controller.activeProfile);
     widget.controller.addListener(_accountChanged);
-    if (widget.revealKillSwitch) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final target = _killSwitchKey.currentContext;
-        if (!mounted || target == null) return;
-        Scrollable.ensureVisible(
-          target,
-          alignment: 0.2,
-          duration: UsqueMotion.reduced(context)
-              ? Duration.zero
-              : UsqueMotion.gentle,
-          curve: UsqueMotion.emphasized,
-        );
-      });
-    }
   }
 
   void _load(UsqueProfile profile, {bool baseline = true}) {
@@ -227,7 +202,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _congestionControl = profile.congestionControl;
     _ipPolicy = profile.ipPolicy;
     _endpointSelection = profile.endpointSelection;
-    _killSwitch = profile.killSwitch;
     _allowLan = profile.allowLan;
     _disableQuic = profile.disableQuic;
     _directDns = profile.directDns;
@@ -380,23 +354,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            SwitchListTile(
-              key: _killSwitchKey,
-              contentPadding: EdgeInsets.zero,
-              secondary: const Icon(LucideIcons.shieldCheck),
-              title: Text(strings.get('kill_switch')),
-              subtitle: Text(
-                strings.get(
-                  defaultTargetPlatform == TargetPlatform.android
-                      ? 'kill_switch_help_android'
-                      : 'kill_switch_help',
-                ),
-              ),
-              value: _killSwitch,
-              onChanged: _saving
-                  ? null
-                  : (value) => setState(() => _killSwitch = value),
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(LucideIcons.house),
@@ -965,7 +922,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'data_plane',
       'congestion_control',
       'ip_policy',
-      'kill_switch',
       'allow_lan',
       'disable_quic',
       'direct_dns',
@@ -1016,7 +972,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         dnsIpv6: _warpDns.mode == WarpDnsMode.plain
             ? _dnsV6.text.trim()
             : profile.dnsIpv6,
-        killSwitch: _killSwitch,
         allowLan: _allowLan,
         disableQuic: _disableQuic,
         directDns: _directDns,

@@ -32,7 +32,7 @@ body:
     attributes:
       label: Platform
       options:
-        - Windows 10 22H2
+        - Windows 10 2004 or later
         - Windows 11
         - Android
         - Android TV

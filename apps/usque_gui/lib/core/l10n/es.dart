@@ -273,7 +273,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'export_warp_secret': 'Exportar WARP Secret',
   'close': 'Cerrar',
   'advanced': 'Ajustes avanzados de red',
-  'advanced_subtitle': 'Extremos, DNS, MTU, enrutamiento y Kill Switch.',
+  'advanced_subtitle': 'Extremos, DNS, MTU y enrutamiento.',
   'advanced_warning':
       'Unos extremos, SNI, DNS o MTU incorrectos pueden impedir que el túnel se conecte.',
   'routing_protection': 'Enrutamiento y protección',
@@ -313,9 +313,9 @@ const Map<String, String> kEsCatalog = <String, String>{
   'lockdown': 'Bloquear sin VPN',
   'not_used_proxy': 'No se usa en modo proxy',
   'kill_switch_help':
-      'Bloquea el tráfico durante la conexión o la reconexión, o si falla el servicio de conexión.',
+      'Bloquea el tráfico al conectar, reconectar o ante fallos.',
   'kill_switch_help_android':
-      'Bloquea el tráfico durante la conexión o la reconexión, o si falla el servicio de conexión. Solo actúa mientras se ejecuta el servicio VPN. Para mantener la protección cuando Usque se detenga, active VPN siempre activada y Bloquear conexiones sin VPN en los ajustes del sistema.',
+      'Bloquea el tráfico al conectar, reconectar o ante fallos. Solo con el servicio VPN activo.',
   'start_on_boot_android':
       'Inicie Usque cuando el dispositivo se reinicie. Para conectarse automáticamente, active también “Conectar la cuenta actual automáticamente al iniciar”.',
   'add_quick_settings_tile_help':

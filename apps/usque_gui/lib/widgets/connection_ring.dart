@@ -35,7 +35,8 @@ class ConnectionRing extends StatefulWidget {
   final String? semanticLabel;
   final bool compactControl;
 
-  /// Replaces the phase bezel while a chain session is the home status.
+  /// Replaces the phase bezel and can engage the power button while a chain
+  /// session is the home status.
   /// The action label stays with the real connection control.
   final ConnectionPresentation? presentation;
 
@@ -160,10 +161,12 @@ class _ConnectionRingState extends State<ConnectionRing>
               contentScale: widget.compactControl ? 1 : widget.size / 244,
               label: widget.actionLabel,
               busy: widget.busy,
-              // The bezel follows the chain stage. The control stays with the
-              // real session, so an open tunnel can still be disconnected
-              // while the exit is still being applied.
-              engaged: ConnectionPresentation.of(widget.phase).engaged,
+              // A connected chain quiets the control as its bezel closes,
+              // even when the overall phase has not caught up. An open tunnel
+              // also stays engaged while its exit is still being applied.
+              engaged:
+                  _presentation.engaged ||
+                  ConnectionPresentation.of(widget.phase).engaged,
               onPressed: widget.onPressed,
             ),
           ],

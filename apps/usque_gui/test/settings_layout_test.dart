@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,7 +68,7 @@ void main() {
     expect(top(autoConnect), lessThan(routing));
   });
 
-  testWidgets('Settings Kill Switch row reports the configured state', (
+  testWidgets('Settings Kill Switch shows the saved preference in every mode', (
     tester,
   ) async {
     final app = await pumpWorkflow(
@@ -74,9 +76,11 @@ void main() {
       WorkflowEngine(),
       section: AppSection.settings,
     );
-    String value() => tester
-        .widget<Text>(find.byKey(const ValueKey('settings-kill-switch-value')))
-        .data!;
+    bool value() => tester
+        .widget<SwitchListTile>(
+          find.byKey(const ValueKey('settings-kill-switch-row')),
+        )
+        .value;
     Future<void> show(UsqueProfile profile) async {
       app.sharedNetwork = profile;
       await tester.pumpWidget(
@@ -89,9 +93,9 @@ void main() {
       frontends: const FrontendSettings(tunnel: true, socks5: true, http: true),
     );
     await show(base.copyWith(killSwitch: true));
-    expect(value(), app.strings.get('on'));
+    expect(value(), isTrue);
     await show(base.copyWith(killSwitch: false));
-    expect(value(), app.strings.get('off'));
+    expect(value(), isFalse);
     await show(
       base.copyWith(
         killSwitch: true,
@@ -102,39 +106,70 @@ void main() {
         ),
       ),
     );
-    expect(value(), app.strings.get('not_used_proxy'));
+    expect(value(), isTrue);
   });
 
-  testWidgets('Kill Switch row reveals the draft switch without applying', (
+  testWidgets('Kill Switch saves on Settings and locks until confirmed', (
     tester,
   ) async {
-    final engine = WorkflowEngine();
+    final engine = WorkflowEngine()..pendingWrite = Completer<void>();
     final app = await pumpWorkflow(
       tester,
       engine,
       section: AppSection.settings,
       size: const Size(375, 812),
     );
+    app.initialized = true;
+    app.networkSettings.supported = true;
+    await tester.pumpWidget(workflowHost(app));
     final row = find.byKey(const ValueKey('settings-kill-switch-row'));
     await tester.ensureVisible(row);
     await tester.pumpAndSettle();
+    final toggle = tester.widget<SwitchListTile>(row).onChanged!;
+    await tester.tap(row);
+    toggle(false);
+    await tester.pump();
+    expect(engine.writes, 1);
+    expect(tester.widget<SwitchListTile>(row).onChanged, isNull);
+    expect(tester.widget<SwitchListTile>(row).value, isTrue);
+    expect(find.byType(AdvancedSettingsScreen), findsNothing);
+    engine.pendingWrite!.complete();
+    await tester.pumpAndSettle();
+    expect(app.activeProfile.killSwitch, isFalse);
+    expect(tester.widget<SwitchListTile>(row).value, isFalse);
+    expect(tester.widget<SwitchListTile>(row).onChanged, isNotNull);
+    expect(app.networkSettings.state!.deferredFields, ['kill_switch']);
     await tester.tap(row);
     await tester.pumpAndSettle();
-    final advanced = find.byType(AdvancedSettingsScreen);
-    expect(advanced, findsOneWidget);
-    expect(
-      find
-          .descendant(
-            of: advanced,
-            matching: find.widgetWithText(
-              SwitchListTile,
-              app.strings.get('kill_switch'),
-            ),
-          )
-          .hitTestable(),
-      findsOneWidget,
+    expect(app.activeProfile.killSwitch, isTrue);
+    expect(engine.writes, 2);
+
+    await tester.tap(find.widgetWithText(LinkRow, app.strings.get('advanced')));
+    await tester.pumpAndSettle();
+    expect(find.byType(AdvancedSettingsScreen), findsOneWidget);
+    expect(find.text(app.strings.get('kill_switch')), findsNothing);
+    expect(engine.writes, 2);
+  });
+
+  testWidgets('failed Kill Switch save keeps the confirmed value and error', (
+    tester,
+  ) async {
+    final engine = WorkflowEngine()..failProfileUpsert = true;
+    final app = await pumpWorkflow(
+      tester,
+      engine,
+      section: AppSection.settings,
     );
-    expect(engine.writes, 0);
+    app.initialized = true;
+    app.networkSettings.supported = true;
+    await tester.pumpWidget(workflowHost(app));
+    final row = find.byKey(const ValueKey('settings-kill-switch-row'));
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    expect(engine.writes, 1);
+    expect(app.activeProfile.killSwitch, isTrue);
+    expect(tester.widget<SwitchListTile>(row).value, isTrue);
+    expect(find.text(app.strings.get('settings_save_failed')), findsOneWidget);
   });
 
   testWidgets('Proxy outputs lead with the tunnel switch', (tester) async {
@@ -170,7 +205,7 @@ void main() {
       section: AppSection.settings,
       size: const Size(375, 812),
     );
-    for (final key in ['kill_switch', 'geo_direct']) {
+    for (final key in ['advanced', 'geo_direct']) {
       final row = find.widgetWithText(LinkRow, app.strings.get(key));
       await tester.ensureVisible(row);
       await tester.pumpAndSettle();
@@ -189,19 +224,6 @@ void main() {
       // Vertically centred on the row, not pushed onto a line of its own.
       expect(chevron.center.dy, closeTo(rowRect.center.dy, 1), reason: key);
     }
-    final value = find.byKey(const ValueKey('settings-kill-switch-value'));
-    expect(value, findsOneWidget);
-    expect(
-      tester.getTopLeft(value).dx,
-      tester
-          .getTopLeft(
-            find.descendant(
-              of: find.byKey(const ValueKey('settings-kill-switch-row')),
-              matching: find.text(app.strings.get('kill_switch')),
-            ),
-          )
-          .dx,
-    );
   });
 
   testWidgets('Application rows are flat and show the installed version', (

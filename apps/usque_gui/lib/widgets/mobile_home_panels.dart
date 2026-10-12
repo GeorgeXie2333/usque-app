@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
+import '../models/network_quality_models.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
 import 'controller_selector.dart';
@@ -68,8 +69,8 @@ class MobileTrafficPanel extends StatelessWidget {
     final quality = controller.quality;
     final snapshot = controller.snapshot;
     final connected = snapshot.isConnected;
-    final down = quality.trace((point) => point.downloadBytesPerSecond);
-    final up = quality.trace((point) => point.uploadBytesPerSecond);
+    final down = quality.traceFor(NetworkQualityTrace.download);
+    final up = quality.traceFor(NetworkQualityTrace.upload);
     final hasSamples =
         connected &&
         (down.any((value) => value != null) ||

@@ -1605,6 +1605,10 @@ void main() {
               automaticEndpoints: true,
               networkQuality: true,
             );
+      if (scene.section == AppSection.settings) {
+        app.initialized = true;
+        app.networkSettings.supported = true;
+      }
       if (scene.section == AppSection.profiles) {
         final active = app.activeProfile;
         app.profiles = [

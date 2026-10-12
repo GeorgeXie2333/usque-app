@@ -15,10 +15,31 @@ import 'geo_direct_settings_screen.dart';
 import 'network_quality_screen.dart';
 import 'per_app_proxy_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({required this.controller, super.key});
 
   final AppController controller;
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _savingKillSwitch = false;
+  AppController get controller => widget.controller;
+
+  Future<void> _setKillSwitch(bool value) async {
+    if (_savingKillSwitch || controller.networkShortcutsLocked) return;
+    setState(() => _savingKillSwitch = true);
+    try {
+      await controller.saveNetwork(
+        controller.activeProfile.copyWith(killSwitch: value),
+        changedFields: const ['kill_switch'],
+      );
+    } finally {
+      if (mounted) setState(() => _savingKillSwitch = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,21 +93,26 @@ class SettingsScreen extends StatelessWidget {
                         ),
                       ),
                     ),
-                    LinkRow(
-                      key: const ValueKey('settings-kill-switch-row'),
-                      icon: LucideIcons.shieldCheck,
-                      title: strings.get('kill_switch'),
-                      subtitle: strings.get('kill_switch_help'),
-                      value: strings.get(
-                        _killSwitchSettingKey(controller.activeProfile),
-                      ),
-                      valueKey: const ValueKey('settings-kill-switch-value'),
-                      onTap: () => _open(
-                        context,
-                        AdvancedSettingsScreen(
-                          controller: controller,
-                          revealKillSwitch: true,
+                    ContentSection(
+                      padding: _tilePadding,
+                      child: SwitchListTile(
+                        key: const ValueKey('settings-kill-switch-row'),
+                        contentPadding: EdgeInsets.zero,
+                        secondary: const Icon(LucideIcons.shieldCheck),
+                        title: Text(strings.get('kill_switch')),
+                        subtitle: Text(
+                          strings.get(
+                            android
+                                ? 'kill_switch_help_android'
+                                : 'kill_switch_help',
+                          ),
                         ),
+                        value: controller.activeProfile.killSwitch,
+                        onChanged:
+                            _savingKillSwitch ||
+                                controller.networkShortcutsLocked
+                            ? null
+                            : _setKillSwitch,
                       ),
                     ),
                     if (android)
@@ -570,13 +596,6 @@ String _formatUpdateBytes(int bytes) {
   if (bytes < 1024) return '$bytes B';
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KiB';
   return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
-}
-
-/// Catalog key for the configured Kill Switch preference. Live enforcement
-/// state belongs to Home; Settings reports only what will be applied.
-String _killSwitchSettingKey(UsqueProfile profile) {
-  if (!profile.frontends.tunnel) return 'not_used_proxy';
-  return profile.killSwitch ? 'on' : 'off';
 }
 
 class _SettingRow extends StatelessWidget {

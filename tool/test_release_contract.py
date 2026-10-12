@@ -136,7 +136,7 @@ class ReleaseNotesContractTests(unittest.TestCase):
             )
             self.assertTrue(url.endswith(".svg?raw=true"))
         self.assertIn("Android 8.0+ (API 26)", download)
-        self.assertIn("Windows 10 22H2+ (build 19045)", download)
+        self.assertIn("Windows 10 2004+ (build 19041)", download)
         lines = rendered.splitlines()
         for index, line in enumerate(lines):
             if line.startswith("- ") and " / " not in line:

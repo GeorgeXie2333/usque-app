@@ -904,7 +904,10 @@ void main() {
       expect(controller.updatePhase, UpdateOperationPhase.idle);
 
       await controller.checkForUpdates();
-      expect(controller.lastError, controller.strings.get('operation_failed'));
+      expect(
+        controller.lastError,
+        controller.strings.get('update_check_failed'),
+      );
       expect(controller.lastError, isNot(contains('release endpoint')));
       controller.dispose();
     },
@@ -3617,6 +3620,11 @@ void main() {
         await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
         await tester.pumpAndSettle();
         expect(controller.section, expected);
+        expect(
+          Focus.of(tester.element(homeLabel)).hasFocus,
+          isTrue,
+          reason: 'the first visit to $expected must keep bar focus',
+        );
         expect(
           tester.takeException(),
           isNull,

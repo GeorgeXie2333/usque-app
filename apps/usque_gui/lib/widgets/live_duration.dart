@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import '../core/usque_theme.dart';
 import 'common.dart';
 
-/// Formats [since] as a running clock. Rebuilds once a second so a parent
-/// that only listens to [since] itself does not freeze the readout.
+/// Formats [since] as a running clock. Rebuilds once a second while visible so
+/// a parent that only listens to [since] itself does not freeze the readout.
 class LiveDuration extends StatefulWidget {
   const LiveDuration({required this.since, this.now = DateTime.now, super.key});
 
@@ -21,14 +21,51 @@ class LiveDuration extends StatefulWidget {
   State<LiveDuration> createState() => _LiveDurationState();
 }
 
-class _LiveDurationState extends State<LiveDuration> {
+class _LiveDurationState extends State<LiveDuration>
+    with WidgetsBindingObserver {
   Timer? _timer;
+  bool _tickerEnabled = false;
+  late bool _appVisible;
+
+  bool get _shouldTick => widget.since != null && _tickerEnabled && _appVisible;
 
   @override
   void initState() {
     super.initState();
+    _appVisible = _isVisible(WidgetsBinding.instance.lifecycleState);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Section navigation and opaque routes mute tickers but do not cancel
+    // ordinary Timers. Subscribe to the same visibility signal explicitly.
+    _tickerEnabled = TickerMode.valuesOf(context).enabled;
     _syncTimer();
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    final visible = _isVisible(state);
+    if (_appVisible == visible) return;
+    _appVisible = visible;
+    _syncTimer();
+    if (mounted && _shouldTick) {
+      // Recalculate from the clock immediately, including time spent hidden.
+      setState(() {});
+    }
+  }
+
+  static bool _isVisible(AppLifecycleState? state) => switch (state) {
+    // No notification yet must not freeze the initial readout. Inactive can
+    // still be visible, such as an unfocused desktop window or permission UI.
+    null || AppLifecycleState.resumed || AppLifecycleState.inactive => true,
+    AppLifecycleState.hidden ||
+    AppLifecycleState.paused ||
+    AppLifecycleState.detached => false,
+  };
 
   @override
   void didUpdateWidget(covariant LiveDuration oldWidget) {
@@ -39,13 +76,13 @@ class _LiveDurationState extends State<LiveDuration> {
   }
 
   void _syncTimer() {
-    _timer?.cancel();
-    _timer = null;
-    if (widget.since == null) {
+    if (!_shouldTick) {
+      _timer?.cancel();
+      _timer = null;
       return;
     }
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
+    _timer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _shouldTick) {
         setState(() {});
       }
     });
@@ -53,6 +90,7 @@ class _LiveDurationState extends State<LiveDuration> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }
