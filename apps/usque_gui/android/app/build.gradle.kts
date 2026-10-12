@@ -146,7 +146,7 @@ dependencies {
     // Flutter's Android plugin resolves this Kotlin metadata artifact late
     // while merging assets. Declare it explicitly so strict dependency
     // locking covers the same graph during both reports and real builds.
-    runtimeOnly("org.jetbrains.kotlin:kotlin-stdlib-common:2.4.20")
+    runtimeOnly("org.jetbrains.kotlin:kotlin-stdlib-common:2.4.21")
 }
 
 dependencyLocking {
