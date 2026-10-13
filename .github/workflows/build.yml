@@ -230,6 +230,16 @@ jobs:
             -Architecture "${{ matrix.pe_arch }}"
           Write-Output "WINDOWS_BUILD_OK=$directory"
 
+      - name: Upload Windows engine binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-windows-engine-${{ matrix.variant }}
+          path: |
+            target/${{ matrix.rust_target }}/release/usque-engine.exe
+            target/${{ matrix.rust_target }}/release/usque-agent.exe
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Preserve matching Windows Flutter symbols separately
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

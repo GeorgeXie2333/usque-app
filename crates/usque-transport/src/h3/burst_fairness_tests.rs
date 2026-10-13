@@ -154,7 +154,7 @@ async fn permanent_downstream_pressure_yields_only_once_and_returns_to_actor() {
     // than waiting for the consumer or repeatedly yielding away wire sends.
     assert!(matches!(
         receive.as_mut().poll(&mut cx),
-        Poll::Ready(Ok((64, true)))
+        Poll::Ready(Ok((MAX_PENDING_WIRE_DATAGRAMS, true)))
     ));
     drop(receive);
     assert_eq!(client.dgram_recv_queue_len(), DATAGRAM_RECV_QUEUE_CAPACITY);

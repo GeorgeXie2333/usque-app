@@ -62,7 +62,7 @@ const H3_PROBE_JITTER_PERCENT: u64 = 20;
 const RAW_PACKET_CHANNEL_CAPACITY: usize = 1_024;
 const RAW_PACKET_CHANNEL_BYTE_CAPACITY: usize = RAW_PACKET_CHANNEL_CAPACITY * u16::MAX as usize;
 const PROXY_PACKET_PIPE_CAPACITY: usize = 1_024;
-const PREFERRED_TCP_RECEIVE_BUFFER: usize = 4 * 1024 * 1024;
+const PREFERRED_TCP_RECEIVE_BUFFER: usize = 16 * 1024 * 1024;
 const PREFERRED_TCP_TRANSMIT_BUFFER: usize = 1024 * 1024;
 const FALLBACK_TCP_RECEIVE_BUFFER: usize = 1024 * 1024;
 const FALLBACK_TCP_TRANSMIT_BUFFER: usize = 256 * 1024;
@@ -532,7 +532,7 @@ const fn tcp_buffer_budgets() -> (usize, usize) {
     }
     #[cfg(not(target_os = "android"))]
     {
-        (192 * 1024 * 1024, 256 * 1024 * 1024)
+        (768 * 1024 * 1024, 1024 * 1024 * 1024)
     }
 }
 

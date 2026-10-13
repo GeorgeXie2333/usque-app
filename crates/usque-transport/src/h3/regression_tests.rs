@@ -136,7 +136,10 @@ fn packed_receive_burst_is_delivered_without_local_drops() {
         let actual = burst(true, datagrams_per_flight);
         let control = burst(false, datagrams_per_flight);
         assert_eq!((actual.1, actual.2), (128, 0));
-        assert_eq!((control.1, control.2), (64, 64));
+        assert_eq!(
+            (control.1, control.2),
+            (MAX_PACKET_BATCH_PACKETS, MAX_PACKET_BATCH_PACKETS)
+        );
     }
 }
 
