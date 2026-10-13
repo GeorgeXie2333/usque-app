@@ -147,5 +147,6 @@ Commit preview sources, the Linux runner, shared tooling, tests and guides.
 Keep these ignored: `.toolchains` (directory or symlink), `local.properties`,
 JNI libraries, Flutter/Gradle/Rust build/cache directories, Linux Flutter
 ephemeral files, Neovim logs/swap files, diagnostics and signing material.
-Review `git status --short` before committing. The root `AGENTS.md` remains
-local and ignored; shared instructions live in tracked documentation.
+Review `git status --short` before committing. The root `AGENTS.md` is a shared,
+tracked contract for local and cloud agents; do not put machine-specific paths,
+credentials or personal preferences in it.

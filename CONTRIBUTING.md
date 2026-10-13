@@ -49,9 +49,10 @@ How the Windows package uninstalls and when it deletes user data is in [docs/INS
 
 If you change privileged networking or the installer and cannot run the isolated tests, say so in the pull request. Do not pretend they passed. Protected-runner execution and reports are supplemental and do not gate publication; this does not waive applicable deterministic checks, compile-only gates, or release approvals.
 
-The root `AGENTS.md` is an ignored local configuration file. Keep shared
-development procedures in tracked documentation and avoid linking to local
-instruction files from published documents.
+The root `AGENTS.md` is a tracked, shared agent contract so local and cloud
+checkouts receive the same safety rules. Keep machine paths, credentials and
+personal agent preferences out of it. Detailed development procedures remain
+in the tracked documentation below.
 
 ## Toolchains
 
@@ -80,6 +81,10 @@ Linux/WSL setup, native editing, debug UI preview and the Linux check wrapper
 are described in [Linux development](docs/LINUX_DEVELOPMENT.md). The wrapper
 uses Linux tools without a Windows checkout. It does not replace the Windows
 or isolated checks in the matrix below.
+
+For Codex cloud environments, use [Cloud development](docs/CODEX_CLOUD.md).
+The base setup prepares Linux Rust, Flutter and Python work; additional
+platform and static-analysis tools still follow the scope matrix below.
 
 ## Branches, commits, and pull requests
 
@@ -280,6 +285,20 @@ buf format --exit-code --diff
 ```
 
 CI runs Buf's `FILE` breaking check against the PR target. Do not reuse field numbers or change the wire shape without a reviewed protocol migration and wire snapshot tests.
+
+### Cloud setup shell tooling
+
+When changing the cloud bootstrap, check its syntax and shell diagnostics:
+
+```shell
+bash -n tool/setup_codex_cloud.sh
+shellcheck tool/setup_codex_cloud.sh
+python -m unittest discover -s tool -p "test_codex_cloud.py" -v
+```
+
+Run setup and the readiness check in a disposable Linux cloud environment to
+verify installation. Do not install cloud dependencies into a workstation just
+to exercise the script. Record an unavailable fresh-cloud run as `not_run`.
 
 ### GitHub Actions
 

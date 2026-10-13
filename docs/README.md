@@ -41,6 +41,7 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | [Routing validation record](ROUTING_VALIDATION.md) | Workstation commands, results and unavailable isolated checks / 分流功能开发机验证与未运行的隔离检查 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |
+| [Codex cloud development](CODEX_CLOUD.md) | Cloud environment installation, startup, pinned tools and validation limits / 云端环境安装、启动、锁定工具链与验证边界 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |
 | [Release process](RELEASE.md) | Candidate preparation, approval, signing, and publication / 候选包、审批、签名与发布 |
 | [v0.3.1 readiness review](RELEASE_V0.3.1_READINESS.md) | Documentation checks, planned version synchronization, schema-24 upgrade limits and remaining release requirements / 文档检查、版本同步计划、schema 24 升级限制与发布待办 |

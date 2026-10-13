@@ -27,7 +27,6 @@ go.work.sum
 !.env.example
 
 # Usque specific
-/AGENTS.md
 /.claude/
 config*.json*
 /usque
