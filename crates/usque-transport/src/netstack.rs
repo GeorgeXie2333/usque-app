@@ -27,8 +27,7 @@ use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::h3::H3MigrationResult;
 use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler_with_counters};
 use crate::packet_batch::{
-    MAX_PACKET_BATCH_BYTES, MAX_PACKET_BATCH_PACKETS, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch,
-    PacketBatchResult,
+    MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult,
 };
 use crate::packet_pipe::{
     PacketDevice, PacketPipe as WakingPipe, PacketReceiver as WakingPipeReceiver,
@@ -3641,6 +3640,7 @@ mod tests {
 
     #[tokio::test]
     async fn packet_io_nonblocking_drain_batches_without_reordering() {
+        use crate::packet_batch::MAX_PACKET_BATCH_PACKETS;
         let (outgoing_tx, outgoing) = test_packet_channel(QueueKind::TransportOutgoingPackets, 130);
         let (incoming, _incoming_rx) = test_batch_channel(QueueKind::TransportToTun, 1);
         for sequence in 0..130_u16 {
