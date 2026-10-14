@@ -181,7 +181,11 @@ async fn available_consumer_capacity_and_unaccepted_stream_do_not_yield() {
             &mut pending,
         ));
         let mut cx = Context::from_waker(Waker::noop());
-        let expected_drops = if ready_stream_id.is_some() { 0 } else { 64 };
+        let expected_drops = if ready_stream_id.is_some() {
+            0
+        } else {
+            UDP_ACTOR_DRAIN_LIMIT
+        };
         assert!(
             matches!(receive.as_mut().poll(&mut cx), Poll::Ready(Ok((dropped, false))) if dropped == expected_drops)
         );

@@ -3664,7 +3664,14 @@ mod tests {
                 assert_eq!(ipv4_header_checksum(packet), 0);
             }
         }
-        assert_eq!(batch_sizes, [64, 64, 2]);
+        let expected_batch = MAX_PACKET_BATCH_PACKETS.min(130);
+        let full_batches = 130 / expected_batch;
+        let remainder = 130 % expected_batch;
+        let mut expected_sizes = vec![expected_batch; full_batches];
+        if remainder > 0 {
+            expected_sizes.push(remainder);
+        }
+        assert_eq!(batch_sizes, expected_sizes);
         assert_eq!(observed, (0..130_u16).collect::<Vec<_>>());
     }
 
