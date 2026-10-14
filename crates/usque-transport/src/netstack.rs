@@ -27,7 +27,8 @@ use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::h3::H3MigrationResult;
 use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler_with_counters};
 use crate::packet_batch::{
-    MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult,
+    MAX_PACKET_BATCH_BYTES, MAX_PACKET_BATCH_PACKETS, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch,
+    PacketBatchResult,
 };
 use crate::packet_pipe::{
     PacketDevice, PacketPipe as WakingPipe, PacketReceiver as WakingPipeReceiver,

@@ -44,9 +44,7 @@ use crate::connect_ip_control::{
     ConnectIpControlPlane, MAX_PENDING_CONTROL_BYTES, MAX_PENDING_CONTROL_CAPSULES,
 };
 use crate::network_quality::NetworkQualityTelemetry;
-use crate::packet_batch::{
-    MAX_PACKET_BATCH_BYTES, MAX_PACKET_BATCH_PACKETS, PacketBatch, PacketBatchResult,
-};
+use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PacketBatch, PacketBatchResult};
 use crate::socket::{
     DirectProtocol, LeasedIo, STALE_GENERATION_REASON, SocketProtector, noop_socket_protector,
     socket_handle,
@@ -2246,9 +2244,7 @@ mod tests {
 
     #[tokio::test]
     async fn h2_receive_batch_combines_ready_data_frames_without_packet_loss() {
-        use crate::packet_batch::{
-            MAX_PACKET_BATCH_BYTES, MAX_PACKET_BATCH_PACKETS, PACKET_BATCH_CHANNEL_CAPACITY,
-        };
+        use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PACKET_BATCH_CHANNEL_CAPACITY};
 
         let mut loopback = connect_h2_loopback().await;
         let count = 2 * MAX_PACKET_BATCH_PACKETS;
@@ -2289,6 +2285,7 @@ mod tests {
 
     #[tokio::test]
     async fn h2_receive_batch_preserves_packet_order_at_the_byte_limit() {
+        use crate::packet_batch::MAX_PACKET_BATCH_BYTES;
         let mut loopback = connect_h2_loopback().await;
         let mut wire_bytes = 0;
         // Packets sized so the batch byte limit (not the packet count) binds:
