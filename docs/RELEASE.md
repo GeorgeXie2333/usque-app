@@ -5,9 +5,9 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The current release candidate is `v0.3.1`. The checked-in application metadata
-and workflow target `v0.3.1` / `0.3.1+25`; this does not establish publication.
-The workflow accepts only `v0.3.1`. Its accepted tag must point at the current
+The current release candidate is `v0.3.2`. The checked-in application metadata
+and workflow target `v0.3.2` / `0.3.2+26`; this does not establish publication.
+The workflow accepts only `v0.3.2`. Its accepted tag must point at the current
 `main` commit when the gate runs. Only the release maintainer creates the tag.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
@@ -23,74 +23,64 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
-## Preparing v0.3.1
+## Preparing v0.3.2
 
-The [v0.3.1 readiness review](RELEASE_V0.3.1_READINESS.md) records the reviewed
-source, completed documentation checks and open release requirements. It is
-not final-candidate certification. The coordinated candidate inputs are:
-
-| Input | Previous v0.3.0 value | Current v0.3.1 value |
-| --- | --- | --- |
-| Cargo workspace and first-party `Cargo.lock` package entries | `0.3.0` | `0.3.1` |
-| Flutter `pubspec.yaml` | `0.3.0+24` | `0.3.1+25` |
-| All 21 registered Dart `app_version` catalogs | `Usque 0.3.0` | `Usque 0.3.1` |
-| Release tag trigger and `RELEASE_TAG` | `v0.3.0` | `v0.3.1` |
-| Release `ANDROID_VERSION_CODE` and CI version gate | `24`, `v0.3.0` | `25`, `v0.3.1` |
-
-Then run the exact version check from the repository root:
+The [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) separates baseline
+checks from final-candidate evidence. Synchronize all 12 first-party Cargo
+packages and lock entries to `0.3.2`, Flutter to `0.3.2+26`, all 21 registered
+catalogs to `Usque 0.3.2`, and the workflow trigger/environment/CI contract
+to `v0.3.2` and Android base versionCode `26`.
 
 ```shell
-python tool/release_contract.py verify-version --root . --tag v0.3.1 --android-version-code 25
+python tool/release_contract.py verify-version --root . --tag v0.3.2 --android-version-code 26
 ```
 
-This command must pass for the final candidate. The
-helper checks Cargo's workspace version, Flutter, registered locale catalogs
-and the release workflow. Review first-party `Cargo.lock` entries and the CI
-invocation separately because the helper does not inspect them. Recheck this
-guide, [GitHub governance](GITHUB_GOVERNANCE.md), signing and reliability
-references, six root READMEs and [Installation](INSTALLATION.md) after updating
-the executable contract. Do not move or reuse the published `v0.3.0` tag.
+Review Cargo.lock and the CI invocation separately: the version helper does not
+inspect them. Signed APK codes must be 1026 (ARMv7), 2026 (ARM64), 4026
+(x86_64) and 26 (universal), advancing v0.3.1's 1025/2025/4025/25.
+Switching from a split APK to universal may be rejected by Android's monotonic
+version check; do not bypass it or describe source arithmetic as a real upgrade.
 
-The Android base versionCode `25` follows v0.3.0's `24`. Derived
-codes will be 1025 (ARMv7), 2025 (ARM64), 4025 (x86_64) and 25 (universal),
-advancing 1024/2024/4024/24. Verify these values in the actual signed APKs,
-including all ABI-specific update paths and universal-to-ABI updates. A split
-APK has a higher code than the same release's universal APK; switching from
-split to universal may be rejected. Do not bypass Android's monotonic version
-check or treat source arithmetic as a device-upgrade result.
+Configuration advances from v0.3.1's schema 24 to 26. Schema 25 adds the shared
+MASQUE TLS fingerprint; new/missing values and migration from schema 24 default
+to Chrome 155, while explicit saved choices remain. Schema 26 initializes older
+settings without an active IPv6 preset. Agent protocol stays 3 and recovery
+export stays 2; recovery journal advances to 6 and conservatively reads compatible
+records 2–5 without inventing newer preset authorization. Older engines and
+Agents reject newer schemas. Preserve recoverable pre-upgrade data; do not
+downgrade over migrated records or edit schema numbers to bypass validation.
 
-The v0.3.0 tag uses configuration schema 23; current source uses schema 25.
-Schema 24 migrates custom bypass domains and CIDRs to DIRECT routing rules,
-retains countries, and adds REJECT/PROXY actions and optional Ads. Custom CIDRs
-now route in the application data plane instead of creating physical bypass
-routes. Schema 25 adds the shared MASQUE TLS fingerprint preference with the
-default handshake retained during migration. Once migrated, engines supporting
-only schema 24 or earlier reject the configuration. Keep
-recoverable pre-upgrade data when rollback is required; never lower schema
-numbers or replace recovery records to bypass validation. Recovery journal 5,
-Agent protocol 3 and sanitized recovery export schema 2 remain unchanged and
-do not prove downgrade compatibility.
+Replace the previous highlights with Chrome 155, IPv6 presets, live Ads
+maintenance, registration fallback/deadlines, DNS/direct-family recovery,
+Android consent/UI-process lifecycle, shared layouts and latest-stable updates.
+Retain English-first bilingual text, blank lines between bilingual items, six
+download entries and separate folded supplemental sections. Keep TLS and
+physical preset-DNS privacy limits explicit, and retain historical version
+attribution for earlier Windows fixes.
 
-Review [.github/RELEASE_NOTES_TEMPLATE.md](../.github/RELEASE_NOTES_TEMPLATE.md)
-against `v0.3.0..HEAD`: routing/Ads, LAN access across outputs, H3 PMTU startup,
-DoH URL editing, removal of local-proxy DNS controls, reorganized settings and
-the single chain-proxy VPN Gate editor, Android tile recovery, hidden UI polling
-and opaque adaptive-icon backgrounds. WARP encrypted DNS, experimental Zero
-Trust endpoint editing, native Windows setup/removal and desktop shortcuts
-already existed in v0.3.0; do not advertise them as newly introduced here.
+The maintainer selected ordinary merge of origin/main into dev, followed by
+direct fast-forward promotion through the existing owner exception.
+Save `codex/main-before-v0.3.2-release` and `codex/dev-before-v0.3.2-sync`;
+keep local main unchanged. Verify main's ancestor relationship and bind the
+promotion lease to its exact old SHA. Stop on concurrent changes or protection
+rejection; do not change rules. There is no PR or Squash:
+`PR Check / gate` is `not_run`, not passed.
 
-The final candidate commit must equal current `main` and have successful required
-CI before tagging. Rerun applicable checks after the final change, retain
-commit and Actions run identities, preserve immutable candidate and approval
-requirements, and keep historical validation records unchanged.
+The final dev push starts CI and CodeQL; dispatch Build only when no successful
+run exists for that exact candidate. Require exact-SHA main **push** CI and
+CodeQL after promotion. The release contract verifies the CI workflow path,
+main branch, push event, full SHA, completed status and successful conclusion;
+a successful dev run with the same SHA is insufficient. Keep all signing,
+supply-chain and approval requirements.
 
-For this release, the maintainer authorized direct fast-forward promotion of
-the fully validated dev candidate through the existing owner exception, without
-a PR or Squash. Record `PR Check / gate` as `not_run`, not passed. Save main/dev
-backup refs, verify main remains an ancestor, and bind the push lease to its
-exact observed old SHA. Stop on concurrent changes or protection rejection;
-do not change repository rules. Require final-candidate CI, Build and CodeQL,
-then exact-SHA main push CI and CodeQL before tagging. Keep local main unchanged.
+## Preparing v0.3.1
+
+This historical anchor remains for review links. v0.3.1 was published from
+`6916ae97575f01664b4c227978d791597951cf7a`, using `0.3.1+25`,
+configuration schema 24 and recovery journal 5. Its
+[tagged release guide](https://github.com/GeorgeXie2333/usque-app/blob/v0.3.1/docs/RELEASE.md)
+and [readiness review](RELEASE_V0.3.1_READINESS.md) retain their original scope
+and limits; later source changes do not retroactively alter its validation.
 
 ## Preparing v0.3.0
 
@@ -106,7 +96,7 @@ Which signatures count as official, how fingerprints are published, and what hap
 
 ## Before signing starts
 
-- For `v0.3.1`, complete the version and workflow changes above first. The
+- For `v0.3.2`, complete the version and workflow changes above first. The
   accepted tag must match `release.yml` and point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
@@ -210,16 +200,16 @@ accurate system requirements, and descriptive image alt text when updating the
 table. Do not add third-party badge services or update-only MSI download buttons.
 Keep the four required bilingual section names; decorative emoji may follow them.
 
-The v0.3.1 primary files (official only after approved publication):
+The v0.3.2 primary files (official only after approved publication):
 
-- `usque-v0.3.1-windows-x64-v2.exe`
-- `usque-v0.3.1-windows-arm64.exe`
-- `usque-v0.3.1-windows-x64-v2.msi`
-- `usque-v0.3.1-windows-arm64.msi`
-- `usque-v0.3.1-android-arm64-v8a.apk`
-- `usque-v0.3.1-android-x86_64.apk`
-- `usque-v0.3.1-android-armeabi-v7a.apk`
-- `usque-v0.3.1-android-universal.apk`
+- `usque-v0.3.2-windows-x64-v2.exe`
+- `usque-v0.3.2-windows-arm64.exe`
+- `usque-v0.3.2-windows-x64-v2.msi`
+- `usque-v0.3.2-windows-arm64.msi`
+- `usque-v0.3.2-android-arm64-v8a.apk`
+- `usque-v0.3.2-android-x86_64.apk`
+- `usque-v0.3.2-android-armeabi-v7a.apk`
+- `usque-v0.3.2-android-universal.apk`
 
 The two EXEs and four APKs are the user-facing installers; the two MSIs are
 update payloads consumed by the signed Windows updater. In addition to these
@@ -245,9 +235,9 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.3.1` maps to MSI ProductVersion `0.3.199` and Agent PE file version
-`0.3.199.0`; `v0.3.1-beta.3` maps to `0.3.103`. The prior `v0.3.0` maps to
-`0.3.99` / `0.3.99.0`, so the new stable package advances the build component.
+Stable `v0.3.2` maps to MSI ProductVersion `0.3.299` and Agent PE file version
+`0.3.299.0`; `v0.3.2-beta.3` maps to `0.3.203`. Prior v0.3.1 maps to
+`0.3.199` / `0.3.199.0`, so the new stable package advances the build component.
 The real SemVer stays in
 ProductName and the filenames, and packaging
 rejects an unversioned or mismatched Agent. Equal-version major upgrades are

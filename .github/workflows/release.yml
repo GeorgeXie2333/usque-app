@@ -3,7 +3,7 @@ name: Public release
 on:
   push:
     tags:
-      - "v0.3.1"
+      - "v0.3.2"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,8 +17,8 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.3.1
-  ANDROID_VERSION_CODE: "25"
+  RELEASE_TAG: v0.3.2
+  ANDROID_VERSION_CODE: "26"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -74,21 +74,17 @@ jobs:
             exit 1
           }
 
-          runs="$(
-            gh api \
-              --method GET \
-              "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-              -f "head_sha=$GITHUB_SHA" \
-              -f "status=success" \
-              -f "per_page=100"
-          )"
-          jq -e \
-            --arg sha "$GITHUB_SHA" \
-            'any(.workflow_runs[]; .head_sha == $sha and .conclusion == "success" and .event == "push")' \
-            <<<"$runs" >/dev/null || {
-              echo "::error::No successful main CI / gate workflow exists for the exact release commit."
-              exit 1
-            }
+          gh api \
+            --method GET \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f "head_sha=$GITHUB_SHA" \
+            -f "branch=main" \
+            -f "event=push" \
+            -f "status=success" \
+            -f "per_page=100" > "$RUNNER_TEMP/main-ci-runs.json"
+          python tool/release_contract.py verify-main-ci \
+            --runs "$RUNNER_TEMP/main-ci-runs.json" \
+            --commit "$GITHUB_SHA"
 
   windows:
     name: Windows ${{ matrix.variant }}

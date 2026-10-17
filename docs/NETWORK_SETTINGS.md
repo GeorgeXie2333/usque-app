@@ -423,11 +423,12 @@ network requests, runtime shutdown, and TUN operations stay outside the store
 transaction.
 
 Settings operation tracking does not add a configuration schema version. The
-current [configuration schema](../crates/usque-core/src/config/mod.rs) is 23.
-Schema 19 adds bypass domains, schema 20 preserves legacy endpoints in Custom
-mode, schema 21 adds resumable initial-identity state, and schema 22 adds WARP
-DNS. Schema 23 adds an optional account-specific Zero Trust endpoint override;
-registered addresses remain identity catalog metadata. See the
+current [configuration schema](../crates/usque-core/src/config/mod.rs) is 26.
+Schemas 19–23 retain bypass, endpoint, initial-identity, WARP DNS and Zero Trust
+migration; schema 24 converts custom targets to routing rules. Schema 25 adds
+the shared TLS fingerprint, using Chrome 155 for missing settings and migration
+from schema 24 while preserving explicit choices. Schema 26 initializes older
+settings without an IPv6 preset. See the
 [migration implementation](../crates/usque-core/src/storage.rs).
 Epochs, sequences, operation IDs, and network-settings application
 state are in memory and do not create a durable operation log. Passwords are
@@ -701,9 +702,10 @@ The internal Agent capability `protected_tunnel_replacement` supports changing
 an operation while its applied Kill Switch is enabled. `ReplaceTunnel` checks
 the authenticated owner, device lease and journal generation, then installs a
 persistent WFP guard before restoring the old operation and preparing the new
-one. The guard has its own provider and sublayer. Journal schema 5 keeps its
-write-ahead record outside ordinary connection cleanup steps; schemas 2–4
-migrate without inventing a replacement record.
+one. The guard has its own provider and sublayer. Journal schema 6 retains the
+replacement record introduced in schema 5 outside ordinary cleanup steps.
+Compatible schemas 2–5 migrate conservatively without inventing replacement or
+preset authorization; older Agents reject schema 6.
 
 The bridge preserves the intersection of the old and requested static LAN/CIDR
 bypasses. Retargeting a failed replacement can only narrow that bridge's existing

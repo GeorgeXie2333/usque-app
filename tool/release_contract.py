@@ -111,6 +111,28 @@ def normalize_commit(value: Any) -> str:
     return normalized
 
 
+def verify_main_ci(runs: dict[str, Any], commit: str) -> None:
+    """Require successful, completed push CI on main for the exact candidate."""
+
+    commit = normalize_commit(commit)
+    workflow_runs = runs.get("workflow_runs")
+    if not isinstance(workflow_runs, list):
+        raise ContractError("CI response must contain a workflow_runs array")
+    for run in workflow_runs:
+        if not isinstance(run, dict):
+            raise ContractError("CI workflow run must be an object")
+        if (
+            run.get("path") == ".github/workflows/ci.yml"
+            and run.get("head_sha") == commit
+            and run.get("head_branch") == "main"
+            and run.get("event") == "push"
+            and run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+        ):
+            return
+    raise ContractError("no successful completed main push CI exists for the exact commit")
+
+
 def render_release_notes(
     template: Path,
     tag: str,
@@ -396,6 +418,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     version.add_argument("--tag", required=True)
     version.add_argument("--android-version-code", type=int, required=True)
 
+    main_ci = subparsers.add_parser("verify-main-ci")
+    main_ci.add_argument("--runs", type=Path, required=True)
+    main_ci.add_argument("--commit", required=True)
+
     notes = subparsers.add_parser("render-release-notes")
     notes.add_argument("--template", type=Path, required=True)
     notes.add_argument("--tag", required=True)
@@ -423,6 +449,8 @@ def main(argv: list[str] | None = None) -> int:
             verify_artifacts(args.directory, load_json(args.manifest))
         elif args.command == "verify-version":
             verify_release_version(args.root, args.tag, args.android_version_code)
+        elif args.command == "verify-main-ci":
+            verify_main_ci(load_json(args.runs), args.commit)
         elif args.command == "render-release-notes":
             notes = render_release_notes(
                 args.template,

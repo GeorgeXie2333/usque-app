@@ -5,12 +5,12 @@ Download packages from this repository's
 
 ## Version scope
 
-This development guide prepares v0.3.1. `Cargo.toml`, `pubspec.yaml` and the
-release workflow now declare v0.3.1 / 0.3.1+25. Planned
-package names below do not establish publication. The [v0.3.1 readiness review](RELEASE_V0.3.1_READINESS.md)
+This development guide prepares v0.3.2. `Cargo.toml`, `pubspec.yaml` and the
+release workflow now declare v0.3.2 / 0.3.2+26. Planned
+package names below do not establish publication. The [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md)
 records the reviewed source and outstanding requirements. For an installed
 release, use its release notes and the guide at the matching Git tag; the
-[v0.3.0 installation guide](https://github.com/GeorgeXie2333/usque-app/blob/v0.3.0/docs/INSTALLATION.md)
+[v0.3.1 installation guide](https://github.com/GeorgeXie2333/usque-app/blob/v0.3.1/docs/INSTALLATION.md)
 describes that published version.
 
 The Windows upgrade recovery fix was introduced in v0.2.5; the multilingual EXE
@@ -19,17 +19,18 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 
 ### Configuration compatibility when upgrading
 
-v0.3.0 uses configuration schema 23; v0.2.9 uses schema 21. Current source uses
-schema 25, adding a shared MASQUE TLS fingerprint preference after schema 24's
-unified routing rules and Ads. Existing configurations keep the default TLS
-handshake; WARP encrypted DNS and account-specific Zero Trust endpoint settings
-are retained. Older custom domains and
-CIDRs migrate to DIRECT rules; country selections remain. Custom CIDRs now
-route in the application data plane rather than through physical bypass routes.
-Opening the newer app migrates and saves older configuration. Older apps reject
-newer schemas, so installing v0.3.0 or v0.2.9 again cannot restore
-access to migrated data. Windows also rejects installer downgrades. No reverse
-configuration migration or WARP Secret import is provided.
+v0.3.1 uses configuration schema 24; v0.3.0 uses 23 and v0.2.9 uses 21.
+Current source uses schema 26: schema 25 adds the shared MASQUE TLS fingerprint
+and schema 26 adds optional IPv6 endpoint presets. New/missing fingerprint
+settings and migration from schema 24 use Chrome 155; explicit saved selections
+remain, with the original handshake labeled unsafe. Older configurations start
+without an active preset. WARP DNS, account-specific Zero Trust endpoints,
+routing rules and country selections retain their existing migration behavior.
+Opening the newer app saves the migrated configuration, which older engines
+including v0.3.1 reject. Recovery journal 6 conservatively reads compatible old
+records; older Agents cannot read journal 6. The newer-Agent-first Windows
+upgrade bridge remains required. Windows also rejects installer downgrades.
+No reverse migration or WARP Secret import is provided.
 
 If returning to an older version is essential, arrange a recoverable pre-upgrade
 backup of the old installation and user data, including the platform-protected
@@ -50,17 +51,17 @@ guidance; do not assume that reinstalling an older package is supported.
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Planned package names (v0.3.1 examples)
+### Planned package names (v0.3.2 examples)
 
-- `usque-v0.3.1-windows-x64-v2.exe`
-- `usque-v0.3.1-windows-arm64.exe`
-- `usque-v0.3.1-android-arm64-v8a.apk`
-- `usque-v0.3.1-android-x86_64.apk`
-- `usque-v0.3.1-android-armeabi-v7a.apk`
-- `usque-v0.3.1-android-universal.apk`
+- `usque-v0.3.2-windows-x64-v2.exe`
+- `usque-v0.3.2-windows-arm64.exe`
+- `usque-v0.3.2-android-arm64-v8a.apk`
+- `usque-v0.3.2-android-x86_64.apk`
+- `usque-v0.3.2-android-armeabi-v7a.apk`
+- `usque-v0.3.2-android-universal.apk`
 
-The planned package set also includes `usque-v0.3.1-windows-x64-v2.msi` and
-`usque-v0.3.1-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The planned package set also includes `usque-v0.3.2-windows-x64-v2.msi` and
+`usque-v0.3.2-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation.
 
 Each release includes `SHA256SUMS`, `release-manifest.json` and a software
@@ -70,7 +71,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use the planned v0.3.1 names; substitute the exact filename and published tag you
+use the planned v0.3.2 names; substitute the exact filename and published tag you
 downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -78,7 +79,7 @@ downloaded. These commands inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.3.1-windows-x64-v2.exe'
+$package = '.\usque-v0.3.2-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -135,7 +136,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.1-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.2-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -149,7 +150,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.1 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.2 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 if ($LASTEXITCODE -ne 0) { throw 'Build provenance verification failed.' }
 ```
 
@@ -301,11 +302,11 @@ not verify a candidate's current registration. Verification records developer
 identity and key ownership; it is not Google Play distribution or a review of
 the app's content. Source-permission and sideloading prompts can still appear.
 
-Android now requires VPN consent during first-run setup, even if you later
-choose only SOCKS5 or HTTP. Granting it may disconnect another active VPN but
-does not start a Usque connection. Notification permission is optional. Setup
-checks interrupted account operations before registering again; use **Check
-result** or **Continue with saved account** when offered.
+First-run setup requests only optional notification permission. VPN consent is
+deferred until a connection needs VPN output; local-proxy-only operation does
+not request it. Granting Android's VPN authorization may disconnect another
+active VPN. Setup checks interrupted account operations before registering
+again; use **Check result** or **Continue with saved account** when offered.
 
 After setup, choose outputs in **Proxy → VPN and local proxies**, then connect
 from Home. Proxy-only operation does not start a VPN. If Android has revoked VPN

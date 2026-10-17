@@ -104,9 +104,9 @@ try {
     if (-not $rejected) { throw "Invalid beta ordinal was not rejected." }
     $summary.completed_checks += "version_mapping"
 
-    $currentStable = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "v0.3.1"
-    $currentBeta = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "0.3.1-beta.3"
-    if ($currentStable -ne "0.3.199" -or $currentBeta -ne "0.3.103" -or
+    $currentStable = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "v0.3.2"
+    $currentBeta = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "0.3.2-beta.3"
+    if ($currentStable -ne "0.3.299" -or $currentBeta -ne "0.3.203" -or
         [version]$currentStable -le [version]$nextStable) {
         throw "Current MSI version mapping or upgrade ordering is invalid."
     }

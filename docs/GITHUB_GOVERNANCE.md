@@ -43,17 +43,17 @@ Details are in [RELEASE.md](RELEASE.md):
 - signing identities live only in `release-signing` environment secrets;
 - a local build cannot replace a failed GitHub Actions candidate.
 
-Before `v0.3.1`, verify the live `main` ruleset, maintainer-only release-tag
+Before `v0.3.2`, verify the live `main` ruleset, maintainer-only release-tag
 restrictions, required environment reviewers and deployment branch/tag rules.
 An `environment:` entry in YAML selects an environment; it does not prove that
 GitHub approval protection is enabled. Keep those protections when changing
-the accepted release tag. The current executable contract is `v0.3.1`
-with Android base versionCode `25`. The `v0.3.1` / `25` coordination and
-checks are described in [Preparing v0.3.1](RELEASE.md#preparing-v031). A document
+the accepted release tag. The current executable contract is `v0.3.2`
+with Android base versionCode `26`. The `v0.3.2` / `26` coordination and
+checks are described in [Preparing v0.3.2](RELEASE.md#preparing-v032). A document
 update does not change the accepted tag or server-side protections.
 
 The tag workflow separately checks that the tagged SHA is current `main` and
-has a successful `ci.yml` push run. Publication requires the signed staged
+has a completed successful `ci.yml` push run on branch `main` for the exact SHA. Publication requires the signed staged
 candidate and `release-publish` approval. The four protected reliability jobs
 and their summary remain optional and are skipped in the public repository;
 their `not_run` or failure status cannot be presented as a pass and is not a
@@ -64,4 +64,4 @@ publication prerequisite.
 - A fork pull request gets a read-only token, cannot read secrets, and cannot upload an installable package.
 - Dependency Review runs on public pull requests.
 - Only packages published by the approved tag workflow are official; the
-  checked-in workflow accepts only `v0.3.1`.
+  checked-in workflow accepts only `v0.3.2`.

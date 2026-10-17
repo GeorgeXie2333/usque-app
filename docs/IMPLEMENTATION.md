@@ -17,44 +17,30 @@ The [documentation index](README.md) separates current contracts from historical
 records. [Reliability testing](RELIABILITY_TESTING.md) defines environments and
 evidence requirements; [Release process](RELEASE.md) defines publication.
 
-## Source changes prepared for v0.3.1
+## Source changes prepared for v0.3.2
 
-Since the v0.3.0 tag, source adds [DIRECT/REJECT/PROXY rules and Ads](ROUTING.md),
-migrates legacy bypass targets, and applies Allow local network across outputs.
-The [H3 startup and PMTU fixes](h3-client-reliability.md#pmtu-and-fragmentation)
-retain ordinary traffic during discovery and oversized-probe rejection.
-These are source behaviors, not measured throughput or external leak results.
+Since v0.3.1, source adds [Chrome 155 MASQUE TLS](TLS_FINGERPRINT.md),
+[built-in IPv6 endpoint presets](NETWORK_SETTINGS.md) and
+[live Ads maintenance](ROUTING.md#ads). Registration fallback/deadlines,
+WARP bootstrap and stale DoT recovery, unavailable DIRECT address-family
+handling, latest-stable update checks and country aggregate verification have
+changed. Android defers VPN authorization until a connection requires it and
+can reclaim the UI process after tracked preference writes without stopping
+the separate VPN service. Primary pages and chain summaries share layouts.
 
-[WARP DNS](WARP_DNS.md) and [Direct DNS](encrypted-direct-dns.md) now use complete
-DoH URL fields and editable Cloudflare defaults for new encrypted drafts.
-Local proxy DNS controls have been removed while saved settings remain active
-internally; HTTP/SOCKS5 chain DNS choices remain in Add proxy. Settings are
-organized by topic and VPN Gate uses only the shared chain-proxy editor.
-Android tile recovery and hidden-UI observation have changed; adaptive icons use
-an opaque brand-orange background. [GUI development](../apps/usque_gui/README.md)
-describes the current components and layout.
+Configuration schema is 26, Agent protocol 3, recovery journal 6 and sanitized
+recovery export 2. New/missing fingerprint settings and schema-24 migration use
+Chrome 155; explicit choices remain, and older settings have no active preset.
+Older engines/Agents reject the newer schemas. Keep the newer-Agent-first
+upgrade bridge and see [upgrade compatibility](INSTALLATION.md#configuration-compatibility-when-upgrading).
 
-The current source retains v0.3.0's WARP encrypted DNS, confirmed experimental
-Zero Trust endpoint editing, native Windows setup/removal, tray controls,
-desktop shortcuts and established Android protection-failure recovery. They
-are not newly introduced v0.3.1 features. TLS, endpoint pins and distinct WARP,
-direct and final-chain DNS policies remain in force.
-
-Configuration schema advances from v0.3.0's 23 to 25: schema 24 migrates legacy
-domains and CIDRs to DIRECT and retains countries; schema 25 adds the shared
-MASQUE TLS fingerprint preference. New configurations and missing values use
-Chrome 155; explicit saved selections are preserved, with the original handshake
-now labeled unsafe.
-Custom CIDRs now route inside the application data plane. Recovery journal 5,
-Agent protocol 3 and sanitized recovery export 2 remain unchanged. Engines that
-support only schema 24 or earlier reject schema 25;
-see [upgrade compatibility](INSTALLATION.md#configuration-compatibility-when-upgrading).
-
-v0.3.1 is the preparation target. Executable version metadata and the tag
-workflow now target v0.3.1 / 0.3.1+25; this does not establish publication.
-Use [release preparation](RELEASE.md#preparing-v031) and the
-[v0.3.1 readiness review](RELEASE_V0.3.1_READINESS.md) for open requirements;
-this checklist is not candidate-bound execution evidence.
+The preparation target is `v0.3.2 / 0.3.2+26`, not proof of publication.
+Use [release preparation](RELEASE.md#preparing-v032) and the
+[v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) for remaining requirements.
+DIRECT/REJECT/PROXY, WARP encrypted DNS, chain exits and native Windows
+installation already existed; do not label them new in this release.
+Static tests do not establish real upgrades, measured performance, anonymity
+or leak prevention. Authentication, pins and DNS policy boundaries remain.
 
 ## Architecture
 

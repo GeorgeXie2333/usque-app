@@ -944,14 +944,14 @@ void main() {
     final downloader = RecordingUpdateDownloader(engine);
     final controller = AppController(engine, updateDownloader: downloader);
     await controller.initialize();
-    const path = 'test-update-cache/usque-v0.3.2-android-arm64-v8a.apk';
+    const path = 'test-update-cache/usque-v0.3.3-android-arm64-v8a.apk';
     controller.updateResult = const UpdateCheckResult(
       available: true,
-      version: 'v0.3.2',
+      version: 'v0.3.3',
       package: UpdatePackage(
-        name: 'usque-v0.3.2-android-arm64-v8a.apk',
+        name: 'usque-v0.3.3-android-arm64-v8a.apk',
         downloadUrl:
-            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.3.2/usque-v0.3.2-android-arm64-v8a.apk',
+            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.3.3/usque-v0.3.3-android-arm64-v8a.apk',
         size: 1024,
         sha256:
             'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
@@ -4064,13 +4064,13 @@ void main() {
         addTearDown(controller.dispose);
         controller.updateResult = const UpdateCheckResult(
           available: true,
-          version: 'v0.3.2',
+          version: 'v0.3.3',
           releaseUrl:
-              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2',
+              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.3',
           package: UpdatePackage(
-            name: 'usque-v0.3.2-windows-x64-v2.msi',
+            name: 'usque-v0.3.3-windows-x64-v2.msi',
             downloadUrl:
-                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.3.2/usque-v0.3.2-windows-x64-v2.msi',
+                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.3.3/usque-v0.3.3-windows-x64-v2.msi',
             size: 20 * 1024 * 1024,
             sha256:
                 'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
@@ -4088,7 +4088,7 @@ void main() {
         );
 
         await tester.pumpWidget(app());
-        expect(find.text('v0.3.2  •  x64-v2  •  20.0 MiB'), findsOneWidget);
+        expect(find.text('v0.3.3  •  x64-v2  •  20.0 MiB'), findsOneWidget);
         expect(find.byType(LinearProgressIndicator), findsOneWidget);
         expect(find.text('5.0 MiB / 20.0 MiB'), findsOneWidget);
         expect(find.text('Cancel'), findsOneWidget);

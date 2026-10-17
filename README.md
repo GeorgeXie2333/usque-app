@@ -51,7 +51,7 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
-These development docs prepare **v0.3.1**; application metadata and the release workflow now target **v0.3.1 / 0.3.1+25**. The [v0.3.1 readiness review](docs/RELEASE_V0.3.1_READINESS.md) records checks and remaining requirements. For published packages, use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. The planned package set has six installers, plus two Windows MSI files used only by in-app updates:
+These development docs prepare **v0.3.2**; application metadata and the release workflow now target **v0.3.2 / 0.3.2+26**. The [v0.3.2 readiness review](docs/RELEASE_V0.3.2_READINESS.md) records checks and remaining requirements. For published packages, use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. The planned package set has six installers, plus two Windows MSI files used only by in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
@@ -65,12 +65,12 @@ Pre-1.0 packages use fixed, project-controlled self-signed certificates. Windows
 
 See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, recovery, and Android developer-verification details, and [Code signing](docs/CODE_SIGNING.md) for official identities. Updates require confirmation before downloading and use the platform installer; there is no unattended installation.
 
-Upgrading from v0.3.0 migrates configuration from schema 23 to 24, which v0.3.0 and older clients cannot read. Review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup before upgrading; reinstalling an older package does not reverse the migration.
+Upgrading from v0.3.1 migrates configuration from schema 24 to 26, which v0.3.1 and older clients cannot read. Review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup before upgrading; reinstalling an older package does not reverse the migration.
 
 ## First connection
 
 1. Install a [verified official package](docs/INSTALLATION.md#verify-before-installing) and open Usque.
-2. Complete the first-run permissions and terms steps. Android requires VPN consent to finish setup; granting it may disconnect another VPN but does not start a Usque connection. Notifications are optional. Register a Consumer WARP® account, optionally with a WARP License Key. If setup was interrupted, check the saved result before registering again. Usque does not accept new WARP Secret imports.
+2. Complete the first-run permissions and terms steps. Android setup requests only optional notifications. VPN authorization is requested when connecting with VPN output and may disconnect another VPN; proxy-only connections do not request it. Register a Consumer WARP® account, optionally with a WARP License Key. If setup was interrupted, check the saved result before registering again. Usque does not accept new WARP Secret imports.
 3. Open **Proxy → TUN and local proxies** on Windows, or **Proxy → VPN and local proxies** on Android, choose the outputs, then connect from Home. These switches take effect immediately; listener form edits require **Apply changes**. Proxy-only operation does not use the granted VPN permission to start a VPN.
 
 | Connection option | When to use it |

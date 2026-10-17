@@ -1,40 +1,34 @@
 <!--
-Before each release, replace the version summary and highlights with the
-user-visible changes in that release. Also recheck every versioned fact in the
-Technical changes block, such as the configuration schema, Agent protocol,
-recovery journal and recovery export schema numbers, against the source. Keep
-English first and put the Simplified Chinese translation immediately below the
-matching English text.
-This template prepares v0.3.1 from source changes after the v0.3.0 tag.
-The workflow and application version surfaces target v0.3.1 / 0.3.1+25.
-Validate the exact candidate before tagging; rendering is not release approval.
+Prepare v0.3.2 from source changes after v0.3.1; metadata targets 0.3.2+26.
+Keep English first and immediately follow it with Simplified Chinese.
+Recheck versioned schema facts against source. Rendering is not approval.
 -->
 
 ## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 
-Usque {{release_tag}} is a feature and reliability release that adds DIRECT/REJECT/PROXY routing rules and optional Ads filtering, fixes local-network access and HTTP/3 startup during MTU discovery, and simplifies DNS and chain-proxy settings. It also improves Android Quick Settings recovery, background UI polling and adaptive icons.
+Usque {{release_tag}} is a feature and reliability release that adds Chrome 155 MASQUE TLS fingerprints and built-in IPv6 endpoint presets, supports live Ads rule updates, and improves registration, DNS recovery, Android lifecycle handling and update checks.
 
-Usque {{release_tag}} 是一个功能与可靠性版本，新增 DIRECT／REJECT／PROXY 分流规则和可选 Ads 拦截，修复局域网访问及 MTU 探测期间的 HTTP/3 启动问题，并简化 DNS 与链式代理设置。同时改进 Android 快捷设置恢复、后台界面轮询和自适应图标。
+Usque {{release_tag}} 是一个功能与可靠性版本，新增 Chrome 155 MASQUE TLS 指纹与内置 IPv6 端点预设，支持 Ads 规则在线更新，并改进注册、DNS 恢复、Android 生命周期处理和更新检查。
 
 ## Highlights / 更新亮点 ✨
 
-- **Routing rules and Ads** — In Settings → Bypass settings, add or paste domains, IPs and CIDRs with DIRECT, REJECT or PROXY actions. More-specific rules win, and conflicting actions for the same target prevent saving. Ads is off by default and uses the downloaded GeoSite advertising/tracking category. Apply changes and reconnect when prompted; see the [routing guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/ROUTING.md) for visibility and catalog limits.
-  <br>**分流规则与 Ads** — 在“设置 → 分流设置”添加或粘贴域名、IP、CIDR，并指定 DIRECT、REJECT 或 PROXY。更具体的规则优先，同一目标的冲突动作会阻止保存。Ads 默认关闭，使用下载的 GeoSite 广告与跟踪分类。应用修改并按提示重连；可见性与规则库限制见[分流指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/ROUTING.md)。
+- **Chrome 155 MASQUE TLS** — Select Chrome 155 or the original handshake, now labeled unsafe, in advanced network settings. New installations and configurations without a saved selection use Chrome 155; explicit saved choices remain. The profile applies to H2, H3 and experimental L4 MASQUE, not complete browser traffic emulation. Authentication and endpoint pins remain mandatory.
+  <br>**Chrome 155 MASQUE TLS** — 在高级网络设置选择 Chrome 155 或现标记为 unsafe 的原握手。新安装及未保存选择的配置使用 Chrome 155，已保存的显式选择保留。该配置作用于 H2、H3 与实验性 L4 MASQUE，不是完整模拟浏览器流量；认证及端点公钥校验始终保留。
 
-- **Local-network access across outputs** — Allow local network now applies to VPN/TUN, HTTP forwarding and CONNECT, and SOCKS5 TCP/UDP where supported. Explicit routing rules and Ads retain priority for traffic entering the Engine. Proxy listener exposure and platform exclusions retain their own boundaries.
-  <br>**各输出的局域网访问** — “允许访问局域网”现对 VPN/TUN、HTTP 转发与 CONNECT、以及受支持的 SOCKS5 TCP/UDP 生效。进入 Engine 的流量仍优先遵循显式分流规则与 Ads；代理监听暴露范围和平台排除规则保留各自边界。
+- **Built-in IPv6 endpoint presets** — Choose United States, Germany or Finland; the Engine matches the authenticated account's tier. Each connection discovers current IPv6 candidates. IPv6-only stops on failure; Prefer IPv6 may try the retained IPv4 endpoint after retryable failures, possibly in another region. This selects an ingress, not a promised final exit location.
+  <br>**内置 IPv6 端点预设** — 可选择美国、德国或芬兰，Engine 按已验证账号的类型匹配地址，每次连接重新发现 IPv6 候选。仅 IPv6 模式失败即停止；优先 IPv6 可在可重试故障后尝试保留的 IPv4，其地区可能不同。预设选择入口，不保证最终出口地区。
 
-- **HTTP/3 startup fixes** — MTU discovery no longer blocks ordinary CONNECT-IP traffic while waiting for a probe acknowledgement. Oversized probe send errors reduce the discovery bound without discarding ordinary queued traffic; errors outside discovery retain the existing recovery policy. These fixes do not establish a measured throughput gain.
-  <br>**HTTP/3 启动修复** — MTU 探测等待探测包确认时不再阻塞普通 CONNECT-IP 流量。探测包过大导致的发送错误会降低探测上限，不会丢弃普通待发流量；探测范围外的错误仍执行原有恢复策略。这些修复不代表已证实吞吐提升。
+- **Live Ads rules and country data** — Enable Ads to download and verify its rules, inspect rule details, retry or update now. Complete verified replacements apply to new requests without reconnecting; failed updates keep the previous good revision. Country downloads verify the aggregate cache, and countries with GeoIP but no GeoSite category can still provide IP matching.
+  <br>**Ads 规则在线更新与国家数据** — 启用 Ads 后下载并校验规则，可查看详情、重试或立即更新。完整有效的新规则无需重连即可用于新请求，更新失败保留上一有效版本。国家数据下载校验聚合缓存，只有 GeoIP 而无 GeoSite 分类的国家仍可按 IP 匹配。
 
-- **Simpler DNS editing** — WARP and Direct DNS use one complete DoH URL field. New encrypted drafts prefill editable Cloudflare values; saved custom values are preserved. WARP bootstrap IPs are optional, while Direct DNS requires them. Local proxy DNS controls are removed; existing DNS settings remain active internally and listener edits preserve them.
-  <br>**简化 DNS 编辑** — WARP DNS 与直连 DNS 使用完整 DoH 地址输入框。新加密 DNS 草稿预填可编辑的 Cloudflare 配置，已有自定义值保留。WARP 引导 IP 可选，直连 DNS 仍要求填写。本地代理 DNS 控件已移除；已有 DNS 设置继续在底层生效，修改监听地址会保留这些设置。
+- **Registration, DNS and direct routing recovery** — Registration uses a bounded fallback for eligible failures, with UI deadlines covering both requests. WARP DNS bootstrap and stale DoT connections recover more reliably. DIRECT traffic in a known unavailable physical address family fails locally instead of silently using WARP; available direct candidates remain eligible.
+  <br>**注册、DNS 与直连恢复** — 注册对符合条件的故障使用有界备用请求，界面截止时间覆盖两次请求。改进 WARP DNS 引导与失效 DoT 连接恢复。已知物理网络不支持的地址族，其 DIRECT 流量在本地失败，不会静默改用 WARP；可用直连候选仍可继续尝试。
 
-- **Settings and VPN Gate navigation** — Advanced network settings are grouped by routing/protection, WARP DNS, Direct DNS, endpoint and transport. Rows, hints and dropdowns are aligned across layouts. VPN Gate is available inside Proxy → Chain proxy, with refresh, filters and favorites in the shared editor; the separate VPN Gate page is removed.
-  <br>**设置与 VPN Gate 导航** — 高级网络设置按路由与保护、WARP DNS、直连 DNS、端点和传输分组，不同布局的行、提示与下拉框统一对齐。VPN Gate 位于“代理 → 链式代理”，在共用编辑器内刷新、筛选和管理收藏；独立 VPN Gate 页面已移除。
+- **Android lifecycle and shared layouts** — First-run setup no longer requests VPN authorization; Android requests it when a connection needs VPN. Redundant connection confirmation is removed. After the task finishes, the UI process can exit once tracked preference writes are complete, without stopping the separate VPN service. Primary pages, chain summaries and launcher shortcut labels are aligned across layouts.
+  <br>**Android 生命周期与统一布局** — 首次引导不再申请 VPN 授权，在连接确实需要 VPN 时由 Android 申请，并移除重复连接确认。任务结束后，界面进程在已跟踪的偏好写入完成后可退出，不停止独立 VPN 服务。统一主要页面、链式摘要及各布局中的启动器快捷标签。
 
-- **Android tile, observation and icons** — Quick Settings can recover connection intent after process or control-channel loss. Hidden UI pauses quality and diagnostics polling and refreshes when visible again; it does not stop the VPN service. Full-colour adaptive icons use an opaque brand-orange background so launchers do not expose a black tile; themed icons remain available.
-  <br>**Android 磁贴、观测与图标** — 进程或控制通道丢失后，快捷设置可恢复连接意图。界面隐藏时暂停网络质量与诊断轮询，重新可见时刷新，不会因此停止 VPN 服务。全彩自适应图标采用不透明品牌橙色背景，避免启动器显示黑底；主题图标继续保留。
+- **Updates and Windows compatibility** — The updater queries the latest stable release directly and distinguishes unavailable, rate-limited and invalid responses. Windows packages support Windows 10 2004/build 19041 or later, retaining the x64-v2 CPU requirement. UI allocation changes and dependency refreshes are maintenance work, not measured performance or memory-saving guarantees.
+  <br>**更新检查与 Windows 兼容性** — 更新器直接查询最新稳定版，区分服务不可用、限流与无效响应。Windows 软件包支持 Windows 10 2004／内部版本 19041 或更新版本，x64-v2 CPU 要求不变。界面分配优化与依赖刷新属于维护改动，不代表已证实性能或内存收益。
 
 ## Download / 下载 📥
 
@@ -71,11 +65,11 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 <details>
 <summary>Upgrade behavior and compatibility / 升级行为与兼容性</summary>
 
-- **Configuration schema advances from v0.3.0's 23 to 24.** Legacy custom domains and CIDRs migrate to DIRECT rules, preserving country selections. Custom CIDRs now route in the application data plane instead of installing physical bypass routes. The v0.3.0 engine, and older engines such as v0.2.9, reject schema 24. Arrange any recoverable pre-upgrade backup before upgrading; do not downgrade over migrated data or manually change schema numbers. Agent protocol 3 and recovery journal 5 remaining unchanged do not establish downgrade compatibility.
-  <br>**配置 schema 从 v0.3.0 的 23 升至 24。** 旧自定义域名与 CIDR 迁移为 DIRECT 规则，国家选择保留。自定义 CIDR 改由应用数据平面分流，不再安装物理网络绕过路由。v0.3.0 及 v0.2.9 等旧 Engine 会拒绝 schema 24。请在升级前安排可恢复的备份；不要在已迁移数据上直接降级或手动修改 schema 编号。Agent 协议仍为 3、恢复日志仍为 5，并不代表支持降级。
+- **Configuration advances from v0.3.1's schema 24 to 26.** Schema 25 adds the shared TLS fingerprint, defaulting missing settings to Chrome 155; schema 26 initializes older settings without an active IPv6 preset. Explicit saved fingerprint choices remain. Older engines reject migrated data. Recovery journal 6 reads compatible older records conservatively; an older Agent cannot read journal 6. Preserve recoverable pre-upgrade data, keep the newer-Agent-first upgrade sequence, and do not lower schema numbers or downgrade over migrated data.
+  <br>**配置从 v0.3.1 的 schema 24 升至 26。** schema 25 新增共用 TLS 指纹，缺失设置默认 Chrome 155；schema 26 将旧设置初始化为未启用 IPv6 预设。已保存的显式指纹选择保留。旧 Engine 拒绝迁移后的数据。恢复日志 6 保守读取兼容的旧记录，旧 Agent 无法读取日志 6。请保留可恢复的升级前数据，不改变新版 Agent 优先安装的顺序，不要降低 schema 编号或覆盖已迁移数据降级。
 
-- **Ads requires a valid downloaded catalog and is off by default.** Failed updates keep the last complete catalog. With no valid catalog, Usque reports Ads unavailable but allows connections; custom rules remain active. Reconnect to load updated data. Apps' own encrypted DNS, Android excluded apps and platform exclusions limit what the rules can inspect or control. This is not a system-wide firewall.
-  <br>**Ads 需要有效的已下载规则库，默认关闭。** 更新失败保留上一个完整规则库；完全没有有效库时，应用提示 Ads 不可用，但允许连接，自定义规则继续生效。更新数据后需重连加载。应用自行加密的 DNS、Android 排除应用及平台排除规则限制可检查和控制的范围；该功能不是全系统防火墙。
+- **Ads stays off by default.** Enabling it attempts a verified rule download. Without a valid catalog, connections remain allowed and the UI reports blocking inactive; failures retain the last complete catalog. Toggle changes and complete replacements affect new requests without reconnecting, not existing flows or DNS answers cached by applications. Custom routing and country edits retain their separate apply lifecycle. Apps' encrypted DNS and platform exclusions remain visibility boundaries.
+  <br>**Ads 仍默认关闭。** 启用时尝试下载并验证规则。没有有效库时允许连接，界面提示拦截未生效；失败保留上一完整规则库。开关与完整规则替换无需重连即可作用于新请求，不追溯已有流量或应用缓存的 DNS 答案。自定义分流与国家设置保留各自应用流程。应用加密 DNS 与平台排除仍是可见性边界。
 
 - **WARP DNS remains Plain DNS by default.** Select and apply DoH or DoT to use it; applying a DNS change to a connected session reconnects that session. The selector does not replace direct DNS, proxy DNS choices saved by older versions, or the final chain exit's resolver policy.
   <br>**WARP DNS 默认仍为普通 DNS。** 选择并应用 DoH 或 DoT 后才会启用；已连接时应用 DNS 更改会重新连接。该选项不替代直连 DNS、旧版本保存的代理 DNS 选择或最终链出口的解析策略。
@@ -95,8 +89,8 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 - **New installations use Automatic endpoint selection.** Existing configurations retain Custom and their saved addresses. CONNECT-IP with Auto transport and CUBIC remain the defaults. Disable QUIC remains off as a saved preference, but HTTP/SOCKS5 exits always block proxied UDP/443 to prefer TCP web traffic. Direct traffic and Usque's outer HTTP/3 connection are unaffected. L4 and BBRv3 remain experimental. New installations enable Allow local network; upgrades retain its saved value.
   <br>**新安装使用自动端点选择。** 升级保留自定义模式与已保存地址。默认仍为 CONNECT-IP、Auto 传输与 CUBIC。“禁用 QUIC”的保存偏好仍默认关闭，但 HTTP/SOCKS5 出口始终拦截经代理的 UDP/443，使网页流量优先使用 TCP。直连流量与 Usque 外层 HTTP/3 连接不受影响。L4、BBRv3 仍属实验性；新安装开启“允许访问局域网”，升级保留其保存值。
 
-- **Android first-run VPN consent remains required.** This applies even if you later choose only local proxies; granting it may disconnect another VPN. It does not start Usque's connection. Notifications are optional. Open Always-on VPN settings from Settings → Connection & protection; startup preferences remain under Application → System integration.
-  <br>**Android 首次引导仍要求 VPN 授权。** 即使之后只使用本地代理，也需完成授权；授权可能断开其他 VPN，但不会启动 Usque 连接。通知权限可选。“始终开启的 VPN”入口位于“设置 → 连接与保护”，启动偏好仍位于“应用 → 系统集成”。
+- **Android VPN consent is deferred to connections that need it.** First-run permission setup is notification-only, and notifications remain optional. Android's VPN authorization may disconnect another VPN; a local-proxy-only connection does not request it. Open Always-on VPN settings from Connection & protection; startup preferences remain under Application → System integration.
+  <br>**Android VPN 授权延后到确实需要它的连接。** 首次权限引导只处理可选的通知权限。Android 的 VPN 授权可能断开其他 VPN；仅本地代理连接不申请该权限。“始终开启的 VPN”仍位于“连接与保护”，启动偏好仍位于“应用 → 系统集成”。
 
 </details>
 
@@ -118,8 +112,11 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 - The native established CONNECT-IP supervisor stops automatic attempts after authentication, identity, configuration, address-assignment and socket-protection failures. Android's service separately retains an established ordinary session after a typed protection failure and confirmed cleanup, waiting for a newer usable physical generation before one attempt; repeated protection failure waits for another generation. There is no timed protection retry on the same network. Ordinary network failures keep bounded backoff; offline observations pause attempts. An HTTP/2 PING without a reply ends the session after a 15 to 30 second final deadline.
   <br>原生 CONNECT-IP 已建立会话的监督器在认证、身份、配置、地址分配或套接字保护失败后停止自动尝试。Android 服务另行处理已建立的普通会话：明确的保护失败及清理确认后，等待更新的可用物理网络代次再尝试一次；再次保护失败则等待下一个代次，不会在同一网络上定时重试。普通网络故障保留有上限的退避重试；离线观测暂停尝试。HTTP/2 PING 无回复时，会在 15 到 30 秒的最终期限后结束会话。
 
-- Configuration schema is 24: schema 22 initializes Plain WARP DNS for older settings, schema 23 initializes Zero Trust endpoint overrides as unset, preserving registered addresses, and schema 24 migrates custom bypass targets to DIRECT routing rules. Agent protocol remains 3, recovery journal remains 5 and sanitized recovery exports remain schema 2. HTTP/SOCKS5 records remain version 5 with DNS transport metadata; VPN records remain version 3. IPC fields are appended only. Diagnostic exports omit custom DNS names, paths, bootstrap addresses, query contents and sensitive identity/configuration data.
-  <br>配置 schema 为 24：schema 22 将旧设置初始化为普通 WARP DNS，schema 23 将 Zero Trust 端点覆盖初始化为未设置，保留注册地址，schema 24 将自定义绕过目标迁移为 DIRECT 分流规则。Agent 协议仍为 3，恢复日志仍为 5，脱敏恢复导出仍为 schema 2。HTTP/SOCKS5 对象保留版本 5 的 DNS 传输元数据，VPN 对象仍为版本 3。IPC 字段仅追加；诊断导出排除自定义 DNS 域名、路径、引导地址、查询内容及敏感身份／配置数据。
+- Configuration schema is 26, Agent protocol is 3, recovery journal is 6 and sanitized recovery export schema is 2. HTTP/SOCKS5 records remain version 5 and VPN records version 3. TLS, live Ads and preset/lease IPC additions are append-only; the retired pre-release Chrome131 enum number is not reused. Compatible journals 2–5 migrate conservatively and cannot claim newer preset authorization. Diagnostic exports retain their privacy filtering.
+  <br>配置 schema 为 26、Agent 协议为 3、恢复日志为 6、脱敏恢复导出为 2。HTTP/SOCKS5 记录仍为 5，VPN 记录仍为 3。TLS、Ads 在线更新与预设／租约 IPC 仅追加；弃用的预发布 Chrome131 枚举编号不复用。兼容的日志 2–5 保守迁移，不能冒用新预设授权；诊断导出继续执行隐私过滤。
+
+- IPv6 presets use bounded physical-network AAAA discovery and operation/generation-scoped DNS and MASQUE authorization. Network changes, cancellation and cleanup invalidate volatile candidates. Chrome 155 is a fixed TLS profile: ECH GREASE is not real ECH encryption, and advertising ML-DSA identifiers does not add certificate verification support; unsupported peer requirements fail closed. Neither feature bypasses socket protection, client authentication or endpoint pins.
+  <br>IPv6 预设使用有界的物理网络 AAAA 发现，以及限定操作／网络代次的 DNS 与 MASQUE 授权。网络变化、取消和清理会使临时候选失效。Chrome 155 是固定 TLS 配置：ECH GREASE 不是真正的 ECH 加密，声明 ML-DSA 标识不增加对应证书验证能力，不支持的服务端要求会安全失败。两项功能均不绕过套接字保护、客户端认证或端点公钥校验。
 
 - The multilingual Windows EXE installers introduced in v0.2.6 remain the user-facing packages; signed MSIs remain reserved for verified in-app updates. The newer-Agent-first upgrade bridge introduced in v0.2.5 remains in place for v0.2.4 upgrades. Release APKs compress native libraries, which Android extracts at installation, and Dart symbols are kept outside the installable packages. Download size is not installed disk usage.
   <br>v0.2.6 引入的多语言 Windows EXE 安装程序仍为用户安装入口；签名 MSI 仍仅供经过验证的应用内更新。v0.2.5 引入的新版 Agent 优先安装机制继续为 v0.2.4 升级提供兼容桥接。Release APK 压缩原生库，Android 会在安装时解压；Dart 符号不放入安装包。下载体积不等于安装后的磁盘占用。
@@ -134,6 +131,10 @@ Protected Windows, Android, leak-observer and performance validation is suppleme
 <summary>DNS privacy, chain exits and L4 behavior / DNS 隐私、链式出口与 L4 行为</summary>
 
 ### DNS privacy / DNS 隐私
+
+Built-in IPv6 presets resolve their account-tier/region hostname through physical-network DNS before MASQUE is established. The physical DNS provider and directory operator may observe those discovery requests; this is separate from tunneled application DNS and does not guarantee anonymity, availability or final exit location.
+
+内置 IPv6 预设在 MASQUE 建立前通过物理网络 DNS 解析账号等级／地区域名。物理 DNS 提供商与目录运营方可能看到这些发现请求；这与隧道内的应用 DNS 不同，不保证匿名性、可用性或最终出口地区。
 
 GeoSite-matched country queries and custom DIRECT-domain queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT uses the configured encrypted resolver with numeric bootstrap and strict TLS, with no plaintext fallback. REJECT names receive a local refusal without an upstream query. Other remote queries use the WARP tunnel or the selected final chain exit. WARP encrypted DNS may omit bootstrap IPs and resolve its server name through configured Plain DNS inside WARP; Direct DNS requires bootstrap IPs. WireGuard prefers its configured DNS; HTTP/SOCKS5 chain DNS defaults to verified DoH through the final proxy, retaining explicit TCP and older local choices. The local Proxy page has no DNS editor. Apps using their own encrypted DNS hide domains from Usque, so routing uses IP rules.
 
