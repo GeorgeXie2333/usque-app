@@ -44,7 +44,7 @@ use crate::connect_ip_control::{
     ConnectIpControlPlane, MAX_PENDING_CONTROL_BYTES, MAX_PENDING_CONTROL_CAPSULES,
 };
 use crate::network_quality::NetworkQualityTelemetry;
-use crate::packet_batch::{PacketBatch, PacketBatchResult};
+use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PacketBatch, PacketBatchResult};
 use crate::socket::{
     DirectProtocol, LeasedIo, STALE_GENERATION_REASON, SocketProtector, noop_socket_protector,
     socket_handle,
@@ -59,7 +59,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const H2_OUTGOING_CAPACITY: usize = 1_024;
 const H2_PACKET_QUEUE_CAPACITY: usize = 1_024;
 // Bound lookahead even when ready DATA contains only control or empty frames.
-const H2_RECEIVE_BATCH_MAX_FRAMES: usize = 64;
+const H2_RECEIVE_BATCH_MAX_FRAMES: usize = MAX_PACKET_BATCH_PACKETS;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const H2_PING_INTERVAL: Duration = Duration::from_secs(5);
 const H2_PING_DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -2330,10 +2330,15 @@ mod tests {
 
     #[tokio::test]
     async fn h2_receive_batch_preserves_packet_order_at_the_byte_limit() {
+        use crate::packet_batch::MAX_PACKET_BATCH_BYTES;
         let mut loopback = connect_h2_loopback().await;
         let mut wire_bytes = 0;
+        // Packets sized so the batch byte limit (not the packet count) binds:
+        // 4 packets of 60 KiB = 240 KiB, but the 1 MiB batch limit admits 17.
+        // Keep the byte-limit scenario meaningful by using a full-batch packet:
+        let packet_len = MAX_PACKET_BATCH_BYTES / 4;
         for sequence in 0_u16..6 {
-            let mut packet = sized_ipv4_packet(60 * 1024).to_vec();
+            let mut packet = sized_ipv4_packet(packet_len).to_vec();
             packet[4..6].copy_from_slice(&sequence.to_be_bytes());
             let capsule = encode_datagram_capsule(&packet).unwrap();
             wire_bytes += capsule.len();
@@ -2345,7 +2350,7 @@ mod tests {
         for expected_count in [4, 2] {
             let mut batch = loopback.receive.receive_batch().await.unwrap();
             assert_eq!(batch.len(), expected_count);
-            assert_eq!(batch.bytes(), expected_count * 60 * 1024);
+            assert_eq!(batch.bytes(), expected_count * packet_len);
             while let Some(packet) = batch.pop_front() {
                 assert_eq!(u16::from_be_bytes([packet[4], packet[5]]), sequence);
                 sequence += 1;
