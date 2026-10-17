@@ -53,6 +53,8 @@ pub use wake_device::AsyncWakeDevice;
 /// Internally i/o free userspace network stack built around `smoltcp`.
 pub struct Netstack {
     config: Config,
+    tcp_packet_budget_revision: u64,
+    tcp_packet_budget: [Option<usize>; 2],
 
     iface: smoltcp::iface::Interface,
     socket_set: smoltcp::iface::SocketSet<'static>,
@@ -125,6 +127,8 @@ impl Netstack {
             command_tx: tx,
             command_rx: rx,
             config: ns_config,
+            tcp_packet_budget_revision: 0,
+            tcp_packet_budget: [None, None],
             blocked_commands: Default::default(),
             unclaimed_creations: Default::default(),
             pending_tcp_closes: Default::default(),

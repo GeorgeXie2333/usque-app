@@ -81,6 +81,7 @@ async fn supervisor_with_refresh(
     });
     let (packets, packet_io) = packets();
     let context = SupervisorContext {
+        budget_publisher: crate::tcp_packet_budget::BudgetPublisher::new().0,
         profile,
         identity,
         protector,

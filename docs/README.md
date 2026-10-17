@@ -94,6 +94,7 @@ Common terms in these references:
 
 | Record | Scope / 范围 |
 | --- | --- |
+| [Upstream transport fixes](UPSTREAM_TRANSPORT_VALIDATION.md) | ICMP saturation and TCP packet-budget regressions, safe checks and isolated-test limits / ICMP 拥塞、TCP 包预算回归、安全检查与隔离测试边界 |
 | [Chrome ClientHello compatibility](CHROME_FINGERPRINT_VALIDATION.md) | Explicit H2/H3 WARP handshake and CONNECT-IP experiment, profile limits and validation / H2、H3 指纹握手与 CONNECT-IP 实测、指纹范围与验证 |
 | [Chrome 155 WARP signature negotiation](CHROME155_WARP_VALIDATION.md) | Default/131/155 H2/H3/L4 comparison and observed certificate/signature algorithms / 默认、131、155 在 H2/H3/L4 的对照及服务端证书与签名算法实测 |
 | [TLS fingerprint implementation validation](TLS_FINGERPRINT_IMPLEMENTATION_VALIDATION.md) | Production setting, parser/authentication checks, native builds and unavailable isolated checks / 正式设置实现、解析与认证检查、原生编译及未运行的隔离验证 |

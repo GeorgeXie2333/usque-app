@@ -26,6 +26,33 @@ migration, receiver closure, and shutdown remain independently pollable.
 
 ## PMTU and fragmentation
 
+Generated ICMP feedback has a separate, session-owned queue of at most 32
+packets including the in-flight delivery. A full feedback queue drops only new
+synthetic ICMP and logs rate-limited aggregate counts. Feedback delivery cannot
+stop draining stack output or replace ordinary incoming delivery. Cancellation
+and session replacement drop pending feedback; mux ownership and quoted-port
+restoration still apply. IPv6 minimum-MTU errors remain terminal even when the
+feedback queue is full.
+
+The active CONNECT-IP H3 actor also publishes its exact usable inner packet
+budget through a private latest-value channel. It uses quiche's current
+DATAGRAM bound and actual flow/context framing overhead, not the diagnostic
+PMTU sample or received ICMP. An unfinished probe can reduce this TCP budget;
+growth waits for confirmed discovery. The sequential session supervisor fences
+old actor updates and assigns monotonic command revisions. H2 clears the QUIC
+constraint. A single cancellable consumer updates the MASQUE private stack's
+TCP send limit, including existing flows and future connections, independently
+of lossy ICMP feedback. Failed command delivery cancels its private service
+token; runtime shutdown retains task ownership and cleanup.
+
+The TCP limit changes neither saved/interface MTU nor the peer's negotiated
+MSS. Unacknowledged data is resegmented by ordinary TCP retransmission. IPv4
+can use smaller packets; IPv6 retains a 1280-byte floor and the existing probe
+wait/confirmed-insufficiency failure path. H3's per-packet check remains final.
+Native TUN TCP continues using ICMP feedback. DIRECT, L4 and a chain's final
+inner stack do not inherit the outer budget; the WARP underlay's own TCP stack
+does. UDP/raw packet sizing remains separate.
+
 Initial and candidate sockets go through the same per-socket setup before
 protection/binding completes and before any QUIC send:
 

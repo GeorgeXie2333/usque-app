@@ -5,6 +5,71 @@ use super::tests::{
 };
 use super::*;
 
+/// Script only the actor boundary while exercising the production tunnel halves.
+pub(crate) struct ScriptedTunnelPeer {
+    outgoing: mpsc::Receiver<OutgoingBatch>,
+    pub(crate) incoming: mpsc::Sender<PacketBatch>,
+    pub(crate) budget: watch::Sender<Option<crate::tcp_packet_budget::H3PacketBudget>>,
+}
+
+impl ScriptedTunnelPeer {
+    pub(crate) fn take_outgoing(
+        &mut self,
+    ) -> Option<(PacketBatch, oneshot::Sender<PacketBatchResult>)> {
+        self.outgoing
+            .try_recv()
+            .ok()
+            .map(|request| (request.batch, request.completion))
+    }
+}
+
+pub(crate) fn scripted_tunnel() -> (H3Tunnel, ScriptedTunnelPeer) {
+    let (budget, packet_budget) = watch::channel(Some(crate::tcp_packet_budget::H3PacketBudget {
+        limit: 1280,
+        confirmed: true,
+    }));
+    let (outgoing_tx, outgoing) = mpsc::channel(1);
+    let (incoming, incoming_rx) = mpsc::channel(1);
+    let (control_tx, control) = watch::channel(PeerNetworkState::default());
+    let (migration_tx, migration_rx) = mpsc::channel(1);
+    let cancellation = CancellationToken::new();
+    let stop = cancellation.clone();
+    let task = tokio::spawn(async move {
+        stop.cancelled().await;
+        drop((control_tx, migration_rx));
+        Ok(())
+    });
+    (
+        H3Tunnel {
+            send: H3SendHalf {
+                sender: Some(outgoing_tx),
+            },
+            receive: H3ReceiveHalf {
+                receiver: incoming_rx,
+                pending: PacketBatch::new(),
+            },
+            driver: H3Driver {
+                task: Some(task),
+                cancellation,
+            },
+            control,
+            migration: H3MigrationHandle::new(
+                migration_tx,
+                "127.0.0.1:443".parse().unwrap(),
+                None,
+                false,
+            ),
+            attempt: None,
+            packet_budget,
+        },
+        ScriptedTunnelPeer {
+            outgoing,
+            incoming,
+            budget,
+        },
+    )
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ClosedTestChannel {
     Send,
@@ -62,6 +127,11 @@ pub(crate) fn tunnel_with_closed_channel(
             false,
         ),
         attempt: None,
+        packet_budget: watch::channel(Some(crate::tcp_packet_budget::H3PacketBudget {
+            limit: 1280,
+            confirmed: true,
+        }))
+        .1,
     }
 }
 
@@ -358,6 +428,7 @@ async fn full_actor_wakes_immediately_on_returned_receive_capacity() {
         noop_socket_protector(),
         incoming_tx,
         control_tx,
+        watch::channel(None).0,
         startup_tx,
         None,
         quality,

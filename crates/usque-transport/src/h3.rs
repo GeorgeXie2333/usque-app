@@ -119,9 +119,15 @@ pub struct H3Tunnel {
     control: watch::Receiver<PeerNetworkState>,
     migration: H3MigrationHandle,
     attempt: Option<ConnectionAttemptTelemetry>,
+    packet_budget: watch::Receiver<Option<crate::tcp_packet_budget::H3PacketBudget>>,
 }
 
 impl H3Tunnel {
+    pub(crate) fn packet_budget(
+        &self,
+    ) -> watch::Receiver<Option<crate::tcp_packet_budget::H3PacketBudget>> {
+        self.packet_budget.clone()
+    }
     pub(crate) async fn shutdown(self) {
         self.driver.shutdown().await;
     }
@@ -640,6 +646,7 @@ async fn connect_h3_application(
     let (incoming_tx, incoming_rx) = mpsc::channel(INCOMING_BATCH_CHANNEL_CAPACITY);
     let (control_tx, control_rx) = watch::channel(PeerNetworkState::default());
     let (startup_tx, startup_rx) = oneshot::channel();
+    let (budget_tx, packet_budget) = watch::channel(None);
     let active_path = PathSocket::spawn(
         PathId::new(0),
         prepared.local_addr,
@@ -663,6 +670,7 @@ async fn connect_h3_application(
         protector,
         incoming_tx,
         control_tx,
+        budget_tx,
         startup_tx,
         attempt.cloned(),
         quality,
@@ -704,6 +712,7 @@ async fn connect_h3_application(
                 features.quic_migration,
             ),
             attempt: attempt.cloned(),
+            packet_budget,
         }),
         Ok(Ok(Err(failure))) => {
             actor_cancellation.cancel();
@@ -925,6 +934,7 @@ async fn run_h3_actor(
     protector: Arc<dyn SocketProtector>,
     incoming_tx: mpsc::Sender<PacketBatch>,
     control_tx: watch::Sender<PeerNetworkState>,
+    budget_tx: watch::Sender<Option<crate::tcp_packet_budget::H3PacketBudget>>,
     startup_tx: oneshot::Sender<Result<(), StartupFailure>>,
     attempt: Option<ConnectionAttemptTelemetry>,
     quality: NetworkQualityTelemetry,
@@ -952,6 +962,7 @@ async fn run_h3_actor(
         protector,
         incoming_tx,
         control_tx,
+        budget_tx,
         &mut startup_tx,
         attempt.as_ref(),
         &quality,
@@ -990,6 +1001,7 @@ async fn drive_h3_actor(
     protector: Arc<dyn SocketProtector>,
     incoming_tx: mpsc::Sender<PacketBatch>,
     control_tx: watch::Sender<PeerNetworkState>,
+    budget_tx: watch::Sender<Option<crate::tcp_packet_budget::H3PacketBudget>>,
     startup_tx: &mut Option<oneshot::Sender<Result<(), StartupFailure>>>,
     attempt: Option<&ConnectionAttemptTelemetry>,
     quality: &NetworkQualityTelemetry,
@@ -1165,6 +1177,12 @@ async fn drive_h3_actor(
 
                 if response_accepted && http3.dgram_enabled_by_peer(&connection) && !ready {
                     ready = true;
+                    publish_packet_budget(
+                        &connection,
+                        request_stream_id.expect("accepted CONNECT has a stream"),
+                        profile_inner_mtu,
+                        &budget_tx,
+                    )?;
                     if let Some(startup_tx) = startup_tx.take() {
                         let _ = startup_tx.send(Ok(()));
                     }
@@ -1173,6 +1191,9 @@ async fn drive_h3_actor(
         }
 
         if let Some(stream_id) = request_stream_id {
+            if ready {
+                publish_packet_budget(&connection, stream_id, profile_inner_mtu, &budget_tx)?;
+            }
             drain_received_datagrams(
                 &mut connection,
                 stream_id,
@@ -1902,6 +1923,37 @@ fn connect_ip_payload_limit_with_overhead(
         effective_connect_ip_payload(profile_inner_mtu, maximum_datagram_size, datagram_overhead),
         datagram_overhead,
     ))
+}
+
+fn publish_packet_budget(
+    connection: &H3QuicConnection,
+    stream_id: u64,
+    profile_inner_mtu: usize,
+    publisher: &watch::Sender<Option<crate::tcp_packet_budget::H3PacketBudget>>,
+) -> Result<(), TransportError> {
+    let (limit, _) = connect_ip_payload_limit(connection, stream_id, profile_inner_mtu)?;
+    if limit < 128 {
+        return Err(TransportError::Http3DatagramTooLarge {
+            maximum_packet_size: limit,
+        });
+    }
+    let confirmed = connection.pmtu().is_some();
+    publisher.send_if_modified(|old| {
+        // An unfinished search may shrink the ordinary-send bound, but must
+        // not raise a prior limit on the strength of an unconfirmed probe.
+        let limit = if confirmed {
+            limit
+        } else {
+            old.map_or(limit, |old| old.limit.min(limit))
+        };
+        let next = Some(crate::tcp_packet_budget::H3PacketBudget { limit, confirmed });
+        if *old == next {
+            return false;
+        }
+        *old = next;
+        true
+    });
+    Ok(())
 }
 
 fn effective_connect_ip_payload(

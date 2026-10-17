@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
@@ -45,6 +44,9 @@ use crate::telemetry::{
 };
 use crate::tunnel::{BatchSendFuture, MasqueTunnel};
 
+mod feedback;
+#[cfg(test)]
+mod feedback_tests;
 #[cfg(test)]
 mod ownership_tests;
 mod reconnect;
@@ -247,6 +249,15 @@ impl PacketStack {
             _control: monitor.control.clone(),
             tasks: vec![stack_task],
         };
+        if let Some(task) = crate::tcp_packet_budget::attach(
+            &packet_stack.channel,
+            monitor.tcp_packet_budget.clone(),
+            &packet_stack.cancellation,
+        )
+        .await?
+        {
+            packet_stack.tasks.push(task);
+        }
         packet_stack.configure_warp_dns(profile, assigned_addresses)?;
         Ok((packet_stack, pipe))
     }
@@ -275,6 +286,8 @@ impl PacketStack {
                 &telemetry,
             )
             .await?;
+        let (budget_publisher, budget_updates) = crate::tcp_packet_budget::BudgetPublisher::new();
+        budget_publisher.publish(tunnel.packet_budget().as_ref().and_then(|rx| *rx.borrow()));
         tunnel.activate_network_quality();
         let transport = tunnel.transport();
         let initial_path = runtime_path(transport, endpoint_family);
@@ -311,11 +324,24 @@ impl PacketStack {
             cancellation.child_token(),
         );
         let mut tasks = vec![stack_task, quality_task];
+        match crate::tcp_packet_budget::attach(&channel, Some(budget_updates), &cancellation).await
+        {
+            Ok(Some(task)) => tasks.push(task),
+            Ok(None) => {}
+            Err(error) => {
+                cancellation.cancel();
+                for task in tasks {
+                    task.abort();
+                }
+                return Err(error);
+            }
+        }
         tasks.push(tokio::spawn(run_transport_supervisor(
             tunnel,
             endpoint_family,
             PacketIo::from_pipe(pipe),
             SupervisorContext {
+                budget_publisher,
                 profile: profile.clone(),
                 identity,
                 protector: Arc::clone(&protector),
@@ -548,6 +574,7 @@ impl Drop for PacketStack {
 /// here originate from the platform TUN; the transport supervisor validates
 /// them and decrements TTL/hop-limit immediately before encapsulation.
 pub struct ManagedTunnelRuntime {
+    tcp_packet_budget: Option<watch::Receiver<crate::tcp_packet_budget::TcpPacketBudget>>,
     outgoing: Option<TrackedSender<OutboundPacket>>,
     incoming: TrackedReceiver<PacketBatch>,
     pending_incoming: PacketBatch,
@@ -579,6 +606,7 @@ pub(crate) struct ExternalPacketChannels {
 /// monitor to publish health and traffic without sharing mutable tunnel I/O.
 #[derive(Clone)]
 pub struct ManagedTunnelMonitor {
+    tcp_packet_budget: Option<watch::Receiver<crate::tcp_packet_budget::TcpPacketBudget>>,
     failure: watch::Receiver<Option<String>>,
     health: watch::Receiver<RuntimeHealth>,
     control: watch::Receiver<PeerNetworkState>,
@@ -646,6 +674,7 @@ impl ManagedTunnelMonitor {
     pub fn failed(path: RuntimePath, error: &TransportError) -> Self {
         let telemetry = ConnectionTelemetry::default();
         Self {
+            tcp_packet_budget: None,
             failure: watch::channel(Some(error.to_string())).1,
             health: watch::channel(RuntimeHealth::Failed {
                 last_path: path,
@@ -667,6 +696,7 @@ impl ManagedTunnelMonitor {
         quality: watch::Receiver<NetworkQualitySnapshot>,
     ) -> Self {
         Self {
+            tcp_packet_budget: None,
             failure: watch::channel(None).1,
             health,
             control: watch::channel(PeerNetworkState::default()).1,
@@ -693,6 +723,7 @@ impl ManagedTunnelMonitor {
         let telemetry = ConnectionTelemetry::default();
         let quality = initial_quality_receiver(&telemetry);
         Self {
+            tcp_packet_budget: None,
             failure,
             health,
             control,
@@ -783,6 +814,7 @@ impl ManagedTunnelRuntime {
         );
         (
             Self {
+                tcp_packet_budget: None,
                 outgoing: Some(outgoing),
                 incoming,
                 pending_incoming: PacketBatch::new(),
@@ -837,6 +869,7 @@ impl ManagedTunnelRuntime {
         let (_control_tx, control) = watch::channel(PeerNetworkState::default());
         (
             Self {
+                tcp_packet_budget: None,
                 outgoing: Some(outgoing),
                 incoming,
                 pending_incoming: PacketBatch::new(),
@@ -906,6 +939,8 @@ impl ManagedTunnelRuntime {
                 &telemetry,
             )
             .await?;
+        let (budget_publisher, budget_updates) = crate::tcp_packet_budget::BudgetPublisher::new();
+        budget_publisher.publish(tunnel.packet_budget().as_ref().and_then(|rx| *rx.borrow()));
         tunnel.activate_network_quality();
         let path = runtime_path(tunnel.transport(), endpoint_family);
         let quality = telemetry.network_quality();
@@ -945,6 +980,7 @@ impl ManagedTunnelRuntime {
                     buffered_outgoing: None,
                 },
                 SupervisorContext {
+                    budget_publisher,
                     profile: profile.clone(),
                     identity,
                     protector,
@@ -984,6 +1020,7 @@ impl ManagedTunnelRuntime {
             counters,
             telemetry,
             quality: quality_updates,
+            tcp_packet_budget: Some(budget_updates),
             tasks,
         })
     }
@@ -1056,6 +1093,7 @@ impl ManagedTunnelRuntime {
 
     pub fn monitor(&self) -> ManagedTunnelMonitor {
         ManagedTunnelMonitor {
+            tcp_packet_budget: self.tcp_packet_budget.clone(),
             failure: self.failure.clone(),
             health: self.health.clone(),
             control: self.control.clone(),
@@ -2001,7 +2039,9 @@ impl PacketIo {
                 let tx = tx.clone();
                 Box::pin(async move {
                     while let Some(packet) = batch.pop_front() {
-                        tx.send_owned_async(packet).await;
+                        if !tx.send_owned_checked(packet).await {
+                            return false;
+                        }
                     }
                     true
                 })
@@ -2016,6 +2056,7 @@ impl PacketIo {
 }
 
 struct SupervisorContext {
+    budget_publisher: crate::tcp_packet_budget::BudgetPublisher,
     profile: Profile,
     identity: Arc<MasqueTlsIdentity>,
     protector: Arc<dyn SocketProtector>,
@@ -2036,6 +2077,7 @@ async fn run_transport_supervisor(
     context: SupervisorContext,
 ) {
     let SupervisorContext {
+        budget_publisher,
         profile,
         mut identity,
         protector,
@@ -2081,6 +2123,7 @@ async fn run_transport_supervisor(
             &telemetry,
             probe_generation,
             protector.network_generation(),
+            Some(&budget_publisher),
         )
         .await;
         probe_generation = probe_generation.wrapping_add(1);
@@ -2486,8 +2529,13 @@ async fn pump_active_tunnel(
     telemetry: &ConnectionTelemetry,
     probe_generation: u32,
     network_generation: Option<u64>,
+    budget_publisher: Option<&crate::tcp_packet_budget::BudgetPublisher>,
 ) -> ActiveOutcome {
     let active_transport = tunnel.transport();
+    let mut budget_updates = tunnel.packet_budget();
+    if let Some(publisher) = budget_publisher {
+        publisher.publish(budget_updates.as_ref().and_then(|rx| *rx.borrow()));
+    }
     let migration_handle = tunnel.migration_handle();
     let mut active_generation = migration_handle
         .as_ref()
@@ -2543,7 +2591,7 @@ async fn pump_active_tunnel(
         };
     let mut pending_send: Option<TimedBatchSendFuture> = None;
     let mut pending_incoming: Option<IncomingDeliveryFuture> = None;
-    let mut queued_incoming = VecDeque::new();
+    let mut feedback = feedback::IcmpFeedback::default();
     let mut pending_migration: Option<PendingNetworkMigration> = None;
     // Keep one persistent interval: rebuilding a sleep future in this busy
     // select loop would postpone network detection whenever packets arrive.
@@ -2557,12 +2605,15 @@ async fn pump_active_tunnel(
         if cancellation.is_cancelled() {
             break ActiveOutcome::Shutdown;
         }
-        if pending_incoming.is_none()
-            && let Some(batch) = queued_incoming.pop_front()
-        {
-            pending_incoming = Some(packet_io.start_incoming_batch(batch));
-        }
+        feedback.start_delivery(packet_io);
         tokio::select! {
+            changed = crate::tcp_packet_budget::wait_for_h3(&mut budget_updates), if budget_updates.is_some() => {
+                match changed {
+                    Ok(Some(value)) => if let Some(publisher) = budget_publisher { publisher.publish(Some(value)); },
+                    Ok(None) => {},
+                    Err(()) => budget_updates = None,
+                }
+            }
             _ = cancellation.cancelled() => break ActiveOutcome::Shutdown,
             _ = network_tick.tick(), if observed_generation.is_some() => {
                 let current = protector.network_generation();
@@ -2641,14 +2692,11 @@ async fn pump_active_tunnel(
                                 active_path.endpoint_family,
                             );
                         }
-                        let mut icmp_batch = PacketBatch::new();
                         let mut oversized_outcome = None;
                         for (packet, maximum_packet_size) in oversized {
                             match crate::icmp::packet_too_big(&packet, maximum_packet_size) {
                                 Ok(icmp) => {
-                                    icmp_batch
-                                        .push_back(icmp)
-                                        .expect("one ICMP response per bounded packet batch fits");
+                                    feedback.push(icmp);
                                 }
                                 Err(TransportError::Ipv6MinimumMtuUnavailable(maximum)) => {
                                     let error =
@@ -2668,9 +2716,6 @@ async fn pump_active_tunnel(
                                     );
                                 }
                             }
-                        }
-                        if !icmp_batch.is_empty() {
-                            queued_incoming.push_back(icmp_batch);
                         }
                         if let Some(outcome) = oversized_outcome {
                             break outcome;
@@ -2708,7 +2753,13 @@ async fn pump_active_tunnel(
                     break ActiveOutcome::Shutdown;
                 }
             }
-            batch = packet_io.receive_outgoing_batch(), if pending_send.is_none() && queued_incoming.is_empty() => {
+            delivered = wait_for_incoming_delivery(&mut feedback.pending), if feedback.pending.is_some() => {
+                feedback.pending.take();
+                if !delivered {
+                    break ActiveOutcome::Shutdown;
+                }
+            }
+            batch = packet_io.receive_outgoing_batch(), if pending_send.is_none() => {
                 let Some(mut batch) = batch else {
                     break ActiveOutcome::Shutdown;
                 };
@@ -3911,6 +3962,27 @@ mod tests {
             test_ipv4_packet(1)
         );
         assert!(incoming_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn external_chain_and_l4_monitors_do_not_inherit_masque_tcp_budget() {
+        let transport = ConnectionTelemetry::default();
+        let (runtime, _channels) = ManagedTunnelRuntime::for_external_packets(
+            runtime_path(Transport::Http3, AddressFamily::Ipv4),
+            transport.network_quality(),
+        );
+        assert!(runtime.monitor().tcp_packet_budget.is_none());
+        let (_, health) = watch::channel(RuntimeHealth::Connected {
+            path: runtime_path(Transport::Http3, AddressFamily::Ipv4),
+            reconnect_count: 0,
+        });
+        let monitor = ManagedTunnelMonitor::for_streams(
+            health,
+            Arc::new(TrafficCounters::default()),
+            transport.clone(),
+            initial_quality_receiver(&transport),
+        );
+        assert!(monitor.tcp_packet_budget.is_none());
     }
 
     #[test]

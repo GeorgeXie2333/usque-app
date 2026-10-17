@@ -9,6 +9,8 @@ extern crate ts_netstack_smoltcp_core as netcore;
 
 use netcore::{HasChannel, Netstack, Pipe, PipeDev, Response, udp};
 
+type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 // Rough schematic:
 //
 //          UDP SOCKET
@@ -31,8 +33,7 @@ use netcore::{HasChannel, Netstack, Pipe, PipeDev, Response, udp};
 //                                          |< we know is addressed to the socket
 
 #[test]
-fn udp_by_steps() -> ts_cli_util::Result<()> {
-    ts_cli_util::init_tracing();
+fn udp_by_steps() -> TestResult<()> {
     std::panic::set_hook(Box::new(tracing_panic::panic_hook));
 
     let mut stack = Netstack::new(
@@ -91,7 +92,7 @@ fn udp_by_steps() -> ts_cli_util::Result<()> {
             },
         )?;
 
-        Ok(()) as ts_cli_util::Result<()>
+        Ok(()) as TestResult<()>
     });
 
     let _guard = tracing::info_span!("netstack driver").entered();
@@ -131,7 +132,7 @@ fn udp_by_steps() -> ts_cli_util::Result<()> {
     Ok(())
 }
 
-fn wait_and_process_cmd(stack: &mut Netstack) -> ts_cli_util::Result<()> {
+fn wait_and_process_cmd(stack: &mut Netstack) -> TestResult<()> {
     let cmd = stack.wait_for_cmd_blocking(None)?;
     stack.process_one_cmd(cmd);
 

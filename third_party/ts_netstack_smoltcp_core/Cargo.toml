@@ -124,3 +124,6 @@ bare_urls = "deny"
 broken_intra_doc_links = "deny"
 invalid_html_tags = "deny"
 private_intra_doc_links = "deny"
+
+[patch.crates-io]
+smoltcp = { path = '../smoltcp-0.14.0' }

@@ -10,6 +10,36 @@ const QUIC_MIN_PAYLOAD: usize = 1200;
 const FLIGHT_BOUND: usize = 256;
 
 #[test]
+fn tcp_budget_tracks_real_datagram_capacity_across_revalidation_and_promotion() {
+    let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
+    pair.settle();
+    let (tx, rx) = watch::channel(None);
+    publish_packet_budget(&pair.client, 0, 1280, &tx).unwrap();
+    assert_eq!(rx.borrow().unwrap().limit, 1280);
+    assert!(rx.borrow().unwrap().confirmed);
+    pair.client.revalidate_pmtu();
+    publish_packet_budget(&pair.client, 0, 1280, &tx).unwrap();
+    let reduced = rx.borrow().unwrap();
+    assert!(!reduced.confirmed);
+    assert!(reduced.limit < 1280);
+    assert_eq!(
+        reduced.limit,
+        connect_ip_payload_limit(&pair.client, 0, 1280).unwrap().0
+    );
+    pair.settle();
+    publish_packet_budget(&pair.client, 0, 1280, &tx).unwrap();
+    assert_eq!(rx.borrow().unwrap().limit, 1280);
+    pair.exchange_ids();
+    let candidate = "127.0.0.1:12341".parse().unwrap();
+    pair.validate_candidate(candidate, IPV4_MAX_UDP_PAYLOAD);
+    pair.client.migrate_source(candidate).unwrap();
+    pair.client.revalidate_pmtu();
+    publish_packet_budget(&pair.client, 0, 1280, &tx).unwrap();
+    assert!(!rx.borrow().unwrap().confirmed);
+    assert!(rx.borrow().unwrap().limit < 1280);
+}
+
+#[test]
 fn every_selected_algorithm_preserves_handshake_datagram_pmtu_migration_and_close() {
     for algorithm in usque_core::CongestionControlAlgorithm::ALL {
         let mut pair = Pair::new(|client, server| {

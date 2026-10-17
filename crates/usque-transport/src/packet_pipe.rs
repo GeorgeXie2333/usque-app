@@ -62,6 +62,7 @@ pub(crate) struct PacketSender {
 }
 impl PacketSender {
     /// Transfer an existing allocation after reserving the bounded queue slot.
+    #[cfg(test)]
     pub(crate) async fn send_owned_async(&self, packet: Bytes) {
         self.send_owned_checked(packet).await;
     }

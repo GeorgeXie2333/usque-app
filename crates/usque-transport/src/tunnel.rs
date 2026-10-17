@@ -21,6 +21,14 @@ pub(crate) enum MasqueTunnel {
 }
 
 impl MasqueTunnel {
+    pub(crate) fn packet_budget(
+        &self,
+    ) -> Option<watch::Receiver<Option<crate::tcp_packet_budget::H3PacketBudget>>> {
+        match self {
+            Self::Http3(tunnel) => Some(tunnel.packet_budget()),
+            Self::Http2(_) => None,
+        }
+    }
     pub(crate) fn transport(&self) -> Transport {
         match self {
             Self::Http3(_) => Transport::Http3,

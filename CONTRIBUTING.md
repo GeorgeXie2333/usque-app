@@ -158,6 +158,16 @@ cargo test --workspace --all-targets --locked
 
 Every `unsafe` block needs a `// SAFETY:` comment that states the invariants. A public unsafe API needs a rustdoc `# Safety` section.
 
+Userspace TCP budget or pinned stack changes also run the dependency tests;
+workspace tests do not execute dependency unit tests. On Windows, initialize
+the native environment through the Windows Rust helper before these commands.
+Both manifests resolve the same local smoltcp patch.
+
+```shell
+cargo test --manifest-path third_party/smoltcp-0.14.0/Cargo.toml --locked --lib
+cargo test --manifest-path third_party/ts_netstack_smoltcp_core/Cargo.toml --locked --all-targets
+```
+
 Embedded OpenVPN changes additionally require the source/notice lock check and
 the memory-only TLS/CBC peer. Initialize the Windows native environment using
 the helper above before these Cargo commands. The peer opens no OS socket or

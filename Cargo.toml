@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 # The frozen dependency keeps upstream formatting and its own test manifest.
-exclude = ["third_party/quiche-0.29.3", "third_party/ts_netstack_smoltcp_core"]
+exclude = ["third_party/quiche-0.29.3", "third_party/ts_netstack_smoltcp_core", "third_party/smoltcp-0.14.0"]
 members = [
     "crates/usque-agent",
     "crates/usque-android",
@@ -152,6 +152,7 @@ opt-level = 1
 debug = false
 
 [patch.crates-io]
+smoltcp = { path = "third_party/smoltcp-0.14.0" }
 # Keep per-path PMTUD and DATAGRAM limits consistent with ordinary packetization.
 # Also retain the independent, explicitly selected BBRv3 recovery implementation.
 # Provenance and the narrow patch are documented in the vendored directory.

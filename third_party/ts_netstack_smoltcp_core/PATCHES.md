@@ -1,5 +1,17 @@
 # Local patch record
 
+The private MASQUE stack can opt into `SetTcpPacketBudget`, a revisioned control
+command that sets separate IPv4/IPv6 TCP IP packet bounds. It validates both
+families before mutation, ignores old revisions and updates existing connected
+TCP sockets and future outbound connects. Default stacks retain no additional
+limit. IPv6 limits below 1280 are rejected. No UDP/raw or interface MTU changes
+are made. The command uses the narrow
+[smoltcp patch](../smoltcp-0.14.0/USQUE-PATCH.md); this manifest also patches the
+dependency for standalone tests so they cannot silently use registry smoltcp.
+The published UDP smoke test referenced the unavailable workspace-private
+`ts_cli_util`. Its standalone harness now uses a standard boxed error and omits
+that private tracing initializer; the packet exchange and assertions are kept.
+
 Source: `ts_netstack_smoltcp_core 0.4.0` from crates.io
 Upstream: <https://github.com/tailscale/tailscale-rs>
 License: BSD-3-Clause

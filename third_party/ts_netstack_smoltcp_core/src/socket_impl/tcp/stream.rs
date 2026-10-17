@@ -50,6 +50,8 @@ impl Netstack {
                     Ok(value) => value,
                     Err(error) => return Response::Error(error),
                 };
+                let budget = self.tcp_packet_budget[usize::from(remote_endpoint.is_ipv6())];
+                assert!(sock.set_tx_ip_packet_limit(budget));
 
                 if let Err(e) = sock.connect(self.iface.context(), remote_endpoint, local_endpoint)
                 {

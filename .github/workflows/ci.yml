@@ -92,6 +92,11 @@ jobs:
           cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib
           cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --features qlog recovery::gcongestion::bbr3::
 
+      - name: Test pinned userspace TCP patches independently
+        run: |
+          cargo test --manifest-path third_party/smoltcp-0.14.0/Cargo.toml --locked --lib
+          cargo test --manifest-path third_party/ts_netstack_smoltcp_core/Cargo.toml --locked --all-targets
+
   tooling-quality:
     name: Multi-language tooling quality
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}

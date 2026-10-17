@@ -381,3 +381,37 @@ async fn shared_inbound_without_rewrite_preserves_original_storage() {
     );
     f.stop().await;
 }
+
+#[tokio::test]
+async fn generated_ptb_restores_same_port_proxy_and_tun_ownership() {
+    let mut f = Fixture::new(4).await;
+    for origin in [PacketOrigin::Tunnel, PacketOrigin::Proxy] {
+        f.send(origin, 50_000).await;
+        let outbound = timeout(Duration::from_secs(2), f.inner.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let response = crate::icmp::packet_too_big(&outbound, 1150).unwrap();
+        f.inject(&[response]).await;
+        let received = match origin {
+            PacketOrigin::Tunnel => timeout(Duration::from_secs(2), f.io.receive_packet())
+                .await
+                .unwrap()
+                .unwrap(),
+            PacketOrigin::Proxy => timeout(Duration::from_secs(2), f.proxy_rx.recv_async())
+                .await
+                .unwrap()
+                .unwrap(),
+        };
+        assert_eq!(&received[20..22], &[3, 4]);
+        assert_eq!(
+            &received[48..50],
+            &50_000u16.to_be_bytes(),
+            "quoted source port must be restored"
+        );
+        assert!(crate::h2::validate_ip_packet(&received).is_ok());
+        assert!(f.proxy_rx.try_recv().is_none());
+        assert!(f.io.try_receive_packet().unwrap().is_none());
+    }
+    f.stop().await;
+}

@@ -66,6 +66,7 @@ mod stack_tcp;
 mod stream_client;
 mod tcp;
 mod tcp_candidates;
+mod tcp_packet_budget;
 mod telemetry;
 mod transport_performance;
 mod tunnel;

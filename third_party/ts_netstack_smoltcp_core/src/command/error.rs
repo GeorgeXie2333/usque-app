@@ -35,6 +35,10 @@ pub enum Error {
 }
 
 impl Error {
+    /// A local TCP packet budget would violate its address-family limits.
+    pub const fn invalid_packet_budget() -> Self {
+        Self::BadRequest(BadRequestReason::InvalidPacketBudget)
+    }
     /// Error constructor for the wrong type of command response.
     pub fn wrong_type() -> Self {
         Error::Internal(InternalErrorKind::InternalResponseMismatch)
@@ -142,6 +146,8 @@ impl fmt::Display for InternalErrorKind {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BadRequestReason {
+    /// Invalid local TCP packet budget.
+    InvalidPacketBudget,
     /// Packet unaddressable.
     Unaddressable,
     /// A packet is too large to ever fit in socket buffer; even if the buffer is emptied, this error
@@ -158,6 +164,7 @@ pub enum BadRequestReason {
 impl fmt::Display for BadRequestReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidPacketBudget => write!(f, "invalid TCP packet budget"),
             BadRequestReason::Unaddressable => write!(f, "packet unaddressable"),
             BadRequestReason::BigPacket => {
                 write!(f, "packet is too large to ever fit in socket buffer")

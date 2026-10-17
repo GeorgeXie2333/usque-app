@@ -58,6 +58,7 @@ async fn pump_fixture(tunnel: MasqueTunnel, cancellation: CancellationToken) -> 
         &ConnectionTelemetry::default(),
         0,
         None,
+        None,
     )
     .await
 }
