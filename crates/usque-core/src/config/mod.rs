@@ -527,7 +527,7 @@ impl Default for Profile {
             mode: OperatingMode::legacy_platform_default(),
             frontends: FrontendSettings::default(),
             transport: TransportPolicy::Auto,
-            tls_fingerprint: TlsFingerprint::Default,
+            tls_fingerprint: TlsFingerprint::default(),
             data_plane: DataPlaneMode::ConnectIp,
             congestion_control: CongestionControlAlgorithm::default(),
             endpoint: EndpointSettings::default(),

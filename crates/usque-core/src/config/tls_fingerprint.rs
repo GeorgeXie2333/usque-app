@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum TlsFingerprint {
-    #[default]
+    /// Original handshake, displayed as `unsafe`; retain its persisted wire name.
     Default,
+    #[default]
     Chrome155,
 }
 
@@ -20,14 +21,23 @@ mod tests {
     use crate::{Account, Profile, SharedNetworkSettings};
 
     #[test]
-    fn legacy_profiles_and_shared_settings_keep_default_handshake() {
+    fn new_and_legacy_profiles_and_shared_settings_default_to_chrome155() {
+        assert_eq!(TlsFingerprint::default(), TlsFingerprint::Chrome155);
+        assert_eq!(
+            Profile::default().tls_fingerprint,
+            TlsFingerprint::Chrome155
+        );
+        assert_eq!(
+            SharedNetworkSettings::default().tls_fingerprint,
+            TlsFingerprint::Chrome155
+        );
         let mut profile = serde_json::to_value(Profile::default()).unwrap();
         profile.as_object_mut().unwrap().remove("tls_fingerprint");
         assert_eq!(
             serde_json::from_value::<Profile>(profile)
                 .unwrap()
                 .tls_fingerprint,
-            TlsFingerprint::Default
+            TlsFingerprint::Chrome155
         );
         let mut shared = serde_json::to_value(SharedNetworkSettings::default()).unwrap();
         shared.as_object_mut().unwrap().remove("tls_fingerprint");
@@ -35,7 +45,7 @@ mod tests {
             serde_json::from_value::<SharedNetworkSettings>(shared)
                 .unwrap()
                 .tls_fingerprint,
-            TlsFingerprint::Default
+            TlsFingerprint::Chrome155
         );
     }
 

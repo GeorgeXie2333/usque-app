@@ -41,6 +41,7 @@ AppController _controllerFor(_EntryEngine engine, {bool selected = true}) {
     ..section = AppSection.proxy
     ..localePreference = LocalePreference.english
     ..engineCapabilities = const EngineCapabilities(
+      tlsFingerprints: TlsFingerprint.values,
       vpnGateTcp: true,
       automaticEndpoints: true,
     );

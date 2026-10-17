@@ -22,6 +22,7 @@ class ZtEndpointEngine extends EndpointEngine {
 
   @override
   Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
     networkSettingsApplication: true,
     automaticEndpoints: true,
     zeroTrustEndpointEditing: supported,

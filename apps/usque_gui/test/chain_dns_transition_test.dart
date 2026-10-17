@@ -49,6 +49,7 @@ class _TransitionEngine extends ChainEngine {
   @override
   Future<EngineCapabilities?> getCapabilities() async =>
       const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         networkSettingsApplication: true,
         l4Tcp: true,

@@ -42,7 +42,9 @@ direct and final-chain DNS policies remain in force.
 
 Configuration schema advances from v0.3.0's 23 to 25: schema 24 migrates legacy
 domains and CIDRs to DIRECT and retains countries; schema 25 adds the shared
-MASQUE TLS fingerprint preference, preserving the default handshake on upgrade.
+MASQUE TLS fingerprint preference. New configurations and missing values use
+Chrome 155; explicit saved selections are preserved, with the original handshake
+now labeled unsafe.
 Custom CIDRs now route inside the application data plane. Recovery journal 5,
 Agent protocol 3 and sanitized recovery export 2 remain unchanged. Engines that
 support only schema 24 or earlier reject schema 25;

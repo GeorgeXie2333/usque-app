@@ -233,6 +233,7 @@ void main() {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       final engine = QualityEngineStub()
         ..capabilities = const EngineCapabilities(
+          tlsFingerprints: TlsFingerprint.values,
           automaticEndpoints: true,
           networkSettingsApplication: true,
         );

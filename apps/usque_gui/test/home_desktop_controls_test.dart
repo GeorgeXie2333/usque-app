@@ -25,6 +25,7 @@ class _ControlsEngine extends FakeEngineClient {
 
   @override
   Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
     networkSettingsApplication: true,
     automaticEndpoints: true,
     vpnGateTcp: chainAvailable,
@@ -440,6 +441,7 @@ void main() {
       await tester.pumpAndSettle();
       final previousSettings = app.networkSettings.state!;
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         networkSettingsApplication: true,
       );
       await tester.tap(_toggle('tun'));

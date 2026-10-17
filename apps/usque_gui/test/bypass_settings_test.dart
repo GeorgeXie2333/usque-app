@@ -72,6 +72,7 @@ void main() {
       await app.initialize();
       await tester.pumpAndSettle();
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         networkSettingsApplication: true,
         routingRules: true,
@@ -194,6 +195,7 @@ void main() {
       await app.initialize();
       await tester.pumpAndSettle();
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         networkSettingsApplication: true,
         routingRules: true,
@@ -232,6 +234,7 @@ void main() {
       await app.initialize();
       await tester.pumpAndSettle();
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         networkSettingsApplication: true,
         routingRules: true,
@@ -260,6 +263,7 @@ void main() {
       await app.initialize();
       await tester.pumpAndSettle();
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         networkSettingsApplication: true,
         routingRules: true,
@@ -308,6 +312,7 @@ void main() {
       await app.initialize();
       await tester.pumpAndSettle();
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         networkSettingsApplication: true,
         routingRules: true,
@@ -351,6 +356,7 @@ void main() {
       await app.initialize();
       await tester.pumpAndSettle();
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         networkSettingsApplication: true,
         routingRules: true,
@@ -383,6 +389,7 @@ void main() {
         await app.initialize();
         await tester.pumpAndSettle();
         app.engineCapabilities = const EngineCapabilities(
+          tlsFingerprints: TlsFingerprint.values,
           automaticEndpoints: true,
           networkSettingsApplication: true,
           routingRules: true,

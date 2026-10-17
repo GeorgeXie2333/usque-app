@@ -7,27 +7,31 @@ active, waiting for a later connection, or awaiting confirmation.
 ## MASQUE TLS fingerprint / MASQUE TLS 指纹
 
 Open **Settings → Advanced network settings → Transport → TLS fingerprint**,
-choose **Default** or **Chrome 155**, then **Apply changes**. The selection is a
-shared network preference. Default preserves the existing handshake; Chrome 155
-uses a fixed ClientHello profile with the required QUIC adaptation for H3.
-Changing it is a cold change, subject to the application rules below. New and
-legacy configurations default to the existing behavior; restoring network
-defaults stages that same default. Authentication and endpoint public-key pin
-checks remain enforced. See the [fingerprint guide](TLS_FINGERPRINT.md) for
-instructions, scope and compatibility limits.
+choose **Chrome 155** (the default) or **unsafe**, then **Apply changes**. The
+selection is a shared network preference. **unsafe** preserves the existing
+handshake; Chrome 155 uses a fixed ClientHello profile with the required QUIC
+adaptation for H3.
+Changing it is a cold change, subject to the application rules below. New
+configurations and missing values use Chrome 155; restoring network defaults
+stages Chrome 155. Existing explicit selections are preserved. Authentication
+and endpoint public-key pin checks remain enforced. See the
+[fingerprint guide](TLS_FINGERPRINT.md) for instructions, scope and compatibility
+limits.
 
 The `tls_fingerprint` field was introduced in schema 25. Current values are
-`default` and `chrome155`; missing values retain Default. The unreleased
-`chrome131` value has no migration or alias. Profile protobuf field 26 carries
-Default = 1 or Chrome 155 = 3; value 2 is retired. Capability
+`default` (displayed as **unsafe**) and `chrome155`; missing values use Chrome 155.
+The unreleased `chrome131` value has no migration or alias. Profile protobuf
+field 26 carries unsafe = 1 (the historical `DEFAULT` enum name) or Chrome 155 = 3;
+unspecified = 0 uses Chrome 155, and value 2 is retired. Capability
 field 48 (`tls_fingerprints`) advertises supported values. The settings mask is
 `tls_fingerprint`. Unknown explicit values are rejected. The GUI disables the
 picker for an older engine and does not silently connect a saved Chrome profile
-using Default.
+using unsafe.
 
-在 **设置 → 高级网络设置 → 传输协议 → TLS 指纹** 中选择 **默认** 或 **Chrome 155**，
+在 **设置 → 高级网络设置 → 传输协议 → TLS 指纹** 中选择 **Chrome 155**（默认）或 **unsafe**，
 再点击 **应用修改**。此选项由所有账号共享；连接稳定时应用会重新连接，其他状态
-遵循下述应用规则。升级保留默认握手行为，客户端认证和端点公钥校验不变。
+遵循下述应用规则。新配置、缺省值及恢复默认值使用 Chrome 155，已保存的显式选择保持不变；
+原“默认”选项显示为 unsafe，客户端认证和端点公钥校验不变。
 
 ## Zero Trust endpoint editing / Zero Trust 端点编辑
 

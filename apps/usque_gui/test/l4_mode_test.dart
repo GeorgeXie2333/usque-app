@@ -161,6 +161,7 @@ void main() {
         final controller = AppController(FakeEngineClient())
           ..localePreference = LocalePreference.simplifiedChinese
           ..engineCapabilities = EngineCapabilities(
+            tlsFingerprints: TlsFingerprint.values,
             automaticEndpoints: true,
             l4Tcp: supported,
             l4TunTcp: supported,
@@ -259,6 +260,7 @@ void main() {
               ? LocalePreference.simplifiedChinese
               : LocalePreference.english
           ..engineCapabilities = const EngineCapabilities(
+            tlsFingerprints: TlsFingerprint.values,
             automaticEndpoints: true,
             l4Tcp: true,
             l4TunTcp: true,
@@ -386,6 +388,7 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         final controller = AppController(FakeEngineClient())
           ..engineCapabilities = const EngineCapabilities(
+            tlsFingerprints: TlsFingerprint.values,
             automaticEndpoints: true,
             l4Tcp: true,
             l4TunTcp: true,

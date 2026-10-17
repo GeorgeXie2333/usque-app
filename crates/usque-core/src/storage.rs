@@ -476,7 +476,7 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.schema_version = 24;
     }
     if config.schema_version < 25 {
-        config.network.tls_fingerprint = crate::TlsFingerprint::Default;
+        config.network.tls_fingerprint = crate::TlsFingerprint::default();
         config.schema_version = 25;
     }
     if config.schema_version < 26 {
@@ -580,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_24_migrates_with_default_fingerprint_and_persists_selection() {
+    fn schema_24_migrates_with_chrome155_and_persists_explicit_unsafe_selection() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.json");
         let config = crate::AppConfig {
@@ -598,13 +598,13 @@ mod tests {
         assert_eq!(loaded.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(
             loaded.network.tls_fingerprint,
-            crate::TlsFingerprint::Default
+            crate::TlsFingerprint::Chrome155
         );
-        loaded.network.tls_fingerprint = crate::TlsFingerprint::Chrome155;
+        loaded.network.tls_fingerprint = crate::TlsFingerprint::Default;
         store.save(&loaded).unwrap();
         assert_eq!(
             store.load().unwrap().network.tls_fingerprint,
-            crate::TlsFingerprint::Chrome155
+            crate::TlsFingerprint::Default
         );
     }
 

@@ -925,7 +925,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                   enabled: supported.contains(value),
                   child: Text(
                     value == TlsFingerprint.defaultProfile
-                        ? strings.get('tls_fingerprint_default')
+                        ? 'unsafe'
                         : 'Chrome 155',
                   ),
                 ),

@@ -4792,9 +4792,8 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
     let defaults = Profile::default();
     let congestion_control = congestion::from_proto(source.congestion_control)?;
     let tls_fingerprint = match v1::TlsFingerprint::try_from(source.tls_fingerprint) {
-        Ok(v1::TlsFingerprint::Unspecified | v1::TlsFingerprint::Default) => {
-            usque_core::TlsFingerprint::Default
-        }
+        Ok(v1::TlsFingerprint::Unspecified) => usque_core::TlsFingerprint::default(),
+        Ok(v1::TlsFingerprint::Default) => usque_core::TlsFingerprint::Default,
         Ok(v1::TlsFingerprint::Chrome155) => usque_core::TlsFingerprint::Chrome155,
         _ => {
             return Err(ControlServiceError::InvalidRequest(
@@ -9004,7 +9003,7 @@ mod tests {
         legacy.tls_fingerprint = 0;
         assert_eq!(
             profile_from_proto(legacy.clone()).unwrap().tls_fingerprint,
-            usque_core::TlsFingerprint::Default
+            usque_core::TlsFingerprint::Chrome155
         );
         for retired_or_unknown in [2, 99] {
             legacy.tls_fingerprint = retired_or_unknown;

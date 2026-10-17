@@ -54,6 +54,7 @@ class ChainEngine extends GateEngine
   ChainProfileSummary previewProfile = imported;
   @override
   Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
     automaticEndpoints: true,
     vpnGateTcp: true,
     vpnGatePoolFavorites: true,
@@ -1413,6 +1414,7 @@ void main() {
       final engine = ChainEngine();
       final app = await hostChain(tester, engine, width: 390);
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         chainProfileImport: true,
       );

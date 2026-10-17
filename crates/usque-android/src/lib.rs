@@ -4250,7 +4250,10 @@ mod tests {
             );
             json.as_object_mut().unwrap().remove("tls_fingerprint");
             let legacy: AndroidProfile = serde_json::from_value(json.clone()).unwrap();
-            assert_eq!(legacy.tls_fingerprint, usque_core::TlsFingerprint::Default);
+            assert_eq!(
+                legacy.tls_fingerprint,
+                usque_core::TlsFingerprint::Chrome155
+            );
             json["tls_fingerprint"] = serde_json::json!("unknown");
             assert!(serde_json::from_value::<AndroidProfile>(json).is_err());
         }

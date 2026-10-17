@@ -9,6 +9,7 @@ import 'app_test.dart' show FakeEngineClient;
 
 class QualityEngineStub extends FakeEngineClient {
   EngineCapabilities? capabilities = const EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
     automaticEndpoints: true,
     networkQuality: true,
     encryptedDirectDns: true,

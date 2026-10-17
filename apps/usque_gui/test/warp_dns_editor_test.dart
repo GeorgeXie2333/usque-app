@@ -58,6 +58,7 @@ Future<AppController> advancedHost(
     ..localePreference = LocalePreference.english;
   addTearDown(app.dispose);
   app.engineCapabilities = const EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
     automaticEndpoints: true,
     networkSettingsApplication: true,
     encryptedWarpDns: true,
@@ -531,6 +532,7 @@ void main() {
         ..localePreference = LocalePreference.english;
       addTearDown(app.dispose);
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         networkSettingsApplication: true,
         encryptedWarpDns: true,

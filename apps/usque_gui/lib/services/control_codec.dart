@@ -961,8 +961,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         routing = _decodeRoutingSettings(reader.message(field));
       case 26:
         tlsFingerprint = switch (reader.varint(field)) {
-          0 || 1 => TlsFingerprint.defaultProfile,
-          3 => TlsFingerprint.chrome155,
+          0 || 3 => TlsFingerprint.chrome155,
+          1 => TlsFingerprint.defaultProfile,
           _ => throw const FormatException('Invalid TLS fingerprint'),
         };
       case 18:

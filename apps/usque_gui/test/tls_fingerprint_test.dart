@@ -14,7 +14,15 @@ import 'congestion_control_test.dart' show codec, decodeProfile, response;
 import 'ui_workflow_test.dart' show workflowHost;
 
 void main() {
-  test('TLS fingerprint survives JSON and protobuf and resets to default', () {
+  test('TLS fingerprints round trip and default to Chrome 155', () {
+    expect(
+      UsqueProfile.defaultProfile().tlsFingerprint,
+      TlsFingerprint.chrome155,
+    );
+    expect(
+      const UsqueProfile(id: 'new', name: 'New').tlsFingerprint,
+      TlsFingerprint.chrome155,
+    );
     for (final value in TlsFingerprint.values) {
       final profile = UsqueProfile.defaultProfile().copyWith(
         tlsFingerprint: value,
@@ -24,25 +32,25 @@ void main() {
       expect(decodeProfile(codec.encodeProfile(profile)).tlsFingerprint, value);
       expect(
         profile.resetAdvancedDefaults().tlsFingerprint,
-        TlsFingerprint.defaultProfile,
+        TlsFingerprint.chrome155,
       );
     }
     final legacy = UsqueProfile.defaultProfile().toMap()
       ..remove('tls_fingerprint');
     expect(
       UsqueProfile.fromMap(legacy).tlsFingerprint,
-      TlsFingerprint.defaultProfile,
+      TlsFingerprint.chrome155,
     );
     expect(
       decodeProfile(Uint8List(0)).tlsFingerprint,
-      TlsFingerprint.defaultProfile,
+      TlsFingerprint.chrome155,
     );
     for (final value in [0, 1, 3]) {
       final payload = (ControlPayloadWriter()..enumeration(26, value))
           .takeBytes();
       expect(
         decodeProfile(payload).tlsFingerprint,
-        value == 3 ? TlsFingerprint.chrome155 : TlsFingerprint.defaultProfile,
+        value == 1 ? TlsFingerprint.defaultProfile : TlsFingerprint.chrome155,
       );
     }
     for (final value in [
@@ -119,7 +127,7 @@ void main() {
     expect(
       networkSettingsChangedFields(
         profile,
-        profile.copyWith(tlsFingerprint: TlsFingerprint.chrome155),
+        profile.copyWith(tlsFingerprint: TlsFingerprint.defaultProfile),
       ),
       ['tls_fingerprint'],
     );
@@ -130,7 +138,7 @@ void main() {
   Future<AppController> screen(
     WidgetTester tester, {
     bool supported = true,
-    TlsFingerprint value = TlsFingerprint.defaultProfile,
+    TlsFingerprint value = TlsFingerprint.chrome155,
     double scale = 1,
     LocalePreference locale = LocalePreference.english,
   }) async {
@@ -168,9 +176,30 @@ void main() {
   }
 
   testWidgets(
-    'Chrome choice stays a draft until apply and uses exact field mask',
+    'Chrome 155 is selected initially and unsafe preserves the original wire value',
     (tester) async {
       final app = await screen(tester);
+      final field = tester.widget<DropdownButtonFormField<TlsFingerprint>>(
+        find.byType(DropdownButtonFormField<TlsFingerprint>),
+      );
+      expect(field.initialValue, TlsFingerprint.chrome155);
+      await tester.tap(find.byType(DropdownButtonFormField<TlsFingerprint>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('unsafe').last);
+      await tester.pumpAndSettle();
+      expect(app.sharedNetwork.tlsFingerprint, TlsFingerprint.chrome155);
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply changes'));
+      await tester.pumpAndSettle();
+      expect(app.sharedNetwork.tlsFingerprint, TlsFingerprint.defaultProfile);
+      expect(app.sharedNetwork.toMap()['tls_fingerprint'], 'default');
+      expect(app.networkSettings.state?.deferredFields, ['tls_fingerprint']);
+    },
+  );
+
+  testWidgets(
+    'Chrome choice stays a draft until apply and uses exact field mask',
+    (tester) async {
+      final app = await screen(tester, value: TlsFingerprint.defaultProfile);
       await tester.tap(find.byType(DropdownButtonFormField<TlsFingerprint>));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Chrome 155').last);
@@ -217,7 +246,7 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.tap(find.byType(DropdownButtonFormField<TlsFingerprint>));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Chrome 155').last);
+      await tester.tap(find.text('unsafe').last);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },

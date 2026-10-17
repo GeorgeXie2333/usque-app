@@ -21,6 +21,7 @@ class EndpointEngine extends FakeEngineClient {
 
   @override
   Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
     networkSettingsApplication: true,
     automaticEndpoints: automaticSupported,
   );
@@ -407,6 +408,7 @@ void main() {
       );
       engine.reply.complete(
         const EngineCapabilities(
+          tlsFingerprints: TlsFingerprint.values,
           networkSettingsApplication: true,
           automaticEndpoints: true,
         ),

@@ -18,6 +18,7 @@ class _OutputsEngine extends FakeEngineClient {
   @override
   Future<EngineCapabilities?> getCapabilities() async =>
       const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         networkSettingsApplication: true,
         automaticEndpoints: true,
       );

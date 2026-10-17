@@ -33,6 +33,7 @@ class AdsEngine extends FormEngine implements AdsRulesClient {
   @override
   Future<EngineCapabilities?> getCapabilities() async =>
       const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         networkSettingsApplication: true,
         automaticEndpoints: true,
         routingRules: true,

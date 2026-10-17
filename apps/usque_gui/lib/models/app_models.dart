@@ -44,6 +44,7 @@ enum DataPlaneMode {
 enum TransportPolicy { automatic, http3, http2 }
 
 enum TlsFingerprint {
+  // Original handshake, displayed as unsafe; retain its persisted wire name.
   defaultProfile('default', 1),
   chrome155('chrome155', 3);
 
@@ -869,7 +870,7 @@ class UsqueProfile {
     this.transport = TransportPolicy.automatic,
     this.dataPlane = DataPlaneMode.connectIp,
     this.congestionControl = CongestionControlAlgorithm.cubic,
-    this.tlsFingerprint = TlsFingerprint.defaultProfile,
+    this.tlsFingerprint = TlsFingerprint.chrome155,
     this.ipPolicy = IpPolicy.automatic,
     this.endpointSelection = EndpointSelection.automatic,
     this.endpointPresetRegion,
@@ -972,7 +973,7 @@ class UsqueProfile {
   UsqueProfile resetAdvancedDefaults() {
     return copyWith(
       congestionControl: CongestionControlAlgorithm.cubic,
-      tlsFingerprint: TlsFingerprint.defaultProfile,
+      tlsFingerprint: TlsFingerprint.chrome155,
       transport: TransportPolicy.automatic,
       dataPlane: DataPlaneMode.connectIp,
       ipPolicy: IpPolicy.automatic,
@@ -1178,7 +1179,7 @@ class UsqueProfile {
       tlsFingerprint: map.containsKey('tls_fingerprint')
           ? TlsFingerprint.fromWire(map['tls_fingerprint']) ??
                 (throw const FormatException('Invalid tls_fingerprint'))
-          : TlsFingerprint.defaultProfile,
+          : TlsFingerprint.chrome155,
       ipPolicy: _enumByName(IpPolicy.values, _string(map, 'ip_policy')),
       endpointSelection: map.containsKey('endpoint_selection')
           ? _enumByName(

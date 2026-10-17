@@ -159,7 +159,7 @@ impl MasqueTlsIdentity {
         let endpoint_pin = EndpointPin::from_spki_der(endpoint_pin_spki_der)
             .map_err(|_| TransportError::InvalidEndpointPin)?;
         Ok(Self {
-            tls_fingerprint: usque_core::TlsFingerprint::Default,
+            tls_fingerprint: usque_core::TlsFingerprint::default(),
             #[cfg(test)]
             fingerprint_probe: None,
             private_key_sec1_der,

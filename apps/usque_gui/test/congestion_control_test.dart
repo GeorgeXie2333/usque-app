@@ -196,6 +196,7 @@ void main() {
           ? LocalePreference.simplifiedChinese
           : LocalePreference.english
       ..engineCapabilities = EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         h3CongestionControlAlgorithms: supported
             ? CongestionControlAlgorithm.values

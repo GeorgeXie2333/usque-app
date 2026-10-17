@@ -25,6 +25,7 @@ void confirmSettings(AppController app, FormEngine engine) {
     sharedNetwork: profile,
   );
   app.engineCapabilities = const EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
     automaticEndpoints: true,
     networkSettingsApplication: true,
     l4Tcp: true,

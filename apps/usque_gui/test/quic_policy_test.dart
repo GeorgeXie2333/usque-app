@@ -18,6 +18,7 @@ class QuicEngine extends FakeEngineClient {
 
   @override
   Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
     automaticEndpoints: true,
     networkSettingsApplication: true,
     applicationQuicBlocking: supported,

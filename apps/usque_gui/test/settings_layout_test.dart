@@ -377,6 +377,7 @@ void main() {
         size: size,
       );
       app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,
         h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
       );

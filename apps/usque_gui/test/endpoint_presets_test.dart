@@ -26,6 +26,7 @@ class PresetEngine extends EndpointEngine {
 
   @override
   Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
     networkSettingsApplication: true,
     automaticEndpoints: true,
     endpointPresets: presetsSupported,

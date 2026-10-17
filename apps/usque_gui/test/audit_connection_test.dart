@@ -69,6 +69,7 @@ class PresetTransientCapabilities extends TransientCapabilities {
   Future<EngineCapabilities?> getCapabilities() async {
     await super.getCapabilities();
     return const EngineCapabilities(
+      tlsFingerprints: TlsFingerprint.values,
       networkSettingsApplication: true,
       automaticEndpoints: true,
       endpointPresets: true,
@@ -138,6 +139,7 @@ void main() {
       expect(engine.calls, isNot(contains('connect')));
       engine.capabilitiesReply.complete(
         const EngineCapabilities(
+          tlsFingerprints: TlsFingerprint.values,
           automaticEndpoints: true,
           l4Tcp: true,
           l4TunTcp: true,
