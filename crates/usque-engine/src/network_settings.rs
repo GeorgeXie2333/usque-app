@@ -279,6 +279,7 @@ impl ControlService {
         let mut state = self.settings.lock().await;
         state.operation_id = Some(patch.operation_id);
         state.persisted = Some(true);
+        state.record_persisted_operation(patch.operation_id);
         state.stored_profile = Some(stored);
         state.shared_network_profile = Some(shared);
         state.error_code = None;
@@ -726,6 +727,11 @@ fn to_proto(state: &NetworkSettingsState) -> v1::NetworkSettingsState {
         deferred_fields: state.deferred_fields.clone(),
         error_code: state.error_code.clone().unwrap_or_default(),
         persisted: state.persisted,
+        persisted_operation_ids: state
+            .persisted_operation_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
     }
 }
 
@@ -751,6 +757,41 @@ mod tests {
             values: Some(profile_to_proto(profile)),
             changed_fields: fields.iter().map(|field| (*field).into()).collect(),
         }
+    }
+
+    #[tokio::test]
+    async fn later_endpoint_saves_retain_receipts_for_lost_durable_replies() {
+        let (_directory, service) = service();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+        profile.endpoint.ipv4 = "192.0.2.1".parse().unwrap();
+        let invalid_endpoint = request(&profile, &["endpoint.selection", "endpoint.ipv4"]);
+        let first = invalid_endpoint.operation_id.clone();
+        let saved = service
+            .save_network_settings(invalid_endpoint)
+            .await
+            .unwrap();
+        assert_eq!(saved.persisted, Some(true));
+        assert_eq!(
+            saved.persisted_operation_ids.as_slice(),
+            std::slice::from_ref(&first)
+        );
+
+        profile.endpoint.ipv4 = "162.159.197.2".parse().unwrap();
+        let correction = request(&profile, &["endpoint.ipv4"]);
+        let second = correction.operation_id.clone();
+        service.save_network_settings(correction).await.unwrap();
+        let rejected = request(&profile, &["unsupported-field"]);
+        let failed = rejected.operation_id.clone();
+        assert!(service.save_network_settings(rejected).await.is_err());
+        let state = service.network_settings_state().await;
+        assert_eq!(state.operation_id, second);
+        assert_eq!(state.persisted_operation_ids, [first, second]);
+        assert!(!state.persisted_operation_ids.contains(&failed));
+        assert_eq!(
+            state.stored_profile.unwrap().endpoint.unwrap().ipv4,
+            "162.159.197.2"
+        );
     }
 
     #[tokio::test]

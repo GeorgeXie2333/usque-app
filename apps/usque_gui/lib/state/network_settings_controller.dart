@@ -111,8 +111,14 @@ class NetworkSettingsController extends ChangeNotifier {
 
   void _confirmPendingSave() {
     final confirmed = state;
-    if (confirmed != null && confirmed.persisted == true) {
-      final attempt = _saveAttempts.remove(confirmed.operationId);
+    if (confirmed == null) return;
+    final operations = [
+      ...confirmed.persistedOperationIds,
+      if (confirmed.persisted == true && confirmed.operationId != null)
+        confirmed.operationId!,
+    ];
+    for (final operation in operations) {
+      final attempt = _saveAttempts.remove(operation);
       // The in-flight save keeps this record even after a newer snapshot
       // replaces the acknowledgement and before its own reply arrives.
       if (attempt != null) attempt.acknowledged = true;

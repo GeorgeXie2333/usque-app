@@ -111,7 +111,13 @@ pub struct NetworkSettingsState {
     pub deferred_fields: Vec<String>,
     pub error_code: Option<String>,
     pub persisted: Option<bool>,
+    /// Bounded, process-local evidence of completed durable saves, independent
+    /// of the latest operation's runtime application result.
+    #[serde(default)]
+    pub persisted_operation_ids: Vec<Uuid>,
 }
+
+pub const PERSISTED_OPERATION_HISTORY_LIMIT: usize = 64;
 
 impl Default for NetworkSettingsState {
     fn default() -> Self {
@@ -127,11 +133,23 @@ impl Default for NetworkSettingsState {
             deferred_fields: Vec::new(),
             error_code: None,
             persisted: None,
+            persisted_operation_ids: Vec::new(),
         }
     }
 }
 
 impl NetworkSettingsState {
+    /// Record only a successful durable store update. Uncertain commits and
+    /// matching configuration values do not establish persistence evidence.
+    pub fn record_persisted_operation(&mut self, operation_id: Uuid) {
+        self.persisted_operation_ids
+            .retain(|id| *id != operation_id);
+        self.persisted_operation_ids.push(operation_id);
+        if self.persisted_operation_ids.len() > PERSISTED_OPERATION_HISTORY_LIMIT {
+            self.persisted_operation_ids.remove(0);
+        }
+    }
+
     pub fn advance(&mut self) {
         self.sequence = self.sequence.saturating_add(1);
         self.deferred_fields = match (&self.applied_profile, &self.stored_profile) {
@@ -334,6 +352,63 @@ fn deferred_plan() -> ApplicationPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn persistence_receipts_are_bounded_unique_and_reset_with_the_epoch() {
+        let mut state = NetworkSettingsState::default();
+        let first = Uuid::from_u128(1);
+        for index in 1..=(PERSISTED_OPERATION_HISTORY_LIMIT + 1) {
+            state.record_persisted_operation(Uuid::from_u128(index as u128));
+        }
+        assert_eq!(
+            state.persisted_operation_ids.len(),
+            PERSISTED_OPERATION_HISTORY_LIMIT
+        );
+        assert!(!state.persisted_operation_ids.contains(&first));
+        let recent = *state.persisted_operation_ids.last().unwrap();
+        state.record_persisted_operation(recent);
+        assert_eq!(
+            state.persisted_operation_ids.len(),
+            PERSISTED_OPERATION_HISTORY_LIMIT
+        );
+        assert_eq!(state.persisted_operation_ids.last(), Some(&recent));
+        state.apply_status = ApplyStatus::Failed;
+        state.persisted = None;
+        state.advance();
+        assert!(state.persisted_operation_ids.contains(&recent));
+        assert_eq!(
+            state.persisted_operation_ids.len(),
+            PERSISTED_OPERATION_HISTORY_LIMIT
+        );
+        let mut legacy = serde_json::to_value(&state).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("persisted_operation_ids");
+        let decoded: NetworkSettingsState = serde_json::from_value(legacy).unwrap();
+        assert!(decoded.persisted_operation_ids.is_empty());
+        let reset = NetworkSettingsState::default();
+        assert_ne!(reset.source_epoch, state.source_epoch);
+        assert!(reset.persisted_operation_ids.is_empty());
+    }
+
+    #[test]
+    fn a_disconnected_snapshot_fits_the_deferred_fields_wire_budget() {
+        // The desktop decoder reserves 64 entries for append-only settings.
+        assert!(NETWORK_FIELDS.len() <= 64);
+        let mut state = NetworkSettingsState {
+            stored_profile: AppConfig::default().active_profile(),
+            ..Default::default()
+        };
+        state.advance();
+        assert_eq!(state.deferred_fields.len(), NETWORK_FIELDS.len() - 1);
+        assert!(
+            !state
+                .deferred_fields
+                .iter()
+                .any(|field| field == "auto_connect")
+        );
+    }
 
     #[test]
     fn preset_region_is_shared_cold_and_preserves_managed_manual_fallback() {

@@ -234,6 +234,14 @@ mod tests {
 
     #[test]
     fn network_settings_wire_numbers_are_append_only() {
+        assert_eq!(
+            v1::NetworkSettingsState {
+                persisted_operation_ids: vec!["a".into()],
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x62, 0x01, b'a']
+        );
         let save = v1::ControlRequest {
             request_id: String::new(),
             payload: Some(v1::control_request::Payload::SaveNetworkSettings(

@@ -1245,11 +1245,15 @@ message NetworkSettingsState {
   Profile stored_profile = 5;
   Profile applied_profile = 6;
   NetworkSettingsApplyStatus apply_status = 7;
+  // At most 64 entries, including all fields without a confirmed runtime.
   repeated string deferred_fields = 8;
   string error_code = 9;
   optional bool persisted = 10;
   // Shared settings without a registration-owned endpoint overlay.
   Profile shared_network_profile = 11;
+  // At most 64 process-local durable-save receipts; independent of runtime status.
+  // Missing/evicted IDs carry no persistence acknowledgement.
+  repeated string persisted_operation_ids = 12;
 }
 
 message ControlRequest {

@@ -33,13 +33,23 @@ class NetworkSettingsState {
     this.deferredFields = const [],
     this.errorCode,
     this.persisted,
+    this.persistedOperationIds = const [],
   });
+
+  static const maxDeferredFields = 64;
+  static const maxPersistedOperations = 64;
 
   factory NetworkSettingsState.fromMap(Map<Object?, Object?> map) {
     final epoch = map['source_epoch'];
     final sequence = map['sequence'];
     if (epoch is! String || epoch.isEmpty || sequence is! int || sequence < 0) {
       throw const FormatException('Invalid network settings state identity');
+    }
+    final operations = map['persisted_operation_ids'] ?? const <Object>[];
+    if (operations is! List ||
+        operations.length > maxPersistedOperations ||
+        operations.any((id) => id is! String || id.isEmpty || id.length > 36)) {
+      throw const FormatException('Invalid settings persistence receipts');
     }
     UsqueProfile? profile(String key) => map[key] is Map
         ? UsqueProfile.fromMap(Map<String, Object?>.from(map[key] as Map))
@@ -57,6 +67,9 @@ class NetworkSettingsState {
           (map['deferred_fields'] as List?)?.cast<String>() ?? const [],
       errorCode: map['error_code'] as String?,
       persisted: map['persisted'] as bool?,
+      persistedOperationIds: List<String>.unmodifiable(
+        operations.cast<String>(),
+      ),
     );
   }
 
@@ -71,6 +84,7 @@ class NetworkSettingsState {
   final List<String> deferredFields;
   final String? errorCode;
   final bool? persisted;
+  final List<String> persistedOperationIds;
 }
 
 /// Computes an edit mask only. Runtime policy belongs to Rust.

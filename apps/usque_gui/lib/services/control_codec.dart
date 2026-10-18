@@ -1999,6 +1999,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
 NetworkSettingsState _decodeNetworkSettings(_ProtoReader reader) {
   final values = <Object?, Object?>{};
   final fields = <String>[];
+  final persistedOperations = <String>[];
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -2028,7 +2029,7 @@ NetworkSettingsState _decodeNetworkSettings(_ProtoReader reader) {
           _ => 'unknown',
         };
       case 8:
-        if (fields.length >= 32) {
+        if (fields.length >= NetworkSettingsState.maxDeferredFields) {
           throw const FormatException('Too many pending settings');
         }
         fields.add(reader.string(field));
@@ -2040,12 +2041,19 @@ NetworkSettingsState _decodeNetworkSettings(_ProtoReader reader) {
         values['shared_network_profile'] = _decodeProfile(
           reader.message(field),
         ).toMap();
+      case 12:
+        if (persistedOperations.length >=
+            NetworkSettingsState.maxPersistedOperations) {
+          throw const FormatException('Too many settings persistence receipts');
+        }
+        persistedOperations.add(reader.string(field));
       default:
         reader.skip(field);
     }
   }
   values['sequence'] ??= 0;
   values['deferred_fields'] = fields;
+  values['persisted_operation_ids'] = persistedOperations;
   return NetworkSettingsState.fromMap(values);
 }
 

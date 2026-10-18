@@ -52,6 +52,29 @@ Future<EngineSnapshot> _readSnapshot(Map<Object?, Object?> value) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test(
+    'Android settings readback preserves durable operation receipts',
+    () async {
+      const channel = MethodChannel('io.github.georgexie2333.usque/engine');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => {
+          'source_epoch': 'android',
+          'sequence': 2,
+          'operation_id': 'new-save',
+          'persisted': true,
+          'persisted_operation_ids': ['old-save', 'new-save'],
+        },
+      );
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final state = await MethodChannelEngineClient().getNetworkSettingsState();
+      expect(state.persistedOperationIds, ['old-save', 'new-save']);
+      expect(state.operationId, 'new-save');
+    },
+  );
+
   test('reconfigureActiveProfile does not follow up with connect', () async {
     const channel = MethodChannel('io.github.georgexie2333.usque/engine');
     final calls = <String>[];

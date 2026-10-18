@@ -332,7 +332,9 @@ secret buffer, clear it after use, and never substitute the previous password.
 
 The result includes process epoch, sequence, operation ID, session ID, saved
 profile, optional confirmed session profile, deferred fields, a sanitized error
-code, and runtime status. The optional persisted flag means:
+code, and runtime status. The deferred-field wire budget is 64 entries, covering
+the complete settings catalogue when no runtime profile is confirmed. The
+optional persisted flag means:
 
 | persisted | Meaning |
 | --- | --- |
@@ -354,8 +356,21 @@ reply cannot put the interface back into an unknown state.
 
 Further explicit saves remain available while earlier operations are unknown.
 The GUI tracks each operation independently: starting or rejecting another
-save does not clear earlier warnings, and a successful save acknowledges only
-itself. The latest save may succeed while the global warning remains. An
+save does not clear earlier warnings. State replies and events append
+`persisted_operation_ids` (protobuf field 12), containing the Engine's most
+recent 64 successful durable saves in the current process. The GUI confirms
+only the matching operation IDs. This recovers lost save replies even after
+a later save replaces the current operation, without changing the latest
+configuration or treating persistence as runtime application. The receipt
+history contains random operation IDs only, is bounded and kept in memory,
+and is cleared with the Engine epoch; it adds no credentials, endpoints,
+disk history or logging. Failed and uncertain commits produce no receipt.
+Reading receipts never repeats a save, reconnects, or changes platform state.
+Reset retires the receipt history with its source epoch; stale observations
+cannot restore it. Both JSON and protobuf readers reject oversized histories.
+Missing receipts, including legacy engines, evicted operations and Engine
+restarts, remain unconfirmed. The latest save may therefore succeed while
+the global warning remains. An
 accepted durable acknowledgement is retained for its in-flight request even
 if another snapshot arrives before that request times out.
 A direct reply matching the submitted operation ID and acknowledging persistence

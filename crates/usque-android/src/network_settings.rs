@@ -146,6 +146,7 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
             );
             state.operation_id = Some(operation_id);
             state.persisted = Some(true);
+            state.record_persisted_operation(operation_id);
             state.stored_profile = Some(stored);
             state.error_code = None;
             match plan {
@@ -270,6 +271,45 @@ fn encode(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_readback_retains_durable_save_receipts_after_later_saves() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        let config = usque_core::AppConfig::default();
+        store.save(&config).unwrap();
+        let profile = config.active_profile().unwrap();
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let rejected = Uuid::new_v4();
+        for operation in [first, second, rejected] {
+            let field = if operation == rejected {
+                "unsupported-field"
+            } else {
+                "mtu"
+            };
+            let result = command(
+                path.to_str().unwrap(),
+                &json!({
+                    "command":"save", "operation_id":operation, "account_id":profile.id,
+                    "values":profile_value(&profile), "changed_fields":[field],
+                    "phase":"disconnected", "available":false, "session_id":"receipt-test"
+                })
+                .to_string(),
+            );
+            assert_eq!(result.is_ok(), operation != rejected);
+        }
+        let state: Value = serde_json::from_str(
+            &command(path.to_str().unwrap(), "{\"command\":\"get\"}").unwrap(),
+        )
+        .unwrap();
+        let receipts = state["persisted_operation_ids"].as_array().unwrap();
+        assert!(receipts.contains(&json!(first)));
+        assert!(receipts.contains(&json!(second)));
+        assert!(!receipts.contains(&json!(rejected)));
+        assert!(receipts.len() <= usque_core::network_settings::PERSISTED_OPERATION_HISTORY_LIMIT);
+    }
 
     #[test]
     fn routing_validation_errors_are_definitive_and_preserve_rule_ids() {
