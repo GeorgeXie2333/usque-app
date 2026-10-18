@@ -51,6 +51,10 @@ Usque는 독립 프로젝트입니다. Cloudflare, Inc.와 제휴 관계가 없�
 
 ## 다운로드 및 설치
 
+[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on-ko.png"
+     alt="Get it on F-Droid"
+     height="75">](https://f-droid.org/packages/io.github.georgexie2333.usque/)
+
 이 개발 문서는 **v0.3.2** 준비용입니다. 앱 버전 메타데이터와 릴리스 워크플로는 **v0.3.2 / 0.3.2+26**로 동기화되었습니다. [v0.3.2 릴리스 준비 검토](docs/RELEASE_V0.3.2_READINESS.md)에 검사 결과와 남은 요구 사항을 기록했습니다. 배포된 패키지는 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)와 해당 태그의 문서를 확인하세요. 계획된 설치 패키지는 6종이며, Windows MSI 파일 2개를 앱 내 업데이트 전용으로 별도 제공합니다.
 
 | 플랫폼 | 최소 OS | 패키지 |

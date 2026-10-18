@@ -51,6 +51,10 @@ Usque پروژه‌ای مستقل است. به Cloudflare, Inc. وابسته ن
 
 ## دانلود و نصب
 
+[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on-fa.png"
+     alt="Get it on F-Droid"
+     height="75">](https://f-droid.org/packages/io.github.georgexie2333.usque/)
+
 این مستندات شاخهٔ توسعه برای **v0.3.2** آماده می‌شود؛ فرادادهٔ نسخهٔ برنامه و گردش کار انتشار با **v0.3.2 / 0.3.2+26** هماهنگ شده‌اند. [بررسی آمادگی v0.3.2](docs/RELEASE_V0.3.2_READINESS.md) نتیجهٔ بررسی‌ها و نیازهای باقی‌مانده را ثبت می‌کند. برای بسته‌های منتشرشده، [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) و مستندات برچسب همان نسخه را ببینید. شش نصب‌کننده در نظر گرفته شده؛ دو فایل MSI دیگر Windows برای به‌روزرسانی درون‌برنامه هستند:
 
 | سکو | حداقل سیستم | بسته‌ها |
