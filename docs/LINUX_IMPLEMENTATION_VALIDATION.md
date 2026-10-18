@@ -500,3 +500,44 @@ export CFLAGS_aarch64_unknown_linux_gnu='--sysroot=/tmp/usque-ci/arm64-sysroot/u
 The cross-check excludes the transport-dependent Engine and does not replace
 the full native arm64 CI job. The isolated lifecycle and network checks remain
 `not_run`.
+
+## Distribution license references — 2026-10-18
+
+[CI run 39092293053](https://github.com/GeorgeXie2333/usque-app/actions/runs/39092293053)
+tested `b7e84bc387d307fe812e41564525e8ea6e6da028`. Both native Ubuntu 22.04
+architectures passed Rust checks/tests/release builds, Flutter checks and 1086
+widget tests (1 Windows-only skip), preview and production compiles, and the
+authenticated socket fixture. Packaging then failed on a distribution copyright
+reference to `/usr/share/common-licenses/GPL-2.0`, while the installed full text
+uses the filename `GPL-2`. The eleven other CI jobs and CodeQL passed; the
+aggregate gate correctly failed.
+
+The package helper now recognizes the explicit `GPL-2.0` to `GPL-2` and
+`GPL-3.0` to `GPL-3` filename aliases. It copies the complete canonical text to
+the path named by the notice and leaves the notice unchanged. An exact source
+filename takes priority. Unknown references, absent canonical texts and empty
+texts still fail packaging; errors now identify the owning distribution
+package. This changes no package execution, cleanup, privilege, signing or
+privacy boundary.
+
+The new fixture reproduced both missing-reference failures before the fix and
+then passed, including exact-name precedence and rejection of missing or
+unknown references. A separate temporary-tree check used the workstation's
+real `gpg` and `libdecor-0-0` copyright files and dpkg metadata: the retained
+alias texts matched `GPL-2` and `GPL-3` byte for byte. No package was installed,
+and no copied payload was executed by that check.
+
+| Working directory | Exact command | Result |
+| --- | --- | --- |
+| Repository root | `pip install ruff==0.16.0` | Passed; pinned version already installed |
+| Repository root | `ruff check tool` | Passed |
+| Repository root | `ruff format --check tool` | Passed |
+| Repository root | `python -m unittest discover -s tool -p "test_*.py" -v` | Passed: 140 tests, no skips |
+| Repository root | `python -m unittest discover -s tool -p "test_linux_package.py" -v` | Passed: 20 tests, no skips |
+| Repository root | `python tool/check_repository_policy.py` | Passed |
+| Repository root | `git diff --check` | Passed |
+
+The Python fixtures used the previously verified temporary desktop-file-utils
+extraction. Full Ubuntu 22.04 package validation remains pending the next hosted
+run; the newer workstation is not a baseline package environment. Isolated
+installation, networking and restoration checks remain `not_run`.

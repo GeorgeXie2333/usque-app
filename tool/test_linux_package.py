@@ -242,6 +242,48 @@ class LinuxPackageTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "distribution copyright"):
                     linux_package.bundle_distribution_licenses(appdir, copied, doc, common)
 
+    def test_distribution_license_aliases_retain_text_at_the_referenced_path(self) -> None:
+        for reference, canonical in (("GPL-2.0", "GPL-2"), ("GPL-3.0", "GPL-3")):
+            with self.subTest(reference=reference), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                appdir = root / "AppDir"
+                doc = root / "doc"
+                common = root / "common-licenses"
+                original = Path("/usr/lib/libfixture.so.1")
+                copied = {appdir / "usr/lib/usque/lib/libfixture.so.1": original}
+                notice = f"Full license: /usr/share/common-licenses/{reference}.\n"
+                linux_package.write(doc / "libfixture1/copyright", notice)
+                linux_package.write(common / canonical, "Canonical full license\n")
+                with (
+                    patch.object(
+                        linux_package,
+                        "distribution_owners",
+                        return_value={original: "libfixture1:amd64"},
+                    ),
+                    patch.object(linux_package, "run", return_value="libfixture1:amd64\t1.0-1\n"),
+                ):
+                    linux_package.bundle_distribution_licenses(appdir, copied, doc, common)
+                    bundled = appdir / "usr/share/common-licenses" / reference
+                    self.assertEqual(bundled.read_text(), "Canonical full license\n")
+                    self.assertEqual(
+                        (appdir / "usr/share/doc/libfixture1/copyright").read_text(), notice
+                    )
+                    # An exact distribution file takes priority over the fallback.
+                    linux_package.write(common / reference, "Exact distribution license\n")
+                    linux_package.bundle_distribution_licenses(appdir, copied, doc, common)
+                    self.assertEqual(bundled.read_text(), "Exact distribution license\n")
+                    (common / reference).unlink()
+                    (common / canonical).unlink()
+                    with self.assertRaisesRegex(ValueError, "referenced distribution license"):
+                        linux_package.bundle_distribution_licenses(appdir, copied, doc, common)
+                    linux_package.write(common / canonical, "Canonical full license\n")
+                    linux_package.write(
+                        doc / "libfixture1/copyright",
+                        "Unknown license: /usr/share/common-licenses/GPL-9.0.\n",
+                    )
+                    with self.assertRaisesRegex(ValueError, "referenced distribution license"):
+                        linux_package.bundle_distribution_licenses(appdir, copied, doc, common)
+
     def test_package_hooks_restore_before_removal_and_reject_mixed_sources(self) -> None:
         self.assertIn("--prepare-remove", linux_package.PREREMOVE)
         for package_format in ("deb", "rpm"):

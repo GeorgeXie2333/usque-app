@@ -39,6 +39,9 @@ GTK_RESOURCE_DIRECTORIES = (
     "icons/Adwaita",
 )
 DEBIAN_PACKAGE = re.compile(r"[a-z0-9][a-z0-9+.-]+(?::[a-z0-9][a-z0-9-]*)?")
+# Some distribution notices spell these versions with .0, while base-files
+# installs GPL-2 and GPL-3. Keep the complete text at the notice's reference.
+COMMON_LICENSE_ALIASES = {"GPL-2.0": "GPL-2", "GPL-3.0": "GPL-3"}
 
 
 def run(arguments: list[str | Path], *, cwd: Path | None = None) -> str:
@@ -272,8 +275,10 @@ def bundle_distribution_licenses(
         # Debian notices sometimes end a sentence immediately after the path.
         for name in sorted({reference.rstrip(".") for reference in references}):
             license_file = common_licenses / name
+            if not license_file.exists() and name in COMMON_LICENSE_ALIASES:
+                license_file = common_licenses / COMMON_LICENSE_ALIASES[name]
             if not license_file.is_file() or not license_file.stat().st_size:
-                raise ValueError(f"Missing referenced distribution license: {name}")
+                raise ValueError(f"Missing referenced distribution license: {name} ({package})")
             install_file(license_file, appdir / "usr/share/common-licenses" / name)
         notices.append(
             {
