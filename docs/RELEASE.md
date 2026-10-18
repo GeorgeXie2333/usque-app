@@ -36,10 +36,20 @@ python tool/release_contract.py verify-version --root . --tag v0.3.2 --android-v
 ```
 
 Review Cargo.lock and the CI invocation separately: the version helper does not
-inspect them. Signed APK codes must be 1026 (ARMv7), 2026 (ARM64), 4026
-(x86_64) and 26 (universal), advancing v0.3.1's 1025/2025/4025/25.
-Switching from a split APK to universal may be rejected by Android's monotonic
-version check; do not bypass it or describe source arithmetic as a real upgrade.
+inspect them. APK version codes use `base build number * 1000 + ABI suffix`,
+with suffixes 0 (universal), 1 (ARMv7), 2 (ARM64), and 4 (x86_64). For base
+build 26, signed APK codes must be 26001 (ARMv7), 26002 (ARM64), 26004
+(x86_64), and 26000 (universal), advancing v0.3.1's 1025/2025/4025/25.
+Both APK build workflows verify the actual manifest versionCode. Every next
+base build advances past all prior ABI codes, including universal builds.
+Switching from a split APK to universal within the same release can still be
+rejected by Android's monotonic version check; do not bypass it or describe
+source arithmetic as a real upgrade.
+
+F-Droid's recipe must use matching `VercodeOperation` entries `%c * 1000 + 1`,
+`%c * 1000 + 2`, and `%c * 1000 + 4`. ABI-first codes are unsuitable for its
+automatic update process: after metadata is sorted by versionCode, copying
+the last three recipes can select different releases of the same ABI.
 
 Configuration advances from v0.3.1's schema 24 to 26. Schema 25 adds the shared
 MASQUE TLS fingerprint; new/missing values and migration from schema 24 default

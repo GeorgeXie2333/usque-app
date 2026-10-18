@@ -21,6 +21,7 @@ from verify_android_apk import (
 )
 
 MANIFEST = """E: manifest (line=1)
+  A: android:versionCode(0x0101021b)=(type 0x10)0x6592
   E: application (line=2)
     A: android:extractNativeLibs(0x010104ea)=(type 0x12)0xffffffff
 """
@@ -139,16 +140,16 @@ class ApkPackagingTests(unittest.TestCase):
             verify_elf(elf("x86_64"), "arm64-v8a")
 
     def test_extract_native_libs_is_required_on_application(self) -> None:
-        verify_manifest(MANIFEST)
+        verify_manifest(MANIFEST, 26002)
         actual_aapt2 = MANIFEST.replace(
             "android:extract", "http://schemas.android.com/apk/res/android:extract"
         ).replace("(type 0x12)0xffffffff", "true")
-        verify_manifest(actual_aapt2)
+        verify_manifest(actual_aapt2, 26002)
         with self.assertRaises(ValueError):
-            verify_manifest(actual_aapt2.replace("=true", "=false"))
+            verify_manifest(actual_aapt2.replace("=true", "=false"), 26002)
         for spoof in ("schemasXandroid.com", "schemas.androidXcom", "schemasXandroidYcom"):
             with self.assertRaises(ValueError):
-                verify_manifest(actual_aapt2.replace("schemas.android.com", spoof))
+                verify_manifest(actual_aapt2.replace("schemas.android.com", spoof), 26002)
         for invalid in (
             "",
             MANIFEST.replace("0xffffffff", "0x0"),
@@ -157,7 +158,34 @@ class ApkPackagingTests(unittest.TestCase):
             MANIFEST.replace("    A:", "    E: activity\n      A:"),
         ):
             with self.assertRaises(ValueError):
-                verify_manifest(invalid)
+                verify_manifest(invalid, 26002)
+
+    def test_version_code_is_required_on_manifest_and_matches_release(self) -> None:
+        verify_manifest(MANIFEST, 26002)
+        verify_manifest(MANIFEST.replace("(type 0x10)0x6592", "26002"), 26002)
+        verify_manifest(
+            MANIFEST.replace(
+                "android:versionCode", "http://schemas.android.com/apk/res/android:versionCode"
+            ),
+            26002,
+        )
+        version_line = MANIFEST.splitlines()[1] + "\n"
+        for invalid in (
+            MANIFEST.replace(version_line, ""),
+            MANIFEST.replace("0x6592", "0x7ea"),  # Old Flutter ARM64 code 2026.
+            MANIFEST.replace(version_line, version_line * 2),
+            MANIFEST.replace(
+                version_line, version_line + version_line.replace("0x6592", '"26002"')
+            ),
+            MANIFEST.replace(version_line, "    " + version_line),
+            MANIFEST.replace("android:versionCode", "other:versionCode"),
+            MANIFEST.replace("(type 0x10)0x6592", '"26002"'),
+        ):
+            with self.subTest(manifest=invalid), self.assertRaisesRegex(ValueError, "versionCode"):
+                verify_manifest(invalid, 26002)
+        for expected in (0, -1, 2**31, 2026, 26000, 26004):
+            with self.subTest(expected=expected), self.assertRaises(ValueError):
+                verify_manifest(MANIFEST, expected)
 
     def test_sdk_commands_are_read_only_and_fail_closed(self) -> None:
         self.package({"arm64-v8a"})
@@ -166,15 +194,19 @@ class ApkPackagingTests(unittest.TestCase):
         zipalign.touch()
         output = subprocess.CompletedProcess([], 0, stdout=MANIFEST)
         with patch("verify_android_apk.subprocess.run", return_value=output) as run:
-            verify(self.apk, {"arm64-v8a"}, aapt2, zipalign)
+            verify(self.apk, {"arm64-v8a"}, aapt2, zipalign, 26002)
             self.assertEqual(run.call_args_list[0].args[0][1:3], ["dump", "xmltree"])
             self.assertEqual(run.call_args_list[1].args[0][1:5], ["-c", "-P", "16", "4"])
+        with patch("verify_android_apk.subprocess.run", return_value=output) as run:
+            with self.assertRaisesRegex(ValueError, "versionCode"):
+                verify(self.apk, {"arm64-v8a"}, aapt2, zipalign, 2026)
+            self.assertEqual(run.call_count, 1)
         with patch(
             "verify_android_apk.subprocess.run",
             side_effect=[output, subprocess.CalledProcessError(1, "zipalign")],
         ):
             with self.assertRaises(subprocess.CalledProcessError):
-                verify(self.apk, {"arm64-v8a"}, aapt2, zipalign)
+                verify(self.apk, {"arm64-v8a"}, aapt2, zipalign, 26002)
 
     def test_both_workflows_require_the_shared_validator(self) -> None:
         workflows = Path(__file__).resolve().parent.parent / ".github/workflows"
@@ -183,6 +215,9 @@ class ApkPackagingTests(unittest.TestCase):
             self.assertIn("python tool/verify_android_apk.py", source)
             self.assertIn('read -r -a package_abis <<< "${expected_abis[$name]}"', source)
             self.assertIn('--abis "${package_abis[@]}"', source)
+            self.assertIn(
+                '--version-code "$((base_version_code * 1000 + abi_codes[$name]))"', source
+            )
 
 
 if __name__ == "__main__":
