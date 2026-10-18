@@ -1,3 +1,5 @@
+import com.android.build.gradle.api.ApkVariantOutput
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -83,6 +85,31 @@ android {
         // Windows paths. It is consumed correctly by Gradle and is not a
         // distributable project resource.
         disable += "PropertyEscape"
+    }
+
+    dependenciesInfo {
+        // Disables dependency metadata when building APKs.
+        includeInApk = false
+        // Disables dependency metadata when building Android App Bundles.
+        includeInBundle = false
+    }
+}
+
+val abiCodes = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86_64" to 4)
+android.applicationVariants.configureEach {
+    // Keep every APK from a release ahead of every APK from the previous
+    // release. F-Droid sorts recipes by versionCode before copying the last
+    // three ABI recipes for an update; ABI-first codes mix release groups.
+    val releaseVersionCode = Math.multiplyExact(versionCode, 1000)
+    outputs.forEach { output ->
+        val abi = output.filters.find { it.filterType == "ABI" }?.identifier
+        val abiCode =
+            if (abi == null) {
+                0 // Universal APKs must advance on the same scale as split APKs.
+            } else {
+                abiCodes[abi] ?: throw GradleException("Unsupported APK ABI: $abi")
+            }
+        (output as ApkVariantOutput).versionCodeOverride = Math.addExact(releaseVersionCode, abiCode)
     }
 }
 
