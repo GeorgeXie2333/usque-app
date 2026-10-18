@@ -1,0 +1,37 @@
+Usque는 Android / Android TV용 Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트입니다(Windows 버전도 제공). 시스템 VPN, SOCKS5, HTTP 프록시를 네이티브 Flutter 인터페이스에 모으고 Rust로 구현한 MASQUE 엔진으로 통신을 처리합니다. Android 8.0(API 26) 이상이 필요합니다.
+
+<strong>연결 방식(하나의 WARP 연결 공유, 동시 사용 가능)</strong>
+<ul>
+<li><b>VPN/TUN</b>: 우회 규칙과 Android 앱별 설정에 따라 시스템 트래픽을 터널로 보냅니다</li>
+<li><b>SOCKS5</b>: 지원하는 앱에 로컬 TCP/UDP 프록시 제공, 기본적으로 원격 DNS 사용</li>
+<li><b>HTTP 프록시</b>: 로컬 HTTP 프록시 제공, CONNECT를 통한 HTTPS 지원</li>
+</ul>
+
+<strong>주요 기능</strong>
+<ul>
+<li>전체 터널 VPN, 터널 내 DNS, Kill Switch, LAN 접근</li>
+<li>DIRECT/REJECT/PROXY 분할 라우팅과 광고 차단. 광고 규칙은 앱 실행 중 자동 업데이트</li>
+<li>선택적 체인 프록시: OpenVPN, WireGuard, WARP via WireGuard, VPN Gate, HTTP, SOCKS5</li>
+<li>HTTP/3 자동 연결과 HTTP/2 폴백. IPv4와 IPv6로 접근 가능한 엔드포인트 탐색</li>
+<li>사용자 지정 WARP 출구 DNS: 일반 DNS, DoH, DoT</li>
+<li>선택적 국가별 직접 연결. GeoIP와 GeoSite 데이터는 별도 다운로드</li>
+<li>로컬 네트워크 진단과 품질 페이지: 지연 시간, 패킷 손실, 대기열, 최근 60초 추이</li>
+<li>Android 빠른 설정 타일, 런처 바로가기, 재부팅 후 복구, TV 리모컨 탐색</li>
+<li>앱별 프록시. 선택하지 않은 앱은 우회 대신 차단 가능</li>
+<li>21개 언어, 밝은/어두운 테마</li>
+</ul>
+
+<strong>개인정보 보호</strong>
+<ul>
+<li>WARP 서버 공개 키가 등록된 키와 일치해야 하며 검증을 건너뛸 수 없습니다</li>
+<li>인증 정보는 Android Keystore에 보관되고 VPN은 전용 프로세스에서 실행됩니다</li>
+<li>프록시는 기본적으로 루프백에서만 수신 대기. 선택적 사용자 이름·비밀번호 인증 지원</li>
+<li>진단은 로컬에서 생성하고 민감한 정보를 제거. 사용 분석이나 자동 업로드 없음</li>
+<li>기본 로그 수준은 INFO, 보관 한도는 7일 또는 20 MiB</li>
+</ul>
+
+Usque는 독립 프로젝트로 Cloudflare, Inc.와 제휴 관계가 없으며 후원이나 추천을 받지 않습니다. Cloudflare와 WARP는 미국 및 기타 관할 지역에서 Cloudflare, Inc.의 상표 또는 등록 상표입니다. 개인용 WARP 서비스 사용에는 Cloudflare의 약관과 개인정보 처리방침이 적용됩니다.
+
+연결에는 무료 개인용 WARP 계정 등록(선택적으로 WARP License Key)이 필요합니다. 새 WARP Secret 가져오기는 지원하지 않습니다. 공식 패키지는 GitHub Releases에서만 배포합니다.
+
+Usque 자체 소스는 MIT 라이선스이며, 서드파티 구성 요소는 각자의 라이선스를 유지합니다(OpenVPN 3 Core MPL-2.0, Mbed TLS Apache-2.0, BoringTun BSD-3-Clause).
