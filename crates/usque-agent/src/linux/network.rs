@@ -122,7 +122,7 @@ pub fn verify_tun_descriptor(resources: &Resources, descriptor: &OwnedFd) -> io:
         .ifr_name
         .iter()
         .take_while(|byte| **byte != 0)
-        .map(|byte| *byte as u8)
+        .map(|byte| byte.to_ne_bytes()[0])
         .collect();
     // SAFETY: successful TUNGETIFF initialized the flags member of this union.
     let flags = unsafe { request.ifr_ifru.ifru_flags } as u16;

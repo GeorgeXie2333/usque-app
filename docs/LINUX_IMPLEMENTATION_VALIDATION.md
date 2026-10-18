@@ -435,3 +435,68 @@ the follow-up hosted run. The successful jobs above apply to the named initial
 commit, not automatically to this correction. Isolated installation, VPN,
 restoration and leak checks remain `not_run`; this change performs no privileged
 network operation and changes no signing or authorization boundary.
+
+## Native Linux portability follow-up — 2026-10-18
+
+The next hosted run, on `b3e3fc02976a2be94256f171f33540f3a74dcf3f`, passed the
+original arm64 type error but exposed an architecture-specific Clippy warning
+in the same module: converting `libc::c_char` to `u8` is a redundant cast when
+`c_char` is already unsigned. Reading its one-byte native representation now
+preserves the previous byte values on both architectures without suppressing
+the warning. TUN descriptor ownership, name comparison and flag checks are
+unchanged.
+
+The amd64 job in that run resolved the pinned Flutter version and passed all
+1086 widget tests (1 Windows-only test skipped), then failed the native build.
+Ubuntu 22.04's GLib lacks `G_REGEX_MATCH_DEFAULT`, which was introduced in 2.74;
+Clang also reported the intentionally unused automatic-cleanup response from
+the quit callback. The runner now uses the equivalent zero match flags and
+explicitly consumes that response value while retaining automatic cleanup.
+The validation expression and disconnect/exit behavior are unchanged.
+
+The runner target now sets both `GLIB_VERSION_MIN_REQUIRED` and
+`GLIB_VERSION_MAX_ALLOWED` to `GLIB_VERSION_2_72`. On the newer workstation,
+this guard reproduced the unsupported-enumerator build error before the fix,
+so future calls to newer annotated GLib APIs fail locally as well. Compiler
+warnings remain errors. The guard does not turn a newer distribution's binary
+into Ubuntu 22.04 package evidence; the native baseline jobs remain necessary.
+
+Local checks were extended with the pinned Rust toolchain's
+`aarch64-unknown-linux-gnu` standard library. Ubuntu cross headers were verified
+against APT package SHA-256 metadata and extracted under `/tmp`, without
+installing packages. Clang compiled target objects and the pinned Android NDK's
+LLVM archive utility wrote archives; no target executable was run. These are
+cross-compilation checks on the workstation, not Ubuntu 22.04 package evidence.
+
+The cross-check environment used:
+
+```shell
+export CC_aarch64_unknown_linux_gnu=/usr/bin/clang
+export AR_aarch64_unknown_linux_gnu="$ANDROID_HOME/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+export CFLAGS_aarch64_unknown_linux_gnu='--sysroot=/tmp/usque-ci/arm64-sysroot/usr/aarch64-linux-gnu -isystem /tmp/usque-ci/arm64-sysroot/usr/aarch64-linux-gnu/include'
+```
+
+| Working directory | Exact command | Result |
+| --- | --- | --- |
+| Repository root | `cargo clippy -p usque-agent --target aarch64-unknown-linux-gnu --all-targets --locked -- -D warnings` | Passed |
+| Repository root | `cargo clippy -p usque-agent -p usque-core -p usque-ipc -p usque-platform -p usque-update --target aarch64-unknown-linux-gnu --all-targets --locked -- -D warnings` | Passed |
+| Repository root | `cargo fmt --all --check` | Passed |
+| Repository root | `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed |
+| Repository root | `cargo test --workspace --all-targets --locked` | Passed: 1641 tests, 3 ignored, 24 suites |
+| Repository root | `cargo build --release --locked -p usque-engine -p usque-agent -p usque-update` | Passed |
+| `apps/usque_gui` | `flutter pub get --enforce-lockfile` | Passed |
+| `apps/usque_gui` | `dart format --output=none --set-exit-if-changed lib test` | Passed |
+| `apps/usque_gui` | `flutter analyze --no-pub` | Passed |
+| `apps/usque_gui` | `flutter test --no-pub --exclude-tags golden` | Passed: 1086 tests, 1 Windows-only test skipped |
+| `apps/usque_gui` | `flutter test --no-pub --tags linux-golden` | Passed: 16 exact comparisons |
+| `apps/usque_gui` | `flutter build linux --debug --no-pub -t lib/main_preview.dart` | Passed with the GLib 2.72 guard |
+| `apps/usque_gui` | `flutter build linux --release --no-pub -t lib/main.dart` | Passed with the GLib 2.72 guard |
+| Repository root | `cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_socket_test` | Passed |
+| Repository root | `apps/usque_gui/build/linux/x64/release/runner/usque_linux_socket_test` | Passed |
+| Repository root | `pwsh -NoProfile -File tool/check_source.ps1` | Passed |
+| Repository root | `python tool/check_repository_policy.py` | Passed |
+| Repository root | `git diff --check` | Passed |
+
+The cross-check excludes the transport-dependent Engine and does not replace
+the full native arm64 CI job. The isolated lifecycle and network checks remain
+`not_run`.

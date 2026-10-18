@@ -23,6 +23,11 @@ apply_standard_settings(${BINARY_NAME})
 add_definitions(-DAPPLICATION_ID="${APPLICATION_ID}")
 string(REGEX REPLACE "[+].*$" "" USQUE_VERSION "${FLUTTER_VERSION}")
 target_compile_definitions(${BINARY_NAME} PRIVATE USQUE_VERSION="${USQUE_VERSION}")
+# Keep the runner buildable with Ubuntu 22.04's GLib, even on newer hosts.
+target_compile_definitions(${BINARY_NAME} PRIVATE
+  GLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_72
+  GLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_2_72
+)
 if(USQUE_PREVIEW)
   target_compile_definitions(${BINARY_NAME} PRIVATE USQUE_PREVIEW=1)
 endif()

@@ -152,6 +152,7 @@ void quit_finished(GObject* source, GAsyncResult* result, gpointer data) {
   // recovery if the explicit disconnect acknowledgement was lost.
   g_autoptr(FlMethodResponse) response = fl_method_channel_invoke_method_finish(
       FL_METHOD_CHANNEL(source), result, nullptr);
+  (void)response;
   g_application_quit(G_APPLICATION(data));
 }
 void tray_command(Shell* self, const char* command) {
@@ -614,8 +615,9 @@ void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
     success(call, value);
   } else if (strcmp(method, "beginZeroTrustLogin") == 0) {
     const char* team = string(args, "team_name");
-    g_autoptr(GRegex) pattern = g_regex_new("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", G_REGEX_CASELESS, G_REGEX_MATCH_DEFAULT, nullptr);
-    if (!g_regex_match(pattern, team, G_REGEX_MATCH_DEFAULT, nullptr)) {
+    constexpr auto match_flags = static_cast<GRegexMatchFlags>(0);
+    g_autoptr(GRegex) pattern = g_regex_new("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", G_REGEX_CASELESS, match_flags, nullptr);
+    if (!g_regex_match(pattern, team, match_flags, nullptr)) {
       fail(call, "ZERO_TRUST_TEAM_INVALID", "The Zero Trust team name is invalid.");
       return;
     }
