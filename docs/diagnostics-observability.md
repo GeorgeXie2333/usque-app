@@ -99,6 +99,35 @@ supply age; absent timestamps do not produce synthetic ages. Native timeline
 mirroring runs at 1 Hz and shutdown; the full timeline is not added to ordinary
 events.
 
+Android startup holds the same transport telemetry handle as the eventual
+runtime. Failure, cancellation or timeout before a runtime is created retains
+its bounded native timeline for export; a retired generation cannot overwrite
+a newer connection. Candidate refusals use `candidate_rejected`, with optional
+connection-local `candidate_id` and `enrollment_round` (0 before refresh, 1 after).
+They do not set the session's terminal failure metric. Cancelled losing attempts
+are not reported as remote failures.
+
+`ENDPOINT_PIN_MISMATCH` identifies pin rejection. Authentication refresh failures
+use `ENDPOINT_PIN_REFRESH_FAILED`; failed connection retries after a successful
+refresh use `ENDPOINT_PIN_RETRY_FAILED`. Optional `cause_code` and `cause_stage`
+retain the typed underlying reason. Protection and identity errors retain their
+original fatal code. Refresh/retry phase events preserve the sequence even when
+earlier candidate events were evicted. Unknown optional fields remain compatible
+with older consumers; unknown failure codes display a generic failure.
+
+Candidate identifiers are allocated in memory and are unrelated to endpoint IPs,
+profiles or device identifiers. No certificate, public key, pin, credentials or
+arbitrary internal error text is added to exports. Every admitted connection
+still verifies the immutable enrollment pin and client identity, and losers close
+their sockets before releasing protection leases. Network Doctor treats a
+rejected candidate separately from the verified active path; inferred platform
+state remains labelled inferred rather than an independent certificate probe.
+
+Android 在创建运行时之前就持有原生时间线，因此启动失败、取消或超时后也能导出
+有界证据；旧代次不能覆盖新连接。候选拒绝与会话失败分开记录。认证刷新失败、
+刷新后重试失败使用独立错误码，并通过允许的错误码和阶段保留底层原因，不导出
+证书、公钥、pin、凭据或任意内部错误文本。
+
 Desktop exports capture the connection, timeline and one quality snapshot from
 the same active or retained runtime scope. Saved configuration is a separate,
 explicitly named scope. `capture.json` records the phases, session identity,

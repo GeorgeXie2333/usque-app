@@ -328,6 +328,7 @@ impl Supervisor {
         let mut retry = 0usize;
         let mut reconnects = 0u32;
         let mut pin_refreshed = false;
+        let mut pin_retry_pending = false;
         let mut established_at: Option<Instant> = None;
         loop {
             budget_waiter.disarm();
@@ -497,6 +498,7 @@ impl Supervisor {
                             next_connect = Instant::now();
                         }
                         Ok(mut session) => {
+                            pin_retry_pending = false;
                             if let Some(admission) = &session.handle.startup_admission { admission.promote(); }
                             session.epoch = self.epoch.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
                             session.handle.epoch.store(session.epoch, Ordering::Release);
@@ -513,12 +515,7 @@ impl Supervisor {
                             pin_refreshed = true;
                             let result = tokio::select! {
                                 _ = self.cancellation.cancelled() => break,
-                                result = async {
-                                    let refresh = self.pin_refresher.as_ref().expect("checked refresher").refresh(self.protector.clone());
-                                    if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
-                                        tokio::time::timeout(usque_core::endpoints::AUTOMATIC_PIN_REFRESH_TIMEOUT, refresh).await.map_err(|_| TransportError::EndpointPinRefresh("authenticated endpoint refresh timed out".to_owned()))?
-                                    } else { refresh.await }
-                                } => result,
+                                result = crate::netstack::refresh_pin(&self.profile, self.pin_refresher.as_ref().expect("checked refresher"), self.protector.clone(), &self.telemetry) => result,
                             };
                             match result {
                                 Ok(identity) if identity.provider == self.identity.provider && identity.assigned_ipv4 == self.identity.assigned_ipv4 && identity.assigned_ipv6 == self.identity.assigned_ipv6 => {
@@ -528,11 +525,18 @@ impl Supervisor {
                                     if self.profile.endpoint.preset_region.is_some() && identity.endpoint_preset_tier().ok() != self.identity.endpoint_preset_tier().ok() {
                                         self.fail(TransportError::EndpointAssignmentChanged, reconnects); break;
                                     }
-                                    self.identity = Arc::new(identity.with_fingerprint(self.profile.tls_fingerprint)); next_connect = Instant::now();
+                                    self.identity = Arc::new(identity.with_fingerprint(self.profile.tls_fingerprint));
+                                    pin_retry_pending = true;
+                                    self.telemetry.begin_pin_retry();
+                                    next_connect = Instant::now();
                                 }
                                 Ok(_) => { self.fail(TransportError::InvalidIdentity, reconnects); break; }
                                 Err(error) => { self.fail(error, reconnects); break; }
                             }
+                        }
+                        Err(error) if pin_retry_pending => {
+                            self.fail(error.pin_retry_failed(&self.telemetry, Some(Transport::Http3)), reconnects);
+                            break;
                         }
                         Err(error) => {
                             let failure = super::failure(&error);
@@ -638,10 +642,13 @@ impl Setup {
                         )
                 })
                 .collect();
+            let generation = self.protector.network_generation();
+            let protector = self.protector.clone();
             let setup = Arc::new(self);
-            return crate::endpoint_race::race_batch(
+            let result = crate::endpoint_race::race_batch_with_policy(
                 targets,
                 None,
+                crate::endpoint_race::RacePolicy::Automatic,
                 move |endpoint, cancellation| {
                     let setup = setup.clone();
                     let slot = slot.clone();
@@ -653,6 +660,8 @@ impl Setup {
                 },
             )
             .await;
+            return crate::endpoint_race::finish_generation(result, protector.as_ref(), generation)
+                .await;
         }
         let v4 = self.profile.endpoint.ipv4_socket();
         let v6 = self.profile.endpoint.ipv6_socket();
@@ -772,6 +781,9 @@ impl Setup {
         slot: Arc<tokio::sync::OwnedSemaphorePermit>,
         cancellation: CancellationToken,
     ) -> Result<Session, TransportError> {
+        if self.telemetry.startup_is_cancelled() {
+            return Err(TransportError::TunnelClosed);
+        }
         let generation = self.protector.network_generation();
         let family = if endpoint.is_ipv4() {
             AddressFamily::Ipv4
@@ -804,9 +816,14 @@ impl Setup {
             actor.test_options = self.test_options;
         }
         let handle = actor.handle.clone();
-        let attempt =
-            ConnectionAttemptTelemetry::new(self.telemetry.clone(), Transport::Http3, family);
-        let tunnel = crate::h3::connect_l4_h3_with_cancellation(
+        let attempt = if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic
+        {
+            ConnectionAttemptTelemetry::candidate(self.telemetry.clone(), Transport::Http3, family)
+        } else {
+            ConnectionAttemptTelemetry::new(self.telemetry.clone(), Transport::Http3, family)
+        };
+        let started = Instant::now();
+        let connecting = crate::h3::connect_l4_h3_with_cancellation(
             endpoint,
             &self.identity,
             H3ConnectSettings {
@@ -816,9 +833,24 @@ impl Setup {
             self.protector.clone(),
             Some(&attempt),
             actor,
-            cancellation,
-        )
-        .await?;
+            cancellation.clone(),
+        );
+        tokio::pin!(connecting);
+        let tunnel = tokio::select! {
+            biased;
+            _ = self.telemetry.startup_cancelled() => {
+                cancellation.cancel();
+                if let Ok(tunnel) = connecting.await { tunnel.shutdown().await; }
+                return Err(TransportError::TunnelClosed);
+            }
+            result = &mut connecting => result,
+        }
+        .map_err(|error| {
+            if !(cancellation.is_cancelled() && matches!(error, TransportError::TunnelClosed)) {
+                attempt.rejected(&error, started.elapsed());
+            }
+            error
+        })?;
         Ok(Session {
             epoch: 0,
             tunnel,

@@ -36,6 +36,11 @@ class ReliabilityCatalogueTest(unittest.TestCase):
                 _section(rust, "pub const fn as_str", "pub const fn metadata"),
             )
         )
+        # AppStrings merges the locale's supplemental diagnostics catalogue.
+        diagnostics = (ROOT / "apps/usque_gui/lib/core/l10n/diagnostics.dart").read_text(
+            encoding="utf-8"
+        )
+        chinese_catalog += _section(diagnostics, "'zh_CN':", "'zh_TW':")
         chinese_codes = set(
             re.findall(
                 r"'diag_fail_([A-Z][A-Z0-9_]+)'\s*:",
@@ -48,7 +53,7 @@ class ReliabilityCatalogueTest(unittest.TestCase):
                 _section(android, "val failureCodes", "val summaryKeys"),
             )
         )
-        self.assertEqual(54, len(rust_codes))
+        self.assertEqual(56, len(rust_codes))
         self.assertSetEqual(rust_codes, chinese_codes)
         self.assertSetEqual(rust_codes, android_codes)
         self.assertSetEqual(rust_codes, set(_contract()["failure_codes"]))

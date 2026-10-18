@@ -26,7 +26,6 @@ use super::{
     NativeSnapshot, Profile, RECONFIGURE_NEED_ATTACH, RECONFIGURE_NEED_COLD,
     RECONFIGURE_NOT_RUNNING, RECONFIGURE_OK, START_ALREADY_RUNNING, START_INVALID_PROFILE,
     START_OK, START_PLATFORM_FAILURE, START_TRANSPORT_FAILURE, START_TUN_FAILURE, SocketProtector,
-    android_transport_failure,
 };
 
 static ENGINE: OnceLock<Mutex<Option<EngineHandle>>> = OnceLock::new();
@@ -558,8 +557,9 @@ async fn run(
             }
         }
     }));
+    let startup_telemetry = usque_transport::ConnectionTelemetry::default();
     let mut tunnel = {
-        let startup = Box::pin(DataPlaneRuntime::start_with_vpngate(
+        let startup = Box::pin(DataPlaneRuntime::start_with_vpngate_and_telemetry(
             &profile,
             identity,
             protector,
@@ -575,11 +575,15 @@ async fn run(
                     .and_then(|value| *value)
                     .map(tokio::time::Instant::from_std),
             },
+            startup_telemetry.clone(),
         ));
         tokio::pin!(startup);
         let started_tunnel = tokio::select! {
             biased;
             _ = cancellation.cancelled() => {
+                if let Ok(mut runtime) = startup.await { runtime.shutdown().await; }
+                startup_telemetry.phase_cancelled_startup();
+                super::connection_timeline::publish_for(timeline_generation, startup_telemetry.snapshot(), None, true);
                 let _ = started.send(START_TRANSPORT_FAILURE);
                 return;
             }
@@ -591,7 +595,26 @@ async fn run(
                 if let Ok(mut snapshot) = status.lock() {
                     snapshot.vpn_gate = Some(gate_tx.borrow().clone());
                 }
-                set_transport_error(&status, &error);
+                let transport = match profile.transport {
+                    usque_core::TransportPolicy::Http3 => Some(Transport::Http3),
+                    usque_core::TransportPolicy::Http2 => Some(Transport::Http2),
+                    usque_core::TransportPolicy::Auto => None,
+                };
+                let failure = error.failure(transport, None);
+                startup_telemetry.record(
+                    usque_transport::ConnectionEventType::Failed,
+                    Some(failure.stage),
+                    usque_transport::ConnectionEventPath::new(transport, None),
+                    None,
+                    Some(failure.clone()),
+                );
+                super::connection_timeline::publish_for(
+                    timeline_generation,
+                    startup_telemetry.snapshot(),
+                    None,
+                    true,
+                );
+                set_transport_failure(&status, &error, failure);
                 let _ = started.send(START_TRANSPORT_FAILURE);
                 return;
             }
@@ -1363,10 +1386,6 @@ fn update_frontends(status: &Arc<Mutex<NativeSnapshot>>, tunnel: &DataPlaneRunti
 
 fn set_error(status: &Arc<Mutex<NativeSnapshot>>, message: String) {
     set_error_with_code(status, "ANDROID_RUNTIME_FAILED", message);
-}
-
-fn set_transport_error(status: &Arc<Mutex<NativeSnapshot>>, error: &TransportError) {
-    set_transport_failure(status, error, android_transport_failure(error, None));
 }
 
 fn set_runtime_transport_error(

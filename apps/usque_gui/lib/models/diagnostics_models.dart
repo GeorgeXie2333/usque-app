@@ -194,6 +194,8 @@ class TransportFailureInfo {
     this.severity = DiagnosticSeverity.error,
     this.remediationKey = '',
     this.sanitizedDetail,
+    this.causeCode,
+    this.causeStage,
   });
 
   final String code;
@@ -205,6 +207,8 @@ class TransportFailureInfo {
   final DiagnosticSeverity severity;
   final String remediationKey;
   final String? sanitizedDetail;
+  final String? causeCode;
+  final String? causeStage;
 
   factory TransportFailureInfo.fromMap(Map<Object?, Object?> map) {
     return TransportFailureInfo(
@@ -221,6 +225,8 @@ class TransportFailureInfo {
       ),
       remediationKey: map['remediation_key'] as String? ?? '',
       sanitizedDetail: map['sanitized_detail'] as String?,
+      causeCode: map['cause_code'] as String?,
+      causeStage: map['cause_stage'] as String?,
     );
   }
 
@@ -236,7 +242,9 @@ class TransportFailureInfo {
             fallbackAllowed == other.fallbackAllowed &&
             severity == other.severity &&
             remediationKey == other.remediationKey &&
-            sanitizedDetail == other.sanitizedDetail;
+            sanitizedDetail == other.sanitizedDetail &&
+            causeCode == other.causeCode &&
+            causeStage == other.causeStage;
   }
 
   @override
@@ -250,6 +258,8 @@ class TransportFailureInfo {
     severity,
     remediationKey,
     sanitizedDetail,
+    causeCode,
+    causeStage,
   );
 }
 
@@ -587,6 +597,12 @@ enum ConnectionTimelineEventType {
   pmtuRevalidationFailed,
   directDnsDegraded,
   directDnsRecovered,
+  candidateRejected,
+  pinRefreshStarted,
+  pinRefreshSucceeded,
+  pinRefreshFailed,
+  pinRetryStarted,
+  pinRetryFailed,
   unknown,
 }
 
@@ -602,6 +618,8 @@ class ConnectionTimelineEvent {
     this.addressFamily,
     this.durationMilliseconds,
     this.queueKind,
+    this.candidateId,
+    this.enrollmentRound,
     this.failure,
   });
 
@@ -614,6 +632,8 @@ class ConnectionTimelineEvent {
   final String? addressFamily;
   final int? durationMilliseconds;
   final String? queueKind;
+  final int? candidateId;
+  final int? enrollmentRound;
   final TransportFailureInfo? failure;
 
   @override
@@ -628,6 +648,8 @@ class ConnectionTimelineEvent {
             transport == other.transport &&
             addressFamily == other.addressFamily &&
             queueKind == other.queueKind &&
+            candidateId == other.candidateId &&
+            enrollmentRound == other.enrollmentRound &&
             durationMilliseconds == other.durationMilliseconds &&
             failure == other.failure;
   }
@@ -643,6 +665,8 @@ class ConnectionTimelineEvent {
     addressFamily,
     durationMilliseconds,
     queueKind,
+    candidateId,
+    enrollmentRound,
     failure,
   );
 }
@@ -749,6 +773,14 @@ ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
               transport: event['transport'] as String?,
               addressFamily: event['address_family'] as String?,
               queueKind: event['queue_kind'] as String?,
+              candidateId: _unsignedValue(event['candidate_id']),
+              enrollmentRound: switch (_unsignedValue(
+                event['enrollment_round'],
+              )) {
+                0 => 0,
+                1 => 1,
+                _ => null,
+              },
               durationMilliseconds: (event['duration_milliseconds'] as num?)
                   ?.toInt(),
               failure: failure is Map

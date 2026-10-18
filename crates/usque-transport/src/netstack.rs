@@ -925,10 +925,20 @@ impl ManagedTunnelRuntime {
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
         features: crate::NetworkFeatureFlags,
     ) -> Result<Self, TransportError> {
-        crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
-        let identity = Arc::new(identity);
         let telemetry =
             ConnectionTelemetry::with_features(crate::CONNECTION_TIMELINE_CAPACITY, features);
+        Self::start_with_telemetry(profile, identity, protector, pin_refresher, telemetry).await
+    }
+
+    pub(crate) async fn start_with_telemetry(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        telemetry: ConnectionTelemetry,
+    ) -> Result<Self, TransportError> {
+        crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
+        let identity = Arc::new(identity);
         telemetry.reset_attempt();
         let (tunnel, endpoint_family, identity, pin_refresh_attempted) =
             connect_initial_with_refresh(
@@ -1125,6 +1135,14 @@ impl Drop for ManagedTunnelRuntime {
     }
 }
 
+fn configured_carrier(profile: &Profile) -> Option<Transport> {
+    match profile.transport {
+        TransportPolicy::Http3 => Some(Transport::Http3),
+        TransportPolicy::Http2 => Some(Transport::Http2),
+        TransportPolicy::Auto => None,
+    }
+}
+
 async fn connect_initial_with_refresh(
     profile: &Profile,
     identity: Arc<MasqueTlsIdentity>,
@@ -1132,6 +1150,9 @@ async fn connect_initial_with_refresh(
     pin_refresher: Option<&Arc<dyn EndpointPinRefresher>>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily, Arc<MasqueTlsIdentity>, bool), TransportError> {
+    if telemetry.startup_is_cancelled() {
+        return Err(TransportError::TunnelClosed);
+    }
     let identity = Arc::new(
         identity
             .as_ref()
@@ -1151,43 +1172,89 @@ async fn connect_initial_with_refresh(
             let Some(pin_refresher) = pin_refresher else {
                 return Err(TransportError::EndpointPinMismatch);
             };
-            let refreshed = refresh_pin(profile, pin_refresher, Arc::clone(&protector)).await?;
+            let refreshed =
+                refresh_pin(profile, pin_refresher, Arc::clone(&protector), telemetry).await?;
             ensure_assignments_unchanged(identity.as_ref(), &refreshed)?;
             ensure_endpoint_pool_unchanged(profile, identity.as_ref(), &refreshed)?;
             let refreshed = Arc::new(refreshed);
-            telemetry.reset_attempt();
+            telemetry.begin_pin_retry();
             match connect_with_policy(profile, refreshed.as_ref(), protector, telemetry).await {
                 Ok((tunnel, family)) => Ok((tunnel, family, refreshed, true)),
-                Err(error) => Err(TransportError::EndpointPinRefresh(format!(
-                    "the single retry with the refreshed enrollment failed: {error}"
-                ))),
+                Err(error) => Err(error.pin_retry_failed(telemetry, configured_carrier(profile))),
             }
         }
         Err(error) => Err(error),
     }
 }
 
-async fn refresh_pin(
+pub(crate) async fn refresh_pin(
     profile: &Profile,
     refresher: &Arc<dyn EndpointPinRefresher>,
     protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
 ) -> Result<MasqueTlsIdentity, TransportError> {
+    telemetry.phase(
+        ConnectionEventType::PinRefreshStarted,
+        Some(TransportError::EndpointPinMismatch.failure(None, None)),
+    );
     let refresh = refresher.refresh(protector);
-    let refreshed = if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
-        timeout(
-            usque_core::endpoints::AUTOMATIC_PIN_REFRESH_TIMEOUT,
-            refresh,
-        )
-        .await
-        .map_err(|_| {
-            TransportError::EndpointPinRefresh(
-                "authenticated endpoint refresh timed out".to_owned(),
+    let operation = async {
+        if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+            timeout(
+                usque_core::endpoints::AUTOMATIC_PIN_REFRESH_TIMEOUT,
+                refresh,
             )
-        })?
-    } else {
-        refresh.await
-    }?;
-    Ok(refreshed.with_fingerprint(profile.tls_fingerprint))
+            .await
+            .map_err(|_| {
+                TransportError::EndpointPinRefresh(
+                    "authenticated endpoint refresh timed out".to_owned(),
+                )
+            })?
+        } else {
+            refresh.await
+        }
+    };
+    let refreshed = tokio::select! {
+        biased;
+        _ = telemetry.startup_cancelled() => Err(TransportError::TunnelClosed),
+        result = operation => result,
+    };
+    match refreshed {
+        Ok(refreshed) => {
+            telemetry.phase(ConnectionEventType::PinRefreshSucceeded, None);
+            Ok(refreshed.with_fingerprint(profile.tls_fingerprint))
+        }
+        Err(error) => {
+            if matches!(error, TransportError::TunnelClosed) {
+                return Err(error);
+            }
+            if matches!(error, TransportError::UnderlyingNetworkChanged) {
+                telemetry.phase(
+                    ConnectionEventType::NetworkChanged,
+                    Some(error.failure(None, None)),
+                );
+                return Err(error);
+            }
+            let failure = error.failure(None, None);
+            let error = if matches!(
+                error,
+                TransportError::EndpointPinRefresh(_)
+                    | TransportError::EndpointPinRefreshCause(_)
+                    | TransportError::UnderlyingNetworkChanged
+                    | TransportError::TunnelClosed
+            ) || RecoveryDecision::for_failure(&failure) == RecoveryDecision::Stop
+            {
+                error
+            } else {
+                TransportError::EndpointPinRefreshCause(Box::new(failure))
+            };
+            telemetry.phase(
+                ConnectionEventType::PinRefreshFailed,
+                Some(error.failure(None, None)),
+            );
+            Err(error)
+        }
+    }
 }
 
 fn ensure_endpoint_pool_unchanged(
@@ -1228,6 +1295,9 @@ async fn connect_with_policy(
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    if telemetry.startup_is_cancelled() {
+        return Err(TransportError::TunnelClosed);
+    }
     if profile.data_plane != usque_core::DataPlaneMode::ConnectIp {
         return Err(TransportError::UnsupportedOperatingMode);
     }
@@ -1250,42 +1320,65 @@ async fn connect_with_policy(
                 telemetry,
             )
             .await;
-            match h3_result {
-                Ok(connected) => Ok(connected),
-                Err(h3_error) => {
-                    let h3_failure = h3_error.failure(Some(Transport::Http3), None);
-                    if !h3_failure.fallback_allowed {
-                        return Err(h3_error);
-                    }
-                    telemetry.increment_fallback();
-                    telemetry.record(
-                        ConnectionEventType::FallbackStarted,
-                        Some(h3_failure.stage),
-                        ConnectionEventPath::new(Some(Transport::Http3), h3_failure.address_family),
-                        None,
-                        Some(h3_failure.clone()),
-                    );
-                    match connect_happy_eyeballs(
-                        profile,
-                        identity,
-                        Transport::Http2,
-                        protector,
-                        telemetry,
-                    )
-                    .await
-                    {
-                        Ok(connected) => Ok(connected),
-                        Err(TransportError::EndpointPinMismatch) => {
-                            Err(TransportError::EndpointPinMismatch)
-                        }
-                        Err(h2_error) => Err(TransportError::AllTransportsFailed {
-                            h3: Box::new(h3_failure),
-                            h2: Box::new(h2_error.failure(Some(Transport::Http2), None)),
-                        }),
-                    }
-                }
-            }
+            finish_auto_transports(
+                profile.endpoint.selection == usque_core::EndpointSelection::Automatic,
+                h3_result,
+                connect_happy_eyeballs(profile, identity, Transport::Http2, protector, telemetry),
+                telemetry,
+            )
+            .await
         }
+    }
+}
+
+/// Only Automatic exhaustion can authorize another independently pinned carrier.
+/// Raw pin-failure metadata remains terminal for every other caller.
+async fn finish_auto_transports<T>(
+    automatic: bool,
+    h3: Result<T, TransportError>,
+    h2: impl Future<Output = Result<T, TransportError>>,
+    telemetry: &ConnectionTelemetry,
+) -> Result<T, TransportError> {
+    let h3_error = match h3 {
+        Ok(connected) => return Ok(connected),
+        Err(error) => error,
+    };
+    if telemetry.startup_is_cancelled() {
+        return Err(TransportError::TunnelClosed);
+    }
+    let h3_failure = h3_error.failure(Some(Transport::Http3), None);
+    let candidate_pin_rejection =
+        automatic && matches!(h3_error, TransportError::EndpointPinMismatch);
+    if !h3_failure.fallback_allowed && !candidate_pin_rejection {
+        return Err(h3_error);
+    }
+    telemetry.increment_fallback();
+    telemetry.record(
+        ConnectionEventType::FallbackStarted,
+        Some(h3_failure.stage),
+        ConnectionEventPath::new(Some(Transport::Http3), h3_failure.address_family),
+        None,
+        // Candidate refusals already have their own events. Do not misrepresent
+        // this policy-scoped continuation as global permission on a pin error.
+        if candidate_pin_rejection {
+            None
+        } else {
+            Some(h3_failure.clone())
+        },
+    );
+    match h2.await {
+        Ok(connected) => Ok(connected),
+        Err(TransportError::EndpointPinMismatch) => Err(TransportError::EndpointPinMismatch),
+        Err(error) if candidate_pin_rejection => {
+            let mut failures = crate::endpoint_race::CandidateFailures::default();
+            failures.record(h3_error)?;
+            failures.record(error)?;
+            Err(failures.exhausted())
+        }
+        Err(error) => Err(TransportError::AllTransportsFailed {
+            h3: Box::new(h3_failure),
+            h2: Box::new(error.failure(Some(Transport::Http2), None)),
+        }),
     }
 }
 
@@ -1525,6 +1618,7 @@ async fn connect_automatic_endpoints(
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    let generation = protector.network_generation();
     let policy =
         usque_core::AutomaticEndpointPolicy::for_profile(profile, identity.endpoint_pool());
     let connect = {
@@ -1545,7 +1639,7 @@ async fn connect_automatic_endpoints(
                 };
                 connect_endpoint_cancellable(
                     transport,
-                    EndpointCandidate::new(endpoint, family),
+                    EndpointCandidate::automatic(endpoint, family),
                     &profile.endpoint.sni,
                     &identity,
                     usize::from(profile.mtu),
@@ -1553,7 +1647,7 @@ async fn connect_automatic_endpoints(
                     protector,
                     &telemetry,
                     cancellation,
-                    None,
+                    generation,
                 )
                 .await
                 .map(|tunnel| (tunnel, family))
@@ -1568,7 +1662,15 @@ async fn connect_automatic_endpoints(
                     && !crate::endpoint_race::excludes_dns_server(profile, target.endpoint)
             })
             .collect();
-        return crate::endpoint_race::race_batch(targets, None, connect).await;
+        let result = crate::endpoint_race::race_batch_with_policy(
+            targets,
+            None,
+            crate::endpoint_race::RacePolicy::Automatic,
+            connect,
+        )
+        .await;
+        return crate::endpoint_race::finish_generation(result, protector.as_ref(), generation)
+            .await;
     }
     let (mut ipv4, mut ipv6) = crate::endpoint_race::h2_candidates(policy)?;
     ipv4.retain(|endpoint| {
@@ -1585,28 +1687,29 @@ async fn connect_automatic_endpoints(
         } else {
             (ipv6, ipv4)
         };
+    let mut failures = crate::endpoint_race::CandidateFailures::default();
     while !preferred.is_empty() || !alternate.is_empty() {
+        if telemetry.startup_is_cancelled() {
+            return Err(TransportError::TunnelClosed);
+        }
+        if protector.network_generation() != generation {
+            return Err(TransportError::UnderlyingNetworkChanged);
+        }
         let targets = crate::endpoint_race::next_h2_batch(&mut preferred, &mut alternate);
-        match crate::endpoint_race::race_batch(
+        let result = crate::endpoint_race::race_batch_with_policy(
             targets,
             Some(usque_core::endpoints::AUTOMATIC_H2_BATCH_TIMEOUT),
+            crate::endpoint_race::RacePolicy::Automatic,
             connect.clone(),
         )
-        .await
+        .await;
+        match crate::endpoint_race::finish_generation(result, protector.as_ref(), generation).await
         {
             Ok(connected) => return Ok(connected),
-            Err(error)
-                if RecoveryDecision::for_failure(&error.failure(Some(transport), None))
-                    != RecoveryDecision::Retry =>
-            {
-                return Err(error);
-            }
-            Err(_) => {}
+            Err(error) => failures.record(error)?,
         }
     }
-    Err(TransportError::AllEndpointsFailed(
-        "automatic endpoint cycle exhausted".to_owned(),
-    ))
+    Err(failures.exhausted())
 }
 
 #[derive(Debug)]
@@ -1672,11 +1775,23 @@ const fn preferred_family_label(family: AddressFamily) -> &'static str {
 struct EndpointCandidate {
     socket: std::net::SocketAddr,
     family: AddressFamily,
+    automatic: bool,
 }
 
 impl EndpointCandidate {
     const fn new(socket: std::net::SocketAddr, family: AddressFamily) -> Self {
-        Self { socket, family }
+        Self {
+            socket,
+            family,
+            automatic: false,
+        }
+    }
+    fn automatic(socket: std::net::SocketAddr, family: AddressFamily) -> Self {
+        Self {
+            socket,
+            family,
+            automatic: true,
+        }
     }
 }
 
@@ -1728,6 +1843,7 @@ async fn connect_endpoint_cancellable(
     let EndpointCandidate {
         socket: endpoint,
         family,
+        automatic,
     } = target;
     telemetry.record_attempt(transport, family);
     let started = Instant::now();
@@ -1737,7 +1853,11 @@ async fn connect_endpoint_cancellable(
         {
             return Err(TransportError::UnderlyingNetworkChanged);
         }
-        let attempt = ConnectionAttemptTelemetry::new(telemetry.clone(), transport, family);
+        let attempt = if automatic {
+            ConnectionAttemptTelemetry::candidate(telemetry.clone(), transport, family)
+        } else {
+            ConnectionAttemptTelemetry::new(telemetry.clone(), transport, family)
+        };
         attempt.record(
             ConnectionEventType::EndpointResolved,
             TransportStage::EndpointResolution,
@@ -1774,6 +1894,12 @@ async fn connect_endpoint_cancellable(
         };
         tokio::pin!(connecting);
         tokio::select! {
+            biased;
+            _ = telemetry.startup_cancelled() => {
+                attempt_cancellation.cancel();
+                if let Ok(tunnel) = connecting.await { crate::endpoint_race::RaceConnection::shutdown(tunnel).await; }
+                return Err(TransportError::TunnelClosed);
+            }
             result = &mut connecting => {
                 match &result {
                     Ok(_) => {
@@ -1790,14 +1916,7 @@ async fn connect_endpoint_cancellable(
                     // cancellation as a remote H3/H2 connection failure.
                     Err(TransportError::TunnelClosed) if cancellation.is_cancelled() => {}
                     Err(error) => {
-                        let failure = error.failure(Some(transport), Some(family));
-                        telemetry.record(
-                            ConnectionEventType::Failed,
-                            Some(failure.stage),
-                            ConnectionEventPath::known(transport, family),
-                            Some(started.elapsed()),
-                            Some(failure),
-                        );
+                        attempt.rejected(error, started.elapsed());
                     }
                 }
                 return result;
@@ -2472,7 +2591,12 @@ async fn refresh_and_retry_connection(
         Some(pin_refresher) => pin_refresher,
         None => return Some(Err(TransportError::EndpointPinMismatch)),
     };
-    let refresh = refresh_pin(profile, pin_refresher, Arc::clone(&protector));
+    let refresh = refresh_pin(
+        profile,
+        pin_refresher,
+        Arc::clone(&protector),
+        context.telemetry,
+    );
     tokio::pin!(refresh);
     let refreshed = loop {
         tokio::select! {
@@ -2492,6 +2616,7 @@ async fn refresh_and_retry_connection(
         return Some(Err(error));
     }
     let refreshed = Arc::new(refreshed);
+    context.telemetry.begin_pin_retry();
     match connect_while_dropping_packets(
         profile,
         Arc::clone(&refreshed),
@@ -2503,9 +2628,9 @@ async fn refresh_and_retry_connection(
     .await
     {
         Some(Ok((tunnel, family))) => Some(Ok((tunnel, family, refreshed))),
-        Some(Err(error)) => Some(Err(TransportError::EndpointPinRefresh(format!(
-            "the single retry with the refreshed enrollment failed: {error}"
-        )))),
+        Some(Err(error)) => Some(Err(
+            error.pin_retry_failed(context.telemetry, configured_carrier(profile))
+        )),
         None => None,
     }
 }
@@ -3630,6 +3755,7 @@ mod tests {
             &Profile::default(),
             &erased,
             crate::socket::noop_socket_protector(),
+            &ConnectionTelemetry::default(),
         )
         .await;
         assert!(matches!(result, Err(TransportError::EndpointPinRefresh(_))));
@@ -3663,10 +3789,14 @@ mod tests {
                     ..Default::default()
                 };
                 profile.endpoint.selection = selection;
-                let refreshed =
-                    refresh_pin(&profile, &refresher, crate::socket::noop_socket_protector())
-                        .await
-                        .unwrap();
+                let refreshed = refresh_pin(
+                    &profile,
+                    &refresher,
+                    crate::socket::noop_socket_protector(),
+                    &ConnectionTelemetry::default(),
+                )
+                .await
+                .unwrap();
                 assert_eq!(refreshed.tls_fingerprint, fingerprint);
                 assert_eq!(refreshed.assigned_ipv4.to_string(), "172.16.0.2");
                 assert_eq!(refreshed.assigned_ipv6.to_string(), "2001:db8::2");
@@ -4177,5 +4307,107 @@ mod tests {
 
         stack_task.abort();
         let _ = stack_task.await;
+    }
+    #[tokio::test]
+    async fn only_automatic_can_use_valid_h2_after_exhausted_h3_pin_rejections() {
+        for automatic in [false, true] {
+            let called = std::sync::atomic::AtomicBool::new(false);
+            let result = finish_auto_transports(
+                automatic,
+                Err(TransportError::EndpointPinMismatch),
+                async {
+                    called.store(true, std::sync::atomic::Ordering::SeqCst);
+                    Ok(42)
+                },
+                &ConnectionTelemetry::default(),
+            )
+            .await;
+            assert_eq!(called.load(std::sync::atomic::Ordering::SeqCst), automatic);
+            if automatic {
+                assert_eq!(result.unwrap(), 42);
+            } else {
+                assert!(matches!(result, Err(TransportError::EndpointPinMismatch)));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn automatic_cross_transport_exhaustion_keeps_pin_evidence_but_fatal_errors_win() {
+        let timeout = TransportError::EndpointTimeout("127.0.0.1:443".parse().unwrap());
+        let result = finish_auto_transports::<()>(
+            true,
+            Err(TransportError::EndpointPinMismatch),
+            async { Err(timeout) },
+            &ConnectionTelemetry::default(),
+        )
+        .await;
+        assert!(matches!(result, Err(TransportError::EndpointPinMismatch)));
+        let result = finish_auto_transports::<()>(
+            true,
+            Err(TransportError::EndpointPinMismatch),
+            async { Err(TransportError::SocketProtection("fixture".into())) },
+            &ConnectionTelemetry::default(),
+        )
+        .await;
+        assert!(matches!(result, Err(TransportError::SocketProtection(_))));
+    }
+    #[tokio::test]
+    async fn cancelled_pin_refresh_drops_pending_request_without_a_failure_event() {
+        struct Guard(Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        struct Pending {
+            entered: Arc<tokio::sync::Notify>,
+            dropped: Arc<std::sync::atomic::AtomicBool>,
+        }
+        #[async_trait::async_trait]
+        impl EndpointPinRefresher for Pending {
+            async fn refresh(
+                &self,
+                _: Arc<dyn SocketProtector>,
+            ) -> Result<MasqueTlsIdentity, TransportError> {
+                let _guard = Guard(self.dropped.clone());
+                self.entered.notify_one();
+                std::future::pending().await
+            }
+        }
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let refresher: Arc<dyn EndpointPinRefresher> = Arc::new(Pending {
+            entered: entered.clone(),
+            dropped: dropped.clone(),
+        });
+        let telemetry = ConnectionTelemetry::default();
+        let task = tokio::spawn({
+            let telemetry = telemetry.clone();
+            async move {
+                refresh_pin(
+                    &Profile::default(),
+                    &refresher,
+                    crate::socket::noop_socket_protector(),
+                    &telemetry,
+                )
+                .await
+            }
+        });
+        entered.notified().await;
+        telemetry.cancel_startup();
+        assert!(matches!(
+            timeout(Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(TransportError::TunnelClosed)
+        ));
+        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(!telemetry.snapshot().events.iter().any(|event| matches!(
+            event.event_type,
+            ConnectionEventType::PinRefreshFailed
+                | ConnectionEventType::PinRetryFailed
+                | ConnectionEventType::Failed
+        )));
     }
 }

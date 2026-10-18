@@ -12,7 +12,8 @@ use tokio::time::timeout;
 use tokio_util::task::AbortOnDropHandle;
 use usque_core::{
     EndpointPinRefresh, PreparedEndpointPinRefresh, REGISTRATION_API_HOST, REGISTRATION_API_PORT,
-    WarpIdentity, parse_endpoint_pin_refresh_response, prepare_endpoint_pin_refresh,
+    TransportFailure, TransportFailureCode as Code, TransportStage as Stage, WarpIdentity,
+    parse_endpoint_pin_refresh_response, prepare_endpoint_pin_refresh,
 };
 
 use crate::h2::{MasqueTlsIdentity, TransportError};
@@ -66,20 +67,21 @@ pub async fn refresh_endpoint_pin_over_protected_socket(
     })
     .await
     .map_err(|error| TransportError::EndpointPinRefresh(error.to_string()))?
-    .map_err(TransportError::EndpointPinRefresh)?;
+    .map_err(|_| refresh_cause(Code::PhysicalDnsUnavailable, Stage::EndpointResolution))?;
 
-    let mut failures = Vec::new();
+    let mut failure = None;
     for endpoint in prefer_ipv6_then_ipv4(addresses) {
         match refresh_at_endpoint(endpoint, &request, protector.as_ref()).await {
             Ok(refresh) => return Ok(refresh),
-            Err(error) => failures.push(format!("{endpoint}: {error}")),
+            Err(
+                error @ (TransportError::SocketProtection(_)
+                | TransportError::UnderlyingNetworkChanged),
+            ) => return Err(error),
+            Err(error) => failure = Some(error),
         }
     }
-    Err(TransportError::EndpointPinRefresh(if failures.is_empty() {
-        "registration API resolution returned no usable address".to_owned()
-    } else {
-        failures.join("; ")
-    }))
+    Err(failure
+        .unwrap_or_else(|| refresh_cause(Code::PhysicalDnsUnavailable, Stage::EndpointResolution)))
 }
 
 async fn refresh_at_endpoint(
@@ -92,7 +94,7 @@ async fn refresh_at_endpoint(
     } else {
         TcpSocket::new_v6()
     }
-    .map_err(refresh_error)?;
+    .map_err(|_| refresh_cause(Code::H2TcpConnectFailed, Stage::SocketCreation))?;
     let generation = protector.network_generation().unwrap_or_default();
     let egress_lease = protector
         .protect_for_target_generation(
@@ -110,13 +112,10 @@ async fn refresh_at_endpoint(
     }
     let tcp = timeout(CONTROL_CONNECT_TIMEOUT, socket.connect(endpoint))
         .await
-        .map_err(|_| {
-            TransportError::EndpointPinRefresh(format!(
-                "registration API connection to {endpoint} timed out"
-            ))
-        })?
-        .map_err(refresh_error)?;
-    tcp.set_nodelay(true).map_err(refresh_error)?;
+        .map_err(|_| refresh_cause(Code::H2TcpConnectFailed, Stage::SocketConnect))?
+        .map_err(|_| refresh_cause(Code::H2TcpConnectFailed, Stage::SocketConnect))?;
+    tcp.set_nodelay(true)
+        .map_err(|_| refresh_cause(Code::H2TcpConnectFailed, Stage::SocketConnect))?;
 
     let mut configuration = endpoint_pin_tls_config()?;
     configuration.alpn_protocols = vec![b"h2".to_vec()];
@@ -125,12 +124,8 @@ async fn refresh_at_endpoint(
         .map_err(|error| TransportError::EndpointPinRefresh(error.to_string()))?;
     let tls = timeout(CONTROL_CONNECT_TIMEOUT, connector.connect(server_name, tcp))
         .await
-        .map_err(|_| {
-            TransportError::EndpointPinRefresh(
-                "registration API TLS handshake timed out".to_owned(),
-            )
-        })?
-        .map_err(|error| TransportError::EndpointPinRefresh(error.to_string()))?;
+        .map_err(|_| refresh_cause(Code::H2TlsFailed, Stage::TlsHandshake))?
+        .map_err(|_| refresh_cause(Code::H2TlsFailed, Stage::TlsHandshake))?;
     if protector.network_generation().unwrap_or_default() != generation {
         return Err(TransportError::UnderlyingNetworkChanged);
     }
@@ -175,6 +170,12 @@ async fn refresh_at_endpoint(
             .map_err(refresh_error)?;
         let response = response.await.map_err(refresh_error)?;
         let status = response.status();
+        if matches!(status.as_u16(), 401 | 403) {
+            return Err(refresh_cause(
+                Code::AuthenticationFailed,
+                Stage::MasqueConnect,
+            ));
+        }
         let mut body = response.into_body();
         let mut response_bytes = BytesMut::new();
         while let Some(chunk) = body.data().await {
@@ -190,12 +191,10 @@ async fn refresh_at_endpoint(
                 .map_err(refresh_error)?;
         }
         parse_endpoint_pin_refresh_response(status.as_u16(), &response_bytes)
-            .map_err(|error| TransportError::EndpointPinRefresh(error.to_string()))
+            .map_err(|_| refresh_cause(Code::IdentityInvalid, Stage::AddressAssignment))
     })
     .await
-    .map_err(|_| {
-        TransportError::EndpointPinRefresh("registration API request timed out".to_owned())
-    });
+    .map_err(|_| refresh_cause(Code::H2ConnectRejected, Stage::MasqueConnect));
     driver.abort();
     let _ = driver.await;
     result?
@@ -229,6 +228,10 @@ fn prefer_ipv6_then_ipv4(mut addresses: Vec<SocketAddr>) -> Vec<SocketAddr> {
     addresses.sort_by_key(|address| if address.is_ipv6() { 0 } else { 1 });
     addresses.dedup();
     addresses
+}
+
+fn refresh_cause(code: Code, stage: Stage) -> TransportError {
+    TransportError::EndpointPinRefreshCause(Box::new(TransportFailure::new(code, stage)))
 }
 
 fn refresh_error(error: impl std::fmt::Display) -> TransportError {

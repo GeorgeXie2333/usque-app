@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime};
 
+use tokio_util::sync::CancellationToken;
 use usque_core::{
     AddressFamily, Transport, TransportFailure, TransportFailureCode, TransportStage,
 };
@@ -42,6 +43,12 @@ pub enum ConnectionEventType {
     PmtuRevalidationFailed,
     Disconnected,
     Failed,
+    CandidateRejected,
+    PinRefreshStarted,
+    PinRefreshSucceeded,
+    PinRefreshFailed,
+    PinRetryStarted,
+    PinRetryFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,12 +63,16 @@ pub struct ConnectionEvent {
     pub duration: Option<Duration>,
     pub failure: Option<TransportFailure>,
     pub queue_kind: Option<crate::QueueKind>,
+    pub candidate_id: Option<u64>,
+    pub enrollment_round: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ConnectionEventPath {
     pub transport: Option<Transport>,
     pub address_family: Option<AddressFamily>,
+    pub candidate_id: Option<u64>,
+    pub enrollment_round: Option<u32>,
 }
 
 impl ConnectionEventPath {
@@ -69,6 +80,8 @@ impl ConnectionEventPath {
         Self {
             transport,
             address_family,
+            candidate_id: None,
+            enrollment_round: None,
         }
     }
 
@@ -104,6 +117,9 @@ pub struct ConnectionTimelineSnapshot {
 pub struct ConnectionTelemetry {
     inner: Arc<Mutex<TelemetryState>>,
     sequence: Arc<AtomicU64>,
+    startup_cancellation: CancellationToken,
+    candidate_sequence: Arc<AtomicU64>,
+    enrollment_round: Arc<AtomicU64>,
     first_packet_sent: Arc<AtomicBool>,
     first_packet_received: Arc<AtomicBool>,
     send_queue_high_watermark: Arc<AtomicU64>,
@@ -122,6 +138,7 @@ pub(crate) struct ConnectionAttemptTelemetry {
     started: Instant,
     transport: Transport,
     family: AddressFamily,
+    path: ConnectionEventPath,
 }
 
 impl ConnectionAttemptTelemetry {
@@ -137,17 +154,41 @@ impl ConnectionAttemptTelemetry {
             started: Instant::now(),
             transport,
             family,
+            path: ConnectionEventPath::known(transport, family),
         }
     }
 
-    pub(crate) fn record(&self, event_type: ConnectionEventType, stage: TransportStage) {
+    pub(crate) fn candidate(
+        telemetry: ConnectionTelemetry,
+        transport: Transport,
+        family: AddressFamily,
+    ) -> Self {
+        let candidate_id = telemetry.candidate_sequence.fetch_add(1, Ordering::Relaxed) + 1;
+        let enrollment_round = telemetry.enrollment_round.load(Ordering::Acquire) as u32;
+        let mut attempt = Self::new(telemetry, transport, family);
+        attempt.path.candidate_id = Some(candidate_id);
+        attempt.path.enrollment_round = Some(enrollment_round);
+        attempt
+    }
+
+    pub(crate) fn rejected(&self, error: &crate::TransportError, duration: Duration) {
+        let failure = error.failure(Some(self.transport), Some(self.family));
         self.telemetry.record(
-            event_type,
-            Some(stage),
-            ConnectionEventPath::known(self.transport, self.family),
-            None,
-            None,
+            if self.path.candidate_id.is_some() {
+                ConnectionEventType::CandidateRejected
+            } else {
+                ConnectionEventType::Failed
+            },
+            Some(failure.stage),
+            self.path,
+            Some(duration),
+            Some(failure),
         );
+    }
+
+    pub(crate) fn record(&self, event_type: ConnectionEventType, stage: TransportStage) {
+        self.telemetry
+            .record(event_type, Some(stage), self.path, None, None);
     }
 
     pub(crate) fn quality(&self) -> NetworkQualityTelemetry {
@@ -210,6 +251,9 @@ impl ConnectionTelemetry {
                 dropped_event_count: 0,
             })),
             sequence: Arc::new(AtomicU64::new(0)),
+            startup_cancellation: CancellationToken::new(),
+            candidate_sequence: Arc::new(AtomicU64::new(0)),
+            enrollment_round: Arc::new(AtomicU64::new(0)),
             first_packet_sent: Arc::new(AtomicBool::new(false)),
             first_packet_received: Arc::new(AtomicBool::new(false)),
             send_queue_high_watermark: Arc::new(AtomicU64::new(0)),
@@ -224,6 +268,45 @@ impl ConnectionTelemetry {
         state.attempt_started = Instant::now();
         self.first_packet_sent.store(false, Ordering::Release);
         self.first_packet_received.store(false, Ordering::Release);
+    }
+
+    pub(crate) fn cancel_startup(&self) {
+        self.startup_cancellation.cancel();
+    }
+
+    pub(crate) fn startup_is_cancelled(&self) -> bool {
+        self.startup_cancellation.is_cancelled()
+    }
+
+    pub(crate) async fn startup_cancelled(&self) {
+        self.startup_cancellation.cancelled().await;
+    }
+
+    pub(crate) fn begin_pin_retry(&self) {
+        self.enrollment_round.store(1, Ordering::Release);
+        self.phase(ConnectionEventType::PinRetryStarted, None);
+    }
+
+    /// Record a terminal startup error even when no runtime could be returned.
+    pub fn record_startup_failure(&self, error: &crate::TransportError) {
+        self.phase(ConnectionEventType::Failed, Some(error.failure(None, None)));
+    }
+
+    pub fn phase_cancelled_startup(&self) {
+        self.phase(ConnectionEventType::Disconnected, None);
+    }
+
+    pub(crate) fn phase(&self, event_type: ConnectionEventType, failure: Option<TransportFailure>) {
+        self.record(
+            event_type,
+            failure.as_ref().map(|f| f.stage),
+            ConnectionEventPath {
+                enrollment_round: Some(self.enrollment_round.load(Ordering::Acquire) as u32),
+                ..ConnectionEventPath::default()
+            },
+            None,
+            failure,
+        );
     }
 
     pub fn record(
@@ -265,12 +348,16 @@ impl ConnectionTelemetry {
             duration,
             failure: failure.clone(),
             queue_kind,
+            candidate_id: path.candidate_id,
+            enrollment_round: path.enrollment_round,
         };
         if state.events.len() == state.capacity {
             state.events.pop_front();
             state.dropped_event_count = state.dropped_event_count.saturating_add(1);
         }
-        if let Some(failure) = failure {
+        if let Some(failure) =
+            failure.filter(|_| event_type != ConnectionEventType::CandidateRejected)
+        {
             state.metrics.last_failure_code = Some(failure.code);
         }
         state.events.push_back(event);
@@ -295,6 +382,7 @@ impl ConnectionTelemetry {
         {
             let mut state = self.state();
             state.metrics.last_connect_duration = Some(duration);
+            state.metrics.last_failure_code = None;
             match transport {
                 Transport::Http3 => state.metrics.last_h3_handshake_duration = Some(duration),
                 Transport::Http2 => state.metrics.last_h2_handshake_duration = Some(duration),
@@ -658,5 +746,35 @@ mod tests {
                 && event.address_family == Some(AddressFamily::Ipv6)
                 && event.failure.is_none()
         }));
+    }
+    #[test]
+    fn candidate_evidence_has_local_ids_and_does_not_poison_success_metrics() {
+        let telemetry = ConnectionTelemetry::new(16);
+        let first = ConnectionAttemptTelemetry::candidate(
+            telemetry.clone(),
+            Transport::Http3,
+            AddressFamily::Ipv4,
+        );
+        first.rejected(
+            &crate::TransportError::EndpointPinMismatch,
+            Duration::from_millis(1),
+        );
+        telemetry.begin_pin_retry();
+        let second = ConnectionAttemptTelemetry::candidate(
+            telemetry.clone(),
+            Transport::Http2,
+            AddressFamily::Ipv4,
+        );
+        second.record(ConnectionEventType::TlsReady, TransportStage::TlsHandshake);
+        let snapshot = telemetry.snapshot();
+        assert_eq!(snapshot.events[0].candidate_id, Some(1));
+        assert_eq!(snapshot.events[0].enrollment_round, Some(0));
+        assert_eq!(snapshot.events[2].candidate_id, Some(2));
+        assert_eq!(snapshot.events[2].enrollment_round, Some(1));
+        assert_eq!(
+            snapshot.events[0].event_type,
+            ConnectionEventType::CandidateRejected
+        );
+        assert!(snapshot.metrics.last_failure_code.is_none());
     }
 }

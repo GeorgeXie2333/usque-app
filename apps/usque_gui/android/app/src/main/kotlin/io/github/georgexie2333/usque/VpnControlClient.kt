@@ -1419,6 +1419,8 @@ internal class VpnControlClient(
                         bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_REMEDIATION_KEY),
                     "sanitized_detail" to
                         bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_SANITIZED_DETAIL),
+                    "cause_code" to bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_CAUSE_CODE),
+                    "cause_stage" to bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_CAUSE_STAGE),
                 ).filterValues { value -> value != null }
             }
         val snapshot =

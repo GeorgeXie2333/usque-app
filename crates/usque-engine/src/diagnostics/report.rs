@@ -181,6 +181,20 @@ fn event_to_proto(event: &ConnectionEvent) -> v1::ConnectionEvent {
             }
             ConnectionEventType::Disconnected => v1::ConnectionEventType::Disconnected as i32,
             ConnectionEventType::Failed => v1::ConnectionEventType::Failed as i32,
+            ConnectionEventType::CandidateRejected => {
+                v1::ConnectionEventType::CandidateRejected as i32
+            }
+            ConnectionEventType::PinRefreshStarted => {
+                v1::ConnectionEventType::PinRefreshStarted as i32
+            }
+            ConnectionEventType::PinRefreshSucceeded => {
+                v1::ConnectionEventType::PinRefreshSucceeded as i32
+            }
+            ConnectionEventType::PinRefreshFailed => {
+                v1::ConnectionEventType::PinRefreshFailed as i32
+            }
+            ConnectionEventType::PinRetryStarted => v1::ConnectionEventType::PinRetryStarted as i32,
+            ConnectionEventType::PinRetryFailed => v1::ConnectionEventType::PinRetryFailed as i32,
         },
         stage: event
             .stage
@@ -199,6 +213,8 @@ fn event_to_proto(event: &ConnectionEvent) -> v1::ConnectionEvent {
             .to_owned(),
         duration_milliseconds: event.duration.map_or(0, duration_milliseconds),
         failure: event.failure.as_ref().map(transport_failure_to_proto),
+        candidate_id: event.candidate_id,
+        enrollment_round: event.enrollment_round,
         queue_kind: event
             .queue_kind
             .map_or(0, |kind| crate::network_quality::queue_kind(kind) as i32),

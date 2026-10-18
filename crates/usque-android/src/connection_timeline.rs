@@ -120,6 +120,8 @@ fn to_value(snapshot: &ConnectionTimelineSnapshot) -> Value {
     let events: Vec<_> = snapshot.events.iter().skip(skipped).map(|event| {
         let failure = event.failure.as_ref().map(|failure| json!({
             "code": failure.code.as_str(), "stage": failure.stage.as_str(),
+            "cause_code": failure.cause_code.map(|code| code.as_str()),
+            "cause_stage": failure.cause_stage.map(|stage| stage.as_str()),
             "retryable": failure.retryable, "fallback_allowed": failure.fallback_allowed,
             "severity": failure.severity,
         }));
@@ -128,6 +130,7 @@ fn to_value(snapshot: &ConnectionTimelineSnapshot) -> Value {
             "timestamp_unix_milliseconds": millis(event.timestamp.duration_since(UNIX_EPOCH).unwrap_or_default()),
             "elapsed_from_attempt_start_milliseconds": millis(event.elapsed_from_attempt_start),
             "event_type": event_type(event.event_type),
+            "candidate_id": event.candidate_id, "enrollment_round": event.enrollment_round,
             "queue_kind": event.queue_kind.map(usque_transport::QueueKind::as_str),
             "stage": event.stage.map(|stage| stage.as_str()),
             "transport": event.transport.map(|transport| match transport { Transport::Http2 => "http2", Transport::Http3 => "http3" }),
@@ -186,6 +189,12 @@ fn event_type(event: ConnectionEventType) -> &'static str {
         ConnectionEventType::PmtuRevalidationFailed => "pmtu_revalidation_failed",
         ConnectionEventType::Disconnected => "disconnected",
         ConnectionEventType::Failed => "failed",
+        ConnectionEventType::CandidateRejected => "candidate_rejected",
+        ConnectionEventType::PinRefreshStarted => "pin_refresh_started",
+        ConnectionEventType::PinRefreshSucceeded => "pin_refresh_succeeded",
+        ConnectionEventType::PinRefreshFailed => "pin_refresh_failed",
+        ConnectionEventType::PinRetryStarted => "pin_retry_started",
+        ConnectionEventType::PinRetryFailed => "pin_retry_failed",
     }
 }
 
@@ -219,6 +228,8 @@ mod tests {
         );
         failure.sanitized_detail = Some("private.example 192.0.2.1 SSID=private".to_owned());
         let event = ConnectionEvent {
+            candidate_id: None,
+            enrollment_round: None,
             queue_kind: None,
             sequence: 1,
             timestamp: UNIX_EPOCH + Duration::from_secs(1),
@@ -251,5 +262,36 @@ mod tests {
         }
         publish(snapshot);
         assert!(serde_json::from_str::<Value>(&json_snapshot()).is_ok());
+    }
+    #[test]
+    fn failed_startup_is_retained_and_cannot_overwrite_the_next_generation() {
+        let telemetry = usque_transport::ConnectionTelemetry::new(16);
+        telemetry.record_startup_failure(
+            &usque_transport::TransportError::EndpointPinRefreshCause(Box::new(
+                TransportFailure::new(
+                    TransportFailureCode::H2TcpConnectFailed,
+                    TransportStage::SocketConnect,
+                ),
+            )),
+        );
+        let mut published = PublishedTimeline {
+            generation: 7,
+            ..Default::default()
+        };
+        published.update(7, telemetry.snapshot(), None, true);
+        let value = to_value(&published.snapshot);
+        assert!(published.retained);
+        assert!(published.connection_id.is_none());
+        assert_eq!(
+            value["events"][0]["failure"]["code"],
+            "ENDPOINT_PIN_REFRESH_FAILED"
+        );
+        assert_eq!(
+            value["events"][0]["failure"]["cause_code"],
+            "H2_TCP_CONNECT_FAILED"
+        );
+        published.generation = 8;
+        published.update(7, Default::default(), None, false);
+        assert!(!published.snapshot.events.is_empty());
     }
 }

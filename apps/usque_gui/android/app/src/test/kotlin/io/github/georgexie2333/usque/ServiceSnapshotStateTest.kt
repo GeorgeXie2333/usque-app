@@ -234,6 +234,8 @@ class ServiceSnapshotStateTest {
                 severity = "warning",
                 remediationKey = "try_http2",
                 sanitizedDetail = "attempt 2",
+                causeCode = "H2_TCP_CONNECT_FAILED",
+                causeStage = "socket_connect",
             )
         snapshot.transport = "h3"
         snapshot.addressFamily = "dual"
@@ -280,6 +282,8 @@ class ServiceSnapshotStateTest {
                 keys.FAILURE_SEVERITY,
                 keys.FAILURE_REMEDIATION_KEY,
                 keys.FAILURE_SANITIZED_DETAIL,
+                keys.FAILURE_CAUSE_CODE,
+                keys.FAILURE_CAUSE_STAGE,
                 keys.TRANSPORT,
                 keys.ADDRESS_FAMILY,
                 keys.CONNECTED_AT,
@@ -342,6 +346,8 @@ class ServiceSnapshotStateTest {
         assertEquals("failure_severity", keys.FAILURE_SEVERITY)
         assertEquals("failure_remediation_key", keys.FAILURE_REMEDIATION_KEY)
         assertEquals("failure_sanitized_detail", keys.FAILURE_SANITIZED_DETAIL)
+        assertEquals("failure_cause_code", keys.FAILURE_CAUSE_CODE)
+        assertEquals("failure_cause_stage", keys.FAILURE_CAUSE_STAGE)
         assertEquals("transport", keys.TRANSPORT)
         assertEquals("address_family", keys.ADDRESS_FAMILY)
         assertEquals("connected_at", keys.CONNECTED_AT)
@@ -387,6 +393,8 @@ class ServiceSnapshotStateTest {
         assertEquals("warning", wire[keys.FAILURE_SEVERITY])
         assertEquals("try_http2", wire[keys.FAILURE_REMEDIATION_KEY])
         assertEquals("attempt 2", wire[keys.FAILURE_SANITIZED_DETAIL])
+        assertEquals("H2_TCP_CONNECT_FAILED", wire[keys.FAILURE_CAUSE_CODE])
+        assertEquals("socket_connect", wire[keys.FAILURE_CAUSE_STAGE])
         assertEquals("h3", wire[keys.TRANSPORT])
         assertEquals("dual", wire[keys.ADDRESS_FAMILY])
         assertEquals("2024-01-01T00:00:00Z", wire[keys.CONNECTED_AT])

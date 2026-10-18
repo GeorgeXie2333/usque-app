@@ -211,7 +211,9 @@ class _TimelineRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = UsqueTokens.of(context);
-    final color = event.eventType == ConnectionTimelineEventType.unknown
+    final color =
+        event.eventType == ConnectionTimelineEventType.unknown ||
+            event.eventType == ConnectionTimelineEventType.candidateRejected
         ? Theme.of(context).colorScheme.onSurfaceVariant
         : event.failure == null
         ? tokens.brand

@@ -470,6 +470,12 @@ internal object AndroidMaintenance {
             )?.let {
                 output.put("queue_kind", it)
             }
+            DiagnosticMetadata.unsigned(event["candidate_id"])?.let { output.put("candidate_id", it) }
+            DiagnosticMetadata
+                .unsigned(
+                    event["enrollment_round"],
+                )?.takeIf { it <= 1L }
+                ?.let { output.put("enrollment_round", it) }
             (event["duration_milliseconds"] as? Number)?.let { duration ->
                 output.put("duration_milliseconds", safeCounter(duration))
             }
@@ -551,6 +557,8 @@ internal object AndroidMaintenance {
         safeRemediationKey(source["remediation_key"])?.let { remediation ->
             output.put("remediation_key", remediation)
         }
+        (source["cause_code"] as? String)?.takeIf(FAILURE_CODES::contains)?.let { output.put("cause_code", it) }
+        safeEnum(source["cause_stage"], TRANSPORT_STAGES, null)?.let { output.put("cause_stage", it) }
         (source["sanitized_detail"] as? String)
             ?.takeIf(::safeFailureDetail)
             ?.let { detail -> output.put("sanitized_detail", detail) }

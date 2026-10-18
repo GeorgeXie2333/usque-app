@@ -80,6 +80,8 @@ internal class ServiceSnapshotState {
         val severity: String = "error",
         val remediationKey: String = "retry",
         val sanitizedDetail: String? = null,
+        val causeCode: String? = null,
+        val causeStage: String? = null,
     )
 
     /** Full field map matching Messenger Bundle keys consumed by MainActivity. */
@@ -143,6 +145,8 @@ internal class ServiceSnapshotState {
         const val FAILURE_SEVERITY = "failure_severity"
         const val FAILURE_REMEDIATION_KEY = "failure_remediation_key"
         const val FAILURE_SANITIZED_DETAIL = "failure_sanitized_detail"
+        const val FAILURE_CAUSE_CODE = "failure_cause_code"
+        const val FAILURE_CAUSE_STAGE = "failure_cause_stage"
         const val TRANSPORT = "transport"
         const val ADDRESS_FAMILY = "address_family"
         const val CONNECTED_AT = "connected_at"
@@ -484,6 +488,12 @@ internal class ServiceSnapshotState {
                         ?: "retry",
                 sanitizedDetail =
                     source.optNullableString("sanitized_detail")?.takeIf(::safeFailureDetail),
+                causeCode = source.optNullableString("cause_code")?.takeIf(DiagnosticsContract.failureCodes::contains),
+                causeStage =
+                    source
+                        .optNullableString(
+                            "cause_stage",
+                        )?.takeIf(DiagnosticMetadata.transportStages::contains),
             )
         }
 
@@ -567,6 +577,8 @@ internal class ServiceSnapshotState {
             WireKeys.FAILURE_SEVERITY to fields.failure?.severity,
             WireKeys.FAILURE_REMEDIATION_KEY to fields.failure?.remediationKey,
             WireKeys.FAILURE_SANITIZED_DETAIL to fields.failure?.sanitizedDetail,
+            WireKeys.FAILURE_CAUSE_CODE to fields.failure?.causeCode,
+            WireKeys.FAILURE_CAUSE_STAGE to fields.failure?.causeStage,
             WireKeys.TRANSPORT to fields.transport,
             WireKeys.ADDRESS_FAMILY to fields.addressFamily,
             WireKeys.CONNECTED_AT to fields.connectedAt,
@@ -650,6 +662,8 @@ internal class ServiceSnapshotState {
                 WireKeys.FAILURE_SANITIZED_DETAIL,
                 entries[WireKeys.FAILURE_SANITIZED_DETAIL] as String?,
             )
+            putString(WireKeys.FAILURE_CAUSE_CODE, entries[WireKeys.FAILURE_CAUSE_CODE] as String?)
+            putString(WireKeys.FAILURE_CAUSE_STAGE, entries[WireKeys.FAILURE_CAUSE_STAGE] as String?)
             putString(WireKeys.TRANSPORT, entries[WireKeys.TRANSPORT] as String?)
             putString(WireKeys.ADDRESS_FAMILY, entries[WireKeys.ADDRESS_FAMILY] as String?)
             putString(WireKeys.ENDPOINT_SOURCE, entries[WireKeys.ENDPOINT_SOURCE] as String?)
@@ -738,6 +752,8 @@ internal class ServiceSnapshotState {
             failure?.severity,
             failure?.remediationKey,
             failure?.sanitizedDetail,
+            failure?.causeCode,
+            failure?.causeStage,
             transport,
             addressFamily,
             connectedAt,

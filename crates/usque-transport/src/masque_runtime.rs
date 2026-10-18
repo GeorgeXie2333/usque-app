@@ -216,7 +216,26 @@ impl MasqueRuntime {
             protector,
             pin_refresher,
             geo_policy,
-            crate::PRODUCTION_NETWORK_FEATURES,
+            crate::ConnectionTelemetry::default(),
+        )
+        .await
+    }
+
+    pub(crate) async fn start_with_geo_policy_and_telemetry(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        geo_policy: Arc<GeoDirectPolicy>,
+        telemetry: crate::ConnectionTelemetry,
+    ) -> Result<Self, TransportError> {
+        Self::start_configured(
+            profile,
+            identity,
+            protector,
+            pin_refresher,
+            geo_policy,
+            telemetry,
         )
         .await
     }
@@ -236,7 +255,10 @@ impl MasqueRuntime {
             protector,
             pin_refresher,
             geo_policy,
-            features,
+            crate::ConnectionTelemetry::with_features(
+                crate::CONNECTION_TIMELINE_CAPACITY,
+                features,
+            ),
         )
         .await
     }
@@ -247,7 +269,7 @@ impl MasqueRuntime {
         protector: Arc<dyn SocketProtector>,
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
         geo_policy: Arc<GeoDirectPolicy>,
-        features: crate::NetworkFeatureFlags,
+        telemetry: crate::ConnectionTelemetry,
     ) -> Result<Self, TransportError> {
         crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let credentials = match profile.proxy.listener_credentials() {
@@ -276,12 +298,12 @@ impl MasqueRuntime {
 
         let assigned_ipv4 = identity.assigned_ipv4;
         let assigned_ipv6 = identity.assigned_ipv6;
-        let tunnel = ManagedTunnelRuntime::start_with_network_features(
+        let tunnel = ManagedTunnelRuntime::start_with_telemetry(
             profile,
             identity,
             Arc::clone(&protector),
             pin_refresher,
-            features,
+            telemetry,
         )
         .await?;
         Self::start_bound(

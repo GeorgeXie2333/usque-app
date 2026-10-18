@@ -5728,6 +5728,8 @@ pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::Connection
 pub(crate) fn transport_failure_to_proto(failure: &TransportFailure) -> v1::TransportFailure {
     v1::TransportFailure {
         code: failure.code.as_str().to_owned(),
+        cause_code: failure.cause_code.map(|code| code.as_str().to_owned()),
+        cause_stage: failure.cause_stage.map(|stage| stage.as_str().to_owned()),
         stage: failure.stage.as_str().to_owned(),
         transport: failure
             .transport

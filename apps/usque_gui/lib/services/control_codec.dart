@@ -1556,6 +1556,8 @@ TransportFailureInfo _decodeTransportFailure(_ProtoReader reader) {
   var severity = DiagnosticSeverity.error;
   var remediationKey = '';
   String? sanitizedDetail;
+  String? causeCode;
+  String? causeStage;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -1581,6 +1583,10 @@ TransportFailureInfo _decodeTransportFailure(_ProtoReader reader) {
         remediationKey = reader.string(field);
       case 9:
         sanitizedDetail = _emptyToNull(reader.string(field));
+      case 10:
+        causeCode = _emptyToNull(reader.string(field));
+      case 11:
+        causeStage = _emptyToNull(reader.string(field));
       default:
         reader.skip(field);
     }
@@ -1595,6 +1601,8 @@ TransportFailureInfo _decodeTransportFailure(_ProtoReader reader) {
     severity: severity,
     remediationKey: remediationKey,
     sanitizedDetail: sanitizedDetail,
+    causeCode: causeCode,
+    causeStage: causeStage,
   );
 }
 
@@ -1639,6 +1647,8 @@ ConnectionTimeline _decodeConnectionTimeline(_ProtoReader reader) {
 
 ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
   String? queueKind;
+  int? candidateId;
+  int? enrollmentRound;
   var sequence = 0;
   DateTime? timestamp;
   var elapsedMilliseconds = 0;
@@ -1688,12 +1698,18 @@ ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
           8 => 'direct_dns',
           _ => null,
         };
+      case 11:
+        candidateId = reader.varint(field);
+      case 12:
+        enrollmentRound = reader.varint(field);
       default:
         reader.skip(field);
     }
   }
   return ConnectionTimelineEvent(
     queueKind: queueKind,
+    candidateId: candidateId,
+    enrollmentRound: enrollmentRound,
     sequence: sequence,
     timestamp: timestamp,
     elapsedMilliseconds: elapsedMilliseconds,
@@ -1731,6 +1747,12 @@ ConnectionTimelineEventType _decodeConnectionTimelineEventType(int wireValue) {
     18 => ConnectionTimelineEventType.pathPromoted,
     19 => ConnectionTimelineEventType.queueSaturated,
     31 => ConnectionTimelineEventType.queueBackpressured,
+    32 => ConnectionTimelineEventType.candidateRejected,
+    33 => ConnectionTimelineEventType.pinRefreshStarted,
+    34 => ConnectionTimelineEventType.pinRefreshSucceeded,
+    35 => ConnectionTimelineEventType.pinRefreshFailed,
+    36 => ConnectionTimelineEventType.pinRetryStarted,
+    37 => ConnectionTimelineEventType.pinRetryFailed,
     20 => ConnectionTimelineEventType.disconnected,
     21 => ConnectionTimelineEventType.failed,
     22 => ConnectionTimelineEventType.migrationStarted,

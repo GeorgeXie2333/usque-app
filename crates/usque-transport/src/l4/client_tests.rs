@@ -2,7 +2,7 @@
 use super::*;
 use crate::dns::Resolver;
 use crate::dns_stream::StreamDns;
-use crate::h2::MasqueTlsIdentity;
+use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::h3_buffer::H3BufferFactory;
 use crate::tcp::{FlowClass, ProxyServices, TcpDialer, TcpTarget};
 use quiche::h3::NameValue;
@@ -18,6 +18,166 @@ use usque_core::{
     DataPlaneMode, IdentityProvider, IpPolicy, MasqueKeyPair, Profile, ProxyDnsMode,
     TransportPolicy,
 };
+
+#[tokio::test]
+async fn automatic_race_rejects_real_wrong_pin_peer_and_reuses_verified_quic_winner() {
+    use crate::endpoint_race::{RaceConnection, RacePolicy, RaceTarget, race_batch_with_policy};
+    use crate::socket::{DirectEgressLease, DirectProtocol, SocketHandle, SocketProtector};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Lease(Arc<AtomicUsize>);
+    impl Drop for Lease {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    struct Protector(Arc<AtomicUsize>);
+    #[async_trait::async_trait]
+    impl SocketProtector for Protector {
+        fn protect(&self, _: SocketHandle) -> Result<(), String> {
+            Ok(())
+        }
+        async fn protect_for_target(
+            &self,
+            _: SocketHandle,
+            endpoint: std::net::SocketAddr,
+            protocol: DirectProtocol,
+        ) -> Result<DirectEgressLease, String> {
+            assert!(endpoint.ip().is_loopback());
+            assert_eq!(protocol, DirectProtocol::Udp);
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(DirectEgressLease::hold(Lease(self.0.clone())))
+        }
+    }
+    let client_key = MasqueKeyPair::generate();
+    let good_key = MasqueKeyPair::generate();
+    let bad_key = MasqueKeyPair::generate();
+    let build = |own: &MasqueKeyPair, peer: &MasqueKeyPair| {
+        MasqueTlsIdentity::new(
+            own.private_sec1_der().unwrap(),
+            &peer.public_spki_der().unwrap(),
+            "172.16.0.2".parse().unwrap(),
+            "2001:db8::2".parse().unwrap(),
+        )
+        .unwrap()
+        .with_fingerprint(usque_core::TlsFingerprint::Chrome155)
+    };
+    let mut identity = build(&client_key, &good_key);
+    identity.provider = Some(IdentityProvider::Consumer);
+    let targets_seen = Arc::new(Mutex::new(Vec::new()));
+    let good_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let good = good_socket.local_addr().unwrap();
+    let bad_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let bad = bad_socket.local_addr().unwrap();
+    let good_server = AbortOnDropHandle::new(tokio::spawn(server(
+        good_socket,
+        build(&good_key, &client_key),
+        usque_core::CONSUMER_L4_SNI,
+        targets_seen.clone(),
+        None,
+    )));
+    let bad_server = AbortOnDropHandle::new(tokio::spawn(server(
+        bad_socket,
+        build(&bad_key, &client_key),
+        usque_core::CONSUMER_L4_SNI,
+        targets_seen.clone(),
+        None,
+    )));
+    let telemetry = crate::ConnectionTelemetry::default();
+    let wrong_pin_seen = Arc::new(tokio::sync::Notify::new());
+    let leases = Arc::new(AtomicUsize::new(0));
+    let protector: Arc<dyn SocketProtector> = Arc::new(Protector(leases.clone()));
+    let winner = timeout(
+        Duration::from_secs(4),
+        race_batch_with_policy(
+            vec![
+                RaceTarget {
+                    endpoint: bad,
+                    delay: Duration::ZERO,
+                },
+                RaceTarget {
+                    endpoint: good,
+                    delay: Duration::ZERO,
+                },
+            ],
+            None,
+            RacePolicy::Automatic,
+            {
+                let telemetry = telemetry.clone();
+                move |endpoint, cancellation| {
+                    let identity = identity.clone();
+                    let telemetry = telemetry.clone();
+                    let protector = protector.clone();
+                    let wrong_pin_seen = wrong_pin_seen.clone();
+                    async move {
+                        if endpoint == good {
+                            tokio::select! {
+                                _ = wrong_pin_seen.notified() => {},
+                                _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
+                            }
+                        }
+                        let metrics = Arc::new(L4Metrics::default());
+                        let changed = Arc::new(tokio::sync::Notify::new());
+                        let budget = Arc::new(BufferBudget::new(
+                            Limits::platform().buffers,
+                            metrics.clone(),
+                            changed.clone(),
+                        ));
+                        let actor = L4Actor::new(budget, metrics, changed);
+                        let attempt = crate::telemetry::ConnectionAttemptTelemetry::candidate(
+                            telemetry,
+                            usque_core::Transport::Http3,
+                            usque_core::AddressFamily::Ipv4,
+                        );
+                        let result = crate::h3::connect_l4_h3_with_cancellation(
+                            endpoint,
+                            &identity,
+                            crate::h3::H3ConnectSettings {
+                                inner_mtu: 1280,
+                                congestion_control: Default::default(),
+                            },
+                            protector,
+                            Some(&attempt),
+                            actor,
+                            cancellation,
+                        )
+                        .await;
+                        match result {
+                            Ok(tunnel) => Ok(crate::tunnel::MasqueTunnel::Http3(Box::new(tunnel))),
+                            Err(error) => {
+                                attempt.rejected(&error, Duration::ZERO);
+                                if endpoint == bad && matches!(error, TransportError::EndpointPinMismatch) {
+                                    wrong_pin_seen.notify_one();
+                                }
+                                Err(error)
+                            }
+                        }
+                    }
+                }
+            },
+        ),
+    )
+    .await
+    .expect("bounded real QUIC race")
+    .expect("the pinned, mutually authenticated peer with SETTINGS wins");
+    let snapshot = telemetry.snapshot();
+    assert!(snapshot.events.iter().any(|event| event.event_type
+        == crate::ConnectionEventType::CandidateRejected
+        && event.failure.as_ref().is_some_and(
+            |failure| failure.code == usque_core::TransportFailureCode::EndpointPinMismatch
+        )));
+    assert!(
+        targets_seen.lock().unwrap().is_empty(),
+        "business CONNECT must wait for winner promotion"
+    );
+    assert_eq!(
+        leases.load(Ordering::SeqCst),
+        1,
+        "only the winner retains a socket lease"
+    );
+    winner.shutdown().await;
+    assert_eq!(leases.load(Ordering::SeqCst), 0);
+    drop((good_server, bad_server));
+}
 
 fn identities() -> (MasqueTlsIdentity, MasqueTlsIdentity) {
     let client = MasqueKeyPair::generate();

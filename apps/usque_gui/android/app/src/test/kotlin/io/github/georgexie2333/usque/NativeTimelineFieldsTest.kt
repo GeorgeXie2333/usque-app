@@ -111,4 +111,28 @@ class NativeTimelineFieldsTest {
         assertEquals(0L, observed.getLong("fallback_count"))
         assertEquals(0L, observed.getLong("send_queue_drop_count"))
     }
+
+    @Test
+    fun candidateAndRefreshEvidenceSurvivesExportWithoutPrivateFields() {
+        val decoded =
+            requireNotNull(
+                NativeTimelineFields.decode(
+                    """{"schema_version":1,"source":"runtime","availability":"observed","events":[
+            {"sequence":1,"event_type":"candidate_rejected","candidate_id":7,"enrollment_round":0,
+             "endpoint":"private.example","failure":{"code":"ENDPOINT_PIN_MISMATCH","stage":"tls_handshake"}},
+            {"sequence":2,"event_type":"pin_refresh_failed","failure":{"code":"ENDPOINT_PIN_REFRESH_FAILED",
+             "stage":"socket_connect","cause_code":"H2_TCP_CONNECT_FAILED","cause_stage":"socket_connect","private_key":"secret"}},
+            {"sequence":3,"event_type":"candidate_rejected","candidate_id":"private.example","enrollment_round":99}
+            ],"metrics":{},"retained":true}""",
+                ),
+            )
+        val events = AndroidMaintenance.sanitizeConnectionTimeline(decoded).getJSONArray("events")
+        assertEquals(7L, events.getJSONObject(0).getLong("candidate_id"))
+        assertEquals(0L, events.getJSONObject(0).getLong("enrollment_round"))
+        assertEquals("H2_TCP_CONNECT_FAILED", events.getJSONObject(1).getJSONObject("failure").getString("cause_code"))
+        assertFalse(events.getJSONObject(2).has("candidate_id"))
+        assertFalse(events.getJSONObject(2).has("enrollment_round"))
+        assertFalse(events.toString().contains("private.example"))
+        assertFalse(events.toString().contains("secret"))
+    }
 }

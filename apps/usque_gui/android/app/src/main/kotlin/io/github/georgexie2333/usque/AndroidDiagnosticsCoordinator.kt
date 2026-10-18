@@ -984,6 +984,10 @@ internal class AndroidDiagnosticsCoordinator(
                         ),
                     "sanitized_detail" to
                         (structured["sanitized_detail"] as? String)?.takeIf(::safeFailureDetail),
+                    "cause_code" to
+                        (structured["cause_code"] as? String)?.takeIf(DiagnosticsContract.failureCodes::contains),
+                    "cause_stage" to
+                        (structured["cause_stage"] as? String)?.takeIf(DiagnosticMetadata.transportStages::contains),
                 ).filterValues { value -> value != null }
             }
         }

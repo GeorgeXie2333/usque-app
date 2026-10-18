@@ -182,9 +182,31 @@ dual-stack round has 103 batches, about 206 seconds before cleanup overhead.
 The first authenticated, pinned, accepted CONNECT-IP connection wins and is
 reused. L4 instead requires authenticated QUIC, H3 ALPN and peer SETTINGS;
 business CONNECT requests start only after winner promotion. Losers close their
-sockets before releasing protection leases. Terminal protection, identity and
-pin errors keep their fail-closed handling; authenticated pin refresh remains
-limited to one retry and a 60-second automatic-mode refresh budget.
+sockets before releasing protection leases.
+
+In Automatic mode, a candidate whose endpoint pin is rejected is closed without
+disqualifying independently verified candidates. This also applies when a loser
+reports its pin rejection during cleanup. Protection failures, invalid identities
+and client-authentication rejection still stop the entire race and close any
+ready winner. Custom, managed Zero Trust and built-in preset selection retain
+their strict pin-failure handling.
+
+Under Auto transport, exhausted H3 candidates can be followed by independently
+pinned and authenticated H2 candidates, including after an H3 candidate pin
+rejection. Forced H2/H3 policies retain their carrier restriction; L4 remains
+H3-only. The enrollment pin and TLS fingerprint never change to obtain a winner.
+After the entire permitted candidate round fails, pin-rejection evidence permits
+one authenticated enrollment refresh and one complete retry. Ordinary network
+failures alone do not trigger a pin refresh. The refresh has a 60-second ceiling;
+the original overall startup deadline also bounds refresh and retry. A full
+failed round can therefore take longer than the former first-pin-error stop.
+
+自动端点模式下，某个候选的 pin 校验失败仅淘汰该候选；其他独立通过公钥校验、
+客户端认证和协议就绪检查的连接仍可获胜。清理失败候选时收到 pin 拒绝也不会
+关闭已验证的获胜连接。保护、身份或客户端认证失败仍会终止整批竞速。
+Auto 传输可在 H3 候选耗尽后继续严格验证 H2；强制传输和 L4 的协议范围保持不变。
+完整候选轮次耗尽且出现过 pin 拒绝后，才执行一次认证刷新和一次完整重试，
+刷新与重试均受原有总期限约束。Custom、Zero Trust 固定入口和地区预设保留严格策略。
 
 Automatic startup shares a profile-derived bounded deadline across transport,
 Engine, Android and IPC. The maximum underlay budget is 520 seconds; chaining

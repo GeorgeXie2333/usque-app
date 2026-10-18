@@ -190,6 +190,17 @@ String connectionEventLabel(
       'diag_event_direct_dns_degraded',
     ConnectionTimelineEventType.directDnsRecovered =>
       'diag_event_direct_dns_recovered',
+    ConnectionTimelineEventType.candidateRejected =>
+      'diag_event_candidate_rejected',
+    ConnectionTimelineEventType.pinRefreshStarted =>
+      'diag_event_pin_refresh_started',
+    ConnectionTimelineEventType.pinRefreshSucceeded =>
+      'diag_event_pin_refresh_succeeded',
+    ConnectionTimelineEventType.pinRefreshFailed =>
+      'diag_event_pin_refresh_failed',
+    ConnectionTimelineEventType.pinRetryStarted =>
+      'diag_event_pin_retry_started',
+    ConnectionTimelineEventType.pinRetryFailed => 'diag_event_pin_retry_failed',
     ConnectionTimelineEventType.unknown => 'diag_event_unknown',
   });
 }

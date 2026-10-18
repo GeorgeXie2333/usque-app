@@ -46,7 +46,7 @@ use usque_core::{
 use usque_transport::{
     DirectDnsMode as QualityDirectDnsMode, DirectDnsPhase, DirectDnsReasonCode, MetricAvailability,
     MetricValue, MigrationPhase, MigrationReasonCode, NetworkQualityLevel, NetworkQualitySnapshot,
-    PmtuPhase, QueueKind, RuntimePath, TransportError,
+    PmtuPhase, QueueKind, TransportError,
 };
 use usque_transport::{
     DirectEgressLease, DirectProtocol, MasqueTlsIdentity, PhysicalNetworkAvailability,
@@ -2797,6 +2797,10 @@ struct NativeFailure {
     remediation_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     sanitized_detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cause_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cause_stage: Option<String>,
 }
 
 impl NativeFailure {
@@ -2804,6 +2808,8 @@ impl NativeFailure {
     fn from_failure(failure: &TransportFailure) -> Self {
         Self {
             code: failure.code.as_str().to_owned(),
+            cause_code: failure.cause_code.map(|code| code.as_str().to_owned()),
+            cause_stage: failure.cause_stage.map(|stage| stage.as_str().to_owned()),
             stage: failure.stage.as_str().to_owned(),
             transport: failure.transport.map(|transport| match transport {
                 usque_core::Transport::Http3 => "h3".to_owned(),
@@ -2829,17 +2835,6 @@ impl NativeFailure {
                 .filter(|detail| TransportFailure::sanitized_detail_is_safe(detail))
                 .map(ToOwned::to_owned),
         }
-    }
-}
-
-#[cfg(any(test, target_os = "android"))]
-fn android_transport_failure(
-    error: &TransportError,
-    path: Option<RuntimePath>,
-) -> TransportFailure {
-    match path {
-        Some(path) => error.failure(Some(path.transport), Some(path.endpoint_family)),
-        None => error.failure(None, None),
     }
 }
 
@@ -3816,30 +3811,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn android_transport_error_mapping_preserves_h3_and_queue_codes() {
-        let path = RuntimePath {
-            transport: usque_core::Transport::Http3,
-            endpoint_family: usque_core::AddressFamily::Ipv6,
-            ipv4_available: true,
-            ipv6_available: true,
+    fn native_failure_export_preserves_path_codes_and_refresh_cause() {
+        let export = |error: TransportError| {
+            NativeFailure::from_failure(&error.failure(
+                Some(usque_core::Transport::Http3),
+                Some(usque_core::AddressFamily::Ipv6),
+            ))
         };
-        let closed = android_transport_failure(&TransportError::TunnelClosed, Some(path));
-        assert_eq!(
-            closed.code,
-            usque_core::TransportFailureCode::H3ConnectionClosed
-        );
-        assert_eq!(closed.transport, Some(usque_core::Transport::Http3));
-        assert_eq!(closed.address_family, Some(usque_core::AddressFamily::Ipv6));
+        let closed = export(TransportError::TunnelClosed);
+        assert_eq!(closed.code, "H3_CONNECTION_CLOSED");
+        assert_eq!(closed.transport.as_deref(), Some("h3"));
+        assert_eq!(closed.address_family.as_deref(), Some("ipv6"));
 
-        let saturated = android_transport_failure(&TransportError::SendQueueFull, Some(path));
-        assert_eq!(
-            saturated.code,
-            usque_core::TransportFailureCode::SendQueueFull
-        );
-        assert_ne!(
-            saturated.code,
-            usque_core::TransportFailureCode::AgentUnreachable
-        );
+        let saturated = export(TransportError::SendQueueFull);
+        assert_eq!(saturated.code, "SEND_QUEUE_FULL");
+
+        let refresh = export(TransportError::EndpointPinRefreshCause(Box::new(
+            TransportFailure::new(
+                usque_core::TransportFailureCode::H2TcpConnectFailed,
+                usque_core::TransportStage::SocketConnect,
+            ),
+        )));
+        assert_eq!(refresh.code, "ENDPOINT_PIN_REFRESH_FAILED");
+        assert_eq!(refresh.cause_code.as_deref(), Some("H2_TCP_CONNECT_FAILED"));
+        assert_eq!(refresh.cause_stage.as_deref(), Some("socket_connect"));
     }
 
     #[test]

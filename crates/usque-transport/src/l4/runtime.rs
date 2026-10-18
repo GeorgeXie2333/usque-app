@@ -72,12 +72,13 @@ impl L4Runtime {
             .with_warp_dns(self.services.resolver.final_doh()),
         )
     }
-    pub(crate) async fn start(
+    pub(crate) async fn start_with_telemetry(
         profile: &Profile,
         identity: MasqueTlsIdentity,
         protector: Arc<dyn SocketProtector>,
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
         geo_policy: Arc<GeoDirectPolicy>,
+        telemetry: ConnectionTelemetry,
     ) -> Result<Self, TransportError> {
         profile
             .validate()
@@ -98,7 +99,6 @@ impl L4Runtime {
             .map_err(|_| TransportError::InvalidIdentity)?;
         let cancellation = CancellationToken::new();
         let startup_guard = cancellation.clone().drop_guard();
-        let telemetry = ConnectionTelemetry::default();
         let quality = telemetry.network_quality();
         quality.use_stream_data_plane();
         let protector = crate::encrypted_dns::configure_direct_dns(

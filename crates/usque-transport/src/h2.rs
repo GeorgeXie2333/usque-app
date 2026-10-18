@@ -1402,6 +1402,10 @@ pub enum TransportError {
     EndpointPinMismatch,
     #[error("authenticated endpoint-pin refresh failed: {0}")]
     EndpointPinRefresh(String),
+    #[error("authenticated endpoint-pin refresh failed ({})", .0.code.as_str())]
+    EndpointPinRefreshCause(Box<TransportFailure>),
+    #[error("the single retry with the refreshed enrollment failed ({})", .0.code.as_str())]
+    EndpointPinRetry(Box<TransportFailure>),
     #[error(
         "the authenticated enrollment changed the assigned tunnel addresses; restart the platform tunnel before retrying"
     )]
@@ -1490,6 +1494,28 @@ pub enum TransportError {
 }
 
 impl TransportError {
+    pub(crate) fn pin_retry_failed(
+        self,
+        telemetry: &crate::ConnectionTelemetry,
+        transport: Option<Transport>,
+    ) -> Self {
+        if matches!(self, Self::TunnelClosed | Self::UnderlyingNetworkChanged) {
+            return self;
+        }
+        let failure = self.failure(transport, None);
+        telemetry.phase(
+            crate::ConnectionEventType::PinRetryFailed,
+            Some(failure.clone()),
+        );
+        if crate::recovery_policy::RecoveryDecision::for_failure(&failure)
+            == crate::recovery_policy::RecoveryDecision::Stop
+        {
+            self
+        } else {
+            Self::EndpointPinRetry(Box::new(failure))
+        }
+    }
+
     /// Converts internal transport errors to the stable, export-safe failure
     /// contract used for retry/fallback decisions and diagnostics.
     pub fn failure(
@@ -1552,8 +1578,15 @@ impl TransportError {
                 (Code::PhysicalIpv6Unavailable, Stage::EndpointResolution)
             }
             Self::UnderlyingNetworkChanged => (Code::PhysicalNetworkChanged, Stage::SocketConnect),
-            Self::EndpointPinMismatch | Self::EndpointPinRefresh(_) => {
-                (Code::EndpointPinMismatch, Stage::TlsHandshake)
+            Self::EndpointPinMismatch => (Code::EndpointPinMismatch, Stage::TlsHandshake),
+            Self::EndpointPinRefresh(_) => (Code::EndpointPinRefreshFailed, Stage::TunnelStartup),
+            Self::EndpointPinRefreshCause(cause) => {
+                return TransportFailure::new(Code::EndpointPinRefreshFailed, cause.stage)
+                    .with_cause(cause);
+            }
+            Self::EndpointPinRetry(cause) => {
+                return TransportFailure::new(Code::EndpointPinRetryFailed, cause.stage)
+                    .with_cause(cause);
             }
             Self::EndpointAssignmentChanged => {
                 (Code::AddressAssignmentInvalid, Stage::AddressAssignment)
@@ -3071,5 +3104,36 @@ mod tests {
         .await
         .expect("peer capsule timed out");
         assert_eq!(received.encode().unwrap(), assignment);
+    }
+    #[test]
+    fn pin_refresh_and_retry_have_distinct_terminal_codes_and_typed_causes() {
+        let telemetry = crate::ConnectionTelemetry::default();
+        let cause = TransportFailure::new(
+            TransportFailureCode::H2TcpConnectFailed,
+            TransportStage::SocketConnect,
+        );
+        let refresh = TransportError::EndpointPinRefreshCause(Box::new(cause)).failure(None, None);
+        assert_eq!(refresh.code, TransportFailureCode::EndpointPinRefreshFailed);
+        assert_eq!(
+            refresh.cause_code,
+            Some(TransportFailureCode::H2TcpConnectFailed)
+        );
+        let retry = TransportError::EndpointTimeout("127.0.0.1:443".parse().unwrap())
+            .pin_retry_failed(&telemetry, Some(Transport::Http3))
+            .failure(Some(Transport::Http3), Some(AddressFamily::Ipv4));
+        assert_eq!(retry.code, TransportFailureCode::EndpointPinRetryFailed);
+        assert_eq!(
+            retry.cause_code,
+            Some(TransportFailureCode::H3HandshakeTimeout)
+        );
+        assert_eq!(retry.cause_stage, Some(TransportStage::QuicHandshake));
+        for failure in [refresh, retry] {
+            assert!(!failure.retryable && !failure.fallback_allowed);
+            assert_eq!(failure.action(), usque_core::FailureAction::Stop);
+        }
+        assert!(matches!(
+            TransportError::InvalidIdentity.pin_retry_failed(&telemetry, Some(Transport::Http3)),
+            TransportError::InvalidIdentity
+        ));
     }
 }

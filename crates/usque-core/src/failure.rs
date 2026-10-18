@@ -63,10 +63,12 @@ pub enum TransportFailureCode {
     L4ConnectTimeout,
     L4ResourceExhausted,
     L4DnsFailed,
+    EndpointPinRefreshFailed,
+    EndpointPinRetryFailed,
 }
 
 impl TransportFailureCode {
-    pub const ALL: [Self; 54] = [
+    pub const ALL: [Self; 56] = [
         Self::EngineUnavailable,
         Self::AgentUnreachable,
         Self::VpnServiceUnavailable,
@@ -121,6 +123,8 @@ impl TransportFailureCode {
         Self::L4ConnectTimeout,
         Self::L4ResourceExhausted,
         Self::L4DnsFailed,
+        Self::EndpointPinRefreshFailed,
+        Self::EndpointPinRetryFailed,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -179,6 +183,8 @@ impl TransportFailureCode {
             Self::L4ConnectTimeout => "L4_CONNECT_TIMEOUT",
             Self::L4ResourceExhausted => "L4_RESOURCE_EXHAUSTED",
             Self::L4DnsFailed => "L4_DNS_FAILED",
+            Self::EndpointPinRefreshFailed => "ENDPOINT_PIN_REFRESH_FAILED",
+            Self::EndpointPinRetryFailed => "ENDPOINT_PIN_RETRY_FAILED",
         }
     }
 
@@ -217,6 +223,9 @@ impl TransportFailureCode {
                 "refresh_or_replace_identity",
                 true,
             ),
+            Self::EndpointPinRefreshFailed | Self::EndpointPinRetryFailed => {
+                FailureMetadata::new(Error, false, false, Stop, "export_diagnostics", true)
+            }
             Self::IdentityInvalid | Self::AuthenticationFailed => {
                 FailureMetadata::new(Error, false, false, Stop, "replace_identity", true)
             }
@@ -383,6 +392,10 @@ pub struct TransportFailure {
     pub severity: FailureSeverity,
     pub remediation_key: String,
     pub sanitized_detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause_code: Option<TransportFailureCode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause_stage: Option<TransportStage>,
 }
 
 impl TransportFailure {
@@ -398,11 +411,21 @@ impl TransportFailure {
             severity: metadata.severity,
             remediation_key: metadata.default_remediation.to_owned(),
             sanitized_detail: None,
+            cause_code: None,
+            cause_stage: None,
         }
     }
 
     pub const fn action(&self) -> FailureAction {
         self.code.metadata().action
+    }
+
+    pub fn with_cause(mut self, cause: &Self) -> Self {
+        self.cause_code = Some(cause.code);
+        self.cause_stage = Some(cause.stage);
+        self.transport = self.transport.or(cause.transport);
+        self.address_family = self.address_family.or(cause.address_family);
+        self
     }
 
     pub fn on_path(mut self, transport: Transport, family: AddressFamily) -> Self {

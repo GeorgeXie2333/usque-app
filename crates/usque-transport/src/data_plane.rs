@@ -43,6 +43,12 @@ pub struct VpnGateStart {
     pub deadline: Option<Instant>,
 }
 pub type ChainExitStart = VpnGateStart;
+struct StartupContext {
+    telemetry: crate::ConnectionTelemetry,
+    cancellation: CancellationToken,
+    deadline: Instant,
+}
+
 struct GateRuntime {
     frontend: GateFrontend,
     driver: ExitDriver,
@@ -268,6 +274,25 @@ impl DataPlaneRuntime {
         refresher: Option<Arc<dyn EndpointPinRefresher>>,
         policy: Arc<GeoDirectPolicy>,
     ) -> Result<Self, TransportError> {
+        Self::start_with_geo_policy_and_telemetry(
+            profile,
+            identity,
+            protector,
+            refresher,
+            policy,
+            crate::ConnectionTelemetry::default(),
+        )
+        .await
+    }
+
+    async fn start_with_geo_policy_and_telemetry(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        policy: Arc<GeoDirectPolicy>,
+        telemetry: crate::ConnectionTelemetry,
+    ) -> Result<Self, TransportError> {
         policy.start_ads_watcher();
         if profile.chain_enabled() {
             // Every caller must supply a validated pinned profile explicitly.
@@ -283,13 +308,16 @@ impl DataPlaneRuntime {
         let endpoint_preset_tier = identity.endpoint_preset_tier().ok();
         let inner = match profile.data_plane {
             DataPlaneMode::ConnectIp => RuntimeInner::ConnectIp(Box::new(
-                MasqueRuntime::start_with_geo_policy(
-                    profile, identity, protector, refresher, policy,
+                MasqueRuntime::start_with_geo_policy_and_telemetry(
+                    profile, identity, protector, refresher, policy, telemetry,
                 )
                 .await?,
             )),
             DataPlaneMode::L4Proxy => RuntimeInner::L4(Box::new(
-                L4Runtime::start(profile, identity, protector, refresher, policy).await?,
+                L4Runtime::start_with_telemetry(
+                    profile, identity, protector, refresher, policy, telemetry,
+                )
+                .await?,
             )),
         };
         Ok(Self {
@@ -314,6 +342,62 @@ impl DataPlaneRuntime {
         policy: Arc<GeoDirectPolicy>,
         gate: VpnGateStart,
     ) -> Result<Self, TransportError> {
+        Self::start_with_vpngate_and_telemetry(
+            profile,
+            identity,
+            protector,
+            refresher,
+            policy,
+            gate,
+            crate::ConnectionTelemetry::default(),
+        )
+        .await
+    }
+
+    async fn start_cancellable(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        policy: Arc<GeoDirectPolicy>,
+        context: StartupContext,
+    ) -> Result<Self, TransportError> {
+        let startup = Self::start_with_geo_policy_and_telemetry(
+            profile,
+            identity,
+            protector,
+            refresher,
+            policy,
+            context.telemetry.clone(),
+        );
+        tokio::pin!(startup);
+        let failure = tokio::select! {
+            biased;
+            _ = context.cancellation.cancelled() => TransportError::TunnelClosed,
+            _ = tokio::time::sleep_until(context.deadline) => TransportError::ConnectTimeout,
+            result = &mut startup => return result,
+        };
+        context.telemetry.cancel_startup();
+        if let Ok(mut runtime) = startup.await {
+            runtime.shutdown().await;
+        }
+        Err(failure)
+    }
+
+    /// Keeps startup evidence available to the caller even when no runtime is returned.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the existing startup inputs and caller-owned evidence must share one cancellation and deadline scope"
+    )]
+    pub async fn start_with_vpngate_and_telemetry(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        policy: Arc<GeoDirectPolicy>,
+        gate: VpnGateStart,
+        telemetry: crate::ConnectionTelemetry,
+    ) -> Result<Self, TransportError> {
         policy.start_ads_watcher();
         let VpnGateStart {
             selected,
@@ -326,11 +410,19 @@ impl DataPlaneRuntime {
         let underlay_deadline =
             overall_deadline.min(Instant::now() + usque_core::endpoint_underlay_budget(profile));
         if !profile.chain_enabled() {
-            return tokio::select! {
-                biased;
-                _ = cancellation.cancelled() => Err(TransportError::TunnelClosed),
-                result = tokio::time::timeout_at(underlay_deadline, Self::start_with_geo_policy(profile, identity, protector, refresher, policy)) => result.map_err(|_| TransportError::ConnectTimeout)?,
-            };
+            return Self::start_cancellable(
+                profile,
+                identity,
+                protector,
+                refresher,
+                policy,
+                StartupContext {
+                    telemetry,
+                    cancellation,
+                    deadline: underlay_deadline,
+                },
+            )
+            .await;
         }
         let selected = selected.ok_or(TransportError::VpnGate(GateFailure::Configuration))?;
         if let Some(status) = &status {
@@ -354,18 +446,19 @@ impl DataPlaneRuntime {
         underlay_profile.frontends.http = false;
         underlay_profile.proxy.system_proxy = false;
         underlay_profile.canonicalize_mode();
-        let mut runtime = tokio::time::timeout_at(
-            underlay_deadline,
-            Self::start_with_geo_policy(
-                &underlay_profile,
-                identity,
-                protector.clone(),
-                refresher,
-                policy.clone(),
-            ),
+        let mut runtime = Self::start_cancellable(
+            &underlay_profile,
+            identity,
+            protector.clone(),
+            refresher,
+            policy.clone(),
+            StartupContext {
+                telemetry,
+                cancellation: cancellation.clone(),
+                deadline: underlay_deadline,
+            },
         )
-        .await
-        .map_err(|_| TransportError::VpnGate(GateFailure::Transport))??;
+        .await?;
         let deadline = if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
             overall_deadline.min(Instant::now() + Duration::from_secs(180))
         } else {
@@ -1781,5 +1874,189 @@ mod tests {
             Err(TransportError::TunnelClosed)
         ));
         runtime.shutdown().await;
+    }
+    #[tokio::test]
+    async fn caller_keeps_startup_evidence_when_no_runtime_is_created() {
+        struct Denied;
+        #[async_trait::async_trait]
+        impl crate::SocketProtector for Denied {
+            fn protect(&self, _: crate::SocketHandle) -> Result<(), String> {
+                // Refuse protection before any packet can be sent.
+                Err("fixture denied".to_owned())
+            }
+        }
+        let key = usque_core::MasqueKeyPair::generate();
+        let identity = MasqueTlsIdentity::new(
+            key.private_sec1_der().unwrap(),
+            &key.public_spki_der().unwrap(),
+            "172.16.0.2".parse().unwrap(),
+            "2001:db8::2".parse().unwrap(),
+        )
+        .unwrap();
+        let mut profile = usque_core::Profile {
+            transport: usque_core::TransportPolicy::Http3,
+            ..Default::default()
+        };
+        profile.frontends.socks5 = false;
+        profile.frontends.http = false;
+        let telemetry = crate::ConnectionTelemetry::new(32);
+        let result = DataPlaneRuntime::start_with_vpngate_and_telemetry(
+            &profile,
+            identity,
+            Arc::new(Denied),
+            None,
+            Arc::new(GeoDirectPolicy::disabled()),
+            VpnGateStart::default(),
+            telemetry.clone(),
+        )
+        .await;
+        let error = match result {
+            Ok(mut runtime) => {
+                runtime.shutdown().await;
+                panic!("protection must fail closed")
+            }
+            Err(error) => error,
+        };
+        telemetry.record_startup_failure(&error);
+        let snapshot = telemetry.snapshot();
+        assert_eq!(
+            snapshot.events.last().unwrap().event_type,
+            crate::ConnectionEventType::Failed
+        );
+        assert!(
+            snapshot
+                .events
+                .iter()
+                .any(|event| event.candidate_id.is_some()
+                    && event.event_type == crate::ConnectionEventType::CandidateRejected)
+        );
+        assert_eq!(
+            snapshot.metrics.last_failure_code,
+            Some(usque_core::TransportFailureCode::SocketProtectionFailed)
+        );
+    }
+    #[tokio::test]
+    async fn startup_cancellation_and_deadline_join_real_handshakes_and_release_leases() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Lease(Arc<AtomicUsize>);
+        impl Drop for Lease {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        struct Protector {
+            leases: Arc<AtomicUsize>,
+            started: Arc<tokio::sync::Notify>,
+        }
+        #[async_trait::async_trait]
+        impl crate::SocketProtector for Protector {
+            fn protect(&self, _: crate::SocketHandle) -> Result<(), String> {
+                Ok(())
+            }
+            async fn protect_for_target(
+                &self,
+                _: crate::SocketHandle,
+                endpoint: SocketAddr,
+                _: crate::DirectProtocol,
+            ) -> Result<crate::DirectEgressLease, String> {
+                assert!(endpoint.ip().is_loopback());
+                self.leases.fetch_add(1, Ordering::SeqCst);
+                self.started.notify_one();
+                Ok(crate::DirectEgressLease::hold(Lease(self.leases.clone())))
+            }
+        }
+        for data_plane in [DataPlaneMode::ConnectIp, DataPlaneMode::L4Proxy] {
+            for deadline_expires in [false, true] {
+                let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+                let endpoint = peer.local_addr().unwrap();
+                let key = usque_core::MasqueKeyPair::generate();
+                let mut identity = MasqueTlsIdentity::new(
+                    key.private_sec1_der().unwrap(),
+                    &key.public_spki_der().unwrap(),
+                    "172.16.0.2".parse().unwrap(),
+                    "2001:db8::2".parse().unwrap(),
+                )
+                .unwrap();
+                identity.provider = Some(usque_core::IdentityProvider::Consumer);
+                let mut profile = usque_core::Profile {
+                    data_plane,
+                    transport: usque_core::TransportPolicy::Http3,
+                    ip_policy: usque_core::IpPolicy::Ipv4Only,
+                    ..Default::default()
+                };
+                profile.frontends.socks5 = false;
+                profile.frontends.http = false;
+                profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+                profile.endpoint.ipv4 = "127.0.0.1".parse().unwrap();
+                profile.endpoint.port = endpoint.port();
+                let leases = Arc::new(AtomicUsize::new(0));
+                let started = Arc::new(tokio::sync::Notify::new());
+                let protector = Arc::new(Protector {
+                    leases: leases.clone(),
+                    started: started.clone(),
+                });
+                let cancellation = CancellationToken::new();
+                let telemetry = crate::ConnectionTelemetry::default();
+                let task = tokio::spawn({
+                    let cancellation = cancellation.clone();
+                    let telemetry = telemetry.clone();
+                    async move {
+                        DataPlaneRuntime::start_with_vpngate_and_telemetry(
+                            &profile,
+                            identity,
+                            protector,
+                            None,
+                            Arc::new(GeoDirectPolicy::disabled()),
+                            VpnGateStart {
+                                cancellation,
+                                deadline: Some(
+                                    Instant::now()
+                                        + if deadline_expires {
+                                            Duration::from_millis(100)
+                                        } else {
+                                            Duration::from_secs(3)
+                                        },
+                                ),
+                                ..Default::default()
+                            },
+                            telemetry,
+                        )
+                        .await
+                    }
+                });
+                tokio::time::timeout(Duration::from_secs(1), started.notified())
+                    .await
+                    .unwrap();
+                if !deadline_expires {
+                    cancellation.cancel();
+                }
+                let result = tokio::time::timeout(Duration::from_secs(2), task)
+                    .await
+                    .expect("cancelled constructors must join protocol cleanup")
+                    .unwrap();
+                let error = match result {
+                    Ok(mut runtime) => {
+                        runtime.shutdown().await;
+                        panic!("silent peer cannot establish a runtime")
+                    }
+                    Err(error) => error,
+                };
+                if deadline_expires {
+                    assert!(matches!(error, TransportError::ConnectTimeout));
+                } else {
+                    assert!(matches!(error, TransportError::TunnelClosed));
+                }
+                assert!(telemetry.startup_is_cancelled());
+                assert_eq!(leases.load(Ordering::SeqCst), 0);
+                assert!(
+                    !telemetry
+                        .snapshot()
+                        .events
+                        .iter()
+                        .any(|event| event.event_type
+                            == crate::ConnectionEventType::CandidateRejected)
+                );
+            }
+        }
     }
 }

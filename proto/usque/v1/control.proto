@@ -454,6 +454,8 @@ message TransportFailure {
   FailureSeverity severity = 7;
   string remediation_key = 8;
   string sanitized_detail = 9;
+  optional string cause_code = 10;
+  optional string cause_stage = 11;
 }
 
 message ConnectionWarning {
@@ -836,6 +838,12 @@ enum ConnectionEventType {
   CONNECTION_EVENT_TYPE_DIRECT_DNS_DEGRADED = 29;
   CONNECTION_EVENT_TYPE_DIRECT_DNS_RECOVERED = 30;
   CONNECTION_EVENT_TYPE_QUEUE_BACKPRESSURED = 31;
+  CONNECTION_EVENT_TYPE_CANDIDATE_REJECTED = 32;
+  CONNECTION_EVENT_TYPE_PIN_REFRESH_STARTED = 33;
+  CONNECTION_EVENT_TYPE_PIN_REFRESH_SUCCEEDED = 34;
+  CONNECTION_EVENT_TYPE_PIN_REFRESH_FAILED = 35;
+  CONNECTION_EVENT_TYPE_PIN_RETRY_STARTED = 36;
+  CONNECTION_EVENT_TYPE_PIN_RETRY_FAILED = 37;
 }
 
 message ConnectionEvent {
@@ -849,6 +857,8 @@ message ConnectionEvent {
   uint64 duration_milliseconds = 8;
   TransportFailure failure = 9;
   QueueKind queue_kind = 10;
+  optional uint64 candidate_id = 11;
+  optional uint32 enrollment_round = 12;
 }
 
 message ConnectionMetrics {

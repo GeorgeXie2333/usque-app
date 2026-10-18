@@ -411,7 +411,13 @@
     "pmtu_revalidation_failed",
     "direct_dns_degraded",
     "direct_dns_recovered",
-    "queue_backpressured"
+    "queue_backpressured",
+    "candidate_rejected",
+    "pin_refresh_started",
+    "pin_refresh_succeeded",
+    "pin_refresh_failed",
+    "pin_retry_started",
+    "pin_retry_failed"
   ],
   "failure_codes": [
     "ENGINE_UNAVAILABLE",
@@ -467,7 +473,9 @@
     "L4_CONNECT_REJECTED",
     "L4_CONNECT_TIMEOUT",
     "L4_RESOURCE_EXHAUSTED",
-    "L4_DNS_FAILED"
+    "L4_DNS_FAILED",
+    "ENDPOINT_PIN_REFRESH_FAILED",
+    "ENDPOINT_PIN_RETRY_FAILED"
   ],
   "summary_keys": [
     "diagnostic_address_assignment_missing",

@@ -1,6 +1,15 @@
 /// Precise timeline labels and source omissions for every supported locale.
 const kDiagnosticsCatalogs = <String, Map<String, String>>{
   'en': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': 'Endpoint pin refresh failed',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Connection retry after pin refresh failed',
+    'diag_event_candidate_rejected': 'Candidate rejected',
+    'diag_event_pin_refresh_started': 'Endpoint pin refresh started',
+    'diag_event_pin_refresh_succeeded': 'Endpoint pin refreshed',
+    'diag_event_pin_refresh_failed': 'Endpoint pin refresh failed',
+    'diag_event_pin_retry_started': 'Retrying with refreshed pin',
+    'diag_event_pin_retry_failed': 'Retry with refreshed pin failed',
     'diag_timeline_retained': 'Last connection',
     'diag_source_config': 'Configuration',
     'diag_source_runtime': 'Runtime state',
@@ -27,6 +36,14 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Earlier events hidden in this view: {count}',
   },
   'zh_CN': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': '端点公钥信息刷新失败',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED': '刷新端点公钥信息后重试失败',
+    'diag_event_candidate_rejected': '候选端点已拒绝',
+    'diag_event_pin_refresh_started': '开始刷新端点公钥信息',
+    'diag_event_pin_refresh_succeeded': '端点公钥信息已刷新',
+    'diag_event_pin_refresh_failed': '端点公钥信息刷新失败',
+    'diag_event_pin_retry_started': '使用刷新后的公钥信息重试',
+    'diag_event_pin_retry_failed': '刷新后重试失败',
     'diag_timeline_retained': '上次连接',
     'diag_source_config': '配置',
     'diag_source_runtime': '运行时状态',
@@ -52,6 +69,14 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': '此视图隐藏的较早事件：{count}',
   },
   'zh_TW': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': '端點公鑰資訊更新失敗',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED': '更新端點公鑰資訊後重試失敗',
+    'diag_event_candidate_rejected': '候選端點已拒絕',
+    'diag_event_pin_refresh_started': '開始更新端點公鑰資訊',
+    'diag_event_pin_refresh_succeeded': '端點公鑰資訊已更新',
+    'diag_event_pin_refresh_failed': '端點公鑰資訊更新失敗',
+    'diag_event_pin_retry_started': '使用更新後的公鑰資訊重試',
+    'diag_event_pin_retry_failed': '更新後重試失敗',
     'diag_timeline_retained': '上次連線',
     'diag_source_config': '設定',
     'diag_source_runtime': '執行階段狀態',
@@ -77,6 +102,14 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': '此檢視隱藏的較早事件：{count}',
   },
   'zh_HK': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': '端點公鑰資料更新失敗',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED': '更新端點公鑰資料後重試失敗',
+    'diag_event_candidate_rejected': '候選端點已拒絕',
+    'diag_event_pin_refresh_started': '開始更新端點公鑰資料',
+    'diag_event_pin_refresh_succeeded': '端點公鑰資料已更新',
+    'diag_event_pin_refresh_failed': '端點公鑰資料更新失敗',
+    'diag_event_pin_retry_started': '使用更新後的公鑰資料重試',
+    'diag_event_pin_retry_failed': '更新後重試失敗',
     'diag_timeline_retained': '上次連線',
     'diag_source_config': '設定',
     'diag_source_runtime': '執行階段狀態',
@@ -102,6 +135,14 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': '此檢視隱藏的較早事件：{count}',
   },
   'ja': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': 'エンドポイントの公開鍵情報の更新に失敗',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED': '公開鍵情報の更新後の接続再試行に失敗',
+    'diag_event_candidate_rejected': '接続候補を拒否',
+    'diag_event_pin_refresh_started': '公開鍵情報の更新を開始',
+    'diag_event_pin_refresh_succeeded': '公開鍵情報を更新しました',
+    'diag_event_pin_refresh_failed': '公開鍵情報の更新に失敗',
+    'diag_event_pin_retry_started': '更新した公開鍵情報で再試行',
+    'diag_event_pin_retry_failed': '公開鍵情報の更新後の再試行に失敗',
     'diag_timeline_retained': '前回の接続',
     'diag_source_config': '設定',
     'diag_source_runtime': '実行時の状態',
@@ -127,6 +168,14 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': 'この表示で非表示の過去イベント：{count}',
   },
   'ko': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': '엔드포인트 공개 키 정보 갱신 실패',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED': '공개 키 정보 갱신 후 연결 재시도 실패',
+    'diag_event_candidate_rejected': '연결 후보 거부됨',
+    'diag_event_pin_refresh_started': '공개 키 정보 갱신 시작',
+    'diag_event_pin_refresh_succeeded': '공개 키 정보 갱신됨',
+    'diag_event_pin_refresh_failed': '공개 키 정보 갱신 실패',
+    'diag_event_pin_retry_started': '갱신된 공개 키 정보로 재시도',
+    'diag_event_pin_retry_failed': '공개 키 정보 갱신 후 재시도 실패',
     'diag_timeline_retained': '이전 연결',
     'diag_source_config': '설정',
     'diag_source_runtime': '실행 상태',
@@ -152,6 +201,16 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': '이 보기에서 숨겨진 이전 이벤트: {count}',
   },
   'es': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Error al actualizar el pin del endpoint',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Error de conexión tras actualizar el pin',
+    'diag_event_candidate_rejected': 'Candidato rechazado',
+    'diag_event_pin_refresh_started': 'Actualizando el pin del endpoint',
+    'diag_event_pin_refresh_succeeded': 'Pin del endpoint actualizado',
+    'diag_event_pin_refresh_failed': 'Error al actualizar el pin',
+    'diag_event_pin_retry_started': 'Reintentando con el pin actualizado',
+    'diag_event_pin_retry_failed': 'Error al reintentar con el pin actualizado',
     'diag_timeline_retained': 'Última conexión',
     'diag_source_config': 'Configuración',
     'diag_source_runtime': 'Estado de ejecución',
@@ -180,6 +239,16 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Eventos anteriores ocultos en esta vista: {count}',
   },
   'pt': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Falha ao atualizar o pin do endpoint',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Falha na conexão após atualizar o pin',
+    'diag_event_candidate_rejected': 'Candidato rejeitado',
+    'diag_event_pin_refresh_started': 'Atualização do pin iniciada',
+    'diag_event_pin_refresh_succeeded': 'Pin do endpoint atualizado',
+    'diag_event_pin_refresh_failed': 'Falha ao atualizar o pin',
+    'diag_event_pin_retry_started': 'Tentando com o pin atualizado',
+    'diag_event_pin_retry_failed': 'Falha ao tentar com o pin atualizado',
     'diag_timeline_retained': 'Última conexão',
     'diag_source_config': 'Configuração',
     'diag_source_runtime': 'Estado de execução',
@@ -208,6 +277,17 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Eventos anteriores ocultos nesta visualização: {count}',
   },
   'fr': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Échec du renouvellement de la clé épinglée',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Échec de connexion après renouvellement de la clé',
+    'diag_event_candidate_rejected': 'Candidat rejeté',
+    'diag_event_pin_refresh_started': 'Renouvellement de la clé épinglée',
+    'diag_event_pin_refresh_succeeded': 'Clé épinglée renouvelée',
+    'diag_event_pin_refresh_failed': 'Échec du renouvellement de la clé',
+    'diag_event_pin_retry_started': 'Nouvelle tentative avec la clé renouvelée',
+    'diag_event_pin_retry_failed':
+        'Échec de la tentative avec la clé renouvelée',
     'diag_timeline_retained': 'Dernière connexion',
     'diag_source_config': 'Paramètres',
     'diag_source_runtime': 'État d’exécution',
@@ -236,6 +316,16 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Événements antérieurs masqués dans cette vue : {count}',
   },
   'nl': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Vernieuwen van eindpuntpin mislukt',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Verbindingspoging na pinvernieuwing mislukt',
+    'diag_event_candidate_rejected': 'Kandidaat geweigerd',
+    'diag_event_pin_refresh_started': 'Vernieuwen van eindpuntpin gestart',
+    'diag_event_pin_refresh_succeeded': 'Eindpuntpin vernieuwd',
+    'diag_event_pin_refresh_failed': 'Vernieuwen van eindpuntpin mislukt',
+    'diag_event_pin_retry_started': 'Opnieuw proberen met vernieuwde pin',
+    'diag_event_pin_retry_failed': 'Poging met vernieuwde pin mislukt',
     'diag_timeline_retained': 'Laatste verbinding',
     'diag_source_config': 'Configuratie',
     'diag_source_runtime': 'Uitvoeringsstatus',
@@ -262,6 +352,16 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Eerdere gebeurtenissen verborgen in deze weergave: {count}',
   },
   'tr': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Uç nokta pin yenilemesi başarısız',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Pin yenilemesinden sonra bağlantı denemesi başarısız',
+    'diag_event_candidate_rejected': 'Aday reddedildi',
+    'diag_event_pin_refresh_started': 'Uç nokta pin yenilemesi başladı',
+    'diag_event_pin_refresh_succeeded': 'Uç nokta pini yenilendi',
+    'diag_event_pin_refresh_failed': 'Pin yenilemesi başarısız',
+    'diag_event_pin_retry_started': 'Yenilenen pin ile tekrar deneniyor',
+    'diag_event_pin_retry_failed': 'Yenilenen pin ile deneme başarısız',
     'diag_timeline_retained': 'Son bağlantı',
     'diag_source_config': 'Yapılandırma',
     'diag_source_runtime': 'Çalışma durumu',
@@ -290,6 +390,17 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Bu görünümde gizlenen önceki olaylar: {count}',
   },
   'ru': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Не удалось обновить закреплённый ключ',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Не удалось подключиться после обновления ключа',
+    'diag_event_candidate_rejected': 'Кандидат отклонён',
+    'diag_event_pin_refresh_started': 'Начато обновление закреплённого ключа',
+    'diag_event_pin_refresh_succeeded': 'Закреплённый ключ обновлён',
+    'diag_event_pin_refresh_failed': 'Сбой обновления закреплённого ключа',
+    'diag_event_pin_retry_started': 'Повторная попытка с обновлённым ключом',
+    'diag_event_pin_retry_failed':
+        'Повторная попытка с обновлённым ключом не удалась',
     'diag_timeline_retained': 'Последнее подключение',
     'diag_source_config': 'Конфигурация',
     'diag_source_runtime': 'Состояние выполнения',
@@ -318,6 +429,16 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Предыдущие события, скрытые в этом представлении: {count}',
   },
   'fa': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'تازه‌سازی کلید ثابت نقطه پایانی ناموفق بود',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'تلاش اتصال پس از تازه‌سازی کلید ناموفق بود',
+    'diag_event_candidate_rejected': 'گزینه اتصال رد شد',
+    'diag_event_pin_refresh_started': 'تازه‌سازی کلید نقطه پایانی آغاز شد',
+    'diag_event_pin_refresh_succeeded': 'کلید نقطه پایانی تازه شد',
+    'diag_event_pin_refresh_failed': 'تازه‌سازی کلید ناموفق بود',
+    'diag_event_pin_retry_started': 'تلاش دوباره با کلید تازه‌شده',
+    'diag_event_pin_retry_failed': 'تلاش دوباره با کلید تازه‌شده ناموفق بود',
     'diag_timeline_retained': 'آخرین اتصال',
     'diag_source_config': 'پیکربندی',
     'diag_source_runtime': 'وضعیت اجرا',
@@ -343,6 +464,16 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': 'رویدادهای قبلی پنهان در این نما: {count}',
   },
   'ar': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'فشل تحديث مفتاح نقطة النهاية المثبّت',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'فشلت محاولة الاتصال بعد تحديث المفتاح',
+    'diag_event_candidate_rejected': 'رُفض المرشح',
+    'diag_event_pin_refresh_started': 'بدأ تحديث المفتاح المثبّت',
+    'diag_event_pin_refresh_succeeded': 'تم تحديث المفتاح المثبّت',
+    'diag_event_pin_refresh_failed': 'فشل تحديث المفتاح المثبّت',
+    'diag_event_pin_retry_started': 'إعادة المحاولة بالمفتاح المحدّث',
+    'diag_event_pin_retry_failed': 'فشلت المحاولة بالمفتاح المحدّث',
     'diag_timeline_retained': 'آخر اتصال',
     'diag_source_config': 'الإعدادات',
     'diag_source_runtime': 'حالة التشغيل',
@@ -368,6 +499,18 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
     'diag_timeline_truncated_count': 'أحداث سابقة مخفية في هذا العرض: {count}',
   },
   'de': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Aktualisierung des Endpunkt-Pins fehlgeschlagen',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Verbindungsversuch nach Pin-Aktualisierung fehlgeschlagen',
+    'diag_event_candidate_rejected': 'Kandidat abgelehnt',
+    'diag_event_pin_refresh_started':
+        'Aktualisierung des Endpunkt-Pins gestartet',
+    'diag_event_pin_refresh_succeeded': 'Endpunkt-Pin aktualisiert',
+    'diag_event_pin_refresh_failed': 'Pin-Aktualisierung fehlgeschlagen',
+    'diag_event_pin_retry_started': 'Neuer Versuch mit aktualisiertem Pin',
+    'diag_event_pin_retry_failed':
+        'Versuch mit aktualisiertem Pin fehlgeschlagen',
     'diag_timeline_retained': 'Letzte Verbindung',
     'diag_source_config': 'Konfiguration',
     'diag_source_runtime': 'Laufzeitzustand',
@@ -398,6 +541,15 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'In dieser Ansicht ausgeblendete frühere Ereignisse: {count}',
   },
   'id': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': 'Pembaruan pin titik akhir gagal',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Percobaan koneksi setelah pembaruan pin gagal',
+    'diag_event_candidate_rejected': 'Kandidat ditolak',
+    'diag_event_pin_refresh_started': 'Pembaruan pin dimulai',
+    'diag_event_pin_refresh_succeeded': 'Pin titik akhir diperbarui',
+    'diag_event_pin_refresh_failed': 'Pembaruan pin gagal',
+    'diag_event_pin_retry_started': 'Mencoba lagi dengan pin baru',
+    'diag_event_pin_retry_failed': 'Percobaan dengan pin baru gagal',
     'diag_timeline_retained': 'Koneksi terakhir',
     'diag_source_config': 'Konfigurasi',
     'diag_source_runtime': 'Status runtime',
@@ -424,6 +576,17 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Peristiwa sebelumnya yang disembunyikan di tampilan ini: {count}',
   },
   'it': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Aggiornamento del pin endpoint non riuscito',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Connessione dopo aggiornamento del pin non riuscita',
+    'diag_event_candidate_rejected': 'Candidato rifiutato',
+    'diag_event_pin_refresh_started': 'Aggiornamento del pin avviato',
+    'diag_event_pin_refresh_succeeded': 'Pin endpoint aggiornato',
+    'diag_event_pin_refresh_failed': 'Aggiornamento del pin non riuscito',
+    'diag_event_pin_retry_started': 'Nuovo tentativo con il pin aggiornato',
+    'diag_event_pin_retry_failed':
+        'Tentativo con il pin aggiornato non riuscito',
     'diag_timeline_retained': 'Ultima connessione',
     'diag_source_config': 'Configurazione',
     'diag_source_runtime': 'Stato di esecuzione',
@@ -452,6 +615,16 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Eventi precedenti nascosti in questa vista: {count}',
   },
   'pl': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Aktualizacja pinu punktu końcowego nie powiodła się',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Połączenie po aktualizacji pinu nie powiodło się',
+    'diag_event_candidate_rejected': 'Kandydat odrzucony',
+    'diag_event_pin_refresh_started': 'Rozpoczęto aktualizację pinu',
+    'diag_event_pin_refresh_succeeded': 'Pin punktu końcowego zaktualizowany',
+    'diag_event_pin_refresh_failed': 'Aktualizacja pinu nie powiodła się',
+    'diag_event_pin_retry_started': 'Ponawianie z nowym pinem',
+    'diag_event_pin_retry_failed': 'Próba z nowym pinem nie powiodła się',
     'diag_timeline_retained': 'Ostatnie połączenie',
     'diag_source_config': 'Konfiguracja',
     'diag_source_runtime': 'Stan działania',
@@ -481,6 +654,15 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Wcześniejsze zdarzenia ukryte w tym widoku: {count}',
   },
   'th': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': 'อัปเดตพินของปลายทางไม่สำเร็จ',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'ลองเชื่อมต่ออีกครั้งหลังอัปเดตพินไม่สำเร็จ',
+    'diag_event_candidate_rejected': 'ปฏิเสธปลายทางที่ทดสอบ',
+    'diag_event_pin_refresh_started': 'เริ่มอัปเดตพินของปลายทาง',
+    'diag_event_pin_refresh_succeeded': 'อัปเดตพินของปลายทางแล้ว',
+    'diag_event_pin_refresh_failed': 'อัปเดตพินไม่สำเร็จ',
+    'diag_event_pin_retry_started': 'กำลังลองอีกครั้งด้วยพินที่อัปเดต',
+    'diag_event_pin_retry_failed': 'ลองอีกครั้งด้วยพินที่อัปเดตไม่สำเร็จ',
     'diag_timeline_retained': 'การเชื่อมต่อครั้งล่าสุด',
     'diag_source_config': 'การตั้งค่า',
     'diag_source_runtime': 'สถานะขณะทำงาน',
@@ -509,6 +691,17 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'เหตุการณ์ก่อนหน้าที่ซ่อนในมุมมองนี้: {count}',
   },
   'uk': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Не вдалося оновити закріплений ключ',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Не вдалося підключитися після оновлення ключа',
+    'diag_event_candidate_rejected': 'Кандидата відхилено',
+    'diag_event_pin_refresh_started': 'Розпочато оновлення закріпленого ключа',
+    'diag_event_pin_refresh_succeeded': 'Закріплений ключ оновлено',
+    'diag_event_pin_refresh_failed': 'Оновлення закріпленого ключа не вдалося',
+    'diag_event_pin_retry_started': 'Повторна спроба з оновленим ключем',
+    'diag_event_pin_retry_failed':
+        'Повторна спроба з оновленим ключем не вдалася',
     'diag_timeline_retained': 'Останнє підключення',
     'diag_source_config': 'Конфігурація',
     'diag_source_runtime': 'Стан виконання',
@@ -537,6 +730,16 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'Попередні події, приховані в цьому поданні: {count}',
   },
   'vi': <String, String>{
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
+        'Không thể cập nhật khóa ghim đầu cuối',
+    'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
+        'Thử kết nối lại sau khi cập nhật khóa ghim thất bại',
+    'diag_event_candidate_rejected': 'Đã từ chối ứng viên',
+    'diag_event_pin_refresh_started': 'Bắt đầu cập nhật khóa ghim',
+    'diag_event_pin_refresh_succeeded': 'Đã cập nhật khóa ghim đầu cuối',
+    'diag_event_pin_refresh_failed': 'Cập nhật khóa ghim thất bại',
+    'diag_event_pin_retry_started': 'Đang thử lại với khóa ghim mới',
+    'diag_event_pin_retry_failed': 'Thử lại với khóa ghim mới thất bại',
     'diag_timeline_retained': 'Kết nối gần nhất',
     'diag_source_config': 'Cấu hình',
     'diag_source_runtime': 'Trạng thái khi chạy',

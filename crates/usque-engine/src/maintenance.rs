@@ -443,6 +443,7 @@ fn connection_timeline_summary(timeline: &ConnectionTimelineSnapshot) -> serde_j
                     event.elapsed_from_attempt_start,
                 ),
                 "event_type": connection_event_type_name(event.event_type),
+                "candidate_id": event.candidate_id, "enrollment_round": event.enrollment_round,
                 "queue_kind": event.queue_kind.map(usque_transport::QueueKind::as_str),
                 "stage": event.stage.map(usque_core::TransportStage::as_str),
                 "transport": event.transport,
@@ -576,6 +577,8 @@ fn diagnostic_session_summary(
 fn sanitized_failure_summary(failure: &TransportFailure) -> serde_json::Value {
     serde_json::json!({
         "code": failure.code.as_str(),
+        "cause_code": failure.cause_code.map(|code| code.as_str()),
+        "cause_stage": failure.cause_stage.map(|stage| stage.as_str()),
         "stage": failure.stage.as_str(),
         "transport": failure.transport,
         "address_family": failure.address_family,
@@ -639,6 +642,12 @@ const fn connection_event_type_name(event: ConnectionEventType) -> &'static str 
         ConnectionEventType::PmtuRevalidationFailed => "pmtu_revalidation_failed",
         ConnectionEventType::Disconnected => "disconnected",
         ConnectionEventType::Failed => "failed",
+        ConnectionEventType::CandidateRejected => "candidate_rejected",
+        ConnectionEventType::PinRefreshStarted => "pin_refresh_started",
+        ConnectionEventType::PinRefreshSucceeded => "pin_refresh_succeeded",
+        ConnectionEventType::PinRefreshFailed => "pin_refresh_failed",
+        ConnectionEventType::PinRetryStarted => "pin_retry_started",
+        ConnectionEventType::PinRetryFailed => "pin_retry_failed",
     }
 }
 

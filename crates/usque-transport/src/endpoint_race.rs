@@ -14,6 +14,75 @@ use crate::recovery_policy::RecoveryDecision;
 
 pub(crate) const FAMILY_DELAY: Duration = Duration::from_millis(250);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RacePolicy {
+    Strict,
+    Automatic,
+}
+
+impl RacePolicy {
+    fn stops(self, error: &TransportError) -> bool {
+        if self == Self::Automatic && matches!(error, TransportError::UnderlyingNetworkChanged) {
+            return true;
+        }
+        match RecoveryDecision::for_failure(&error.failure(None, None)) {
+            RecoveryDecision::Stop => true,
+            RecoveryDecision::RefreshPin => self == Self::Strict,
+            RecoveryDecision::Retry => false,
+        }
+    }
+}
+
+/// Pin rejection is evidence about a candidate, not permission to change trust.
+/// Retain it across otherwise retryable failures, until a verified winner exists.
+#[derive(Default)]
+pub(crate) struct CandidateFailures {
+    pin_rejected: bool,
+    last: Option<TransportError>,
+}
+
+impl CandidateFailures {
+    pub(crate) fn record(&mut self, error: TransportError) -> Result<(), TransportError> {
+        if matches!(error, TransportError::UnderlyingNetworkChanged)
+            || RecoveryDecision::for_failure(&error.failure(None, None)) == RecoveryDecision::Stop
+        {
+            return Err(error);
+        }
+        self.pin_rejected |= matches!(error, TransportError::EndpointPinMismatch);
+        self.last = Some(error);
+        Ok(())
+    }
+
+    pub(crate) fn exhausted(self) -> TransportError {
+        if self.pin_rejected {
+            TransportError::EndpointPinMismatch
+        } else {
+            self.last.unwrap_or_else(|| {
+                TransportError::AllEndpointsFailed("automatic endpoint cycle exhausted".to_owned())
+            })
+        }
+    }
+}
+
+pub(crate) async fn finish_generation<T: RaceConnection>(
+    result: Result<T, TransportError>,
+    protector: &dyn crate::socket::SocketProtector,
+    expected: Option<u64>,
+) -> Result<T, TransportError> {
+    if let Err(error) = &result
+        && RecoveryDecision::for_failure(&error.failure(None, None)) == RecoveryDecision::Stop
+    {
+        return result;
+    }
+    if protector.network_generation() != expected {
+        if let Ok(connection) = result {
+            connection.shutdown().await;
+        }
+        return Err(TransportError::UnderlyingNetworkChanged);
+    }
+    result
+}
+
 /// Whether an automatic ingress would overlap a configured DNS destination.
 pub fn excludes_dns_server(profile: &usque_core::Profile, endpoint: SocketAddr) -> bool {
     profile.dns_servers.contains(&endpoint.ip())
@@ -36,8 +105,11 @@ pub(crate) trait RaceConnection: Send + 'static {
 struct CancelCandidates(Vec<Option<CancellationToken>>);
 
 fn recovery_priority(error: &TransportError) -> u8 {
+    if matches!(error, TransportError::UnderlyingNetworkChanged) {
+        return 2;
+    }
     match RecoveryDecision::for_failure(&error.failure(None, None)) {
-        RecoveryDecision::Stop => 2,
+        RecoveryDecision::Stop => 3,
         RecoveryDecision::RefreshPin => 1,
         RecoveryDecision::Retry => 0,
     }
@@ -87,6 +159,20 @@ where
     F: Fn(SocketAddr, CancellationToken) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Result<T, TransportError>> + Send + 'static,
 {
+    race_batch_with_policy(targets, deadline, RacePolicy::Strict, connect).await
+}
+
+pub(crate) async fn race_batch_with_policy<T, F, Fut>(
+    targets: Vec<RaceTarget>,
+    deadline: Option<Duration>,
+    policy: RacePolicy,
+    connect: F,
+) -> Result<T, TransportError>
+where
+    T: RaceConnection,
+    F: Fn(SocketAddr, CancellationToken) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Result<T, TransportError>> + Send + 'static,
+{
     let cancellation = CancellationToken::new();
     let mut owner = RaceOwner {
         task: Some(tokio::spawn(race_batch_inner(
@@ -94,6 +180,7 @@ where
             deadline,
             connect,
             cancellation.clone(),
+            policy,
         ))),
         cancellation,
     };
@@ -112,6 +199,7 @@ async fn race_batch_inner<T, F, Fut>(
     deadline: Option<Duration>,
     connect: F,
     cancellation: CancellationToken,
+    policy: RacePolicy,
 ) -> Result<T, TransportError>
 where
     T: RaceConnection,
@@ -177,15 +265,21 @@ where
                         alternate_start.cancel();
                     }
                 }
-                let decision = RecoveryDecision::for_failure(&error.failure(None, None));
-                if decision != RecoveryDecision::Retry {
+                if policy.stops(&error) {
                     failure = Some(error);
                     break;
                 }
-                failure = Some(error);
+                if failure
+                    .as_ref()
+                    .is_none_or(|previous| recovery_priority(previous) <= recovery_priority(&error))
+                {
+                    failure = Some(error);
+                }
             }
-            Some(Err(error)) => {
-                failure = Some(TransportError::Driver(error.to_string()));
+            Some(Err(_)) => {
+                failure = Some(TransportError::Netstack(
+                    "endpoint candidate task failed".to_owned(),
+                ));
                 break;
             }
             None => break,
@@ -200,19 +294,30 @@ where
             Ok((_, Ok(connection))) => connection.shutdown().await,
             Ok((_, Err(error)))
                 if !matches!(error, TransportError::TunnelClosed)
-                    && RecoveryDecision::for_failure(&error.failure(None, None))
-                        != RecoveryDecision::Retry
+                    && (policy.stops(&error)
+                        || matches!(error, TransportError::EndpointPinMismatch))
                     && terminal_failure.as_ref().is_none_or(|previous| {
                         recovery_priority(previous) < recovery_priority(&error)
                     }) =>
             {
                 terminal_failure = Some(error);
             }
+            Err(_) => {
+                terminal_failure = Some(TransportError::Netstack(
+                    "endpoint candidate task failed".to_owned(),
+                ));
+            }
             _ => {}
         }
     }
+    if cancellation.is_cancelled() {
+        if let Some(connection) = winner {
+            connection.shutdown().await;
+        }
+        return Err(TransportError::TunnelClosed);
+    }
     if let Some(connection) = winner {
-        if let Some(error) = terminal_failure {
+        if let Some(error) = terminal_failure.filter(|error| policy.stops(error)) {
             connection.shutdown().await;
             return Err(error);
         }
@@ -792,5 +897,204 @@ mod tests {
         assert_eq!(closed.load(Ordering::SeqCst), 0);
         winner.shutdown().await;
         assert_eq!(closed.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn automatic_pin_rejections_cannot_defeat_a_verified_winner_in_either_order() {
+        for pin_first in [true, false] {
+            let closed = Arc::new(AtomicUsize::new(0));
+            let result = race_batch_with_policy(
+                vec![
+                    RaceTarget {
+                        endpoint: "127.0.0.1:1".parse().unwrap(),
+                        delay: Duration::ZERO,
+                    },
+                    RaceTarget {
+                        endpoint: "127.0.0.1:2".parse().unwrap(),
+                        delay: Duration::ZERO,
+                    },
+                ],
+                None,
+                RacePolicy::Automatic,
+                {
+                    let closed = closed.clone();
+                    move |endpoint, cancellation: CancellationToken| {
+                        let closed = closed.clone();
+                        async move {
+                            if endpoint.port() == 1 {
+                                if pin_first {
+                                    tokio::time::sleep(Duration::from_millis(1)).await;
+                                } else {
+                                    cancellation.cancelled().await;
+                                }
+                                Err(TransportError::EndpointPinMismatch)
+                            } else {
+                                tokio::time::sleep(Duration::from_millis(10)).await;
+                                Ok(FakeConnection(closed))
+                            }
+                        }
+                    }
+                },
+            )
+            .await;
+            let winner = result.expect("only this candidate's own pin governs its admission");
+            assert_eq!(closed.load(Ordering::SeqCst), 0);
+            winner.shutdown().await;
+            assert_eq!(closed.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn strict_pin_failure_still_cancels_siblings() {
+        let cancelled = Arc::new(AtomicUsize::new(0));
+        let result = race_batch_with_policy(
+            vec![
+                RaceTarget {
+                    endpoint: "127.0.0.1:1".parse().unwrap(),
+                    delay: Duration::ZERO,
+                },
+                RaceTarget {
+                    endpoint: "127.0.0.1:2".parse().unwrap(),
+                    delay: Duration::ZERO,
+                },
+            ],
+            None,
+            RacePolicy::Strict,
+            {
+                let cancelled = cancelled.clone();
+                move |endpoint, cancellation: CancellationToken| {
+                    let cancelled = cancelled.clone();
+                    async move {
+                        if endpoint.port() == 1 {
+                            Err::<FakeConnection, _>(TransportError::EndpointPinMismatch)
+                        } else {
+                            cancellation.cancelled().await;
+                            cancelled.fetch_add(1, Ordering::SeqCst);
+                            Err(TransportError::TunnelClosed)
+                        }
+                    }
+                }
+            },
+        )
+        .await;
+        assert!(matches!(result, Err(TransportError::EndpointPinMismatch)));
+        assert_eq!(cancelled.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn automatic_global_protection_failure_during_cleanup_closes_winner() {
+        let closed = Arc::new(AtomicUsize::new(0));
+        let result = race_batch_with_policy(
+            vec![
+                RaceTarget {
+                    endpoint: "127.0.0.1:1".parse().unwrap(),
+                    delay: Duration::ZERO,
+                },
+                RaceTarget {
+                    endpoint: "127.0.0.1:2".parse().unwrap(),
+                    delay: Duration::ZERO,
+                },
+            ],
+            None,
+            RacePolicy::Automatic,
+            {
+                let closed = closed.clone();
+                move |endpoint, cancellation: CancellationToken| {
+                    let closed = closed.clone();
+                    async move {
+                        if endpoint.port() == 1 {
+                            Ok(FakeConnection(closed))
+                        } else {
+                            cancellation.cancelled().await;
+                            Err(TransportError::SocketProtection(
+                                "fixture denied".to_owned(),
+                            ))
+                        }
+                    }
+                }
+            },
+        )
+        .await;
+        assert!(matches!(result, Err(TransportError::SocketProtection(_))));
+        assert_eq!(closed.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn automatic_exhaustion_retains_pin_evidence_after_later_timeout() {
+        let result = race_batch_with_policy(
+            vec![
+                RaceTarget {
+                    endpoint: "127.0.0.1:1".parse().unwrap(),
+                    delay: Duration::ZERO,
+                },
+                RaceTarget {
+                    endpoint: "127.0.0.1:2".parse().unwrap(),
+                    delay: Duration::ZERO,
+                },
+            ],
+            None,
+            RacePolicy::Automatic,
+            |endpoint, _| async move {
+                if endpoint.port() == 1 {
+                    Err::<FakeConnection, _>(TransportError::EndpointPinMismatch)
+                } else {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    Err(TransportError::EndpointTimeout(endpoint))
+                }
+            },
+        )
+        .await;
+        assert!(matches!(result, Err(TransportError::EndpointPinMismatch)));
+        let mut cycle = CandidateFailures::default();
+        cycle.record(result.err().unwrap()).unwrap();
+        cycle
+            .record(TransportError::EndpointTimeout(
+                "127.0.0.1:3".parse().unwrap(),
+            ))
+            .unwrap();
+        assert!(matches!(
+            cycle.exhausted(),
+            TransportError::EndpointPinMismatch
+        ));
+    }
+
+    #[test]
+    fn automatic_identity_and_client_authentication_failures_remain_global() {
+        for error in [
+            TransportError::InvalidIdentity,
+            TransportError::ConnectRejected(http::StatusCode::FORBIDDEN),
+        ] {
+            assert!(RacePolicy::Automatic.stops(&error));
+            let mut cycle = CandidateFailures::default();
+            cycle.record(TransportError::EndpointPinMismatch).unwrap();
+            assert!(cycle.record(error).is_err());
+        }
+    }
+    #[tokio::test]
+    async fn stale_generation_closes_a_verified_winner_and_does_not_refresh_pin() {
+        struct Changed;
+        #[async_trait]
+        impl crate::socket::SocketProtector for Changed {
+            fn protect(&self, _: crate::socket::SocketHandle) -> Result<(), String> {
+                Ok(())
+            }
+            fn network_generation(&self) -> Option<u64> {
+                Some(2)
+            }
+        }
+        let closed = Arc::new(AtomicUsize::new(0));
+        let result = finish_generation(Ok(FakeConnection(closed.clone())), &Changed, Some(1)).await;
+        assert!(matches!(
+            result,
+            Err(TransportError::UnderlyingNetworkChanged)
+        ));
+        assert_eq!(closed.load(Ordering::SeqCst), 1);
+        let mut failures = CandidateFailures::default();
+        failures
+            .record(TransportError::EndpointPinMismatch)
+            .unwrap();
+        assert!(matches!(
+            failures.record(TransportError::UnderlyingNetworkChanged),
+            Err(TransportError::UnderlyingNetworkChanged)
+        ));
     }
 }
