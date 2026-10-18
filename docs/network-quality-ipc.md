@@ -182,3 +182,14 @@ unpacked protobuf values with fixed 32/7-bin bounds. Android keeps the existing
 16 KiB limit and fixed numeric allowlists. Performance counters are available
 in diagnostic exports, without a new settings panel. See
 [metric semantics and units](network-quality-metrics.md#masque-performance-and-capacity-waits).
+
+### Automatic endpoint pin extension
+
+Automatic candidate and pin-refresh phases append timeline events
+`CandidateRejected` (32), `PinRefreshStarted` (33), `PinRefreshSucceeded` (34),
+`PinRefreshFailed` (35), `PinRetryStarted` (36) and `PinRetryFailed` (37).
+`ConnectionEvent` adds optional `candidate_id` (11) and `enrollment_round` (12);
+`TransportFailure` adds optional `cause_code` (10) and `cause_stage` (11).
+Older peers omit these fields, and unknown event values remain compatible. Their
+semantics and failure codes are described in
+[Diagnostics and observability](diagnostics-observability.md).

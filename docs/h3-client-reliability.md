@@ -224,9 +224,9 @@ the heartbeat future and closes its socket/egress lease when it exits.
 
 These policies add no saved settings or GUI phases. Waiting remains Reconnecting;
 terminal failures use existing failure codes. No extra identifiers or packet
-content are recorded. Actual device suspension, physical recovery latency, leak
-behavior and energy use require their respective isolated environments; virtual
-clock and in-memory H2 regressions are not evidence of those platform outcomes.
+content are recorded. The regressions use a virtual clock and in-memory H2;
+device suspension, physical recovery latency, leaks and energy use need the
+isolated environments.
 
 ## Safety and validation
 
@@ -253,5 +253,5 @@ Rust format check, pinned Android arm64 Clippy, repository policy, Go module
 verification/tests, and frozen-oracle verification. Actual route/WFP/TUN
 lifecycle, device VPN, external fragmentation/leak observation, and controlled
 throughput measurements remain `not_run` without their protected environments.
-Linux runtime tests and Apple/FreeBSD option readback must be run on suitable
-hosts; cross-compilation alone does not establish those results.
+Linux runtime tests and Apple/FreeBSD option readback need native hosts;
+cross-compilation does not run them.

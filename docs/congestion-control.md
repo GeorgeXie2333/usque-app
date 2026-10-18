@@ -89,10 +89,8 @@ BBRv2 tests remain in the independent vendored suite, executed explicitly in CI.
 Use the complete applicable matrix in [CONTRIBUTING](../CONTRIBUTING.md),
 including Windows helper-based Rust checks/build, locked Flutter checks/build,
 Android Rust and Kotlin checks, protobuf checks and workflow validation.
-Deterministic tests do not establish real-network throughput or fairness.
-Performance, VPN lifecycle and leak observations require the appropriate
-isolated environments; missing runs are `not_run`, never passing evidence.
-Protected-runner evidence remains supplemental and does not gate publication.
+Real-network throughput, fairness, VPN lifecycle and leaks are measured only
+in the isolated environments; those runs are optional for publication.
 
 The change adds no privileged networking operation, system-proxy mutation,
 TLS bypass, credential field, diagnostic upload or telemetry. Existing cleanup,

@@ -25,10 +25,12 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
-## Unreleased Android packaging changes
+## Unreleased packaging changes
 
-The F-Droid packaging fixes require a new release and tag. Existing v0.3.2
-APKs and their version codes remain historical release artifacts.
+Linux desktop packages and the F-Droid packaging fixes were added after the
+v0.3.2 tag and require a new release and tag. v0.3.2 published no Linux
+package. Existing v0.3.2 APKs and their version codes remain historical
+release artifacts.
 
 New APK version codes use `base build number * 1000 + ABI suffix`, with
 suffixes 0 (universal), 1 (ARMv7), 2 (ARM64), and 4 (x86_64). For example,
@@ -229,22 +231,23 @@ accurate system requirements, and descriptive image alt text when updating the
 table. Do not add third-party badge services or update-only MSI download buttons.
 Keep the four required bilingual section names; decorative emoji may follow them.
 
-The v0.3.2 primary files (official only after approved publication):
+The current workflow's primary files, shown with a `vX.Y.Z` placeholder for the
+next reviewed version (official only after approved publication):
 
-- `usque-v0.3.2-windows-x64-v2.exe`
-- `usque-v0.3.2-windows-arm64.exe`
-- `usque-v0.3.2-windows-x64-v2.msi`
-- `usque-v0.3.2-windows-arm64.msi`
-- `usque-v0.3.2-android-arm64-v8a.apk`
-- `usque-v0.3.2-android-x86_64.apk`
-- `usque-v0.3.2-android-armeabi-v7a.apk`
-- `usque-v0.3.2-android-universal.apk`
-- `usque-v0.3.2-linux-amd64.AppImage`
-- `usque-v0.3.2-linux-amd64.deb`
-- `usque-v0.3.2-linux-amd64.rpm`
-- `usque-v0.3.2-linux-arm64.AppImage`
-- `usque-v0.3.2-linux-arm64.deb`
-- `usque-v0.3.2-linux-arm64.rpm`
+- `usque-vX.Y.Z-windows-x64-v2.exe`
+- `usque-vX.Y.Z-windows-arm64.exe`
+- `usque-vX.Y.Z-windows-x64-v2.msi`
+- `usque-vX.Y.Z-windows-arm64.msi`
+- `usque-vX.Y.Z-android-arm64-v8a.apk`
+- `usque-vX.Y.Z-android-x86_64.apk`
+- `usque-vX.Y.Z-android-armeabi-v7a.apk`
+- `usque-vX.Y.Z-android-universal.apk`
+- `usque-vX.Y.Z-linux-amd64.AppImage`
+- `usque-vX.Y.Z-linux-amd64.deb`
+- `usque-vX.Y.Z-linux-amd64.rpm`
+- `usque-vX.Y.Z-linux-arm64.AppImage`
+- `usque-vX.Y.Z-linux-arm64.deb`
+- `usque-vX.Y.Z-linux-arm64.rpm`
 
 The two EXEs, four APKs and six Linux files are user-facing packages; the two MSIs are
 update payloads consumed by the signed Windows updater. In addition to these
@@ -256,6 +259,11 @@ release requires the usual CI, architecture, signature, package, checksum,
 SBOM, and provenance checks. Protected-runner validation is optional and
 non-blocking; its environments, evidence contract, and privacy boundary are
 documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
+
+The published v0.3.2 release predates Linux packaging. It contains only the
+eight Windows/Android primary files (`usque-v0.3.2-windows-*` and
+`usque-v0.3.2-android-*`), their SPDX SBOMs, `release-manifest.json` and
+`SHA256SUMS`: 18 public assets and no Linux files.
 
 ## Linux package rules
 

@@ -21,8 +21,8 @@ For a stable active connection, applying a different fingerprint uses the normal
 controlled reconnect. When disconnected, the setting is saved for the next
 connection. Other connection states follow the existing
 [network-settings application rules](NETWORK_SETTINGS.md#application-rules);
-a saved value does not by itself confirm that the running connection uses it.
-If saving fails, the page retains the draft. If the selected profile cannot
+a saved value is not necessarily in use by the current connection yet.
+If saving fails, the page keeps the draft. If the selected profile cannot
 connect on your network, choose **unsafe**, apply it, and connect again.
 
 If the page asks you to update the engine, the connected engine does not support
@@ -63,11 +63,8 @@ automatic connection.
   verification.
 
 The original Chrome 131 [compatibility experiment](CHROME_FINGERPRINT_VALIDATION.md)
-recorded authenticated H2 and H3 CONNECT-IP acceptance at one Consumer endpoint
-on 2026-10-14. Its test counts and results belong to that recorded candidate,
-account, endpoint and network. They do not guarantee every account type, endpoint
-or network accepts the profile, or establish full browser impersonation, VPN
-lifecycle or leak behavior.
+confirmed authenticated H2 and H3 CONNECT-IP at one Consumer endpoint on
+2026-10-14. Other account types, endpoints and networks were not tested.
 
 The [implementation validation record](TLS_FINGERPRINT_IMPLEMENTATION_VALIDATION.md)
 lists the separate production-source checks and unavailable environments.
@@ -96,15 +93,14 @@ Chrome 155 是固定的 TLS ClientHello 配置，H3 使用符合 QUIC 要求的�
 继续使用 BoringSSL 根据设备能力选择的顺序，不会启用设备不支持的 CPU 指令。
 自动传输模式的 H3 尝试、H2 回退及实验性 L4 的 H3 连接都使用同一选择。
 它仅作用于 MASQUE TLS，不改变注册请求、直连 DNS 或链式代理的 TLS。
-这不等于完整模拟 Chrome
-流量，也不保证隐藏 SNI；ECH GREASE 不是真实 ECH 加密。WARP 客户端凭据认证
+这不等于完整模拟 Chrome 流量，也不保证隐藏 SNI；ECH GREASE 不是真实 ECH 加密。WARP 客户端凭据认证
 和注册端点公钥校验始终保留。[历史实测记录](CHROME_FINGERPRINT_VALIDATION.md)
-只证明当时所测账号、端点和网络接受该配置，不能推广为所有环境兼容。
+只测试了一个 Consumer 端点，其他账号类型、端点和网络未经测试。
 
 Chrome 155 新增 H2 ALPS 17613、GREASE 与 ML-DSA 签名算法声明，以及固定的 28 个
 trust-anchor ID。这些 ID 不会导入可信根。目前只声明 ML-DSA，尚未实现其证书与
 签名验证；服务端若要求该算法，连接会安全失败。[155 实测](CHROME155_WARP_VALIDATION.md)
-中的 WARP 服务端均选择 ECDSA，该结果不保证其他端点或未来服务行为。
+中的 WARP 服务端均选择 ECDSA。
 
 ---
 

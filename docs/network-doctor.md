@@ -19,11 +19,10 @@ In Simplified Chinese, these controls are **网络质量 → 运行网络诊断*
 Engine may not advertise the required capability; existing connection controls
 remain usable.
 
-When the app UI is hidden, its periodic quality, diagnostic-status and timeline
-reads pause. Returning to the app requests fresh state. This does not disconnect
-the VPN service, cancel an already running native diagnostic session, or change
-your manual Pause selection. A stale or missing observation is still unavailable
-evidence; background time is not filled with invented samples.
+While the app window is hidden, it stops polling quality, diagnostics and the
+timeline, and refreshes when you return. The VPN, any running diagnostic
+session and your manual Pause selection are unaffected. Charts show a gap for
+the hidden period instead of made-up samples.
 
 ## Choose Standard or Deep
 
@@ -41,21 +40,20 @@ connection test.
 
 | Result | Meaning and next step |
 | --- | --- |
-| Passed | The check's stated condition passed. Read its evidence source and availability; runtime inference is not an independent network measurement. |
-| Warning | Review the measured value and suggested action. A timeout or high latency alone does not prove the normal connection cannot work. |
+| Passed | The check's condition was met. Its source shows whether this was measured or inferred from runtime state. |
+| Warning | Review the measured value and suggested action. A timeout or high latency does not necessarily mean the connection is unusable. |
 | Failed | Follow the check's explanation, correct the relevant configuration if needed, and rerun it. |
-| Skipped / unavailable | Required data, protocol support, credentials or safe probe conditions were missing. This is not a zero reading or a pass. |
+| Skipped / unavailable | Required data, protocol support, credentials or safe probe conditions were missing. It is neither a zero reading nor a pass. |
 | Cancelled / cancelling | The run was cancelled, or is still releasing its temporary resources. Wait for completion before starting another run. |
 
 For example, HTTP/2 packet loss and PMTU are unavailable, rather than zero.
 Results distinguish configuration, runtime, platform, client and active-probe
 sources, and mark evidence as observed, inferred, unavailable, stale or not
 applicable. Missing counters display **Unknown**; an explicit measured zero
-remains zero. A suggested action can be present even without a transport failure
-code. If Android cannot confirm probe cleanup, the session reports failed
-execution with unavailable evidence. Another probe remains blocked until the
-service's cleanup reply arrives or the client closes; export diagnostics when
-confirmation remains unavailable.
+remains zero. A suggested action can appear without a transport failure code.
+If Android cannot confirm that a probe was cleaned up, the run is reported as
+failed, and no new probe starts until the service confirms cleanup or the app
+closes. Export diagnostics if this persists.
 
 The timeline shows recent connection events, with distinct labels for QUIC
 migration, path MTU and encrypted-DNS changes. **Last connection** identifies
@@ -64,8 +62,8 @@ runtime evidence; an Android platform fallback shows inferred evidence. Source
 event drops and events hidden by the view are reported separately. Refreshing
 the timeline reads existing records and does not start probes.
 
-A local pass cannot establish that no DNS or Kill Switch traffic leaked on the
-physical network. Keep credentials and raw diagnostic bundles out of public
+Network Doctor checks local state; it cannot detect DNS or Kill Switch leaks on
+the physical network. Keep credentials and raw diagnostic bundles out of public
 Issues; follow [Security policy](../SECURITY.md) for suspected vulnerabilities.
 
 ## Implementation reference
@@ -185,12 +183,11 @@ authenticated loopback QUIC with zero HTTP streams, DoH/DoT loopback cleanup,
 generation changes, malformed wire values, and export allowlists. Flutter
 tests cover a bounded 60-second chart with text alternatives, missing-capability
 navigation, English/Simplified Chinese, light/dark, 200% scaling, keyboard and
-TV navigation, confirmation, errors and retry. Golden files use synthetic test
-measurements and are not performance or leak evidence.
+TV navigation, confirmation, errors and retry. Golden files use synthetic
+measurements.
 
 Windows VPN lifecycle, Android device/Doze, real adapter migration, externally
 observed candidate/old-path payloads, physical port-53 counts and repeated lab
-performance remain protected-runner tests. If unavailable, record `not_run`;
-never treat an unavailable lab or a local Doctor pass as protected evidence.
-Runner isolation and publication policy are defined in
-[Contributing](../CONTRIBUTING.md#development-machines).
+performance need the protected runners described in
+[Contributing](../CONTRIBUTING.md#development-machines); record them as
+`not_run` when unavailable.

@@ -65,17 +65,20 @@ Public fingerprints are repository or environment variables (`WINDOWS_SIGNER_SHA
 
 Only the release maintainer may approve `release-signing` and `release-publish`. A local bundle, MSI, or APK cannot replace a failed or missing GitHub Actions build.
 
-For the planned `v0.3.2`, retain the existing Windows/Android identities and the fixed Linux key. Before approving signing, confirm
-the live environment protection settings, the two public certificate
-fingerprints, and Android's **Registered** application-ID/certificate pair.
+The published `v0.3.2` used only the Windows and Android identities; it
+predates Linux packaging and the Linux key signed none of its assets. For the
+next release, retain the existing Windows/Android identities and the fixed
+Linux key. Before approving signing, confirm the live environment protection
+settings, the two public certificate fingerprints, the checked-in Linux public
+key, and Android's **Registered** application-ID/certificate pair.
 Before approving publication, review the exact tagged commit and staged
 `release-manifest.json`; its fourteen package names, sizes, SHA-256 values and
 signer fingerprints must describe the candidate produced by that release run.
 A documentation review, a previous release's signatures or a local compile is
-not that evidence. The workflow accepts only `v0.3.2`; complete the exact-candidate
-checks in [Preparing v0.3.2](RELEASE.md#preparing-v032)
-before creating the new tag. Documentation preparation does not authorize key
-access, signing or publication.
+not that evidence. The checked-in workflow still accepts only the published
+`v0.3.2`; a new tag first needs the separately reviewed version and workflow
+update described in [Release process](RELEASE.md). Documentation preparation
+does not authorize key access, signing or publication.
 
 ## What users should check
 

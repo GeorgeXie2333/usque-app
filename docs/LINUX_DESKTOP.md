@@ -1,30 +1,29 @@
 # Linux desktop / Linux 桌面版
 
-The Linux desktop implementation uses the real Rust Engine. The separately
-identified **Usque UI preview** remains debug-only and stores simulated data in
-memory. This page describes source behavior and the package contract; it does
-not establish that a Linux release has been published or that an isolated
-network test has passed. See the validation table below before treating a
-platform as verified.
+The Linux desktop app uses the real Rust Engine; the separate **Usque UI
+preview** is a debug-only build with simulated data. Linux packages have not
+been released yet, and the validation table below shows what has been tested.
 
-Linux 正式入口使用真实 Rust Engine；**Usque UI preview** 仍是独立、仅调试可用的
-内存模拟界面。本文描述源码与安装包约定，不代表已经发布或通过隔离网络验收。
+Linux 桌面版使用真实的 Rust Engine；单独的 **Usque UI preview** 是仅供调试、使用
+模拟数据的版本。Linux 安装包尚未发布，已测试的范围见下方验证表。
 
 ## Choose and verify a package
 
 The target baseline is Ubuntu 22.04+, Debian 12+, and Fedora releases still
 supported when the package is published, with systemd and a GNOME or KDE
-session on X11 or Wayland. Architectures and filenames are:
+session on X11 or Wayland. No published release contains Linux packages yet;
+v0.3.2 predates Linux support. Filenames use the release version in place of
+`vX.Y.Z`:
 
 | Host | AppImage | Debian package | RPM package |
 | --- | --- | --- | --- |
-| Generic x86-64 | `usque-v0.3.2-linux-amd64.AppImage` | `usque-v0.3.2-linux-amd64.deb` (`amd64`) | `usque-v0.3.2-linux-amd64.rpm` (`x86_64`) |
-| ARM64 | `usque-v0.3.2-linux-arm64.AppImage` | `usque-v0.3.2-linux-arm64.deb` (`arm64`) | `usque-v0.3.2-linux-arm64.rpm` (`aarch64`) |
+| Generic x86-64 | `usque-vX.Y.Z-linux-amd64.AppImage` | `usque-vX.Y.Z-linux-amd64.deb` (`amd64`) | `usque-vX.Y.Z-linux-amd64.rpm` (`x86_64`) |
+| ARM64 | `usque-vX.Y.Z-linux-arm64.AppImage` | `usque-vX.Y.Z-linux-arm64.deb` (`arm64`) | `usque-vX.Y.Z-linux-arm64.rpm` (`aarch64`) |
 
 Use only files attached to the matching official GitHub Release. Compare the
 package hash with `SHA256SUMS` and GitHub's asset digest. Linux also has a signed
 manifest for each architecture, for example
-`usque-v0.3.2-linux-amd64.manifest.json` and its raw 64-byte `.sig` file.
+`usque-vX.Y.Z-linux-amd64.manifest.json` and its raw 64-byte `.sig` file.
 The stable Ed25519 public key is checked in at
 [release-public-key.hex](../packaging/linux/release-public-key.hex). Obtain
 that public key through the trusted source repository; never accept a different
@@ -36,8 +35,8 @@ AppImage or installing anything:
 
 ```shell
 python3 -c 'from pathlib import Path; key=Path("release-public-key.hex").read_text().strip(); assert len(key)==64; Path("usque-public.der").write_bytes(bytes.fromhex("302a300506032b6570032100"+key))'
-openssl pkeyutl -verify -pubin -keyform DER -inkey usque-public.der -rawin -in usque-v0.3.2-linux-amd64.manifest.json -sigfile usque-v0.3.2-linux-amd64.manifest.json.sig
-sha256sum usque-v0.3.2-linux-amd64.AppImage
+openssl pkeyutl -verify -pubin -keyform DER -inkey usque-public.der -rawin -in usque-vX.Y.Z-linux-amd64.manifest.json -sigfile usque-vX.Y.Z-linux-amd64.manifest.json.sig
+sha256sum usque-vX.Y.Z-linux-amd64.AppImage
 ```
 
 Require `Signature Verified Successfully`, then compare the complete package
@@ -192,10 +191,9 @@ builds, the compile-only packaging command is:
 python3 tool/linux_package.py --bundle apps/usque_gui/build/linux/x64/release/bundle --rust target/x86_64-unknown-linux-gnu/release --output target/linux-amd64 --architecture amd64 --version 0.3.2 --signing-key /absolute/path/to/ephemeral-test-key.pem --test-signing
 ```
 
-Use the corresponding ARM64 paths on a native ARM64 node. Local test keys are
-never the official identity. Official release signing is confined to the
-protected workflow and exact candidate; a successful local build is not a
-release or installation approval.
+Use the corresponding ARM64 paths on a native ARM64 node. Packages signed with
+a local test key are never official; only the protected release workflow signs
+with the official key.
 
 | Validation | Evidence requirement |
 | --- | --- |
@@ -207,15 +205,13 @@ release or installation approval.
 | IPv4/IPv6/DNS/Kill Switch/DIRECT leak claims | Independent network observer and the exact candidate |
 | Windows and Android regressions | Existing platform gates; Linux results cannot replace them |
 
-Protected reports remain supplemental. Public workflows skip private lab jobs
-and do not publish raw captures. Missing hosts or lab evidence are `not_run`,
-never a pass, and do not create a new publication prerequisite.
+Protected lab reports are optional and do not block publication. Public
+workflows skip the private lab jobs and never publish raw captures.
 
 ## Windows feature mapping
 
-The following map identifies the Linux implementation and its acceptance scope.
-Shared unit and widget tests establish deterministic behavior; each native
-desktop or network claim still needs the corresponding isolated/session test.
+The following map shows how each Windows feature is implemented on Linux and
+what still needs native testing beyond the shared unit and widget tests.
 
 | Windows user feature | Linux implementation | Additional native acceptance |
 | --- | --- | --- |
@@ -232,6 +228,4 @@ desktop or network claim still needs the corresponding isolated/session test.
 | Startup and automatic connection | Current-user login entry; Engine IPC starts immediately; auto-connect needs usable credentials | Login with locked keyring and duplicate activation |
 | Updates and uninstall | Fixed-key manifests, privileged maintenance, apt/dnf or atomic AppImage replacement | All six packages, cancellation, locks, interrupted upgrade and recovery |
 
-The historical v0.3.2 readiness review predates this Linux extension. Its existing
-Windows/Android results do not certify these new Linux paths or the larger
-package set. New validation must identify the exact source and candidate.
+The v0.3.2 readiness review predates Linux support and does not cover it.

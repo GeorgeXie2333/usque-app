@@ -43,11 +43,11 @@ Details are in [RELEASE.md](RELEASE.md):
 - signing identities live only in `release-signing` environment secrets;
 - a local build cannot replace a failed GitHub Actions candidate.
 
-Before `v0.3.2`, verify the live `main` ruleset, maintainer-only release-tag
+Before the next release tag, verify the live `main` ruleset, maintainer-only release-tag
 restrictions, required environment reviewers and deployment branch/tag rules.
 An `environment:` entry in YAML selects an environment; it does not prove that
 GitHub approval protection is enabled. Keep those protections when changing
-the accepted release tag. The current executable contract is `v0.3.2`
+the accepted release tag. The current executable contract is still the published `v0.3.2`
 with Android base versionCode `26`. The `v0.3.2` / `26` coordination and
 checks are described in [Preparing v0.3.2](RELEASE.md#preparing-v032). A document
 update does not change the accepted tag or server-side protections.

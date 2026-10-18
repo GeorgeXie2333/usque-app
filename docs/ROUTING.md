@@ -5,8 +5,9 @@
 Open **Settings → Bypass settings**. **Custom routing rules** supports individual
 entries and **Paste rules**, with one domain, IP address or CIDR per line. Select
 DIRECT, REJECT or PROXY for the entry or pasted batch, then **Apply changes**.
-Settings are shared across accounts. Changes use the existing reconnect and
-pending-settings workflow; a saved draft does not establish runtime behavior.
+Settings are shared across accounts. Changes follow the usual reconnect and
+pending-settings flow; check the apply result, because a saved change may only
+take effect after reconnecting.
 
 **Advanced network settings → Routing & protection → Allow local network** applies to every output:
 VPN/TUN, HTTP forwarding and CONNECT (including Windows system proxy), and
@@ -165,10 +166,9 @@ Explicit configuration export includes these settings. Logs and diagnostic
 exports do not gain target lists, DNS names or packet contents. Rule validation
 returns fixed codes and rule IDs so the editor can identify its own rows.
 
-Workstation checks use fake engines, in-memory packet paths and loopback peers.
-They do not establish native VPN cleanup or external leak behavior. Follow
-[Contributing](../CONTRIBUTING.md) for the exact platform gates and isolated
-validation; unavailable isolated checks are `not_run`.
+Workstation tests use fake engines, in-memory packet paths and loopback peers;
+native VPN cleanup and external leak behavior need the isolated environments in
+[Contributing](../CONTRIBUTING.md).
 
 ## 使用说明
 

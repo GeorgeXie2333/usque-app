@@ -83,14 +83,13 @@ observations, not seven-run lab results or a universal performance guarantee.
 The connected H3 B diagnostic received on 2026-09-10 confirms a release arm64
 native build, an accepted 2097152-byte request, 4194304-byte raw receive capacity,
 229376-byte send capacity, `recvmmsg` / `sendmmsg`, and no reconnection. It still
-reports socket drops and transport-to-TUN queue drops. Increasing the socket
-buffer does not establish that the entire downstream path is loss-free. Queue
-tuning is separate work and is not bundled into this default change.
+reports socket drops and transport-to-TUN queue drops, so a larger socket
+buffer alone does not remove all downstream loss. Queue tuning is separate work.
 
 Raw diagnostic archives, device identifiers, addresses and screenshot artifacts
 are not checked in. Windows throughput with the new policy, repeated controlled
 Android throughput, platform lifecycle and externally observed leak validation
-remain `not_run` on this workstation. The change adds no publication gate.
+remain `not_run` on this workstation.
 
 ## Validation records
 

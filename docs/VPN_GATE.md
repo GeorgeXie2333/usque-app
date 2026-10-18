@@ -153,13 +153,13 @@ completed preparation, so a late result cannot undo Disconnect.
 All servers uses the cumulative pool with source score ordering; favorites use
 descending saved time. The controls share a row when the content area is wide
 enough and stack with explicit spacing at narrow widths or large text sizes.
-Source scores, ping and speed are not local measurements. Workers' TCP
-observations include their timestamps and do not establish OpenVPN, TLS or
-application connectivity. Missing or untested nodes are not treated as proven
-offline. The page marks observations older than twelve hours and source data
-older than three or twenty-four hours. Local acquisition time and the mirror's
-source acquisition time are displayed separately; neither is an upstream
-update timestamp. Hourly foreground refreshes do not guarantee CDN freshness.
+Source scores, ping and speed come from VPN Gate, not from your device.
+Worker TCP checks show when they ran; a reachable TCP port does not mean
+OpenVPN will connect. Missing or untested nodes are not marked offline. The
+page marks observations older than twelve hours and source data older than
+three or twenty-four hours. It shows when your device fetched the list and when
+the mirror fetched it from VPN Gate, which can lag behind even with hourly
+refreshes.
 
 Server rows show relative observation times, updated once a minute while the
 page is active. Absence from the latest source list has no separate label;
@@ -333,20 +333,19 @@ tests additionally run with `cargo test -p usque-openvpn --features interop-test
 --locked` after initializing the supported Windows build environment. The
 memory peer uses public test identities, TLS 1.2, CBC/SHA1, UDP-shaped IP packets,
 rekeying and terminal authentication failures; it opens no OS sockets or TUN.
-It is a Core-to-Core protocol test, not evidence of OpenVPN 2 server or public
-volunteer availability. The feature is excluded from production builds.
+It tests OpenVPN 3 Core against itself, not against OpenVPN 2 servers or
+public volunteers. The feature is excluded from production builds.
 
 The [local implementation validation record](VPN_GATE_VALIDATION.md) lists
 completed commands, the blocked PowerShell check and isolated checks not run.
 
-Real TUN, WFP, routes, leaks, crash recovery and Android device lifecycle must
-be checked in the environments defined by [the development safety rules](../CONTRIBUTING.md#development-machines).
-They are **not run on a development workstation**. The controlled exit matrix
-must compare TUN/SOCKS5/HTTP traffic against the same selected VPN Gate session,
-then independently exercise direct exceptions, unsupported IPv6, changed
-assignments, WARP loss, Gate loss, node switching and explicit disconnect.
-Record unavailable isolated validation as `not_run`. The shared validation and
-publication rules are in [Contributing](../CONTRIBUTING.md#development-machines).
+Real TUN, WFP, routes, leaks, crash recovery and Android device lifecycle are
+tested only in the isolated environments defined by
+[the development safety rules](../CONTRIBUTING.md#development-machines). The
+controlled exit matrix compares TUN/SOCKS5/HTTP traffic against the same
+selected VPN Gate session, then separately exercises direct exceptions,
+unsupported IPv6, changed assignments, WARP loss, Gate loss, node switching and
+explicit disconnect.
 
 ---
 

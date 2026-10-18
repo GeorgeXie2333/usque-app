@@ -5,12 +5,13 @@ Download packages from this repository's
 
 ## Version scope
 
-This development guide prepares v0.3.2. `Cargo.toml`, `pubspec.yaml` and the
-release workflow now declare v0.3.2 / 0.3.2+26. Planned
-package names below do not establish publication. The [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md)
-records the reviewed source and outstanding requirements. For an installed
-release, use its release notes and the guide at the matching Git tag; the
-[v0.3.1 installation guide](https://github.com/GeorgeXie2333/usque-app/blob/v0.3.1/docs/INSTALLATION.md)
+This is the development-branch guide. [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2)
+is the latest published release; `Cargo.toml`, `pubspec.yaml` and the release
+workflow still declare v0.3.2 / 0.3.2+26. This branch also describes
+unreleased changes, including Linux packages, which v0.3.2 does not contain.
+For an installed release, use its release notes and the guide at the matching
+Git tag; the
+[v0.3.2 installation guide](https://github.com/GeorgeXie2333/usque-app/blob/v0.3.2/docs/INSTALLATION.md)
 describes that published version.
 
 The Windows upgrade recovery fix was introduced in v0.2.5; the multilingual EXE
@@ -21,26 +22,22 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 
 v0.3.1 uses configuration schema 24; v0.3.0 uses 23 and v0.2.9 uses 21.
 Current source uses schema 26: schema 25 adds the shared MASQUE TLS fingerprint
-and schema 26 adds optional IPv6 endpoint presets. New/missing fingerprint
-settings and migration from schema 24 use Chrome 155; explicit saved selections
-remain, with the original handshake labeled unsafe. Older configurations start
-without an active preset. WARP DNS, account-specific Zero Trust endpoints,
-routing rules and country selections retain their existing migration behavior.
-Opening the newer app saves the migrated configuration, which older engines
-including v0.3.1 reject. Recovery journal 6 conservatively reads compatible old
-records; older Agents cannot read journal 6. The newer-Agent-first Windows
-upgrade bridge remains required. Windows also rejects installer downgrades.
-No reverse migration or WARP Secret import is provided.
+and schema 26 adds optional IPv6 endpoint presets. Migrated and new
+configurations use the Chrome 155 fingerprint unless you had explicitly chosen
+another one; the original handshake is now labeled unsafe. Older configurations
+start without an IPv6 preset. Other settings migrate as before.
 
-If returning to an older version is essential, arrange a recoverable pre-upgrade
-backup of the old installation and user data, including the platform-protected
-credentials, before upgrading. Confirm the device-specific restoration steps
-with the maintainer; a copied configuration file, diagnostic export or WARP
-Secret export is not a complete account or rollback backup. Do not lower
-`schema_version`, replace migration backups, or delete recovery records to make
-an older app accept the data. For a failed upgrade, keep the data and recovery
-records and use a newer official fix or obtain version-specific recovery
-guidance; do not assume that reinstalling an older package is supported.
+The newer app saves the migrated configuration on first launch, and v0.3.1 or
+older cannot read it. The same applies to the Windows recovery journal (version
+6). Windows rejects installer downgrades, and there is no reverse migration.
+
+If you may need to go back to an older version, back up the old installation
+and user data, including the platform-protected credentials, before upgrading,
+and ask the maintainer for restore steps for your device. A copied configuration
+file, diagnostic export or WARP Secret export is not a complete backup. Do not
+edit `schema_version` or delete recovery records to make an older version start.
+If an upgrade fails, keep your data and recovery records and install a newer
+official fix.
 
 ## Choose a package
 
@@ -48,11 +45,11 @@ guidance; do not assume that reinstalling an older package is supported.
 | --- | --- | --- |
 | Windows x64 | Windows 10 2004, build 19041 or later; x86-64-v2 CPU | x64-v2 EXE |
 | Windows ARM64 | Windows 10 2004, build 19041 or later, native ARM64 | ARM64 EXE |
-| Linux | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
+| Linux (unreleased; not in v0.3.2) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Planned package names (v0.3.2 examples)
+### Package names (published v0.3.2 examples)
 
 - `usque-v0.3.2-windows-x64-v2.exe`
 - `usque-v0.3.2-windows-arm64.exe`
@@ -61,9 +58,10 @@ guidance; do not assume that reinstalling an older package is supported.
 - `usque-v0.3.2-android-armeabi-v7a.apk`
 - `usque-v0.3.2-android-universal.apk`
 
-The planned package set also includes `usque-v0.3.2-windows-x64-v2.msi` and
+The release also includes `usque-v0.3.2-windows-x64-v2.msi` and
 `usque-v0.3.2-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
-manual Windows installation.
+manual Windows installation. v0.3.2 has no Linux packages; the future Linux
+filenames are listed in [Linux desktop](LINUX_DESKTOP.md#choose-and-verify-a-package).
 
 Each release includes `SHA256SUMS`, `release-manifest.json` and a software
 component inventory (SPDX SBOM) for each package. Pull Request builds, local
@@ -72,7 +70,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use the planned v0.3.2 names; substitute the exact filename and published tag you
+use the published v0.3.2 names; substitute the exact filename and published tag you
 downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -115,17 +113,14 @@ the package hash and from the certificate's usual SHA-1 `Thumbprint` field.
 [Microsoft's signature command reference](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/get-authenticodesignature)
 describes the signature information returned by the command.
 
-Pre-1.0 packages use the project's fixed self-signed certificate. When that
-certificate is absent from Windows trust stores, the expected `$signature.Status`
-is `UnknownError`, with a `StatusMessage` reporting that the certificate chain
-ends in an untrusted root. Windows can also show an unknown-publisher warning.
-`Valid` is also accepted if Windows already trusts the signature. For either
-accepted result, the exact official package hash and full certificate SHA-256
-must both match. Accept `UnknownError` only for the expected untrusted-root
-result; stop for a different error message, `NotTrusted`, `HashMismatch`,
-`NotSigned`, any other status, or a different signer certificate. Do not import
-the certificate into Root or Trusted Publisher to change the status or hide
-the warning. The identity policy is in
+Pre-1.0 packages use the project's fixed self-signed certificate, so the
+expected `$signature.Status` is `UnknownError`, with a `StatusMessage` saying
+the certificate chain ends in an untrusted root. `Valid` is also fine if
+Windows already trusts the signature. In both cases the package hash and the
+certificate SHA-256 must match the release. Stop for any other status or
+message (such as `NotTrusted`, `HashMismatch` or `NotSigned`) or a different
+signer certificate. Do not import the certificate into Root or Trusted
+Publisher to hide the warning. The identity policy is in
 [Code signing](CODE_SIGNING.md).
 
 ### Check the Android signer
@@ -158,8 +153,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Build provenance verification failed.' }
 This checks the file against the repository, source tag and release workflow
 that produced its attestation. See the
 [GitHub CLI reference](https://cli.github.com/manual/gh_attestation_verify) for
-authentication and verification options. An unavailable attestation is not a
-successful verification; a reported mismatch must be investigated before use.
+authentication and verification options. A missing attestation does not count
+as a pass; do not use a file that reports a mismatch.
 
 Do not run a package that asks you to disable antivirus, the firewall or endpoint
 public-key checks. Stop if the filename, version, architecture, hash or signer
@@ -241,7 +236,6 @@ from v0.2.5 or later, then uninstall the newer version if removal is your goal. 
 Agent can recover state that the older package could not clean up. If recovery
 still fails, stop and report the error with sanitized diagnostics. Do not delete
 the Agent, recovery journal or Windows network objects to bypass the failure.
-Local validation packages are not substitutes for this official upgrade.
 
 An upgrade stops with an error if it cannot restore privileged network state.
 The implementation and recovery ordering are documented in
@@ -288,11 +282,11 @@ to close.
 
 ## Linux
 
-Use the [Linux desktop guide](LINUX_DESKTOP.md) to select one installation
+Linux packages are not part of any published release yet, including v0.3.2.
+Once published, use the [Linux desktop guide](LINUX_DESKTOP.md) to select one installation
 format, verify the Ed25519 manifest, install the service and unlock the session
-keyring. Updates require confirmation; removal restores owned network state
-before deleting the service and preserves personal data. The guide distinguishes
-source behavior from baseline builds and isolated verification.
+keyring. Updates require confirmation; removal restores Usque's network changes
+before deleting the service and keeps personal data.
 
 ## Android and Android TV
 
@@ -302,14 +296,13 @@ before installing or upgrading.
 
 The app is distributed outside Google Play. Android may ask you to allow
 installation from the browser or file manager you used to open the APK.
-Official packages must use `io.github.georgexie2333.usque` and the published
-release signing certificate, and that pair must remain **Registered** through
-[Android developer verification](https://developer.android.com/developer-verification).
-The maintainer must confirm its status before distribution, as required by
-[Code signing](CODE_SIGNING.md#android-developer-verification); this guide does
-not verify a candidate's current registration. Verification records developer
-identity and key ownership; it is not Google Play distribution or a review of
-the app's content. Source-permission and sideloading prompts can still appear.
+Official packages use the package name `io.github.georgexie2333.usque` and the
+release signing certificate published in the release notes. The project
+registers that pair through
+[Android developer verification](https://developer.android.com/developer-verification);
+see [Code signing](CODE_SIGNING.md#android-developer-verification). Registration
+only identifies the developer and key; it is not a Google Play review, and
+Android can still show sideloading prompts.
 
 First-run setup requests only optional notification permission. VPN consent is
 deferred until a connection needs VPN output; local-proxy-only operation does
@@ -325,31 +318,27 @@ consent, enabling VPN output requests it again.
 
 Add Usque's tile in Android's Quick Settings editor. Opening Quick Settings asks
 the VPN service for current state; tapping the tile toggles the VPN frontend
-without starting Flutter. A temporary checking/working state remains clickable,
-so a later tap can recover control after a lost reply or process restart. Read
-the returned service state rather than assuming that a tap completed a connection.
-If control cannot recover, the tile can open the app for permission or error
-handling. These controls do not replace Always-on VPN and system blocking.
+without opening the app. While the tile shows a checking or working state you
+can tap it again, for example after the service restarted. The tile reflects
+the service's actual state, which can differ from what you tapped. If it cannot
+reach the service, it opens the app to handle permissions or errors. The tile
+does not replace Always-on VPN and system blocking.
 
 ### Keep apps blocked when the VPN ends
 
-The in-app Kill Switch protects connecting and recovery while the VPN remains
-running. HTTP/SOCKS chain startup and protected handoffs retain a blocking
-interface until the replacement is ready; terminal failures retain it according
-to the applied Kill Switch policy. Unconfirmed cleanup keeps protection.
-Other chain sources retain their documented lifecycle. The in-app protection
-cannot survive the VPN process ending. Without Android's system blocking,
-ordinary network access resumes after the VPN ends. See the
+The in-app Kill Switch blocks traffic while Usque connects, reconnects or
+switches a chain exit, as long as the VPN service is running. It cannot keep
+blocking once the VPN process ends; without Android's system blocking, apps
+then use the network directly. Chain-specific behavior is in the
 [chain protection rules](CHAIN_PROXY.md).
 
 Open **Settings → Connection & protection → Open Always-on VPN settings**. Enable
 both **Always-on VPN** and **Block connections without VPN**.
 
-For automatic startup after reboot, also enable **Start Usque when you sign in**
-under **Settings → Application** and **Connect the current
-account automatically on start** under **Connection & protection**. On Android this switch's description reads
-**Start Usque after the device restarts. To connect automatically, also turn on “Connect the current account automatically on start”.** Windows
-shows the same switch title, which starts Usque when you sign in to Windows.
+To connect automatically after a reboot, also enable **Start Usque when you
+sign in** under **Settings → Application** (on Android it starts Usque after the
+device restarts) and **Connect the current account automatically on start**
+under **Connection & protection**.
 
 ### Per-app proxy
 
@@ -431,10 +420,6 @@ not replace a valid cached ruleset.
 Use [Network Doctor](network-doctor.md) for local checks. Keep credentials and
 raw diagnostic bundles out of public Issues; use [Security policy](../SECURITY.md)
 for suspected vulnerabilities.
-
-Maintainers must use the [required isolated environments](../CONTRIBUTING.md#development-machines)
-for real install, upgrade, VPN and cleanup validation. A compile or file check
-does not establish those results.
 
 ---
 

@@ -27,23 +27,21 @@ WARP 引导 IP 仍可选，清空后通过 WARP 内配置的普通 DNS 解析服
 
 Local HTTP/SOCKS5 proxies use remote resolution through the current exit by
 default: ordinary connections use WARP DNS, while chains use their final-exit
-DNS. The Proxy page does not offer a DNS mode picker or DNS address fields.
-Existing non-default settings remain active internally, without a migration
-panel or restore action. Editing proxy listeners does not change DNS mode,
-DNS addresses or credentials. Existing local-DNS risk warnings remain when the
-saved configuration uses local or system resolution.
+DNS. The Proxy page has no DNS mode picker or DNS address fields. A
+non-default proxy DNS setting saved by an older version keeps working but is
+not shown. Editing proxy listeners does not change DNS mode, DNS addresses or
+credentials. If the saved configuration resolves locally or through the system,
+the local-DNS risk warning is still shown.
 
 本地 HTTP/SOCKS5 代理默认通过当前出口解析：普通连接使用 WARP DNS，链式连接
-使用最终出口的 DNS。代理页不再提供 DNS 方式选择器或地址输入框。已有非默认配置
-在底层继续生效，前端不显示迁移面板或恢复操作。修改代理监听地址不会改变 DNS
+使用最终出口的 DNS。代理页不再提供 DNS 方式选择器或地址输入框。旧版本保存的非默认
+代理 DNS 设置继续生效，但不在界面中显示。修改代理监听地址不会改变 DNS
 方式、DNS 地址或认证；已有配置使用本机或系统解析时，仍保留本机 DNS 风险提示。
 
 Existing DoH settings automatically display as a complete URL, preserving the
 saved name, custom port, path and bootstrap IPs. Opening the editor does not
-rewrite settings or replace them with Cloudflare. The editor retains the stored
-name/port/path representation; this does not establish application downgrade
-compatibility. See [configuration compatibility](INSTALLATION.md#configuration-compatibility-when-upgrading).
-URLs must use HTTPS, a DNS
+rewrite settings or replace them with Cloudflare; they are still stored as
+separate name, port and path fields. URLs must use HTTPS, a DNS
 name and a valid port; credentials, query strings and fragments are not supported.
 Omitting a URL port uses `443`; omitting the path uses `/dns-query`.
 
@@ -54,7 +52,6 @@ The reset takes effect only after applying.
 
 旧版 DoH 配置会自动组合为完整链接，保留原域名、自定义端口、路径与引导 IP。
 打开页面不会重写配置或替换成 Cloudflare，保存时仍使用原有域名、端口、路径字段。
-这不代表应用可以降级；整体配置迁移限制见[配置兼容性说明](INSTALLATION.md#configuration-compatibility-when-upgrading)。
 地址必须使用 HTTPS、服务器域名和有效端口，不支持用户名密码、查询参数或片段。
 省略端口时使用 `443`，省略路径时使用 `/dns-query`。
 页面内切换类型会分别保留草稿，只应用当前选中的类型。高级设置恢复默认后，草稿
@@ -89,15 +86,15 @@ DNS 与本地 HTTP/SOCKS5 的远程域名解析。旧配置中设为本机解析
 请求失败，不会自动改用普通 DNS、本机 DNS 或其他出口。请检查服务器域名、
 路径、端口和引导地址。Engine 版本过旧、不支持加密 WARP DNS 时，不会使用已保存的 DoH/DoT 配置，也不会悄悄改用普通 DNS。
 
-## Validation limits / 验证范围
+## Privacy and testing / 隐私与测试
 
-Unit and loopback tests verify configuration, encrypted exchanges, DNS
-interception decisions and resource cleanup without starting a native VPN.
-Windows platform-state restoration, dedicated Android lifecycle behavior and
-externally observed DNS leaks require the isolated environments specified in
-[Contributing](../CONTRIBUTING.md#development-machines). Missing isolated
-validation is recorded as `not_run`, never as a pass. Diagnostic exports omit
-custom server names, paths, bootstrap addresses and DNS query contents.
+Diagnostic exports omit custom server names, paths, bootstrap addresses and DNS
+query contents. Unit and loopback tests cover configuration, encrypted
+exchanges, DNS interception and resource cleanup; real VPN lifecycle and
+externally observed DNS leaks are tested only in the isolated environments
+described in [Contributing](../CONTRIBUTING.md#development-machines).
+
+诊断导出不包含自定义服务器域名、路径、引导地址和 DNS 查询内容。
 
 ---
 

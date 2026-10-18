@@ -51,16 +51,16 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
-These development docs prepare **v0.3.2**; application metadata and the release workflow now target **v0.3.2 / 0.3.2+26**. The [v0.3.2 readiness review](docs/RELEASE_V0.3.2_READINESS.md) records checks and remaining requirements. For published packages, use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. The planned package set has twelve installers, plus two Windows MSI files used only by in-app updates:
+[**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) is the latest published release; application metadata and the release workflow still target **v0.3.2 / 0.3.2+26**. These development docs also describe unreleased changes: Linux packages are not part of v0.3.2 and will first ship in a later release. For published packages, use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. v0.3.2 has six Windows/Android installers, plus two Windows MSI files used only by in-app updates; the next release adds six Linux packages:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
 | Windows | Windows 10 2004, build 19041 | x64-v2 installer EXE or ARM64 installer EXE |
-| Linux | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64 / arm64 × AppImage / deb / rpm |
+| Linux (unreleased) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64, or armeabi-v7a APK |
 | Android / Android TV | Android 8.0, API 26 | Universal APK containing all three ABIs |
 
-Linux uses generic x86-64 or ARM64 and AppImage/deb/rpm packages. Verify its Ed25519 manifest before installation. The first AppImage VPN setup installs a background service with administrator authorization; credentials require an unlocked Secret Service keyring. See the [Linux desktop guide](docs/LINUX_DESKTOP.md) for GNOME/KDE, X11/Wayland, recovery and the verified coverage. The independent debug preview remains simulated.
+Linux uses generic x86-64 or ARM64 and AppImage/deb/rpm packages. Verify its Ed25519 manifest before installation. The first AppImage VPN setup installs a background service with administrator authorization; credentials require an unlocked Secret Service keyring. See the [Linux desktop guide](docs/LINUX_DESKTOP.md) for GNOME/KDE, X11/Wayland, recovery and the tested coverage.
 
 Choose the package matching your device architecture. Windows x64 requires a CPU supporting **x86-64-v2**; ARM64 Windows uses the native ARM64 package. Use the larger universal APK when the Android ABI is unknown. Before installing, compare the package SHA-256 with `SHA256SUMS` and GitHub's asset digest, then verify the signer fingerprint published in the release notes. Stop if any value differs.
 
@@ -74,7 +74,7 @@ Upgrading from v0.3.1 migrates configuration from schema 24 to 26, which v0.3.1 
 
 1. Install a [verified official package](docs/INSTALLATION.md#verify-before-installing) and open Usque.
 2. Complete the first-run permissions and terms steps. Android setup requests only optional notifications. VPN authorization is requested when connecting with VPN output and may disconnect another VPN; proxy-only connections do not request it. Register a Consumer WARP® account, optionally with a WARP License Key. If setup was interrupted, check the saved result before registering again. Usque does not accept new WARP Secret imports.
-3. Open **Proxy → TUN and local proxies** on Windows, or **Proxy → VPN and local proxies** on Android, choose the outputs, then connect from Home. These switches take effect immediately; listener form edits require **Apply changes**. Proxy-only operation does not use the granted VPN permission to start a VPN.
+3. Open **Proxy → TUN and local proxies** on Windows, or **Proxy → VPN and local proxies** on Android, choose the outputs, then connect from Home. These switches take effect immediately; listener form edits require **Apply changes**.
 
 | Connection option | When to use it |
 | --- | --- |
@@ -84,8 +84,8 @@ Upgrading from v0.3.1 migrates configuration from schema 24 to 26, which v0.3.1 
 | Windows system proxy | Point Windows proxy settings at Usque's HTTP proxy; HTTP output must be enabled. |
 
 VPN, SOCKS5 and HTTP are enabled by default; Windows system proxy is off.
-They share one WARP connection and can run together. Disabling all outputs keeps
-the transport connection but stops providing these application connection options.
+They share one WARP connection and can run together. Turning off every output
+keeps the WARP connection open, but no app traffic uses it.
 Each account stores its own credentials; only one account connects at a time.
 Network settings are shared by all accounts.
 
@@ -144,8 +144,8 @@ are blocked instead of bypassing the tunnel.
   the VPN ends, enable both system **Always-on VPN** and **Block connections
   without VPN**. See [Android setup](docs/INSTALLATION.md#android-and-android-tv).
 - Usque does not combine several paths for extra bandwidth. Some quality readings,
-  including HTTP/2 packet loss and PMTU, are unavailable. A local diagnostic pass
-  does not establish that no traffic leaked or that performance improved.
+  including HTTP/2 packet loss and PMTU, are unavailable. Local diagnostics cannot
+  detect traffic leaks.
 
 ### DNS privacy
 
@@ -214,7 +214,7 @@ Start with the [Wiki](https://github.com/GeorgeXie2333/usque-app/wiki/Home) for 
 | Understand implementation and verification status | [Implementation](docs/IMPLEMENTATION.md) |
 | Maintain an official release | [Release process](docs/RELEASE.md) |
 
-Use the pinned toolchains and change-scoped checks in the contribution guide. Compile-only builds and deterministic tests are safe workstation checks; installing development packages or exercising VPN lifecycle requires the designated isolated environments. A successful build is not installation, leak, or performance evidence.
+Use the pinned toolchains and change-scoped checks in the contribution guide. Compile-only builds and deterministic tests are safe workstation checks; installing development packages or exercising VPN lifecycle requires the designated isolated environments.
 
 ## Upstream and license
 

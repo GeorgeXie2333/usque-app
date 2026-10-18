@@ -33,22 +33,19 @@ when requested. SOCKS5 and HTTP traffic goes directly to CONNECT streams,
 without creating a local TCP/IP stack. VPN/TUN uses a bounded local TCP
 termination bridge. Switching data planes or toggling TUN in L4 reconnects;
 existing application connections are not preserved across those changes.
-Frontend listener/authentication edits retain the existing hot-update contract.
-Congestion control remains a saved preference for the next user session.
+Listener and authentication edits apply as in other modes. Congestion control
+remains a saved preference for the next manual connection.
 
-The transport selector shows a concise L4 hint only while L4 is selected;
-Auto, H3 and H2 do not display it. The short copy is localized in all 21 language
-catalogs. Detailed traffic limitations remain on the proxy page and below.
-An unavailable L4 option keeps its explanatory tooltip; a previously saved L4
-selection also shows the unsupported-engine warning until another mode is chosen.
+The transport selector shows a short L4 hint while L4 is selected; the traffic
+limits are on the proxy page and above. If the engine does not support L4, the
+option is unavailable and explains why; a previously saved L4 selection shows
+the unsupported-engine warning until another mode is chosen.
 
-An older engine without all required L4 capability fields cannot enable L4.
 The Home readout and Network quality page show the running data plane, not
-just a saved preference. QUIC readiness does not prove CONNECT permission:
-the CONNECT-verified indicator is set only after a real successful CONNECT.
-Existing application exit-information requests are unchanged; L4 itself adds
-no automatic destination probe. Doctor's QUIC handshake probe alone does not
-mark CONNECT verified.
+just the saved preference. A ready QUIC connection does not mean CONNECT is
+allowed, so the CONNECT-verified indicator appears only after a real CONNECT
+succeeds; Doctor's QUIC handshake probe does not set it. L4 does not add any
+automatic destination probe.
 
 ## Implementation reference
 
@@ -75,9 +72,8 @@ uses the existing authenticated source once; a further mismatch fails closed.
 The Zero Trust mapping comes from
 [upstream issue 126](https://github.com/Diniboy1123/usque/issues/126), not an
 official long-term protocol guarantee. Source-derived vectors and attribution
-are in the [L4 interoperability fixture](../crates/usque-transport/tests/fixtures/l4/README.md).
-Live Consumer and Zero Trust reachability must be recorded separately; offline
-fixture success is not a Cloudflare® account test.
+are in the [L4 interoperability fixture](../crates/usque-transport/tests/fixtures/l4/README.md);
+the fixture is offline and does not contact Cloudflare®.
 The [2026-10-14 fingerprint experiment](L4_CHROME_FINGERPRINT_VALIDATION.md)
 verified Consumer L4 CONNECT and HTTPS with Default and Chrome 131 profiles at
 one ingress. Zero Trust was not tested in that experiment.
@@ -243,17 +239,15 @@ the L4 GUI tests and the vendored allocator/listener tests:
 cargo test --manifest-path third_party/ts_netstack_smoltcp_core/Cargo.toml --lib --locked
 ```
 
-The [performance scenario manifest](l4-performance-scenarios.json) keeps proxy
-and TUN measurements separate. It is a sampling contract, not a generated pass
-report or a replacement for existing performance thresholds. Run each case at
-least seven times with fixed candidate, baseline, platform and network metadata.
-Report medians, dispersion and request-level p95/p99, not an unmeasured speedup.
+The [performance scenario manifest](l4-performance-scenarios.json) defines
+separate proxy and TUN measurements. Run each case at least seven times with
+fixed candidate, baseline, platform and network metadata, and report medians,
+dispersion and request-level p95/p99.
 
 Live Cloudflare interoperability, real Windows/Android lifecycle, externally
-observed leak safety and controlled performance measurements are **not run on
-a development workstation**. They require the distinct protected environments
-in [Contributing](../CONTRIBUTING.md#development-machines). Record missing or failed validation as `not_run` or `failed`. Publication policy
-is defined in the shared contribution and release guides.
+observed leaks and controlled performance are not tested on a development
+workstation; they need the protected environments in
+[Contributing](../CONTRIBUTING.md#development-machines).
 
 ---
 

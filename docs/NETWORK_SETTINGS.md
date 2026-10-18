@@ -267,9 +267,8 @@ of cumulative UDP input before QUIC parsing. This bounds admitted startup input,
 not total heap usage; existing bounded UDP queues and parser overhead remain.
 Only the winner is promoted after loser shutdown and generation revalidation.
 
-Workstation unit/widget tests and compile-only builds do not establish native
-VPN cleanup or leaks. IPv6 protocol measurements and protected-environment
-validation must be reported separately; unavailable environments are `not_run`.
+Native VPN cleanup, leaks and IPv6 protocol measurements need the protected
+environments and are reported separately from workstation tests.
 
 ## Entry points and ownership
 
@@ -527,9 +526,8 @@ artifacts are not baseline inputs.
 
 Real VPN lifecycle, WFP, route/DNS/system-proxy restoration, connected
 uninstall, crash recovery, Android device lifecycle, and leak observation
-require the isolated environments in [Contributing](../CONTRIBUTING.md#development-machines). Workstation
-unit and compile checks do not establish those results. No MSI or release
-APK is part of this change.
+require the isolated environments in [Contributing](../CONTRIBUTING.md#development-machines).
+No MSI or release APK is part of this change.
 
 ### Review-fix validation, 2026-09-11
 
@@ -767,9 +765,8 @@ Windows exact-target leases and Android protected sockets are unchanged; failed
 GEO loading cannot be masked by a custom-rule hit. DNS hints remain bounded,
 non-persistent, TTL-limited and scoped to the current network generation.
 
-No new logs contain custom domains or target addresses. Workstation fake-engine,
-loopback and compile tests do not establish VPN cleanup or leak prevention;
-those require the isolated environments in CONTRIBUTING.md.
+No new logs contain custom domains or target addresses. VPN cleanup and leak
+prevention are tested in the isolated environments in CONTRIBUTING.md.
 
 ## Protected Windows operation replacement
 

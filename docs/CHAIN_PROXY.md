@@ -43,30 +43,26 @@ and saved/current markers. VPN Gate observations remain labeled as remote data.
 使用相同的单选控件及“已保存的选择”“当前连接”标记；VPN Gate 的远端观测说明
 保持可见。
 
-The chain editor's current-connection section shows factual HTTP/SOCKS scope
-hints from the runtime snapshot and applied session profile. Proxy-only
-connections describe their application-only coverage, including failed sessions
-whose scope is confirmed; tunnel connections keep explicit direct and per-app
-rules. A failed confirmed VPN session warns that
-ordinary networking may return only when the runtime Kill Switch is explicitly
-inactive. Saved changes and editor drafts do not imply that the running session
-changed. Unknown scope remains unknown; no new protection status is inferred.
-Android system-blocking advice is conditional because an absent Lockdown report
-does not prove it is disabled. A SOCKS5 UDP association accepted by the server is
-not evidence of working end-to-end UDP forwarding. Home omits these explanatory
-paragraphs. Its phone layout retains the compact chain summary and WARP status
-row. Refreshes without a separate WARP observation use known connection stages;
-unknown states show a dash, and reported reconnects or failures remain visible.
+The **Current connection** section describes what the running session covers,
+based on its actual state. Proxy-only sessions cover only apps that use the
+local proxies, even after a failure; VPN sessions still honor explicit direct
+and per-app rules. If a VPN session fails while the Kill Switch is off, the
+section warns that apps may use the normal network. Saved changes and drafts
+appear only after they are applied, and anything Usque cannot confirm is shown
+as unknown. Android advice about system blocking is conditional, because Usque
+cannot always tell whether Lockdown is on. A SOCKS5 server accepting a UDP
+association does not mean UDP works end to end. Home shows only the compact
+chain summary and WARP status row; without a separate WARP report it shows the
+known connection stage, or a dash when unknown. Reconnects and failures stay
+visible.
 
-链式代理编辑页的“当前连接”显示 HTTP/SOCKS 范围提示，依据实际运行状态和已应用的
-会话配置。已确认范围的仅代理会话即使失败，也说明只接管应用交给 Usque 的连接；
-VPN 模式说明显式直连与分应用规则继续生效。已确认的 VPN 会话失败且运行状态明确
-显示 Kill Switch 未启用时，
-才提示设备可能恢复普通网络。已保存修改和编辑草稿不会被当成当前会话；范围未知时
-不猜测，也不新增“已保护”状态。Android 系统阻断说明使用条件式文案，未上报
-Lockdown 不等于已关闭。SOCKS5 UDP 关联被服务器接受不等于端到端 UDP 转发已验证。
-首页不显示这些长篇说明，手机仍保留简短的链式摘要及 WARP 状态行。刷新缺少独立
-WARP 上报时使用已确认的连接阶段；无法确认时显示横线，明确上报的重连或失败仍会显示。
+链式代理编辑页的“当前连接”根据实际运行状态说明当前会话的覆盖范围：仅代理会话
+（包括失败后）只接管使用本地代理的应用；VPN 会话继续遵守显式直连与分应用规则。
+VPN 会话失败且 Kill Switch 未开启时，会提示应用可能改走普通网络。已保存的修改和
+草稿在应用后才会显示；无法确认的状态显示为未知。Usque 无法总是判断 Lockdown 是否
+开启，因此 Android 系统阻断建议使用条件式说明。SOCKS5 服务器接受 UDP 关联，不代表
+端到端 UDP 可用。首页只显示简短的链式摘要和 WARP 状态行；没有单独的 WARP 上报时
+显示已知的连接阶段，未知时显示横线，重连和失败仍会显示。
 
 WARP via WireGuard supports generated/imported configurations and editable
 endpoints. See [WARP via WireGuard](WARP_WIREGUARD.md).
@@ -212,20 +208,19 @@ confirms the final SOCKS5 server's acceptance of UDP ASSOCIATE, not end-to-end
 delivery. A local DNS-only association does not change that status. Individual
 target failures affect that flow; authentication failure closes the chain.
 
-An ASSOCIATE timeout leaves UDP capability unknown. A server that accepts the
-association can still silently discard datagrams; neither acceptance nor an
-absence of replies is a privacy or reachability guarantee. These outcomes do not
-enable direct or WARP-only fallback. Explicit GEO, LAN/CIDR and Android app
+An ASSOCIATE timeout leaves UDP capability unknown, and a server that accepts
+the association can still silently drop datagrams. Neither case triggers a
+direct or WARP-only fallback. Explicit GEO, LAN/CIDR and Android app
 bypasses remain intentional exceptions. In proxy-only mode, only traffic sent
 to Usque's local listeners is covered; applications that bypass those listeners
 are outside the proxy's protection.
 
 VPN protection covers captured traffic from the moment native blocking is
-successfully installed, throughout the HTTP/SOCKS session and its protected
-handoffs. UDP capability does not authorize another exit. Explicit direct and
-app-exclusion rules remain outside that scope. This feature does not change
-network-interface address candidates that WebRTC or other browser APIs can expose to a page;
-it is not a guarantee that every browser-reported address is the proxy address.
+installed, throughout the HTTP/SOCKS session and its protected handoffs.
+Explicit direct and app-exclusion rules remain outside that scope. Usque does
+not change the local interface addresses that WebRTC and similar browser APIs
+can expose to websites, so a page may still see addresses other than the
+proxy's.
 
 HTTP/SOCKS5 exits resolve names through the final proxy. Choose the method in
 **Add proxy → DNS**:
@@ -288,15 +283,14 @@ TUN 会对拒绝的数据报和明确的转发失败返回限速的 ICMP 错误�
 不会改变出口 UDP 状态。仅支持 FRAG=0，含 SOCKS 头的 relay 包
 上限为 16336 字节；TUN 回包须符合 MTU，原有 IP 包限制继续适用。
 
-UDP 关联超时后，能力状态仍为未知；服务器接受关联后也可能静默丢包。接受关联或
-没有收到回包，都不能证明端到端可达或隐私安全，也不会触发直连或仅 WARP 回退。
+UDP 关联超时后，能力状态仍为未知；服务器接受关联后也可能静默丢包。这两种情况
+都不会触发直连或仅 WARP 回退。
 显式 GEO、LAN/CIDR 及 Android 应用旁路仍是用户指定的例外。仅代理模式只覆盖
 发送到 Usque 本地监听器的流量，未使用这些监听器的应用流量不在代理保护范围内。
 
 VPN 防护从原生阻断成功安装开始，覆盖 HTTP/SOCKS 会话及其受保护交接期间接管的
-流量；UDP 能力不构成改走其他出口的授权。显式直连和应用排除仍不属于这一范围。
-此功能不会修改浏览器通过 WebRTC 等接口向网页提供的网卡候选地址，因此不承诺
-浏览器报告的每个地址都等于代理出口地址。
+流量。显式直连和应用排除不属于这一范围。Usque 不会修改浏览器通过 WebRTC 等接口
+暴露给网页的本机网卡地址，因此网页仍可能看到代理出口以外的地址。
 
 HTTP/SOCKS5 出口通过最终代理解析域名，在**添加代理 → DNS** 中选择方式：
 
@@ -622,9 +616,8 @@ handles its Dart-package notices.
 
 Read the original [validation and size evidence](CHAIN_PROXY_VALIDATION.md) and
 the later [fix validation record](CHAIN_PROXY_FIX_VALIDATION.md) for candidate-specific
-build results and unavailable checks. Compile-only evidence does not establish real
-VPN lifecycle or external leak behavior. See [Contributing](../CONTRIBUTING.md)
-for the workstation and isolated-runner boundaries.
+build results and unavailable checks. Real VPN lifecycle and external leak
+testing use the isolated runners described in [Contributing](../CONTRIBUTING.md).
 
 ## Imported record compatibility / 导入记录兼容
 

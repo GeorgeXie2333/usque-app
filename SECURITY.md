@@ -20,7 +20,7 @@ Examples:
 - Kill Switch, reconnect, crash, sleep/wake, upgrade, or uninstall leakage
 - endpoint-pin bypass, unsafe certificate acceptance, or unauthenticated pin refresh
 - exposure of a WARP® Secret, private key, token, device identifier, license, or endpoint pin
-- privilege problems in the Windows Agent, WFP/Wintun, Android `VpnService`, Binder, JNI, or secure storage
+- privilege problems in the Windows Agent, WFP/Wintun, Linux Agent, nftables/DNS recovery, Engine Unix socket, Android `VpnService`, Binder, JNI, or secure storage
 - installer, updater, signature, provenance, dependency, or release-chain compromise
 - an unintended non-loopback proxy listener, authentication bypass, or cross-user IPC access
 - redaction failures in logs, diagnostics, errors, crash dumps, or exported data

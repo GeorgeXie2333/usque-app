@@ -1,6 +1,6 @@
 # Usque implementation progress
 
-This is the source-tree checklist for Windows and Android / Android TV, not a
+This is the source-tree checklist for Windows, Linux and Android / Android TV, not a
 release changelog or a test-run report. A development branch can contain work
 not present in the latest package. macOS source is kept for later work and is
 not built, packaged, or tested for the current release.
@@ -34,13 +34,31 @@ Chrome 155; explicit choices remain, and older settings have no active preset.
 Older engines/Agents reject the newer schemas. Keep the newer-Agent-first
 upgrade bridge and see [upgrade compatibility](INSTALLATION.md#configuration-compatibility-when-upgrading).
 
-The preparation target is `v0.3.2 / 0.3.2+26`, not proof of publication.
-Use [release preparation](RELEASE.md#preparing-v032) and the
-[v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) for remaining requirements.
+[v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) was
+published on 2026-10-17 from `02685ee3`. [Release preparation](RELEASE.md#preparing-v032)
+and the [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) record that preparation.
 DIRECT/REJECT/PROXY, WARP encrypted DNS, chain exits and native Windows
 installation already existed; do not label them new in this release.
 Static tests do not establish real upgrades, measured performance, anonymity
 or leak prevention. Authentication, pins and DNS policy boundaries remain.
+
+## Unreleased source changes after v0.3.2
+
+These changes are in the development branch, not in the published v0.3.2
+packages. They need a separately reviewed version and release workflow update.
+
+- [Linux desktop](LINUX_DESKTOP.md): real Engine, privileged Linux Agent,
+  nftables/DNS/proxy recovery journal, Secret Service credentials and Ed25519
+  signed amd64/arm64 AppImage, deb and rpm packages.
+- [Upstream transport fixes](UPSTREAM_TRANSPORT_VALIDATION.md): ICMP saturation
+  no longer stalls the netstack, and TCP buffers follow H3 capacity.
+- Automatic endpoint pin rejections stay local to the rejected candidate; the
+  pin refresh and single retry run only after the whole candidate round fails.
+  See [Diagnostics and observability](diagnostics-observability.md).
+- [Network settings](NETWORK_SETTINGS.md) recover unconfirmed saves and lost
+  save acknowledgements through bounded durable-save receipts.
+- [Android packaging](RELEASE.md#unreleased-packaging-changes) uses
+  `base build * 1000 + ABI suffix` version codes for F-Droid updates.
 
 ## Architecture
 
@@ -188,6 +206,15 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [ ] System proxy snapshot, apply, and crash/uninstall recovery.
 - [ ] macOS 12+ Universal and macOS 10.15–11.7 Intel-compatible PKG packaging.
 
+### Linux desktop
+
+- [x] Unprivileged Engine with a private `XDG_RUNTIME_DIR` socket and peer-credential checks.
+- [x] Root Agent for TUN, routes, nftables guard, resolved/NetworkManager DNS and a Linux-only recovery journal.
+- [x] Secret Service storage for credentials and the chain-profile key, without plaintext fallback.
+- [x] GNOME/KDE system proxy, StatusNotifierItem tray and current-user login entry.
+- [x] Ed25519 signed amd64/arm64 AppImage, deb and rpm packages with format-matched updates and removal.
+- [ ] Isolated install, upgrade, removal, TUN, leak and recovery validation on `usque-linux-snapshot-vm`.
+
 ## Milestone 4 — Flutter UX
 
 - [x] Responsive Home, Accounts, Proxy, Settings, Advanced, and Diagnostics/About pages.
@@ -233,12 +260,12 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] SHA-256, SPDX SBOM attestations, provenance, commit, and certificate fingerprint.
 - [ ] Expand clean-machine installation and removal coverage beyond the current protected matrix to every supported artifact and OS/architecture combination.
 
-The release workflow requires the declared Windows and Android packages,
+The release workflow requires the declared Windows, Android and Linux packages,
 signing inputs, architecture checks, successful required CI, manifest, SBOMs,
 and attestations for the exact candidate. A local binary cannot replace a
 failed GitHub Actions artifact.
 
-Protected Windows, Android, network-observer, and performance runs are opt-in
+Protected Windows, Linux, Android, network-observer, and performance runs are opt-in
 supplemental validation, not publication prerequisites. They run only in a
 private repository with `RUN_PROTECTED_RELEASE_VALIDATION` set to `true`; the
 public repository always skips them, and a skipped run counts as `not_run`.

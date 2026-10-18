@@ -188,8 +188,8 @@ IP addresses; it does not re-query the hostname through a system/configured
 plaintext resolver. Physical-system routing keeps its existing fallback.
 
 Disabling the internal encrypted-DNS capability rejects an encrypted Profile
-before connection. It never rewrites the saved mode or silently substitutes
-physical-system DNS. Users may explicitly change the Profile themselves.
+before connection without rewriting the saved mode or substituting
+physical-system DNS.
 
 ### Privacy and validation limits
 
@@ -236,10 +236,9 @@ application SERVFAIL, proxy fallback and parser/media-type property fuzzing.
 The fake protector panics if encrypted code calls physical DNS discovery or
 hostname resolution. Existing system-mode truncation/oracle fixtures remain.
 
-These tests are not external leak proof. Actual device/adapter binding,
-observer packet counts and controlled performance evidence require the
-protected environments in [Contributing](../CONTRIBUTING.md#development-machines). Unavailable runs must be recorded as `not_run`; they do not establish leak or
-performance results.
+Actual device/adapter binding, externally observed packet counts and
+performance need the protected environments in
+[Contributing](../CONTRIBUTING.md#development-machines).
 
 ## Custom bypass targets / 自定义绕过目标
 

@@ -2,7 +2,7 @@
 
 Usque can experimentally register a new account with a Cloudflare Zero Trust organization on Windows and Android. This feature is intentionally narrower than the Cloudflare One™ Client: it uses the organization account to create a persistent device identity, then carries Internet traffic through Usque's existing MASQUE tunnel.
 
-It does not implement organization policy synchronization, device posture, managed DNS, Split Tunnels, private-network routing, WARP-to-WARP, service-token enrollment, or automatic client-session reauthentication. The Android per-app proxy picker is a local UID filter on this device; it is not Cloudflare One Split Tunnel or organization policy sync. Gateway policy can still affect traffic on Cloudflare's side, but Usque does not claim full Cloudflare One Client compatibility.
+It does not implement organization policy synchronization, device posture, managed DNS, Split Tunnels, private-network routing, WARP-to-WARP, service-token enrollment, or automatic client-session reauthentication. The Android per-app proxy picker is a local filter on this device, not a Cloudflare One Split Tunnel. Gateway policy can still affect traffic on Cloudflare's side.
 
 ## Enrollment flow
 
@@ -92,10 +92,7 @@ The enrollment exchange and `zt-masque.cloudflareclient.com` contract are experi
 - the vault, logs, diagnostic bundle, profile JSON, and Android state contain no Access assertion;
 - the administrator removes every test or orphaned registration afterward.
 
-If validation fails or has not run, keep the feature experimental and do not
-promote it to production-supported status. Product publication follows
-[Release process](RELEASE.md) and its required gates; supplemental protected-runner
-results do not block publication. Do not silently fall back to Consumer
+Until then the feature stays experimental. It must not fall back to Consumer
 registration or probe undocumented API variants.
 
 ---

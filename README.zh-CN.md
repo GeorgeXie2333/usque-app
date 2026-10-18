@@ -51,16 +51,16 @@ Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系�
 
 ## 下载与安装
 
-本文为 **v0.3.2** 准备开发文档；应用版本元数据与发布流程已同步为 **v0.3.2 / 0.3.2+26**。[v0.3.2 发布准备审查](docs/RELEASE_V0.3.2_READINESS.md) 记录了检查结果与发布待办。安装已发布版本时，请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。计划提供十二种安装包，另有两个仅供应用内更新使用的 Windows MSI 文件：
+[**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) 是最新的已发布版本；应用版本元数据与发布流程仍为 **v0.3.2 / 0.3.2+26**。本开发文档同时描述尚未发布的改动：Linux 安装包不包含在 v0.3.2 中，将在之后的版本首次提供。安装已发布版本时，请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。v0.3.2 提供六种 Windows/Android 安装包，另有两个仅供应用内更新使用的 Windows MSI 文件；下一版本将新增六种 Linux 安装包：
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |
 | Windows | Windows 10 2004，Build 19041 | x64-v2 安装程序 EXE 或 ARM64 安装程序 EXE |
-| Linux | Ubuntu 22.04+、Debian 12+、受支持的 Fedora；systemd | amd64 / arm64 × AppImage / deb / rpm |
+| Linux（尚未发布） | Ubuntu 22.04+、Debian 12+、受支持的 Fedora；systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0，API 26 | arm64-v8a、x86_64 或 armeabi-v7a APK |
 | Android / Android TV | Android 8.0，API 26 | 包含上述三种 ABI 的通用 APK |
 
-Linux 提供通用 x86-64 与 ARM64 的 AppImage/deb/rpm，请在安装前验证 Ed25519 签名清单。AppImage 首次使用 VPN 时需要管理员授权安装后台服务；凭据依赖已解锁的 Secret Service 钥匙串。[Linux 桌面指南](docs/LINUX_DESKTOP.md) 说明 GNOME/KDE、X11/Wayland、恢复流程与已验证范围。独立调试预览仍使用模拟数据。
+Linux 提供通用 x86-64 与 ARM64 的 AppImage/deb/rpm，请在安装前验证 Ed25519 签名清单。AppImage 首次使用 VPN 时需要管理员授权安装后台服务；凭据依赖已解锁的 Secret Service 钥匙串。[Linux 桌面指南](docs/LINUX_DESKTOP.md) 说明 GNOME/KDE、X11/Wayland、恢复流程与已测试范围。
 
 请选择与设备架构匹配的安装包。Windows x64 需要支持 **x86-64-v2** 的 CPU；ARM64 Windows 使用原生 ARM64 安装包。不清楚 Android 设备架构时，可使用体积更大的通用 APK。安装前，将软件包 SHA-256 与 `SHA256SUMS` 及 GitHub 显示的文件校验值比对，再核验发布说明中的签名者指纹。任何一项不一致都应停止安装。
 
@@ -74,7 +74,7 @@ Linux 提供通用 x86-64 与 ARM64 的 AppImage/deb/rpm，请在安装前验证
 
 1. 按[安装指南](docs/INSTALLATION.md#verify-before-installing)核验正式安装包，安装后打开 Usque。
 2. 完成首次启动的权限与条款步骤。Android 引导只申请可选通知权限，连接需要 VPN 输出时才申请系统授权，授权可能断开其他 VPN；仅本地代理连接不申请。注册个人版 WARP® 账号，也可以填写 WARP License Key。若设置中断，先检查已保存结果再重新注册。目前不支持导入新的 WARP Secret。
-3. 在 Windows 的“代理 → 虚拟网卡与本地代理”或 Android 的“代理 → VPN 与本地代理”中选择联网方式，然后在主页连接。开关立即生效，监听地址表单修改需要点击“应用修改”。仅代理运行不会因已授权而启动 VPN。
+3. 在 Windows 的“代理 → 虚拟网卡与本地代理”或 Android 的“代理 → VPN 与本地代理”中选择联网方式，然后在主页连接。开关立即生效，监听地址表单修改需要点击“应用修改”。
 
 | 联网方式 | 用途 |
 | --- | --- |
@@ -84,7 +84,7 @@ Linux 提供通用 x86-64 与 ARM64 的 AppImage/deb/rpm，请在安装前验证
 | Windows 系统代理 | 将 Windows 的代理设置指向 Usque；需同时启用 HTTP 代理。 |
 
 VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们共用一条 WARP 连接，可以同时使用。
-全部关闭后，Usque 仍可保持传输连接，但不再提供上述应用联网方式。
+全部关闭后，WARP 连接仍会保持，但不再承载任何应用流量。
 每个账号单独保存凭据，一次只能使用一个账号连接；网络设置由所有账号共享。
 
 ## 主要功能
@@ -124,7 +124,7 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
   如果需要在 VPN 结束后继续阻止应用联网，请同时开启系统的“始终开启的 VPN”和“阻止未使用 VPN 的连接”。
   操作方法见 [Android 安装说明](docs/INSTALLATION.md#android-and-android-tv)。
 - Usque 不会通过多条路径叠加带宽。部分指标无法测量，例如 HTTP/2 的丢包率和 PMTU。
-  本地诊断通过并不代表已经证明没有流量泄漏，或测得了性能提升。
+  本地诊断无法检测流量泄漏。
 
 ### DNS 隐私
 
@@ -184,7 +184,7 @@ Zero Trust 端点初始使用注册地址。在高级网络设置中选择 **编
 | 实现与验证状态 | [实现进度](docs/IMPLEMENTATION.md) |
 | 维护正式发布 | [发布流程](docs/RELEASE.md) |
 
-请遵循贡献指南中的固定工具链和按改动范围划分的检查。仅编译构建和确定性测试可在开发机进行；安装开发包或测试 VPN 生命周期必须使用规定的隔离环境。构建成功不等于完成安装、泄漏或性能验证。
+请遵循贡献指南中的固定工具链和按改动范围划分的检查。仅编译构建和确定性测试可在开发机进行；安装开发包或测试 VPN 生命周期必须使用规定的隔离环境。
 
 ## 上游与许可
 

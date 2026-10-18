@@ -207,11 +207,10 @@ The desktop writes and syncs a temporary ZIP in the destination directory,
 then replaces the destination. Android writes to the selected document
 provider's stream; provider failures can leave partial output, and this path
 does not promise atomic file replacement. Nothing is uploaded automatically.
-Logging and diagnostic queues are independent of authoritative platform
-recovery journals and cannot establish recovery or traffic protection.
+Logging and diagnostic queues are separate from the platform recovery
+journals, which remain the authority for recovery.
 
-Local checks, bounded counters and golden screenshots do not prove absence of
-DNS/Kill Switch leaks, platform restoration or real-world performance. Those
-claims require the matching isolated evidence described in
-[Reliability testing](RELIABILITY_TESTING.md). Unavailable isolated validation
-must remain `not_run`.
+Claims about DNS/Kill Switch leaks, platform restoration or real-world
+performance need the isolated evidence described in
+[Reliability testing](RELIABILITY_TESTING.md); local checks and golden
+screenshots do not cover them.
