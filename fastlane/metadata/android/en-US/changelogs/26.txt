@@ -1,0 +1,1 @@
+v0.3.2: live ad-block rule updates, IPv6 endpoint presets and bounded leases, registration and DNS recovery improvements, and Android UI lifecycle fixes. Configuration migrates from schema 24 to 26; v0.3.1 and older cannot read it, and reinstalling an older package does not reverse the migration.

@@ -1,0 +1,37 @@
+Usque は Android / Android TV 向けの Cloudflare® WARP® サービスと互換性のある非公式クライアントです（Windows 版もあり）。システム VPN、SOCKS5、HTTP プロキシをネイティブの Flutter インターフェースにまとめ、Rust 製 MASQUE エンジンで通信を処理します。Android 8.0（API 26）以降が必要です。
+
+<strong>接続方式（1 つの WARP 接続を共有、同時利用可）</strong>
+<ul>
+<li><b>VPN/TUN</b>：バイパス規則と Android のアプリ別設定に従い、システム通信をトンネル経由にします</li>
+<li><b>SOCKS5</b>：対応アプリにローカル TCP/UDP プロキシを提供。既定でリモート DNS を使用</li>
+<li><b>HTTP プロキシ</b>：ローカル HTTP プロキシを提供。CONNECT による HTTPS にも対応</li>
+</ul>
+
+<strong>主な機能</strong>
+<ul>
+<li>フルトンネル VPN、トンネル内 DNS、Kill Switch、LAN アクセス</li>
+<li>DIRECT／REJECT／PROXY ルールと広告ブロック。広告ルールはアプリ実行中に自動更新</li>
+<li>任意のチェーンプロキシ：OpenVPN、WireGuard、WARP via WireGuard、VPN Gate、HTTP、SOCKS5</li>
+<li>HTTP/3 自動接続と HTTP/2 フォールバック。IPv4 と IPv6 で到達可能なエンドポイントを探索</li>
+<li>カスタム WARP 出口 DNS：通常の DNS、DoH、DoT</li>
+<li>任意の国別直結ルーティング。GeoIP と GeoSite のデータは個別にダウンロード</li>
+<li>ローカルネットワーク診断と品質ページ：遅延、パケットロス、キュー、直近 60 秒の推移</li>
+<li>Android のクイック設定タイル、ランチャーショートカット、再起動後の復帰、TV リモコン操作</li>
+<li>アプリごとのプロキシ。未選択アプリはバイパスではなくブロックすることも可能</li>
+<li>21 言語、ライト／ダークテーマ</li>
+</ul>
+
+<strong>プライバシー</strong>
+<ul>
+<li>WARP サーバーの公開鍵は登録済み鍵と一致する必要があり、検証は省略できません</li>
+<li>認証情報は Android Keystore に保存され、VPN は専用プロセスで実行されます</li>
+<li>プロキシは既定でループバックのみで待ち受け。任意のユーザー名・パスワード認証に対応</li>
+<li>診断はローカルで生成し機密情報を除去。利用分析や自動アップロードはありません</li>
+<li>ログは既定で INFO、保存上限は 7 日または 20 MiB</li>
+</ul>
+
+Usque は独立したプロジェクトで、Cloudflare, Inc. との提携関係はなく、同社からの支援や推奨も受けていません。Cloudflare と WARP は米国およびその他の法域における Cloudflare, Inc. の商標または登録商標です。個人向け WARP サービスの利用には Cloudflare の利用規約とプライバシーポリシーが適用されます。
+
+接続には無料の個人向け WARP アカウントの登録（任意で WARP License Key）が必要です。新しい WARP Secret のインポートには対応していません。正式なパッケージは GitHub Releases のみで配布されます。
+
+Usque 自体のソースコードは MIT ライセンスです。サードパーティコンポーネントは各自のライセンスを維持します（OpenVPN 3 Core MPL-2.0、Mbed TLS Apache-2.0、BoringTun BSD-3-Clause）。

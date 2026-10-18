@@ -1,0 +1,37 @@
+Unofficial client compatible with Cloudflare® WARP® services for Android and Android TV; Windows builds are also available. It combines a system VPN, SOCKS5 and HTTP proxy in a native Flutter interface, powered by a Rust MASQUE engine. Requires Android 8.0 (API 26) or newer.
+
+<strong>Connection outputs (share one WARP connection, can run together)</strong>
+<ul>
+<li><b>VPN/TUN</b>: route system traffic through the tunnel, with bypass and Android per-app rules</li>
+<li><b>SOCKS5</b>: local TCP/UDP proxy for compatible apps; remote DNS by default</li>
+<li><b>HTTP proxy</b>: local HTTP proxy, including HTTPS through CONNECT</li>
+</ul>
+
+<strong>Features</strong>
+<ul>
+<li>Full-tunnel VPN, tunneled DNS, Kill Switch and LAN access</li>
+<li>DIRECT/REJECT/PROXY routing rules with ad blocking; ad rules update automatically while the app runs</li>
+<li>Optional chain proxy: OpenVPN, WireGuard, WARP via WireGuard, VPN Gate, HTTP, SOCKS5</li>
+<li>Automatic HTTP/3 connections with HTTP/2 fallback; IPv4 and IPv6 endpoint attempts</li>
+<li>Custom WARP exit DNS: plain DNS, DoH or DoT</li>
+<li>Optional country-based direct routing using separately downloadable GeoIP and GeoSite data</li>
+<li>Local network diagnostics and a network quality page: latency, packet loss, queues and 60-second trends</li>
+<li>Android Quick Settings tile, launcher shortcuts, boot recovery and TV navigation</li>
+<li>Per-app proxy; unselected apps can be blocked instead of bypassing the tunnel</li>
+<li>Twenty-one languages, light and dark themes</li>
+</ul>
+
+<strong>Privacy</strong>
+<ul>
+<li>The WARP server public key must match the registered key; the check cannot be skipped</li>
+<li>Credentials stay in the Android Keystore; the VPN runs in a dedicated process</li>
+<li>Proxies listen on loopback by default, with optional username/password authentication</li>
+<li>Diagnostics are generated locally and redacted; no usage analytics or automatic upload</li>
+<li>Logs default to INFO and are limited to 7 days or 20 MiB</li>
+</ul>
+
+Usque is an independent project. It is not affiliated with, sponsored by, or endorsed by Cloudflare, Inc. Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions. Use of consumer WARP services remains subject to Cloudflare's terms and privacy policy.
+
+Connecting requires registering a free Consumer WARP account, optionally with a WARP License Key. Usque does not accept new WARP Secret imports. Official packages are published on GitHub Releases.
+
+First-party source is MIT licensed. Third-party components keep their own licenses (OpenVPN 3 Core MPL-2.0, Mbed TLS Apache-2.0, BoringTun BSD-3-Clause).

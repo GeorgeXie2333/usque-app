@@ -1,0 +1,37 @@
+Usque 是面向 Android / Android TV 的兼容 Cloudflare® WARP® 服务的非官方客户端（另有 Windows 版本）。它将系统 VPN、SOCKS5 和 HTTP 代理整合在原生 Flutter 界面中，由 Rust MASQUE 引擎提供网络能力。需要 Android 8.0（API 26）或更高版本。
+
+<strong>联网方式（共用一条 WARP 连接，可同时使用）</strong>
+<ul>
+<li><b>VPN/TUN</b>：让系统流量经过隧道，支持绕过规则和 Android 分应用代理</li>
+<li><b>SOCKS5</b>：为应用提供本地 TCP/UDP 代理，默认使用远程 DNS</li>
+<li><b>HTTP 代理</b>：提供本地 HTTP 代理，支持通过 CONNECT 访问 HTTPS</li>
+</ul>
+
+<strong>主要功能</strong>
+<ul>
+<li>全隧道 VPN、隧道内 DNS、Kill Switch 断网保护和局域网访问</li>
+<li>DIRECT／REJECT／PROXY 分流规则与广告拦截；广告规则在应用运行期间自动更新</li>
+<li>可选链式代理：OpenVPN、WireGuard、WARP via WireGuard、VPN Gate、HTTP、SOCKS5</li>
+<li>自动尝试 HTTP/3，失败时回退 HTTP/2；通过 IPv4 与 IPv6 寻找可达入口</li>
+<li>自定义 WARP 出口 DNS：普通 DNS、DoH 或 DoT</li>
+<li>可选按国家直连，GeoIP 与 GeoSite 数据分开下载</li>
+<li>本地网络诊断与网络质量页：延迟、丢包、队列和 60 秒趋势</li>
+<li>Android 快捷设置磁贴、启动器快捷方式、开机恢复和电视导航</li>
+<li>分应用代理；未勾选应用可被阻断而非绕过隧道</li>
+<li>21 种语言，浅色 / 深色主题</li>
+</ul>
+
+<strong>隐私</strong>
+<ul>
+<li>强制校验 WARP 服务端公钥，不可跳过</li>
+<li>凭据保存在 Android Keystore，VPN 运行在独立进程</li>
+<li>代理默认仅监听本机回环地址，可选用户名 / 密码认证</li>
+<li>诊断在本地生成并脱敏，无使用统计，也不自动上传</li>
+<li>日志默认 INFO，最多保留 7 天或 20 MiB</li>
+</ul>
+
+Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系。Cloudflare 和 WARP 是 Cloudflare, Inc. 在美国及其他司法管辖区的商标和/或注册商标。使用个人版 WARP 服务须遵守 Cloudflare 的条款与隐私政策。
+
+连接前需注册免费的个人版 WARP 账号，也可填写 WARP License Key；不支持导入新的 WARP Secret。正式安装包仅通过 GitHub Releases 发布。
+
+Usque 第一方源代码采用 MIT 许可，第三方组件保留各自许可（OpenVPN 3 Core MPL-2.0、Mbed TLS Apache-2.0、BoringTun BSD-3-Clause）。
