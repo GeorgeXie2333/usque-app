@@ -181,6 +181,10 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
             onReconnect: controller.networkSettingsCanReconnect
                 ? controller.retry
                 : null,
+            onRefresh: controller.networkSettings.canRefresh
+                ? controller.networkSettings.refresh
+                : null,
+            refreshing: controller.networkSettings.refreshing,
             contentWidth: 880,
             matchPageGutter: true,
             onSave: validationError == null ? _save : null,

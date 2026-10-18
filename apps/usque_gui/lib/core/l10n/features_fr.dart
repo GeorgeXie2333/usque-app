@@ -359,7 +359,11 @@ const Map<String, String> kNetworkSettingsFr = <String, String>{
   'settings_deferred':
       'Enregistré, prend effet à la prochaine connexion manuelle',
   'settings_failed': 'Enregistré, échec de l’application',
-  'settings_unknown': 'Résultat pas encore confirmé',
+  'settings_unknown':
+      'Impossible de confirmer si les paramètres réseau ont pris effet.',
+  'settings_refresh': 'Actualiser l’état',
+  'settings_confirmation_unavailable':
+      'Les paramètres réseau ne peuvent toujours pas être confirmés. Si l’actualisation ne suffit pas, quittez complètement Usque, rouvrez-le puis vérifiez les paramètres.',
   'settings_saved': 'Enregistré',
   'settings_unsupported':
       'Quittez complètement Usque, rouvrez-le puis enregistrez à nouveau. Si cela échoue, recherchez une mise à jour dans Paramètres.',

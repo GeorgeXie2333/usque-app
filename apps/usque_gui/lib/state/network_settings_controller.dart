@@ -21,7 +21,16 @@ class NetworkSettingsController extends ChangeNotifier {
   bool _queryUnconfirmed = false;
   final Map<String, _SaveAttempt> _saveAttempts = {};
   int _observationRevision = 0;
-  bool supported = false;
+  bool _supported = false;
+  bool _observationVisible = true;
+  Future<void>? _refreshing;
+  Timer? _confirmationRetry;
+  int _confirmationRetries = 0;
+  static const _confirmationRetryDelays = [
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+  ];
   bool _disposed = false;
   bool _resetting = false;
   int _dataGeneration = 0;
@@ -30,6 +39,32 @@ class NetworkSettingsController extends ChangeNotifier {
   bool get unconfirmed =>
       _queryUnconfirmed ||
       _saveAttempts.values.any((attempt) => attempt.unconfirmed);
+  bool get needsConfirmation =>
+      unconfirmed ||
+      state?.operationId != null &&
+          state?.status == NetworkSettingsApplyStatus.unknown;
+  bool get canRefresh => supported && needsConfirmation;
+  bool get refreshing => _refreshing != null;
+  bool get confirmationRetriesExhausted =>
+      needsConfirmation &&
+      _confirmationRetries >= _confirmationRetryDelays.length &&
+      _confirmationRetry == null &&
+      !refreshing;
+  bool get supported => _supported;
+  set supported(bool value) {
+    _supported = value;
+    if (!value) _cancelConfirmationRetry();
+  }
+
+  void setObservationVisible(bool visible) {
+    if (_disposed || visible == _observationVisible) return;
+    _observationVisible = visible;
+    if (!visible) {
+      _cancelConfirmationRetry();
+    } else if (needsConfirmation) {
+      unawaited(refresh());
+    }
+  }
 
   Future<T> enqueue<T>(Future<T> Function() operation) {
     final result = Completer<T>();
@@ -64,11 +99,14 @@ class NetworkSettingsController extends ChangeNotifier {
     }
     final changed = !identical(state, incoming);
     final wasUnconfirmed = unconfirmed;
+    final wasUnsupported =
+        supported && saveError == 'NETWORK_SETTINGS_UNSUPPORTED';
     state = incoming;
+    if (wasUnsupported) saveError = null;
     _observationRevision++;
     _queryUnconfirmed = false;
     _confirmPendingSave();
-    if (changed || wasUnconfirmed != unconfirmed) _notify();
+    if (changed || wasUnconfirmed != unconfirmed || wasUnsupported) _notify();
   }
 
   void _confirmPendingSave() {
@@ -81,17 +119,47 @@ class NetworkSettingsController extends ChangeNotifier {
     }
   }
 
-  Future<void> refresh() async {
-    if (!supported || _resetting) return;
+  Future<void> refresh() {
+    if (_disposed || !supported || _resetting || !_observationVisible) {
+      return Future<void>.value();
+    }
+    final pending = _refreshing;
+    if (pending != null) return pending;
+    _cancelConfirmationRetry();
+    _confirmationRetries = 0;
+    return _startRefresh();
+  }
+
+  Future<void> _startRefresh() {
+    late final Future<void> work;
+    work = _refreshOnce().whenComplete(() {
+      if (identical(_refreshing, work)) {
+        _refreshing = null;
+        _notify();
+      }
+    });
+    _refreshing = work;
+    _notify();
+    return work;
+  }
+
+  Future<void> _refreshOnce() async {
     final generation = _dataGeneration;
     final revision = _observationRevision;
     try {
       final incoming = await _engine.getNetworkSettingsState();
       if (generation == _dataGeneration) accept(incoming);
-    } on Object {
+    } on Object catch (error) {
       // An older query failure must not invalidate a newer authoritative reply.
       if (generation == _dataGeneration && revision == _observationRevision) {
-        _queryUnconfirmed = true;
+        if (error is EngineException &&
+            error.code == 'NETWORK_SETTINGS_UNSUPPORTED') {
+          supported = false;
+          saveError = error.code;
+          _queryUnconfirmed = false;
+        } else {
+          _queryUnconfirmed = true;
+        }
         _notify();
       }
     }
@@ -140,6 +208,13 @@ class NetworkSettingsController extends ChangeNotifier {
           prepared.fields,
         );
         if (_resetting || generation != _dataGeneration) return false;
+        // A reply to this request can durably confirm its own save even when
+        // newer events have superseded the snapshot it carries. Never roll
+        // the current configuration or engine epoch back to that snapshot.
+        if (result.operationId == operationId && result.persisted == true) {
+          attempt.acknowledged = true;
+          _saveAttempts.remove(operationId);
+        }
         accept(result);
         attempt.unconfirmed = !attempt.acknowledged;
         return attempt.acknowledged;
@@ -173,12 +248,7 @@ class NetworkSettingsController extends ChangeNotifier {
         } else {
           attempt.unconfirmed = true;
           // A mutation is never replayed after an ambiguous reply.
-          try {
-            final incoming = await _engine.getNetworkSettingsState();
-            if (generation == _dataGeneration) accept(incoming);
-          } on Object {
-            /* Retain unknown state and the page's draft. */
-          }
+          await refresh();
         }
         return attempt.acknowledged;
       } finally {
@@ -191,6 +261,9 @@ class NetworkSettingsController extends ChangeNotifier {
     _dataGeneration++;
     _resetting = true;
     _observationRevision++;
+    _cancelConfirmationRetry();
+    _confirmationRetries = 0;
+    _refreshing = null;
     _saveAttempts.clear();
     _queryUnconfirmed = true;
   }
@@ -203,6 +276,9 @@ class NetworkSettingsController extends ChangeNotifier {
     final epoch = state?.sourceEpoch;
     if (epoch != null) _retiredEpochs.add(epoch);
     _dataGeneration++;
+    _cancelConfirmationRetry();
+    _confirmationRetries = 0;
+    _refreshing = null;
     state = null;
     saveError = null;
     invalidBypassDomainEntry = null;
@@ -215,13 +291,46 @@ class NetworkSettingsController extends ChangeNotifier {
     _notify();
   }
 
+  void _cancelConfirmationRetry() {
+    _confirmationRetry?.cancel();
+    _confirmationRetry = null;
+  }
+
+  void _syncConfirmationRetry() {
+    if (!needsConfirmation) {
+      _cancelConfirmationRetry();
+      _confirmationRetries = 0;
+      return;
+    }
+    if (_disposed ||
+        _resetting ||
+        !supported ||
+        !_observationVisible ||
+        refreshing ||
+        _confirmationRetry != null ||
+        _confirmationRetries >= _confirmationRetryDelays.length) {
+      return;
+    }
+    _confirmationRetry = Timer(
+      _confirmationRetryDelays[_confirmationRetries],
+      () {
+        _confirmationRetry = null;
+        _confirmationRetries++;
+        unawaited(_startRefresh());
+      },
+    );
+  }
+
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    _syncConfirmationRetry();
+    notifyListeners();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    _cancelConfirmationRetry();
     super.dispose();
   }
 }

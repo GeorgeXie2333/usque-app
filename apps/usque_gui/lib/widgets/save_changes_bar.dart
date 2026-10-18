@@ -21,6 +21,8 @@ class SaveChangesBar extends StatelessWidget {
     this.idleHint,
     this.statusLabel,
     this.onReconnect,
+    this.onRefresh,
+    this.refreshing = false,
     this.saveLabel,
     this.summary,
     this.activity,
@@ -38,6 +40,8 @@ class SaveChangesBar extends StatelessWidget {
   final String? idleHint;
   final String? statusLabel;
   final VoidCallback? onReconnect;
+  final VoidCallback? onRefresh;
+  final bool refreshing;
 
   /// Contextual label for the primary action, such as an explicit reconnect.
   final String? saveLabel;
@@ -146,14 +150,19 @@ class SaveChangesBar extends StatelessWidget {
                             : saveLabel ?? strings.get('save_changes'),
                       ),
                     );
-                    final save = onReconnect == null
+                    final save = onReconnect == null && onRefresh == null
                         ? saveButton
                         : Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             alignment: WrapAlignment.end,
                             children: [
-                              if (onReconnect != null)
+                              if (onRefresh != null)
+                                OutlinedButton(
+                                  onPressed: refreshing ? null : onRefresh,
+                                  child: Text(strings.get('settings_refresh')),
+                                )
+                              else if (onReconnect != null)
                                 OutlinedButton(
                                   onPressed: onReconnect,
                                   child: Text(

@@ -354,6 +354,8 @@ class _ProxyScreenState extends State<ProxyScreen> {
                   saved: _saved,
                   statusLabel: statusLabel,
                   onReconnect: onReconnect,
+                  onRefresh: settings.canRefresh ? settings.refresh : null,
+                  refreshing: settings.refreshing,
                   error: _saveError,
                   validationError: _validationError,
                   contentWidth: 880,

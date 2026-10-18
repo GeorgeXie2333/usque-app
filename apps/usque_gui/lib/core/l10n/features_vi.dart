@@ -327,7 +327,11 @@ const Map<String, String> kNetworkSettingsVi = <String, String>{
   'settings_applied': 'Đã lưu và áp dụng',
   'settings_deferred': 'Đã lưu, có hiệu lực ở lần kết nối thủ công tiếp theo',
   'settings_failed': 'Đã lưu, áp dụng thất bại',
-  'settings_unknown': 'Kết quả chưa được xác nhận',
+  'settings_unknown':
+      'Chưa thể xác nhận liệu cài đặt mạng đã có hiệu lực hay chưa.',
+  'settings_refresh': 'Làm mới trạng thái',
+  'settings_confirmation_unavailable':
+      'Vẫn chưa thể xác nhận cài đặt mạng. Nếu làm mới không giúp ích, hãy thoát hoàn toàn Usque, mở lại rồi kiểm tra cài đặt.',
   'settings_saved': 'Đã lưu',
   'settings_unsupported':
       'Thoát hoàn toàn Usque rồi mở lại, sau đó thử lưu lần nữa. Nếu vẫn gặp lỗi, hãy cập nhật Usque trong Cài đặt.',

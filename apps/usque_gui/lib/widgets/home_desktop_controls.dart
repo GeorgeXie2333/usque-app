@@ -124,7 +124,7 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
           failed || unknown || deferredFailure || settings.saveError != null
           ? app.networkSettingsMessage
           : null,
-      unconfirmed: unknown,
+      unconfirmed: settings.canRefresh,
       reconnect: app.networkSettingsCanReconnect,
     );
   }
@@ -345,7 +345,7 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
                       key: const ValueKey('home-controls-refresh'),
                       onPressed: _saving ? null : () => unawaited(_refresh()),
                       style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                      child: Text(strings.get('retry')),
+                      child: Text(strings.get('settings_refresh')),
                     )
                   else if (view.reconnect)
                     TextButton(

@@ -334,7 +334,11 @@ const Map<String, String> kNetworkSettingsTr = <String, String>{
   'settings_applied': 'Kaydedildi ve uygulandı',
   'settings_deferred': 'Kaydedildi, sonraki elle bağlantıda geçerli olur',
   'settings_failed': 'Kaydedildi, uygulama başarısız',
-  'settings_unknown': 'Sonuç henüz doğrulanmadı',
+  'settings_unknown':
+      'Ağ ayarlarının geçerli olup olmadığı şu anda doğrulanamıyor.',
+  'settings_refresh': 'Durumu yenile',
+  'settings_confirmation_unavailable':
+      'Ağ ayarları hâlâ doğrulanamıyor. Yenilemek yardımcı olmazsa Usque’yi tamamen kapatıp yeniden açın ve ayarları kontrol edin.',
   'settings_saved': 'Kaydedildi',
   'settings_unsupported':
       'Usque’yi tamamen kapatıp yeniden açın, ardından tekrar kaydedin. Sorun sürerse Ayarlar’dan Usque’yi güncelleyin.',

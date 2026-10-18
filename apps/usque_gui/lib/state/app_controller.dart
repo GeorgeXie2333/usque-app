@@ -151,6 +151,12 @@ class AppController extends ChangeNotifier {
   final NetworkQualityController quality;
   final NetworkSettingsController networkSettings;
   String? get networkSettingsMessage {
+    if (networkSettings.saveError == 'NETWORK_SETTINGS_UNSUPPORTED') {
+      return strings.get('settings_unsupported');
+    }
+    if (networkSettings.confirmationRetriesExhausted) {
+      return strings.get('settings_confirmation_unavailable');
+    }
     if (networkSettings.unconfirmed) return strings.get('settings_unknown');
     if (networkSettings.saveError != null) {
       return strings.get(switch (networkSettings.saveError) {
@@ -2757,6 +2763,7 @@ class AppController extends ChangeNotifier {
     _snapshotRevision++;
     quality.setObservationVisible(visible);
     diagnostics.setObservationVisible(visible);
+    networkSettings.setObservationVisible(visible);
     if (!visible) {
       _stopPolling();
       _snapshotReconnectTimer?.cancel();

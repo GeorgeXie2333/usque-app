@@ -353,7 +353,11 @@ const Map<String, String> kNetworkSettingsPl = <String, String>{
   'settings_deferred':
       'Zapisano, zacznie obowiązywać przy następnym ręcznym połączeniu',
   'settings_failed': 'Zapisano, stosowanie nie powiodło się',
-  'settings_unknown': 'Wynik jeszcze niepotwierdzony',
+  'settings_unknown':
+      'Nie można potwierdzić, czy ustawienia sieci zaczęły obowiązywać.',
+  'settings_refresh': 'Odśwież stan',
+  'settings_confirmation_unavailable':
+      'Nadal nie można potwierdzić ustawień sieci. Jeśli odświeżenie nie pomaga, całkowicie zamknij Usque, otwórz ponownie i sprawdź ustawienia.',
   'settings_saved': 'Zapisano',
   'settings_unsupported':
       'Całkowicie zamknij Usque, otwórz ponownie i zapisz jeszcze raz. Jeśli to nie pomoże, sprawdź aktualizacje w Ustawieniach.',

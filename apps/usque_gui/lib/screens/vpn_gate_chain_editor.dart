@@ -23,6 +23,7 @@ typedef _GateView = ({
   bool tcpSupported,
   bool favoritesSupported,
   String? networkMessage,
+  bool refreshingNetworkSettings,
 });
 
 /// VPN Gate source editor hosted by the shared chain proxy page.
@@ -591,6 +592,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       favoritesSupported:
           controller.engineCapabilities?.vpnGatePoolFavorites ?? false,
       networkMessage: controller.networkSettingsMessage,
+      refreshingNetworkSettings: controller.networkSettings.refreshing,
     ),
     builder: (context, _) {
       final strings = _controller.strings;
@@ -607,6 +609,10 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
             );
       final bottomBar = VpnGateSelectionBar(
         strings: strings,
+        onRefresh: _controller.networkSettings.canRefresh
+            ? _controller.networkSettings.refresh
+            : null,
+        refreshing: _controller.networkSettings.refreshing,
         statusLabel:
             !_dirty ||
                 _controller.networkSettings.unconfirmed ||

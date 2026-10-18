@@ -612,6 +612,10 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
           strings: strings,
           dirty: _dirty || _modeConflict,
           saving: _saving,
+          onRefresh: _app.networkSettings.canRefresh
+              ? _app.networkSettings.refresh
+              : null,
+          refreshing: _app.networkSettings.refreshing,
           error: _error,
           validationError: _dirty ? validation : null,
           statusLabel: _error != null

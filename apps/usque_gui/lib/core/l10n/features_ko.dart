@@ -305,7 +305,10 @@ const Map<String, String> kNetworkSettingsKo = <String, String>{
   'settings_applied': '저장하고 적용함',
   'settings_deferred': '저장됨. 다음 수동 연결에서 적용됩니다',
   'settings_failed': '저장됨, 적용 실패',
-  'settings_unknown': '결과가 아직 확인되지 않음',
+  'settings_unknown': '네트워크 설정이 적용되었는지 확인할 수 없습니다.',
+  'settings_refresh': '상태 새로고침',
+  'settings_confirmation_unavailable':
+      '네트워크 설정을 여전히 확인할 수 없습니다. 새로고침해도 해결되지 않으면 Usque를 완전히 종료했다가 다시 열고 설정을 확인하세요.',
   'settings_saved': '저장됨',
   'settings_unsupported':
       'Usque를 완전히 종료했다가 다시 열어 저장하세요. 계속 실패하면 설정에서 업데이트를 확인하세요.',

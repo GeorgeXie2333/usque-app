@@ -327,7 +327,10 @@ const Map<String, String> kNetworkSettingsFa = <String, String>{
   'settings_applied': 'ذخیره و اعمال شد',
   'settings_deferred': 'ذخیره شد، در اتصال دستی بعدی اعمال می‌شود',
   'settings_failed': 'ذخیره شد، اعمال ناموفق بود',
-  'settings_unknown': 'نتیجه هنوز تأیید نشده است',
+  'settings_unknown': 'هنوز مشخص نیست تنظیمات شبکه اعمال شده‌اند یا نه.',
+  'settings_refresh': 'تازه‌سازی وضعیت',
+  'settings_confirmation_unavailable':
+      'وضعیت تنظیمات شبکه هنوز مشخص نیست. اگر تازه‌سازی کمکی نکرد، Usque را کاملاً ببندید و دوباره باز کنید، سپس تنظیمات را بررسی کنید.',
   'settings_saved': 'ذخیره شد',
   'settings_unsupported':
       'Usque را کاملاً ببندید و دوباره باز کنید، سپس دوباره ذخیره کنید. اگر مشکل ادامه داشت، Usque را از تنظیمات به‌روز کنید.',

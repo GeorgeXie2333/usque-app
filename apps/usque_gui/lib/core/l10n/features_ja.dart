@@ -303,7 +303,10 @@ const Map<String, String> kNetworkSettingsJa = <String, String>{
   'settings_applied': '保存して適用しました',
   'settings_deferred': '保存済み。次回の手動接続で有効になります',
   'settings_failed': '保存済み、適用に失敗しました',
-  'settings_unknown': '結果はまだ確認されていません',
+  'settings_unknown': 'ネットワーク設定が反映されたか確認できません。',
+  'settings_refresh': '状態を更新',
+  'settings_confirmation_unavailable':
+      'ネットワーク設定をまだ確認できません。状態を更新しても解決しない場合は、Usque を完全に終了して開き直し、設定を確認してください。',
   'settings_saved': '保存済み',
   'settings_unsupported':
       'Usque を完全に終了して開き直し、再度保存してください。解決しない場合は「設定」で更新を確認してください。',

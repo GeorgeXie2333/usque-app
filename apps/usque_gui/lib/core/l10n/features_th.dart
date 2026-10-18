@@ -320,7 +320,10 @@ const Map<String, String> kNetworkSettingsTh = <String, String>{
   'settings_applied': 'บันทึกและนำไปใช้แล้ว',
   'settings_deferred': 'บันทึกแล้ว มีผลเมื่อเชื่อมต่อด้วยตนเองครั้งถัดไป',
   'settings_failed': 'บันทึกแล้ว นำไปใช้ไม่สำเร็จ',
-  'settings_unknown': 'ยังไม่ยืนยันผลลัพธ์',
+  'settings_unknown': 'ยังยืนยันไม่ได้ว่าการตั้งค่าเครือข่ายมีผลแล้วหรือไม่',
+  'settings_refresh': 'รีเฟรชสถานะ',
+  'settings_confirmation_unavailable':
+      'ยังยืนยันการตั้งค่าเครือข่ายไม่ได้ หากรีเฟรชแล้วยังไม่สำเร็จ ให้ปิด Usque ให้สนิทแล้วเปิดใหม่ จากนั้นตรวจสอบการตั้งค่า',
   'settings_saved': 'บันทึกแล้ว',
   'settings_unsupported':
       'ปิด Usque ให้สนิทแล้วเปิดใหม่ จากนั้นลองบันทึกอีกครั้ง หากยังมีปัญหา ให้อัปเดต Usque ในการตั้งค่า',

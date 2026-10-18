@@ -45,6 +45,8 @@ class VpnGateSelectionBar extends StatelessWidget {
     this.saveError,
     this.nodeError,
     this.statusLabel,
+    this.onRefresh,
+    this.refreshing = false,
     super.key,
   });
   final AppStrings strings;
@@ -54,6 +56,8 @@ class VpnGateSelectionBar extends StatelessWidget {
   final String? saveError, nodeError;
   final String? statusLabel;
   final VoidCallback? onApply;
+  final VoidCallback? onRefresh;
+  final bool refreshing;
   final VoidCallback onCancel;
 
   @override
@@ -74,6 +78,8 @@ class VpnGateSelectionBar extends StatelessWidget {
       dirty: dirty,
       saving: saving && !preparing,
       onSave: onApply,
+      onRefresh: onRefresh,
+      refreshing: refreshing,
       error: error,
       validationError: dirty && draft.enabled && !draft.hasSelection
           ? strings.get('gate_not_selected')

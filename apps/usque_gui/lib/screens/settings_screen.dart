@@ -339,7 +339,16 @@ Widget? _networkSettingsProblem(AppController controller) {
         liveRegion: true,
         child: WarningBanner(title: null, message: message, danger: failed),
       ),
-      if (controller.networkSettingsCanReconnect) ...<Widget>[
+      if (settings.canRefresh) ...<Widget>[
+        const SizedBox(height: 8),
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: OutlinedButton(
+            onPressed: settings.refreshing ? null : settings.refresh,
+            child: Text(controller.strings.get('settings_refresh')),
+          ),
+        ),
+      ] else if (controller.networkSettingsCanReconnect) ...<Widget>[
         const SizedBox(height: 8),
         Align(
           alignment: AlignmentDirectional.centerEnd,

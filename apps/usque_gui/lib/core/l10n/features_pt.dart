@@ -354,7 +354,11 @@ const Map<String, String> kNetworkSettingsPt = <String, String>{
   'settings_applied': 'Salvo e aplicado',
   'settings_deferred': 'Salvo; vale na próxima conexão manual',
   'settings_failed': 'Salvo, falha ao aplicar',
-  'settings_unknown': 'Resultado ainda não confirmado',
+  'settings_unknown':
+      'Não foi possível confirmar se as configurações de rede entraram em vigor.',
+  'settings_refresh': 'Atualizar status',
+  'settings_confirmation_unavailable':
+      'As configurações de rede ainda não podem ser confirmadas. Se atualizar não ajudar, feche o Usque por completo, abra novamente e confira as configurações.',
   'settings_saved': 'Salvo',
   'settings_unsupported':
       'Feche o Usque por completo, abra novamente e tente salvar. Se continuar falhando, procure atualizações em Configurações.',

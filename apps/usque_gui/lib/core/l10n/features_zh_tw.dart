@@ -284,7 +284,10 @@ const Map<String, String> kNetworkSettingsZhTw = <String, String>{
   'settings_applied': '已儲存並套用',
   'settings_deferred': '已儲存，下次手動連線後生效',
   'settings_failed': '已儲存，套用失敗',
-  'settings_unknown': '結果尚未確認',
+  'settings_unknown': '暫時無法確認網路設定是否已生效。',
+  'settings_refresh': '重新整理狀態',
+  'settings_confirmation_unavailable':
+      '仍無法確認網路設定。若重新整理後仍出現此提示，請完全關閉並重新開啟 Usque 後核對設定。',
   'settings_saved': '已儲存',
   'settings_unsupported': '請完全關閉 Usque 後重新開啟，再試著儲存。若問題持續，請在「設定」中更新 Usque。',
   'settings_save_failed': '設定儲存失敗，已保留你的修改。',

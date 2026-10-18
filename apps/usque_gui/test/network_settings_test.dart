@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/advanced_settings_screen.dart';
+import 'package:usque/screens/proxy_screen.dart';
+import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
@@ -162,6 +165,405 @@ void main() {
       expect(controller.state!.storedProfile!.mtu, 1400);
     },
   );
+
+  for (final restarted in [false, true]) {
+    test(
+      'own durable reply confirms a save after a newer observation: restarted=$restarted',
+      () async {
+        final engine = SettingsEngine()..response = Completer();
+        final controller = NetworkSettingsController(engine)..supported = true;
+        addTearDown(controller.dispose);
+        final profile = UsqueProfile.defaultProfile();
+        controller.accept(
+          NetworkSettingsState(
+            sourceEpoch: 'one',
+            sequence: 1,
+            sharedNetwork: profile,
+          ),
+        );
+        final saving = controller.save(profile.copyWith(mtu: 1400), ['mtu']);
+        await Future<void>.delayed(Duration.zero);
+        final newer = NetworkSettingsState(
+          sourceEpoch: restarted ? 'two' : 'one',
+          sequence: restarted ? 0 : 3,
+          operationId: 'another-save',
+          persisted: true,
+          sharedNetwork: profile.copyWith(mtu: 1300),
+          status: NetworkSettingsApplyStatus.applied,
+        );
+        controller.accept(newer);
+        engine.response!.complete(
+          NetworkSettingsState(
+            sourceEpoch: 'one',
+            sequence: 2,
+            operationId: engine.submitted.single,
+            persisted: true,
+            sharedNetwork: profile.copyWith(mtu: 1400),
+            status: NetworkSettingsApplyStatus.applied,
+          ),
+        );
+        expect(await saving, isTrue);
+        expect(controller.unconfirmed, isFalse);
+        expect(controller.state, same(newer));
+        expect(engine.submitted, hasLength(1));
+      },
+    );
+  }
+
+  test('concurrent status refreshes share one read', () async {
+    final engine = SettingsEngine()..queryResponse = Completer();
+    final controller = NetworkSettingsController(engine)..supported = true;
+    addTearDown(controller.dispose);
+    final first = controller.refresh();
+    final second = controller.refresh();
+    expect(engine.queries, 1);
+    engine.queryResponse!.complete(
+      const NetworkSettingsState(sourceEpoch: 'one', sequence: 1),
+    );
+    await Future.wait([first, second]);
+    expect(controller.unconfirmed, isFalse);
+  });
+
+  testWidgets('failed query recovers automatically without writing settings', (
+    tester,
+  ) async {
+    const confirmed = NetworkSettingsState(
+      sourceEpoch: 'one',
+      sequence: 1,
+      operationId: 'saved',
+      persisted: true,
+      status: NetworkSettingsApplyStatus.applied,
+    );
+    final engine = SettingsEngine()
+      ..settingsState = confirmed
+      ..queryFailure = const EngineException(
+        'ENGINE_IPC_UNAVAILABLE',
+        'offline',
+      );
+    final controller = NetworkSettingsController(engine)..supported = true;
+    addTearDown(controller.dispose);
+    controller.accept(confirmed);
+    await controller.refresh();
+    expect(controller.unconfirmed, isTrue);
+    engine.queryFailure = null;
+    await tester.pump(const Duration(seconds: 1));
+    expect(controller.unconfirmed, isFalse);
+    expect(controller.state, same(confirmed));
+    expect(engine.queries, 2);
+    await tester.pump(const Duration(seconds: 10));
+    expect(engine.queries, 2);
+    expect(engine.submitted, isEmpty);
+  });
+
+  testWidgets('query retries are bounded and manual refresh can recover', (
+    tester,
+  ) async {
+    final engine = SettingsEngine()
+      ..queryFailure = const EngineException(
+        'ENGINE_IPC_UNAVAILABLE',
+        'offline',
+      );
+    final controller = NetworkSettingsController(engine)..supported = true;
+    addTearDown(controller.dispose);
+    await controller.refresh();
+    for (final seconds in [1, 2, 4]) {
+      await tester.pump(Duration(seconds: seconds));
+    }
+    expect(engine.queries, 4);
+    expect(controller.confirmationRetriesExhausted, isTrue);
+    await tester.pump(const Duration(minutes: 1));
+    expect(engine.queries, 4);
+    engine
+      ..queryFailure = null
+      ..settingsState = const NetworkSettingsState(
+        sourceEpoch: 'one',
+        sequence: 1,
+        status: NetworkSettingsApplyStatus.deferred,
+      );
+    await controller.refresh();
+    expect(engine.queries, 5);
+    expect(controller.needsConfirmation, isFalse);
+    expect(controller.confirmationRetriesExhausted, isFalse);
+    expect(engine.submitted, isEmpty);
+  });
+
+  testWidgets(
+    'hidden observations pause retries and resume with a fresh read',
+    (tester) async {
+      final engine = SettingsEngine()
+        ..queryFailure = const EngineException(
+          'ENGINE_IPC_UNAVAILABLE',
+          'offline',
+        );
+      final controller = NetworkSettingsController(engine)..supported = true;
+      addTearDown(controller.dispose);
+      await controller.refresh();
+      controller.setObservationVisible(false);
+      await tester.pump(const Duration(seconds: 10));
+      expect(engine.queries, 1);
+      engine
+        ..queryFailure = null
+        ..settingsState = const NetworkSettingsState(
+          sourceEpoch: 'one',
+          sequence: 1,
+        );
+      controller.setObservationVisible(true);
+      await tester.pump();
+      expect(engine.queries, 2);
+      expect(controller.needsConfirmation, isFalse);
+      expect(engine.submitted, isEmpty);
+    },
+  );
+
+  testWidgets('unsupported queries show upgrade guidance without retrying', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({'update_checks_enabled': false});
+    final engine = SettingsEngine();
+    final app = AppController(engine);
+    await app.initialize();
+    addTearDown(app.dispose);
+    await app.networkSettings.refresh();
+    final initialQueries = engine.queries;
+    engine.queryFailure = const EngineException(
+      'NETWORK_SETTINGS_UNSUPPORTED',
+      'unsupported',
+    );
+    await app.networkSettings.refresh();
+    expect(app.networkSettings.supported, isFalse);
+    expect(app.networkSettings.canRefresh, isFalse);
+    expect(app.networkShortcutsLocked, isTrue);
+    expect(app.networkSettingsMessage, app.strings.get('settings_unsupported'));
+    await tester.pump(const Duration(seconds: 10));
+    expect(engine.queries, initialQueries + 1);
+    expect(engine.submitted, isEmpty);
+    engine.queryFailure = null;
+    app.engineCapabilities = await engine.getCapabilities();
+    await app.networkSettings.refresh();
+    expect(app.networkSettings.supported, isTrue);
+    expect(app.networkSettings.saveError, isNull);
+    expect(app.networkSettingsMessage, isNull);
+  });
+
+  testWidgets('event confirmation cancels scheduled query retries', (
+    tester,
+  ) async {
+    final engine = SettingsEngine()
+      ..queryFailure = const EngineException(
+        'ENGINE_IPC_UNAVAILABLE',
+        'offline',
+      );
+    final controller = NetworkSettingsController(engine)..supported = true;
+    addTearDown(controller.dispose);
+    await controller.refresh();
+    controller.accept(
+      const NetworkSettingsState(
+        sourceEpoch: 'one',
+        sequence: 1,
+        status: NetworkSettingsApplyStatus.deferred,
+      ),
+    );
+    await tester.pump(const Duration(seconds: 10));
+    expect(controller.needsConfirmation, isFalse);
+    expect(engine.queries, 1);
+  });
+
+  testWidgets('reset and disposal cancel confirmation retries', (tester) async {
+    final engine = SettingsEngine()
+      ..queryFailure = const EngineException(
+        'ENGINE_IPC_UNAVAILABLE',
+        'offline',
+      );
+    final controller = NetworkSettingsController(engine)..supported = true;
+    await controller.refresh();
+    controller.reset();
+    await tester.pump(const Duration(seconds: 10));
+    expect(engine.queries, 1);
+    expect(controller.needsConfirmation, isFalse);
+    await controller.refresh();
+    expect(engine.queries, 2);
+    controller.dispose();
+    await tester.pump(const Duration(seconds: 10));
+    expect(engine.queries, 2);
+  });
+
+  test('reset separates an old in-flight query from a fresh read', () async {
+    final oldReply = Completer<NetworkSettingsState>();
+    final engine = SettingsEngine()..queryResponse = oldReply;
+    final controller = NetworkSettingsController(engine)..supported = true;
+    addTearDown(controller.dispose);
+    final oldRead = controller.refresh();
+    controller.reset();
+    final newReply = Completer<NetworkSettingsState>();
+    engine.queryResponse = newReply;
+    final newRead = controller.refresh();
+    expect(engine.queries, 2);
+    const current = NetworkSettingsState(sourceEpoch: 'new', sequence: 1);
+    newReply.complete(current);
+    await newRead;
+    oldReply.completeError(
+      const EngineException('ENGINE_IPC_UNAVAILABLE', 'offline'),
+    );
+    await oldRead;
+    expect(controller.state, same(current));
+    expect(controller.unconfirmed, isFalse);
+    expect(controller.refreshing, isFalse);
+  });
+
+  for (final restarted in [false, true]) {
+    testWidgets(
+      'readback cannot invent a lost save acknowledgement: restarted=$restarted',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'update_checks_enabled': false,
+        });
+        final engine = SettingsEngine();
+        final app = AppController(engine);
+        await app.initialize();
+        addTearDown(app.dispose);
+        await app.networkSettings.refresh();
+        engine
+          ..saveFailure = const EngineException(
+            'ENGINE_REQUEST_TIMEOUT',
+            'timeout',
+          )
+          ..queryFailure = const EngineException(
+            'ENGINE_IPC_UNAVAILABLE',
+            'offline',
+          );
+        expect(
+          await app.saveNetwork(
+            app.activeProfile.copyWith(mtu: 1400),
+            changedFields: const ['mtu'],
+          ),
+          isFalse,
+        );
+        final initialQueries = engine.queries;
+        engine
+          ..queryFailure = null
+          ..settingsState = NetworkSettingsState(
+            sourceEpoch: restarted ? 'restarted' : engine.settingsEpoch,
+            sequence: ++engine.settingsSequence,
+            operationId: 'unrelated-save',
+            persisted: true,
+            status: NetworkSettingsApplyStatus.applied,
+            sharedNetwork: app.activeProfile,
+          );
+        for (final seconds in [1, 2, 4]) {
+          await tester.pump(Duration(seconds: seconds));
+        }
+        expect(engine.queries, initialQueries + 3);
+        expect(engine.submitted, hasLength(1));
+        expect(app.networkSettings.unconfirmed, isTrue);
+        expect(app.networkShortcutsLocked, isTrue);
+        expect(
+          app.networkSettingsMessage,
+          app.strings.get('settings_confirmation_unavailable'),
+        );
+      },
+    );
+  }
+
+  testWidgets('unknown runtime status is retried without claiming success', (
+    tester,
+  ) async {
+    final engine = SettingsEngine()
+      ..settingsState = const NetworkSettingsState(
+        sourceEpoch: 'one',
+        sequence: 1,
+        operationId: 'saved',
+        persisted: true,
+        status: NetworkSettingsApplyStatus.unknown,
+        errorCode: 'NETWORK_SETTINGS_RECOVERY_UNCONFIRMED',
+      );
+    final controller = NetworkSettingsController(engine)..supported = true;
+    addTearDown(controller.dispose);
+    await controller.refresh();
+    for (final seconds in [1, 2, 4]) {
+      await tester.pump(Duration(seconds: seconds));
+    }
+    expect(engine.queries, 4);
+    expect(controller.confirmationRetriesExhausted, isTrue);
+    expect(controller.state!.status, NetworkSettingsApplyStatus.unknown);
+    expect(engine.submitted, isEmpty);
+  });
+
+  for (final page in ['settings', 'advanced', 'proxy']) {
+    testWidgets('unconfirmed $page settings can be refreshed in place', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      SharedPreferences.setMockInitialValues({'update_checks_enabled': false});
+      final engine = SettingsEngine();
+      final app = AppController(engine);
+      await app.initialize();
+      addTearDown(app.dispose);
+      await app.networkSettings.refresh();
+      for (final locale in [
+        LocalePreference.english,
+        LocalePreference.simplifiedChinese,
+      ]) {
+        app.localePreference = locale;
+        engine.queryFailure = const EngineException(
+          'ENGINE_IPC_UNAVAILABLE',
+          'offline',
+        );
+        await app.networkSettings.refresh();
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: UsqueTheme.dark(),
+            home: MediaQuery(
+              data: const MediaQueryData(
+                size: Size(360, 900),
+                textScaler: TextScaler.linear(2),
+              ),
+              child: Scaffold(
+                body: SizedBox(
+                  width: 360,
+                  child: AnimatedBuilder(
+                    animation: app,
+                    builder: (context, _) => switch (page) {
+                      'settings' => SettingsScreen(controller: app),
+                      'advanced' => AdvancedSettingsScreen(controller: app),
+                      _ => ProxyScreen(controller: app),
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final refresh = find.widgetWithText(
+          OutlinedButton,
+          app.strings.get('settings_refresh'),
+        );
+        expect(refresh, findsOneWidget);
+        expect(tester.takeException(), isNull);
+        final initialQueries = engine.queries;
+        engine.queryResponse = Completer();
+        engine.queryFailure = null;
+        await tester.ensureVisible(refresh);
+        await tester.tap(refresh);
+        await tester.pump();
+        expect(tester.widget<OutlinedButton>(refresh).onPressed, isNull);
+        engine.queryResponse!.complete(app.networkSettings.state!);
+        await tester.pumpAndSettle();
+        expect(engine.queries, initialQueries + 1);
+        expect(find.text(app.strings.get('settings_unknown')), findsNothing);
+        expect(app.networkShortcutsLocked, isFalse);
+        expect(engine.submitted, isEmpty);
+        expect(engine.calls, isNot(contains('connect')));
+        expect(engine.calls, isNot(contains('retry')));
+        expect(tester.takeException(), isNull);
+        engine.queryResponse = null;
+        await tester.pumpWidget(const SizedBox());
+      }
+    });
+  }
 
   test(
     'late and duplicate responses cannot regress a confirmed save or revive an epoch',

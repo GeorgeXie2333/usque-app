@@ -387,6 +387,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             onReconnect: widget.controller.networkSettingsCanReconnect
                 ? widget.controller.retry
                 : null,
+            onRefresh: widget.controller.networkSettings.canRefresh
+                ? widget.controller.networkSettings.refresh
+                : null,
+            refreshing: widget.controller.networkSettings.refreshing,
             error: _saveError,
             validationError: _validationError,
             contentWidth: 880,

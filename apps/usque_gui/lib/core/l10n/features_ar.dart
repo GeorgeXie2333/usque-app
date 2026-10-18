@@ -321,7 +321,11 @@ const Map<String, String> kNetworkSettingsAr = <String, String>{
   'settings_applied': 'تم الحفظ والتطبيق',
   'settings_deferred': 'تم الحفظ، ويسري عند الاتصال اليدوي التالي',
   'settings_failed': 'تم الحفظ، فشل التطبيق',
-  'settings_unknown': 'لم يُؤكد النتيجة بعد',
+  'settings_unknown':
+      'تعذّر التأكد مما إذا كانت إعدادات الشبكة قد أصبحت سارية.',
+  'settings_refresh': 'تحديث الحالة',
+  'settings_confirmation_unavailable':
+      'لا يزال تعذّر تأكيد إعدادات الشبكة. إذا لم يساعد تحديث الحالة، فأغلق Usque تمامًا وافتحه مجددًا ثم تحقّق من الإعدادات.',
   'settings_saved': 'تم الحفظ',
   'settings_unsupported':
       'أغلق Usque تمامًا وافتحه مجددًا، ثم أعد الحفظ. إذا استمرت المشكلة، فحدّث Usque من الإعدادات.',

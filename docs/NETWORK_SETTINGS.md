@@ -4,6 +4,41 @@ Settings can be saved without changing the current connection. The API reports
 saving and application separately, so the GUI can show whether a change is saved,
 active, waiting for a later connection, or awaiting confirmation.
 
+## Unconfirmed settings / 设置结果未确认
+
+“Unable to confirm whether network settings have taken effect” concerns local
+settings confirmation. It can appear when the local Engine status query fails,
+a save reply is lost or lacks durable acknowledgement, or the Engine reports an
+unknown commit or runtime result. An ordinary website connection failure does
+not directly set this warning.
+
+Use **Refresh status** on Home or the affected settings page. The app also
+makes up to three automatic read-only checks while visible, waiting 1, 2 and
+4 seconds between checks. Overlapping refresh requests share one read. Hiding
+the app pauses retries; returning starts a fresh check. Reset and disposal cancel
+scheduled checks. These reads never repeat a save or reconnect the VPN.
+An Engine without settings-query support instead shows the restart/update
+instructions and is not polled repeatedly.
+
+If confirmation remains unavailable, the warning asks you to fully quit and
+reopen Usque, then check the network settings. This is recovery guidance, not
+proof that the earlier change was saved or applied. A successful read of an
+unrelated operation, including after an Engine restart, cannot acknowledge a
+lost save. Drafts and the warning remain until there is sufficient evidence.
+
+“暂时无法确认网络设置是否已生效”表示本地设置状态未确认：可能是本地引擎查询
+失败、保存回复丢失或缺少持久化确认，也可能是引擎无法确认磁盘提交或运行状态。
+普通网站连接失败不会直接触发此提示。
+
+可在首页或相关设置页点击 **刷新状态**。界面可见时也会按 1、2、4 秒间隔最多
+补查三次；并发刷新共用一次查询，隐藏应用会暂停，返回后重新检查，重置或退出
+会取消待执行的补查。这些查询不会重复保存或重新连接 VPN。不支持状态查询的
+旧引擎会直接提示重启或更新，不会反复查询。
+
+若仍无法确认，界面会提示退出并重新打开 Usque 后核对设置。这不代表先前修改
+已经保存或生效；引擎重启后的新状态、其他操作的成功结果，都不能充当旧保存
+操作的成功确认。缺少证据时继续保留草稿和警示。
+
 ## MASQUE TLS fingerprint / MASQUE TLS 指纹
 
 Open **Settings → Advanced network settings → Transport → TLS fingerprint**,
@@ -311,8 +346,8 @@ deferred, and unknown runtime states do not undo an acknowledged save.
 
 The GUI tracks a failed status query separately from an unconfirmed save.
 A valid query or event restores status visibility, including a query returning
-the same epoch and sequence. Older sequences and retired epochs cannot clear
-the warning or replace state. An uncertain save remains unknown until its
+the same epoch and sequence. Older observation sequences and retired epochs
+cannot clear the warning or replace state. An uncertain save remains unknown until its
 own operation ID receives a durable acknowledgement; an unrelated successful
 save does not confirm it. A query failure arriving after a newer authoritative
 reply cannot put the interface back into an unknown state.
@@ -323,6 +358,9 @@ save does not clear earlier warnings, and a successful save acknowledges only
 itself. The latest save may succeed while the global warning remains. An
 accepted durable acknowledgement is retained for its in-flight request even
 if another snapshot arrives before that request times out.
+A direct reply matching the submitted operation ID and acknowledging persistence
+also confirms that save when its snapshot has already been superseded by a newer
+sequence or Engine epoch. That reply does not replace the newer observed state.
 
 ## Account metadata and shared confirmations
 

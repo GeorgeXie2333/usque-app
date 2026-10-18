@@ -337,7 +337,11 @@ const Map<String, String> kNetworkSettingsId = <String, String>{
   'settings_applied': 'Disimpan dan diterapkan',
   'settings_deferred': 'Disimpan, berlaku pada koneksi manual berikutnya',
   'settings_failed': 'Disimpan, penerapan gagal',
-  'settings_unknown': 'Hasil belum dikonfirmasi',
+  'settings_unknown':
+      'Belum dapat memastikan apakah pengaturan jaringan sudah berlaku.',
+  'settings_refresh': 'Segarkan status',
+  'settings_confirmation_unavailable':
+      'Pengaturan jaringan masih belum dapat dikonfirmasi. Jika menyegarkan tidak membantu, tutup Usque sepenuhnya, buka kembali, lalu periksa pengaturan.',
   'settings_saved': 'Disimpan',
   'settings_unsupported':
       'Tutup Usque sepenuhnya, buka kembali, lalu simpan lagi. Jika gagal, periksa pembaruan di Pengaturan.',

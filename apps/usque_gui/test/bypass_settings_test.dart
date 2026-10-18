@@ -259,7 +259,8 @@ void main() {
   testWidgets(
     'a corrected rule followed by timeout keeps the result uncertain',
     (tester) async {
-      final app = appFor(ConflictRuleEngine(timeoutOnRetry: true));
+      final engine = ConflictRuleEngine(timeoutOnRetry: true);
+      final app = appFor(engine);
       await app.initialize();
       await tester.pumpAndSettle();
       app.engineCapabilities = const EngineCapabilities(
@@ -300,6 +301,18 @@ void main() {
       expect(
         find.textContaining(app.strings.get('routing_conflict')),
         findsNothing,
+      );
+      expect(find.text('2. allowed.test'), findsOneWidget);
+      expect(bar.onRefresh, isNotNull);
+      for (final seconds in [1, 2, 4]) {
+        await tester.pump(Duration(seconds: seconds));
+      }
+      expect(engine.attempts, 2);
+      expect(app.networkSettings.unconfirmed, isTrue);
+      expect(app.networkSettings.confirmationRetriesExhausted, isTrue);
+      expect(
+        tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).dirty,
+        isTrue,
       );
       expect(find.text('2. allowed.test'), findsOneWidget);
     },

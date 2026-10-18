@@ -360,7 +360,11 @@ const Map<String, String> kNetworkSettingsNl = <String, String>{
   'settings_deferred':
       'Opgeslagen, gaat in bij de volgende handmatige verbinding',
   'settings_failed': 'Opgeslagen, toepassen mislukt',
-  'settings_unknown': 'Resultaat nog niet bevestigd',
+  'settings_unknown':
+      'Kan niet bevestigen of de netwerkinstellingen van kracht zijn.',
+  'settings_refresh': 'Status vernieuwen',
+  'settings_confirmation_unavailable':
+      'De netwerkinstellingen kunnen nog steeds niet worden bevestigd. Als vernieuwen niet helpt, sluit Usque volledig, open het opnieuw en controleer de instellingen.',
   'settings_saved': 'Opgeslagen',
   'settings_unsupported':
       'Sluit Usque volledig, open het opnieuw en sla nogmaals op. Controleer bij problemen op updates in Instellingen.',
