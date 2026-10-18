@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 
 use bytes::Bytes;
 
-pub(crate) const MAX_PACKET_BATCH_PACKETS: usize = 64;
-pub(crate) const MAX_PACKET_BATCH_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_PACKET_BATCH_PACKETS: usize = 256;
+pub(crate) const MAX_PACKET_BATCH_BYTES: usize = 1024 * 1024;
 pub(crate) const PACKET_BATCH_CHANNEL_CAPACITY: usize = 1_024 / MAX_PACKET_BATCH_PACKETS;
 
 #[derive(Debug)]

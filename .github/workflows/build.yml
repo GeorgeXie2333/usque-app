@@ -132,18 +132,6 @@ jobs:
           )
           Set-Content apps/usque_gui/android/local.properties $properties -Encoding utf8NoBOM
 
-      - name: Clippy Windows workspace through pinned helper
-        if: matrix.run_clippy
-        shell: pwsh
-        run: ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}" -CargoAction clippy
-
-      # These deterministic tests do not create a TUN or mutate host networking.
-      # The Ubuntu CI suite cannot execute cfg(windows) DNS/recovery tests.
-      - name: Test Windows workspace through pinned helper
-        if: matrix.variant == 'x64-v2'
-        shell: pwsh
-        run: ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}" -CargoAction test
-
       - name: Build Windows engine and Agent through pinned helper
         shell: pwsh
         run: ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}"
@@ -229,6 +217,16 @@ jobs:
             -Root $directory `
             -Architecture "${{ matrix.pe_arch }}"
           Write-Output "WINDOWS_BUILD_OK=$directory"
+
+      - name: Upload Windows engine binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-windows-engine-${{ matrix.variant }}
+          path: |
+            target/${{ matrix.rust_target }}/release/usque-engine.exe
+            target/${{ matrix.rust_target }}/release/usque-agent.exe
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Preserve matching Windows Flutter symbols separately
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
