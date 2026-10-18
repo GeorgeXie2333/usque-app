@@ -20,5 +20,12 @@ windows-sys.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+libloading = "0.8.9"
+
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true

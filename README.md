@@ -25,7 +25,7 @@
 
 # Usque
 
-Usque is an unofficial client compatible with Cloudflare® WARP® services for Windows and Android / Android TV. It combines a system VPN, SOCKS5, and HTTP proxy in a native Flutter interface, powered by a Rust MASQUE engine.
+Usque is an unofficial client compatible with Cloudflare® WARP® services for Windows, Linux and Android / Android TV. It combines a system VPN, SOCKS5, and HTTP proxy in a native Flutter interface, powered by a Rust MASQUE engine.
 
 > [!IMPORTANT]
 > Download official packages only from [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official. Development-branch documentation can describe changes not yet released; check the release notes and documentation at your package's tag.
@@ -51,17 +51,20 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
-These development docs prepare **v0.3.2**; application metadata and the release workflow now target **v0.3.2 / 0.3.2+26**. The [v0.3.2 readiness review](docs/RELEASE_V0.3.2_READINESS.md) records checks and remaining requirements. For published packages, use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. The planned package set has six installers, plus two Windows MSI files used only by in-app updates:
+These development docs prepare **v0.3.2**; application metadata and the release workflow now target **v0.3.2 / 0.3.2+26**. The [v0.3.2 readiness review](docs/RELEASE_V0.3.2_READINESS.md) records checks and remaining requirements. For published packages, use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. The planned package set has twelve installers, plus two Windows MSI files used only by in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
 | Windows | Windows 10 2004, build 19041 | x64-v2 installer EXE or ARM64 installer EXE |
+| Linux | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64, or armeabi-v7a APK |
 | Android / Android TV | Android 8.0, API 26 | Universal APK containing all three ABIs |
 
+Linux uses generic x86-64 or ARM64 and AppImage/deb/rpm packages. Verify its Ed25519 manifest before installation. The first AppImage VPN setup installs a background service with administrator authorization; credentials require an unlocked Secret Service keyring. See the [Linux desktop guide](docs/LINUX_DESKTOP.md) for GNOME/KDE, X11/Wayland, recovery and the verified coverage. The independent debug preview remains simulated.
+
 Choose the package matching your device architecture. Windows x64 requires a CPU supporting **x86-64-v2**; ARM64 Windows uses the native ARM64 package. Use the larger universal APK when the Android ABI is unknown. Before installing, compare the package SHA-256 with `SHA256SUMS` and GitHub's asset digest, then verify the signer fingerprint published in the release notes. Stop if any value differs.
 
-Pre-1.0 packages use fixed, project-controlled self-signed certificates. Windows may show an unknown-publisher warning; Android packages are installed outside Google Play. Do not disable antivirus or the firewall, or import certificates from unofficial packages, to bypass a warning.
+Pre-1.0 Windows/Android packages use fixed, project-controlled self-signed certificates. Windows may show an unknown-publisher warning; Android packages are installed outside Google Play. Do not disable antivirus or the firewall, or import certificates from unofficial packages, to bypass a warning.
 
 See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, recovery, and Android developer-verification details, and [Code signing](docs/CODE_SIGNING.md) for official identities. Updates require confirmation before downloading and use the platform installer; there is no unattended installation.
 

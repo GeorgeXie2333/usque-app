@@ -25,7 +25,7 @@
 
 # Usque
 
-Usque は Windows と Android / Android TV 向けのCloudflare® WARP® サービスと互換性のある非公式クライアントです。システム VPN、SOCKS5、HTTP プロキシをネイティブの Flutter インターフェースにまとめ、Rust 製の MASQUE エンジンで通信を処理します。
+Usque は Windows、Linux、Android / Android TV 向けのCloudflare® WARP® サービスと互換性のある非公式クライアントです。システム VPN、SOCKS5、HTTP プロキシをネイティブの Flutter インターフェースにまとめ、Rust 製の MASQUE エンジンで通信を処理します。
 
 > [!IMPORTANT]
 > 正式なパッケージは [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) からのみダウンロードしてください。Pull Request の成果物、ローカルビルド、タグのないバイナリは正式リリースではありません。開発ブランチの文書には未公開の変更が含まれる場合があります。使用するパッケージのタグに対応したリリースノートと文書を確認してください。
@@ -51,17 +51,20 @@ Usque は独立したプロジェクトです。Cloudflare, Inc. との提携関
 
 ## ダウンロードとインストール
 
-この開発文書は **v0.3.2** の準備用です。アプリのバージョン情報とリリースワークフローは **v0.3.2 / 0.3.2+26** に同期されています。[v0.3.2 リリース準備レビュー](docs/RELEASE_V0.3.2_READINESS.md) に確認結果と残りの要件を記録しています。公開済みパッケージは [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) と対応するタグの文書を確認してください。予定するインストール用パッケージは 6 種類で、別途 2 つの Windows MSI ファイルをアプリ内更新専用として提供します。
+この開発文書は **v0.3.2** の準備用です。アプリのバージョン情報とリリースワークフローは **v0.3.2 / 0.3.2+26** に同期されています。[v0.3.2 リリース準備レビュー](docs/RELEASE_V0.3.2_READINESS.md) に確認結果と残りの要件を記録しています。公開済みパッケージは [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) と対応するタグの文書を確認してください。予定するインストール用パッケージは 12 種類で、別途 2 つの Windows MSI ファイルをアプリ内更新専用として提供します。
 
 | プラットフォーム | 最低 OS 要件 | パッケージ |
 | --- | --- | --- |
 | Windows | Windows 10 2004、ビルド 19041 | x64-v2 または ARM64 の EXE インストーラー |
+| Linux | Ubuntu 22.04+、Debian 12+、サポート中の Fedora；systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0、API 26 | arm64-v8a、x86_64、armeabi-v7a の APK |
 | Android / Android TV | Android 8.0、API 26 | 上記 3 種類の ABI を含むユニバーサル APK |
 
+Linux は汎用 x86-64 と ARM64 向けの AppImage/deb/rpm を提供します。インストール前に Ed25519 署名付きマニフェストを検証してください。AppImage の初回 VPN 設定では管理者承認でバックグラウンドサービスを導入します。認証情報にはロック解除済みの Secret Service キーリングが必要です。GNOME/KDE、X11/Wayland、復旧手順と検証範囲は [Linux デスクトップガイド](docs/LINUX_DESKTOP.md) を参照してください。独立したデバッグプレビューは引き続き模擬データを使います。
+
 端末のアーキテクチャに合うパッケージを選んでください。Windows x64 には **x86-64-v2** 対応 CPU が必要で、ARM64 Windows にはネイティブ ARM64 パッケージを使用します。Android の ABI が不明な場合は、サイズの大きいユニバーサル APK を使用できます。インストール前に、パッケージの SHA-256 を `SHA256SUMS` と GitHub に表示されるファイルのダイジェストに照合し、リリースノートに記載された署名者のフィンガープリントも確認してください。いずれかが一致しない場合は、インストールを中止してください。
 
-1.0 より前のパッケージは、プロジェクトで管理する固定の自己署名証明書を使用します。Windows では発行元が不明という警告が表示されることがあります。Android パッケージは Google Play 外からインストールします。警告を回避するためにウイルス対策やファイアウォールを無効にしたり、非公式パッケージに付属する証明書をインポートしたりしないでください。
+1.0 より前の Windows/Android パッケージは、プロジェクトで管理する固定の自己署名証明書を使用します。Windows では発行元が不明という警告が表示されることがあります。Android パッケージは Google Play 外からインストールします。警告を回避するためにウイルス対策やファイアウォールを無効にしたり、非公式パッケージに付属する証明書をインポートしたりしないでください。
 
 アップグレード、アンインストール、復旧、Android の開発者確認については[インストールと削除](docs/INSTALLATION.md)、正式な署名に使う証明書については[コード署名](docs/CODE_SIGNING.md)を参照してください。更新のダウンロードには確認が必要で、インストールには各プラットフォームのインストーラーを使用します。無人での自動インストールは行いません。
 

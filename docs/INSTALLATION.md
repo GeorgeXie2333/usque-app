@@ -48,6 +48,7 @@ guidance; do not assume that reinstalling an older package is supported.
 | --- | --- | --- |
 | Windows x64 | Windows 10 2004, build 19041 or later; x86-64-v2 CPU | x64-v2 EXE |
 | Windows ARM64 | Windows 10 2004, build 19041 or later, native ARM64 | ARM64 EXE |
+| Linux | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
@@ -285,6 +286,14 @@ now**. The latter first asks you to save your work. Windows may still ask you
 to close applications with unsaved work; the uninstaller does not force them
 to close.
 
+## Linux
+
+Use the [Linux desktop guide](LINUX_DESKTOP.md) to select one installation
+format, verify the Ed25519 manifest, install the service and unlock the session
+keyring. Updates require confirmation; removal restores owned network state
+before deleting the service and preserves personal data. The guide distinguishes
+source behavior from baseline builds and isolated verification.
+
 ## Android and Android TV
 
 Choose arm64-v8a for ARMv8, x86_64 for x64, or armeabi-v7a for ARMv7. If you do
@@ -374,6 +383,9 @@ Failed and partial downloads are removed; abandoned packages expire after seven 
 - Windows: choose **Restart and update**. Usque saves settings and disconnects,
   then the platform installer runs without forcing a reboot. The app restarts
   after installation unless Windows requires a reboot.
+- Linux: choose the update action and authorize installation after verification.
+  The package format stays the same; apt/dnf installs deb/rpm, and AppImage
+  replacement coordinates the matching background service.
 - Android: choose **Install update** and accept Android's installer confirmation.
   Android may first ask for permission to install unknown apps.
 

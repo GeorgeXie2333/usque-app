@@ -3,6 +3,9 @@
 #[cfg(windows)]
 mod windows;
 
+#[cfg(target_os = "linux")]
+mod linux;
+
 #[cfg(windows)]
 fn main() {
     let exit_code = match windows::run() {
@@ -15,7 +18,15 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn main() {
+    if let Err(error) = linux::run() {
+        eprintln!("{error}");
+        std::process::exit(error.exit_code());
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn main() {
     eprintln!("usque-update is available only on Windows");
     std::process::exit(1);

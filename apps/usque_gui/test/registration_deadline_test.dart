@@ -9,62 +9,68 @@ import 'package:usque/services/desktop_engine_transport.dart';
 import 'package:usque/services/engine_client.dart';
 
 void main() {
-  for (final (name, field, deadline) in [
-    ('provision identity', 23, 240),
-    ('create account', 26, 180),
-    ('replace license', 29, 240),
-    ('unbind license', 30, 240),
-    ('initialize identity', 49, 180),
-  ]) {
-    for (final completes in [true, false]) {
-      testWidgets(
-        '$name ${completes ? 'accepts slow fallback completion' : 'times out without replaying registration'}',
-        (tester) async {
-          final response = Completer<Uint8List>();
-          var exchanges = 0;
-          final client = DesktopEngineClient.forTest(
-            transport: DesktopEngineTransport.forTest(
-              requestIdFactory: () => 'registration',
-              exchange: (_) {
-                exchanges++;
-                return response.future;
-              },
-            ),
-          );
-          addTearDown(client.dispose);
-          var succeeded = false;
-          Object? failure;
-          final operation = _startRegistration(client, field).then<void>(
-            (_) => succeeded = true,
-            onError: (Object error) => failure = error,
-          );
-          await tester.pump();
-          // Four HTTP steps can each spend 20 seconds at both hosts. Identity
-          // replacement can also wait for retired-credential cleanup.
-          await tester.pump(Duration(seconds: deadline - 10));
-          expect(failure, isNull);
-          expect(succeeded, isFalse);
-          expect(exchanges, 1);
-          if (!completes) {
-            await tester.pump(const Duration(seconds: 10));
-            await operation;
-            expect(
-              failure,
-              isA<EngineException>().having(
-                (error) => error.code,
-                'code',
-                'ENGINE_REQUEST_TIMEOUT',
+  for (final linux in [false, true]) {
+    for (final (name, field, networkDeadline) in [
+      ('provision identity', 23, 240),
+      ('create account', 26, 180),
+      ('replace license', 29, 240),
+      ('unbind license', 30, 240),
+      ('initialize identity', 49, 180),
+    ]) {
+      final deadline = networkDeadline + (linux ? 360 : 0);
+      for (final completes in [true, false]) {
+        testWidgets(
+          '${linux ? 'Linux' : 'Windows'} $name ${completes ? 'accepts slow fallback completion' : 'times out without replaying registration'}',
+          (tester) async {
+            final response = Completer<Uint8List>();
+            var exchanges = 0;
+            final client = DesktopEngineClient.forTest(
+              requestTimeout: linux
+                  ? linuxRequestTimeoutForPayload
+                  : requestTimeoutForPayload,
+              transport: DesktopEngineTransport.forTest(
+                requestIdFactory: () => 'registration',
+                exchange: (_) {
+                  exchanges++;
+                  return response.future;
+                },
               ),
             );
-          }
-          response.complete(_registrationResponse(field));
-          await tester.pump();
-          await operation;
-          expect(succeeded, completes);
-          if (completes) expect(failure, isNull);
-          expect(exchanges, 1);
-        },
-      );
+            addTearDown(client.dispose);
+            var succeeded = false;
+            Object? failure;
+            final operation = _startRegistration(client, field).then<void>(
+              (_) => succeeded = true,
+              onError: (Object error) => failure = error,
+            );
+            await tester.pump();
+            // Four HTTP steps can each spend 20 seconds at both hosts. Identity
+            // replacement can also wait for retired-credential cleanup.
+            await tester.pump(Duration(seconds: deadline - 10));
+            expect(failure, isNull);
+            expect(succeeded, isFalse);
+            expect(exchanges, 1);
+            if (!completes) {
+              await tester.pump(const Duration(seconds: 10));
+              await operation;
+              expect(
+                failure,
+                isA<EngineException>().having(
+                  (error) => error.code,
+                  'code',
+                  'ENGINE_REQUEST_TIMEOUT',
+                ),
+              );
+            }
+            response.complete(_registrationResponse(field));
+            await tester.pump();
+            await operation;
+            expect(succeeded, completes);
+            if (completes) expect(failure, isNull);
+            expect(exchanges, 1);
+          },
+        );
+      }
     }
   }
 

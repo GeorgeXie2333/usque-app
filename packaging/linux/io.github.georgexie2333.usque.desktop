@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Usque
+Comment=Desktop client compatible with Cloudflare WARP
+Exec=usque %u
+Icon=io.github.georgexie2333.usque
+Terminal=false
+Categories=Network;
+MimeType=x-scheme-handler/com.cloudflare.warp;
+StartupNotify=true

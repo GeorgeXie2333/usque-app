@@ -23,6 +23,7 @@ clap.workspace = true
 ipnet.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+ring.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
@@ -41,7 +42,7 @@ zeroize.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc.workspace = true
 
 [dev-dependencies]

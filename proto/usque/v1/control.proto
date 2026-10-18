@@ -1305,6 +1305,11 @@ message UpdatePackage {
   string sha256 = 4;
   string platform = 5;
   string variant = 6;
+  // Linux only: AppImage, deb or rpm. Empty retains legacy platform semantics.
+  string install_format = 7;
+  // Exact signed bytes; consumers must not reserialize before verification.
+  bytes signature_manifest = 8;
+  bytes signature = 9;
 }
 
 message UpdateInfo {
@@ -1312,6 +1317,12 @@ message UpdateInfo {
   string version = 2;
   string release_url = 3;
   UpdatePackage package = 4;
+}
+
+// Ephemeral authenticated desktop clipboard hand-off. Never persist or log.
+message SensitiveClipboardValue {
+  bytes utf8 = 1;
+  uint32 clear_after_seconds = 2;
 }
 
 message ControlResponse {
@@ -1335,6 +1346,7 @@ message ControlResponse {
     ChainProfileResponse chain_profiles = 24;
     WarpWireguardResponse warp_wireguard = 25;
     InitialIdentityState initial_identity_state = 26;
+    SensitiveClipboardValue sensitive_clipboard = 27;
   }
 }
 

@@ -187,10 +187,10 @@ class ReleaseNotesContractTests(unittest.TestCase):
         for start, end in zip(closings, details[1:], strict=False):
             self.assertLess(start, end)
         download = rendered[download_start:download_end]
-        expected = release_contract.expected_artifact_names("v9.8.7-beta.3")
+        expected = release_contract.expected_artifact_names("v9.8.7-beta.3", include_linux=True)
         installers = {name for name in expected if not name.endswith(".msi")}
         linked = re.findall(r"/releases/download/v9\.8\.7-beta\.3/(usque-[^)]+)", download)
-        self.assertEqual(len(linked), 6)
+        self.assertEqual(len(linked), 12)
         self.assertEqual(set(linked), installers)
         badges = re.findall(r"!\[([^\]]+)\]\(([^)]+)\)", download)
         self.assertEqual(len(badges), 8)
@@ -316,6 +316,7 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
             guarded_jobs,
             {
                 "windows-reliability",
+                "linux-reliability",
                 "android-reliability",
                 "network-leak-reliability",
                 "performance-reliability",
@@ -327,8 +328,11 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
         publish = self.job("publish")
         self.assertIn("needs: stage-candidate", publish)
         self.assertNotIn("protected-reliability-summary", publish)
-        self.assertIn("sha256sum -- *.exe *.msi *.apk > SHA256SUMS", publish)
-        self.assertIn('wc -l)" -eq 18', publish)
+        self.assertIn(
+            "sha256sum -- *.exe *.msi *.apk *.AppImage *.deb *.rpm *.manifest.json *.manifest.json.sig > SHA256SUMS",
+            publish,
+        )
+        self.assertIn('wc -l)" -eq 34', publish)
 
     def test_windows_release_signs_msi_engine_and_final_bundle(self) -> None:
         windows = self.job("windows")

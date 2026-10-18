@@ -228,6 +228,7 @@ mod tests {
             operating_system: "test".into(),
             timeline: Default::default(),
             platform_state: None,
+            linux_platform: None,
             quality: crate::network_quality::disconnected_snapshot(),
             direct_dns: Default::default(),
             probes: Some(Arc::new(DiagnosticProbeContext {

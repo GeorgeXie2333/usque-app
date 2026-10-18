@@ -22,6 +22,7 @@ mod file_lock;
 #[derive(Debug, Clone)]
 pub struct ConfigStore {
     path: PathBuf,
+    cache_directory: Option<PathBuf>,
 }
 
 impl ConfigStore {
@@ -84,7 +85,26 @@ impl ConfigStore {
     }
 
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            cache_directory: None,
+        }
+    }
+
+    /// Keep downloaded rules in the platform cache directory while preserving
+    /// custom configuration/test isolation when no override is supplied.
+    pub fn with_cache_directory(mut self, directory: PathBuf) -> Self {
+        self.cache_directory = Some(directory);
+        self
+    }
+
+    pub fn cache_directory(&self) -> PathBuf {
+        self.cache_directory.clone().unwrap_or_else(|| {
+            self.path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf()
+        })
     }
 
     pub fn path(&self) -> &Path {
@@ -146,7 +166,7 @@ impl ConfigStore {
             .parent()
             .ok_or_else(|| StoreError::MissingParent(self.path.clone()))?;
         if let Some(profile) = config.active_profile() {
-            profile.validate_geo_cache(parent)?;
+            profile.validate_geo_cache(&self.cache_directory())?;
         }
         fs::create_dir_all(parent)?;
 
@@ -764,7 +784,24 @@ mod tests {
         );
 
         drop(guard);
-        file_lock::try_lock_exclusive(&replacement_probe).unwrap();
+        // The parallel process-exit fixture can fork while this guard is open.
+        // On Unix the child briefly retains its open-file-description lock
+        // until exec closes CLOEXEC descriptors. Require release within a
+        // bounded interval, while still rejecting every non-contention error.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            match file_lock::try_lock_exclusive(&replacement_probe) {
+                Ok(()) => break,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "dropped guard retained lock"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                Err(error) => panic!("released lock could not be acquired: {error}"),
+            }
+        }
         assert_eq!(store.load().unwrap(), config);
     }
 

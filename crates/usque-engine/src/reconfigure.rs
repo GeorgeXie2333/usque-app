@@ -51,6 +51,12 @@ impl ControlService {
             .ok_or(ControlServiceError::ProfileNotFound(profile.id))?;
 
         let class = classify_reconfigure(&previous, &profile);
+        #[cfg(all(target_os = "linux", not(test)))]
+        let class = if class == ReconfigureClass::HotTunnelAttach {
+            ReconfigureClass::ColdReconnect
+        } else {
+            class
+        };
         if previous
             .custom_chain()
             .is_some_and(|s| s.profile_id.is_some())
@@ -93,7 +99,7 @@ impl ControlService {
             ReconfigureClass::ColdReconnect => {}
         }
 
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if profile.frontends.tunnel && self.protected_chain_present().await {
             let applied = self
                 .upsert_client_profile_locked(profile, routing_present)

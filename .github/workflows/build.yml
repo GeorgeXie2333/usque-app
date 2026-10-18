@@ -21,6 +21,11 @@ env:
   FLUTTER_VERSION: 3.44.7
 
 jobs:
+  linux:
+    name: Linux compile and packages
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    uses: ./.github/workflows/linux.yml
+
   windows:
     name: Windows ${{ matrix.label }} compile
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
@@ -435,15 +440,17 @@ jobs:
   gate:
     name: Build / gate
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    needs: [windows, android]
+    needs: [windows, android, linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require both platform builds
+      - name: Require every platform build
         env:
           WINDOWS_RESULT: ${{ needs.windows.result }}
           ANDROID_RESULT: ${{ needs.android.result }}
+          LINUX_RESULT: ${{ needs.linux.result }}
         run: |
           set -euo pipefail
           test "$WINDOWS_RESULT" = "success"
           test "$ANDROID_RESULT" = "success"
+          test "$LINUX_RESULT" = "success"

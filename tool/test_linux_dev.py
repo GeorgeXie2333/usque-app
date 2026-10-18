@@ -87,6 +87,33 @@ class LinuxDevTests(unittest.TestCase):
         ):
             self.assertEqual(linux_dev.main(), 17)
 
+    def test_linux_golden_failure_fails_the_flutter_scope(self):
+        failure = subprocess.CalledProcessError(23, ["flutter", "test"])
+
+        def run_fixture(args, cwd):
+            if "linux-golden" in args:
+                raise failure
+
+        with (
+            patch.object(linux_dev.platform, "machine", return_value="x86_64"),
+            patch.object(linux_dev, "run", side_effect=run_fixture),
+            self.assertRaises(subprocess.CalledProcessError) as result,
+        ):
+            linux_dev.flutter(Path("/opt/usque-test/flutter"))
+        self.assertEqual(result.exception.returncode, 23)
+
+    def test_other_architectures_report_golden_not_run(self):
+        with (
+            patch.object(linux_dev.platform, "machine", return_value="aarch64"),
+            patch.object(linux_dev, "run") as run,
+            patch("builtins.print") as output,
+        ):
+            linux_dev.flutter(Path("/opt/usque-test/flutter"))
+        self.assertFalse(any("linux-golden" in call.args[0] for call in run.call_args_list))
+        output.assert_called_once_with(
+            "Linux golden images: not_run; reviewed baselines require Linux amd64."
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

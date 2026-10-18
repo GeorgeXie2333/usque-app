@@ -25,7 +25,7 @@
 
 # Usque
 
-Usque 是面向 Windows 和 Android / Android TV 的兼容 Cloudflare® WARP® 服务的非官方客户端。它将系统 VPN、SOCKS5 和 HTTP 代理整合在原生 Flutter 界面中，由 Rust MASQUE 引擎提供网络能力。
+Usque 是面向 Windows、Linux 和 Android / Android TV 的兼容 Cloudflare® WARP® 服务的非官方客户端。它将系统 VPN、SOCKS5 和 HTTP 代理整合在原生 Flutter 界面中，由 Rust MASQUE 引擎提供网络能力。
 
 > [!IMPORTANT]
 > 请仅从 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建及未打标签的二进制均非正式发布。开发分支文档可能包含尚未发布的改动；请以安装包对应的发布说明和标签下文档为准。
@@ -51,17 +51,20 @@ Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系�
 
 ## 下载与安装
 
-本文为 **v0.3.2** 准备开发文档；应用版本元数据与发布流程已同步为 **v0.3.2 / 0.3.2+26**。[v0.3.2 发布准备审查](docs/RELEASE_V0.3.2_READINESS.md) 记录了检查结果与发布待办。安装已发布版本时，请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。计划提供六种安装包，另有两个仅供应用内更新使用的 Windows MSI 文件：
+本文为 **v0.3.2** 准备开发文档；应用版本元数据与发布流程已同步为 **v0.3.2 / 0.3.2+26**。[v0.3.2 发布准备审查](docs/RELEASE_V0.3.2_READINESS.md) 记录了检查结果与发布待办。安装已发布版本时，请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。计划提供十二种安装包，另有两个仅供应用内更新使用的 Windows MSI 文件：
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |
 | Windows | Windows 10 2004，Build 19041 | x64-v2 安装程序 EXE 或 ARM64 安装程序 EXE |
+| Linux | Ubuntu 22.04+、Debian 12+、受支持的 Fedora；systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0，API 26 | arm64-v8a、x86_64 或 armeabi-v7a APK |
 | Android / Android TV | Android 8.0，API 26 | 包含上述三种 ABI 的通用 APK |
 
+Linux 提供通用 x86-64 与 ARM64 的 AppImage/deb/rpm，请在安装前验证 Ed25519 签名清单。AppImage 首次使用 VPN 时需要管理员授权安装后台服务；凭据依赖已解锁的 Secret Service 钥匙串。[Linux 桌面指南](docs/LINUX_DESKTOP.md) 说明 GNOME/KDE、X11/Wayland、恢复流程与已验证范围。独立调试预览仍使用模拟数据。
+
 请选择与设备架构匹配的安装包。Windows x64 需要支持 **x86-64-v2** 的 CPU；ARM64 Windows 使用原生 ARM64 安装包。不清楚 Android 设备架构时，可使用体积更大的通用 APK。安装前，将软件包 SHA-256 与 `SHA256SUMS` 及 GitHub 显示的文件校验值比对，再核验发布说明中的签名者指纹。任何一项不一致都应停止安装。
 
-1.0 之前的安装包使用项目自行管理的固定自签名证书。Windows 可能显示“未知发布者”警告；Android 安装包不通过 Google Play 分发。不要通过关闭杀毒软件、防火墙或导入非官方安装包提供的证书来绕过警告。
+1.0 之前的 Windows/Android 安装包使用项目自行管理的固定自签名证书。Windows 可能显示“未知发布者”警告；Android 安装包不通过 Google Play 分发。不要通过关闭杀毒软件、防火墙或导入非官方安装包提供的证书来绕过警告。
 
 升级、卸载、恢复及 Android 开发者验证说明见[安装指南](docs/INSTALLATION.md)，官方签名身份见[代码签名策略](docs/CODE_SIGNING.md)。更新下载需要用户确认，安装通过平台安装程序完成，不会未经确认自动安装。
 

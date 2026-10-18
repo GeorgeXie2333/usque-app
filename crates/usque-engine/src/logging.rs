@@ -859,6 +859,10 @@ fn clear_log_files(directory: &Path) -> io::Result<()> {
 }
 
 pub fn log_directory(config_path: &Path) -> PathBuf {
+    #[cfg(target_os = "linux")]
+    if let Some(paths) = usque_platform::linux_paths::LinuxPaths::for_config(config_path) {
+        return paths.state.join("logs");
+    }
     config_path
         .parent()
         .unwrap_or_else(|| Path::new("."))

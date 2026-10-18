@@ -5,6 +5,18 @@ use zeroize::Zeroizing;
 
 pub mod packet_ring;
 
+#[cfg(target_os = "linux")]
+pub mod linux_paths;
+
+#[cfg(target_os = "linux")]
+pub mod linux_gsettings;
+
+#[cfg(target_os = "linux")]
+pub mod linux_secret_service;
+
+#[cfg(target_os = "linux")]
+pub use linux_secret_service::LinuxSecretServiceVault;
+
 #[cfg(windows)]
 pub mod windows_authenticode;
 
@@ -32,10 +44,11 @@ pub enum SecretRecord {
     AssignedIpv6,
     IdentityMetadata,
     ProxyPassword,
+    ChainEncryptionKey,
 }
 
 impl SecretRecord {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::WarpSecret,
         Self::MasquePrivateKey,
         Self::AccessToken,
@@ -46,6 +59,7 @@ impl SecretRecord {
         Self::AssignedIpv6,
         Self::IdentityMetadata,
         Self::ProxyPassword,
+        Self::ChainEncryptionKey,
     ];
 
     pub const fn key(self) -> &'static str {
@@ -60,6 +74,7 @@ impl SecretRecord {
             Self::AssignedIpv6 => "assigned-ipv6",
             Self::IdentityMetadata => "identity-metadata",
             Self::ProxyPassword => "proxy-password",
+            Self::ChainEncryptionKey => "chain-encryption-key",
         }
     }
 }
@@ -84,7 +99,10 @@ pub trait SecretVault: Send + Sync {
     async fn delete_identity(&self, profile_id: Uuid) -> Result<(), VaultError> {
         let mut first_error = None;
         for record in SecretRecord::ALL {
-            if record == SecretRecord::ProxyPassword {
+            if matches!(
+                record,
+                SecretRecord::ProxyPassword | SecretRecord::ChainEncryptionKey
+            ) {
                 continue;
             }
             if let Err(error) = self.delete(profile_id, record).await
@@ -101,6 +119,8 @@ pub trait SecretVault: Send + Sync {
 pub enum VaultError {
     #[error("secret values must contain between 1 and 2560 bytes")]
     InvalidSecretSize,
+    #[error("the credential service needs attention: {0}")]
+    Unavailable(String),
     #[error("the platform credential operation failed: {0}")]
     Platform(String),
 }

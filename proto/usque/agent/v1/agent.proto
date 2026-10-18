@@ -69,6 +69,10 @@ message AgentCapabilities {
   bool protected_tunnel_replacement = 18;
   // Bounded, generation-scoped preset DNS and exact MASQUE candidate leases.
   bool endpoint_preset_leases = 19;
+  // Linux uses a native TUN descriptor, never a Windows HANDLE or packet ring.
+  bool linux_tun = 20;
+  bool nftables_kill_switch = 21;
+  bool unix_fd_transfer = 22;
 }
 
 enum AutomaticEndpointPool {
@@ -532,6 +536,14 @@ message DirectEgressLease {
   string remote_endpoint = 3;
   uint32 protocol = 4;
   uint64 network_generation = 5;
+  // Opaque Linux socket permit identity, never a process file descriptor.
+  uint64 linux_lease_id = 6;
+}
+
+message ReleaseLinuxDirectEgressRequest {
+  string operation_id = 1;
+  uint64 network_generation = 2;
+  uint64 lease_id = 3;
 }
 
 message AgentState {
@@ -549,6 +561,17 @@ message AgentState {
   TunnelPlan plan = 10;
   ManagedDeviceStatus device = 11;
   TunnelReplacementStatus replacement = 12;
+  LinuxPlatformState linux_platform = 13;
+}
+
+// Sanitized native observations. Unknown must never be treated as consistent.
+message LinuxPlatformState {
+  bool routes_known = 1;
+  bool routes_consistent = 2;
+  bool dns_known = 3;
+  bool dns_consistent = 4;
+  bool tun_known = 5;
+  bool tun_present = 6;
 }
 
 message AutomaticRecoveryStatus {
@@ -572,6 +595,14 @@ message PacketSessionHandles {
 }
 
 message Empty {}
+
+// Exactly one SCM_RIGHTS descriptor accompanies this response. A numeric file
+// descriptor must never be serialized: it belongs to the receiving process.
+message LinuxTunSession {
+  string operation_id = 1;
+  uint32 interface_index = 2;
+  uint64 journal_generation = 3;
+}
 
 message AgentRequest {
   string request_id = 1;
@@ -603,6 +634,7 @@ message AgentRequest {
     ReplaceTunnelRequest replace_tunnel = 32;
     AbortReplacementRequest abort_replacement = 33;
     SetPresetEndpointCandidatesRequest set_preset_endpoint_candidates = 34;
+    ReleaseLinuxDirectEgressRequest release_linux_direct_egress = 35;
   }
 }
 
@@ -618,5 +650,6 @@ message AgentResponse {
     DirectEgressLease direct_egress_lease = 15;
     PlatformState platform_state = 16;
     DeviceLease device_lease = 17;
+    LinuxTunSession linux_tun_session = 18;
   }
 }

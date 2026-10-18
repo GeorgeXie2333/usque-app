@@ -14,7 +14,7 @@ import '../widgets/common.dart';
 class PlatformShellBridge {
   PlatformShellBridge(this._controller) {
     _channel.setMethodCallHandler(_handleMethod);
-    if (Platform.isWindows) {
+    if (Platform.isWindows || Platform.isLinux) {
       _notices = ConnectionNoticeTracker(onNotice: _showNotice);
       _controller.addListener(_publishTrayState);
       _publishTrayState();
@@ -34,6 +34,10 @@ class PlatformShellBridge {
   String? _lastAndroidLocale;
 
   Future<Object?> _handleMethod(MethodCall call) async {
+    if (call.method == 'trayAvailabilityChanged') {
+      _controller.noteTrayAvailability(call.arguments == true);
+      return null;
+    }
     if (call.method == 'zeroTrustCallbackArrived') {
       _controller.noteZeroTrustCallbackArrived();
       return null;
@@ -61,7 +65,7 @@ class PlatformShellBridge {
       default:
         throw PlatformException(
           code: 'INVALID_TRAY_COMMAND',
-          message: 'The Windows tray command is not supported.',
+          message: 'The desktop tray command is not supported.',
         );
     }
     return null;
@@ -93,13 +97,15 @@ class PlatformShellBridge {
       'disconnect': strings.get('tray_disconnect_profile'),
       'disconnect_exit': strings.get('tray_disconnect_exit'),
       'tunnel_label': showOutputs
-          ? strings.tunnelOutputLabel(TargetPlatform.windows)
+          ? strings.tunnelOutputLabel(defaultTargetPlatform)
           : '',
       'system_proxy_label': showOutputs ? strings.get('home_system_proxy') : '',
       'tunnel': profile.frontends.tunnel,
       'system_proxy': profile.proxy.systemProxy,
       'outputs_enabled': !_controller.networkShortcutsLocked,
-      'system_proxy_available': profile.frontends.http,
+      'system_proxy_available':
+          profile.frontends.http && _controller.systemProxyOutputSupported,
+      'tunnel_available': _controller.tunnelOutputSupported,
     };
     final fingerprint = state.entries
         .map((entry) => '${entry.key}=${entry.value}')
@@ -144,7 +150,9 @@ class PlatformShellBridge {
   }
 
   void dispose() {
-    if (Platform.isWindows) _controller.removeListener(_publishTrayState);
+    if (Platform.isWindows || Platform.isLinux) {
+      _controller.removeListener(_publishTrayState);
+    }
     if (Platform.isAndroid) _controller.removeListener(_publishAndroidLocale);
     _notices?.dispose();
     _channel.setMethodCallHandler(null);
@@ -197,8 +205,11 @@ String trayBadge(ConnectionPhase phase) {
 
 /// Flips the saved TUN output through the same apply lifecycle as Home.
 Future<bool> toggleTunnelShortcut(AppController app) async {
-  if (app.networkShortcutsLocked) return false;
   final profile = app.activeProfile;
+  if (app.networkShortcutsLocked ||
+      !profile.frontends.tunnel && !app.tunnelOutputSupported) {
+    return false;
+  }
   return app.saveNetwork(
     profile.copyWith(
       frontends: profile.frontends.copyWith(tunnel: !profile.frontends.tunnel),
@@ -209,8 +220,11 @@ Future<bool> toggleTunnelShortcut(AppController app) async {
 
 /// Flips the saved system proxy; enabling it requires the HTTP local proxy.
 Future<bool> toggleSystemProxyShortcut(AppController app) async {
-  if (app.networkShortcutsLocked) return false;
   final profile = app.activeProfile;
+  if (app.networkShortcutsLocked ||
+      !profile.proxy.systemProxy && !app.systemProxyOutputSupported) {
+    return false;
+  }
   final enabled = !profile.proxy.systemProxy;
   if (enabled && !profile.frontends.http) return false;
   return app.saveNetwork(

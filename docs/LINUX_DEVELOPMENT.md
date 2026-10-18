@@ -1,9 +1,10 @@
 # Linux and WSL development / Linux 与 WSL 开发
 
-Use the Linux checkout for editing, Rust tests, Flutter widget tests, Android
-compile/static checks and an interactive UI preview. These commands use Linux
-tools without reading or synchronizing a Windows checkout. Windows builds and
-golden comparisons remain separate required checks in the existing CI jobs.
+Use the Linux checkout for editing, Rust tests, Flutter widget and Linux golden
+tests, Android compile/static checks and an interactive UI preview. These commands
+use Linux tools without reading or synchronizing a Windows checkout. Windows
+builds and golden comparisons remain separate required checks in the existing
+CI jobs.
 
 日常编辑、单元测试、Android 编译检查和界面预览可以全部在 Linux/WSL 内完成，
 无需 Windows 仓库或 Windows 开发工具。Windows 构建和 golden 检查仍由对应 CI
@@ -75,10 +76,11 @@ follows the selected language, including right-to-left text direction.
 或恢复示例账号。工具栏会跟随应用设置中的语言及文字方向。账号、偏好和设置
 只保存在当前进程内，重启后恢复初始数据。
 
-The dedicated entry point is `lib/main_preview.dart`. The Linux runner accepts
-debug builds only; the entry point also rejects non-Linux and non-debug execution.
-The production entry point refuses to construct a Linux engine. Windows and
-Android production entry points do not import the preview.
+The dedicated preview entry point is `lib/main_preview.dart`. This target accepts
+Linux debug builds only. The production `lib/main.dart` target connects the real
+Rust Engine and supports Linux release builds. CMake selects separate application
+identities and refuses a preview release; production entry points do not import
+the preview. See [Linux desktop](LINUX_DESKTOP.md) for real runtime and packages.
 
 The simulated engine has no native transport, account registration requests,
 VPN session, proxy listeners or route/DNS/firewall/system-proxy changes. Update
@@ -104,8 +106,8 @@ flutter run -d linux --debug --no-pub -t lib/main_preview.dart
 
 WSL GUI previews need a working WSLg display; headless hosts can compile and run
 widget tests. Linux rendering does not replace exact Windows golden comparisons.
-Do not regenerate Windows baselines on Linux. This runner does not add a
-supported Linux VPN product or a Linux release artifact.
+Do not regenerate Windows baselines on Linux. The preview is independent of the
+production runner and cannot establish native VPN or package validation.
 
 ## Edit and check / 编辑与检查
 
@@ -128,8 +130,31 @@ Scopes run the corresponding [Contributing](../CONTRIBUTING.md) commands.
 `check static` includes the aggregate source checker, repository policy,
 actionlint and whitespace checks. It does not replace tests or platform builds.
 `check all` runs all Linux scopes; overlapping checks are intentional. Failed
-commands stop the selected scope and preserve their exit status. Linux Flutter
-tests exclude `golden`; the Windows golden job remains required.
+commands stop the selected scope and preserve their exit status. `check flutter`
+runs the widget suite with `--exclude-tags golden`, then the independent
+`--tags linux-golden` comparison on Linux amd64. Other architectures explicitly
+report Linux goldens as `not_run`; the Windows golden job remains required.
+
+The Linux screenshot suite uses Linux UI branches, a fake engine, fixed font
+fixtures and the pinned Flutter SDK. Its reviewed images live in
+`apps/usque_gui/test/goldens/linux/`; existing Windows images remain separate.
+The Ubuntu CI job compares Linux images exactly and retains failure differences.
+To intentionally regenerate Linux images, run the following from
+`apps/usque_gui`, then inspect every changed screenshot:
+
+```shell
+flutter test --no-pub test/linux_desktop_golden_test.dart --update-goldens
+flutter test --no-pub --tags linux-golden
+```
+
+Never update baselines in CI. These software-rendered fixtures do not test a
+native GNOME/KDE session, X11/Wayland integration, real tray availability or VPN
+behavior. Those checks and arm64 rendering need their own environments; the
+Linux suite does not replace Windows goldens.
+
+Linux amd64 有独立截图基线，`check flutter` 会自动执行精确比较；更新时只运行
+上述 Linux 测试文件并逐张检查。字体由测试固定，账号与连接状态由模拟引擎提供。
+GNOME/KDE、X11/Wayland、原生托盘、VPN 以及 arm64 渲染需单独验证。
 
 For preview changes, run Flutter checks and `build-preview`. CI also compiles
 the Linux debug preview. Flutter changes still require the complete Windows

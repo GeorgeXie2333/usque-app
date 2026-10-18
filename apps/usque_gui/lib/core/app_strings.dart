@@ -8,6 +8,7 @@ import 'l10n/chain.dart';
 import 'l10n/diagnostics.dart';
 import 'l10n/endpoint_presets.dart';
 import 'l10n/l4.dart';
+import 'l10n/linux_desktop.dart';
 import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
 import 'l10n/onboarding.dart';
@@ -58,6 +59,9 @@ class AppStrings {
     final presets =
         kEndpointPresetCatalogs[catalogId] ?? kEndpointPresetCatalogs['en']!;
     if (presets.containsKey(key)) return presets[key]!;
+    final linux =
+        kLinuxDesktopCatalogs[catalogId] ?? kLinuxDesktopCatalogs['en']!;
+    if (linux.containsKey(key)) return linux[key]!;
     final tls =
         kTlsFingerprintCatalogs[catalogId] ?? kTlsFingerprintCatalogs['en']!;
     if (tls.containsKey(key)) return tls[key]!;

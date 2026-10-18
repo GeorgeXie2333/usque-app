@@ -28,7 +28,10 @@ class PreviewEngine
     accountType: 'Preview',
   );
   static const _capabilities = EngineCapabilities(
+    vpn: true,
+    systemProxy: true,
     automaticEndpoints: true,
+    endpointPresets: true,
     networkSettingsApplication: true,
     applicationQuicBlocking: true,
     accountMetadataMutations: true,

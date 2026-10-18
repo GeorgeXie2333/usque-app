@@ -13,6 +13,15 @@ use usque_core::{
 use usque_ipc::agent_v1::{AutomaticRecoveryPhase, PlatformState};
 use usque_transport::{ConnectionEventType, ConnectionTimelineSnapshot};
 
+/// Linux observations are separate from Windows WFP/HANDLE receipts. Only
+/// bounded classifications are copied into exported diagnostic findings.
+#[derive(Clone)]
+pub(crate) struct LinuxPlatformObservation {
+    pub state: usque_ipc::agent_v1::AgentState,
+    pub physical: Option<usque_ipc::agent_v1::PhysicalNetworkInfo>,
+    pub captured_at: tokio::time::Instant,
+}
+
 #[derive(Clone)]
 pub(crate) struct DiagnosticContext {
     pub connection: ConnectionSnapshot,
@@ -24,6 +33,7 @@ pub(crate) struct DiagnosticContext {
     pub operating_system: String,
     pub timeline: ConnectionTimelineSnapshot,
     pub platform_state: Option<PlatformState>,
+    pub linux_platform: Option<LinuxPlatformObservation>,
     pub quality: usque_transport::NetworkQualitySnapshot,
     pub direct_dns: usque_core::DirectDnsSettings,
     pub probes: Option<Arc<super::probes::DiagnosticProbeContext>>,
@@ -44,13 +54,25 @@ impl DiagnosticContext {
             | "protection.dns_path"
             | "protection.route_ownership"
             | "protection.recovery_journal"
-            | "frontend.system_proxy_state"
             | "tunnel.routes" => {
-                if self.platform_state.is_some() {
+                if self.platform_state.is_some() || self.linux_platform.is_some() {
                     Source::Platform
                 } else {
                     Source::Runtime
                 }
+            }
+            "frontend.system_proxy_state" if self.platform_state.is_some() => Source::Platform,
+            "physical.network_present"
+            | "physical.ipv4_route"
+            | "physical.ipv6_route"
+            | "physical.dns_available"
+            | "physical.network_generation"
+                if self
+                    .linux_platform
+                    .as_ref()
+                    .is_some_and(|state| state.physical.is_some()) =>
+            {
+                Source::Platform
             }
             _ => Source::Runtime,
         };
@@ -81,7 +103,15 @@ impl DiagnosticContext {
         finding.observation = Some(DiagnosticObservation {
             source,
             availability,
-            age_milliseconds: if finding.check_id.starts_with("quality.") {
+            age_milliseconds: if source == Source::Platform
+                && let Some(platform) = &self.linux_platform
+            {
+                platform
+                    .captured_at
+                    .elapsed()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64
+            } else if finding.check_id.starts_with("quality.") {
                 self.quality
                     .sampled_at
                     .elapsed()
@@ -101,7 +131,11 @@ impl DiagnosticContext {
             } else {
                 None
             },
-            network_generation: None,
+            network_generation: self
+                .linux_platform
+                .as_ref()
+                .and_then(|state| state.physical.as_ref())
+                .map(|physical| physical.generation),
         });
         finding.evidence = finding
             .sanitized_evidence
@@ -200,6 +234,10 @@ impl PassiveCheck {
 
     fn evaluate(&self, context: &DiagnosticContext) -> DiagnosticFinding {
         use PassiveCheckKind as Kind;
+
+        if let Some(finding) = self.evaluate_linux(context) {
+            return finding;
+        }
 
         if matches!(
             self.kind,
@@ -676,13 +714,17 @@ impl PassiveCheck {
                     "diagnostic_route_ownership_mismatch",
                 )
             }
-            Kind::RouteOwnership if context.operating_system == "windows" => warning(
-                self,
-                TransportFailureCode::PlatformRecoveryPending,
-                TransportStage::RouteApply,
-                "diagnostic_route_ownership_actual_state_unknown",
-                "inspect_platform_state",
-            ),
+            Kind::RouteOwnership
+                if matches!(context.operating_system.as_str(), "windows" | "linux") =>
+            {
+                warning(
+                    self,
+                    TransportFailureCode::PlatformRecoveryPending,
+                    TransportStage::RouteApply,
+                    "diagnostic_route_ownership_actual_state_unknown",
+                    "inspect_platform_state",
+                )
+            }
             Kind::RouteOwnership => skipped(
                 self,
                 "diagnostic_route_ownership_not_supported",
@@ -736,7 +778,9 @@ impl PassiveCheck {
                     ));
                 finding
             }
-            Kind::RecoveryJournal if context.operating_system == "windows" => {
+            Kind::RecoveryJournal
+                if matches!(context.operating_system.as_str(), "windows" | "linux") =>
+            {
                 let mut finding = warning(
                     self,
                     TransportFailureCode::AgentUnreachable,
@@ -757,6 +801,157 @@ impl PassiveCheck {
                 "platform_capability_unavailable",
             ),
         }
+    }
+
+    fn evaluate_linux(&self, context: &DiagnosticContext) -> Option<DiagnosticFinding> {
+        use PassiveCheckKind as Kind;
+        let observed = context.linux_platform.as_ref()?;
+        let state = &observed.state;
+        let platform = state.linux_platform.as_ref();
+        let inspected = ["agent_read_only_inspection"];
+        Some(match self.kind {
+            Kind::TunnelRoutes if platform.is_some_and(|p| p.tun_known && !p.tun_present) => {
+                skipped(self, "diagnostic_tunnel_routes_unknown", "no_active_tunnel")
+            }
+            Kind::PhysicalNetwork
+                if observed
+                    .physical
+                    .as_ref()
+                    .is_some_and(|p| !p.interfaces.is_empty()) =>
+            {
+                passed(self, "diagnostic_physical_network_present", inspected)
+            }
+            Kind::Ipv4Route | Kind::Ipv6Route if observed.physical.is_some() => {
+                let ipv4 = matches!(self.kind, Kind::Ipv4Route);
+                let present = observed
+                    .physical
+                    .as_ref()
+                    .unwrap()
+                    .interfaces
+                    .iter()
+                    .any(|i| i.address_family_mask & if ipv4 { 1 } else { 2 } != 0);
+                if present {
+                    passed(
+                        self,
+                        if ipv4 {
+                            "diagnostic_ipv4_route_available"
+                        } else {
+                            "diagnostic_ipv6_route_available"
+                        },
+                        inspected,
+                    )
+                } else {
+                    warning(
+                        self,
+                        if ipv4 {
+                            TransportFailureCode::PhysicalIpv4Unavailable
+                        } else {
+                            TransportFailureCode::PhysicalIpv6Unavailable
+                        },
+                        TransportStage::EndpointResolution,
+                        if ipv4 {
+                            "diagnostic_ipv4_route_unavailable"
+                        } else {
+                            "diagnostic_ipv6_route_unavailable"
+                        },
+                        "inspect_platform_state",
+                    )
+                }
+            }
+            Kind::PhysicalDns if observed.physical.is_some() => {
+                if observed
+                    .physical
+                    .as_ref()
+                    .unwrap()
+                    .interfaces
+                    .iter()
+                    .any(|i| !i.dns_servers.is_empty())
+                {
+                    passed(self, "diagnostic_physical_dns_available", inspected)
+                } else {
+                    failed(
+                        self,
+                        TransportFailureCode::PhysicalDnsUnavailable,
+                        TransportStage::EndpointResolution,
+                        "diagnostic_physical_dns_unavailable",
+                    )
+                }
+            }
+            Kind::NetworkGeneration if observed.physical.is_some() => {
+                passed(self, "diagnostic_network_generation_observed", inspected)
+            }
+            Kind::KillSwitch if context.kill_switch_expected || state.kill_switch_active => {
+                if state.kill_switch_active {
+                    passed(self, "diagnostic_kill_switch_state_consistent", inspected)
+                } else {
+                    failed(
+                        self,
+                        TransportFailureCode::KillSwitchStateMismatch,
+                        TransportStage::KillSwitchApply,
+                        "diagnostic_kill_switch_state_mismatch",
+                    )
+                }
+            }
+            Kind::TunnelRoutes | Kind::RouteOwnership
+                if platform.is_some_and(|p| p.routes_known) =>
+            {
+                if platform.unwrap().routes_consistent {
+                    passed(
+                        self,
+                        if matches!(self.kind, Kind::TunnelRoutes) {
+                            "diagnostic_tunnel_routes_consistent"
+                        } else {
+                            "diagnostic_route_ownership_consistent"
+                        },
+                        inspected,
+                    )
+                } else {
+                    failed(
+                        self,
+                        TransportFailureCode::RouteRestoreIncomplete,
+                        TransportStage::RouteApply,
+                        "diagnostic_route_ownership_mismatch",
+                    )
+                }
+            }
+            Kind::DnsPath
+                if context.tunnel_dns_expected && platform.is_some_and(|p| p.dns_known) =>
+            {
+                if platform.unwrap().dns_consistent {
+                    passed(self, "diagnostic_dns_path_consistent", inspected)
+                } else {
+                    failed(
+                        self,
+                        TransportFailureCode::DnsRestoreIncomplete,
+                        TransportStage::DnsApply,
+                        "diagnostic_dns_path_mismatch",
+                    )
+                }
+            }
+            Kind::RecoveryJournal => {
+                let mut finding = if matches!(
+                    usque_ipc::agent_v1::AgentPhase::try_from(state.phase),
+                    Ok(usque_ipc::agent_v1::AgentPhase::Clean
+                        | usque_ipc::agent_v1::AgentPhase::Active)
+                ) {
+                    passed(self, "diagnostic_recovery_journal_consistent", inspected)
+                } else {
+                    failed(
+                        self,
+                        TransportFailureCode::PlatformRecoveryPending,
+                        TransportStage::PlatformRecovery,
+                        "diagnostic_recovery_journal_pending_cleanup",
+                    )
+                };
+                finding
+                    .sanitized_evidence
+                    .extend(automatic_recovery_status_evidence(
+                        state.automatic_recovery.as_ref(),
+                    ));
+                finding
+            }
+            _ => return None,
+        })
     }
 }
 
@@ -781,7 +976,17 @@ fn automatic_recovery_evidence(state: &PlatformState) -> Vec<String> {
             diagnostics.history.len().min(32)
         ));
     }
-    let Some(status) = state.automatic_recovery.as_ref() else {
+    evidence.extend(automatic_recovery_status_evidence(
+        state.automatic_recovery.as_ref(),
+    ));
+    evidence
+}
+
+fn automatic_recovery_status_evidence(
+    status: Option<&usque_ipc::agent_v1::AutomaticRecoveryStatus>,
+) -> Vec<String> {
+    let mut evidence = Vec::new();
+    let Some(status) = status else {
         return evidence;
     };
     let Ok(phase) = AutomaticRecoveryPhase::try_from(status.phase) else {
@@ -1322,6 +1527,84 @@ mod tests {
         )
     }
 
+    #[tokio::test]
+    async fn linux_native_observations_keep_windows_receipts_empty_and_detect_mismatches() {
+        let mut context = context_with_unknown_platform_state();
+        context.operating_system = "linux".into();
+        context.platform_state = None;
+        context.connection.kill_switch_state = KillSwitchState::Error;
+        context.linux_platform = Some(LinuxPlatformObservation {
+            state: usque_ipc::agent_v1::AgentState {
+                phase: usque_ipc::agent_v1::AgentPhase::Active as i32,
+                kill_switch_active: true,
+                linux_platform: Some(usque_ipc::agent_v1::LinuxPlatformState {
+                    routes_known: true,
+                    routes_consistent: true,
+                    dns_known: true,
+                    dns_consistent: true,
+                    tun_known: true,
+                    tun_present: true,
+                }),
+                ..Default::default()
+            },
+            physical: Some(usque_ipc::agent_v1::PhysicalNetworkInfo {
+                generation: 17,
+                interfaces: vec![usque_ipc::agent_v1::PhysicalInterface {
+                    address_family_mask: 3,
+                    dns_servers: vec!["192.0.2.53".into()],
+                    ..Default::default()
+                }],
+            }),
+            captured_at: tokio::time::Instant::now(),
+        });
+        for kind in [
+            PassiveCheckKind::KillSwitch,
+            PassiveCheckKind::RouteOwnership,
+            PassiveCheckKind::DnsPath,
+            PassiveCheckKind::RecoveryJournal,
+            PassiveCheckKind::Ipv4Route,
+            PassiveCheckKind::Ipv6Route,
+            PassiveCheckKind::PhysicalDns,
+        ] {
+            let result = check(kind).run(&context, CancellationToken::new()).await;
+            assert_eq!(result.status, DiagnosticCheckStatus::Passed, "{kind:?}");
+            assert!(
+                !serde_json::to_string(&result)
+                    .unwrap()
+                    .contains("192.0.2.53")
+            );
+        }
+        let observed = context.linux_platform.as_mut().unwrap();
+        observed.state.kill_switch_active = false;
+        observed.state.phase = usque_ipc::agent_v1::AgentPhase::RecoveryRequired as i32;
+        let native = observed.state.linux_platform.as_mut().unwrap();
+        native.routes_consistent = false;
+        native.dns_consistent = false;
+        for kind in [
+            PassiveCheckKind::KillSwitch,
+            PassiveCheckKind::RouteOwnership,
+            PassiveCheckKind::DnsPath,
+            PassiveCheckKind::RecoveryJournal,
+        ] {
+            assert_eq!(
+                check(kind)
+                    .run(&context, CancellationToken::new())
+                    .await
+                    .status,
+                DiagnosticCheckStatus::Failed,
+                "{kind:?}"
+            );
+        }
+        let finding = context.annotate(DiagnosticFinding::pending(
+            "physical.network_generation",
+            DiagnosticCategory::PhysicalNetwork,
+        ));
+        let observation = finding.observation.unwrap();
+        assert_eq!(observation.source, DiagnosticObservationSource::Platform);
+        assert_eq!(observation.network_generation, Some(17));
+        assert!(context.platform_state.is_none());
+    }
+
     fn context_with_unknown_platform_state() -> DiagnosticContext {
         let mut connection = ConnectionSnapshot {
             phase: ConnectionPhase::Connected,
@@ -1352,6 +1635,7 @@ mod tests {
                 system_proxy_lease: true,
                 ..PlatformState::default()
             }),
+            linux_platform: None,
             quality: crate::network_quality::disconnected_snapshot(),
             direct_dns: usque_core::DirectDnsSettings::default(),
             probes: None,

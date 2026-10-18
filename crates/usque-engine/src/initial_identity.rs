@@ -81,8 +81,10 @@ impl ControlService {
             return Ok(true);
         }
         for record in SecretRecord::ALL {
-            if record != SecretRecord::ProxyPassword
-                && self.vault.get(profile_id, record).await?.is_some()
+            if !matches!(
+                record,
+                SecretRecord::ProxyPassword | SecretRecord::ChainEncryptionKey
+            ) && self.vault.get(profile_id, record).await?.is_some()
             {
                 return Ok(true);
             }

@@ -1,6 +1,53 @@
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn main() {
-    eprintln!("usque-agent is available only on Windows");
+    eprintln!("usque-agent is available only on Windows and Linux");
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    #[derive(Parser)]
+    #[command(name = "usque-agent")]
+    struct Arguments {
+        /// Serve the installed Linux Engine over the authenticated Unix socket.
+        #[arg(long)]
+        service: bool,
+        /// Read installation policy and recovery evidence without mutations.
+        #[arg(long, conflicts_with_all = ["service", "recover_state"])]
+        validate_only: bool,
+        /// Restore owned network resources after an authorized service stop.
+        #[arg(long, conflicts_with = "service")]
+        recover_state: bool,
+    }
+
+    let arguments = Arguments::parse();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+    if arguments.validate_only {
+        return Ok(usque_agent::linux::server::validate_only()?);
+    }
+    if arguments.recover_state {
+        return Ok(usque_agent::linux::server::recover_for_maintenance()?);
+    }
+    let stopping = Arc::new(AtomicBool::new(false));
+    let signal = Arc::clone(&stopping);
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let signal_task = tokio::spawn(async move {
+        tokio::select! { _ = terminate.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
+        signal.store(true, Ordering::Release);
+    });
+    let result =
+        tokio::task::spawn_blocking(move || usque_agent::linux::server::serve(stopping)).await?;
+    signal_task.abort();
+    result?;
+    Ok(())
 }
 
 #[cfg(windows)]

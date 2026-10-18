@@ -6,10 +6,11 @@ This policy says which Usque packages are signed, who may sign them, and how to 
 
 Only packages attached to a GitHub Release for this repository, with matching checksums and signer fingerprints, are official. Pull Request artifacts, Actions development outputs, fork builds, and local validation packages are not, even if they are signed.
 
-Pre-1.0 official packages use two fixed, project-controlled self-signed identities:
+Pre-1.0 official packages use three fixed, project-controlled signing identities:
 
 - Windows Authenticode for the installer bundle, its detached Burn engine, its native setup EXE, the update MSI, and every EXE/DLL in the Windows application payload inside that MSI except the official Wintun DLL
 - an Android release certificate for every official APK
+- an Ed25519 key for Linux package manifests and AppImage service payload manifests
 
 Those identities are not a public CA and are not in the Windows Root or Trusted Publisher stores. Windows will show an unknown-publisher warning. That is expected. The installer does not install the certificate into the machine trust stores.
 
@@ -40,6 +41,7 @@ before distribution. Developer verification does not authorize key rotation.
 | Official Windows MSI | project Authenticode identity |
 | Every EXE/DLL in the Windows application payload inside that MSI, including Usque binaries and the Flutter engine and plugin DLLs from the Flutter release build, except the official Wintun DLL | same identity |
 | Official per-ABI and universal APKs | project Android release certificate |
+| Linux amd64/arm64 AppImage, deb and rpm; AppImage service payload | Ed25519 manifests verified against the checked-in [public key](../packaging/linux/release-public-key.hex) |
 | Official Wintun DLL (`amd64` / `arm64`) | original vendor signature; Usque redistributes those files and does not re-sign them |
 | Local validation MSI/APK | a throwaway identity created on the build machine; never official |
 
@@ -63,11 +65,11 @@ Public fingerprints are repository or environment variables (`WINDOWS_SIGNER_SHA
 
 Only the release maintainer may approve `release-signing` and `release-publish`. A local bundle, MSI, or APK cannot replace a failed or missing GitHub Actions build.
 
-For the planned `v0.3.2`, retain both pre-1.0 identities. Before approving signing, confirm
+For the planned `v0.3.2`, retain the existing Windows/Android identities and the fixed Linux key. Before approving signing, confirm
 the live environment protection settings, the two public certificate
 fingerprints, and Android's **Registered** application-ID/certificate pair.
 Before approving publication, review the exact tagged commit and staged
-`release-manifest.json`; its eight package names, sizes, SHA-256 values and
+`release-manifest.json`; its fourteen package names, sizes, SHA-256 values and
 signer fingerprints must describe the candidate produced by that release run.
 A documentation review, a previous release's signatures or a local compile is
 not that evidence. The workflow accepts only `v0.3.2`; complete the exact-candidate
@@ -118,3 +120,19 @@ Debug and unsigned Android builds used on a developer device are not release cer
 - Do not add the project certificate to Root or Trusted Publisher on user machines.
 - Do not sign a package whose contents were not produced by the approved release workflow for that tag.
 - Signing-key or release-chain issues are vulnerabilities; handle them privately as in [SECURITY.md](../SECURITY.md).
+
+## Linux manifest signing
+
+The Linux public key is raw Ed25519, not a certificate fingerprint. The protected
+`LINUX_SIGNING_KEY_BASE64` secret contains the corresponding PEM private key.
+The native Ubuntu 22.04 workflow verifies the derived public key before signing,
+and deletes its temporary key with an always-run cleanup step. Never copy the
+official private key into a local build. Compile-only builds generate an ephemeral
+identity and carry `TEST-IDENTITY-DO-NOT-PUBLISH`; the release contract rejects it.
+
+Each architecture has one exact-byte signed package manifest covering all three
+formats. AppImage also contains a separately signed, fixed-file-set service
+manifest. Both the updater and privileged helper check signature, size, SHA-256,
+architecture, protocol and version; mismatches and rollbacks fail closed.
+Independent first-install verification and the AppImage bootstrap trust boundary
+are documented in [Linux desktop](LINUX_DESKTOP.md#choose-and-verify-a-package).

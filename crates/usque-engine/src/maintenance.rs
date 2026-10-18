@@ -70,13 +70,18 @@ impl Maintenance {
     pub fn new(config_path: &Path) -> Self {
         let parent = config_path.parent().unwrap_or_else(|| Path::new("."));
         let legacy_update_state_path = parent.join("update-state-v1.json");
+        let flag_cache_directory = parent.join("cache").join("flag-icons-7.5.0");
+        #[cfg(target_os = "linux")]
+        let flag_cache_directory = usque_platform::linux_paths::LinuxPaths::for_config(config_path)
+            .map(|paths| paths.cache.join("flag-icons-7.5.0"))
+            .unwrap_or(flag_cache_directory);
         let _ = remove_file_if_present(&legacy_update_state_path);
         Self {
             update_checker: UpdateChecker::new()
                 .expect("the static GitHub update client configuration must be valid"),
             legacy_update_state_path,
             log_directory: log_directory(config_path),
-            flag_cache_directory: parent.join("cache").join("flag-icons-7.5.0"),
+            flag_cache_directory,
             config_backup_path: config_path.with_extension("json.bak"),
             update_lock: Mutex::new(()),
         }

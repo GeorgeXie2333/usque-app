@@ -25,7 +25,7 @@
 
 # Usque
 
-Usque는 Windows와 Android / Android TV용 Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트입니다. 시스템 VPN, SOCKS5, HTTP 프록시를 네이티브 Flutter 인터페이스에 모으고, Rust로 구현한 MASQUE 엔진으로 통신을 처리합니다.
+Usque는 Windows, Linux 및 Android / Android TV용 Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트입니다. 시스템 VPN, SOCKS5, HTTP 프록시를 네이티브 Flutter 인터페이스에 모으고, Rust로 구현한 MASQUE 엔진으로 통신을 처리합니다.
 
 > [!IMPORTANT]
 > 공식 패키지는 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)에서만 다운로드하세요. Pull Request 산출물, 로컬 빌드, 태그가 없는 바이너리는 공식 릴리스가 아닙니다. 개발 브랜치 문서에는 아직 배포되지 않은 변경 사항이 포함될 수 있습니다. 사용 중인 패키지의 태그에 해당하는 릴리스 노트와 문서를 확인하세요.
@@ -51,17 +51,20 @@ Usque는 독립 프로젝트입니다. Cloudflare, Inc.와 제휴 관계가 없�
 
 ## 다운로드 및 설치
 
-이 개발 문서는 **v0.3.2** 준비용입니다. 앱 버전 메타데이터와 릴리스 워크플로는 **v0.3.2 / 0.3.2+26**로 동기화되었습니다. [v0.3.2 릴리스 준비 검토](docs/RELEASE_V0.3.2_READINESS.md)에 검사 결과와 남은 요구 사항을 기록했습니다. 배포된 패키지는 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)와 해당 태그의 문서를 확인하세요. 계획된 설치 패키지는 6종이며, Windows MSI 파일 2개를 앱 내 업데이트 전용으로 별도 제공합니다.
+이 개발 문서는 **v0.3.2** 준비용입니다. 앱 버전 메타데이터와 릴리스 워크플로는 **v0.3.2 / 0.3.2+26**로 동기화되었습니다. [v0.3.2 릴리스 준비 검토](docs/RELEASE_V0.3.2_READINESS.md)에 검사 결과와 남은 요구 사항을 기록했습니다. 배포된 패키지는 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)와 해당 태그의 문서를 확인하세요. 계획된 설치 패키지는 12종이며, Windows MSI 파일 2개를 앱 내 업데이트 전용으로 별도 제공합니다.
 
 | 플랫폼 | 최소 OS | 패키지 |
 | --- | --- | --- |
 | Windows | Windows 10 2004, 빌드 19041 | x64-v2 또는 ARM64 EXE 설치 프로그램 |
+| Linux | Ubuntu 22.04+, Debian 12+, 지원 중인 Fedora; systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64 또는 armeabi-v7a APK |
 | Android / Android TV | Android 8.0, API 26 | 위의 ABI 3종을 모두 포함하는 범용 APK |
 
+Linux는 일반 x86-64 및 ARM64용 AppImage/deb/rpm을 제공합니다. 설치 전에 Ed25519 서명 매니페스트를 검증하세요. AppImage에서 처음 VPN을 설정할 때 관리자 승인으로 백그라운드 서비스를 설치합니다. 인증 정보에는 잠금 해제된 Secret Service 키링이 필요합니다. GNOME/KDE, X11/Wayland, 복구 및 검증 범위는 [Linux 데스크톱 가이드](docs/LINUX_DESKTOP.md)를 참고하세요. 독립 디버그 미리보기는 계속 모의 데이터를 사용합니다.
+
 기기 아키텍처에 맞는 패키지를 선택하세요. Windows x64에는 **x86-64-v2**를 지원하는 CPU가 필요하며, ARM64 Windows에는 네이티브 ARM64 패키지를 사용합니다. Android ABI를 모르면 용량이 더 큰 범용 APK를 사용할 수 있습니다. 설치 전에 패키지의 SHA-256을 `SHA256SUMS` 및 GitHub에 표시된 파일 다이제스트와 대조하고, 릴리스 노트에 명시된 서명자 지문도 확인하세요. 하나라도 일치하지 않으면 설치를 중단하세요.
 
-1.0 이전 패키지는 프로젝트에서 관리하는 고정된 자체 서명 인증서를 사용합니다. Windows에는 알 수 없는 게시자 경고가 나타날 수 있으며, Android 패키지는 Google Play 밖에서 설치합니다. 경고를 우회하려고 백신이나 방화벽을 끄거나 비공식 패키지에 포함된 인증서를 가져오지 마세요.
+1.0 이전 Windows/Android 패키지는 프로젝트에서 관리하는 고정된 자체 서명 인증서를 사용합니다. Windows에는 알 수 없는 게시자 경고가 나타날 수 있으며, Android 패키지는 Google Play 밖에서 설치합니다. 경고를 우회하려고 백신이나 방화벽을 끄거나 비공식 패키지에 포함된 인증서를 가져오지 마세요.
 
 업그레이드, 제거, 복구, Android 개발자 인증에 관한 설명은 [설치 및 제거](docs/INSTALLATION.md)를, 공식 서명에 사용하는 인증서 정보는 [코드 서명](docs/CODE_SIGNING.md)을 참고하세요. 업데이트는 다운로드 전에 확인이 필요하며, 플랫폼 설치 프로그램으로 설치합니다. 사용자 확인 없이 자동으로 설치하지 않습니다.
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../services/engine_client.dart';
@@ -29,6 +30,11 @@ String userFacingFailure(AppStrings strings, {String? code, String? details}) {
   final recovery = strings.windowsRecoveryError(code, details: details);
   if (recovery != null) return recovery;
   final key = switch (code) {
+    'SECURE_STORAGE_FAILED'
+        when defaultTargetPlatform == TargetPlatform.linux =>
+      'linux_keyring_unavailable',
+    'TRAY_UNAVAILABLE' => 'linux_tray_unavailable',
+    'LINUX_SERVICE_DEPENDENCIES_MISSING' => 'linux_service_dependencies',
     'ENGINE_UNAVAILABLE' ||
     'ENGINE_IPC_UNAVAILABLE' ||
     'ENGINE_IPC_INVALID_RESPONSE' ||

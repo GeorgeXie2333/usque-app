@@ -286,7 +286,7 @@ Rollback must restore A's matching files and registration; profiles and secrets
 must survive. These scenarios are `not_run` without isolated infrastructure.
 
 After the exact signed candidate has been staged, the release workflow selects
-four explicitly labelled self-hosted runners only in a private repository and
+five explicitly labelled self-hosted runner classes only in a private repository and
 when repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`.
 The public repository always skips these jobs, including the evidence summary;
 enabling the variable alone cannot start them. Record this as `not_run`, not a
@@ -295,6 +295,7 @@ pass. Publication does not wait for these supplemental jobs:
 | Runner label | Required isolation | Scope |
 | --- | --- | --- |
 | `usque-snapshot-vm` | Windows snapshot VM with an independent management channel | Clean install, upgrade, connected uninstall, Engine/Agent termination, sleep/network change, route/DNS/WFP/proxy restoration, Wintun residual checks |
+| `usque-linux-snapshot-vm` | Linux snapshot VM with an independent management channel | Six-format installation/upgrade/removal, TUN, nftables/DNS/proxy restoration, Engine/Agent crash, reboot/sleep/network changes, cross-user ownership |
 | `usque-android-device` | Dedicated physical Android device controlled by ADB | Wi-Fi/cellular changes, airplane mode, Doze, lock/unlock, UI/VPN process reclamation, Always-on, Lockdown, reboot, upgrade, TV background/foreground |
 | `usque-network-observer` | Controlled gateway outside the Engine process | H3/H2 endpoint behavior, separate IPv4/IPv6 assertions, DNS/Kill Switch/route/direct-rule packet observation |
 | `usque-performance-lab` | Stable host, endpoint, topology, load and thermal policy | Seven raw baseline and candidate samples for H2 high-BDP, H3 batch I/O and allocations, queue pressure, PMTU convergence, QUIC migration and encrypted DNS |
@@ -306,6 +307,14 @@ Windows command as the protected runner's own interlock. That variable is not
 evidence of isolation; isolation comes only from the snapshot VM and its
 independent management channel. Do not provision these runner labels or set
 that variable on a developer workstation.
+
+Linux uses the distinct `linux_snapshot_vm` environment kind and
+`USQUE_ISOLATED_LINUX_SNAPSHOT_VM` interlock. Reports require a nonempty
+`snapshot_id` and `management_channel_id`; neither a label nor the Windows
+interlock establishes Linux isolation. `tool/reliability_gate.py` appends the
+Linux gates without changing existing invariant identifiers. Linux leak claims
+still require the separate network observer. Missing Linux infrastructure is
+`not_run` and remains supplemental to publication.
 
 ## Reliability report contract
 

@@ -47,6 +47,7 @@ class HomeScreen extends StatelessWidget {
     // instead of dropping the output switches and local proxies.
     final bool compact =
         defaultTargetPlatform != TargetPlatform.windows &&
+        defaultTargetPlatform != TargetPlatform.linux &&
         (viewport.width < 760 ||
             defaultTargetPlatform == TargetPlatform.android &&
                 viewport.shortestSide < 600);

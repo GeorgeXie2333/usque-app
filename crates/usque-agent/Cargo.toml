@@ -1,6 +1,6 @@
 [package]
 name = "usque-agent"
-description = "Least-privilege Windows service for Usque network state"
+description = "Least-privilege desktop service for Usque network state"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -28,6 +28,9 @@ uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
 
 [build-dependencies]
 winresource.workspace = true

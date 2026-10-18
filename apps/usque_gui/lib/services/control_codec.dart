@@ -198,6 +198,7 @@ class ControlCodec {
       ChainProfileResult? chainProfiles;
       Map<String, Object?>? warpWireguard;
       InitialIdentityState? initialIdentityState;
+      SensitiveClipboardValue? sensitiveClipboard;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -229,6 +230,10 @@ class ControlCodec {
             warpWireguard = _decodeChainJson(reader.message(field));
           case 26:
             initialIdentityState = _decodeInitialIdentityState(
+              reader.message(field),
+            );
+          case 27:
+            sensitiveClipboard = _decodeSensitiveClipboard(
               reader.message(field),
             );
           case 24:
@@ -273,6 +278,7 @@ class ControlCodec {
         chainProfiles: chainProfiles,
         warpWireguard: warpWireguard,
         initialIdentityState: initialIdentityState,
+        sensitiveClipboard: sensitiveClipboard,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -417,6 +423,7 @@ class ControlResponse {
     this.chainProfiles,
     this.warpWireguard,
     this.initialIdentityState,
+    this.sensitiveClipboard,
   });
 
   final EngineSnapshot? snapshot;
@@ -433,6 +440,41 @@ class ControlResponse {
   final ChainProfileResult? chainProfiles;
   final Map<String, Object?>? warpWireguard;
   final InitialIdentityState? initialIdentityState;
+  final SensitiveClipboardValue? sensitiveClipboard;
+}
+
+class SensitiveClipboardValue {
+  SensitiveClipboardValue(this.utf8, this.clearAfterSeconds);
+
+  final Uint8List utf8;
+  final int clearAfterSeconds;
+}
+
+SensitiveClipboardValue _decodeSensitiveClipboard(_ProtoReader reader) {
+  var bytes = Uint8List(0);
+  var seconds = 30;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        bytes = Uint8List.fromList(reader._lengthDelimited(field));
+      case 2:
+        seconds = reader.varint(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  if (bytes.isEmpty ||
+      bytes.length > 64 * 1024 ||
+      seconds < 1 ||
+      seconds > 300) {
+    bytes.fillRange(0, bytes.length, 0);
+    throw const EngineException(
+      'ENGINE_IPC_INVALID_RESPONSE',
+      'Invalid sensitive clipboard response.',
+    );
+  }
+  return SensitiveClipboardValue(bytes, seconds);
 }
 
 InitialIdentityState _decodeInitialIdentityState(_ProtoReader reader) {
@@ -1767,6 +1809,8 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
 }
 
 EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
+  var vpn = false;
+  var systemProxy = false;
   var applicationQuicBlocking = false;
   var accountMetadataMutations = false;
   var sharedProxyAuthApplication = false;
@@ -1800,6 +1844,10 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
+      case 1:
+        vpn = reader.varint(field) != 0;
+      case 4:
+        systemProxy = reader.varint(field) != 0;
       case 25:
         networkSettingsApplication = reader.varint(field) != 0;
       case 26:
@@ -1891,6 +1939,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     }
   }
   return EngineCapabilities(
+    vpn: vpn,
+    systemProxy: systemProxy,
     networkSettingsApplication: networkSettingsApplication,
     applicationQuicBlocking: applicationQuicBlocking,
     accountMetadataMutations: accountMetadataMutations,
@@ -2751,6 +2801,9 @@ UpdatePackage _decodeUpdatePackage(_ProtoReader reader) {
   var sha256 = '';
   var platform = '';
   var variant = '';
+  var installFormat = '';
+  var signatureManifest = Uint8List(0);
+  var signature = Uint8List(0);
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -2766,6 +2819,12 @@ UpdatePackage _decodeUpdatePackage(_ProtoReader reader) {
         platform = reader.string(field);
       case 6:
         variant = reader.string(field);
+      case 7:
+        installFormat = reader.string(field);
+      case 8:
+        signatureManifest = Uint8List.fromList(reader._lengthDelimited(field));
+      case 9:
+        signature = Uint8List.fromList(reader._lengthDelimited(field));
       default:
         reader.skip(field);
     }
@@ -2777,6 +2836,9 @@ UpdatePackage _decodeUpdatePackage(_ProtoReader reader) {
     sha256: sha256,
     platform: platform,
     variant: variant,
+    installFormat: installFormat,
+    signatureManifest: signatureManifest,
+    signature: signature,
   );
 }
 

@@ -12,8 +12,10 @@ use usque_transport::{NetworkQualitySampler, NetworkQualityTelemetry};
 
 use crate::ControlServiceError;
 
+#[cfg(target_os = "linux")]
+use crate::linux_runtime::map_error as map_platform_vpn_error;
 #[cfg(windows)]
-use crate::map_windows_vpn_error;
+use crate::map_windows_vpn_error as map_platform_vpn_error;
 
 pub(crate) struct ActiveDataPlane {
     pub(crate) profile_id: uuid::Uuid,
@@ -32,12 +34,16 @@ pub(crate) struct ActiveProxyRuntime {
     pub(crate) runtime: ProxyRuntime,
     #[cfg(windows)]
     pub(crate) system_proxy: Option<crate::windows_agent::WindowsSystemProxyGuard>,
+    #[cfg(target_os = "linux")]
+    pub(crate) system_proxy: Option<crate::linux_system_proxy::LinuxSystemProxyGuard>,
 }
 
 pub(crate) enum ActiveRuntime {
     Proxy(Box<ActiveProxyRuntime>),
     #[cfg(windows)]
     Vpn(Box<crate::windows_agent::WindowsVpnRuntime>),
+    #[cfg(target_os = "linux")]
+    Vpn(Box<crate::linux_runtime::LinuxVpnRuntime>),
     #[cfg(test)]
     Harness(Box<HarnessRuntime>),
 }
@@ -193,13 +199,13 @@ impl ActiveRuntime {
     pub(crate) fn take_startup_error(&mut self) -> Option<ControlServiceError> {
         #[cfg(windows)]
         if let Self::Vpn(runtime) = self {
-            return runtime.take_startup_error().map(map_windows_vpn_error);
+            return runtime.take_startup_error().map(map_platform_vpn_error);
         }
         None
     }
 
     pub(crate) fn target_committed(&self) -> bool {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if let Self::Vpn(runtime) = self {
             return runtime.target_committed();
         }
@@ -207,7 +213,7 @@ impl ActiveRuntime {
     }
 
     pub(crate) fn replacement_pending(&self) -> bool {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if let Self::Vpn(runtime) = self {
             return runtime.replacement_pending();
         }
@@ -216,7 +222,7 @@ impl ActiveRuntime {
 
     pub(crate) fn failure_retained(&self) -> bool {
         match self {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.failure_retained(),
             #[cfg(test)]
             Self::Harness(runtime) => runtime.failure_retained,
@@ -229,11 +235,11 @@ impl ActiveRuntime {
         _reason: usque_core::vpngate::GateFailure,
     ) -> Result<(), ControlServiceError> {
         match self {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime
                 .retain_failed_gate(_reason)
                 .await
-                .map_err(map_windows_vpn_error),
+                .map_err(map_platform_vpn_error),
             #[cfg(test)]
             Self::Harness(runtime) => {
                 runtime.failure_retained = true;
@@ -254,7 +260,7 @@ impl ActiveRuntime {
     pub(crate) fn quiesce_final(&mut self) {
         match self {
             Self::Proxy(r) => r.runtime.quiesce_final(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(r) => r.quiesce_final(),
             #[cfg(test)]
             Self::Harness(r) => {
@@ -267,7 +273,7 @@ impl ActiveRuntime {
     pub(crate) async fn fail_gate(&mut self, reason: usque_core::vpngate::GateFailure) {
         match self {
             Self::Proxy(r) => r.runtime.fail_gate(reason).await,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(r) => r.fail_gate(reason).await,
             #[cfg(test)]
             Self::Harness(r) => {
@@ -289,7 +295,7 @@ impl ActiveRuntime {
                 r.runtime.internal_network(),
                 r.runtime.warp_internal_network(),
             )),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(r) => r.internal_networks(),
             #[cfg(test)]
             Self::Harness(_) => None,
@@ -298,14 +304,14 @@ impl ActiveRuntime {
     pub(crate) fn gate_status(&self) -> usque_core::vpngate::GateStatus {
         match self {
             Self::Proxy(r) => r.runtime.gate_status(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(r) => r.gate_status(),
             #[cfg(test)]
             Self::Harness(r) => r.gate_status.clone(),
         }
     }
     pub(crate) fn needs_warp_bootstrap(&self) -> bool {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if let Self::Vpn(runtime) = self {
             return runtime.needs_warp_bootstrap();
         }
@@ -330,7 +336,7 @@ impl ActiveRuntime {
     pub(crate) fn l4_snapshot(&self) -> Option<usque_core::L4Snapshot> {
         match self {
             Self::Proxy(runtime) => runtime.runtime.l4_snapshot(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.l4_snapshot(),
             #[cfg(test)]
             Self::Harness(_) => None,
@@ -340,7 +346,7 @@ impl ActiveRuntime {
     pub(crate) fn cancel_immediately(&mut self) {
         match self {
             Self::Proxy(runtime) => runtime.runtime.cancel_immediately(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.cancel_immediately(),
             #[cfg(test)]
             Self::Harness(runtime) => {
@@ -353,7 +359,7 @@ impl ActiveRuntime {
     pub(crate) fn path(&self) -> RuntimePath {
         match self {
             Self::Proxy(runtime) => runtime.runtime.path(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.path(),
             #[cfg(test)]
             Self::Harness(runtime) => runtime.health().path(),
@@ -363,7 +369,7 @@ impl ActiveRuntime {
     pub(crate) fn listeners(&self) -> &[SocketAddr] {
         match self {
             Self::Proxy(runtime) => runtime.runtime.listeners(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.listeners(),
             #[cfg(test)]
             Self::Harness(runtime) => &runtime.listeners,
@@ -380,7 +386,7 @@ impl ActiveRuntime {
                 }
                 health
             }
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.health(),
             #[cfg(test)]
             Self::Harness(runtime) => runtime.health(),
@@ -390,7 +396,7 @@ impl ActiveRuntime {
     pub(crate) fn statistics(&self) -> TrafficSnapshot {
         match self {
             Self::Proxy(runtime) => runtime.runtime.statistics(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.statistics(),
             #[cfg(test)]
             Self::Harness(_) => TrafficSnapshot::default(),
@@ -400,7 +406,7 @@ impl ActiveRuntime {
     pub(crate) fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
         match self {
             Self::Proxy(runtime) => runtime.runtime.connection_timeline(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.connection_timeline(),
             #[cfg(test)]
             Self::Harness(runtime) => runtime.timeline.snapshot(),
@@ -412,7 +418,7 @@ impl ActiveRuntime {
     ) -> tokio::sync::watch::Receiver<NetworkQualitySnapshot> {
         match self {
             Self::Proxy(runtime) => runtime.runtime.subscribe_network_quality(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.subscribe_network_quality(),
             #[cfg(test)]
             Self::Harness(_) => tokio::sync::watch::channel(harness_network_quality()).1,
@@ -422,7 +428,7 @@ impl ActiveRuntime {
     pub(crate) fn proxy_performance(&self) -> Option<ProxyPerformanceSnapshot> {
         match self {
             Self::Proxy(runtime) => Some(runtime.runtime.performance()),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(_) => None,
             #[cfg(test)]
             Self::Harness(_) => None,
@@ -437,7 +443,7 @@ impl ActiveRuntime {
     )> {
         match self {
             Self::Proxy(runtime) => Some(runtime.runtime.diagnostic_dns_context()),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.diagnostic_dns_context(),
             #[cfg(test)]
             Self::Harness(_) => None,
@@ -447,7 +453,7 @@ impl ActiveRuntime {
     pub(crate) fn failure(&self) -> Option<String> {
         match self {
             Self::Proxy(runtime) => runtime.runtime.failure(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime.failure(),
             #[cfg(test)]
             Self::Harness(_) => None,
@@ -457,7 +463,7 @@ impl ActiveRuntime {
     pub(crate) fn is_vpn(&self) -> bool {
         match self {
             Self::Proxy(_) => false,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(_) => true,
             #[cfg(test)]
             Self::Harness(runtime) => runtime.vpn,
@@ -482,17 +488,17 @@ impl ActiveRuntime {
                 runtime.runtime.socks5_listeners(),
                 runtime.runtime.http_listeners(),
                 {
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "linux"))]
                     {
                         runtime.system_proxy.is_some()
                     }
-                    #[cfg(not(windows))]
+                    #[cfg(not(any(windows, target_os = "linux")))]
                     {
                         false
                     }
                 },
             ),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => (
                 runtime.socks5_listeners(),
                 runtime.http_listeners(),
@@ -527,7 +533,7 @@ impl ActiveRuntime {
     }
 
     pub(crate) fn requires_agent_reattach(&self) -> bool {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if let Self::Vpn(runtime) = self {
             return runtime.requires_agent_reattach();
         }
@@ -540,7 +546,7 @@ impl ActiveRuntime {
             Self::Vpn(runtime) => runtime
                 .detach_for_agent_reattach()
                 .await
-                .map_err(map_windows_vpn_error),
+                .map_err(map_platform_vpn_error),
             _ => Err(ControlServiceError::InvalidRequest(
                 "only an active Windows VPN can reattach to the Agent".to_owned(),
             )),
@@ -552,18 +558,27 @@ impl ActiveRuntime {
             Self::Proxy(runtime) => {
                 #[cfg(windows)]
                 let system_proxy_result = match runtime.system_proxy.as_mut() {
-                    Some(system_proxy) => {
-                        system_proxy.shutdown().await.map_err(map_windows_vpn_error)
-                    }
+                    Some(system_proxy) => system_proxy
+                        .shutdown()
+                        .await
+                        .map_err(map_platform_vpn_error),
+                    None => Ok(()),
+                };
+                #[cfg(target_os = "linux")]
+                let system_proxy_result = match runtime.system_proxy.as_mut() {
+                    Some(proxy) => proxy
+                        .shutdown()
+                        .await
+                        .map_err(|error| ControlServiceError::PlatformVpn(error.to_string())),
                     None => Ok(()),
                 };
                 runtime.runtime.shutdown().await;
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "linux"))]
                 system_proxy_result?;
                 Ok(())
             }
-            #[cfg(windows)]
-            Self::Vpn(runtime) => runtime.shutdown().await.map_err(map_windows_vpn_error),
+            #[cfg(any(windows, target_os = "linux"))]
+            Self::Vpn(runtime) => runtime.shutdown().await.map_err(map_platform_vpn_error),
             #[cfg(test)]
             Self::Harness(runtime) => {
                 runtime
@@ -594,7 +609,7 @@ impl ActiveRuntime {
     pub(crate) fn ads_revision(&self) -> String {
         match self {
             Self::Proxy(r) => r.runtime.ads_revision(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(r) => r.ads_revision(),
             #[cfg(test)]
             Self::Harness(_) => String::new(),
@@ -603,7 +618,7 @@ impl ActiveRuntime {
     pub(crate) fn update_ads_enabled(&self, enabled: bool) {
         match self {
             Self::Proxy(r) => r.runtime.update_ads_enabled(enabled),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(r) => r.update_ads_enabled(enabled),
             #[cfg(test)]
             Self::Harness(_) => {}
@@ -616,10 +631,10 @@ impl ActiveRuntime {
     ) -> Result<(), ControlServiceError> {
         match self {
             Self::Proxy(runtime) => runtime.runtime.update_traffic_policy(disable_quic),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime
                 .update_traffic_policy(disable_quic)
-                .map_err(map_windows_vpn_error)?,
+                .map_err(map_platform_vpn_error)?,
             #[cfg(test)]
             Self::Harness(runtime) => {
                 runtime.disable_quic = disable_quic;
@@ -641,12 +656,12 @@ impl ActiveRuntime {
                     .await
                     .map_err(ControlServiceError::Transport)?;
             }
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => {
                 runtime
                     .reconfigure_frontends(profile)
                     .await
-                    .map_err(map_windows_vpn_error)?;
+                    .map_err(map_platform_vpn_error)?;
             }
             #[cfg(test)]
             Self::Harness(runtime) => runtime.reconfigure_frontends(profile),
@@ -667,7 +682,7 @@ impl ActiveRuntime {
                         &mut runtime.system_proxy,
                     )
                     .await
-                    .map_err(map_windows_vpn_error)?;
+                    .map_err(map_platform_vpn_error)?;
                     runtime.system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
                         let listener = crate::windows_agent::loopback_http_listener(
                             runtime.runtime.http_listeners(),
@@ -680,24 +695,59 @@ impl ActiveRuntime {
                         Some(
                             crate::windows_agent::WindowsSystemProxyGuard::start(listener)
                                 .await
-                                .map_err(map_windows_vpn_error)?,
+                                .map_err(map_platform_vpn_error)?,
                         )
                     } else {
                         None
                     };
                     Ok(())
                 }
-                #[cfg(not(windows))]
+                #[cfg(target_os = "linux")]
+                {
+                    if let Some(proxy) = runtime.system_proxy.as_mut() {
+                        proxy
+                            .shutdown()
+                            .await
+                            .map_err(|error| ControlServiceError::PlatformVpn(error.to_string()))?;
+                    }
+                    runtime.system_proxy = None;
+                    if profile.frontends.http && profile.proxy.system_proxy {
+                        let listener = runtime
+                            .runtime
+                            .http_listeners()
+                            .iter()
+                            .copied()
+                            .find(|address| address.ip().is_loopback())
+                            .ok_or_else(|| {
+                                ControlServiceError::PlatformVpn(
+                                    "system proxy requires a loopback HTTP listener".into(),
+                                )
+                            })?;
+                        let cipher =
+                            std::sync::Arc::new(crate::linux_chain::LinuxProfileCipher::new(
+                                std::sync::Arc::new(usque_platform::LinuxSecretServiceVault),
+                            ));
+                        runtime.system_proxy = Some(
+                            crate::linux_system_proxy::LinuxSystemProxyGuard::start(
+                                listener, cipher,
+                            )
+                            .await
+                            .map_err(|error| ControlServiceError::PlatformVpn(error.to_string()))?,
+                        );
+                    }
+                    Ok(())
+                }
+                #[cfg(not(any(windows, target_os = "linux")))]
                 {
                     let _ = (runtime, profile);
                     Ok(())
                 }
             }
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Vpn(runtime) => runtime
                 .replace_system_proxy(profile)
                 .await
-                .map_err(map_windows_vpn_error),
+                .map_err(map_platform_vpn_error),
             #[cfg(test)]
             Self::Harness(runtime) => {
                 runtime.system_proxy = false;
@@ -812,7 +862,7 @@ async fn attach_vpn(
                 runtime: ProxyRuntime::from_data_plane(masque),
                 system_proxy: None,
             })),
-            map_windows_vpn_error(error),
+            map_platform_vpn_error(error),
         ));
     }
     let masque = proxy.runtime.into_data_plane();
@@ -823,7 +873,7 @@ async fn attach_vpn(
                 runtime: ProxyRuntime::from_data_plane(masque),
                 system_proxy: None,
             })),
-            map_windows_vpn_error(error),
+            map_platform_vpn_error(error),
         )),
     }
 }
@@ -839,7 +889,7 @@ async fn detach_vpn(
     let masque = match vpn.detach_into_masque().await {
         Ok(masque) => masque,
         Err(error) => {
-            return Err((ActiveRuntime::Vpn(vpn), map_windows_vpn_error(error)));
+            return Err((ActiveRuntime::Vpn(vpn), map_platform_vpn_error(error)));
         }
     };
     let proxy_runtime = ProxyRuntime::from_data_plane(masque);
@@ -865,7 +915,7 @@ async fn detach_vpn(
                         runtime: proxy_runtime,
                         system_proxy: None,
                     })),
-                    map_windows_vpn_error(error),
+                    map_platform_vpn_error(error),
                 ));
             }
         }

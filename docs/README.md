@@ -19,6 +19,7 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | Document | Read it for / 用途 |
 | --- | --- |
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
+| [Linux desktop](LINUX_DESKTOP.md) | Linux packages, keyring, service installation, recovery and validation limits / Linux 安装包、钥匙串、后台服务、恢复与验证范围 |
 | [Network Doctor](network-doctor.md) | Run checks, read results, and export a local report / 运行检查、理解结果与导出诊断 |
 | [Routing and Ads](ROUTING.md) | Configure DIRECT, REJECT, PROXY, exceptions and Ads / 配置分流动作、例外与广告拦截 |
 | [Direct DNS](encrypted-direct-dns.md) | Choose System, DoH or DoT and fill in resolver settings / 选择直连 DNS 模式与填写服务器配置 |
@@ -94,6 +95,7 @@ Common terms in these references:
 
 | Record | Scope / 范围 |
 | --- | --- |
+| [Linux implementation validation](LINUX_IMPLEMENTATION_VALIDATION.md) | Local Linux source/build checks, cross-platform regressions and explicitly unavailable native acceptance / Linux 本地源码与构建检查、跨平台回归及未运行的原生验收 |
 | [Upstream transport fixes](UPSTREAM_TRANSPORT_VALIDATION.md) | ICMP saturation and TCP packet-budget regressions, safe checks and isolated-test limits / ICMP 拥塞、TCP 包预算回归、安全检查与隔离测试边界 |
 | [Chrome ClientHello compatibility](CHROME_FINGERPRINT_VALIDATION.md) | Explicit H2/H3 WARP handshake and CONNECT-IP experiment, profile limits and validation / H2、H3 指纹握手与 CONNECT-IP 实测、指纹范围与验证 |
 | [Chrome 155 WARP signature negotiation](CHROME155_WARP_VALIDATION.md) | Default/131/155 H2/H3/L4 comparison and observed certificate/signature algorithms / 默认、131、155 在 H2/H3/L4 的对照及服务端证书与签名算法实测 |

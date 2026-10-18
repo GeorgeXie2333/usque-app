@@ -1,12 +1,44 @@
 # Usque GUI
 
-Flutter UI for Windows, Android and Android TV. macOS source is retained for
+Flutter UI for Windows, Linux, Android and Android TV. macOS source is retained for
 future work but is not built, tested or released for the current product.
 The UI uses native Flutter widgets without a WebView.
 
 Desktop builds start the Rust sidecar and talk to it over current-user IPC. Android talks to the Rust library inside the isolated `:vpn` process.
 
 Build and test commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Feature status is in [docs/IMPLEMENTATION.md](../../docs/IMPLEMENTATION.md).
+
+## Linux desktop
+
+The production entry point is `lib/main.dart`; the Linux runner builds `usque`
+with the application ID `io.github.georgexie2333.usque`. It launches the real
+Engine through a private Unix socket and verifies the connected process UID and
+PID. Engine configuration, cache and state use XDG directories; credentials
+require an unlocked Secret Service keyring. The keyring error remains retryable.
+The native runner provides single-instance activation, file pickers, browser
+callbacks, notifications, login startup, and a StatusNotifierItem tray. Closing
+to the tray is disabled when no host is present; host loss restores the window.
+Window size and maximization are saved; Wayland positioning belongs to the
+compositor. Output controls follow capabilities reported by the running Engine.
+Copied License Keys use an owned clipboard selection that expires after 30
+seconds without clearing a newer selection. Clipboard managers outside Usque
+may retain their own copies.
+
+**Settings → Background service** and onboarding offer explicit installation or
+repair. Verify an AppImage signature before approving its initial administrator
+request. Installation checks for host systemd, nftables and libsecret-1 and
+does not connect a VPN. Restart Usque after service changes. An AppImage can
+explicitly install its matching service through the installed helper; a
+mismatched deb/rpm service requires the matching package to be reinstalled.
+Linux update selection requires the current architecture and installation format
+(`AppImage`, `deb`, or `rpm`) and signed metadata. The maintenance helper verifies
+that metadata independently before installation. Cancellation remains retryable.
+
+`lib/main_preview.dart` remains a separate debug-only simulated application with
+its own ID and in-memory state. It cannot register production native shell or
+Engine channels. Never package its `usque_ui_preview` binary. Required safe
+checks and unavailable Windows/isolated checks are recorded separately in
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Brand assets
 
@@ -48,8 +80,8 @@ by the generator, without establishing macOS product support.
 Linux/WSL developers can run `bash tool/dev.sh preview` from the repository root
 to open the debug-only UI preview with hot reload, simulated connection states,
 sample traffic and an onboarding reset. Accounts, preferences and settings stay
-in memory; no engine process, VPN or update operation starts. Linux is a
-development preview, not a supported VPN product or release platform. See the
+in memory; no engine process, VPN or update operation starts. This preview
+uses an independent application identity and does not access production data. See the
 [Linux development guide](../../docs/LINUX_DEVELOPMENT.md) for native editing,
 checks, limitations and ignored local files. Windows golden validation remains
 required.
@@ -120,7 +152,19 @@ are applied. Ordinary WARP and unchanged registration addresses have no banner.
 - Background fills are reserved for controls, selection, warnings, dialogs and save bars. Use `Panel` for explicitly isolated danger areas; do not make every panel transparent. Preserve the connection ring's drawing, proportions, phase mapping and motion when editing surrounding layouts.
 - Use the existing brand colors, bundled fonts and locale fallbacks. Primary controls have a minimum 48-pixel target; status indicators do not rely on color alone. Layout code must use the existing network observations without creating probes, sampling timers or history persistence.
 
-The workflow and native-layout widget tests use a fake engine and cover connected detail expansion, repeated collapse/restore, selectable-value copying, action-row focus and keyboard/D-pad activation, status-label contrast, narrow/landscape layouts, 200% text, and reduced motion. The `golden` suite additionally checks real-font layouts and exact Windows-pinned screenshots, including accounts, settings, proxy editors, onboarding, diagnostics, dialogs and expanded home details; neither suite starts a VPN or proves native networking behavior.
+The workflow and native-layout widget tests use a fake engine and cover connected detail expansion, repeated collapse/restore, selectable-value copying, action-row focus and keyboard/D-pad activation, status-label contrast, narrow/landscape layouts, 200% text, and reduced motion. Bitmap tests use the `golden` tag and exact comparison with the pinned Flutter SDK. Existing Windows screenshots cover accounts, settings, proxy editors, onboarding, diagnostics, dialogs and expanded home details.
+
+The independent `linux-golden` suite exercises Linux UI branches with a fake
+engine and [fixed test font fixtures](test/fonts/README.md). Its images live in `test/goldens/linux/`
+and are compared on Linux amd64; it is also tagged `golden`. Run
+`flutter test --no-pub --tags linux-golden`, or use `bash tool/dev.sh check flutter`
+from the repository root. See [Contributing](../../CONTRIBUTING.md) for scoped
+baseline regeneration. Linux images do not replace the Windows suite or establish
+arm64 rendering, native GNOME/KDE, X11/Wayland, tray or networking behavior.
+
+Linux golden 使用独立目录、固定测试字体和模拟引擎，在 amd64 上精确比较 Linux
+界面分支；Windows 截图仍单独验证。两套截图均不启动 VPN，也不证明原生桌面与
+网络行为正确。
 
 ---
 

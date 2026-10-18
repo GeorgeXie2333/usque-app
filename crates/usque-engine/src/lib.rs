@@ -52,10 +52,14 @@ mod chain_dns_live_tests;
 mod chain_exit;
 mod connection_evidence;
 pub mod diagnostics;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod event_stream;
-#[cfg(any(windows, target_os = "macos", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 mod ipc_stream;
+#[cfg(target_os = "linux")]
+mod linux_chain;
+#[cfg(target_os = "linux")]
+mod linux_system_proxy;
 pub mod logging;
 mod maintenance;
 mod network_quality;
@@ -86,6 +90,20 @@ mod disconnect_cleanup;
 
 #[cfg(target_os = "macos")]
 pub mod macos_ipc;
+
+#[cfg(target_os = "linux")]
+pub mod linux_ipc;
+
+#[cfg(any(windows, target_os = "linux"))]
+mod desktop_tunnel_plan;
+#[cfg(target_os = "linux")]
+pub mod linux_agent;
+#[cfg(target_os = "linux")]
+mod linux_observation;
+#[cfg(target_os = "linux")]
+mod linux_runtime;
+#[cfg(target_os = "linux")]
+mod linux_socket;
 
 #[cfg(windows)]
 pub mod windows_ipc;
@@ -123,10 +141,12 @@ pub struct ControlServiceState {
     retained_connection_evidence: Arc<Mutex<Option<connection_evidence::ConnectionEvidence>>>,
     diagnostics_lifecycle: Mutex<()>,
     cache_dir: PathBuf,
+    profile_dir: PathBuf,
+    chain_cipher: Option<Arc<dyn usque_core::chain_exit::store::ProfileCipher>>,
     geo_progress_tx: tokio::sync::broadcast::Sender<v1::GeoRulesProgress>,
     gate_directory: usque_core::vpngate::DirectoryDownloader,
     gate_fetch_task: Mutex<Option<vpngate::FetchTask>>,
-    #[cfg(all(windows, feature = "wireguard"))]
+    #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
     warp_generator: Arc<usque_transport::warp_wireguard::Manager>,
     gate_status: watch::Sender<usque_core::vpngate::GateStatus>,
     gate_supervisor: Mutex<Option<AbortOnDropHandle<()>>>,
@@ -143,6 +163,8 @@ pub struct ControlServiceState {
     settings_submission: Mutex<()>,
     settings_applying: std::sync::atomic::AtomicBool,
     system_proxy_applications: Mutex<network_settings::SystemProxyApplications>,
+    #[cfg(target_os = "linux")]
+    linux_platform: Mutex<Option<diagnostics::LinuxPlatformObservation>>,
     #[cfg(windows)]
     windows_recovery: Mutex<WindowsRecoveryRuntime>,
     #[cfg(windows)]
@@ -153,7 +175,7 @@ pub struct ControlServiceState {
     windows_recovery_stopping: std::sync::atomic::AtomicBool,
     #[cfg(all(test, windows))]
     test_windows_agent: Mutex<Option<windows_agent::WindowsAgentClient>>,
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     event_sequence: AtomicU64,
     #[cfg(test)]
     remote_license_unbinds: Mutex<Vec<Uuid>>,
@@ -406,6 +428,14 @@ fn runtime_path_changed(snapshot: &ConnectionSnapshot, path: RuntimePath) -> boo
 
 impl ControlService {
     pub fn open(store: ConfigStore) -> Result<Self, ControlServiceError> {
+        #[cfg(target_os = "linux")]
+        let store = if let Some(paths) =
+            usque_platform::linux_paths::LinuxPaths::for_config(store.path())
+        {
+            store.with_cache_directory(paths.cache)
+        } else {
+            store
+        };
         Self::open_with_vault(store, platform_vault())
     }
 
@@ -420,11 +450,34 @@ impl ControlService {
         if !store.path().exists() {
             store.save(&config)?;
         }
-        let cache_dir = store
+        let cache_dir = store.cache_directory();
+        let profile_dir = store
             .path()
             .parent()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+        #[cfg(target_os = "linux")]
+        let profile_dir = usque_platform::linux_paths::LinuxPaths::for_config(store.path())
+            .map(|paths| paths.data)
+            .unwrap_or(profile_dir);
+        let chain_cipher: Option<Arc<dyn usque_core::chain_exit::store::ProfileCipher>> = {
+            #[cfg(windows)]
+            {
+                Some(Arc::new(
+                    usque_core::chain_exit::store::WindowsProfileCipher,
+                ))
+            }
+            #[cfg(target_os = "linux")]
+            {
+                Some(Arc::new(linux_chain::LinuxProfileCipher::new(Arc::clone(
+                    &vault,
+                ))))
+            }
+            #[cfg(not(any(windows, target_os = "linux")))]
+            {
+                None
+            }
+        };
         let retained: Vec<_> = config
             .network
             .vpn_gate
@@ -442,10 +495,10 @@ impl ControlService {
                 diagnostics: diagnostics::DiagnosticsManager::new(),
                 retained_connection_evidence: Arc::new(Mutex::new(None)),
                 diagnostics_lifecycle: Mutex::new(()),
-                #[cfg(all(windows, feature = "wireguard"))]
+                #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
                 warp_generator: Arc::new(usque_transport::warp_wireguard::Manager::new(
-                    store.path().to_path_buf(),
-                    Arc::new(usque_core::chain_exit::store::WindowsProfileCipher),
+                    profile_dir.join("config.json"),
+                    Arc::clone(chain_cipher.as_ref().expect("desktop cipher")),
                 )),
                 store,
                 config: RwLock::new(config),
@@ -465,6 +518,8 @@ impl ControlService {
                 gate_supervisor: Mutex::new(None),
                 gate_startup_cancel: Mutex::new(tokio_util::sync::CancellationToken::new()),
                 cache_dir,
+                profile_dir,
+                chain_cipher,
                 geo_progress_tx,
                 network_quality_tx,
                 network_quality_relay: Mutex::new(None),
@@ -477,6 +532,8 @@ impl ControlService {
                 settings_submission: Mutex::new(()),
                 settings_applying: std::sync::atomic::AtomicBool::new(false),
                 system_proxy_applications: Mutex::new(Default::default()),
+                #[cfg(target_os = "linux")]
+                linux_platform: Mutex::new(None),
                 #[cfg(windows)]
                 windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
                 #[cfg(windows)]
@@ -487,7 +544,7 @@ impl ControlService {
                 windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
                 #[cfg(all(test, windows))]
                 test_windows_agent: Mutex::new(None),
-                #[cfg(any(windows, test))]
+                #[cfg(any(windows, target_os = "linux", test))]
                 event_sequence: AtomicU64::new(0),
                 #[cfg(test)]
                 remote_license_unbinds: Mutex::new(Vec::new()),
@@ -495,11 +552,41 @@ impl ControlService {
         })
     }
 
+    #[cfg(target_os = "linux")]
+    pub async fn initialize_linux_user_state(&self) {
+        {
+            let _mutation = self.mutation_lock.lock().await;
+            #[cfg(not(test))]
+            if let Err(error) = self.recover_linux_user_state().await {
+                tracing::warn!(%error, "current-user proxy recovery remains retryable");
+            }
+            if let Err(error) = self.migrate_shared_proxy_password().await {
+                tracing::warn!(%error, "shared proxy-password migration remains retryable");
+            }
+        }
+        if let Err(error) = self.reap_pending_identity_deletions().await {
+            tracing::warn!(%error, "deferred secure identity cleanup remains retryable");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub async fn recover_linux_user_state(&self) -> Result<(), ControlServiceError> {
+        let cipher = self
+            .chain_cipher
+            .clone()
+            .ok_or(ControlServiceError::FeatureUnavailable(
+                "secure proxy recovery storage is unavailable",
+            ))?;
+        linux_system_proxy::LinuxSystemProxyGuard::recover(cipher)
+            .await
+            .map_err(|error| ControlServiceError::PlatformVpn(error.to_string()))
+    }
+
     pub async fn config_snapshot(&self) -> AppConfig {
         self.config.read().await.clone()
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn subscribe_network_quality(
         &self,
     ) -> watch::Receiver<usque_transport::NetworkQualitySnapshot> {
@@ -848,7 +935,7 @@ impl ControlService {
                 control_response::Payload::ProfileList(self.profile_catalog().await),
             ),
             control_request::Payload::GetCapabilities(_) => Ok(
-                control_response::Payload::Capabilities(current_capabilities()),
+                control_response::Payload::Capabilities(runtime_capabilities().await),
             ),
             control_request::Payload::ChainProfile(request) => {
                 Ok(control_response::Payload::ChainProfiles(
@@ -968,8 +1055,7 @@ impl ControlService {
             }
             control_request::Payload::CopyLicenseKey(request) => {
                 self.copy_license_key(parse_profile_id(&request.profile_id)?)
-                    .await?;
-                Ok(control_response::Payload::Empty(v1::Empty {}))
+                    .await
             }
             control_request::Payload::UpdateLicenseKey(request) => {
                 self.update_license_key(
@@ -1019,6 +1105,9 @@ impl ControlService {
                         sha256: package.sha256,
                         platform: package.platform,
                         variant: package.variant,
+                        install_format: package.install_format,
+                        signature_manifest: package.signature_manifest,
+                        signature: package.signature,
                     }),
                 }))
             }
@@ -1306,27 +1395,38 @@ impl ControlService {
                 });
             }
         }
-        state.snapshot().clone()
+        #[allow(unused_mut)]
+        let mut snapshot = state.snapshot().clone();
+        #[cfg(target_os = "linux")]
+        if data_plane.is_none() {
+            self.project_linux_recovery(&mut snapshot).await;
+        } else if let Some(active) = data_plane.as_ref()
+            && let ActiveRuntime::Vpn(runtime) = &active.runtime
+        {
+            self.project_linux_active_recovery(runtime.operation_id(), &mut snapshot)
+                .await;
+        }
+        snapshot
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) async fn event_snapshot(&self) -> v1::ConnectionSnapshot {
         self.snapshot_with_quality_to_proto(&self.status_snapshot().await)
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn next_event_sequence(&self) -> u64 {
         self.event_sequence.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn subscribe_geo_progress(
         &self,
     ) -> tokio::sync::broadcast::Receiver<v1::GeoRulesProgress> {
         self.geo_progress_tx.subscribe()
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn subscribe_diagnostics(
         &self,
     ) -> tokio::sync::broadcast::Receiver<diagnostics::DiagnosticEvent> {
@@ -1356,6 +1456,10 @@ impl ControlService {
         };
         #[cfg(not(windows))]
         let platform_state = None;
+        #[cfg(target_os = "linux")]
+        let linux_platform = self.linux_diagnostic_observation().await;
+        #[cfg(not(target_os = "linux"))]
+        let linux_platform = None;
         let probes = if mode == usque_core::DiagnosticMode::Deep {
             self.diagnostic_probe_context().await.map(Arc::new)
         } else {
@@ -1387,6 +1491,7 @@ impl ControlService {
                 captured.timeline
             },
             platform_state,
+            linux_platform: linux_platform.filter(|_| stable),
             quality: if captured.retained || !stable {
                 network_quality::disconnected_snapshot()
             } else {
@@ -1428,6 +1533,10 @@ impl ControlService {
             || self.disconnect_cleanup.try_lock().ok()?.is_some()
             || !self.disconnect_owners.try_lock().ok()?.is_empty()
         {
+            return None;
+        }
+        #[cfg(all(target_os = "linux", not(test)))]
+        if !linux_observation::disconnected_probe_safe().await {
             return None;
         }
         let protector: Arc<dyn usque_transport::SocketProtector> = Arc::new(NoopSocketProtector);
@@ -1957,7 +2066,7 @@ impl ControlService {
             return Ok(self.state.lock().await.snapshot().clone());
         }
         self.stop_failed_gate_locked().await?;
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if let Some(snapshot) = self
             .retry_protected_target(profile_id, &startup_cancel, false)
             .await?
@@ -2125,7 +2234,7 @@ impl ControlService {
                 "encrypted WARP DNS is unavailable in this build",
             ));
         }
-        if profile.frontends.tunnel && !cfg!(windows) {
+        if profile.frontends.tunnel && !cfg!(any(windows, target_os = "linux")) {
             return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
         }
 
@@ -2297,9 +2406,43 @@ impl ControlService {
                     }
                 }
             }
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
             {
-                unreachable!("non-Windows VPN mode was rejected before identity loading")
+                let cipher =
+                    self.chain_cipher
+                        .clone()
+                        .ok_or(ControlServiceError::FeatureUnavailable(
+                            "secure Linux recovery storage is unavailable",
+                        ))?;
+                match Box::pin(linux_runtime::LinuxVpnRuntime::start(
+                    &profile,
+                    identity,
+                    Arc::clone(&pin_refresher),
+                    Arc::new(geo_policy.clone()),
+                    usque_transport::VpnGateStart {
+                        selected: selected_gate,
+                        status: Some(self.gate_status.clone()),
+                        cancellation: startup_cancel.clone(),
+                        deadline: Some(connection_deadline),
+                    },
+                    cipher,
+                ))
+                .await
+                {
+                    Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
+                    Err(_) if startup_cancel.is_cancelled() => {
+                        return self.disconnect_locked().await;
+                    }
+                    Err(error) => {
+                        let error = linux_runtime::map_error(error);
+                        self.mark_connection_error(&error).await;
+                        return Err(error);
+                    }
+                }
+            }
+            #[cfg(not(any(windows, target_os = "linux")))]
+            {
+                unreachable!("unsupported VPN mode was rejected before identity loading")
             }
         } else {
             match Box::pin(usque_transport::DataPlaneRuntime::start_with_vpngate(
@@ -2363,12 +2506,43 @@ impl ControlService {
                     } else {
                         None
                     };
+                    #[cfg(target_os = "linux")]
+                    let system_proxy = if profile.frontends.http
+                        && profile.proxy.system_proxy
+                        && runtime.gate_status().stage != usque_core::vpngate::GateStage::Error
+                        && !startup_cancel.is_cancelled()
+                    {
+                        let listener = runtime
+                            .http_listeners()
+                            .iter()
+                            .copied()
+                            .find(|address| address.ip().is_loopback());
+                        let (Some(listener), Some(cipher)) = (listener, self.chain_cipher.clone())
+                        else {
+                            runtime.shutdown().await;
+                            let error = ControlServiceError::PlatformVpn(
+                                "system proxy requires a loopback HTTP listener and secure recovery storage".into(),
+                            );
+                            self.mark_connection_error(&error).await;
+                            return Err(error);
+                        };
+                        Some(
+                            self.finish_linux_system_proxy_start(
+                                linux_system_proxy::LinuxSystemProxyGuard::start(listener, cipher)
+                                    .await,
+                                runtime.shutdown(),
+                            )
+                            .await?,
+                        )
+                    } else {
+                        None
+                    };
                     if runtime.gate_status().stage != usque_core::vpngate::GateStage::Error
                         && !startup_cancel.is_cancelled()
                         && let Err(error) = runtime.activate_final().await
                     {
                         runtime.shutdown().await;
-                        #[cfg(windows)]
+                        #[cfg(any(windows, target_os = "linux"))]
                         if let Some(mut guard) = system_proxy {
                             let _ = guard.shutdown().await;
                         }
@@ -2378,7 +2552,7 @@ impl ControlService {
                     }
                     ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
                         runtime,
-                        #[cfg(windows)]
+                        #[cfg(any(windows, target_os = "linux"))]
                         system_proxy,
                     }))
                 }
@@ -2562,6 +2736,10 @@ impl ControlService {
         if retry_cleanup {
             self.retry_disconnect_cleanup().await;
         }
+        #[cfg(all(target_os = "linux", not(test)))]
+        if retry_cleanup && self.disconnect_owners.lock().await.is_empty() {
+            self.recover_linux_orphan_on_disconnect().await?;
+        }
         Ok(self.state.lock().await.snapshot().clone())
     }
 
@@ -2692,7 +2870,7 @@ impl ControlService {
         startup_cancel: tokio_util::sync::CancellationToken,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
         self.stop_failed_gate_locked().await?;
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if let Some(snapshot) = self
             .retry_protected_target(profile_id, &startup_cancel, true)
             .await?
@@ -2819,6 +2997,8 @@ impl ControlService {
         let _mutation = self.mutation_lock.lock().await;
         self.disconnect_locked().await?;
         self.await_disconnect_cleanup().await?;
+        #[cfg(all(target_os = "linux", not(test)))]
+        self.recover_linux_user_state().await?;
         *self.retained_connection_evidence.lock().await = None;
         let config = self.config.read().await;
         let profile_ids = config
@@ -2846,8 +3026,15 @@ impl ControlService {
             Ok(())
         })
         .await?;
-        usque_core::chain_exit::store::clear_library(&self.cache_dir)
+        usque_core::chain_exit::store::clear_library(&self.profile_dir)
             .map_err(ControlServiceError::configuration)?;
+        #[cfg(target_os = "linux")]
+        self.vault
+            .delete(linux_chain::KEY_ID, SecretRecord::ChainEncryptionKey)
+            .await?;
+        if let Some(cipher) = &self.chain_cipher {
+            cipher.reset_session_key();
+        }
         self.maintenance.clear_local_state().await?;
         *self.settings.lock().await = Default::default();
         self.settings_tx.send_replace(0);
@@ -3010,7 +3197,10 @@ impl ControlService {
         if !has_binding && !has_config_state {
             let mut has_identity_material = false;
             for record in SecretRecord::ALL {
-                if record == SecretRecord::ProxyPassword {
+                if matches!(
+                    record,
+                    SecretRecord::ProxyPassword | SecretRecord::ChainEncryptionKey
+                ) {
                     continue;
                 }
                 if self.vault.get(profile_id, record).await?.is_some() {
@@ -3037,6 +3227,23 @@ impl ControlService {
             .get(profile_id, record)
             .await?
             .ok_or(ControlServiceError::MissingCredential(record.key()))
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn finish_linux_system_proxy_start(
+        &self,
+        result: std::io::Result<linux_system_proxy::LinuxSystemProxyGuard>,
+        shutdown: impl std::future::Future<Output = ()>,
+    ) -> Result<linux_system_proxy::LinuxSystemProxyGuard, ControlServiceError> {
+        match result {
+            Ok(guard) => Ok(guard),
+            Err(error) => {
+                shutdown.await;
+                let error = ControlServiceError::PlatformVpn(error.to_string());
+                self.mark_connection_error(&error).await;
+                Err(error)
+            }
+        }
     }
 
     async fn mark_connection_error(&self, error: &ControlServiceError) {
@@ -3465,14 +3672,33 @@ impl ControlService {
         Ok(())
     }
 
-    async fn copy_license_key(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
+    async fn copy_license_key(
+        &self,
+        profile_id: Uuid,
+    ) -> Result<control_response::Payload, ControlServiceError> {
         self.ensure_profile_exists(profile_id).await?;
         Self::require_consumer_identity(&self.load_identity_provider(profile_id).await?)?;
         let license = self
             .required_secret(profile_id, SecretRecord::License)
             .await?;
-        sensitive_output::copy_sensitive_text(&license)
-            .map_err(ControlServiceError::SensitiveOutput)
+        #[cfg(target_os = "linux")]
+        {
+            if license.len() > 64 * 1024 || std::str::from_utf8(&license).is_err() {
+                return Err(ControlServiceError::InvalidStoredIdentity);
+            }
+            Ok(control_response::Payload::SensitiveClipboard(
+                v1::SensitiveClipboardValue {
+                    utf8: license.to_vec(),
+                    clear_after_seconds: 30,
+                },
+            ))
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            sensitive_output::copy_sensitive_text(&license)
+                .map_err(ControlServiceError::SensitiveOutput)?;
+            Ok(control_response::Payload::Empty(v1::Empty {}))
+        }
     }
 
     async fn update_license_key(
@@ -4081,7 +4307,7 @@ impl ControlService {
         {
             return Err(ControlServiceError::ProfileNotFound(id));
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         let cancellation = self.gate_connection_request().await;
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
@@ -4092,7 +4318,7 @@ impl ControlService {
         }
         next.active_profile_id = Some(id);
         self.persist(next).await?;
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if !cancellation.is_cancelled() {
             self.retry_protected_target(id, &cancellation, false)
                 .await?;
@@ -4516,6 +4742,7 @@ impl ControlServiceError {
                 ("ZERO_TRUST_REGISTRATION_FAILED", true)
             }
             Self::Registration(_) => ("REGISTRATION_FAILED", true),
+            Self::Vault(VaultError::Unavailable(_)) => ("SECURE_STORAGE_FAILED", true),
             Self::Vault(_) => ("SECURE_STORAGE_FAILED", false),
             Self::Persistence(_) | Self::PersistenceWorker(_) => ("PERSISTENCE_FAILED", true),
             Self::Maintenance(maintenance::MaintenanceError::Update(error)) => {
@@ -4742,17 +4969,30 @@ fn platform_vault() -> Arc<dyn SecretVault> {
     {
         Arc::new(usque_platform::MacOsKeychainVault)
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(all(target_os = "linux", not(test)))]
+    {
+        Arc::new(usque_platform::LinuxSecretServiceVault)
+    }
+    #[cfg(any(
+        not(any(windows, target_os = "macos", target_os = "linux")),
+        all(test, target_os = "linux")
+    ))]
     {
         Arc::new(UnavailableVault)
     }
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(any(
+    not(any(windows, target_os = "macos", target_os = "linux")),
+    all(test, target_os = "linux")
+))]
 #[derive(Debug)]
 struct UnavailableVault;
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(any(
+    not(any(windows, target_os = "macos", target_os = "linux")),
+    all(test, target_os = "linux")
+))]
 #[async_trait::async_trait]
 impl SecretVault for UnavailableVault {
     async fn put(
@@ -5305,22 +5545,45 @@ fn tls_fingerprint_to_proto(preset: usque_core::TlsFingerprint) -> i32 {
     }
 }
 
+async fn runtime_capabilities() -> v1::Capabilities {
+    #[cfg(all(target_os = "linux", not(test)))]
+    {
+        let mut capabilities = current_capabilities();
+        let available = async {
+            let agent = linux_agent::LinuxAgentClient::connect().await.ok()?;
+            let caps = agent.capabilities().await.ok()?;
+            linux_runtime::validate_capabilities(&caps, &Profile::default()).ok()?;
+            Some(())
+        };
+        capabilities.vpn = tokio::time::timeout(std::time::Duration::from_secs(5), available)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+        capabilities.l4_tun_tcp = capabilities.vpn;
+        capabilities
+    }
+    #[cfg(not(all(target_os = "linux", not(test))))]
+    current_capabilities()
+}
+
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
-        chain_profile_import: cfg!(windows),
-        chain_openvpn_udp: cfg!(windows),
-        chain_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
-        chain_warp_wireguard: cfg!(windows) && cfg!(feature = "wireguard"),
-        chain_http_proxy: cfg!(windows),
-        chain_socks5_proxy: cfg!(windows),
-        chain_proxy_encrypted_dns: cfg!(windows),
-        custom_bypass: cfg!(windows),
+        chain_profile_import: cfg!(any(windows, target_os = "linux")),
+        chain_openvpn_udp: cfg!(any(windows, target_os = "linux")),
+        chain_wireguard: cfg!(any(windows, target_os = "linux")) && cfg!(feature = "wireguard"),
+        chain_warp_wireguard: cfg!(any(windows, target_os = "linux"))
+            && cfg!(feature = "wireguard"),
+        chain_http_proxy: cfg!(any(windows, target_os = "linux")),
+        chain_socks5_proxy: cfg!(any(windows, target_os = "linux")),
+        chain_proxy_encrypted_dns: cfg!(any(windows, target_os = "linux")),
+        custom_bypass: cfg!(any(windows, target_os = "linux")),
         automatic_endpoints: true,
         endpoint_presets: true,
         zero_trust_endpoint_editing: true,
-        routing_rules: cfg!(windows),
-        live_ads_rules: cfg!(windows),
-        chain_openvpn_multi_endpoint: cfg!(windows),
+        routing_rules: cfg!(any(windows, target_os = "linux")),
+        live_ads_rules: cfg!(any(windows, target_os = "linux")),
+        chain_openvpn_multi_endpoint: cfg!(any(windows, target_os = "linux")),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
         application_quic_blocking: true,
@@ -5341,17 +5604,22 @@ fn current_capabilities() -> v1::Capabilities {
         vpn: cfg!(windows),
         socks5: true,
         http_proxy: true,
-        system_proxy: cfg!(windows),
+        system_proxy: cfg!(any(windows, target_os = "linux")),
         platform_lockdown: false,
         operating_system: std::env::consts::OS.to_owned(),
         architecture: std::env::consts::ARCH.to_owned(),
         transports: vec!["h3".to_owned(), "h2".to_owned()],
-        secure_storage: cfg!(any(windows, target_os = "macos", target_os = "android")),
+        secure_storage: cfg!(any(
+            windows,
+            target_os = "macos",
+            target_os = "android",
+            target_os = "linux"
+        )),
         composable_frontends: true,
         hot_reconfigure: true,
         windows_tray: cfg!(windows),
         android_quick_settings_tile: cfg!(target_os = "android"),
-        system_start: cfg!(any(windows, target_os = "android")),
+        system_start: cfg!(any(windows, target_os = "android", target_os = "linux")),
         license_management: true,
         warp_secret_export: true,
         diagnostics_sessions: true,
@@ -5587,6 +5855,45 @@ fn location_to_proto(location: &usque_core::GeoLocation) -> v1::GeoLocation {
 
 #[cfg(test)]
 mod tests {
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn system_proxy_start_failure_stops_runtime_and_leaves_retryable_error_state() {
+        for phase in [
+            ConnectionPhase::ConnectingHttp3,
+            ConnectionPhase::ConnectingHttp2,
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let service = ControlService::open_with_vault(
+                ConfigStore::new(directory.path().join("config.json")),
+                Arc::new(MemoryVault::default()),
+            )
+            .unwrap();
+            {
+                let mut state = service.state.lock().await;
+                state.transition(ConnectionPhase::Preparing).unwrap();
+                state.transition(phase).unwrap();
+            }
+            let stopped = std::sync::atomic::AtomicBool::new(false);
+            let result = service
+                .finish_linux_system_proxy_start(
+                    Err(std::io::Error::other(
+                        "system proxy authorization cancelled",
+                    )),
+                    async { stopped.store(true, Ordering::SeqCst) },
+                )
+                .await;
+            let Err(error) = result else {
+                panic!("injected startup error must be returned");
+            };
+            assert!(stopped.load(Ordering::SeqCst));
+            assert!(service.data_plane.lock().await.is_none());
+            let mut state = service.state.lock().await;
+            assert_eq!(state.snapshot().phase, ConnectionPhase::Error);
+            assert_eq!(state.snapshot().error, Some(connection_error_for(&error)));
+            state.transition(ConnectionPhase::Preparing).unwrap();
+        }
+    }
 
     #[test]
     fn update_errors_preserve_shared_codes_and_retryability_in_control_responses() {
@@ -6806,7 +7113,10 @@ mod tests {
         assert_eq!(capabilities.vpn, cfg!(windows));
         assert!(capabilities.socks5);
         assert!(capabilities.http_proxy);
-        assert_eq!(capabilities.system_proxy, cfg!(windows));
+        assert_eq!(
+            capabilities.system_proxy,
+            cfg!(any(windows, target_os = "linux"))
+        );
         assert!(!capabilities.platform_lockdown);
         assert!(capabilities.hot_reconfigure);
         assert_eq!(capabilities.transports, ["h3", "h2"]);
@@ -7159,7 +7469,7 @@ mod tests {
         );
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     #[tokio::test]
     async fn connect_fails_closed_for_unavailable_vpn_mode() {
         let directory = tempfile::tempdir().expect("tempdir");
@@ -7196,9 +7506,9 @@ mod tests {
         );
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[tokio::test]
-    async fn windows_vpn_fails_before_agent_mutation_when_identity_is_missing() {
+    async fn desktop_vpn_fails_before_agent_mutation_when_identity_is_missing() {
         let directory = tempfile::tempdir().expect("tempdir");
         let service = ControlService::open_with_vault(
             ConfigStore::new(directory.path().join("config.json")),
@@ -7855,7 +8165,10 @@ mod tests {
 
         let records = vault.records.lock().await;
         for record in SecretRecord::ALL {
-            if record == SecretRecord::ProxyPassword {
+            if matches!(
+                record,
+                SecretRecord::ProxyPassword | SecretRecord::ChainEncryptionKey
+            ) {
                 assert!(
                     !records.contains_key(&(profile_id, record)),
                     "identity persist must not write a proxy password"
@@ -9373,7 +9686,7 @@ mod tests {
                 .error
                 .as_ref()
                 .map(|error| error.code.as_str()),
-            if cfg!(windows) {
+            if cfg!(any(windows, target_os = "linux")) {
                 Some("MISSING_CREDENTIAL")
             } else {
                 Some("OPERATING_MODE_UNAVAILABLE")

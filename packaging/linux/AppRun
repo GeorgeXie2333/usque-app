@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+usque_appdir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+export APPDIR="$usque_appdir"
+export LD_LIBRARY_PATH="$usque_appdir/usr/lib/usque/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Only bundled GTK schemas enter the compiled database; desktop MIME, themes
+# and portal data remain discoverable through the session's data directories.
+export GSETTINGS_SCHEMA_DIR="$usque_appdir/usr/share/glib-2.0/schemas"
+export GTK_DATA_PREFIX="$usque_appdir/usr"
+export XDG_DATA_DIRS="$usque_appdir/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+exec "$usque_appdir/usr/lib/usque/usque" "$@"

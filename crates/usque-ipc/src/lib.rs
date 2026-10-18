@@ -10,6 +10,19 @@ pub mod agent_v1 {
     include!(concat!(env!("OUT_DIR"), "/usque.agent.v1.rs"));
 }
 
+#[cfg(target_os = "linux")]
+pub mod unix_fd;
+
+impl std::fmt::Debug for v1::SensitiveClipboardValue {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SensitiveClipboardValue")
+            .field("utf8", &"[REDACTED]")
+            .field("clear_after_seconds", &self.clear_after_seconds)
+            .finish()
+    }
+}
+
 pub const MAX_FRAME_SIZE: usize = 4 * 1024 * 1024;
 
 pub fn encode_frame<M: Message>(message: &M) -> Result<Bytes, FrameError> {
@@ -21,6 +34,19 @@ pub fn encode_frame<M: Message>(message: &M) -> Result<Bytes, FrameError> {
     output.put_u32(encoded_len as u32);
     message.encode(&mut output)?;
     Ok(output.freeze())
+}
+
+/// Encodes into uniquely owned mutable memory so callers handling credentials
+/// can erase the frame after transport completes without an immutable copy.
+pub fn encode_frame_vec<M: Message>(message: &M) -> Result<Vec<u8>, FrameError> {
+    let encoded_len = message.encoded_len();
+    if encoded_len > MAX_FRAME_SIZE {
+        return Err(FrameError::TooLarge(encoded_len));
+    }
+    let mut output = Vec::with_capacity(4 + encoded_len);
+    output.extend_from_slice(&(encoded_len as u32).to_be_bytes());
+    message.encode(&mut output)?;
+    Ok(output)
 }
 
 pub fn decode_frame<M: Message + Default>(mut frame: Bytes) -> Result<M, FrameError> {

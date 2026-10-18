@@ -1,4 +1,6 @@
 tags:
-  # Bitmap baselines use Windows font rasterization and the pinned Flutter SDK.
-  # CI requires this suite on Windows in addition to the Ubuntu widget suite.
+  # All bitmap tests use exact comparison with the pinned Flutter SDK.
+  # Windows and Linux baselines have separate directories and host checks.
   golden:
+  # Linux amd64 fixtures; also tagged golden so general widget runs can omit them.
+  linux-golden:

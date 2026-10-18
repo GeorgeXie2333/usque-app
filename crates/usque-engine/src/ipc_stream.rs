@@ -1,16 +1,29 @@
-use std::{io, sync::Arc};
+use std::{io, sync::Arc, time::Duration};
 
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use usque_ipc::{decode_frame, encode_frame, split_frame, v1::ControlRequest};
+use usque_ipc::{decode_frame, split_frame, v1::ControlRequest};
 
 use crate::ControlService;
+use zeroize::{Zeroize, Zeroizing};
 
 const READ_CHUNK_SIZE: usize = 16 * 1024;
 
+#[cfg(any(windows, target_os = "macos", test))]
 pub(crate) async fn handle_stream<Stream>(
+    stream: Stream,
+    service: Arc<ControlService>,
+) -> io::Result<()>
+where
+    Stream: AsyncRead + AsyncWrite + Unpin,
+{
+    handle_stream_with_timeouts(stream, service, None).await
+}
+
+pub(crate) async fn handle_stream_with_timeouts<Stream>(
     mut stream: Stream,
     service: Arc<ControlService>,
+    idle_timeout: Option<Duration>,
 ) -> io::Result<()>
 where
     Stream: AsyncRead + AsyncWrite + Unpin,
@@ -19,7 +32,14 @@ where
     let mut chunk = [0_u8; READ_CHUNK_SIZE];
 
     loop {
-        let read = stream.read(&mut chunk).await?;
+        let read = match idle_timeout {
+            Some(timeout) => tokio::time::timeout(timeout, stream.read(&mut chunk))
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "IPC frame read timed out")
+                })??,
+            None => stream.read(&mut chunk).await?,
+        };
         if read == 0 {
             return if buffer.is_empty() {
                 Ok(())
@@ -37,11 +57,32 @@ where
                 break;
             };
             let request: ControlRequest = decode_frame(frame).map_err(invalid_wire)?;
-            let response = service.handle(request).await;
-            let response = encode_frame(&response).map_err(invalid_wire)?;
-            stream.write_all(&response).await?;
+            let mut reply = service.handle(request).await;
+            let response = encode_sensitive_response(&reply)?;
+            if let Some(usque_ipc::v1::control_response::Payload::SensitiveClipboard(value)) =
+                &mut reply.payload
+            {
+                value.utf8.zeroize();
+            }
+            if let Some(timeout) = idle_timeout {
+                tokio::time::timeout(timeout, stream.write_all(&response))
+                    .await
+                    .map_err(|_| {
+                        io::Error::new(io::ErrorKind::TimedOut, "IPC response write timed out")
+                    })??;
+            } else {
+                stream.write_all(&response).await?;
+            }
         }
     }
+}
+
+fn encode_sensitive_response(
+    reply: &usque_ipc::v1::ControlResponse,
+) -> io::Result<Zeroizing<Vec<u8>>> {
+    usque_ipc::encode_frame_vec(reply)
+        .map(Zeroizing::new)
+        .map_err(invalid_wire)
 }
 
 fn invalid_wire(error: impl std::fmt::Display) -> io::Error {
@@ -58,6 +99,37 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn clipboard_payload_is_only_in_the_authenticated_binary_reply() {
+        let response = ControlResponse {
+            request_id: "clipboard".into(),
+            error: None,
+            payload: Some(
+                usque_ipc::v1::control_response::Payload::SensitiveClipboard(
+                    usque_ipc::v1::SensitiveClipboardValue {
+                        utf8: b"sensitive-license-token".to_vec(),
+                        clear_after_seconds: 30,
+                    },
+                ),
+            ),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(!json.contains("utf8"));
+        assert!(!json.contains("sensitive-license-token"));
+        let debug = format!("{response:?}");
+        assert!(debug.contains("REDACTED"));
+        assert!(!debug.contains("115, 101, 110"));
+        let frame = encode_sensitive_response(&response).unwrap();
+        let decoded: ControlResponse = decode_frame(bytes::Bytes::copy_from_slice(&frame)).unwrap();
+        let Some(usque_ipc::v1::control_response::Payload::SensitiveClipboard(value)) =
+            decoded.payload
+        else {
+            panic!("clipboard response expected")
+        };
+        assert_eq!(value.utf8, b"sensitive-license-token");
+        assert_eq!(value.clear_after_seconds, 30);
+    }
 
     fn status_request(request_id: &str) -> ControlRequest {
         ControlRequest {

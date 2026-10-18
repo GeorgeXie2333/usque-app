@@ -30,6 +30,10 @@ Keep the protected environments distinct:
 
 - `usque-snapshot-vm`: Windows install, upgrade, connected uninstall, crash
   recovery, platform-state restoration, and Wintun lifecycle.
+- `usque-linux-snapshot-vm`: Linux package install/upgrade/removal, TUN,
+  nftables, DNS, multi-user ownership, reboot and session recovery. Require a
+  snapshot and independent management channel; never substitute the Windows
+  environment flag or a workstation label for isolation.
 - `usque-android-device`: Android device, Doze, process, Always-on, Lockdown,
   reboot, upgrade, and TV lifecycle.
 - `usque-network-observer`: externally observed IPv4, IPv6, DNS, Kill Switch,
@@ -191,15 +195,32 @@ flutter analyze --no-pub
 flutter test --no-pub
 ```
 
-Bitmap tests are tagged `golden`. Their checked-in baselines use Windows x64
-and the pinned Flutter SDK: [custom-font rendering varies by host
+Bitmap tests are tagged `golden` and have separate Windows x64 and Linux amd64
+baselines: [custom-font rendering varies by host
 platform](https://api.flutter.dev/flutter/flutter_test/matchesGoldenFile.html).
-The command above runs all tests on Windows. On other hosts, run
-`flutter test --no-pub --exclude-tags golden`, then validate the bitmap suite
-on Windows with `flutter test --no-pub --tags golden`. CI requires both the
-Ubuntu widget suite and the Windows golden suite in `CI / gate`; neither is
-optional. Keep exact pixel comparison. Regenerate baselines only on Windows
-with the pinned SDK, review every visual diff, and never update them in CI.
+The command above runs all applicable tests on Windows. On other hosts, first
+run `flutter test --no-pub --exclude-tags golden`. On Linux amd64, also run:
+
+```shell
+flutter test --no-pub --tags linux-golden
+```
+
+The Linux suite also has the `golden` tag, uses the real Linux UI branches with
+a fake engine, and compares `test/goldens/linux/` with fixed test font fixtures.
+It does not validate native GNOME/KDE, X11/Wayland, tray or networking behavior.
+Linux arm64 golden validation is `not_run`; amd64 screenshots do not establish
+equivalent rendering on another architecture.
+
+Validate the Windows bitmap suite on Windows with
+`flutter test --no-pub --tags golden`. CI requires the Ubuntu widget/Linux
+golden job and the Windows golden job in `CI / gate`; neither replaces the
+other. Keep exact pixel comparison with the pinned SDK, review every visual
+diff, and never update baselines in CI. Regenerate existing Windows baselines
+only on Windows. To regenerate just the Linux baselines on Linux amd64:
+
+```shell
+flutter test --no-pub test/linux_desktop_golden_test.dart --update-goldens
+```
 
 Linux preview changes additionally require a debug compile with the pinned SDK:
 
@@ -210,6 +231,46 @@ flutter build linux --debug --no-pub -t lib/main_preview.dart
 Run this from `apps/usque_gui` after the Flutter checks above. The preview uses
 an in-memory engine and does not establish native Linux VPN support or replace
 Windows validation.
+
+### Linux desktop and packages
+
+Linux desktop changes require the Rust and Flutter sections above, both the
+independent preview debug compile and the production compile below. Run the
+Flutter command from `apps/usque_gui` with the verified SDK:
+
+```shell
+flutter build linux --release --no-pub -t lib/main.dart
+```
+
+From the repository root, compile the real sidecars and run the Linux package
+contract fixtures. These commands do not install a package or change networking:
+
+```shell
+cargo build --release --locked -p usque-engine -p usque-agent -p usque-update
+python -m unittest discover -s tool -p "test_linux_package.py" -v
+```
+
+Native Linux runner IPC tests use fake sockets and a fake child process. After
+the production compile, run the executable for the host architecture:
+
+```shell
+cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_socket_test
+apps/usque_gui/build/linux/x64/release/runner/usque_linux_socket_test
+```
+
+Use the `arm64` directory on a native arm64 host. The exact test target is defined
+in `apps/usque_gui/linux/runner/CMakeLists.txt`; no desktop session or VPN is
+started by these fixtures.
+
+Both native Ubuntu 22.04 builds in
+[the Linux workflow](.github/workflows/linux.yml) must complete the package
+helper for amd64/arm64, including ELF architecture, generic x86-64,
+GLIBC/GLIBCXX limits and signed payload checks. Its build-only signing identity
+is ephemeral and cannot pass the official release verifier. See
+[Linux desktop](docs/LINUX_DESKTOP.md) for the package command and limits.
+Keep Windows Rust/Flutter/golden and applicable Android gates; missing hosts are
+`not_run`. Never install a package, start a TUN, or mutate Linux routes, firewall,
+DNS or session proxy to exercise these workstation checks.
 
 ### Android Rust and Kotlin
 

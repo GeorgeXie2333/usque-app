@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -101,6 +102,10 @@ def flutter(sdk: Path) -> None:
     )
     run([executable, "analyze", "--no-pub"], GUI)
     run([executable, "test", "--no-pub", "--exclude-tags", "golden"], GUI)
+    if platform.machine().lower() in {"x86_64", "amd64"}:
+        run([executable, "test", "--no-pub", "--tags", "linux-golden"], GUI)
+    else:
+        print("Linux golden images: not_run; reviewed baselines require Linux amd64.")
 
 
 def android(sdk: Path) -> None:

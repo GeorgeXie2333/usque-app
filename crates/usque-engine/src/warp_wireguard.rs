@@ -1,13 +1,13 @@
-#[cfg(all(windows, feature = "wireguard"))]
+#[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
 use crate::VaultEndpointPinRefresher;
 use crate::{ControlService, ControlServiceError};
-#[cfg(all(windows, feature = "wireguard"))]
+#[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
 use std::sync::Arc;
 use usque_ipc::v1;
 
 impl ControlService {
     pub(crate) async fn cancel_warp_jobs(&self) -> Result<(), ControlServiceError> {
-        #[cfg(all(windows, feature = "wireguard"))]
+        #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
         {
             let manager = self.warp_generator.clone();
             if !tokio::task::spawn_blocking(move || manager.stop_blocking())
@@ -25,7 +25,7 @@ impl ControlService {
         &self,
         request: v1::WarpWireguardRequest,
     ) -> Result<v1::WarpWireguardResponse, ControlServiceError> {
-        #[cfg(all(windows, feature = "wireguard"))]
+        #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
         {
             let request = usque_core::warp_wireguard::Request::parse(&request.command_json)
                 .map_err(ControlServiceError::configuration)?;
@@ -50,8 +50,11 @@ impl ControlService {
                     .as_ref()
                     .and_then(|r| r.runtime.internal_networks())
                     .map(|(_, warp)| warp);
+                #[cfg(windows)]
                 let allow_physical = existing.is_none()
                     && crate::windows_agent::catalogue_physical_network_permitted().await;
+                #[cfg(target_os = "linux")]
+                let allow_physical = existing.is_none();
                 let identity = if existing.is_none() && allow_physical {
                     Some(self.load_warp_identity(profile.id).await?)
                 } else {
@@ -97,7 +100,7 @@ impl ControlService {
                     .map_err(ControlServiceError::configuration)?,
             })
         }
-        #[cfg(not(all(windows, feature = "wireguard")))]
+        #[cfg(not(all(any(windows, target_os = "linux"), feature = "wireguard")))]
         {
             let _ = request;
             Err(ControlServiceError::InvalidRequest(

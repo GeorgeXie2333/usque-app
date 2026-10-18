@@ -14,6 +14,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/external_link.dart';
+import '../widgets/linux_service_section.dart';
 import '../widgets/usque_logo.dart';
 import '../widgets/zero_trust_enrollment_editor.dart';
 
@@ -814,6 +815,8 @@ class _PermissionsStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 22),
+        if (controller.supportsLinuxServiceMaintenance)
+          LinuxServiceSection(controller: controller),
         if (controller.requiresOnboardingPermissions) ...[
           InlineStatus(
             label: strings.get(

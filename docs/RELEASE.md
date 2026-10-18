@@ -124,6 +124,7 @@ The `release-signing` environment holds these secrets:
 | `ANDROID_RELEASE_STORE_PASSWORD` | Keystore password |
 | `ANDROID_RELEASE_KEY_ALIAS` | Release key alias |
 | `ANDROID_RELEASE_KEY_PASSWORD` | Release key password |
+| `LINUX_SIGNING_KEY_BASE64` | Base64 of the fixed Ed25519 PEM key matching the checked-in Linux public key |
 
 These non-secret variables come from the repository or the same environments:
 
@@ -132,7 +133,7 @@ These non-secret variables come from the repository or the same environments:
 | `WINDOWS_SIGNER_SHA256` | SHA-256 of the raw Authenticode signer certificate, 64 hex characters |
 | `ANDROID_SIGNER_SHA256` | SHA-256 of the Android signing certificate, 64 hex characters |
 
-Keep encrypted offline backups of both signing identities. Pre-1.0 packages use these fixed self-signed identities. A v1.0.0 signing change is a separate release.
+Keep encrypted offline backups of all three signing identities. Pre-1.0 packages use these fixed self-signed identities. A v1.0.0 signing change is a separate release.
 
 The Windows job imports the private identity only into the runner user's personal certificate store. It does not add the certificate to Root or TrustedPublisher. It records the imported identity before checking the fingerprint or locating SignTool, so those failures still reach cleanup. Verification accepts the expected untrusted-root result and checks the DER SHA-256 fingerprint. An `always()` step removes both the certificate and its private key with `-DeleteKey`; its `finally` block deletes the temporary PFX even if certificate removal fails. Cleanup errors fail the job. The workflow never re-signs the official Wintun DLL. The Android job deletes its temporary keystore afterward.
 
@@ -148,21 +149,21 @@ bypasses the fingerprint check.
 
 ## Artifact flow
 
-1. The tag job builds signed x64-v2 and ARM64 installer bundles, their signed update MSIs, and signed arm64-v8a, x86_64, armeabi-v7a, and universal APKs in the signing environment.
+1. The tag job builds signed x64-v2 and ARM64 installer bundles, their signed update MSIs, and signed arm64-v8a, x86_64, armeabi-v7a, and universal APKs, plus native Ubuntu 22.04 amd64/arm64 AppImage/deb/rpm packages with Ed25519 manifests in the signing environment.
 2. Each platform job checks the certificate identity and creates GitHub build provenance.
    Both Build and Release use the shared read-only APK packaging validator:
    native libraries must be compressed, the application must explicitly enable
    extraction, 64-bit ELF LOAD segments must support 16 KiB alignment, and ZIP
    alignment must pass. Wrong ABIs, duplicate entries, shipped symbols and native
    debug information are rejected before candidate upload. No APK is installed.
-3. A staging job downloads those artifacts, rejects missing or extra EXE/MSI/APK files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
-4. The publish job rechecks every primary package against the immutable manifest, calculates final package checksums, and creates the GitHub release with six user-facing installers, two update-only MSIs, the manifest, checksums, and per-package SBOMs.
+3. A staging job downloads those artifacts, rejects missing or extra EXE/MSI/APK/AppImage/deb/rpm files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
+4. The publish job rechecks every primary package against the immutable manifest, calculates final package checksums, and creates the GitHub release with twelve user-facing installers, two update-only MSIs, the manifest, checksums, per-package SBOMs and four Linux signature metadata files.
    Separately retain the three matching Flutter symbol artifacts for the
    supported lifetime of this release, following [Flutter release symbols](FLUTTER_SYMBOLS.md).
    Verify their source SHA, version, AOT/build-ID and symbol hashes against the
-   actual packages. Symbols stay outside the 18 public Release assets and must
+   actual packages. Symbols stay outside the 34 public Release assets and must
    not be deleted with temporary package-verification downloads.
-5. Only in a private repository, and when repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`, four protected self-hosted runner classes separately exercise the staged candidate: a Windows snapshot VM, a dedicated Android device, an independent network observer, and a controlled performance lab. The public repository skips these jobs even if the variable is enabled; its Actions artifacts cannot provide a restricted evidence store.
+5. Only in a private repository, and when repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`, five protected self-hosted runner classes separately exercise the staged candidate: separate Windows and Linux snapshot VMs, a dedicated Android device, an independent network observer, and a controlled performance lab. The public repository skips these jobs even if the variable is enabled; its Actions artifacts cannot provide a restricted evidence store.
 6. Protected validation is supplemental and does not gate publication. In the private execution context, the aggregator emits `reliability-report.json` and `device-matrix.md` only when every required report and evidence file passes its exact-candidate and isolation checks. These artifacts inherit the private repository's read permissions. Skipped or unavailable validation is `not_run`, not a pass. Missing infrastructure, `failed`, and `not_run` never become release approval.
 
 ## Release-note format
@@ -186,7 +187,7 @@ English-first bilingual summaries. Keep the standard section headings outside
 the blocks so readers can find them without expanding the content.
 
 The release renderer accepts only the version, official repository URL, and
-the two validated signer fingerprints as template values. It rejects missing
+the two validated certificate fingerprints and the checked-in Linux Ed25519 public key as template values. It rejects missing
 or unknown template values and links outside this repository. This keeps the
 published body free of community-group links, sponsorships, advertisements,
 affiliate links, and referral codes. GitHub-generated release notes stay off
@@ -195,7 +196,7 @@ bilingual ordering. The publish job fails instead of falling back to an
 unrendered or partially rendered body.
 
 Download badges and platform icons live in `docs/assets/release/` and use
-repository image URLs pinned to the release tag. Keep all six installer links,
+repository image URLs pinned to the release tag. Keep all twelve installer links,
 accurate system requirements, and descriptive image alt text when updating the
 table. Do not add third-party badge services or update-only MSI download buttons.
 Keep the four required bilingual section names; decorative emoji may follow them.
@@ -210,15 +211,35 @@ The v0.3.2 primary files (official only after approved publication):
 - `usque-v0.3.2-android-x86_64.apk`
 - `usque-v0.3.2-android-armeabi-v7a.apk`
 - `usque-v0.3.2-android-universal.apk`
+- `usque-v0.3.2-linux-amd64.AppImage`
+- `usque-v0.3.2-linux-amd64.deb`
+- `usque-v0.3.2-linux-amd64.rpm`
+- `usque-v0.3.2-linux-arm64.AppImage`
+- `usque-v0.3.2-linux-arm64.deb`
+- `usque-v0.3.2-linux-arm64.rpm`
 
-The two EXEs and four APKs are the user-facing installers; the two MSIs are
+The two EXEs, four APKs and six Linux files are user-facing packages; the two MSIs are
 update payloads consumed by the signed Windows updater. In addition to these
-eight primary artifacts, the public release includes `release-manifest.json`,
-`SHA256SUMS`, and each artifact's SPDX SBOM. A public
+fourteen primary artifacts, the public release includes `release-manifest.json`,
+`SHA256SUMS`, each artifact's SPDX SBOM, and two Linux manifests with detached
+Ed25519 signatures. Common release-manifest schema 1 is preserved for existing
+Windows/Android updaters; Linux entries and the public key are appended. A public
 release requires the usual CI, architecture, signature, package, checksum,
 SBOM, and provenance checks. Protected-runner validation is optional and
 non-blocking; its environments, evidence contract, and privacy boundary are
 documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
+
+## Linux package rules
+
+The reusable [Linux workflow](../.github/workflows/linux.yml) builds on native
+Ubuntu 22.04 amd64/arm64 runners, verifies ELF architecture and symbol baselines,
+and round-trips all package contents before signing package manifests. The
+AppImage service manifest signs a fixed allowlist independently. The service
+runs only from root-owned installed paths. Mixed installation formats and
+version rollbacks are rejected; personal data survives upgrades and removal.
+See [Linux desktop](LINUX_DESKTOP.md) for package identity, first-install trust,
+XDG/keyring behavior, recovery and the validation matrix. Local/test signatures
+cannot satisfy the release verifier.
 
 ## Windows package rules
 

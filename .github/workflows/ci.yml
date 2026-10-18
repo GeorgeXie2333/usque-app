@@ -23,6 +23,11 @@ env:
   FLUTTER_VERSION: 3.44.7
 
 jobs:
+  linux:
+    name: Linux desktop and six package contracts
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    uses: ./.github/workflows/linux.yml
+
   workflow-lint:
     name: GitHub Actions syntax and security lint
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
@@ -262,7 +267,7 @@ jobs:
           ./gradlew --no-daemon :app:ktlintCheck :app:testDebugUnitTest :app:lintDebug
 
   flutter:
-    name: Flutter analysis and widget tests
+    name: Flutter analysis, widgets and Linux golden images
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -302,6 +307,21 @@ jobs:
       - name: Test
         working-directory: apps/usque_gui
         run: flutter --suppress-analytics test --no-pub --exclude-tags golden
+
+      - name: Compare reviewed Linux golden images
+        working-directory: apps/usque_gui
+        run: |
+          test "$(uname -m)" = x86_64
+          flutter --suppress-analytics test --no-pub --tags linux-golden
+
+      - name: Preserve Linux golden differences
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-golden-differences-amd64
+          path: apps/usque_gui/test/failures/**
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Install Linux preview build dependencies
         run: |
@@ -533,6 +553,7 @@ jobs:
       - security-audit
       - release-contract
       - windows-installer-authoring
+      - linux
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -548,6 +569,7 @@ jobs:
           SECURITY_AUDIT: ${{ needs.security-audit.result }}
           RELEASE_CONTRACT: ${{ needs.release-contract.result }}
           WINDOWS_AUTHORING: ${{ needs.windows-installer-authoring.result }}
+          LINUX: ${{ needs.linux.result }}
         run: |
           set -euo pipefail
           for result in \
@@ -560,6 +582,7 @@ jobs:
             "$GO_ORACLE" \
             "$SECURITY_AUDIT" \
             "$RELEASE_CONTRACT" \
+            "$LINUX" \
             "$WINDOWS_AUTHORING"; do
             test "$result" = "success"
           done

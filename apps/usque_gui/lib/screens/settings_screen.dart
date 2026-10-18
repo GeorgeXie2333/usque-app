@@ -8,6 +8,7 @@ import '../models/network_settings.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/external_link.dart';
+import '../widgets/linux_service_section.dart';
 import '../widgets/usque_dialog.dart';
 import 'about_screen.dart';
 import 'advanced_settings_screen.dart';
@@ -46,7 +47,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     final bool android = defaultTargetPlatform == TargetPlatform.android;
-    final bool windows = defaultTargetPlatform == TargetPlatform.windows;
+    final bool desktop =
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux;
     return PageFrame(
       title: strings.get('settings'),
       contentWidth: 880,
@@ -81,6 +84,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _SettingsGroup(
                   title: strings.get('connection_protection_group'),
                   children: [
+                    if (controller.supportsLinuxServiceMaintenance)
+                      LinuxServiceSection(controller: controller),
                     ContentSection(
                       padding: _tilePadding,
                       child: SwitchListTile(
@@ -238,15 +243,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onChanged: controller.setStartOnBoot,
                       ),
                     ),
-                    if (windows)
+                    if (desktop)
                       ContentSection(
                         padding: _tilePadding,
                         child: SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           secondary: const Icon(LucideIcons.panelTopClose),
                           title: Text(strings.get('close_to_tray')),
+                          subtitle: controller.trayAvailable
+                              ? null
+                              : Text(strings.get('linux_tray_unavailable')),
                           value: controller.closeToTray,
-                          onChanged: controller.setCloseToTray,
+                          onChanged: controller.trayAvailable
+                              ? controller.setCloseToTray
+                              : null,
                         ),
                       ),
                     if (android)

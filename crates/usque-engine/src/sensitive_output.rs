@@ -33,7 +33,7 @@ pub(crate) fn copy_sensitive_text(value: &[u8]) -> Result<(), io::Error> {
     windows_clipboard::copy(value)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub(crate) fn copy_sensitive_text(_value: &[u8]) -> Result<(), io::Error> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,

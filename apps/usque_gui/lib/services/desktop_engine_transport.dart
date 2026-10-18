@@ -63,6 +63,8 @@ class DesktopEngineTransport {
       _isTestTransport = false,
       _endpoint = Platform.isWindows
           ? '$_pipePrefix$pid-${DateTime.now().microsecondsSinceEpoch}'
+          : Platform.isLinux
+          ? linuxSocketPath(Platform.environment)
           : _macSocketPath();
 
   /// Fully controlled transport for unit tests (no process spawn).
@@ -122,7 +124,7 @@ class DesktopEngineTransport {
   bool get isDisposed => _disposed;
 
   bool get supportsSnapshotEvents =>
-      _testSupportsSnapshotEvents ?? Platform.isWindows;
+      _testSupportsSnapshotEvents ?? (Platform.isWindows || Platform.isLinux);
 
   /// Raw length-prefixed event frames from the native event bridge.
   ///
@@ -133,7 +135,9 @@ class DesktopEngineTransport {
     if (_isTestTransport) {
       return _testRawEvents ?? const Stream<Uint8List>.empty();
     }
-    if (_disposed || !Platform.isWindows) {
+    if (_disposed ||
+        !(Platform.isWindows || Platform.isLinux) ||
+        Platform.isLinux && _process == null) {
       return const Stream<Uint8List>.empty();
     }
     return _rawEventFrames ?? _listenNativeEventFrames();
@@ -147,6 +151,7 @@ class DesktopEngineTransport {
     final subscription = _nativeEvents
         .receiveBroadcastStream(<String, Object>{
           'pipe_name': '$_endpoint.events',
+          if (Platform.isLinux) 'engine_pid': _process!.pid,
         })
         .listen(
           (Object? value) {
@@ -217,18 +222,24 @@ class DesktopEngineTransport {
     _startCount++;
   }
 
-  Future<Uint8List> exchangeFrame(Uint8List request) async {
+  Future<Uint8List> exchangeFrame(
+    Uint8List request, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
     _throwIfDisposed();
     final testExchange = _testExchange;
     if (testExchange != null) {
       return testExchange(request);
     }
-    if (Platform.isWindows) {
+    if (Platform.isWindows || Platform.isLinux) {
       try {
-        final response = await _nativeTransport.invokeMethod<Uint8List>(
-          'exchangeFrame',
-          <String, Object>{'pipe_name': _endpoint, 'request': request},
-        );
+        final response = await _nativeTransport
+            .invokeMethod<Uint8List>('exchangeFrame', <String, Object>{
+              'pipe_name': _endpoint,
+              'request': request,
+              if (Platform.isLinux) 'engine_pid': _process!.pid,
+              if (Platform.isLinux) 'timeout_ms': timeout.inMilliseconds,
+            });
         if (response == null) {
           throw const EngineException(
             'ENGINE_IPC_INVALID_RESPONSE',
@@ -325,7 +336,14 @@ class DesktopEngineTransport {
   }
 
   Future<void> _startEngine() async {
-    final executable = _engineExecutable();
+    var executable = _engineExecutable();
+    if (Platform.isLinux && !kDebugMode) {
+      executable =
+          await _nativeTransport.invokeMethod<String>(
+            'linuxEngineExecutable',
+          ) ??
+          executable;
+    }
     if (!await File(executable).exists()) {
       throw EngineException(
         'ENGINE_BINARY_MISSING',
@@ -333,7 +351,9 @@ class DesktopEngineTransport {
       );
     }
     final configPath = _configPath();
-    await Directory(File(configPath).parent.path).create(recursive: true);
+    if (!Platform.isLinux) {
+      await Directory(File(configPath).parent.path).create(recursive: true);
+    }
     if (Platform.isMacOS) {
       await Directory(File(_endpoint).parent.path).create(recursive: true);
     }
@@ -346,12 +366,22 @@ class DesktopEngineTransport {
         '--parent-pid',
         '$pid',
       ],
-      if (Platform.isMacOS) ...<String>['--socket', _endpoint],
+      if (Platform.isMacOS || Platform.isLinux) ...<String>[
+        '--socket',
+        _endpoint,
+      ],
+      if (Platform.isLinux) ...<String>['--parent-pid', '$pid'],
     ];
     final process = await Process.start(
       executable,
       arguments,
       mode: ProcessStartMode.normal,
+      environment:
+          Platform.isLinux && executable == '/usr/lib/usque/usque-engine'
+          ? linuxInstalledEngineEnvironment(Platform.environment)
+          : null,
+      includeParentEnvironment:
+          !(Platform.isLinux && executable == '/usr/lib/usque/usque-engine'),
     );
     final stderrCapture = _BoundedStderrCapture();
     final stderrDone = Completer<void>();
@@ -393,7 +423,7 @@ class DesktopEngineTransport {
       }),
     );
 
-    if (Platform.isWindows) {
+    if (Platform.isWindows || Platform.isLinux) {
       _EngineStartupOutcome outcome;
       try {
         outcome = await Future.any<_EngineStartupOutcome>(
@@ -431,6 +461,7 @@ class DesktopEngineTransport {
           .invokeMethod<void>('waitForEnginePipe', <String, Object>{
             'pipe_name': _endpoint,
             'timeout_ms': _windowsEngineReadyTimeout.inMilliseconds,
+            if (Platform.isLinux) 'engine_pid': _process!.pid,
           });
     } on PlatformException catch (error) {
       throw EngineException(
@@ -486,12 +517,16 @@ String _engineExecutable() {
     return '${appExecutable.parent.path}${Platform.pathSeparator}'
         'usque-engine.exe';
   }
+  if (Platform.isLinux) {
+    return '${appExecutable.parent.path}/usque-engine';
+  }
   final contents = appExecutable.parent.parent;
   return '${contents.path}${Platform.pathSeparator}Resources'
       '${Platform.pathSeparator}usque-engine';
 }
 
 String _configPath() {
+  if (Platform.isLinux) return linuxConfigPath(Platform.environment);
   if (Platform.isWindows) {
     final localAppData = Platform.environment['LOCALAPPDATA'];
     if (localAppData == null || localAppData.isEmpty) {
@@ -517,3 +552,70 @@ String _macSocketPath() {
   }
   return '$home/Library/Caches/Usque/engine-$pid.sock';
 }
+
+/// XDG paths are absolute; relative environment values are ignored by spec.
+@visibleForTesting
+String linuxConfigPath(Map<String, String> environment) {
+  final configured = environment['XDG_CONFIG_HOME'];
+  if (configured != null && configured.startsWith('/')) {
+    return '$configured/usque/config.json';
+  }
+  final home = environment['HOME'];
+  if (home == null || !home.startsWith('/')) {
+    throw const EngineException('APP_DATA_UNAVAILABLE', 'HOME is unavailable.');
+  }
+  return '$home/.config/usque/config.json';
+}
+
+/// The Engine creates and verifies its private 0700 runtime directory.
+@visibleForTesting
+String linuxSocketPath(Map<String, String> environment) {
+  final runtime = environment['XDG_RUNTIME_DIR'];
+  if (runtime == null || !runtime.startsWith('/')) {
+    throw const EngineException(
+      'APP_DATA_UNAVAILABLE',
+      'The user session has no absolute XDG_RUNTIME_DIR.',
+    );
+  }
+  final path = '$runtime/usque/engine-v1.sock';
+  if (utf8.encode('$path.events').length >= 108) {
+    throw const EngineException(
+      'APP_DATA_UNAVAILABLE',
+      'The user runtime directory is too long for a Unix socket.',
+    );
+  }
+  return path;
+}
+
+/// The installed Engine must load system libraries, not libraries inherited
+/// from an AppImage mount or caller-controlled loader/plugin search variables.
+@visibleForTesting
+Map<String, String> linuxInstalledEngineEnvironment(
+  Map<String, String> environment,
+) => {
+  'PATH': '/usr/sbin:/usr/bin:/sbin:/bin',
+  if (environment['APPIMAGE'] case final String appImage
+      when appImage.startsWith('/') && !appImage.contains('\u0000'))
+    'APPIMAGE': appImage,
+  for (final key in const [
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'XDG_CONFIG_HOME',
+    'XDG_DATA_HOME',
+    'XDG_CACHE_HOME',
+    'XDG_STATE_HOME',
+    'XDG_RUNTIME_DIR',
+    'XDG_CURRENT_DESKTOP',
+    'XDG_SESSION_DESKTOP',
+    'XDG_SESSION_TYPE',
+    'DBUS_SESSION_BUS_ADDRESS',
+    'DISPLAY',
+    'WAYLAND_DISPLAY',
+    'XAUTHORITY',
+    'LANG',
+    'LANGUAGE',
+    'LC_ALL',
+  ])
+    key: ?environment[key],
+};

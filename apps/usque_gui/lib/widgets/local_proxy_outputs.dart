@@ -36,9 +36,17 @@ class LocalProxyOutputs extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(LucideIcons.ethernetPort),
               title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
-              subtitle: Text(strings.get('home_tun_hint')),
+              subtitle: Text(
+                strings.get(
+                  controller.tunnelOutputSupported
+                      ? 'home_tun_hint'
+                      : 'linux_output_unavailable',
+                ),
+              ),
               value: frontends.tunnel,
-              onChanged: !enabled
+              onChanged:
+                  !enabled ||
+                      !(controller.tunnelOutputSupported || frontends.tunnel)
                   ? null
                   : (value) => controller.updateNetwork(
                       profile.copyWith(
@@ -75,7 +83,8 @@ class LocalProxyOutputs extends StatelessWidget {
                       changedFields: const ['frontends.http'],
                     ),
             ),
-            if (defaultTargetPlatform == TargetPlatform.windows)
+            if (defaultTargetPlatform == TargetPlatform.windows ||
+                defaultTargetPlatform == TargetPlatform.linux)
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 secondary: const Icon(LucideIcons.monitorCog),
@@ -84,13 +93,19 @@ class LocalProxyOutputs extends StatelessWidget {
                 // listener, but one that is already on can always be turned off.
                 subtitle: Text(
                   strings.get(
-                    !frontends.http && !systemProxy
+                    !controller.systemProxyOutputSupported
+                        ? 'linux_output_unavailable'
+                        : !frontends.http && !systemProxy
                         ? 'home_system_proxy_requires_http'
                         : 'home_system_proxy_hint',
                   ),
                 ),
                 value: systemProxy,
-                onChanged: !enabled || !(frontends.http || systemProxy)
+                onChanged:
+                    !enabled ||
+                        !(controller.systemProxyOutputSupported ||
+                            systemProxy) ||
+                        !(frontends.http || systemProxy)
                     ? null
                     : (value) => controller.updateNetwork(
                         profile.copyWith(

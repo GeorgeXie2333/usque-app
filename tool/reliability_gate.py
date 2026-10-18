@@ -23,6 +23,12 @@ HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 ALLOWED_STATUS = {"passed", "failed", "not_run", "unstable"}
 REQUIRED_GATES = {
+    "linux.clean_install",
+    "linux.format_upgrade_uninstall",
+    "linux.engine_agent_crash_recovery",
+    "linux.reboot_sleep_network_change",
+    "linux.route_dns_nft_proxy_restore",
+    "linux.multiuser_ownership",
     "windows.clean_install",
     "windows.coverage_upgrade",
     "windows.connected_uninstall",
@@ -63,18 +69,21 @@ INDEPENDENT_GATES = {
     "network.direct_rule_scope",
 }
 ENVIRONMENT_BY_GATE_PREFIX = {
+    "linux.": "linux_snapshot_vm",
     "windows.": "windows_snapshot_vm",
     "android.": "android_physical_device",
     "network.": "independent_network_observer",
     "performance.": "performance_lab",
 }
 REPORT_ARTIFACT_ENVIRONMENTS = {
+    "usque-reliability-report-linux": "linux_snapshot_vm",
     "usque-reliability-report-windows": "windows_snapshot_vm",
     "usque-reliability-report-android": "android_physical_device",
     "usque-reliability-report-network": "independent_network_observer",
     "usque-reliability-report-performance": "performance_lab",
 }
 RUNNER_CLASS_BY_ENVIRONMENT = {
+    "linux_snapshot_vm": "usque-linux-snapshot-vm",
     "windows_snapshot_vm": "usque-snapshot-vm",
     "android_physical_device": "usque-android-device",
     "independent_network_observer": "usque-network-observer",
@@ -320,6 +329,11 @@ def _validate_report(
         raise GateError(f"{path}: environment.kind does not match the report artifact")
     if environment.get("runner_class") != RUNNER_CLASS_BY_ENVIRONMENT[expected_environment]:
         raise GateError(f"{path}: runner_class does not match the protected runner")
+    if expected_environment == "linux_snapshot_vm":
+        for field in ("snapshot_id", "management_channel_id"):
+            value = environment.get(field)
+            if not isinstance(value, str) or not value.strip() or len(value) > 128:
+                raise GateError(f"{path}: Linux isolation requires {field}")
     results = report.get("results")
     if not isinstance(results, list) or not results:
         raise GateError(f"{path}: results must be a non-empty list")

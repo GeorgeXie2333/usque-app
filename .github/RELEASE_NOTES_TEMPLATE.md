@@ -41,6 +41,8 @@ Usque {{release_tag}} 是一个功能与可靠性版本，新增 Chrome 155 MASQ
 | :---: | --- | --- |
 | ![Android](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android.svg?raw=true)<br>**Android** | **Android 8.0+ (API 26)**<br>Compatible with Android TV<br>支持 Android TV | [![APK ARMv8 (arm64-v8a)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-arm64-v8a.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-arm64-v8a.apk) [![APK x64 (x86_64)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-x86_64.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-x86_64.apk)<br>[![APK ARMv7 (armeabi-v7a)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-armeabi-v7a.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-armeabi-v7a.apk) [![APK Universal](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-universal.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-universal.apk) |
 | ![Windows](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/windows.svg?raw=true)<br>**Windows** | **Windows 10 2004+ (build 19041)**<br>Build 19041 or later<br>内部版本 19041 或更高 | [![EXE x64-v2](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/windows-x64-v2.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-x64-v2.exe) [![EXE ARM64](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/windows-arm64.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-arm64.exe) |
+| **Linux amd64** | Ubuntu 22.04+, Debian 12+, supported Fedora<br>systemd, GNOME/KDE, X11/Wayland<br>受支持的 Fedora；需要 systemd | [AppImage](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-amd64.AppImage) · [deb](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-amd64.deb) · [rpm](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-amd64.rpm) |
+| **Linux arm64** | Ubuntu 22.04+, Debian 12+, supported Fedora<br>systemd, GNOME/KDE, X11/Wayland<br>受支持的 Fedora；需要 systemd | [AppImage](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-arm64.AppImage) · [deb](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-arm64.deb) · [rpm](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-arm64.rpm) |
 
 For Windows, use the linked installer EXE. The similarly named MSI assets are
 reserved for Usque's verified in-app update flow.
@@ -166,6 +168,11 @@ Without a chain exit, experimental L4 remains TCP-only: valid tunneled UDP/53 qu
 
 - Windows Authenticode certificate SHA-256 / Windows Authenticode 证书 SHA-256: `{{windows_signer_sha256}}`
 - Android release certificate SHA-256 / Android Release 证书 SHA-256: `{{android_signer_sha256}}`
+- Linux Ed25519 public key / Linux Ed25519 公钥: `{{linux_ed25519_public_key}}`
+
+For Linux, verify the architecture-specific `.manifest.json` and `.sig` against this fixed public key before installing. AppImage service installation needs administrator approval; credentials require an unlocked Secret Service keyring. See the [Linux guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/LINUX_DESKTOP.md).
+
+Linux 安装前须使用此固定公钥验证对应架构的 `.manifest.json` 和 `.sig`。AppImage 后台服务安装需要管理员授权，凭据需要已解锁的 Secret Service 钥匙串。详见 [Linux 指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/LINUX_DESKTOP.md)。
 
 > [!NOTE]
 > Before v1.0, Windows packages use a fixed self-signed identity and may show an unknown-publisher warning. Android packages use a fixed project-controlled certificate and are not distributed through Google Play.

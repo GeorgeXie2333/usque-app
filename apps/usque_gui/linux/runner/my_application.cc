@@ -6,6 +6,13 @@
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
+#include "desktop_shell.h"
+
+#ifdef USQUE_PREVIEW
+constexpr const char* kWindowTitle = "Usque UI preview";
+#else
+constexpr const char* kWindowTitle = "Usque";
+#endif
 
 struct _MyApplication {
   GtkApplication parent_instance;
@@ -22,6 +29,12 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+  GtkWindow* existing = gtk_application_get_active_window(GTK_APPLICATION(application));
+  if (existing != nullptr) {
+    gtk_widget_show(GTK_WIDGET(existing));
+    gtk_window_present(existing);
+    return;
+  }
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
@@ -45,11 +58,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "Usque UI preview");
+    gtk_header_bar_set_title(header_bar, kWindowTitle);
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "Usque UI preview");
+    gtk_window_set_title(window, kWindowTitle);
   }
 
   gtk_window_set_default_size(window, 1280, 720);
@@ -74,6 +87,10 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+#ifndef USQUE_PREVIEW
+  usque_register_desktop_shell(GTK_APPLICATION(application), window,
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)));
+#endif
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -93,10 +110,26 @@ static gboolean my_application_local_command_line(GApplication* application,
     return TRUE;
   }
 
-  g_application_activate(application);
+  if ((*arguments)[1] != nullptr && g_str_has_prefix((*arguments)[1], "com.cloudflare.warp://")) {
+    g_autoptr(GFile) uri = g_file_new_for_uri((*arguments)[1]);
+    GFile* files[] = {uri};
+    g_application_open(application, files, 1, "");
+  } else {
+    g_application_activate(application);
+  }
   *exit_status = 0;
 
   return TRUE;
+}
+
+static void my_application_open(GApplication* application, GFile** files, gint count, const gchar*) {
+  g_application_activate(application);
+#ifndef USQUE_PREVIEW
+  for (gint i = 0; i < count; ++i) {
+    g_autofree gchar* uri = g_file_get_uri(files[i]);
+    usque_desktop_open_uri(uri);
+  }
+#endif
 }
 
 // Implements GApplication::startup.
@@ -126,6 +159,7 @@ static void my_application_dispose(GObject* object) {
 
 static void my_application_class_init(MyApplicationClass* klass) {
   G_APPLICATION_CLASS(klass)->activate = my_application_activate;
+  G_APPLICATION_CLASS(klass)->open = my_application_open;
   G_APPLICATION_CLASS(klass)->local_command_line =
       my_application_local_command_line;
   G_APPLICATION_CLASS(klass)->startup = my_application_startup;
@@ -144,5 +178,5 @@ MyApplication* my_application_new() {
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+                                     G_APPLICATION_HANDLES_OPEN, nullptr));
 }

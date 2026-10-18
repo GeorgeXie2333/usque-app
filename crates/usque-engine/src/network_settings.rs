@@ -154,15 +154,20 @@ impl ControlService {
         let mut config = self.config.write().await;
         let store = self.store.clone();
         let edit = patch.clone();
-        let chain_parent = self.cache_dir.clone();
+        let chain_parent = self.profile_dir.clone();
+        let chain_cipher = self.chain_cipher.clone();
         let commit = tokio::task::spawn_blocking(move || {
             store.update(|latest| {
                 let merged = merge_patch(latest, &edit)
                     .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
                 // Validate the committed combination, including fields omitted
                 // by old clients, while holding the configuration transaction.
-                ControlService::validate_chain_selection_at(&chain_parent, &merged)
-                    .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
+                ControlService::validate_chain_selection_at(
+                    &chain_parent,
+                    &merged,
+                    chain_cipher.as_deref(),
+                )
+                .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
                 Ok(merged)
             })
         })
@@ -625,6 +630,12 @@ impl ControlService {
         class: ReconfigureClass,
         intent: u64,
     ) -> Result<(), ControlServiceError> {
+        #[cfg(all(target_os = "linux", not(test)))]
+        let class = if class == ReconfigureClass::HotTunnelAttach {
+            ReconfigureClass::ColdReconnect
+        } else {
+            class
+        };
         match class {
             ReconfigureClass::HotTrafficPolicy => {}
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(target).await?,
@@ -632,7 +643,7 @@ impl ControlService {
             ReconfigureClass::HotTunnelAttach => self.hot_tunnel_attach(target).await?,
             ReconfigureClass::HotVpnGate => self.hot_replace_gate(target).await?,
             ReconfigureClass::ColdReconnect => {
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "linux"))]
                 {
                     let cancellation = self.gate_startup_cancel.lock().await.clone();
                     if Box::pin(self.reconnect_protected_chain(target, &cancellation))

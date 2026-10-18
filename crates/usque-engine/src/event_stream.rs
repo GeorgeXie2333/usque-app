@@ -10,7 +10,7 @@ use usque_ipc::{
 };
 
 use crate::diagnostics::{self, DiagnosticEvent};
-use crate::{ControlService, current_capabilities};
+use crate::{ControlService, runtime_capabilities};
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -30,7 +30,7 @@ where
             sequence: service.next_event_sequence(),
             payload: Some(event_envelope::Payload::CapabilitiesChanged(
                 v1::CapabilitiesChanged {
-                    capabilities: Some(current_capabilities()),
+                    capabilities: Some(runtime_capabilities().await),
                 },
             )),
         },
@@ -278,6 +278,16 @@ async fn write_event(
     event: EventEnvelope,
 ) -> io::Result<()> {
     let frame = encode_frame(&event).map_err(invalid_wire)?;
+    #[cfg(target_os = "linux")]
+    return tokio::time::timeout(Duration::from_secs(15), writer.write_all(&frame))
+        .await
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::TimedOut,
+                "IPC event consumer stopped reading",
+            )
+        })?;
+    #[cfg(not(target_os = "linux"))]
     writer.write_all(&frame).await
 }
 

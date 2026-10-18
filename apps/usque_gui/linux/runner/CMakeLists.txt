@@ -9,6 +9,9 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME}
   "main.cc"
   "my_application.cc"
+  "engine_bridge.cc"
+  "unix_engine_socket.cc"
+  "desktop_shell.cc"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
 )
 
@@ -18,9 +21,19 @@ apply_standard_settings(${BINARY_NAME})
 
 # Add preprocessor definitions for the application ID.
 add_definitions(-DAPPLICATION_ID="${APPLICATION_ID}")
+string(REGEX REPLACE "[+].*$" "" USQUE_VERSION "${FLUTTER_VERSION}")
+target_compile_definitions(${BINARY_NAME} PRIVATE USQUE_VERSION="${USQUE_VERSION}")
+if(USQUE_PREVIEW)
+  target_compile_definitions(${BINARY_NAME} PRIVATE USQUE_PREVIEW=1)
+endif()
 
 # Add dependency libraries. Add any application-specific dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
 
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+
+# Workstation-safe native IPC tests: sockets live only in a temporary directory.
+add_executable(usque_linux_socket_test EXCLUDE_FROM_ALL
+  "unix_engine_socket_test.cc" "unix_engine_socket.cc")
+apply_standard_settings(usque_linux_socket_test)

@@ -10,6 +10,8 @@ pub const MAX_RECORD_CIPHERTEXT_BYTES: usize = 256 * 1024;
 const MAX_LEGACY_PLAINTEXT_BYTES: usize = 256 * 1024;
 
 pub trait ProfileCipher: Send + Sync {
+    /// Forget cached credentials after the explicit user data purge.
+    fn reset_session_key(&self) {}
     fn seal(&self, id: Uuid, value: &[u8]) -> Result<Vec<u8>, ImportError>;
     fn open(&self, id: Uuid, value: &[u8]) -> Result<Zeroizing<Vec<u8>>, ImportError>;
 }

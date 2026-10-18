@@ -173,6 +173,22 @@ impl ControlService {
                 usque_transport::TransportError::TunnelClosed,
             ));
         }
+        #[cfg(target_os = "linux")]
+        if profile.frontends.tunnel
+            && self.data_plane.lock().await.as_ref().is_some_and(|active| {
+                matches!(active.runtime, crate::active_runtime::ActiveRuntime::Vpn(_))
+            })
+        {
+            // Linux keeps the immutable bootstrap policy through chain changes.
+            // Its durable replacement guard also covers enabling/disabling a
+            // chain or changing the final DNS mode without an unprotected gap.
+            if Box::pin(self.reconnect_protected_chain(profile, startup_cancel))
+                .await?
+                .is_some()
+            {
+                return Ok(());
+            }
+        }
         self.abort_exit_probe().await;
         let mut active = self
             .data_plane
@@ -239,6 +255,17 @@ impl ControlService {
                     )
                     .await
                     .map_err(crate::map_windows_vpn_error),
+                #[cfg(target_os = "linux")]
+                crate::active_runtime::ActiveRuntime::Vpn(runtime) => runtime
+                    .replace_gate(
+                        profile,
+                        selected,
+                        policy,
+                        self.gate_status.clone(),
+                        startup_cancel,
+                    )
+                    .await
+                    .map_err(crate::linux_runtime::map_error),
                 #[cfg(test)]
                 crate::active_runtime::ActiveRuntime::Harness(runtime) => {
                     runtime.replace_gate(profile);
@@ -529,12 +556,16 @@ impl ControlService {
         profile: &usque_core::Profile,
     ) -> Result<Option<(ServerSummary, PreparedProfile)>, ControlServiceError> {
         self.validate_chain_selection(profile)?;
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if profile.custom_chain().is_some() {
             return usque_core::chain_exit::prepare_selection(
-                &self.cache_dir,
+                &self.profile_dir,
                 profile,
-                &usque_core::chain_exit::store::WindowsProfileCipher,
+                self.chain_cipher
+                    .as_deref()
+                    .ok_or(ControlServiceError::FeatureUnavailable(
+                        "chain credential storage is unavailable",
+                    ))?,
             )
             .map_err(ControlServiceError::configuration);
         }

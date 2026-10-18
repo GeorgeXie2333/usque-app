@@ -40,6 +40,8 @@ typedef _ControlsView = ({
   String catalogId,
   bool locked,
   bool tunnel,
+  bool tunnelSupported,
+  bool systemProxySupported,
   bool http,
   bool systemProxy,
   bool chainEnabled,
@@ -113,6 +115,8 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
       catalogId: app.strings.catalogId,
       locked: _locked(app),
       tunnel: profile.frontends.tunnel,
+      tunnelSupported: app.tunnelOutputSupported,
+      systemProxySupported: app.systemProxyOutputSupported,
       http: profile.frontends.http,
       systemProxy: profile.proxy.systemProxy,
       chainEnabled: profile.chainEnabled,
@@ -249,10 +253,12 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
       final strings = widget.controller.strings;
       final enabled = !_saving && !view.locked;
       final failure = view.failure ?? _saveFailure;
-      final windows = defaultTargetPlatform == TargetPlatform.windows;
+      final desktop =
+          defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux;
       // Beside the ring, the rows share its height so the first and last
       // rows meet the ring's top and bottom edges.
-      final rows = windows ? 3 : 2;
+      final rows = desktop ? 3 : 2;
       final rowMinHeight = widget.minHeight == null
           ? 0.0
           : (widget.minHeight! - (rows - 1)) / rows;
@@ -265,26 +271,39 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
               _OutputControl(
                 title: strings.tunnelOutputLabel(Theme.of(context).platform),
                 icon: LucideIcons.ethernetPort,
-                details: Text(strings.get('home_tun_hint')),
+                details: Text(
+                  strings.get(
+                    view.tunnelSupported
+                        ? 'home_tun_hint'
+                        : 'linux_output_unavailable',
+                  ),
+                ),
                 switchKey: const ValueKey('home-tun-switch'),
                 value: view.tunnel,
-                onChanged: enabled ? _tunnel : null,
+                onChanged: enabled && (view.tunnelSupported || view.tunnel)
+                    ? _tunnel
+                    : null,
                 minHeight: rowMinHeight,
               ),
-              if (windows)
+              if (desktop)
                 _OutputControl(
                   title: strings.get('home_system_proxy'),
                   icon: LucideIcons.monitorCog,
                   details: Text(
                     strings.get(
-                      !view.http && !view.systemProxy
+                      !view.systemProxySupported
+                          ? 'linux_output_unavailable'
+                          : !view.http && !view.systemProxy
                           ? 'home_system_proxy_requires_http'
                           : 'home_system_proxy_hint',
                     ),
                   ),
                   switchKey: const ValueKey('home-system-proxy-switch'),
                   value: view.systemProxy,
-                  onChanged: enabled && (view.http || view.systemProxy)
+                  onChanged:
+                      enabled &&
+                          (view.systemProxySupported || view.systemProxy) &&
+                          (view.http || view.systemProxy)
                       ? _systemProxy
                       : null,
                   minHeight: rowMinHeight,

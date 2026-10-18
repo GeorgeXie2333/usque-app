@@ -14,11 +14,18 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 sha2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
+usque-core = { path = "../usque-core" }
 usque-platform = { path = "../usque-platform" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
 
 [lints]
 workspace = true

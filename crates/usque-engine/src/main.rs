@@ -34,16 +34,26 @@ struct Arguments {
     #[arg(long, hide = true)]
     pipe: Option<String>,
     /// Exit when the desktop UI process exits (development and sidecar use).
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[arg(long, hide = true)]
     parent_pid: Option<u32>,
-    /// Override the current-user macOS Unix Socket path (development only).
-    #[cfg(target_os = "macos")]
+    /// Override the current-user desktop Unix Socket path (development only).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[arg(long, hide = true)]
     socket: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    {
+        // The privileged Agent authenticates executable mappings and rejects
+        // processes which permit same-user ptrace injection. Set this before
+        // starting any worker or accessing credentials.
+        // SAFETY: PR_SET_DUMPABLE takes one integer flag and no pointers.
+        if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -92,6 +102,15 @@ async fn run(
     if arguments.validate_only {
         store.load_or_default()?.validate()?;
         return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        usque_platform::linux_paths::prepare_config_file(&config_path)?;
+        if let Some(paths) = usque_platform::linux_paths::LinuxPaths::for_config(&config_path) {
+            for directory in [&paths.cache, &paths.state, &paths.data] {
+                usque_platform::linux_paths::private_directory(directory)?;
+            }
+        }
     }
     // Bootstrap diagnostics before reading user configuration. Validate-only
     // stays side-effect free, and invalid configuration still has a local cause.
@@ -145,10 +164,20 @@ async fn run(
         );
     }
 
+    #[cfg(target_os = "linux")]
+    let linux_server = {
+        let socket = match arguments.socket {
+            Some(socket) => socket,
+            None => usque_platform::linux_paths::LinuxPaths::from_environment()?.control_socket(),
+        };
+        usque_engine::linux_ipc::LinuxIpcServer::bind(socket).await?
+    };
     let service = ControlService::open(store)?;
+    #[cfg(not(target_os = "linux"))]
     if let Err(error) = service.migrate_shared_proxy_password().await {
         warn!(%error, "shared proxy-password migration will be retried later");
     }
+    #[cfg(not(target_os = "linux"))]
     if let Err(error) = service.reap_pending_identity_deletions().await {
         warn!(%error, "deferred secure identity cleanup will be retried later");
     }
@@ -210,7 +239,37 @@ async fn run(
         }
     }
 
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        let service = Arc::new(service);
+        // A locked Secret Service can wait for an interactive unlock. Keep
+        // authenticated IPC available while serialized cleanup is waiting.
+        let startup = tokio_util::task::AbortOnDropHandle::new(tokio::spawn({
+            let service = Arc::clone(&service);
+            async move { service.initialize_linux_user_state().await }
+        }));
+        let observations = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
+            Arc::clone(&service).run_linux_observation_monitor(),
+        ));
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        let result = tokio::select! {
+            result = linux_server.serve(Arc::clone(&service)) => result,
+            result = tokio::signal::ctrl_c() => result,
+            _ = terminate.recv() => Ok(()),
+            result = usque_engine::linux_ipc::wait_for_parent_exit(arguments.parent_pid) => result,
+        };
+        drop(startup);
+        drop(observations);
+        // A failed listener or parent monitor must still finish frontend and
+        // platform cleanup before propagating its error to the launcher.
+        if let Err(error) = service.shutdown().await {
+            warn!(%error, "engine shutdown could not fully restore platform state");
+        }
+        result?;
+    }
+
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let service = Arc::new(service);
         info!("this platform has no engine IPC transport");

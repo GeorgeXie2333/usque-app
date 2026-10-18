@@ -1072,6 +1072,7 @@ where
                 remote_endpoint: remote.to_string(),
                 protocol: u32::from(protocol),
                 network_generation: physical.generation,
+                linux_lease_id: 0,
             },
             key,
         ))
@@ -1354,6 +1355,9 @@ where
                     .await
                     .map_err(|error| (request_id.clone(), error))?;
                 agent_response::Payload::Empty(agent_v1::Empty {})
+            }
+            agent_request::Payload::ReleaseLinuxDirectEgress(_) => {
+                return Err((request_id, ServiceError::DirectEgressTarget));
             }
             agent_request::Payload::AcquireDirectEgress(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
@@ -2552,6 +2556,7 @@ fn state_to_proto(
         warnings.push("PACKET_SESSION_REATTACH_REQUIRED".to_owned());
     }
     AgentState {
+        linux_platform: None,
         device: None,
         replacement: None,
         plan: journal.plan.as_ref().map(|plan| Box::new(plan.to_proto())),

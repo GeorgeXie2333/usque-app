@@ -10,6 +10,7 @@ import 'package:usque/dev/preview_update_downloader.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
+import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/services/engine_client_factory.dart';
 
@@ -62,9 +63,11 @@ void main() {
     }
   });
 
-  test('Linux production entry never constructs a native engine', () {
-    if (Platform.isLinux) {
-      expect(createDefaultEngineClient, throwsUnsupportedError);
+  test('Linux production entry uses the real desktop engine', () {
+    if (Platform.isLinux && Platform.environment['XDG_RUNTIME_DIR'] != null) {
+      final engine = createDefaultEngineClient();
+      addTearDown(engine.dispose);
+      expect(engine, isA<DesktopEngineClient>());
     }
   });
 

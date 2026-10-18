@@ -232,6 +232,27 @@ class AppController extends ChangeNotifier {
   bool updateChecksEnabled = true;
   bool startOnBoot = false;
   bool closeToTray = true;
+  bool trayAvailable = true;
+  bool get supportsLinuxServiceMaintenance =>
+      defaultTargetPlatform == TargetPlatform.linux &&
+      _engine is LinuxServiceClient;
+
+  Future<LinuxServiceState> getLinuxServiceState() =>
+      (_engine as LinuxServiceClient).getLinuxServiceState();
+
+  Future<void> maintainLinuxService({required bool install}) async {
+    await (_engine as LinuxServiceClient).maintainLinuxService(
+      install: install,
+    );
+    await _refreshCapabilities();
+  }
+
+  bool get tunnelOutputSupported =>
+      defaultTargetPlatform != TargetPlatform.linux ||
+      engineCapabilities?.vpn == true;
+  bool get systemProxyOutputSupported =>
+      defaultTargetPlatform != TargetPlatform.linux ||
+      engineCapabilities?.systemProxy == true;
   PerAppProxySettings perAppProxy = const PerAppProxySettings();
   int zeroTrustCallbackTicket = 0;
   Object? _zeroTrustCurrentOwner;
@@ -512,6 +533,7 @@ class AppController extends ChangeNotifier {
       if (_disposed || dataGeneration != _dataGeneration) return;
       startOnBoot = platformPreferences.startOnBoot;
       closeToTray = platformPreferences.closeToTray;
+      trayAvailable = platformPreferences.trayAvailable;
     } on Object {
       // Native shell preferences are optional in unsupported test hosts.
     }
@@ -1672,6 +1694,14 @@ class AppController extends ChangeNotifier {
     }, affectsConnection: false);
     if (!success && !_disposed && generation == _updateOperationGeneration) {
       updateError = lastError;
+      if (package.platform == 'linux') {
+        // Linux authorization cancellation, a busy package manager or a
+        // read-only AppImage location can be retried with the verified file.
+        // The maintenance helper independently verifies it again each time.
+        updatePhase = UpdateOperationPhase.ready;
+        _notifyListeners();
+        return;
+      }
       try {
         await _updateDownloader.discard(path);
       } on Object {
@@ -2297,6 +2327,12 @@ class AppController extends ChangeNotifier {
       lastError = userFacingError(strings, error);
       _notifyListeners();
     }
+  }
+
+  void noteTrayAvailability(bool available) {
+    trayAvailable = available;
+    if (!available) closeToTray = false;
+    _notifyListeners();
   }
 
   Future<void> setCloseToTray(bool value) async {

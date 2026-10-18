@@ -18,6 +18,10 @@ fn is_proxy_vpn(profile: &Profile) -> bool {
 }
 
 fn can_handoff(active: &ActiveDataPlane) -> bool {
+    #[cfg(target_os = "linux")]
+    if matches!(active.runtime, ActiveRuntime::Vpn(_)) {
+        return true;
+    }
     active.runtime.is_vpn()
         && (is_proxy_vpn(&active.profile)
             || active.runtime.replacement_pending()
@@ -40,7 +44,7 @@ impl ControlService {
             .is_some_and(can_handoff)
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) async fn retry_protected_target(
         &self,
         profile_id: uuid::Uuid,
@@ -89,7 +93,7 @@ impl ControlService {
 
     /// Called with the lifecycle lock. Returns None only when this operation is
     /// outside the existing protected HTTP/SOCKS VPN boundary.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) async fn reconnect_protected_chain(
         &self,
         target: &Profile,
@@ -113,7 +117,7 @@ impl ControlService {
                 usque_transport::TransportError::TunnelClosed,
             ));
         }
-        #[cfg(test)]
+        #[cfg(all(test, windows))]
         if self
             .data_plane
             .lock()
@@ -176,42 +180,66 @@ impl ControlService {
         let ActiveRuntime::Vpn(runtime) = &mut active.runtime else {
             unreachable!("non-test Windows VPN")
         };
-        let class = usque_core::classify_reconfigure(&previous, target);
-        let same_operation = previous.id == target.id
-            && !runtime.replacement_pending()
-            && matches!(
-                class,
-                usque_core::ReconfigureClass::PersistOnly
-                    | usque_core::ReconfigureClass::HotVpnGate
-            );
-        let result = if same_operation {
-            runtime
-                .retry_protected_chain(
-                    target,
-                    identity,
-                    refresher,
-                    policy,
+        #[cfg(windows)]
+        let result = {
+            let class = usque_core::classify_reconfigure(&previous, target);
+            let same_operation = previous.id == target.id
+                && !runtime.replacement_pending()
+                && matches!(
+                    class,
+                    usque_core::ReconfigureClass::PersistOnly
+                        | usque_core::ReconfigureClass::HotVpnGate
+                );
+            if same_operation {
+                runtime
+                    .retry_protected_chain(
+                        target,
+                        identity,
+                        refresher,
+                        policy,
+                        selected,
+                        self.gate_status.clone(),
+                        cancellation,
+                        &self.windows_device,
+                    )
+                    .await
+            } else {
+                runtime
+                    .replace_protected_connection(
+                        target,
+                        identity,
+                        refresher,
+                        policy,
+                        selected,
+                        self.gate_status.clone(),
+                        cancellation,
+                        &self.windows_device,
+                    )
+                    .await
+            }
+            .map_err(crate::map_windows_vpn_error)
+        };
+        #[cfg(target_os = "linux")]
+        let result = {
+            let _ = previous;
+            Box::pin(runtime.replace_connection(
+                target,
+                identity,
+                refresher,
+                policy,
+                usque_transport::VpnGateStart {
                     selected,
-                    self.gate_status.clone(),
-                    cancellation,
-                    &self.windows_device,
-                )
-                .await
-        } else {
-            runtime
-                .replace_protected_connection(
-                    target,
-                    identity,
-                    refresher,
-                    policy,
-                    selected,
-                    self.gate_status.clone(),
-                    cancellation,
-                    &self.windows_device,
-                )
-                .await
-        }
-        .map_err(crate::map_windows_vpn_error);
+                    status: Some(self.gate_status.clone()),
+                    cancellation: cancellation.clone(),
+                    deadline: Some(
+                        tokio::time::Instant::now()
+                            + usque_core::endpoint_connection_budget(target),
+                    ),
+                },
+            ))
+            .await
+            .map_err(crate::linux_runtime::map_error)
+        };
         let mut snapshot = self
             .finish_protected_reconnect(active, target, result)
             .await?;
@@ -223,7 +251,7 @@ impl ControlService {
         Ok(Some(snapshot))
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     async fn finish_protected_reconnect(
         &self,
         mut active: ActiveDataPlane,

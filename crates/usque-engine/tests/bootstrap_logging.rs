@@ -33,6 +33,12 @@ fn invalid_bootstrap_configuration_has_a_bounded_local_cause() {
     let directory = tempfile::tempdir().unwrap();
     let config = directory.path().join("config.json");
     std::fs::write(&config, b"{invalid-json").unwrap();
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
     let output = invalid_config_command(&config).output().unwrap();
     assert!(!output.status.success());
     let log = std::fs::read_to_string(directory.path().join("logs/engine.jsonl")).unwrap();
@@ -47,6 +53,12 @@ fn validate_only_does_not_create_a_log_store() {
     let directory = tempfile::tempdir().unwrap();
     let config = directory.path().join("config.json");
     std::fs::write(&config, b"{invalid-json").unwrap();
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
     let output = invalid_config_command(&config)
         .arg("--validate-only")
         .output()

@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from linux_release_contract import verify_linux_release
+
 SCHEMA_VERSION = 1
 TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+(?:-beta\.\d+)?$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -43,6 +45,7 @@ RELEASE_TEMPLATE_TOKENS = {
     "repository",
     "windows_signer_sha256",
     "android_signer_sha256",
+    "linux_ed25519_public_key",
 }
 RELEASE_NOTES_REQUIRED_HEADINGS = (
     "## Highlights / 更新亮点",
@@ -85,7 +88,7 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def expected_artifact_names(tag: str) -> dict[str, tuple[str, str]]:
+def expected_artifact_names(tag: str, *, include_linux: bool = False) -> dict[str, tuple[str, str]]:
     if not TAG_PATTERN.fullmatch(tag):
         raise ContractError(f"unsupported release tag: {tag}")
     expected: dict[str, tuple[str, str]] = {}
@@ -94,6 +97,10 @@ def expected_artifact_names(tag: str) -> dict[str, tuple[str, str]]:
         expected[f"usque-{tag}-windows-{variant}.msi"] = ("windows", variant)
     for variant in ANDROID_VARIANTS:
         expected[f"usque-{tag}-android-{variant}.apk"] = ("android", variant)
+    if include_linux:
+        for architecture in ("amd64", "arm64"):
+            for extension in ("AppImage", "deb", "rpm"):
+                expected[f"usque-{tag}-linux-{architecture}.{extension}"] = ("linux", architecture)
     return expected
 
 
@@ -178,6 +185,12 @@ def render_release_notes(
         "repository": repository,
         "windows_signer_sha256": windows_signer,
         "android_signer_sha256": android_signer,
+        "linux_ed25519_public_key": normalize_sha256(
+            (Path(__file__).resolve().parents[1] / "packaging/linux/release-public-key.hex")
+            .read_text()
+            .strip(),
+            "Linux Ed25519 public key",
+        ),
     }
     rendered = RELEASE_TEMPLATE_TOKEN_PATTERN.sub(
         lambda match: replacements[match.group(1)], template_text
@@ -303,9 +316,11 @@ def create_manifest(
     commit: str,
     windows_signer: str,
     android_signer: str,
+    *,
+    include_linux: bool = False,
 ) -> dict[str, Any]:
     directory = directory.resolve(strict=True)
-    expected = expected_artifact_names(tag)
+    expected = expected_artifact_names(tag, include_linux=include_linux)
     commit = normalize_commit(commit)
     windows_signer = normalize_sha256(windows_signer, "Windows signer")
     android_signer = normalize_sha256(android_signer, "Android signer")
@@ -313,7 +328,8 @@ def create_manifest(
     actual_primary = {
         path.name
         for path in directory.iterdir()
-        if path.is_file() and path.suffix.lower() in {".exe", ".msi", ".apk"}
+        if path.is_file()
+        and path.suffix.lower() in {".exe", ".msi", ".apk", ".appimage", ".deb", ".rpm"}
     }
     missing = sorted(set(expected) - actual_primary)
     unexpected = sorted(actual_primary - set(expected))
@@ -334,17 +350,26 @@ def create_manifest(
                 "variant": variant,
                 "sha256": digest,
                 "size": path.stat().st_size,
+                **({"install_format": path.suffix[1:]} if platform == "linux" else {}),
             }
         )
+    signers = {
+        "windows_certificate_sha256": windows_signer,
+        "android_certificate_sha256": android_signer,
+    }
+    if include_linux:
+        try:
+            signers["linux_ed25519_public_key"] = verify_linux_release(directory, tag)
+        except (OSError, ValueError) as error:
+            raise ContractError(str(error)) from error
     return {
+        # Append Linux entries while preserving old Windows/Android updaters,
+        # which already ignore unknown fields but require schema version 1.
         "schema_version": SCHEMA_VERSION,
         "tag": tag,
         "commit": commit,
         "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "signers": {
-            "windows_certificate_sha256": windows_signer,
-            "android_certificate_sha256": android_signer,
-        },
+        "signers": signers,
         "artifacts": artifacts,
     }
 
@@ -352,13 +377,16 @@ def create_manifest(
 def artifact_index(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
     if manifest.get("schema_version") != SCHEMA_VERSION:
         raise ContractError("unsupported release manifest schema_version")
-    expected = expected_artifact_names(str(manifest.get("tag", "")))
     normalize_commit(manifest.get("commit"))
     signers = manifest.get("signers")
     if not isinstance(signers, dict):
         raise ContractError("manifest signers must be an object")
+    include_linux = "linux_ed25519_public_key" in signers
+    expected = expected_artifact_names(str(manifest.get("tag", "")), include_linux=include_linux)
     normalize_sha256(signers.get("windows_certificate_sha256"), "Windows manifest signer")
     normalize_sha256(signers.get("android_certificate_sha256"), "Android manifest signer")
+    if include_linux:
+        normalize_sha256(signers.get("linux_ed25519_public_key"), "Linux Ed25519 public key")
 
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list):
@@ -375,6 +403,8 @@ def artifact_index(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
         platform, variant = expected[name]
         if artifact.get("platform") != platform or artifact.get("variant") != variant:
             raise ContractError(f"wrong platform or variant for {name}")
+        if platform == "linux" and artifact.get("install_format") != Path(name).suffix[1:]:
+            raise ContractError(f"wrong Linux installation format for {name}")
         normalize_sha256(artifact.get("sha256"), f"artifact {name}")
         if not isinstance(artifact.get("size"), int) or artifact["size"] <= 0:
             raise ContractError(f"artifact {name} has an invalid size")
@@ -387,6 +417,13 @@ def artifact_index(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def verify_artifacts(directory: Path, manifest: dict[str, Any]) -> None:
     directory = directory.resolve(strict=True)
     index = artifact_index(manifest)
+    if "linux_ed25519_public_key" in manifest["signers"]:
+        try:
+            actual_key = verify_linux_release(directory, manifest["tag"])
+        except (OSError, ValueError) as error:
+            raise ContractError(str(error)) from error
+        if manifest["signers"]["linux_ed25519_public_key"] != actual_key:
+            raise ContractError("Linux manifest signer does not match the release trust anchor")
     for name, artifact in index.items():
         path = directory / name
         if not path.is_file():
@@ -408,6 +445,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     create.add_argument("--windows-signer-sha256", required=True)
     create.add_argument("--android-signer-sha256", required=True)
     create.add_argument("--output", type=Path, required=True)
+    create.add_argument("--include-linux", action="store_true")
 
     verify = subparsers.add_parser("verify-artifacts")
     verify.add_argument("--directory", type=Path, required=True)
@@ -443,6 +481,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.commit,
                 args.windows_signer_sha256,
                 args.android_signer_sha256,
+                include_linux=args.include_linux,
             )
             write_json(args.output, manifest)
         elif args.command == "verify-artifacts":

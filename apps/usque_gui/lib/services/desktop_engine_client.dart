@@ -32,7 +32,65 @@ class DesktopEngineClient
         ChainProfileClient,
         WarpWireguardClient,
         InitialIdentityClient,
+        LinuxServiceClient,
         AdsRulesClient {
+  @override
+  Future<LinuxServiceState> getLinuxServiceState() async =>
+      LinuxServiceState.fromMap(
+        await _transport.invokePlatformMethod<Map<Object?, Object?>>(
+              'getLinuxServiceState',
+            ) ??
+            const {},
+      );
+
+  @override
+  Future<void> maintainLinuxService({required bool install}) async {
+    if (!Platform.isLinux) {
+      throw const EngineException(
+        'LINUX_SERVICE_UNAVAILABLE',
+        'Linux is required.',
+      );
+    }
+    final state = await getLinuxServiceState();
+    final bundle = Platform.environment['APPDIR'];
+    if (install &&
+            (!state.canInstall || bundle == null || !bundle.startsWith('/')) ||
+        !install && !state.canRepair) {
+      throw const EngineException(
+        'LINUX_SERVICE_UNAVAILABLE',
+        'Reinstall the application package.',
+      );
+    }
+    final helper = install && !state.installed
+        ? '$bundle/usr/lib/usque/usque-update'
+        : '/usr/lib/usque/usque-update';
+    final result = await Process.run('/usr/bin/pkexec', [
+      helper,
+      if (install) ...[
+        '--install-service',
+        '--bundle',
+        bundle!,
+      ] else
+        '--repair-service',
+    ], runInShell: false);
+    if (result.exitCode != 0) {
+      if (result.stderr.toString().contains(
+        'USQUE_LINUX_DEPENDENCIES_MISSING',
+      )) {
+        throw const EngineException(
+          'LINUX_SERVICE_DEPENDENCIES_MISSING',
+          'Install the required host dependencies and retry.',
+          retryable: true,
+        );
+      }
+      throw const EngineException(
+        'LINUX_SERVICE_MAINTENANCE_FAILED',
+        'Service maintenance was cancelled or failed. The operation can be retried.',
+        retryable: true,
+      );
+    }
+  }
+
   @override
   Future<InitialIdentityState> initializeIdentity(
     UsqueProfile profile, {
@@ -401,7 +459,24 @@ class DesktopEngineClient
   Future<void> copyLicenseKey(String profileId) {
     return _serialized(() async {
       final payload = ControlPayloadWriter()..string(1, profileId);
-      await _request(28, payload.takeBytes());
+      final response = await _request(28, payload.takeBytes());
+      final sensitive = response.sensitiveClipboard;
+      if (Platform.isLinux && sensitive == null) {
+        throw const EngineException(
+          'ENGINE_IPC_INVALID_RESPONSE',
+          'The Engine returned no clipboard value.',
+        );
+      }
+      if (sensitive != null) {
+        try {
+          await _transport.invokePlatformMethod<void>('copySensitiveText', {
+            'value': sensitive.utf8,
+            'clear_after_seconds': sensitive.clearAfterSeconds,
+          });
+        } finally {
+          sensitive.utf8.fillRange(0, sensitive.utf8.length, 0);
+        }
+      }
     });
   }
 
@@ -445,7 +520,7 @@ class DesktopEngineClient
 
   @override
   Future<String?> beginZeroTrustLogin(String teamName) async {
-    if (!Platform.isWindows) return null;
+    if (!(Platform.isWindows || Platform.isLinux)) return null;
     return _transport.invokePlatformMethod<String>(
       'beginZeroTrustLogin',
       <String, Object>{'team_name': teamName},
@@ -454,13 +529,13 @@ class DesktopEngineClient
 
   @override
   Future<String?> consumeZeroTrustCallback() async {
-    if (!Platform.isWindows) return null;
+    if (!(Platform.isWindows || Platform.isLinux)) return null;
     return _transport.invokePlatformMethod<String>('consumeZeroTrustCallback');
   }
 
   @override
   Future<void> cancelZeroTrustLogin() async {
-    if (!Platform.isWindows) return;
+    if (!(Platform.isWindows || Platform.isLinux)) return;
     await _transport.invokePlatformMethod<void>('cancelZeroTrustLogin');
   }
 
@@ -641,6 +716,20 @@ class DesktopEngineClient
 
   @override
   Future<String> getUpdateCacheDirectory() async {
+    if (Platform.isLinux) {
+      final configured = Platform.environment['XDG_CACHE_HOME'];
+      if (configured != null && configured.startsWith('/')) {
+        return '$configured/usque/updates';
+      }
+      final home = Platform.environment['HOME'];
+      if (home != null && home.startsWith('/')) {
+        return '$home/.cache/usque/updates';
+      }
+      throw const EngineException(
+        'UPDATE_STORAGE_UNAVAILABLE',
+        'HOME is unavailable.',
+      );
+    }
     if (!Platform.isWindows) {
       throw const EngineException(
         'UPDATE_PLATFORM_UNSUPPORTED',
@@ -664,6 +753,10 @@ class DesktopEngineClient
     required String version,
     required UpdatePackage package,
   }) async {
+    if (Platform.isLinux) {
+      await _runLinuxUpdate(path, package, install: false);
+      return;
+    }
     await _runUpdateHelper(<String>[
       '--verify-only',
       ..._updatePackageArguments(path, version, package),
@@ -676,6 +769,11 @@ class DesktopEngineClient
     required String version,
     required UpdatePackage package,
   }) async {
+    if (Platform.isLinux) {
+      await _runLinuxUpdate(path, package, install: true);
+      await _transport.invokePlatformMethod<void>('exitApplication');
+      return;
+    }
     await _runUpdateHelper(<String>[
       '--install',
       '--parent-pid',
@@ -711,6 +809,76 @@ class DesktopEngineClient
     '--variant',
     package.variant,
   ];
+
+  Future<void> _runLinuxUpdate(
+    String path,
+    UpdatePackage package, {
+    required bool install,
+  }) async {
+    if (package.platform != 'linux' ||
+        !const {'AppImage', 'deb', 'rpm'}.contains(package.installFormat) ||
+        package.signature.length != 64 ||
+        package.signatureManifest.isEmpty ||
+        package.signatureManifest.length > 64 * 1024) {
+      throw const EngineException(
+        'UPDATE_PACKAGE_INVALID',
+        'Signed Linux update metadata is missing.',
+      );
+    }
+    final helper = File(
+      '${File(Platform.resolvedExecutable).parent.path}/usque-update',
+    );
+    if (!await helper.exists()) {
+      throw const EngineException(
+        'UPDATE_HELPER_UNAVAILABLE',
+        'The Linux update helper is missing.',
+      );
+    }
+    // Metadata is not trusted here. The maintenance helper independently checks
+    // the fixed public key, package digest, architecture, format and rollback.
+    final cache = await Directory(
+      await getUpdateCacheDirectory(),
+    ).create(recursive: true);
+    final temporary = await cache.createTemp('verification-');
+    try {
+      final manifest = File('${temporary.path}/manifest.json');
+      final signature = File('${temporary.path}/manifest.sig');
+      await manifest.writeAsBytes(package.signatureManifest, flush: true);
+      await signature.writeAsBytes(package.signature, flush: true);
+      final arguments = <String>[
+        install ? '--install' : '--verify-only',
+        '--package',
+        path,
+        '--manifest',
+        manifest.path,
+        '--signature',
+        signature.path,
+      ];
+      if (install && package.installFormat == 'AppImage') {
+        final appimage = Platform.environment['APPIMAGE'];
+        if (appimage == null || !appimage.startsWith('/')) {
+          throw const EngineException(
+            'UPDATE_STORAGE_UNAVAILABLE',
+            'The original AppImage path is unavailable.',
+          );
+        }
+        arguments.addAll(['--appimage', appimage]);
+      }
+      final result = await Process.run(
+        helper.path,
+        arguments,
+        runInShell: false,
+      );
+      if (result.exitCode != 0) {
+        throw EngineException(
+          install ? 'UPDATE_INSTALL_LAUNCH_FAILED' : 'UPDATE_PACKAGE_INVALID',
+          'The Linux update helper did not complete (exit ${result.exitCode}). Retry after resolving the installation or authorization issue.',
+        );
+      }
+    } finally {
+      await temporary.delete(recursive: true);
+    }
+  }
 
   Future<void> _runUpdateHelper(
     List<String> arguments, {
@@ -816,7 +984,7 @@ class DesktopEngineClient
       Uint8List responseFrame;
       try {
         responseFrame = await _transport
-            .exchangeFrame(frame)
+            .exchangeFrame(frame, timeout: _timeoutFor(payloadField))
             .timeout(_timeoutFor(payloadField));
       } on TimeoutException {
         // Once a frame has reached the Engine it may still be executing.
@@ -827,6 +995,10 @@ class DesktopEngineClient
           'The Usque Engine did not finish the operation before its safety deadline.',
         );
       } on Object catch (error) {
+        if (error is EngineException &&
+            error.code == 'ENGINE_REQUEST_TIMEOUT') {
+          rethrow;
+        }
         lastError = error;
         // Production: stop retrying once the sidecar process handle is gone.
         // Test transports have no live process, so errors surface immediately.
@@ -847,6 +1019,10 @@ class DesktopEngineClient
           'ENGINE_IPC_INVALID_RESPONSE',
           'The local Engine response could not be decoded: ${error.message}',
         );
+      } finally {
+        if (payloadField == 28) {
+          responseFrame.fillRange(0, responseFrame.length, 0);
+        }
       }
     }
     throw EngineException(
@@ -860,7 +1036,9 @@ class DesktopEngineClient
     if (override != null) {
       return override(payloadField);
     }
-    return requestTimeoutForPayload(payloadField);
+    return Platform.isLinux
+        ? linuxRequestTimeoutForPayload(payloadField)
+        : requestTimeoutForPayload(payloadField);
   }
 
   void _checkConnectionIntent(int? expected) {
@@ -891,6 +1069,43 @@ class DesktopEngineClient
 }
 
 /// Production request deadlines by control payload field number.
+@visibleForTesting
+Duration linuxRequestTimeoutForPayload(int payloadField) {
+  final base = requestTimeoutForPayload(payloadField);
+  // A Linux Secret Service prompt is bounded at 120s. Account mutations and
+  // first-time encrypted chain storage can read, create and verify a key.
+  // Preserve the existing network budget in addition to those prompt waits.
+  const keyringOperations = {
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    22,
+    23,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    41,
+    47,
+    48,
+    49,
+  };
+  if (keyringOperations.contains(payloadField)) {
+    return base + const Duration(seconds: 360);
+  }
+  // Native Agent availability has its own five-second bound.
+  if (payloadField == 24) return const Duration(seconds: 10);
+  return base;
+}
+
 @visibleForTesting
 Duration requestTimeoutForPayload(int payloadField) {
   switch (payloadField) {

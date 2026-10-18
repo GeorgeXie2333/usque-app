@@ -8,6 +8,7 @@ pub mod failure;
 pub mod geo_rules;
 pub mod identity;
 pub mod l4;
+pub mod linux_release;
 pub mod network_settings;
 pub mod reconfigure;
 pub mod redaction;

@@ -184,6 +184,13 @@ class ReliabilityGateTest(unittest.TestCase):
             },
             "results": results,
         }
+        if name == "linux_snapshot_vm":
+            report["environment"].update(
+                {
+                    "snapshot_id": "inert-test-snapshot",
+                    "management_channel_id": "inert-test-console",
+                }
+            )
         report_path.write_text(
             json.dumps(report),
             encoding="utf-8",
@@ -192,6 +199,9 @@ class ReliabilityGateTest(unittest.TestCase):
 
     def test_all_required_results_generate_release_evidence(self) -> None:
         groups = {
+            "linux_snapshot_vm": {
+                gate for gate in reliability_gate.REQUIRED_GATES if gate.startswith("linux.")
+            },
             "windows_snapshot_vm": {
                 gate for gate in reliability_gate.REQUIRED_GATES if gate.startswith("windows.")
             },
@@ -220,7 +230,32 @@ class ReliabilityGateTest(unittest.TestCase):
         )
 
         self.assertEqual(json.loads(output.read_text())["status"], "passed")
-        self.assertIn("All 30 required gates passed", matrix.read_text())
+        self.assertIn("All 36 required gates passed", matrix.read_text())
+
+    def test_linux_environment_cannot_reuse_windows_or_omit_snapshot(self) -> None:
+        path = self._report("linux_snapshot_vm", {"linux.clean_install"})
+        report = json.loads(path.read_text())
+        for field in ("snapshot_id", "management_channel_id"):
+            broken = json.loads(json.dumps(report))
+            del broken["environment"][field]
+            with self.assertRaises(reliability_gate.GateError):
+                reliability_gate._validate_report(
+                    path,
+                    broken,
+                    self.commit,
+                    self.manifest_digest,
+                    "linux_snapshot_vm",
+                    self.evidence,
+                )
+        with self.assertRaises(reliability_gate.GateError):
+            reliability_gate._validate_report(
+                path,
+                report,
+                self.commit,
+                self.manifest_digest,
+                "windows_snapshot_vm",
+                self.evidence,
+            )
 
     def test_not_run_is_never_reported_as_passed(self) -> None:
         path = self._report("windows_snapshot_vm", {"windows.clean_install"})

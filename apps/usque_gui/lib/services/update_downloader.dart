@@ -271,7 +271,26 @@ class UpdateDownloader {
         'The release declared an invalid update package name.',
       );
     }
-    final expectedExtension = package.platform == 'windows' ? '.msi' : '.apk';
+    final expectedExtension = switch (package.platform) {
+      'windows' => '.msi',
+      'android' => '.apk',
+      'linux' => switch (package.installFormat) {
+        'AppImage' => '.AppImage',
+        'deb' => '.deb',
+        'rpm' => '.rpm',
+        _ => '',
+      },
+      _ => '',
+    };
+    if (expectedExtension.isEmpty ||
+        (package.platform == 'linux' &&
+            (package.signature.length != 64 ||
+                package.signatureManifest.isEmpty ||
+                package.signatureManifest.length > 64 * 1024))) {
+      throw const UpdateDownloadException(
+        'The Linux release installation format or signed metadata is invalid.',
+      );
+    }
     if (!package.name.endsWith(expectedExtension)) {
       throw const UpdateDownloadException(
         'The release package did not match the current platform.',
@@ -279,6 +298,7 @@ class UpdateDownloader {
     }
     final validVariant = switch (package.platform) {
       'windows' => const <String>{'x64-v2', 'arm64'}.contains(package.variant),
+      'linux' => const <String>{'amd64', 'arm64'}.contains(package.variant),
       'android' => const <String>{
         'arm64-v8a',
         'x86_64',
@@ -348,6 +368,12 @@ class UpdateDownloader {
     return name.startsWith('usque-v') &&
         (name.endsWith('.msi') ||
             name.endsWith('.apk') ||
+            name.endsWith('.AppImage') ||
+            name.endsWith('.deb') ||
+            name.endsWith('.rpm') ||
+            name.endsWith('.AppImage.part') ||
+            name.endsWith('.deb.part') ||
+            name.endsWith('.rpm.part') ||
             name.endsWith('.msi.part') ||
             name.endsWith('.apk.part'));
   }

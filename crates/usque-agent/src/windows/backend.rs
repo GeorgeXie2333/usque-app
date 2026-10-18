@@ -83,6 +83,9 @@ impl WindowsBackend {
             automatic_endpoint_leases: true,
             protected_tunnel_replacement: true,
             endpoint_preset_leases: true,
+            linux_tun: false,
+            nftables_kill_switch: false,
+            unix_fd_transfer: false,
         }
     }
 }

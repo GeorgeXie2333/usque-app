@@ -54,6 +54,12 @@ pub struct UpdatePackage {
     pub sha256: String,
     pub platform: String,
     pub variant: String,
+    #[serde(default)]
+    pub install_format: String,
+    #[serde(default)]
+    pub signature_manifest: Vec<u8>,
+    #[serde(default)]
+    pub signature: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +69,30 @@ struct UpdateTarget {
     extension: &'static str,
 }
 
+#[cfg(target_os = "linux")]
+fn current_update_target() -> Option<UpdateTarget> {
+    let variant = crate::linux_release::host_architecture().ok()?;
+    let extension = if std::env::var_os("APPIMAGE").is_some() {
+        "AppImage"
+    } else {
+        let record = crate::linux_release::read_install_record().ok()??;
+        if record.architecture != variant {
+            return None;
+        }
+        match record.format.as_str() {
+            "deb" => "deb",
+            "rpm" => "rpm",
+            _ => return None,
+        }
+    };
+    Some(UpdateTarget {
+        platform: "linux",
+        variant,
+        extension,
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
 fn current_update_target() -> Option<UpdateTarget> {
     if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         return Some(UpdateTarget {
@@ -294,6 +324,10 @@ async fn resolve_release_package(
         ));
     }
 
+    if target.platform == "linux" {
+        return resolve_linux_package(client, release, target, package_asset).await;
+    }
+
     let manifest_asset = unique_asset(&release.assets, RELEASE_MANIFEST_NAME)?;
     validate_asset(manifest_asset, &release.tag_name, RELEASE_MANIFEST_NAME)?;
     if manifest_asset.size == 0 || manifest_asset.size > MAX_RELEASE_MANIFEST_BYTES {
@@ -361,6 +395,81 @@ fn package_from_manifest(
         sha256: artifact.sha256.to_ascii_lowercase(),
         platform: target.platform.to_owned(),
         variant: target.variant.to_owned(),
+        install_format: String::new(),
+        signature_manifest: Vec::new(),
+        signature: Vec::new(),
+    })
+}
+
+async fn resolve_linux_package(
+    client: &Client,
+    release: &GitHubRelease,
+    target: UpdateTarget,
+    package_asset: &GitHubAsset,
+) -> Result<UpdatePackage, UpdateError> {
+    let manifest_name = format!(
+        "usque-{}-linux-{}.manifest.json",
+        release.tag_name, target.variant
+    );
+    let signature_name = format!("{manifest_name}.sig");
+    let manifest_asset = unique_asset(&release.assets, &manifest_name)?;
+    let signature_asset = unique_asset(&release.assets, &signature_name)?;
+    validate_asset(manifest_asset, &release.tag_name, &manifest_name)?;
+    validate_asset(signature_asset, &release.tag_name, &signature_name)?;
+    if manifest_asset.size == 0
+        || manifest_asset.size > MAX_RELEASE_MANIFEST_BYTES
+        || signature_asset.size != 64
+    {
+        return Err(UpdateError::InvalidManifest(
+            "invalid Linux signature metadata".into(),
+        ));
+    }
+    let bytes = fetch_bounded(
+        client,
+        &manifest_asset.browser_download_url,
+        MAX_RELEASE_MANIFEST_BYTES,
+    )
+    .await?;
+    let signature = fetch_bounded(client, &signature_asset.browser_download_url, 64).await?;
+    if bytes.len() as u64 != manifest_asset.size {
+        return Err(UpdateError::InvalidManifest(
+            "Linux manifest length mismatch".into(),
+        ));
+    }
+    let manifest = crate::linux_release::verify_manifest(
+        &bytes,
+        &signature,
+        "packages",
+        target.variant,
+        env!("CARGO_PKG_VERSION"),
+    )
+    .map_err(|error| UpdateError::InvalidManifest(error.to_string()))?;
+    if format!("v{}", manifest.version) != release.tag_name {
+        return Err(UpdateError::InvalidManifest(
+            "Linux signed version mismatch".into(),
+        ));
+    }
+    let entry = manifest
+        .entry(&package_asset.name)
+        .map_err(|error| UpdateError::InvalidManifest(error.to_string()))?;
+    if entry.size != package_asset.size {
+        return Err(UpdateError::InvalidManifest(
+            "Linux package length mismatch".into(),
+        ));
+    }
+    if let Some(digest) = &package_asset.digest {
+        validate_github_digest(digest, &entry.sha256)?;
+    }
+    Ok(UpdatePackage {
+        name: entry.name.clone(),
+        download_url: package_asset.browser_download_url.clone(),
+        size: entry.size,
+        sha256: entry.sha256.clone(),
+        platform: "linux".into(),
+        variant: target.variant.into(),
+        install_format: target.extension.into(),
+        signature_manifest: bytes,
+        signature,
     })
 }
 
@@ -787,6 +896,42 @@ mod tests {
         assert!(package_from_manifest(target, name, &asset, &wrong_size).is_err());
         wrong_size.artifacts[0].sha256 = "invalid".to_owned();
         assert!(package_from_manifest(target, name, &asset, &wrong_size).is_err());
+    }
+
+    #[test]
+    fn appended_linux_metadata_preserves_windows_and_android_manifest_reads() {
+        let manifest: ReleaseManifest = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "tag": "v1.2.3",
+            "signers": {"linux_ed25519_public_key": "a5".repeat(32)},
+            "artifacts": [
+                {"name": "usque-v1.2.3-linux-amd64.deb", "platform": "linux",
+                 "variant": "amd64", "install_format": "deb", "size": 99,
+                 "sha256": "b6".repeat(32)},
+                {"name": "usque-v1.2.3-windows-x64-v2.msi", "platform": "windows",
+                 "variant": "x64-v2", "size": 4096, "sha256": "a5".repeat(32)}
+            ]
+        }))
+        .unwrap();
+        let name = "usque-v1.2.3-windows-x64-v2.msi";
+        let asset = GitHubAsset {
+            name: name.into(),
+            browser_download_url: format!("{RELEASE_DOWNLOAD_PREFIX}v1.2.3/{name}"),
+            size: 4096,
+            digest: Some(format!("sha256:{}", "a5".repeat(32))),
+        };
+        let target = UpdateTarget {
+            platform: "windows",
+            variant: "x64-v2",
+            extension: "msi",
+        };
+        assert_eq!(manifest.schema_version, 1);
+        assert_eq!(
+            package_from_manifest(target, name, &asset, &manifest)
+                .unwrap()
+                .name,
+            name
+        );
     }
 
     #[test]

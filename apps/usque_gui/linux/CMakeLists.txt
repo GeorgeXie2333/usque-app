@@ -2,12 +2,19 @@
 cmake_minimum_required(VERSION 3.13)
 project(runner LANGUAGES CXX)
 
-# The name of the executable created for the application. Change this to change
-# the on-disk name of your application.
-set(BINARY_NAME "usque_ui_preview")
-# The unique GTK application identifier for this application. See:
-# https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "io.github.georgexie2333.usque.preview")
+# The Dart entry point selects an isolated preview identity. Production packages
+# always compile main.dart; preview code remains forbidden outside debug builds.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/generated_config.cmake"
+  FLUTTER_TARGET_CONFIG REGEX "FLUTTER_TARGET=")
+if(FLUTTER_TARGET_CONFIG MATCHES "FLUTTER_TARGET=([^\"]*/)?lib/main_preview[.]dart")
+  set(USQUE_PREVIEW ON)
+  set(BINARY_NAME "usque_ui_preview")
+  set(APPLICATION_ID "io.github.georgexie2333.usque.preview")
+else()
+  set(USQUE_PREVIEW OFF)
+  set(BINARY_NAME "usque")
+  set(APPLICATION_ID "io.github.georgexie2333.usque")
+endif()
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -34,8 +41,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     "Debug" "Profile" "Release")
 endif()
 
-# Linux is a development preview, not a release target.
-if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Never permit simulated code in a release bundle.
+if(USQUE_PREVIEW AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
   message(FATAL_ERROR "The Linux runner supports debug UI previews only.")
 endif()
 

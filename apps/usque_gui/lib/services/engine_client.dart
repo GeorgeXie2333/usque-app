@@ -35,6 +35,33 @@ abstract interface class OnboardingPermissionsClient {
   Future<OnboardingPermissionState> prepareOnboardingPermissions();
 }
 
+class LinuxServiceState {
+  const LinuxServiceState({
+    this.installed = false,
+    this.compatible = false,
+    this.canInstall = false,
+    this.canRepair = false,
+  });
+
+  factory LinuxServiceState.fromMap(Map<Object?, Object?> map) =>
+      LinuxServiceState(
+        installed: map['installed'] == true,
+        compatible: map['compatible'] == true,
+        canInstall: map['can_install'] == true,
+        canRepair: map['can_repair'] == true,
+      );
+
+  final bool installed;
+  final bool compatible;
+  final bool canInstall;
+  final bool canRepair;
+}
+
+abstract interface class LinuxServiceClient {
+  Future<LinuxServiceState> getLinuxServiceState();
+  Future<void> maintainLinuxService({required bool install});
+}
+
 class EngineException implements Exception {
   const EngineException(this.code, this.message, {this.retryable = false});
 

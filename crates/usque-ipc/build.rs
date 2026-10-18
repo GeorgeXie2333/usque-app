@@ -15,6 +15,10 @@ fn main() {
 
     let mut config = prost_build::Config::new();
     config.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
+    // Clipboard credentials travel only in the authenticated protobuf reply.
+    // Logging/diagnostic JSON and Debug must never expose their bytes.
+    config.field_attribute(".usque.v1.SensitiveClipboardValue.utf8", "#[serde(skip)]");
+    config.skip_debug([".usque.v1.SensitiveClipboardValue"]);
     for message in ["RecoveryObservation", "RecoveryResourceObservation"] {
         config.type_attribute(format!(".usque.agent.v1.{message}"), "#[serde(default)]");
     }

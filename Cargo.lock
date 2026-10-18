@@ -3003,6 +3003,7 @@ dependencies = [
  "bytes",
  "clap",
  "ipnet",
+ "libc",
  "proptest",
  "serde",
  "serde_json",
@@ -3056,6 +3057,7 @@ dependencies = [
  "p256",
  "proptest",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",
@@ -3085,6 +3087,7 @@ dependencies = [
  "ipnet",
  "libc",
  "p256",
+ "ring",
  "serde",
  "serde_json",
  "sha2",
@@ -3127,6 +3130,7 @@ name = "usque-ipc"
 version = "0.3.2"
 dependencies = [
  "bytes",
+ "libc",
  "prost",
  "prost-build",
  "protoc-bin-vendored",
@@ -3150,7 +3154,10 @@ name = "usque-platform"
 version = "0.3.2"
 dependencies = [
  "async-trait",
+ "libc",
+ "libloading",
  "security-framework",
+ "tempfile",
  "thiserror",
  "tokio",
  "uuid",
@@ -3229,8 +3236,13 @@ name = "usque-update"
 version = "0.3.2"
 dependencies = [
  "clap",
+ "libc",
+ "serde",
+ "serde_json",
  "sha2",
+ "tempfile",
  "thiserror",
+ "usque-core",
  "usque-platform",
  "windows-sys 0.61.2",
 ]

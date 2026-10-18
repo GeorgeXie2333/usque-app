@@ -1,6 +1,6 @@
 use crate::{ControlService, ControlServiceError};
 use usque_core::chain_exit::{ChainExitSettings, ChainSource};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use usque_core::chain_exit::{ChainProfileRequest, ImportSecrets};
 use usque_ipc::v1;
 
@@ -82,7 +82,7 @@ impl ControlService {
         &self,
         request: v1::ChainProfileRequest,
     ) -> Result<v1::ChainProfileResponse, ControlServiceError> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
             let _mutation = self.mutation_lock.lock().await;
             let request = ChainProfileRequest {
@@ -117,7 +117,10 @@ impl ControlService {
             if let Some(profile) = &self.gate_status.borrow().current_profile {
                 retained.push(profile.id);
             }
-            let parent = self.cache_dir.clone();
+            let parent = self.profile_dir.clone();
+            let cipher = self.chain_cipher.clone().ok_or_else(|| {
+                ControlServiceError::FeatureUnavailable("chain credential storage is unavailable")
+            })?;
             let result = tokio::task::spawn_blocking(move || {
                 let _transaction = store.lock_exclusive()?;
                 let latest = store.load_or_default()?;
@@ -131,7 +134,7 @@ impl ControlService {
                 }
                 Ok::<_, ControlServiceError>(usque_core::chain_exit::profile_command(
                     &parent,
-                    &usque_core::chain_exit::store::WindowsProfileCipher,
+                    cipher.as_ref(),
                     request,
                     &retained,
                 ))
@@ -145,7 +148,7 @@ impl ControlService {
                     .map_err(ControlServiceError::configuration)?,
             })
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = request;
             Err(ControlServiceError::InvalidRequest(
@@ -157,23 +160,26 @@ impl ControlService {
         &self,
         profile: &usque_core::Profile,
     ) -> Result<(), ControlServiceError> {
-        Self::validate_chain_selection_at(&self.cache_dir, profile)
+        Self::validate_chain_selection_at(&self.profile_dir, profile, self.chain_cipher.as_deref())
     }
     pub(crate) fn validate_chain_selection_at(
         parent: &std::path::Path,
         profile: &usque_core::Profile,
+        cipher: Option<&dyn usque_core::chain_exit::store::ProfileCipher>,
     ) -> Result<(), ControlServiceError> {
-        #[cfg(not(windows))]
-        let _ = parent;
+        #[cfg(not(any(windows, target_os = "linux")))]
+        let _ = (parent, cipher);
         if profile
             .custom_chain()
             .is_some_and(|s| s.profile_id.is_some())
         {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             {
                 let (summary, _, _) = usque_core::chain_exit::store::ChainProfileStore::new(
                     parent,
-                    &usque_core::chain_exit::store::WindowsProfileCipher,
+                    cipher.ok_or(ControlServiceError::FeatureUnavailable(
+                        "chain credential storage is unavailable",
+                    ))?,
                 )
                 .load(profile.custom_chain().expect("checked"))
                 .map_err(ControlServiceError::configuration)?;
@@ -188,7 +194,7 @@ impl ControlService {
                     ));
                 }
             }
-            #[cfg(not(windows))]
+            #[cfg(not(any(windows, target_os = "linux")))]
             return Err(ControlServiceError::InvalidRequest(
                 "Chain import is unavailable on this host".into(),
             ));

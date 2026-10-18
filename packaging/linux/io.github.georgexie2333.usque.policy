@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN" "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Usque contributors</vendor>
+  <vendor_url>https://github.com/GeorgeXie2333/usque-app</vendor_url>
+  <action id="io.github.georgexie2333.usque.maintain">
+    <description>Install, update or remove the Usque background service</description>
+    <message>Administrator authorization is required to maintain the Usque service</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/usque/usque-update</annotate>
+  </action>
+</policyconfig>

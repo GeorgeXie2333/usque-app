@@ -463,6 +463,9 @@ class UpdatePackage {
     required this.sha256,
     required this.platform,
     required this.variant,
+    this.installFormat = '',
+    this.signatureManifest = const [],
+    this.signature = const [],
   });
 
   final String name;
@@ -471,6 +474,9 @@ class UpdatePackage {
   final String sha256;
   final String platform;
   final String variant;
+  final String installFormat;
+  final List<int> signatureManifest;
+  final List<int> signature;
 
   factory UpdatePackage.fromMap(Map<Object?, Object?> map) {
     return UpdatePackage(
@@ -480,6 +486,10 @@ class UpdatePackage {
       sha256: map['sha256'] as String? ?? '',
       platform: map['platform'] as String? ?? '',
       variant: map['variant'] as String? ?? '',
+      installFormat: map['install_format'] as String? ?? '',
+      signatureManifest:
+          (map['signature_manifest'] as List?)?.cast<int>() ?? const [],
+      signature: (map['signature'] as List?)?.cast<int>() ?? const [],
     );
   }
 
@@ -490,6 +500,9 @@ class UpdatePackage {
     'sha256': sha256,
     'platform': platform,
     'variant': variant,
+    'install_format': installFormat,
+    'signature_manifest': signatureManifest,
+    'signature': signature,
   };
 }
 
@@ -609,15 +622,18 @@ class PlatformPreferences {
   const PlatformPreferences({
     this.startOnBoot = false,
     this.closeToTray = true,
+    this.trayAvailable = true,
   });
 
   final bool startOnBoot;
   final bool closeToTray;
+  final bool trayAvailable;
 
   factory PlatformPreferences.fromMap(Map<Object?, Object?> map) {
     return PlatformPreferences(
       startOnBoot: map['start_on_boot'] as bool? ?? false,
       closeToTray: map['close_to_tray'] as bool? ?? true,
+      trayAvailable: map['tray_available'] as bool? ?? true,
     );
   }
 }
@@ -2134,6 +2150,8 @@ class NetworkQualitySnapshot {
 
 class EngineCapabilities {
   const EngineCapabilities({
+    this.vpn = false,
+    this.systemProxy = false,
     this.vpnGateTcp = false,
     this.chainProfileImport = false,
     this.chainOpenvpnUdp = false,
@@ -2169,6 +2187,8 @@ class EngineCapabilities {
   factory EngineCapabilities.fromMap(
     Map<Object?, Object?> map,
   ) => EngineCapabilities(
+    vpn: map['vpn'] == true,
+    systemProxy: map['system_proxy'] == true,
     vpnGateTcp: map['vpn_gate_tcp'] == true,
     chainProfileImport: map['chain_profile_import'] == true,
     chainOpenvpnUdp: map['chain_openvpn_udp'] == true,
@@ -2215,6 +2235,8 @@ class EngineCapabilities {
     automaticPmtu: map['automatic_pmtu'] == true,
   );
 
+  final bool vpn;
+  final bool systemProxy;
   final bool customBypass;
   final bool routingRules;
   final bool liveAdsRules;
@@ -2251,6 +2273,8 @@ class EngineCapabilities {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is EngineCapabilities &&
+          vpn == other.vpn &&
+          systemProxy == other.systemProxy &&
           vpnGateTcp == other.vpnGateTcp &&
           chainProfileImport == other.chainProfileImport &&
           chainOpenvpnUdp == other.chainOpenvpnUdp &&
