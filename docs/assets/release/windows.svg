@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" role="img" aria-labelledby="title">
-  <title id="title">Windows</title>
-  <path fill="#0078d4" d="M1 1h16v16H1zm18 0h16v16H19zM1 19h16v16H1zm18 0h16v16H19z"/>
-</svg>
+<!--
+  Windows icon from Devicon (https://github.com/devicons/devicon), icons/windows11/windows11-original.svg.
+  Copyright (c) 2015 konpa. MIT License; see README.md in this directory.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 128 128" role="img" aria-labelledby="title"><title id="title">Windows</title><path fill="#0078d4" d="M67.328 67.331h60.669V128H67.328zm-67.325 0h60.669V128H.003zM67.328 0h60.669v60.669H67.328zM.003 0h60.669v60.669H.003z"/></svg>
