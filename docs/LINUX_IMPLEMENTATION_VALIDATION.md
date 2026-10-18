@@ -392,3 +392,46 @@ Ubuntu 22.04 amd64/arm64 package builds, Windows native and exact-golden gates,
 native desktop sessions and isolated install/network/recovery validation.
 Hosted CI results must be checked separately after pushing. Linux widget and
 golden passes do not substitute for those environments.
+
+## First hosted CI run and portability fixes — 2026-10-18
+
+[CI run 39089750805](https://github.com/GeorgeXie2333/usque-app/actions/runs/39089750805)
+tested commit `0d06a8ca34ebcb2474f7e451d7e7e754944a8b71`. Rust, Windows exact
+goldens, Flutter/Linux goldens, Android unit/lint, both MSI authoring jobs,
+tooling, workflow lint, dependency audit, release contracts and the archived
+Go oracle passed. The separate CodeQL run passed. The two Linux package jobs
+failed before producing packages, and `CI / gate` correctly failed.
+
+- Linux arm64 rejected an interface-name buffer declared as `i8`: its C ABI
+  uses an unsigned `char`. The buffer now uses `libc::c_char`, matching both
+  `if_indextoname` and `CStr::from_ptr` on each supported architecture. Its size,
+  termination check and error handling are unchanged.
+- Linux amd64 reached Flutter but could not resolve the locked application
+  packages because the SDK reported `0.0.0-unknown`. The shallow fetch retained
+  only `FETCH_HEAD`, leaving no local version tag. The Linux workflow now fetches
+  the explicit tag-to-tag refspec and checks out that tag, following the other
+  workflows. The exact pinned commit check remains in place.
+
+A fresh temporary Git repository reproduced the absent tag using the original
+fetch against the locally pinned SDK. Repeating the corrected fetch and
+checkout produced version tag `3.44.7` at
+`84fc5cbb223bc12f83d65b647ff8a56caf779ffd`. No SDK or dependency version was
+changed. Local Rust revalidation completed with these commands:
+
+| Working directory | Exact command | Result |
+| --- | --- | --- |
+| Repository root | `cargo fmt --all --check` | Passed |
+| Repository root | `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed |
+| Repository root | `cargo test --workspace --all-targets --locked` | Passed: 1641 tests, 3 ignored, 24 suites |
+| Repository root | `cargo build --release --locked -p usque-engine -p usque-agent -p usque-update` | Passed |
+| Repository root | `go install github.com/rhysd/actionlint/cmd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca` | Passed |
+| Repository root | `actionlint -no-color` | Passed |
+| Repository root | `pwsh -NoProfile -File tool/check_source.ps1` | Passed |
+| Repository root | `python tool/check_repository_policy.py` | Passed |
+| Repository root | `git diff --check` | Passed |
+
+Native arm64 validation and both complete baseline package builds still require
+the follow-up hosted run. The successful jobs above apply to the named initial
+commit, not automatically to this correction. Isolated installation, VPN,
+restoration and leak checks remain `not_run`; this change performs no privileged
+network operation and changes no signing or authorization boundary.

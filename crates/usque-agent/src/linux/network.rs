@@ -337,7 +337,7 @@ pub fn physical_interfaces() -> io::Result<Vec<super::journal::PhysicalInterface
 }
 
 pub fn interface_name(index: u32) -> io::Result<String> {
-    let mut name = [0_i8; libc::IF_NAMESIZE];
+    let mut name = [0 as libc::c_char; libc::IF_NAMESIZE];
     // SAFETY: name has IF_NAMESIZE writable bytes; index is a scalar.
     if unsafe { libc::if_indextoname(index, name.as_mut_ptr()) }.is_null() {
         return Err(io::Error::last_os_error());

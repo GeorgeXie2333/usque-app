@@ -58,8 +58,9 @@ jobs:
           flutter_root="$RUNNER_TEMP/flutter"
           git init "$flutter_root"
           git -C "$flutter_root" remote add origin https://github.com/flutter/flutter.git
-          git -C "$flutter_root" fetch --depth 1 origin "refs/tags/$FLUTTER_VERSION"
-          git -C "$flutter_root" checkout --detach FETCH_HEAD
+          git -C "$flutter_root" fetch --depth 1 origin \
+            "refs/tags/$FLUTTER_VERSION:refs/tags/$FLUTTER_VERSION"
+          git -C "$flutter_root" checkout --detach "refs/tags/$FLUTTER_VERSION"
           test "$(git -C "$flutter_root" rev-parse HEAD)" = "$FLUTTER_COMMIT"
           echo "$flutter_root/bin" >> "$GITHUB_PATH"
           echo "flutter.sdk=$flutter_root" > apps/usque_gui/android/local.properties
