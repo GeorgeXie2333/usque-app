@@ -51,6 +51,10 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
+[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
+     alt="Get it on F-Droid"
+     height="75">](https://f-droid.org/packages/io.github.georgexie2333.usque/)
+
 These development docs prepare **v0.3.2**; application metadata and the release workflow now target **v0.3.2 / 0.3.2+26**. The [v0.3.2 readiness review](docs/RELEASE_V0.3.2_READINESS.md) records checks and remaining requirements. For published packages, use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. The planned package set has six installers, plus two Windows MSI files used only by in-app updates:
 
 | Platform | Minimum OS | Packages |

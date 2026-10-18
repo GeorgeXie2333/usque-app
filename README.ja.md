@@ -51,6 +51,10 @@ Usque は独立したプロジェクトです。Cloudflare, Inc. との提携関
 
 ## ダウンロードとインストール
 
+[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on-ja.png"
+     alt="Get it on F-Droid"
+     height="75">](https://f-droid.org/packages/io.github.georgexie2333.usque/)
+
 この開発文書は **v0.3.2** の準備用です。アプリのバージョン情報とリリースワークフローは **v0.3.2 / 0.3.2+26** に同期されています。[v0.3.2 リリース準備レビュー](docs/RELEASE_V0.3.2_READINESS.md) に確認結果と残りの要件を記録しています。公開済みパッケージは [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) と対応するタグの文書を確認してください。予定するインストール用パッケージは 6 種類で、別途 2 つの Windows MSI ファイルをアプリ内更新専用として提供します。
 
 | プラットフォーム | 最低 OS 要件 | パッケージ |
