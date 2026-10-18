@@ -227,12 +227,8 @@ class ReleaseNotesContractTests(unittest.TestCase):
 
     def test_current_notes_describe_shipped_chain_features_without_retired_scanning(self) -> None:
         rendered = self.render()
-        self.assertIn("is a feature and reliability release", rendered)
-        self.assertIn("功能与可靠性版本", rendered)
-        self.assertIn("filename-based names", rendered)
-        self.assertIn("3, 4, 5, 5, 5 and 5 seconds", rendered)
-        self.assertIn("3、4、5、5、5、5 秒", rendered)
-        self.assertIn("Download size is not installed disk usage", rendered)
+        self.assertIn("Chain exits connect through the WARP tunnel", rendered)
+        self.assertIn("链式出口经 WARP 隧道连接", rendered)
         self.assertNotRegex(rendered.lower(), r"endpoint scan|pause and resume|smaller downloads")
         self.assertNotIn("端点扫描", rendered)
 
