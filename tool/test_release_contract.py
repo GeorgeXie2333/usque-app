@@ -193,7 +193,14 @@ class ReleaseNotesContractTests(unittest.TestCase):
         self.assertEqual(len(linked), 12)
         self.assertEqual(set(linked), installers)
         badges = re.findall(r"!\[([^\]]+)\]\(([^)]+)\)", download)
-        self.assertEqual(len(badges), 8)
+        self.assertEqual(len(badges), 15)
+        # Equal intrinsic sizes keep download buttons uniform on narrow screens.
+        assets = Path(__file__).resolve().parent.parent / "docs" / "assets" / "release"
+        button_sizes = {
+            re.search(r'width="(\d+)" height="(\d+)"', path.read_text(encoding="utf-8")).groups()
+            for path in assets.glob("*-*.svg")
+        }
+        self.assertEqual(len(button_sizes), 1, button_sizes)
         for alt, url in badges:
             self.assertTrue(alt.strip())
             self.assertTrue(

@@ -228,7 +228,9 @@ unrendered or partially rendered body.
 Download badges and platform icons live in `docs/assets/release/` and use
 repository image URLs pinned to the release tag. Keep all twelve installer links,
 accurate system requirements, and descriptive image alt text when updating the
-table. Do not add third-party badge services or update-only MSI download buttons.
+table. All download buttons use one SVG size (168×40) so they scale evenly on
+narrow screens; the release tests enforce it. Do not add third-party badge
+services or update-only MSI download buttons.
 Keep the four required bilingual section names; decorative emoji may follow them.
 
 The current workflow's primary files, shown with a `vX.Y.Z` placeholder for the

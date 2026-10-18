@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="168" height="40" viewBox="0 0 168 40" role="img" aria-labelledby="title">
+  <title id="title">AppImage arm64</title>
+  <path fill="#30363d" d="M0 0h84v40H0z"/>
+  <path fill="#b45309" d="M84 0h84v40H84z"/>
+  <g fill="#fff" font-family="Verdana,DejaVu Sans,sans-serif" font-size="14" text-anchor="middle">
+    <text x="42" y="25">AppImage</text>
+    <text x="126" y="25">arm64</text>
+  </g>
+</svg>
