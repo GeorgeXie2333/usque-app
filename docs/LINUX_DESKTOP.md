@@ -108,6 +108,28 @@ Window size and maximization are saved; Wayland placement belongs to the
 compositor. GNOME/KDE system proxy settings apply in the user's session and
 require the HTTP proxy output. Restoration preserves later external changes.
 
+## TUN mode and host networking
+
+While a Linux TUN session holds its nftables guard, the host's output policy
+allows only loopback, the Usque interface, Agent-authorized Engine sockets,
+link-local neighbor discovery, configured direct exclusions and DHCP renewal.
+DHCP renewal (UDP 68 to 67 and 546 to 547) is allowed for root and for the
+`systemd-network`, `dhcpcd` and `_dhcpcd` system users that exist when the
+session starts. Other users cannot use this exception.
+
+The guard also drops all forwarded IPv4 and IPv6 traffic for the whole
+session, independent of the Kill Switch setting, so routed or bridged guests
+cannot bypass it. Docker, Podman, libvirt and similar container or VM networks
+lose connectivity while TUN mode is connected, including traffic between
+containers on a bridge with `br_netfilter`. Use the local proxy outputs for
+those workloads, or disconnect TUN mode.
+
+The Agent checks the Engine's executable mappings for every request. If a
+system upgrade replaces a library the Engine has already loaded, the running
+session continues, because the Agent verified that file before the upgrade.
+If the Agent restarts after such an upgrade, it cannot verify the replaced
+file any more. Restart Usque before connecting TUN mode again.
+
 ## Recovery, updates and removal
 
 If service startup fails, open **Background service** and use **Repair
@@ -135,6 +157,8 @@ staging. AppImage replacement uses staging in the same directory and an atomic
 rename, coordinating the matching service payload. Unwritable directories,
 busy package managers and cancelled authorization preserve retryable input.
 Version/protocol mismatches refuse to start a mismatched privileged session.
+A signed release may advance the Agent protocol, so the installed helper still
+verifies and installs it. A manifest with an older protocol is refused.
 
 Remove deb/rpm through the package manager. AppImage service removal uses the
 installed maintenance helper's `--remove-service` operation after administrator

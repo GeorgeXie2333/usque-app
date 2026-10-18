@@ -88,6 +88,12 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
     let listener = bind_listener()?;
     listener.set_nonblocking(true)?;
     let active = Arc::new(AtomicUsize::new(0));
+    // Transient journal, netlink and accept failures are logged once and
+    // retried. Only a failed listener leaves the loop, and still recovers.
+    let mut recovery_arm_failed = false;
+    let mut watcher_failed = false;
+    let mut accept_failed = false;
+    let mut fatal = None;
     while !stopping.load(Ordering::Acquire) {
         if let Ok(mut state) = service.lock() {
             let journal = state.coordinator.state();
@@ -100,7 +106,24 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
                     owner.process_start_time,
                 ))
             });
-            if (!pending_replacement || !connected) && state.coordinator.arm_automatic_recovery()? {
+            let armed = if !pending_replacement || !connected {
+                match state.coordinator.arm_automatic_recovery() {
+                    Ok(armed) => {
+                        recovery_arm_failed = false;
+                        armed
+                    }
+                    Err(error) => {
+                        if !recovery_arm_failed {
+                            tracing::warn!(kind = ?error.kind(), "Linux automatic recovery could not be armed; retrying");
+                        }
+                        recovery_arm_failed = true;
+                        false
+                    }
+                }
+            } else {
+                false
+            };
+            if armed {
                 let journal = state.coordinator.state();
                 let operation = journal.operation_id.expect("recovery operation");
                 let generation = journal.generation;
@@ -123,7 +146,23 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
                 recovery_due = None;
             }
         }
-        if watcher.changed()? || last_snapshot.elapsed() >= Duration::from_secs(5) {
+        let changed = match watcher.changed() {
+            Ok(changed) => {
+                watcher_failed = false;
+                changed
+            }
+            // A failed read may have lost a notification: refresh once, then
+            // rely on the periodic snapshot until the watcher recovers.
+            Err(error) => {
+                let first = !watcher_failed;
+                if first {
+                    tracing::warn!(kind = ?error.kind(), "Linux network change watcher failed; using periodic snapshots");
+                }
+                watcher_failed = true;
+                first
+            }
+        };
+        if changed || last_snapshot.elapsed() >= Duration::from_secs(5) {
             if let Ok(mut state) = service.lock()
                 && matches!(
                     state.coordinator.state().phase,
@@ -140,20 +179,41 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
             last_snapshot = Instant::now();
         }
         let socket = match listener.accept() {
-            Ok((socket, _)) => socket,
+            Ok((socket, _)) => {
+                accept_failed = false;
+                socket
+            }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                accept_failed = false;
                 thread::sleep(Duration::from_millis(50));
                 continue;
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error),
+            Err(error) if transient_accept_error(&error) => {
+                if !accept_failed {
+                    tracing::warn!(kind = ?error.kind(), "Linux Agent connections cannot be accepted; retrying");
+                }
+                accept_failed = true;
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+            Err(error) => {
+                fatal = Some(error);
+                break;
+            }
         };
         if active.load(Ordering::Acquire) >= MAX_CONNECTIONS {
             continue;
         }
-        socket.set_read_timeout(Some(Duration::from_secs(60)))?;
-        socket.set_write_timeout(Some(Duration::from_secs(5)))?;
-        transport::enable_credentials(&socket)?;
+        // A failure here affects only this connection, which is dropped.
+        if socket
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .and_then(|()| socket.set_write_timeout(Some(Duration::from_secs(5))))
+            .and_then(|()| transport::enable_credentials(&socket))
+            .is_err()
+        {
+            continue;
+        }
         let peer =
             match transport::peer_credentials(&socket).and_then(|peer| policy.authenticate(peer)) {
                 Ok(peer) => peer,
@@ -209,7 +269,30 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
     let result = state.coordinator.recover();
     drop(listener);
     remove_owned_socket()?;
-    result
+    match fatal {
+        Some(error) => {
+            if let Err(recovery) = result {
+                tracing::error!(kind = ?recovery.kind(), "Linux Agent listener failed and recovery is incomplete");
+            }
+            Err(error)
+        }
+        None => result,
+    }
+}
+
+fn transient_accept_error(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(
+            libc::ECONNABORTED
+                | libc::EMFILE
+                | libc::ENFILE
+                | libc::ENOBUFS
+                | libc::ENOMEM
+                | libc::EPROTO
+                | libc::EPERM
+        )
+    )
 }
 
 fn serve_connection(
@@ -427,24 +510,31 @@ fn dispatch(
             }
             let descriptor =
                 descriptor.ok_or_else(|| denied("Linux egress requires one socket descriptor"))?;
-            let (resources, reserved_mark) = coordinator.reserve_egress_mark(
-                &caller,
-                parse_operation(&request.operation_id)?,
-                request.expected_generation,
-            )?;
             let remote = request
                 .remote_endpoint
                 .parse()
                 .map_err(|_| denied("invalid Linux numeric egress endpoint"))?;
             let plan = coordinator.state().plan.clone().expect("active plan");
             let phase = coordinator.state().phase;
+            let current = coordinator
+                .state()
+                .resources
+                .clone()
+                .expect("validated resources");
             coordinator.backend_mut().validate_egress_purpose(
                 &plan,
-                &resources,
+                &current,
                 phase,
                 remote,
                 request.protocol,
                 request.purpose,
+            )?;
+            // Reserve only after request validation. grant_egress returns an
+            // unused reservation to the free list on every other outcome.
+            let (resources, reserved_mark) = coordinator.reserve_egress_mark(
+                &caller,
+                parse_operation(&request.operation_id)?,
+                request.expected_generation,
             )?;
             let (physical_index, lease_id) = coordinator.backend_mut().grant_egress(
                 &resources,

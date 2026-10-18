@@ -825,6 +825,10 @@ mod tests {
         fn preflight(&self, _: &ValidatedTunnelPlan) -> io::Result<()> {
             Ok(())
         }
+        fn initialize_resources(&self, resources: &mut Resources) -> io::Result<()> {
+            resources.dhcp_client_uids = Some(vec![192]);
+            Ok(())
+        }
         fn apply(
             &mut self,
             step: Step,
@@ -931,6 +935,73 @@ mod tests {
         };
         let coordinator = Coordinator::open(JournalStore::for_test(path), backend).unwrap();
         (directory, coordinator)
+    }
+
+    #[test]
+    fn dhcp_client_users_survive_prepare_save_load_and_legacy_records() {
+        let (directory, mut coordinator) = setup(None, None);
+        coordinator
+            .prepare(owner(), Uuid::new_v4(), 0, plan())
+            .unwrap();
+        let store = JournalStore::for_test(directory.path().join("journal.json"));
+        let mut journal = store.load().unwrap();
+        assert_eq!(
+            journal.resources.as_ref().unwrap().dhcp_client_uids,
+            Some(vec![192])
+        );
+        for uids in [
+            None,
+            Some(vec![]),
+            Some(vec![192]),
+            Some(vec![192, 976, 977]),
+        ] {
+            journal.resources.as_mut().unwrap().dhcp_client_uids = uids;
+            store.save(&mut journal).unwrap();
+            assert_eq!(store.load().unwrap(), journal);
+        }
+
+        // An older Agent did not persist this field. Its original guard only
+        // allowed root's DHCP traffic and must keep that exact recovery policy.
+        let mut legacy = serde_json::to_value(&journal).unwrap();
+        legacy["resources"]
+            .as_object_mut()
+            .unwrap()
+            .remove("dhcp_client_uids");
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        journal.resources.as_mut().unwrap().dhcp_client_uids = None;
+        assert_eq!(store.load().unwrap(), journal);
+    }
+
+    #[test]
+    fn invalid_dhcp_users_and_foreign_resources_cannot_replace_evidence() {
+        let (directory, mut coordinator) = setup(None, None);
+        coordinator
+            .prepare(owner(), Uuid::new_v4(), 0, plan())
+            .unwrap();
+        let store = JournalStore::for_test(directory.path().join("journal.json"));
+        let original = store.load().unwrap();
+        for uids in [vec![0], vec![192, 192], vec![977, 192], vec![1, 2, 3, 4]] {
+            let mut invalid = original.clone();
+            invalid.resources.as_mut().unwrap().dhcp_client_uids = Some(uids);
+            assert_eq!(
+                store.save(&mut invalid).unwrap_err().kind(),
+                io::ErrorKind::InvalidData
+            );
+            assert_eq!(store.load().unwrap(), original);
+        }
+
+        let mut foreign = original.clone();
+        foreign
+            .resources
+            .as_mut()
+            .unwrap()
+            .nft_table
+            .push_str("_foreign");
+        assert_eq!(
+            store.save(&mut foreign).unwrap_err().to_string(),
+            "foreign Linux resource identity"
+        );
+        assert_eq!(store.load().unwrap(), original);
     }
 
     #[test]

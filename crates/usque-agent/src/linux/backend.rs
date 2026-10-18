@@ -72,6 +72,10 @@ impl Backend for NativeBackend {
             super::dns::capture_network_manager()?
         };
         resources.physical_interfaces = physical_snapshot(&resources.dns)?;
+        // Resolved once: a later reinitialization keeps the installed guard.
+        if resources.dhcp_client_uids.is_none() {
+            resources.dhcp_client_uids = Some(dhcp_client_uids());
+        }
         Ok(())
     }
 
@@ -193,6 +197,46 @@ impl NativeBackend {
         protocol: u32,
         mark: u32,
     ) -> io::Result<(u32, u64)> {
+        let result =
+            self.grant_reserved_egress(resources, peer, descriptor, remote, protocol, mark);
+        let granted = matches!(&result, Ok((_, lease_id))
+            if self.leases.iter().any(|lease| lease.lease_id == *lease_id && lease.mark == mark));
+        // A failed or reused-lease request leaves its reservation unused. Read
+        // the kernel's mark: a socket still carrying it keeps the slot retired.
+        if !granted
+            && socket_option::<u32>(descriptor, libc::SO_MARK).is_ok_and(|current| current != mark)
+        {
+            self.recycle_mark(resources, mark);
+        }
+        result
+    }
+
+    fn recycle_mark(&mut self, resources: &Resources, mark: u32) {
+        let slot = mark & 0xffff;
+        if mark & 0xffff_0000 == resources.socket_mark
+            && slot != 0
+            && slot <= u32::from(resources.egress_mark_highwater)
+            && !self.sockets.contains_key(&mark)
+            && self.leases.iter().all(|lease| lease.mark != mark)
+            && !self.reusable_marks.contains(&(slot as u16))
+        {
+            self.reusable_marks.push(slot as u16);
+        }
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "socket permit includes its durably reserved mark and authenticated owner"
+    )]
+    fn grant_reserved_egress(
+        &mut self,
+        resources: &Resources,
+        peer: &AuthenticatedPeer,
+        descriptor: BorrowedFd<'_>,
+        remote: SocketAddr,
+        protocol: u32,
+        mark: u32,
+    ) -> io::Result<(u32, u64)> {
         if remote.port() == 0
             || remote.ip().is_unspecified()
             || remote.ip().is_multicast()
@@ -244,7 +288,8 @@ impl NativeBackend {
         }
         if current_mark != 0
             && (current_mark & 0xffff_0000 != resources.socket_mark
-                || current_mark & 0xffff >= u32::from(resources.egress_mark_highwater))
+                || current_mark & 0xffff == 0
+                || current_mark & 0xffff > u32::from(resources.egress_mark_highwater))
         {
             return Err(denied("Linux egress socket already has an external mark"));
         }
@@ -306,7 +351,11 @@ impl NativeBackend {
     pub fn revoke_egress(&mut self, resources: &Resources) -> io::Result<()> {
         self.clear_socket_marks()?;
         firewall::update_egress(resources, &[])?;
-        self.leases.clear();
+        // Every leased socket was retained and unmarked, and no nft rule
+        // remains, so these slots satisfy the same reuse rule as a release.
+        for lease in mem::take(&mut self.leases) {
+            self.recycle_mark(resources, lease.mark);
+        }
         self.preset_candidates.clear();
         self.preset_generation = 0;
         Ok(())
@@ -544,6 +593,35 @@ fn exclusions(plan: &ValidatedTunnelPlan) -> Vec<IpNet> {
     networks.sort();
     networks.dedup();
     networks
+}
+
+/// System users of DHCP clients that drop root (systemd-networkd and
+/// privilege-separated dhcpcd). Read from the root-owned passwd file without
+/// NSS modules; a missing entry merely leaves only root's exception.
+fn dhcp_client_uids() -> Vec<u32> {
+    let mut passwd = String::new();
+    let read = File::open("/etc/passwd")
+        .and_then(|file| io::Read::read_to_string(&mut io::Read::take(file, 4 << 20), &mut passwd));
+    if let Err(error) = read {
+        tracing::warn!(kind = ?error.kind(), "Linux DHCP client users are unavailable");
+        return Vec::new();
+    }
+    parse_dhcp_client_uids(&passwd)
+}
+
+fn parse_dhcp_client_uids(passwd: &str) -> Vec<u32> {
+    let mut uids: Vec<u32> = passwd
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split(':');
+            let name = fields.next()?;
+            let uid = fields.nth(1)?.parse::<u32>().ok()?;
+            (matches!(name, "systemd-network" | "dhcpcd" | "_dhcpcd") && uid != 0).then_some(uid)
+        })
+        .collect();
+    uids.sort_unstable();
+    uids.dedup();
+    uids
 }
 
 fn active_resolver() -> io::Result<()> {
@@ -807,6 +885,42 @@ fn unavailable(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_unattached_allocated_marks_return_to_the_free_list() {
+        let mut resources = Resources::for_operation(uuid::Uuid::new_v4());
+        resources.egress_mark_highwater = 3;
+        let prefix = resources.socket_mark;
+        let mut backend = NativeBackend::default();
+        backend.leases.push(EgressLease {
+            mark: prefix | 2,
+            remote: "192.0.2.1:443".parse().unwrap(),
+            protocol: 17,
+            socket_cookie: 1,
+            lease_id: 1,
+        });
+        for mark in [prefix, prefix | 2, prefix | 4, (prefix ^ 0x0001_0000) | 1] {
+            backend.recycle_mark(&resources, mark);
+        }
+        assert!(backend.reusable_marks.is_empty());
+        backend.recycle_mark(&resources, prefix | 3);
+        backend.recycle_mark(&resources, prefix | 3);
+        backend.recycle_mark(&resources, prefix | 1);
+        assert_eq!(backend.reusable_marks, [3, 1]);
+    }
+
+    #[test]
+    fn only_named_system_dhcp_clients_receive_the_renewal_exception() {
+        let passwd = "root:x:0:0:root:/root:/bin/bash\n\
+                      systemd-network:x:192:192:systemd Network Management:/:/usr/sbin/nologin\n\
+                      dhcpcd:x:977:977::/var/lib/dhcpcd:/usr/bin/nologin\n\
+                      _dhcpcd:x:977:977::/var/lib/dhcpcd:/usr/bin/nologin\n\
+                      alice:x:1000:1000::/home/alice:/bin/bash\n\
+                      dhcpcd-root:x:0:0::/:/bin/sh\n\
+                      systemd-network:x:bad:0::/:/bin/sh\n";
+        assert_eq!(parse_dhcp_client_uids(passwd), vec![192, 977]);
+        assert!(parse_dhcp_client_uids("dhcpcd:x:0:0::/:/bin/sh\n").is_empty());
+    }
 
     #[test]
     fn mixed_foreign_or_missing_stub_dns_is_rejected() {

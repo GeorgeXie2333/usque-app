@@ -170,9 +170,10 @@ impl Manifest {
         architecture: &str,
         minimum_version: &str,
     ) -> Result<(), ReleaseError> {
-        if self.schema_version != 1
-            || self.protocol_version != PROTOCOL_VERSION
-            || self.kind != kind
+        // A release replaces the Engine, Agent and helper together, so it may
+        // advance their protocol. An installed helper must still be able to
+        // verify and install that release; an older protocol is never accepted.
+        if self.schema_version != 1 || self.protocol_version < PROTOCOL_VERSION || self.kind != kind
         {
             return Err(ReleaseError::Metadata);
         }
@@ -369,6 +370,23 @@ mod tests {
         assert!(matches!(
             verify(&manifest, &key, "amd64", "1.2.4"),
             Err(ReleaseError::Downgrade)
+        ));
+    }
+
+    #[test]
+    fn newer_releases_may_advance_but_never_regress_the_agent_protocol() {
+        let (mut manifest, key) = fixture();
+        manifest.protocol_version = PROTOCOL_VERSION + 1;
+        assert_eq!(
+            verify(&manifest, &key, "amd64", "1.2.2")
+                .unwrap()
+                .protocol_version,
+            PROTOCOL_VERSION + 1
+        );
+        manifest.protocol_version = PROTOCOL_VERSION - 1;
+        assert!(matches!(
+            verify(&manifest, &key, "amd64", "1.2.2"),
+            Err(ReleaseError::Metadata)
         ));
     }
 

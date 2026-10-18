@@ -17,8 +17,7 @@ use clap::{ArgGroup, Parser};
 use tempfile::{Builder, TempDir};
 use thiserror::Error;
 use usque_core::linux_release::{
-    self, Entry, InstallRecord, MAX_MANIFEST_BYTES, Manifest, PROTOCOL_VERSION, ReleaseError,
-    SERVICE_FILES,
+    self, Entry, InstallRecord, MAX_MANIFEST_BYTES, Manifest, ReleaseError, SERVICE_FILES,
 };
 
 const HELPER: &str = "/usr/lib/usque/usque-update";
@@ -533,7 +532,9 @@ fn publish_service(
     let record = InstallRecord {
         schema_version: 1,
         version: manifest.version.clone(),
-        protocol_version: PROTOCOL_VERSION,
+        // The installed service's protocol, which may be newer than this
+        // helper's own. The new Agent validates the record against itself.
+        protocol_version: manifest.protocol_version,
         format: "appimage".into(),
         architecture: manifest.architecture.clone(),
         engine_sha256: manifest.entry("usr/lib/usque/usque-engine")?.sha256.clone(),

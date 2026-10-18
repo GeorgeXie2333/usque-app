@@ -90,10 +90,11 @@ impl LinuxIpcServer {
         // Dropping the server aborts every accepted client, including a stalled
         // frame or event reader, before removing its own socket inodes.
         let mut clients = JoinSet::new();
+        let mut accept_failed = false;
         loop {
             tokio::select! {
                 incoming = self.control.accept() => {
-                    let (stream, _) = incoming?;
+                    let Some(stream) = accepted(incoming, &mut accept_failed).await? else { continue; };
                     if authenticate_peer(&stream).is_err() { continue; }
                     let Ok(permit) = Arc::clone(&permits).try_acquire_owned() else { continue; };
                     let service = Arc::clone(&service);
@@ -103,7 +104,7 @@ impl LinuxIpcServer {
                     });
                 }
                 incoming = self.events.accept() => {
-                    let (stream, _) = incoming?;
+                    let Some(stream) = accepted(incoming, &mut accept_failed).await? else { continue; };
                     if authenticate_peer(&stream).is_err() { continue; }
                     let Ok(permit) = Arc::clone(&permits).try_acquire_owned() else { continue; };
                     let service = Arc::clone(&service);
@@ -116,6 +117,45 @@ impl LinuxIpcServer {
             }
         }
     }
+}
+
+/// A failed accept affects only that client. Descriptor or memory pressure and
+/// aborted handshakes are retried after a pause instead of ending the service.
+async fn accepted(
+    incoming: io::Result<(UnixStream, tokio::net::unix::SocketAddr)>,
+    failed: &mut bool,
+) -> io::Result<Option<UnixStream>> {
+    match incoming {
+        Ok((stream, _)) => {
+            *failed = false;
+            Ok(Some(stream))
+        }
+        Err(error) if transient_accept_error(&error) => {
+            if !*failed {
+                tracing::warn!(kind = ?error.kind(), "Linux IPC connections cannot be accepted; retrying");
+            }
+            *failed = true;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn transient_accept_error(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(
+            libc::ECONNABORTED
+                | libc::EMFILE
+                | libc::ENFILE
+                | libc::ENOBUFS
+                | libc::ENOMEM
+                | libc::EPROTO
+                | libc::EPERM
+                | libc::EINTR
+        )
+    )
 }
 
 pub fn event_socket_path(control: &Path) -> PathBuf {
@@ -237,6 +277,27 @@ mod tests {
         decode_frame, encode_frame,
         v1::{ControlRequest, ControlResponse, GetStatusRequest, control_request},
     };
+
+    #[tokio::test(start_paused = true)]
+    async fn transient_accept_failures_skip_one_client_without_ending_the_service() {
+        let mut failed = false;
+        for code in [libc::EMFILE, libc::ENFILE, libc::ECONNABORTED, libc::ENOMEM] {
+            assert!(
+                accepted(Err(io::Error::from_raw_os_error(code)), &mut failed)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(failed);
+        }
+        for code in [libc::EBADF, libc::EINVAL] {
+            assert!(
+                accepted(Err(io::Error::from_raw_os_error(code)), &mut failed)
+                    .await
+                    .is_err()
+            );
+        }
+    }
 
     #[tokio::test]
     async fn owned_socket_round_trips_events_and_rejects_a_second_engine() {

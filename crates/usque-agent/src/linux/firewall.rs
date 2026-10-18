@@ -256,12 +256,19 @@ pub fn protection_transaction(resources: &Resources, exclusions: &[IpNet]) -> Va
         ],
     ));
     // Only the system network manager may renew DHCP while the guard is up.
-    for (family, source, destination) in [("ip", 68, 67), ("ip6", 546, 547)] {
+    // Its client runs as root or as a dedicated system user (systemd-networkd,
+    // privilege-separated dhcpcd); ordinary users cannot use this exception.
+    let uids = std::iter::once(0).chain(resources.dhcp_client_uids.iter().flatten().copied());
+    for (uid, (family, source, destination)) in uids.flat_map(|uid| {
+        [("ip", 68, 67), ("ip6", 546, 547)]
+            .into_iter()
+            .map(move |ports| (uid, ports))
+    }) {
         commands.push(rule(
             table,
             "output",
             vec![
-                matches(json!({"meta":{"key":"skuid"}}), json!(0)),
+                matches(json!({"meta":{"key":"skuid"}}), json!(uid)),
                 matches(
                     json!({"meta":{"key":"nfproto"}}),
                     json!(if family == "ip" { "ipv4" } else { "ipv6" }),
@@ -553,6 +560,41 @@ mod tests {
             normalize_protocol_dependencies(&mut expressions);
             assert_eq!(expressions, vec![family, port]);
         }
+    }
+
+    #[test]
+    fn dhcp_exception_covers_exactly_the_journaled_system_clients() {
+        let mut resources = Resources::for_operation(uuid::Uuid::new_v4());
+        resources.dhcp_client_uids = Some(vec![192]);
+        let listed = listed_policy(&resources, &[]);
+        let dhcp: Vec<_> = listed["nftables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|object| object["rule"]["expr"].as_array())
+            .filter(|expressions| {
+                expressions[0]["match"]["left"] == json!({"meta":{"key":"skuid"}})
+            })
+            .map(|expressions| {
+                (
+                    expressions[0]["match"]["right"].clone(),
+                    expressions[1]["match"]["right"].clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            dhcp,
+            [
+                (json!(0), json!("ipv4")),
+                (json!(0), json!("ipv6")),
+                (json!(192), json!("ipv4")),
+                (json!(192), json!("ipv6")),
+            ]
+        );
+        validate_policy(&listed, &resources, &[], &[]).unwrap();
+        // A guard installed for another user list is not the owned guard.
+        resources.dhcp_client_uids = None;
+        assert!(validate_policy(&listed, &resources, &[], &[]).is_err());
     }
 
     #[test]

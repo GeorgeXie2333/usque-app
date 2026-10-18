@@ -15,6 +15,7 @@ use crate::plan::ValidatedTunnelPlan;
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const MAX_BYTES: u64 = 256 * 1024;
+const MAX_DHCP_CLIENT_UIDS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -76,6 +77,10 @@ pub struct Resources {
     pub network_generation: u64,
     pub physical_interfaces: Vec<PhysicalInterface>,
     pub dns: super::dns::DnsReceipt,
+    /// Sorted, unique non-root system DHCP client users, resolved once per
+    /// operation. The installed guard is inspected against exactly this list.
+    #[serde(default)]
+    pub dhcp_client_uids: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +110,7 @@ impl Resources {
             network_generation: 1,
             physical_interfaces: Vec::new(),
             dns: super::dns::DnsReceipt::Resolved,
+            dhcp_client_uids: None,
         }
     }
 }
@@ -229,6 +235,16 @@ impl Journal {
             .physical_interfaces
             .clone_from(&resources.physical_interfaces);
         expected.dns = resources.dns.clone();
+        if let Some(uids) = &resources.dhcp_client_uids
+            && (uids.len() > MAX_DHCP_CLIENT_UIDS
+                || uids.contains(&0)
+                || uids.windows(2).any(|pair| pair[0] >= pair[1]))
+        {
+            return Err(invalid("invalid Linux DHCP client users"));
+        }
+        expected
+            .dhcp_client_uids
+            .clone_from(&resources.dhcp_client_uids);
         if resources.network_generation == 0
             || resources.physical_interfaces.len() > 16
             || resources.physical_interfaces.iter().any(|link| {

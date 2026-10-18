@@ -53,7 +53,11 @@ impl ControlService {
                 #[cfg(windows)]
                 let allow_physical = existing.is_none()
                     && crate::windows_agent::catalogue_physical_network_permitted().await;
-                #[cfg(target_os = "linux")]
+                // A retained Linux guard drops unauthorized physical traffic.
+                #[cfg(all(target_os = "linux", not(test)))]
+                let allow_physical =
+                    existing.is_none() && crate::linux_observation::disconnected_probe_safe().await;
+                #[cfg(all(target_os = "linux", test))]
                 let allow_physical = existing.is_none();
                 let identity = if existing.is_none() && allow_physical {
                     Some(self.load_warp_identity(profile.id).await?)

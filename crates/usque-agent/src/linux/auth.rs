@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{self, Read},
     os::{
@@ -6,6 +7,7 @@ use std::{
         unix::fs::{MetadataExt, OpenOptionsExt},
     },
     path::{Component, Path},
+    sync::Mutex,
 };
 
 use serde::{Deserialize, Serialize};
@@ -50,10 +52,27 @@ impl InstallRecord {
     }
 }
 
+/// Bounds for executable files verified per exact Engine process.
+const MAX_VERIFIED_PROCESSES: usize = 32;
+const MAX_VERIFIED_MAPPINGS: usize = 4096;
+
+/// One executable file mapping exactly as reported by the Engine's smaps.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MappingIdentity {
+    path: String,
+    device: (u32, u32),
+    inode: u64,
+}
+
 #[derive(Debug)]
 pub struct CallerPolicy {
     pub record: InstallRecord,
     engine: File,
+    /// Files already verified for one (PID, start time). A system upgrade
+    /// unlinks a mapped library, which smaps then reports as "(deleted)" and
+    /// which cannot be reopened. Its root-owned inode is still the verified
+    /// content, so only an identity verified before replacement is retained.
+    verified: Mutex<HashMap<(u32, u64), HashSet<MappingIdentity>>>,
 }
 
 impl CallerPolicy {
@@ -76,7 +95,11 @@ impl CallerPolicy {
                 "installed Engine digest does not match installation",
             ));
         }
-        Ok(Self { record, engine })
+        Ok(Self {
+            record,
+            engine,
+            verified: Mutex::new(HashMap::new()),
+        })
     }
 
     pub fn authenticate(&self, peer: PeerCredentials) -> io::Result<AuthenticatedPeer> {
@@ -93,6 +116,10 @@ impl CallerPolicy {
         // SAFETY: successful pidfd_open transferred one new descriptor to us.
         let process = unsafe { OwnedFd::from_raw_fd(raw as i32) };
         let start_time = process_start_time(peer.process_id)?;
+        self.verified
+            .lock()
+            .map_err(|_| denied("Engine mapping verification unavailable"))?
+            .retain(|(pid, start), _| process_start_time(*pid).is_ok_and(|time| time == *start));
         let identity = AuthenticatedPeer {
             credentials: peer,
             start_time,
@@ -118,7 +145,24 @@ impl CallerPolicy {
         if namespace.ino() != local.ino() || namespace.dev() != local.dev() {
             return Err(denied("Engine network namespace differs from Agent"));
         }
-        verify_process_loading(pid)?;
+        {
+            let mut verified = self
+                .verified
+                .lock()
+                .map_err(|_| denied("Engine mapping verification unavailable"))?;
+            let key = (pid, identity.start_time);
+            let mut known = verified.get(&key).cloned().unwrap_or_default();
+            verify_process_loading(pid, &mut known)?;
+            // Only fully verified Engine processes are retained. Evicting
+            // another entry merely drops its tolerance of replaced files.
+            if !verified.contains_key(&key)
+                && verified.len() >= MAX_VERIFIED_PROCESSES
+                && let Some(evicted) = verified.keys().find(|other| **other != key).copied()
+            {
+                verified.remove(&evicted);
+            }
+            verified.insert(key, known);
+        }
         let status = fs::read_to_string(format!("/proc/{pid}/status"))?;
         let ids = status
             .lines()
@@ -138,7 +182,7 @@ impl CallerPolicy {
 
 /// An executable path alone is not a process-integrity boundary: an installed
 /// Engine can otherwise be launched with an untrusted preloaded library.
-fn verify_process_loading(pid: u32) -> io::Result<()> {
+fn verify_process_loading(pid: u32, known: &mut HashSet<MappingIdentity>) -> io::Result<()> {
     let environment = fs::read(format!("/proc/{pid}/environ"))?;
     if environment.len() > 128 * 1024 {
         return Err(denied("Engine environment exceeds limit"));
@@ -168,7 +212,22 @@ fn verify_process_loading(pid: u32) -> io::Result<()> {
     if mappings.len() > 8 * 1024 * 1024 {
         return Err(denied("Engine memory mappings exceed limit"));
     }
-    for line in executable_mappings(&mappings)? {
+    verify_mappings(
+        &executable_mappings(&mappings)?,
+        known,
+        trusted_file_has_identity,
+    )
+}
+
+/// Checks file-backed executable mappings. `trusted` must prove that the
+/// root-owned file at a path has the reported device and inode; identities it
+/// accepted for this process are not reopened on later frames.
+fn verify_mappings(
+    mappings: &[&str],
+    known: &mut HashSet<MappingIdentity>,
+    mut trusted: impl FnMut(&Path, (u32, u32), u64) -> io::Result<()>,
+) -> io::Result<()> {
+    for line in mappings {
         let parts: Vec<_> = line.split_whitespace().collect();
         if parts.len() < 5 {
             return Err(denied("invalid Engine memory mapping"));
@@ -185,10 +244,14 @@ fn verify_process_loading(pid: u32) -> io::Result<()> {
         {
             continue;
         }
-        if parts.len() != 6 || !parts[5].starts_with('/') || parts[4] == "0" {
+        let (path, deleted) = match parts.as_slice() {
+            [_, _, _, _, _, path] => (*path, false),
+            [_, _, _, _, _, path, "(deleted)"] => (*path, true),
+            _ => return Err(denied("Engine has an untrusted executable mapping")),
+        };
+        if !path.starts_with('/') || parts[4] == "0" {
             return Err(denied("Engine has an untrusted executable mapping"));
         }
-        let trusted = open_trusted_file(Path::new(parts[5]))?.metadata()?;
         let (major, minor) = parts[3]
             .split_once(':')
             .ok_or_else(|| denied("invalid Engine mapping device"))?;
@@ -199,16 +262,83 @@ fn verify_process_loading(pid: u32) -> io::Result<()> {
         let inode = parts[4]
             .parse::<u64>()
             .map_err(|_| denied("invalid Engine mapping inode"))?;
-        if major != libc::major(trusted.dev())
-            || minor != libc::minor(trusted.dev())
-            || inode != trusted.ino()
-        {
+        let identity = MappingIdentity {
+            path: path.to_owned(),
+            device: (major, minor),
+            inode,
+        };
+        if known.contains(&identity) {
+            continue;
+        }
+        if deleted {
             return Err(denied(
-                "Engine loaded executable code outside its trusted installation",
+                "Engine maps a replaced file that was not verified before replacement",
             ));
         }
+        trusted(Path::new(path), (major, minor), inode)?;
+        if known.len() >= MAX_VERIFIED_MAPPINGS {
+            return Err(denied("Engine executable mappings exceed limit"));
+        }
+        known.insert(identity);
     }
     Ok(())
+}
+
+fn trusted_file_has_identity(path: &Path, device: (u32, u32), inode: u64) -> io::Result<()> {
+    file_has_identity(&open_trusted_file(path)?, device, inode)
+}
+
+fn file_has_identity(file: &File, device: (u32, u32), inode: u64) -> io::Result<()> {
+    let metadata = file.metadata()?;
+    // smaps reports the superblock device. stat can instead report a
+    // per-subvolume device (btrfs), so also accept the file's mount device.
+    let matches = inode == metadata.ino()
+        && (device == (libc::major(metadata.dev()), libc::minor(metadata.dev()))
+            || device == superblock_device(file)?);
+    if !matches {
+        return Err(denied(
+            "Engine loaded executable code outside its trusted installation",
+        ));
+    }
+    Ok(())
+}
+
+/// Device of the mount containing an open file, as shown in mountinfo. Both
+/// mountinfo and smaps print the superblock's device number.
+fn superblock_device(file: &File) -> io::Result<(u32, u32)> {
+    let fdinfo = fs::read_to_string(format!("/proc/self/fdinfo/{}", file.as_raw_fd()))?;
+    let mount_id = fdinfo
+        .lines()
+        .find_map(|line| line.strip_prefix("mnt_id:"))
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .ok_or_else(|| denied("trusted file mount is unavailable"))?;
+    let mut mountinfo = String::new();
+    File::open("/proc/self/mountinfo")?
+        .take(4 * 1024 * 1024 + 1)
+        .read_to_string(&mut mountinfo)?;
+    if mountinfo.len() > 4 * 1024 * 1024 {
+        return Err(denied("mount table exceeds limit"));
+    }
+    mount_device(&mountinfo, mount_id)
+}
+
+fn mount_device(mountinfo: &str, mount_id: u64) -> io::Result<(u32, u32)> {
+    let invalid = || denied("invalid mount table");
+    for line in mountinfo.lines() {
+        let mut fields = line.split_whitespace();
+        if fields.next().and_then(|id| id.parse::<u64>().ok()) != Some(mount_id) {
+            continue;
+        }
+        let (major, minor) = fields
+            .nth(1)
+            .and_then(|device| device.split_once(':'))
+            .ok_or_else(invalid)?;
+        return Ok((
+            major.parse().map_err(|_| invalid())?,
+            minor.parse().map_err(|_| invalid())?,
+        ));
+    }
+    Err(denied("trusted file mount is unavailable"))
 }
 
 /// File-backed executable VMAs must still contain the installed file pages.
@@ -421,6 +551,83 @@ mod tests {
             executable_mappings(&clean.replace("Private_Dirty: 0", "Private_Dirty: 4")).is_ok()
         );
         assert!(executable_mappings(&clean.replace("Swap: 0 kB\n", "")).is_err());
+    }
+
+    #[test]
+    fn mountinfo_device_is_parsed_for_the_exact_mount() {
+        let table = "22 1 0:21 / /proc rw - proc proc rw\n\
+                     35 1 0:31 /root / rw,relatime shared:1 - btrfs /dev/vda3 rw,subvol=/root\n\
+                     350 35 253:1 / /usr/lib ro - ext4 /dev/dm-1 rw\n";
+        assert_eq!(mount_device(table, 35).unwrap(), (0, 31));
+        assert_eq!(mount_device(table, 350).unwrap(), (253, 1));
+        assert!(mount_device(table, 3).is_err());
+        assert!(mount_device("35 1 bad / / rw - btrfs x rw\n", 35).is_err());
+    }
+
+    #[test]
+    fn native_smaps_device_matches_the_mapped_file_identity() {
+        let executable = File::open(std::env::current_exe().unwrap()).unwrap();
+        let inode = executable.metadata().unwrap().ino();
+        let smaps = fs::read_to_string("/proc/self/smaps").unwrap();
+        let line = executable_mappings(&smaps)
+            .unwrap()
+            .into_iter()
+            .find(|line| line.split_whitespace().nth(4) == Some(&inode.to_string()))
+            .expect("test executable mapping");
+        let (major, minor) = line
+            .split_whitespace()
+            .nth(3)
+            .unwrap()
+            .split_once(':')
+            .unwrap();
+        let device = (
+            u32::from_str_radix(major, 16).unwrap(),
+            u32::from_str_radix(minor, 16).unwrap(),
+        );
+        file_has_identity(&executable, device, inode).unwrap();
+        // This is the btrfs-relevant identity: stat may differ, mountinfo not.
+        assert_eq!(superblock_device(&executable).unwrap(), device);
+        assert!(file_has_identity(&executable, device, inode + 1).is_err());
+        assert!(file_has_identity(&executable, (device.0, device.1 ^ 1), inode).is_err());
+    }
+
+    #[test]
+    fn replaced_files_are_trusted_only_after_verification_for_that_process() {
+        let mapping = "1000-2000 r-xp 0000 fd:01 7 /usr/lib/x86_64-linux-gnu/libc.so.6";
+        let deleted = format!("{mapping} (deleted)");
+        let mut checks = 0;
+        let mut known = HashSet::new();
+        assert!(
+            verify_mappings(&[deleted.as_str()], &mut known, |_, _, _| {
+                checks += 1;
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(checks, 0);
+        let mut trusted = |path: &Path, device, inode| {
+            checks += 1;
+            assert_eq!(path, Path::new("/usr/lib/x86_64-linux-gnu/libc.so.6"));
+            assert_eq!((device, inode), ((0xfd, 1), 7));
+            Ok(())
+        };
+        verify_mappings(&[mapping], &mut known, &mut trusted).unwrap();
+        verify_mappings(&[mapping, deleted.as_str()], &mut known, &mut trusted).unwrap();
+        assert_eq!(checks, 1);
+        for other in [
+            "1000-2000 r-xp 0000 fd:01 8 /usr/lib/x86_64-linux-gnu/libc.so.6 (deleted)",
+            "1000-2000 r-xp 0000 fd:02 7 /usr/lib/x86_64-linux-gnu/libc.so.6 (deleted)",
+            "1000-2000 r-xp 0000 fd:01 7 /tmp/libc.so.6 (deleted)",
+            "1000-2000 r-xp 0000 fd:01 7 /usr/lib/x86_64-linux-gnu/libc.so.6 (other)",
+            "1000-2000 rwxp 0000 fd:01 7 /usr/lib/x86_64-linux-gnu/libc.so.6",
+        ] {
+            assert!(verify_mappings(&[other], &mut known, |_, _, _| Ok(())).is_err());
+        }
+        let mut fresh = HashSet::new();
+        assert!(
+            verify_mappings(&[mapping], &mut fresh, |_, _, _| Err(denied("untrusted"))).is_err()
+        );
+        assert!(fresh.is_empty());
     }
 
     #[test]

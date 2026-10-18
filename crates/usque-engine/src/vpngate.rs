@@ -508,7 +508,11 @@ impl ControlService {
         #[cfg(windows)]
         let allow_physical = networks.is_none()
             && crate::windows_agent::catalogue_physical_network_permitted().await;
-        #[cfg(not(windows))]
+        // A retained Linux guard drops unauthorized physical traffic.
+        #[cfg(all(target_os = "linux", not(test)))]
+        let allow_physical =
+            networks.is_none() && crate::linux_observation::disconnected_probe_safe().await;
+        #[cfg(not(any(windows, all(target_os = "linux", not(test)))))]
         let allow_physical = networks.is_none();
         let primary: Arc<dyn CatalogueHttp> = match &networks {
             Some((network, _))
