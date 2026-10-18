@@ -130,6 +130,11 @@ not identify the complete tested source, state that limit. Update the
 [documentation index](docs/README.md) when adding a guide or reference. Shared
 safety and release rules remain authoritative when shortening repeated prose.
 
+Android store metadata lives in `fastlane/metadata/android/<locale>`. When
+preparing a release, add its base build-number changelog and update each
+locale's `changelogs/default.txt` symlink to that file. F-Droid uses the default
+entry when an ABI-specific APK versionCode has no matching changelog filename.
+
 ### Aggregate source checks
 
 For multi-language changes, the aggregate script collects format and static
