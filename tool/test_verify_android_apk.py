@@ -98,6 +98,52 @@ class ApkPackagingTests(unittest.TestCase):
                 self.package(abis)
                 verify_zip(self.apk, abis)
 
+    def signing_block(self, pairs: bytes, *, header_delta: int = 0, footer_delta: int = 0) -> None:
+        """Insert synthetic block structure; these fixtures are not real signatures."""
+        data = self.apk.read_bytes()
+        with zipfile.ZipFile(self.apk) as archive:
+            central_directory = archive.start_dir
+        size = len(pairs) + 24
+        block = (
+            struct.pack("<Q", size + header_delta)
+            + pairs
+            + struct.pack("<Q", size + footer_delta)
+            + b"APK Sig Block 42"
+        )
+        eocd = data.rfind(b"PK\x05\x06") + len(block)
+        modified = bytearray(data[:central_directory] + block + data[central_directory:])
+        struct.pack_into("<I", modified, eocd + 16, central_directory + len(block))
+        self.apk.write_bytes(modified)
+
+    def test_dependency_info_is_rejected_in_signing_block(self) -> None:
+        def pair(block_id: int) -> bytes:
+            return struct.pack("<QI", 8, block_id) + b"test"
+
+        self.package({"arm64-v8a"})
+        self.signing_block(pair(0x7109871A) + struct.pack("<QI", 8, 0x42726577) + bytes(4))
+        verify_zip(self.apk, {"arm64-v8a"})
+        self.package({"arm64-v8a"})
+        self.signing_block(pair(0x7109871A) + pair(0x504B4453))
+        with self.assertRaisesRegex(ValueError, "DependencyInfoBlock"):
+            verify_zip(self.apk, {"arm64-v8a"})
+
+    def test_malformed_signing_blocks_are_rejected(self) -> None:
+        valid_pair = struct.pack("<QI", 4, 0x7109871A)
+        for pairs, options in (
+            (valid_pair, {"header_delta": 1}),
+            (valid_pair, {"footer_delta": 2**32}),
+            (valid_pair, {"footer_delta": -25}),
+            (b"trunc", {}),
+            (struct.pack("<QI", 3, 0x7109871A), {}),
+            (struct.pack("<QI", 2**64 - 1, 0x7109871A), {}),
+            (valid_pair * 65, {}),
+        ):
+            with self.subTest(pairs=len(pairs), options=options):
+                self.package({"arm64-v8a"})
+                self.signing_block(pairs, **options)
+                with self.assertRaisesRegex(ValueError, "signing block"):
+                    verify_zip(self.apk, {"arm64-v8a"})
+
     def test_rejects_uncompressed_missing_wrong_abi_or_debug(self) -> None:
         for options in ({"compression": zipfile.ZIP_STORED}, {"missing": True}, {"debug": True}):
             with self.subTest(options=options):

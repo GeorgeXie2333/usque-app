@@ -5,8 +5,10 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The current release candidate is `v0.3.2`. The checked-in application metadata
-and workflow target `v0.3.2` / `0.3.2+26`; this does not establish publication.
+The checked-in application metadata and workflow target `v0.3.2` / `0.3.2+26`.
+[v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) was
+published on 2026-10-17 from `02685ee399debf93731751f59b33cdfaef49dcdf`.
+New changes require a separately reviewed version and workflow update.
 The workflow accepts only `v0.3.2`. Its accepted tag must point at the current
 `main` commit when the gate runs. Only the release maintainer creates the tag.
 Signing and publish jobs run in GitHub Environments that need approval. If a
@@ -23,7 +25,35 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
+## Unreleased Android packaging changes
+
+The F-Droid packaging fixes require a new release and tag. Existing v0.3.2
+APKs and their version codes remain historical release artifacts.
+
+New APK version codes use `base build number * 1000 + ABI suffix`, with
+suffixes 0 (universal), 1 (ARMv7), 2 (ARM64), and 4 (x86_64). For example,
+base build 27 produces 27000/27001/27002/27004. Every APK from the next base
+build advances past every prior ABI code, including universal builds.
+Switching from a split APK to universal within the same release can still be
+rejected by Android's monotonic version check; do not bypass it or describe
+source arithmetic as a real upgrade.
+
+F-Droid's new release recipes must use matching `VercodeOperation` entries
+`%c * 1000 + 1`, `%c * 1000 + 2`, and `%c * 1000 + 4`. ABI-first codes are
+unsuitable for automatic updates: after metadata is sorted by versionCode,
+copying the last three recipes can select different releases of the same ABI.
+Keep historical recipes bound to their original source and version codes.
+
+AGP dependency information is disabled for APKs and app bundles. Both APK
+build workflows verify the actual manifest versionCode and reject the opaque
+`DependencyInfoBlock` in the APK signing block. This read-only check does not
+replace `apksigner` signature and identity verification. Public dependency
+SBOM generation remains enabled.
+
 ## Preparing v0.3.2
+
+This section records preparation of the published v0.3.2 release. It does not
+authorize reusing its tag for the unreleased packaging changes above.
 
 The [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) separates baseline
 checks from final-candidate evidence. Synchronize all 12 first-party Cargo
@@ -36,20 +66,8 @@ python tool/release_contract.py verify-version --root . --tag v0.3.2 --android-v
 ```
 
 Review Cargo.lock and the CI invocation separately: the version helper does not
-inspect them. APK version codes use `base build number * 1000 + ABI suffix`,
-with suffixes 0 (universal), 1 (ARMv7), 2 (ARM64), and 4 (x86_64). For base
-build 26, signed APK codes must be 26001 (ARMv7), 26002 (ARM64), 26004
-(x86_64), and 26000 (universal), advancing v0.3.1's 1025/2025/4025/25.
-Both APK build workflows verify the actual manifest versionCode. Every next
-base build advances past all prior ABI codes, including universal builds.
-Switching from a split APK to universal within the same release can still be
-rejected by Android's monotonic version check; do not bypass it or describe
-source arithmetic as a real upgrade.
-
-F-Droid's recipe must use matching `VercodeOperation` entries `%c * 1000 + 1`,
-`%c * 1000 + 2`, and `%c * 1000 + 4`. ABI-first codes are unsuitable for its
-automatic update process: after metadata is sorted by versionCode, copying
-the last three recipes can select different releases of the same ABI.
+inspect them. The v0.3.2 APK code scheme was 1026 (ARMv7), 2026 (ARM64),
+4026 (x86_64), and 26 (universal), advancing v0.3.1's 1025/2025/4025/25.
 
 Configuration advances from v0.3.1's schema 24 to 26. Schema 25 adds the shared
 MASQUE TLS fingerprint; new/missing values and migration from schema 24 default

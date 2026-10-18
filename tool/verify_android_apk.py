@@ -14,6 +14,37 @@ ABI_MACHINES = {"armeabi-v7a": (1, 40), "arm64-v8a": (2, 183), "x86_64": (2, 62)
 REQUIRED_LIBRARIES = {"libapp.so", "libflutter.so", "libusque_android.so"}
 
 
+def verify_no_dependency_info(apk: Path, central_directory: int) -> None:
+    """Reject AGP's opaque dependency block; apksigner checks signatures separately."""
+    if central_directory < 24:
+        return
+    with apk.open("rb") as source:
+        source.seek(central_directory - 24)
+        footer = source.read(24)
+        if footer[8:] != b"APK Sig Block 42":
+            return
+        size = struct.unpack_from("<Q", footer)[0]
+        start = central_directory - size - 8
+        if size < 24 or start < 0:
+            raise ValueError("Invalid APK signing block size")
+        source.seek(start)
+        if source.read(8) != footer[:8]:
+            raise ValueError("APK signing block sizes disagree")
+        position, end, count = start + 8, central_directory - 24, 0
+        while position < end:
+            count += 1
+            if count > 64 or end - position < 12:
+                raise ValueError("Invalid APK signing block entries")
+            source.seek(position)
+            length, block_id = struct.unpack("<QI", source.read(12))
+            if length < 4 or length > end - position - 8:
+                raise ValueError("Invalid APK signing block entry length")
+            # AGP's encrypted dependency information, not a cryptographic signature.
+            if block_id == 0x504B4453:
+                raise ValueError("APK contains DependencyInfoBlock (0x504b4453)")
+            position += 8 + length
+
+
 def verify_elf(data: bytes, abi: str) -> None:
     """Check machine, load alignment and absence of shipped DWARF sections."""
     if len(data) < 64 or data[:4] != b"\x7fELF" or data[5:7] != b"\x01\x01":
@@ -100,6 +131,7 @@ def verify_zip(apk: Path, expected_abis: set[str]) -> None:
             not REQUIRED_LIBRARIES <= names for names in libraries.values()
         ):
             raise ValueError("APK ABI set or required native libraries mismatch")
+        verify_no_dependency_info(apk, package.start_dir)
 
 
 def verify_manifest(text: str, expected_version_code: int) -> None:
