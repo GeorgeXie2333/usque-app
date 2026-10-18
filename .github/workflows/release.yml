@@ -600,6 +600,14 @@ jobs:
             [app-x86_64-release.apk]="x86_64"
             [app-release.apk]="arm64-v8a armeabi-v7a x86_64"
           )
+          base_version_code="$(sed -nE 's/^version: [^+]+\+([0-9]+)\r?$/\1/p' apps/usque_gui/pubspec.yaml)"
+          [[ "$base_version_code" =~ ^[1-9][0-9]*$ ]]
+          declare -A abi_codes=(
+            [app-arm64-v8a-release.apk]=2
+            [app-armeabi-v7a-release.apk]=1
+            [app-x86_64-release.apk]=4
+            [app-release.apk]=0
+          )
           count=0
           for name in "${!expected_abis[@]}"; do
             apk="$source_dir/$name"
@@ -607,6 +615,7 @@ jobs:
             read -r -a package_abis <<< "${expected_abis[$name]}"
             python tool/verify_android_apk.py --apk "$apk" \
               --abis "${package_abis[@]}" \
+              --version-code "$((base_version_code * 1000 + abi_codes[$name]))" \
               --aapt2 "$android_sdk/build-tools/36.0.0/aapt2" \
               --zipalign "$android_sdk/build-tools/36.0.0/zipalign"
             entries="$RUNNER_TEMP/$name.entries"
