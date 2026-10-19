@@ -140,20 +140,34 @@ impl brotli_decompressor::SliceWrapperMut<u8> for BrotliBytes {
 }
 
 #[derive(Default)]
-struct BrotliByteAllocator {
+struct BrotliByteAllocator<const BYTE_BUDGET: usize> {
     allocated: usize,
+    #[cfg(test)]
+    peak_allocated: usize,
+    #[cfg(test)]
+    successful_allocations: usize,
+    #[cfg(test)]
+    rejected_allocation: Option<(usize, usize)>,
 }
 
-impl brotli_decompressor::Allocator<u8> for BrotliByteAllocator {
+const CERTIFICATE_BYTE_BUDGET: usize = 4 * 1024 * 1024 + 64 * 1024;
+
+impl<const BYTE_BUDGET: usize> brotli_decompressor::Allocator<u8>
+    for &mut BrotliByteAllocator<BYTE_BUDGET>
+{
     type AllocatedMemory = BrotliBytes;
 
     fn alloc_cell(&mut self, length: usize) -> Self::AllocatedMemory {
-        // Decompressor 5.0.0 checks every u8 allocation (ring buffer, context
-        // maps and modes) before using it. Its Huffman/u32 allocators do not
-        // uniformly check allocation failure, so do not substitute a failing
-        // allocator for them. Their sizes are bounded by the Brotli grammar.
-        const BYTE_BUDGET: usize = 4 * 1024 * 1024 + 64 * 1024;
+        // Decompressor 6.1.0 checks u8 allocations before using them, including
+        // a new ring allocated before the old one is freed during growth. Count
+        // both live rings against the same budget. This bounds u8 working memory,
+        // not the separate output buffer or grammar-bounded Huffman/u32 storage;
+        // retain StandardAlloc for those other allocation types.
         if length > BYTE_BUDGET.saturating_sub(self.allocated) {
+            #[cfg(test)]
+            {
+                self.rejected_allocation = Some((length, self.allocated));
+            }
             return BrotliBytes::default();
         }
         let mut bytes = Vec::new();
@@ -162,6 +176,11 @@ impl brotli_decompressor::Allocator<u8> for BrotliByteAllocator {
         }
         bytes.resize(length, 0);
         self.allocated += length;
+        #[cfg(test)]
+        {
+            self.peak_allocated = self.peak_allocated.max(self.allocated);
+            self.successful_allocations += 1;
+        }
         BrotliBytes(bytes)
     }
 
@@ -176,49 +195,59 @@ impl CertificateCompressor for BrotliDecoder {
     const CAN_DECOMPRESS: bool = true;
 
     fn decompress<W: Write>(&self, input: &[u8], output: &mut W) -> std::io::Result<()> {
-        use brotli_decompressor::{
-            BrotliDecompressStream, BrotliResult, BrotliState, StandardAlloc,
-        };
-
-        const MAX_CERTIFICATE_BYTES: usize = 1024 * 1024;
-        if input.len() > MAX_CERTIFICATE_BYTES {
-            return Err(std::io::Error::other(
-                "compressed certificate exceeds safety limit",
-            ));
-        }
-        // Reject non-RFC large-window streams and bound actual ring allocation,
-        // even before a peer certificate has passed its public-key pin check.
-        let mut state = BrotliState::new_strict(
-            BrotliByteAllocator::default(),
-            StandardAlloc::default(),
-            StandardAlloc::default(),
-        );
-        let mut decoded = vec![0; MAX_CERTIFICATE_BYTES + 1];
-        let mut available_in = input.len();
-        let mut input_offset = 0;
-        let mut available_out = decoded.len();
-        let mut output_offset = 0;
-        let mut total_out = 0;
-        let result = BrotliDecompressStream(
-            &mut available_in,
-            &mut input_offset,
+        decompress_certificate(
             input,
-            &mut available_out,
-            &mut output_offset,
-            &mut decoded,
-            &mut total_out,
-            &mut state,
-        );
-        if !matches!(result, BrotliResult::ResultSuccess)
-            || input_offset != input.len()
-            || output_offset > MAX_CERTIFICATE_BYTES
-        {
-            return Err(std::io::Error::other(
-                "invalid or oversized compressed certificate",
-            ));
-        }
-        output.write_all(&decoded[..output_offset])
+            output,
+            &mut BrotliByteAllocator::<CERTIFICATE_BYTE_BUDGET>::default(),
+        )
     }
+}
+
+fn decompress_certificate<W: Write, const BYTE_BUDGET: usize>(
+    input: &[u8],
+    output: &mut W,
+    allocator: &mut BrotliByteAllocator<BYTE_BUDGET>,
+) -> std::io::Result<()> {
+    use brotli_decompressor::{BrotliDecompressStream, BrotliResult, BrotliState, StandardAlloc};
+
+    const MAX_CERTIFICATE_BYTES: usize = 1024 * 1024;
+    if input.len() > MAX_CERTIFICATE_BYTES {
+        return Err(std::io::Error::other(
+            "compressed certificate exceeds safety limit",
+        ));
+    }
+    // Reject non-RFC large-window streams and bound actual ring allocation,
+    // even before a peer certificate has passed its public-key pin check.
+    let mut state = BrotliState::new_strict(
+        allocator,
+        StandardAlloc::default(),
+        StandardAlloc::default(),
+    );
+    let mut decoded = vec![0; MAX_CERTIFICATE_BYTES + 1];
+    let mut available_in = input.len();
+    let mut input_offset = 0;
+    let mut available_out = decoded.len();
+    let mut output_offset = 0;
+    let mut total_out = 0;
+    let result = BrotliDecompressStream(
+        &mut available_in,
+        &mut input_offset,
+        input,
+        &mut available_out,
+        &mut output_offset,
+        &mut decoded,
+        &mut total_out,
+        &mut state,
+    );
+    if !matches!(result, BrotliResult::ResultSuccess)
+        || input_offset != input.len()
+        || output_offset > MAX_CERTIFICATE_BYTES
+    {
+        return Err(std::io::Error::other(
+            "invalid or oversized compressed certificate",
+        ));
+    }
+    output.write_all(&decoded[..output_offset])
 }
 
 #[cfg(test)]
