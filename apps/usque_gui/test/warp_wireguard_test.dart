@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:usque/core/chain_strings.dart';
 import 'package:usque/core/l10n/chain.dart';
 import 'package:usque/core/warp_strings.dart';
 import 'package:usque/models/app_models.dart';
@@ -324,8 +325,9 @@ void main() {
       final app = await hostChain(tester, engine);
       await chooseSource(tester, ChainSource.warpWireguard);
       final before = app.activeProfile.chainExit;
+      // With an empty library, generating is the leading action.
       final generate = find.widgetWithText(
-        OutlinedButton,
+        FilledButton,
         'Generate WARP configuration',
       );
       await tester.ensureVisible(generate);
@@ -383,7 +385,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         await tester.enterText(
-          fieldWithLabel('Endpoint IP'),
+          fieldWithLabel(app.strings.chain('endpoint_ip')),
           '2606:4700:d0::99',
         );
         expect(selected, const ChainEndpoint('2606:4700:d0::99', 500));
@@ -398,6 +400,29 @@ void main() {
       }
     },
   );
+  testWidgets('endpoint fields wait for a selected configuration', (
+    tester,
+  ) async {
+    final engine = WarpEngine()..library = [warpProfile];
+    final app = await hostChain(tester, engine);
+    await chooseSource(tester, ChainSource.warpWireguard);
+    final hint = find.text(app.strings.chain('endpoint_select_first'));
+    final ip = find.byKey(const ValueKey('warp-endpoint-ip'));
+    await tester.ensureVisible(hint);
+    await tester.pumpAndSettle();
+    expect(ip, findsNothing);
+    expect(find.text(app.strings.get('reset')), findsNothing);
+    final row = find.text('WARP test');
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    expect(hint, findsNothing);
+    expect(ip, findsOneWidget);
+    // Reset appears only once there is an override to discard.
+    expect(find.text(app.strings.get('reset')), findsNothing);
+    expect(engine.saves, 0);
+  });
   testWidgets('manual endpoint remains a draft and invalid ports block apply', (
     tester,
   ) async {

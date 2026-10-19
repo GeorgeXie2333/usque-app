@@ -10,6 +10,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/chain_proxy_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
+import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/proton_vpn_panel.dart';
 
 import 'chain_proxy_test.dart' show ChainEngine, hostChain;
@@ -383,10 +384,56 @@ void _protonWidgetTest(
   );
 }
 
+/// The action of the labelled button, whichever button style shows it.
+VoidCallback? _action(WidgetTester tester, String label) => tester
+    .widget<ButtonStyleButton>(
+      find
+          .ancestor(
+            of: find.text(label),
+            matching: find.bySubtype<ButtonStyleButton>(),
+          )
+          .first,
+    )
+    .onPressed;
+
+Finder _keyed(String prefix) => find
+    .byWidgetPredicate(
+      (widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key! as ValueKey<String>).value.startsWith(prefix),
+    )
+    .first;
+
+/// Chooses [label] from the first account's action menu.
+Future<void> _accountAction(WidgetTester tester, String label) async {
+  final menu = _keyed('proton-account-menu-');
+  await tester.ensureVisible(menu);
+  await tester.pumpAndSettle();
+  await tester.tap(menu);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
+  await tester.pumpAndSettle();
+}
+
+/// Opens the first account's server chooser from its server row.
+Future<void> _changeServer(WidgetTester tester) async {
+  final row = _keyed('proton-account-server-');
+  await tester.ensureVisible(row);
+  await tester.pumpAndSettle();
+  await tester.tap(row);
+  await tester.pumpAndSettle();
+}
+
 Future<void> _startProtonAuthentication(
   WidgetTester tester,
   String action,
 ) async {
+  // With saved accounts, both ways to add one sit under Add account.
+  final add = find.byKey(const ValueKey('proton-add-account'));
+  if (add.evaluate().isNotEmpty) {
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+  }
   await tester.tap(
     find.text(action == 'guest' ? 'Continue as guest' : 'Sign in to Proton'),
   );
@@ -496,14 +543,7 @@ void main() {
         );
         expect(find.text('Refresh status'), findsNothing);
         expect(find.text(app.strings.proton('failed')), findsOneWidget);
-        expect(
-          tester
-              .widget<OutlinedButton>(
-                find.widgetWithText(OutlinedButton, 'Continue as guest'),
-              )
-              .onPressed,
-          isNotNull,
-        );
+        expect(_action(tester, 'Continue as guest'), isNotNull);
         await tester.pumpWidget(const SizedBox.shrink());
       },
     );
@@ -532,14 +572,7 @@ void main() {
       await _startProtonAuthentication(tester, 'guest');
       await tester.pump();
       for (final label in ['Continue as guest', 'Sign in to Proton']) {
-        expect(
-          tester
-              .widget<OutlinedButton>(
-                find.widgetWithText(OutlinedButton, label),
-              )
-              .onPressed,
-          isNull,
-        );
+        expect(_action(tester, label), isNull);
       }
       acknowledgement.complete();
       await tester.pump();
@@ -596,21 +629,13 @@ void main() {
         find.text(app.strings.proton('result_unconfirmed')),
         findsOneWidget,
       );
+      // With an account saved, adding another sits behind one button.
+      expect(_action(tester, 'Add account'), isNull);
       expect(
         tester
-            .widget<OutlinedButton>(
-              find.widgetWithText(OutlinedButton, 'Sign in to Proton'),
-            )
-            .onPressed,
-        isNull,
-      );
-      expect(
-        tester
-            .widget<TextButton>(
-              find.widgetWithText(TextButton, 'Remove account'),
-            )
-            .onPressed,
-        isNull,
+            .widget<PopupMenuButton<String>>(_keyed('proton-account-menu-'))
+            .enabled,
+        isFalse,
       );
       await tester.pump(const Duration(seconds: 10));
       expect(engine.recoveryReads, 1);
@@ -754,15 +779,7 @@ void main() {
         await _startProtonAuthentication(tester, 'guest');
         await tester.pumpAndSettle();
         final blocked = !const {'missing', 'completed'}.contains(state);
-        expect(
-          tester
-                  .widget<OutlinedButton>(
-                    find.widgetWithText(OutlinedButton, 'Continue as guest'),
-                  )
-                  .onPressed ==
-              null,
-          blocked,
-        );
+        expect(_action(tester, 'Continue as guest') == null, blocked);
         expect(
           find.text('Refresh status'),
           blocked ? findsOneWidget : findsNothing,
@@ -866,10 +883,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final change = find.text(app.strings.proton('change_server'));
-        await tester.ensureVisible(change);
-        await tester.tap(change);
-        await tester.pumpAndSettle();
+        await _changeServer(tester);
         await tester.enterText(find.byType(TextField), 'Server 300');
         await tester.pumpAndSettle();
         await tester.ensureVisible(
@@ -931,9 +945,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Saved configurations'), findsNothing);
         engine.failSave = fail;
-        await tester.ensureVisible(find.text('Remove account'));
-        await tester.tap(find.text('Remove account'));
-        await tester.pumpAndSettle();
+        await _accountAction(tester, 'Remove account');
         await tester.tap(find.text('Forget locally'));
         await tester.pumpAndSettle();
         if (fail) {
@@ -971,9 +983,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.text('Change server'));
-        await tester.tap(find.text('Change server'));
-        await tester.pumpAndSettle();
+        await _changeServer(tester);
         final pages = engine.requests
             .where((r) => r['action'] == 'servers')
             .toList();
@@ -1007,9 +1017,7 @@ void main() {
             find.text('Server preference saved for the next connection.'),
             findsOneWidget,
           );
-          await tester.ensureVisible(find.text('Change server'));
-          await tester.tap(find.text('Change server'));
-          await tester.pumpAndSettle();
+          await _changeServer(tester);
           await tester.tap(find.text('Automatic'));
           await tester.pumpAndSettle();
           expect(engine.requests.last, {
@@ -1050,9 +1058,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       for (var i = 0; i < 2; i++) {
-        await tester.ensureVisible(find.text('Remove account'));
-        await tester.tap(find.text('Remove account'));
-        await tester.pumpAndSettle();
+        await _accountAction(tester, 'Remove account');
         await tester.tap(find.text('Forget locally'));
         await tester.pumpAndSettle();
         expect(engine.requests.where((r) => r['action'] == 'forget').length, i);
@@ -1775,6 +1781,58 @@ void main() {
   );
 
   _protonWidgetTest(
+    'saved accounts keep setup under Add account and show the session state',
+    (tester) async {
+      final engine = ProtonEngine()
+        ..profiles = [
+          {
+            'id': 'proton-profile',
+            'name': 'Saved Proton',
+            'node_name': 'Free server',
+            'server_id': 'logical-1',
+            'server_count': 3,
+          },
+        ];
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(
+                controller: app,
+                onChanged: () {},
+                currentProfileId: 'proton-profile',
+                savedProfileId: 'proton-profile',
+                currentStatus: ('Connection failed', StatusTone.danger),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Proton accounts'), findsOneWidget);
+      expect(find.text('Continue as guest'), findsNothing);
+      // A failed session keeps the saved choice visible beside the failure.
+      expect(find.text('Connection failed'), findsOneWidget);
+      expect(find.text('Saved selection'), findsOneWidget);
+      expect(find.text('Connected account'), findsNothing);
+      expect(find.text('Server: Free server'), findsOneWidget);
+      // The account in use cannot change its server.
+      expect(
+        tester.widget<ListTile>(_keyed('proton-account-server-')).enabled,
+        isFalse,
+      );
+      await tester.tap(find.byKey(const ValueKey('proton-add-account')));
+      await tester.pumpAndSettle();
+      expect(find.text('Continue as guest'), findsOneWidget);
+      expect(find.text('Sign in to Proton'), findsOneWidget);
+      expect(engine.requests.where((r) => r['action'] != 'get'), isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  _protonWidgetTest(
     'local forget requires confirmation and refreshes on completion',
     (tester) async {
       final engine = ProtonEngine()
@@ -1802,8 +1860,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Remove account'));
-      await tester.pumpAndSettle();
+      await _accountAction(tester, 'Remove account');
       expect(
         find.textContaining('Forget locally leaves remote sessions unchanged'),
         findsOneWidget,
@@ -1811,8 +1868,7 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(engine.requests.where((r) => r['action'] == 'forget'), isEmpty);
-      await tester.tap(find.text('Remove account'));
-      await tester.pumpAndSettle();
+      await _accountAction(tester, 'Remove account');
       await tester.tap(find.widgetWithText(TextButton, 'Forget locally'));
       await tester.pumpAndSettle();
       expect(engine.requests.last, {
@@ -1851,14 +1907,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Complete verification'));
         await tester.pump();
-        expect(
-          tester
-              .widget<OutlinedButton>(
-                find.widgetWithText(OutlinedButton, 'Continue as guest'),
-              )
-              .onPressed,
-          isNull,
-        );
+        expect(_action(tester, 'Continue as guest'), isNull);
         if (closeFromEngine) {
           engine.job = {
             'id': 'synthetic-job',
@@ -1872,14 +1921,7 @@ void main() {
         }
         await tester.pump();
         expect(engine.nativeCloses, 1);
-        expect(
-          tester
-              .widget<OutlinedButton>(
-                find.widgetWithText(OutlinedButton, 'Continue as guest'),
-              )
-              .onPressed,
-          isNotNull,
-        );
+        expect(_action(tester, 'Continue as guest'), isNotNull);
         expect(
           engine.requests.where((r) => r['action'] == 'cancel').length,
           closeFromEngine ? 0 : 1,

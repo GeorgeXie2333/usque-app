@@ -391,9 +391,6 @@ const Map<String, String> kChainPt = <String, String>{
       "Ligação via WARP. HTTP transporta TCP; SOCKS5 também pode transportar UDP com H3/H2.",
   "dns_inherit":
       "Deixe vazio para usar o DNS da rede. As consultas usam esta saída.",
-  "proxy_ready": "Pronto · encaminhamento TCP não verificado",
-  "proxy_verified": "Encaminhamento TCP verificado",
-  "udp_unknown": "UDP: não verificado",
   "scope_proxy_only":
       "O Usque encaminha apenas as conexões que os aplicativos enviam a ele. Outras conexões podem revelar seu IP público.",
   "scope_bypass":
@@ -402,9 +399,6 @@ const Map<String, String> kChainPt = <String, String>{
       "A conexão foi interrompida. O dispositivo pode voltar à conexão de rede habitual.",
   "scope_android_settings":
       "Para manter o bloqueio após o serviço parar, ative VPN sempre ativa e Bloquear conexões sem VPN nas configurações do sistema.",
-  "udp_available":
-      "Associação UDP aceita; encaminhamento de ponta a ponta não verificado",
-  "udp_unavailable": "UDP indisponível",
 
   "batch_title": "Importar configurações",
   "batch_counts":
@@ -469,7 +463,6 @@ const Map<String, String> kChainPt = <String, String>{
       'Importe um arquivo .conf ou cole o texto. Uma seção [Interface] e uma [Peer] são aceitas.',
   'import_limits':
       'As configurações devem ser texto UTF-8 de até 128 KiB. Em aparelhos sem seletor de arquivos, cole o texto.',
-  'enable_to_choose': 'Ative o proxy em cadeia para escolher uma configuração.',
   'select_required': 'Selecione uma configuração salva para aplicar.',
   'pending_disable': 'Pendente: desativar o proxy em cadeia',
   'apply_reconnect': 'Aplicar e reconectar',
@@ -549,4 +542,19 @@ const Map<String, String> kChainPt = <String, String>{
   'invalid_key': 'A chave deve ser uma chave Base64 válida de 32 bytes.',
   'checking': 'Verificando a configuração…',
   'changed': 'Alterações salvas',
+  "source_group_custom": "Suas configurações",
+  "source_group_service": "Serviços",
+  "endpoint_ip": "IP do endpoint",
+  "endpoint_select_first":
+      "Selecione uma configuração para alterar o endpoint.",
+  "delete_blocked": "Selecionada ou em uso",
+  "save_select": "Salvar e selecionar",
+  "switch_source": "Mudar para {source}",
+  "empty_proxy": "Adicione um proxy para escolher uma saída.",
+  "tcp_forwarding": "Encaminhamento TCP",
+  "verified": "Verificado",
+  "not_verified": "Não verificado",
+  "unavailable": "Indisponível",
+  "udp_association":
+      "Associação aceita; encaminhamento de ponta a ponta não verificado",
 };

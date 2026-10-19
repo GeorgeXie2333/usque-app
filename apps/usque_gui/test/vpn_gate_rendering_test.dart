@@ -138,6 +138,9 @@ void main() {
       );
       final scrollable = find.byType(Scrollable).first;
       await tester.scrollUntilVisible(first, 250, scrollable: scrollable);
+      // The apply bar appears with the draft; keep the row above it.
+      await tester.ensureVisible(first);
+      await tester.pumpAndSettle();
       await tester.tap(first);
       await tester.pumpAndSettle();
       await tester.ensureVisible(details);

@@ -22,6 +22,7 @@ class ProtonVpnPanel extends StatefulWidget {
     this.selectedProfileId,
     this.savedProfileId,
     this.currentProfileId,
+    this.currentStatus,
     this.onSelectProfile,
     this.beforeRemove,
     this.selectionEnabled = true,
@@ -30,6 +31,10 @@ class ProtonVpnPanel extends StatefulWidget {
   final AppController controller;
   final VoidCallback onChanged;
   final String? selectedProfileId, savedProfileId, currentProfileId;
+
+  /// The running session's label and tone for the current account, so a
+  /// failed connection never reads as connected.
+  final (String, StatusTone)? currentStatus;
   final ValueChanged<String>? onSelectProfile;
   final Future<bool> Function(List<String>)? beforeRemove;
   final bool selectionEnabled;
@@ -446,9 +451,26 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     final related = _related(profile);
     final current = related.contains(widget.currentProfileId);
     final server = profile['node_name'] as String? ?? '';
+    final count = profile['server_count'] as int? ?? 0;
     final waiting = _blocked || _serversLoading;
+    final theme = Theme.of(context);
+    final status = widget.currentStatus;
+    // A connected or connecting session already shows that it uses the saved
+    // choice; a failed one keeps both facts visible.
+    final live =
+        current &&
+        status != null &&
+        (status.$2 == StatusTone.success || status.$2 == StatusTone.brand);
+    final tags = <(String, StatusTone)>[
+      if (current && status != null) status,
+      if (related.contains(widget.savedProfileId) && !live)
+        (p('saved_account'), StatusTone.brand),
+    ];
+    final hint = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ChainExitTile<String>(
           value: id,
@@ -456,85 +478,91 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           selected: related.contains(widget.selectedProfileId),
           enabled: widget.selectionEnabled && !waiting,
           title: Text(profile['name'] as String? ?? p('account')),
-          subtitle: Text(
-            [
-              profile['needs_login'] == true
-                  ? p('session_requires_login')
-                  : p('signed_in'),
-              if (current)
-                p('current_account')
-              else if (related.contains(widget.savedProfileId))
-                p('saved_account'),
-            ].join(' · '),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsetsDirectional.only(start: 16),
-          child: Column(
+          subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${p('selected_server')}: ${profile['server_id'] == null || server.isEmpty ? p('automatic_server') : server}',
+                profile['needs_login'] == true
+                    ? p('session_requires_login')
+                    : p('signed_in'),
               ),
-              Text(
-                '${p('available_servers')}: ${profile['server_count'] ?? 0}',
-                style: Theme.of(context).textTheme.bodySmall,
+              if (tags.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: [
+                      for (final (label, tone) in tags)
+                        InlineStatus(label: label, tone: tone),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          trailing: PopupMenuButton<String>(
+            key: ValueKey('proton-account-menu-$id'),
+            tooltip: p('account_actions'),
+            enabled: !waiting,
+            onSelected: (action) => unawaited(switch (action) {
+              'refresh' => _command({'action': 'refresh', 'profile_id': id}),
+              'login' => _login(profileId: id),
+              _ => _removeAccount(profile),
+            }),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'refresh',
+                enabled: !current,
+                child: Text(p('refresh_servers')),
               ),
+              if (profile['needs_login'] == true)
+                PopupMenuItem(
+                  value: 'login',
+                  enabled: !current,
+                  child: Text(p('needs_login')),
+                ),
+              PopupMenuItem(
+                value: 'remove',
+                enabled: !current,
+                child: Text(p('remove_account')),
+              ),
+            ],
+          ),
+        ),
+        // The server preference reads as one value with its own action,
+        // aligned with the account name above it.
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 40),
+          child: ListTile(
+            key: ValueKey('proton-account-server-$id'),
+            dense: true,
+            contentPadding: const EdgeInsetsDirectional.only(start: 16),
+            title: Text(
+              '${p('selected_server')}: ${profile['server_id'] == null || server.isEmpty ? p('automatic_server') : server}',
+            ),
+            subtitle: Text(
+              count == 0
+                  ? p('load_servers')
+                  : '${p('available_servers')}: $count',
+            ),
+            trailing: const Icon(LucideIcons.chevronRight, size: 18),
+            enabled: !waiting && !current,
+            onTap: () => unawaited(_chooseServer(profile)),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 56),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            spacing: 4,
+            children: [
               if (profile['cleanup_pending'] == true)
-                Text(
-                  p('cleanup_pending'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                InlineStatus(
+                  label: p('cleanup_pending'),
+                  tone: StatusTone.warning,
                 ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: [
-                  TextButton.icon(
-                    onPressed: waiting || current
-                        ? null
-                        : () => unawaited(_chooseServer(profile)),
-                    icon: const Icon(LucideIcons.listFilter, size: 18),
-                    label: Text(
-                      (profile['server_count'] as int? ?? 0) == 0
-                          ? p('load_servers')
-                          : p('change_server'),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: waiting || current
-                        ? null
-                        : () => unawaited(
-                            _command({'action': 'refresh', 'profile_id': id}),
-                          ),
-                    icon: const Icon(LucideIcons.refreshCw, size: 18),
-                    label: Text(p('refresh_servers')),
-                  ),
-                  if (profile['needs_login'] == true)
-                    TextButton(
-                      onPressed: waiting || current
-                          ? null
-                          : () => unawaited(_login(profileId: id)),
-                      child: Text(p('needs_login')),
-                    ),
-                  TextButton.icon(
-                    onPressed: waiting
-                        ? null
-                        : () => unawaited(_removeAccount(profile)),
-                    icon: const Icon(LucideIcons.trash2, size: 18),
-                    label: Text(p('remove_account')),
-                  ),
-                ],
-              ),
-              if (_serverChanged == id)
-                Text(
-                  p('next_connection'),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              if (current)
-                Text(
-                  p('disconnect_to_change'),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+              if (_serverChanged == id) Text(p('next_connection'), style: hint),
+              if (current) Text(p('disconnect_to_change'), style: hint),
             ],
           ),
         ),
@@ -659,184 +687,206 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     final strings = _app.strings;
     final nodes = (_job['nodes'] as List? ?? const [])
         .whereType<Map<Object?, Object?>>();
+    final canAdd = !_blocked && !_serversLoading;
+    void guest() => unawaited(_command({'action': 'guest'}));
+    void login() => unawaited(_login());
     return ContentSection(
-      title: p('title'),
+      title: p('accounts'),
       gap: 12,
-      children: [
-        Text(p('privacy'), style: Theme.of(context).textTheme.bodySmall),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            OutlinedButton(
-              onPressed: _blocked || _serversLoading
-                  ? null
-                  : () => unawaited(_command({'action': 'guest'})),
-              child: Text(p('guest')),
-            ),
-            OutlinedButton(
-              onPressed: _blocked || _serversLoading
-                  ? null
-                  : () => unawaited(_login()),
-              child: Text(p('login')),
-            ),
-            if (_launchUnconfirmed)
-              TextButton(
-                onPressed: _busy
-                    ? null
-                    : () => unawaited(_command({'action': 'get'})),
-                child: Text(strings.get('settings_refresh')),
-              ),
-            if (_running && !_launchUnconfirmed)
-              TextButton(
-                onPressed: _busy || _handoffLoading
-                    ? null
-                    : () => unawaited(_cancel()),
-                child: Text(strings.get('cancel')),
-              ),
-          ],
-        ),
-        if (_busy || _state == 'running' || _verifying)
-          const LinearProgressIndicator(minHeight: 2),
-        if (_launchUnconfirmed) Text(p('result_unconfirmed')),
-        if (_state.isNotEmpty && !_launchUnconfirmed)
-          Semantics(
-            liveRegion: true,
-            child: Text(
-              p(
-                _state == 'running'
-                    ? 'working'
-                    : _state == 'completed' && _job['profile_id'] == null
-                    ? 'removed'
-                    : _displayState,
-              ),
-            ),
-          ),
-        if (_state == 'waiting_totp' && !_launchUnconfirmed)
-          Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        spacing: 12,
+        children: [
+          HintText(p('privacy')),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _totp,
-                  obscureText: true,
-                  maxLength: 6,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: InputDecoration(labelText: p('totp')),
+              // Setup leads while there is no account; afterwards adding
+              // another account is a secondary action under one button.
+              if (_profiles.isEmpty) ...[
+                FilledButton.tonal(
+                  onPressed: canAdd ? guest : null,
+                  child: Text(p('guest')),
                 ),
-              ),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: _busy ? null : _submitTotp,
-                child: Text(p('submit')),
-              ),
+                OutlinedButton(
+                  onPressed: canAdd ? login : null,
+                  child: Text(p('login')),
+                ),
+              ] else
+                MenuAnchor(
+                  menuChildren: [
+                    MenuItemButton(onPressed: guest, child: Text(p('guest'))),
+                    MenuItemButton(onPressed: login, child: Text(p('login'))),
+                  ],
+                  builder: (context, menu, _) => OutlinedButton.icon(
+                    key: const ValueKey('proton-add-account'),
+                    onPressed: canAdd
+                        ? () => menu.isOpen ? menu.close() : menu.open()
+                        : null,
+                    icon: const Icon(LucideIcons.userPlus),
+                    label: Text(p('add_account')),
+                  ),
+                ),
+              if (_launchUnconfirmed)
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => unawaited(_command({'action': 'get'})),
+                  child: Text(strings.get('settings_refresh')),
+                ),
+              if (_running && !_launchUnconfirmed)
+                TextButton(
+                  onPressed: _busy || _handoffLoading
+                      ? null
+                      : () => unawaited(_cancel()),
+                  child: Text(strings.get('cancel')),
+                ),
             ],
           ),
-        if (_state == 'waiting_verification' && !_launchUnconfirmed) ...[
-          Text(p('verification_hint')),
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: FilledButton(
-              onPressed: _busy || _verifying
-                  ? null
-                  : () => unawaited(_verify()),
-              child: Text(p('verify')),
-            ),
-          ),
-        ],
-        if (_state == 'waiting_node' && !_launchUnconfirmed) ...[
-          Text(p('choose_node')),
-          for (final node in nodes)
-            ListTile(
-              title: Text(node['name'] as String? ?? ''),
-              subtitle: Text(
-                [
-                  node['country'],
-                  node['city'],
-                ].whereType<String>().where((v) => v.isNotEmpty).join(' · '),
+          if (_busy || _state == 'running' || _verifying)
+            const LinearProgressIndicator(minHeight: 2),
+          if (_launchUnconfirmed) Text(p('result_unconfirmed')),
+          if (_state.isNotEmpty && !_launchUnconfirmed)
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                p(
+                  _state == 'running'
+                      ? 'working'
+                      : _state == 'completed' && _job['profile_id'] == null
+                      ? 'removed'
+                      : _displayState,
+                ),
               ),
-              onTap: _busy
-                  ? null
-                  : () => unawaited(
-                      _command({
-                        'action': 'select_node',
-                        'job_id': _job['id'],
-                        'node_id': node['id'],
-                      }),
-                    ),
+            ),
+          if (_state == 'waiting_totp' && !_launchUnconfirmed)
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _totp,
+                    obscureText: true,
+                    maxLength: 6,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: InputDecoration(labelText: p('totp')),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: _busy ? null : _submitTotp,
+                  child: Text(p('submit')),
+                ),
+              ],
+            ),
+          if (_state == 'waiting_verification' && !_launchUnconfirmed) ...[
+            Text(p('verification_hint')),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: FilledButton(
+                onPressed: _busy || _verifying
+                    ? null
+                    : () => unawaited(_verify()),
+                child: Text(p('verify')),
+              ),
+            ),
+          ],
+          if (_state == 'waiting_node' && !_launchUnconfirmed) ...[
+            Text(p('choose_node')),
+            for (final node in nodes)
+              ListTile(
+                title: Text(node['name'] as String? ?? ''),
+                subtitle: Text(
+                  [
+                    node['country'],
+                    node['city'],
+                  ].whereType<String>().where((v) => v.isNotEmpty).join(' · '),
+                ),
+                onTap: _busy
+                    ? null
+                    : () => unawaited(
+                        _command({
+                          'action': 'select_node',
+                          'job_id': _job['id'],
+                          'node_id': node['id'],
+                        }),
+                      ),
+              ),
+          ],
+          if (_serversLoading) const LinearProgressIndicator(minHeight: 2),
+          if (_profiles.isEmpty && !_running && !_launchUnconfirmed)
+            Text(p('empty')),
+          if (_profiles.isNotEmpty) ...[
+            RadioGroup<String>(
+              groupValue:
+                  _profiles
+                          .where(
+                            (profile) => _related(
+                              profile,
+                            ).contains(widget.selectedProfileId),
+                          )
+                          .firstOrNull?['id']
+                      as String?,
+              onChanged: (id) {
+                if (id != null) widget.onSelectProfile?.call(id);
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 16,
+                children: _profiles.map(_account).toList(),
+              ),
+            ),
+          ],
+          if (_error != null ||
+              _verificationError != null ||
+              _state == 'failed')
+            WarningBanner(
+              key: const ValueKey('proton-error'),
+              title: null,
+              message:
+                  _error ?? _verificationError ?? _failure(_job['failure']),
+              danger: true,
+            ),
+          if (_state == 'cancelled' && _remoteUnknown)
+            WarningBanner(title: null, message: p('cancelled_remote_unknown')),
+          if (_verificationFailure?.$3 case final String code
+              when _verificationError != null)
+            Text('${p('verification_error')}: $code'),
+          if (_job['phase'] case final String phase
+              when _state == 'failed' &&
+                  const {
+                    'anonymous_session',
+                    'credentialless',
+                    'session_scopes',
+                    'protected_user',
+                    'vpn_permissions',
+                    'session_refresh',
+                    'srp_info',
+                    'srp_proof',
+                    'totp',
+                    'directory',
+                    'certificate',
+                    'secure_storage',
+                    'session_revoke',
+                  }.contains(phase))
+            Text('${p('stage')}: ${p('stage_$phase')}'),
+          if (_state == 'failed' &&
+              (_job['api_code'] is int || _job['http_status'] is int))
+            Text(
+              [
+                if (_job['api_code'] case final int code
+                    when code >= 0 && code <= 999999)
+                  'API $code',
+                if (_job['http_status'] case final int status
+                    when status >= 100 && status <= 599)
+                  'HTTP $status',
+              ].join(' · '),
             ),
         ],
-        if (_serversLoading) const LinearProgressIndicator(minHeight: 2),
-        if (_profiles.isEmpty && !_running && !_launchUnconfirmed)
-          Text(p('empty')),
-        if (_profiles.isNotEmpty) ...[
-          Text(p('accounts'), style: Theme.of(context).textTheme.titleMedium),
-          RadioGroup<String>(
-            groupValue:
-                _profiles
-                        .where(
-                          (profile) => _related(
-                            profile,
-                          ).contains(widget.selectedProfileId),
-                        )
-                        .firstOrNull?['id']
-                    as String?,
-            onChanged: (id) {
-              if (id != null) widget.onSelectProfile?.call(id);
-            },
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              spacing: 16,
-              children: _profiles.map(_account).toList(),
-            ),
-          ),
-        ],
-        if (_error != null || _verificationError != null || _state == 'failed')
-          Text(
-            _error ?? _verificationError ?? _failure(_job['failure']),
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        if (_state == 'cancelled' && _remoteUnknown)
-          Text(
-            p('cancelled_remote_unknown'),
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        if (_verificationFailure?.$3 case final String code
-            when _verificationError != null)
-          Text('${p('verification_error')}: $code'),
-        if (_job['phase'] case final String phase
-            when _state == 'failed' &&
-                const {
-                  'anonymous_session',
-                  'credentialless',
-                  'session_scopes',
-                  'protected_user',
-                  'vpn_permissions',
-                  'session_refresh',
-                  'srp_info',
-                  'srp_proof',
-                  'totp',
-                  'directory',
-                  'certificate',
-                  'secure_storage',
-                  'session_revoke',
-                }.contains(phase))
-          Text('${p('stage')}: ${p('stage_$phase')}'),
-        if (_state == 'failed' &&
-            (_job['api_code'] is int || _job['http_status'] is int))
-          Text(
-            [
-              if (_job['api_code'] case final int code
-                  when code >= 0 && code <= 999999)
-                'API $code',
-              if (_job['http_status'] case final int status
-                  when status >= 100 && status <= 599)
-                'HTTP $status',
-            ].join(' · '),
-          ),
-      ],
+      ),
     );
   }
 }

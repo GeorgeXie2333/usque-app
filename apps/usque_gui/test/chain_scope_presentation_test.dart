@@ -472,7 +472,9 @@ void main() {
           'scope_bypass',
           'scope_interrupted',
           'scope_android_settings',
-          'udp_available',
+          'udp_association',
+          'tcp_forwarding',
+          'not_verified',
         ]) {
           expect(entry.value[key], isNotEmpty, reason: '${entry.key}: $key');
           expect(
@@ -487,12 +489,15 @@ void main() {
             reason: '${entry.key}: $key placeholders',
           );
         }
-        expect(entry.value['udp_available'], isNot(entry.value['udp_unknown']));
+        expect(
+          entry.value['udp_association'],
+          isNot(entry.value['not_verified']),
+        );
       }
-      expect(strings.chain('udp_available'), contains('not verified'));
+      expect(strings.chain('udp_association'), contains('not verified'));
       final chinese = AppStrings(LocalePreference.simplifiedChinese);
       expect(chinese.chain('scope_interrupted'), '连接已中断，设备可能恢复普通网络。');
-      expect(chinese.chain('udp_available'), contains('尚未验证'));
+      expect(chinese.chain('udp_association'), contains('尚未验证'));
     },
   );
 
@@ -556,7 +561,7 @@ void main() {
         );
         expectScope(find.text(strings.chain('scope_proxy_only')));
         if (surface == 'current') {
-          expect(find.text(strings.chain('udp_available')), findsOneWidget);
+          expect(find.text(strings.chain('udp_association')), findsOneWidget);
         }
         expect(tester.takeException(), isNull);
         // The editor observes changes to actual frontend scope. Home keeps
@@ -604,10 +609,9 @@ void main() {
         await tester.pumpAndSettle();
         expectScope(find.textContaining(strings.chain('scope_interrupted')));
         if (surface == 'current') {
-          expect(find.text(strings.chain('proxy_ready')), findsNothing);
-          expect(find.text(strings.chain('proxy_verified')), findsNothing);
-          expect(find.text(strings.chain('udp_available')), findsNothing);
-          expect(find.text(strings.chain('udp_unknown')), findsNothing);
+          expect(find.text(strings.chain('tcp_forwarding')), findsNothing);
+          expect(find.text(strings.chain('udp_association')), findsNothing);
+          expect(find.text(strings.chain('not_verified')), findsNothing);
         }
         expect(tester.takeException(), isNull);
 
@@ -631,9 +635,8 @@ void main() {
         await tester.pumpAndSettle();
         expectScope(find.textContaining(strings.chain('scope_interrupted')));
         if (surface == 'current') {
-          expect(find.text(strings.chain('proxy_ready')), findsNothing);
-          expect(find.text(strings.chain('proxy_verified')), findsNothing);
-          expect(find.text(strings.chain('udp_available')), findsNothing);
+          expect(find.text(strings.chain('tcp_forwarding')), findsNothing);
+          expect(find.text(strings.chain('udp_association')), findsNothing);
         }
         expect(tester.takeException(), isNull);
 

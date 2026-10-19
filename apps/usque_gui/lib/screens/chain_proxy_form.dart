@@ -32,7 +32,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
     super.dispose();
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool select = false}) async {
     if (_busy) return;
     final s = widget.controller.strings;
     final port = int.tryParse(_port.text.trim());
@@ -68,7 +68,12 @@ class _ProxyDialogState extends State<_ProxyDialog> {
       if (result.error != null) {
         setState(() => _error = s.chainError(result.error!));
       } else {
-        Navigator.pop(context, true);
+        Navigator.pop<_ImportOutcome>(context, (
+          saved: result.preview,
+          select: select,
+          switchTo: null,
+          carried: null,
+        ));
       }
     } catch (_) {
       if (mounted) setState(() => _error = s.chain('secure_storage_failed'));
@@ -83,7 +88,9 @@ class _ProxyDialogState extends State<_ProxyDialog> {
     return PopScope(
       canPop: !_busy,
       child: UsqueDialog(
-        icon: LucideIcons.network,
+        icon: widget.source == ChainSource.socks5Proxy
+            ? LucideIcons.cable
+            : LucideIcons.server,
         title: s.chain('add_proxy'),
         subtitle: widget.source.label,
         content: Column(
@@ -202,9 +209,11 @@ class _ProxyDialogState extends State<_ProxyDialog> {
               ],
             ),
             if (_error != null)
-              Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              WarningBanner(
+                key: const ValueKey('chain-proxy-error'),
+                title: s.get('error_generic'),
+                message: _error!,
+                danger: true,
               ),
             if (_busy) const LinearProgressIndicator(),
           ],
@@ -214,10 +223,15 @@ class _ProxyDialogState extends State<_ProxyDialog> {
             onPressed: _busy ? null : () => Navigator.pop(context),
             child: Text(s.chain('cancel')),
           ),
-          FilledButton(
+          OutlinedButton(
             key: const ValueKey('chain-proxy-save'),
             onPressed: _busy ? null : _save,
             child: Text(s.chain('save_import')),
+          ),
+          FilledButton(
+            key: const ValueKey('chain-proxy-save-select'),
+            onPressed: _busy ? null : () => _save(select: true),
+            child: Text(s.chain('save_select')),
           ),
         ],
       ),

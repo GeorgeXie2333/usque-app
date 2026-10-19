@@ -333,16 +333,11 @@ const Map<String, String> kChainKo = <String, String>{
   "add_proxy": "프록시 추가",
   "proxy_hint": "WARP를 통해 연결합니다. HTTP는 TCP를, SOCKS5는 H3/H2에서 UDP도 지원합니다.",
   "dns_inherit": "비워 두면 네트워크 DNS를 사용하며 쿼리는 이 출구를 통과합니다.",
-  "proxy_ready": "준비됨 · TCP 전달 미검증",
-  "proxy_verified": "TCP 전달 검증됨",
-  "udp_unknown": "UDP: 미검증",
   "scope_proxy_only": "Usque는 앱이 전달한 연결만 프록시합니다. 다른 연결은 기기의 공인 IP를 노출할 수 있습니다.",
   "scope_bypass": "설정한 직접 연결 및 앱별 규칙은 계속 적용됩니다.",
   "scope_interrupted": "연결이 끊어졌습니다. 기기가 일반 네트워크 연결로 돌아갈 수 있습니다.",
   "scope_android_settings":
       "서비스가 중지된 후에도 차단하려면 시스템 설정에서 VPN 항상 켜기와 VPN 없는 연결 차단을 켜세요.",
-  "udp_available": "UDP 연결 요청 수락됨, 종단 간 전달은 확인되지 않음",
-  "udp_unavailable": "UDP 사용 불가",
 
   "batch_title": "설정 일괄 가져오기",
   "batch_counts":
@@ -400,7 +395,6 @@ const Map<String, String> kChainKo = <String, String>{
       '.conf 파일을 가져오거나 텍스트를 붙여넣으세요. [Interface]와 [Peer]를 각각 하나씩 지원합니다.',
   'import_limits':
       '구성은 128 KiB 이하의 UTF-8 텍스트여야 합니다. 파일 선택기가 없는 기기에서는 텍스트를 붙여넣으세요.',
-  'enable_to_choose': '체인 프록시를 켜야 구성을 선택할 수 있습니다.',
   'select_required': '적용하기 전에 저장된 구성을 하나 선택하세요.',
   'pending_disable': '적용 대기: 체인 프록시 끄기',
   'apply_reconnect': '적용하고 다시 연결',
@@ -467,4 +461,17 @@ const Map<String, String> kChainKo = <String, String>{
   'invalid_key': '키는 유효한 32바이트 Base64 키여야 합니다.',
   'checking': '구성을 확인하는 중…',
   'changed': '변경 사항을 저장했습니다',
+  "source_group_custom": "내 구성",
+  "source_group_service": "서비스",
+  "endpoint_ip": "엔드포인트 IP",
+  "endpoint_select_first": "구성을 선택하면 엔드포인트를 변경할 수 있습니다.",
+  "delete_blocked": "선택됨 또는 사용 중",
+  "save_select": "저장 후 선택",
+  "switch_source": "{source}(으)로 전환",
+  "empty_proxy": "프록시를 추가하면 출구를 선택할 수 있습니다.",
+  "tcp_forwarding": "TCP 전달",
+  "verified": "검증됨",
+  "not_verified": "미검증",
+  "unavailable": "사용 불가",
+  "udp_association": "연결 요청 수락됨, 종단 간 전달은 확인되지 않음",
 };

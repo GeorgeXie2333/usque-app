@@ -35,6 +35,7 @@ flutter:
     - assets/icons/openvpn.svg
     - assets/icons/wireguard.svg
     - assets/icons/warp-wireguard.svg
+    - assets/icons/proton-vpn.svg
     - assets/licenses/flagpedia.txt
     - assets/flags/w80/
   fonts:

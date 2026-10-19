@@ -13,6 +13,25 @@ import 'common.dart';
 import 'controller_selector.dart';
 import 'vpn_gate_summary.dart';
 
+/// The chain string key and tone that mark the configuration the running
+/// session uses, or null when no session holds one. A failed session never
+/// reads as connected.
+(String, StatusTone)? chainCurrentMarker(EngineSnapshot snapshot) {
+  final chain = snapshot.chainExit;
+  if (chain.currentProfile == null) return null;
+  if (chain.stage == 'error' || snapshot.phase == ConnectionPhase.error) {
+    return ('error', StatusTone.danger);
+  }
+  if (snapshot.phase == ConnectionPhase.disconnecting) {
+    return ('disconnecting', StatusTone.neutral);
+  }
+  if (chain.stage == 'connected' && snapshot.isConnected) {
+    return ('current', StatusTone.success);
+  }
+  if (snapshot.isTransitional) return ('connecting', StatusTone.brand);
+  return null;
+}
+
 /// Runtime state of the chain, independent of the draft being edited.
 class ChainCurrentConnection extends StatelessWidget {
   const ChainCurrentConnection({
@@ -117,6 +136,21 @@ class ChainCurrentConnection extends StatelessWidget {
       return label == strings.chain('invalid_configuration') ? value : label;
     }
 
+    // Label/value pairs stay within reading distance on wide pages instead
+    // of pushing the value to the far edge of the form column.
+    Widget fact(String label, Widget value) => Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: ReadoutRow(label: label, stackWhenNarrow: true, value: value),
+      ),
+    );
+    Widget plain(String value) => Text(
+      value,
+      textAlign: TextAlign.end,
+      style: theme.textTheme.bodyMedium,
+    );
+
     return ContentSection(
       key: const ValueKey('chain-current-connection'),
       title: strings.chain('current'),
@@ -166,12 +200,24 @@ class ChainCurrentConnection extends StatelessWidget {
           if (current?.source.isProxy == true &&
               chain.stage == 'connected' &&
               snapshot.isConnected) ...[
-            Text(
-              strings.chain(
-                chain.tcpConnectVerified ? 'proxy_verified' : 'proxy_ready',
+            fact(
+              strings.chain('tcp_forwarding'),
+              plain(
+                strings.chain(
+                  chain.tcpConnectVerified ? 'verified' : 'not_verified',
+                ),
               ),
             ),
-            Text(strings.chain('udp_${chain.proxyUdp ?? 'unknown'}')),
+            fact(
+              'UDP',
+              plain(
+                strings.chain(switch (chain.proxyUdp) {
+                  'available' => 'udp_association',
+                  'unavailable' => 'unavailable',
+                  _ => 'not_verified',
+                }),
+              ),
+            ),
           ],
           if (!scope.isEmpty)
             Text(
@@ -182,20 +228,15 @@ class ChainCurrentConnection extends StatelessWidget {
               ),
             ),
           if (chain.attemptingEndpoint case final endpoint?)
-            ReadoutRow(
-              label: strings.chain('attempting'),
-              stackWhenNarrow: true,
-              value: MonoValue(
+            fact(
+              strings.chain('attempting'),
+              MonoValue(
                 value:
                     '${endpoint.label} (${chain.attemptCount}/${chain.candidateCount})',
               ),
             ),
           if (chain.activeEndpoint case final endpoint?)
-            ReadoutRow(
-              label: strings.chain('actual_endpoint'),
-              stackWhenNarrow: true,
-              value: MonoValue(value: endpoint),
-            ),
+            fact(strings.chain('actual_endpoint'), MonoValue(value: endpoint)),
           if (chain.attemptFailures.isNotEmpty)
             Text(
               '${strings.chain('attempt_failures')}: ${chain.attemptFailures.map(reason).join(', ')}',

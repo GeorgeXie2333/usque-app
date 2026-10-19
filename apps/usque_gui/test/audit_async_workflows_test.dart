@@ -116,7 +116,7 @@ void main() {
       find.byKey(const ValueKey('vpn-gate-refresh')),
     );
     tester
-        .widget<OutlinedButton>(find.byKey(const ValueKey('vpn-gate-refresh')))
+        .widget<TextButton>(find.byKey(const ValueKey('vpn-gate-refresh')))
         .onPressed!();
     await tester.pump();
     expect(engine.refreshes, 1);
@@ -151,9 +151,7 @@ void main() {
         find.byKey(const ValueKey('vpn-gate-refresh')),
       );
       tester
-          .widget<OutlinedButton>(
-            find.byKey(const ValueKey('vpn-gate-refresh')),
-          )
+          .widget<TextButton>(find.byKey(const ValueKey('vpn-gate-refresh')))
           .onPressed!();
       await tester.pump();
       await tester.pumpWidget(const SizedBox());

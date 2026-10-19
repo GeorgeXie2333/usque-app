@@ -396,9 +396,6 @@ const Map<String, String> kChainNl = <String, String>{
       "Verbinding via WARP. HTTP ondersteunt TCP; SOCKS5 kan met H3/H2 ook UDP gebruiken.",
   "dns_inherit":
       "Laat leeg om netwerk-DNS te gebruiken. Vragen gaan via deze uitgang.",
-  "proxy_ready": "Gereed · TCP-doorgifte niet geverifieerd",
-  "proxy_verified": "TCP-doorgifte geverifieerd",
-  "udp_unknown": "UDP: niet geverifieerd",
   "scope_proxy_only":
       "Usque stuurt alleen verbindingen door die apps ernaartoe sturen. Andere verbindingen kunnen uw openbare IP-adres onthullen.",
   "scope_bypass":
@@ -407,9 +404,6 @@ const Map<String, String> kChainNl = <String, String>{
       "De verbinding is verbroken. Uw apparaat kan terugkeren naar de gewone netwerkverbinding.",
   "scope_android_settings":
       "Om na het stoppen van de dienst te blijven blokkeren, schakelt u Altijd-aan-VPN en Verbindingen zonder VPN blokkeren in de systeeminstellingen in.",
-  "udp_available":
-      "UDP-associatie geaccepteerd; doorsturen van eind tot eind niet geverifieerd",
-  "udp_unavailable": "UDP niet beschikbaar",
 
   "batch_title": "Configuraties importeren",
   "batch_counts":
@@ -474,7 +468,6 @@ const Map<String, String> kChainNl = <String, String>{
       'Importeer een .conf-bestand of plak de tekst. Eén sectie [Interface] en één sectie [Peer] worden ondersteund.',
   'import_limits':
       'Configuraties moeten UTF-8-tekst van maximaal 128 KiB zijn. Zonder bestandskeuze kunt u de tekst plakken.',
-  'enable_to_choose': 'Schakel de ketenproxy in om een configuratie te kiezen.',
   'select_required': 'Selecteer een opgeslagen configuratie om toe te passen.',
   'pending_disable': 'In afwachting: ketenproxy uitschakelen',
   'apply_reconnect': 'Toepassen en opnieuw verbinden',
@@ -557,4 +550,19 @@ const Map<String, String> kChainNl = <String, String>{
       'De sleutel moet een geldige Base64-sleutel van 32 bytes zijn.',
   'checking': 'Configuratie wordt gecontroleerd…',
   'changed': 'Wijzigingen opgeslagen',
+  "source_group_custom": "Uw configuraties",
+  "source_group_service": "Diensten",
+  "endpoint_ip": "Eindpunt-IP",
+  "endpoint_select_first":
+      "Selecteer een configuratie om het eindpunt te wijzigen.",
+  "delete_blocked": "Geselecteerd of in gebruik",
+  "save_select": "Opslaan en selecteren",
+  "switch_source": "Overschakelen naar {source}",
+  "empty_proxy": "Voeg een proxy toe om een uitgang te kiezen.",
+  "tcp_forwarding": "TCP-doorgifte",
+  "verified": "Geverifieerd",
+  "not_verified": "Niet geverifieerd",
+  "unavailable": "Niet beschikbaar",
+  "udp_association":
+      "Associatie geaccepteerd; end-to-end-doorgifte niet geverifieerd",
 };

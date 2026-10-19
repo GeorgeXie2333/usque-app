@@ -24,8 +24,9 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
 
 1. Open the Proton source in an Engine with Proton support. Account setup does
    not require a WARP identity or an active WARP connection.
-2. Choose **Continue as guest** or **Sign in to Proton**. Guest setup and account
-   sign-in are separate flows; a guest rejection does not establish that account
+2. Choose **Continue as guest** or **Sign in to Proton** under **Proton
+   accounts**. Once an account is saved, both are under **Add account**. Guest
+   setup and account sign-in are separate flows; a guest rejection does not establish that account
    sign-in also fails. For sign-in, enter your Proton username and password in
    the application dialog. Passwords are used for authentication and are not
    saved. This implementation accepts Proton SRP v4 and passwords of 1–72 UTF-8
@@ -46,24 +47,26 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
    server list. It does not issue a connection certificate yet. Repeating sign-in
    to the same Proton user updates the existing account. Legacy duplicates appear
    as one account, rather than several copies of the same server.
-6. Under the account, use **Change server** to search by server name, country
+6. Select the **Server** row under the account to search by server name, country
    code or city. **Automatic** chooses an available server when connecting.
-   **Refresh list** updates the catalogue. Each logical server appears once;
-   its multiple physical entrances do not create duplicate rows. The list includes
-   available, compatible WireGuard UDP servers within the account's authorized
-   tier, without the former 200-candidate truncation.
+   **Refresh list** in the account's menu updates the catalogue. Each logical
+   server appears once; its multiple physical entrances do not create duplicate
+   rows. The list includes available, compatible WireGuard UDP servers within
+   the account's authorized tier, without the former 200-candidate truncation.
 7. To connect, select a configured WARP account and a MASQUE mode that supports
-   the WireGuard UDP exit; L4 TCP proxy mode cannot provide this exit. Enable
-   chain proxy, select the Proton account and use **Apply changes** or **Apply
-   and reconnect**. At connection time Usque checks the session, retrieves a fresh
-   directory and resolves the selected logical server's current entrance, peer key
-   and agent hostname. It obtains a session certificate only when missing or due,
-   reusing a valid certificate bound to the saved local key. An unavailable manual
-   choice reports an error; choose another server or Automatic. WireGuard must
-   still complete local-agent authorization before business traffic is admitted.
+   the WireGuard UDP exit; L4 TCP proxy mode cannot provide this exit. Select the
+   Proton account, which also turns on chain proxy in the draft, and use **Apply
+   changes** or **Apply and reconnect**. At connection time Usque checks the
+   session, retrieves a fresh directory and resolves the selected logical
+   server's current entrance, peer key and agent hostname. It obtains a session
+   certificate only when missing or due, reusing a valid certificate bound to the
+   saved local key. An unavailable manual choice reports an error; choose another
+   server or Automatic. WireGuard must still complete local-agent authorization
+   before business traffic is admitted.
 
 准备 Proton 账号不要求 WARP 身份或已连接的 WARP。
-选择“以游客身份继续”或“登录 Proton”，按提示输入密码、六位身份验证器验证码，
+在“Proton 账号”下选择“以游客身份继续”或“登录 Proton”（已有账号后两者位于
+“添加账号”中），按提示输入密码、六位身份验证器验证码，
 由本人完成官方窗口的拼图。Android 自动打开验证窗口，桌面点击“完成人机验证”。
 取消或 Android 返回键会终止任务；窗口失败单独显示错误。挑战绑定本次任务、会话
 和当前挑战，最多五分钟、使用一次。12087 表示验证结果被拒，应用清除该结果，
@@ -71,11 +74,11 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
 
 准备成功只保存账号、本地密钥和完整可用逻辑节点列表，不提前申请连接证书。
 相同 Proton 用户再次登录会更新已有账号；旧版本重复记录合并显示。
-在账号下点击“更换节点”，可按名称、国家代码或城市搜索，或选择“自动”；
-“刷新列表”更新目录。账号权限内、兼容且在线的 WireGuard UDP 逻辑节点完整保留，
+点击账号下的“节点”行，可按名称、国家代码或城市搜索，或选择“自动”；
+账号菜单中的“刷新列表”更新目录。账号权限内、兼容且在线的 WireGuard UDP 逻辑节点完整保留，
 不再截断为 200 个候选，也不把同一节点的多个入口显示成多行。
 实际连接仍需配置 WARP 账号及支持 UDP 出口的 MASQUE 模式，L4 不支持此出口。
-启用链式代理、选择账号并应用后，连接时重新解析节点入口、公钥和 agent hostname，
+选择账号（同时在草稿中启用链式代理）并应用后，连接时重新解析节点入口、公钥和 agent hostname，
 检查会话并按需申请证书，有效证书继续复用同一密钥。手动节点不可用会明确报错。
 目录可见、账号已保存或 WireGuard 已握手，都不等于最终授权完成。
 
@@ -161,8 +164,11 @@ profile，也不保证进程死亡后已清理。Android 不因触碰弹窗外�
 
 ## Refresh, cancel and remove / 续期、取消与移除
 
-Use **Refresh list** to update available servers. Disconnect before changing a
-server on the account used by the running exit. The server preference takes effect
+Use **Refresh list** in the account's menu to update available servers.
+Disconnect before changing a server on the account used by the running exit;
+its server row and menu actions stay disabled until then. The account row shows
+the running session's state, and a failed connection is never shown as
+connected. The server preference takes effect
 on the next connection; selecting a server does not independently reconnect.
 
 If the reply starting guest setup or sign-in is lost, Usque checks the current
@@ -193,7 +199,8 @@ A temporary scheduled-refresh failure retains a still-valid certificate and
 retries after 30 seconds, backing off to at most five minutes. Certificate expiry,
 unknown token rotation and loss of agent authorization still block traffic.
 
-Use **Remove account** and choose **Sign out and remove** to revoke sessions
+Choose **Remove account** from the account's menu, then **Sign out and remove**
+to revoke sessions
 owned by this app, then remove the local account and its legacy duplicate
 profiles. **Forget locally** removes only the local records without contacting
 Proton or promising remote revocation. It needs no WARP connection. The dialog
@@ -203,7 +210,9 @@ visible and retains the local handles for an explicit retry or local removal.
 Canceling unfinished setup also attempts to clean up its known sessions. These
 actions do not sign out other devices' Proton sessions.
 
-“刷新列表”更新节点目录。正在使用的账号需先断开，再更换节点；偏好在下次连接
+账号菜单中的“刷新列表”更新节点目录。正在使用的账号需先断开，再更换节点，
+在此之前节点行和菜单操作不可用；账号行显示运行中会话的状态，连接失败不会显示
+为已连接。偏好在下次连接
 时生效，选节点本身不会单独触发重连。
 
 游客设置或登录的启动回复丢失时，Usque 会查询一次当前任务，不重复提交登录请求。
@@ -224,7 +233,7 @@ actions do not sign out other devices' Proton sessions.
 尚未过期的证书，30 秒后重试并逐步退避至最多五分钟；证书过期、令牌轮换结果
 未知或 agent 不再授权时仍会阻断流量。
 
-点击“移除账号”，选择“退出并移除”会先尝试撤销本应用拥有的会话，再删除本机
+在账号菜单中点击“移除账号”，选择“退出并移除”会先尝试撤销本应用拥有的会话，再删除本机
 记录及旧版本重复配置。“仅本机遗忘”只删除本机记录，无需 WARP，**不撤销远端
 会话**。移除前会清除已保存的链式选择；保存失败即停止删除。正在连接的账号必须
 先断开。撤销失败会保留本机记录并明确提示，供重试或选择仅本机遗忘。

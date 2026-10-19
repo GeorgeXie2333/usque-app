@@ -368,9 +368,6 @@ const Map<String, String> kChainTr = <String, String>{
       "WARP üzerinden bağlanır. HTTP TCP taşır; SOCKS5 H3/H2 ile UDP de taşıyabilir.",
   "dns_inherit":
       "Ağ DNS ayarını kullanmak için boş bırakın. Sorgular bu çıkıştan gider.",
-  "proxy_ready": "Hazır · TCP iletimi doğrulanmadı",
-  "proxy_verified": "TCP iletimi doğrulandı",
-  "udp_unknown": "UDP: doğrulanmadı",
   "scope_proxy_only":
       "Usque yalnızca uygulamaların kendisine gönderdiği bağlantılara aracılık eder. Diğer bağlantılar genel IP adresinizi açığa çıkarabilir.",
   "scope_bypass":
@@ -379,9 +376,6 @@ const Map<String, String> kChainTr = <String, String>{
       "Bağlantı kesildi. Cihazınız normal ağ bağlantısına dönebilir.",
   "scope_android_settings":
       "Hizmet durduktan sonra engellemeyi sürdürmek için sistem ayarlarında Her zaman açık VPN ve VPN olmayan bağlantıları engelle seçeneklerini açın.",
-  "udp_available":
-      "UDP ilişkilendirmesi kabul edildi; uçtan uca iletim doğrulanmadı",
-  "udp_unavailable": "UDP kullanılamıyor",
 
   "batch_title": "Yapılandırmaları içe aktar",
   "batch_counts":
@@ -444,7 +438,6 @@ const Map<String, String> kChainTr = <String, String>{
       'Bir .conf dosyası içe aktarın veya metnini yapıştırın. Bir [Interface] ve bir [Peer] bölümü desteklenir.',
   'import_limits':
       'Yapılandırmalar en fazla 128 KiB UTF-8 metin olmalıdır. Dosya seçici yoksa metni yapıştırın.',
-  'enable_to_choose': 'Yapılandırma seçmek için zincir proxy’yi açın.',
   'select_required': 'Uygulamadan önce kayıtlı bir yapılandırma seçin.',
   'pending_disable': 'Bekliyor: zincir proxy’yi kapat',
   'apply_reconnect': 'Uygula ve yeniden bağlan',
@@ -521,4 +514,19 @@ const Map<String, String> kChainTr = <String, String>{
   'invalid_key': 'Anahtar, geçerli 32 baytlık bir Base64 anahtarı olmalıdır.',
   'checking': 'Yapılandırma denetleniyor…',
   'changed': 'Değişiklikler kaydedildi',
+  "source_group_custom": "Kendi yapılandırmalarınız",
+  "source_group_service": "Hizmetler",
+  "endpoint_ip": "Uç nokta IP'si",
+  "endpoint_select_first":
+      "Uç noktasını değiştirmek için bir yapılandırma seçin.",
+  "delete_blocked": "Seçili veya kullanımda",
+  "save_select": "Kaydet ve seç",
+  "switch_source": "{source} kaynağına geç",
+  "empty_proxy": "Çıkış seçmek için bir proxy ekleyin.",
+  "tcp_forwarding": "TCP iletimi",
+  "verified": "Doğrulandı",
+  "not_verified": "Doğrulanmadı",
+  "unavailable": "Kullanılamıyor",
+  "udp_association":
+      "İlişkilendirme kabul edildi; uçtan uca iletim doğrulanmadı",
 };

@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 
 /// Source editors supply their draft controls and body to the chain page.
 /// The page owns the common heading, switch, runtime state and scroll frame.
+/// A null [bottomBar] means there is nothing to apply or report.
 typedef ChainPageBuilder =
     Widget Function({
       required bool enabled,
       required ValueChanged<bool>? onEnabledChanged,
-      required Widget bottomBar,
+      required Widget? bottomBar,
       required List<Widget> slivers,
       Widget? warning,
     });

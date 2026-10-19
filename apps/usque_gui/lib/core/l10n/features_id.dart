@@ -373,9 +373,6 @@ const Map<String, String> kChainId = <String, String>{
       "Terhubung melalui WARP. HTTP membawa TCP; SOCKS5 juga dapat membawa UDP dengan H3/H2.",
   "dns_inherit":
       "Kosongkan untuk memakai DNS jaringan. Kueri melalui jalur keluar ini.",
-  "proxy_ready": "Siap · penerusan TCP belum diverifikasi",
-  "proxy_verified": "Penerusan TCP terverifikasi",
-  "udp_unknown": "UDP: belum diverifikasi",
   "scope_proxy_only":
       "Usque hanya memproksikan koneksi yang dikirim aplikasi kepadanya. Koneksi lain dapat mengungkap alamat IP publik Anda.",
   "scope_bypass":
@@ -384,9 +381,6 @@ const Map<String, String> kChainId = <String, String>{
       "Koneksi terputus. Perangkat Anda mungkin kembali ke koneksi jaringan biasa.",
   "scope_android_settings":
       "Untuk tetap memblokir setelah layanan berhenti, aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN di setelan sistem.",
-  "udp_available":
-      "Asosiasi UDP diterima; penerusan ujung ke ujung belum diverifikasi",
-  "udp_unavailable": "UDP tidak tersedia",
 
   "batch_title": "Impor konfigurasi",
   "batch_counts":
@@ -451,7 +445,6 @@ const Map<String, String> kChainId = <String, String>{
       'Impor berkas .conf atau tempel teksnya. Satu bagian [Interface] dan satu [Peer] didukung.',
   'import_limits':
       'Konfigurasi harus berupa teks UTF-8 hingga 128 KiB. Jika pemilih berkas tidak ada, tempel teksnya.',
-  'enable_to_choose': 'Aktifkan proksi berantai untuk memilih konfigurasi.',
   'select_required': 'Pilih konfigurasi tersimpan sebelum menerapkan.',
   'pending_disable': 'Menunggu: nonaktifkan proksi berantai',
   'apply_reconnect': 'Terapkan dan hubungkan ulang',
@@ -530,4 +523,18 @@ const Map<String, String> kChainId = <String, String>{
       'Kunci harus berupa kunci Base64 yang valid sepanjang 32 byte.',
   'checking': 'Memeriksa konfigurasi…',
   'changed': 'Perubahan disimpan',
+  "source_group_custom": "Konfigurasi Anda",
+  "source_group_service": "Layanan",
+  "endpoint_ip": "IP endpoint",
+  "endpoint_select_first": "Pilih konfigurasi untuk mengubah endpoint-nya.",
+  "delete_blocked": "Dipilih atau sedang digunakan",
+  "save_select": "Simpan dan pilih",
+  "switch_source": "Beralih ke {source}",
+  "empty_proxy": "Tambahkan proksi untuk memilih jalur keluar.",
+  "tcp_forwarding": "Penerusan TCP",
+  "verified": "Terverifikasi",
+  "not_verified": "Belum diverifikasi",
+  "unavailable": "Tidak tersedia",
+  "udp_association":
+      "Asosiasi diterima; penerusan ujung ke ujung belum diverifikasi",
 };

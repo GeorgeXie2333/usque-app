@@ -115,7 +115,7 @@ void main() {
       expect(app.activeProfile.vpnGate.hasSelection, isFalse);
       expect(engine.nodeRequests, isEmpty);
       expect(engine.saves, 0);
-      // Collapse with the keyboard without selecting the disabled node.
+      // Collapse with the keyboard without selecting the node.
       Focus.of(tester.element(find.text('Details'))).requestFocus();
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -126,7 +126,7 @@ void main() {
             .widget<RadioListTile<(String, String)>>(
               find.byKey(const ValueKey('vpn-gate-node-observed')),
             )
-            .enabled,
+            .selected,
         isFalse,
       );
       await tester.ensureVisible(find.byKey(const ValueKey('vpn-gate-toggle')));

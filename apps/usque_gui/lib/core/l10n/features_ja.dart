@@ -331,17 +331,12 @@ const Map<String, String> kChainJa = <String, String>{
   "add_proxy": "プロキシを追加",
   "proxy_hint": "WARP 経由で接続します。HTTP は TCP、SOCKS5 は H3/H2 で UDP にも対応します。",
   "dns_inherit": "空欄の場合はネットワーク DNS を継承し、この出口経由で問い合わせます。",
-  "proxy_ready": "準備完了 · TCP 転送は未検証",
-  "proxy_verified": "TCP 転送を検証済み",
-  "udp_unknown": "UDP：未検証",
   "scope_proxy_only":
       "Usque はアプリから渡された接続のみをプロキシします。それ以外の接続では端末のパブリック IP が公開される場合があります。",
   "scope_bypass": "設定済みの直接接続ルールとアプリ別ルールは引き続き適用されます。",
   "scope_interrupted": "接続が中断されました。端末が通常のネットワーク接続に戻る場合があります。",
   "scope_android_settings":
       "サービス停止後もブロックを続けるには、システム設定で「常時接続 VPN」と「VPN なしの接続をブロック」を有効にしてください。",
-  "udp_available": "UDP アソシエーションは受理済み、エンドツーエンドの転送は未確認",
-  "udp_unavailable": "UDP は利用不可",
 
   "batch_title": "設定を一括インポート",
   "batch_counts": "有効：{ready} · 要入力：{pending} · 失敗：{failed} · 保存済み：{saved}",
@@ -398,7 +393,6 @@ const Map<String, String> kChainJa = <String, String>{
       '.conf ファイルを読み込むか、内容を貼り付けてください。[Interface] と [Peer] をそれぞれ一つずつ指定できます。',
   'import_limits':
       '設定は 128 KiB 以下の UTF-8 テキストにしてください。ファイル選択ができない端末では、テキストを貼り付けてください。',
-  'enable_to_choose': 'チェーンプロキシを有効にすると設定を選べます。',
   'select_required': '適用する前に、保存した設定を一つ選んでください。',
   'pending_disable': '適用待ち: チェーンプロキシを無効にする',
   'apply_reconnect': '適用して再接続',
@@ -465,4 +459,17 @@ const Map<String, String> kChainJa = <String, String>{
   'invalid_key': '鍵は有効な 32 バイトの Base64 鍵である必要があります。',
   'checking': '設定を確認しています…',
   'changed': '変更を保存しました',
+  "source_group_custom": "自分の設定",
+  "source_group_service": "サービス",
+  "endpoint_ip": "エンドポイント IP",
+  "endpoint_select_first": "設定を選択するとエンドポイントを変更できます。",
+  "delete_blocked": "選択中または使用中",
+  "save_select": "保存して選択",
+  "switch_source": "{source} に切り替え",
+  "empty_proxy": "プロキシを追加すると出口を選択できます。",
+  "tcp_forwarding": "TCP 転送",
+  "verified": "検証済み",
+  "not_verified": "未検証",
+  "unavailable": "利用不可",
+  "udp_association": "アソシエーションは受理済み、エンドツーエンドの転送は未確認",
 };

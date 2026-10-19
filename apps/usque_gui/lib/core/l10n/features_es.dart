@@ -395,9 +395,6 @@ const Map<String, String> kChainEs = <String, String>{
       "Conexión mediante WARP. HTTP transporta TCP; SOCKS5 también puede transportar UDP con H3/H2.",
   "dns_inherit":
       "Déjelo vacío para heredar el DNS de red. Las consultas usan esta salida.",
-  "proxy_ready": "Listo · reenvío TCP sin verificar",
-  "proxy_verified": "Reenvío TCP verificado",
-  "udp_unknown": "UDP: sin verificar",
   "scope_proxy_only":
       "Usque solo actúa como proxy de las conexiones que las aplicaciones le envían. Otras conexiones pueden revelar tu IP pública.",
   "scope_bypass":
@@ -406,9 +403,6 @@ const Map<String, String> kChainEs = <String, String>{
       "La conexión se ha interrumpido. El dispositivo puede volver a su conexión de red habitual.",
   "scope_android_settings":
       "Para seguir bloqueando cuando el servicio se detenga, activa VPN siempre activa y Bloquear conexiones sin VPN en los ajustes del sistema.",
-  "udp_available":
-      "Asociación UDP aceptada; reenvío de extremo a extremo sin verificar",
-  "udp_unavailable": "UDP no disponible",
 
   "batch_title": "Importar configuraciones",
   "batch_counts":
@@ -475,8 +469,6 @@ const Map<String, String> kChainEs = <String, String>{
       'Importa un archivo .conf o pega su texto. Se admite una sección [Interface] y una [Peer].',
   'import_limits':
       'Las configuraciones deben ser texto UTF-8 de hasta 128 KiB. Si el dispositivo no tiene selector de archivos, pega el texto.',
-  'enable_to_choose':
-      'Activa el proxy en cadena para elegir una configuración.',
   'select_required': 'Elige una configuración guardada para aplicarla.',
   'pending_disable': 'Pendiente: desactivar el proxy en cadena',
   'apply_reconnect': 'Aplicar y reconectar',
@@ -557,4 +549,19 @@ const Map<String, String> kChainEs = <String, String>{
   'invalid_key': 'La clave debe ser una clave Base64 válida de 32 bytes.',
   'checking': 'Comprobando la configuración…',
   'changed': 'Cambios guardados',
+  "source_group_custom": "Tus configuraciones",
+  "source_group_service": "Servicios",
+  "endpoint_ip": "IP del extremo",
+  "endpoint_select_first":
+      "Selecciona una configuración para cambiar su extremo.",
+  "delete_blocked": "Seleccionada o en uso",
+  "save_select": "Guardar y seleccionar",
+  "switch_source": "Cambiar a {source}",
+  "empty_proxy": "Añade un proxy para elegir una salida.",
+  "tcp_forwarding": "Reenvío TCP",
+  "verified": "Verificado",
+  "not_verified": "Sin verificar",
+  "unavailable": "No disponible",
+  "udp_association":
+      "Asociación aceptada; reenvío de extremo a extremo sin verificar",
 };

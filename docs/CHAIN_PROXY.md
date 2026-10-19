@@ -1,48 +1,58 @@
 # Chain proxy / 链式代理
 
-Open **Proxy → Chain proxy**. The page switch comes first, then the source
-selector: seven choices that always use this order:
+Open **Proxy → Chain proxy**. The page switch comes first, then **Current
+connection**, then the source selector. Its seven choices are grouped by who
+provides the exit and always use this order:
 
-1. **OpenVPN**
-2. **WireGuard**
-3. **WARP® via WireGuard**
-4. **Proton VPN**
-5. **VPN Gate**
-6. **HTTP**
-7. **SOCKS5**
+- **Your configurations**: **OpenVPN**, **WireGuard**, **HTTP**, **SOCKS5**
+- **Services**: **WARP® via WireGuard**, **Proton VPN**, **VPN Gate**
 
-The source names remain English in every locale. On phones and other layouts
-with less than 600 logical pixels of content width, the source heading stays
-above a compact selector showing the current source. Tap it to open a bottom
-sheet, then choose a source to close the sheet and show its configuration. The
-selector keeps the existing selected choice's size. Wider layouts keep all seven
-choices visible, wrapping normally and stacking at large text. A source the
-running engine cannot provide is shown disabled with its reason. One exit
-is enabled at a time:
+The source names remain English in every locale; the group names are
+translated. On phones and other layouts with less than 600 logical pixels of
+content width, the source heading stays above a compact selector showing the
+current source. Tap it to open a bottom sheet with the same groups, then choose
+a source to close the sheet and show its configuration. The selector keeps the
+existing selected choice's size. Wider layouts show each group on its own row,
+with the group names in one column, wrapping normally and stacking at large
+text. A source the running engine cannot provide is shown disabled with its
+reason. Each source has its own icon; HTTP and SOCKS5 no longer share VPN
+Gate's globe. One exit is enabled at a time:
 `Application → WARP → selected chain exit → Internet`. System VPN, SOCKS5 and
 HTTP share the final exit while retaining their own protocol capabilities;
 HTTP CONNECT does not gain UDP support. Explicit direct rules still apply.
 
-打开 **代理 → 链式代理**，总开关在最上方，其下的来源名称和顺序固定为
-**OpenVPN**、**WireGuard**、**WARP via WireGuard**、**Proton VPN**、**VPN Gate**、**HTTP**、**SOCKS5**。手机和内容宽度小于 600 逻辑像素的
-窄屏上，“出口来源”标题独占一行，下方选择框显示当前来源，大小与原来的选中
-标签一致。点击选择框打开底部列表，选中来源后列表自动收起并显示对应配置。
-宽屏仍显示七个选项，通常横向排列并自动换行，大字号时竖排；不可用的来源会
-禁用并说明原因。每次启用一个出口，系统 VPN、SOCKS5 和 HTTP 共用最终出口，
+打开 **代理 → 链式代理**，总开关在最上方，其下依次为“当前连接”和出口来源。
+七个来源按提供方分为两组，顺序固定：**自有配置**（**OpenVPN**、**WireGuard**、
+**HTTP**、**SOCKS5**）和**服务**（**WARP via WireGuard**、**Proton VPN**、
+**VPN Gate**）。来源名称保持英文，分组名称随语言翻译。手机和内容宽度小于
+600 逻辑像素的窄屏上，“出口来源”标题独占一行，下方选择框显示当前来源，大小与
+原来的选中标签一致。点击选择框打开按同样分组排列的底部列表，选中来源后列表
+自动收起并显示对应配置。宽屏每组一行，组名对齐在同一列，选项通常横向排列并
+自动换行，大字号时竖排；不可用的来源会禁用并说明原因。每个来源都有独立图标，
+HTTP 和 SOCKS5 不再与 VPN Gate 共用地球图标。每次启用一个出口，系统 VPN、SOCKS5 和 HTTP 共用最终出口，
 各入口保留自身协议能力，显式直连规则继续生效。
 
 All sources share the page heading, enable switch, **Current connection** section
-and apply bar. The current connection always describes the running exit, even
-while browsing a different source. Below it, custom sources provide import and
-paste actions with saved configurations; VPN Gate provides refresh, country and
-favorite filters with public nodes. Selection rows use the same radio controls
-and saved/current markers. VPN Gate observations remain labeled as remote data.
+and apply bar. The current connection sits directly under the switch and always
+describes the running exit, even while browsing a different source. Below the
+source selector, custom sources provide import and paste actions with saved
+configurations; VPN Gate provides refresh, country and favorite filters with
+public nodes. Selection rows use the same radio controls and markers: the
+configuration used by the running session shows its state (**Current
+connection**, **Connecting** or **Connection failed**), and **Saved selection**
+appears unless that session is connected or connecting with it. A failed
+session never reads as connected. VPN Gate observations remain labeled as
+remote data. The apply bar appears with the first edit, while saving, or when a
+result or unconfirmed status needs reporting; otherwise it stays hidden.
 
-七种来源共用页头、总开关、“当前连接”和底部应用栏。切换来源浏览时，“当前连接”
-仍显示正在使用的出口。下方内容随来源变化：OpenVPN／WireGuard 提供导入、粘贴
-和已保存配置，VPN Gate 提供刷新、国家／地区筛选、收藏和公共节点。两类列表
-使用相同的单选控件及“已保存的选择”“当前连接”标记；VPN Gate 的远端观测说明
-保持可见。
+七种来源共用页头、总开关、“当前连接”和底部应用栏。“当前连接”紧跟总开关，
+切换来源浏览时仍显示正在使用的出口。来源选择下方的内容随来源变化：
+OpenVPN／WireGuard 提供导入、粘贴和已保存配置，VPN Gate 提供刷新、国家／地区
+筛选、收藏和公共节点。两类列表使用相同的单选控件和标记：运行中会话使用的配置
+显示其状态（“当前连接”“连接中”或“连接失败”），会话已连接或正在连接时不再
+重复显示“已保存的选择”；连接失败不会显示为已连接。VPN Gate 的远端观测说明
+保持可见。底栏在首次修改、保存中或需要报告结果／未确认状态时出现，其余时间
+隐藏。
 
 The **Current connection** section describes what the running session covers,
 based on its actual state. Proxy-only sessions cover only apps that use the
@@ -94,7 +104,9 @@ system multi-document provider. Select up to 128 files from the current source
 at once; the library still holds at most 128 configurations. Android TV devices without a document provider can
 use pasted text. Usque reads the document once and does not retain a dependency
 on its path or document-provider permissions. An imported file is checked as
-soon as the dialog opens; pasted text is checked with **Check configuration**.
+soon as the dialog opens; pasted text is checked automatically once typing
+pauses, and **Check configuration** remains available. Editing the text during a
+check discards that result and checks the new text.
 For multiple files, a batch list automatically checks every file offline and
 shows ready, incomplete, failed and saved counts. Expand an entry to review its
 details, change its name or supply its individual credentials. File imports default
@@ -111,7 +123,8 @@ importing again, because the interrupted entry may already have been saved.
 Files with identical names or content create separate entries; they do not
 replace existing configurations.
 Text that structurally belongs to the other source is reported before the
-engine runs.
+engine runs. **Switch to WireGuard** (or **OpenVPN**) moves the same text, or
+the same file, to the matching source and checks it there.
 
 The check displays the endpoint, transport, IP version, addresses, DNS,
 AllowedIPs and MTU where available. OpenVPN addresses and DNS may be negotiated
@@ -119,13 +132,16 @@ by the server. Single-file imports also default to the filename without its fina
 extension; pasted configurations default to the endpoint host. Supply the requested
 username, password or encrypted private-key password and **Save configuration**.
 Errors identify a field and line without reproducing configuration values.
-Saving to the library neither selects the configuration nor starts a connection.
+**Save configuration** only adds it to the library. **Save and select** also
+selects it as an unapplied draft and turns on the page switch in that draft;
+neither starts a connection.
 
-Enable the page switch, select a saved configuration, then apply from the
-action bar. The list marks the saved selection, the configuration used by the
-current connection, and configurations marked **Not available with L4**. The selected
-configuration's **Technical details** expand on request under its selected row.
-The action bar names the pending
+Select a saved configuration, then apply from the action bar. Selecting while
+the page switch is off also turns the switch on in the draft. The list marks
+the saved selection, the configuration used by the current connection, and
+configurations marked **Not available with L4**. Each configuration's menu opens
+its **Technical details**; the selected configuration's menu also offers
+**Clear selection**. The action bar names the pending
 selection and states why a draft cannot be applied yet; while connected, its
 button reads **Apply and reconnect**. A disconnected connection stays
 disconnected; an active connection applies the new exit using the existing
@@ -139,8 +155,8 @@ missing DNS inline.
 Use the configuration's menu to rename it or update OpenVPN credentials. Import
 again to replace configuration content. Credential changes are used on the next
 connection; they do not silently reconnect the current one. A configuration that
-is selected, saved, or used by the current connection cannot be deleted; the
-page says so instead of hiding the action. Imports are device-wide, independent
+is selected, saved, or used by the current connection cannot be deleted; its
+menu keeps **Delete** visible but disabled, with the reason beneath it. Imports are device-wide, independent
 of the selected WARP account.
 
 选择自定义来源后，可导入文件或粘贴配置。两种入口共用 Rust 校验流程，限制为
@@ -154,27 +170,31 @@ of the selected WARP account.
 保存失败不回滚其他成功项；通信中断则停止后续提交，请关闭并核对配置库后再导入，
 因为中断的项目可能已经保存。同名或相同内容仍作为独立新配置导入，不覆盖已有配置。
 导入文件后立即检查；
-粘贴文本需点击**检查配置**。粘贴到错误来源的配置会在调用引擎前得到提示。
+粘贴文本在停止输入后自动检查，也可点击**检查配置**；检查期间继续修改会丢弃旧结果并
+重新检查。粘贴到错误来源的配置会在调用引擎前得到提示，点击“切换到 WireGuard”
+（或 OpenVPN）即可把同一段文本或文件带到对应来源并重新检查。
 检查后补充认证信息、命名（单文件导入默认使用不含后缀的文件名，粘贴导入默认使用
-服务器主机名）并保存；保存不会选用配置
-或自动连接。打开总开关、选择配置，再在底栏应用。列表会标记已保存的选择、
-当前连接使用的配置以及标记为**不支持 L4** 的配置；点击所选配置下的“技术详情”
-可展开详细信息。
+服务器主机名）。**保存配置**只加入配置库；**保存并选用**还会把它设为待应用的
+选择并在草稿中打开总开关，两者都不会自动连接。选择配置后在底栏应用；总开关
+关闭时选择配置也会在草稿中打开总开关。列表会标记已保存的选择、
+当前连接使用的配置以及标记为**不支持 L4** 的配置；配置菜单中的“技术详情”
+显示详细信息，所选配置的菜单还提供“清除选择”。
 底栏说明待应用的选择及暂时不能应用的原因；已连接时按钮为**应用并重新连接**。
 切换出口来源只是浏览，不会弹出“放弃未应用的修改”提示；在某个来源下做出的
 选择会保留到切回时，直到应用为止。只有离开页面才会询问是否放弃未应用的修改。
 重命名和更新认证信息使用配置菜单；内容变化请重新导入。被选中、已保存或
-当前连接使用的配置不能删除，页面会直接说明原因。切换 WARP 账号不会丢失
-导入配置库。
+当前连接使用的配置不能删除，菜单中的“删除”保持可见但不可用，并在下方说明原因。
+切换 WARP 账号不会丢失导入配置库。
 
 VPN Gate uses the same **Apply changes** and **Apply and reconnect** actions.
 Preparing a node configuration shows progress and **Cancel** in the apply bar;
 failed preparation or application keeps the requested selection available for
-review and retry. Refresh controls stay beside the public-node list.
+review and retry. Refresh sits beside the available-server heading, above the
+list's collection time.
 
 VPN Gate 同样使用“应用更改”和“应用并重新连接”。准备节点配置时，应用栏显示
 进度及“取消”；准备或应用失败后，保留待应用的选择供检查和重试。刷新操作位于
-公共节点列表区域。
+“可选服务器”标题旁，下方显示列表采集时间。
 
 ## HTTP and SOCKS5 exits / HTTP 与 SOCKS5 出口
 
@@ -186,8 +206,8 @@ credentials. Expand **DNS** to choose its transport. Optional TCP DNS entries ar
 numeric IP addresses, separated by spaces, commas or newlines. Blank entries use
 the automatic or inherited resolver policy described below.
 
-Save the configuration, enable chain proxy, select it and apply. Saving alone
-does not select or connect. Rename and credential changes retain the existing
+Use **Save and select**, or save and then select the configuration, and apply.
+Saving alone does not select or connect. Rename and credential changes retain the existing
 selection; credentials take effect on the next connection. Add a replacement
 configuration to change the server, DNS or authentication mode.
 
@@ -218,10 +238,11 @@ including the SOCKS header, are limited to 16336 bytes. TUN replies must fit its
 MTU; IP options, IP fragments, IPv6 extension headers and remote ICMP Echo retain
 the stream bridge's existing restrictions.
 
-**Ready** confirms proxy endpoint reachability (and SOCKS authentication).
-**TCP forwarding verified** requires a successful real CONNECT. UDP availability
-confirms the final SOCKS5 server's acceptance of UDP ASSOCIATE, not end-to-end
-delivery. A local DNS-only association does not change that status. Individual
+While connected, **Current connection** lists **TCP forwarding** and **UDP**.
+**Connected** confirms proxy endpoint reachability (and SOCKS authentication).
+**TCP forwarding: Verified** requires a successful real CONNECT. **UDP:
+Association accepted** confirms the final SOCKS5 server's acceptance of UDP
+ASSOCIATE, not end-to-end delivery. A local DNS-only association does not change that status. Individual
 target failures affect that flow; authentication failure closes the chain.
 
 An ASSOCIATE timeout leaves UDP capability unknown, and a server that accepts
@@ -280,7 +301,8 @@ UDP arrives, so its refusal or timeout never blocks the DNS relay.
 选择 **HTTP** 或 **SOCKS5**，点击**添加代理**，填写名称、服务器域名或 IPv4/IPv6
 地址和端口；默认端口分别为 8080、1080。按需启用用户名／密码认证。地址栏不接受
 URL 或嵌入凭据。展开 **DNS** 可选择传输方式；可选的 TCP DNS 填写数值 IP，以空格、
-逗号或换行分隔，留空时按下述自动或继承策略解析。保存后仍需启用链式代理、选用配置并应用。修改凭据在下次连接
+逗号或换行分隔，留空时按下述自动或继承策略解析。点击**保存并选用**（或保存后
+再选择）并应用；仅保存不会选用或连接。修改凭据在下次连接
 生效；修改服务器、DNS 或认证模式时新增替代配置。
 
 使用本地 HTTP 代理的应用也可访问 IPv6 地址；CONNECT 目标及网址保留方括号，
@@ -294,7 +316,8 @@ TUN 会对拒绝的数据报和明确的转发失败返回限速的 ICMP 错误�
 
 两种出口在 H3/H2/L4 下均支持 TCP；SOCKS5 在 H3/H2 下可按需使用服务器提供的 UDP
 关联。HTTP 及 L4 下的普通代理 UDP 不可用，失败不会退回仅 WARP 或物理直连。
-“已就绪”不代表目标转发已验证；实际 CONNECT 成功后才显示“TCP 转发已验证”。
+连接后“当前连接”分别列出“TCP 转发”和 UDP 状态。“已连接”不代表目标转发已验证；
+实际 CONNECT 成功后“TCP 转发”才显示“已验证”。
 最终 SOCKS5 服务器接受 UDP 关联不等于已验证端到端数据可达；本地仅供 DNS 的关联
 不会改变出口 UDP 状态。仅支持 FRAG=0，含 SOCKS 头的 relay 包
 上限为 16336 字节；TUN 回包须符合 MTU，原有 IP 包限制继续适用。
@@ -623,9 +646,11 @@ disabled for native size comparison. The editable monochrome SVGs in
 `apps/usque_gui/assets/icons/` were supplied by the project maintainer:
 `openvpn.svg` and `wireguard.svg` use a 24×24 viewBox, and `warp-wireguard.svg`
 keeps its original `viewBox="120 80 250 330"`. OpenVPN's 32×32 path is scaled
-proportionally by 0.75. All three use the current theme color without altering
-their silhouettes; VPN Gate retains its globe. The repository does not record an
-upstream source or license for these icon paths. The OpenVPN, WireGuard and WARP
+proportionally by 0.75. `proton-vpn.svg`, also supplied by the maintainer, uses
+a 24×24 viewBox. All four use the current theme color without altering their
+silhouettes; VPN Gate retains its globe, and HTTP and SOCKS5 use Lucide's
+server and cable icons. The repository does not record an
+upstream source or license for these icon paths. The OpenVPN, WireGuard, WARP and Proton
 names and marks belong to their respective owners and identify the exit source
 only. BoringTun attribution is bundled in the app's license registry; Flutter
 handles its Dart-package notices.

@@ -93,7 +93,7 @@ void main() {
   );
 
   testWidgets(
-    'Android wide filters and favorites remain usable while selection is disabled',
+    'Android wide filters and favorites remain usable while the chain is off',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       try {
@@ -111,7 +111,7 @@ void main() {
         final node = find.byKey(ValueKey('vpn-gate-node-${server.id}'));
         expect(
           tester.widget<RadioListTile<(String, String)>>(node).enabled,
-          isFalse,
+          isTrue,
         );
         final favorite = find.byKey(ValueKey('vpn-gate-favorite-${server.id}'));
         await tester.ensureVisible(favorite);

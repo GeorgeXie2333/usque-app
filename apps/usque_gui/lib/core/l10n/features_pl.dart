@@ -387,9 +387,6 @@ const Map<String, String> kChainPl = <String, String>{
       "Połączenie przez WARP. HTTP przesyła TCP; SOCKS5 może też przesyłać UDP przy H3/H2.",
   "dns_inherit":
       "Pozostaw puste, aby użyć DNS sieci. Zapytania przechodzą przez to wyjście.",
-  "proxy_ready": "Gotowe · przekazywanie TCP niesprawdzone",
-  "proxy_verified": "Przekazywanie TCP sprawdzone",
-  "udp_unknown": "UDP: niesprawdzone",
   "scope_proxy_only":
       "Usque pośredniczy tylko w połączeniach kierowanych do niego przez aplikacje. Inne połączenia mogą ujawnić Twój publiczny adres IP.",
   "scope_bypass":
@@ -398,9 +395,6 @@ const Map<String, String> kChainPl = <String, String>{
       "Połączenie zostało przerwane. Urządzenie może wrócić do zwykłego połączenia sieciowego.",
   "scope_android_settings":
       "Aby blokować po zatrzymaniu usługi, włącz w ustawieniach systemowych Zawsze aktywna sieć VPN i Blokuj połączenia bez VPN.",
-  "udp_available":
-      "Powiązanie UDP zaakceptowane; przekazywanie między punktami końcowymi niezweryfikowane",
-  "udp_unavailable": "UDP niedostępne",
 
   "batch_title": "Importuj konfiguracje",
   "batch_counts":
@@ -465,7 +459,6 @@ const Map<String, String> kChainPl = <String, String>{
       'Zaimportuj plik .conf albo wklej jego treść. Obsługiwana jest jedna sekcja [Interface] i jedna [Peer].',
   'import_limits':
       'Konfiguracje muszą być tekstem UTF-8 do 128 KiB. Bez wyboru pliku wklej tekst.',
-  'enable_to_choose': 'Włącz proxy łańcuchowe, aby wybrać konfigurację.',
   'select_required': 'Wybierz zapisaną konfigurację, zanim ją zastosujesz.',
   'pending_disable': 'Oczekuje: wyłączenie proxy łańcuchowego',
   'apply_reconnect': 'Zastosuj i połącz ponownie',
@@ -546,4 +539,19 @@ const Map<String, String> kChainPl = <String, String>{
       'Klucz musi być prawidłowym kluczem Base64 o długości 32 bajtów.',
   'checking': 'Sprawdzanie konfiguracji…',
   'changed': 'Zmiany zapisane',
+  "source_group_custom": "Twoje konfiguracje",
+  "source_group_service": "Usługi",
+  "endpoint_ip": "IP punktu końcowego",
+  "endpoint_select_first":
+      "Wybierz konfigurację, aby zmienić jej punkt końcowy.",
+  "delete_blocked": "Wybrana lub w użyciu",
+  "save_select": "Zapisz i wybierz",
+  "switch_source": "Przełącz na {source}",
+  "empty_proxy": "Dodaj proxy, aby wybrać wyjście.",
+  "tcp_forwarding": "Przekazywanie TCP",
+  "verified": "Sprawdzone",
+  "not_verified": "Niesprawdzone",
+  "unavailable": "Niedostępne",
+  "udp_association":
+      "Powiązanie przyjęte; przekazywanie end-to-end niesprawdzone",
 };

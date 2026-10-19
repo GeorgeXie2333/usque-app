@@ -396,9 +396,6 @@ const Map<String, String> kChainFr = <String, String>{
       "Connexion via WARP. HTTP transporte TCP ; SOCKS5 peut aussi transporter UDP avec H3/H2.",
   "dns_inherit":
       "Laisser vide pour utiliser le DNS réseau. Les requêtes passent par cette sortie.",
-  "proxy_ready": "Prêt · transfert TCP non vérifié",
-  "proxy_verified": "Transfert TCP vérifié",
-  "udp_unknown": "UDP : non vérifié",
   "scope_proxy_only":
       "Usque ne relaie actuellement que les connexions que les applications lui envoient. Les autres connexions peuvent révéler votre adresse IP publique.",
   "scope_bypass":
@@ -407,9 +404,6 @@ const Map<String, String> kChainFr = <String, String>{
       "La connexion a été interrompue. Votre appareil peut reprendre sa connexion réseau habituelle.",
   "scope_android_settings":
       "Pour maintenir le blocage après l’arrêt du service, activez VPN permanent et Bloquer les connexions sans VPN dans les paramètres système.",
-  "udp_available":
-      "Association UDP acceptée ; transfert de bout en bout non vérifié",
-  "udp_unavailable": "UDP indisponible",
 
   "batch_title": "Importer des configurations",
   "batch_counts":
@@ -476,8 +470,6 @@ const Map<String, String> kChainFr = <String, String>{
       'Importez un fichier .conf ou collez son texte. Une section [Interface] et une section [Peer] sont prises en charge.',
   'import_limits':
       'Les configurations doivent être du texte UTF-8 d’au plus 128 KiB. Sans sélecteur de fichiers, collez le texte.',
-  'enable_to_choose':
-      'Activez le proxy en chaîne pour choisir une configuration.',
   'select_required':
       'Choisissez une configuration enregistrée avant de l’appliquer.',
   'pending_disable': 'En attente : désactiver le proxy en chaîne',
@@ -561,4 +553,19 @@ const Map<String, String> kChainFr = <String, String>{
   'invalid_key': 'La clé doit être une clé Base64 valide de 32 octets.',
   'checking': 'Vérification de la configuration…',
   'changed': 'Modifications enregistrées',
+  "source_group_custom": "Vos configurations",
+  "source_group_service": "Services en ligne",
+  "endpoint_ip": "IP du point de terminaison",
+  "endpoint_select_first":
+      "Sélectionnez une configuration pour modifier son point de terminaison.",
+  "delete_blocked": "Sélectionnée ou utilisée",
+  "save_select": "Enregistrer et sélectionner",
+  "switch_source": "Passer à {source}",
+  "empty_proxy": "Ajoutez un proxy pour choisir une sortie.",
+  "tcp_forwarding": "Transfert TCP",
+  "verified": "Vérifié",
+  "not_verified": "Non vérifié",
+  "unavailable": "Indisponible",
+  "udp_association":
+      "Association acceptée ; transfert de bout en bout non vérifié",
 };

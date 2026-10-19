@@ -10,8 +10,10 @@ import 'common.dart';
 
 /// The fixed exit sources, with a compact picker on narrow layouts.
 ///
-/// The sheet and wide-layout choices show unavailable sources with their reason.
-/// The compact trigger keeps the selected choice's dimensions below the heading.
+/// Sources are grouped by who provides the exit: configurations the user
+/// brings, then services Usque prepares. The sheet and wide-layout choices
+/// show unavailable sources with their reason. The compact trigger keeps the
+/// selected choice's dimensions below the heading.
 class ChainSourcePicker extends StatelessWidget {
   const ChainSourcePicker({
     required this.controller,
@@ -25,6 +27,23 @@ class ChainSourcePicker extends StatelessWidget {
 
   /// Below this width the current choice opens a sheet with all sources.
   static const double compactBelowWidth = 600;
+
+  /// Display groups in their fixed order. The enum order is a storage detail.
+  static const groups = <(String, List<ChainSource>)>[
+    (
+      'custom',
+      [
+        ChainSource.openvpnCustom,
+        ChainSource.wireguardCustom,
+        ChainSource.httpProxy,
+        ChainSource.socks5Proxy,
+      ],
+    ),
+    (
+      'service',
+      [ChainSource.warpWireguard, ChainSource.protonVpn, ChainSource.vpnGate],
+    ),
+  ];
 
   static bool available(EngineCapabilities? capabilities, ChainSource source) {
     if (capabilities == null) {
@@ -74,9 +93,16 @@ class ChainSourcePicker extends StatelessWidget {
                 gap: 8,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final option in ChainSource.values)
-                      _sheetOption(context, option),
+                    for (final (group, options) in groups) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8, bottom: 4),
+                        child: _groupLabel(context, group),
+                      ),
+                      for (final option in options)
+                        _sheetOption(context, option),
+                    ],
                   ],
                 ),
               ),
@@ -91,6 +117,20 @@ class ChainSourcePicker extends StatelessWidget {
         available(controller.engineCapabilities, choice)) {
       onChanged(choice);
     }
+  }
+
+  Widget _groupLabel(BuildContext context, String group) {
+    final theme = Theme.of(context);
+    return Semantics(
+      header: true,
+      child: Text(
+        controller.strings.chain('source_group_$group'),
+        key: ValueKey('chain-source-group-$group'),
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
   }
 
   Widget _sheetOption(BuildContext context, ChainSource option) {
@@ -192,17 +232,52 @@ class ChainSourcePicker extends StatelessWidget {
                 child: chip(source, compact: true),
               );
             }
-            final chips = [
-              for (final option in ChainSource.values) chip(option),
-            ];
-            if (MediaQuery.textScalerOf(context).scale(14) > 21) {
+            final large = MediaQuery.textScalerOf(context).scale(14) > 21;
+            if (large) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 spacing: 8,
-                children: chips,
+                children: [
+                  for (final (group, options) in groups) ...[
+                    _groupLabel(context, group),
+                    for (final option in options) chip(option),
+                  ],
+                ],
               );
             }
-            return Wrap(spacing: 8, runSpacing: 8, children: chips);
+            // Group names share one column so both rows of choices start at
+            // the same edge; each name is centred on its row of choices.
+            return Table(
+              columnWidths: const {
+                0: IntrinsicColumnWidth(),
+                1: FlexColumnWidth(),
+              },
+              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+              children: [
+                for (final (index, (group, options)) in groups.indexed)
+                  TableRow(
+                    children: [
+                      Padding(
+                        padding: EdgeInsetsDirectional.only(
+                          top: index == 0 ? 0 : 8,
+                          end: 16,
+                        ),
+                        child: _groupLabel(context, group),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.only(top: index == 0 ? 0 : 8),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final option in options) chip(option),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            );
           },
         ),
       );

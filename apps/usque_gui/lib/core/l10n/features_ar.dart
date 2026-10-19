@@ -354,17 +354,12 @@ const Map<String, String> kChainAr = <String, String>{
       "الاتصال عبر WARP. ينقل HTTP حركة TCP؛ ويمكن لـ SOCKS5 نقل UDP أيضًا مع H3/H2.",
   "dns_inherit":
       "اتركه فارغًا لاستخدام DNS الشبكة. تمر الاستعلامات عبر هذا المخرج.",
-  "proxy_ready": "جاهز · لم يتم التحقق من تمرير TCP",
-  "proxy_verified": "تم التحقق من تمرير TCP",
-  "udp_unknown": "UDP: لم يتم التحقق",
   "scope_proxy_only":
       "يمرر Usque حاليًا الاتصالات التي ترسلها التطبيقات إليه فقط. قد تكشف الاتصالات الأخرى عنوان IP العام لجهازك.",
   "scope_bypass": "تظل قواعد الاتصال المباشر والقواعد الخاصة بكل تطبيق سارية.",
   "scope_interrupted": "انقطع الاتصال. قد يعود جهازك إلى اتصال الشبكة المعتاد.",
   "scope_android_settings":
       "لمواصلة الحظر بعد توقف الخدمة، فعّل VPN دائم التشغيل وحظر الاتصالات بدون VPN في إعدادات النظام.",
-  "udp_available": "تم قبول ارتباط UDP؛ لم يتم التحقق من التمرير بين الطرفين",
-  "udp_unavailable": "UDP غير متاح",
 
   "batch_title": "استيراد الإعدادات",
   "batch_counts":
@@ -424,7 +419,6 @@ const Map<String, String> kChainAr = <String, String>{
       'استورد ملف ‎.conf أو الصق نصه. يُدعم قسم [Interface] واحد وقسم [Peer] واحد.',
   'import_limits':
       'يجب أن يكون الإعداد نص UTF-8 بحجم 128 KiB كحد أقصى. إن لم يتوفر منتقي ملفات، الصق النص.',
-  'enable_to_choose': 'فعّل الوكيل المتسلسل لاختيار إعداد.',
   'select_required': 'اختر إعدادًا محفوظًا قبل التطبيق.',
   'pending_disable': 'بانتظار التطبيق: إيقاف الوكيل المتسلسل',
   'apply_reconnect': 'تطبيق وإعادة الاتصال',
@@ -497,4 +491,17 @@ const Map<String, String> kChainAr = <String, String>{
   'invalid_key': 'يجب أن يكون المفتاح مفتاح Base64 صالحًا بطول 32 بايتًا.',
   'checking': 'جارٍ فحص الإعداد…',
   'changed': 'تم حفظ التغييرات',
+  "source_group_custom": "إعداداتك",
+  "source_group_service": "الخدمات",
+  "endpoint_ip": "عنوان IP لنقطة النهاية",
+  "endpoint_select_first": "اختر إعدادًا لتغيير نقطة نهايته.",
+  "delete_blocked": "محدد أو قيد الاستخدام",
+  "save_select": "حفظ وتحديد",
+  "switch_source": "التبديل إلى {source}",
+  "empty_proxy": "أضف وكيلًا لاختيار مخرج.",
+  "tcp_forwarding": "تمرير TCP",
+  "verified": "تم التحقق",
+  "not_verified": "لم يتم التحقق",
+  "unavailable": "غير متاح",
+  "udp_association": "تم قبول الارتباط؛ لم يتم التحقق من التمرير بين الطرفين",
 };

@@ -43,9 +43,6 @@ const kChainEn = <String, String>{
   "proxy_hint":
       "Connect through WARP. HTTP carries TCP; SOCKS5 can also carry UDP with H3/H2.",
   "dns_inherit": "Leave blank to inherit network DNS. Queries use this exit.",
-  "proxy_ready": "Ready · TCP forwarding not verified",
-  "proxy_verified": "TCP forwarding verified",
-  "udp_unknown": "UDP: not verified",
   "scope_proxy_only":
       "Usque currently proxies only connections that apps send to it. Other connections may reveal your public IP address.",
   "scope_bypass": "Your direct-connection and per-app rules still apply.",
@@ -53,9 +50,6 @@ const kChainEn = <String, String>{
       "The connection has stopped. Your device may return to its ordinary network connection.",
   "scope_android_settings":
       "To keep blocking after the service stops, enable Always-on VPN and Block connections without VPN in system settings.",
-  "udp_available":
-      "UDP association accepted; end-to-end forwarding is not verified",
-  "udp_unavailable": "UDP unavailable",
 
   "batch_title": "Import configurations",
   "batch_counts":
@@ -118,7 +112,6 @@ const kChainEn = <String, String>{
       'Import a .conf file or paste its text. One [Interface] and one [Peer] section are supported.',
   'import_limits':
       'Configurations must be UTF-8 text up to 128 KiB. If this device has no file picker, paste the text instead.',
-  'enable_to_choose': 'Enable chain proxy to select a configuration.',
   'select_required': 'Select a saved configuration to apply.',
   'pending_disable': 'Pending: disable chain proxy',
   'apply_reconnect': 'Apply and reconnect',
@@ -198,6 +191,19 @@ const kChainEn = <String, String>{
   'invalid_key': 'The key must be a valid 32-byte Base64 key.',
   'checking': 'Checking configuration…',
   'changed': 'Changes saved',
+  "source_group_custom": "Your configurations",
+  "source_group_service": "Services",
+  "endpoint_ip": "Endpoint IP",
+  "endpoint_select_first": "Select a configuration to change its endpoint.",
+  "delete_blocked": "Selected or in use",
+  "save_select": "Save and select",
+  "switch_source": "Switch to {source}",
+  "empty_proxy": "Add a proxy to select an exit.",
+  "tcp_forwarding": "TCP forwarding",
+  "verified": "Verified",
+  "not_verified": "Not verified",
+  "unavailable": "Unavailable",
+  "udp_association": "Association accepted; end-to-end forwarding not verified",
 };
 
 const kChainZhCn = <String, String>{
@@ -216,15 +222,10 @@ const kChainZhCn = <String, String>{
   "add_proxy": "添加代理",
   "proxy_hint": "通过 WARP 连接。HTTP 支持 TCP；SOCKS5 在 H3/H2 下还可支持 UDP。",
   "dns_inherit": "留空继承网络 DNS，查询经此出口发送。",
-  "proxy_ready": "已就绪 · TCP 转发尚未验证",
-  "proxy_verified": "TCP 转发已验证",
-  "udp_unknown": "UDP：尚未验证",
   "scope_proxy_only": "当前仅代理应用交给 Usque 的连接，其他联网可能显示本机公网 IP。",
   "scope_bypass": "已设置的直连和分应用规则继续生效。",
   "scope_interrupted": "连接已中断，设备可能恢复普通网络。",
   "scope_android_settings": "如需在服务停止后继续阻断，请在系统设置中开启“始终开启 VPN”和“无 VPN 时拦截连接”。",
-  "udp_available": "UDP 关联已接受，端到端转发尚未验证",
-  "udp_unavailable": "UDP 不可用",
 
   "batch_title": "批量导入配置",
   "batch_counts": "可导入：{ready} · 待补充：{pending} · 失败：{failed} · 已保存：{saved}",
@@ -277,7 +278,6 @@ const kChainZhCn = <String, String>{
   'empty_hint_openvpn': '导入 .ovpn 文件或粘贴其文本。支持 TCP/UDP 端点、内嵌证书和用户名/密码。',
   'empty_hint_wireguard': '导入 .conf 文件或粘贴其文本。支持一个 [Interface] 和一个 [Peer]。',
   'import_limits': '配置须为不超过 128 KiB 的 UTF-8 文本。设备没有文件选择器时，可以改为粘贴文本。',
-  'enable_to_choose': '启用链式代理后即可选择配置。',
   'select_required': '请选择一份已保存的配置后再应用。',
   'pending_disable': '待应用：关闭链式代理',
   'apply_reconnect': '应用并重新连接',
@@ -344,6 +344,19 @@ const kChainZhCn = <String, String>{
   'invalid_key': '密钥必须是有效的 32 字节 Base64 密钥。',
   'checking': '正在检查配置…',
   'changed': '修改已保存',
+  "source_group_custom": "自有配置",
+  "source_group_service": "服务",
+  "endpoint_ip": "端点 IP",
+  "endpoint_select_first": "选择配置后可修改其端点。",
+  "delete_blocked": "已选中或正在使用",
+  "save_select": "保存并选用",
+  "switch_source": "切换到 {source}",
+  "empty_proxy": "添加代理后即可选择出口。",
+  "tcp_forwarding": "TCP 转发",
+  "verified": "已验证",
+  "not_verified": "尚未验证",
+  "unavailable": "不可用",
+  "udp_association": "关联已接受，端到端转发尚未验证",
 };
 
 const Map<String, Map<String, String>> kChainCatalogs =

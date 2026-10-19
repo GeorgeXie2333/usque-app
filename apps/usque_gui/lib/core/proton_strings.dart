@@ -56,6 +56,8 @@ const _english = <String, String>{
   'verification_invalid':
       'Proton rejected the verification result. Start setup again for a new challenge.',
   'accounts': 'Proton accounts',
+  'add_account': 'Add account',
+  'account_actions': 'Account actions',
   'resolve_on_connect':
       'The server and authorization are checked when connecting.',
   'account': 'Proton account',
@@ -173,6 +175,8 @@ const _chinese = <String, String>{
   'verification_failed': '未能完成验证，请重新开始设置。',
   'verification_invalid': 'Proton 拒绝了验证结果，请重新开始设置以获取新的挑战。',
   'accounts': 'Proton 账号',
+  'add_account': '添加账号',
+  'account_actions': '账号操作',
   'resolve_on_connect': '连接时获取节点入口并检查授权。',
   'account': 'Proton 账号',
   'signed_in': '已登录',

@@ -404,9 +404,6 @@ const Map<String, String> kChainDe = <String, String>{
       "Verbindung über WARP. HTTP überträgt TCP; SOCKS5 kann mit H3/H2 auch UDP übertragen.",
   "dns_inherit":
       "Leer lassen, um Netzwerk-DNS zu übernehmen. Abfragen nutzen diesen Ausgang.",
-  "proxy_ready": "Bereit · TCP-Weiterleitung ungeprüft",
-  "proxy_verified": "TCP-Weiterleitung geprüft",
-  "udp_unknown": "UDP: ungeprüft",
   "scope_proxy_only":
       "Usque leitet derzeit nur Verbindungen weiter, die Apps an Usque senden. Andere Verbindungen können Ihre öffentliche IP-Adresse preisgeben.",
   "scope_bypass":
@@ -415,9 +412,6 @@ const Map<String, String> kChainDe = <String, String>{
       "Die Verbindung wurde unterbrochen. Ihr Gerät kann zur normalen Netzwerkverbindung zurückkehren.",
   "scope_android_settings":
       "Um nach dem Beenden des Dienstes weiter zu blockieren, aktivieren Sie in den Systemeinstellungen „Durchgehend aktives VPN“ und „Verbindungen ohne VPN blockieren“.",
-  "udp_available":
-      "UDP-Zuordnung akzeptiert; Ende-zu-Ende-Weiterleitung nicht geprüft",
-  "udp_unavailable": "UDP nicht verfügbar",
 
   "batch_title": "Konfigurationen importieren",
   "batch_counts":
@@ -483,8 +477,6 @@ const Map<String, String> kChainDe = <String, String>{
       'Importieren Sie eine .conf-Datei oder fügen Sie ihren Text ein. Je ein Abschnitt [Interface] und [Peer] wird unterstützt.',
   'import_limits':
       'Konfigurationen müssen UTF-8-Text bis 128 KiB sein. Geräte ohne Dateiauswahl können den Text einfügen.',
-  'enable_to_choose':
-      'Aktivieren Sie den Kettenproxy, um eine Konfiguration zu wählen.',
   'select_required':
       'Wählen Sie eine gespeicherte Konfiguration aus, bevor Sie sie anwenden.',
   'pending_disable': 'Ausstehend: Kettenproxy deaktivieren',
@@ -568,4 +560,19 @@ const Map<String, String> kChainDe = <String, String>{
       'Der Schlüssel muss ein gültiger 32-Byte-Base64-Schlüssel sein.',
   'checking': 'Konfiguration wird geprüft…',
   'changed': 'Änderungen gespeichert',
+  "source_group_custom": "Eigene Konfigurationen",
+  "source_group_service": "Dienste",
+  "endpoint_ip": "Endpunkt-IP",
+  "endpoint_select_first":
+      "Wählen Sie eine Konfiguration, um ihren Endpunkt zu ändern.",
+  "delete_blocked": "Ausgewählt oder in Verwendung",
+  "save_select": "Speichern und auswählen",
+  "switch_source": "Zu {source} wechseln",
+  "empty_proxy": "Fügen Sie einen Proxy hinzu, um einen Ausgang zu wählen.",
+  "tcp_forwarding": "TCP-Weiterleitung",
+  "verified": "Geprüft",
+  "not_verified": "Ungeprüft",
+  "unavailable": "Nicht verfügbar",
+  "udp_association":
+      "Zuordnung akzeptiert; Ende-zu-Ende-Weiterleitung ungeprüft",
 };

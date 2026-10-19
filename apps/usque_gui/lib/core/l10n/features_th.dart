@@ -352,9 +352,6 @@ const Map<String, String> kChainTh = <String, String>{
   "proxy_hint":
       "เชื่อมต่อผ่าน WARP โดย HTTP รองรับ TCP ส่วน SOCKS5 รองรับ UDP ได้ด้วยเมื่อใช้ H3/H2",
   "dns_inherit": "เว้นว่างเพื่อใช้ DNS ของเครือข่าย คำขอจะผ่านทางออกนี้",
-  "proxy_ready": "พร้อม · ยังไม่ยืนยันการส่งต่อ TCP",
-  "proxy_verified": "ยืนยันการส่งต่อ TCP แล้ว",
-  "udp_unknown": "UDP: ยังไม่ยืนยัน",
   "scope_proxy_only":
       "Usque เป็นพร็อกซีให้เฉพาะการเชื่อมต่อที่แอปส่งมาเท่านั้น การเชื่อมต่ออื่นอาจเปิดเผย IP สาธารณะของอุปกรณ์",
   "scope_bypass": "กฎการเชื่อมต่อโดยตรงและกฎรายแอปที่ตั้งไว้ยังมีผล",
@@ -362,9 +359,6 @@ const Map<String, String> kChainTh = <String, String>{
       "การเชื่อมต่อถูกตัด อุปกรณ์อาจกลับไปใช้การเชื่อมต่อเครือข่ายปกติ",
   "scope_android_settings":
       "หากต้องการบล็อกต่อหลังบริการหยุด ให้เปิด VPN แบบเปิดตลอดและบล็อกการเชื่อมต่อที่ไม่ใช้ VPN ในการตั้งค่าระบบ",
-  "udp_available":
-      "ยอมรับการเชื่อมโยง UDP แล้ว แต่ยังไม่ได้ยืนยันการส่งต่อแบบต้นทางถึงปลายทาง",
-  "udp_unavailable": "ไม่สามารถใช้ UDP",
 
   "batch_title": "นำเข้าการกำหนดค่า",
   "batch_counts":
@@ -426,7 +420,6 @@ const Map<String, String> kChainTh = <String, String>{
       'นำเข้าไฟล์ .conf หรือวางข้อความ รองรับส่วน [Interface] หนึ่งส่วนและ [Peer] หนึ่งส่วน',
   'import_limits':
       'การกำหนดค่าต้องเป็นข้อความ UTF-8 ไม่เกิน 128 KiB หากไม่มีตัวเลือกไฟล์ ให้วางข้อความแทน',
-  'enable_to_choose': 'เปิดพร็อกซีแบบลูกโซ่ก่อนจึงจะเลือกการกำหนดค่าได้',
   'select_required': 'เลือกการกำหนดค่าที่บันทึกไว้ก่อนนำไปใช้',
   'pending_disable': 'รอนำไปใช้: ปิดพร็อกซีแบบลูกโซ่',
   'apply_reconnect': 'นำไปใช้แล้วเชื่อมต่อใหม่',
@@ -499,4 +492,18 @@ const Map<String, String> kChainTh = <String, String>{
   'invalid_key': 'กุญแจต้องเป็นกุญแจ Base64 ที่ถูกต้องขนาด 32 ไบต์',
   'checking': 'กำลังตรวจการกำหนดค่า…',
   'changed': 'บันทึกการเปลี่ยนแปลงแล้ว',
+  "source_group_custom": "การกำหนดค่าของคุณ",
+  "source_group_service": "บริการ",
+  "endpoint_ip": "IP ปลายทาง",
+  "endpoint_select_first": "เลือกการกำหนดค่าเพื่อเปลี่ยนปลายทาง",
+  "delete_blocked": "เลือกอยู่หรือกำลังใช้งาน",
+  "save_select": "บันทึกและเลือก",
+  "switch_source": "สลับไปที่ {source}",
+  "empty_proxy": "เพิ่มพร็อกซีเพื่อเลือกทางออก",
+  "tcp_forwarding": "การส่งต่อ TCP",
+  "verified": "ยืนยันแล้ว",
+  "not_verified": "ยังไม่ยืนยัน",
+  "unavailable": "ใช้ไม่ได้",
+  "udp_association":
+      "ยอมรับการเชื่อมโยงแล้ว ยังไม่ยืนยันการส่งต่อแบบต้นทางถึงปลายทาง",
 };

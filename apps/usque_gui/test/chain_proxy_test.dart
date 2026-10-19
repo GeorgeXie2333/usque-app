@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -12,11 +13,13 @@ import 'package:usque/screens/chain_proxy_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/chain_current_connection.dart';
 import 'package:usque/widgets/chain_proxy_entry.dart';
 import 'package:usque/widgets/chain_source_icon.dart';
 import 'package:usque/widgets/chain_source_picker.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/save_changes_bar.dart';
+import 'package:usque/widgets/usque_dialog.dart';
 import 'ui_workflow_test.dart' show workflowHost, fieldWithLabel;
 import 'vpngate_test.dart' show GateEngine, server;
 
@@ -233,9 +236,7 @@ void main() {
     final app = await hostChain(tester, engine, source: ChainSource.httpProxy);
     await app.setLocale(LocalePreference.simplifiedChinese);
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
-    );
+    await tester.tap(find.text(app.strings.chain('add_proxy')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('chain-proxy-host')),
@@ -281,7 +282,7 @@ void main() {
         final app = await hostChain(tester, engine, source: source);
         final before = app.activeProfile.chainExit;
         expect(find.text('Import file'), findsNothing);
-        await tester.tap(find.widgetWithText(OutlinedButton, 'Add proxy'));
+        await tester.tap(find.text('Add proxy'));
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('chain-proxy-port')), findsOneWidget);
         await tester.enterText(
@@ -313,9 +314,7 @@ void main() {
         engine,
         source: ChainSource.httpProxy,
       );
-      await tester.tap(
-        find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
-      );
+      await tester.tap(find.text(app.strings.chain('add_proxy')));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('chain-proxy-host')),
@@ -364,9 +363,7 @@ void main() {
   ) async {
     final engine = ChainEngine(encryptedDns: false);
     final app = await hostChain(tester, engine, source: ChainSource.httpProxy);
-    await tester.tap(
-      find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
-    );
+    await tester.tap(find.text(app.strings.chain('add_proxy')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('chain-proxy-host')),
@@ -411,9 +408,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
-      );
+      await tester.tap(find.text(app.strings.chain('add_proxy')));
       await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
@@ -650,14 +645,12 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(
-        tester
-            .widget<FilledButton>(
-              find.widgetWithText(FilledButton, 'Save configuration'),
-            )
-            .onPressed,
-        isNull,
-      );
+      for (final key in ['chain-import-save', 'chain-import-save-select']) {
+        expect(
+          tester.widget<ButtonStyleButton>(find.byKey(ValueKey(key))).onPressed,
+          isNull,
+        );
+      }
       expect(engine.actions.where((action) => action == 'import'), isEmpty);
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
@@ -688,10 +681,8 @@ void main() {
     (tester) async {
       final engine = ChainEngine()..library = [imported];
       final app = await hostChain(tester, engine);
-      expect(
-        find.text('Enable chain proxy to select a configuration.'),
-        findsOneWidget,
-      );
+      // Nothing to apply or report yet, so the bar stays out of the way.
+      expect(find.byType(SaveChangesBar), findsNothing);
       await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
       await tester.pumpAndSettle();
       expect(
@@ -709,14 +700,18 @@ void main() {
       await tester.tap(find.text('Office tunnel'));
       await tester.pumpAndSettle();
       expect(find.text('Pending selection: Office tunnel'), findsOneWidget);
+      // A summary already names the pending edit, without a generic line.
+      expect(find.text(app.strings.get('unsaved_changes')), findsNothing);
       expect(find.textContaining('AllowedIPs'), findsNothing);
       await tester.tap(
-        find.byKey(
-          PageStorageKey<String>('chain-profile-details-${imported.id}'),
-        ),
+        find.byKey(ValueKey('chain-profile-menu-${imported.id}')),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Technical details'));
+      await tester.pumpAndSettle();
       expect(find.textContaining('AllowedIPs'), findsOneWidget);
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
       expect(
         tester
             .widget<FilledButton>(
@@ -729,14 +724,20 @@ void main() {
         find.byKey(ValueKey('chain-profile-menu-${imported.id}')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete'));
-      await tester.pumpAndSettle();
-      expect(
-        find.text(
-          'Choose another configuration or clear the saved selection before deleting this configuration.',
-        ),
-        findsOneWidget,
+      // The selected configuration cannot be deleted; the menu says why
+      // instead of failing after the choice.
+      final delete = find.byKey(
+        ValueKey('chain-profile-delete-${imported.id}'),
       );
+      expect(tester.widget<PopupMenuItem<String>>(delete).enabled, isFalse);
+      expect(find.text('Selected or in use'), findsOneWidget);
+      await tester.tap(find.text('Delete'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.byType(UsqueDialog), findsNothing);
+      // Clearing the draft selection is offered in the same menu.
+      await tester.tap(find.text('Clear selection'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pending selection: Office tunnel'), findsNothing);
       expect(engine.actions, isNot(contains('remove')));
       expect(engine.saves, 0);
       expect(app.activeProfile.chainExit!.enabled, isFalse);
@@ -864,12 +865,15 @@ void main() {
       ),
       findsOneWidget,
     );
+    // A failed session marks its configuration as failed, never connected.
+    final row = find.byKey(ValueKey('chain-profile-${imported.id}'));
     expect(
-      find.descendant(
-        of: find.byKey(ValueKey('chain-profile-${imported.id}')),
-        matching: find.text('Current connection'),
-      ),
+      find.descendant(of: row, matching: find.text('Connection failed')),
       findsOneWidget,
+    );
+    expect(
+      find.descendant(of: row, matching: find.text('Current connection')),
+      findsNothing,
     );
   });
 
@@ -1574,6 +1578,8 @@ void main() {
       ]) {
         tester.view.physicalSize = size;
         app.localePreference = locale;
+        // Each layout starts from a fresh page without the previous draft.
+        await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpWidget(
           workflowHost(
             app,
@@ -1582,6 +1588,10 @@ void main() {
             home: ChainProxyScreen(controller: app),
           ),
         );
+        await tester.pumpAndSettle();
+        // Idle, there is nothing to apply or report.
+        expect(find.byType(SaveChangesBar), findsNothing);
+        await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle')));
         await tester.pumpAndSettle();
         Size? barSize;
         for (final source in ChainSource.values) {
@@ -1595,21 +1605,20 @@ void main() {
             find.byKey(const ValueKey('chain-current-connection')),
             findsOneWidget,
           );
+          // The page switch draft is shared, so every source shows its bar
+          // in the same column.
           final bar = find.byType(SaveChangesBar);
           expect(bar, findsOneWidget);
           final currentSize = tester.getSize(bar);
           barSize ??= currentSize;
-          expect(currentSize, barSize);
+          expect(currentSize.width, barSize.width);
           expect(
             find.widgetWithText(FilledButton, app.strings.get('save_changes')),
             findsOneWidget,
           );
           if (source == ChainSource.vpnGate) {
             await tester.scrollUntilVisible(
-              find.widgetWithText(
-                OutlinedButton,
-                app.strings.get('gate_refresh'),
-              ),
+              find.byKey(const ValueKey('vpn-gate-refresh')),
               200,
               scrollable: find
                   .descendant(
@@ -1624,7 +1633,7 @@ void main() {
               find.descendant(
                 of: find.byKey(const ValueKey('chain-gate-directory')),
                 matching: find.widgetWithText(
-                  OutlinedButton,
+                  TextButton,
                   app.strings.get('gate_refresh'),
                 ),
               ),
@@ -1950,9 +1959,7 @@ void main() {
       ChainEngine(),
       source: ChainSource.socks5Proxy,
     );
-    await tester.tap(
-      find.widgetWithText(OutlinedButton, app.strings.chain('add_proxy')),
-    );
+    await tester.tap(find.text(app.strings.chain('add_proxy')));
     await tester.pumpAndSettle();
     final dialog = find.byType(AlertDialog);
     final dns = find.descendant(
@@ -1975,4 +1982,330 @@ void main() {
       greaterThan(tester.getBottomLeft(picker).dy),
     );
   });
+
+  test('the current marker follows the session stage', () {
+    EngineSnapshot session(ConnectionPhase phase, String stage) =>
+        EngineSnapshot(
+          phase: phase,
+          chainExit: ChainExitStatus(stage: stage, currentProfile: imported),
+        );
+    expect(
+      chainCurrentMarker(session(ConnectionPhase.connected, 'connected')),
+      ('current', StatusTone.success),
+    );
+    expect(chainCurrentMarker(session(ConnectionPhase.error, 'error')), (
+      'error',
+      StatusTone.danger,
+    ));
+    expect(chainCurrentMarker(session(ConnectionPhase.connected, 'error')), (
+      'error',
+      StatusTone.danger,
+    ));
+    expect(
+      chainCurrentMarker(session(ConnectionPhase.reconnecting, 'connecting')),
+      ('connecting', StatusTone.brand),
+    );
+    expect(
+      chainCurrentMarker(session(ConnectionPhase.disconnecting, 'connected')),
+      ('disconnecting', StatusTone.neutral),
+    );
+    expect(
+      chainCurrentMarker(
+        const EngineSnapshot(phase: ConnectionPhase.connected),
+      ),
+      isNull,
+    );
+  });
+
+  testWidgets('sources are grouped as own configurations, then services', (
+    tester,
+  ) async {
+    // Every source appears in exactly one group.
+    final grouped = [
+      for (final (_, sources) in ChainSourcePicker.groups) ...sources,
+    ];
+    expect(grouped, hasLength(ChainSource.values.length));
+    expect(grouped.toSet(), ChainSource.values.toSet());
+    await hostChain(tester, ChainEngine());
+    final custom = find.byKey(const ValueKey('chain-source-group-custom'));
+    final service = find.byKey(const ValueKey('chain-source-group-service'));
+    expect(find.text('Your configurations'), findsOneWidget);
+    expect(find.text('Services'), findsOneWidget);
+    double top(ChainSource source) => tester
+        .getTopLeft(find.byKey(ValueKey('chain-source-${source.wire}')))
+        .dy;
+    const own = [
+      ChainSource.openvpnCustom,
+      ChainSource.wireguardCustom,
+      ChainSource.httpProxy,
+      ChainSource.socks5Proxy,
+    ];
+    const services = [
+      ChainSource.warpWireguard,
+      ChainSource.protonVpn,
+      ChainSource.vpnGate,
+    ];
+    for (final source in own) {
+      expect(top(source), top(ChainSource.openvpnCustom));
+    }
+    for (final source in services) {
+      expect(top(source), top(ChainSource.warpWireguard));
+      expect(top(source), greaterThan(top(ChainSource.openvpnCustom)));
+    }
+    expect(
+      tester.getTopLeft(custom).dy,
+      lessThan(tester.getTopLeft(service).dy),
+    );
+
+    tester.view.physicalSize = const Size(390, 900);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('chain-source-picker')));
+    await tester.pumpAndSettle();
+    double option(ChainSource source) => tester
+        .getTopLeft(find.byKey(ValueKey('chain-source-option-${source.wire}')))
+        .dy;
+    final heading = tester.getTopLeft(service).dy;
+    for (final source in own) {
+      expect(option(source), lessThan(heading));
+    }
+    for (final source in services) {
+      expect(option(source), greaterThan(heading));
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'choosing a configuration while the chain is off turns it on in the draft',
+    (tester) async {
+      final engine = ChainEngine()..library = [imported];
+      final app = await hostChain(tester, engine);
+      final toggle = find.byKey(const ValueKey('chain-proxy-toggle'));
+      final row = find.byKey(ValueKey('chain-profile-${imported.id}'));
+      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+      expect(tester.widget<RadioListTile<String>>(row).enabled, isTrue);
+      await tester.tap(find.text('Office tunnel'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      expect(find.text('Pending selection: Office tunnel'), findsOneWidget);
+      expect(engine.saves, 0);
+      expect(app.activeProfile.chainExit!.enabled, isFalse);
+    },
+  );
+
+  testWidgets(
+    'pasted text is checked after a pause and moves to the source it fits',
+    (tester) async {
+      const wireguard =
+          '[Interface]\nPrivateKey = fixture\n[Peer]\nEndpoint = vpn.example:51820\n';
+      final engine = ChainEngine();
+      await hostChain(tester, engine, source: ChainSource.openvpnCustom);
+      await tester.tap(find.text('Paste configuration'));
+      await tester.pumpAndSettle();
+      await tester.enterText(fieldWithLabel('Configuration text'), wireguard);
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'This looks like a WireGuard configuration. Switch the exit source to WireGuard.',
+        ),
+        findsOneWidget,
+      );
+      expect(engine.actions, isNot(contains('preview')));
+      await tester.tap(find.byKey(const ValueKey('chain-import-switch')));
+      await tester.pumpAndSettle();
+      // The WireGuard editor reopens the import with the same text and
+      // checks it there.
+      expect(
+        tester
+            .widget<ChoiceChip>(
+              find.byKey(const ValueKey('chain-source-wireguard_custom')),
+            )
+            .selected,
+        isTrue,
+      );
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(fieldWithLabel('Configuration text'))
+            .controller!
+            .text,
+        wireguard,
+      );
+      expect(engine.actions, contains('preview'));
+      expect(engine.lastRequest!['source'], 'wireguard_custom');
+      expect(engine.actions, isNot(contains('import')));
+    },
+  );
+
+  testWidgets(
+    'an edit during a check discards its result and checks the new text',
+    (tester) async {
+      final engine = _SlowPreviewEngine();
+      await hostChain(tester, engine);
+      await tester.tap(find.text('Paste configuration'));
+      await tester.pumpAndSettle();
+      final field = fieldWithLabel('Configuration text');
+      await tester.enterText(field, '[Interface]\nPrivateKey = first\n');
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(engine.checks, hasLength(1));
+      // The field stays editable while the first check runs.
+      expect(tester.widget<TextField>(field).enabled, isNot(false));
+      await tester.enterText(field, '[Interface]\nPrivateKey = second\n');
+      engine.checks.removeAt(0).complete();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('chain-import-save')), findsOneWidget);
+      expect(
+        tester
+            .widget<ButtonStyleButton>(
+              find.byKey(const ValueKey('chain-import-save')),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(engine.checks, hasLength(1));
+      expect(engine.lastRequest!['configuration'], contains('second'));
+      engine.checks.removeAt(0).complete();
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ButtonStyleButton>(
+              find.byKey(const ValueKey('chain-import-save')),
+            )
+            .onPressed,
+        isNotNull,
+      );
+    },
+  );
+
+  testWidgets('save and select stages an import without connecting', (
+    tester,
+  ) async {
+    final engine = ChainEngine();
+    final app = await hostChain(tester, engine);
+    await tester.tap(find.text('Paste configuration'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      fieldWithLabel('Configuration text'),
+      '[Interface]\nPrivateKey = fixture\n[Peer]\nEndpoint = vpn.example:51820\n',
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+    expect(engine.actions, contains('preview'));
+    await tester.tap(find.byKey(const ValueKey('chain-import-save-select')));
+    await tester.pumpAndSettle();
+    expect(engine.actions, contains('import'));
+    expect(find.byType(Dialog), findsNothing);
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const ValueKey('chain-proxy-toggle')),
+          )
+          .value,
+      isTrue,
+    );
+    expect(find.text('Pending selection: vpn.example'), findsOneWidget);
+    expect(engine.saves, 0);
+    expect(app.activeProfile.chainExit!.profileId, isNull);
+  });
+
+  testWidgets('the proxy form can save and select in one step', (tester) async {
+    final engine = ChainEngine()
+      ..previewProfile = const ChainProfileSummary(
+        id: 'proxy',
+        revision: 'r1',
+        editRevision: 'e1',
+        name: 'Proxy',
+        protocol: 'http_connect',
+        source: ChainSource.httpProxy,
+        host: 'proxy.example',
+        port: 8080,
+      );
+    final app = await hostChain(tester, engine, source: ChainSource.httpProxy);
+    await tester.tap(find.text('Add proxy'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('chain-proxy-host')),
+      'proxy.example',
+    );
+    await tester.tap(find.byKey(const ValueKey('chain-proxy-save-select')));
+    await tester.pumpAndSettle();
+    expect(find.text('Pending selection: proxy.example'), findsOneWidget);
+    expect(engine.saves, 0);
+    expect(app.activeProfile.chainExit!.enabled, isFalse);
+  });
+
+  testWidgets('proxy exits report TCP and UDP as labelled facts', (
+    tester,
+  ) async {
+    const proxy = ChainProfileSummary(
+      id: 'proxy',
+      revision: 'r1',
+      editRevision: 'e1',
+      name: 'Corp proxy',
+      protocol: 'socks5',
+      source: ChainSource.socks5Proxy,
+      host: 'proxy.example',
+      port: 1080,
+    );
+    final engine = ChainEngine()..library = [proxy];
+    final app = await hostChain(
+      tester,
+      engine,
+      source: ChainSource.socks5Proxy,
+    );
+    for (final (udp, label) in [
+      ('unavailable', 'Unavailable'),
+      ('available', app.strings.chain('udp_association')),
+      (null, 'Not verified'),
+    ]) {
+      engine.current = EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        chainExit: ChainExitStatus(
+          stage: 'connected',
+          currentProfile: proxy,
+          proxyUdp: udp,
+          tcpConnectVerified: udp == 'available',
+        ),
+      );
+      await app.refreshSnapshot();
+      await tester.pumpAndSettle();
+      final current = find.byKey(const ValueKey('chain-current-connection'));
+      ReadoutRow fact(String name) => tester.widget<ReadoutRow>(
+        find.descendant(
+          of: current,
+          matching: find.byWidgetPredicate(
+            (widget) => widget is ReadoutRow && widget.label == name,
+          ),
+        ),
+      );
+      expect((fact('UDP').value as Text).data, label);
+      expect(
+        (fact('TCP forwarding').value as Text).data,
+        udp == 'available' ? 'Verified' : 'Not verified',
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('chain-profile-proxy')),
+          matching: find.text('Current connection'),
+        ),
+        findsOneWidget,
+      );
+    }
+  });
+}
+
+/// Holds each check open until the test completes it.
+class _SlowPreviewEngine extends ChainEngine {
+  final checks = <Completer<void>>[];
+  @override
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request) async {
+    if (request['action'] == 'preview') {
+      final gate = Completer<void>();
+      checks.add(gate);
+      lastRequest = Map.of(request);
+      await gate.future;
+    }
+    return super.chainProfile(request);
+  }
 }

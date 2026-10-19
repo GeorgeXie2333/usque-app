@@ -155,35 +155,42 @@ class WarpWireguardPanelState extends State<WarpWireguardPanel> {
       title: 'WARP via WireGuard',
       gap: 12,
       children: [
-        TextField(
-          controller: _ip,
-          enabled: widget.endpoint != null,
-          decoration: const InputDecoration(labelText: 'Endpoint IP'),
-          onChanged: (_) => _edit(),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _port,
-          enabled: widget.endpoint != null,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            labelText: strings.get('port'),
-            errorText: _invalid ? strings.chain('invalid_endpoint') : null,
+        // The endpoint belongs to a selected configuration; until one is
+        // chosen there is nothing to edit, so the fields stay out of view.
+        if (widget.endpoint == null)
+          HintText(strings.chain('endpoint_select_first'))
+        else ...[
+          TextField(
+            key: const ValueKey('warp-endpoint-ip'),
+            controller: _ip,
+            decoration: InputDecoration(
+              labelText: strings.chain('endpoint_ip'),
+            ),
+            onChanged: (_) => _edit(),
           ),
-          onChanged: (_) => _edit(),
-        ),
-        Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: TextButton(
-            onPressed: widget.overrideEndpoint == null
-                ? null
-                : () {
-                    widget.onValid(true);
-                    widget.onEndpoint(null);
-                  },
-            child: Text(strings.get('reset')),
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey('warp-endpoint-port'),
+            controller: _port,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: strings.get('port'),
+              errorText: _invalid ? strings.chain('invalid_endpoint') : null,
+            ),
+            onChanged: (_) => _edit(),
           ),
-        ),
+          if (widget.overrideEndpoint != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                onPressed: () {
+                  widget.onValid(true);
+                  widget.onEndpoint(null);
+                },
+                child: Text(strings.get('reset')),
+              ),
+            ),
+        ],
         if (_running)
           Align(
             alignment: AlignmentDirectional.centerStart,

@@ -360,9 +360,6 @@ const Map<String, String> kChainVi = <String, String>{
   "proxy_hint":
       "Kết nối qua WARP. HTTP truyền TCP; SOCKS5 còn có thể truyền UDP với H3/H2.",
   "dns_inherit": "Để trống để dùng DNS mạng. Truy vấn đi qua đầu ra này.",
-  "proxy_ready": "Sẵn sàng · chưa xác minh chuyển tiếp TCP",
-  "proxy_verified": "Đã xác minh chuyển tiếp TCP",
-  "udp_unknown": "UDP: chưa xác minh",
   "scope_proxy_only":
       "Usque chỉ chuyển tiếp qua proxy những kết nối mà ứng dụng gửi tới. Các kết nối khác có thể làm lộ IP công cộng của thiết bị.",
   "scope_bypass":
@@ -371,9 +368,6 @@ const Map<String, String> kChainVi = <String, String>{
       "Kết nối đã gián đoạn. Thiết bị có thể trở về kết nối mạng thông thường.",
   "scope_android_settings":
       "Để tiếp tục chặn sau khi dịch vụ dừng, hãy bật VPN luôn bật và Chặn kết nối không qua VPN trong cài đặt hệ thống.",
-  "udp_available":
-      "Đã chấp nhận liên kết UDP; chưa xác minh chuyển tiếp đầu cuối",
-  "udp_unavailable": "UDP không khả dụng",
 
   "batch_title": "Nhập cấu hình",
   "batch_counts":
@@ -436,7 +430,6 @@ const Map<String, String> kChainVi = <String, String>{
       'Nhập tệp .conf hoặc dán nội dung. Hỗ trợ một mục [Interface] và một mục [Peer].',
   'import_limits':
       'Cấu hình phải là văn bản UTF-8 tối đa 128 KiB. Nếu không có hộp chọn tệp, hãy dán văn bản.',
-  'enable_to_choose': 'Bật proxy chuỗi để chọn cấu hình.',
   'select_required': 'Hãy chọn một cấu hình đã lưu trước khi áp dụng.',
   'pending_disable': 'Đang chờ: tắt proxy chuỗi',
   'apply_reconnect': 'Áp dụng và kết nối lại',
@@ -510,4 +503,18 @@ const Map<String, String> kChainVi = <String, String>{
   'invalid_key': 'Khóa phải là khóa Base64 hợp lệ dài 32 byte.',
   'checking': 'Đang kiểm tra cấu hình…',
   'changed': 'Đã lưu thay đổi',
+  "source_group_custom": "Cấu hình của bạn",
+  "source_group_service": "Dịch vụ",
+  "endpoint_ip": "IP endpoint",
+  "endpoint_select_first": "Chọn một cấu hình để thay đổi endpoint của nó.",
+  "delete_blocked": "Đã chọn hoặc đang dùng",
+  "save_select": "Lưu và chọn",
+  "switch_source": "Chuyển sang {source}",
+  "empty_proxy": "Thêm proxy để chọn lối ra.",
+  "tcp_forwarding": "Chuyển tiếp TCP",
+  "verified": "Đã xác minh",
+  "not_verified": "Chưa xác minh",
+  "unavailable": "Không khả dụng",
+  "udp_association":
+      "Đã chấp nhận liên kết; chưa xác minh chuyển tiếp đầu cuối",
 };

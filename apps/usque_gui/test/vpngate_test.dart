@@ -290,13 +290,15 @@ void main() {
       await tester.ensureVisible(tab);
       await tester.tap(tab);
       await tester.pumpAndSettle();
+      // Nodes stay selectable while the chain is off; choosing one only
+      // turns the chain on in the draft.
       expect(
         tester
             .widget<RadioListTile<(String, String)>>(
               find.byKey(const ValueKey('vpn-gate-node-v1:node')),
             )
             .enabled,
-        isFalse,
+        isTrue,
       );
       engine.nodes = [];
       await tester.tap(find.text('Refresh list'));
@@ -522,11 +524,9 @@ void main() {
       expect(engine.refreshes, 0);
       expect(find.text(app.strings.chain('disabled')), findsOneWidget);
       expect(find.text('Connected server'), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
-      await tester.pumpAndSettle();
-      expect(engine.saves, 0);
-      expect(app.activeProfile.vpnGate.hasSelection, isFalse);
-      await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
+      expect(find.byType(VpnGateSelectionBar), findsNothing);
+      final toggle = find.byKey(const ValueKey('vpn-gate-toggle'));
+      await tester.tap(toggle);
       await tester.pumpAndSettle();
       expect(
         tester
@@ -534,9 +534,15 @@ void main() {
             .onPressed,
         isNull,
       );
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.byType(VpnGateSelectionBar), findsNothing);
+      // Choosing a node while the chain is off turns it on in the draft only.
       await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
       await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
       expect(engine.saves, 0);
+      expect(app.activeProfile.vpnGate.hasSelection, isFalse);
       await tester.tap(find.byKey(const ValueKey('vpn-gate-apply')));
       await tester.pumpAndSettle();
       expect(engine.saves, 1);
@@ -578,7 +584,7 @@ void main() {
   });
 
   testWidgets(
-    'current and draft flags survive a missing catalog node and a disabled list',
+    'current and draft flags survive a missing catalog node and a disabled chain',
     (tester) async {
       final engine = GateEngine();
       final app = await host(tester, engine);
@@ -607,9 +613,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(toggle);
       await tester.pumpAndSettle();
+      // Turning the chain off keeps the list readable and selectable.
       expect(
         tester.widget<RadioListTile<(String, String)>>(node).enabled,
-        isFalse,
+        isTrue,
       );
       expect(
         tester
@@ -617,7 +624,7 @@ void main() {
               find.descendant(of: node, matching: find.byType(CountryFlag)),
             )
             .enabled,
-        isFalse,
+        isTrue,
       );
       final connected = tester
           .widgetList<CountryFlag>(find.byType(CountryFlag))

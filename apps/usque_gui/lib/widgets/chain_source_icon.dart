@@ -23,13 +23,23 @@ class ChainSourceIcon extends StatelessWidget {
       ChainSource.openvpnCustom => 'openvpn',
       ChainSource.wireguardCustom => 'wireguard',
       ChainSource.warpWireguard => 'warp-wireguard',
+      ChainSource.protonVpn => 'proton-vpn',
       ChainSource.vpnGate ||
-      ChainSource.protonVpn ||
       ChainSource.httpProxy ||
       ChainSource.socks5Proxy => null,
     };
     if (asset == null) {
-      return Icon(LucideIcons.globe, size: size, color: tint);
+      // Each source keeps its own glyph so the two proxy protocols and the
+      // public directory stay distinguishable without reading their names.
+      return Icon(
+        switch (source) {
+          ChainSource.httpProxy => LucideIcons.server,
+          ChainSource.socks5Proxy => LucideIcons.cable,
+          _ => LucideIcons.globe,
+        },
+        size: size,
+        color: tint,
+      );
     }
     return SvgPicture.asset(
       'assets/icons/$asset.svg',

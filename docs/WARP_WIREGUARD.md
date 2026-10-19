@@ -21,10 +21,11 @@ the MASQUE tunnel. Saving a configuration neither selects it nor connects it.
 The private key is encrypted using the same platform storage as imported
 configurations. The outer MASQUE identity is not converted or overwritten.
 
-Enable the chain and select a saved configuration. Edit **Endpoint IP** and
-**Port**. An override accepts an IPv4 or IPv6 literal
-and a port from 1 through 65535. **Reset** restores the configuration's original
-endpoint. Edits remain drafts until **Apply changes** or **Apply and reconnect**.
+Select a saved configuration; this also turns on the chain in the draft. Its
+**Endpoint IP** and **Port** then appear below the list; until a configuration
+is selected, that section only says so. An override accepts an IPv4 or IPv6
+literal and a port from 1 through 65535. **Reset** appears once an override
+exists and restores the configuration's original endpoint. Edits remain drafts until **Apply changes** or **Apply and reconnect**.
 A disconnected application remains disconnected after saving.
 
 点击**生成 WARP 配置**可注册独立的免费 WireGuard 身份，也可导入或粘贴已有
@@ -32,9 +33,9 @@ WARP WireGuard 配置。生成需要已有 MASQUE 账号及连接设置，注册
 MASQUE 隧道。保存配置不会自动选用或连接，私钥使用现有平台加密存储，
 不会转换或覆盖外层 MASQUE 身份。
 
-启用链式代理并选择配置后，可编辑 **Endpoint IP** 和**端口**。IP 支持 IPv4／IPv6
-字面地址，端口范围为 1–65535。**重置**恢复原始
-配置端点。修改进入草稿，通过**应用更改**或**应用并重新连接**生效；未连接时
+选择配置（同时在草稿中启用链式代理）后，列表下方显示**端点 IP** 和**端口**；
+未选择配置时该区域只给出提示。IP 支持 IPv4／IPv6 字面地址，端口范围为 1–65535。
+存在覆盖值时显示**重置**，用于恢复原始配置端点。修改进入草稿，通过**应用更改**或**应用并重新连接**生效；未连接时
 应用只保存设置。原始私钥配置不会因修改端点而被重写。
 
 ## Connection retries / 连接重试

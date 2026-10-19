@@ -791,7 +791,9 @@ void main() {
                   findsNothing,
                 );
                 if (fixture.scene == _Scene.protonNodes) {
-                  final change = find.text(app.strings.proton('change_server'));
+                  final change = find.byKey(
+                    const ValueKey('proton-account-server-fixture-proton'),
+                  );
                   await tester.ensureVisible(change);
                   await tester.tap(change);
                   await tester.pumpAndSettle();
@@ -801,7 +803,9 @@ void main() {
                     app.strings.proton('verify'),
                   ),
                   _Scene.protonNodes => find.text('NL-FREE#2'),
-                  _ => find.text(app.strings.proton('remove_account')),
+                  _ => find.byKey(
+                    const ValueKey('proton-account-menu-fixture-proton'),
+                  ),
                 };
                 await tester.ensureVisible(target);
                 await tester.pumpAndSettle();

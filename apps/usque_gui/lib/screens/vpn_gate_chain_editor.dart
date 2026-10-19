@@ -607,18 +607,29 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
               () =>
                   _updateDraft(_draft.copyWith(enabled: enabled), _draftServer),
             );
+      final statusLabel =
+          !_dirty ||
+              _controller.networkSettings.unconfirmed ||
+              _controller.networkSettings.saveError != null
+          ? _controller.networkSettingsMessage
+          : null;
+      // With nothing to apply or report, the bar would only hold a disabled
+      // button, so it appears with the first edit, save or status instead.
+      final showBar =
+          _dirty ||
+          _saving ||
+          _nodeOperation != null ||
+          _nodeError != null ||
+          _saveError != null ||
+          statusLabel != null ||
+          _controller.networkSettings.canRefresh;
       final bottomBar = VpnGateSelectionBar(
         strings: strings,
         onRefresh: _controller.networkSettings.canRefresh
             ? _controller.networkSettings.refresh
             : null,
         refreshing: _controller.networkSettings.refreshing,
-        statusLabel:
-            !_dirty ||
-                _controller.networkSettings.unconfirmed ||
-                _controller.networkSettings.saveError != null
-            ? _controller.networkSettingsMessage
-            : null,
+        statusLabel: statusLabel,
         draft: _draft,
         savedEnabled: _baseline.enabled,
         dirty: _dirty,
@@ -643,6 +654,10 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
           : refreshing
           ? _cancelRefresh
           : _refresh;
+      final now = widget.now();
+      final fetchedAt = _directory.sourceFetchedAt;
+      final age = fetchedAt == null ? null : now.difference(fetchedAt);
+      final theme = Theme.of(context);
       final slivers = <Widget>[
         SliverToBoxAdapter(
           child: FocusTraversalGroup(
@@ -652,21 +667,39 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
               gap: 12,
               subtitle:
                   '${strings.get('gate_source_metrics')} ${strings.get('gate_tcp_scope')}',
+              // Refresh belongs to the list it updates, beside its heading.
+              trailing: TextButton.icon(
+                key: const ValueKey('vpn-gate-refresh'),
+                onPressed: onRefresh,
+                icon: Icon(
+                  refreshing ? LucideIcons.x : LucideIcons.refreshCw,
+                  size: 18,
+                ),
+                label: Text(
+                  strings.get(refreshing ? 'cancel' : 'gate_refresh'),
+                ),
+              ),
               children: [
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: OutlinedButton.icon(
-                    key: const ValueKey('vpn-gate-refresh'),
-                    onPressed: onRefresh,
-                    icon: Icon(
-                      refreshing ? LucideIcons.x : LucideIcons.refreshCw,
-                    ),
-                    label: Text(
-                      strings.get(refreshing ? 'cancel' : 'gate_refresh'),
-                    ),
+                Text(
+                  key: const ValueKey('vpn-gate-list-age'),
+                  '${strings.get('gate_source_fetched')}: ${vpnGateObservationAge(fetchedAt, now, strings)}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                const SizedBox(height: 12),
+                if (age != null && age > const Duration(hours: 3))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: InlineStatus(
+                      label: strings.get(
+                        age > const Duration(hours: 24)
+                            ? 'gate_source_very_old'
+                            : 'gate_source_old',
+                      ),
+                      tone: StatusTone.warning,
+                    ),
+                  ),
+                const SizedBox(height: 16),
                 if (_fetchError != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
@@ -779,31 +812,22 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
                   ),
                 ],
               ),
+              // Provenance and licensing stay one tap away instead of
+              // trailing the list as a second section.
               ContentSection(
-                title: strings.get('gate_directory'),
                 children: [
-                  Text(
-                    '${strings.get('gate_source_fetched')}: ${_time(_directory.sourceFetchedAt)}',
-                  ),
-                  if (_directory.sourceFetchedAt != null &&
-                      DateTime.now().difference(_directory.sourceFetchedAt!) >
-                          const Duration(hours: 3))
-                    Text(
-                      strings.get(
-                        DateTime.now().difference(_directory.sourceFetchedAt!) >
-                                const Duration(hours: 24)
-                            ? 'gate_source_very_old'
-                            : 'gate_source_old',
-                      ),
-                    ),
                   ExpansionTile(
                     key: const PageStorageKey<String>(
                       'vpn-gate-source-details',
                     ),
-                    title: Text(strings.get('technical_details')),
+                    tilePadding: EdgeInsets.zero,
+                    title: Text(strings.get('gate_directory')),
                     expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-                    childrenPadding: const EdgeInsets.all(12),
+                    childrenPadding: const EdgeInsets.only(bottom: 12),
                     children: [
+                      Text(
+                        '${strings.get('gate_source_fetched')}: ${_time(_directory.sourceFetchedAt)}',
+                      ),
                       Text(
                         '${strings.get('gate_received')}: ${_directory.fetchedAt?.toLocal().toString().split('.').first ?? '—'}',
                       ),
@@ -823,19 +847,19 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
                         ),
                       ),
                       Text(strings.get('gate_freshness')),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: TextButton(
+                          onPressed: () => showLicensePage(
+                            context: context,
+                            applicationName: 'Usque',
+                          ),
+                          child: Text(
+                            MaterialLocalizations.of(context).licensesPageTitle,
+                          ),
+                        ),
+                      ),
                     ],
-                  ),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton(
-                      onPressed: () => showLicensePage(
-                        context: context,
-                        applicationName: 'Usque',
-                      ),
-                      child: Text(
-                        MaterialLocalizations.of(context).licensesPageTitle,
-                      ),
-                    ),
                   ),
                   if (_directory.failures.isNotEmpty)
                     ExpansionTile(
@@ -863,7 +887,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       final page = widget.chainPageBuilder(
         enabled: _draft.enabled,
         onEnabledChanged: onEnabledChanged,
-        bottomBar: bottomBar,
+        bottomBar: showBar ? bottomBar : null,
         warning: !supported
             ? WarningBanner(
                 title: strings.get('error_generic'),
@@ -887,10 +911,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
         child: RadioGroup<(String, String)>(
           groupValue: (_draft.serverId, _draft.configSha256),
           onChanged: (value) {
-            if (value == null ||
-                !_draft.enabled ||
-                _saving ||
-                _nodeOperation != null) {
+            if (value == null || _saving || _nodeOperation != null) {
               return;
             }
             final server = _directory.servers
@@ -905,7 +926,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
   );
   Widget _serverRow(VpnGateServer server, AppStrings strings) {
     final selected = server.matches(_draft);
-    final enabled = _draft.enabled && !_saving && _nodeOperation == null;
+    final enabled = !_saving && _nodeOperation == null;
     final supported =
         _controller.engineCapabilities?.vpnGatePoolFavorites ?? false;
     final favorite = server.favorite;
@@ -939,10 +960,12 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
     );
   }
 
+  /// Choosing a node also turns the chain on in the draft; nothing changes
+  /// until the draft is applied.
   void _selectServer(VpnGateServer server) {
     if (!server.matches(_draft)) unawaited(_releaseDraft());
     setState(() {
-      _updateDraft(_draft.copyWith(server: server), server);
+      _updateDraft(_draft.copyWith(enabled: true, server: server), server);
       _saveError = null;
     });
   }

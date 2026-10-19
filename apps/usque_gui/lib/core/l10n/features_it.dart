@@ -395,9 +395,6 @@ const Map<String, String> kChainIt = <String, String>{
       "Connessione tramite WARP. HTTP trasporta TCP; SOCKS5 può trasportare anche UDP con H3/H2.",
   "dns_inherit":
       "Lascia vuoto per ereditare il DNS di rete. Le richieste usano questa uscita.",
-  "proxy_ready": "Pronto · inoltro TCP non verificato",
-  "proxy_verified": "Inoltro TCP verificato",
-  "udp_unknown": "UDP: non verificato",
   "scope_proxy_only":
       "Usque inoltra solo le connessioni che le app gli inviano. Le altre connessioni possono rivelare il tuo indirizzo IP pubblico.",
   "scope_bypass":
@@ -406,9 +403,6 @@ const Map<String, String> kChainIt = <String, String>{
       "La connessione si è interrotta. Il dispositivo potrebbe tornare alla normale connessione di rete.",
   "scope_android_settings":
       "Per mantenere il blocco dopo l’arresto del servizio, attiva VPN sempre attiva e Blocca connessioni senza VPN nelle impostazioni di sistema.",
-  "udp_available":
-      "Associazione UDP accettata; inoltro end-to-end non verificato",
-  "udp_unavailable": "UDP non disponibile",
 
   "batch_title": "Importa configurazioni",
   "batch_counts":
@@ -473,8 +467,6 @@ const Map<String, String> kChainIt = <String, String>{
       'Importa un file .conf o incolla il testo. Sono supportate una sezione [Interface] e una [Peer].',
   'import_limits':
       'Le configurazioni devono essere testo UTF-8 fino a 128 KiB. Senza selettore di file, incolla il testo.',
-  'enable_to_choose':
-      'Attiva il proxy a catena per scegliere una configurazione.',
   'select_required': 'Seleziona una configurazione salvata da applicare.',
   'pending_disable': 'In attesa: disattiva il proxy a catena',
   'apply_reconnect': 'Applica e riconnetti',
@@ -555,4 +547,19 @@ const Map<String, String> kChainIt = <String, String>{
   'invalid_key': 'La chiave deve essere una chiave Base64 valida di 32 byte.',
   'checking': 'Controllo della configurazione…',
   'changed': 'Modifiche salvate',
+  "source_group_custom": "Le tue configurazioni",
+  "source_group_service": "Servizi",
+  "endpoint_ip": "IP dell'endpoint",
+  "endpoint_select_first":
+      "Seleziona una configurazione per modificarne l'endpoint.",
+  "delete_blocked": "Selezionata o in uso",
+  "save_select": "Salva e seleziona",
+  "switch_source": "Passa a {source}",
+  "empty_proxy": "Aggiungi un proxy per scegliere un'uscita.",
+  "tcp_forwarding": "Inoltro TCP",
+  "verified": "Verificato",
+  "not_verified": "Non verificato",
+  "unavailable": "Non disponibile",
+  "udp_association":
+      "Associazione accettata; inoltro end-to-end non verificato",
 };

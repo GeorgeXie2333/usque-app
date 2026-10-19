@@ -70,7 +70,11 @@ class SaveChangesBar extends StatelessWidget {
         (saving
             ? strings.get('saving_changes')
             : dirty
-            ? strings.get('unsaved_changes')
+            // A summary already names the pending edit; repeating that edits
+            // exist would only add a line.
+            ? summary == null
+                  ? strings.get('unsaved_changes')
+                  : null
             : saved
             ? savedLabel ?? strings.get('changes_applied')
             : idleHint ?? strings.get('changes_apply_hint'));
@@ -85,7 +89,7 @@ class SaveChangesBar extends StatelessWidget {
   Widget _buildBar(
     BuildContext context,
     ThemeData theme,
-    String message,
+    String? message,
     VoidCallback? onSaveEnabled,
   ) {
     return Material(
@@ -113,26 +117,30 @@ class SaveChangesBar extends StatelessWidget {
                 constraints: BoxConstraints(maxWidth: contentWidth),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final statusText = Semantics(
-                      liveRegion: true,
-                      child: Text(
-                        message,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: validationError != null || error != null
-                              ? theme.colorScheme.error
-                              : theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    );
+                    final statusText = message == null
+                        ? null
+                        : Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              message,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: validationError != null || error != null
+                                    ? theme.colorScheme.error
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          );
                     final status = summary == null
-                        ? statusText
+                        ? statusText!
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              summary!,
-                              const SizedBox(height: 6),
-                              statusText,
+                              Semantics(liveRegion: true, child: summary!),
+                              if (statusText != null) ...[
+                                const SizedBox(height: 6),
+                                statusText,
+                              ],
                             ],
                           );
                     final saveButton = FilledButton.icon(

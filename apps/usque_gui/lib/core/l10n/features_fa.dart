@@ -359,9 +359,6 @@ const Map<String, String> kChainFa = <String, String>{
       "اتصال از طریق WARP. پروتکل HTTP از TCP و SOCKS5 با H3/H2 از UDP نیز پشتیبانی می‌کند.",
   "dns_inherit":
       "برای استفاده از DNS شبکه خالی بگذارید. پرس‌وجوها از این خروجی عبور می‌کنند.",
-  "proxy_ready": "آماده · ارسال TCP تأیید نشده",
-  "proxy_verified": "ارسال TCP تأیید شد",
-  "udp_unknown": "UDP: تأیید نشده",
   "scope_proxy_only":
       "Usque فقط اتصال‌هایی را پروکسی می‌کند که برنامه‌ها به آن می‌فرستند. اتصال‌های دیگر ممکن است IP عمومی دستگاه شما را آشکار کنند.",
   "scope_bypass":
@@ -370,8 +367,6 @@ const Map<String, String> kChainFa = <String, String>{
       "اتصال قطع شده است. دستگاه ممکن است به اتصال عادی شبکه برگردد.",
   "scope_android_settings":
       "برای ادامهٔ مسدودسازی پس از توقف سرویس، VPN همیشه‌روشن و مسدودسازی اتصال‌های بدون VPN را در تنظیمات سیستم فعال کنید.",
-  "udp_available": "ارتباط UDP پذیرفته شد؛ انتقال سرتاسری تأیید نشده است",
-  "udp_unavailable": "UDP در دسترس نیست",
 
   "batch_title": "وارد کردن پیکربندی‌ها",
   "batch_counts":
@@ -435,7 +430,6 @@ const Map<String, String> kChainFa = <String, String>{
       'یک پروندهٔ ‎.conf وارد کنید یا متن آن را بچسبانید. یک بخش [Interface] و یک بخش [Peer] پشتیبانی می‌شود.',
   'import_limits':
       'پیکربندی باید متن UTF-8 تا ۱۲۸ کیبی‌بایت باشد. اگر انتخابگر پرونده نیست، متن را بچسبانید.',
-  'enable_to_choose': 'برای انتخاب پیکربندی، پروکسی زنجیره‌ای را فعال کنید.',
   'select_required': 'پیش از اعمال، یک پیکربندی ذخیره‌شده انتخاب کنید.',
   'pending_disable': 'در انتظار اعمال: خاموش کردن پروکسی زنجیره‌ای',
   'apply_reconnect': 'اعمال و اتصال دوباره',
@@ -513,4 +507,17 @@ const Map<String, String> kChainFa = <String, String>{
   'invalid_key': 'کلید باید یک کلید Base64 معتبر ۳۲ بایتی باشد.',
   'checking': 'در حال بررسی پیکربندی…',
   'changed': 'تغییرات ذخیره شد',
+  "source_group_custom": "پیکربندی‌های شما",
+  "source_group_service": "سرویس‌ها",
+  "endpoint_ip": "IP نقطهٔ پایانی",
+  "endpoint_select_first": "برای تغییر نقطهٔ پایانی، یک پیکربندی انتخاب کنید.",
+  "delete_blocked": "انتخاب‌شده یا در حال استفاده",
+  "save_select": "ذخیره و انتخاب",
+  "switch_source": "رفتن به {source}",
+  "empty_proxy": "برای انتخاب خروجی، یک پروکسی اضافه کنید.",
+  "tcp_forwarding": "ارسال TCP",
+  "verified": "تأیید شد",
+  "not_verified": "تأیید نشده",
+  "unavailable": "در دسترس نیست",
+  "udp_association": "ارتباط پذیرفته شد؛ انتقال سرتاسری تأیید نشده است",
 };

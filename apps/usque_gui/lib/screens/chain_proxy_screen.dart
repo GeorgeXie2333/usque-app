@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/chain_strings.dart';
 import '../core/proton_strings.dart';
+import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../core/warp_strings.dart';
 import '../models/app_models.dart';
@@ -72,6 +73,9 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
 
   /// The page switch as the user last left it, under any source.
   bool? _enabled;
+
+  /// Configuration text that belonged to another source, reopened there.
+  _CarriedImport? _carried;
   late ChainExitSettings? _storedExit =
       widget.controller.activeProfile.chainExit;
   AppController get _app => widget.controller;
@@ -151,6 +155,15 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
     setState(() => _source = source);
   }
 
+  /// Moves an import to the source its text belongs to and reopens it there.
+  void _switchWithImport(ChainSource source, _CarriedImport carried) {
+    if (source == _source) return;
+    setState(() {
+      _source = source;
+      _carried = carried;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_source == ChainSource.vpnGate) {
@@ -167,6 +180,9 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
         otherPending: _otherPending(ChainSource.vpnGate),
       );
     }
+    // The carried import opens once, in the editor created for its source.
+    final carried = _carried;
+    _carried = null;
     return _CustomChainEditor(
       key: ValueKey(_source),
       controller: _app,
@@ -176,13 +192,15 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
       initialDraft: _initialDraft(_source),
       onDraftChanged: _retain,
       otherPending: _otherPending(_source),
+      carriedImport: carried,
+      onSwitchWithImport: _switchWithImport,
     );
   }
 
   Widget _buildPage({
     required bool enabled,
     required ValueChanged<bool>? onEnabledChanged,
-    required Widget bottomBar,
+    required Widget? bottomBar,
     required List<Widget> slivers,
     Widget? warning,
   }) => SubPage(
@@ -190,11 +208,26 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
     subtitle: _app.strings.chain('subtitle'),
     backLabel: _app.strings.get('back'),
     contentWidth: 880,
-    bottomBar: ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * .45,
+    // With nothing to apply or report, the bar would only hold a disabled
+    // button, so it appears with the first edit, save or status instead.
+    bottomBar: AnimatedSwitcher(
+      duration: UsqueMotion.of(context, UsqueMotion.fast),
+      switchInCurve: UsqueMotion.standard,
+      switchOutCurve: UsqueMotion.exit,
+      transitionBuilder: (child, animation) => SizeTransition(
+        sizeFactor: animation,
+        alignment: AlignmentDirectional.topStart,
+        child: child,
       ),
-      child: SingleChildScrollView(primary: false, child: bottomBar),
+      child: bottomBar == null
+          ? const SizedBox(width: double.infinity)
+          : ConstrainedBox(
+              key: const ValueKey('chain-bottom-bar'),
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * .45,
+              ),
+              child: SingleChildScrollView(primary: false, child: bottomBar),
+            ),
     ),
     slivers: [
       SliverToBoxAdapter(
@@ -218,16 +251,18 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
                   onChanged: onEnabledChanged,
                 ),
               ),
+              // The running exit comes before browsing, so a failure stays
+              // in view whichever source is open below.
+              ChainCurrentConnection(
+                controller: _app,
+                configuredEnabled: _app.activeProfile.chainEnabled,
+              ),
               ChainSourcePicker(
                 controller: _app,
                 source: _source,
                 onChanged: _switch,
               ),
               ?warning,
-              ChainCurrentConnection(
-                controller: _app,
-                configuredEnabled: _app.activeProfile.chainEnabled,
-              ),
             ],
           ),
         ),
@@ -236,6 +271,17 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
     ],
   );
 }
+
+/// Configuration text the user started importing under another source.
+typedef _CarriedImport = ({String text, String? defaultName, bool fromFile});
+
+/// What the import dialog asks the editor to do after it closes.
+typedef _ImportOutcome = ({
+  ChainProfileSummary? saved,
+  bool select,
+  ChainSource? switchTo,
+  _CarriedImport? carried,
+});
 
 class _CustomChainEditor extends StatefulWidget {
   const _CustomChainEditor({
@@ -246,6 +292,8 @@ class _CustomChainEditor extends StatefulWidget {
     required this.initialDraft,
     required this.onDraftChanged,
     required this.otherPending,
+    required this.onSwitchWithImport,
+    this.carriedImport,
     super.key,
   });
   final AppController controller;
@@ -255,6 +303,8 @@ class _CustomChainEditor extends StatefulWidget {
   final ChainExitSettings initialDraft;
   final ValueChanged<ChainExitSettings> onDraftChanged;
   final bool otherPending;
+  final _CarriedImport? carriedImport;
+  final void Function(ChainSource, _CarriedImport) onSwitchWithImport;
   @override
   State<_CustomChainEditor> createState() => _CustomChainEditorState();
 }
@@ -320,6 +370,11 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
         : _fresh;
     _app.addListener(_changed);
     unawaited(_load());
+    if (widget.carriedImport case final carried?) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_openImport(carried));
+      });
+    }
   }
 
   /// Replaces the draft and lets the page retain it across source switches.
@@ -375,11 +430,48 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   }
 
   Future<void> _addProxy() async {
-    await showDialog<bool>(
+    final outcome = await showDialog<_ImportOutcome>(
       context: context,
       builder: (_) => _ProxyDialog(controller: _app, source: widget.source),
     );
-    if (mounted) await _load();
+    if (mounted) await _finishImport(outcome);
+  }
+
+  /// Reloads the library and, when asked, selects the saved configuration
+  /// as an unapplied draft. Saving alone never changes a connection.
+  Future<void> _finishImport(_ImportOutcome? outcome) async {
+    if (outcome?.switchTo case final source?) {
+      widget.onSwitchWithImport(source, outcome!.carried!);
+      return;
+    }
+    await _load();
+    final saved = outcome?.saved;
+    if (!mounted || saved == null || !outcome!.select || _saving) return;
+    if (!_profiles.any((profile) => profile.id == saved.id)) return;
+    setState(
+      () => _setDraft(
+        _draft.copyWith(
+          enabled: true,
+          profileId: saved.id,
+          revision: saved.revision,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openImport(_CarriedImport carried) async {
+    setState(() => _libraryError = null);
+    final outcome = await showDialog<_ImportOutcome>(
+      context: context,
+      builder: (_) => _ImportDialog(
+        controller: _app,
+        source: widget.source,
+        configuration: carried.fromFile ? carried.text : null,
+        initialText: carried.fromFile ? null : carried.text,
+        defaultName: carried.defaultName,
+      ),
+    );
+    if (mounted) await _finishImport(outcome);
   }
 
   Future<void> _import(bool file) async {
@@ -393,66 +485,53 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   }
 
   Future<void> _importFilesOrText(bool file) async {
-    String? text;
-    String? defaultName;
-    if (file) {
-      try {
-        final files = await _app.pickChainConfigurations();
-        if (!mounted || files.isEmpty) return;
-        if (files.length > 1) {
-          setState(() => _libraryError = null);
-          await showDialog<void>(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => _BatchImportDialog(
-              controller: _app,
-              source: widget.source,
-              files: files,
-            ),
-          );
-          if (mounted) await _load();
-          return;
-        }
-        final picked = files.single;
-        if (picked.errorCode case final code?) {
-          throw EngineException(code, 'Configuration file could not be read.');
-        }
-        text = picked.configuration;
-        defaultName = _chainFileDefaultName(picked.name);
-      } catch (error) {
-        if (mounted) {
-          final key = switch (error) {
-            EngineException(code: 'CHAIN_FILE_UNAVAILABLE') =>
-              'file_unavailable',
-            EngineException(code: 'CHAIN_FILE_TOO_LARGE') =>
-              'invalid_size_or_encoding',
-            EngineException(code: 'CHAIN_FILE_ENCODING_INVALID') =>
-              'file_encoding_invalid',
-            EngineException(code: 'CHAIN_FILE_BUSY') => 'file_busy',
-            EngineException(code: 'CHAIN_FILE_COUNT_LIMIT') =>
-              'file_count_limit',
-            _ => 'file_read_failed',
-          };
-          setState(() => _libraryError = _app.strings.chain(key));
-        }
+    if (!file) {
+      await _openImport((text: '', defaultName: null, fromFile: false));
+      return;
+    }
+    final String? text;
+    final String defaultName;
+    try {
+      final files = await _app.pickChainConfigurations();
+      if (!mounted || files.isEmpty) return;
+      if (files.length > 1) {
+        setState(() => _libraryError = null);
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _BatchImportDialog(
+            controller: _app,
+            source: widget.source,
+            files: files,
+          ),
+        );
+        if (mounted) await _load();
         return;
       }
-      if (text == null || !mounted) return;
+      final picked = files.single;
+      if (picked.errorCode case final code?) {
+        throw EngineException(code, 'Configuration file could not be read.');
+      }
+      text = picked.configuration;
+      defaultName = _chainFileDefaultName(picked.name);
+    } catch (error) {
+      if (mounted) {
+        final key = switch (error) {
+          EngineException(code: 'CHAIN_FILE_UNAVAILABLE') => 'file_unavailable',
+          EngineException(code: 'CHAIN_FILE_TOO_LARGE') =>
+            'invalid_size_or_encoding',
+          EngineException(code: 'CHAIN_FILE_ENCODING_INVALID') =>
+            'file_encoding_invalid',
+          EngineException(code: 'CHAIN_FILE_BUSY') => 'file_busy',
+          EngineException(code: 'CHAIN_FILE_COUNT_LIMIT') => 'file_count_limit',
+          _ => 'file_read_failed',
+        };
+        setState(() => _libraryError = _app.strings.chain(key));
+      }
+      return;
     }
-    if (!mounted) return;
-    setState(() => _libraryError = null);
-    final result = await showDialog<ChainProfileSummary>(
-      context: context,
-      builder: (_) => _ImportDialog(
-        controller: _app,
-        source: widget.source,
-        configuration: text,
-        defaultName: defaultName,
-      ),
-    );
-    if (!mounted || result == null) return;
-    await _load();
-    // Saving an imported object never selects it or changes a connection.
+    if (text == null || !mounted) return;
+    await _openImport((text: text, defaultName: defaultName, fromFile: true));
   }
 
   Future<void> _apply({bool switchMode = false}) async {
@@ -496,6 +575,32 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
 
   Future<void> _manage(ChainProfileSummary profile, String action) async {
     final strings = _app.strings;
+    if (action == 'details') {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => UsqueDialog(
+          icon: LucideIcons.info,
+          title: strings.get('technical_details'),
+          subtitle: profile.name,
+          content: SingleChildScrollView(
+            child: _ProfileDetails(profile: profile, controller: _app),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(strings.get('close')),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    if (action == 'clear') {
+      if (!_saving && profile.id == _draft.profileId) {
+        setState(() => _setDraft(_draft.copyWith(clearSelection: true)));
+      }
+      return;
+    }
     if (action == 'credentials') {
       await showDialog<void>(
         context: context,
@@ -634,6 +739,79 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     final mutedStyle = theme.textTheme.bodyMedium?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
+    final marker = chainCurrentMarker(snapshot);
+    final statusLabel = _error != null
+        ? null
+        : _modeConflict
+        ? strings.chain('l4')
+        : !_dirty ||
+              _app.networkSettings.unconfirmed ||
+              _app.networkSettings.saveError != null
+        ? _app.networkSettingsMessage
+        : null;
+    final showBar =
+        _dirty ||
+        _modeConflict ||
+        _saving ||
+        _error != null ||
+        statusLabel != null ||
+        _app.networkSettings.canRefresh;
+    final empty = !_loading && profiles.isEmpty;
+    final busy = !_supported || _saving;
+    // The first way to add a configuration leads while the library is empty.
+    Widget action({
+      required IconData icon,
+      required String label,
+      required VoidCallback? onPressed,
+      required bool first,
+    }) => first && empty
+        ? FilledButton.tonalIcon(
+            onPressed: onPressed,
+            icon: Icon(icon),
+            label: Text(label),
+          )
+        : OutlinedButton.icon(
+            onPressed: onPressed,
+            icon: Icon(icon),
+            label: Text(label),
+          );
+    final actions = <Widget>[
+      if (widget.source == ChainSource.warpWireguard)
+        action(
+          first: true,
+          onPressed: busy
+              ? null
+              : () async {
+                  final state = _warpPanel.currentState;
+                  if (state != null) await state.generate();
+                },
+          icon: LucideIcons.plus,
+          label: strings.warp('generate'),
+        ),
+      if (widget.source.isProxy)
+        action(
+          first: true,
+          onPressed: busy ? null : _addProxy,
+          icon: LucideIcons.plus,
+          label: strings.chain('add_proxy'),
+        ),
+      if (!widget.source.isProxy && widget.source != ChainSource.protonVpn) ...[
+        action(
+          first: widget.source != ChainSource.warpWireguard,
+          onPressed: busy || _importing ? null : () => unawaited(_import(true)),
+          icon: LucideIcons.fileUp,
+          label: strings.chain('import_file'),
+        ),
+        action(
+          first: false,
+          onPressed: busy || _importing
+              ? null
+              : () => unawaited(_import(false)),
+          icon: LucideIcons.clipboard,
+          label: strings.chain('paste'),
+        ),
+      ],
+    ];
     return UnsavedChangesGuard(
       key: widget.guard,
       strings: strings,
@@ -651,74 +829,71 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                 message: strings.chain('unsupported'),
               )
             : null,
-        bottomBar: SaveChangesBar(
-          key: const ValueKey('chain-proxy-bar'),
-          contentWidth: 880,
-          matchPageGutter: true,
-          strings: strings,
-          dirty: _dirty || _modeConflict,
-          saving: _saving,
-          onRefresh: _app.networkSettings.canRefresh
-              ? _app.networkSettings.refresh
-              : null,
-          refreshing: _app.networkSettings.refreshing,
-          error: _error,
-          validationError: _dirty ? validation : null,
-          statusLabel: _error != null
-              ? null
-              : _modeConflict
-              ? strings.chain('l4')
-              : !_dirty ||
-                    _app.networkSettings.unconfirmed ||
-                    _app.networkSettings.saveError != null
-              ? _app.networkSettingsMessage
-              : null,
-          saveLabel: _modeConflict
-              ? strings.chain('switch_mode')
-              : snapshot.isConnected && _dirty
-              ? strings.chain('apply_reconnect')
-              : null,
-          summary: !_dirty
-              ? null
-              : disabling
-              ? Text(
-                  strings.chain('pending_disable'),
-                  style: theme.textTheme.labelLarge,
-                )
-              : _draft.enabled && _selected != null
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${strings.chain('draft')}: ${_selected!.name}',
-                      style: theme.textTheme.labelLarge,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.source == ChainSource.protonVpn
-                          ? strings.proton('resolve_on_connect')
-                          : '${(_draft.endpointOverride ?? ChainEndpoint(_selected!.host, _selected!.port)).label} · ${_selected!.transportLabel}',
-                      style: UsqueTheme.address(
-                        context,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                )
-              : null,
-          onSave: canApply
-              ? () => unawaited(_apply(switchMode: _modeConflict))
-              : null,
-        ),
+        bottomBar: !showBar
+            ? null
+            : SaveChangesBar(
+                key: const ValueKey('chain-proxy-bar'),
+                contentWidth: 880,
+                matchPageGutter: true,
+                strings: strings,
+                dirty: _dirty || _modeConflict,
+                saving: _saving,
+                onRefresh: _app.networkSettings.canRefresh
+                    ? _app.networkSettings.refresh
+                    : null,
+                refreshing: _app.networkSettings.refreshing,
+                error: _error,
+                validationError: _dirty ? validation : null,
+                statusLabel: statusLabel,
+                saveLabel: _modeConflict
+                    ? strings.chain('switch_mode')
+                    : snapshot.isConnected && _dirty
+                    ? strings.chain('apply_reconnect')
+                    : null,
+                summary: !_dirty
+                    ? null
+                    : disabling
+                    ? Text(
+                        strings.chain('pending_disable'),
+                        style: theme.textTheme.labelLarge,
+                      )
+                    : _draft.enabled && _selected != null
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${strings.chain('draft')}: ${_selected!.name}',
+                            style: theme.textTheme.labelLarge,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.source == ChainSource.protonVpn
+                                ? strings.proton('resolve_on_connect')
+                                : '${(_draft.endpointOverride ?? ChainEndpoint(_selected!.host, _selected!.port)).label} · ${_selected!.transportLabel}',
+                            style: UsqueTheme.address(
+                              context,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      )
+                    : null,
+                onSave: canApply
+                    ? () => unawaited(_apply(switchMode: _modeConflict))
+                    : null,
+              ),
         slivers: [
           if (widget.source == ChainSource.protonVpn && _libraryError != null)
             SliverToBoxAdapter(
-              child: WarningBanner(
-                title: strings.get('error_generic'),
-                message: _libraryError!,
-                danger: true,
-                onDismiss: () => setState(() => _libraryError = null),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: WarningBanner(
+                  title: strings.get('error_generic'),
+                  message: _libraryError!,
+                  danger: true,
+                  onDismiss: () => setState(() => _libraryError = null),
+                ),
               ),
             ),
           if (widget.source == ChainSource.protonVpn && _supported)
@@ -732,6 +907,14 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                   selectedProfileId: _draft.profileId,
                   savedProfileId: _baseline.profileId,
                   currentProfileId: current?.id,
+                  currentStatus: marker == null
+                      ? null
+                      : (
+                          marker.$1 == 'current'
+                              ? strings.proton('current_account')
+                              : strings.chain(marker.$1),
+                          marker.$2,
+                        ),
                   selectionEnabled:
                       !_saving &&
                       !_loading &&
@@ -746,6 +929,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                       setState(
                         () => _setDraft(
                           _draft.copyWith(
+                            enabled: true,
                             profileId: profile.id,
                             revision: profile.revision,
                           ),
@@ -762,49 +946,10 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                 title: strings.chain('profiles'),
                 gap: 12,
                 children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (widget.source == ChainSource.warpWireguard)
-                        OutlinedButton.icon(
-                          onPressed: !_supported || _saving
-                              ? null
-                              : () async {
-                                  final state = _warpPanel.currentState;
-                                  if (state != null) await state.generate();
-                                },
-                          icon: const Icon(LucideIcons.plus),
-                          label: Text(strings.warp('generate')),
-                        ),
-                      if (widget.source.isProxy)
-                        OutlinedButton.icon(
-                          onPressed: _supported && !_saving ? _addProxy : null,
-                          icon: const Icon(LucideIcons.plus),
-                          label: Text(strings.chain('add_proxy')),
-                        ),
-                      if (!widget.source.isProxy &&
-                          widget.source != ChainSource.protonVpn)
-                        OutlinedButton.icon(
-                          onPressed: _supported && !_saving && !_importing
-                              ? () => unawaited(_import(true))
-                              : null,
-                          icon: const Icon(LucideIcons.fileUp),
-                          label: Text(strings.chain('import_file')),
-                        ),
-                      if (!widget.source.isProxy &&
-                          widget.source != ChainSource.protonVpn)
-                        OutlinedButton.icon(
-                          onPressed: _supported && !_saving && !_importing
-                              ? () => unawaited(_import(false))
-                              : null,
-                          icon: const Icon(LucideIcons.clipboard),
-                          label: Text(strings.chain('paste')),
-                        ),
-                    ],
-                  ),
+                  Wrap(spacing: 8, runSpacing: 8, children: actions),
+                  const SizedBox(height: 12),
                   BannerSlot(
-                    spacing: 0,
+                    spacing: 12,
                     child: _libraryError == null
                         ? null
                         : WarningBanner(
@@ -817,48 +962,35 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                           ),
                   ),
                   if (_loading) const LinearProgressIndicator(minHeight: 2),
-                  // Explanations keep a gap below the action buttons.
-                  if (!_loading && profiles.isEmpty) const SizedBox(height: 8),
-                  if (!_loading && profiles.isEmpty)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      spacing: 4,
-                      children: [
+                  if (empty)
+                    _EmptyLibrary(
+                      title: strings.chain(
+                        widget.source.isProxy ? 'empty_proxy' : 'empty',
+                      ),
+                      hints: [
+                        strings.chain(
+                          widget.source.isProxy
+                              ? 'proxy_hint'
+                              : widget.source.isWireguard
+                              ? 'empty_hint_wireguard'
+                              : 'empty_hint_openvpn',
+                        ),
                         if (!widget.source.isProxy)
-                          Text(
-                            widget.source == ChainSource.protonVpn
-                                ? strings.proton('empty')
-                                : strings.chain('empty'),
-                          ),
-                        if (widget.source != ChainSource.protonVpn)
-                          Text(
-                            strings.chain(
-                              widget.source.isProxy
-                                  ? 'proxy_hint'
-                                  : widget.source.isWireguard
-                                  ? 'empty_hint_wireguard'
-                                  : 'empty_hint_openvpn',
-                            ),
-                            style: mutedStyle,
-                          ),
-                        if (!widget.source.isProxy &&
-                            widget.source != ChainSource.protonVpn)
-                          Text(
-                            strings.chain('import_limits'),
-                            style: mutedStyle,
-                          ),
+                          strings.chain('import_limits'),
                       ],
+                      style: mutedStyle,
                     ),
-                  if (profiles.isNotEmpty && !_draft.enabled && _supported)
-                    Text(strings.chain('enable_to_choose'), style: mutedStyle),
+                  // Choosing a configuration also turns the chain on in the
+                  // draft; nothing changes until the draft is applied.
                   RadioGroup<String>(
                     groupValue: _draft.profileId,
                     onChanged: (id) {
-                      if (!_draft.enabled || _saving || id == null) return;
+                      if (_saving || !_supported || id == null) return;
                       final profile = profiles.firstWhere((p) => p.id == id);
                       setState(
                         () => _setDraft(
                           _draft.copyWith(
+                            enabled: true,
                             profileId: profile.id,
                             revision: profile.revision,
                           ),
@@ -871,13 +1003,17 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                           _ProfileRow(
                             controller: _app,
                             profile: profile,
-                            enabled: _draft.enabled && !_saving && _supported,
+                            enabled: !_saving && _supported,
                             busy: _saving,
                             selected: profile.id == _draft.profileId,
                             saved:
                                 _baseline.enabled &&
                                 profile.id == _baseline.profileId,
-                            current: profile.id == current?.id,
+                            current: profile.id == current?.id ? marker : null,
+                            inUse:
+                                profile.id == _draft.profileId ||
+                                profile.id == _baseline.profileId ||
+                                profile.id == current?.id,
                             needsConnectIp: _l4 && profile.requiresUdp,
                             onAction: (action) =>
                                 unawaited(_manage(profile, action)),
@@ -885,21 +1021,6 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                       ],
                     ),
                   ),
-                  if (_draft.enabled && _draft.profileId != null)
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: TextButton.icon(
-                        onPressed: _saving
-                            ? null
-                            : () => setState(
-                                () => _setDraft(
-                                  _draft.copyWith(clearSelection: true),
-                                ),
-                              ),
-                        icon: const Icon(LucideIcons.x, size: 18),
-                        label: Text(strings.chain('clear')),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -934,6 +1055,48 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   }
 }
 
+/// An empty library: what to add and the limits that apply, under one mark.
+class _EmptyLibrary extends StatelessWidget {
+  const _EmptyLibrary({
+    required this.title,
+    required this.hints,
+    required this.style,
+  });
+  final String title;
+  final List<String> hints;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    key: const ValueKey('chain-library-empty'),
+    padding: const EdgeInsets.only(top: 4, bottom: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(
+            LucideIcons.inbox,
+            size: 20,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            spacing: 4,
+            children: [
+              Text(title),
+              for (final hint in hints) Text(hint, style: style),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _ProfileRow extends StatelessWidget {
   const _ProfileRow({
     required this.controller,
@@ -943,99 +1106,110 @@ class _ProfileRow extends StatelessWidget {
     required this.selected,
     required this.saved,
     required this.current,
+    required this.inUse,
     required this.needsConnectIp,
     required this.onAction,
   });
   final AppController controller;
   final ChainProfileSummary profile;
-  final bool enabled, busy, selected, saved, current, needsConnectIp;
+  final bool enabled, busy, selected, saved, inUse, needsConnectIp;
+
+  /// The running session's state when it uses this configuration.
+  final (String, StatusTone)? current;
   final ValueChanged<String> onAction;
 
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
     final theme = Theme.of(context);
+    final current = this.current;
+    // A connected or connecting session already shows that it uses the saved
+    // choice; a failed one keeps both facts visible.
+    final live =
+        current != null &&
+        (current.$2 == StatusTone.success || current.$2 == StatusTone.brand);
     final tags = <(String, StatusTone)>[
-      if (current) ('current', StatusTone.success),
-      if (saved) ('saved', StatusTone.brand),
+      ?current,
+      if (saved && !live) ('saved', StatusTone.brand),
       if (needsConnectIp) ('requires_connect_ip', StatusTone.warning),
     ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ChainExitTile<String>(
-          tileKey: ValueKey('chain-profile-${profile.id}'),
-          value: profile.id,
-          enabled: enabled,
-          selected: selected,
-          title: Text(profile.name),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${profile.host}:${profile.port} · ${profile.transportLabel}',
-                style: UsqueTheme.address(
-                  context,
-                  color: enabled
-                      ? theme.colorScheme.onSurfaceVariant
-                      : theme.disabledColor,
-                ),
+    return ChainExitTile<String>(
+      tileKey: ValueKey('chain-profile-${profile.id}'),
+      value: profile.id,
+      enabled: enabled,
+      selected: selected,
+      title: Text(profile.name),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${profile.host}:${profile.port} · ${profile.transportLabel}',
+            style: UsqueTheme.address(
+              context,
+              color: enabled
+                  ? theme.colorScheme.onSurfaceVariant
+                  : theme.disabledColor,
+            ),
+          ),
+          if (tags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 4,
+                children: [
+                  for (final (key, tone) in tags)
+                    InlineStatus(label: strings.chain(key), tone: tone),
+                ],
               ),
-              if (tags.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Wrap(
-                    spacing: 12,
-                    runSpacing: 4,
+            ),
+        ],
+      ),
+      trailing: PopupMenuButton<String>(
+        key: ValueKey('chain-profile-menu-${profile.id}'),
+        tooltip: strings.chain('menu'),
+        enabled: !busy,
+        onSelected: onAction,
+        itemBuilder: (_) => [
+          PopupMenuItem(
+            value: 'details',
+            child: Text(strings.get('technical_details')),
+          ),
+          if (selected)
+            PopupMenuItem(value: 'clear', child: Text(strings.chain('clear'))),
+          const PopupMenuDivider(),
+          PopupMenuItem(value: 'rename', child: Text(strings.chain('rename'))),
+          if (profile.source == ChainSource.openvpnCustom ||
+              profile.source.isProxy && profile.requiresAuth)
+            PopupMenuItem(
+              value: 'credentials',
+              child: Text(strings.chain('credentials')),
+            ),
+          // A configuration in use stays listed with the reason it cannot be
+          // deleted yet, rather than failing after the user picks it.
+          PopupMenuItem(
+            key: ValueKey('chain-profile-delete-${profile.id}'),
+            value: 'remove',
+            enabled: !inUse,
+            child: inUse
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      for (final (key, tone) in tags)
-                        InlineStatus(label: strings.chain(key), tone: tone),
+                      Text(strings.chain('delete')),
+                      // Inherits the disabled item's colour at a smaller size.
+                      Text(
+                        strings.chain('delete_blocked'),
+                        style: TextStyle(
+                          fontSize: theme.textTheme.bodySmall?.fontSize,
+                        ),
+                      ),
                     ],
-                  ),
-                ),
-            ],
+                  )
+                : Text(strings.chain('delete')),
           ),
-          trailing: PopupMenuButton<String>(
-            key: ValueKey('chain-profile-menu-${profile.id}'),
-            tooltip: strings.chain('menu'),
-            enabled: !busy,
-            onSelected: onAction,
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                value: 'rename',
-                child: Text(strings.chain('rename')),
-              ),
-              if (profile.source == ChainSource.openvpnCustom ||
-                  profile.source.isProxy && profile.requiresAuth)
-                PopupMenuItem(
-                  value: 'credentials',
-                  child: Text(strings.chain('credentials')),
-                ),
-              PopupMenuItem(
-                value: 'remove',
-                child: Text(strings.chain('delete')),
-              ),
-            ],
-          ),
-        ),
-        if (selected && enabled)
-          Padding(
-            padding: const EdgeInsetsDirectional.only(
-              start: 56,
-              end: 8,
-              bottom: 10,
-            ),
-            child: ExpansionTile(
-              key: PageStorageKey('chain-profile-details-${profile.id}'),
-              tilePadding: EdgeInsets.zero,
-              title: Text(strings.get('technical_details')),
-              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _ProfileDetails(profile: profile, controller: controller),
-              ],
-            ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -1118,12 +1292,18 @@ class _ImportDialog extends StatefulWidget {
     required this.controller,
     required this.source,
     this.configuration,
+    this.initialText,
     this.defaultName,
     this.credentialsFor,
   });
   final AppController controller;
   final ChainSource source;
+
+  /// Text read from a file; it is checked at once and not edited here.
   final String? configuration;
+
+  /// Editable text to start from, such as a paste moved from another source.
+  final String? initialText;
   final String? defaultName;
   final ChainProfileSummary? credentialsFor;
   @override
@@ -1131,26 +1311,33 @@ class _ImportDialog extends StatefulWidget {
 }
 
 class _ImportDialogState extends State<_ImportDialog> {
+  /// Typing pauses this long before pasted text is checked automatically.
+  static const _checkDelay = Duration(milliseconds: 600);
+
   late final _name = TextEditingController(
     text: widget.credentialsFor?.name ?? '',
   );
   late final _configuration = TextEditingController(
-    text: widget.configuration ?? '',
+    text: widget.configuration ?? widget.initialText ?? '',
   );
   final _username = TextEditingController(),
       _password = TextEditingController(),
       _keyPassword = TextEditingController();
   ChainProfileSummary? _preview;
-  bool _busy = false;
+  Timer? _checkTimer;
+  bool _busy = false, _checking = false;
   bool _nameEdited = false;
   bool _showPassword = false, _showKeyPassword = false;
   String? _error;
 
+  /// The source the text appears to belong to, offered as a switch.
+  ChainSource? _belongsTo;
+
   @override
   void initState() {
     super.initState();
-    if (widget.configuration != null) {
-      // A file has already been chosen; checking it is the only next step.
+    if (_configuration.text.trim().isNotEmpty) {
+      // Text is already present; checking it is the only next step.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_submit(false));
       });
@@ -1159,6 +1346,7 @@ class _ImportDialogState extends State<_ImportDialog> {
 
   @override
   void dispose() {
+    _checkTimer?.cancel();
     for (final controller in [
       _name,
       _configuration,
@@ -1172,17 +1360,37 @@ class _ImportDialogState extends State<_ImportDialog> {
     super.dispose();
   }
 
-  Future<void> _submit(bool save) async {
+  void _edited() {
+    _checkTimer?.cancel();
+    setState(() {
+      _preview = null;
+      _error = null;
+      _belongsTo = null;
+    });
+    if (_configuration.text.trim().isEmpty) return;
+    _checkTimer = Timer(_checkDelay, () {
+      if (mounted) unawaited(_submit(false));
+    });
+  }
+
+  Future<void> _submit(bool save, {bool select = false}) async {
     final s = widget.controller.strings;
-    if (_busy) return;
-    if (utf8.encode(_configuration.text).length > 128 * 1024) {
+    if (_busy || _checking) return;
+    _checkTimer?.cancel();
+    final text = _configuration.text;
+    if (utf8.encode(text).length > 128 * 1024) {
       setState(() => _error = s.chain('invalid_size_or_encoding'));
       return;
     }
     if (widget.credentialsFor == null) {
-      final mismatch = _chainSourceMismatch(widget.source, _configuration.text);
+      final mismatch = _chainSourceMismatch(widget.source, text);
       if (mismatch != null) {
-        setState(() => _error = s.chain(mismatch));
+        setState(() {
+          _error = s.chain(mismatch);
+          _belongsTo = mismatch == 'looks_like_wireguard'
+              ? ChainSource.wireguardCustom
+              : ChainSource.openvpnCustom;
+        });
         return;
       }
     }
@@ -1207,8 +1415,14 @@ class _ImportDialogState extends State<_ImportDialog> {
       return;
     }
     setState(() {
-      _busy = true;
+      // Checking leaves the text editable; a later edit discards the result.
+      if (save) {
+        _busy = true;
+      } else {
+        _checking = true;
+      }
       _error = null;
+      _belongsTo = null;
     });
     try {
       // The engine validates the name even when only checking. A file is
@@ -1227,12 +1441,12 @@ class _ImportDialogState extends State<_ImportDialog> {
           'profile_id': stored.id,
           'revision': stored.editRevision,
         },
-        'configuration': _configuration.text,
+        'configuration': text,
         'username': _username.text,
         'password': _password.text,
         'private_key_password': _keyPassword.text,
       });
-      if (!mounted) return;
+      if (!mounted || !save && _configuration.text != text) return;
       if (result.error case final error?) {
         setState(() => _error = s.chainError(error));
       } else if ((result.preview?.candidates.length ?? 0) > 1 &&
@@ -1240,7 +1454,12 @@ class _ImportDialogState extends State<_ImportDialog> {
               false)) {
         setState(() => _error = s.chain('multi_endpoint_unavailable'));
       } else if (save) {
-        Navigator.pop(context, result.preview);
+        Navigator.pop<_ImportOutcome>(context, (
+          saved: result.preview,
+          select: select,
+          switchTo: null,
+          carried: null,
+        ));
       } else {
         setState(() {
           _preview = result.preview;
@@ -1255,8 +1474,33 @@ class _ImportDialogState extends State<_ImportDialog> {
     } catch (_) {
       if (mounted) setState(() => _error = s.chain('secure_storage_failed'));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _checking = false;
+        });
+        // Text edited during a check is checked again once it settles.
+        if (!save &&
+            _configuration.text != text &&
+            _configuration.text.trim().isNotEmpty &&
+            !(_checkTimer?.isActive ?? false)) {
+          _edited();
+        }
+      }
     }
+  }
+
+  void _switchSource(ChainSource source) {
+    Navigator.pop<_ImportOutcome>(context, (
+      saved: null,
+      select: false,
+      switchTo: source,
+      carried: (
+        text: _configuration.text,
+        defaultName: widget.defaultName,
+        fromFile: widget.configuration != null,
+      ),
+    ));
   }
 
   Widget _secret(
@@ -1288,6 +1532,8 @@ class _ImportDialogState extends State<_ImportDialog> {
     final s = widget.controller.strings;
     final theme = Theme.of(context);
     final profile = widget.credentialsFor ?? _preview;
+    final importing = widget.credentialsFor == null;
+    final canSave = !_busy && !_checking && profile != null;
     final lines = widget.configuration == null
         ? 0
         : widget.configuration!.trim().isEmpty
@@ -1296,19 +1542,15 @@ class _ImportDialogState extends State<_ImportDialog> {
     return PopScope(
       canPop: !_busy,
       child: UsqueDialog(
-        icon: widget.credentialsFor == null
-            ? LucideIcons.fileUp
-            : LucideIcons.keyRound,
-        title: widget.credentialsFor == null
-            ? widget.source.label
-            : s.chain('credentials'),
+        icon: importing ? LucideIcons.fileUp : LucideIcons.keyRound,
+        title: importing ? widget.source.label : s.chain('credentials'),
         subtitle: widget.credentialsFor?.name,
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (widget.credentialsFor == null) ...[
+              if (importing) ...[
                 if (widget.configuration == null) ...[
                   TextField(
                     controller: _configuration,
@@ -1323,10 +1565,7 @@ class _ImportDialogState extends State<_ImportDialog> {
                       labelText: s.chain('configuration'),
                       alignLabelWithHint: true,
                     ),
-                    onChanged: (_) => setState(() {
-                      _preview = null;
-                      _error = null;
-                    }),
+                    onChanged: (_) => _edited(),
                   ),
                   const SizedBox(height: 16),
                 ] else ...[
@@ -1356,19 +1595,21 @@ class _ImportDialogState extends State<_ImportDialog> {
                   Align(
                     alignment: AlignmentDirectional.centerStart,
                     child: OutlinedButton.icon(
-                      onPressed: _busy ? null : () => unawaited(_submit(false)),
-                      icon: _busy
+                      onPressed: _busy || _checking
+                          ? null
+                          : () => unawaited(_submit(false)),
+                      icon: _checking
                           ? const SizedBox.square(
                               dimension: 16,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(LucideIcons.searchCheck, size: 18),
-                      label: Text(s.chain(_busy ? 'checking' : 'preview')),
+                      label: Text(s.chain(_checking ? 'checking' : 'preview')),
                     ),
                   ),
               ],
               if (profile != null) ...[
-                if (widget.credentialsFor == null) ...[
+                if (importing) ...[
                   const SizedBox(height: 16),
                   TextField(
                     controller: _name,
@@ -1419,11 +1660,40 @@ class _ImportDialogState extends State<_ImportDialog> {
                     ? null
                     : Padding(
                         padding: const EdgeInsets.only(top: 16),
-                        child: WarningBanner(
-                          key: const ValueKey('chain-import-error'),
-                          title: s.get('error_generic'),
-                          message: _error!,
-                          danger: true,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            WarningBanner(
+                              key: const ValueKey('chain-import-error'),
+                              title: s.get('error_generic'),
+                              message: _error!,
+                              danger: true,
+                            ),
+                            if (_belongsTo case final source?
+                                when ChainSourcePicker.available(
+                                  widget.controller.engineCapabilities,
+                                  source,
+                                ))
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: TextButton.icon(
+                                  key: const ValueKey('chain-import-switch'),
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _switchSource(source),
+                                  icon: const Icon(
+                                    LucideIcons.arrowRightLeft,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    s
+                                        .chain('switch_source')
+                                        .replaceAll('{source}', source.label),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
               ),
@@ -1435,12 +1705,24 @@ class _ImportDialogState extends State<_ImportDialog> {
             onPressed: _busy ? null : () => Navigator.pop(context),
             child: Text(s.chain('cancel')),
           ),
-          FilledButton(
-            onPressed: _busy || profile == null
-                ? null
-                : () => unawaited(_submit(true)),
-            child: Text(s.chain('save_import')),
-          ),
+          if (importing) ...[
+            OutlinedButton(
+              key: const ValueKey('chain-import-save'),
+              onPressed: canSave ? () => unawaited(_submit(true)) : null,
+              child: Text(s.chain('save_import')),
+            ),
+            FilledButton(
+              key: const ValueKey('chain-import-save-select'),
+              onPressed: canSave
+                  ? () => unawaited(_submit(true, select: true))
+                  : null,
+              child: Text(s.chain('save_select')),
+            ),
+          ] else
+            FilledButton(
+              onPressed: canSave ? () => unawaited(_submit(true)) : null,
+              child: Text(s.chain('save_import')),
+            ),
         ],
       ),
     );
