@@ -18,6 +18,11 @@ brotli-decompressor = "=6.1.0"
 foreign-types = "=0.5.0"
 async-trait.workspace = true
 base64.workspace = true
+bcrypt.workspace = true
+crypto-bigint.workspace = true
+curve25519-dalek.workspace = true
+sha2.workspace = true
+subtle.workspace = true
 boring = { workspace = true, features = ["pq-experimental"] }
 boringtun = { workspace = true, optional = true }
 bytes.workspace = true
@@ -31,6 +36,7 @@ p256.workspace = true
 quiche.workspace = true
 rustls.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 socket2.workspace = true
 smoltcp.workspace = true
 thiserror.workspace = true

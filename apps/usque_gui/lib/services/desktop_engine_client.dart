@@ -31,6 +31,8 @@ class DesktopEngineClient
         VpnGateClient,
         ChainProfileClient,
         WarpWireguardClient,
+        ProtonVpnClient,
+        ProtonHumanVerificationClient,
         InitialIdentityClient,
         LinuxServiceClient,
         AdsRulesClient {
@@ -155,6 +157,42 @@ class DesktopEngineClient
         return (await _request(48, payload.takeBytes())).warpWireguard ??
             const {};
       });
+  @override
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) => _serialized(() async {
+    if (sensitiveInput != null && sensitiveInput.length > 40 * 1024) {
+      throw const EngineException(
+        'PROTON_INPUT_TOO_LARGE',
+        'Invalid authentication input.',
+      );
+    }
+    final payload = ControlPayloadWriter()
+      ..string(1, encodeProtonVpnCommand(command))
+      ..bytes(2, sensitiveInput ?? Uint8List(0));
+    final encoded = payload.takeBytes();
+    try {
+      return (await _request(52, encoded)).protonVpn ??
+          (throw const EngineException(
+            'PROTON_UNAVAILABLE',
+            'Proton VPN is unavailable.',
+          ));
+    } finally {
+      encoded.fillRange(0, encoded.length, 0);
+    }
+  });
+
+  @override
+  Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff) =>
+      _transport.invokePlatformMethod<Uint8List>(
+        'completeProtonHumanVerification',
+        {'handoff': handoff},
+      );
+
+  @override
+  Future<void> cancelProtonHumanVerification() =>
+      _transport.invokePlatformMethod<void>('cancelProtonHumanVerification');
   @override
   Future<ChainProfileResult> chainProfile(Map<String, Object?> request) =>
       _serialized(() async {

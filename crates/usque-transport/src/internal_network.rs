@@ -63,6 +63,14 @@ pub(crate) struct InternalRequest<'a> {
     pub ipv6: Option<bool>,
 }
 
+/// Error bodies are needed by authentication callers, but are not printable or
+/// part of a transport error. Only the numeric Retry-After header is retained.
+pub(crate) struct InternalResponse {
+    pub status: u16,
+    pub retry_after: Option<u32>,
+    pub body: zeroize::Zeroizing<Vec<u8>>,
+}
+
 /// Stable, non-sensitive failures for private HTTPS callers. Never contains a
 /// URL, request/response body, bearer token, endpoint address or TLS error text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -260,6 +268,24 @@ impl InternalNetwork {
     }
     pub(crate) fn session_generation(&self) -> Option<u64> {
         self.dialer.session_generation()
+    }
+    /// Control jobs bind to packet reconnects even when the underlying stream
+    /// has no epoch tag. Keep stream pool generations unchanged: a synthetic
+    /// control epoch is not a tag carried by returned TCP streams.
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn control_generation(&self) -> Option<u64> {
+        if self.cancellation.is_cancelled() {
+            return None;
+        }
+        let RuntimeHealth::Connected {
+            reconnect_count, ..
+        } = *self.health.borrow()
+        else {
+            return None;
+        };
+        self.dialer
+            .session_generation()
+            .or(Some(u64::from(reconnect_count)))
     }
     #[cfg(test)]
     pub(crate) fn with_test_packets(
@@ -508,6 +534,15 @@ impl InternalNetwork {
             .await
     }
     #[cfg(feature = "wireguard")]
+    pub(crate) async fn exchange_https(
+        &self,
+        options: InternalRequest<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<InternalResponse, InternalHttpError> {
+        self.exchange_https_for(options, cancel, HttpsPurpose::General)
+            .await
+    }
+    #[cfg(feature = "wireguard")]
     pub(crate) async fn request_warp_registration(
         &self,
         options: InternalRequest<'_>,
@@ -522,6 +557,19 @@ impl InternalNetwork {
         cancel: &CancellationToken,
         purpose: HttpsPurpose,
     ) -> Result<Vec<u8>, InternalHttpError> {
+        let response = self.exchange_https_for(options, cancel, purpose).await?;
+        let _ = response.retry_after;
+        if !(200..300).contains(&response.status) {
+            return Err(InternalHttpError::HttpStatus(response.status));
+        }
+        Ok(response.body.to_vec())
+    }
+    async fn exchange_https_for(
+        &self,
+        options: InternalRequest<'_>,
+        cancel: &CancellationToken,
+        purpose: HttpsPurpose,
+    ) -> Result<InternalResponse, InternalHttpError> {
         let InternalRequest {
             url,
             method,
@@ -632,9 +680,14 @@ impl InternalNetwork {
                 elapsed_us = stage_started.elapsed().as_micros(),
                 "Internal HTTPS timing"
             );
-            if !response.status().is_success() {
-                return Err(InternalHttpError::HttpStatus(response.status().as_u16()));
-            }
+            let status = response.status().as_u16();
+            let retry_after = response
+                .headers()
+                .get(http::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| value.len() <= 5 && value.bytes().all(|b| b.is_ascii_digit()))
+                .and_then(|value| value.parse::<u32>().ok())
+                .filter(|value| (1..=3600).contains(value));
             if response
                 .headers()
                 .get(http::header::CONTENT_ENCODING)
@@ -651,7 +704,7 @@ impl InternalNetwork {
             {
                 return Err(InternalHttpError::SizeLimit);
             }
-            let mut bytes = Vec::new();
+            let mut bytes = zeroize::Zeroizing::new(Vec::new());
             while let Some(frame) = response.body_mut().frame().await {
                 let frame = frame.map_err(|_| InternalHttpError::Protocol)?;
                 if let Some(data) = frame.data_ref() {
@@ -661,7 +714,11 @@ impl InternalNetwork {
                     bytes.extend_from_slice(data);
                 }
             }
-            Ok(bytes)
+            Ok(InternalResponse {
+                status,
+                retry_after,
+                body: bytes,
+            })
         };
         tokio::select! {
             biased;

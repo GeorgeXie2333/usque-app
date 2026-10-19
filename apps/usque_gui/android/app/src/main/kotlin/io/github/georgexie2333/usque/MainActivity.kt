@@ -47,6 +47,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private val identityExecutor = Executors.newSingleThreadExecutor()
+    private val protonVerificationWindow by lazy { ProtonVerificationWindow(this) }
 
     // Doctor cannot queue behind registration or account I/O. Only one active
     // session and its cancellation completion can occupy this executor.
@@ -441,7 +442,17 @@ class MainActivity : FlutterFragmentActivity() {
         ensureEngineComponents()
         engineMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         engineMethodChannel?.setMethodCallHandler { call, result ->
-            if (call.method == "readChainConfigurations") {
+            if (call.method == "completeProtonHumanVerification") {
+                val handoff = call.argument<ByteArray>("handoff") ?: ByteArray(0)
+                try {
+                    protonVerificationWindow.open(handoff, result)
+                } finally {
+                    handoff.fill(0)
+                }
+            } else if (call.method == "cancelProtonHumanVerification") {
+                protonVerificationWindow.finish(null)
+                result.success(null)
+            } else if (call.method == "readChainConfigurations") {
                 if (pendingChainFileResult != null) {
                     result.error("CHAIN_FILE_BUSY", "A file picker is already open.", null)
                 } else {
@@ -513,6 +524,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onStop() {
+        protonVerificationWindow.finish(null)
         if (::controlClient.isInitialized) {
             controlClient.setUiVisible(false)
         }
@@ -520,6 +532,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        protonVerificationWindow.finish(null)
         pendingChainFileResult?.success(null)
         pendingChainFileResult = null
         permissionCoordinator.destroy()

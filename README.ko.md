@@ -92,7 +92,8 @@ VPN, SOCKS5, HTTP는 기본적으로 켜져 있고, Windows 시스템 프록시�
 
 - 선택적으로 사용하는 [체인 프록시](docs/CHAIN_PROXY.md). **프록시 → 체인 프록시**에서
   **OpenVPN**, **WireGuard**, [**WARP via WireGuard**](docs/WARP_WIREGUARD.md),
-  **VPN Gate**, **HTTP**, **SOCKS5** 순서로 출구를 선택할 수 있습니다.
+  [**Proton VPN**](docs/PROTON_VPN.md), **VPN Gate**, **HTTP**, **SOCKS5** 순서로 출구를 선택할 수 있습니다.
+  네이티브 Proton 기능은 검증 중입니다. 실제 로그인, 본인이 푸는 퍼즐과 전체 터널은 아직 검증하지 않았습니다.
   VPN 구성을 가져오거나 프록시 서버를 추가한 뒤 하나를 선택하고 적용합니다.
   VPN, SOCKS5, HTTP는 같은 최종 출구를 사용하며, 명시적인 직접 연결 규칙은 계속 적용됩니다. 기본값은 꺼짐입니다.
 - 직접 켜서 사용하는 [실험적 L4 모드](docs/L4_PROXY.md)는 HTTP/3을 통해 TCP를 프록시합니다.
@@ -188,6 +189,7 @@ HTTP/2는 시스템 TCP를 사용합니다. [HTTP/3 혼잡 제어](docs/congesti
 | 필요한 정보 | 읽을 문서 |
 | --- | --- |
 | 설치, 업데이트, 제거, 복구 | [설치](docs/INSTALLATION.md) |
+| 네이티브 Proton 게스트/계정 설정 | [Proton VPN 가이드와 현재 제한](docs/PROTON_VPN.md) |
 | WARP를 통해 Proton VPN에 연결 | [WireGuard over MASQUE 튜토리얼](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) |
 | 로컬 품질 검사의 의미 | [Network Doctor](docs/network-doctor.md) |
 | 변경 사항의 안전한 빌드 및 테스트 | [기여 안내](CONTRIBUTING.md) |
@@ -205,6 +207,8 @@ HTTP/2는 시스템 TCP를 사용합니다. [HTTP/3 혼잡 제어](docs/congesti
 선택적인 [체인 프록시](docs/CHAIN_PROXY.md)는 MPL-2.0의 OpenVPN 3 Core와 Apache-2.0의 Mbed TLS를 포함합니다.
 해당 소스, 검토한 패치, 라이선스 전문은 `third_party`에 있으며, 앱의 VPN Gate 페이지에서 라이선스 고지를 확인할 수 있습니다.
 WireGuard는 BoringTun 0.7.1(BSD-3-Clause)을, 로컬 SVG 아이콘은 flutter_svg 2.3.0(MIT)을 사용합니다. 해당 고지는 앱의 라이선스 목록에도 포함되어 있습니다.
+
+독립 Proton SRP 구현은 Proton go-srp(MIT)를 참조합니다. [저작권 고지와 전체 라이선스](apps/usque_gui/assets/licenses/proton-srp.txt)는 소스, 테스트 벡터와 앱 라이선스 목록에 보존됩니다.
 
 ---
 

@@ -33,6 +33,11 @@ void main() {
       'wgcf registration protocol reference',
     ], await rootBundle.loadString('assets/licenses/wgcf.txt'));
   });
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
+      'Proton go-srp algorithm and interoperability vectors',
+    ], await rootBundle.loadString('assets/licenses/proton-srp.txt'));
+  });
   // The Windows runner removes the native caption, so Flutter has to draw one.
   if (!kIsWeb && Platform.isWindows) {
     WindowFrame.instance.enable();

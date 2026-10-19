@@ -10,6 +10,7 @@ pub mod identity;
 pub mod l4;
 pub mod linux_release;
 pub mod network_settings;
+pub mod proton_vpn;
 pub mod reconfigure;
 pub mod redaction;
 pub mod registration;

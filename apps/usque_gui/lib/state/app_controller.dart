@@ -25,6 +25,56 @@ class _AdsRulesWork {
 }
 
 class AppController extends ChangeNotifier {
+  String? _lastProtonCompletedJob;
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) async {
+    final engine = _engine;
+    if (engine is ProtonVpnClient) {
+      final generation = _dataGeneration;
+      final result = await (engine as ProtonVpnClient).protonVpn(
+        command,
+        sensitiveInput: sensitiveInput,
+      );
+      final job = result.metadata['job'] as Map<Object?, Object?>?;
+      if (!_disposed &&
+          generation == _dataGeneration &&
+          job?['state'] == 'completed' &&
+          job?['id'] is String &&
+          job!['id'] != _lastProtonCompletedJob) {
+        _lastProtonCompletedJob = job['id'] as String;
+        _chainLibraryRevision++;
+        _notifyListeners();
+      }
+      return result;
+    }
+    throw const EngineException(
+      'PROTON_UNAVAILABLE',
+      'Proton VPN is unavailable.',
+    );
+  }
+
+  Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff) {
+    final engine = _engine;
+    if (engine is ProtonHumanVerificationClient) {
+      return (engine as ProtonHumanVerificationClient)
+          .completeProtonHumanVerification(handoff);
+    }
+    throw const EngineException(
+      'PROTON_VERIFICATION_UNAVAILABLE',
+      'Verification is unavailable.',
+    );
+  }
+
+  Future<void> cancelProtonHumanVerification() async {
+    final engine = _engine;
+    if (engine is ProtonHumanVerificationClient) {
+      await (engine as ProtonHumanVerificationClient)
+          .cancelProtonHumanVerification();
+    }
+  }
+
   Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request) {
     final engine = _engine;
     if (engine is WarpWireguardClient) {

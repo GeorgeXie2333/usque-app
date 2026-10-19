@@ -11,6 +11,7 @@ import 'vpngate_models.dart';
 
 export 'chain_exit_models.dart';
 export 'l4_performance.dart';
+export 'proton_vpn_models.dart';
 export 'routing_settings.dart';
 export 'transport_performance.dart';
 export 'vpngate_models.dart';
@@ -2157,6 +2158,7 @@ class EngineCapabilities {
     this.chainOpenvpnUdp = false,
     this.chainWireguard = false,
     this.chainWarpWireguard = false,
+    this.chainProtonVpn = false,
     this.chainHttpProxy = false,
     this.chainSocks5Proxy = false,
     this.chainProxyEncryptedDns = false,
@@ -2194,6 +2196,7 @@ class EngineCapabilities {
     chainOpenvpnUdp: map['chain_openvpn_udp'] == true,
     chainWireguard: map['chain_wireguard'] == true,
     chainWarpWireguard: map['chain_warp_wireguard'] == true,
+    chainProtonVpn: map['chain_proton_vpn'] == true,
     chainHttpProxy: map['chain_http_proxy'] == true,
     chainSocks5Proxy: map['chain_socks5_proxy'] == true,
     chainProxyEncryptedDns: map['chain_proxy_encrypted_dns'] == true,
@@ -2249,6 +2252,7 @@ class EngineCapabilities {
       chainOpenvpnUdp,
       chainWireguard,
       chainWarpWireguard,
+      chainProtonVpn,
       chainHttpProxy,
       chainSocks5Proxy,
       chainProxyEncryptedDns,
@@ -2280,6 +2284,7 @@ class EngineCapabilities {
           chainOpenvpnUdp == other.chainOpenvpnUdp &&
           chainWireguard == other.chainWireguard &&
           chainWarpWireguard == other.chainWarpWireguard &&
+          chainProtonVpn == other.chainProtonVpn &&
           chainHttpProxy == other.chainHttpProxy &&
           chainSocks5Proxy == other.chainSocks5Proxy &&
           chainProxyEncryptedDns == other.chainProxyEncryptedDns &&
@@ -2321,6 +2326,7 @@ class EngineCapabilities {
     chainWireguard,
     Object.hash(
       chainWarpWireguard,
+      chainProtonVpn,
       chainHttpProxy,
       chainSocks5Proxy,
       chainProxyEncryptedDns,

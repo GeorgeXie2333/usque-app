@@ -28,7 +28,9 @@ class ChainSourcePicker extends StatelessWidget {
 
   static bool available(EngineCapabilities? capabilities, ChainSource source) {
     if (capabilities == null) {
-      return source != ChainSource.warpWireguard && !source.isProxy;
+      return source != ChainSource.warpWireguard &&
+          source != ChainSource.protonVpn &&
+          !source.isProxy;
     }
     return switch (source) {
       ChainSource.openvpnCustom => capabilities.chainProfileImport,
@@ -38,6 +40,10 @@ class ChainSourcePicker extends StatelessWidget {
         capabilities.chainProfileImport &&
             capabilities.chainWireguard &&
             capabilities.chainWarpWireguard,
+      ChainSource.protonVpn =>
+        capabilities.chainProfileImport &&
+            capabilities.chainWireguard &&
+            capabilities.chainProtonVpn,
       ChainSource.vpnGate => capabilities.vpnGateTcp,
       ChainSource.httpProxy =>
         capabilities.chainProfileImport && capabilities.chainHttpProxy,

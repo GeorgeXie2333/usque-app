@@ -11,6 +11,7 @@ add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
   "maintenance_shutdown.cpp"
+  "proton_verification.cpp"
   "shell_integration.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -46,6 +47,8 @@ target_link_libraries(${BINARY_NAME} PRIVATE "ole32.lib" "propsys.lib" "shlwapi.
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
+include("${CMAKE_CURRENT_SOURCE_DIR}/webview2_sdk.cmake")
+
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
 add_executable(usque_zero_trust_test
@@ -66,3 +69,10 @@ target_compile_definitions(usque_zero_trust_test PRIVATE "NOMINMAX")
 target_link_libraries(usque_zero_trust_test PRIVATE "advapi32.lib" "user32.lib")
 target_link_libraries(usque_zero_trust_test PRIVATE "shell32.lib" "ole32.lib" "propsys.lib" "shlwapi.lib")
 target_include_directories(usque_zero_trust_test PRIVATE "${CMAKE_SOURCE_DIR}")
+
+add_executable(usque_proton_verification_test
+  "../../native/proton_verification_test.cc")
+set_target_properties(usque_proton_verification_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+apply_standard_settings(usque_proton_verification_test)
+target_compile_features(usque_proton_verification_test PRIVATE cxx_std_17)

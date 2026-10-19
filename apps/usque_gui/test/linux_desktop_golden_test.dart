@@ -1,11 +1,14 @@
 import 'dart:ffi' show Abi;
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:usque/core/chain_strings.dart';
 import 'package:usque/core/country_flags.dart';
+import 'package:usque/core/proton_strings.dart';
 import 'package:usque/core/user_facing_errors.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
@@ -18,6 +21,7 @@ import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/widgets/chain_source_picker.dart';
 import 'package:usque/widgets/linux_service_section.dart';
+import 'package:usque/widgets/proton_vpn_panel.dart';
 import 'package:usque/widgets/usque_logo.dart';
 import 'package:usque/widgets/window_titlebar.dart';
 
@@ -33,6 +37,7 @@ const _capabilities = EngineCapabilities(
   chainOpenvpnUdp: true,
   chainWireguard: true,
   chainWarpWireguard: true,
+  chainProtonVpn: true,
   chainHttpProxy: true,
   chainSocks5Proxy: true,
   routingRules: true,
@@ -45,7 +50,7 @@ const _capabilities = EngineCapabilities(
 // These fixtures exercise the Linux widgets without reaching a session bus,
 // keyring, service, socket, browser, filesystem picker, or network backend.
 class _LinuxGoldenEngine extends FakeEngineClient
-    implements LinuxServiceClient, ChainProfileClient {
+    implements LinuxServiceClient, ChainProfileClient, ProtonVpnClient {
   LinuxServiceState service = const LinuxServiceState(
     installed: true,
     compatible: true,
@@ -53,6 +58,24 @@ class _LinuxGoldenEngine extends FakeEngineClient
   );
   bool cancelMaintenance = false;
   int maintenanceCalls = 0;
+  Map<Object?, Object?> protonJob = const {};
+  List<Map<Object?, Object?>> protonProfiles = const [];
+  bool hasProtonProfile = false;
+
+  @override
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) async {
+    if (command['action'] != 'get' && command['action'] != 'cancel') {
+      throw StateError(
+        'Screenshot fixtures never authenticate or alter Proton sessions.',
+      );
+    }
+    return ProtonVpnResult(
+      metadata: {'job': protonJob, 'profiles': protonProfiles},
+    );
+  }
 
   @override
   Future<EngineCapabilities?> getCapabilities() async => _capabilities;
@@ -76,6 +99,22 @@ class _LinuxGoldenEngine extends FakeEngineClient
   Future<ChainProfileResult> chainProfile(Map<String, Object?> request) async {
     if (request['action'] != 'list') {
       throw StateError('Unexpected chain mutation in a screenshot fixture.');
+    }
+    if (hasProtonProfile) {
+      return const ChainProfileResult(
+        profiles: [
+          ChainProfileSummary(
+            id: 'fixture-proton',
+            revision: 'fixture-proton-revision',
+            editRevision: 'fixture-proton-edit-revision',
+            name: 'Proton Free',
+            source: ChainSource.protonVpn,
+            protocol: 'wireguard',
+            host: '192.0.2.2',
+            port: 51820,
+          ),
+        ],
+      );
     }
     return const ChainProfileResult(
       profiles: [
@@ -117,6 +156,9 @@ enum _Scene {
   onboardingZeroTrustRtl,
   routing,
   chain,
+  protonVerification,
+  protonNodes,
+  protonProfile,
   profiles,
 }
 
@@ -251,6 +293,30 @@ const _fixtures = <_Fixture>[
     scale: 1,
   ),
   (
+    scene: _Scene.protonVerification,
+    name: 'chain_proton_verification_zh_phone',
+    size: Size(390, 1000),
+    locale: LocalePreference.simplifiedChinese,
+    dark: false,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.protonNodes,
+    name: 'chain_proton_nodes_en_dark',
+    size: Size(1280, 1100),
+    locale: LocalePreference.english,
+    dark: true,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.protonProfile,
+    name: 'chain_proton_profile_text_scale_200_en_light',
+    size: Size(1600, 1400),
+    locale: LocalePreference.english,
+    dark: false,
+    scale: 2,
+  ),
+  (
     scene: _Scene.profiles,
     name: 'profiles_zh_light',
     size: Size(1280, 900),
@@ -271,7 +337,10 @@ Widget _host(AppController app, _Fixture fixture) {
     _Scene.onboardingKeyringCancelled ||
     _Scene.onboardingZeroTrustRtl => OnboardingScreen(controller: app),
     _Scene.routing => GeoDirectSettingsScreen(controller: app),
-    _Scene.chain => ChainProxyScreen(
+    _Scene.chain ||
+    _Scene.protonVerification ||
+    _Scene.protonNodes ||
+    _Scene.protonProfile => ChainProxyScreen(
       controller: app,
       now: () => DateTime.utc(2026, 9, 2, 12, 1),
     ),
@@ -388,6 +457,52 @@ void _configure(
           profileId: 'office-wireguard',
         ),
       );
+    case _Scene.protonVerification:
+    case _Scene.protonNodes:
+    case _Scene.protonProfile:
+      app.sharedNetwork = app.sharedNetwork.copyWith(
+        chainExit: const ChainExitSettings(source: ChainSource.protonVpn),
+      );
+      if (fixture.scene == _Scene.protonVerification) {
+        engine.protonJob = const {
+          'id': 'fixture-proton',
+          'state': 'waiting_verification',
+          'phase': 'credentialless',
+          'challenge_id': 'fixture-challenge',
+        };
+      } else if (fixture.scene == _Scene.protonNodes) {
+        engine.protonJob = const {
+          'id': 'fixture-proton',
+          'state': 'waiting_node',
+          'phase': 'directory',
+          'nodes': [
+            {
+              'id': 'fixture-jp',
+              'name': 'JP-FREE#1',
+              'country': 'JP',
+              'city': 'Tokyo',
+              'load': 42,
+            },
+            {
+              'id': 'fixture-nl',
+              'name': 'NL-FREE#2',
+              'country': 'NL',
+              'city': 'Amsterdam',
+              'load': 28,
+            },
+          ],
+        };
+      } else {
+        engine.hasProtonProfile = true;
+        engine.protonProfiles = const [
+          {
+            'id': 'fixture-proton',
+            'name': 'Proton Free',
+            'node_name': 'JP-FREE#1',
+            'needs_login': true,
+          },
+        ];
+      }
     default:
       break;
   }
@@ -662,6 +777,24 @@ void main() {
                   find.byKey(const ValueKey('chain-profile-office-wireguard')),
                   fixture.size,
                 );
+              case _Scene.protonVerification:
+              case _Scene.protonNodes:
+              case _Scene.protonProfile:
+                expect(find.byType(ProtonVpnPanel), findsOneWidget);
+                expect(
+                  find.text(app.strings.chain('import_file')),
+                  findsNothing,
+                );
+                final target = switch (fixture.scene) {
+                  _Scene.protonVerification => find.text(
+                    app.strings.proton('verify'),
+                  ),
+                  _Scene.protonNodes => find.text('NL-FREE#2'),
+                  _ => find.text(app.strings.proton('forget')),
+                };
+                await tester.ensureVisible(target);
+                await tester.pumpAndSettle();
+                _expectInViewport(tester, target, fixture.size);
               case _Scene.onboardingZeroTrustRtl:
                 final method = find.text(app.strings.get('zero_trust_title'));
                 await tester.ensureVisible(method);

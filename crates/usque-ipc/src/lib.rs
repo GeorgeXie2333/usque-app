@@ -23,6 +23,18 @@ impl std::fmt::Debug for v1::SensitiveClipboardValue {
     }
 }
 
+impl std::fmt::Debug for v1::ProtonVpnRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ProtonVpnRequest { [REDACTED] }")
+    }
+}
+
+impl std::fmt::Debug for v1::ProtonVpnResponse {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ProtonVpnResponse { [REDACTED] }")
+    }
+}
+
 pub const MAX_FRAME_SIZE: usize = 4 * 1024 * 1024;
 
 pub fn encode_frame<M: Message>(message: &M) -> Result<Bytes, FrameError> {

@@ -18,7 +18,17 @@ fn main() {
     // Clipboard credentials travel only in the authenticated protobuf reply.
     // Logging/diagnostic JSON and Debug must never expose their bytes.
     config.field_attribute(".usque.v1.SensitiveClipboardValue.utf8", "#[serde(skip)]");
-    config.skip_debug([".usque.v1.SensitiveClipboardValue"]);
+    for field in [
+        ".usque.v1.ProtonVpnRequest.sensitive_input",
+        ".usque.v1.ProtonVpnResponse.sensitive_handoff",
+    ] {
+        config.field_attribute(field, "#[serde(skip)]");
+    }
+    config.skip_debug([
+        ".usque.v1.SensitiveClipboardValue",
+        ".usque.v1.ProtonVpnRequest",
+        ".usque.v1.ProtonVpnResponse",
+    ]);
     for message in ["RecoveryObservation", "RecoveryResourceObservation"] {
         config.type_attribute(format!(".usque.agent.v1.{message}"), "#[serde(default)]");
     }

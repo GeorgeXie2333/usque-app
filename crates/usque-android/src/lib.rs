@@ -76,6 +76,7 @@ mod connection_timeline;
 mod diagnostic_probe;
 #[cfg(any(test, target_os = "android"))]
 mod exit_probe_task;
+mod proton_vpn;
 #[cfg(feature = "wireguard")]
 mod warp_wireguard;
 
@@ -136,6 +137,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "chain_openvpn_udp": engine_ready(),
             "chain_wireguard": engine_ready() && cfg!(feature = "wireguard"),
             "chain_warp_wireguard": engine_ready() && cfg!(feature = "wireguard"),
+            "chain_proton_vpn": engine_ready() && cfg!(feature = "wireguard"),
             "chain_http_proxy": engine_ready(),
             "chain_socks5_proxy": engine_ready(),
             "chain_proxy_encrypted_dns": engine_ready(),
@@ -1502,19 +1504,37 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
     }
     let command: AndroidConfigCommand = serde_json::from_str(request_json)
         .map_err(|error| format!("invalid profile-store command: {error}"))?;
-    #[cfg(feature = "wireguard")]
-    if matches!(
+    let provider_mutation = matches!(
         &command,
         AndroidConfigCommand::ClearAllData
+            | AndroidConfigCommand::BeginInitialIdentity { .. }
+            | AndroidConfigCommand::FinishInitialIdentity { .. }
+            | AndroidConfigCommand::ImportLegacyProfiles { .. }
             | AndroidConfigCommand::SetActiveProfile { .. }
             | AndroidConfigCommand::DeleteProfile { .. }
             | AndroidConfigCommand::UpsertProfile { .. }
             | AndroidConfigCommand::ReconfigureActiveProfile { .. }
             | AndroidConfigCommand::BeginIdentityReplacement { .. }
-    ) && !warp_wireguard::stop()
-    {
+            | AndroidConfigCommand::ArmIdentityReplacement { .. }
+            | AndroidConfigCommand::CommitIdentityReplacement { .. }
+            | AndroidConfigCommand::CompleteIdentityReplacements { .. }
+            | AndroidConfigCommand::BeginIdentityCreation { .. }
+            | AndroidConfigCommand::CommitProfileWithIdentity { .. }
+            | AndroidConfigCommand::CompleteIdentityCreations { .. }
+            | AndroidConfigCommand::CompleteIdentityDeletions { .. }
+    );
+    #[cfg(feature = "wireguard")]
+    if provider_mutation && (!warp_wireguard::stop() || !proton_vpn::stop()) {
         return Err("WARP_GENERATION_CLEANUP_PENDING".into());
     }
+    let _provider_lease = provider_mutation
+        .then(|| {
+            usque_core::proton_vpn::lifecycle_lease(
+                config_path.parent().ok_or("Invalid configuration path")?,
+            )
+            .map_err(|_| "PROTON_OPERATION_BUSY")
+        })
+        .transpose()?;
     let clear_all_data = matches!(&command, AndroidConfigCommand::ClearAllData);
     let store = ConfigStore::new(config_path);
     if matches!(
@@ -3302,6 +3322,9 @@ fn start_engine(
     if !vpngate::cancel_refresh() {
         return START_PLATFORM_FAILURE;
     }
+    let Ok(_provider_lease) = usque_core::proton_vpn::lifecycle_lease(&geo_cache_dir) else {
+        return START_PLATFORM_FAILURE;
+    };
     if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
         && (profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
             || profile.warp_dns.is_encrypted())
@@ -3340,6 +3363,9 @@ fn start_proxy_engine(
     if !vpngate::cancel_refresh() {
         return START_PLATFORM_FAILURE;
     }
+    let Ok(_provider_lease) = usque_core::proton_vpn::lifecycle_lease(&geo_cache_dir) else {
+        return START_PLATFORM_FAILURE;
+    };
     if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
         && (profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
             || profile.warp_dns.is_encrypted())
@@ -3657,6 +3683,27 @@ fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_provider_job_in_another_process_fences_account_mutations() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        store.save(&AppConfig::default()).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let caller =
+            std::sync::Arc::new(usque_core::proton_vpn::lifecycle_lease(directory.path()).unwrap());
+        let job = caller.clone();
+        drop(caller);
+        let command = serde_json::json!({"command":"set_active_profile","profile_id":usque_core::DEFAULT_PROFILE_ID});
+        assert_eq!(
+            apply_profile_command(path.to_str().unwrap(), &command.to_string()).unwrap_err(),
+            "PROTON_OPERATION_BUSY"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        drop(job);
+        assert!(apply_profile_command(path.to_str().unwrap(), &command.to_string()).is_ok());
+    }
+
     #[test]
     fn initial_identity_commands_are_fixed_pure_and_fenced_after_clear() {
         let directory = tempfile::tempdir().unwrap();

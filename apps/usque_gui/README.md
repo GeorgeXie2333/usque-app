@@ -2,7 +2,9 @@
 
 Flutter UI for Windows, Linux, Android and Android TV. macOS source is retained for
 future work but is not built, tested or released for the current product.
-The UI uses native Flutter widgets without a WebView.
+The UI uses native Flutter widgets. An isolated native WebView is reserved for
+the official Proton human-verification page when the user completes its puzzle;
+account passwords and all other application UI stay in native widgets.
 
 Desktop builds start the Rust sidecar and talk to it over current-user IPC. Android talks to the Rust library inside the isolated `:vpn` process.
 

@@ -124,6 +124,15 @@ pub(crate) fn prepare(
     let cipher = CIPHER.get().ok_or("Chain secure storage is unavailable")?;
     let result = usque_core::chain_exit::prepare_selection(parent, profile, cipher)
         .map_err(|e| e.to_string())?;
+    #[cfg(feature = "wireguard")]
+    let result = {
+        let mut result = result;
+        if let Some((_, prepared)) = result.as_mut() {
+            usque_transport::proton_vpn::attach(parent, profile_cipher()?, prepared)
+                .map_err(|_| "Proton encrypted session unavailable")?;
+        }
+        result
+    };
     if !cfg!(feature = "wireguard")
         && result.as_ref().is_some_and(|(_, p)| {
             p.summary

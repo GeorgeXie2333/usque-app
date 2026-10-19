@@ -67,6 +67,7 @@ mod network_settings;
 mod protected_chain;
 #[cfg(test)]
 mod protected_chain_tests;
+mod proton_vpn;
 mod routing;
 mod sensitive_output;
 mod vpngate;
@@ -148,6 +149,8 @@ pub struct ControlServiceState {
     gate_fetch_task: Mutex<Option<vpngate::FetchTask>>,
     #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
     warp_generator: Arc<usque_transport::warp_wireguard::Manager>,
+    #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+    proton_manager: Arc<usque_transport::proton_vpn::Manager>,
     gate_status: watch::Sender<usque_core::vpngate::GateStatus>,
     gate_supervisor: Mutex<Option<AbortOnDropHandle<()>>>,
     gate_startup_cancel: Mutex<tokio_util::sync::CancellationToken>,
@@ -500,6 +503,11 @@ impl ControlService {
                     profile_dir.join("config.json"),
                     Arc::clone(chain_cipher.as_ref().expect("desktop cipher")),
                 )),
+                #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+                proton_manager: Arc::new(usque_transport::proton_vpn::Manager::new(
+                    profile_dir.join("config.json"),
+                    Arc::clone(chain_cipher.as_ref().expect("desktop cipher")),
+                )),
                 store,
                 config: RwLock::new(config),
                 state: Arc::new(Mutex::new(StateMachine::default())),
@@ -813,6 +821,8 @@ impl ControlService {
         self.gate_startup_cancel.lock().await.cancel();
         self.cancel_warp_jobs().await?;
         self.cancel_gate_refresh().await;
+        let _provider_lease = usque_core::proton_vpn::lifecycle_lease(&self.profile_dir)
+            .map_err(ControlServiceError::configuration)?;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
@@ -875,7 +885,7 @@ impl ControlService {
         &self,
         payload: control_request::Payload,
     ) -> Result<control_response::Payload, ControlServiceError> {
-        if matches!(
+        let _provider_lease = if matches!(
             &payload,
             control_request::Payload::Connect(_)
                 | control_request::Payload::Disconnect(_)
@@ -889,11 +899,24 @@ impl ControlService {
                 | control_request::Payload::ProvisionIdentity(_)
                 | control_request::Payload::UpsertProfile(_)
                 | control_request::Payload::CreateProfileWithIdentity(_)
+                | control_request::Payload::UpdateLicenseKey(_)
+                | control_request::Payload::UnbindLicenseKey(_)
         ) {
             self.cancel_warp_jobs().await?;
             self.cancel_gate_refresh().await;
-        }
+            Some(
+                usque_core::proton_vpn::lifecycle_lease(&self.profile_dir)
+                    .map_err(ControlServiceError::configuration)?,
+            )
+        } else {
+            None
+        };
         match payload {
+            control_request::Payload::ProtonVpn(request) => {
+                Ok(control_response::Payload::ProtonVpn(
+                    Box::pin(self.proton_vpn_command(request)).await?,
+                ))
+            }
             control_request::Payload::WarpWireguard(request) => {
                 Ok(control_response::Payload::WarpWireguard(
                     Box::pin(self.warp_wireguard_command(request)).await?,
@@ -5574,6 +5597,7 @@ fn current_capabilities() -> v1::Capabilities {
         chain_wireguard: cfg!(any(windows, target_os = "linux")) && cfg!(feature = "wireguard"),
         chain_warp_wireguard: cfg!(any(windows, target_os = "linux"))
             && cfg!(feature = "wireguard"),
+        chain_proton_vpn: cfg!(any(windows, target_os = "linux")) && cfg!(feature = "wireguard"),
         chain_http_proxy: cfg!(any(windows, target_os = "linux")),
         chain_socks5_proxy: cfg!(any(windows, target_os = "linux")),
         chain_proxy_encrypted_dns: cfg!(any(windows, target_os = "linux")),
@@ -5857,6 +5881,71 @@ fn location_to_proto(location: &usque_core::GeoLocation) -> v1::GeoLocation {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn a_provider_job_blocks_the_entire_account_mutation_before_its_config_lock() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile_id.unwrap();
+        let job = usque_core::proton_vpn::lifecycle_lease(&service.profile_dir).unwrap();
+        let request = || {
+            control_request::Payload::SetActiveProfile(v1::SetActiveProfileRequest {
+                profile_id: profile.to_string(),
+            })
+        };
+        assert!(service.handle_payload(request()).await.is_err());
+        assert_eq!(
+            service.config_snapshot().await.active_profile_id,
+            Some(profile)
+        );
+        drop(job);
+        assert!(service.handle_payload(request()).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_waiting_account_mutation_excludes_a_provider_job_launch() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = Arc::new(
+            ControlService::open_with_vault(
+                ConfigStore::new(directory.path().join("config.json")),
+                Arc::new(MemoryVault::default()),
+            )
+            .unwrap(),
+        );
+        let profile = service.config_snapshot().await.active_profile_id.unwrap();
+        let mutation = service.mutation_lock.lock().await;
+        let pending = {
+            let service = service.clone();
+            tokio::spawn(async move {
+                service
+                    .handle_payload(control_request::Payload::SetActiveProfile(
+                        v1::SetActiveProfileRequest {
+                            profile_id: profile.to_string(),
+                        },
+                    ))
+                    .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                match usque_core::proton_vpn::lifecycle_lease(&service.profile_dir) {
+                    Err(error) if error.reason == "proton_operation_busy" => break,
+                    Err(error) => panic!("unexpected lease error: {error}"),
+                    Ok(lease) => drop(lease),
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the mutator must fence job launch before waiting for its config lock");
+        assert!(!pending.is_finished());
+        drop(mutation);
+        assert!(pending.await.unwrap().is_ok());
+        assert!(usque_core::proton_vpn::lifecycle_lease(&service.profile_dir).is_ok());
+    }
 
     #[cfg(target_os = "linux")]
     #[tokio::test]

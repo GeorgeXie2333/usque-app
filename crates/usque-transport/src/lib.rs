@@ -104,6 +104,8 @@ pub use h3::{
 };
 pub use http_proxy::HttpProxyRuntime;
 pub use internal_network::InternalNetwork;
+#[cfg(feature = "wireguard")]
+pub mod proton_vpn;
 pub use l4::performance::{TunWriteObserver, TunWriteSample};
 pub use masque_runtime::{MasqueRuntime, MasqueTunIo};
 pub use netstack::{

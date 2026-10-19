@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/chain_strings.dart';
+import '../core/proton_strings.dart';
 import '../core/usque_theme.dart';
 import '../core/warp_strings.dart';
 import '../models/app_models.dart';
@@ -12,6 +13,7 @@ import '../widgets/chain_current_connection.dart';
 import '../widgets/chain_editor_layout.dart';
 import '../widgets/chain_source_picker.dart';
 import '../widgets/common.dart';
+import '../widgets/proton_vpn_panel.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
@@ -259,6 +261,7 @@ class _CustomChainEditor extends StatefulWidget {
 
 class _CustomChainEditorState extends State<_CustomChainEditor> {
   final _warpPanel = GlobalKey<WarpWireguardPanelState>();
+  final _protonPanel = GlobalKey<ProtonVpnPanelState>();
   late ChainExitSettings _baseline, _draft;
   List<ChainProfileSummary> _profiles = const [];
   bool _loading = true, _saving = false, _importing = false;
@@ -548,6 +551,11 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
       _libraryError = null;
     });
     try {
+      if (widget.source == ChainSource.protonVpn && action == 'remove') {
+        await _protonPanel.currentState?.logout(profile.id);
+        if (mounted) await _load();
+        return;
+      }
       final result = await _app.chainProfile({
         'action': action,
         'profile_id': profile.id,
@@ -664,6 +672,17 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
               : null,
         ),
         slivers: [
+          if (widget.source == ChainSource.protonVpn && _supported)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 24),
+                child: ProtonVpnPanel(
+                  key: _protonPanel,
+                  controller: _app,
+                  onChanged: () => unawaited(_load()),
+                ),
+              ),
+            ),
           SliverToBoxAdapter(
             child: ContentSection(
               title: strings.chain('profiles'),
@@ -690,7 +709,8 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                         icon: const Icon(LucideIcons.plus),
                         label: Text(strings.chain('add_proxy')),
                       ),
-                    if (!widget.source.isProxy)
+                    if (!widget.source.isProxy &&
+                        widget.source != ChainSource.protonVpn)
                       OutlinedButton.icon(
                         onPressed: _supported && !_saving && !_importing
                             ? () => unawaited(_import(true))
@@ -698,7 +718,8 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                         icon: const Icon(LucideIcons.fileUp),
                         label: Text(strings.chain('import_file')),
                       ),
-                    if (!widget.source.isProxy)
+                    if (!widget.source.isProxy &&
+                        widget.source != ChainSource.protonVpn)
                       OutlinedButton.icon(
                         onPressed: _supported && !_saving && !_importing
                             ? () => unawaited(_import(false))
@@ -728,18 +749,25 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     spacing: 4,
                     children: [
-                      if (!widget.source.isProxy) Text(strings.chain('empty')),
-                      Text(
-                        strings.chain(
-                          widget.source.isProxy
-                              ? 'proxy_hint'
-                              : widget.source.isWireguard
-                              ? 'empty_hint_wireguard'
-                              : 'empty_hint_openvpn',
-                        ),
-                        style: mutedStyle,
-                      ),
                       if (!widget.source.isProxy)
+                        Text(
+                          widget.source == ChainSource.protonVpn
+                              ? strings.proton('empty')
+                              : strings.chain('empty'),
+                        ),
+                      if (widget.source != ChainSource.protonVpn)
+                        Text(
+                          strings.chain(
+                            widget.source.isProxy
+                                ? 'proxy_hint'
+                                : widget.source.isWireguard
+                                ? 'empty_hint_wireguard'
+                                : 'empty_hint_openvpn',
+                          ),
+                          style: mutedStyle,
+                        ),
+                      if (!widget.source.isProxy &&
+                          widget.source != ChainSource.protonVpn)
                         Text(strings.chain('import_limits'), style: mutedStyle),
                     ],
                   ),

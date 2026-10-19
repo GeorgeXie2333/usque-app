@@ -12,6 +12,7 @@ impl store::ProfileCipher for MetadataFixture {
 }
 fn context(profile: Profile) -> Context {
     Context {
+        lifecycle_lease: None,
         profile,
         existing: None,
         identity: None,

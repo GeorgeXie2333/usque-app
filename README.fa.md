@@ -93,7 +93,8 @@ VPN، SOCKS5 و HTTP به‌طور پیش‌فرض روشن‌اند و پروک
 
 - [پروکسی زنجیره‌ای](docs/CHAIN_PROXY.md) اختیاری: **پروکسی → پروکسی زنجیره‌ای** را باز کنید. منابع خروجی، به این ترتیب،
   **OpenVPN**، **WireGuard**، [**WARP via WireGuard**](docs/WARP_WIREGUARD.md)،
-  **VPN Gate**، **HTTP** و **SOCKS5** هستند.
+  [**Proton VPN**](docs/PROTON_VPN.md)، **VPN Gate**، **HTTP** و **SOCKS5** هستند.
+  پشتیبانی بومی Proton هنوز در حال اعتبارسنجی است؛ ورود واقعی، حل دستی پازل و تونل کامل آزمایش نشده‌اند.
   پیکربندی VPN را وارد کنید یا کارساز پروکسی اضافه کنید، سپس یکی را انتخاب و اعمال کنید.
   VPN، SOCKS5 و HTTP خروجی مشترکی دارند؛ قاعده‌های مستقیمِ صریح همچنان اعمال می‌شوند. به‌طور پیش‌فرض خاموش است.
 - [حالت آزمایشی L4](docs/L4_PROXY.md) را باید خودتان روشن کنید. این حالت TCP را روی HTTP/3 پروکسی می‌کند.
@@ -202,6 +203,7 @@ TCP سیستم استفاده می‌کند. [کنترل ازدحام HTTP/3](do
 | نیاز | سند |
 | --- | --- |
 | نصب، به‌روزرسانی، حذف یا بازیابی | [نصب](docs/INSTALLATION.md) |
+| راه‌اندازی بومی مهمان یا حساب Proton | [راهنمای Proton VPN و محدودیت‌های فعلی](docs/PROTON_VPN.md) |
 | اتصال به Proton VPN از راه WARP | [راهنمای WireGuard over MASQUE](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) |
 | بررسی محلی کیفیت | [Network Doctor](docs/network-doctor.md) |
 | ساخت و آزمودن امن تغییرات | [مشارکت](CONTRIBUTING.md) |
@@ -220,6 +222,8 @@ Core را تحت MPL-2.0 و Mbed TLS را تحت Apache-2.0 در خود دارد
 و متن مجوزها در `third_party` هستند؛ برنامه این اعلامیه‌ها را
 در صفحهٔ VPN Gate نشان می‌دهد. WireGuard از BoringTun 0.7.1 (BSD-3-Clause) استفاده می‌کند
 و آیکون‌های SVG محلی از flutter_svg 2.3.0 (MIT)؛ اعلامیه‌های آن‌ها در فهرست مجوزهای برنامه است.
+
+پیاده‌سازی مستقل Proton SRP از Proton go-srp با مجوز MIT به‌عنوان مرجع استفاده می‌کند. [اعلان حق نشر و متن کامل مجوز](apps/usque_gui/assets/licenses/proton-srp.txt) در منبع، بردارهای آزمون و فهرست مجوزهای برنامه حفظ شده‌اند.
 
 ---
 

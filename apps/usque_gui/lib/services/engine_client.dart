@@ -251,6 +251,20 @@ abstract interface class WarpWireguardClient {
   Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request);
 }
 
+/// Authentication inputs and one-use human-verification handoffs use bytes,
+/// separate from the metadata accepted by ordinary status requests.
+abstract interface class ProtonVpnClient {
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  });
+}
+
+abstract interface class ProtonHumanVerificationClient {
+  Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff);
+  Future<void> cancelProtonHumanVerification();
+}
+
 /// A document read once by the platform picker. Never contains a path or URI.
 class ChainConfigurationFile {
   const ChainConfigurationFile({
@@ -340,6 +354,8 @@ class MethodChannelEngineClient
         VpnGateClient,
         ChainProfileClient,
         WarpWireguardClient,
+        ProtonVpnClient,
+        ProtonHumanVerificationClient,
         InitialIdentityClient,
         OnboardingPermissionsClient,
         AdsRulesClient {
@@ -410,6 +426,51 @@ class MethodChannelEngineClient
   ) async =>
       await _invoke<Map<Object?, Object?>>('warpWireguard', request) ??
       const {};
+
+  @override
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) async {
+    if (sensitiveInput != null && sensitiveInput.length > 40 * 1024) {
+      throw const EngineException(
+        'PROTON_INPUT_TOO_LARGE',
+        'Invalid authentication input.',
+      );
+    }
+    final value = await _invoke<Map<Object?, Object?>>('protonVpn', {
+      'command_json': encodeProtonVpnCommand(command),
+      'sensitive_input': sensitiveInput ?? Uint8List(0),
+    });
+    if (value == null || value['metadata'] is! Map) {
+      throw const EngineException(
+        'PROTON_UNAVAILABLE',
+        'Proton VPN is unavailable.',
+      );
+    }
+    final handoff = value['sensitive_handoff'];
+    if (handoff != null &&
+        (handoff is! Uint8List || handoff.length > 64 * 1024)) {
+      throw const EngineException(
+        'PROTON_INVALID_RESPONSE',
+        'Invalid Proton response.',
+      );
+    }
+    return ProtonVpnResult(
+      metadata: Map<Object?, Object?>.from(value['metadata'] as Map),
+      sensitiveHandoff: handoff as Uint8List?,
+    );
+  }
+
+  @override
+  Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff) =>
+      _invoke<Uint8List>('completeProtonHumanVerification', {
+        'handoff': handoff,
+      });
+
+  @override
+  Future<void> cancelProtonHumanVerification() =>
+      _invoke<void>('cancelProtonHumanVerification');
   @override
   Future<ChainProfileResult> chainProfile(Map<String, Object?> request) async =>
       ChainProfileResult.fromMap(

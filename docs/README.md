@@ -26,7 +26,8 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | [WARP® exit DNS](WARP_DNS.md) | Configure Plain DNS, DoH or DoT inside the WARP tunnel / 配置 WARP 隧道内普通 DNS、DoH、DoT |
 | [MASQUE TLS fingerprint](TLS_FINGERPRINT.md) | Choose Chrome 155 (default) or unsafe for H2/H3 and apply the change / 选择并应用 H2、H3 的 Chrome 155（默认）或 unsafe 指纹 |
 | [WARP via WireGuard](WARP_WIREGUARD.md) | Generate/import WARP configurations and edit endpoints / 生成、导入 WARP 配置与编辑端点 |
-| [Chain proxy](CHAIN_PROXY.md) | OpenVPN, WireGuard, WARP via WireGuard, VPN Gate, HTTP, SOCKS5: configure, select and apply / 导入、选用与应用 |
+| [Chain proxy](CHAIN_PROXY.md) | OpenVPN, WireGuard, WARP via WireGuard, Proton VPN, VPN Gate, HTTP, SOCKS5: configure, select and apply / 导入、选用与应用 |
+| [Native Proton VPN](PROTON_VPN.md) | Guest/account setup, manual verification, renewal and unvalidated live/network-path limits / 游客与账号准备、人工验证、续期及尚未验证的实网和网络路径限制 |
 | Proton VPN over MASQUE: [English](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) / [简体中文](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE-zh-CN) | Download a WireGuard configuration, import, apply, verify the exit and troubleshoot / 下载 WireGuard 配置、导入、应用、验证出口与排障 |
 | [VPN Gate directory](VPN_GATE.md) | Manage the volunteer directory and favorites / 管理志愿服务器目录与收藏 |
 | [Experimental L4](L4_PROXY.md) | Enable TCP proxy mode and understand its traffic limits / 启用 TCP 代理模式及了解限制 |
@@ -43,6 +44,11 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | [Routing validation record](ROUTING_VALIDATION.md) | Workstation commands, results and unavailable isolated checks / 分流功能开发机验证与未运行的隔离检查 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |
+| [Proton VPN native validation](PROTON_VPN_NATIVE_VALIDATION.md) | Native checks/evidence template and separate live acceptance status / 原生检查与证据模板、独立实网验收状态 |
+| [Proton VPN PoC plan](PROTON_VPN_POC_PLAN.md) | Control-plane experiment scope and acceptance / 控制面实验范围与验收计划 |
+| [Proton VPN PoC CLI](../tool/proton_poc/README.md) | Standalone local CLI, locked dependencies and privacy boundaries / 独立本地 CLI、固定依赖和隐私边界 |
+| [Proton VPN protocol contract](PROTON_VPN_PROTOCOL.md) | Pinned authentication, challenge, certificate and node reference / 固定版本的认证、验证、证书及节点协议参考 |
+| [Proton VPN PoC validation](PROTON_VPN_POC_VALIDATION.md) | Implementation, offline checks, rejected guest attempt and untested account path / 实现、离线检查、游客请求被拒及未实测账号路径 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |
 | [Release process](RELEASE.md) | Candidate preparation, approval, signing, and publication / 候选包、审批、签名与发布 |
 | [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) | Baseline and final-candidate evidence, schema-26/journal-6 compatibility and release gates / 基线与最终候选证据、schema 26／日志 6 兼容性及发布门禁 |

@@ -255,12 +255,16 @@ cargo build --release --locked -p usque-engine -p usque-agent -p usque-update
 python -m unittest discover -s tool -p "test_linux_package.py" -v
 ```
 
-Native Linux runner IPC tests use fake sockets and a fake child process. After
-the production compile, run the executable for the host architecture:
+Native Linux runner IPC tests use fake sockets and a fake child process; the
+Proton verification policy test uses synthetic challenges and bounded malformed
+inputs. After the production compile, build and run both executables for the
+host architecture:
 
 ```shell
 cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_socket_test
 apps/usque_gui/build/linux/x64/release/runner/usque_linux_socket_test
+cmake --build apps/usque_gui/build/linux/x64/release --target usque_proton_verification_test
+apps/usque_gui/build/linux/x64/release/runner/usque_proton_verification_test
 ```
 
 Use the `arm64` directory on a native arm64 host. The exact test target is defined
@@ -474,6 +478,20 @@ flutter test --no-pub
 flutter build windows --release --no-pub --split-debug-info=build/symbols/windows
 ```
 
+For Windows Proton verification runner changes, additionally build and run its
+pure native policy fixture after the complete sequence above. From the
+repository root:
+
+```powershell
+cmake --build apps/usque_gui/build/windows/x64 --config Release --target usque_proton_verification_test
+& ./apps/usque_gui/build/windows/x64/tests/Release/usque_proton_verification_test.exe
+```
+
+Use the `arm64` directory for a Windows arm64 build. This fixture tests synthetic
+handoff/message parsing, challenge binding and bounds; it does not open a
+WebView, authenticate an account or establish VPN behavior. It supplements the
+complete platform gates above.
+
 Keep Dart symbols outside the installable payload and archive them with the exact
 source and binary identity as described in [Flutter release symbols](docs/FLUTTER_SYMBOLS.md).
 Run `--analyze-size` separately from `--split-debug-info`.
@@ -550,7 +568,11 @@ cd apps/usque_gui/android
 - New logs and diagnostics must be checked for secrets, tokens, keys, licenses, pins, device identifiers, and sensitive addresses.
 - UI changes should keep English and Simplified Chinese, light and dark themes, and keyboard focus working. Screen readers, 200% scaling, and Android TV D-pad apply when the change can affect those paths.
 - Use Lucide icons, not emoji, as interface icons.
-- Do not add a WebView UI, an insecure TLS toggle, automatic telemetry, or automatic diagnostic upload.
+- Keep application UI in native Flutter widgets. An isolated native WebView is
+  permitted only for the official Proton human-verification page and its
+  challenge-bound result bridge; do not use it for account passwords or other
+  application UI. Do not add an insecure TLS toggle, automatic telemetry, or
+  automatic diagnostic upload.
 
 ## Quality policy
 

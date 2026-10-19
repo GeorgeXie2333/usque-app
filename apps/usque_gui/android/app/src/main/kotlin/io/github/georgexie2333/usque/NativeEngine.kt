@@ -3,6 +3,29 @@ package io.github.georgexie2333.usque
 import java.io.File
 
 internal object NativeEngine {
+    fun protonVpn(
+        configPath: String,
+        command: String,
+        sensitiveInput: ByteArray,
+        warpSecret: ByteArray,
+        expectedWarpProfileId: String,
+        service: UsqueVpnService,
+    ): Array<ByteArray>? =
+        if (libraryLoaded) {
+            nativeProtonVpn(configPath, command, sensitiveInput, warpSecret, expectedWarpProfileId, service)
+        } else {
+            null
+        }
+
+    private external fun nativeProtonVpn(
+        configPath: String,
+        command: String,
+        sensitiveInput: ByteArray,
+        warpSecret: ByteArray,
+        expectedWarpProfileId: String,
+        service: UsqueVpnService,
+    ): Array<ByteArray>?
+
     private external fun nativeInitializeChainCrypto(codec: ChainProfileCipher): Boolean
 
     fun networkSettings(

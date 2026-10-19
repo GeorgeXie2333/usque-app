@@ -34,8 +34,8 @@ fixtures to particular strings.
 
 | Checked-in fixture | SHA-256 |
 | --- | --- |
-| `NotoSansCJKsc-Regular.subset.otf` | `9f3103573d2332e231fc2a9c561f06514b641c41faef3418626befd47a224ef2` |
-| `NotoSansCJKsc-Bold.subset.otf` | `eaa0686247e5dd993a13012dec775de34c13e3fe1b6a4238a8da77e49b9eba7f` |
+| `NotoSansCJKsc-Regular.subset.otf` | `f2b9c78cd1566f7334921aca5bf07e1c5c84b1774544ce281f5f14f8d99857c9` |
+| `NotoSansCJKsc-Bold.subset.otf` | `e3d1607ee156f090d9ea826a7788aca1b04ee3f333bb6e6491d3e60390a0291a` |
 | `NotoNaskhArabic-Regular.ttf` | `6f0a92031367b2f5a2078fe9d24f3433122b61a0bad57c423aad8f3c39aa2e6e` |
 | `NotoNaskhArabic-Bold.ttf` | `04017b0ccdd1156dcde3bc386734c1b03165261762f16a025c8afc9088ae76e9` |
 | `NotoNaskhArabic-OFL.txt` | `a783ea143e23dc0374b472b79d3b76a369e57a28eb599d19535073c0a4b3aa4d` |

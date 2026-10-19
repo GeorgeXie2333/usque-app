@@ -32,6 +32,7 @@ class _ControlsEngine extends FakeEngineClient {
     chainProfileImport: chainAvailable,
     chainWireguard: chainAvailable,
     chainWarpWireguard: chainAvailable,
+    chainProtonVpn: chainAvailable,
     chainHttpProxy: chainAvailable,
     chainSocks5Proxy: chainAvailable,
   );

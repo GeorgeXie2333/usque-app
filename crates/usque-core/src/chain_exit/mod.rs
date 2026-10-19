@@ -27,18 +27,23 @@ pub enum ChainSource {
     VpnGate,
     HttpProxy,
     Socks5Proxy,
+    ProtonVpn,
 }
 impl ChainSource {
-    pub const DISPLAY_ORDER: [Self; 6] = [
+    pub const DISPLAY_ORDER: [Self; 7] = [
         Self::OpenvpnCustom,
         Self::WireguardCustom,
         Self::WarpWireguard,
+        Self::ProtonVpn,
         Self::VpnGate,
         Self::HttpProxy,
         Self::Socks5Proxy,
     ];
     pub const fn is_wireguard(self) -> bool {
-        matches!(self, Self::WireguardCustom | Self::WarpWireguard)
+        matches!(
+            self,
+            Self::WireguardCustom | Self::WarpWireguard | Self::ProtonVpn
+        )
     }
     pub const fn is_proxy(self) -> bool {
         matches!(self, Self::HttpProxy | Self::Socks5Proxy)
@@ -48,6 +53,7 @@ impl ChainSource {
             Self::OpenvpnCustom => "OpenVPN",
             Self::WireguardCustom => "WireGuard",
             Self::WarpWireguard => "WARP via WireGuard",
+            Self::ProtonVpn => "Proton VPN",
             Self::VpnGate => "VPN Gate",
             Self::HttpProxy => "HTTP",
             Self::Socks5Proxy => "SOCKS5",
@@ -348,7 +354,7 @@ impl ValidatedProfile {
         }
         match source {
             ChainSource::OpenvpnCustom => openvpn::parse(&secrets.configuration).map(Self::OpenVpn),
-            ChainSource::WireguardCustom | ChainSource::WarpWireguard => {
+            ChainSource::WireguardCustom | ChainSource::WarpWireguard | ChainSource::ProtonVpn => {
                 wireguard::parse(&secrets.configuration).map(Self::WireGuard)
             }
             ChainSource::VpnGate => Err(ImportError::new(0, "source", "directory_only")),
@@ -473,6 +479,19 @@ pub fn profile_command(
 ) -> ChainProfileResponse {
     let run = || -> Result<ChainProfileResponse, ImportError> {
         let store = store::ChainProfileStore::new(parent, cipher);
+        if request.source == ChainSource::ProtonVpn
+            && matches!(request.action.as_str(), "preview" | "import")
+            || matches!(request.action.as_str(), "remove" | "credentials")
+                && request.profile_id.is_some_and(|id| {
+                    store.list().is_ok_and(|items| {
+                        items
+                            .iter()
+                            .any(|p| p.id == id && p.source == ChainSource::ProtonVpn)
+                    })
+                })
+        {
+            return Err(ImportError::new(0, "source", "managed_source_only"));
+        }
         let reference = || -> Result<(Uuid, Uuid), ImportError> {
             Ok((
                 request

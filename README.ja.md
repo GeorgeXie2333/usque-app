@@ -92,7 +92,8 @@ VPN、SOCKS5、HTTP は既定で有効、Windows システムプロキシは無�
 
 - 任意で利用できる[チェーンプロキシ](docs/CHAIN_PROXY.md)。**プロキシ → チェーンプロキシ** から、
   **OpenVPN**、**WireGuard**、[**WARP via WireGuard**](docs/WARP_WIREGUARD.md)、
-  **VPN Gate**、**HTTP**、**SOCKS5** の順に出口を選べます。
+  [**Proton VPN**](docs/PROTON_VPN.md)、**VPN Gate**、**HTTP**、**SOCKS5** の順に出口を選べます。
+  ネイティブ Proton 機能は検証中です。実サービスへのログイン、本人によるパズル、完全なトンネルは未検証です。
   VPN 設定をインポートするかプロキシサーバーを追加し、1 つを選択して適用します。
   VPN、SOCKS5、HTTP は同じ最終出口を使用します。明示的な直結規則は引き続き適用されます。既定では無効です。
 - 手動で有効にする[実験的な L4 モード](docs/L4_PROXY.md)で、HTTP/3 経由の TCP プロキシを利用できます。
@@ -188,6 +189,7 @@ HTTP/2 はシステムの TCP を使用します。[HTTP/3 輻輳制御](docs/co
 | 知りたいこと | 参照先 |
 | --- | --- |
 | インストール、更新、削除、復旧 | [インストール](docs/INSTALLATION.md) |
+| ネイティブ Proton のゲスト／アカウント設定 | [Proton VPN ガイドと現在の制限](docs/PROTON_VPN.md) |
 | WARP 経由で Proton VPN に接続 | [WireGuard over MASQUE チュートリアル](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) |
 | ローカル品質検査の意味 | [Network Doctor](docs/network-doctor.md) |
 | 変更を安全にビルド・テスト | [貢献ガイド](CONTRIBUTING.md) |
@@ -205,6 +207,8 @@ HTTP/2 はシステムの TCP を使用します。[HTTP/3 輻輳制御](docs/co
 任意の[チェーンプロキシ](docs/CHAIN_PROXY.md)は、MPL-2.0 の OpenVPN 3 Core と Apache-2.0 の Mbed TLS を組み込みます。
 対応するソース、レビュー済みのパッチ、ライセンス本文は `third_party` に含まれ、アプリの VPN Gate ページからライセンス表示を確認できます。
 WireGuard は BoringTun 0.7.1（BSD-3-Clause）、ローカル SVG アイコンは flutter_svg 2.3.0（MIT）を使用します。これらのライセンス表示もアプリのライセンス一覧に含まれています。
+
+独立実装の Proton SRP は Proton go-srp（MIT）を参照しています。[著作権表示とライセンス全文](apps/usque_gui/assets/licenses/proton-srp.txt)はソース、テストベクトル、アプリのライセンス一覧に保持されています。
 
 ---
 

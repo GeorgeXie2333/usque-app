@@ -559,6 +559,20 @@ impl DataPlaneRuntime {
         if !matches {
             return Err(TransportError::VpnGate(GateFailure::Configuration));
         }
+        let proton_source = prepared.summary.as_ref().is_some_and(|summary| {
+            summary.source == usque_core::chain_exit::ChainSource::ProtonVpn
+        });
+        if proton_source
+            && (!cfg!(feature = "wireguard")
+                || !matches!(
+                    prepared.custom.as_deref(),
+                    Some(usque_core::chain_exit::ValidatedProfile::WireGuard(_))
+                ))
+            || proton_source != prepared.proton.is_some()
+            || !proton_source && prepared.proton_persistence.is_some()
+        {
+            return Err(TransportError::VpnGate(GateFailure::Configuration));
+        }
         if let Some(usque_core::chain_exit::ValidatedProfile::Proxy(config)) =
             prepared.custom.as_deref()
         {
@@ -606,15 +620,60 @@ impl DataPlaneRuntime {
             self.final_blocked = false;
             return Ok(());
         }
+        let connection_deadline =
+            deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(180));
+        #[cfg(feature = "wireguard")]
+        let mut prepared = prepared;
+        #[cfg(feature = "wireguard")]
+        let proton_lease = if proton_source {
+            let (credentials, lease) = {
+                let refresh_cancel = cancellation.child_token();
+                let refresh = crate::proton_vpn::renew::prepare(
+                    &prepared,
+                    self.warp_internal_network(),
+                    &refresh_cancel,
+                );
+                tokio::pin!(refresh);
+                let result = tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => {
+                        refresh_cancel.cancel();
+                        let _ = refresh.await;
+                        return Err(TransportError::TunnelClosed);
+                    }
+                    _ = tokio::time::sleep_until(connection_deadline) => {
+                        refresh_cancel.cancel();
+                        let _ = refresh.await;
+                        return Err(TransportError::VpnGate(GateFailure::Transport));
+                    }
+                    result = &mut refresh => result,
+                };
+                result.map_err(TransportError::VpnGate)?
+            };
+            prepared.proton = Some(credentials);
+            Some(lease)
+        } else {
+            if prepared.proton_persistence.is_some() {
+                return Err(TransportError::VpnGate(GateFailure::Configuration));
+            }
+            None
+        };
         let (mut driver, tunnel, mut network) = crate::vpngate::GateDriver::start(
             &prepared,
             self.warp_internal_network(),
             self.underlay_monitor().network_quality_telemetry(),
             status.clone(),
             &cancellation,
-            deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(180)),
+            connection_deadline,
         )
         .await?;
+        #[cfg(feature = "wireguard")]
+        if let Some(lease) = proton_lease
+            && let Err(reason) = driver.start_proton_renewal(lease)
+        {
+            driver.shutdown().await;
+            return Err(TransportError::VpnGate(reason));
+        }
         network.mtu = final_mtu(profile, network.mtu);
         filter_final_dns(
             &mut network,

@@ -52,6 +52,7 @@ pub(crate) fn command(
     let context = if request.needs_network() {
         let fetch = fetch.ok_or("WARP_GENERATION_UNAVAILABLE")?;
         Some(Context {
+            lifecycle_lease: None,
             profile: ConfigStore::new(path)
                 .load()
                 .map_err(|_| "WARP_GENERATION_UNAVAILABLE")?

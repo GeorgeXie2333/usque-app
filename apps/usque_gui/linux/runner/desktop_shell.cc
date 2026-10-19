@@ -1,6 +1,7 @@
 #include "desktop_shell.h"
 
 #include "engine_bridge.h"
+#include "proton_verification.h"
 
 #include <fcntl.h>
 #include <glib/gstdio.h>
@@ -473,6 +474,7 @@ void pick_files(Shell* self, FlMethodCall* call) {
 void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
   auto* self = static_cast<Shell*>(data);
   if (usque_engine_method(call)) return;
+  if (usque_proton_verification_method(self->window, call)) return;
   const char* method = fl_method_call_get_name(call);
   FlValue* args = fl_method_call_get_args(call);
   if (strcmp(method, "copySensitiveText") == 0) {
@@ -633,6 +635,7 @@ void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
   } else if (strcmp(method, "cancelZeroTrustLogin") == 0) {
     self->team.clear(); self->callback.clear(); success(call);
   } else if (strcmp(method, "exitApplication") == 0) {
+    usque_proton_verification_cancel();
     success(call); g_application_quit(G_APPLICATION(self->application));
   } else {
     fl_method_call_respond_not_implemented(call, nullptr);

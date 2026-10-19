@@ -24,6 +24,7 @@ class ChainSourceIcon extends StatelessWidget {
       ChainSource.wireguardCustom => 'wireguard',
       ChainSource.warpWireguard => 'warp-wireguard',
       ChainSource.vpnGate ||
+      ChainSource.protonVpn ||
       ChainSource.httpProxy ||
       ChainSource.socks5Proxy => null,
     };

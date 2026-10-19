@@ -292,6 +292,20 @@ message WarpWireguardResponse {
   string metadata_json = 1;
 }
 
+// Only command metadata may be serialized for diagnostics. Authentication and
+// human-verification inputs stay in a separate bounded, ephemeral byte field.
+message ProtonVpnRequest {
+  string command_json = 1;
+  bytes sensitive_input = 2;
+}
+
+// get_handoff is an explicit one-use request bound to a job and challenge.
+// Its URL/token material must never enter metadata, events, logs or settings.
+message ProtonVpnResponse {
+  string metadata_json = 1;
+  bytes sensitive_handoff = 2;
+}
+
 message ChainExitStatus {
   string metadata_json = 1;
 }
@@ -513,6 +527,7 @@ message Capabilities {
   bool live_ads_rules = 47;
   repeated TlsFingerprint tls_fingerprints = 48;
   bool endpoint_presets = 49;
+  bool chain_proton_vpn = 50;
 }
 
 message FrontendStatus {
@@ -1302,6 +1317,7 @@ message ControlRequest {
     InitialIdentityRequest initial_identity = 49;
     GetInitialIdentityStateRequest get_initial_identity_state = 50;
     UpdateAdsRulesRequest update_ads_rules = 51;
+    ProtonVpnRequest proton_vpn = 52;
   }
 }
 
@@ -1361,6 +1377,7 @@ message ControlResponse {
     WarpWireguardResponse warp_wireguard = 25;
     InitialIdentityState initial_identity_state = 26;
     SensitiveClipboardValue sensitive_clipboard = 27;
+    ProtonVpnResponse proton_vpn = 28;
   }
 }
 

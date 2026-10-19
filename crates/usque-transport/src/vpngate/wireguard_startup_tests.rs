@@ -171,6 +171,9 @@ async fn real_driver_restarts_the_schedule_and_preserves_custom_wireguard_timeou
         (ChainSource::WarpWireguard, 27, None),
         (ChainSource::WarpWireguard, 27, None), // Fresh connection/recovery resets the sequence.
         (ChainSource::WireguardCustom, 35, None),
+        // A Proton source can never silently become an ordinary WG tunnel when
+        // the private session certificate/agent capability is absent.
+        (ChainSource::ProtonVpn, 0, None),
         (ChainSource::WarpWireguard, 2, Some(2)),
         (ChainSource::WarpWireguard, 4, Some(4)), // Cancel during a retry.
     ] {
@@ -198,9 +201,14 @@ async fn real_driver_restarts_the_schedule_and_preserves_custom_wireguard_timeou
         if cancel_after.is_some() {
             assert!(matches!(result, Err(TransportError::TunnelClosed)));
         } else {
+            let expected = if source == ChainSource::ProtonVpn {
+                GateFailure::Configuration
+            } else {
+                GateFailure::Transport
+            };
             assert!(matches!(
                 result,
-                Err(TransportError::VpnGate(GateFailure::Transport))
+                Err(TransportError::VpnGate(reason)) if reason == expected
             ));
             assert_eq!(observed.borrow().stage, GateStage::Error);
             assert_eq!(observed.borrow().network, None);

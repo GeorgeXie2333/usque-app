@@ -15,6 +15,7 @@
 #include <string_view>
 
 #include "win32_window.h"
+#include "proton_verification.h"
 #include "zero_trust_callback.h"
 
 // A window that does nothing but host a Flutter view.
@@ -72,6 +73,7 @@ class FlutterWindow : public Win32Window {
   bool pending_maximize_ = false;
   // Last restored (not maximized or minimized) frame, in physical pixels.
   std::optional<RECT> normal_bounds_;
+  std::unique_ptr<ProtonVerification> proton_verification_;
   bool chain_picker_busy_ = false;
   bool close_to_tray_ = true;
   bool force_exit_ = false;

@@ -379,10 +379,25 @@ bool FlutterWindow::OnCreate() {
           flutter_controller_->engine()->messenger(),
           "io.github.georgexie2333.usque/engine",
           &flutter::StandardMethodCodec::GetInstance());
+  proton_verification_ = std::make_unique<ProtonVerification>(GetHandle());
   engine_channel_->SetMethodCallHandler(
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) {
+        if (call.method_name() == "completeProtonHumanVerification") {
+          const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
+          const auto found = arguments ? arguments->find(flutter::EncodableValue("handoff")) : flutter::EncodableMap::const_iterator{};
+          const auto* bytes = arguments && found != arguments->end() ? std::get_if<std::vector<uint8_t>>(&found->second) : nullptr;
+          if (!bytes || bytes->size() > 65536) {
+            result->Error("PROTON_VERIFICATION_UNAVAILABLE", "The official verification handoff is invalid.");
+          } else proton_verification_->Begin(*bytes, std::move(result));
+          return;
+        }
+        if (call.method_name() == "cancelProtonHumanVerification") {
+          proton_verification_->Cancel();
+          result->Success();
+          return;
+        }
         if (call.method_name() == "readChainConfigurations") {
           if (chain_picker_busy_) {
             result->Error("CHAIN_FILE_BUSY", "A file picker is already open.");
@@ -804,6 +819,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  proton_verification_.reset();
   zero_trust_session_.Cancel();
   ReleaseZeroTrustProtocol();
   ::KillTimer(GetHandle(), kZeroTrustLoginTimer);

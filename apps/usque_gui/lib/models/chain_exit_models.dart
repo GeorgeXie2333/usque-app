@@ -6,13 +6,15 @@ enum ChainSource {
   warpWireguard('warp_wireguard', 'WARP via WireGuard'),
   vpnGate('vpn_gate', 'VPN Gate'),
   httpProxy('http_proxy', 'HTTP'),
-  socks5Proxy('socks5_proxy', 'SOCKS5');
+  socks5Proxy('socks5_proxy', 'SOCKS5'),
+  protonVpn('proton_vpn', 'Proton VPN');
 
   const ChainSource(this.wire, this.label);
   final String wire;
   final String label;
   bool get isProxy => this == httpProxy || this == socks5Proxy;
-  bool get isWireguard => this == wireguardCustom || this == warpWireguard;
+  bool get isWireguard =>
+      this == wireguardCustom || this == warpWireguard || this == protonVpn;
   static ChainSource parse(Object? value) => ChainSource.values.firstWhere(
     (source) => source.wire == value,
     orElse: () => throw const FormatException('Unknown chain source'),

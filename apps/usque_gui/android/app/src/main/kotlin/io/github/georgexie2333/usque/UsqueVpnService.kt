@@ -68,6 +68,7 @@ class UsqueVpnService : VpnService() {
         const val MSG_VPN_GATE = 19
         const val MSG_LOG_SNAPSHOT = 20
         const val MSG_TILE_SNAPSHOT = 21
+        const val MSG_PROTON_VPN = 22
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -328,6 +329,11 @@ class UsqueVpnService : VpnService() {
                         true
                     }
 
+                    MSG_PROTON_VPN -> {
+                        protonVpnCommand(Message.obtain(message))
+                        true
+                    }
+
                     else -> {
                         false
                     }
@@ -408,6 +414,67 @@ class UsqueVpnService : VpnService() {
                         }
                 }
             mainHandler.post { runCatching { request.replyTo?.send(reply) } }
+        }
+    }
+
+    private fun protonVpnCommand(request: Message) {
+        settingsExecutor.execute {
+            val input = request.data.getByteArray("proton_input") ?: ByteArray(0)
+            var secret = ByteArray(0)
+            var expectedWarpProfileId = ""
+            var response: Array<ByteArray>? = null
+            try {
+                val command = ProtonVpnFields.command(request.data.getString("proton_command").orEmpty())
+                require(input.size <= 40 * 1024)
+                if (JSONObject(command).optString("action") in setOf("guest", "login", "refresh", "logout")) {
+                    val catalog =
+                        JSONObject(
+                            NativeEngine.applyProfileCommand(settingsPath, """{"command":"list_profiles"}""")
+                                ?: error("unavailable"),
+                        )
+                    val id = catalog.getString("active_profile_id")
+                    expectedWarpProfileId = id
+                    val profiles = catalog.getJSONArray("profiles")
+                    val profile =
+                        (0 until profiles.length()).asSequence().map { profiles.getJSONObject(it) }.firstOrNull {
+                            it.optString("id") ==
+                                id
+                        }
+                    if (profile !=
+                        null
+                    ) {
+                        secret = loadWarpSecret(id, profile.toString(), readOnly = true) ?: ByteArray(0)
+                    }
+                }
+                response = NativeEngine.protonVpn(settingsPath, command, input, secret, expectedWarpProfileId, this)
+                require(response?.size == 2)
+                require(response[0].size <= 256 * 1024 && response[1].size <= 64 * 1024)
+            } catch (_: Exception) {
+                response?.forEach { it.fill(0) }
+                response = null
+            } finally {
+                input.fill(0)
+                secret.fill(0)
+            }
+            val payload = response
+            val reply =
+                Message.obtain(null, MSG_PROTON_VPN, request.arg1, 0).apply {
+                    data =
+                        Bundle().apply {
+                            putByteArray("proton_metadata", payload?.get(0))
+                            putByteArray("proton_handoff", payload?.get(1))
+                        }
+                }
+            mainHandler.post {
+                try {
+                    request.replyTo?.send(reply)
+                } catch (
+                    _: Exception,
+                ) {
+                } finally {
+                    payload?.forEach { it.fill(0) }
+                }
+            }
         }
     }
 

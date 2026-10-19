@@ -562,7 +562,7 @@ impl ControlService {
         self.validate_chain_selection(profile)?;
         #[cfg(any(windows, target_os = "linux"))]
         if profile.custom_chain().is_some() {
-            return usque_core::chain_exit::prepare_selection(
+            let mut selected = usque_core::chain_exit::prepare_selection(
                 &self.profile_dir,
                 profile,
                 self.chain_cipher
@@ -571,7 +571,21 @@ impl ControlService {
                         "chain credential storage is unavailable",
                     ))?,
             )
-            .map_err(ControlServiceError::configuration);
+            .map_err(ControlServiceError::configuration)?;
+            #[cfg(feature = "wireguard")]
+            if let Some((_, prepared)) = selected.as_mut() {
+                usque_transport::proton_vpn::attach(
+                    &self.profile_dir,
+                    self.chain_cipher
+                        .clone()
+                        .ok_or(ControlServiceError::FeatureUnavailable(
+                            "chain credential storage is unavailable",
+                        ))?,
+                    prepared,
+                )
+                .map_err(ControlServiceError::configuration)?;
+            }
+            return Ok(selected);
         }
         if !profile.chain_enabled() {
             return Ok(None);

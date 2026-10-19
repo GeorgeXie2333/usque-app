@@ -23,6 +23,7 @@ pub fn clear_library(parent: &Path) -> Result<(), ImportError> {
     // decoding them or retaining any runtime dependency on their format.
     for (name, prefix, suffix) in [
         ("warp-wireguard", ".warp-", ".sealed"),
+        ("proton-vpn", ".proton-", ".sealed"),
         ("chain-profiles", ".chain-", ".profile"),
     ] {
         let directory = parent.join(name);
@@ -386,6 +387,26 @@ impl<'a> ChainProfileStore<'a> {
             3
         };
         // Running sessions retain their own zeroizing credential snapshot.
+        self.write(&record)?;
+        Ok(record.summary)
+    }
+    /// Only the provider manager replaces a managed Proton configuration. A
+    /// protocol revision change requires the ordinary explicit Apply lifecycle.
+    pub fn replace_proton(
+        &self,
+        id: Uuid,
+        revision: Uuid,
+        secrets: ImportSecrets,
+    ) -> Result<ChainProfileSummary, ImportError> {
+        let _guard = self.lock()?;
+        let mut record = self.read(id)?;
+        if record.summary.source != ChainSource::ProtonVpn || record.summary.revision != revision {
+            return Err(ImportError::new(0, "revision", "stale_revision"));
+        }
+        let parsed = ValidatedProfile::parse(ChainSource::ProtonVpn, &secrets)?;
+        record.summary = parsed.summary(&record.summary.name, id, Uuid::new_v4())?;
+        record.summary.source = ChainSource::ProtonVpn;
+        record.secrets = secrets;
         self.write(&record)?;
         Ok(record.summary)
     }

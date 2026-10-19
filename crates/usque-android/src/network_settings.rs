@@ -55,9 +55,19 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
     let command: Command =
         serde_json::from_str(request).map_err(|_| "invalid network settings message")?;
     #[cfg(feature = "wireguard")]
-    if matches!(&command, Command::Save { .. } | Command::Reset) && !crate::warp_wireguard::stop() {
+    if matches!(&command, Command::Save { .. } | Command::Reset)
+        && (!crate::warp_wireguard::stop() || !crate::proton_vpn::stop())
+    {
         return Err("WARP_GENERATION_CLEANUP_PENDING".into());
     }
+    let _provider_lease = matches!(&command, Command::Save { .. } | Command::Reset)
+        .then(|| {
+            usque_core::proton_vpn::lifecycle_lease(
+                path.parent().ok_or("invalid configuration path")?,
+            )
+            .map_err(|_| "PROTON_OPERATION_BUSY")
+        })
+        .transpose()?;
     let store = ConfigStore::new(path);
     let mut state = STATE
         .get_or_init(|| Mutex::new(NetworkSettingsState::default()))

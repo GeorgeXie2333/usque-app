@@ -129,6 +129,7 @@ fn labels_and_protocol_capabilities_are_explicit() {
             "OpenVPN",
             "WireGuard",
             "WARP via WireGuard",
+            "Proton VPN",
             "VPN Gate",
             "HTTP",
             "SOCKS5"

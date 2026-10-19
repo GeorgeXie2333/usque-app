@@ -47,7 +47,7 @@ impl Job {
 
 pub(crate) fn cancel_refresh() -> bool {
     #[cfg(feature = "wireguard")]
-    if !crate::warp_wireguard::stop() {
+    if !crate::warp_wireguard::stop() || !crate::proton_vpn::stop() {
         return false;
     }
     let Some(controller) = CATALOGUE.get() else {
@@ -71,6 +71,7 @@ pub(crate) fn cancel_refresh() -> bool {
 pub(crate) fn signal_cancel() {
     #[cfg(feature = "wireguard")]
     crate::warp_wireguard::signal_stop();
+    crate::proton_vpn::signal_stop();
     if let Some(controller) = CATALOGUE.get()
         && let Ok(controller) = controller.try_lock()
         && let Some(controller) = controller.as_ref()

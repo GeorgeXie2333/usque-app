@@ -197,6 +197,7 @@ class ControlCodec {
       VpnGateDirectory? vpnGateDirectory;
       ChainProfileResult? chainProfiles;
       Map<String, Object?>? warpWireguard;
+      ProtonVpnResult? protonVpn;
       InitialIdentityState? initialIdentityState;
       SensitiveClipboardValue? sensitiveClipboard;
       while (!reader.isDone) {
@@ -236,6 +237,8 @@ class ControlCodec {
             sensitiveClipboard = _decodeSensitiveClipboard(
               reader.message(field),
             );
+          case 28:
+            protonVpn = _decodeProtonVpn(reader.message(field));
           case 24:
             chainProfiles = ChainProfileResult.fromMap(
               _decodeChainJson(reader.message(field)),
@@ -277,6 +280,7 @@ class ControlCodec {
         vpnGateDirectory: vpnGateDirectory,
         chainProfiles: chainProfiles,
         warpWireguard: warpWireguard,
+        protonVpn: protonVpn,
         initialIdentityState: initialIdentityState,
         sensitiveClipboard: sensitiveClipboard,
       );
@@ -422,6 +426,7 @@ class ControlResponse {
     this.vpnGateDirectory,
     this.chainProfiles,
     this.warpWireguard,
+    this.protonVpn,
     this.initialIdentityState,
     this.sensitiveClipboard,
   });
@@ -439,6 +444,7 @@ class ControlResponse {
   final VpnGateDirectory? vpnGateDirectory;
   final ChainProfileResult? chainProfiles;
   final Map<String, Object?>? warpWireguard;
+  final ProtonVpnResult? protonVpn;
   final InitialIdentityState? initialIdentityState;
   final SensitiveClipboardValue? sensitiveClipboard;
 }
@@ -1845,6 +1851,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
       chainOpenvpnUdp = false,
       chainWireguard = false,
       chainWarpWireguard = false,
+      chainProtonVpn = false,
       chainHttpProxy = false,
       chainSocks5Proxy = false,
       chainProxyEncryptedDns = false,
@@ -1894,6 +1901,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainHttpProxy = reader.varint(field) != 0;
       case 49:
         endpointPresets = reader.varint(field) != 0;
+      case 50:
+        chainProtonVpn = reader.varint(field) != 0;
       case 47:
         liveAdsRules = reader.varint(field) != 0;
       case 48:
@@ -1975,6 +1984,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     chainOpenvpnUdp: chainOpenvpnUdp,
     chainWireguard: chainWireguard,
     chainWarpWireguard: chainWarpWireguard,
+    chainProtonVpn: chainProtonVpn,
     chainHttpProxy: chainHttpProxy,
     chainSocks5Proxy: chainSocks5Proxy,
     chainProxyEncryptedDns: chainProxyEncryptedDns,
@@ -3452,6 +3462,40 @@ Map<String, Object?> _decodeChainJson(_ProtoReader reader) {
     }
   }
   return result;
+}
+
+ProtonVpnResult _decodeProtonVpn(_ProtoReader reader) {
+  Map<Object?, Object?> metadata = const {};
+  var handoff = Uint8List(0);
+  try {
+    while (!reader.isDone) {
+      final field = reader.field();
+      switch (field.number) {
+        case 1:
+          final encoded = reader.string(field);
+          if (encoded.length > 256 * 1024) {
+            throw const FormatException('Proton metadata exceeds bound');
+          }
+          final value = jsonDecode(encoded);
+          if (value is! Map<Object?, Object?>) {
+            throw const FormatException('Invalid Proton metadata');
+          }
+          metadata = Map<Object?, Object?>.from(value);
+        case 2:
+          handoff.fillRange(0, handoff.length, 0);
+          handoff = Uint8List.fromList(reader._lengthDelimited(field));
+          if (handoff.length > 64 * 1024) {
+            throw const FormatException('Proton handoff exceeds bound');
+          }
+        default:
+          reader.skip(field);
+      }
+    }
+    return ProtonVpnResult(metadata: metadata, sensitiveHandoff: handoff);
+  } on Object {
+    handoff.fillRange(0, handoff.length, 0);
+    throw const FormatException('Invalid Proton response');
+  }
 }
 
 void _readBoundedBuckets(

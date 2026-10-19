@@ -90,7 +90,8 @@ VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们�
 ## 主要功能
 
 - 可选的[链式代理](docs/CHAIN_PROXY.md)：在“代理 → 链式代理”依次选择 **OpenVPN**、
-  **WireGuard**、[**WARP via WireGuard**](docs/WARP_WIREGUARD.md)、**VPN Gate**、**HTTP** 或 **SOCKS5**。
+  **WireGuard**、[**WARP via WireGuard**](docs/WARP_WIREGUARD.md)、[**Proton VPN**](docs/PROTON_VPN.md)、**VPN Gate**、**HTTP** 或 **SOCKS5**。
+  原生 Proton 来源仍在验证中；实网登录、真人拼图和完整隧道尚未实测。
   VPN 配置支持文件或文本导入，HTTP/SOCKS5 通过表单添加，保存后选用并应用。
   VPN、SOCKS5 和 HTTP 共用最终出口，显式直连规则仍然生效。此功能默认关闭。
 - 可手动启用[实验性 L4 模式](docs/L4_PROXY.md)，通过 HTTP/3 代理 TCP 流量。
@@ -178,6 +179,7 @@ Zero Trust 端点初始使用注册地址。在高级网络设置中选择 **编
 | 需要了解 | 阅读文档 |
 | --- | --- |
 | 安装、更新、卸载与恢复 | [安装指南](docs/INSTALLATION.md) |
+| 原生 Proton 游客／账号准备 | [Proton VPN 使用指南与当前限制](docs/PROTON_VPN.md) |
 | 通过 WARP 隧道连接 Proton VPN | [WireGuard over MASQUE 教程](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE-zh-CN) |
 | 本地网络质量检查 | [Network Doctor](docs/network-doctor.md) |
 | 安全地构建和测试改动 | [贡献指南](CONTRIBUTING.md) |
@@ -193,6 +195,8 @@ Zero Trust 端点初始使用注册地址。在高级网络设置中选择 **编
 第一方源码采用 [MIT License](LICENSE.md)，第三方组件保留各自许可证。可选的[链式代理](docs/CHAIN_PROXY.md)内嵌 OpenVPN 3 Core（MPL-2.0）和 Mbed TLS（Apache-2.0）。对应源码、补丁和许可文本保存在 `third_party`；应用中的 VPN Gate 页面可查看原生依赖许可声明。
 
 WireGuard 使用 BoringTun 0.7.1（BSD-3-Clause），本地 SVG 图标使用 flutter_svg 2.3.0（MIT）；相应声明已纳入应用许可证列表。
+
+独立 Proton SRP 实现参考 Proton go-srp（MIT）；其[版权声明与完整许可](apps/usque_gui/assets/licenses/proton-srp.txt)保留在源码、测试向量及应用许可证列表中。
 
 ---
 

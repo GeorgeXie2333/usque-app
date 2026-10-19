@@ -93,7 +93,8 @@ Network settings are shared by all accounts.
 
 - Optional [chain proxy](docs/CHAIN_PROXY.md): open **Proxy → Chain proxy** for
   **OpenVPN**, **WireGuard**, [**WARP via WireGuard**](docs/WARP_WIREGUARD.md),
-  **VPN Gate**, **HTTP**, and **SOCKS5**, in that order.
+  [**Proton VPN**](docs/PROTON_VPN.md), **VPN Gate**, **HTTP**, and **SOCKS5**, in that order.
+  Native Proton setup is under validation; live sign-in, the human puzzle and the full tunnel remain untested.
   Import VPN configurations or add proxy servers, then select and apply one.
   VPN, SOCKS5 and HTTP share the exit; explicit direct rules still apply. Off by default.
 - Opt-in [experimental L4 mode](docs/L4_PROXY.md) proxies TCP over HTTP/3.
@@ -208,6 +209,7 @@ Start with the [Wiki](https://github.com/GeorgeXie2333/usque-app/wiki/Home) for 
 | Need | Read |
 | --- | --- |
 | Install, update, uninstall, or recover | [Installation](docs/INSTALLATION.md) |
+| Native Proton guest/account setup | [Proton VPN guide and current limits](docs/PROTON_VPN.md) |
 | Connect to Proton VPN through the WARP tunnel | [WireGuard over MASQUE tutorial](https://github.com/GeorgeXie2333/usque-app/wiki/Proton-VPN-over-MASQUE) |
 | Understand local quality checks | [Network Doctor](docs/network-doctor.md) |
 | Build and test changes safely | [Contributing](CONTRIBUTING.md) |
@@ -226,6 +228,8 @@ Core under MPL-2.0 and Mbed TLS under Apache-2.0. Corresponding source, reviewed
 patches and license texts are included in `third_party`; the application exposes
 the notices from its VPN Gate page. WireGuard uses BoringTun 0.7.1 (BSD-3-Clause),
 and local SVG icons use flutter_svg 2.3.0 (MIT); their notices are in the app's license registry.
+
+The independent Proton SRP implementation references Proton go-srp (MIT); its [copyright and full license](apps/usque_gui/assets/licenses/proton-srp.txt) are retained in source, test vectors and the app license registry.
 
 ---
 

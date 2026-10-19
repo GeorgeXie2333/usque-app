@@ -302,6 +302,7 @@ void main() {
       'vpn_gate',
       'http_proxy',
       'socks5_proxy',
+      'proton_vpn',
     ]);
     final body = ControlPayloadWriter()
       ..string(1, 'warp-cap')

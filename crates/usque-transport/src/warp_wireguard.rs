@@ -26,6 +26,8 @@ pub struct Context {
     pub protector: Arc<dyn SocketProtector>,
     pub refresher: Option<Arc<dyn EndpointPinRefresher>>,
     pub allow_physical: bool,
+    /// A provider job retains its cross-process account-mutation lease.
+    pub lifecycle_lease: Option<Arc<std::fs::File>>,
 }
 struct Running {
     job: Arc<Mutex<Job>>,
@@ -202,12 +204,17 @@ impl Manager {
         Ok(())
     }
 }
-struct Outer {
-    network: InternalNetwork,
+pub(crate) struct Outer {
+    pub(crate) network: InternalNetwork,
     runtime: Option<DataPlaneRuntime>,
+    _lifecycle_lease: Option<Arc<std::fs::File>>,
 }
 impl Outer {
-    async fn open(context: Context, cancel: &CancellationToken) -> Result<Self, ImportError> {
+    pub(crate) async fn open(
+        context: Context,
+        cancel: &CancellationToken,
+    ) -> Result<Self, ImportError> {
+        let lifecycle_lease = context.lifecycle_lease;
         let profile = DataPlaneRuntime::headless_profile(&context.profile);
         if let Some(network) = context.existing {
             if !matches!(network.health_snapshot(), RuntimeHealth::Connected { .. }) {
@@ -216,6 +223,7 @@ impl Outer {
             return Ok(Self {
                 network,
                 runtime: None,
+                _lifecycle_lease: lifecycle_lease,
             });
         }
         if !context.allow_physical {
@@ -233,9 +241,10 @@ impl Outer {
         Ok(Self {
             network: runtime.warp_internal_network(),
             runtime: Some(runtime),
+            _lifecycle_lease: lifecycle_lease,
         })
     }
-    async fn close(&mut self) {
+    pub(crate) async fn close(&mut self) {
         if let Some(runtime) = self.runtime.as_mut() {
             runtime.shutdown().await;
         }

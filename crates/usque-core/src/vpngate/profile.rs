@@ -23,6 +23,8 @@ pub struct PreparedProfile {
     pub custom: Option<Box<crate::chain_exit::ValidatedProfile>>,
     pub summary: Option<Box<crate::chain_exit::ChainProfileSummary>>,
     pub credentials: Box<crate::chain_exit::ImportSecrets>,
+    pub proton: Option<std::sync::Arc<crate::proton_vpn::TunnelCredentials>>,
+    pub proton_persistence: Option<std::sync::Arc<dyn crate::proton_vpn::LeasePersistence>>,
 }
 impl fmt::Debug for PreparedProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -54,6 +56,8 @@ impl PreparedProfile {
             custom: Some(Box::new(custom)),
             summary: Some(Box::new(summary)),
             credentials: Box::new(credentials),
+            proton: None,
+            proton_persistence: None,
         }
     }
     pub fn content(&self) -> &str {
@@ -199,6 +203,8 @@ pub fn prepare_profile(
         custom: None,
         summary: None,
         credentials: Default::default(),
+        proton: None,
+        proton_persistence: None,
     })
 }
 

@@ -67,6 +67,54 @@ impl ConfigStore {
         file_lock::lock_exclusive(&lock)?;
         Ok(lock)
     }
+    /// Nonblocking execution lease. Network workers must remain cancellable
+    /// while another process owns a long-running operation on the same object.
+    pub fn try_lock_exclusive(&self) -> Result<Option<File>, StoreError> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| StoreError::MissingParent(self.path.clone()))?;
+        fs::create_dir_all(parent)?;
+        let path = self.path.with_extension("json.lock");
+        match fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
+                return Err(
+                    io::Error::new(io::ErrorKind::InvalidInput, "invalid lease file").into(),
+                );
+            }
+            Ok(_) => (),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+        let mut options = File::options();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(
+                windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
+            );
+        }
+        let lock = options.open(path)?;
+        let meta = lock.metadata()?;
+        if !meta.is_file() || meta.file_type().is_symlink() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid lease file").into());
+        }
+        if let Err(error) = file_lock::try_lock_exclusive(&lock) {
+            if error.kind() == io::ErrorKind::WouldBlock {
+                return Ok(None);
+            }
+            return Err(error.into());
+        }
+        Ok(Some(lock))
+    }
 
     /// A short read/modify/write transaction. Callers must not perform network
     /// operations or re-enter this store from the closure.

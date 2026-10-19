@@ -362,6 +362,19 @@ internal class AndroidEngineMethodHandler(
                 controlClient.requestVpnGate(request.toString(), result)
             }
 
+            "protonVpn" -> {
+                val input = call.argument<ByteArray>("sensitive_input") ?: ByteArray(0)
+                try {
+                    val command = ProtonVpnFields.command(call.argument<String>("command_json") ?: "")
+                    require(input.size <= 40 * 1024)
+                    controlClient.requestProtonVpn(command, input, result)
+                } catch (_: Exception) {
+                    result.error("PROTON_INVALID_REQUEST", "Invalid Proton request.", null)
+                } finally {
+                    input.fill(0)
+                }
+            }
+
             "chainProfile" -> {
                 val request =
                     JSONObject()

@@ -63,6 +63,7 @@ class ChainEngine extends GateEngine
     chainOpenvpnUdp: true,
     chainWireguard: true,
     chainWarpWireguard: true,
+    chainProtonVpn: true,
     chainHttpProxy: true,
     chainSocks5Proxy: true,
     chainProxyEncryptedDns: encryptedDns,
@@ -1113,6 +1114,7 @@ void main() {
         'VPN Gate',
         'HTTP',
         'SOCKS5',
+        'Proton VPN',
       ]);
       const codec = ControlCodec();
       final payload = (ControlPayloadWriter()..string(1, 'list')).takeBytes();
@@ -1379,7 +1381,7 @@ void main() {
           of: find.byType(BottomSheet),
           matching: find.byType(ListTile),
         );
-        expect(options, findsNWidgets(6));
+        expect(options, findsNWidgets(ChainSource.values.length));
         expect(
           tester
               .widgetList<ListTile>(options)
@@ -1509,7 +1511,7 @@ void main() {
             expect(tester.takeException(), isNull);
           }
         }
-        // Wide large-text layouts retain their six visible choices.
+        // Wide large-text layouts retain every visible choice.
         tester.view.physicalSize = const Size(980, 1100);
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('chain-source-picker')), findsNothing);
@@ -1517,7 +1519,7 @@ void main() {
           of: find.byType(ChainSourcePicker),
           matching: find.byType(ChoiceChip),
         );
-        expect(choices, findsNWidgets(6));
+        expect(choices, findsNWidgets(ChainSource.values.length));
         expect(
           choices
               .evaluate()
@@ -1526,7 +1528,7 @@ void main() {
                     tester.getTopLeft(find.byWidget(element.widget)).dy,
               )
               .toSet(),
-          hasLength(6),
+          hasLength(ChainSource.values.length),
         );
         expect(engine.saves, 0);
       } finally {

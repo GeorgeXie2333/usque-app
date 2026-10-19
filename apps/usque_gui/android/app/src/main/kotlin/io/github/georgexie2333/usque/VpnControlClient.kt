@@ -121,6 +121,89 @@ internal class VpnControlClient(
 
     private val pendingSettings = mutableMapOf<Int, SettingsRequest>()
     private val pendingVpnGate = mutableMapOf<Int, SettingsRequest>()
+
+    private class ProtonRequest(
+        val command: String,
+        val input: ByteArray,
+        val result: MethodChannel.Result,
+        var sent: Boolean = false,
+    )
+
+    private val pendingProton = mutableMapOf<Int, ProtonRequest>()
+
+    fun requestProtonVpn(
+        command: String,
+        input: ByteArray,
+        result: MethodChannel.Result,
+    ) {
+        if (destroyed || input.size > 40 * 1024) {
+            result.error("PROTON_UNAVAILABLE", "Proton VPN is unavailable.", null)
+            return
+        }
+        val id = allocateRequestId()
+        pendingProton[id] = ProtonRequest(command, input.copyOf(), result)
+        scheduler.postDelayed(50_000L, "proton-$id") {
+            pendingProton.remove(id)?.let {
+                it.input.fill(0)
+                it.result.error("PROTON_RESULT_UNCONFIRMED", "Refresh Proton status before retrying.", null)
+            }
+        }
+        bind()
+        flushProton()
+    }
+
+    private fun flushProton() {
+        val service = endpoint ?: return
+        pendingProton.toMap().forEach { (id, request) ->
+            if (!request.sent) {
+                request.sent = true
+                val sent =
+                    service.send(
+                        UsqueVpnService.MSG_PROTON_VPN,
+                        id,
+                        mapOf(
+                            "proton_command" to request.command,
+                            "proton_input" to request.input,
+                        ),
+                    )
+                request.input.fill(0)
+                if (!sent) {
+                    scheduler.cancel("proton-$id")
+                    pendingProton.remove(id)?.result?.error("PROTON_UNAVAILABLE", "Proton VPN is unavailable.", null)
+                }
+            }
+        }
+    }
+
+    private fun deliverProtonReply(
+        id: Int,
+        data: Bundle,
+    ) {
+        scheduler.cancel("proton-$id")
+        val metadata = data.getByteArray("proton_metadata") ?: ByteArray(0)
+        val handoff = data.getByteArray("proton_handoff") ?: ByteArray(0)
+        try {
+            val request = pendingProton.remove(id) ?: return
+            request.input.fill(0)
+            val value =
+                runCatching {
+                    require(handoff.size <= 64 * 1024)
+                    require(handoff.isEmpty() || JSONObject(request.command).optString("action") == "handoff")
+                    mapOf("metadata" to ProtonVpnFields.response(metadata), "sensitive_handoff" to handoff)
+                }.getOrNull()
+            if (value ==
+                null
+            ) {
+                request.result.error("PROTON_UNAVAILABLE", "Proton request failed.", null)
+            } else {
+                request.result.success(value)
+            }
+        } finally {
+            metadata.fill(0)
+            handoff.fill(0)
+        }
+    }
+
     var vpnGateRefreshPending = false
         private set
     var warpGenerationPending = false
@@ -376,6 +459,7 @@ internal class VpnControlClient(
                 flushPendingReconfigure()
                 flushSettings()
                 flushVpnGate()
+                flushProton()
                 flushLocale()
                 flushPerApp()
             }
@@ -987,6 +1071,12 @@ internal class VpnControlClient(
             request.result.error("VPN_GATE_UNAVAILABLE", "The catalogue service was closed.", null)
         }
         pendingVpnGate.clear()
+        pendingProton.forEach { (id, request) ->
+            scheduler.cancel("proton-$id")
+            request.input.fill(0)
+            request.result.error("PROTON_UNAVAILABLE", "Proton control was closed.", null)
+        }
+        pendingProton.clear()
         pendingSettings.forEach { (id, request) ->
             scheduler.cancel("settings-$id")
             request.result.error("NETWORK_SETTINGS_UNCONFIRMED", "The settings result is not confirmed.", null)
@@ -1221,6 +1311,7 @@ internal class VpnControlClient(
         flushPendingReconfigure()
         flushSettings()
         flushVpnGate()
+        flushProton()
         flushLocale()
         flushPerApp()
     }
@@ -1256,6 +1347,11 @@ internal class VpnControlClient(
         data: Bundle,
     ): Boolean =
         when (what) {
+            UsqueVpnService.MSG_PROTON_VPN -> {
+                deliverProtonReply(arg1, data)
+                true
+            }
+
             UsqueVpnService.MSG_VPN_GATE -> {
                 deliverVpnGateReply(arg1, data.getString("vpn_gate_directory"), data.getString("vpn_gate_error"))
                 true
@@ -1544,6 +1640,7 @@ internal class VpnControlClient(
                     is Int -> bundle.putInt(key, value)
                     is Long -> bundle.putLong(key, value)
                     is String -> bundle.putString(key, value)
+                    is ByteArray -> bundle.putByteArray(key, value)
                     else -> bundle.putString(key, value.toString())
                 }
             }

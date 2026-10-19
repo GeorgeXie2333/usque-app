@@ -7,6 +7,7 @@ use usque_ipc::v1;
 
 impl ControlService {
     pub(crate) async fn cancel_warp_jobs(&self) -> Result<(), ControlServiceError> {
+        self.cancel_proton_jobs().await?;
         #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
         {
             let manager = self.warp_generator.clone();
@@ -29,6 +30,9 @@ impl ControlService {
         {
             let request = usque_core::warp_wireguard::Request::parse(&request.command_json)
                 .map_err(ControlServiceError::configuration)?;
+            if request.needs_network() {
+                self.cancel_proton_jobs().await?;
+            }
             let _lifecycle = if request.needs_network() {
                 Some(self.mutation_lock.clone().try_lock_owned().map_err(|_| {
                     ControlServiceError::InvalidRequest(
@@ -77,6 +81,7 @@ impl ControlService {
                     None
                 };
                 Some(usque_transport::warp_wireguard::Context {
+                    lifecycle_lease: None,
                     profile,
                     existing,
                     identity,
