@@ -451,11 +451,18 @@ frame 的严格来源、路径、唯一 `Token`、`ForceWebMessaging=1`、消息
 当前挑战 SHA-256、期限及一次性状态后，将该值映射为同一嵌入 success schema。
 不解决或操作拼图。没有可用 CAPTCHA 方法时直接报告不可用。
 
-结果通过绑定随机 nonce 的 suppressed alert 交给
-[ScriptDialogOpening](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2settings?view=webview2-1.0.4258.31#get_aredefaultscriptdialogsenabled)
-窄桥；默认对话框关闭，不向用户显示或记录正文。原生再次校验 alert 来源 URL、
-当前顶层挑战与 nonce，并在同步回调返回后关闭窗口。Linux 使用官方 `web`
-分支的顶层 postMessage。Android 同时接收该顶层消息和上文所述的原始
+2026-10-20 的回调修正将 Windows 结果传递改为绑定随机 nonce 的
+[WebMessageReceived](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2#add_webmessagereceived)
+通道，并显式启用 `IsWebMessageEnabled`。不再依赖 suppressed alert 或
+`ScriptDialogOpening`；默认脚本对话框仍关闭。原生再次校验消息来源 URL、
+当前顶层挑战与 nonce，并在消息回调返回后关闭窗口。已校验并排队的结果在
+窗口关闭时再次检查挑战和期限后回传，避免关闭消息把成功覆盖为取消；尚未收到
+有效结果时关闭仍为取消。该修改不改变官方页面的 WebView2 平台选择。
+
+Linux 同时接收官方 `web` 分支的顶层 postMessage 和原始 `pm_captcha`
+结果，不再只依赖二次转发。Windows 和 Linux 共用的顶层监听在 capture 阶段
+校验结果，先于页面 submit 监听移除 iframe；直接路径仅适用于唯一的
+`embed=true`。Android 同时接收该顶层消息和上文所述的原始
 `pm_captcha` frame 结果；直接路径也要求唯一 iframe、严格来源、路径、
 challenge token、`ForceWebMessaging=1`、消息 source、当前顶层挑战 SHA-256
 和期限均匹配，且服务端确实允许 CAPTCHA。两条路径共享一次性状态，不拼接
@@ -479,7 +486,8 @@ token、原生窗口桥接或 API 请求身份。
 这些回归检查不证明用户设备上此次关闭的具体触发原因。
 
 [离线永久回归](../tool/test_proton_native_bridge.py)使用独立接口 fixture 表达
-上述平台选择和 frame 结果路由，执行实际生成的监听代码，保留 Windows 空分支
+上述平台选择和 frame 结果路由，执行实际生成的监听代码，保留 Windows 空分支，
+覆盖脚本对话框无回调、缺少顶层转发、submit 移除 iframe、重复结果及错误来源，
 并验证结果 token 未拼接。未把官方 JavaScript 源码复制进仓库，也没有据此宣称
 真实 WebView 页面、服务端接受性或 WebView/API 出口一致性已经通过。
 

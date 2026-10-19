@@ -119,6 +119,16 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
       result.reset();
     }
   }
+  void Complete() {
+    std::string ready=std::move(pending_message);
+    usque::proton::Erase erase{ready};
+    if (ready.empty()) return;
+    LPWSTR current=nullptr;
+    const bool bound=webview && SUCCEEDED(webview->get_Source(&current)) && Matches(current);
+    if (current) SecureZeroMemory(current,wcslen(current)*sizeof(wchar_t));
+    CoTaskMemFree(current);
+    if (bound) Finish(false,&ready); else Finish();
+  }
   static LRESULT CALLBACK Proc(HWND window,UINT message,WPARAM wparam,LPARAM lparam) {
     auto* self=reinterpret_cast<Session*>(GetWindowLongPtrW(window,GWLP_USERDATA));
     if (message==WM_NCCREATE) {
@@ -127,17 +137,15 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
     }
     if (self) {
       if (message==kComplete) {
-        std::string ready=std::move(self->pending_message);
-        usque::proton::Erase erase{ready};
-        if (ready.empty()) return 0;
-        LPWSTR current=nullptr;
-        const bool bound=self->webview && SUCCEEDED(self->webview->get_Source(&current)) && self->Matches(current);
-        if (current) SecureZeroMemory(current,wcslen(current)*sizeof(wchar_t));
-        CoTaskMemFree(current);
-        if (bound) self->Finish(false,&ready); else self->Finish();
+        self->Complete();
         return 0;
       }
-      if (message==WM_CLOSE) { self->Finish(); return 0; }
+      if (message==WM_CLOSE) {
+        // A validated result already queued on the UI thread wins over closing
+        // the completed puzzle. An unfinished puzzle still returns cancellation.
+        if (!self->pending_message.empty()) self->Complete(); else self->Finish();
+        return 0;
+      }
       if (message==WM_TIMER && wparam==1 && !self->Active()) { self->Finish(); return 0; }
       if (message==WM_SIZE && self->controller) { RECT bounds; GetClientRect(window,&bounds); self->controller->put_Bounds(bounds); return 0; }
       if (message==WM_NCDESTROY) SetWindowLongPtrW(window,GWLP_USERDATA,0);
@@ -155,7 +163,7 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
     ComPtr<ICoreWebView2Settings4> settings4;
     ComPtr<ICoreWebView2_4> webview4;
     if (FAILED(webview->get_Settings(&settings)) || FAILED(settings.As(&settings4)) || FAILED(webview.As(&webview4)) ||
-        FAILED(settings->put_IsScriptEnabled(TRUE)) || FAILED(settings->put_IsWebMessageEnabled(FALSE)) ||
+        FAILED(settings->put_IsScriptEnabled(TRUE)) || FAILED(settings->put_IsWebMessageEnabled(TRUE)) ||
         FAILED(settings->put_AreDevToolsEnabled(FALSE)) || FAILED(settings->put_AreDefaultContextMenusEnabled(FALSE)) ||
         FAILED(settings->put_AreDefaultScriptDialogsEnabled(FALSE)) || FAILED(settings->put_IsStatusBarEnabled(FALSE)) || FAILED(settings->put_IsBuiltInErrorPageEnabled(FALSE)) ||
         FAILED(settings4->put_AreBrowserAcceleratorKeysEnabled(FALSE)) ||
@@ -175,17 +183,12 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
     }).Get(),&token)) || FAILED(webview->add_NewWindowRequested(Callback<ICoreWebView2NewWindowRequestedEventHandler>([](ICoreWebView2*,ICoreWebView2NewWindowRequestedEventArgs* args)->HRESULT { args->put_Handled(TRUE); return S_OK; }).Get(),&token)) ||
         FAILED(webview->add_PermissionRequested(Callback<ICoreWebView2PermissionRequestedEventHandler>([](ICoreWebView2*,ICoreWebView2PermissionRequestedEventArgs* args)->HRESULT { args->put_State(COREWEBVIEW2_PERMISSION_STATE_DENY); return S_OK; }).Get(),&token)) ||
         FAILED(webview4->add_DownloadStarting(Callback<ICoreWebView2DownloadStartingEventHandler>([](ICoreWebView2*,ICoreWebView2DownloadStartingEventArgs* args)->HRESULT { args->put_Cancel(TRUE); return S_OK; }).Get(),&token)) ||
-        FAILED(webview->add_ScriptDialogOpening(Callback<ICoreWebView2ScriptDialogOpeningEventHandler>([weak](ICoreWebView2*,ICoreWebView2ScriptDialogOpeningEventArgs* args)->HRESULT {
-          COREWEBVIEW2_SCRIPT_DIALOG_KIND kind;
-          if (FAILED(args->get_Kind(&kind)) || kind!=COREWEBVIEW2_SCRIPT_DIALOG_KIND_ALERT) return S_OK;
-          // Default dialogs are disabled: acknowledge without displaying or
-          // logging their text. Only our bound nonce envelope can complete.
-          args->Accept();
+        FAILED(webview->add_WebMessageReceived(Callback<ICoreWebView2WebMessageReceivedEventHandler>([weak](ICoreWebView2*,ICoreWebView2WebMessageReceivedEventArgs* args)->HRESULT {
           auto self=weak.lock();
           if (!self || !self->Active() || !self->pending_message.empty()) return S_OK;
           LPWSTR source=nullptr,current=nullptr,text=nullptr;
-          const bool bound=SUCCEEDED(args->get_Uri(&source)) && self->Matches(source) && SUCCEEDED(self->webview->get_Source(&current)) && self->Matches(current);
-          const bool received=bound && SUCCEEDED(args->get_Message(&text));
+          const bool bound=SUCCEEDED(args->get_Source(&source)) && self->Matches(source) && SUCCEEDED(self->webview->get_Source(&current)) && self->Matches(current);
+          const bool received=bound && SUCCEEDED(args->TryGetWebMessageAsString(&text));
           std::string message=received ? Utf8(text) : "";
           if (text) SecureZeroMemory(text,wcslen(text)*sizeof(wchar_t));
           if (source) SecureZeroMemory(source,wcslen(source)*sizeof(wchar_t));
@@ -198,8 +201,8 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
             if (nonce) for (size_t i=0;i<self->nonce.size();++i) different |= static_cast<unsigned char>(self->nonce[i]) ^ static_cast<unsigned char>(i<nonce->text.size()?nonce->text[i]:0);
             if (!different && body && self->handoff.Accept(body->text)) {
               self->pending_message=body->text;
-              // Close the browser only after the synchronous alert callback
-              // has returned to WebView2, avoiding dialog/event reentrancy.
+              // Close only after the WebView2 event returns. Keep the accepted
+              // result if WM_CLOSE is dispatched before our completion message.
               if (!PostMessageW(self->window,kComplete,0,0)) self->Finish(true);
             }
           }

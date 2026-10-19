@@ -36,17 +36,26 @@ const vm = require('node:vm');
 const realCrypto = require('node:crypto').webcrypto;
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 async function run() {
-    const listeners = new Set(), timers = new Set(), reports = [], privateMessages = [], logs = [];
+    const listeners = new Map(), timers = new Set(), reports = [], privateMessages = [], logs = [];
     const pending = [];
     let clock = input.start, digestPromise;
     class Clock extends Date { static now() { return clock; } }
     const frameWindow = {}, unrelatedWindow = {};
     const frame = {src:input.frame_url, contentWindow:frameWindow};
+    let frameVisible = true;
+    const emit = event => {
+        const handlers = [...listeners].sort((a,b)=>Number(b[1])-Number(a[1]));
+        for(const [handler,capture] of handlers) {
+            // A submit handler can remove the puzzle before bubble listeners.
+            if(!capture && input.frame_removed_on_submit) frameVisible = false;
+            handler(event);
+        }
+    };
     const window = {
         location:new URL(input.url), navigator:{userAgent:'fixture-browser'},
-        addEventListener(type, handler) { if(type==='message') listeners.add(handler); },
+        addEventListener(type, handler, capture=false) { if(type==='message') listeners.set(handler,capture); },
         removeEventListener(type, handler) { if(type==='message') listeners.delete(handler); },
-        alert(value) { reports.push(JSON.parse(value)); },
+        alert(value) { if(!input.suppress_alert) reports.push(JSON.parse(value)); },
     };
     window.top = input.framed ? {} : window;
     window.parent = window;
@@ -56,13 +65,13 @@ async function run() {
         if(!input.suppress_top_level_dispatch) pending.push({origin:'https://verify.proton.me', source:window, data:value});
     };
     // Match the exposed platform capabilities without changing the page's
-    // selector. WebMessage is deliberately disabled on Windows, but the object
-    // still exists: its presence must select the official empty webview branch.
-    const originalChrome = {webview:{postMessage(){throw Error('disabled');}}};
+    // selector. The dedicated native message channel must not change the
+    // official page's choice of the empty webview branch.
+    const originalChrome = {webview:{postMessage(value){reports.push(JSON.parse(value));}}};
     if(input.platform==='windows') window.chrome = originalChrome;
     if(input.platform==='linux') window.webkit = {messageHandlers:{proton:{postMessage(value){reports.push(JSON.parse(value));}}}};
     const port = {postMessage(value){privateMessages.push(value);},close(){}};
-    const document = {querySelectorAll(name){return name==='iframe' ? (input.duplicate_frame ? [frame, frame] : [frame]) : [];}};
+    const document = {querySelectorAll(name){return name==='iframe' && frameVisible ? (input.duplicate_frame ? [frame, frame] : [frame]) : [];}};
     const context = vm.createContext({window, document, URL, Date:Clock, TextEncoder,
         crypto:{subtle:{digest(...args){
             digestPromise=realCrypto.subtle.digest(...args).then(value=>{
@@ -76,7 +85,7 @@ async function run() {
     });
     vm.runInContext(input.script,context,{timeout:1000});
     if(input.platform==='android') {
-        for(const handler of [...listeners]) handler({data:input.nonce,ports:[port],origin:'',source:null});
+        emit({data:input.nonce,ports:[port],origin:'',source:null});
     }
     if(digestPromise) await digestPromise;
     await new Promise(resolve=>setImmediate(resolve));
@@ -95,13 +104,13 @@ async function run() {
     const event = {origin:input.origin, source:input.other_source ? unrelatedWindow : frameWindow,
         data:{type:'pm_captcha',token:input.result}};
     for(let repeat=0;repeat<2;repeat++) {
-        for(const handler of [...listeners]) handler(event);
+        if(!input.top_level_only) emit(event);
         if(event.origin==='https://verify.proton.me' && event.source===frameWindow) {
-            officialDispatch({type:'HUMAN_VERIFICATION_SUCCESS',payload:{token:event.data.token,type:'captcha'}});
+            officialDispatch({type:'HUMAN_VERIFICATION_SUCCESS',payload:{token:event.data.token,type:input.method||'captcha'}});
         }
         while(pending.length) {
             const message = pending.shift();
-            for(const handler of [...listeners]) handler(message);
+            emit(message);
         }
     }
     return {selected,reports,privateMessages,logs,active:listeners.size,
@@ -136,7 +145,7 @@ class NativeBridgeTest(unittest.TestCase):
             "}else{std::cout<<usque::proton::Script(h,"
             + json.dumps(
                 "window.webkit.messageHandlers.proton.postMessage("
-                f"JSON.stringify({{nonce:'{FIXTURE['nonce']}',message:e.data}}));"
+                f"JSON.stringify({{nonce:'{FIXTURE['nonce']}',message}}));"
             )
             + ");}}\n",
             encoding="utf-8",
@@ -219,12 +228,30 @@ class NativeBridgeTest(unittest.TestCase):
         )
         self.assertEqual(result["active"], 0)
 
+    def test_windows_completion_does_not_depend_on_script_dialog_delivery(self) -> None:
+        result = self.run_script("windows", suppress_alert=True)
+        self.assertEqual(len(result["reports"]), 1)
+        self.assertEqual(
+            json.loads(result["reports"][0]["message"])["payload"]["token"], FIXTURE["result"]
+        )
+
+    def test_desktop_captcha_survives_missing_top_dispatch_and_removed_puzzle(self) -> None:
+        for platform in ("windows", "linux"):
+            with self.subTest(platform=platform):
+                result = self.run_script(
+                    platform,
+                    suppress_top_level_dispatch=True,
+                    frame_removed_on_submit=True,
+                )
+                self.assertEqual(len(result["reports"]), 1)
+                self.assertEqual(result["active"], 0)
+
     def test_linux_and_android_receive_official_web_branch_via_their_distinct_native_bridges(
         self,
     ) -> None:
         for platform in ("linux", "android"):
             with self.subTest(platform=platform):
-                result = self.run_script(platform)
+                result = self.run_script(platform, top_level_only=True)
                 self.assertEqual(result["selected"], "web")
                 messages = (
                     result["privateMessages"]
@@ -237,6 +264,26 @@ class NativeBridgeTest(unittest.TestCase):
                     {"token": FIXTURE["result"], "type": "captcha"},
                 )
                 self.assertEqual(result["active"], 0)
+
+    def test_linux_retains_non_captcha_top_level_completion(self) -> None:
+        result = self.run_script("linux", top_level_only=True, method="email")
+        self.assertEqual(len(result["reports"]), 1)
+        self.assertEqual(json.loads(result["reports"][0]["message"])["payload"]["type"], "email")
+
+    def test_desktop_direct_captcha_requires_embedded_challenge(self) -> None:
+        for platform in ("windows", "linux"):
+            for url in (
+                URL.replace("embed=true", "embed=false"),
+                URL.replace("embed=true&", ""),
+                URL + "&embed=true",
+            ):
+                with self.subTest(platform=platform, url=url):
+                    self.assertEqual(
+                        self.run_script(platform, url=url, suppress_top_level_dispatch=True)[
+                            "reports"
+                        ],
+                        [],
+                    )
 
     def test_android_captcha_result_survives_an_unavailable_top_level_dispatch(self) -> None:
         result = self.run_script("android", suppress_top_level_dispatch=True)
@@ -293,7 +340,7 @@ class NativeBridgeTest(unittest.TestCase):
                 result = self.run_script("android", suppress_top_level_dispatch=True, **change)
                 self.assertEqual(result["privateMessages"], [])
 
-    def test_windows_rejects_unbound_frame_origin_source_path_and_query(self) -> None:
+    def test_desktop_rejects_unbound_frame_origin_source_path_and_query(self) -> None:
         changes = [
             {"origin": "https://evil.example"},
             {"other_source": True},
@@ -312,15 +359,30 @@ class NativeBridgeTest(unittest.TestCase):
             {
                 "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=0"
             },
+            {
+                "frame_url": "https://user@verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1"
+            },
+            {
+                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1&ForceWebMessaging=1"
+            },
+            {
+                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1#fragment"
+            },
             {"duplicate_frame": True},
             {"result": "invalid\r\nheader"},
         ]
-        for change in changes:
-            with self.subTest(change=change):
-                self.assertEqual(self.run_script("windows", **change)["reports"], [])
+        for platform in ("windows", "linux"):
+            for change in changes:
+                with self.subTest(platform=platform, change=change):
+                    self.assertEqual(
+                        self.run_script(platform, suppress_top_level_dispatch=True, **change)[
+                            "reports"
+                        ],
+                        [],
+                    )
 
-    def test_windows_rechecks_top_challenge_and_deadline_during_hash_and_event(self) -> None:
-        for change in (
+    def test_desktop_rechecks_top_challenge_and_deadline_during_hash_and_event(self) -> None:
+        changes = (
             {"framed": True},
             {"url": URL.replace("token=", "wrong=")},
             {"url": URL + "&token=other"},
@@ -329,9 +391,16 @@ class NativeBridgeTest(unittest.TestCase):
             {"event_url": URL.replace(FIXTURE["challenge"], "another")},
             {"event_expired": True},
             {"start": EXPIRES_MS},
-        ):
-            with self.subTest(change=change):
-                self.assertEqual(self.run_script("windows", **change)["reports"], [])
+        )
+        for platform in ("windows", "linux"):
+            for change in changes:
+                with self.subTest(platform=platform, change=change):
+                    self.assertEqual(
+                        self.run_script(platform, suppress_top_level_dispatch=True, **change)[
+                            "reports"
+                        ],
+                        [],
+                    )
 
 
 if __name__ == "__main__":

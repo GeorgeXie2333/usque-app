@@ -188,7 +188,7 @@ void SetBoolean(void* settings,const char* name,gboolean value) {
   if (getrandom(random,sizeof(random),0)!=sizeof(random)) { Finish(true); return; }
   constexpr char hex[]="0123456789abcdef";
   for (unsigned char c:random) { session->nonce+=hex[c>>4]; session->nonce+=hex[c&15]; }
-  const auto script=usque::proton::Script(session->handoff,"window.webkit.messageHandlers.proton.postMessage(JSON.stringify({nonce:'"+session->nonce+"',message:e.data}));");
+  const auto script=usque::proton::Script(session->handoff,"window.webkit.messageHandlers.proton.postMessage(JSON.stringify({nonce:'"+session->nonce+"',message}));");
   void* user_script=api.script_new(script.c_str(),1,0,nullptr,nullptr); // top frame, document start
   if (!user_script) { Finish(true); return; }
   api.add_script(session->manager,user_script); api.script_unref(user_script);

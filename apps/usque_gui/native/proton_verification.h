@@ -207,20 +207,28 @@ inline bool Parse(const std::string& input, Handoff& handoff, const Digest& sha,
   }
   return handoff.Matches(handoff.url,sha,now);
 }
-inline std::string Script(const Handoff& h, const std::string& send) {
+inline std::string Script(const Handoff& h, const std::string& send, bool captcha_only = false) {
   std::string methods;
   for (const auto& method : h.methods) { if (!methods.empty()) methods+=','; methods+='"'+method+'"'; }
-  return "(()=>{'use strict';const expires="+std::to_string(h.expires)+",expected='"+h.digest+"',methods=["+methods+R"JS(];
+  return "(()=>{'use strict';const captchaOnly="+std::string(captcha_only ? "true" : "false")+",expires="+std::to_string(h.expires)+",expected='"+h.digest+"',methods=["+methods+R"JS(];
 const origin='https://verify.proton.me';let initial;
 try{initial=new URL(window.location.href).searchParams.getAll('token');}catch(_){return;}
-const same=()=>{try{const u=new URL(window.location.href),v=u.searchParams.getAll('token');return window.top===window&&u.origin===origin&&!u.hash&&(u.pathname==='/'||u.pathname==='')&&v.length===1&&v[0]===initial[0]&&Date.now()<expires;}catch(_){return false;}};
+const same=()=>{try{const u=new URL(window.location.href),v=u.searchParams.getAll('token');return window.top===window&&u.origin===origin&&!u.username&&!u.password&&!u.hash&&(u.pathname==='/'||u.pathname==='')&&(!captchaOnly||(u.searchParams.getAll('embed').length===1&&u.searchParams.get('embed')==='true'&&u.searchParams.getAll('methods').length===1&&u.searchParams.get('methods')==='captcha'))&&v.length===1&&v[0]===initial[0]&&Date.now()<expires;}catch(_){return false;}};
 if(initial.length!==1||!same())return;
 (async()=>{const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(initial[0]))),v=>v.toString(16).padStart(2,'0')).join('');
 if(hash!==expected||!same())return;
-let used=false;const stop=()=>{used=true;clearTimeout(timer);window.removeEventListener('message',receive);};
-const receive=e=>{if(used)return;if(!same()){stop();return;}if(e.origin!==origin||e.source!==window||typeof e.data!=='string'||e.data.length>32768)return;
-let m;try{m=JSON.parse(e.data);}catch(_){return;}if(!m||Object.keys(m).length!==2||m.type!=='HUMAN_VERIFICATION_SUCCESS'||!m.payload||Object.keys(m.payload).length!==2||!methods.includes(m.payload.type)||typeof m.payload.token!=='string'||!/^[\x21-\x7e]{1,8192}$/.test(m.payload.token))return;
-stop();)JS"+send+R"JS(};const timer=setTimeout(stop,Math.max(0,expires-Date.now()));window.addEventListener('message',receive);
+let used=false;const stop=()=>{used=true;clearTimeout(timer);window.removeEventListener('message',receive,true);};
+const receive=e=>{if(used)return;if(!same()){stop();return;}if(e.origin!==origin)return;
+let message;
+if(!captchaOnly&&e.source===window&&typeof e.data==='string'&&e.data.length<=32768){message=e.data;}
+else if(methods.includes('captcha')&&e.data&&typeof e.data==='object'&&!Array.isArray(e.data)&&e.data.type==='pm_captcha'&&typeof e.data.token==='string'&&/^[\x21-\x7e]{1,8192}$/.test(e.data.token)){
+const top=new URL(window.location.href);if(top.searchParams.getAll('embed').length!==1||top.searchParams.get('embed')!=='true')return;
+const frames=Array.from(document.querySelectorAll('iframe')).filter(frame=>{try{const u=new URL(frame.src),tokens=u.searchParams.getAll('Token'),force=u.searchParams.getAll('ForceWebMessaging');return u.origin===origin&&!u.username&&!u.password&&u.pathname==='/core/v4/captcha'&&!u.hash&&tokens.length===1&&tokens[0]===initial[0]&&force.length===1&&force[0]==='1';}catch(_){return false;}});
+if(frames.length!==1||e.source!==frames[0].contentWindow)return;
+message=JSON.stringify({type:'HUMAN_VERIFICATION_SUCCESS',payload:{token:e.data.token,type:'captcha'}});
+}else return;
+let m;try{m=JSON.parse(message);}catch(_){return;}if(!m||Object.keys(m).length!==2||m.type!=='HUMAN_VERIFICATION_SUCCESS'||!m.payload||Object.keys(m.payload).length!==2||!methods.includes(m.payload.type)||typeof m.payload.token!=='string'||!/^[\x21-\x7e]{1,8192}$/.test(m.payload.token))return;
+stop();)JS"+send+R"JS(};const timer=setTimeout(stop,Math.max(0,expires-Date.now()));window.addEventListener('message',receive,true);
 })().catch(()=>{});})();)JS";
 }
 // The captured official page deliberately emits no top-level success message
@@ -249,21 +257,7 @@ inline bool CaptchaOnly(Handoff& h) {
   return true;
 }
 inline std::string CaptchaScript(const Handoff& h,const std::string& nonce) {
-  return "(()=>{'use strict';const expires="+std::to_string(h.expires)+",expected='"+h.digest+"',nonce='"+nonce+R"JS(';
-const origin='https://verify.proton.me';let initial;
-try{initial=new URL(window.location.href).searchParams.getAll('token');}catch(_){return;}
-const same=()=>{try{const u=new URL(window.location.href),v=u.searchParams.getAll('token');return window.top===window&&u.origin===origin&&!u.hash&&(u.pathname==='/'||u.pathname==='')&&u.searchParams.getAll('embed').length===1&&u.searchParams.get('embed')==='true'&&u.searchParams.getAll('methods').length===1&&u.searchParams.get('methods')==='captcha'&&v.length===1&&v[0]===initial[0]&&Date.now()<expires;}catch(_){return false;}};
-if(initial.length!==1||!same()||typeof window.alert!=='function')return;
-const report=window.alert.bind(window);
-(async()=>{const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(initial[0]))),v=>v.toString(16).padStart(2,'0')).join('');
-if(hash!==expected||!same())return;
-let used=false;const stop=()=>{used=true;clearTimeout(timer);window.removeEventListener('message',receive);};
-const receive=e=>{if(used)return;if(!same()){stop();return;}if(e.origin!==origin||!e.data||typeof e.data!=='object'||Array.isArray(e.data)||e.data.type!=='pm_captcha'||typeof e.data.token!=='string'||!/^[\x21-\x7e]{1,8192}$/.test(e.data.token))return;
-const frames=Array.from(document.querySelectorAll('iframe')).filter(frame=>{try{const u=new URL(frame.src),tokens=u.searchParams.getAll('Token'),force=u.searchParams.getAll('ForceWebMessaging');return u.origin===origin&&u.pathname==='/core/v4/captcha'&&!u.hash&&tokens.length===1&&tokens[0]===initial[0]&&force.length===1&&force[0]==='1';}catch(_){return false;}});
-if(frames.length!==1||e.source!==frames[0].contentWindow)return;
-const message=JSON.stringify({type:'HUMAN_VERIFICATION_SUCCESS',payload:{token:e.data.token,type:'captcha'}});
-stop();report(JSON.stringify({nonce,message}));};const timer=setTimeout(stop,Math.max(0,expires-Date.now()));window.addEventListener('message',receive);
-})().catch(()=>{});})();)JS";
+  return Script(h,"window.chrome.webview.postMessage(JSON.stringify({nonce:'"+nonce+"',message}));",true);
 }
 }  // namespace usque::proton
 #endif
