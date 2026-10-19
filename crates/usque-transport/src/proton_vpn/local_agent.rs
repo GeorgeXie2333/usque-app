@@ -213,6 +213,7 @@ impl AgentControl {
                 result.map_err(|_| GateFailure::Transport)?.map_err(|_| GateFailure::Transport)?;
             }
         }
+        tracing::debug!(gate_event = "PROTON_AGENT_STACK_READY");
         let ingress = AgentIngress {
             tuple,
             sender: pipe.tx,
@@ -424,6 +425,7 @@ async fn credential_loop(
             )
             .await
             .map_err(|_| (GateFailure::Transport, false))?;
+            tracing::debug!(gate_event = "PROTON_AGENT_TCP_READY");
             TlsConnector::from(config)
                 .connect(name, stream)
                 .await
@@ -445,6 +447,7 @@ async fn credential_loop(
             }
             Err((reason, _)) => return Err(reason),
         };
+        tracing::debug!(gate_event = "PROTON_AGENT_TLS_READY");
         let until_expiry = Duration::from_secs(
             u64::try_from(current.expires_at - unix_now()?)
                 .map_err(|_| GateFailure::Certificate)?,
@@ -591,23 +594,37 @@ fn requested_features() -> Value {
 }
 
 fn features(label: Option<&str>) -> Value {
-    let mut value =
-        json!({"netshield-level": 0, "randomized-nat": false, "split-tcp": false, "jail": false});
+    let mut value = json!({"netshield-level": 0, "randomized-nat": false, "split-tcp": false});
     if let Some(label) = label {
         value["bouncing"] = json!(label);
     }
     value
 }
 
-fn features_match(value: &Value, label: Option<&str>) -> bool {
-    let Some(received) = value["status"]["features"].as_object() else {
-        return false;
+fn authorization_features(value: &Value, label: Option<&str>) -> Result<bool, GateFailure> {
+    let received = match &value["status"]["features"] {
+        Value::Null => return Ok(label.is_none()),
+        Value::Object(received) => received,
+        _ => return Err(GateFailure::Protocol),
     };
-    features(label)
-        .as_object()
-        .expect("fixed object")
-        .iter()
-        .all(|(key, expected)| received.get(key) == Some(expected))
+    // The Android client treats ordinary feature preferences separately from
+    // the authenticated agent state. Missing/default preference echoes do not
+    // invalidate connected. Keep explicit jail and selected-exit checks closed.
+    match received.get("jail") {
+        None | Some(Value::Bool(false)) => (),
+        Some(Value::Bool(true)) => return Ok(false),
+        _ => return Err(GateFailure::Protocol),
+    }
+    let Some(expected) = label else {
+        return Ok(true);
+    };
+    match received.get("bouncing") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::String(actual)) if usque_core::proton_vpn::valid_label(actual) => {
+            Ok(actual == expected)
+        }
+        _ => Err(GateFailure::Protocol),
+    }
 }
 
 #[cfg(test)]
@@ -680,6 +697,18 @@ async fn protocol_loop_with_label<S: AsyncRead + AsyncWrite + Unpin>(
                 return Err(reason);
             }
         };
+        let authorized = if connected {
+            match authorization_features(&response, label) {
+                Ok(authorized) => authorized,
+                Err(reason) => {
+                    deauthorize(publisher);
+                    return Err(reason);
+                }
+            }
+        } else {
+            false
+        };
+        tracing::debug!(gate_event = "PROTON_AGENT_STATUS", connected, authorized,);
         if !connected {
             deauthorize(publisher);
             if let Some(code) = response["status"]["reason"]["code"]
@@ -689,7 +718,7 @@ async fn protocol_loop_with_label<S: AsyncRead + AsyncWrite + Unpin>(
             {
                 waiting_failure = GateFailure::Proton(ConnectionFailure::agent(code));
             }
-        } else if !features_match(&response, label) {
+        } else if !authorized {
             waiting_failure = GateFailure::Protocol;
         }
         if !features_sent {
@@ -700,7 +729,8 @@ async fn protocol_loop_with_label<S: AsyncRead + AsyncWrite + Unpin>(
             .await
             .map_err(|_| GateFailure::Transport)??;
             features_sent = true;
-            // Confirm the post-feature status before admitting business packets.
+            // Request the resulting state without making preference echoes an
+            // extra authorization handshake. A selected label still must match.
             timeout_at(
                 startup_deadline,
                 write_frame(
@@ -710,7 +740,8 @@ async fn protocol_loop_with_label<S: AsyncRead + AsyncWrite + Unpin>(
             )
             .await
             .map_err(|_| GateFailure::Transport)??;
-        } else if connected && features_match(&response, label) {
+        }
+        if authorized {
             authenticated = true;
             publisher.send_replace(AgentState::Connected);
         } else {

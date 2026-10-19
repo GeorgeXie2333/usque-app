@@ -11,11 +11,15 @@ use tokio_util::sync::CancellationToken;
 
 pub(super) struct WarpHttp {
     network: InternalNetwork,
+    session: crate::internal_network::proton_https::Session,
 }
 
 impl WarpHttp {
     pub fn new(network: InternalNetwork) -> Self {
-        Self { network }
+        Self {
+            session: crate::internal_network::proton_https::Session::new(network.clone()),
+            network,
+        }
     }
 }
 
@@ -38,7 +42,11 @@ impl Http for WarpHttp {
         // known token rotation can still be saved if reconnection arrives with
         // the response; discarding it would needlessly leave the journal in an
         // unknown state. Such a save never authorizes the old lease to proceed.
-        self.network.exchange_https(request, cancel).await
+        self.session.exchange(request, cancel).await
+    }
+
+    async fn shutdown(&self) {
+        self.session.shutdown().await;
     }
 
     fn generation(&self) -> Option<u64> {

@@ -92,6 +92,7 @@ impl Access {
             return Err(Failure::new("protected_user_mismatch"));
         }
         if record.session.uid != client.session.uid {
+            record.connection_cache = None;
             record.server_id = record.selected_server().map(str::to_owned);
             record.promote();
             record.certificate_chain.zeroize();
@@ -200,11 +201,20 @@ impl Access {
             result => result?,
         };
         if old_tier != record.max_tier {
+            record.connection_cache = None;
             record.server_id = record.selected_server().map(str::to_owned);
             record.promote();
             record.certificate_chain.zeroize();
             record.expires_at = 0;
             record.refresh_at = 0;
+        }
+        record.server_id = record.selected_server().map(str::to_owned);
+        record.promote();
+        record
+            .connection_cache
+            .get_or_insert_default()
+            .permissions_at = super::interaction::now();
+        if old_tier != record.max_tier {
             self.save(record, cancel).await?;
         }
         Ok(())
@@ -232,6 +242,13 @@ impl Access {
         let nodes = nodes::collect_for_tier(&directory.0, &config.0, record.max_tier)?;
         record.server_catalog = nodes.iter().map(|node| node.metadata.clone()).collect();
         record.catalog_revision = uuid::Uuid::new_v4();
+        let selected = record.selected_server().map(str::to_owned);
+        record.server_id = selected.clone();
+        record.promote();
+        record
+            .connection_cache
+            .get_or_insert_default()
+            .set_directory(&nodes, selected.as_deref(), super::interaction::now());
         Ok(nodes)
     }
     pub async fn certificate(

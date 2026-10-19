@@ -19,6 +19,9 @@ use usque_core::vpngate::{
     approved_url,
 };
 
+#[cfg(feature = "wireguard")]
+pub(crate) mod proton_https;
+
 trait HttpsIo: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin {}
 impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin> HttpsIo for T {}
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -531,17 +534,6 @@ impl InternalNetwork {
         cancel: &CancellationToken,
     ) -> Result<Vec<u8>, InternalHttpError> {
         self.request_https_for(options, cancel, HttpsPurpose::General)
-            .await
-    }
-    /// Retain bounded error bodies for the runtime Proton API caller, using
-    /// only this private network's TCP, DNS, health and cancellation handles.
-    #[cfg(feature = "wireguard")]
-    pub(crate) async fn exchange_https(
-        &self,
-        options: InternalRequest<'_>,
-        cancel: &CancellationToken,
-    ) -> Result<InternalResponse, InternalHttpError> {
-        self.exchange_https_for(options, cancel, HttpsPurpose::General)
             .await
     }
     #[cfg(feature = "wireguard")]

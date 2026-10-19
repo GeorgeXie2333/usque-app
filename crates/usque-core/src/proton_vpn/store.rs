@@ -176,15 +176,26 @@ impl<'a> SessionStore<'a> {
             Err(failure) if failure.kind() == std::io::ErrorKind::NotFound => (),
             Err(_) => return Err(error("secure_storage_failed")),
         }
-        let plaintext =
-            Zeroizing::new(serde_json::to_vec(record).map_err(|_| error("secure_storage_failed"))?);
-        if plaintext.len() > MAX_RECORD_PLAINTEXT_BYTES {
-            return Err(error("secure_storage_failed"));
-        }
-        let encrypted = self.cipher.seal(record.id, &plaintext)?;
-        if encrypted.is_empty() || encrypted.len() > MAX_RECORD_CIPHERTEXT_BYTES {
-            return Err(error("secure_storage_failed"));
-        }
+        let mut candidate = record.clone();
+        let encrypted = loop {
+            let plaintext = Zeroizing::new(
+                serde_json::to_vec(&candidate).map_err(|_| error("secure_storage_failed"))?,
+            );
+            if plaintext.len() <= MAX_RECORD_PLAINTEXT_BYTES {
+                let encrypted = self.cipher.seal(record.id, &plaintext)?;
+                if encrypted.is_empty() {
+                    return Err(error("secure_storage_failed"));
+                }
+                if encrypted.len() <= MAX_RECORD_CIPHERTEXT_BYTES {
+                    break encrypted;
+                }
+            }
+            // Optional hints may be omitted. The full catalogue, credentials
+            // and base record still have to fit the original storage limits.
+            if candidate.connection_cache.take().is_none() {
+                return Err(error("secure_storage_failed"));
+            }
+        };
         let mut file = tempfile::Builder::new()
             .prefix(".proton-")
             .tempfile_in(&self.directory)

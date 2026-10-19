@@ -40,6 +40,7 @@ impl AsRef<[u8]> for PrivateBody {
 
 #[async_trait]
 pub(super) trait Http: Send + Sync {
+    async fn shutdown(&self) {}
     async fn exchange(
         &self,
         request: InternalRequest<'_>,

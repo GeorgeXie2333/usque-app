@@ -287,6 +287,7 @@ mod tests {
             catalog_revision: Uuid::new_v4(),
             tunnel_seed: None,
             key_recovery_at: 0,
+            connection_cache: None,
         };
         record.validate().unwrap();
         let plaintext = Zeroizing::new(serde_json::to_vec(&record).unwrap());

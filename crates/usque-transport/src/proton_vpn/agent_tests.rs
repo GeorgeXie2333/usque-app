@@ -352,7 +352,7 @@ async fn the_private_tcp_stack_completes_mutual_tls_before_business_admission() 
 }
 
 #[tokio::test(start_paused = true)]
-async fn agent_requires_status_after_features_and_drops_authorization_on_jail() {
+async fn agent_synchronizes_preferences_and_drops_authorization_on_jail() {
     let (mut client, mut server) = duplex(128 * 1024);
     let (publisher, mut observed) = watch::channel(AgentState::Connecting);
     let worker = tokio::spawn(async move {
@@ -461,32 +461,76 @@ async fn a_partial_frame_survives_a_heartbeat_and_then_revokes_authorization() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn connected_without_feature_confirmation_never_opens_the_gate() {
-    let (mut client, mut server) = duplex(128 * 1024);
-    let (publisher, observed) = watch::channel(AgentState::Connecting);
-    let worker = tokio::spawn(async move {
-        protocol_loop(
-            &mut client,
-            &publisher,
-            Instant::now() + IO_BUDGET,
-            unix_now().unwrap() + 3600,
+async fn authenticated_connected_does_not_require_preference_echoes() {
+    for feature_values in [
+        Value::Null,
+        json!({}),
+        json!({"netshield-level": 0}),
+        json!({"netshield-level": 1, "randomized-nat": true, "split-tcp": true}),
+    ] {
+        let (mut client, mut server) = duplex(128 * 1024);
+        let (publisher, mut observed) = watch::channel(AgentState::Connecting);
+        let worker = AbortOnDropHandle::new(tokio::spawn(async move {
+            protocol_loop(
+                &mut client,
+                &publisher,
+                Instant::now() + IO_BUDGET,
+                unix_now().unwrap() + 3600,
+            )
+            .await
+        }));
+        read_frame(&mut server).await.unwrap();
+        write_frame(
+            &mut server,
+            &json!({"status":{"state":"connected", "features": feature_values}}),
         )
         .await
-    });
-    read_frame(&mut server).await.unwrap();
-    write_frame(&mut server, &json!({"status":{"state":"connected"}}))
-        .await
         .unwrap();
-    read_frame(&mut server).await.unwrap();
-    read_frame(&mut server).await.unwrap();
-    write_frame(
-        &mut server,
-        &json!({"status":{"state":"connected","features":{"jail":false}}}),
-    )
-    .await
-    .unwrap();
-    assert!(matches!(worker.await.unwrap(), Err(GateFailure::Protocol)));
-    assert_eq!(*observed.borrow(), AgentState::Connecting);
+        let request = read_frame(&mut server).await.unwrap();
+        assert!(request["features-set"].get("jail").is_none());
+        read_frame(&mut server).await.unwrap();
+        observed.changed().await.unwrap();
+        assert_eq!(*observed.borrow(), AgentState::Connected);
+        // No second status or feature echo is needed. A later explicit restriction
+        // still closes the gate while the feature preferences are independent.
+        write_frame(&mut server, &json!({"status":{"state":"jailed"}}))
+            .await
+            .unwrap();
+        observed.changed().await.unwrap();
+        assert_eq!(*observed.borrow(), AgentState::Connecting);
+        drop(worker);
+    }
+}
+
+#[test]
+fn optional_preference_echoes_do_not_override_jail_or_selected_exit() {
+    for values in [Value::Null, json!({}), json!({"netshield-level": 0})] {
+        let response = json!({"status":{"state":"connected","features": values}});
+        assert_eq!(authorization_features(&response, None), Ok(true));
+        assert_eq!(authorization_features(&response, Some("0")), Ok(false));
+    }
+    assert_eq!(
+        authorization_features(&json!({"status":{"features":{"bouncing":"0"}}}), Some("0")),
+        Ok(true)
+    );
+    assert_eq!(
+        authorization_features(&json!({"status":{"features":{"bouncing":"1"}}}), Some("0")),
+        Ok(false)
+    );
+    assert_eq!(
+        authorization_features(&json!({"status":{"features":{"jail":true}}}), None),
+        Ok(false)
+    );
+    for values in [
+        json!("invalid"),
+        json!({"jail":"false"}),
+        json!({"bouncing":0}),
+    ] {
+        assert_eq!(
+            authorization_features(&json!({"status":{"features":values}}), Some("0")),
+            Err(GateFailure::Protocol)
+        );
+    }
 }
 
 #[test]
@@ -659,7 +703,7 @@ async fn labelled_restricted_node_waits_for_matching_authorized_status_and_close
     .unwrap();
     let request = read_frame(&mut server).await.unwrap();
     assert_eq!(request["features-set"]["bouncing"], "0");
-    assert_eq!(request["features-set"]["jail"], false);
+    assert!(request["features-set"].get("jail").is_none());
     read_frame(&mut server).await.unwrap();
     write_frame(
         &mut server,
@@ -673,7 +717,7 @@ async fn labelled_restricted_node_waits_for_matching_authorized_status_and_close
     assert_eq!(*observed.borrow(), AgentState::Connecting);
     write_frame(
         &mut server,
-        &json!({"status":{"state":"connected","features":features(Some("0"))}}),
+        &json!({"status":{"state":"connected","features":{"bouncing":"0"}}}),
     )
     .await
     .unwrap();

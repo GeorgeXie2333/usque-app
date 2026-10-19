@@ -30,6 +30,12 @@ pub(crate) struct RecoveryRequest {
     pub reply: oneshot::Sender<Result<Arc<TunnelCredentials>, GateFailure>>,
 }
 
+enum MetadataOutcome {
+    Finished(Result<(), Failure>),
+    Recovery(RecoveryRequest),
+    CertificateDue,
+}
+
 struct NoInteraction;
 #[async_trait]
 impl Interaction for NoInteraction {
@@ -77,6 +83,7 @@ pub(super) fn gate_failure(failure: &Failure) -> GateFailure {
         | "api_timeout"
         | "api_transport_failed"
         | "api_tls_failed" => FailureKind::Transport,
+        "account_tier_changed" => FailureKind::Reconnect,
         "cryptographic_validation_failed" | "credential_expired" => FailureKind::Certificate,
         "profile_revision_mismatch"
         | "invalid_saved_key"
@@ -131,6 +138,26 @@ async fn lock(persistence: Arc<dyn LeasePersistence>) -> Result<File, Failure> {
         .map_err(Failure::from)
 }
 
+/// A failed peer must be resolved online on the next attempt. Keep unrelated
+/// tokens, certificate and user selection from the latest locked record.
+pub(crate) async fn invalidate_peer(
+    persistence: Arc<dyn LeasePersistence>,
+) -> Result<(), GateFailure> {
+    tokio::task::spawn_blocking(move || {
+        let _lock = persistence.lock()?;
+        let mut record = persistence.load()?;
+        if let Some(cache) = &mut record.connection_cache {
+            cache.directory_at = 0;
+            cache.peers.clear();
+            persistence.save(&record)?;
+        }
+        Ok::<_, usque_core::chain_exit::ImportError>(())
+    })
+    .await
+    .map_err(|_| GateFailure::Cleanup)?
+    .map_err(|_| GateFailure::Cleanup)
+}
+
 impl Lease {
     fn check(&self, cancel: &CancellationToken) -> Result<(), Failure> {
         current(&*self.http, self.generation, cancel)
@@ -181,6 +208,11 @@ impl Lease {
             access
                 .permissions(&mut client, &mut record, &NoInteraction, cancel)
                 .await?;
+            if record.max_tier != self.current.max_tier
+                || record.session.uid != self.current.session.uid
+            {
+                return Err(Failure::new("account_tier_changed"));
+            }
             access
                 .certificate(&mut client, &mut record, &keys, &NoInteraction, cancel)
                 .await
@@ -238,6 +270,7 @@ impl Lease {
                 GateFailure::Proton(ConnectionFailure::new(FailureKind::Certificate))
             })?;
             record.tunnel_seed = Some(Zeroizing::new(keys.ed25519_seed().to_vec()));
+            record.connection_cache = None;
             record.key_recovery_at = now;
             record.promote();
             record.certificate_chain.zeroize();
@@ -260,13 +293,28 @@ impl Lease {
         cancel: &CancellationToken,
     ) -> Result<(), GateFailure> {
         let (_requests, receiver) = mpsc::channel(1);
-        self.run_with_recovery(sender, receiver, cancel).await
+        self.run_with_recovery(sender, receiver, watch::channel(false).1, cancel)
+            .await
     }
 
     pub(crate) async fn run_with_recovery(
+        self,
+        sender: watch::Sender<Arc<TunnelCredentials>>,
+        requests: mpsc::Receiver<RecoveryRequest>,
+        admitted: watch::Receiver<bool>,
+        cancel: &CancellationToken,
+    ) -> Result<(), GateFailure> {
+        let http = self.http.clone();
+        let result = self.run_inner(sender, requests, admitted, cancel).await;
+        http.shutdown().await;
+        result
+    }
+
+    async fn run_inner(
         mut self,
         sender: watch::Sender<Arc<TunnelCredentials>>,
         mut requests: mpsc::Receiver<RecoveryRequest>,
+        admitted: watch::Receiver<bool>,
         cancel: &CancellationToken,
     ) -> Result<(), GateFailure> {
         let mut retry_at = self
@@ -274,6 +322,8 @@ impl Lease {
             .take()
             .unwrap_or_else(tokio::time::Instant::now);
         let mut retry_delay = Duration::from_secs(30);
+        let mut metadata_retry_at = tokio::time::Instant::now();
+        let mut metadata_retry_delay = Duration::from_secs(30);
         loop {
             self.check(cancel)
                 .map_err(|failure| gate_failure(&failure))?;
@@ -314,6 +364,63 @@ impl Lease {
                     .send(credentials)
                     .map_err(|_| GateFailure::Transport)?;
             }
+            if *admitted.borrow()
+                && requests.is_empty()
+                && now < self.current.refresh_at
+                && tokio::time::Instant::now() >= metadata_retry_at
+                && self.current.connection_cache.as_ref().is_none_or(|cache| {
+                    cache.permissions_refresh_due(now) || cache.directory_refresh_due(now)
+                })
+            {
+                let refresh_cancel = cancel.child_token();
+                let certificate_due =
+                    Duration::from_secs(self.current.refresh_at.saturating_sub(now).max(0) as u64);
+                let outcome = {
+                    let refresh = self.refresh_metadata(&refresh_cancel);
+                    tokio::pin!(refresh);
+                    tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => {
+                            refresh_cancel.cancel();
+                            let _ = refresh.await;
+                            return Ok(());
+                        }
+                        Some(request) = requests.recv() => {
+                            refresh_cancel.cancel();
+                            let _ = refresh.await;
+                            MetadataOutcome::Recovery(request)
+                        }
+                        _ = tokio::time::sleep(certificate_due) => {
+                            refresh_cancel.cancel();
+                            let _ = refresh.await;
+                            MetadataOutcome::CertificateDue
+                        }
+                        result = &mut refresh => MetadataOutcome::Finished(result),
+                    }
+                };
+                match outcome {
+                    MetadataOutcome::Finished(Ok(())) => {
+                        metadata_retry_delay = Duration::from_secs(30);
+                    }
+                    MetadataOutcome::Recovery(request) => {
+                        let result = self.recover(request.code, cancel).await;
+                        if let Ok(credentials) = &result {
+                            sender.send_replace(credentials.clone());
+                        }
+                        let _ = request.reply.send(result);
+                        continue;
+                    }
+                    MetadataOutcome::CertificateDue => continue,
+                    MetadataOutcome::Finished(Err(failure))
+                        if transient(&failure) || failure.reason == "session_busy" =>
+                    {
+                        metadata_retry_at = tokio::time::Instant::now() + metadata_retry_delay;
+                        metadata_retry_delay =
+                            (metadata_retry_delay * 2).min(Duration::from_secs(300));
+                    }
+                    MetadataOutcome::Finished(Err(failure)) => return Err(gate_failure(&failure)),
+                }
+            }
             let until_refresh = Duration::from_secs(
                 u64::try_from(
                     self.current
@@ -351,6 +458,74 @@ impl Lease {
                 return Err(gate_failure(&Failure::new("reauthentication_required")));
             }
         }
+    }
+
+    async fn refresh_metadata(&mut self, cancel: &CancellationToken) -> Result<(), Failure> {
+        self.check(cancel)?;
+        let _lock = lock(self.persistence.clone()).await?;
+        let mut record = load(self.persistence.clone()).await?;
+        if record.rotation_pending || !unchanged(&self.current, &record) {
+            return Err(Failure::new("reauthentication_required"));
+        }
+        let mut client = Client::new(self.http.clone());
+        client.config.identity = record.api_identity.clone();
+        client.session = record.session.clone();
+        let mut access = Access::new(self.persistence.clone(), &client);
+        let result = async {
+            access.cleanup(&mut client, &mut record, cancel).await?;
+            let now = super::interaction::now();
+            if record
+                .connection_cache
+                .as_ref()
+                .is_none_or(|cache| cache.permissions_refresh_due(now))
+            {
+                access
+                    .permissions(&mut client, &mut record, &NoInteraction, cancel)
+                    .await?;
+            }
+            // A tier/UID change invalidates the live identity. Access has saved
+            // the known session and cleared its certificate before this check.
+            if record.max_tier != self.current.max_tier
+                || record.session.uid != self.current.session.uid
+            {
+                return Err(Failure::new("account_tier_changed"));
+            }
+            if record
+                .connection_cache
+                .as_ref()
+                .is_none_or(|cache| cache.directory_refresh_due(now))
+            {
+                access
+                    .directory(&mut client, &mut record, &NoInteraction, cancel)
+                    .await?;
+            }
+            if record.max_tier != self.current.max_tier
+                || record.session.uid != self.current.session.uid
+            {
+                return Err(Failure::new("account_tier_changed"));
+            }
+            access.save(&record, cancel).await
+        }
+        .await;
+        if result.as_ref().is_err_and(|failure| {
+            !transient(failure)
+                && !matches!(
+                    failure.reason.as_str(),
+                    "cancelled" | "underlay_changed" | "session_busy"
+                )
+        }) && !cancel.is_cancelled()
+        {
+            record.connection_cache = None;
+            access.save(&record, cancel).await?;
+        }
+        // Load the latest atomic state even on cancellation/known token update.
+        // Holding the account lease prevents overwriting another account job.
+        self.current = if result.is_ok() {
+            record
+        } else {
+            load(self.persistence.clone()).await?
+        };
+        result
     }
 }
 
@@ -432,9 +607,12 @@ pub(crate) async fn prepare(
     // authorization recovery). Keep this lease's API and DNS on the existing
     // WARP stack throughout its lifetime; system sockets would depend on the
     // very Proton connection these requests are preparing or repairing.
-    prepare_with_http(profile, Arc::new(WarpHttp::new(warp)), cancel)
-        .await
-        .map_err(|failure| gate_failure(&failure))
+    let http = Arc::new(WarpHttp::new(warp));
+    let result = prepare_with_http(profile, http.clone(), cancel).await;
+    if result.is_err() {
+        http.shutdown().await;
+    }
+    result.map_err(|failure| gate_failure(&failure))
 }
 
 async fn prepare_with_http(
@@ -442,6 +620,7 @@ async fn prepare_with_http(
     http: Arc<dyn Http>,
     cancel: &CancellationToken,
 ) -> Result<(Arc<TunnelCredentials>, Lease), Failure> {
+    let stage_started = tokio::time::Instant::now();
     let generation = http.generation();
     current(&*http, generation, cancel)?;
     let persistence = profile
@@ -459,13 +638,29 @@ async fn prepare_with_http(
     client.session = record.session.clone();
     let mut access = Access::new(persistence.clone(), &client);
     access.cleanup(&mut client, &mut record, cancel).await?;
-    access
-        .permissions(&mut client, &mut record, &NoInteraction, cancel)
-        .await?;
+    let permissions_cached = record
+        .connection_cache
+        .as_ref()
+        .is_some_and(|cache| cache.permissions_fresh(super::interaction::now()));
+    if !permissions_cached {
+        access
+            .permissions(&mut client, &mut record, &NoInteraction, cancel)
+            .await?;
+    }
     let selected = record.selected_server().map(str::to_owned);
-    let directory = access
-        .directory(&mut client, &mut record, &NoInteraction, cancel)
-        .await?;
+    let cached_peer = record.connection_cache.as_ref().and_then(|cache| {
+        cache
+            .peer(selected.as_deref(), super::interaction::now())
+            .cloned()
+    });
+    let directory_cached = cached_peer.is_some();
+    let directory = if let Some(peer) = cached_peer {
+        vec![peer]
+    } else {
+        access
+            .directory(&mut client, &mut record, &NoInteraction, cancel)
+            .await?
+    };
     let peer = if let Some(id) = selected.as_deref() {
         directory
             .into_iter()
@@ -484,10 +679,10 @@ async fn prepare_with_http(
             .map_err(|_| Failure::new("invalid_saved_key"))?,
     )?;
     let mut retry_at = None;
-    if record.certificate_chain.is_empty()
+    let certificate_requested = record.certificate_chain.is_empty()
         || record.refresh_at <= super::interaction::now()
-        || record.expires_at <= super::interaction::now()
-    {
+        || record.expires_at <= super::interaction::now();
+    if certificate_requested {
         let certificate = access
             .certificate(&mut client, &mut record, &keys, &NoInteraction, cancel)
             .await;
@@ -529,6 +724,14 @@ async fn prepare_with_http(
     resolved.proton = Some(credentials.clone());
     resolved.proton_persistence = Some(persistence.clone());
     *profile = resolved;
+    tracing::debug!(
+        probe_stage = "proton_prepare",
+        elapsed_us = stage_started.elapsed().as_micros(),
+        permissions_cached,
+        directory_cached,
+        certificate_requested,
+        "Proton connection preparation timing"
+    );
     let lease = Lease {
         persistence,
         http,

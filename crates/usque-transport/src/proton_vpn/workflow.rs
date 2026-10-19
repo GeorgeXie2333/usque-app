@@ -404,6 +404,7 @@ pub(super) async fn provision(
     };
     let max_tier =
         permissions(client, interaction, cancel, None, request.action == "guest").await?;
+    let permissions_at = super::interaction::now();
     let mut related: Vec<Record> = sessions
         .records()?
         .into_iter()
@@ -542,15 +543,25 @@ pub(super) async fn provision(
         server_id: existing
             .as_ref()
             .and_then(|record| record.selected_server().map(str::to_owned)),
-        server_catalog: nodes.into_iter().map(|node| node.metadata).collect(),
+        server_catalog: nodes.iter().map(|node| node.metadata.clone()).collect(),
         retired_sessions,
         catalog_revision: Uuid::new_v4(),
         tunnel_seed: existing
             .as_ref()
             .and_then(|record| record.tunnel_seed.clone()),
         key_recovery_at: existing.as_ref().map_or(0, |record| record.key_recovery_at),
+        connection_cache: Some(usque_core::proton_vpn::ConnectionCache {
+            permissions_at,
+            ..Default::default()
+        }),
     };
     record.promote();
+    let selected = record.selected_server().map(str::to_owned);
+    record
+        .connection_cache
+        .as_mut()
+        .expect("new cache")
+        .set_directory(&nodes, selected.as_deref(), super::interaction::now());
     if let Err(failure) = client
         .checkpoint(generation, cancel)
         .map_err(|failure| usque_core::proton_vpn::error(&failure.reason))

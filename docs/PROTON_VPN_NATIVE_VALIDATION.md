@@ -997,3 +997,191 @@ signing or release publication was exercised. Secrets and raw remote error text
 remain outside ordinary status and diagnostics. These workstation checks fix
 and verify the control-path dependency; they do not establish a successful
 real Proton WireGuard/local-agent connection.
+
+## Agent preference admission and live userspace connection (2026-10-20)
+
+Baseline: `730824993ebac65e22fb9f1302f2feb59e894bdf`, plus the changes in
+this record. The complete tracked/unignored source manifest is
+`/tmp/usque-proton-feature-source-manifest.json`: version 1, 5,519 entries,
+1,009,511 bytes, SHA-256
+`c7148a27e7c9799191533ecdb38570f1c1b99b4bb9561054812fe81625ff8d4d`.
+It excludes only this validation document to avoid self-reference; ignored
+SDKs, generated JNI/build output and private configuration are not source inputs.
+
+The preceding authorized Linux userspace run registered a synthetic Android
+guest, completed connection APIs/certificate issuance and the WireGuard
+handshake, then reached the 35-second startup timeout. That run returned
+`PROTON_TRANSPORT_FAILED`; its trace did not distinguish agent TLS from
+feature-confirmation waiting.
+
+Comparison used current public Android `316a3d499e120bd2cab63c2cd8ac396e3ab3b24a`
+and go-vpn-lib `9440653831b00dbc4711f59e8a23a06af1999405`. The agent now separates
+ordinary preferences from authorization: connected does not require complete
+NetShield/NAT/split-TCP echoes, and requests no longer include `jail=false`.
+The selected bouncing label must still match. Certificate/SNI validation,
+expiry, explicit jail, restrictions, revocation and malformed authorization
+fields remain fail-closed. Reconnection and timeout policies are unchanged.
+New debug markers contain only fixed stage names and connected/authorized
+booleans; they do not include agent messages or identity material.
+
+### Authorized live result
+
+One new guest used the existing synthetic Android context fixture. Setup used
+system HTTPS; connection APIs and the inner tunnel used an ephemeral WARP
+registration and the production Rust userspace chain. No Android device or
+APK was exercised. The disposable probe's SHA-256 is
+`5d81566e1f68350ac1e7bce0d7a8c0afeae1fb5088016d1c6c49bbab8ee67bb7`.
+
+Guest registration, WARP/MASQUE, connection APIs/certificate issuance, WireGuard,
+agent TCP, mutual TLS and agent authorization all succeeded. Authorization took
+11,842 ms from connection start. A subsequent HTTPS request through the final
+network succeeded with 577 response bytes. The trace observed connected but
+not yet authorized states before the selected-label authorization succeeded;
+this is not evidence identifying which earlier preference echo caused failure.
+
+The probe closed its loopback listener, stopped its workers and successfully
+revoked both the Proton session and temporary WARP registration. Its encrypted
+temporary credential directory was removed. Interface, IPv4/IPv6 route/rule and
+resolver comparisons were unchanged. No TUN, host DNS, route, firewall or
+system-proxy mutation was performed. The sanitized local log is
+`/tmp/usque-proton-feature-live-result.jsonl`, SHA-256
+`ac51af904bc9d034d6e83b7ea59e6d7c01f7e9a3ca8a8e36ee0c7301a7f92634`.
+
+### Checks
+
+Commands start at the repository root, except Flutter commands in
+`apps/usque_gui` and Gradle commands in its `android` directory. The Linux
+`rust` and `android` wrappers ran the corresponding exact CONTRIBUTING commands.
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | passed |
+| `cargo test --workspace --all-targets --locked` | passed: 1,820 tests; 3 existing ignores |
+| `cargo test -p usque-transport --features wireguard --locked --offline proton_vpn::local_agent::tests -- --nocapture` | passed: 20 tests |
+| `cargo build -p usque-engine --example proton_live_probe --locked --offline` | passed; disposable source removed from worktree afterward |
+| `target/debug/examples/proton_live_probe` | passed: live userspace connection and final HTTPS |
+| `pwsh -NoProfile -File tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter pub get --enforce-lockfile` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed |
+| `./gradlew --no-daemon :app:ktlintCheck` | passed |
+| `./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed; unchanged Kotlin tests reused; 487 XML cases, no failures/errors/skips |
+| `python3 tool/check_repository_policy.py`, `git diff --check` | passed |
+| Windows Rust/platform gates | **not_run**: Linux workstation |
+| Android device/TV and APK lifecycle; independent leak/performance checks | **not_run**: no isolated device or protected environment |
+
+Rust and Android logs use `/tmp/usque-proton-feature-`. Memory regressions cover
+omitted/default/different preference echoes, selected-label binding, explicit
+jail, certificate errors and revocation. The live result establishes one native
+userspace connection, not Android VPN lifecycle, observed exit IP, leak safety
+or sustained performance. No emulator, APK installation, release package,
+signing or publication was performed.
+
+## Bounded connection cache and warm reconnect latency (2026-10-20)
+
+This local Linux/WSL userspace check covers the v4 encrypted connection cache,
+account/WARP-generation scoped HTTP/1 reuse and admitted Lease metadata refresh.
+It includes the preceding agent preference admission fix. It is a workstation
+functional benchmark, not protected performance-lab or Android device evidence.
+
+Candidate identification:
+
+- Base HEAD: `730824993ebac65e22fb9f1302f2feb59e894bdf` plus the working-tree changes.
+- Sorted SHA-256 manifest of 5,522 tracked and new source files:
+  `1d0b0f1ea59bb53eb08d921a70f6bb88d54001e54f8e1b420c05128b00209247`.
+  Only this validation document is excluded to avoid a self-referential hash.
+  The local manifest includes each path and content digest; HEAD alone does not
+  identify the tested changes. Ignored toolchains, generated output and private
+  test data are outside the source manifest.
+- Temporary probe source SHA-256:
+  `81f9876ca0e089aec87e773e271dfcc70307049de263d0ab7e945d80da934218`.
+- Probe binary SHA-256:
+  `da4633fdb350b980192ad730abce3449820fb06d596cb2efd83baf3b970d89c8`.
+  Built with `cargo build -p usque-engine --example proton_live_probe --locked
+  --offline`; the disposable example source was removed before workspace checks.
+
+The probe registered one new synthetic Android-context guest and one temporary
+WARP device, selected one logical node, and rebuilt the WARP/Proton userspace
+runtime for each connection. Six rounds covered the first connection and five
+warm reconnects. A seventh round cleared only the local optional metadata cache,
+retaining the valid certificate, to exercise online directory preparation and
+HTTPS reuse separately. No extra guest or WARP identity was created for it.
+
+The time origin below is WARP's `TunnelReady` telemetry timestamp; the endpoint
+is the first successful Proton final activation. Guest setup and WARP registration
+are excluded. The API count covers preparation responses before activation.
+
+| Round | Preparation API requests | Preparation | WARP ready to first authorization | WARP ready to completed final HTTPS |
+| --- | --- | --- | --- | --- |
+| First, deferred certificate | 1 | 1,149.682 ms | 2,412 ms | 3,002 ms |
+| Warm 1 | 0 | 3.540 ms | 805 ms | 2,399 ms |
+| Warm 2 | 0 | 3.785 ms | 809 ms | 2,400 ms |
+| Warm 3 | 0 | 3.637 ms | 824 ms | 2,432 ms |
+| Warm 4 | 0 | 3.693 ms | 806 ms | 2,396 ms |
+| Warm 5 | 0 | 3.776 ms | 821 ms | 2,424 ms |
+| Cold metadata, valid certificate | 4 | 4,685.539 ms | 5,507 ms | 7,103 ms |
+
+Warm authorization median was **809 ms**, below the planned 3-second acceptance
+threshold; warm completed-HTTPS median was **2,400 ms**. The first certificate
+connection was below its 5-second target. Warm WireGuard startup was 147–149 ms;
+agent TCP, mTLS and first authorized status together took approximately 0.65–0.67
+seconds. Cold preparation used one TCP/TLS establishment for all four API
+responses, confirming reuse against the real API. All seven final HTTPS requests
+returned 577 bytes successfully through the admitted Proton exit.
+
+These are first-authorization timings, not a claim of uninterrupted admission
+from that instant. The warm agent exchanges also reported a brief subsequent
+non-connected state while preferences/status settled; the gate closed and
+reopened with agent authorization. Completed-HTTPS timings include that period
+and the destination's TCP/TLS/request time. Agent protocol and admission checks
+were not changed by the latency optimizations. The official Android app was not
+benchmarked alongside this run, and this small sample does not establish a
+cross-platform or controlled before/after latency distribution.
+
+Cleanup and privacy:
+
+- Every runtime closed its loopback SOCKS listener and awaited shutdown. No TUN,
+  Kill Switch or system proxy was enabled.
+- Both the Proton session and WARP registration were confirmed revoked; the
+  account worker stopped. The private encrypted temporary directory was removed.
+- Before/after interface, IPv4/IPv6 route and rule snapshots, resolver digest and
+  TUN device-presence comparison all matched. This does not establish external
+  leak, Android lifecycle or Windows platform-restoration behavior.
+- Only allowlisted stages, booleans, durations and counts were retained. No raw
+  API responses, UID, tokens, certificates, keys, node identities or endpoint
+  addresses enter this public record. Cache peer data stays in the encrypted
+  account sidecar; public IPC and generic/system HTTPS routing are unchanged.
+- Hard TTLs, clock rollback and missing-cache checks require online preparation;
+  every connection still performs certificate validation, WireGuard and agent
+  authentication. Permission denial closes admission; a tier/UID change requires
+  reconnect. Directory refresh never changes the active peer. Failed endpoints
+  invalidate directory hints, and storage/cipher failures remain failures.
+
+Validation commands and results for this candidate:
+
+- `bash tool/dev.sh check rust`: **passed**, executing the exact Rust matrix:
+  `cargo fmt --all --check`,
+  `cargo clippy --workspace --all-targets --locked -- -D warnings`, and
+  `cargo test --workspace --all-targets --locked`.
+  **1,836 passed, 3 existing ignored tests**.
+- Focused offline regressions cover v1/v2/v3 cache misses, TTL/clock rollback,
+  bounded selected peers, optional-cache overflow without catalogue truncation,
+  zero-request warm preparation, first-certificate preparation, missing selected
+  nodes, failed-peer invalidation, permission/tier invalidation, admission delay,
+  refresh backoff and recovery/shutdown preemption. Pool fixtures cover complete
+  response reuse, close/partial/encoded/oversized responses, origin rejection,
+  generation and idle expiry, cancellation, driver shutdown and no submitted-POST
+  replay. They use memory peers or loopback sockets, not platform VPN APIs.
+- `bash tool/dev.sh check android`: **passed**. It verified the pinned Flutter
+  SDK, ran `& ./tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy`,
+  `flutter pub get --enforce-lockfile`,
+  `flutter build apk --debug --config-only --no-pub`,
+  `./gradlew --no-daemon :app:ktlintCheck`, and
+  `./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` from the directories
+  required by `CONTRIBUTING.md`. Unchanged Kotlin unit/static outputs were reused
+  where Gradle reported `UP-TO-DATE`; this was not an Android device test.
+- `cargo check -p usque-transport --no-default-features --locked` and
+  `cargo check -p usque-android --no-default-features --locked`: **passed**.
+- `python3 tool/check_repository_policy.py` and `git diff --check`: **passed**.
+- Windows, physical Android/emulator, protected runners, external leak observation,
+  controlled performance sampling, packaging and installation: **not_run**.

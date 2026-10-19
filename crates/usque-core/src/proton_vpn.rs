@@ -1,7 +1,9 @@
 //! Proton control-plane contracts. Secrets use a separate authenticated IPC field
 //! and an encrypted sidecar; ordinary status never contains an authentication URL.
+mod cache;
 mod connection;
 pub mod store;
+pub use cache::ConnectionCache;
 pub use connection::{ConnectionFailure, FailureKind, valid_label};
 
 use crate::chain_exit::{Endpoint, ImportError};
@@ -398,6 +400,9 @@ pub struct Record {
     pub tunnel_seed: Option<Zeroizing<Vec<u8>>>,
     #[serde(default)]
     pub key_recovery_at: i64,
+    /// Validated, bounded connection hints. This is never tunnel authorization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_cache: Option<ConnectionCache>,
 }
 impl Record {
     pub fn tunnel_seed(&self) -> &[u8] {
@@ -406,22 +411,22 @@ impl Record {
             .map_or(&self.ed25519_seed, |seed| seed)
     }
     pub fn promote(&mut self) {
-        self.version = if self.tunnel_seed.is_some() { 3 } else { 2 };
+        self.version = 4;
     }
     pub fn validate(&self) -> Result<(), ImportError> {
         self.api_identity.validate()?;
         self.session.validate()?;
         self.node.validate()?;
-        let deferred = matches!(self.version, 2 | 3)
+        let deferred = matches!(self.version, 2..=4)
             && self.certificate_chain.is_empty()
             && self.expires_at == 0
             && self.refresh_at == 0;
-        if !matches!(self.version, 1..=3)
+        if !matches!(self.version, 1..=4)
             || self.ed25519_seed.len() != 32
             || self
                 .tunnel_seed
                 .as_ref()
-                .is_some_and(|seed| self.version != 3 || seed.len() != 32)
+                .is_some_and(|seed| self.version < 3 || seed.len() != 32)
             || self.key_recovery_at < 0
             || !matches!(self.identity.as_str(), "guest" | "login")
             || self.name.is_empty()
@@ -440,6 +445,12 @@ impl Record {
             })
         {
             return Err(error("invalid_record"));
+        }
+        if let Some(cache) = &self.connection_cache {
+            if self.version != 4 {
+                return Err(error("invalid_record"));
+            }
+            cache.validate()?;
         }
         let mut ids = std::collections::BTreeSet::new();
         for node in &self.server_catalog {

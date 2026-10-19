@@ -51,6 +51,7 @@ enum Answer {
     FreshCertificate,
     Cancel(CancellationToken),
     ChangeGeneration,
+    WaitForCancel(Arc<tokio::sync::Notify>),
 }
 struct MockHttp {
     answers: Mutex<VecDeque<Answer>>,
@@ -66,7 +67,7 @@ impl Http for MockHttp {
     async fn exchange(
         &self,
         request: InternalRequest<'_>,
-        _: &CancellationToken,
+        cancel: &CancellationToken,
     ) -> Result<InternalResponse, InternalHttpError> {
         self.requests.lock().unwrap().push(request.url.to_owned());
         self.headers.lock().unwrap().push(
@@ -83,13 +84,18 @@ impl Http for MockHttp {
         if let Some(store) = self.store.lock().unwrap().as_ref() {
             self.observed.lock().unwrap().push(store.load().unwrap());
         }
-        let (status, value) = match self
+        let answer = self
             .answers
             .lock()
             .unwrap()
             .pop_front()
-            .expect("unexpected network request")
-        {
+            .expect("unexpected network request");
+        let (status, value) = match answer {
+            Answer::WaitForCancel(started) => {
+                started.notify_one();
+                cancel.cancelled().await;
+                return Err(InternalHttpError::Cancelled);
+            }
             Answer::Json(v) => (200, v),
             Answer::Status(status, v) => (status, v),
             Answer::FreshCertificate => {
@@ -246,6 +252,7 @@ fn fixture() -> (Record, PreparedProfile, Arc<MemoryStore>) {
         catalog_revision: Uuid::nil(),
         tunnel_seed: None,
         key_recovery_at: 0,
+        connection_cache: None,
     };
     let config = super::super::nodes::configuration(&keys, &record.node).unwrap();
     let parsed = ValidatedProfile::parse(ChainSource::ProtonVpn, &config).unwrap();
@@ -267,6 +274,314 @@ fn fixture() -> (Record, PreparedProfile, Arc<MemoryStore>) {
     });
     prepared.proton_persistence = Some(storage.clone());
     (record, prepared, storage)
+}
+
+fn cache_record(record: &mut Record) {
+    record.promote();
+    let now = super::super::interaction::now();
+    let mut cache = usque_core::proton_vpn::ConnectionCache {
+        permissions_at: now,
+        ..Default::default()
+    };
+    let mut peer = record.node.clone();
+    peer.metadata.id = "logical".into();
+    cache.set_directory(&[peer], record.selected_server(), now);
+    record.connection_cache = Some(cache);
+}
+
+#[tokio::test]
+async fn warm_connection_uses_no_api_and_first_connection_only_requests_certificate() {
+    for deferred in [false, true] {
+        let (mut record, mut profile, store) = fixture();
+        cache_record(&mut record);
+        if deferred {
+            record.certificate_chain.zeroize();
+            record.expires_at = 0;
+            record.refresh_at = 0;
+        }
+        *store.record.lock().unwrap() = record;
+        let http = mock(if deferred {
+            vec![Answer::FreshCertificate]
+        } else {
+            vec![]
+        });
+        let (_, lease) = prepare_with_http(&mut profile, http.clone(), &CancellationToken::new())
+            .await
+            .unwrap();
+        let paths = http.requests.lock().unwrap();
+        assert_eq!(paths.len(), usize::from(deferred));
+        if deferred {
+            assert!(paths[0].ends_with("/vpn/v1/certificate"));
+        }
+        assert_eq!(lease.current.node.metadata.id, "logical:physical");
+        assert_eq!(lease.peer.unwrap().metadata.id, "logical");
+    }
+}
+
+#[tokio::test]
+async fn cache_expiry_and_clock_rollback_refetch_only_necessary_metadata() {
+    for (permissions_age, directory_age, permission_requests, directory_requests) in [
+        (300, 0, true, false),
+        (0, 900, false, true),
+        (-60, -60, true, true),
+    ] {
+        let (mut record, mut profile, store) = fixture();
+        cache_record(&mut record);
+        let cache = record.connection_cache.as_mut().unwrap();
+        cache.permissions_at -= permissions_age;
+        cache.directory_at -= directory_age;
+        *store.record.lock().unwrap() = record;
+        let mut answers = Vec::new();
+        if permission_requests {
+            answers.extend([Answer::Json(user()), Answer::Json(permissions())]);
+        }
+        if directory_requests {
+            answers.extend([Answer::Json(config()), Answer::Json(directory())]);
+        }
+        let http = mock(answers);
+        prepare_with_http(&mut profile, http.clone(), &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(
+            http.requests.lock().unwrap().len(),
+            usize::from(permission_requests) * 2 + usize::from(directory_requests) * 2
+        );
+    }
+}
+
+#[tokio::test]
+async fn uncached_selection_and_failed_endpoint_require_a_fresh_directory() {
+    let (mut record, mut profile, store) = fixture();
+    cache_record(&mut record);
+    record.server_id = Some("missing".into());
+    *store.record.lock().unwrap() = record;
+    let http = mock(vec![Answer::Json(config()), Answer::Json(directory())]);
+    let failure = prepare_with_http(&mut profile, http.clone(), &CancellationToken::new())
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(failure.reason, "selected_server_unavailable");
+    assert_eq!(http.requests.lock().unwrap().len(), 2);
+    let before = store.load().unwrap();
+    invalidate_peer(store.clone()).await.unwrap();
+    let after = store.load().unwrap();
+    assert!(after.connection_cache.unwrap().peers.is_empty());
+    assert_eq!(after.server_id, before.server_id);
+    assert_eq!(after.session.access_token, before.session.access_token);
+}
+
+#[tokio::test(start_paused = true)]
+async fn metadata_refresh_waits_for_admission_and_never_replaces_live_peer() {
+    let (mut record, prepared, store) = fixture();
+    cache_record(&mut record);
+    record.connection_cache.as_mut().unwrap().permissions_at -= 151;
+    record.connection_cache.as_mut().unwrap().directory_at -= 451;
+    *store.record.lock().unwrap() = record.clone();
+    let http = mock(success_answers());
+    let peer = record.node.clone();
+    let lease = Lease {
+        current: record,
+        persistence: store.clone(),
+        generation: Some(1),
+        http: http.clone(),
+        peer: Some(peer.clone()),
+        retry_at: None,
+    };
+    let (credentials, observed) = watch::channel(prepared.proton.unwrap());
+    let (admit, admitted) = watch::channel(false);
+    let (_requests, receiver) = mpsc::channel(1);
+    let cancel = CancellationToken::new();
+    let task_cancel = cancel.clone();
+    let worker = tokio::spawn(async move {
+        lease
+            .run_with_recovery(credentials, receiver, admitted, &task_cancel)
+            .await
+    });
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert!(http.requests.lock().unwrap().is_empty());
+    admit.send_replace(true);
+    tokio::time::advance(MONITOR_INTERVAL).await;
+    while store.writes.lock().unwrap().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    cancel.cancel();
+    assert_eq!(worker.await.unwrap(), Ok(()));
+    assert_eq!(http.requests.lock().unwrap().len(), 4);
+    assert_eq!(observed.borrow().server_name, peer.domain);
+    assert!(
+        store
+            .load()
+            .unwrap()
+            .connection_cache
+            .unwrap()
+            .permissions_fresh(super::super::interaction::now())
+    );
+}
+
+#[tokio::test]
+async fn metadata_tier_change_invalidates_certificate_and_cache_without_touching_peer_binding() {
+    let (mut record, _, store) = fixture();
+    cache_record(&mut record);
+    record.connection_cache.as_mut().unwrap().permissions_at -= 151;
+    *store.record.lock().unwrap() = record.clone();
+    let mut permissions = permissions();
+    permissions["VPN"]["MaxTier"] = json!(2);
+    let http = mock(vec![Answer::Json(user()), Answer::Json(permissions)]);
+    let mut lease = Lease {
+        current: record.clone(),
+        persistence: store.clone(),
+        generation: Some(1),
+        http: http.clone(),
+        peer: Some(record.node.clone()),
+        retry_at: None,
+    };
+    assert_eq!(
+        lease
+            .refresh_metadata(&CancellationToken::new())
+            .await
+            .err()
+            .unwrap()
+            .reason,
+        "account_tier_changed"
+    );
+    let saved = store.load().unwrap();
+    assert!(saved.connection_cache.is_none());
+    assert!(saved.certificate_chain.is_empty());
+    assert_eq!(saved.node.endpoint, record.node.endpoint);
+    assert_eq!(saved.revision, record.revision);
+    assert_eq!(saved.max_tier, 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn transient_metadata_failure_preserves_admission_and_uses_backoff() {
+    let (mut record, prepared, store) = fixture();
+    cache_record(&mut record);
+    record.connection_cache.as_mut().unwrap().permissions_at -= 151;
+    *store.record.lock().unwrap() = record.clone();
+    let http = mock(vec![
+        Answer::Failed,
+        Answer::Json(user()),
+        Answer::Json(permissions()),
+    ]);
+    let lease = Lease {
+        current: record.clone(),
+        persistence: store.clone(),
+        generation: Some(1),
+        http: http.clone(),
+        peer: Some(record.node.clone()),
+        retry_at: None,
+    };
+    let (credentials, _observed) = watch::channel(prepared.proton.unwrap());
+    let (_admit, admitted) = watch::channel(true);
+    let (_requests, receiver) = mpsc::channel(1);
+    let cancel = CancellationToken::new();
+    let task_cancel = cancel.clone();
+    let worker = tokio::spawn(async move {
+        lease
+            .run_with_recovery(credentials, receiver, admitted, &task_cancel)
+            .await
+    });
+    while http.requests.lock().unwrap().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!worker.is_finished());
+    assert_eq!(http.requests.lock().unwrap().len(), 1);
+    assert_eq!(
+        store.load().unwrap().certificate_chain,
+        record.certificate_chain
+    );
+    tokio::time::advance(Duration::from_secs(31)).await;
+    while store.writes.lock().unwrap().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    cancel.cancel();
+    assert_eq!(worker.await.unwrap(), Ok(()));
+    assert_eq!(http.requests.lock().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn recovery_and_shutdown_preempt_and_await_metadata_requests() {
+    for recovery in [false, true] {
+        let (mut record, prepared, store) = fixture();
+        cache_record(&mut record);
+        record.connection_cache.as_mut().unwrap().permissions_at -= 151;
+        *store.record.lock().unwrap() = record.clone();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let mut answers = vec![Answer::WaitForCancel(started.clone())];
+        if recovery {
+            answers.extend([
+                Answer::Json(user()),
+                Answer::Json(permissions()),
+                Answer::FreshCertificate,
+            ]);
+        }
+        let http = mock(answers);
+        let lease = Lease {
+            current: record.clone(),
+            persistence: store,
+            generation: Some(1),
+            http: http.clone(),
+            peer: Some(record.node.clone()),
+            retry_at: None,
+        };
+        let (credentials, _observed) = watch::channel(prepared.proton.unwrap());
+        let (_admit, admitted) = watch::channel(true);
+        let (requests, receiver) = mpsc::channel(1);
+        let cancel = CancellationToken::new();
+        let task_cancel = cancel.clone();
+        let worker = tokio::spawn(async move {
+            lease
+                .run_with_recovery(credentials, receiver, admitted, &task_cancel)
+                .await
+        });
+        started.notified().await;
+        if recovery {
+            let (reply, result) = oneshot::channel();
+            requests
+                .send(RecoveryRequest { code: 86101, reply })
+                .await
+                .unwrap();
+            assert!(result.await.unwrap().is_ok());
+        }
+        cancel.cancel();
+        assert_eq!(worker.await.unwrap(), Ok(()));
+        assert_eq!(
+            http.requests.lock().unwrap().len(),
+            if recovery { 4 } else { 1 }
+        );
+    }
+}
+
+#[tokio::test]
+async fn explicit_background_permission_denial_is_terminal_and_invalidates_hints() {
+    let (mut record, _, store) = fixture();
+    cache_record(&mut record);
+    record.connection_cache.as_mut().unwrap().permissions_at -= 151;
+    *store.record.lock().unwrap() = record.clone();
+    let mut denied = permissions();
+    denied["VPN"]["Status"] = json!(0);
+    let http = mock(vec![Answer::Json(user()), Answer::Json(denied)]);
+    let mut lease = Lease {
+        current: record.clone(),
+        persistence: store.clone(),
+        generation: Some(1),
+        http,
+        peer: Some(record.node),
+        retry_at: None,
+    };
+    let failure = lease
+        .refresh_metadata(&CancellationToken::new())
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(failure.reason, "vpn_permission_denied");
+    assert!(!transient(&failure));
+    assert!(store.load().unwrap().connection_cache.is_none());
 }
 
 #[tokio::test]
@@ -767,7 +1082,7 @@ async fn revoked_certificate_rotates_only_runtime_key_and_next_start_uses_it() {
         .await
         .unwrap();
     let saved = storage.load().unwrap();
-    assert_eq!(saved.version, 3);
+    assert_eq!(saved.version, 4);
     assert_eq!(saved.ed25519_seed, record.ed25519_seed);
     assert_ne!(saved.tunnel_seed(), record.tunnel_seed());
     assert_eq!(saved.revision, record.revision);
@@ -795,7 +1110,7 @@ async fn revoked_certificate_rotates_only_runtime_key_and_next_start_uses_it() {
     let mut next = prepared;
     let (credentials, _) = prepare_with_http(
         &mut next,
-        mock(success_answers()),
+        mock(vec![Answer::Json(config()), Answer::Json(directory())]),
         &CancellationToken::new(),
     )
     .await

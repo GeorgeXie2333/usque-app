@@ -144,6 +144,7 @@ fn record() -> Record {
         catalog_revision: Uuid::nil(),
         tunnel_seed: None,
         key_recovery_at: 0,
+        connection_cache: None,
     }
 }
 fn path(parent: &Path, id: Uuid) -> PathBuf {
@@ -730,7 +731,7 @@ fn recovered_key_record_is_atomic_private_and_legacy_binding_remains_unchanged()
     let store = store::SessionStore::new(parent.path(), &cipher);
     store.save(&record).unwrap();
     let saved = store.load(record.id).unwrap();
-    assert_eq!(saved.version, 3);
+    assert_eq!(saved.version, 4);
     assert_eq!(saved.tunnel_seed(), &[8; 32]);
     assert_eq!(saved.ed25519_seed, binding);
     assert!(
@@ -743,4 +744,97 @@ fn recovered_key_record_is_atomic_private_and_legacy_binding_remains_unchanged()
     record.promote();
     record.tunnel_seed.as_mut().unwrap().pop();
     assert!(record.validate().is_err());
+}
+
+#[test]
+fn connection_hints_expire_fail_closed_and_keep_selected_peers_bounded() {
+    let mut cache = ConnectionCache {
+        permissions_at: 1_000,
+        ..Default::default()
+    };
+    let mut nodes = Vec::new();
+    for i in 0..100 {
+        let mut node = record().node;
+        node.metadata.id = format!("node-{i}");
+        nodes.push(node);
+    }
+    cache.set_directory(&nodes, Some("node-99"), 1_000);
+    cache.validate().unwrap();
+    assert_eq!(cache.peers.len(), 32);
+    assert!(cache.permissions_fresh(1_299));
+    assert!(!cache.permissions_fresh(1_300));
+    assert!(!cache.permissions_refresh_due(1_149));
+    assert!(cache.permissions_refresh_due(1_150));
+    assert!(cache.peer(Some("node-99"), 1_899).is_some());
+    assert!(cache.peer(Some("node-99"), 1_900).is_none());
+    assert!(cache.peer(Some("node-98"), 1_000).is_none());
+    assert!(!cache.directory_refresh_due(1_449));
+    assert!(cache.directory_refresh_due(1_450));
+    for now in [-1, 999, i64::MAX] {
+        assert!(!cache.permissions_fresh(now));
+        assert!(cache.peer(None, now).is_none());
+    }
+    cache.peers.push(nodes[0].clone());
+    assert!(cache.validate().is_err());
+}
+
+#[test]
+fn all_legacy_versions_load_without_connection_hints() {
+    for version in 1..=3 {
+        let mut value = serde_json::to_value(record()).unwrap();
+        value["version"] = version.into();
+        value.as_object_mut().unwrap().remove("connection_cache");
+        let mut restored: Record = serde_json::from_value(value).unwrap();
+        restored.validate().unwrap();
+        assert!(restored.connection_cache.is_none());
+        restored.server_id = restored.selected_server().map(str::to_owned);
+        restored.promote();
+        restored.connection_cache = Some(ConnectionCache::default());
+        restored.validate().unwrap();
+        assert_eq!(restored.version, 4);
+    }
+}
+
+#[test]
+fn optional_cache_overflow_preserves_complete_catalogue_and_base_limits() {
+    let mut record = record();
+    record.promote();
+    let mut node = record.node.metadata.clone();
+    node.id = "x".repeat(256);
+    node.name = "n".repeat(64);
+    node.city = "c".repeat(128);
+    let base_len = serde_json::to_vec(&record).unwrap().len();
+    let node_len = serde_json::to_vec(&node).unwrap().len() + 1;
+    let count = (store::MAX_RECORD_PLAINTEXT_BYTES - base_len) / node_len;
+    assert!(count < MAX_CATALOG_NODES);
+    record.server_catalog = (0..count)
+        .map(|i| {
+            let mut value = node.clone();
+            value.id = format!("{i:06}{}", "x".repeat(250));
+            value
+        })
+        .collect();
+    let mut peer = record.node.clone();
+    peer.metadata = node.clone();
+    let mut cache = ConnectionCache {
+        permissions_at: 1_000,
+        ..Default::default()
+    };
+    cache.set_directory(&[peer], None, 1_000);
+    record.connection_cache = Some(cache);
+    assert!(serde_json::to_vec(&record).unwrap().len() > store::MAX_RECORD_PLAINTEXT_BYTES);
+    let parent = tempfile::tempdir().unwrap();
+    let cipher = TestCipher::new();
+    let store = store::SessionStore::new(parent.path(), &cipher);
+    store.save(&record).unwrap();
+    let saved = store.load(record.id).unwrap();
+    assert!(saved.connection_cache.is_none());
+    assert!(saved.server_catalog == record.server_catalog);
+    assert_eq!(saved.session.access_token, record.session.access_token);
+    record.server_catalog.push(node);
+    assert_eq!(
+        store.save(&record).unwrap_err().reason,
+        "secure_storage_failed"
+    );
+    assert_eq!(store.load(record.id).unwrap().server_catalog.len(), count);
 }

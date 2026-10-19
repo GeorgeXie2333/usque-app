@@ -258,7 +258,7 @@ async fn guest_provisions_persistent_session_profile_and_bound_runtime_credentia
     let record = sessions.load(id).unwrap();
     assert_eq!(record.session.access_token, "synthetic-private-access");
     assert!(!record.rotation_pending);
-    assert_eq!(record.version, 2);
+    assert_eq!(record.version, 4);
     assert!(record.certificate_chain.is_empty());
     assert_eq!(record.server_catalog.len(), 1);
     assert!(record.server_id.is_none());

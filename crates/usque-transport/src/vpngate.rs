@@ -213,7 +213,7 @@ impl GateDriver {
         deadline: Instant,
         lease: crate::proton_vpn::renew::Lease,
     ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
-        Self::start_attempt(
+        let mut result = Self::start_attempt(
             profile,
             warp,
             telemetry,
@@ -224,8 +224,17 @@ impl GateDriver {
             deadline,
             Some(lease),
         )
-        .await
-        .map_err(|error| match error {
+        .await;
+        if result.is_err()
+            && !cancel.is_cancelled()
+            && let Some(persistence) = &profile.proton_persistence
+            && crate::proton_vpn::renew::invalidate_peer(persistence.clone())
+                .await
+                .is_err()
+        {
+            result = Err(TransportError::VpnGate(GateFailure::Cleanup));
+        }
+        result.map_err(|error| match error {
             TransportError::VpnGate(reason) => {
                 TransportError::VpnGate(crate::proton_vpn::renew::scoped(reason))
             }
@@ -562,8 +571,9 @@ impl GateDriver {
             input: self.native_input.clone(),
         };
         self.proton_renewal = Some(tokio::spawn(async move {
+            let admitted = guard.admission.subscribe();
             if let Err(reason) = lease
-                .run_with_recovery(sender, requests, &guard.cancellation)
+                .run_with_recovery(sender, requests, admitted, &guard.cancellation)
                 .await
             {
                 guard.fail(reason);
