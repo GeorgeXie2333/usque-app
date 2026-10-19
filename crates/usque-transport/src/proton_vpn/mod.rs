@@ -1,5 +1,5 @@
-//! Native Proton sessions use an explicit WARP underlay and platform-encrypted
-//! persistence. Human verification is a one-use, generation-bound interaction.
+//! Proton public APIs follow the system network, including its active VPN.
+//! Sessions use platform-encrypted persistence and one-use human verification.
 mod api;
 mod client;
 mod crypto;
@@ -9,8 +9,8 @@ mod manager;
 mod nodes;
 pub(crate) mod renew;
 mod session;
+mod system_http;
 mod workflow;
-pub use crate::warp_wireguard::Context;
 pub use client::ClientConfig;
 pub use manager::{AccountContext, Manager, Output, attach};
 #[cfg(test)]

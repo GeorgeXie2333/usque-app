@@ -1173,6 +1173,42 @@ void main() {
     },
   );
 
+  for (final failure in [
+    'api_timeout',
+    'api_transport_failed',
+    'api_tls_failed',
+  ]) {
+    _protonWidgetTest(
+      '$failure points to the current network and VPN',
+      (tester) async {
+        final engine = ProtonEngine()
+          ..job = {
+            'id': 'failed-job',
+            'state': 'failed',
+            'phase': 'directory',
+            'failure': failure,
+          };
+        final app = await hostChain(tester, engine);
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ProtonVpnPanel(controller: app, onChanged: () {}),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(app.strings.proton('network')), findsOneWidget);
+        expect(find.text('Failed step: Load servers'), findsOneWidget);
+        expect(find.textContaining('Check your WARP account'), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      platform: TargetPlatform.android,
+    );
+  }
+
   _protonWidgetTest(
     'session refusal shows the failed step without opening captcha',
     (tester) async {

@@ -3270,6 +3270,7 @@ dependencies = [
  "p256",
  "proptest",
  "quiche",
+ "reqwest",
  "rustls",
  "serde",
  "serde_json",

@@ -811,3 +811,100 @@ tokens, key material, certificates or remote descriptions. Tests use synthetic
 memory peers only. No VPN/TUN, firewall, routes, DNS, system proxy, installation,
 signing or publication state was exercised. Live Android acceptance and native
 platform restoration remain **not_run**.
+
+## Follow-up: system-network public API routing (2026-10-19)
+
+Baseline: `48a73e17ee6d6f88c785ace58974ca80bb9b762e`. The user requested that
+Proton public APIs follow the current system network and applicable VPN instead
+of an explicitly owned WARP underlay. The user also explicitly chose strict
+system routing when Usque itself owns an unavailable VPN: API requests may fail
+in that situation; no self-VPN exception or physical-network bypass is added.
+This replaces the earlier control-plane routing design, not the WireGuard or
+local-agent data-plane contract.
+
+### Source identity and behavior
+
+The complete tracked/unignored inventory is
+`/tmp/usque-proton-system-network-source-manifest.json`: version 1, 5,515 entries,
+1,087,275 bytes, SHA-256
+`8aaab799ceaf9f5ebb2c8deccee6736769528a371e6d5c7f9e30c5708d78ed93`.
+It excludes only this validation record to avoid self-reference, plus ignored
+SDKs, build/JNI output, logs and local private configuration. Entries bind file
+content, executable bits, symlinks and deletions. It is verified again before
+committing.
+
+The shared [system HTTPS client](../crates/usque-transport/src/proton_vpn/system_http.rs)
+uses ordinary OS sockets, system DNS and supported environment proxy settings.
+Guest/account setup, permissions, directories, certificates, token recovery,
+renewal and session revocation all use it. Manager setup no longer starts or
+borrows WARP; connection preparation no longer passes a WARP network to the API
+lease. Android removes WARP-secret/profile snapshots and socket-protector setup
+from the Proton JNI call. Account lifecycle leases, active/selected-account
+protection, encrypted persistence and the token-rotation journal remain in force.
+API app identity, User-Agent and locale are preserved.
+
+TLS trust and hostname checks, request cancellation, bounded timeouts, numeric
+Retry-After and error bodies remain enforced. Redirects, automatic library
+retries and response decompression are disabled; plaintext responses remain
+bounded and zeroized. No interface binding, VPN protection or alternate-network
+fallback is available on this API path. WARP generation no longer fences an API
+job or its puzzle. Job/session/challenge ownership, expiry and cancellation
+still apply. The verification window continues using the normal platform path.
+
+The actual exit is still WARP → WireGuard → Proton; local-agent mTLS and business
+admission remain inside that tunnel. No routing, firewall, DNS, system proxy or
+platform protection policy is changed. If the OS routes an API call into an
+unavailable Usque VPN, it can time out. The UI now asks the user to check the
+current network/VPN instead of a WARP account. This accepted limitation is
+recorded in the [product guide](PROTON_VPN.md).
+
+### Workstation checks
+
+The pinned CONTRIBUTING commands ran through `bash tool/dev.sh check rust`,
+`flutter`, `android` and `static`; the additional compile/fixture commands below
+also completed. Flutter commands ran in `apps/usque_gui`, Gradle commands in
+its `android` directory. The initial loopback test run was blocked by sandbox
+socket restrictions and rerun with loopback access. Test findings corrected TLS
+error classification through an io::Error wrapper and removed Android fields
+used only by the deleted WARP snapshot check. No check was suppressed.
+
+| Exact command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | passed |
+| `cargo test --workspace --all-targets --locked` | passed: 1,811 tests; 3 existing ignores |
+| `cargo check -p usque-transport --locked --no-default-features` | passed |
+| `cargo check -p usque-android --locked --no-default-features` | passed |
+| `flutter pub get --enforce-lockfile` | passed |
+| `dart format --output=none --set-exit-if-changed lib test` | passed |
+| `flutter analyze --no-pub` | passed |
+| `flutter test --no-pub --exclude-tags golden` | passed: 1,158 tests; 1 existing skip |
+| `flutter test --no-pub --tags linux-golden` | passed: 19 tests; baselines unchanged |
+| `flutter build linux --debug --no-pub -t lib/main_preview.dart` | passed |
+| `flutter build linux --release --no-pub -t lib/main.dart` | passed |
+| `cargo build --release --locked -p usque-engine -p usque-agent -p usque-update` | passed |
+| `cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_socket_test` and `apps/usque_gui/build/linux/x64/release/runner/usque_linux_socket_test` | passed |
+| `cmake --build apps/usque_gui/build/linux/x64/release --target usque_proton_verification_test` and `apps/usque_gui/build/linux/x64/release/runner/usque_proton_verification_test` | passed |
+| `python -m unittest discover -s tool -p "test_linux_package.py" -v` | passed: 19 tests; 1 existing skip (desktop-file-utils unavailable) |
+| `pwsh -NoProfile -File tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed |
+| `./gradlew --no-daemon :app:ktlintCheck` | passed |
+| `./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed: 480 tests; no failures/errors/skips; lint passed |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed |
+| `python tool/check_repository_policy.py`, `actionlint -no-color`, `git diff --check` | passed |
+| Windows Rust/Flutter/runner/golden gates | **not_run**: Linux workstation |
+| Real Android device/TV, active-VPN routing, live guest/account verification, complete Proton tunnel, expiry/recovery and protected lifecycle/leak checks | **not_run**: no isolated device or protected environment; no emulator installed |
+
+Logs use `/tmp/usque-proton-system-network-`. Loopback TLS tests cover normal
+OS connections without a WARP identity, preserved identity headers and error
+bodies, redirects, declared/streamed size limits, compression rejection,
+cancellation/timeout socket cleanup, untrusted certificates and wrong hostnames.
+A real Manager worker starts without WARP configuration and stops before HTTP
+on malformed credentials. Flutter fixtures cover network error copy. These
+checks do not prove an actual VPN's routing or successful live Proton setup.
+
+No new Proton registration, login or other account API request was sent. No
+VPN/TUN, interface, route/DNS/firewall/system-proxy mutation, installation,
+signing or release publication was exercised. Secrets and raw remote error text remain
+outside ordinary status and diagnostics. Unknown session mutation stays pending
+and is never replayed merely because the system network changes.

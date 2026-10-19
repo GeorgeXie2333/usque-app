@@ -149,9 +149,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     'worker_failed_remote_state_unknown' ||
     'revocation_failed_remote_state_unknown' => 'remote_unknown',
     'rate_limited' => 'rate_limited',
-    'underlay_unavailable' ||
-    'underlay_start_failed' ||
-    'identity_required' => 'underlay',
+    'api_timeout' || 'api_transport_failed' || 'api_tls_failed' => 'network',
     'human_verification_expired' ||
     'human_verification_failed' ||
     'verification_unavailable' => 'verification_failed',

@@ -420,33 +420,11 @@ class UsqueVpnService : VpnService() {
     private fun protonVpnCommand(request: Message) {
         settingsExecutor.execute {
             val input = request.data.getByteArray("proton_input") ?: ByteArray(0)
-            var secret = ByteArray(0)
-            var expectedWarpProfileId = ""
             var response: Array<ByteArray>? = null
             try {
                 val command = ProtonVpnFields.command(request.data.getString("proton_command").orEmpty())
                 require(input.size <= 40 * 1024)
-                if (JSONObject(command).optString("action") in setOf("guest", "login", "refresh", "logout")) {
-                    val catalog =
-                        JSONObject(
-                            NativeEngine.applyProfileCommand(settingsPath, """{"command":"list_profiles"}""")
-                                ?: error("unavailable"),
-                        )
-                    val id = catalog.getString("active_profile_id")
-                    expectedWarpProfileId = id
-                    val profiles = catalog.getJSONArray("profiles")
-                    val profile =
-                        (0 until profiles.length()).asSequence().map { profiles.getJSONObject(it) }.firstOrNull {
-                            it.optString("id") ==
-                                id
-                        }
-                    if (profile !=
-                        null
-                    ) {
-                        secret = loadWarpSecret(id, profile.toString(), readOnly = true) ?: ByteArray(0)
-                    }
-                }
-                response = NativeEngine.protonVpn(settingsPath, command, input, secret, expectedWarpProfileId, this)
+                response = NativeEngine.protonVpn(settingsPath, command, input, this)
                 require(response?.size == 2)
                 require(response[0].size <= 256 * 1024 && response[1].size <= 64 * 1024)
             } catch (_: Exception) {
@@ -454,7 +432,6 @@ class UsqueVpnService : VpnService() {
                 response = null
             } finally {
                 input.fill(0)
-                secret.fill(0)
             }
             val payload = response
             val reply =

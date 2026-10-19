@@ -89,76 +89,12 @@ impl ControlService {
                     });
                 }
             }
-            let context = if request.needs_network() {
-                let warp = self.warp_generator.clone();
-                if !tokio::task::spawn_blocking(move || warp.stop_blocking())
-                    .await
-                    .unwrap_or(false)
-                {
-                    return Err(ControlServiceError::InvalidRequest(
-                        "WARP operation cleanup pending".into(),
-                    ));
-                }
-                let profile = self.config.read().await.active_profile().ok_or_else(|| {
-                    ControlServiceError::InvalidRequest("WARP account required".into())
-                })?;
-                let existing = {
-                    let active = self.data_plane.lock().await;
-                    if let Some(active) = active.as_ref() {
-                        if active.profile_id != profile.id {
-                            return Err(ControlServiceError::InvalidRequest(
-                                "WARP underlay account changed; reconnect before continuing".into(),
-                            ));
-                        }
-                        active.runtime.internal_networks().map(|(_, warp)| warp)
-                    } else {
-                        None
-                    }
-                };
-                #[cfg(windows)]
-                let allow_physical = existing.is_none()
-                    && crate::windows_agent::catalogue_physical_network_permitted().await;
-                #[cfg(all(target_os = "linux", not(test)))]
-                let allow_physical =
-                    existing.is_none() && crate::linux_observation::disconnected_probe_safe().await;
-                #[cfg(all(target_os = "linux", test))]
-                let allow_physical = existing.is_none();
-                let identity = if existing.is_none() && allow_physical {
-                    Some(self.load_warp_identity(profile.id).await?)
-                } else {
-                    None
-                };
-                let refresher = if identity.is_some() {
-                    Some(Arc::new(crate::VaultEndpointPinRefresher {
-                        profile_id: profile.id,
-                        vault: self.vault.clone(),
-                        identity: tokio::sync::Mutex::new(
-                            self.load_warp_identity(profile.id).await?,
-                        ),
-                    })
-                        as Arc<dyn usque_transport::EndpointPinRefresher>)
-                } else {
-                    None
-                };
-                Some(usque_transport::proton_vpn::Context {
-                    lifecycle_lease: provider_lease.clone(),
-                    profile,
-                    existing,
-                    identity,
-                    allow_physical,
-                    refresher,
-                    protector: Arc::new(usque_transport::NoopSocketProtector),
-                })
-            } else {
-                None
-            };
             let manager = self.proton_manager.clone();
             let result = tokio::task::spawn_blocking(move || {
-                let _provider_lease = provider_lease;
                 manager.command_scoped(
                     request,
                     input,
-                    context,
+                    provider_lease,
                     usque_transport::proton_vpn::ClientConfig::default(),
                     accounts,
                 )

@@ -6,8 +6,8 @@ use super::{
     crypto::KeyMaterial,
     nodes,
     session::Access,
+    system_http::SystemHttp,
 };
-use crate::InternalNetwork;
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::{fs::File, sync::Arc, time::Duration};
@@ -425,10 +425,10 @@ fn bound(profile: &PreparedProfile, record: &Record) -> Result<(), Failure> {
 
 pub(crate) async fn prepare(
     profile: &mut PreparedProfile,
-    network: InternalNetwork,
     cancel: &CancellationToken,
 ) -> Result<(Arc<TunnelCredentials>, Lease), GateFailure> {
-    prepare_with_http(profile, Arc::new(network), cancel)
+    let http = SystemHttp::new().map_err(|failure| gate_failure(&failure))?;
+    prepare_with_http(profile, Arc::new(http), cancel)
         .await
         .map_err(|failure| gate_failure(&failure))
 }

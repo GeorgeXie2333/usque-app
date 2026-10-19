@@ -8,8 +8,6 @@ internal object NativeEngine {
         configPath: String,
         command: String,
         sensitiveInput: ByteArray,
-        warpSecret: ByteArray,
-        expectedWarpProfileId: String,
         service: UsqueVpnService,
     ): Array<ByteArray>? =
         if (libraryLoaded) {
@@ -19,7 +17,7 @@ internal object NativeEngine {
                 } else {
                     ""
                 }
-            nativeProtonVpn(configPath, command, sensitiveInput, warpSecret, expectedWarpProfileId, context, service)
+            nativeProtonVpn(configPath, command, sensitiveInput, context)
         } else {
             null
         }
@@ -28,10 +26,7 @@ internal object NativeEngine {
         configPath: String,
         command: String,
         sensitiveInput: ByteArray,
-        warpSecret: ByteArray,
-        expectedWarpProfileId: String,
         clientContext: String,
-        service: UsqueVpnService,
     ): Array<ByteArray>?
 
     private external fun nativeInitializeChainCrypto(codec: ChainProfileCipher): Boolean

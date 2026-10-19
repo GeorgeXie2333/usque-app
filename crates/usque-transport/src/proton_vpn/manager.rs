@@ -1,8 +1,7 @@
 use super::{
-    ClientConfig, Context, Failure, Interaction, api, crypto::KeyMaterial, interaction::JobIo,
-    workflow,
+    ClientConfig, Failure, Interaction, api, crypto::KeyMaterial, interaction::JobIo,
+    system_http::SystemHttp, workflow,
 };
-use crate::warp_wireguard::Outer;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::{
     path::{Path, PathBuf},
@@ -15,7 +14,6 @@ use std::{
 use subtle::ConstantTimeEq;
 use tokio_util::sync::CancellationToken;
 use usque_core::{
-    DataPlaneMode,
     chain_exit::{ChainSource, ImportError, ValidatedProfile, store::ProfileCipher},
     proton_vpn::{
         LeasePersistence, MAX_INPUT_BYTES, Record, Request, Response, TunnelCredentials,
@@ -36,7 +34,7 @@ struct Running {
     done: Arc<AtomicBool>,
 }
 struct RunContext {
-    underlay: Context,
+    _lifecycle_lease: Option<Arc<std::fs::File>>,
     client: ClientConfig,
     accounts: AccountContext,
 }
@@ -85,22 +83,22 @@ impl Manager {
         self: &Arc<Self>,
         request: Request,
         input: Zeroizing<Vec<u8>>,
-        context: Option<Context>,
+        lifecycle_lease: Option<Arc<std::fs::File>>,
     ) -> Result<Output, ImportError> {
-        self.command_with_client(request, input, context, ClientConfig::default())
+        self.command_with_client(request, input, lifecycle_lease, ClientConfig::default())
     }
 
     pub fn command_with_client(
         self: &Arc<Self>,
         request: Request,
         input: Zeroizing<Vec<u8>>,
-        context: Option<Context>,
+        lifecycle_lease: Option<Arc<std::fs::File>>,
         client_config: ClientConfig,
     ) -> Result<Output, ImportError> {
         self.command_scoped(
             request,
             input,
-            context,
+            lifecycle_lease,
             client_config,
             AccountContext::default(),
         )
@@ -109,7 +107,7 @@ impl Manager {
         self: &Arc<Self>,
         request: Request,
         input: Zeroizing<Vec<u8>>,
-        context: Option<Context>,
+        lifecycle_lease: Option<Arc<std::fs::File>>,
         client_config: ClientConfig,
         accounts: AccountContext,
     ) -> Result<Output, ImportError> {
@@ -240,11 +238,6 @@ impl Manager {
             {
                 return Err(usque_core::proton_vpn::error("job_busy"));
             }
-            let context =
-                context.ok_or_else(|| usque_core::proton_vpn::error("underlay_unavailable"))?;
-            if context.profile.data_plane != DataPlaneMode::ConnectIp {
-                return Err(usque_core::proton_vpn::error("connect_ip_required"));
-            }
             let io = Arc::new(JobIo::new());
             let cancel = CancellationToken::new();
             let done = Arc::new(AtomicBool::new(false));
@@ -266,7 +259,7 @@ impl Manager {
                             &thread_request,
                             input,
                             RunContext {
-                                underlay: context,
+                                _lifecycle_lease: lifecycle_lease,
                                 client: client_config,
                                 accounts: thread_accounts,
                             },
@@ -395,8 +388,7 @@ impl Manager {
             .path
             .parent()
             .ok_or_else(|| Failure::new("unavailable"))?;
-        let mut outer = Box::pin(Outer::open(context.underlay, cancel)).await?;
-        let mut client = api::Client::new(Arc::new(outer.network.clone()));
+        let mut client = api::Client::new(Arc::new(SystemHttp::new()?));
         client.config = context.client;
         let mut result = if request.action == "logout" {
             workflow::logout(
@@ -438,7 +430,6 @@ impl Manager {
                 result = Err(Failure::new("cleanup_failed_remote_state_unknown"));
             }
         }
-        outer.close().await;
         result
     }
 }

@@ -1,8 +1,7 @@
-//! Bounded Proton HTTPS over the exact WARP underlay. Error strings and response
+//! Bounded Proton HTTPS over the system network. Error strings and response
 //! bodies never escape this module into diagnostics or ordinary status.
 use super::{ClientConfig, Failure, Interaction};
 use crate::internal_network::{InternalHttpError, InternalRequest, InternalResponse};
-use crate::{InternalNetwork, RuntimeHealth};
 use async_trait::async_trait;
 use bytes::Bytes;
 use http::Method;
@@ -48,23 +47,6 @@ pub(super) trait Http: Send + Sync {
     ) -> Result<InternalResponse, InternalHttpError>;
     fn generation(&self) -> Option<u64>;
     fn current(&self, generation: Option<u64>) -> bool;
-}
-#[async_trait]
-impl Http for InternalNetwork {
-    async fn exchange(
-        &self,
-        request: InternalRequest<'_>,
-        cancel: &CancellationToken,
-    ) -> Result<InternalResponse, InternalHttpError> {
-        self.exchange_https(request, cancel).await
-    }
-    fn generation(&self) -> Option<u64> {
-        self.control_generation()
-    }
-    fn current(&self, generation: Option<u64>) -> bool {
-        self.control_generation() == generation
-            && matches!(self.health_snapshot(), RuntimeHealth::Connected { .. })
-    }
 }
 
 pub(super) struct Client {

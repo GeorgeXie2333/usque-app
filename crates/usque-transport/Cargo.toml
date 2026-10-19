@@ -10,7 +10,7 @@ repository.workspace = true
 [features]
 default = []
 fault-injection = []
-wireguard = ["dep:boringtun"]
+wireguard = ["dep:boringtun", "dep:reqwest"]
 
 [dependencies]
 boring-sys = "=4.22.0"
@@ -34,6 +34,7 @@ hyper-util.workspace = true
 libc.workspace = true
 p256.workspace = true
 quiche.workspace = true
+reqwest = { workspace = true, optional = true }
 rustls.workspace = true
 serde_json.workspace = true
 serde.workspace = true

@@ -20,7 +20,7 @@ const _english = <String, String>{
   "connection_protocol":
       "The Proton connection response could not be validated. Retry or choose another server.",
   "connection_transport":
-      "Could not reach the Proton server through WARP. Retry or choose another server.",
+      "Could not reach Proton. Check your network or choose another server.",
   "connection_reconnect": "Proton authorization was renewed. Reconnecting…",
   "connection_review":
       "Open Chain proxy to review the Proton account and selected server.",
@@ -48,7 +48,7 @@ const _english = <String, String>{
   'bad_credentials':
       'Check your Proton username, password or authenticator code.',
   'rate_limited': 'Proton limited this request. Wait before trying again.',
-  'underlay': 'Check your WARP account and MASQUE connection, then retry.',
+  'network': 'Could not reach Proton. Check your network or VPN, then retry.',
   'verification_failed':
       'Verification could not be completed. Start setup again.',
   'verification_invalid':
@@ -122,7 +122,7 @@ const _english = <String, String>{
   'stage_secure_storage': 'Save the configuration',
   'stage_session_revoke': 'Revoke the session',
   'expired': 'The verification or input request expired. Start setup again.',
-  'underlay_changed': 'The outer WARP connection changed. Start setup again.',
+  'underlay_changed': 'The network context changed. Start setup again.',
   'remote_unknown': 'Remote session revocation could not be confirmed.',
   'cancelled_remote_unknown':
       'Cancelled on this device. Remote session revocation could not be confirmed.',
@@ -141,7 +141,7 @@ const _chinese = <String, String>{
   "connection_policy": "Proton 根据账号或使用政策限制了此次连接，请检查 Proton 账号或更换节点。",
   "connection_server": "Proton 节点未能完成连接授权，请尝试其他节点。",
   "connection_protocol": "无法验证 Proton 的连接响应，请重试或更换节点。",
-  "connection_transport": "无法通过 WARP 连接 Proton 节点，请重试或更换节点。",
+  "connection_transport": "无法连接 Proton，请检查网络或更换节点。",
   "connection_reconnect": "Proton 授权已更新，正在重新连接…",
   "connection_review": "请打开“链式代理”，检查 Proton 账号和所选节点。",
   "connection_retry": "请重试 Proton 连接或更换节点。",
@@ -166,7 +166,7 @@ const _chinese = <String, String>{
   'unavailable': '当前引擎不支持 Proton VPN。',
   'bad_credentials': '请检查 Proton 用户名、密码或身份验证器验证码。',
   'rate_limited': 'Proton 限制了此请求，请稍后再试。',
-  'underlay': '请检查 WARP 账号和 MASQUE 连接后重试。',
+  'network': '无法连接 Proton，请检查当前网络或 VPN 后重试。',
   'verification_failed': '未能完成验证，请重新开始设置。',
   'verification_invalid': 'Proton 拒绝了验证结果，请重新开始设置以获取新的挑战。',
   'accounts': 'Proton 账号',
@@ -228,7 +228,7 @@ const _chinese = <String, String>{
   'stage_secure_storage': '保存配置',
   'stage_session_revoke': '撤销会话',
   'expired': '验证或输入请求已过期，请重新开始设置。',
-  'underlay_changed': '外层 WARP 连接已改变，请重新开始设置。',
+  'underlay_changed': '网络环境已改变，请重新开始设置。',
   'remote_unknown': '远端会话撤销结果未知。',
   'cancelled_remote_unknown': '本机已取消，远端会话撤销结果未知。',
   'privacy': '密码仅用于登录，会话和密钥由本机安全存储保护。',

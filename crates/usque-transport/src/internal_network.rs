@@ -269,24 +269,6 @@ impl InternalNetwork {
     pub(crate) fn session_generation(&self) -> Option<u64> {
         self.dialer.session_generation()
     }
-    /// Control jobs bind to packet reconnects even when the underlying stream
-    /// has no epoch tag. Keep stream pool generations unchanged: a synthetic
-    /// control epoch is not a tag carried by returned TCP streams.
-    #[cfg(feature = "wireguard")]
-    pub(crate) fn control_generation(&self) -> Option<u64> {
-        if self.cancellation.is_cancelled() {
-            return None;
-        }
-        let RuntimeHealth::Connected {
-            reconnect_count, ..
-        } = *self.health.borrow()
-        else {
-            return None;
-        };
-        self.dialer
-            .session_generation()
-            .or(Some(u64::from(reconnect_count)))
-    }
     #[cfg(test)]
     pub(crate) fn with_test_packets(
         mut self,
@@ -531,15 +513,6 @@ impl InternalNetwork {
         cancel: &CancellationToken,
     ) -> Result<Vec<u8>, InternalHttpError> {
         self.request_https_for(options, cancel, HttpsPurpose::General)
-            .await
-    }
-    #[cfg(feature = "wireguard")]
-    pub(crate) async fn exchange_https(
-        &self,
-        options: InternalRequest<'_>,
-        cancel: &CancellationToken,
-    ) -> Result<InternalResponse, InternalHttpError> {
-        self.exchange_https_for(options, cancel, HttpsPurpose::General)
             .await
     }
     #[cfg(feature = "wireguard")]

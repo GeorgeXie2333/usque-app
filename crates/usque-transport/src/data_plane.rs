@@ -633,11 +633,7 @@ impl DataPlaneRuntime {
             let lease = if proton_source {
                 prepared = saved_proton.clone();
                 let refresh_cancel = cancellation.child_token();
-                let refresh = crate::proton_vpn::renew::prepare(
-                    &mut prepared,
-                    self.warp_internal_network(),
-                    &refresh_cancel,
-                );
+                let refresh = crate::proton_vpn::renew::prepare(&mut prepared, &refresh_cancel);
                 tokio::pin!(refresh);
                 let (_, lease) = tokio::select! {
                     biased;

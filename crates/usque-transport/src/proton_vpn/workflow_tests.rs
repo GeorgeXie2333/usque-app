@@ -50,6 +50,38 @@ impl ProfileCipher for FixtureCipher {
         ))
     }
 }
+
+#[test]
+fn setup_job_starts_without_a_warp_account_or_underlay() {
+    let directory = tempfile::tempdir().unwrap();
+    let manager = Arc::new(Manager::new(
+        directory.path().join("profiles-v2.json"),
+        Arc::new(FixtureCipher),
+    ));
+    // Invalid credentials stop before any HTTP exchange. This exercises the
+    // real worker dispatch on an installation with no WARP configuration.
+    let mut request = guest();
+    request.action = "login".into();
+    let result = manager
+        .command(request, Zeroizing::new(b"{}".to_vec()), None)
+        .unwrap();
+    let id = result.metadata.job.unwrap().id;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let request = Request::parse(&format!(r#"{{"action":"get","job_id":"{id}"}}"#)).unwrap();
+        let result = manager
+            .command(request, Zeroizing::new(Vec::new()), None)
+            .unwrap();
+        let job = result.metadata.job.unwrap();
+        if job.state == "failed" {
+            assert_eq!(job.failure.as_deref(), Some("invalid_credentials_input"));
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(manager.stop_blocking());
+}
 struct Peer {
     seen: Mutex<Vec<(String, String, String)>>,
     generation: AtomicU64,

@@ -39,15 +39,6 @@ pub(super) fn internal_networks() -> Option<InternalNetworks> {
     NETWORKS.lock().ok().and_then(|v| v.clone())
 }
 
-pub(super) fn profile_id() -> Option<uuid::Uuid> {
-    ENGINE
-        .get()?
-        .lock()
-        .ok()?
-        .as_ref()
-        .map(|handle| handle.profile_id)
-}
-
 pub(super) fn is_running() -> bool {
     ENGINE
         .get()
@@ -78,7 +69,6 @@ enum RuntimeCommand {
 }
 
 struct EngineHandle {
-    profile_id: uuid::Uuid,
     cancellation: CancellationToken,
     status: Arc<Mutex<NativeSnapshot>>,
     protector: Arc<AndroidSocketProtector>,
@@ -207,7 +197,6 @@ fn spawn_runtime(
     let thread_cancel = cancellation.clone();
     let thread_status = Arc::clone(&status);
     let handle_protector = Arc::clone(&protector);
-    let profile_id = profile.id;
     let thread = std::thread::Builder::new()
         .name(thread_name.to_owned())
         .spawn(move || {
@@ -249,7 +238,6 @@ fn spawn_runtime(
         Err(_) => return START_PLATFORM_FAILURE,
     };
     *slot = Some(EngineHandle {
-        profile_id,
         cancellation,
         status: Arc::clone(&status),
         protector: handle_protector,
