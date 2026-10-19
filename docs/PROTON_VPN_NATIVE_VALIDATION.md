@@ -379,3 +379,96 @@ The WebView keeps its default browser User-Agent and system network path;
 its egress agreement with the WARP API remains unverified. No installation,
 emulator, live authentication, VPN start, host-network mutation or release
 packaging was performed.
+
+## Account sign-in HTTP 401 recovery — 2026-10-19
+
+Baseline: `34d219606c153045f53a29f543d74e2efd8ad180`. The complete edited
+source is identified by canonical version-1 manifest SHA-256
+`fc3e68885c8a772766518fc22ceb7613956d75967a0f3a540f633662fa847355`
+(5,509 entries; 1,086,115 bytes), using the same tracked/nonignored source,
+symlink and executable-bit coverage above. Only this validation document is
+excluded. The local manifest is
+`/tmp/usque-proton-login-401-source-manifest.json`.
+
+The user's Android screenshot showed `Start sign-in` / HTTP 401 / API 401
+about 1–2 seconds after submitting credentials, before any human-verification
+window. This is the SRP-info step, before the password proof is submitted.
+The APK/source identity for that observation was not supplied. The official
+outer token handler and startup session fetcher were rechecked against their
+pinned public sources; the [protocol reference](PROTON_VPN_PROTOCOL.md) now
+describes that outer layer as well as the direct `PerformLogin` method.
+
+On HTTP 401, native SRP-info and proof requests now create a missing anonymous
+session or refresh the current setup job's anonymous session, then retry the
+same body once. Android identity, frame data and WARP binding stay with the
+same client. Recovery does not call credentialless. Credential errors,
+repeated 401, failed recovery, uncertain mutations, cancellation and changed
+underlay stop explicitly. Saved authenticated sessions are excluded from this
+path, preserving their existing durable rotation contract. Failed anonymous
+refresh stops rather than recursively replacing sessions or replaying tokens.
+
+The new regression first reproduced the previous immediate `api_rejected`
+failure. Eight added synthetic tests cover recovery at both SRP calls, reuse
+and refresh, bounded retries, real 9001 response handling, request-local human
+verification headers, wrong credentials, malformed/rejected/timed-out recovery,
+unconfirmed mutation, cancellation, underlay changes, and cleanup ownership.
+An invalid synthetic ServerProof still prevents every protected request;
+these tests do not authenticate an account.
+
+### Live synthetic AuthInfo comparison
+
+One standalone HTTPX probe ran at `2026-10-19T09:34:21Z` through workstation
+HTTPS with certificate verification and no explicit WARP binding. It used one
+random synthetic username and the pinned Android `5.20.74.0+apk` API profile
+with synthetic Pixel 8 / Android 15 facts. The AuthInfo body was identical
+before and after session creation; cookies were cleared before each request.
+
+| Operation | HTTP | API code |
+| --- | --- | --- |
+| `POST /auth/v4/info`, no session | 401 | 401 |
+| `POST /auth/v4/sessions`, synthetic device frame | 200 | 1000 |
+| `POST /auth/v4/info`, owned anonymous UID/Bearer | 200 | 1000 |
+| `DELETE /auth/v4`, owned anonymous session | 200 | 1000 |
+
+The second response contained SRP v4 fields; only their response shape was
+checked. No password or SRP proof was submitted, no credentialless identity
+was requested, and no account was authenticated. The temporary anonymous
+session was revoked. Response bodies, UID and tokens were never persisted or
+printed. This confirms the first-hop session-context issue from this
+workstation; it does not validate Android JNI, its WARP route, or full sign-in.
+The local probe script SHA-256 is
+`7baae1e4a85ffe8172ef458e69cc61b7e154c1c176653549e5629b5c4b32cd2a`;
+its sanitized result SHA-256 is
+`0b5692bedd8e80a6e34276bdf3cf980152fb6377aa9ae891f11b97a00c1a7f2e`.
+
+### Final workstation checks
+
+Commands run from the repository root except Flutter commands in
+`apps/usque_gui` and Gradle commands in its `android` directory. Logs use the
+`/tmp/usque-proton-login-401-` prefix. No Dart or Kotlin source changed.
+
+| Exact check | Result |
+| --- | --- |
+| `cargo fmt --all --check` | passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | passed |
+| `cargo test --workspace --all-targets --locked` | passed: 1,771 tests; 3 existing ignores |
+| `cargo test -p usque-transport --features wireguard --locked proton_vpn:: -- --nocapture` | passed: 65 Proton tests |
+| `pwsh -NoProfile -File tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter pub get --enforce-lockfile` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed |
+| `./gradlew --no-daemon :app:ktlintCheck` | passed |
+| `./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed: 476 tests, no failures/skips; lint passed |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed |
+| `python3 tool/check_repository_policy.py` and `git diff --check` | passed |
+| `actionlint -no-color` | passed |
+| Windows Rust/compile gates | not_run: Linux workstation |
+| Real account sign-in, Android WebView/JNI/WARP resumption and full tunnel | not_run |
+
+Cleanup and privacy: only the current setup job's anonymous tokens are eligible
+for automatic recovery. All known handles remain owned for revocation, and
+unknown remote mutation remains an error. Passwords, SRP material and human
+verification tokens keep their private cleared channels; recovery APIs receive
+no password, username or proof. Existing authenticated renewal journaling,
+ServerProof validation, protected-user/VPN permission checks and fail-closed
+runtime gates remain enforced. No package was installed, no device/emulator
+was used, and no host networking or release/signing state was changed.

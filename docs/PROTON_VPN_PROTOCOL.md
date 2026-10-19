@@ -112,14 +112,30 @@ PoC 用受保护的用户和 `/vpn/v2` 响应检查用户及权限，不能把�
 随后仍必须成功验证受保护的 `/vpn/v2`。仅普通账号使用 Core 用户资源核验身份。
 
 账号路径应保持独立：官方 `PerformLogin` 直接以 `sessionId=null` 获取 SRP info
-并提交登录，不显式创建匿名会话；`SessionProviderImpl.getSession(null)` 只尝试
-读取已有未认证会话，没有自动创建操作。创建未认证会话是 SessionManager 的
-独立 `requestSession()` 方法。因此没有源码依据要求每次密码登录先成功调用
-`/auth/v4/sessions`，游客该步骤的未知拒绝不能代替账号登录结果。即使直接
-SRP 登录也仍须使用真实第三方身份和设备 frame，并由服务端实际判定是否接受。
+并提交登录，`SessionProviderImpl.getSession(null)` 读取已有未认证会话。
+但这不是完整调用链：启动时 `UnAuthSessionFetcher` 在没有会话时请求匿名会话，
+统一 `TokenErrorHandler` 也会在 HTTP 401 时调用 SessionManager；没有会话时
+创建匿名会话，已有会话时刷新，然后重新执行原请求。不能仅从 `PerformLogin`
+方法体推导出密码登录不需要匿名会话上下文。账号登录不调用 credentialless，
+匿名会话也不代表已取得游客或普通账号身份。
 依据：[PerformLogin](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/auth/domain/src/main/kotlin/me/proton/core/auth/domain/usecase/PerformLogin.kt)、
 [SessionProviderImpl](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/account-manager/data/src/main/kotlin/me/proton/core/accountmanager/data/SessionProviderImpl.kt)、
+[UnAuthSessionFetcher](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/network/presentation/src/main/kotlin/me/proton/core/network/presentation/UnAuthSessionFetcher.kt)、
+[TokenErrorHandler](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/network/domain/src/main/kotlin/me/proton/core/network/domain/handlers/TokenErrorHandler.kt)、
 [SessionManagerImpl](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/account-manager/data/src/main/kotlin/me/proton/core/accountmanager/data/SessionManagerImpl.kt)。
+
+原生账号登录在 SRP info 或提交证明收到 HTTP 401 时，为当前任务创建或刷新
+未认证会话，并按同一正文重试原调用一次。Android API/User-Agent/locale 和
+设备 frame 保持同一个客户端配置；创建或刷新匿名会话的请求不携带用户名、
+密码或 SRP 证明。
+只有实际的 9001 才进入人工验证，每个请求的验证码头均保持局部，不跨恢复
+会话复用。重复 401、明确的错误凭据 8002、恢复失败、超时、未知变更、取消或
+underlay 变化均停止；不会递归恢复匿名创建或刷新接口，也不会无限重试。
+恢复后的失败步骤仍关联原 SRP 调用，恢复本身失败则显示匿名会话或刷新步骤。
+该路径不接受已认证会话；已保存账号继续使用原有持久化轮换日志。匿名刷新失败
+时保守停止并执行适用清理，不自动遗忘旧令牌并另建身份；这比官方对失效匿名
+会话的强制退出后重建更严格。此修改没有补齐 FIDO2、其他二次验证或全部账号
+初始化分支，不能据此宣称账号登录已完全兼容。
 
 刷新正文固定为 `UID`、`RefreshToken`、`ResponseType: token`、
 `GrantType: refresh_token`、`RedirectURI: http://protonmail.ch`。该 URI 是协议中的

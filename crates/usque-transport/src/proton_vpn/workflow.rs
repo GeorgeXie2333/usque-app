@@ -27,6 +27,51 @@ struct Credentials {
     password: String,
 }
 
+async fn login_request(
+    client: &mut Client,
+    path: &str,
+    body: &Value,
+    phase: &str,
+    interaction: &dyn Interaction,
+    cancel: &CancellationToken,
+) -> Result<Json, Failure> {
+    if !client.session.user_id.is_empty() {
+        return Err(Failure::new("unexpected_authenticated_session"));
+    }
+    if client.uncertain {
+        return Err(Failure::new("session_state_unknown"));
+    }
+    let generation = client.generation();
+    client.checkpoint(generation, cancel)?;
+    interaction.phase(phase);
+    match client
+        .request(Method::POST, path, body, interaction, cancel)
+        .await
+    {
+        Err(failure)
+            if failure.status == Some(401) && failure.code != Some(8002) && !client.uncertain =>
+        {
+            client.checkpoint(generation, cancel)?;
+            // Core's outer API handler recovers an unauthenticated context on
+            // HTTP 401. This client owns only the current setup job's tokens;
+            // saved authenticated sessions must retain their rotation journal.
+            if client.session.uid.is_empty() {
+                anonymous_session(client, interaction, cancel).await?;
+            } else {
+                refresh_session(client, interaction, cancel).await?;
+            }
+            client.checkpoint(generation, cancel)?;
+            interaction.phase(phase);
+            // One retry with the same body, without carrying forward a previous
+            // request's human-verification headers.
+            client
+                .request(Method::POST, path, body, interaction, cancel)
+                .await
+        }
+        result => result,
+    }
+}
+
 pub(super) async fn login(
     client: &mut Client,
     mut input: Zeroizing<Vec<u8>>,
@@ -44,16 +89,15 @@ pub(super) async fn login(
     {
         return Err(Failure::new("unsupported_credentials"));
     }
-    interaction.phase("srp_info");
-    let info = client
-        .request(
-            Method::POST,
-            "/auth/v4/info",
-            &Json(json!({"Username":credentials.username,"Intent":"Proton"})).0,
-            interaction,
-            cancel,
-        )
-        .await?;
+    let info = login_request(
+        client,
+        "/auth/v4/info",
+        &Json(json!({"Username":credentials.username,"Intent":"Proton"})).0,
+        "srp_info",
+        interaction,
+        cancel,
+    )
+    .await?;
     let proofs = SrpProofs::generate(
         info.get("Version")
             .and_then(Value::as_u64)
@@ -67,7 +111,6 @@ pub(super) async fn login(
         &token(info.get("ServerEphemeral"))?,
     )?;
     credentials.password.zeroize();
-    interaction.phase("srp_proof");
     let mut payload = Json(client.config.payload(true));
     let fields = payload
         .0
@@ -89,9 +132,15 @@ pub(super) async fn login(
         "SRPSession".into(),
         Value::String(token(info.get("SRPSession"))?),
     );
-    let response = client
-        .request(Method::POST, "/auth/v4", &payload.0, interaction, cancel)
-        .await?;
+    let response = login_request(
+        client,
+        "/auth/v4",
+        &payload.0,
+        "srp_proof",
+        interaction,
+        cancel,
+    )
+    .await?;
     client.accept_session(&response.0)?;
     proofs.verify_server_proof(&token(response.get("ServerProof"))?)?;
     let second = response
@@ -123,13 +172,16 @@ pub(super) async fn login(
     }
     Ok(())
 }
-pub(super) async fn guest(
+async fn anonymous_session(
     client: &mut Client,
     interaction: &dyn Interaction,
     cancel: &CancellationToken,
 ) -> Result<(), Failure> {
     if !client.session.user_id.is_empty() {
         return Err(Failure::new("unexpected_authenticated_session"));
+    }
+    if client.uncertain {
+        return Err(Failure::new("session_state_unknown"));
     }
     if client.session.uid.is_empty() {
         interaction.phase("anonymous_session");
@@ -147,6 +199,15 @@ pub(super) async fn guest(
             return Err(Failure::new("unexpected_authenticated_session"));
         }
     }
+    Ok(())
+}
+
+pub(super) async fn guest(
+    client: &mut Client,
+    interaction: &dyn Interaction,
+    cancel: &CancellationToken,
+) -> Result<(), Failure> {
+    anonymous_session(client, interaction, cancel).await?;
     interaction.phase("credentialless");
     let response = client
         .request(

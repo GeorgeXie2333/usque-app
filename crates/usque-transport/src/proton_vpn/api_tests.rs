@@ -5,6 +5,7 @@ use super::{
     *,
 };
 use crate::internal_network::{InternalHttpError, InternalRequest, InternalResponse};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use http::Method;
 use serde_json::{Value, json};
 use std::{
@@ -75,6 +76,7 @@ fn make_peer(replies: Vec<Result<(u16, Value), InternalHttpError>>) -> Arc<Peer>
 struct Manual {
     calls: AtomicUsize,
     change: Option<Arc<Peer>>,
+    phases: Mutex<Vec<String>>,
 }
 #[async_trait]
 impl Interaction for Manual {
@@ -101,12 +103,15 @@ impl Interaction for Manual {
     async fn node(&self, _: Vec<Node>, _: &CancellationToken) -> Result<String, Failure> {
         Err(Failure::new("unexpected_node"))
     }
-    fn phase(&self, _: &str) {}
+    fn phase(&self, phase: &str) {
+        self.phases.lock().unwrap().push(phase.into());
+    }
 }
 fn manual() -> Manual {
     Manual {
         calls: AtomicUsize::new(0),
         change: None,
+        phases: Mutex::new(Vec::new()),
     }
 }
 fn challenge() -> Value {
@@ -118,6 +123,398 @@ fn session() -> SessionSecrets {
         access_token: "synthetic-private-access".into(),
         refresh_token: "synthetic-private-refresh".into(),
         user_id: "synthetic-user".into(),
+    }
+}
+
+fn login_info() -> Value {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../tool/proton_poc/testdata/srp_v4.json"
+    ))
+    .unwrap();
+    json!({"Code":1000,"Version":4,"Salt":fixture["salt"],"Modulus":fixture["signed_modulus"],"ServerEphemeral":fixture["server_ephemeral"],"SRPSession":"synthetic-private-srp-session"})
+}
+
+fn login_with_invalid_proof() -> Value {
+    json!({"Code":1000,"UID":"signed-in","AccessToken":"login-access","RefreshToken":"login-refresh","UserID":"login-user","ServerProof":STANDARD.encode([0u8;256]),"2FA":{"Enabled":0}})
+}
+
+async fn try_login(
+    client: &mut Client,
+    io: &dyn Interaction,
+    cancel: &CancellationToken,
+) -> Failure {
+    workflow::login(
+        client,
+        Zeroizing::new(br#"{"username":"synthetic-user","password":"abc123"}"#.to_vec()),
+        io,
+        cancel,
+    )
+    .await
+    .err()
+    .unwrap()
+}
+
+#[tokio::test]
+async fn android_login_401_creates_anonymous_context_and_retries_before_checking_server_proof() {
+    let peer = make_peer(vec![
+        Ok((401, json!({"Code":401,"Error":"synthetic-private-error"}))),
+        Ok((
+            200,
+            json!({"Code":1000,"UID":"anonymous","AccessToken":"anon-access","RefreshToken":"anon-refresh"}),
+        )),
+        Ok((200, login_info())),
+        Ok((200, login_with_invalid_proof())),
+        Ok((200, json!({"Code":1000}))),
+        Ok((200, json!({"Code":1000}))),
+    ]);
+    let mut client = Client::new(peer.clone());
+    client.config = ClientConfig::android(super::client_tests::ANDROID_CONTEXT).unwrap();
+    let io = manual();
+    let failure = try_login(&mut client, &io, &CancellationToken::new()).await;
+    assert_eq!(failure.reason, "cryptographic_validation_failed");
+    assert_eq!(io.calls.load(Ordering::Acquire), 0);
+    assert_eq!(
+        *io.phases.lock().unwrap(),
+        ["srp_info", "anonymous_session", "srp_info", "srp_proof"]
+    );
+    assert_eq!(client.retired.len(), 1);
+    {
+        let seen = peer.seen.lock().unwrap();
+        assert_eq!(seen.len(), 4);
+        for (request, path) in seen.iter().zip([
+            "/auth/v4/info",
+            "/auth/v4/sessions",
+            "/auth/v4/info",
+            "/auth/v4",
+        ]) {
+            assert_eq!(request.method, Method::POST);
+            assert!(request.url.ends_with(path));
+            assert!(request.headers.contains(&(
+                "user-agent".into(),
+                "ProtonVPN/5.20.74.0 (Android 15; google Pixel 8)".into()
+            )));
+            assert!(
+                request
+                    .headers
+                    .contains(&("x-pm-appversion".into(), "android-vpn@5.20.74.0+apk".into()))
+            );
+        }
+        assert_eq!(seen[0].body, seen[2].body);
+        for request in &seen[2..] {
+            assert!(
+                request
+                    .headers
+                    .contains(&("x-pm-uid".into(), "anonymous".into()))
+            );
+            assert!(
+                request
+                    .headers
+                    .contains(&("authorization".into(), "Bearer anon-access".into()))
+            );
+        }
+        let payload: Value = serde_json::from_slice(&seen[1].body).unwrap();
+        assert!(payload.get("Username").is_none());
+        assert!(payload.get("password").is_none());
+        assert!(
+            payload["Payload"]["vpn-android-v4-challenge-0"]
+                .get("type")
+                .is_none()
+        );
+    }
+    assert!(client.revoke_all(&CancellationToken::new()).await);
+    let seen = peer.seen.lock().unwrap();
+    assert_eq!(seen.len(), 6);
+    for (request, uid) in seen[4..].iter().zip(["signed-in", "anonymous"]) {
+        assert_eq!(request.method, Method::DELETE);
+        assert!(request.headers.contains(&("x-pm-uid".into(), uid.into())));
+    }
+}
+
+fn anonymous_response() -> Value {
+    json!({"Code":1000,"UID":"synthetic-uid","AccessToken":"fresh-access","RefreshToken":"fresh-refresh"})
+}
+
+#[tokio::test]
+async fn login_reuses_anonymous_context_and_refreshes_it_only_after_401() {
+    for rejected in [false, true] {
+        let mut replies = Vec::new();
+        if rejected {
+            replies.extend([
+                Ok((401, json!({"Code":401}))),
+                Ok((200, anonymous_response())),
+            ]);
+        }
+        replies.extend([
+            Ok((200, login_info())),
+            Ok((200, login_with_invalid_proof())),
+        ]);
+        let peer = make_peer(replies);
+        let mut client = Client::new(peer.clone());
+        client.session = session();
+        client.session.user_id.clear();
+        let io = manual();
+        let failure = try_login(&mut client, &io, &CancellationToken::new()).await;
+        assert_eq!(failure.reason, "cryptographic_validation_failed");
+        let seen = peer.seen.lock().unwrap();
+        assert_eq!(seen.len(), if rejected { 4 } else { 2 });
+        assert!(seen.iter().all(|r| !r.url.ends_with("/auth/v4/sessions")));
+        if rejected {
+            assert!(seen[1].url.ends_with("/auth/v4/refresh"));
+            let body: Value = serde_json::from_slice(&seen[1].body).unwrap();
+            assert_eq!(
+                body,
+                json!({"UID":"synthetic-uid","RefreshToken":"synthetic-private-refresh","ResponseType":"token","GrantType":"refresh_token","RedirectURI":"http://protonmail.ch"})
+            );
+            assert_eq!(seen[0].body, seen[2].body);
+            assert!(
+                seen[2]
+                    .headers
+                    .contains(&("authorization".into(), "Bearer fresh-access".into()))
+            );
+            assert_eq!(
+                *io.phases.lock().unwrap(),
+                ["srp_info", "session_refresh", "srp_info", "srp_proof"]
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn login_proof_401_replays_the_same_proof_after_recovering_anonymous_context() {
+    for existing in [false, true] {
+        let peer = make_peer(vec![
+            Ok((200, login_info())),
+            Ok((401, json!({"Code":401}))),
+            Ok((200, anonymous_response())),
+            Ok((200, login_with_invalid_proof())),
+        ]);
+        let mut client = Client::new(peer.clone());
+        if existing {
+            client.session = session();
+            client.session.user_id.clear();
+        }
+        let failure = try_login(&mut client, &manual(), &CancellationToken::new()).await;
+        assert_eq!(failure.reason, "cryptographic_validation_failed");
+        let seen = peer.seen.lock().unwrap();
+        assert_eq!(seen.len(), 4);
+        assert_eq!(seen[1].url, seen[3].url);
+        assert_eq!(seen[1].body, seen[3].body);
+        assert!(seen[2].url.ends_with(if existing {
+            "/auth/v4/refresh"
+        } else {
+            "/auth/v4/sessions"
+        }));
+        assert!(
+            seen[3]
+                .headers
+                .contains(&("authorization".into(), "Bearer fresh-access".into()))
+        );
+    }
+}
+
+#[tokio::test]
+async fn login_401_recovery_retries_the_original_call_only_once() {
+    for existing in [false, true] {
+        let peer = make_peer(vec![
+            Ok((401, json!({"Code":401}))),
+            Ok((200, anonymous_response())),
+            Ok((401, json!({"Code":401}))),
+        ]);
+        let mut client = Client::new(peer.clone());
+        if existing {
+            client.session = session();
+            client.session.user_id.clear();
+        }
+        let io = manual();
+        let failure = try_login(&mut client, &io, &CancellationToken::new()).await;
+        assert_eq!(failure.status, Some(401));
+        let seen = peer.seen.lock().unwrap();
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen[0].url, seen[2].url);
+        assert_eq!(seen[0].body, seen[2].body);
+        assert_eq!(io.phases.lock().unwrap().last().unwrap(), "srp_info");
+        assert_eq!(io.calls.load(Ordering::Acquire), 0);
+    }
+}
+
+#[tokio::test]
+async fn login_recovery_preserves_real_human_challenges_without_reusing_their_headers() {
+    for challenge_on_session in [false, true] {
+        let mut replies = vec![Ok((401, json!({"Code":401})))];
+        if challenge_on_session {
+            replies.push(Ok((422, challenge())));
+        }
+        replies.push(Ok((200, anonymous_response())));
+        if !challenge_on_session {
+            replies.push(Ok((422, challenge())));
+        }
+        replies.extend([
+            Ok((200, login_info())),
+            Ok((200, login_with_invalid_proof())),
+        ]);
+        let peer = make_peer(replies);
+        let mut client = Client::new(peer.clone());
+        let io = manual();
+        let failure = try_login(&mut client, &io, &CancellationToken::new()).await;
+        assert_eq!(failure.reason, "cryptographic_validation_failed");
+        assert_eq!(io.calls.load(Ordering::Acquire), 1);
+        let seen = peer.seen.lock().unwrap();
+        assert_eq!(seen.len(), 5);
+        let verified = if challenge_on_session { 2 } else { 3 };
+        assert_eq!(seen[verified - 1].url, seen[verified].url);
+        assert_eq!(seen[verified - 1].body, seen[verified].body);
+        for (index, request) in seen.iter().enumerate() {
+            assert_eq!(
+                request
+                    .headers
+                    .iter()
+                    .any(|(key, _)| key.starts_with("x-pm-human")),
+                index == verified
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn login_does_not_recover_credential_errors_or_ambiguous_login_mutations() {
+    for code in [8002, 1000] {
+        let peer = make_peer(vec![
+            Ok((200, login_info())),
+            Ok((401, json!({"Code":code,"Error":"synthetic-private-error"}))),
+        ]);
+        let mut client = Client::new(peer.clone());
+        let io = manual();
+        let failure = try_login(&mut client, &io, &CancellationToken::new()).await;
+        assert_eq!(failure.code, Some(code));
+        assert_eq!(client.uncertain, code == 1000);
+        assert_eq!(peer.seen.lock().unwrap().len(), 2);
+        assert_eq!(io.calls.load(Ordering::Acquire), 0);
+        assert!(!format!("{failure:?}").contains("synthetic-private"));
+    }
+    for (status, code) in [(422, 8002), (422, 8004), (429, 429), (500, 401), (200, 401)] {
+        let peer = make_peer(vec![Ok((status, json!({"Code":code})))]);
+        let mut client = Client::new(peer.clone());
+        let failure = try_login(&mut client, &manual(), &CancellationToken::new()).await;
+        assert_eq!(failure.status, Some(status));
+        assert_eq!(peer.seen.lock().unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn login_stops_on_failed_or_invalid_recovery_without_replaying_tokens() {
+    for existing in [false, true] {
+        for response in [
+            Ok((401, json!({"Code":401}))),
+            Err(InternalHttpError::Timeout),
+            Ok((
+                200,
+                json!({"Code":1000,"UID":"synthetic-uid","AccessToken":"fresh-access"}),
+            )),
+            Ok((
+                200,
+                json!({"Code":1000,"UID":"synthetic-uid","AccessToken":"fresh-access","RefreshToken":"fresh-refresh","UserID":"unexpected-user"}),
+            )),
+        ] {
+            let timeout = response.is_err();
+            let peer = make_peer(vec![Ok((401, json!({"Code":401}))), response]);
+            let mut client = Client::new(peer.clone());
+            if existing {
+                client.session = session();
+                client.session.user_id.clear();
+            }
+            let io = manual();
+            let failure = try_login(&mut client, &io, &CancellationToken::new()).await;
+            assert_eq!(peer.seen.lock().unwrap().len(), 2);
+            assert_eq!(client.uncertain, timeout);
+            assert_eq!(
+                io.phases.lock().unwrap().last().unwrap(),
+                if existing {
+                    "session_refresh"
+                } else {
+                    "anonymous_session"
+                }
+            );
+            assert!(!format!("{failure:?}").contains("fresh-access"));
+        }
+    }
+    for uncertain in [false, true] {
+        let peer = make_peer(vec![]);
+        let mut client = Client::new(peer.clone());
+        if uncertain {
+            client.uncertain = true;
+        } else {
+            client.session = session();
+        }
+        let failure = try_login(&mut client, &manual(), &CancellationToken::new()).await;
+        assert_eq!(
+            failure.reason,
+            if uncertain {
+                "session_state_unknown"
+            } else {
+                "unexpected_authenticated_session"
+            }
+        );
+        assert!(peer.seen.lock().unwrap().is_empty());
+    }
+}
+
+struct InterruptedLogin {
+    peer: Arc<Peer>,
+    after: usize,
+    cancel: Option<CancellationToken>,
+}
+
+#[async_trait]
+impl Http for InterruptedLogin {
+    async fn exchange(
+        &self,
+        request: InternalRequest<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<InternalResponse, InternalHttpError> {
+        let response = self.peer.exchange(request, cancel).await?;
+        if self.peer.seen.lock().unwrap().len() == self.after {
+            if let Some(cancel) = &self.cancel {
+                cancel.cancel();
+            } else {
+                self.peer.generation.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+        Ok(response)
+    }
+    fn generation(&self) -> Option<u64> {
+        self.peer.generation()
+    }
+    fn current(&self, generation: Option<u64>) -> bool {
+        self.peer.current(generation)
+    }
+}
+
+#[tokio::test]
+async fn login_recovery_stops_on_cancellation_or_changed_underlay_before_replaying() {
+    for after in [1, 2] {
+        for cancelled in [false, true] {
+            let cancel = CancellationToken::new();
+            let peer = make_peer(vec![
+                Ok((401, json!({"Code":401}))),
+                Ok((200, anonymous_response())),
+            ]);
+            let mut client = Client::new(Arc::new(InterruptedLogin {
+                peer: peer.clone(),
+                after,
+                cancel: cancelled.then(|| cancel.clone()),
+            }));
+            let failure = try_login(&mut client, &manual(), &cancel).await;
+            assert_eq!(
+                failure.reason,
+                if cancelled {
+                    "cancelled"
+                } else {
+                    "underlay_changed"
+                }
+            );
+            assert_eq!(peer.seen.lock().unwrap().len(), after);
+            assert_eq!(client.session.uid.is_empty(), after == 1);
+        }
     }
 }
 
@@ -348,6 +745,7 @@ async fn verification_is_one_attempt_and_bound_to_underlay_generation() {
     let io = Manual {
         calls: AtomicUsize::new(0),
         change: Some(peer.clone()),
+        phases: Mutex::new(Vec::new()),
     };
     let failure = client
         .request(
