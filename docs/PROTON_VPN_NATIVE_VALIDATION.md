@@ -908,3 +908,92 @@ VPN/TUN, interface, route/DNS/firewall/system-proxy mutation, installation,
 signing or release publication was exercised. Secrets and raw remote error text remain
 outside ordinary status and diagnostics. Unknown session mutation stays pending
 and is never replayed merely because the system network changes.
+
+## Follow-up: connection APIs over established WARP (2026-10-19)
+
+Baseline: `63b38b6ff35dc139ba6c9b7ed1d977ebcdb26053`. The user reports that
+guest setup now succeeds but connection fails with a generic Proton network
+error. They clarified that connection-control requests should use the WARP
+tunnel once it is established. This supersedes strict system routing for the
+connection lifecycle only; interactive account management retains that policy.
+
+### Source identity and routing boundary
+
+The complete tracked/unignored source inventory is
+`/tmp/usque-proton-warp-runtime-source-manifest.json`: version 1, 5,517 entries,
+1,087,651 bytes, SHA-256
+`a9078f6f3c665c20cdefee81daca7c3f0b4c0232d9d885fb33894636a1446b14`.
+It excludes only this validation record to avoid self-reference, plus ignored
+SDK/build/JNI output, logs and local private configuration. Entries bind file
+content, executable bits, symlinks and deletions; verification is repeated
+before committing.
+
+Source inspection found that connection preparation constructed `SystemHttp`
+after the final traffic gate had closed. On Android, ordinary API sockets can
+then be captured by Usque's own unavailable VPN, including when WARP itself is
+already healthy. A generic transport error alone does not establish this as
+the user's only connection failure.
+
+Connection preparation now receives `warp_internal_network()` explicitly and
+constructs the private [WARP HTTP adapter](../crates/usque-transport/src/proton_vpn/warp_http.rs).
+Session/permission checks, fresh directory lookup, certificate issuance and
+the entire runtime lease's renewal, token recovery, retired-session cleanup
+and agent authorization recovery use that WARP handle. Its DNS and TCP remain
+inside the established stack. No system socket, HTTP proxy, physical DNS or
+alternate-network fallback is available to this runtime client.
+
+The lease is bound to WARP health, cancellation and generation, including
+packet reconnect counts when the stream dialer has no epoch tag. Old leases
+cannot continue authorizing traffic after reconnection. Existing persistence
+still saves a fully validated, known token replacement before reporting a
+concurrent generation change; unknown mutations remain journaled and are not
+replayed. HTTPS trust, hostname validation, bounded bodies/timeouts, numeric
+error export and cancellation cleanup reuse the existing private HTTPS path.
+
+Guest/account setup, manual directory refresh, sign-out and the verification
+WebView still follow the system network and applicable VPN. They do not start
+or borrow WARP. API identity, User-Agent and locale are preserved. Ordinary
+application traffic still waits for Proton authorization; the private control
+handle does not expose a WARP-only business exit. Local-agent mTLS stays inside
+the Proton WireGuard tunnel. No platform routes, socket protection, firewall,
+DNS settings, system proxy or native bridge contracts are changed.
+
+### Workstation checks
+
+The final source passed `bash tool/dev.sh check rust`, `android` and `static`,
+plus the feature-disabled compilation checks below. The wrappers executed the
+exact CONTRIBUTING commands with the pinned toolchains. The added tests use
+memory networks/private dialers; existing HTTPS tests use loopback only.
+
+| Exact command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | passed |
+| `cargo test --workspace --all-targets --locked` | passed: 1,816 tests; 3 existing ignores |
+| `cargo check -p usque-transport --locked --no-default-features` | passed |
+| `cargo check -p usque-android --locked --no-default-features` | passed |
+| `pwsh -NoProfile -File tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter pub get --enforce-lockfile` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed |
+| `./gradlew --no-daemon :app:ktlintCheck` | passed |
+| `./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed; unchanged Kotlin/lint outputs reused; 480 test cases in XML, no failures/errors/skips |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed |
+| `python tool/check_repository_policy.py`, `actionlint -no-color`, `git diff --check` | passed |
+| Windows Rust/platform gates | **not_run**: Linux workstation |
+| Real Android device/TV, live Proton connection, active-VPN routing, expiry/recovery and external leak/lifecycle checks | **not_run**: no isolated device or protected environment |
+
+Five new regression tests cover the real runtime preparation entry point's
+private dialer, no system fallback on failure, stream/packet generation changes,
+unavailable/cancelled WARP and requests, and the distinction between blocked
+application traffic and the surviving explicit WARP control handle. Existing
+session rotation, certificate renewal and agent recovery tests still pass.
+Logs use `/tmp/usque-proton-warp-runtime-`, with `-final.log` for the final Rust,
+Android and aggregate checks. No Dart, GUI runner or packaging source changed;
+their separate widget/golden/build matrices were not rerun.
+
+No new live registration, login or Proton API request was sent. No VPN/TUN,
+platform-network mutation, emulator installation, device/APK installation,
+signing or release publication was exercised. Secrets and raw remote error text
+remain outside ordinary status and diagnostics. These workstation checks fix
+and verify the control-path dependency; they do not establish a successful
+real Proton WireGuard/local-agent connection.

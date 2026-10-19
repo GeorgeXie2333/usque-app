@@ -269,6 +269,24 @@ impl InternalNetwork {
     pub(crate) fn session_generation(&self) -> Option<u64> {
         self.dialer.session_generation()
     }
+    /// Runtime control requests bind to this WARP session, including packet
+    /// reconnects whose stream dialer has no epoch tag. This synthetic epoch is
+    /// never used as a tag on a returned TCP stream.
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn control_generation(&self) -> Option<u64> {
+        if self.cancellation.is_cancelled() {
+            return None;
+        }
+        let RuntimeHealth::Connected {
+            reconnect_count, ..
+        } = *self.health.borrow()
+        else {
+            return None;
+        };
+        self.dialer
+            .session_generation()
+            .or(Some(u64::from(reconnect_count)))
+    }
     #[cfg(test)]
     pub(crate) fn with_test_packets(
         mut self,
@@ -513,6 +531,17 @@ impl InternalNetwork {
         cancel: &CancellationToken,
     ) -> Result<Vec<u8>, InternalHttpError> {
         self.request_https_for(options, cancel, HttpsPurpose::General)
+            .await
+    }
+    /// Retain bounded error bodies for the runtime Proton API caller, using
+    /// only this private network's TCP, DNS, health and cancellation handles.
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn exchange_https(
+        &self,
+        options: InternalRequest<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<InternalResponse, InternalHttpError> {
+        self.exchange_https_for(options, cancel, HttpsPurpose::General)
             .await
     }
     #[cfg(feature = "wireguard")]

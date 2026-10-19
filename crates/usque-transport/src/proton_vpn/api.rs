@@ -1,4 +1,4 @@
-//! Bounded Proton HTTPS over the system network. Error strings and response
+//! Bounded Proton HTTPS over the caller's selected network. Error strings and response
 //! bodies never escape this module into diagnostics or ordinary status.
 use super::{ClientConfig, Failure, Interaction};
 use crate::internal_network::{InternalHttpError, InternalRequest, InternalResponse};

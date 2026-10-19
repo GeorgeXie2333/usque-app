@@ -6,7 +6,7 @@ use super::{
     crypto::KeyMaterial,
     nodes,
     session::Access,
-    system_http::SystemHttp,
+    warp_http::WarpHttp,
 };
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -425,10 +425,14 @@ fn bound(profile: &PreparedProfile, record: &Record) -> Result<(), Failure> {
 
 pub(crate) async fn prepare(
     profile: &mut PreparedProfile,
+    warp: crate::InternalNetwork,
     cancel: &CancellationToken,
 ) -> Result<(Arc<TunnelCredentials>, Lease), GateFailure> {
-    let http = SystemHttp::new().map_err(|failure| gate_failure(&failure))?;
-    prepare_with_http(profile, Arc::new(http), cancel)
+    // The final traffic gate is still closed here (and may close again during
+    // authorization recovery). Keep this lease's API and DNS on the existing
+    // WARP stack throughout its lifetime; system sockets would depend on the
+    // very Proton connection these requests are preparing or repairing.
+    prepare_with_http(profile, Arc::new(WarpHttp::new(warp)), cancel)
         .await
         .map_err(|failure| gate_failure(&failure))
 }

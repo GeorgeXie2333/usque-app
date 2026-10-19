@@ -1,4 +1,5 @@
-//! Proton public APIs follow the system network, including its active VPN.
+//! Interactive setup follows the system network, including its active VPN.
+//! Connection preparation and runtime authorization use the established WARP.
 //! Sessions use platform-encrypted persistence and one-use human verification.
 mod api;
 mod client;
@@ -10,6 +11,7 @@ mod nodes;
 pub(crate) mod renew;
 mod session;
 mod system_http;
+mod warp_http;
 mod workflow;
 pub use client::ClientConfig;
 pub use manager::{AccountContext, Manager, Output, attach};

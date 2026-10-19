@@ -270,6 +270,55 @@ fn fixture() -> (Record, PreparedProfile, Arc<MemoryStore>) {
 }
 
 #[tokio::test]
+async fn runtime_preparation_sends_its_first_api_request_through_the_warp_handle() {
+    use crate::{
+        RuntimeHealth,
+        netstack::RuntimePath,
+        tcp::{DialError, FlowClass, TcpDialer, TcpStream, TcpTarget},
+    };
+    struct RefusingWarp(Mutex<Vec<String>>);
+    #[async_trait]
+    impl TcpDialer for RefusingWarp {
+        async fn connect(
+            &self,
+            target: TcpTarget,
+            _: tokio::time::Instant,
+            _: &CancellationToken,
+            _: FlowClass,
+        ) -> Result<TcpStream, DialError> {
+            self.0.lock().unwrap().push(target.authority().into());
+            Err(DialError::Refused)
+        }
+    }
+    let dialer = Arc::new(RefusingWarp(Mutex::new(Vec::new())));
+    let (_health, receiver) = watch::channel(RuntimeHealth::Connected {
+        path: RuntimePath {
+            transport: usque_core::Transport::Http3,
+            endpoint_family: usque_core::AddressFamily::Ipv4,
+            ipv4_available: true,
+            ipv6_available: false,
+        },
+        reconnect_count: 0,
+    });
+    let warp =
+        crate::InternalNetwork::for_streams(dialer.clone(), receiver, CancellationToken::new());
+    let (record, mut prepared, storage) = fixture();
+    assert!(matches!(
+        prepare(&mut prepared, warp, &CancellationToken::new()).await,
+        Err(GateFailure::Proton(ConnectionFailure {
+            kind: FailureKind::Transport,
+            ..
+        }))
+    ));
+    assert_eq!(
+        *dialer.0.lock().unwrap(),
+        vec!["vpn-api.proton.me:443".to_owned()]
+    );
+    assert!(storage.writes.lock().unwrap().is_empty());
+    assert_eq!(storage.load().unwrap().session.uid, record.session.uid);
+}
+
+#[tokio::test]
 async fn healthy_session_and_certificate_are_reused_while_the_peer_is_resolved_at_connection() {
     let (record, mut prepared, storage) = fixture();
     let old_key = prepared.proton.as_ref().unwrap().private_key_pkcs8.clone();

@@ -81,39 +81,54 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
 
 ## Verification window and network path / 验证窗口与网络路径
 
-Guest registration, account sign-in, VPN permissions, server directories,
-certificate issuance/renewal, session refresh and sign-out use ordinary system
-HTTPS sockets and system DNS. They follow the current OS routes and any VPN
-that applies to this app. The HTTP client retains its supported environment
-proxy settings. These requests do not start or borrow a WARP underlay, bind an
-interface, protect sockets from a VPN or try another network after failure.
-Android no longer reads a WARP secret for these operations. API identity,
-User-Agent and locale remain unchanged.
+Guest registration, account sign-in, manual directory refresh and sign-out use
+ordinary system HTTPS sockets and system DNS, including the permissions and
+session requests needed by those operations. They follow the current OS routes
+and any VPN that applies to this app. The HTTP client retains its supported
+environment proxy settings. These account-management operations do not start or
+borrow a WARP underlay, bind an interface, protect sockets from a VPN or try
+another network after failure. Android does not read a WARP secret for them.
+API identity, User-Agent and locale are preserved on both network paths.
 
 The verification WebView also uses the platform's normal network path. This
-aligns its routing policy with API traffic, but does not pin a source IP across
+aligns its routing policy with account-management API traffic, but does not pin a source IP across
 OS network changes or prove that Proton accepts the completed challenge.
 
-The strict system-routing policy also applies while Usque owns the active VPN.
-If that VPN is still connecting or has closed authorization, it can capture and
-block its own API requests. Setup or recovery may then time out. Usque does not
-bypass its own VPN or change the user's network to resolve this dependency.
-A network error asks the user to check the current network/VPN. The actual
-WireGuard exit and its private local-agent still use the WARP → Proton tunnel;
-public API routing does not change business-traffic admission or fallback rules.
+Connection preparation uses a separate API client over the already established
+WARP stack: session/permission checks, fresh directory lookup and certificate
+issuance must work while the Proton traffic gate is closed. The connection's
+lease keeps this WARP path for certificate renewal, token recovery and agent
+authorization recovery, including when Proton access is temporarily restricted.
+API DNS also stays inside WARP. These requests are bound to that WARP session;
+reconnection invalidates old results, and failure never switches to system or
+physical sockets. The private local-agent remains inside the Proton WireGuard
+tunnel. Ordinary application traffic still waits for final Proton authorization;
+it cannot use the control channel as a WARP-only exit.
 
-游客注册、账号登录、VPN 权限、节点目录、证书申请及续期、会话刷新和退出均使用
-普通系统 HTTPS socket 与系统 DNS，遵循当前系统路由及适用于本应用的已连接 VPN，
-并保留 HTTP 客户端支持的环境代理设置。不启动或借用 WARP underlay，不绑定网卡，
-不使用 socket protect 绕过 VPN，失败后也不切换网络。Android 不再为这些操作读取
-WARP 密钥；API 身份、User-Agent 和语言头保持原有配置。
+Account management and the verification WebView retain strict system routing
+even while Usque owns the active VPN. They may time out if that VPN captures and
+blocks them while connecting. The runtime WARP client does not reroute those
+interactive jobs or expose a general VPN bypass.
+
+游客注册、账号登录、手动刷新目录和退出，以及这些操作所需的权限检查、会话请求，
+使用普通系统 HTTPS socket 与系统 DNS，遵循当前系统路由及适用于本应用的已连接
+VPN，并保留 HTTP 客户端支持的环境代理设置。这些账号管理操作不启动或借用 WARP，
+不绑定网卡，不使用 socket protect 绕过 VPN，失败后也不切换网络。
+Android 不为它们读取 WARP 密钥；两种网络路径均保留原有 API 身份、User-Agent 和语言头。
 
 验证码 WebView 同样使用平台普通网络路径。两者采用一致的路由策略，但系统网络
-变化仍可能改变出口 IP，也不代表 Proton 已接受验证结果。严格系统路由同样适用于
-Usque 自身占用 VPN 的情况：若隧道仍在连接或授权门已关闭，可能捕获并阻断自身 API
-请求，导致准备或恢复超时。应用不绕过自身 VPN，也不自动更改用户网络，失败时提示
-检查当前网络或 VPN。实际 WireGuard 出口和隧道内 local-agent 继续使用
-WARP → Proton 链路；公共 API 的路径变更不放宽业务授权或出口失败策略。
+变化仍可能改变出口 IP，也不代表 Proton 已接受验证结果。
+
+开始连接时，Proton 会话／权限检查、目录更新与证书申请改用已建立的 WARP 内部栈，
+DNS 同样经由 WARP，使 Proton 授权门关闭期间仍可完成连接准备。
+该连接持有的 API 客户端在运行中继续通过同一 WARP 路径续期证书、恢复令牌和
+agent 授权；不依赖尚未就绪或已受限的 Proton 出口。WARP 会话更换会使旧结果失效，
+失败不会转向系统或物理直连。local-agent 仍在 Proton WireGuard 隧道内通信。
+普通应用流量继续等待 Proton 最终授权，不能借用控制通道退化为仅 WARP 出口。
+
+账号管理和验证码窗口仍严格遵循系统路由，包括 Usque 自身占用 VPN 的情况；
+若正在连接的 VPN 捕获并阻断这些交互请求，它们仍可能超时。
+连接专用的 WARP 客户端不会改道这些任务，也不提供通用 VPN 绕过通道。
 
 The window opens only `https://verify.proton.me` as the official top-level
 challenge. Windows uses a fresh InPrivate profile and Linux an ephemeral

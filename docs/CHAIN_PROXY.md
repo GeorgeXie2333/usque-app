@@ -74,15 +74,17 @@ WARP via WireGuard 支持生成／导入配置和编辑端点，详见
 Proton VPN provides guest/account setup, a manual official verification window,
 searchable logical-server selection, account removal and encrypted session storage. See the
 [Proton VPN guide](PROTON_VPN.md) for setup, renewal and current validation limits.
-Account, directory and certificate APIs and the verification WebView follow
-the system network and applicable VPN; they do not start a WARP control tunnel
-or bypass a VPN. Live native authentication and the complete Proton tunnel
-have not been validated.
+Account management and the verification WebView follow the system network and
+applicable VPN without starting WARP. Connection preparation and its runtime
+certificate/session recovery use the already established WARP stack, including
+DNS, while application traffic waits for Proton authorization. Live native
+authentication and the complete Proton tunnel have not been validated.
 
 Proton VPN 提供游客／账号准备、官方窗口人工验证、可搜索的逻辑节点选择、账号移除和加密会话存储，
-详见 [Proton VPN 指南](PROTON_VPN.md)。账号、目录、证书 API 与验证码 WebView 均
-遵循系统网络及适用的 VPN，不启动 WARP 控制隧道或绕过 VPN；原生实网认证和完整
-Proton 隧道仍未完成验证。
+详见 [Proton VPN 指南](PROTON_VPN.md)。账号管理和验证码 WebView 遵循系统网络及
+适用的 VPN，不自行启动 WARP。连接准备及运行中的证书／会话恢复通过已建立的
+WARP 内部栈，DNS 也经由 WARP；应用流量仍等待 Proton 授权。
+原生实网认证和完整 Proton 隧道仍未完成验证。
 
 ## Import, select and apply / 导入、选用与应用
 

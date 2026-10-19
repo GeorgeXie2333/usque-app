@@ -633,7 +633,11 @@ impl DataPlaneRuntime {
             let lease = if proton_source {
                 prepared = saved_proton.clone();
                 let refresh_cancel = cancellation.child_token();
-                let refresh = crate::proton_vpn::renew::prepare(&mut prepared, &refresh_cancel);
+                let refresh = crate::proton_vpn::renew::prepare(
+                    &mut prepared,
+                    self.warp_internal_network(),
+                    &refresh_cancel,
+                );
                 tokio::pin!(refresh);
                 let (_, lease) = tokio::select! {
                     biased;
@@ -1862,6 +1866,25 @@ mod tests {
             TransportFailureCode::H3ConnectionClosed
         );
         runtime.shutdown().await;
+    }
+
+    #[cfg(feature = "wireguard")]
+    #[tokio::test]
+    async fn closed_final_gate_retains_only_the_explicit_warp_control_handle() {
+        let (mut runtime, channels) = memory_warp().await;
+        runtime.quiesce_final();
+        assert!(runtime.final_blocked);
+        assert!(runtime.send_packet(&[0x45; 20]).await.is_err());
+        assert_eq!(runtime.internal_network().control_generation(), None);
+        let warp = runtime.warp_internal_network();
+        assert!(warp.control_generation().is_some());
+        assert!(matches!(
+            warp.health_snapshot(),
+            RuntimeHealth::Connected { .. }
+        ));
+        assert!(!channels.cancellation.is_cancelled());
+        runtime.shutdown().await;
+        assert_eq!(warp.control_generation(), None);
     }
 
     #[tokio::test]
