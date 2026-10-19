@@ -1,5 +1,6 @@
 package io.github.georgexie2333.usque
 
+import org.json.JSONObject
 import java.io.File
 
 internal object NativeEngine {
@@ -12,7 +13,13 @@ internal object NativeEngine {
         service: UsqueVpnService,
     ): Array<ByteArray>? =
         if (libraryLoaded) {
-            nativeProtonVpn(configPath, command, sensitiveInput, warpSecret, expectedWarpProfileId, service)
+            val context =
+                if (JSONObject(command).getString("action") in setOf("guest", "login")) {
+                    ProtonClientContext.capture(service)
+                } else {
+                    ""
+                }
+            nativeProtonVpn(configPath, command, sensitiveInput, warpSecret, expectedWarpProfileId, context, service)
         } else {
             null
         }
@@ -23,6 +30,7 @@ internal object NativeEngine {
         sensitiveInput: ByteArray,
         warpSecret: ByteArray,
         expectedWarpProfileId: String,
+        clientContext: String,
         service: UsqueVpnService,
     ): Array<ByteArray>?
 

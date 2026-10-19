@@ -51,6 +51,7 @@ enum Answer {
 struct MockHttp {
     answers: Mutex<VecDeque<Answer>>,
     requests: Mutex<Vec<String>>,
+    headers: Mutex<Vec<Vec<(String, String)>>>,
     generation: AtomicU64,
 }
 #[async_trait]
@@ -61,6 +62,13 @@ impl Http for MockHttp {
         _: &CancellationToken,
     ) -> Result<InternalResponse, InternalHttpError> {
         self.requests.lock().unwrap().push(request.url.to_owned());
+        self.headers.lock().unwrap().push(
+            request
+                .headers
+                .iter()
+                .map(|(key, value)| ((*key).into(), (*value).into()))
+                .collect(),
+        );
         let value = match self
             .answers
             .lock()
@@ -96,11 +104,45 @@ fn mock(answers: Vec<Answer>) -> Arc<MockHttp> {
     Arc::new(MockHttp {
         answers: Mutex::new(answers.into()),
         requests: Mutex::new(Vec::new()),
+        headers: Mutex::new(Vec::new()),
         generation: AtomicU64::new(1),
     })
 }
 fn refresh() -> Value {
-    json!({"Code":1000,"UID":"uid","AccessToken":"fresh-access","RefreshToken":"fresh-refresh","UserID":"user"})
+    json!({"Code":1000,"UID":"uid","AccessToken":"fresh-access","RefreshToken":"fresh-refresh"})
+}
+
+#[tokio::test]
+async fn guest_runtime_renewal_retains_android_headers_and_uses_guest_permissions() {
+    let (mut record, prepared, storage) = fixture();
+    record.identity = "guest".into();
+    record.api_identity =
+        super::super::ClientConfig::android(super::super::client_tests::ANDROID_CONTEXT)
+            .unwrap()
+            .identity;
+    *storage.record.lock().unwrap() = record.clone();
+    let http = mock(vec![
+        Answer::Json(refresh()),
+        Answer::Json(json!({"Code":1000,"Scopes":["vpn"]})),
+        Answer::Json(permissions()),
+        Answer::Json(
+            json!({"Code":1000,"Certificate":&*record.certificate_chain,"ExpirationTime":record.expires_at,"RefreshTime":record.refresh_at}),
+        ),
+    ]);
+    prepare_with_http(&prepared, http.clone(), &CancellationToken::new())
+        .await
+        .unwrap();
+    let requests = http.requests.lock().unwrap();
+    assert!(requests[1].ends_with("/auth/v4/scopes"));
+    assert!(!requests.iter().any(|url| url.ends_with("/core/v4/users")));
+    for headers in http.headers.lock().unwrap().iter() {
+        assert!(headers.contains(&("x-pm-appversion".into(), "android-vpn@5.20.74.0+apk".into())));
+        assert!(headers.contains(&(
+            "user-agent".into(),
+            "ProtonVPN/5.20.74.0 (Android 15; google Pixel 8)".into()
+        )));
+    }
+    assert_eq!(storage.record.lock().unwrap().session.user_id, "user");
 }
 fn user() -> Value {
     json!({"Code":1000,"User":{"ID":"user"}})
@@ -151,6 +193,7 @@ fn fixture() -> (Record, PreparedProfile, Arc<MemoryStore>) {
         public_key: STANDARD.encode(KeyMaterial::from_seed([8; 32]).unwrap().wireguard_public()),
     };
     let record = Record {
+        api_identity: Default::default(),
         version: 1,
         id: Uuid::new_v4(),
         revision: Uuid::new_v4(),

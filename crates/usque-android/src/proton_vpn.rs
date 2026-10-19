@@ -123,17 +123,33 @@ fn fetch<'local>(
         refresher,
     })
 }
+struct CommandContext<'a> {
+    fetch: Option<vpngate::FetchContext>,
+    expected_profile: Option<uuid::Uuid>,
+    provider_lease: Option<Arc<std::fs::File>>,
+    client_context: &'a str,
+}
 fn command(
     path: &Path,
     request: Request,
     input: Zeroizing<Vec<u8>>,
-    fetch: Option<vpngate::FetchContext>,
-    expected_profile: Option<uuid::Uuid>,
-    provider_lease: Option<Arc<std::fs::File>>,
+    context: CommandContext<'_>,
 ) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), String> {
+    let CommandContext {
+        fetch,
+        expected_profile,
+        provider_lease,
+        client_context,
+    } = context;
     #[cfg(feature = "wireguard")]
     {
         let manager = manager(path)?;
+        let client = if matches!(request.action.as_str(), "guest" | "login") {
+            usque_transport::proton_vpn::ClientConfig::android(client_context)
+                .map_err(|_| "PROTON_CLIENT_CONTEXT_INVALID")?
+        } else {
+            usque_transport::proton_vpn::ClientConfig::default()
+        };
         let config = if request.needs_network() || request.action == "forget" {
             Some(
                 ConfigStore::new(path)
@@ -191,7 +207,7 @@ fn command(
         } else {
             None
         };
-        match manager.command(request, input, context) {
+        match manager.command_with_client(request, input, context, client) {
             Ok(output) => Ok((
                 serde_json::to_vec(&output.metadata).map_err(|_| "PROTON_UNAVAILABLE")?,
                 output.sensitive_handoff,
@@ -215,6 +231,7 @@ fn command(
             fetch,
             expected_profile,
             provider_lease,
+            client_context,
         );
         Err("PROTON_UNAVAILABLE".into())
     }
@@ -240,6 +257,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativePro
     sensitive_input: JByteArray<'local>,
     warp_secret: JByteArray<'local>,
     expected_warp_profile_id: JString<'local>,
+    client_context: JString<'local>,
     service: JObject<'local>,
 ) -> jni::sys::jobjectArray {
     with_jni_env(&mut environment, |env| {
@@ -281,6 +299,14 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativePro
                     .map_err(|_| "PROTON_REQUEST_INVALID")?,
             )
             .map_err(|_| "PROTON_REQUEST_INVALID")?;
+            let client_context = client_context
+                .try_to_string(env)
+                .map_err(|_| "PROTON_CLIENT_CONTEXT_INVALID")?;
+            if client_context.len() > 32 * 1024
+                || matches!(request.action.as_str(), "guest" | "login") == client_context.is_empty()
+            {
+                return Err("PROTON_CLIENT_CONTEXT_INVALID".into());
+            }
             let expected = expected_warp_profile_id
                 .try_to_string(env)
                 .map_err(|_| "PROTON_REQUEST_INVALID")?;
@@ -316,9 +342,12 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativePro
                 &path,
                 request,
                 input,
-                fetch,
-                expected_profile,
-                provider_lease,
+                CommandContext {
+                    fetch,
+                    expected_profile,
+                    provider_lease,
+                    client_context: &client_context,
+                },
             )
         })();
         match result {

@@ -122,6 +122,159 @@ fn session() -> SessionSecrets {
 }
 
 #[tokio::test]
+async fn android_guest_uses_matching_headers_and_anonymous_session_for_credentialless() {
+    let peer = make_peer(vec![
+        Ok((
+            200,
+            json!({"Code":1000,"UID":"anonymous","AccessToken":"anon-access","RefreshToken":"anon-refresh"}),
+        )),
+        Ok((
+            200,
+            json!({"Code":1000,"UID":"guest","AccessToken":"guest-access","RefreshToken":"guest-refresh","UserID":"guest-user"}),
+        )),
+    ]);
+    let mut client = Client::new(peer.clone());
+    client.config = ClientConfig::android(super::client_tests::ANDROID_CONTEXT).unwrap();
+    workflow::guest(&mut client, &manual(), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(client.session.user_id, "guest-user");
+    let seen = peer.seen.lock().unwrap();
+    assert_eq!(seen.len(), 2);
+    for request in seen.iter() {
+        let header = |name| {
+            request
+                .headers
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(header("x-pm-appversion"), Some("android-vpn@5.20.74.0+apk"));
+        assert_eq!(
+            header("user-agent"),
+            Some("ProtonVPN/5.20.74.0 (Android 15; google Pixel 8)")
+        );
+        assert_eq!(header("x-pm-locale"), Some("ja"));
+        assert_eq!(header("content-type"), Some("application/json"));
+        assert_eq!(header("accept"), Some("application/vnd.protonmail.v1+json"));
+    }
+    assert!(seen[0].url.ends_with("/auth/v4/sessions"));
+    assert!(
+        !seen[0]
+            .headers
+            .iter()
+            .any(|(key, _)| key == "authorization" || key == "x-pm-uid")
+    );
+    assert!(seen[1].url.ends_with("/auth/v4/credentialless"));
+    assert!(
+        seen[1]
+            .headers
+            .contains(&("x-pm-uid".into(), "anonymous".into()))
+    );
+    assert!(
+        seen[1]
+            .headers
+            .contains(&("authorization".into(), "Bearer anon-access".into()))
+    );
+    for (index, request) in seen.iter().enumerate() {
+        let value: Value = serde_json::from_slice(&request.body).unwrap();
+        let device = &value["Payload"]["vpn-android-v4-challenge-0"];
+        assert_eq!(device["deviceName"], 73362205250i64);
+        assert_eq!(device["timezoneOffset"], -540);
+        assert_eq!(device["type"].is_string(), index == 1);
+    }
+}
+
+#[tokio::test]
+async fn credentialless_reuses_an_existing_anonymous_session() {
+    let peer = make_peer(vec![Ok((
+        200,
+        json!({"Code":1000,"UID":"guest","AccessToken":"guest-access","RefreshToken":"guest-refresh","UserID":"guest-user"}),
+    ))]);
+    let mut client = Client::new(peer.clone());
+    client.session = session();
+    client.session.user_id.clear();
+    workflow::guest(&mut client, &manual(), &CancellationToken::new())
+        .await
+        .unwrap();
+    let seen = peer.seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].url.ends_with("/auth/v4/credentialless"));
+}
+
+#[tokio::test]
+async fn guest_permissions_use_scopes_and_vpn_permissions_without_a_core_user_request() {
+    let peer = make_peer(vec![
+        Ok((200, json!({"Code":1000,"Scopes":["vpn"]}))),
+        Ok((
+            200,
+            json!({"Code":1000,"VPN":{"Status":1,"MaxConnect":1,"MaxTier":0},"Delinquent":0}),
+        )),
+    ]);
+    let mut client = Client::new(peer.clone());
+    client.session = session();
+    assert_eq!(
+        workflow::permissions(
+            &mut client,
+            &manual(),
+            &CancellationToken::new(),
+            Some("synthetic-user"),
+            true
+        )
+        .await
+        .unwrap(),
+        0
+    );
+    let seen = peer.seen.lock().unwrap();
+    assert!(seen[0].url.ends_with("/auth/v4/scopes"));
+    assert!(seen[1].url.ends_with("/vpn/v2"));
+}
+
+#[tokio::test]
+async fn refreshed_session_preserves_user_id_but_rejects_account_switching() {
+    for changed_user in [false, true] {
+        let mut response = json!({"Code":1000,"UID":"synthetic-uid","AccessToken":"fresh-access","RefreshToken":"fresh-refresh"});
+        if changed_user {
+            response["UserID"] = json!("another-user");
+        }
+        let peer = make_peer(vec![Ok((200, response))]);
+        let mut client = Client::new(peer);
+        client.session = session();
+        let result =
+            workflow::refresh_session(&mut client, &manual(), &CancellationToken::new()).await;
+        if changed_user {
+            assert_eq!(result.unwrap_err().reason, "protected_user_mismatch");
+        } else {
+            result.unwrap();
+            assert_eq!(client.session.user_id, "synthetic-user");
+            assert_eq!(client.session.access_token, "fresh-access");
+        }
+    }
+}
+
+#[tokio::test]
+async fn each_authentication_step_can_present_its_own_manual_challenge() {
+    let peer = make_peer(vec![
+        Ok((422, challenge())),
+        Ok((
+            200,
+            json!({"Code":1000,"UID":"anonymous","AccessToken":"anon-access","RefreshToken":"anon-refresh"}),
+        )),
+        Ok((422, challenge())),
+        Ok((
+            200,
+            json!({"Code":1000,"UID":"guest","AccessToken":"guest-access","RefreshToken":"guest-refresh","UserID":"guest-user"}),
+        )),
+    ]);
+    let mut client = Client::new(peer);
+    let io = manual();
+    workflow::guest(&mut client, &io, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(io.calls.load(Ordering::Acquire), 2);
+}
+
+#[tokio::test]
 async fn verification_retries_only_original_request_and_does_not_leak_headers() {
     for path in ["/auth/v4/sessions", "/auth/v4/credentialless"] {
         let peer = make_peer(vec![
@@ -213,7 +366,8 @@ async fn verification_is_one_attempt_and_bound_to_underlay_generation() {
 #[tokio::test]
 async fn device_verification_and_unknown_rejections_are_not_captcha() {
     for (code, reason) in [
-        (8004, "api_rejected"),
+        (8004, "session_not_allowed"),
+        (10200, "credentialless_disabled"),
         (9002, "device_verification_required"),
     ] {
         let peer = make_peer(vec![Ok((

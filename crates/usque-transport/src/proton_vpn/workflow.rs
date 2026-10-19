@@ -27,20 +27,6 @@ struct Credentials {
     password: String,
 }
 
-fn frame() -> Value {
-    // Independent identity and truthful, minimal platform facts. No Android App
-    // identity, model, attestation or fabricated human input is substituted.
-    let platform = std::env::consts::OS;
-    let description = format!("{platform}/usque {}", std::env::consts::ARCH);
-    let mut weight = 1i64;
-    let mut device = 0i64;
-    for byte in description.bytes() {
-        device += (byte as i8 as i64) * weight;
-        weight = weight * 7 % 100000007;
-    }
-    json!({"Payload": { format!("usque-{platform}-v4-challenge-0"): {"v":"2.0.7","deviceName":device} }})
-}
-
 pub(super) async fn login(
     client: &mut Client,
     mut input: Zeroizing<Vec<u8>>,
@@ -82,7 +68,7 @@ pub(super) async fn login(
     )?;
     credentials.password.zeroize();
     interaction.phase("srp_proof");
-    let mut payload = Json(frame());
+    let mut payload = Json(client.config.payload(true));
     let fields = payload
         .0
         .as_object_mut()
@@ -142,28 +128,37 @@ pub(super) async fn guest(
     interaction: &dyn Interaction,
     cancel: &CancellationToken,
 ) -> Result<(), Failure> {
-    interaction.phase("anonymous_session");
-    let response = client
-        .request(
-            Method::POST,
-            "/auth/v4/sessions",
-            &Json(frame()).0,
-            interaction,
-            cancel,
-        )
-        .await?;
-    client.accept_session(&response.0)?;
+    if !client.session.user_id.is_empty() {
+        return Err(Failure::new("unexpected_authenticated_session"));
+    }
+    if client.session.uid.is_empty() {
+        interaction.phase("anonymous_session");
+        let response = client
+            .request(
+                Method::POST,
+                "/auth/v4/sessions",
+                &Json(client.config.payload(false)).0,
+                interaction,
+                cancel,
+            )
+            .await?;
+        client.accept_session(&response.0)?;
+        if !client.session.user_id.is_empty() {
+            return Err(Failure::new("unexpected_authenticated_session"));
+        }
+    }
     interaction.phase("credentialless");
     let response = client
         .request(
             Method::POST,
             "/auth/v4/credentialless",
-            &Json(frame()).0,
+            &Json(client.config.payload(true)).0,
             interaction,
             cancel,
         )
         .await?;
     client.accept_session(&response.0)?;
+    client.session.validate()?;
     Ok(())
 }
 pub(super) async fn permissions(
@@ -171,18 +166,44 @@ pub(super) async fn permissions(
     interaction: &dyn Interaction,
     cancel: &CancellationToken,
     expected_user: Option<&str>,
+    guest: bool,
 ) -> Result<u32, Failure> {
-    interaction.phase("protected_user");
-    let response = client
-        .request(
-            Method::GET,
-            "/core/v4/users",
-            &Value::Null,
-            interaction,
-            cancel,
-        )
-        .await?;
-    let id = token(response.pointer("/User/ID"))?;
+    let id = if guest {
+        interaction.phase("session_scopes");
+        let response = client
+            .request(
+                Method::GET,
+                "/auth/v4/scopes",
+                &Value::Null,
+                interaction,
+                cancel,
+            )
+            .await?;
+        let scopes = response
+            .get("Scopes")
+            .and_then(Value::as_array)
+            .filter(|scopes| scopes.len() <= 128)
+            .ok_or_else(|| Failure::new("invalid_scopes_response"))?;
+        for scope in scopes {
+            token(Some(scope))?;
+        }
+        // Credentialless accounts have no ordinary Core user resource. Their
+        // authenticated UserID comes from the login response; VPN permission
+        // still has to be established by the protected /vpn/v2 request below.
+        client.session.user_id.clone()
+    } else {
+        interaction.phase("protected_user");
+        let response = client
+            .request(
+                Method::GET,
+                "/core/v4/users",
+                &Value::Null,
+                interaction,
+                cancel,
+            )
+            .await?;
+        token(response.pointer("/User/ID"))?
+    };
     if expected_user.is_some_and(|v| v != id)
         || !client.session.user_id.is_empty() && client.session.user_id != id
     {
@@ -227,7 +248,15 @@ pub(super) async fn refresh_session(
             cancel,
         )
         .await?;
-    client.accept_session(&response.0)
+    let expected_user = Zeroizing::new(client.session.user_id.clone());
+    client.accept_session(&response.0)?;
+    if !client.session.user_id.is_empty() && client.session.user_id != *expected_user {
+        return Err(Failure::new("protected_user_mismatch"));
+    }
+    // Core refresh responses are SessionResponse, which need not contain a
+    // UserID. Preserve the already authenticated account across token rotation.
+    client.session.user_id.clone_from(&expected_user);
+    Ok(())
 }
 pub(super) async fn certificate(
     client: &mut Client,
@@ -284,14 +313,22 @@ pub(super) async fn provision(
             return Err(Failure::new("reauthentication_required"));
         }
         client.session = record.session.clone();
+        client.config.identity = record.api_identity.clone();
         record.rotation_pending = true;
         client.checkpoint(generation, cancel)?;
         sessions.save(record)?;
         refresh_session(client, interaction, cancel).await?;
         client.checkpoint(generation, cancel)?;
-        record.max_tier =
-            permissions(client, interaction, cancel, Some(&record.session.user_id)).await?;
+        record.max_tier = permissions(
+            client,
+            interaction,
+            cancel,
+            Some(&record.session.user_id),
+            record.identity == "guest",
+        )
+        .await?;
         record.session = client.session.clone();
+        record.api_identity = client.config.identity.clone();
         record.rotation_pending = false;
         client.checkpoint(generation, cancel)?;
         sessions.save(record)?;
@@ -302,10 +339,7 @@ pub(super) async fn provision(
         } else {
             guest(client, interaction, cancel).await?;
         }
-        permissions(client, interaction, cancel, None).await?;
-        let expected = Zeroizing::new(client.session.user_id.clone());
-        refresh_session(client, interaction, cancel).await?;
-        permissions(client, interaction, cancel, Some(&expected)).await?
+        permissions(client, interaction, cancel, None, request.action == "guest").await?
     };
     interaction.phase("directory");
     let config = client
@@ -389,6 +423,7 @@ pub(super) async fn provision(
         identity: existing
             .as_ref()
             .map_or_else(|| request.action.clone(), |r| r.identity.clone()),
+        api_identity: client.config.identity.clone(),
         session: client.session.clone(),
         ed25519_seed: Zeroizing::new(keys.ed25519_seed().to_vec()),
         certificate_chain: certificate.pem,
@@ -425,6 +460,7 @@ pub(super) async fn logout(
     let sessions = SessionStore::new(parent, cipher);
     let _lease = sessions.lease(id)?;
     let mut record = sessions.load(id)?;
+    client.config.identity = record.api_identity.clone();
     record.rotation_pending = true;
     sessions.save(&record)?;
     client.session = record.session.clone();

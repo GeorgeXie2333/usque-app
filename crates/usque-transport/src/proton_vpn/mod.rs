@@ -1,6 +1,7 @@
 //! Native Proton sessions use an explicit WARP underlay and platform-encrypted
 //! persistence. Human verification is a one-use, generation-bound interaction.
 mod api;
+mod client;
 mod crypto;
 mod interaction;
 pub(crate) mod local_agent;
@@ -9,9 +10,12 @@ mod nodes;
 pub(crate) mod renew;
 mod workflow;
 pub use crate::warp_wireguard::Context;
+pub use client::ClientConfig;
 pub use manager::{Manager, Output, attach};
 #[cfg(test)]
 mod api_tests;
+#[cfg(test)]
+mod client_tests;
 #[cfg(test)]
 mod workflow_tests;
 

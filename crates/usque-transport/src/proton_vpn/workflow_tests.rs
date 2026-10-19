@@ -88,6 +88,7 @@ impl Http for Peer {
                 json!({"Code":1000,"UID":"synthetic-auth","AccessToken":"synthetic-private-fresh-access","RefreshToken":"synthetic-private-fresh-refresh","UserID":"synthetic-user"})
             }
             "/core/v4/users" => json!({"Code":1000,"User":{"ID":"synthetic-user"}}),
+            "/auth/v4/scopes" => json!({"Code":1000,"Scopes":["vpn"]}),
             "/vpn/v2" => {
                 json!({"Code":1000,"VPN":{"Status":1,"MaxConnect":1,"MaxTier":0},"Delinquent":0})
             }
@@ -217,10 +218,7 @@ async fn guest_provisions_persistent_session_profile_and_bound_runtime_credentia
     assert!(client.retired.is_empty());
     let sessions = SessionStore::new(directory.path(), &FixtureCipher);
     let record = sessions.load(id).unwrap();
-    assert_eq!(
-        record.session.access_token,
-        "synthetic-private-fresh-access"
-    );
+    assert_eq!(record.session.access_token, "synthetic-private-access");
     assert!(!record.rotation_pending);
     let chain = ChainProfileStore::new(directory.path(), &FixtureCipher);
     let profiles = chain.list().unwrap();
@@ -248,6 +246,21 @@ async fn guest_provisions_persistent_session_profile_and_bound_runtime_credentia
     assert!(prepared.proton.is_some());
     assert!(prepared.proton_persistence.is_some());
     let seen = http.seen.lock().unwrap();
+    assert_eq!(
+        seen.iter()
+            .map(|(_, path, _)| path.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "/auth/v4/sessions",
+            "/auth/v4/credentialless",
+            "/auth/v4/scopes",
+            "/vpn/v2",
+            "/vpn/v2/clientconfig",
+            "/vpn/v2/logicals?WithEntriesForProtocols=WireGuardUDP&WithState=true",
+            "/vpn/v1/certificate",
+            "/auth/v4",
+        ]
+    );
     let revoked: Vec<_> = seen
         .iter()
         .filter(|(method, _, _)| method == "DELETE")

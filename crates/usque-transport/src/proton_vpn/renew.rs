@@ -137,6 +137,7 @@ impl Lease {
                 .map_err(|_| Failure::new("invalid_saved_key"))?,
         )?;
         let mut client = Client::new(self.http.clone());
+        client.config.identity = record.api_identity.clone();
         client.session = record.session.clone();
         record.rotation_pending = true;
         self.save(&record, cancel).await?;
@@ -147,6 +148,7 @@ impl Lease {
             &NoInteraction,
             cancel,
             Some(&record.session.user_id),
+            record.identity == "guest",
         )
         .await?;
         self.check(cancel)?;

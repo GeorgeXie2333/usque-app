@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/models/app_models.dart';
@@ -178,7 +178,83 @@ class DelayedProtonEngine extends ProtonEngine {
   }
 }
 
+void _protonWidgetTest(
+  String description,
+  WidgetTesterCallback callback, {
+  TargetPlatform platform = TargetPlatform.windows,
+}) {
+  testWidgets(
+    description,
+    callback,
+    variant: TargetPlatformVariant.only(platform),
+  );
+}
+
 void main() {
+  _protonWidgetTest(
+    'Android cancellation closes the automatic puzzle and rejects a late result',
+    (tester) async {
+      final engine = PendingPuzzleEngine();
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue as guest'));
+      await tester.pump();
+      expect(engine.requests.where((r) => r['action'] == 'handoff').length, 1);
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pump();
+      expect(engine.nativeCloses, 1);
+      expect(engine.requests.where((r) => r['action'] == 'cancel').length, 1);
+      engine.answer.complete(
+        Uint8List.fromList(utf8.encode(ProtonEngine.success)),
+      );
+      await tester.pumpAndSettle();
+      expect(engine.requests.where((r) => r['action'] == 'verify'), isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    platform: TargetPlatform.android,
+  );
+
+  _protonWidgetTest(
+    'Android opens each native challenge once and resumes after manual success',
+    (tester) async {
+      final engine = PendingPuzzleEngine();
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue as guest'));
+      await tester.pump();
+      expect(engine.requests.where((r) => r['action'] == 'handoff').length, 1);
+      await tester.pump(const Duration(seconds: 2));
+      expect(engine.requests.where((r) => r['action'] == 'handoff').length, 1);
+      engine.answer.complete(
+        Uint8List.fromList(utf8.encode(ProtonEngine.success)),
+      );
+      await tester.pumpAndSettle();
+      expect(engine.requests.where((r) => r['action'] == 'verify').length, 1);
+      expect(find.text('Free server'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    platform: TargetPlatform.android,
+  );
   test('Proton fields append and keep handoffs separate from metadata', () {
     expect(
       () => encodeProtonVpnCommand({
@@ -220,7 +296,7 @@ void main() {
     expect(result.sensitiveHandoff.every((byte) => byte == 0), isTrue);
   });
 
-  testWidgets(
+  _protonWidgetTest(
     'guest puzzle and server selection prepare without applying network settings',
     (tester) async {
       final engine = ProtonEngine();
@@ -262,7 +338,7 @@ void main() {
     },
   );
 
-  testWidgets(
+  _protonWidgetTest(
     'password and TOTP use sensitive input only and clear native input controls',
     (tester) async {
       final engine = ProtonEngine();
@@ -309,7 +385,7 @@ void main() {
     },
   );
 
-  testWidgets(
+  _protonWidgetTest(
     'closing the native puzzle cancels exactly its authentication job',
     (tester) async {
       final engine = ProtonEngine()..cancelPuzzle = true;
@@ -339,39 +415,44 @@ void main() {
     },
   );
 
-  testWidgets('short TOTP stays editable without submitting an interaction', (
-    tester,
-  ) async {
-    final engine = ProtonEngine()
-      ..job = {'id': 'synthetic-job', 'state': 'waiting_totp', 'phase': 'totp'};
-    final app = await hostChain(tester, engine);
-    await tester.pumpWidget(
-      workflowHost(
-        app,
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ProtonVpnPanel(controller: app, onChanged: () {}),
+  _protonWidgetTest(
+    'short TOTP stays editable without submitting an interaction',
+    (tester) async {
+      final engine = ProtonEngine()
+        ..job = {
+          'id': 'synthetic-job',
+          'state': 'waiting_totp',
+          'phase': 'totp',
+        };
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '12345');
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
-    expect(engine.requests.where((r) => r['action'] == 'totp'), isEmpty);
-    expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('12345'), findsOneWidget);
-    expect(find.widgetWithText(TextButton, 'Cancel'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '123456');
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
-    expect(engine.inputs.single, '123456');
-    expect(find.text('Free server'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '12345');
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      expect(engine.requests.where((r) => r['action'] == 'totp'), isEmpty);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('12345'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Cancel'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '123456');
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      expect(engine.inputs.single, '123456');
+      expect(find.text('Free server'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
-  testWidgets(
+  _protonWidgetTest(
     'an interaction rejection preserves the job, profiles and polling',
     (tester) async {
       final engine = RejectedTotpEngine()
@@ -425,42 +506,54 @@ void main() {
     },
   );
 
-  testWidgets('a missing native job releases stale controls after a restart', (
-    tester,
-  ) async {
-    final engine = DelayedProtonEngine()
-      ..job = {'id': 'synthetic-job', 'state': 'waiting_totp', 'phase': 'totp'};
-    final app = await hostChain(tester, engine);
-    await tester.pumpWidget(
-      workflowHost(
-        app,
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ProtonVpnPanel(controller: app, onChanged: () {}),
+  _protonWidgetTest(
+    'a missing native job releases stale controls after a restart',
+    (tester) async {
+      final engine = DelayedProtonEngine()
+        ..job = {
+          'id': 'synthetic-job',
+          'state': 'waiting_totp',
+          'phase': 'totp',
+        };
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    engine.delayedAction = 'get';
-    await tester.pump(const Duration(seconds: 2));
-    engine.reply.complete(
-      ProtonVpnResult(
-        metadata: const {'job': null, 'profiles': [], 'error': 'job_not_found'},
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsNothing);
-    expect(find.widgetWithText(TextButton, 'Cancel'), findsNothing);
-    await tester.tap(find.text('Continue as guest'));
-    await tester.pumpAndSettle();
-    expect(engine.requests.where((r) => r['action'] == 'guest'), hasLength(1));
-    expect(find.text('Verification required'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+      );
+      await tester.pumpAndSettle();
+      engine.delayedAction = 'get';
+      await tester.pump(const Duration(seconds: 2));
+      engine.reply.complete(
+        ProtonVpnResult(
+          metadata: const {
+            'job': null,
+            'profiles': [],
+            'error': 'job_not_found',
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing);
+      expect(find.widgetWithText(TextButton, 'Cancel'), findsNothing);
+      await tester.tap(find.text('Continue as guest'));
+      await tester.pumpAndSettle();
+      expect(
+        engine.requests.where((r) => r['action'] == 'guest'),
+        hasLength(1),
+      );
+      expect(find.text('Verification required'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   for (final completed in [false, true]) {
-    testWidgets(
+    _protonWidgetTest(
       'leaving during launch ${completed ? 'preserves a completed job' : 'cancels a late live job'}',
       (tester) async {
         final engine = DelayedProtonEngine()..delayedAction = 'guest';
@@ -508,41 +601,46 @@ void main() {
     );
   }
 
-  testWidgets('a late poll does not cancel an already cancelled job twice', (
-    tester,
-  ) async {
-    final engine = DelayedProtonEngine()
-      ..job = {'id': 'synthetic-job', 'state': 'waiting_totp', 'phase': 'totp'};
-    final app = await hostChain(tester, engine);
-    await tester.pumpWidget(
-      workflowHost(
-        app,
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ProtonVpnPanel(controller: app, onChanged: () {}),
+  _protonWidgetTest(
+    'a late poll does not cancel an already cancelled job twice',
+    (tester) async {
+      final engine = DelayedProtonEngine()
+        ..job = {
+          'id': 'synthetic-job',
+          'state': 'waiting_totp',
+          'phase': 'totp',
+        };
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final snapshot = Map<Object?, Object?>.of(engine.job);
-    engine.delayedAction = 'get';
-    await tester.pump(const Duration(seconds: 2));
-    await tester.pumpWidget(const SizedBox.shrink());
-    engine.reply.complete(
-      ProtonVpnResult(metadata: {'job': snapshot, 'profiles': []}),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      engine.requests.where(
-        (r) => r['action'] == 'cancel' && r['job_id'] == 'synthetic-job',
-      ),
-      hasLength(1),
-    );
-    expect(tester.takeException(), isNull);
-  });
+      );
+      await tester.pumpAndSettle();
+      final snapshot = Map<Object?, Object?>.of(engine.job);
+      engine.delayedAction = 'get';
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpWidget(const SizedBox.shrink());
+      engine.reply.complete(
+        ProtonVpnResult(metadata: {'job': snapshot, 'profiles': []}),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        engine.requests.where(
+          (r) => r['action'] == 'cancel' && r['job_id'] == 'synthetic-job',
+        ),
+        hasLength(1),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
-  testWidgets(
+  _protonWidgetTest(
     'asynchronous logout refreshes the library only after its job completes',
     (tester) async {
       final engine = PendingLogoutEngine();
@@ -594,39 +692,46 @@ void main() {
     },
   );
 
-  testWidgets('unknown API rejection shows only safe numeric codes', (
-    tester,
-  ) async {
-    final engine = ProtonEngine()
-      ..job = {
-        'id': 'failed-job',
-        'state': 'failed',
-        'phase': 'credentialless',
-        'failure': 'api_rejected',
-        'api_code': 8004,
-        'http_status': 422,
-        'server_error': 'synthetic-private-error',
-      };
-    final app = await hostChain(tester, engine);
-    await tester.pumpWidget(
-      workflowHost(
-        app,
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ProtonVpnPanel(controller: app, onChanged: () {}),
+  _protonWidgetTest(
+    'session refusal shows the failed step without opening captcha',
+    (tester) async {
+      final engine = ProtonEngine()
+        ..job = {
+          'id': 'failed-job',
+          'state': 'failed',
+          'phase': 'credentialless',
+          'failure': 'session_not_allowed',
+          'api_code': 8004,
+          'http_status': 422,
+          'server_error': 'synthetic-private-error',
+        };
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('API 8004 · HTTP 422'), findsOneWidget);
-    expect(find.textContaining('Proton rejected this request'), findsOneWidget);
-    expect(find.text('Verification required'), findsNothing);
-    expect(find.textContaining('synthetic-private'), findsNothing);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('API 8004 · HTTP 422'), findsOneWidget);
+      expect(
+        find.text('Proton does not allow this client to create a session.'),
+        findsOneWidget,
+      );
+      expect(find.text('Failed step: Create a guest account'), findsOneWidget);
+      expect(find.text('Verification required'), findsNothing);
+      expect(engine.requests.any((r) => r['action'] == 'handoff'), isFalse);
+      expect(find.textContaining('synthetic-private'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    platform: TargetPlatform.android,
+  );
 
-  testWidgets(
+  _protonWidgetTest(
     'local forget requires confirmation and refreshes on completion',
     (tester) async {
       final engine = ProtonEngine()
@@ -685,7 +790,7 @@ void main() {
   );
 
   for (final closeFromEngine in [false, true]) {
-    testWidgets(
+    _protonWidgetTest(
       'pending native puzzle closes on ${closeFromEngine ? 'terminal poll' : 'Cancel'} and ignores a late answer',
       (tester) async {
         final engine = PendingPuzzleEngine();
@@ -750,36 +855,37 @@ void main() {
     );
   }
 
-  testWidgets('cancelled cleanup uncertainty stays visible without raw errors', (
-    tester,
-  ) async {
-    final engine = ProtonEngine()
-      ..job = {
-        'id': 'cancelled-job',
-        'state': 'cancelled',
-        'phase': 'cleanup',
-        'failure': 'cleanup_failed_remote_state_unknown',
-        'server_error': 'synthetic-private-error',
-      };
-    final app = await hostChain(tester, engine);
-    await tester.pumpWidget(
-      workflowHost(
-        app,
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ProtonVpnPanel(controller: app, onChanged: () {}),
+  _protonWidgetTest(
+    'cancelled cleanup uncertainty stays visible without raw errors',
+    (tester) async {
+      final engine = ProtonEngine()
+        ..job = {
+          'id': 'cancelled-job',
+          'state': 'cancelled',
+          'phase': 'cleanup',
+          'failure': 'cleanup_failed_remote_state_unknown',
+          'server_error': 'synthetic-private-error',
+        };
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.text(
-        'Cancelled on this device. Remote session revocation could not be confirmed.',
-      ),
-      findsOneWidget,
-    );
-    expect(find.textContaining('synthetic-private'), findsNothing);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Cancelled on this device. Remote session revocation could not be confirmed.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('synthetic-private'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }

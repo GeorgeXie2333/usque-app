@@ -1,5 +1,6 @@
 use super::{
-    Context, Failure, Interaction, api, crypto::KeyMaterial, interaction::JobIo, workflow,
+    ClientConfig, Context, Failure, Interaction, api, crypto::KeyMaterial, interaction::JobIo,
+    workflow,
 };
 use crate::warp_wireguard::Outer;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -33,6 +34,10 @@ struct Running {
     io: Arc<JobIo>,
     cancel: CancellationToken,
     done: Arc<AtomicBool>,
+}
+struct RunContext {
+    underlay: Context,
+    client: ClientConfig,
 }
 pub struct Manager {
     path: PathBuf,
@@ -75,6 +80,16 @@ impl Manager {
         request: Request,
         input: Zeroizing<Vec<u8>>,
         context: Option<Context>,
+    ) -> Result<Output, ImportError> {
+        self.command_with_client(request, input, context, ClientConfig::default())
+    }
+
+    pub fn command_with_client(
+        self: &Arc<Self>,
+        request: Request,
+        input: Zeroizing<Vec<u8>>,
+        context: Option<Context>,
+        client_config: ClientConfig,
     ) -> Result<Output, ImportError> {
         request.validate()?;
         if input.len() > MAX_INPUT_BYTES
@@ -142,7 +157,10 @@ impl Manager {
                         runtime.block_on(manager.run(
                             &thread_request,
                             input,
-                            context,
+                            RunContext {
+                                underlay: context,
+                                client: client_config,
+                            },
                             &*thread_io,
                             &thread_cancel,
                         ))
@@ -230,7 +248,7 @@ impl Manager {
         &self,
         request: &Request,
         input: Zeroizing<Vec<u8>>,
-        context: Context,
+        context: RunContext,
         io: &dyn Interaction,
         cancel: &CancellationToken,
     ) -> Result<Uuid, Failure> {
@@ -238,8 +256,9 @@ impl Manager {
             .path
             .parent()
             .ok_or_else(|| Failure::new("unavailable"))?;
-        let mut outer = Box::pin(Outer::open(context, cancel)).await?;
+        let mut outer = Box::pin(Outer::open(context.underlay, cancel)).await?;
         let mut client = api::Client::new(Arc::new(outer.network.clone()));
+        client.config = context.client;
         let mut result = if request.action == "logout" {
             workflow::logout(
                 &mut client,

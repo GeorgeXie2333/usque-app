@@ -1,6 +1,6 @@
 //! Bounded Proton HTTPS over the exact WARP underlay. Error strings and response
 //! bodies never escape this module into diagnostics or ordinary status.
-use super::{Failure, Interaction};
+use super::{ClientConfig, Failure, Interaction};
 use crate::internal_network::{InternalHttpError, InternalRequest, InternalResponse};
 use crate::{InternalNetwork, RuntimeHealth};
 use async_trait::async_trait;
@@ -9,7 +9,7 @@ use http::Method;
 use serde_json::Value;
 use std::{sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
-use usque_core::proton_vpn::{API_ORIGIN, APP_VERSION, MAX_RESPONSE_BYTES, SessionSecrets};
+use usque_core::proton_vpn::{API_ORIGIN, MAX_RESPONSE_BYTES, SessionSecrets};
 use zeroize::{Zeroize, Zeroizing};
 
 pub(super) struct Json(pub Value);
@@ -72,7 +72,7 @@ pub(super) struct Client {
     pub session: SessionSecrets,
     pub retired: Vec<SessionSecrets>,
     pub uncertain: bool,
-    verification_used: bool,
+    pub config: ClientConfig,
 }
 impl Client {
     pub fn generation(&self) -> Option<u64> {
@@ -97,7 +97,7 @@ impl Client {
             session: SessionSecrets::default(),
             retired: Vec::new(),
             uncertain: false,
-            verification_used: false,
+            config: ClientConfig::default(),
         }
     }
     pub fn accept_session(&mut self, response: &Value) -> Result<(), Failure> {
@@ -149,10 +149,6 @@ impl Client {
             .send(method.clone(), path, bytes.clone(), None, cancel)
             .await?;
         if answer.0.get("Code").and_then(Value::as_u64) == Some(9001) {
-            if self.verification_used {
-                return Err(Failure::api("verification_required", 9001, answer.1));
-            }
-            self.verification_used = true;
             let details = answer
                 .0
                 .get("Details")
@@ -207,6 +203,10 @@ impl Client {
                     "device_verification_required"
                 } else if code == 8002 {
                     "invalid_credentials"
+                } else if code == 8004 {
+                    "session_not_allowed"
+                } else if code == 10200 {
+                    "credentialless_disabled"
                 } else if code == 429 || answer.1 == 429 {
                     "rate_limited"
                 } else {
@@ -237,14 +237,16 @@ impl Client {
         let mut attempts = 0;
         loop {
             let mut headers = vec![
-                ("content-type", "application/json"),
                 ("accept", "application/vnd.protonmail.v1+json"),
-                ("x-pm-appversion", APP_VERSION),
-                (
-                    "user-agent",
-                    "Usque/0.3.2 (independent Proton control-plane client)",
-                ),
+                ("x-pm-appversion", self.config.identity.app_version.as_str()),
+                ("user-agent", self.config.identity.user_agent.as_str()),
             ];
+            if !matches!(method, Method::GET | Method::DELETE) {
+                headers.push(("content-type", "application/json"));
+            }
+            if !self.config.identity.locale.is_empty() {
+                headers.push(("x-pm-locale", &self.config.identity.locale));
+            }
             let bearer = Zeroizing::new(format!("Bearer {}", self.session.access_token));
             if !self.session.uid.is_empty() {
                 headers.push(("x-pm-uid", &self.session.uid));

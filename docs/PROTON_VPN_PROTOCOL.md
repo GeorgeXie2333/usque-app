@@ -23,6 +23,19 @@ Python 实验；当前 Rust/Flutter 产品实现另见本文末尾的原生实�
 这三个固定版本是分别审查的源码快照，不声称 Android 构建实际链接了所列
 Core 或 go-srp 提交。
 
+Android 的上述快照实际声明 Core `36.8.0`，公开 Core 仓库快照则为 `36.3.1`。
+此次另外读取 Maven Central 发布的
+[auth-data 源码包](https://repo.maven.apache.org/maven2/me/proton/core/auth-data/36.8.0/auth-data-36.8.0-sources.jar)、
+[auth-domain 源码包](https://repo.maven.apache.org/maven2/me/proton/core/auth-domain/36.8.0/auth-domain-36.8.0-sources.jar)、
+[challenge-data 源码包](https://repo.maven.apache.org/maven2/me/proton/core/challenge-data/36.8.0/challenge-data-36.8.0-sources.jar)
+和 network-domain 源码包，逐字节确认本文引用的 `AuthRepositoryImpl`、
+`PostLoginLessAccountSetup`、`ChallengeFrame` 和 `HumanVerificationNeededHandler`
+与公开快照相同；这不声称整个 Core 版本相同。原生 Android 兼容版本固定为同一
+Android 快照的
+[版本元数据](https://github.com/ProtonVPN/android-app/blob/316a3d499e120bd2cab63c2cd8ac396e3ab3b24a/metadata/version_fdroid.txt)
+所列 `5.20.74.0`，采用直接 APK flavor
+的 `+apk` 后缀，版本更新须同时核对两类请求头。
+
 ## 主机、身份与 HTTP 合同
 
 生产 API 基址为 `https://vpn-api.proton.me`。Android 的 production flavor
@@ -57,16 +70,19 @@ Core 的请求头合同如下：
 及 `Accept-Encoding: identity`，尚未发送官方 Core 的 `x-pm-locale`。不能把表格理解为
 所有官方头或平台行为都已由实验实现或验证。
 
-源码没有证明服务端允许任意第三方 App ID 或平台 frame。若返回版本或平台拒绝，
-实验应记录拒绝，不改头冒充官方客户端。TLS 和主机名必须校验；显式代理失败
+源码没有证明服务端允许任意第三方 App ID 或平台 frame。Python 实验保留其独立
+身份；后续原生 Android 的兼容身份见本文原生章节。TLS 和主机名必须校验；显式代理失败
 不能自动切换直连。非 2xx 错误 JSON 和 `Retry-After` 仅在受大小限制的解析器中
 处理，不输出原正文。`Code=1000` 是普通成功；`5003/5005` 是版本错误；
 `9001` 是人工验证；`9002` 是独立的设备验证流程，不能假称普通 captcha 可解决。
 依据：[响应码](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/network/domain/src/main/kotlin/me/proton/core/network/domain/ResponseCodes.kt)。
 
-当前固定 Core 的响应码表没有 `8004` 定义。若实网返回 HTTP 422 / Code 8004，
-只能保留该阶段、状态和未知拒绝分类；不能仅凭这个数字归因为密码、游客资格、
-设备 frame、版本身份或 URL 路径问题。
+Core 的响应码表没有 `8004`，但补充核对的
+[Proton 官方客户端常量](https://github.com/ProtonMail/clients/blob/2ecb794dbc221384dc6d88840965ac144db301ad/project/mail/rust/api/mail-api-session/src/consts.rs#L108-L121)
+将它定义为 `SessionNotAllowed`，注释为客户端不被允许创建会话。原生实现保留
+失败阶段和 HTTP/API 数字并单独显示此分类，不触发人机验证；不能仅凭此码确定
+具体是哪个请求字段或服务端资格条件被拒绝。`10200` 对应游客账号无效/不可用，
+也不触发拼图。
 
 ## 会话、游客与账号
 
@@ -77,7 +93,8 @@ Core 的请求头合同如下：
 | 请求 | JSON 正文 | 关键响应/后续 |
 | --- | --- | --- |
 | `POST /auth/v4/sessions` | `Payload` 设备 frame map | `UID, AccessToken, RefreshToken, TokenType, Scopes`；这是未认证会话 |
-| `POST /auth/v4/credentialless` | `Payload` frame map | 登录响应增加 `UserID, EventID, LocalID` 等；随后读取用户与 VPN 权限 |
+| `POST /auth/v4/credentialless` | `Payload` frame map | 登录响应增加 `UserID, EventID, LocalID` 等；随后刷新 scopes，本地建立游客用户并初始化 VPN |
+| `GET /auth/v4/scopes` | 无正文 | `Scopes` 数组；游客初始化不要求普通 `/core/v4/users` 资源 |
 | `POST /auth/v4/info` | `Username, Intent`；强制 SRP 可取 `Intent: Proton` | `Version, Modulus, ServerEphemeral, Salt, SRPSession` 等 |
 | `POST /auth/v4` | `Username, ClientEphemeral, ClientProof, SRPSession, Payload` | 登录会话及 `ServerProof`；验证服务器证明后才信任登录 |
 | `POST /auth/v4/2fa` | TOTP 使用 `TwoFactorCode` | 已登录会话的权限升级，响应含 `Scopes` |
@@ -89,6 +106,10 @@ Core 的请求头合同如下：
 [CreateLoginLessSession](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/auth/domain/src/main/kotlin/me/proton/core/auth/domain/usecase/CreateLoginLessSession.kt)
 把 credentialless 登录响应建立为带 UserID 的认证会话，并注明后续还有账号初始化。
 PoC 用受保护的用户和 `/vpn/v2` 响应检查用户及权限，不能把服务器目录可见当作授权。
+官方的
+[PostLoginLessAccountSetup](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/auth/domain/src/main/kotlin/me/proton/core/auth/domain/usecase/PostLoginLessAccountSetup.kt)
+刷新 scopes，并在本地建立 `Type.CredentialLess` 用户。原生游客实现按此区分，
+随后仍必须成功验证受保护的 `/vpn/v2`。仅普通账号使用 Core 用户资源核验身份。
 
 账号路径应保持独立：官方 `PerformLogin` 直接以 `sessionId=null` 获取 SRP info
 并提交登录，不显式创建匿名会话；`SessionProviderImpl.getSession(null)` 只尝试
@@ -106,6 +127,8 @@ SRP 登录也仍须使用真实第三方身份和设备 frame，并由服务端�
 [RefreshSessionRequest](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/auth/data/src/main/kotlin/me/proton/core/auth/data/api/request/RefreshSessionRequest.kt)。
 刷新成功后保留新 UID/token，旧组合不再用于认证。网络超时后刷新是否生效可能
 未知，不能用无限重试掩盖旋转语义；清理失败必须独立报告。
+刷新响应的 `SessionResponse` 不保证含 UserID：必须保留原来已认证的 UserID；
+若响应显式返回另一个 UserID，则拒绝继续，不能在刷新过程中切换账号。
 
 Android 的 logout 可以不带 `AuthDevice` 参数；Core 另提供 `AuthDevice=0/1`
 选择是否撤销认证设备。PoC 使用前者，不删除其他设备。Core 的撤销实现会忽略错误，
@@ -135,7 +158,7 @@ attestation。官方 VPN 的 map key 为 `vpn-android-v4-challenge-0`，`v` 为
 | `deviceName` | 设备描述的整数 rolling hash，见下文 |
 | `isJailbreak` | 官方 Android root 探测结果 |
 | `preferredContentSize` | 字符串形式字体缩放值 |
-| `storageCapacity` | 设备存储容量的十进制 GB 数值 |
+| `storageCapacity` | 总字节先作整数除法换算十进制 GB，再转换为 Double |
 | `isDarkmodeOn` | 是否使用深色主题 |
 | `keyboards` | 已启用输入法 package 名称列表 |
 
@@ -173,6 +196,9 @@ wire 合同：`RequestSessionRequest`
 [RequestSessionRequest](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/auth/data/src/main/kotlin/me/proton/core/auth/data/api/request/RequestSessionRequest.kt)、
 [LoginLessRequest](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/auth/data/src/main/kotlin/me/proton/core/auth/data/api/request/LoginLessRequest.kt)、
 [ProtonCoreConfig](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/util/kotlin/src/main/kotlin/me/proton/core/util/kotlin/ProtonCoreConfig.kt)。
+后续原生 Android 明确区分这两种 map：sessions 不带 `type`；credentialless 和
+SRP 登录的 Device frame 带上述 discriminator。此编码来自实际发布的 Core 源码，
+由共享 Kotlin/Rust 合成 fixture 检查；仍不是官方 App 的实网抓包证据。
 
 ## 人工验证交接
 
@@ -301,15 +327,25 @@ peer 选择中；这不证明宿主路由已经配置或系统防泄漏成立。
 程序不解题。验证码 WebView 使用系统网络，不继承 Rust WARP 的控制面句柄；
 两者出口一致性与服务器是否接受这一组合均尚未实测。
 
-原生认证 API、目录、证书请求只通过明确绑定的 WARP underlay。使用独立
-`external-vpn@0.1.0` 身份和 `usque-<实际系统>-v4-challenge-0` frame，设备
-描述只含实际系统和架构；不复制 Android 应用身份或编造交互、硬件及 attestation。
-服务端对这个第三方适配的接受性没有得到证明。支持 SRP v4、单独 TOTP、真实
-9001 触发的一次人工验证重试；9002 和未知 8004 不进入普通拼图流程。
+原生认证 API、目录、证书请求只通过明确绑定的 WARP underlay。Android 使用
+固定 APK 兼容标识 `android-vpn@5.20.74.0+apk`，电视使用 `android_tv-vpn` 前缀。
+User-Agent 同步为 `ProtonVPN/5.20.74.0 (Android <实际系统版本>; <实际品牌> <实际型号>)`，
+按官方规则把非 ASCII 的 UTF-16 单元替换为 `?`；`x-pm-locale` 取实际默认语言。
+设备 frame 通过私有 JNI 从真实 Android 语言、时区、设备描述、字体、容量、
+主题、输入法及 root 检查结果生成，不构造虚假硬件、输入事件或 attestation。
+完整设备 frame 仅在内存中用于当前任务；续期所需的请求身份只随加密会话保存，
+不出现在普通状态/诊断中。旧版会话缺少身份字段时保持原有默认头。
+非 Android 平台继续使用独立 `external-vpn@0.1.0` 身份和真实系统/架构 frame。
+这些请求格式调整不证明真实服务端已接受此客户端。支持 SRP v4、单独 TOTP、
+每个实际返回 9001 的请求各自进行一次人工验证重试；9002 和 8004 不进入普通拼图。
+验证码 WebView 保留平台浏览器默认 User-Agent，与官方 HV3 页面设置一致，
+不会把 API User-Agent 强加给网页资源。
+Android 收到带有效挑战的 9001 后自动打开原生验证窗口，同一 job/challenge 只自动
+打开一次；轮询不会重复弹出。关闭窗口或取消任务仍使迟到结果失效。
 
 | 原生状态边界 | 实现约束 |
 | --- | --- |
-| 配置准备 | 验证用户/VPN 权限，执行一次会话刷新再复核身份，选择免费候选并校验返回证书；保存会话后不撤销该会话，否则 session 模式出口会失效 |
+| 配置准备 | 游客以匿名会话申请 credentialless，检查 scopes 和 VPN 权限；普通账号验证用户资源和 VPN 权限。新登录不额外旋转 token；选择免费候选并校验返回证书，保存后不撤销正在使用的会话 |
 | 持久化 | 账号/seed/证书放入平台加密 sidecar；密码不落盘；轮转请求前持久化 pending 标记，超时或身份未知不重放旧刷新令牌 |
 | 开始连接 | 在同一 WARP underlay 上检查并按需刷新账号及证书，再启动内存 WireGuard/agent 栈；没有宿主 TCP 或 DNS 回退 |
 | 最终授权 | WireGuard 握手后通过隧道内 TCP `10.2.0.1:65432` 建立 mTLS；校验节点 SNI、VPN 专用 CA、客户端 Ed25519 密钥/证书和 agent 状态及功能确认，之后才放行业务 |

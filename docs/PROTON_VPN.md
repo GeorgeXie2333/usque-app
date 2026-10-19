@@ -35,8 +35,9 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md) and
 3. If requested, enter the six-digit **Authenticator code**. The implemented
    second factor is TOTP. Other required sign-in methods are reported as
    unsupported rather than silently skipped.
-4. If **Verification required** appears, select **Complete verification** and
-   finish the puzzle yourself in the official verification window. Closing that
+4. Android opens the official verification window automatically when Proton
+   requires it. On desktop, select **Complete verification** when
+   **Verification required** appears. Finish the puzzle yourself. Closing that
    window or canceling setup cancels the waiting job. The app does not solve,
    drag or automate the puzzle. A challenge is usable once, for the current
    job/session/outer-connection generation, for at most five minutes.
@@ -53,8 +54,8 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md) and
 
 先选择可用的 WARP 账号和支持 UDP 出口的 MASQUE 模式；L4 不支持该来源。
 在 Proton 区域选择“以游客身份继续”或“登录 Proton”，按提示输入账号密码、
-六位身份验证器验证码。需要人机验证时点击“完成人机验证”，由本人在官方窗口
-完成拼图；关闭窗口或取消设置会终止等待任务。挑战只绑定本次任务、会话和
+六位身份验证器验证码。Android 收到人机验证要求时自动打开官方窗口；桌面端点击
+“完成人机验证”，由本人完成拼图。关闭窗口或取消设置会终止等待任务。挑战只绑定本次任务、会话和
 外层连接代次，最多五分钟、使用一次。选择免费服务器，准备成功后还需在配置库
 选用并应用。目录可见、配置已保存或 WireGuard 已握手，都不等于最终授权完成。
 
@@ -157,17 +158,20 @@ replacement are implemented; real power-loss recovery has not been tested.
 This source currently selects free-tier WireGuard UDP candidates. Guest
 eligibility, third-party client acceptance, device verification, other second
 factors, the real local-agent protocol and platform cleanup still need live
-validation. API 8004 has no confirmed meaning in the pinned response-code
-reference and is not treated as a CAPTCHA challenge. Only the actual human-
-verification response starts the puzzle flow. No account or platform rejection
-is bypassed by impersonating an official app.
+validation. API 8004 means the client is not allowed to create a session; the
+failed step and numeric codes are shown without opening a CAPTCHA window.
+Only an actual human-verification response starts the puzzle flow. Android
+uses a pinned Android APK compatibility profile, matching API/User-Agent
+versions and actual device facts, as described in the protocol reference.
 
 会话、Ed25519 seed 和证书保存在平台加密私有侧车中，与普通设置分离；密码不保存，
 验证码、挑战 URL/token、HTTP 原文及私钥不进入普通状态和诊断。证书校验绑定本地
 公钥和 API/X.509 时间；1–8 张不同 DER 的链只作严格解析，issuer 来源依赖经过
 TLS 校验的 API，不另行认证。轮转前写持久化标记；Unix 目录同步和 Windows
 write-through 替换已实现，但真实断电恢复未实测。免费游客资格、第三方身份接受性、
-其他二次验证、真实 local-agent 和平台清理仍需实网验证；未知 8004 不会被当作拼图。
+其他二次验证、真实 local-agent 和平台清理仍需实网验证。8004 表示不允许客户端
+创建会话，界面显示失败步骤和数字代码，不会当作拼图。Android 按固定 APK 兼容
+版本统一 API 标识和 User-Agent，设备字段取真实系统信息，细节见协议参考。
 
 See the [chain guide](CHAIN_PROXY.md), [pinned protocol reference](PROTON_VPN_PROTOCOL.md)
 and [native validation record](PROTON_VPN_NATIVE_VALIDATION.md). The standalone

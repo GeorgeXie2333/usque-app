@@ -5,6 +5,12 @@ This is the native implementation record;
 it does not replace the [historical Python PoC record](PROTON_VPN_POC_VALIDATION.md).
 The [product guide](PROTON_VPN.md) describes current behavior and limitations.
 
+The first candidate below predates the Android request alignment. The final
+section records that follow-up separately; its source fingerprint and results
+must not be confused with the earlier candidate. The earlier unknown-8004
+classification is superseded by the official `SessionNotAllowed` definition
+documented in the [protocol reference](PROTON_VPN_PROTOCOL.md).
+
 | Candidate identity | Value |
 | --- | --- |
 | Baseline commit | `cf4c4c517649ed2e8f194c8217e0fb7f8714d5a2` |
@@ -230,3 +236,76 @@ actual 9001 human-verification challenge. No native login success, guest
 eligibility, third-party identity acceptance or end-to-end tunnel has yet been
 established by this record. Protected-runner work remains optional and must obey
 the repository's isolation rules; its absence is never a pass.
+
+## Android request alignment follow-up / Android 请求对齐补充
+
+Date: 2026-10-19. Baseline: `8f23987f9699cb20be1bf3c7355d4a4c45c52ff2` plus
+the uncommitted changes. The complete local source manifest is
+`/tmp/usque-proton-android-alignment-source-manifest.json`: 5,509 entries,
+1,086,111 bytes, SHA-256
+`b0193fed9a6751e5b5e5053ea014f6c4234f9dbb5252b64198be6ba08ba32692`.
+It covers the sorted union of tracked and nonignored untracked files, including
+deletions, symlink targets, and regular-file SHA-256/length/executable flags.
+Only this validation document is excluded to avoid a recursive fingerprint;
+the canonical version-1 JSON has sorted keys, compact separators, ASCII escapes
+and one final newline. SDKs, signing material, generated JNI and build output
+remain ignored. This is local workstation evidence, not a staged release or
+protected-runner result.
+
+The Android profile follows the pinned Android `5.20.74.0` direct-APK identity
+and the actual published Core `36.8.0` authentication/challenge sources, as
+identified in the protocol reference. AppVersion and API User-Agent share the
+same compatibility version. Language, timezone, model hash, font, storage,
+theme, keyboards and root observations come from Android through private JNI.
+The Kotlin encoder and Rust consumer use the same synthetic device fixture.
+Sessions use the concrete Device payload; credentialless/SRP Device payloads
+include the sealed-frame discriminator. TV client identity and UTF-16-to-ASCII
+User-Agent replacement have deterministic tests.
+
+The guest workflow verifies the credentialless response's UserID, refreshes
+scopes, and checks the protected VPN permissions without requesting an ordinary
+Core user. New logins no longer rotate tokens unnecessarily. Renewal preserves
+the authenticated UserID when SessionResponse omits it and rejects a changed
+UserID. Each API request can present its own manual challenge, with one exact
+retry. Android automatically opens each job/challenge once; polling does not
+reopen it, and cancellation invalidates late answers. API 8004 and 10200 remain
+distinct from a 9001 challenge; errors show an allowlisted failed step and
+numeric codes without raw response bodies.
+
+The commands below completed with the repository's pinned SDKs. Flutter commands
+run in `apps/usque_gui`; Gradle commands run in its `android` directory; other
+commands run at the repository root. Local logs use the
+`/tmp/usque-proton-align-` prefix.
+
+| Exact check | Result |
+| --- | --- |
+| `cargo fmt --all --check` | passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | passed |
+| `cargo test --workspace --all-targets --locked` | passed: 1,763 tests; 3 existing ignores |
+| `flutter pub get --enforce-lockfile` | passed |
+| `dart format --output=none --set-exit-if-changed lib test` | passed: 265 files, no changes |
+| `flutter analyze --no-pub` | passed: no findings |
+| `flutter test --no-pub --exclude-tags golden` | passed: 1,140 tests; 1 existing skip |
+| `flutter test --no-pub --tags linux-golden` | passed: 19 exact comparisons |
+| `pwsh -NoProfile -File tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed |
+| `./gradlew --no-daemon :app:ktlintCheck` | passed |
+| `./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed: 476 tests, lint passed |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed |
+| `python3 tool/check_repository_policy.py` and `git diff --check` | passed |
+| `actionlint -no-color` | passed |
+| Windows Rust, Flutter, runner and exact Windows golden gates | not_run: Linux workstation |
+| Real Android authentication, puzzle, JNI lifecycle and final VPN exit | not_run: no device/emulator or live authentication used |
+
+Cleanup and privacy review: the existing WARP binding, cross-process lifecycle
+lease, token-rotation journal, session revocation and fail-closed tunnel gates
+remain enforced. Guest permission checks still require valid authenticated
+session fields and successful protected VPN authorization. API header identity
+is stored only with the encrypted owned session for renewal/logout; the full
+device frame is neither persisted nor exposed in status/diagnostics. Passwords,
+TOTP and verification tokens retain their private, cleared channels. The
+verification browser retains its normal platform User-Agent and system network
+path; matching its egress to the WARP API remains unverified. Device verification
+9002 and other unsupported authentication modes still stop explicitly. No
+installation, signing, host-network mutation or protected-runner execution was
+performed. These offline passes do not establish real Proton acceptance.

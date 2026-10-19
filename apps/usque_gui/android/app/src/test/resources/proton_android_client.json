@@ -1,0 +1,19 @@
+{
+  "os_release": "15",
+  "brand": "google",
+  "model": "Pixel 8",
+  "locale": "ja",
+  "is_tv": false,
+  "device": {
+    "appLang": "ja",
+    "timezone": "Asia/Tokyo",
+    "deviceName": 73362205250,
+    "regionCode": "JP",
+    "timezoneOffset": -540,
+    "isJailbreak": false,
+    "preferredContentSize": "1.25",
+    "storageCapacity": 128.0,
+    "isDarkmodeOn": true,
+    "keyboards": ["com.example.synthetic.keyboard"]
+  }
+}

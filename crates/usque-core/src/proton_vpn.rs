@@ -14,6 +14,49 @@ pub const MAX_CERTIFICATE_BYTES: usize = 48 * 1024;
 pub const API_ORIGIN: &str = "https://vpn-api.proton.me";
 pub const APP_VERSION: &str = "external-vpn@0.1.0";
 
+/// Headers are kept with the encrypted session so renewal uses the same client
+/// identity. Device challenge data is never persisted with this record.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApiIdentity {
+    pub app_version: String,
+    pub user_agent: String,
+    pub locale: String,
+}
+impl Default for ApiIdentity {
+    fn default() -> Self {
+        Self {
+            app_version: APP_VERSION.into(),
+            user_agent: format!(
+                "Usque/{} (independent Proton control-plane client)",
+                env!("CARGO_PKG_VERSION")
+            ),
+            locale: String::new(),
+        }
+    }
+}
+impl ApiIdentity {
+    pub fn validate(&self) -> Result<(), ImportError> {
+        for (value, limit) in [(&self.app_version, 128), (&self.user_agent, 512)] {
+            if value.is_empty()
+                || value.len() > limit
+                || !value.bytes().all(|byte| (32..=126).contains(&byte))
+            {
+                return Err(error("invalid_client_context"));
+            }
+        }
+        if self.locale.len() > 35
+            || !self
+                .locale
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err(error("invalid_client_context"));
+        }
+        Ok(())
+    }
+}
+
 /// Serialize provider jobs with account/configuration mutations across native
 /// processes. Keep this stable sidecar outside directories cleared by logout.
 pub fn lifecycle_lease(parent: &std::path::Path) -> Result<std::fs::File, ImportError> {
@@ -247,6 +290,8 @@ pub struct Record {
     pub revision: Uuid,
     pub name: String,
     pub identity: String,
+    #[serde(default)]
+    pub api_identity: ApiIdentity,
     pub session: SessionSecrets,
     pub ed25519_seed: Zeroizing<Vec<u8>>,
     pub certificate_chain: Zeroizing<String>,
@@ -260,6 +305,7 @@ pub struct Record {
 }
 impl Record {
     pub fn validate(&self) -> Result<(), ImportError> {
+        self.api_identity.validate()?;
         self.session.validate()?;
         self.node.validate()?;
         if self.version != 1

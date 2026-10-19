@@ -107,6 +107,7 @@ impl ProfileCipher for TestCipher {
 }
 fn record() -> Record {
     Record {
+        api_identity: Default::default(),
         version: 1,
         id: Uuid::new_v4(),
         revision: Uuid::new_v4(),
@@ -140,6 +141,31 @@ fn record() -> Record {
 }
 fn path(parent: &Path, id: Uuid) -> PathBuf {
     parent.join("proton-vpn").join(format!("{id}.sealed"))
+}
+
+#[test]
+fn legacy_sessions_keep_default_headers_and_invalid_header_values_are_rejected() {
+    let mut value = serde_json::to_value(record()).unwrap();
+    value.as_object_mut().unwrap().remove("api_identity");
+    let restored: Record = serde_json::from_value(value).unwrap();
+    restored.validate().unwrap();
+    assert_eq!(restored.api_identity.app_version, APP_VERSION);
+    for identity in [
+        ApiIdentity {
+            app_version: "bad\r\nInjected: value".into(),
+            ..Default::default()
+        },
+        ApiIdentity {
+            user_agent: "bad\nagent".into(),
+            ..Default::default()
+        },
+        ApiIdentity {
+            locale: "ja\0".into(),
+            ..Default::default()
+        },
+    ] {
+        assert!(identity.validate().is_err());
+    }
 }
 fn assert_private(text: &str) {
     for value in [

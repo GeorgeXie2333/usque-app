@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -39,6 +40,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   String? _error;
   final _completedJobs = <String>{};
   final _cancelledJobs = <String>{};
+  final _automaticVerifications = <(String, String)>{};
   final _totp = TextEditingController();
   AppController get _app => widget.controller;
   String p(String key) => _app.strings.proton(key);
@@ -98,6 +100,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     'profile_in_use' => 'profile_in_use',
     'session_busy' => 'session_busy',
     'api_rejected' => 'api_rejected',
+    'session_not_allowed' => 'session_not_allowed',
+    'credentialless_disabled' => 'credentialless_disabled',
     'verification_expired' || 'interaction_expired' => 'expired',
     'underlay_changed' => 'underlay_changed',
     'cleanup_failed_remote_state_unknown' ||
@@ -206,7 +210,26 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       input?.fillRange(0, input.length, 0);
       done.complete();
       if (identical(_commandDone, done)) _commandDone = null;
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+        _openAndroidVerification();
+      }
+    }
+  }
+
+  void _openAndroidVerification() {
+    if (defaultTargetPlatform != TargetPlatform.android ||
+        _state != 'waiting_verification' ||
+        _busy ||
+        _verifying ||
+        _error != null) {
+      return;
+    }
+    final job = _job['id'], challenge = _job['challenge_id'];
+    if (job is String &&
+        challenge is String &&
+        _automaticVerifications.add((job, challenge))) {
+      unawaited(_verify());
     }
   }
 
@@ -321,6 +344,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           _verifying = false;
           _handoffLoading = false;
         });
+        _openAndroidVerification();
       }
     }
   }
@@ -471,6 +495,24 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
                     : _failure(_job['failure'])),
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
+        if (_job['phase'] case final String phase
+            when _state == 'failed' &&
+                const {
+                  'anonymous_session',
+                  'credentialless',
+                  'session_scopes',
+                  'protected_user',
+                  'vpn_permissions',
+                  'session_refresh',
+                  'srp_info',
+                  'srp_proof',
+                  'totp',
+                  'directory',
+                  'certificate',
+                  'secure_storage',
+                  'session_revoke',
+                }.contains(phase))
+          Text('${p('stage')}: ${p('stage_$phase')}'),
         if (_state == 'failed' &&
             (_job['api_code'] is int || _job['http_status'] is int))
           Text(
