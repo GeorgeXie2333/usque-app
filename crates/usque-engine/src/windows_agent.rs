@@ -12,6 +12,8 @@ use std::{
     time::Duration,
 };
 #[cfg(test)]
+use usque_core::IpPolicy;
+#[cfg(test)]
 use usque_transport::SPLIT_DNS_IPV4;
 
 use async_trait::async_trait;
@@ -25,8 +27,8 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use usque_core::{
-    IpPolicy, Profile, REGISTRATION_API_HOST, REGISTRATION_API_PORT, TransportFailure,
-    TransportFailureCode, TransportStage,
+    Profile, REGISTRATION_API_HOST, REGISTRATION_API_PORT, TransportFailure, TransportFailureCode,
+    TransportStage,
 };
 use usque_ipc::{
     agent_v1::{
@@ -4231,6 +4233,7 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
         agent_response::Payload::DirectEgressLease(_) => "direct_egress_lease",
         agent_response::Payload::PlatformState(_) => "platform_state",
         agent_response::Payload::DeviceLease(_) => "device_lease",
+        agent_response::Payload::LinuxTunSession(_) => "linux_tun_session",
     }
 }
 

@@ -36,10 +36,28 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  Future<ChainProfileResult> chainProfile(Map<String, Object?> request) {
+  int _chainLibraryRevision = 0;
+  int get chainLibraryRevision => _chainLibraryRevision;
+
+  Future<ChainProfileResult> chainProfile(Map<String, Object?> request) async {
     final engine = _engine;
     if (engine is ChainProfileClient) {
-      return (engine as ChainProfileClient).chainProfile(request);
+      final generation = _dataGeneration;
+      final mutatesLibrary = const {
+        'import',
+        'rename',
+        'remove',
+        'credentials',
+      }.contains(request['action']);
+      final result = await (engine as ChainProfileClient).chainProfile(request);
+      if (mutatesLibrary &&
+          result.error == null &&
+          !_disposed &&
+          generation == _dataGeneration) {
+        _chainLibraryRevision++;
+        _notifyListeners();
+      }
+      return result;
     }
     throw const EngineException(
       'CHAIN_PROFILE_UNAVAILABLE',
