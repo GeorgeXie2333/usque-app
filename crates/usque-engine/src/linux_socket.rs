@@ -182,7 +182,7 @@ impl LinuxSocketProtector {
                 Some(descriptor),
             )
             .await
-            .map_err(|_| "Linux exact-egress authorization failed")?
+            .map_err(|error| authorization_error(error, "Linux exact-egress authorization failed"))?
             .0;
         match response {
             agent_response::Payload::DirectEgressLease(lease)
@@ -385,7 +385,10 @@ impl SocketProtector for LinuxSocketProtector {
         candidates: &[SocketAddr],
         generation: u64,
     ) -> Result<(), String> {
-        if self.preset.as_deref() != Some(host) || self.network_generation() != Some(generation) {
+        if self.preset.as_deref() != Some(host) {
+            return Err("preset hostname does not match the active policy".into());
+        }
+        if self.network_generation() != Some(generation) {
             return Err(STALE_GENERATION_REASON.into());
         }
         let result = self
@@ -402,18 +405,90 @@ impl SocketProtector for LinuxSocketProtector {
                 None,
             )
             .await
-            .map_err(|_| "preset endpoint authorization failed")?;
-        if !matches!(result.0, agent_response::Payload::Empty(_))
-            || self.network_generation() != Some(generation)
-        {
+            .map_err(|error| authorization_error(error, "preset endpoint authorization failed"))?;
+        if !matches!(result.0, agent_response::Payload::Empty(_)) {
+            return Err("preset endpoint acknowledgement mismatch".into());
+        }
+        if self.network_generation() != Some(generation) {
             return Err(STALE_GENERATION_REASON.into());
         }
         Ok(())
     }
 }
+fn authorization_error(error: std::io::Error, denied: &'static str) -> String {
+    if crate::linux_agent::is_stale_generation(&error) {
+        STALE_GENERATION_REASON.into()
+    } else {
+        denied.into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn agent_generation_refusals_retry_but_other_refusals_stay_terminal() {
+        use usque_ipc::{
+            agent_v1::{AgentRequest, AgentResponse},
+            decode_frame, encode_frame, unix_fd,
+        };
+
+        for code in [
+            "linux_stale_generation",
+            "linux_permission_denied",
+            "linux_operation_failed",
+        ] {
+            let (agent, server) = LinuxAgentClient::fake_pair();
+            let worker = std::thread::spawn(move || {
+                let peer = unix_fd::peer_credentials(&server).unwrap();
+                let frame = unix_fd::receive_frame(&server, peer).unwrap();
+                let request: AgentRequest = decode_frame(frame.bytes.into()).unwrap();
+                assert!(matches!(
+                    request.payload,
+                    Some(agent_request::Payload::SetPresetEndpointCandidates(_))
+                ));
+                let response = AgentResponse {
+                    request_id: request.request_id,
+                    error: Some(agent_v1::AgentError {
+                        code: code.into(),
+                        // Identical text and retry hints cannot turn a permission
+                        // refusal into evidence of a network-generation change.
+                        message: "Linux egress generation changed".into(),
+                        retryable: true,
+                    }),
+                    payload: None,
+                };
+                unix_fd::send_frame(&server, &encode_frame(&response).unwrap(), None::<&OwnedFd>)
+                    .unwrap();
+            });
+            let physical = agent_v1::PhysicalNetworkInfo {
+                generation: 7,
+                ..Default::default()
+            };
+            let protector = LinuxSocketProtector {
+                agent,
+                operation: Uuid::new_v4(),
+                updates: watch::channel(observation(&physical)).0,
+                physical: RwLock::new(physical),
+                registration: Vec::new(),
+                automatic: false,
+                preset: Some("us.v6.free.orangesky.dev".into()),
+                profile: Uuid::new_v4().to_string(),
+                retained_device: std::sync::Mutex::new(None),
+            };
+            let error = protector
+                .authorize_endpoint_preset_candidates("us.v6.free.orangesky.dev", &[], 7)
+                .await
+                .unwrap_err();
+            assert_eq!(
+                error == STALE_GENERATION_REASON,
+                code == "linux_stale_generation"
+            );
+            worker.join().unwrap();
+        }
+    }
+
     #[test]
     fn physical_observations_keep_generation_and_both_families() {
         let network = agent_v1::PhysicalNetworkInfo {

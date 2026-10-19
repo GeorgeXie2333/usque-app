@@ -22,6 +22,27 @@ use uuid::Uuid;
 const SOCKET_PATH: &str = "/run/usque/agent.sock";
 const PROTOCOL_VERSION: u32 = 3;
 
+#[derive(Debug)]
+struct RemoteAgentError {
+    code: String,
+    message: String,
+}
+
+impl std::fmt::Display for RemoteAgentError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Linux Agent {}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for RemoteAgentError {}
+
+pub(crate) fn is_stale_generation(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .and_then(|error| error.downcast_ref::<RemoteAgentError>())
+        .is_some_and(|error| error.code == "linux_stale_generation")
+}
+
 struct Connection {
     socket: UnixStream,
     peer: unix_fd::PeerCredentials,
@@ -227,10 +248,10 @@ impl LinuxAgentClient {
                     }
                 };
             if let Some(error) = message.error {
-                return Err(io::Error::other(format!(
-                    "Linux Agent {}: {}",
-                    error.code, error.message
-                )));
+                return Err(io::Error::other(RemoteAgentError {
+                    code: error.code,
+                    message: error.message,
+                }));
             }
             let payload = message
                 .payload
