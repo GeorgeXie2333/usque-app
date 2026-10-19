@@ -95,12 +95,28 @@ internal class ProtonVerificationSession private constructor(
                 const receive = e => {
                   if (used) return;
                   if (!same()) { stop(); return; }
-                  if (e.origin !== origin || e.source !== window || typeof e.data !== 'string' || e.data.length > 32768) return;
-                  let data; try { data = JSON.parse(e.data); } catch (_) { return; }
+                  if (e.origin !== origin) return;
+                  let message;
+                  if (e.source === window && typeof e.data === 'string' && e.data.length <= 32768) {
+                    message = e.data;
+                  } else if (s.methods.includes('captcha') && e.data && typeof e.data === 'object' && !Array.isArray(e.data) && e.data.type === 'pm_captcha' && typeof e.data.token === 'string' && /^[\x21-\x7e]{1,8192}$/.test(e.data.token)) {
+                    // The official embedded page forwards this token unchanged.
+                    // Receive it directly as well, before relying on its second
+                    // asynchronous top-level dispatch. Never expose a JS interface.
+                    const frames = Array.from(document.querySelectorAll('iframe')).filter(frame => {
+                      try {
+                        const u = new URL(frame.src), values = u.searchParams.getAll('Token'), force = u.searchParams.getAll('ForceWebMessaging');
+                        return u.origin === origin && !u.username && !u.password && u.pathname === '/core/v4/captcha' && !u.hash && values.length === 1 && values[0] === tokens[0] && force.length === 1 && force[0] === '1';
+                      } catch (_) { return false; }
+                    });
+                    if (frames.length !== 1 || e.source !== frames[0].contentWindow) return;
+                    message = JSON.stringify({type:'HUMAN_VERIFICATION_SUCCESS',payload:{token:e.data.token,type:'captcha'}});
+                  } else { return; }
+                  let data; try { data = JSON.parse(message); } catch (_) { return; }
                   if (!data || data.type !== 'HUMAN_VERIFICATION_SUCCESS' || !data.payload || !s.methods.includes(data.payload.type) || typeof data.payload.token !== 'string' || !/^[\x21-\x7e]{1,8192}$/.test(data.payload.token)) return;
                   used = true; clearTimeout(timer); window.removeEventListener('message', receive);
-                  // Native closes both ports after receiving this message.
-                  port.postMessage(e.data);
+                  // Native retains and closes only its own message-port endpoint.
+                  port.postMessage(message);
                 };
                 const timer = setTimeout(stop, Math.max(0, s.expires-Date.now()));
                 window.addEventListener('message', receive);

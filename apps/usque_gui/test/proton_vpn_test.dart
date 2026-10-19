@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:usque/core/proton_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
@@ -137,6 +138,21 @@ class PendingPuzzleEngine extends ProtonEngine {
   }
 }
 
+class CleaningPuzzleEngine extends PendingPuzzleEngine {
+  @override
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) async {
+    if (command['action'] == 'cancel') {
+      requests.add(Map.of(command));
+      job = {'id': 'synthetic-job', 'state': 'running', 'phase': 'cleanup'};
+      return ProtonVpnResult(metadata: {'job': job});
+    }
+    return super.protonVpn(command, sensitiveInput: sensitiveInput);
+  }
+}
+
 class RejectedTotpEngine extends ProtonEngine {
   bool rejectNext = true;
 
@@ -191,6 +207,73 @@ void _protonWidgetTest(
 }
 
 void main() {
+  for (final failure in ['BRIDGE', 'EXPIRED', 'unknown']) {
+    final expired = failure == 'EXPIRED';
+    _protonWidgetTest(
+      'Android verification $failure survives cleanup polling without reporting user cancellation',
+      (tester) async {
+        final engine = CleaningPuzzleEngine();
+        final app = await hostChain(tester, engine);
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ProtonVpnPanel(controller: app, onChanged: () {}),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Continue as guest'));
+        await tester.pump();
+        engine.answer.completeError(
+          EngineException(
+            failure == 'unknown'
+                ? 'synthetic-private-unrecognized-code'
+                : 'PROTON_VERIFICATION_$failure',
+            'synthetic-private-window-error',
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(engine.requests.where((r) => r['action'] == 'cancel').length, 1);
+        expect(engine.requests.where((r) => r['action'] == 'verify'), isEmpty);
+        engine.job = {
+          'id': 'synthetic-job',
+          'state': 'cancelled',
+          'phase': 'cleanup',
+          if (!expired) 'failure': 'cleanup_failed_remote_state_unknown',
+        };
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pumpAndSettle();
+        expect(find.text('Setup cancelled'), findsNothing);
+        if (failure == 'unknown') {
+          expect(find.textContaining('Verification error:'), findsNothing);
+        } else {
+          expect(find.text('Verification error: $failure'), findsOneWidget);
+        }
+        expect(
+          find.text(
+            expired
+                ? app.strings.proton('expired')
+                : app.strings.proton('verification_failed'),
+          ),
+          findsOneWidget,
+        );
+        if (!expired) {
+          expect(
+            find.text(app.strings.proton('cancelled_remote_unknown')),
+            findsOneWidget,
+          );
+        }
+        expect(find.textContaining('synthetic-private'), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      platform: TargetPlatform.android,
+    );
+  }
+
   _protonWidgetTest(
     'Android cancellation closes the automatic puzzle and rejects a late result',
     (tester) async {

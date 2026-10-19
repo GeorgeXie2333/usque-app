@@ -409,9 +409,21 @@ frame 的严格来源、路径、唯一 `Token`、`ForceWebMessaging=1`、消息
 结果通过绑定随机 nonce 的 suppressed alert 交给
 [ScriptDialogOpening](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2settings?view=webview2-1.0.4258.31#get_aredefaultscriptdialogsenabled)
 窄桥；默认对话框关闭，不向用户显示或记录正文。原生再次校验 alert 来源 URL、
-当前顶层挑战与 nonce，并在同步回调返回后关闭窗口。Linux 和 Android 仍使用
-官方 `web` 分支的顶层 postMessage；Android 只持有 native message-port 端，
-不再次操作已转移给浏览器的端点。
+当前顶层挑战与 nonce，并在同步回调返回后关闭窗口。Linux 使用官方 `web`
+分支的顶层 postMessage。Android 同时接收该顶层消息和上文所述的原始
+`pm_captcha` frame 结果；直接路径也要求唯一 iframe、严格来源、路径、
+challenge token、`ForceWebMessaging=1`、消息 source、当前顶层挑战 SHA-256
+和期限均匹配，且服务端确实允许 CAPTCHA。两条路径共享一次性状态，不拼接
+或变换结果 token。Android 只持有 native message-port 端，不再次操作已转移
+给浏览器的端点，也不增加暴露给子 frame 的 JavaScript interface。
+
+Android 先锁定有效结果的私有副本，离开 WebMessage 回调后再销毁 WebView、
+回传该结果并清零副本；清理不能把成功改成取消，旧窗口回调不能关闭新窗口。
+弹窗外部触摸不取消拼图，意外的顶层导航仍被阻止。
+显式取消按钮或返回键产生取消结果；过期、TLS、桥接及生命周期失败使用固定
+错误代码，界面在后续清理轮询中保留该失败和允许列表内的错误代码，并独立
+展示撤销结果未知的状态。异常原文及未知错误代码不会显示。
+这些回归检查不证明用户设备上此次关闭的具体触发原因。
 
 [离线永久回归](../tool/test_proton_native_bridge.py)使用独立接口 fixture 表达
 上述平台选择和 frame 结果路由，执行实际生成的监听代码，保留 Windows 空分支

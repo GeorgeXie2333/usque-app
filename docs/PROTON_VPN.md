@@ -37,8 +37,11 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md) and
    unsupported rather than silently skipped.
 4. Android opens the official verification window automatically when Proton
    requires it. On desktop, select **Complete verification** when
-   **Verification required** appears. Finish the puzzle yourself. Closing that
-   window or canceling setup cancels the waiting job. The app does not solve,
+   **Verification required** appears. Finish the puzzle yourself; the window
+   closes and setup resumes when its result is accepted. Use **Cancel** or
+   Android Back to abandon verification. Android reports window failures as
+   errors, separately from cancellation, and shows a verification error code
+   when available. The app does not solve,
    drag or automate the puzzle. A challenge is usable once, for the current
    job/session/outer-connection generation, for at most five minutes.
 5. Choose a server from **Choose a free server**. The list contains eligible
@@ -55,7 +58,10 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md) and
 先选择可用的 WARP 账号和支持 UDP 出口的 MASQUE 模式；L4 不支持该来源。
 在 Proton 区域选择“以游客身份继续”或“登录 Proton”，按提示输入账号密码、
 六位身份验证器验证码。Android 收到人机验证要求时自动打开官方窗口；桌面端点击
-“完成人机验证”，由本人完成拼图。关闭窗口或取消设置会终止等待任务。挑战只绑定本次任务、会话和
+“完成人机验证”，由本人完成拼图。成功结果被接收后窗口自动关闭并继续设置。
+点击“取消”或 Android 返回键会终止等待任务；Android 窗口内部失败单独显示错误，
+并在可用时显示验证错误代码。
+挑战只绑定本次任务、会话和
 外层连接代次，最多五分钟、使用一次。选择免费服务器，准备成功后还需在配置库
 选用并应用。目录可见、配置已保存或 WireGuard 已握手，都不等于最终授权完成。
 
@@ -88,6 +94,9 @@ Downloads, new windows, permissions and TLS bypasses are denied. Windows needs
 an already installed compatible WebView2 runtime; Usque does not install one.
 Linux loads a compatible system WebKitGTK 4.1 or 4.0 library when available;
 otherwise verification is unavailable. Android uses the platform WebView.
+Android ignores taps outside the dialog so a puzzle drag cannot cancel setup.
+It accepts the bound CAPTCHA iframe result directly as well as the official
+top-level success message; either path can finish the challenge only once.
 Windows currently offers CAPTCHA only: it binds the official embedded captcha
 iframe's result, since the observed page's WebView2 branch does not emit a
 top-level success message. A server offering no CAPTCHA is reported unavailable.
@@ -100,7 +109,9 @@ WebView2 runtime，不自动安装浏览器；目前仅支持官方嵌入拼图 
 结果，服务端未提供 CAPTCHA 时显示不可用。Linux 使用临时 WebKit context，
 按需加载系统 WebKitGTK 4.1／4.0，缺少兼容库即显示不可用。Android 使用应用默认
 WebView profile，在正常打开／关闭时清理 cookies 和 WebStorage，并非独立临时
-profile，也不保证进程死亡后已清理。Linux 界面预览不能启动该流程。
+profile，也不保证进程死亡后已清理。Android 不因触碰弹窗外部而取消设置；
+同时接收绑定本次挑战的 CAPTCHA iframe 结果和官方顶层成功消息，只有首次有效
+结果可以完成验证。Linux 界面预览不能启动该流程。
 
 ## Refresh, cancel and remove / 续期、取消与移除
 

@@ -26,6 +26,7 @@ const _english = <String, String>{
   'underlay': 'Check your WARP account and MASQUE connection, then retry.',
   'verification_failed':
       'Verification could not be completed. Start setup again.',
+  'verification_error': 'Verification error',
   'refresh': 'Refresh authorization or change server',
   'logout': 'Sign out and delete',
   'forget': 'Forget on this device only',
@@ -93,6 +94,7 @@ const _chinese = <String, String>{
   'rate_limited': 'Proton 限制了此请求，请稍后再试。',
   'underlay': '请检查 WARP 账号和 MASQUE 连接后重试。',
   'verification_failed': '未能完成验证，请重新开始设置。',
+  'verification_error': '验证错误',
   'refresh': '刷新授权或更换服务器',
   'logout': '退出登录并删除',
   'forget': '仅忘记本机',

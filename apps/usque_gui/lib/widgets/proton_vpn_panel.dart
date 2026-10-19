@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/proton_strings.dart';
+import '../services/engine_client.dart' show EngineException;
 import '../state/app_controller.dart';
 import 'common.dart';
 import 'usque_dialog.dart';
@@ -38,6 +39,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   Object? _verificationJob, _verificationChallenge;
   Completer<void>? _commandDone;
   String? _error;
+  (Object, String, String?)? _verificationFailure;
   final _completedJobs = <String>{};
   final _cancelledJobs = <String>{};
   final _automaticVerifications = <(String, String)>{};
@@ -45,6 +47,26 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   AppController get _app => widget.controller;
   String p(String key) => _app.strings.proton(key);
   String get _state => _job['state'] as String? ?? '';
+  String? get _verificationError {
+    final failure = _verificationFailure;
+    return failure != null && failure.$1 == _job['id']
+        ? _failure(failure.$2)
+        : null;
+  }
+
+  String get _displayState =>
+      _state == 'cancelled' && _verificationError != null ? 'failed' : _state;
+  static const _verificationCodes = {
+    'PROTON_VERIFICATION_EXPIRED',
+    'PROTON_VERIFICATION_NAVIGATION',
+    'PROTON_VERIFICATION_TLS',
+    'PROTON_VERIFICATION_BRIDGE',
+    'PROTON_VERIFICATION_LOAD',
+    'PROTON_VERIFICATION_DOWNLOAD',
+    'PROTON_VERIFICATION_HOST_STOPPED',
+    'PROTON_VERIFICATION_BUSY',
+    'PROTON_VERIFICATION_INVALID',
+  };
   static const _runningStates = {
     'running',
     'waiting_totp',
@@ -273,8 +295,16 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     }
   }
 
-  Future<void> _cancel() async {
+  Future<void> _cancel({
+    String? verificationFailure,
+    String? verificationCode,
+  }) async {
     final jobId = _job['id'];
+    setState(() {
+      _verificationFailure = jobId != null && verificationFailure != null
+          ? (jobId, verificationFailure, verificationCode)
+          : null;
+    });
     await _dismissVerification();
     await _commandDone?.future;
     if (mounted && _job['id'] == jobId && _running) {
@@ -332,10 +362,18 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           'challenge_id': challengeId,
         }, input: answer);
       }
-    } on Object {
+    } on Object catch (error) {
       if (_currentVerification(epoch, jobId, challengeId)) {
-        await _cancel();
-        if (mounted) setState(() => _error = p('verification_failed'));
+        final code =
+            error is EngineException && _verificationCodes.contains(error.code)
+            ? error.code
+            : null;
+        await _cancel(
+          verificationFailure: code == 'PROTON_VERIFICATION_EXPIRED'
+              ? 'verification_expired'
+              : 'human_verification_failed',
+          verificationCode: code?.substring('PROTON_VERIFICATION_'.length),
+        );
       }
     } finally {
       answer?.fillRange(0, answer.length, 0);
@@ -395,7 +433,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
                     ? 'working'
                     : _state == 'completed' && _job['profile_id'] == null
                     ? 'removed'
-                    : _state,
+                    : _displayState,
               ),
             ),
           ),
@@ -485,16 +523,19 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
               ),
             ],
           ),
-        if (_error != null ||
-            _state == 'failed' ||
-            _state == 'cancelled' && _remoteUnknown)
+        if (_error != null || _verificationError != null || _state == 'failed')
           Text(
-            _error ??
-                (_state == 'cancelled' && _remoteUnknown
-                    ? p('cancelled_remote_unknown')
-                    : _failure(_job['failure'])),
+            _error ?? _verificationError ?? _failure(_job['failure']),
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
+        if (_state == 'cancelled' && _remoteUnknown)
+          Text(
+            p('cancelled_remote_unknown'),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        if (_verificationFailure?.$3 case final String code
+            when _verificationError != null)
+          Text('${p('verification_error')}: $code'),
         if (_job['phase'] case final String phase
             when _state == 'failed' &&
                 const {

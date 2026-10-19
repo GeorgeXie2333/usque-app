@@ -39,8 +39,21 @@ internal class ProtonVerificationWindow(
 ) {
     private val handler = Handler(Looper.getMainLooper())
     private var dialog: AlertDialog? = null
-    private var webView: WebView? = null
-    private var result: MethodChannel.Result? = null
+
+    @Volatile private var webView: WebView? = null
+
+    @Volatile private var result: MethodChannel.Result? = null
+    private var closing = false
+
+    private enum class Failure {
+        EXPIRED,
+        NAVIGATION,
+        TLS,
+        BRIDGE,
+        LOAD,
+        DOWNLOAD,
+        HOST_STOPPED,
+    }
 
     // Only the app-owned endpoint is retained; the peer becomes browser-owned
     // after postWebMessage and must never be closed through the Java wrapper.
@@ -55,7 +68,7 @@ internal class ProtonVerificationWindow(
         object : Runnable {
             override fun run() {
                 if (!active()) {
-                    finish(null)
+                    fail(Failure.EXPIRED)
                 } else {
                     handler.postDelayed(this, 250)
                 }
@@ -70,7 +83,7 @@ internal class ProtonVerificationWindow(
         input: ByteArray,
         reply: MethodChannel.Result,
     ) {
-        if (result != null) {
+        if (result != null || closing) {
             reply.error("PROTON_VERIFICATION_BUSY", "Verification is already open.", null)
             return
         }
@@ -93,6 +106,8 @@ internal class ProtonVerificationWindow(
             WebView.setWebContentsDebuggingEnabled(false)
             val browser = WebView(activity)
             webView = browser
+
+            fun currentWindow(): Boolean = result === reply && webView === browser
             browser.isSaveEnabled = false
             browser.isSaveFromParentEnabled = false
             browser.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
@@ -108,7 +123,7 @@ internal class ProtonVerificationWindow(
                 setSupportMultipleWindows(false)
             }
             CookieManager.getInstance().setAcceptThirdPartyCookies(browser, false)
-            browser.setDownloadListener { _, _, _, _, _ -> finish(null) }
+            browser.setDownloadListener { _, _, _, _, _ -> if (currentWindow()) fail(Failure.DOWNLOAD) }
             browser.webChromeClient =
                 object : WebChromeClient() {
                     override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean = true
@@ -139,14 +154,16 @@ internal class ProtonVerificationWindow(
                         view: WebView,
                         request: WebResourceRequest,
                     ): Boolean {
+                        if (!currentWindow()) return true
                         if (!active()) {
-                            finish(null)
+                            fail(Failure.EXPIRED)
                             return true
                         }
                         if (request.isForMainFrame &&
                             !session.matches(request.url.toString())
                         ) {
-                            finish(null)
+                            // Block the attempted navigation while keeping the
+                            // bound puzzle alive, including any queued result.
                             return true
                         }
                         return false
@@ -156,7 +173,7 @@ internal class ProtonVerificationWindow(
                         view: WebView?,
                         request: WebResourceRequest,
                     ): WebResourceResponse? =
-                        if (!active() || request.url.scheme != "https" ||
+                        if (!currentWindow() || !active() || request.url.scheme != "https" ||
                             request.url.host !in setOf("verify.proton.me", "verify-api.proton.me", "account.proton.me")
                         ) {
                             WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
@@ -170,7 +187,7 @@ internal class ProtonVerificationWindow(
                         error: SslError?,
                     ) {
                         callback.cancel()
-                        finish(null)
+                        if (currentWindow()) fail(Failure.TLS)
                     }
 
                     override fun onPageStarted(
@@ -178,18 +195,24 @@ internal class ProtonVerificationWindow(
                         url: String?,
                         favicon: android.graphics.Bitmap?,
                     ) {
+                        if (!currentWindow()) return
                         generation++
                         closeNativePort()
                         installedGeneration = -1
-                        if (!active() || !session.matches(url)) finish(null)
+                        if (!active()) {
+                            fail(Failure.EXPIRED)
+                        } else if (!session.matches(url)) {
+                            fail(Failure.NAVIGATION)
+                        }
                     }
 
                     override fun onPageFinished(
                         view: WebView,
                         url: String?,
                     ) {
+                        if (!currentWindow()) return
                         if (!active()) {
-                            finish(null)
+                            fail(Failure.EXPIRED)
                             return
                         }
                         if (!session.matches(url)) return
@@ -208,7 +231,7 @@ internal class ProtonVerificationWindow(
                                     ) {
                                         if (generation != current || result == null || nativePort !== channel[0]) return
                                         if (!active()) {
-                                            finish(null)
+                                            fail(Failure.EXPIRED)
                                             return
                                         }
                                         try {
@@ -219,7 +242,7 @@ internal class ProtonVerificationWindow(
                                                 accepted.fill(0)
                                             }
                                         } catch (_: Exception) {
-                                            finish(null)
+                                            fail(Failure.BRIDGE)
                                         }
                                     }
                                 },
@@ -238,7 +261,7 @@ internal class ProtonVerificationWindow(
                                 try {
                                     if (!active() || !session.matches(view.url)) {
                                         channel[1].close()
-                                        finish(null)
+                                        fail(if (!active()) Failure.EXPIRED else Failure.NAVIGATION)
                                     } else {
                                         view.postWebMessage(
                                             WebMessage(nonce, arrayOf(channel[1])),
@@ -249,11 +272,11 @@ internal class ProtonVerificationWindow(
                                     }
                                 } catch (_: Exception) {
                                     runCatching { channel[1].close() }
-                                    finish(null)
+                                    fail(Failure.BRIDGE)
                                 }
                             }
                         } catch (_: Exception) {
-                            finish(null)
+                            fail(Failure.BRIDGE)
                         }
                     }
                 }
@@ -264,28 +287,31 @@ internal class ProtonVerificationWindow(
                     ).setTitle(
                         "Proton VPN",
                     ).setView(browser)
-                    .setNegativeButton(android.R.string.cancel) { _, _ -> finish(null) }
+                    .setNegativeButton(android.R.string.cancel) { _, _ -> if (currentWindow()) cancel() }
                     .create()
                     .also {
-                        it.setOnCancelListener { finish(null) }
+                        // A puzzle drag may leave the dialog bounds. Only the
+                        // Cancel button or Back should cancel the native job.
+                        it.setCanceledOnTouchOutside(false)
+                        it.setOnCancelListener { if (currentWindow()) cancel() }
                         it.show()
                     }
             handler.postDelayed(timeout, remaining.coerceAtMost(250))
             CookieManager.getInstance().removeAllCookies {
                 if (result === reply && webView === browser && generation == opening) {
                     if (!active() || session.expired()) {
-                        finish(null)
+                        fail(Failure.EXPIRED)
                         return@removeAllCookies
                     }
                     try {
                         browser.loadUrl(session.url)
                     } catch (_: Exception) {
-                        finish(null)
+                        fail(Failure.LOAD)
                     }
                 }
             }
         } catch (_: Exception) {
-            finish(null)
+            fail(Failure.LOAD)
         }
     }
 
@@ -295,9 +321,19 @@ internal class ProtonVerificationWindow(
         runCatching { port?.close() }
     }
 
-    fun finish(value: ByteArray?) {
+    fun cancel() = finish(null)
+
+    fun hostStopped() = fail(Failure.HOST_STOPPED)
+
+    private fun fail(reason: Failure) = finish(null, reason)
+
+    private fun finish(
+        value: ByteArray?,
+        failure: Failure? = null,
+    ) {
         val reply = result ?: return
         result = null
+        closing = true
         deadlineElapsed = 0L
         deadlineWall = 0L
         generation++
@@ -308,16 +344,31 @@ internal class ProtonVerificationWindow(
         dialog = null
         val browser = webView
         webView = null
-        // One broken platform cleanup step must not strand the pending Flutter
-        // reply or prevent the remaining local cleanup attempts.
-        runCatching { modal?.dismiss() }
-        runCatching { browser?.stopLoading() }
-        runCatching { browser?.clearHistory() }
-        runCatching { browser?.clearCache(true) }
-        runCatching { browser?.removeAllViews() }
-        runCatching { browser?.destroy() }
-        runCatching { CookieManager.getInstance().removeAllCookies(null) }
-        runCatching { WebStorage.getInstance().deleteAllData() }
-        reply.success(value)
+        // The message callback clears its input before this posted cleanup runs.
+        val response = value?.copyOf()
+        val cleanup =
+            Runnable {
+                // Leave the WebMessage callback before destroying its WebView.
+                // A failed cleanup step cannot replace the accepted result.
+                runCatching { modal?.dismiss() }
+                runCatching { browser?.stopLoading() }
+                runCatching { browser?.clearHistory() }
+                runCatching { browser?.clearCache(true) }
+                runCatching { browser?.removeAllViews() }
+                runCatching { browser?.destroy() }
+                runCatching { CookieManager.getInstance().removeAllCookies(null) }
+                runCatching { WebStorage.getInstance().deleteAllData() }
+                closing = false
+                try {
+                    if (failure == null) {
+                        reply.success(response)
+                    } else {
+                        reply.error("PROTON_VERIFICATION_${failure.name}", "Verification could not complete.", null)
+                    }
+                } finally {
+                    response?.fill(0)
+                }
+            }
+        if (!runCatching { handler.post(cleanup) }.getOrDefault(false)) cleanup.run()
     }
 }

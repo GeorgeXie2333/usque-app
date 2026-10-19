@@ -450,7 +450,7 @@ class MainActivity : FlutterFragmentActivity() {
                     handoff.fill(0)
                 }
             } else if (call.method == "cancelProtonHumanVerification") {
-                protonVerificationWindow.finish(null)
+                protonVerificationWindow.cancel()
                 result.success(null)
             } else if (call.method == "readChainConfigurations") {
                 if (pendingChainFileResult != null) {
@@ -524,7 +524,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onStop() {
-        protonVerificationWindow.finish(null)
+        protonVerificationWindow.hostStopped()
         if (::controlClient.isInitialized) {
             controlClient.setUiVisible(false)
         }
@@ -532,7 +532,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
-        protonVerificationWindow.finish(null)
+        protonVerificationWindow.hostStopped()
         pendingChainFileResult?.success(null)
         pendingChainFileResult = null
         permissionCoordinator.destroy()

@@ -309,3 +309,73 @@ path; matching its egress to the WARP API remains unverified. Device verificatio
 9002 and other unsupported authentication modes still stop explicitly. No
 installation, signing, host-network mutation or protected-runner execution was
 performed. These offline passes do not establish real Proton acceptance.
+
+## Android verification completion follow-up — 2026-10-19
+
+Baseline: `9dd4c5d94be6ad7c200f250d2d51444b054527a9`. The complete edited
+source is identified by the canonical version-1 manifest SHA-256
+`08b2dc05d9b6a46e9afbee4357cc49d7bd2d96dccc68ad221a8fad016bde1938`
+(5,509 entries; 1,086,115 bytes). It covers tracked and nonignored untracked
+files with regular-file hashes, lengths and executable flags, plus symlink
+targets; only this validation document is excluded to avoid recursion. The
+local manifest is `/tmp/usque-proton-captcha-cancel-source-manifest.json`.
+
+The user reported that Android stayed in the foreground, the official puzzle
+completed, and the window immediately disappeared with `Setup cancelled`.
+The tested APK/source identity and a native event trace were not supplied, so
+this observation does not identify the exact native callback that closed it.
+The public verification bundle was fetched again and matched the SHA-256
+already recorded in the [protocol reference](PROTON_VPN_PROTOCOL.md).
+
+Android now accepts the challenge-bound official `pm_captcha` frame result
+directly, alongside the top-level success message, using one shared one-use
+state. It blocks stray top-level navigation without cancelling the bound
+puzzle, and outside-dialog touches no longer cancel a drag. Completion keeps
+an owned result copy while WebView destruction is deferred beyond the message
+callback; the reply is delivered and the copy cleared after cleanup. Stale
+callbacks cannot act on another window. No JavaScript interface was added.
+
+Native expiry, navigation, TLS, bridge, load, download and lifecycle errors
+are distinct from explicit Cancel/Back. Flutter retains a job-bound failure
+through cleanup polling, displays only allowlisted verification error codes,
+and independently preserves remote-revocation uncertainty. Synthetic tests
+first reproduced the old `Setup cancelled` misreport and a lost top-level
+success delivery; they pass with this change. They do not reproduce the
+user's actual WebView callback sequence or establish that its cause is fixed.
+
+The final commands completed with the repository's pinned toolchains. Flutter
+commands run in `apps/usque_gui`, Gradle in its `android` directory, and all
+other commands at the repository root. The existing optional PoC virtual
+environment supplies HTTPX for the complete Python suite. Local logs use the
+`/tmp/usque-proton-captcha-cancel-` prefix.
+
+| Exact check | Result |
+| --- | --- |
+| `flutter pub get --enforce-lockfile` | passed |
+| `dart format --output=none --set-exit-if-changed lib test` | passed: 265 files, no changes |
+| `flutter analyze --no-pub` | passed: no findings |
+| `flutter test --no-pub --exclude-tags golden` | passed: 1,143 tests; 1 existing skip |
+| `flutter test --no-pub --tags linux-golden` | passed: 19 exact comparisons |
+| `flutter build linux --debug --no-pub -t lib/main_preview.dart` | passed; binary not executed |
+| `pwsh -NoProfile -File tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed |
+| `./gradlew --no-daemon :app:ktlintCheck` | passed |
+| `./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed: 476 tests, no skips; lint passed |
+| `ruff check tool` and `ruff format --check tool` | passed |
+| `python -m unittest discover -s tool -p "test_*.py" -v` | passed: 270 tests; 1 skip because desktop-file-utils is unavailable; includes 6 native bridge tests |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed |
+| `python3 tool/check_repository_policy.py` and `git diff --check` | passed |
+| `actionlint -no-color` | passed |
+| Windows Rust, Flutter, runner and exact Windows golden gates | not_run: Linux workstation |
+| Real Android WebView, touch/lifecycle behavior and Proton challenge resumption | not_run: no device/emulator used |
+
+The first complete Python run could not bind its loopback handoff fixtures
+inside the sandbox; the same suite passed with approved loopback access.
+These fixtures do not contact the real authentication service. Challenge
+origin, frame source/path/query, current token digest, allowed method, expiry
+and single consumption remain enforced. No challenge or result token, raw
+exception text, or unknown exception code enters ordinary status or logs.
+The WebView keeps its default browser User-Agent and system network path;
+its egress agreement with the WARP API remains unverified. No installation,
+emulator, live authentication, VPN start, host-network mutation or release
+packaging was performed.

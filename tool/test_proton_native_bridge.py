@@ -50,7 +50,11 @@ async function run() {
     };
     window.top = input.framed ? {} : window;
     window.parent = window;
-    window.postMessage = value => pending.push({origin:'https://verify.proton.me', source:window, data:value});
+    // The frame result and the subsequent top-level success are separate
+    // messages. Exercise a missing second delivery without changing identity.
+    window.postMessage = value => {
+        if(!input.suppress_top_level_dispatch) pending.push({origin:'https://verify.proton.me', source:window, data:value});
+    };
     // Match the exposed platform capabilities without changing the page's
     // selector. WebMessage is deliberately disabled on Windows, but the object
     // still exists: its presence must select the official empty webview branch.
@@ -233,6 +237,61 @@ class NativeBridgeTest(unittest.TestCase):
                     {"token": FIXTURE["result"], "type": "captcha"},
                 )
                 self.assertEqual(result["active"], 0)
+
+    def test_android_captcha_result_survives_an_unavailable_top_level_dispatch(self) -> None:
+        result = self.run_script("android", suppress_top_level_dispatch=True)
+        self.assertEqual(result["selected"], "web")
+        self.assertEqual(len(result["privateMessages"]), 1)
+        self.assertEqual(
+            json.loads(result["privateMessages"][0]),
+            {
+                "type": "HUMAN_VERIFICATION_SUCCESS",
+                "payload": {"token": FIXTURE["result"], "type": "captcha"},
+            },
+        )
+        self.assertEqual(result["active"], 0)
+
+    def test_android_direct_captcha_result_requires_the_bound_frame_and_live_challenge(
+        self,
+    ) -> None:
+        for change in (
+            {"origin": "https://evil.example"},
+            {"other_source": True},
+            {
+                "frame_url": "https://verify.proton.me/other?Token=synthetic-native-challenge&ForceWebMessaging=1"
+            },
+            {
+                "frame_url": "https://evil.example/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1"
+            },
+            {
+                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=wrong&ForceWebMessaging=1"
+            },
+            {
+                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&Token=wrong&ForceWebMessaging=1"
+            },
+            {
+                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=0"
+            },
+            {
+                "frame_url": "https://user@verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1"
+            },
+            {
+                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1&ForceWebMessaging=1"
+            },
+            {
+                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1#fragment"
+            },
+            {"duplicate_frame": True},
+            {"result": "invalid\r\nheader"},
+            {"framed": True},
+            {"digest_url": URL.replace(FIXTURE["challenge"], "another")},
+            {"digest_expired": True},
+            {"event_url": URL.replace(FIXTURE["challenge"], "another")},
+            {"event_expired": True},
+        ):
+            with self.subTest(change=change):
+                result = self.run_script("android", suppress_top_level_dispatch=True, **change)
+                self.assertEqual(result["privateMessages"], [])
 
     def test_windows_rejects_unbound_frame_origin_source_path_and_query(self) -> None:
         changes = [
