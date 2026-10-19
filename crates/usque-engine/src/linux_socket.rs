@@ -169,67 +169,26 @@ impl LinuxSocketProtector {
         }
         // SAFETY: fcntl returned a new, uniquely owned descriptor.
         let descriptor = unsafe { OwnedFd::from_raw_fd(duplicate) };
-        let response = self
+        let lease = self
             .agent
-            .request(
-                agent_request::Payload::AcquireDirectEgress(agent_v1::AcquireDirectEgressRequest {
+            .acquire_direct_egress(
+                agent_v1::AcquireDirectEgressRequest {
                     operation_id: self.operation.to_string(),
                     remote_endpoint: remote.to_string(),
                     protocol: u32::from(protocol.iana_number()),
                     expected_generation: generation,
                     purpose: purpose as i32,
-                }),
-                Some(descriptor),
+                },
+                descriptor,
             )
             .await
-            .map_err(|error| authorization_error(error, "Linux exact-egress authorization failed"))?
-            .0;
-        match response {
-            agent_response::Payload::DirectEgressLease(lease)
-                if lease.network_generation == generation
-                    && lease.remote_endpoint == remote.to_string()
-                    && lease.protocol == u32::from(protocol.iana_number())
-                    && lease.linux_lease_id != 0
-                    && self.network_generation() == Some(generation) =>
-            {
-                Ok(DirectEgressLease::hold_for_generation(
-                    LinuxEgressLease {
-                        agent: self.agent.clone(),
-                        operation: self.operation,
-                        generation,
-                        id: lease.linux_lease_id,
-                    },
-                    generation,
-                ))
-            }
-            _ => Err(STALE_GENERATION_REASON.into()),
+            .map_err(|error| {
+                authorization_error(error, "Linux exact-egress authorization failed")
+            })?;
+        if self.network_generation() != Some(generation) {
+            return Err(STALE_GENERATION_REASON.into());
         }
-    }
-}
-struct LinuxEgressLease {
-    agent: LinuxAgentClient,
-    operation: Uuid,
-    generation: u64,
-    id: u64,
-}
-impl Drop for LinuxEgressLease {
-    fn drop(&mut self) {
-        let agent = self.agent.clone();
-        let request = agent_v1::ReleaseLinuxDirectEgressRequest {
-            operation_id: self.operation.to_string(),
-            network_generation: self.generation,
-            lease_id: self.id,
-        };
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
-                let _ = agent
-                    .request(
-                        agent_request::Payload::ReleaseLinuxDirectEgress(request),
-                        None,
-                    )
-                    .await;
-            });
-        }
+        Ok(DirectEgressLease::hold_for_generation(lease, generation))
     }
 }
 fn observation(network: &agent_v1::PhysicalNetworkInfo) -> PhysicalNetworkSnapshot {

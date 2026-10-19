@@ -107,6 +107,29 @@ pub struct LinuxAgentClient {
     connector: Arc<dyn Fn() -> io::Result<Connection> + Send + Sync>,
 }
 
+/// Constructed by the request worker before it delivers an acquisition result.
+/// Dropping a cancelled or rejected result still releases its exact Agent grant.
+pub(crate) struct LinuxEgressLease {
+    agent: LinuxAgentClient,
+    release: agent_v1::ReleaseLinuxDirectEgressRequest,
+    runtime: tokio::runtime::Handle,
+}
+
+impl Drop for LinuxEgressLease {
+    fn drop(&mut self) {
+        let agent = self.agent.clone();
+        let release = self.release.clone();
+        self.runtime.spawn(async move {
+            let _ = agent
+                .request(
+                    agent_request::Payload::ReleaseLinuxDirectEgress(release),
+                    None,
+                )
+                .await;
+        });
+    }
+}
+
 impl LinuxAgentClient {
     #[cfg(test)]
     pub(crate) fn fake_pair() -> (Self, UnixStream) {
@@ -212,6 +235,61 @@ impl LinuxAgentClient {
         payload: agent_request::Payload,
         descriptor: Option<OwnedFd>,
     ) -> io::Result<(agent_response::Payload, Option<OwnedFd>)> {
+        self.request_with(payload, descriptor, Ok).await
+    }
+
+    pub(crate) async fn acquire_direct_egress(
+        &self,
+        request: agent_v1::AcquireDirectEgressRequest,
+        descriptor: OwnedFd,
+    ) -> io::Result<LinuxEgressLease> {
+        let agent = self.clone();
+        let runtime = tokio::runtime::Handle::current();
+        self.request_with(
+            agent_request::Payload::AcquireDirectEgress(request.clone()),
+            Some(descriptor),
+            move |(payload, _)| {
+                let agent_response::Payload::DirectEgressLease(response) = payload else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Agent exact-egress response missing",
+                    ));
+                };
+                if response.linux_lease_id == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Agent exact-egress lease identity missing",
+                    ));
+                }
+                let lease = LinuxEgressLease {
+                    agent,
+                    release: agent_v1::ReleaseLinuxDirectEgressRequest {
+                        operation_id: request.operation_id,
+                        network_generation: request.expected_generation,
+                        lease_id: response.linux_lease_id,
+                    },
+                    runtime,
+                };
+                if response.network_generation != request.expected_generation
+                    || response.remote_endpoint != request.remote_endpoint
+                    || response.protocol != request.protocol
+                {
+                    return Err(denied("Agent exact-egress response mismatch"));
+                }
+                Ok(lease)
+            },
+        )
+        .await
+    }
+
+    async fn request_with<T: Send + 'static>(
+        &self,
+        payload: agent_request::Payload,
+        descriptor: Option<OwnedFd>,
+        complete: impl FnOnce((agent_response::Payload, Option<OwnedFd>)) -> io::Result<T>
+        + Send
+        + 'static,
+    ) -> io::Result<T> {
         let permit = Arc::clone(&self.requests)
             .acquire_owned()
             .await
@@ -256,7 +334,21 @@ impl LinuxAgentClient {
             let payload = message
                 .payload
                 .ok_or_else(|| denied("Agent response payload missing"))?;
-            Ok((payload, descriptor))
+            // Complete ownership while still inside this worker. A dropped
+            // JoinHandle must never discard an unowned successful mutation.
+            let completed = complete((payload, descriptor));
+            if completed
+                .as_ref()
+                .is_err_and(|error| error.kind() == io::ErrorKind::InvalidData)
+            {
+                // A malformed acquisition without a usable lease ID is an
+                // uncertain mutation. Force authenticated session recovery;
+                // never guess an ID or keep using this connection.
+                if let Some(previous) = connection.take() {
+                    let _ = previous.socket.shutdown(std::net::Shutdown::Both);
+                }
+            }
+            completed
         })
         .await
         .map_err(|_| io::Error::other("Agent request worker failed"))?
@@ -479,6 +571,196 @@ fn denied(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn egress_request() -> agent_v1::AcquireDirectEgressRequest {
+        agent_v1::AcquireDirectEgressRequest {
+            operation_id: Uuid::new_v4().to_string(),
+            remote_endpoint: "192.0.2.7:443".into(),
+            protocol: 17,
+            expected_generation: 7,
+            purpose: agent_v1::DirectEgressPurpose::AutomaticMasque as i32,
+        }
+    }
+
+    fn egress_worker(
+        server: UnixStream,
+        proceed: std::sync::mpsc::Receiver<()>,
+        started: tokio::sync::oneshot::Sender<()>,
+        released: tokio::sync::oneshot::Sender<()>,
+        malformed: bool,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            let peer = unix_fd::peer_credentials(&server).unwrap();
+            let frame = unix_fd::receive_frame(&server, peer).unwrap();
+            assert!(frame.descriptor.is_some());
+            let request: AgentRequest = decode_frame(frame.bytes.into()).unwrap();
+            let Some(agent_request::Payload::AcquireDirectEgress(acquire)) = request.payload else {
+                panic!("expected exact-egress acquisition")
+            };
+            started.send(()).unwrap();
+            proceed.recv().unwrap();
+            let response = AgentResponse {
+                request_id: request.request_id,
+                error: None,
+                payload: Some(agent_response::Payload::DirectEgressLease(
+                    agent_v1::DirectEgressLease {
+                        remote_endpoint: acquire.remote_endpoint,
+                        protocol: acquire.protocol,
+                        network_generation: acquire.expected_generation + u64::from(malformed),
+                        linux_lease_id: 73,
+                        ..Default::default()
+                    },
+                )),
+            };
+            unix_fd::send_frame(&server, &encode_frame(&response).unwrap(), None::<&OwnedFd>)
+                .unwrap();
+            let frame = unix_fd::receive_frame(&server, peer).unwrap();
+            assert!(frame.descriptor.is_none());
+            let request: AgentRequest = decode_frame(frame.bytes.into()).unwrap();
+            let Some(agent_request::Payload::ReleaseLinuxDirectEgress(release)) = request.payload
+            else {
+                panic!("completed acquisition must release its exact grant")
+            };
+            assert_eq!(release.operation_id, acquire.operation_id);
+            assert_eq!(release.network_generation, acquire.expected_generation);
+            assert_eq!(release.lease_id, 73);
+            let response = AgentResponse {
+                request_id: request.request_id,
+                error: None,
+                payload: Some(agent_response::Payload::Empty(agent_v1::Empty {})),
+            };
+            unix_fd::send_frame(&server, &encode_frame(&response).unwrap(), None::<&OwnedFd>)
+                .unwrap();
+            released.send(()).unwrap();
+        })
+    }
+
+    #[tokio::test]
+    async fn cancelled_acquisition_releases_a_grant_completed_after_its_caller_is_gone() {
+        let (client, server) = LinuxAgentClient::fake_pair();
+        let (proceed, reply) = std::sync::mpsc::channel();
+        let (started, start) = tokio::sync::oneshot::channel();
+        let (released, release) = tokio::sync::oneshot::channel();
+        let worker = egress_worker(server, reply, started, released, false);
+        let task = tokio::spawn(async move {
+            client
+                .acquire_direct_egress(
+                    egress_request(),
+                    fs::File::open("/dev/null").unwrap().into(),
+                )
+                .await
+        });
+        start.await.unwrap();
+        task.abort();
+        assert!(task.await.is_err_and(|error| error.is_cancelled()));
+        proceed.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), release)
+            .await
+            .expect("a cancelled acquisition must still release its completed grant")
+            .unwrap();
+        worker.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn dropped_or_invalid_egress_results_release_the_known_grant() {
+        for malformed in [false, true] {
+            let (client, server) = LinuxAgentClient::fake_pair();
+            let (proceed, reply) = std::sync::mpsc::channel();
+            let (started, start) = tokio::sync::oneshot::channel();
+            let (released, release) = tokio::sync::oneshot::channel();
+            let worker = egress_worker(server, reply, started, released, malformed);
+            proceed.send(()).unwrap();
+            let result = client
+                .acquire_direct_egress(
+                    egress_request(),
+                    fs::File::open("/dev/null").unwrap().into(),
+                )
+                .await;
+            start.await.unwrap();
+            assert_eq!(result.is_err(), malformed);
+            drop(result);
+            tokio::time::timeout(Duration::from_secs(2), release)
+                .await
+                .expect("a rejected response with a known lease ID must release that grant")
+                .unwrap();
+            worker.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_acquisition_with_a_lost_acknowledgement_requires_recovery() {
+        let (client, server) = LinuxAgentClient::fake_pair();
+        let (proceed, reply) = std::sync::mpsc::channel();
+        let (started, start) = tokio::sync::oneshot::channel();
+        let worker = std::thread::spawn(move || {
+            let peer = unix_fd::peer_credentials(&server).unwrap();
+            let frame = unix_fd::receive_frame(&server, peer).unwrap();
+            let request: AgentRequest = decode_frame(frame.bytes.into()).unwrap();
+            assert!(matches!(
+                request.payload,
+                Some(agent_request::Payload::AcquireDirectEgress(_))
+            ));
+            started.send(()).unwrap();
+            reply.recv().unwrap();
+            // The mutation may have committed, but its lease ID is unknown.
+            // Disconnect instead of fabricating an ID or replaying acquisition.
+        });
+        let acquiring = client.clone();
+        let task = tokio::spawn(async move {
+            acquiring
+                .acquire_direct_egress(
+                    egress_request(),
+                    fs::File::open("/dev/null").unwrap().into(),
+                )
+                .await
+        });
+        start.await.unwrap();
+        task.abort();
+        assert!(task.await.is_err_and(|error| error.is_cancelled()));
+        proceed.send(()).unwrap();
+        assert_eq!(
+            client.state().await.unwrap_err().kind(),
+            io::ErrorKind::NotConnected
+        );
+        worker.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn acquisition_without_a_usable_lease_id_closes_the_uncertain_connection() {
+        for payload in [
+            agent_response::Payload::State(Default::default()),
+            agent_response::Payload::DirectEgressLease(Default::default()),
+        ] {
+            let (client, server) = LinuxAgentClient::fake_pair();
+            let worker = std::thread::spawn(move || {
+                let peer = unix_fd::peer_credentials(&server).unwrap();
+                let frame = unix_fd::receive_frame(&server, peer).unwrap();
+                let request: AgentRequest = decode_frame(frame.bytes.into()).unwrap();
+                let response = AgentResponse {
+                    request_id: request.request_id,
+                    error: None,
+                    payload: Some(payload),
+                };
+                unix_fd::send_frame(&server, &encode_frame(&response).unwrap(), None::<&OwnedFd>)
+                    .unwrap();
+            });
+            let error = client
+                .acquire_direct_egress(
+                    egress_request(),
+                    fs::File::open("/dev/null").unwrap().into(),
+                )
+                .await
+                .err()
+                .expect("unknown lease identities cannot be accepted");
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert_eq!(
+                client.state().await.unwrap_err().kind(),
+                io::ErrorKind::NotConnected
+            );
+            worker.join().unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn mismatched_agent_response_cannot_complete_an_operation() {
         let (client, server) = LinuxAgentClient::fake_pair();
