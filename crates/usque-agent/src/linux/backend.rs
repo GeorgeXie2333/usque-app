@@ -65,6 +65,16 @@ impl Backend for NativeBackend {
         Ok(())
     }
 
+    fn initialize_guard(&self, resources: &mut Resources) -> io::Result<()> {
+        // Freeze this before installing or journaling the guard. Later DNS and
+        // physical snapshots must retain its exact policy, including legacy
+        // guards whose absent receipt allowed only root's DHCP traffic.
+        if resources.dhcp_client_uids.is_none() {
+            resources.dhcp_client_uids = Some(dhcp_client_uids());
+        }
+        Ok(())
+    }
+
     fn initialize_resources(&self, resources: &mut Resources) -> io::Result<()> {
         resources.dns = if active_resolver().is_ok() {
             super::dns::DnsReceipt::Resolved
@@ -72,10 +82,6 @@ impl Backend for NativeBackend {
             super::dns::capture_network_manager()?
         };
         resources.physical_interfaces = physical_snapshot(&resources.dns)?;
-        // Resolved once: a later reinitialization keeps the installed guard.
-        if resources.dhcp_client_uids.is_none() {
-            resources.dhcp_client_uids = Some(dhcp_client_uids());
-        }
         Ok(())
     }
 
@@ -246,12 +252,7 @@ impl NativeBackend {
         }
         peer.ensure_alive()?;
         verify_socket_owner(descriptor, peer)?;
-        let mask = if remote.is_ipv4() { 1 } else { 2 };
-        let physical = resources
-            .physical_interfaces
-            .iter()
-            .find(|link| link.family_mask & mask != 0)
-            .ok_or_else(|| denied("no physical interface supports the egress family"))?;
+        let physical = egress_interface(resources, remote)?;
         let domain: i32 = socket_option(descriptor, libc::SO_DOMAIN)?;
         let socket_protocol: i32 = socket_option(descriptor, libc::SO_PROTOCOL)?;
         let socket_type: i32 = socket_option(descriptor, libc::SO_TYPE)?;
@@ -456,10 +457,8 @@ impl NativeBackend {
             2 => {
                 plan.preset_endpoint_policy.is_some()
                     && remote.port() == 53
-                    && resources
-                        .physical_interfaces
-                        .iter()
-                        .any(|link| link.dns_servers.contains(&remote.ip()))
+                    && egress_interface(resources, remote)
+                        .is_ok_and(|link| link.dns_servers.contains(&remote.ip()))
             }
             3 => {
                 self.preset_generation == resources.network_generation
@@ -478,6 +477,33 @@ impl NativeBackend {
         }
         Ok(())
     }
+}
+
+fn egress_interface(resources: &Resources, remote: SocketAddr) -> io::Result<&PhysicalInterface> {
+    let mask = if remote.is_ipv4() { 1 } else { 2 };
+    let scope = match remote {
+        SocketAddr::V6(address) => address.scope_id(),
+        SocketAddr::V4(_) => 0,
+    };
+    let supports_target = |link: &PhysicalInterface| {
+        link.family_mask & mask != 0 && (scope == 0 || link.index == scope)
+    };
+    // A link-local DNS address can exist on several links. Honor its explicit
+    // scope before choosing the device, and prefer the snapshot's DNS owner
+    // for unscoped resolver addresses reachable only on that physical link.
+    resources
+        .physical_interfaces
+        .iter()
+        .find(|link| {
+            supports_target(link) && remote.port() == 53 && link.dns_servers.contains(&remote.ip())
+        })
+        .or_else(|| {
+            resources
+                .physical_interfaces
+                .iter()
+                .find(|link| supports_target(link))
+        })
+        .ok_or_else(|| denied("no physical interface supports the egress family"))
 }
 
 fn verify_socket_owner(descriptor: BorrowedFd<'_>, peer: &AuthenticatedPeer) -> io::Result<()> {
@@ -885,6 +911,109 @@ fn unavailable(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn multiple_physical_interfaces() -> Resources {
+        let mut resources = Resources::for_operation(uuid::Uuid::new_v4());
+        resources.physical_interfaces = vec![
+            PhysicalInterface {
+                index: 2,
+                family_mask: 3,
+                dns_servers: vec!["192.0.2.53".parse().unwrap(), "fe80::1".parse().unwrap()],
+            },
+            PhysicalInterface {
+                index: 3,
+                family_mask: 3,
+                dns_servers: vec!["192.168.2.1".parse().unwrap(), "fe80::1".parse().unwrap()],
+            },
+        ];
+        resources
+    }
+
+    #[test]
+    fn scoped_dns_uses_its_physical_interface_and_rejects_missing_scope() {
+        let mut resources = multiple_physical_interfaces();
+        let remote = "[fe80::1%3]:53".parse().unwrap();
+        assert_eq!(egress_interface(&resources, remote).unwrap().index, 3);
+        assert!(egress_interface(&resources, "[fe80::1%4]:53".parse().unwrap()).is_err());
+        resources.physical_interfaces[1].family_mask = 1;
+        assert!(egress_interface(&resources, remote).is_err());
+    }
+
+    #[test]
+    fn physical_dns_uses_its_owner_without_rebinding_other_destinations() {
+        let resources = multiple_physical_interfaces();
+        assert_eq!(
+            egress_interface(&resources, "192.168.2.1:53".parse().unwrap())
+                .unwrap()
+                .index,
+            3,
+        );
+        assert_eq!(
+            egress_interface(&resources, "192.168.2.1:443".parse().unwrap())
+                .unwrap()
+                .index,
+            2,
+        );
+    }
+
+    #[test]
+    fn preset_dns_authorization_requires_the_scoped_interface_to_own_the_resolver() {
+        let mut resources = multiple_physical_interfaces();
+        let plan = ValidatedTunnelPlan {
+            profile_id: uuid::Uuid::new_v4(),
+            endpoint: "162.159.192.1:443".parse().unwrap(),
+            endpoint_candidates: vec!["162.159.192.1:443".parse().unwrap()],
+            control_api_candidates: Vec::new(),
+            mtu: 1280,
+            dns_servers: vec!["1.1.1.1".parse().unwrap()],
+            split_exclusions: Vec::new(),
+            allow_lan: false,
+            kill_switch: true,
+            split_dns: false,
+            assigned_ipv4: Some("172.16.0.2/32".parse().unwrap()),
+            assigned_ipv6: None,
+            vpn_chain: false,
+            defer_network_configuration: false,
+            automatic_endpoint_policy: None,
+            preset_endpoint_policy: Some(crate::plan::PresetEndpointPolicy {
+                hostname: usque_core::EndpointPresetRegion::ALL[0]
+                    .hostname(usque_core::EndpointPresetTier::Free)
+                    .into(),
+                port: 443,
+                ipv4_fallback: None,
+                tcp: true,
+                udp: true,
+            }),
+        };
+        let backend = NativeBackend::default();
+        let remote = "[fe80::1%3]:53".parse().unwrap();
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Prepared,
+                    remote,
+                    17,
+                    2,
+                )
+                .is_ok()
+        );
+        // The same address on a different link cannot authorize this scope.
+        resources.physical_interfaces[1].dns_servers.clear();
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Prepared,
+                    remote,
+                    17,
+                    2,
+                )
+                .is_err()
+        );
+    }
 
     #[test]
     fn only_unattached_allocated_marks_return_to_the_free_list() {

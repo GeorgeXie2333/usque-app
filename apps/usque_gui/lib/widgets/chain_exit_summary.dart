@@ -12,14 +12,15 @@ import 'country_flag.dart';
 typedef _SummaryInputs = ({
   bool active,
   bool supported,
+  int libraryRevision,
   String catalogId,
   ChainExitPresentation view,
 });
 
 /// Builds a chain proxy summary and, while [section] is visible, resolves the
-/// saved choice once per selection: the VPN Gate node from the local
-/// catalogue, or the configuration name from the local library. Neither read
-/// refreshes, probes or touches the network.
+/// saved choice once per selection or library change: the VPN Gate node from
+/// the local catalogue, or the configuration name from the local library.
+/// Neither read refreshes, probes or touches the network.
 class ChainExitSummaryBuilder extends StatelessWidget {
   const ChainExitSummaryBuilder({
     required this.controller,
@@ -45,6 +46,9 @@ class ChainExitSummaryBuilder extends StatelessWidget {
         supported: profile.chainSource == ChainSource.vpnGate
             ? capabilities?.vpnGateTcp ?? false
             : capabilities?.chainProfileImport ?? false,
+        libraryRevision: profile.chainSource == ChainSource.vpnGate
+            ? 0
+            : app.chainLibraryRevision,
         catalogId: app.strings.catalogId,
         view: ChainExitPresentation.of(
           profile: profile,
@@ -80,6 +84,7 @@ class _SavedSelectionState extends State<_SavedSelection> {
   String? _resolvedKey;
   ChainSelection? _resolved;
   String? _attemptedKey;
+  String? _invalidatedLiveKey;
   int _generation = 0;
 
   @override
@@ -91,10 +96,20 @@ class _SavedSelectionState extends State<_SavedSelection> {
   @override
   void didUpdateWidget(covariant _SavedSelection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller) {
+    final controllerChanged = oldWidget.controller != widget.controller;
+    final libraryChanged =
+        oldWidget.inputs.libraryRevision != widget.inputs.libraryRevision;
+    if (controllerChanged || libraryChanged) {
+      // Reject a read started before the mutation, even if its reply arrives last.
+      _generation++;
       _resolvedKey = null;
       _resolved = null;
       _attemptedKey = null;
+      _invalidatedLiveKey = controllerChanged
+          ? null
+          : ChainExitPresentation.savedSelectionKey(
+              widget.controller.activeProfile,
+            );
     }
     // Returning to the page retries a lookup that found nothing before.
     if (!widget.inputs.active) _attemptedKey = null;
@@ -126,6 +141,9 @@ class _SavedSelectionState extends State<_SavedSelection> {
     final key = ChainExitPresentation.savedSelectionKey(profile);
     final selection = view.selection;
     if (key == null || selection == null) return;
+    // Session metadata can still contain the name from before a library edit.
+    // Keep displaying it live, but resolve the saved name after disconnect.
+    if (selection.server == null && key == _invalidatedLiveKey) return;
     final saved = switch (selection.server) {
       final server? => server.matches(profile.vpnGate),
       null =>
@@ -168,6 +186,7 @@ class _SavedSelectionState extends State<_SavedSelection> {
     setState(() {
       _resolvedKey = key;
       _resolved = found;
+      if (_invalidatedLiveKey == key) _invalidatedLiveKey = null;
     });
   }
 
