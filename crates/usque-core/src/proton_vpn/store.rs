@@ -10,8 +10,10 @@ use std::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-const MAX_PLAINTEXT: usize = 8 * 1024 * 1024;
-const MAX_CIPHERTEXT: usize = 12 * 1024 * 1024;
+/// Platform ciphers must accommodate the complete bounded account catalogue.
+/// Other record formats retain their own, smaller limits before calling them.
+pub const MAX_RECORD_PLAINTEXT_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_RECORD_CIPHERTEXT_BYTES: usize = 12 * 1024 * 1024;
 const MAX_RECORDS: usize = 128;
 
 pub struct SessionStore<'a> {
@@ -86,21 +88,21 @@ impl<'a> SessionStore<'a> {
         let metadata = fs::symlink_metadata(&path).map_err(|_| error("session_not_found"))?;
         if !metadata.is_file()
             || metadata.file_type().is_symlink()
-            || metadata.len() > MAX_CIPHERTEXT as u64
+            || metadata.len() > MAX_RECORD_CIPHERTEXT_BYTES as u64
         {
             return Err(error("secure_storage_failed"));
         }
         let mut encrypted = Vec::new();
         fs::File::open(path)
             .map_err(|_| error("secure_storage_failed"))?
-            .take(MAX_CIPHERTEXT as u64 + 1)
+            .take(MAX_RECORD_CIPHERTEXT_BYTES as u64 + 1)
             .read_to_end(&mut encrypted)
             .map_err(|_| error("secure_storage_failed"))?;
-        if encrypted.len() > MAX_CIPHERTEXT {
+        if encrypted.len() > MAX_RECORD_CIPHERTEXT_BYTES {
             return Err(error("secure_storage_failed"));
         }
         let plaintext = self.cipher.open(id, &encrypted)?;
-        if plaintext.len() > MAX_PLAINTEXT {
+        if plaintext.len() > MAX_RECORD_PLAINTEXT_BYTES {
             return Err(error("secure_storage_failed"));
         }
         let record: Record =
@@ -176,11 +178,11 @@ impl<'a> SessionStore<'a> {
         }
         let plaintext =
             Zeroizing::new(serde_json::to_vec(record).map_err(|_| error("secure_storage_failed"))?);
-        if plaintext.len() > MAX_PLAINTEXT {
+        if plaintext.len() > MAX_RECORD_PLAINTEXT_BYTES {
             return Err(error("secure_storage_failed"));
         }
         let encrypted = self.cipher.seal(record.id, &plaintext)?;
-        if encrypted.is_empty() || encrypted.len() > MAX_CIPHERTEXT {
+        if encrypted.is_empty() || encrypted.len() > MAX_RECORD_CIPHERTEXT_BYTES {
             return Err(error("secure_storage_failed"));
         }
         let mut file = tempfile::Builder::new()

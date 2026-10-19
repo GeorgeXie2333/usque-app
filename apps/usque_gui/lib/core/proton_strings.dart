@@ -44,6 +44,8 @@ const _english = <String, String>{
   'completed': 'Account saved. Select it and apply changes to use Proton VPN.',
   'cancelled': 'Setup cancelled',
   'failed': 'Proton setup failed. Retry when you are ready.',
+  'result_unconfirmed':
+      'The Proton setup result is not confirmed. Refresh status to continue or cancel the existing setup before starting again.',
   'unavailable': 'Proton VPN is unavailable in this Engine.',
   'bad_credentials':
       'Check your Proton username, password or authenticator code.',
@@ -163,6 +165,7 @@ const _chinese = <String, String>{
   'completed': '账号已保存。请选择该账号并应用更改，以使用 Proton VPN。',
   'cancelled': '已取消设置',
   'failed': 'Proton 设置失败，可稍后重试。',
+  'result_unconfirmed': 'Proton 设置结果尚未确认。请刷新状态，继续或取消已有任务后再重新开始。',
   'unavailable': '当前引擎不支持 Proton VPN。',
   'bad_credentials': '请检查 Proton 用户名、密码或身份验证器验证码。',
   'rate_limited': 'Proton 限制了此请求，请稍后再试。',

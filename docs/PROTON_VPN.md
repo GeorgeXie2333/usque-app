@@ -164,6 +164,14 @@ profile，也不保证进程死亡后已清理。Android 不因触碰弹窗外�
 Use **Refresh list** to update available servers. Disconnect before changing a
 server on the account used by the running exit. The server preference takes effect
 on the next connection; selecting a server does not independently reconnect.
+
+If the reply starting guest setup or sign-in is lost, Usque checks the current
+task once without repeating the login request. Until its status is confirmed,
+new setup and account changes are disabled. If the status check also fails,
+select **Refresh status** to find the existing task, then continue its verification
+or cancel it. Once the status confirms that no task is running, setup can start
+again.
+
 Valid access tokens are reused. Only a protected request returning HTTP 401
 triggers one journaled token recovery per operation. A known replacement is saved
 before later requests, so a directory or certificate error does not leave a
@@ -196,7 +204,13 @@ Canceling unfinished setup also attempts to clean up its known sessions. These
 actions do not sign out other devices' Proton sessions.
 
 “刷新列表”更新节点目录。正在使用的账号需先断开，再更换节点；偏好在下次连接
-时生效，选节点本身不会单独触发重连。有效 access token 不强制轮换；一次操作中，
+时生效，选节点本身不会单独触发重连。
+
+游客设置或登录的启动回复丢失时，Usque 会查询一次当前任务，不重复提交登录请求。
+状态确认前暂停新的设置和账号变更；补查也失败时，点击“刷新状态”找回任务，
+再继续验证或取消。确认没有正在运行的任务后，才允许重新开始。
+
+有效 access token 不强制轮换；一次操作中，
 只有受保护接口返回 401 时才尝试一次带持久化日志的恢复。已知的新令牌先保存，
 后续目录或证书失败不会把成功刷新误标为“重新登录”；刷新结果未知才要求明确
 重新认证，绝不重放旧 refresh token。运行时按期限续签同一密钥的证书，授权失败
@@ -224,6 +238,14 @@ verification URLs/tokens, raw HTTP bodies, private keys and complete certificate
 are excluded from normal status and diagnostics. Do not attach these values to
 bug reports. Errors expose bounded stage/status/code information instead.
 
+The encrypted account record retains the complete eligible server catalogue,
+up to 20,000 logical servers. Its serialized plaintext is limited to 8 MiB and
+its encrypted envelope to 12 MiB on every supported platform. Linux and Android
+encryption accept this account-record budget; ordinary imported chain profiles
+retain their separate 192 KiB plaintext and 256 KiB ciphertext limits. Records
+over their applicable limits fail without truncating the catalogue or replacing
+an existing valid record.
+
 The implementation checks the pinned modulus signature, safe-group parameters
 and SRP server proof; the leaf certificate must match the locally generated key
 and API/X.509 times. A bounded chain of 1–8 distinct certificates is parsed, but
@@ -249,6 +271,11 @@ write-through 替换已实现，但真实断电恢复未实测。免费游客资
 其他二次验证、真实 local-agent 和平台清理仍需实网验证。8004 表示不允许客户端
 创建会话，界面显示失败步骤和数字代码，不会当作拼图。Android 按固定 APK 兼容
 版本统一 API 标识和 User-Agent，设备字段取真实系统信息，细节见协议参考。
+
+加密账号记录保留最多 20,000 个可用逻辑节点，所有支持平台的序列化明文上限为
+8 MiB，加密封装上限为 12 MiB。Linux 和 Android 加密器支持此账号容量；普通
+导入链配置仍受独立的 192 KiB 明文、256 KiB 密文限制。记录超限时明确失败，
+不截断节点目录，也不替换已有有效记录。
 
 See the [chain guide](CHAIN_PROXY.md), [pinned protocol reference](PROTON_VPN_PROTOCOL.md)
 and [native validation record](PROTON_VPN_NATIVE_VALIDATION.md). The standalone

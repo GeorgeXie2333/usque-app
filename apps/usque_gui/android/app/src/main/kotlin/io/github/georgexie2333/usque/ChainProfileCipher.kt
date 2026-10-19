@@ -36,9 +36,42 @@ internal object ChainProfileCipher {
         id: String,
         value: ByteArray,
     ): ByteArray {
-        require(value.size in 1..192 * 1024)
+        ChainProfileCipherCodec.validatePlaintext(value)
+        return ChainProfileCipherCodec.seal(id, value, key())
+    }
+
+    fun open(
+        id: String,
+        value: ByteArray,
+    ): ByteArray {
+        ChainProfileCipherCodec.validateCiphertext(value)
+        return ChainProfileCipherCodec.open(id, value, key())
+    }
+}
+
+/** Platform codec limits mirror usque_core::proton_vpn::store's record bounds.
+ * Rust retains each format's narrower limits, including ordinary chain profiles.
+ */
+internal object ChainProfileCipherCodec {
+    const val MAX_RECORD_PLAINTEXT_BYTES = 8 * 1024 * 1024
+    const val MAX_RECORD_CIPHERTEXT_BYTES = 12 * 1024 * 1024
+
+    fun validatePlaintext(value: ByteArray) {
+        require(value.size in 1..MAX_RECORD_PLAINTEXT_BYTES)
+    }
+
+    fun validateCiphertext(value: ByteArray) {
+        require(value.size in 30..MAX_RECORD_CIPHERTEXT_BYTES && value[0] == 1.toByte())
+    }
+
+    fun seal(
+        id: String,
+        value: ByteArray,
+        key: SecretKey,
+    ): ByteArray {
+        validatePlaintext(value)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key())
+        cipher.init(Cipher.ENCRYPT_MODE, key)
         cipher.updateAAD("Usque/chain-profiles/v1/$id".toByteArray(Charsets.UTF_8))
         val result = cipher.doFinal(value)
         return try {
@@ -51,11 +84,19 @@ internal object ChainProfileCipher {
     fun open(
         id: String,
         value: ByteArray,
+        key: SecretKey,
     ): ByteArray {
-        require(value.size in 30..256 * 1024 && value[0] == 1.toByte())
+        validateCiphertext(value)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, value, 1, 12))
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, value, 1, 12))
         cipher.updateAAD("Usque/chain-profiles/v1/$id".toByteArray(Charsets.UTF_8))
-        return cipher.doFinal(value, 13, value.size - 13)
+        val result = cipher.doFinal(value, 13, value.size - 13)
+        return try {
+            validatePlaintext(result)
+            result
+        } catch (error: IllegalArgumentException) {
+            result.fill(0)
+            throw error
+        }
     }
 }

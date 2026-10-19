@@ -227,6 +227,70 @@ class DelayedProtonEngine extends ProtonEngine {
   }
 }
 
+class LostProtonLaunchEngine extends ProtonEngine {
+  LostProtonLaunchEngine(this.action);
+
+  final String action;
+  Completer<void>? launchAcknowledgement;
+  Completer<ProtonVpnResult>? recoveryReply;
+  Object? launchFailure;
+  Uint8List? launchInput;
+  bool lostLaunch = false;
+  int recoveryReads = 0;
+  int failedRecoveryReads = 0;
+  Map<Object?, Object?>? nextRecoveryMetadata;
+
+  @override
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) async {
+    if (command['action'] == action && !lostLaunch) {
+      final result = await super.protonVpn(
+        command,
+        sensitiveInput: sensitiveInput,
+      );
+      result.clearHandoff();
+      launchInput = sensitiveInput;
+      lostLaunch = true;
+      await launchAcknowledgement?.future;
+      if (launchFailure case final Object failure) throw failure;
+      throw const EngineException(
+        'PROTON_RESULT_UNCONFIRMED',
+        'Refresh Proton status before retrying.',
+      );
+    }
+    if (command['action'] == 'get' && lostLaunch) {
+      requests.add(Map.of(command));
+      recoveryReads++;
+      final pending = recoveryReply;
+      if (pending != null) {
+        recoveryReply = null;
+        return pending.future;
+      }
+      if (failedRecoveryReads > 0) {
+        failedRecoveryReads--;
+        throw const EngineException(
+          'PROTON_UNAVAILABLE',
+          'Status unavailable.',
+        );
+      }
+      final metadata = nextRecoveryMetadata;
+      nextRecoveryMetadata = null;
+      return ProtonVpnResult(
+        metadata:
+            metadata ??
+            {
+              'job': job.isEmpty ? null : job,
+              'profiles': profiles,
+              'error': null,
+            },
+      );
+    }
+    return super.protonVpn(command, sensitiveInput: sensitiveInput);
+  }
+}
+
 class CatalogueEngine extends ProtonEngine {
   bool stalePage = false;
   CatalogueEngine() {
@@ -319,7 +383,469 @@ void _protonWidgetTest(
   );
 }
 
+Future<void> _startProtonAuthentication(
+  WidgetTester tester,
+  String action,
+) async {
+  await tester.tap(
+    find.text(action == 'guest' ? 'Continue as guest' : 'Sign in to Proton'),
+  );
+  if (action == 'login') {
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(0), 'synthetic-user');
+    await tester.enterText(find.byType(TextField).at(1), 'synthetic-password');
+    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+  }
+}
+
 void main() {
+  for (final (action, invalidResponse) in [
+    ('guest', false),
+    ('login', false),
+    ('guest', true),
+  ]) {
+    _protonWidgetTest(
+      '$action with a ${invalidResponse ? 'malformed' : 'lost'} launch reply recovers the existing job without replay',
+      (tester) async {
+        final engine = LostProtonLaunchEngine(action)
+          ..launchFailure = invalidResponse
+              ? const FormatException('Invalid Proton response')
+              : null
+          ..job = {
+            'id': 'older-job',
+            'state': 'completed',
+            'phase': 'complete',
+          };
+        final app = await hostChain(tester, engine);
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ProtonVpnPanel(controller: app, onChanged: () {}),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _startProtonAuthentication(tester, action);
+        await tester.pumpAndSettle();
+        expect(
+          engine.requests.where((r) => r['action'] == action),
+          hasLength(1),
+        );
+        expect(engine.recoveryReads, 1);
+        expect(engine.requests.last, {'action': 'get'});
+        expect(
+          find.text(
+            action == 'guest'
+                ? 'Verification required'
+                : 'Enter your authenticator code to continue.',
+          ),
+          findsOneWidget,
+        );
+        if (action == 'login') {
+          expect(engine.inputs, hasLength(1));
+          expect(engine.launchInput!.every((byte) => byte == 0), isTrue);
+        }
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pumpAndSettle();
+        expect(engine.requests.last, {
+          'action': 'get',
+          'job_id': 'synthetic-job',
+        });
+        await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+        await tester.pumpAndSettle();
+        expect(engine.requests.last, {
+          'action': 'cancel',
+          'job_id': 'synthetic-job',
+        });
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  for (final code in ['PROTON_INPUT_TOO_LARGE', 'PROTON_INVALID_REQUEST']) {
+    _protonWidgetTest(
+      'a definitive $code launch rejection does not query or replay setup',
+      (tester) async {
+        final engine = DelayedProtonEngine()..delayedAction = 'guest';
+        final app = await hostChain(tester, engine);
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ProtonVpnPanel(controller: app, onChanged: () {}),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _startProtonAuthentication(tester, 'guest');
+        await tester.pump();
+        engine.reply.completeError(EngineException(code, 'Invalid input.'));
+        await tester.pumpAndSettle();
+        expect(
+          engine.requests.where((r) => r['action'] == 'get'),
+          hasLength(1),
+        );
+        expect(
+          engine.requests.where((r) => r['action'] == 'guest'),
+          hasLength(1),
+        );
+        expect(find.text('Refresh status'), findsNothing);
+        expect(find.text(app.strings.proton('failed')), findsOneWidget);
+        expect(
+          tester
+              .widget<OutlinedButton>(
+                find.widgetWithText(OutlinedButton, 'Continue as guest'),
+              )
+              .onPressed,
+          isNotNull,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  _protonWidgetTest(
+    'deferred lost launch and recovery keep duplicate authentication disabled',
+    (tester) async {
+      final acknowledgement = Completer<void>();
+      final recovery = Completer<ProtonVpnResult>();
+      final engine = LostProtonLaunchEngine('guest')
+        ..launchAcknowledgement = acknowledgement
+        ..recoveryReply = recovery;
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _startProtonAuthentication(tester, 'guest');
+      await tester.pump();
+      for (final label in ['Continue as guest', 'Sign in to Proton']) {
+        expect(
+          tester
+              .widget<OutlinedButton>(
+                find.widgetWithText(OutlinedButton, label),
+              )
+              .onPressed,
+          isNull,
+        );
+      }
+      acknowledgement.complete();
+      await tester.pump();
+      expect(engine.recoveryReads, 1);
+      expect(
+        find.text(app.strings.proton('result_unconfirmed')),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Continue as guest'));
+      await tester.pump(const Duration(seconds: 4));
+      expect(
+        engine.requests.where((r) => r['action'] == 'guest'),
+        hasLength(1),
+      );
+      expect(engine.recoveryReads, 1);
+      recovery.complete(
+        ProtonVpnResult(metadata: {'job': engine.job, 'profiles': []}),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Verification required'), findsOneWidget);
+      expect(find.text(app.strings.proton('result_unconfirmed')), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  _protonWidgetTest(
+    'failed recovery reads retain the catalogue and offer read-only status retry',
+    (tester) async {
+      final engine = LostProtonLaunchEngine('guest')
+        ..failedRecoveryReads = 1
+        ..profiles = [
+          {
+            'id': 'existing-profile',
+            'name': 'Existing account',
+            'server_count': 1,
+          },
+        ];
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _startProtonAuthentication(tester, 'guest');
+      await tester.pumpAndSettle();
+      expect(find.text('Existing account'), findsOneWidget);
+      expect(
+        find.text(app.strings.proton('result_unconfirmed')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'Sign in to Proton'),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<TextButton>(
+              find.widgetWithText(TextButton, 'Remove account'),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.pump(const Duration(seconds: 10));
+      expect(engine.recoveryReads, 1);
+      engine.nextRecoveryMetadata = {
+        'job': null,
+        'profiles': [],
+        'error': 'secure_storage_failed',
+      };
+      await tester.tap(find.text('Refresh status'));
+      await tester.pumpAndSettle();
+      expect(find.text('Existing account'), findsOneWidget);
+      expect(
+        find.text(app.strings.proton('result_unconfirmed')),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Refresh status'));
+      await tester.pumpAndSettle();
+      expect(engine.recoveryReads, 3);
+      expect(
+        engine.requests.where((r) => r['action'] == 'guest'),
+        hasLength(1),
+      );
+      expect(find.text('Verification required'), findsOneWidget);
+      expect(find.text('Refresh status'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  _protonWidgetTest(
+    'a recovered job remains cancellable when its catalogue read failed',
+    (tester) async {
+      final engine = LostProtonLaunchEngine('guest')
+        ..nextRecoveryMetadata = {
+          'job': {
+            'id': 'synthetic-job',
+            'state': 'waiting_verification',
+            'challenge_id': 'synthetic-challenge',
+          },
+          'profiles': [],
+          'error': 'secure_storage_failed',
+        };
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _startProtonAuthentication(tester, 'guest');
+      await tester.pumpAndSettle();
+      expect(find.text('Verification required'), findsOneWidget);
+      expect(find.text(app.strings.proton('failed')), findsOneWidget);
+      expect(find.text(app.strings.proton('result_unconfirmed')), findsNothing);
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(engine.requests.last, {
+        'action': 'cancel',
+        'job_id': 'synthetic-job',
+      });
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  _protonWidgetTest(
+    'Android automatically resumes a recovered guest challenge exactly once',
+    (tester) async {
+      final engine = LostProtonLaunchEngine('guest');
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _startProtonAuthentication(tester, 'guest');
+      await tester.pumpAndSettle();
+      expect(find.text('Choose a server to finish setup.'), findsOneWidget);
+      for (final action in ['guest', 'handoff', 'verify']) {
+        expect(
+          engine.requests.where((r) => r['action'] == action),
+          hasLength(1),
+        );
+      }
+      expect(engine.inputs, [ProtonEngine.success]);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    platform: TargetPlatform.android,
+  );
+
+  for (final state in [
+    'missing',
+    'completed',
+    'missing-job',
+    'unknown-state',
+    'missing-id',
+  ]) {
+    _protonWidgetTest(
+      'lost launch recovery handles $state status without replaying setup',
+      (tester) async {
+        final engine = LostProtonLaunchEngine('guest')
+          ..nextRecoveryMetadata = {
+            if (state != 'missing-job')
+              'job': switch (state) {
+                'missing' => null,
+                'unknown-state' => {'id': 'saved-job', 'state': 'unsupported'},
+                'missing-id' => {'state': 'running'},
+                _ => {
+                  'id': 'saved-job',
+                  'state': 'completed',
+                  'profile_id': 'saved-profile',
+                },
+              },
+            'profiles': <Object?>[],
+          };
+        final app = await hostChain(tester, engine);
+        var changed = 0;
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ProtonVpnPanel(
+                  controller: app,
+                  onChanged: () => changed++,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _startProtonAuthentication(tester, 'guest');
+        await tester.pumpAndSettle();
+        final blocked = !const {'missing', 'completed'}.contains(state);
+        expect(
+          tester
+                  .widget<OutlinedButton>(
+                    find.widgetWithText(OutlinedButton, 'Continue as guest'),
+                  )
+                  .onPressed ==
+              null,
+          blocked,
+        );
+        expect(
+          find.text('Refresh status'),
+          blocked ? findsOneWidget : findsNothing,
+        );
+        expect(changed, state == 'completed' ? 1 : 0);
+        expect(
+          engine.requests.where((r) => r['action'] == 'guest'),
+          hasLength(1),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  _protonWidgetTest(
+    'an old recovery reply cannot cancel a newer panel job after disposal',
+    (tester) async {
+      final recovery = Completer<ProtonVpnResult>();
+      final engine = LostProtonLaunchEngine('guest')..recoveryReply = recovery;
+      final app = await hostChain(tester, engine);
+      Widget panel() => workflowHost(
+        app,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ProtonVpnPanel(controller: app, onChanged: () {}),
+          ),
+        ),
+      );
+      await tester.pumpWidget(panel());
+      await tester.pumpAndSettle();
+      await _startProtonAuthentication(tester, 'guest');
+      await tester.pump();
+      expect(engine.recoveryReads, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+      engine.job = const {};
+      await tester.pumpWidget(panel());
+      await tester.pumpAndSettle();
+      await _startProtonAuthentication(tester, 'guest');
+      await tester.pumpAndSettle();
+      recovery.complete(
+        ProtonVpnResult(metadata: {'job': engine.job, 'profiles': []}),
+      );
+      await tester.pumpAndSettle();
+      expect(engine.requests.where((r) => r['action'] == 'cancel'), isEmpty);
+      expect(find.text('Verification required'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(
+        engine.requests.where((r) => r['action'] == 'cancel'),
+        hasLength(1),
+      );
+    },
+  );
+
+  _protonWidgetTest(
+    'a lost launch reply after disposal does not read or cancel an unknown job',
+    (tester) async {
+      final acknowledgement = Completer<void>();
+      final engine = LostProtonLaunchEngine('guest')
+        ..launchAcknowledgement = acknowledgement;
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _startProtonAuthentication(tester, 'guest');
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox.shrink());
+      acknowledgement.complete();
+      await tester.pumpAndSettle();
+      expect(engine.recoveryReads, 0);
+      expect(engine.requests.where((r) => r['action'] == 'cancel'), isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   for (final chinese in [false, true]) {
     _protonWidgetTest(
       'Android account and server picker support 200 percent text, Chinese=$chinese',

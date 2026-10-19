@@ -45,6 +45,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   List<Map<Object?, Object?>> _profiles = const [];
   Timer? _timer;
   bool _busy = false;
+  bool _launchUnconfirmed = false;
   bool _verifying = false;
   bool _handoffLoading = false;
   bool _serversLoading = false;
@@ -88,6 +89,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     'waiting_node',
   };
   bool get _running => _runningStates.contains(_state);
+  bool get _blocked => _busy || _launchUnconfirmed || _running || _verifying;
   bool get _remoteUnknown => const {
     'cleanup_failed_remote_state_unknown',
     'worker_failed_remote_state_unknown',
@@ -99,7 +101,10 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     super.initState();
     unawaited(_command({'action': 'get'}));
     _timer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if ((_running || _verifying) && !_busy && !_handoffLoading) {
+      if ((_running || _verifying) &&
+          !_launchUnconfirmed &&
+          !_busy &&
+          !_handoffLoading) {
         unawaited(_command({'action': 'get', 'job_id': _job['id']}));
       }
     });
@@ -161,11 +166,13 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     Map<String, Object?> command, {
     Uint8List? input,
   }) async {
-    if (!mounted || _busy) {
+    if (!mounted || _busy || _launchUnconfirmed && command['action'] != 'get') {
       input?.fillRange(0, input.length, 0);
       return;
     }
     final app = _app;
+    final recoveringLaunch = _launchUnconfirmed && command['action'] == 'get';
+    var recoverLaunch = false;
     setState(() {
       _busy = true;
       _error = null;
@@ -180,7 +187,10 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
         if (!mounted) {
           // A launch can finish after dispose, before its job ID was known.
           // A late poll may describe a job already cancelled by dispose.
-          if (job is Map<Object?, Object?> &&
+          // A global recovery read does not establish ownership after leaving:
+          // a new panel may already have started a different native job.
+          if (!recoveringLaunch &&
+              job is Map<Object?, Object?> &&
               _runningStates.contains(job['state'])) {
             unawaited(_cancelJob(app, job['id']));
           }
@@ -189,9 +199,30 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
         final profiles = metadata['profiles'];
         final error = metadata['error'];
         setState(() {
-          if (job is Map<Object?, Object?>) {
+          if (recoveringLaunch) {
+            final knownJob =
+                job is Map<Object?, Object?> &&
+                job['id'] is String &&
+                (job['id'] as String).isNotEmpty &&
+                const {
+                  ..._runningStates,
+                  'completed',
+                  'cancelled',
+                  'failed',
+                }.contains(job['state']);
+            // A valid job is still authoritative when its catalogue read failed.
+            // An absent job needs a successful, complete status response.
+            final noJob =
+                metadata.containsKey('job') &&
+                job == null &&
+                profiles is List &&
+                error == null;
+            if (knownJob || noJob) _launchUnconfirmed = false;
+          }
+          if (job is Map<Object?, Object?> && !_launchUnconfirmed) {
             _job = Map<Object?, Object?>.from(job);
-          } else if (error == null || error == 'job_not_found') {
+          } else if (!_launchUnconfirmed &&
+              (error == null || error == 'job_not_found')) {
             _job = const {};
           }
           // Command errors carry empty defaults, not a fresh job/catalogue.
@@ -219,8 +250,22 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       } finally {
         result.clearHandoff();
       }
-    } on Object {
-      if (mounted) setState(() => _error = p('failed'));
+    } on Object catch (error) {
+      if (mounted) {
+        // A failed launch reply can leave a live job waiting for input. Read
+        // its status once, without resending the credentials or guest request.
+        recoverLaunch =
+            const {'guest', 'login'}.contains(command['action']) &&
+            !(error is EngineException &&
+                const {
+                  'PROTON_INPUT_TOO_LARGE',
+                  'PROTON_INVALID_REQUEST',
+                }.contains(error.code));
+        setState(() {
+          if (recoverLaunch) _launchUnconfirmed = true;
+          _error = _launchUnconfirmed ? null : p('failed');
+        });
+      }
     } finally {
       input?.fillRange(0, input.length, 0);
       done.complete();
@@ -230,12 +275,14 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
         _openAndroidVerification();
       }
     }
+    if (recoverLaunch && mounted) await _command({'action': 'get'});
   }
 
   void _openAndroidVerification() {
     if (defaultTargetPlatform != TargetPlatform.android ||
         _state != 'waiting_verification' ||
         _busy ||
+        _launchUnconfirmed ||
         _verifying ||
         _error != null) {
       return;
@@ -264,7 +311,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       builder: (_) => _ProtonLoginDialog(controller: _app),
     );
     if (input == null) return;
-    if (!mounted || _busy || _running || _verifying) {
+    if (!mounted || _blocked) {
       input.fillRange(0, input.length, 0);
       return;
     }
@@ -281,7 +328,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
 
   Future<void> _removeAccount(Map<Object?, Object?> profile) async {
     final id = profile['id'];
-    if (id is! String || _busy || _running || _verifying) return;
+    if (id is! String || _blocked) return;
     final action = await showDialog<String>(
       context: context,
       builder: (context) => UsqueDialog(
@@ -306,7 +353,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
         ],
       ),
     );
-    if (action == null || !mounted || _busy || _running || _verifying) return;
+    if (action == null || !mounted || _blocked) return;
     if (!(await widget.beforeRemove?.call(_related(profile)) ?? true) ||
         !mounted) {
       return;
@@ -316,7 +363,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
 
   Future<void> _chooseServer(Map<Object?, Object?> profile) async {
     final id = profile['id'];
-    if (id is! String || _serversLoading || _busy || _running || _verifying) {
+    if (id is! String || _serversLoading || _blocked) {
       return;
     }
     if ((profile['server_count'] as int? ?? 0) == 0) {
@@ -399,7 +446,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     final related = _related(profile);
     final current = related.contains(widget.currentProfileId);
     final server = profile['node_name'] as String? ?? '';
-    final waiting = _busy || _running || _verifying || _serversLoading;
+    final waiting = _blocked || _serversLoading;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -538,7 +585,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       _job['challenge_id'] == challengeId;
 
   Future<void> _verify() async {
-    if (_busy || _verifying) return;
+    if (_busy || _launchUnconfirmed || _verifying) return;
     final jobId = _job['id'], challengeId = _job['challenge_id'];
     if (jobId == null || challengeId == null) return;
     final epoch = ++_verificationEpoch;
@@ -622,18 +669,25 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           runSpacing: 8,
           children: [
             OutlinedButton(
-              onPressed: _busy || _running || _verifying || _serversLoading
+              onPressed: _blocked || _serversLoading
                   ? null
                   : () => unawaited(_command({'action': 'guest'})),
               child: Text(p('guest')),
             ),
             OutlinedButton(
-              onPressed: _busy || _running || _verifying || _serversLoading
+              onPressed: _blocked || _serversLoading
                   ? null
                   : () => unawaited(_login()),
               child: Text(p('login')),
             ),
-            if (_running)
+            if (_launchUnconfirmed)
+              TextButton(
+                onPressed: _busy
+                    ? null
+                    : () => unawaited(_command({'action': 'get'})),
+                child: Text(strings.get('settings_refresh')),
+              ),
+            if (_running && !_launchUnconfirmed)
               TextButton(
                 onPressed: _busy || _handoffLoading
                     ? null
@@ -644,7 +698,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
         ),
         if (_busy || _state == 'running' || _verifying)
           const LinearProgressIndicator(minHeight: 2),
-        if (_state.isNotEmpty)
+        if (_launchUnconfirmed) Text(p('result_unconfirmed')),
+        if (_state.isNotEmpty && !_launchUnconfirmed)
           Semantics(
             liveRegion: true,
             child: Text(
@@ -657,7 +712,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
               ),
             ),
           ),
-        if (_state == 'waiting_totp')
+        if (_state == 'waiting_totp' && !_launchUnconfirmed)
           Row(
             children: [
               Expanded(
@@ -679,7 +734,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
               ),
             ],
           ),
-        if (_state == 'waiting_verification') ...[
+        if (_state == 'waiting_verification' && !_launchUnconfirmed) ...[
           Text(p('verification_hint')),
           Align(
             alignment: AlignmentDirectional.centerStart,
@@ -691,7 +746,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
             ),
           ),
         ],
-        if (_state == 'waiting_node') ...[
+        if (_state == 'waiting_node' && !_launchUnconfirmed) ...[
           Text(p('choose_node')),
           for (final node in nodes)
             ListTile(
@@ -714,7 +769,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
             ),
         ],
         if (_serversLoading) const LinearProgressIndicator(minHeight: 2),
-        if (_profiles.isEmpty && !_running) Text(p('empty')),
+        if (_profiles.isEmpty && !_running && !_launchUnconfirmed)
+          Text(p('empty')),
         if (_profiles.isNotEmpty) ...[
           Text(p('accounts'), style: Theme.of(context).textTheme.titleMedium),
           RadioGroup<String>(

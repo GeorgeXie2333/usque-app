@@ -47,13 +47,35 @@ class ReliabilityCatalogueTest(unittest.TestCase):
                 chinese_catalog,
             )
         )
+        # Proton titles use the shared provider resolver rather than duplicated
+        # diag_fail_* entries. Verify its Chinese keys and the diagnostics hook.
+        proton = (ROOT / "apps/usque_gui/lib/core/proton_strings.dart").read_text(encoding="utf-8")
+        proton_titles = dict(
+            re.findall(
+                r"'(PROTON_[A-Z0-9_]+)'\s*=>\s*'([a-z_]+)'",
+                _section(proton, "String? protonConnectionFailure", "String? protonGateFailure"),
+            )
+        )
+        proton_chinese_keys = set(
+            re.findall(
+                r"['\"]([a-z_]+)['\"]\s*:",
+                _section(proton, "const _chinese", "extension ProtonStrings"),
+            )
+        )
+        self.assertTrue(proton_titles)
+        self.assertLessEqual(set(proton_titles.values()), proton_chinese_keys)
+        resolver = (ROOT / "apps/usque_gui/lib/core/diagnostics_strings.dart").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("protonConnectionFailure(strings, code)", resolver)
+        chinese_codes.update(proton_titles)
         android_codes = set(
             re.findall(
                 r'"([A-Z][A-Z0-9_]+)"',
                 _section(android, "val failureCodes", "val summaryKeys"),
             )
         )
-        self.assertEqual(56, len(rust_codes))
+        self.assertEqual(68, len(rust_codes))
         self.assertSetEqual(rust_codes, chinese_codes)
         self.assertSetEqual(rust_codes, android_codes)
         self.assertSetEqual(rust_codes, set(_contract()["failure_codes"]))
