@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/proton_strings.dart';
+import '../models/proton_vpn_models.dart' show takeProtonSensitiveBytes;
 import '../services/engine_client.dart' show EngineException;
 import '../state/app_controller.dart';
 import 'common.dart';
@@ -124,6 +125,9 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     'api_rejected' => 'api_rejected',
     'session_not_allowed' => 'session_not_allowed',
     'credentialless_disabled' => 'credentialless_disabled',
+    'no_free_wireguard_nodes' => 'no_free_nodes',
+    'invalid_server_directory' => 'invalid_directory',
+    'invalid_client_configuration' => 'invalid_client_configuration',
     'verification_expired' || 'interaction_expired' => 'expired',
     'underlay_changed' => 'underlay_changed',
     'cleanup_failed_remote_state_unknown' ||
@@ -345,9 +349,12 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           throw StateError('Unavailable handoff');
         }
         setState(() => _handoffLoading = false);
-        answer = await _app.completeProtonHumanVerification(
+        final nativeAnswer = await _app.completeProtonHumanVerification(
           response.sensitiveHandoff,
         );
+        if (nativeAnswer != null) {
+          answer = takeProtonSensitiveBytes(nativeAnswer);
+        }
       } finally {
         response.clearHandoff();
       }

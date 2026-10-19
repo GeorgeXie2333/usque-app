@@ -472,3 +472,118 @@ no password, username or proof. Existing authenticated renewal journaling,
 ServerProof validation, protected-user/VPN permission checks and fail-closed
 runtime gates remain enforced. No package was installed, no device/emulator
 was used, and no host networking or release/signing state was changed.
+
+## Android verification buffers and v2 directory entries — 2026-10-19
+
+Baseline: `0c8151b567d4041e76a3d924e54104ca13b37e2e`. The final edited
+source has 5,510 entries in the canonical version-1 manifest (1,086,302 bytes),
+SHA-256 `0e83ed8a5b4b0e327ccc5abf6a54484ec6cb67f40e5bb6c530be6d44f03392d8`.
+Only this validation document is excluded. The manifest remains local at
+`/tmp/usque-proton-directory-buffer-source-manifest.json`; its contents were
+verified after the checks. No Kotlin, native window, request-identity or
+authentication protocol code changed in this candidate.
+
+The user confirmed that the new build reached `Load servers` after account
+sign-in, while completing the guest puzzle immediately produced the generic
+verification-failed message without a native verification error code. Two
+independent defects were reproduced:
+
+- Flutter's pinned engine returns read-only platform reply buffers, including
+  both small copied and large external responses. StandardMessageCodec keeps
+  typed-data views into those buffers. Clearing a borrowed handoff after the
+  puzzle, or clearing its returned success bytes, threw `UnsupportedError`.
+  Dart now owns mutable copies before submission/cleanup. Writable transferred
+  sources are cleared; read-only framework sources can only be released, not
+  claimed as explicitly erased. Owned copies are cleared on normal and stale
+  completion. A real codec/read-only envelope fixture and two Android widget
+  regressions cover the handoff/result cases; late cancellation also uses a
+  read-only reply. The final complete Flutter suite passed below.
+- The v2 directory returned `EntryIP` for every physical server and no
+  `EntryPerProtocol`. The previous collector skipped every such server. The
+  collector now follows official `ConnectingDomain.getEntryIp`: use a valid
+  WireGuardUDP override when present, otherwise the same server's `EntryIP`.
+  Explicit malformed overrides are rejected; absent/null ports use the API's
+  clientconfig defaults. Public IPv4, online physical status, canonical nonzero
+  peer key, tier and feature filters remain required. Four new protocol tests
+  cover fallback, precedence, nullable ports and rejection boundaries; the
+  provisioning fixture now uses the observed v2 shape.
+
+The [protocol reference](PROTON_VPN_PROTOCOL.md) links the pinned Flutter engine
+reply path, typed-data decoder and Proton model. The cached official
+`ConnectingDomain.kt` and `DefaultPorts.kt` were verified against GitHub's
+pinned content and Git blob hashes. Directory failures now have specific
+allowlisted English/Chinese messages rather than a repeated generic failure.
+
+### Bounded directory probes and offline comparison
+
+The workstation probes used verified HTTPS, the pinned Android API identity,
+synthetic device facts, no account password, no redirects and no explicit WARP
+binding. No real puzzle was solved or automated. Only numeric status/shape
+summaries were logged. All captured temporary sessions were revoked with
+HTTP 200 / API 1000; no token or UID was printed or persisted.
+
+| Probe | Result |
+| --- | --- |
+| No session, config and directory GETs | HTTP 401 / API 401 |
+| Synthetic anonymous session at `2026-10-19T10:09:34Z` | Session/config: 200/1000; directory: 403/9106; session revoked |
+| Synthetic guest at `2026-10-19T10:11:39Z` | Anonymous/credentialless/config/directory: 200/1000; session revoked; no HV required |
+| Guest directory shape | 1,403,270 bytes; 1,618 logicals, including 119 free; 2,523 physicals, all with EntryIP and none with EntryPerProtocol; 2,458 online physical status flags |
+| Same saved directory through old production collector | `no_free_wireguard_nodes` |
+| Same saved directory through edited production collector | 200 compatible free candidates (the existing output cap) |
+
+The offline comparison compiled each collector with the real `usque-core`
+validation and local locked dependency artifacts. Only the unused configuration
+function's crypto argument was stubbed; collection performed no network or
+connection. The local directory SHA-256 is
+`c2b0c46ac661d2e20062def760124541e46ac7c995e7bbecea736792fb6777ff`;
+clientconfig SHA-256 is
+`3fb51eac1a6a4b69da624c5a4e2272bd56198ed40dbf9f5a91334703f8e588ed`.
+The sanitized guest result SHA-256 is
+`a9bb50366be2f60bff5c807f1ae1f14762badb1a7518ee57100632905d2e36b0`.
+Raw directory snapshots and temporary probe/harness files remain local under
+`/tmp/usque-proton-`; they are not publication evidence or tracked artifacts.
+The collector comparison proves compatibility with this response, not binary
+logical status/load processing, Android routing, or WireGuard/agent acceptance.
+
+### Final workstation checks
+
+Commands use the pinned toolchains in CONTRIBUTING. Flutter commands ran in
+`apps/usque_gui`, Gradle in its `android` subdirectory, and other commands at
+the repository root. Logs have the `/tmp/usque-proton-directory-buffer-` prefix.
+An initial analyzer run rejected an unnecessary test import; the import was
+restricted and the complete Flutter matrix rerun. Initial Linux compile
+invocations from the repository root were rejected for missing pubspec; both
+were rerun successfully from the GUI directory.
+
+| Exact command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | passed |
+| `cargo test --workspace --all-targets --locked` | passed: 1,775 tests; 3 existing ignores |
+| `cargo test -p usque-transport --features wireguard --locked proton_vpn:: -- --nocapture` | passed: 69 tests |
+| `flutter pub get --enforce-lockfile` | passed |
+| `dart format --output=none --set-exit-if-changed lib test` | passed: 265 files unchanged |
+| `flutter analyze --no-pub` | passed: no issues |
+| `flutter test --no-pub --exclude-tags golden` | passed: 1,146 tests; 1 existing skip |
+| `flutter test --no-pub --tags linux-golden` | passed: 19 tests; no baseline changes |
+| `flutter build linux --debug --no-pub -t lib/main_preview.dart` | passed |
+| `flutter build linux --release --no-pub -t lib/main.dart` | passed |
+| `cargo build --release --locked -p usque-engine -p usque-agent -p usque-update` | passed |
+| `cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_socket_test` and `apps/usque_gui/build/linux/x64/release/runner/usque_linux_socket_test` | passed |
+| `cmake --build apps/usque_gui/build/linux/x64/release --target usque_proton_verification_test` and `apps/usque_gui/build/linux/x64/release/runner/usque_proton_verification_test` | passed |
+| `python3 -m unittest discover -s tool -p test_linux_package.py -v` | passed: 19 tests; 1 existing skip |
+| `pwsh -NoProfile -File tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed |
+| `./gradlew --no-daemon :app:ktlintCheck` | passed |
+| `./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed: 476 tests; no failures/errors/skips; lint passed |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed |
+| `python3 tool/check_repository_policy.py`, `actionlint -no-color`, `git diff --check` | passed |
+| Windows Rust, Flutter/runner compile and golden gates | not_run: Linux workstation |
+| Real account full setup, Android WebView/JNI/WARP resumption and tunnel/agent | not_run |
+
+No package was installed, no device/emulator or real account was used, and no
+host networking or signing/release state changed. The corrections do not alter
+API headers, challenge tokens, server proof validation, session rotation,
+revocation ownership or runtime authorization gates. Workstation HTTPS and
+offline fixtures cannot establish successful verification or connectivity on
+the user's Android device.

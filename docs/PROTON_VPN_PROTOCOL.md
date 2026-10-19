@@ -306,6 +306,13 @@ session ID 字段可供本地证明绑定。不能将公钥一致或 X.509 可�
 回退，也不从无协议信息的地址推断 UDP 支持。端口优先读取该 entry 的 `Ports`，
 缺省时才采用服务端 clientconfig 的 `DefaultPorts.WireGuard.UDP`，缺失时拒绝
 猜测端口。
+原生 Rust 实现现按官方 `ConnectingDomain.getEntryIp` 规则，在没有
+`WireGuardUDP` override 时读取同一物理节点的 `EntryIP`。2026-10-19 的合成
+游客目录响应正使用这一结构：2,523 个物理节点均没有 `EntryPerProtocol`。
+显式 override 存在但畸形时拒绝该节点，不改选默认地址；`Ports` 缺省或为官方
+可空模型允许的 null 时才使用 clientconfig 端口。公网 IPv4、物理在线标志、
+有效非零 X25519 公钥、免费层级及非受限节点检查仍适用，不能由 `EntryIP`
+单独认定 WireGuard 连接或最终 agent 授权成功。
 免费候选使用 Tier 0、排除 Secure Core/受限节点、要求物理节点在线标志和有效
 peer 公钥。新版 `StatusReference`/二进制状态未实现时不能称节点已实测在线。
 依据：[ConnectingDomain](https://github.com/ProtonVPN/android-app/blob/316a3d499e120bd2cab63c2cd8ac396e3ab3b24a/app/src/main/java/com/protonvpn/android/servers/api/ConnectingDomain.kt)、
@@ -435,6 +442,14 @@ challenge token、`ForceWebMessaging=1`、消息 source、当前顶层挑战 SHA
 
 Android 先锁定有效结果的私有副本，离开 WebMessage 回调后再销毁 WebView、
 回传该结果并清零副本；清理不能把成功改成取消，旧窗口回调不能关闭新窗口。
+Flutter 固定版本会将平台消息包装为只读字节，StandardMessageCodec 的 typed
+data 解码仍借用该 buffer。Dart 必须先为 handoff 和成功结果建立自己持有的
+可写副本，再提交结果和清零，不能直接对平台借用视图执行 `fillRange`。
+转移的可写源立即清零；只读平台源只能释放引用，不能宣称已将框架持有的内存
+清零。应用持有的副本在成功、取消及迟到结果路径均清零。这一修正不改变验证码
+token、原生窗口桥接或 API 请求身份。
+依据：[Flutter 平台回复的只读包装](https://github.com/flutter/flutter/blob/84fc5cbb223bc12f83d65b647ff8a56caf779ffd/engine/src/flutter/lib/ui/window/platform_message_response_dart.cc)、
+[typed data 解码](https://github.com/flutter/flutter/blob/84fc5cbb223bc12f83d65b647ff8a56caf779ffd/packages/flutter/lib/src/foundation/serialization.dart)。
 弹窗外部触摸不取消拼图，意外的顶层导航仍被阻止。
 显式取消按钮或返回键产生取消结果；过期、TLS、桥接及生命周期失败使用固定
 错误代码，界面在后续清理轮询中保留该失败和允许列表内的错误代码，并独立

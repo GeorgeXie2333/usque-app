@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show StandardMethodCodec;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/proton_strings.dart';
 import 'package:usque/models/app_models.dart';
@@ -138,6 +139,35 @@ class PendingPuzzleEngine extends ProtonEngine {
   }
 }
 
+class ReadOnlyPuzzleEngine extends ProtonEngine {
+  ReadOnlyPuzzleEngine({required this.readOnlyHandoff});
+  final bool readOnlyHandoff;
+
+  @override
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) async {
+    final result = await super.protonVpn(
+      command,
+      sensitiveInput: sensitiveInput,
+    );
+    if (readOnlyHandoff && command['action'] == 'handoff') {
+      return ProtonVpnResult(
+        metadata: result.metadata,
+        sensitiveHandoff: result.sensitiveHandoff.asUnmodifiableView(),
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff) async =>
+      Uint8List.fromList(
+        utf8.encode(ProtonEngine.success),
+      ).asUnmodifiableView();
+}
+
 class CleaningPuzzleEngine extends PendingPuzzleEngine {
   @override
   Future<ProtonVpnResult> protonVpn(
@@ -207,6 +237,72 @@ void _protonWidgetTest(
 }
 
 void main() {
+  test(
+    'Proton handoffs own mutable bytes from read-only platform envelopes',
+    () {
+      const codec = StandardMethodCodec();
+      final native = Uint8List.fromList(
+        utf8.encode('synthetic-private-handoff'),
+      );
+      final message = codec.encodeSuccessEnvelope(native).asUnmodifiableView();
+      final borrowed = codec.decodeEnvelope(message) as Uint8List;
+      final result = ProtonVpnResult(
+        metadata: const {},
+        sensitiveHandoff: borrowed,
+      );
+      expect(utf8.decode(result.sensitiveHandoff), 'synthetic-private-handoff');
+      result.clearHandoff();
+      result.clearHandoff();
+      expect(result.sensitiveHandoff.every((byte) => byte == 0), isTrue);
+
+      final transferred = Uint8List.fromList(native);
+      final writable = ProtonVpnResult(
+        metadata: const {},
+        sensitiveHandoff: transferred,
+      );
+      expect(transferred.every((byte) => byte == 0), isTrue);
+      expect(
+        utf8.decode(writable.sensitiveHandoff),
+        'synthetic-private-handoff',
+      );
+      writable.clearHandoff();
+    },
+  );
+
+  for (final readOnlyHandoff in [true, false]) {
+    _protonWidgetTest(
+      'Android resumes verification with read-only platform bytes, handoff=$readOnlyHandoff',
+      (tester) async {
+        final engine = ReadOnlyPuzzleEngine(readOnlyHandoff: readOnlyHandoff);
+        final app = await hostChain(tester, engine);
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ProtonVpnPanel(controller: app, onChanged: () {}),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Continue as guest'));
+        await tester.pumpAndSettle();
+        expect(engine.requests.where((r) => r['action'] == 'verify').length, 1);
+        expect(engine.requests.where((r) => r['action'] == 'cancel'), isEmpty);
+        expect(engine.inputs, [ProtonEngine.success]);
+        expect(find.text('Free server'), findsOneWidget);
+        expect(
+          find.text(app.strings.proton('verification_failed')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      platform: TargetPlatform.android,
+    );
+  }
+
   for (final failure in ['BRIDGE', 'EXPIRED', 'unknown']) {
     final expired = failure == 'EXPIRED';
     _protonWidgetTest(
@@ -298,7 +394,9 @@ void main() {
       expect(engine.nativeCloses, 1);
       expect(engine.requests.where((r) => r['action'] == 'cancel').length, 1);
       engine.answer.complete(
-        Uint8List.fromList(utf8.encode(ProtonEngine.success)),
+        Uint8List.fromList(
+          utf8.encode(ProtonEngine.success),
+        ).asUnmodifiableView(),
       );
       await tester.pumpAndSettle();
       expect(engine.requests.where((r) => r['action'] == 'verify'), isEmpty);

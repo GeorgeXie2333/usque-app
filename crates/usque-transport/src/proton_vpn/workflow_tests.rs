@@ -96,7 +96,7 @@ impl Http for Peer {
                 json!({"Code":1000,"DefaultPorts":{"WireGuard":{"UDP":[51820]}}})
             }
             "/vpn/v2/logicals?WithEntriesForProtocols=WireGuardUDP&WithState=true" => {
-                json!({"Code":1000,"LogicalServers":[{"ID":"logical","Name":"Synthetic Free","ExitCountry":"IS","City":"Synthetic","Tier":0,"Features":0,"Status":1,"Load":10,"Servers":[{"ID":"physical","Status":1,"Domain":"agent.example.invalid","X25519PublicKey":STANDARD.encode([8u8;32]),"EntryPerProtocol":{"WireGuardUDP":{"IPv4":if self.invalid_directory{"127.0.0.1"}else{"8.8.8.8"}}}}]}]})
+                json!({"Code":1000,"StatusID":"synthetic-status","LogicalServers":[{"ID":"logical","Name":"Synthetic Free","ExitCountry":"IS","City":"Synthetic","Tier":0,"Features":0,"StatusReference":{"Index":0,"Penalty":0.0,"Cost":0},"Servers":[{"ID":"physical","Status":1,"Domain":"agent.example.invalid","X25519PublicKey":STANDARD.encode([8u8;32]),"EntryIP":if self.invalid_directory{"127.0.0.1"}else{"8.8.8.8"}}]}]})
             }
             "/vpn/v1/certificate" => {
                 let payload: Value = serde_json::from_slice(&request.body).unwrap();

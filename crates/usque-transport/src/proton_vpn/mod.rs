@@ -17,6 +17,8 @@ mod api_tests;
 #[cfg(test)]
 mod client_tests;
 #[cfg(test)]
+mod nodes_tests;
+#[cfg(test)]
 mod workflow_tests;
 
 use async_trait::async_trait;

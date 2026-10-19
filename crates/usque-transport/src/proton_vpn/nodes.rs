@@ -61,24 +61,34 @@ pub(super) fn collect(directory: &Value, config: &Value) -> Result<Vec<SelectedN
             let Some(id) = text(physical.get("ID"), 100) else {
                 continue;
             };
-            let Some(entry) = physical.pointer("/EntryPerProtocol/WireGuardUDP") else {
-                continue;
+            let entry = match physical.get("EntryPerProtocol") {
+                None | Some(Value::Null) => None,
+                Some(Value::Object(protocols)) => match protocols.get("WireGuardUDP") {
+                    None => None,
+                    Some(Value::Object(entry)) => Some(entry),
+                    _ => continue,
+                },
+                _ => continue,
             };
+            // Official ConnectingDomain falls back to EntryIP when this
+            // protocol has no override. Current v2 directories use that shape.
+            // A malformed explicit override must not silently select another IP.
             let Some(address) = entry
-                .get("IPv4")
+                .map_or_else(|| physical.get("EntryIP"), |entry| entry.get("IPv4"))
                 .and_then(Value::as_str)
                 .and_then(|v| v.parse::<Ipv4Addr>().ok())
                 .filter(public)
             else {
                 continue;
             };
-            let Some(ports) = entry
-                .get("Ports")
-                .map(|v| v.as_array())
-                .unwrap_or(Some(fallback))
-            else {
-                continue;
+            let ports = match entry.and_then(|entry| entry.get("Ports")) {
+                None | Some(Value::Null) => fallback,
+                Some(Value::Array(ports)) => ports,
+                _ => continue,
             };
+            if ports.is_empty() || ports.len() > 32 || ports.iter().any(|v| port(v).is_none()) {
+                continue;
+            }
             let Some(port) = ports.first().and_then(port) else {
                 continue;
             };
