@@ -168,7 +168,7 @@ impl LinuxVpnRuntime {
             }
             let (_, descriptor) = agent.packet_session(operation).await?;
             protector.set_device(&descriptor)?;
-            let device = AsyncFd::new(descriptor)?;
+            let device = register_packet_descriptor(descriptor)?;
             let io = tunnel.attach_tun().map_err(error)?;
             agent.commit(operation).await?;
             Ok::<_, io::Error>((device, io))
@@ -358,7 +358,7 @@ impl LinuxVpnRuntime {
         self.agent.finalize(self.operation, plan.clone()).await?;
         let (_, descriptor) = self.agent.packet_session(self.operation).await?;
         self.protector.set_device(&descriptor)?;
-        let device = AsyncFd::new(descriptor)?;
+        let device = register_packet_descriptor(descriptor)?;
         let io = self.tunnel.attach_tun().map_err(error)?;
         self.agent.commit(self.operation).await?;
         self.packets_cancel = self.cancel.child_token();
@@ -443,7 +443,7 @@ impl LinuxVpnRuntime {
             }
             let (_, descriptor) = self.agent.packet_session(target).await?;
             self.protector.set_device(&descriptor)?;
-            let device = AsyncFd::new(descriptor)?;
+            let device = register_packet_descriptor(descriptor)?;
             let io = tunnel.attach_tun().map_err(error)?;
             self.agent.commit(target).await?;
             self.target_committed = true;
@@ -623,6 +623,14 @@ pub(crate) fn validate_capabilities(
     }
     Ok(())
 }
+fn register_packet_descriptor(descriptor: OwnedFd) -> io::Result<AsyncFd<OwnedFd>> {
+    // SAFETY: AsyncFd takes ownership of this live descriptor. Packet I/O only
+    // borrows it through get_ref; no code closes or replaces the descriptor or
+    // changes its underlying file description before AsyncFd deregisters it.
+    // Converting a registration error to io::Error also drops its OwnedFd.
+    unsafe { AsyncFd::register(descriptor) }.map_err(io::Error::from)
+}
+
 fn spawn_packet_pump(
     mut transport: TunPacketIo,
     device: AsyncFd<OwnedFd>,
@@ -1114,13 +1122,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejected_packet_registration_releases_the_owned_descriptor() {
+        let temporary = tempfile::NamedTempFile::new().unwrap();
+        let descriptor = temporary.reopen().unwrap();
+        let observer = temporary.reopen().unwrap();
+        descriptor.try_lock().unwrap();
+        assert!(observer.try_lock().is_err());
+
+        // epoll rejects regular files. The independent open's lock becoming
+        // available proves error conversion closed the registered OwnedFd,
+        // without relying on a raw descriptor number that another test can reuse.
+        let error = register_packet_descriptor(OwnedFd::from(descriptor))
+            .err()
+            .unwrap();
+        assert_eq!(error.raw_os_error(), Some(libc::EPERM));
+        observer.try_lock().unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_pending_packet_read_releases_the_owned_descriptor() {
+        use std::io::Read as _;
+
+        let (device, mut observer) = std::os::unix::net::UnixStream::pair().unwrap();
+        device.set_nonblocking(true).unwrap();
+        observer.set_nonblocking(true).unwrap();
+        let device = register_packet_descriptor(OwnedFd::from(device)).unwrap();
+        let mut buffer = [0u8; 1280];
+        let mut pending = Box::pin(read_packet(&device, &mut buffer));
+        std::future::poll_fn(|context| {
+            assert!(std::future::Future::poll(pending.as_mut(), context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(pending);
+        drop(device);
+
+        // A socketpair stands in for packet I/O; EOF proves cancellation can
+        // deregister and close the owned endpoint without a TUN or host changes.
+        assert_eq!(observer.read(&mut [0u8; 1]).unwrap(), 0);
+    }
+
+    #[tokio::test]
     async fn packet_io_is_bounded_and_preserves_datagram_boundaries() {
         let (device, observer) = std::os::unix::net::UnixDatagram::pair().unwrap();
         device.set_nonblocking(true).unwrap();
         observer
             .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
-        let device = AsyncFd::new(OwnedFd::from(device)).unwrap();
+        let device = register_packet_descriptor(OwnedFd::from(device)).unwrap();
         observer.send(&[0x45, 0, 0, 4]).unwrap();
         let mut buffer = [0u8; 1280];
         let size = tokio::time::timeout(Duration::from_secs(3), read_packet(&device, &mut buffer))

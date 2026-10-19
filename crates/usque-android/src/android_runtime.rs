@@ -516,7 +516,7 @@ async fn run(
     timeline_generation: u64,
 ) {
     let tun = match tun {
-        Some(fd) => match AsyncFd::new(TunFd(fd)) {
+        Some(fd) => match register_tun(fd) {
             Ok(tun) => Some(tun),
             Err(error) => {
                 set_error_with_code(
@@ -1202,7 +1202,7 @@ async fn handle_runtime_command(
                 let _ = reply.send(START_TUN_FAILURE);
                 return;
             }
-            let attached = match AsyncFd::new(TunFd(owned)) {
+            let attached = match register_tun(owned) {
                 Ok(attached) => attached,
                 Err(error) => {
                     set_error(status, format!("register TUN descriptor: {error}"));
@@ -1424,6 +1424,15 @@ fn rate(current: u64, previous: u64, seconds: f64) -> u64 {
 }
 
 struct TunFd(OwnedFd);
+
+fn register_tun(descriptor: OwnedFd) -> io::Result<AsyncFd<TunFd>> {
+    // SAFETY: this descriptor is an owned dup of Java's TUN, and TunFd always
+    // returns that same live descriptor. Packet I/O only borrows it; detach and
+    // shutdown drop the entire AsyncFd rather than closing or replacing its
+    // inner descriptor. The file description therefore stays valid and fixed
+    // until deregistration. Error conversion also drops the owned duplicate.
+    unsafe { AsyncFd::register(TunFd(descriptor)) }.map_err(io::Error::from)
+}
 
 impl AsRawFd for TunFd {
     fn as_raw_fd(&self) -> i32 {

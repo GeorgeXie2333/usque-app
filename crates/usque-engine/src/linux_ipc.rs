@@ -263,7 +263,10 @@ pub async fn wait_for_parent_exit(parent_pid: Option<u32>) -> io::Result<()> {
     use std::os::fd::FromRawFd;
     // SAFETY: the successful syscall returned a fresh descriptor owned here.
     let descriptor = unsafe { File::from_raw_fd(descriptor as i32) };
-    let descriptor = tokio::io::unix::AsyncFd::new(descriptor)?;
+    // SAFETY: AsyncFd owns the live pidfd through File and only borrows it for
+    // readiness. No code closes or replaces it or changes its file description;
+    // completion, cancellation, or registration failure drops the sole owner.
+    let descriptor = unsafe { tokio::io::unix::AsyncFd::register(descriptor) }?;
     let _ready = descriptor.readable().await?;
     Ok(())
 }
