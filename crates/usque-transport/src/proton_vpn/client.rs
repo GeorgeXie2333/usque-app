@@ -1,6 +1,7 @@
 //! Android wire compatibility pinned to ProtonVPN/android-app 316a3d499e12
 //! (5.20.74.0, direct APK) and its published Proton Core 36.8.0 sources.
-//! Only actual Android platform facts may enter this profile, through JNI.
+//! Android platform facts enter through JNI. New non-Android guests use a
+//! separate fixed synthetic context without observing the host device.
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use usque_core::{chain_exit::ImportError, proton_vpn::ApiIdentity};
@@ -56,6 +57,11 @@ impl ClientConfig {
             return Err(invalid());
         }
         let context: AndroidContext = serde_json::from_str(raw).map_err(|_| invalid())?;
+        Self::from_android(context)
+    }
+
+    fn from_android(context: AndroidContext) -> Result<Self, ImportError> {
+        let invalid = || usque_core::proton_vpn::error("invalid_client_context");
         let device = &context.device;
         for value in [
             &context.os_release,
@@ -112,6 +118,32 @@ impl ClientConfig {
         })
     }
 
+    /// Select before creating any session; saved sessions retain their identity.
+    pub(super) fn for_guest(&self) -> Result<Self, ImportError> {
+        if self.device.is_some() || cfg!(target_os = "android") {
+            return Ok(self.clone());
+        }
+        Self::from_android(AndroidContext {
+            os_release: "15".into(),
+            brand: "google".into(),
+            model: "Pixel 8".into(),
+            locale: "en".into(),
+            is_tv: false,
+            device: AndroidDevice {
+                app_language: "en".into(),
+                timezone: "UTC".into(),
+                device_name: device_hash("Pixel 8/google shiba"),
+                region_code: "US".into(),
+                timezone_offset: 0,
+                rooted: false,
+                font_size: "1.0".into(),
+                storage: 128.0,
+                dark_mode: false,
+                keyboards: Vec::new(),
+            },
+        })
+    }
+
     pub(super) fn payload(&self, login: bool) -> Value {
         if let Some(context) = &self.device {
             let mut device = serde_json::to_value(&context.device).expect("finite Android device");
@@ -126,12 +158,17 @@ impl ClientConfig {
         }
         let platform = std::env::consts::OS;
         let description = format!("{platform}/usque {}", std::env::consts::ARCH);
-        let mut weight = 1i64;
-        let mut device = 0i64;
-        for byte in description.bytes() {
-            device += (byte as i8 as i64) * weight;
-            weight = weight * 7 % 100000007;
-        }
+        let device = device_hash(&description);
         json!({"Payload": {format!("usque-{platform}-v4-challenge-0"): {"v":"2.0.7","deviceName":device}}})
     }
+}
+
+pub(super) fn device_hash(description: &str) -> i64 {
+    let mut weight = 1i64;
+    let mut device = 0i64;
+    for byte in description.bytes() {
+        device += (byte as i8 as i64) * weight;
+        weight = weight * 7 % 100000007;
+    }
+    device
 }

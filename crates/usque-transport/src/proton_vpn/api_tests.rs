@@ -151,6 +151,27 @@ async fn try_login(
     .unwrap()
 }
 
+async fn provision_guest(
+    client: &mut Client,
+    parent: &std::path::Path,
+    io: &dyn Interaction,
+    cancel: &CancellationToken,
+) -> Result<uuid::Uuid, Failure> {
+    workflow::provision(
+        client,
+        &Request::parse(r#"{"action":"guest"}"#).unwrap(),
+        Zeroizing::new(Vec::new()),
+        workflow::Storage {
+            parent,
+            cipher: Arc::new(super::workflow_tests::FixtureCipher),
+            accounts: Default::default(),
+        },
+        io,
+        cancel,
+    )
+    .await
+}
+
 #[tokio::test]
 async fn android_login_401_creates_anonymous_context_and_retries_before_checking_server_proof() {
     let peer = make_peer(vec![
@@ -648,6 +669,7 @@ async fn refreshed_session_preserves_user_id_but_rejects_account_switching() {
 
 #[tokio::test]
 async fn each_authentication_step_can_present_its_own_manual_challenge() {
+    let directory = tempfile::tempdir().unwrap();
     let peer = make_peer(vec![
         Ok((422, challenge())),
         Ok((
@@ -659,13 +681,100 @@ async fn each_authentication_step_can_present_its_own_manual_challenge() {
             200,
             json!({"Code":1000,"UID":"guest","AccessToken":"guest-access","RefreshToken":"guest-refresh","UserID":"guest-user"}),
         )),
+        Ok((403, json!({"Code":403}))),
+        Ok((200, json!({"Code":1000}))),
+        Ok((200, json!({"Code":1000}))),
     ]);
-    let mut client = Client::new(peer);
+    let mut client = Client::new(peer.clone());
     let io = manual();
-    workflow::guest(&mut client, &io, &CancellationToken::new())
-        .await
-        .unwrap();
+    let failure = provision_guest(
+        &mut client,
+        directory.path(),
+        &io,
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(failure.reason, "api_rejected");
     assert_eq!(io.calls.load(Ordering::Acquire), 2);
+    assert!(client.revoke_all(&CancellationToken::new()).await);
+    let seen = peer.seen.lock().unwrap();
+    assert_eq!(seen.len(), 7);
+    assert_eq!(seen[0].body, seen[1].body);
+    assert_eq!(seen[2].body, seen[3].body);
+    assert_eq!(seen[5].method, Method::DELETE);
+    assert_eq!(seen[6].method, Method::DELETE);
+    assert!(
+        usque_core::proton_vpn::store::SessionStore::new(
+            directory.path(),
+            &super::workflow_tests::FixtureCipher
+        )
+        .records()
+        .unwrap()
+        .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn guest_rejections_do_not_retry_switch_identity_or_start_verification() {
+    for credentialless in [false, true] {
+        for (code, reason) in [
+            (8004, "session_not_allowed"),
+            (10200, "credentialless_disabled"),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut replies = Vec::new();
+            if credentialless {
+                replies.push(Ok((200, anonymous_response())));
+            }
+            replies.push(Ok((422, json!({"Code":code}))));
+            if credentialless {
+                replies.push(Ok((200, json!({"Code":1000}))));
+            }
+            let peer = make_peer(replies);
+            let mut client = Client::new(peer.clone());
+            let io = manual();
+            let failure = provision_guest(
+                &mut client,
+                directory.path(),
+                &io,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(failure.reason, reason);
+            assert_eq!(failure.code, Some(code));
+            assert_eq!(failure.status, Some(422));
+            assert_eq!(io.calls.load(Ordering::Acquire), 0);
+            assert!(client.revoke_all(&CancellationToken::new()).await);
+            let seen = peer.seen.lock().unwrap();
+            assert_eq!(seen.len(), if credentialless { 3 } else { 1 });
+            let expected = ClientConfig::default().for_guest().unwrap();
+            for request in seen.iter() {
+                assert!(request.headers.contains(&(
+                    "x-pm-appversion".into(),
+                    expected.identity.app_version.clone()
+                )));
+                assert!(
+                    request
+                        .headers
+                        .contains(&("user-agent".into(), expected.identity.user_agent.clone()))
+                );
+            }
+            if credentialless {
+                assert_eq!(seen[2].method, Method::DELETE);
+            }
+            assert!(
+                usque_core::proton_vpn::store::SessionStore::new(
+                    directory.path(),
+                    &super::workflow_tests::FixtureCipher
+                )
+                .records()
+                .unwrap()
+                .is_empty()
+            );
+        }
+    }
 }
 
 #[tokio::test]

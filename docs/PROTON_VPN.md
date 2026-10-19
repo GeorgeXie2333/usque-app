@@ -72,6 +72,23 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
 和当前挑战，最多五分钟、使用一次。12087 表示验证结果被拒，应用清除该结果，
 最多重新获取一次挑战，新的拼图仍需本人完成；再次失败会显示错误。
 
+On Windows and Linux, **Continue as guest** automatically uses a fixed synthetic
+Android compatibility context. No additional setting or device details are
+required. It sends an Android 15 / Pixel 8 profile with English, US region and
+UTC, without reading the host's hardware identifiers. Ordinary account sign-in
+keeps its independent client identity; Android uses its actual platform facts.
+The guest's API identity remains with its encrypted session for later requests,
+including after restarting Usque. Existing accounts retain their saved identity.
+Proton can still reject a session or require manual verification; API 8004 alone
+does not identify which field or eligibility condition caused the rejection.
+
+Windows 和 Linux 的“以游客身份继续”自动使用固定的合成 Android 兼容配置，
+无需开启额外选项或填写设备信息。模板为 Android 15 / Pixel 8、英语、美国区域
+和 UTC，不读取本机硬件标识。普通账号登录保持独立客户端身份，Android 使用
+真实系统信息。游客 API 身份随加密会话保存，重启后的请求继续沿用；现有账号
+保留原身份。Proton 仍可能拒绝会话或要求本人完成验证，不能仅凭 8004 确定
+具体被拒绝的字段或资格条件。
+
 准备成功只保存账号、本地密钥和完整可用逻辑节点列表，不提前申请连接证书。
 相同 Proton 用户再次登录会更新已有账号；旧版本重复记录合并显示。
 点击账号下的“节点”行，可按名称、国家代码或城市搜索，或选择“自动”；
@@ -271,6 +288,8 @@ failed step and numeric codes are shown without opening a CAPTCHA window.
 Only an actual human-verification response starts the puzzle flow. Android
 uses a pinned Android APK compatibility profile, matching API/User-Agent
 versions and actual device facts, as described in the protocol reference.
+New Windows/Linux guests use the separate fixed synthetic Android context
+described above; the full device frame is never persisted or exported.
 
 会话、Ed25519 seed 和证书保存在平台加密私有侧车中，与普通设置分离；密码不保存，
 验证码、挑战 URL/token、HTTP 原文及私钥不进入普通状态和诊断。证书校验绑定本地
@@ -280,6 +299,8 @@ write-through 替换已实现，但真实断电恢复未实测。免费游客资
 其他二次验证、真实 local-agent 和平台清理仍需实网验证。8004 表示不允许客户端
 创建会话，界面显示失败步骤和数字代码，不会当作拼图。Android 按固定 APK 兼容
 版本统一 API 标识和 User-Agent，设备字段取真实系统信息，细节见协议参考。
+Windows/Linux 新游客采用上述独立的固定合成 Android 配置，完整设备帧不落盘、
+不导出。
 
 加密账号记录保留最多 20,000 个可用逻辑节点，所有支持平台的序列化明文上限为
 8 MiB，加密封装上限为 12 MiB。Linux 和 Android 加密器支持此账号容量；普通

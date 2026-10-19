@@ -399,6 +399,7 @@ pub(super) async fn provision(
         login(client, input, interaction, cancel).await?;
         label
     } else {
+        client.config = client.config.for_guest()?;
         guest(client, interaction, cancel).await?;
         "Proton guest".into()
     };

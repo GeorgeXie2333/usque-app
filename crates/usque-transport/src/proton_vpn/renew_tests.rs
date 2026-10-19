@@ -695,39 +695,55 @@ async fn deferred_certificate_is_requested_once_for_the_saved_key_at_first_conne
     assert_eq!(http.requests.lock().unwrap().len(), 5);
 }
 #[tokio::test]
-async fn guest_recovery_retains_android_headers_and_rechecks_guest_scopes() {
-    let (_, mut prepared, storage) = fixture();
-    {
-        let mut record = storage.record.lock().unwrap();
-        record.identity = "guest".into();
-        record.api_identity =
-            super::super::ClientConfig::android(super::super::client_tests::ANDROID_CONTEXT)
-                .unwrap()
-                .identity;
+async fn guest_recovery_and_certificates_retain_real_or_synthetic_android_identity() {
+    for client_config in [
+        super::super::ClientConfig::android(super::super::client_tests::ANDROID_CONTEXT).unwrap(),
+        super::super::ClientConfig::default().for_guest().unwrap(),
+    ] {
+        let (_, mut prepared, storage) = fixture();
+        {
+            let mut record = storage.record.lock().unwrap();
+            record.identity = "guest".into();
+            record.api_identity = client_config.identity.clone();
+            record.refresh_at = super::super::interaction::now() - 1;
+        }
+        let http = mock(vec![
+            unauthorized(),
+            Answer::Json(refresh()),
+            Answer::Json(json!({"Code":1000,"Scopes":["vpn"]})),
+            Answer::Json(permissions()),
+            Answer::Json(config()),
+            Answer::Json(directory()),
+            Answer::FreshCertificate,
+        ]);
+        prepare_with_http(&mut prepared, http.clone(), &CancellationToken::new())
+            .await
+            .unwrap();
+        let requests = http.requests.lock().unwrap();
+        assert!(requests[0].ends_with("/auth/v4/scopes"));
+        assert!(requests[1].ends_with("/auth/v4/refresh"));
+        assert!(requests.last().unwrap().ends_with("/vpn/v1/certificate"));
+        assert!(!requests.iter().any(|url| url.ends_with("/core/v4/users")));
+        for headers in http.headers.lock().unwrap().iter() {
+            assert!(headers.contains(&(
+                "x-pm-appversion".into(),
+                client_config.identity.app_version.clone()
+            )));
+            assert!(headers.contains(&(
+                "user-agent".into(),
+                client_config.identity.user_agent.clone()
+            )));
+            if !client_config.identity.locale.is_empty() {
+                assert!(
+                    headers
+                        .contains(&("x-pm-locale".into(), client_config.identity.locale.clone()))
+                );
+            }
+        }
+        let record = storage.record.lock().unwrap();
+        assert_eq!(record.session.user_id, "user");
+        assert!(record.api_identity == client_config.identity);
     }
-    let http = mock(vec![
-        unauthorized(),
-        Answer::Json(refresh()),
-        Answer::Json(json!({"Code":1000,"Scopes":["vpn"]})),
-        Answer::Json(permissions()),
-        Answer::Json(config()),
-        Answer::Json(directory()),
-    ]);
-    prepare_with_http(&mut prepared, http.clone(), &CancellationToken::new())
-        .await
-        .unwrap();
-    let requests = http.requests.lock().unwrap();
-    assert!(requests[0].ends_with("/auth/v4/scopes"));
-    assert!(requests[1].ends_with("/auth/v4/refresh"));
-    assert!(!requests.iter().any(|url| url.ends_with("/core/v4/users")));
-    for headers in http.headers.lock().unwrap().iter() {
-        assert!(headers.contains(&("x-pm-appversion".into(), "android-vpn@5.20.74.0+apk".into())));
-        assert!(headers.contains(&(
-            "user-agent".into(),
-            "ProtonVPN/5.20.74.0 (Android 15; google Pixel 8)".into()
-        )));
-    }
-    assert_eq!(storage.record.lock().unwrap().session.user_id, "user");
 }
 #[tokio::test]
 async fn only_401_rotates_once_and_a_known_replacement_precedes_later_protected_requests() {

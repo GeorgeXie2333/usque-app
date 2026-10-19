@@ -34,7 +34,7 @@ use usque_core::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-struct FixtureCipher;
+pub(super) struct FixtureCipher;
 impl ProfileCipher for FixtureCipher {
     fn seal(&self, id: Uuid, value: &[u8]) -> Result<Vec<u8>, ImportError> {
         let mut result = id.as_bytes().to_vec();
@@ -84,6 +84,8 @@ fn setup_job_starts_without_a_warp_account_or_underlay() {
 }
 struct Peer {
     seen: Mutex<Vec<(String, String, String)>>,
+    headers: Mutex<Vec<Vec<(String, String)>>>,
+    bodies: Mutex<Vec<Value>>,
     generation: AtomicU64,
     cancel_on_retire: Option<CancellationToken>,
     invalid_directory: bool,
@@ -111,6 +113,17 @@ impl Http for Peer {
             .lock()
             .unwrap()
             .push((request.method.to_string(), path.into(), uid.clone()));
+        self.headers.lock().unwrap().push(
+            request
+                .headers
+                .iter()
+                .map(|(key, value)| ((*key).into(), (*value).into()))
+                .collect(),
+        );
+        self.bodies
+            .lock()
+            .unwrap()
+            .push(serde_json::from_slice(&request.body).unwrap_or(Value::Null));
         let value = match path {
             "/auth/v4/sessions" => {
                 json!({"Code":1000,"UID":"synthetic-anonymous","AccessToken":"synthetic-private-anonymous-access","RefreshToken":"synthetic-private-anonymous-refresh"})
@@ -197,6 +210,8 @@ impl Http for Peer {
 fn peer(cancel: Option<CancellationToken>, invalid: bool) -> Arc<Peer> {
     Arc::new(Peer {
         seen: Mutex::new(Vec::new()),
+        headers: Mutex::new(Vec::new()),
+        bodies: Mutex::new(Vec::new()),
         generation: AtomicU64::new(1),
         cancel_on_retire: cancel,
         invalid_directory: invalid,
@@ -232,6 +247,22 @@ fn guest() -> Request {
     }
 }
 
+fn assert_identity(http: &Peer, identity: &usque_core::proton_vpn::ApiIdentity) {
+    for headers in http.headers.lock().unwrap().iter() {
+        for (name, expected) in [
+            ("x-pm-appversion", &identity.app_version),
+            ("user-agent", &identity.user_agent),
+        ] {
+            assert!(headers.contains(&(name.into(), expected.clone())));
+        }
+        let locale = headers.iter().find(|(name, _)| name == "x-pm-locale");
+        assert_eq!(
+            locale.map(|(_, value)| value.as_str()),
+            (!identity.locale.is_empty()).then_some(identity.locale.as_str())
+        );
+    }
+}
+
 #[tokio::test]
 async fn guest_provisions_persistent_session_profile_and_bound_runtime_credentials() {
     let directory = tempfile::tempdir().unwrap();
@@ -256,6 +287,23 @@ async fn guest_provisions_persistent_session_profile_and_bound_runtime_credentia
     assert!(client.retired.is_empty());
     let sessions = SessionStore::new(directory.path(), &FixtureCipher);
     let record = sessions.load(id).unwrap();
+    let expected_client = ClientConfig::default().for_guest().unwrap();
+    assert!(record.api_identity == expected_client.identity);
+    assert_identity(&http, &expected_client.identity);
+    {
+        let bodies = http.bodies.lock().unwrap();
+        assert_eq!(bodies[0], expected_client.payload(false));
+        assert_eq!(bodies[1], expected_client.payload(true));
+    }
+    let private_record = serde_json::to_string(&record).unwrap();
+    for field in [
+        "\"Payload\"",
+        "\"deviceName\"",
+        "\"timezone\"",
+        "\"keyboards\"",
+    ] {
+        assert!(!private_record.contains(field));
+    }
     assert_eq!(record.session.access_token, "synthetic-private-access");
     assert!(!record.rotation_pending);
     assert_eq!(record.version, 4);
@@ -393,11 +441,20 @@ async fn forbidden_directory_never_creates_configuration_and_known_sessions_can_
 }
 #[tokio::test]
 async fn login_is_independent_and_server_proof_precedes_any_protected_request() {
+    let directory = tempfile::tempdir().unwrap();
     let http = peer(None, false);
     let mut client = Client::new(http.clone());
-    let failure = workflow::login(
+    let mut request = guest();
+    request.action = "login".into();
+    let failure = provision(
         &mut client,
+        &request,
         Zeroizing::new(br#"{"username":"synthetic-user","password":"abc123"}"#.to_vec()),
+        Storage {
+            parent: directory.path(),
+            cipher: Arc::new(FixtureCipher),
+            accounts: Default::default(),
+        },
         &Select,
         &CancellationToken::new(),
     )
@@ -405,6 +462,13 @@ async fn login_is_independent_and_server_proof_precedes_any_protected_request() 
     .err()
     .unwrap();
     assert_eq!(failure.reason, "cryptographic_validation_failed");
+    let expected = ClientConfig::default();
+    assert!(client.config.identity == expected.identity);
+    assert_identity(&http, &expected.identity);
+    assert_eq!(
+        http.bodies.lock().unwrap()[1]["Payload"],
+        expected.payload(true)["Payload"]
+    );
     {
         let seen = http.seen.lock().unwrap();
         assert_eq!(seen.len(), 2);
@@ -493,6 +557,89 @@ async fn saved_fixture(parent: &std::path::Path) -> (Uuid, Arc<Peer>) {
     .unwrap();
     (id, http)
 }
+
+#[tokio::test]
+async fn guest_provision_preserves_an_explicit_android_context() {
+    let directory = tempfile::tempdir().unwrap();
+    let http = peer(None, false);
+    let config = ClientConfig::android(super::client_tests::ANDROID_CONTEXT).unwrap();
+    let mut client = Client::new(http.clone());
+    client.config = config.clone();
+    let id = provision(
+        &mut client,
+        &guest(),
+        Zeroizing::new(Vec::new()),
+        Storage {
+            parent: directory.path(),
+            cipher: Arc::new(FixtureCipher),
+            accounts: Default::default(),
+        },
+        &Select,
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_identity(&http, &config.identity);
+    let bodies = http.bodies.lock().unwrap();
+    assert_eq!(bodies[0], config.payload(false));
+    assert_eq!(bodies[1], config.payload(true));
+    let record = SessionStore::new(directory.path(), &FixtureCipher)
+        .load(id)
+        .unwrap();
+    assert!(record.api_identity == config.identity);
+}
+
+#[tokio::test]
+async fn reloaded_guests_and_legacy_accounts_refresh_and_sign_out_with_their_saved_identity() {
+    for legacy in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path();
+        let (id, http) = saved_fixture(parent).await;
+        let sessions = SessionStore::new(parent, &FixtureCipher);
+        let mut record = sessions.load(id).unwrap();
+        if legacy {
+            record.api_identity = Default::default();
+            sessions.save(&record).unwrap();
+        }
+        let identity = record.api_identity.clone();
+        http.seen.lock().unwrap().clear();
+        http.headers.lock().unwrap().clear();
+        let mut fresh = Client::new(http.clone());
+        provision(
+            &mut fresh,
+            &request("refresh", id),
+            Zeroizing::new(Vec::new()),
+            Storage {
+                parent,
+                cipher: Arc::new(FixtureCipher),
+                accounts: Default::default(),
+            },
+            &Select,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(sessions.load(id).unwrap().api_identity == identity);
+        assert!(fresh.config.identity == identity);
+        let mut fresh = Client::new(http.clone());
+        workflow::logout(
+            &mut fresh,
+            id,
+            parent,
+            &FixtureCipher,
+            &Select,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_identity(&http, &identity);
+        let seen = http.seen.lock().unwrap();
+        assert!(seen.iter().any(|(_, path, _)| path == "/auth/v4/scopes"));
+        assert!(seen.iter().any(|(method, _, _)| method == "DELETE"));
+        assert!(sessions.records().unwrap().is_empty());
+    }
+}
+
 fn duplicate(parent: &std::path::Path, id: Uuid) -> Uuid {
     let sessions = SessionStore::new(parent, &FixtureCipher);
     let mut record = sessions.load(id).unwrap();
