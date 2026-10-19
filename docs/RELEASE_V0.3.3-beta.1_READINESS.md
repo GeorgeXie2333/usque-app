@@ -38,6 +38,23 @@ remain explicit in the notes. No official keys are accessed locally.
 
 ## Validation record
 
+The second candidate's hosted Windows x64 Build failed the loopback HTTP
+cancellation fixture at its peer-close wait: a 100 ms sleep could cancel
+before a connection was established, leaving the fixture in accept(). The
+pre-tag correction pins only the test's localhost address and waits for a
+complete request before cancellation. Readiness remains bounded, and the
+original two-second peer-close assertion is retained. Production HTTP,
+timeout, retry and credential handling are unchanged. This requires a new
+candidate SHA and fresh required Actions, not a waived or silently retried
+failure.
+
+The superseded Ubuntu Rust gate also stalled in the metadata-backoff fixture:
+its paused clock advanced before a blocking persistence load finished, then
+an unbounded yield loop prevented further timer progress. Both admission and
+backoff fixtures now use bounded real-time observation and abort-on-drop task
+ownership. The backoff test records request times and explicitly requires at
+least 30 seconds before retry; production lease scheduling is unchanged.
+
 The original Windows Python baseline was 271 tests, five errors and 131
 skips: it did not pass. Synthetic host facts fix three Proton errors;
 two actual POSIX fixtures are Linux-only and remain required on Linux.

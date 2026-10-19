@@ -56,6 +56,7 @@ enum Answer {
 struct MockHttp {
     answers: Mutex<VecDeque<Answer>>,
     requests: Mutex<Vec<String>>,
+    request_times: Mutex<Vec<tokio::time::Instant>>,
     headers: Mutex<Vec<Vec<(String, String)>>>,
     bodies: Mutex<Vec<Value>>,
     observed: Mutex<Vec<Record>>,
@@ -70,6 +71,10 @@ impl Http for MockHttp {
         cancel: &CancellationToken,
     ) -> Result<InternalResponse, InternalHttpError> {
         self.requests.lock().unwrap().push(request.url.to_owned());
+        self.request_times
+            .lock()
+            .unwrap()
+            .push(tokio::time::Instant::now());
         self.headers.lock().unwrap().push(
             request
                 .headers
@@ -136,6 +141,7 @@ fn mock(answers: Vec<Answer>) -> Arc<MockHttp> {
     Arc::new(MockHttp {
         answers: Mutex::new(answers.into()),
         requests: Mutex::new(Vec::new()),
+        request_times: Mutex::new(Vec::new()),
         headers: Mutex::new(Vec::new()),
         bodies: Mutex::new(Vec::new()),
         observed: Mutex::new(Vec::new()),
@@ -370,7 +376,7 @@ async fn uncached_selection_and_failed_endpoint_require_a_fresh_directory() {
     assert_eq!(after.session.access_token, before.session.access_token);
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn metadata_refresh_waits_for_admission_and_never_replaces_live_peer() {
     let (mut record, prepared, store) = fixture();
     cache_record(&mut record);
@@ -392,22 +398,31 @@ async fn metadata_refresh_waits_for_admission_and_never_replaces_live_peer() {
     let (_requests, receiver) = mpsc::channel(1);
     let cancel = CancellationToken::new();
     let task_cancel = cancel.clone();
-    let worker = tokio::spawn(async move {
+    let worker = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
         lease
             .run_with_recovery(credentials, receiver, admitted, &task_cancel)
             .await
-    });
-    for _ in 0..100 {
-        tokio::task::yield_now().await;
-    }
+    }));
+    // Observe a real monitor interval without advancing past pending
+    // spawn_blocking persistence, and never leave an unbounded busy wait.
+    tokio::time::sleep(MONITOR_INTERVAL + Duration::from_millis(10)).await;
     assert!(http.requests.lock().unwrap().is_empty());
     admit.send_replace(true);
-    tokio::time::advance(MONITOR_INTERVAL).await;
-    while store.writes.lock().unwrap().is_empty() {
-        tokio::task::yield_now().await;
-    }
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while store.writes.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("admitted metadata refresh must finish");
     cancel.cancel();
-    assert_eq!(worker.await.unwrap(), Ok(()));
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), worker)
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(())
+    );
     assert_eq!(http.requests.lock().unwrap().len(), 4);
     assert_eq!(observed.borrow().server_name, peer.domain);
     assert!(
@@ -454,7 +469,7 @@ async fn metadata_tier_change_invalidates_certificate_and_cache_without_touching
     assert_eq!(saved.max_tier, 2);
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn transient_metadata_failure_preserves_admission_and_uses_backoff() {
     let (mut record, prepared, store) = fixture();
     cache_record(&mut record);
@@ -478,30 +493,49 @@ async fn transient_metadata_failure_preserves_admission_and_uses_backoff() {
     let (_requests, receiver) = mpsc::channel(1);
     let cancel = CancellationToken::new();
     let task_cancel = cancel.clone();
-    let worker = tokio::spawn(async move {
+    let worker = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
         lease
             .run_with_recovery(credentials, receiver, admitted, &task_cancel)
             .await
-    });
-    while http.requests.lock().unwrap().is_empty() {
-        tokio::task::yield_now().await;
-    }
-    for _ in 0..100 {
-        tokio::task::yield_now().await;
-    }
+    }));
+    // Persistence uses real spawn_blocking work. A paused clock plus a busy
+    // yield loop can advance before retry_at is set, then prevent time from
+    // advancing forever. Observe the real bounded backoff instead.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while http.requests.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("first metadata request must start");
     assert!(!worker.is_finished());
     assert_eq!(http.requests.lock().unwrap().len(), 1);
     assert_eq!(
         store.load().unwrap().certificate_chain,
         record.certificate_chain
     );
-    tokio::time::advance(Duration::from_secs(31)).await;
-    while store.writes.lock().unwrap().is_empty() {
-        tokio::task::yield_now().await;
-    }
+    tokio::time::timeout(Duration::from_secs(45), async {
+        while store.writes.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("metadata retry must complete within the bounded fixture budget");
     cancel.cancel();
-    assert_eq!(worker.await.unwrap(), Ok(()));
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), worker)
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(())
+    );
     assert_eq!(http.requests.lock().unwrap().len(), 3);
+    let times = http.request_times.lock().unwrap();
+    assert_eq!(times.len(), 3);
+    assert!(
+        times[1].duration_since(times[0]) >= Duration::from_secs(30),
+        "a transient failure must preserve the full metadata retry backoff"
+    );
 }
 
 #[tokio::test]

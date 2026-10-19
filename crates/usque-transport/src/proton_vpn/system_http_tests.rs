@@ -77,13 +77,19 @@ fn certificates() -> (Arc<rustls::ServerConfig>, reqwest::Certificate) {
 }
 
 async fn peer(response: &'static str) -> (SystemHttp, String, AbortOnDropHandle<Vec<u8>>) {
-    peer_with_timeout(response, RESPONSE_TIMEOUT).await
+    let (http, url, peer, _started) = peer_with_timeout(response, RESPONSE_TIMEOUT).await;
+    (http, url, peer)
 }
 
 async fn peer_with_timeout(
     response: &'static str,
     timeout: Duration,
-) -> (SystemHttp, String, AbortOnDropHandle<Vec<u8>>) {
+) -> (
+    SystemHttp,
+    String,
+    AbortOnDropHandle<Vec<u8>>,
+    tokio::sync::oneshot::Receiver<()>,
+) {
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();
@@ -93,10 +99,14 @@ async fn peer_with_timeout(
         client: builder()
             .no_proxy()
             .add_root_certificate(root)
+            // Pin only this loopback fixture, avoiding platform localhost
+            // family fallback or a system DNS delay before the test socket.
+            .resolve("localhost", listener.local_addr().unwrap())
             .timeout(timeout)
             .build()
             .unwrap(),
     };
+    let (started, request_started) = tokio::sync::oneshot::channel();
     let task = AbortOnDropHandle::new(tokio::spawn(async move {
         let (socket, _) = listener.accept().await.unwrap();
         let Ok(mut tls) = tokio_rustls::TlsAcceptor::from(config).accept(socket).await else {
@@ -110,6 +120,9 @@ async fn peer_with_timeout(
             }
             input.push(byte[0]);
         }
+        if input.ends_with(b"\r\n\r\n") {
+            let _ = started.send(());
+        }
         if response.is_empty() {
             // The client must close a cancelled/timed-out request. Keeping this
             // future alive also exercises cancellation after a socket is opened.
@@ -121,7 +134,12 @@ async fn peer_with_timeout(
         }
         input
     }));
-    (http, format!("https://localhost:{port}/auth/v4/info"), task)
+    (
+        http,
+        format!("https://localhost:{port}/auth/v4/info"),
+        task,
+        request_started,
+    )
 }
 
 fn request(url: &str, limit: usize) -> InternalRequest<'_> {
@@ -210,11 +228,18 @@ async fn response_limits_cover_declared_and_streamed_bodies_and_reject_compressi
 #[tokio::test]
 async fn cancellation_and_timeout_close_inflight_sockets_without_replay() {
     for cancelled in [true, false] {
-        let (http, url, peer) = peer_with_timeout("", Duration::from_secs(1)).await;
+        let (http, url, peer, started) =
+            peer_with_timeout("", Duration::from_secs(if cancelled { 30 } else { 5 })).await;
         let cancel = CancellationToken::new();
         let stop = async {
+            // A wall-clock sleep could cancel before connect on a busy runner.
+            // Require a complete request first so both variants exercise a real
+            // in-flight socket; readiness failure remains a hard test failure.
+            tokio::time::timeout(Duration::from_secs(10), started)
+                .await
+                .expect("loopback request must start")
+                .expect("loopback peer closed before receiving the request");
             if cancelled {
-                tokio::time::sleep(Duration::from_millis(100)).await;
                 cancel.cancel();
             }
         };
