@@ -65,6 +65,16 @@ impl Backend for NativeBackend {
         Ok(())
     }
 
+    fn initialize_guard(&self, resources: &mut Resources) -> io::Result<()> {
+        // Freeze this before installing or journaling the guard. Later DNS and
+        // physical snapshots must retain its exact policy, including legacy
+        // guards whose absent receipt allowed only root's DHCP traffic.
+        if resources.dhcp_client_uids.is_none() {
+            resources.dhcp_client_uids = Some(dhcp_client_uids());
+        }
+        Ok(())
+    }
+
     fn initialize_resources(&self, resources: &mut Resources) -> io::Result<()> {
         resources.dns = if active_resolver().is_ok() {
             super::dns::DnsReceipt::Resolved
@@ -72,10 +82,6 @@ impl Backend for NativeBackend {
             super::dns::capture_network_manager()?
         };
         resources.physical_interfaces = physical_snapshot(&resources.dns)?;
-        // Resolved once: a later reinitialization keeps the installed guard.
-        if resources.dhcp_client_uids.is_none() {
-            resources.dhcp_client_uids = Some(dhcp_client_uids());
-        }
         Ok(())
     }
 
