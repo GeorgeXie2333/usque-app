@@ -8,7 +8,7 @@ use std::{
 };
 use tokio::{sync::oneshot, time::Instant};
 use tokio_util::sync::CancellationToken;
-use usque_core::proton_vpn::{Job, Node, Request};
+use usque_core::proton_vpn::{Job, Request};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -24,7 +24,6 @@ pub(super) fn now() -> i64 {
 enum Kind {
     Verification(Uuid),
     Totp,
-    Node,
 }
 pub(super) struct Shared {
     pub job: Job,
@@ -98,37 +97,18 @@ impl JobIo {
             Some(Kind::Totp) => {
                 request.action == "totp" && input.len() == 6 && input.iter().all(u8::is_ascii_digit)
             }
-            Some(Kind::Node) => {
-                request.action == "select_node"
-                    && request
-                        .node_id
-                        .as_ref()
-                        .is_some_and(|id| shared.job.nodes.iter().any(|node| &node.id == id))
-            }
             None => false,
         };
         if !valid {
             return Err(Failure::new("unexpected_interaction"));
         }
-        let value = if request.action == "select_node" {
-            Zeroizing::new(
-                request
-                    .node_id
-                    .as_ref()
-                    .ok_or_else(|| Failure::new("invalid_node"))?
-                    .as_bytes()
-                    .to_vec(),
-            )
-        } else {
-            input
-        };
         let (_, sender) = shared
             .waiting
             .take()
             .ok_or_else(|| Failure::new("unexpected_interaction"))?;
         shared.handoff = None;
         sender
-            .send(value)
+            .send(input)
             .map_err(|_| Failure::new("interaction_expired"))?;
         Ok(Zeroizing::new(Vec::new()))
     }
@@ -148,7 +128,6 @@ impl JobIo {
             shared.job.state = match &kind {
                 Kind::Verification(_) => "waiting_verification",
                 Kind::Totp => "waiting_totp",
-                Kind::Node => "waiting_node",
             }
             .into();
             shared.job.challenge_id = match &kind {
@@ -245,15 +224,6 @@ impl Interaction for JobIo {
         Ok(Zeroizing::new(
             String::from_utf8(input.to_vec()).map_err(|_| Failure::new("invalid_totp"))?,
         ))
-    }
-    async fn node(&self, nodes: Vec<Node>, cancel: &CancellationToken) -> Result<String, Failure> {
-        self.0
-            .lock()
-            .map_err(|_| Failure::new("unavailable"))?
-            .job
-            .nodes = nodes;
-        let value = self.wait(Kind::Node, None, 600, cancel).await?;
-        String::from_utf8(value.to_vec()).map_err(|_| Failure::new("invalid_node"))
     }
     fn phase(&self, phase: &str) {
         if let Ok(mut shared) = self.0.lock() {

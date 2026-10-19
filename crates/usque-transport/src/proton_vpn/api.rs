@@ -75,6 +75,9 @@ pub(super) struct Client {
     pub config: ClientConfig,
 }
 impl Client {
+    pub(super) fn network(&self) -> Arc<dyn Http> {
+        self.http.clone()
+    }
     pub fn generation(&self) -> Option<u64> {
         self.http.generation()
     }
@@ -148,7 +151,8 @@ impl Client {
         let mut answer = self
             .send(method.clone(), path, bytes.clone(), None, cancel)
             .await?;
-        if answer.0.get("Code").and_then(Value::as_u64) == Some(9001) {
+        let mut invalid_verification_retried = false;
+        while answer.0.get("Code").and_then(Value::as_u64) == Some(9001) {
             let details = answer
                 .0
                 .get("Details")
@@ -185,9 +189,36 @@ impl Client {
             if !self.http.current(generation) {
                 return Err(Failure::new("verification_underlay_changed"));
             }
+            if cancel.is_cancelled() {
+                return Err(Failure::new("cancelled"));
+            }
             answer = self
-                .send(method, path, bytes, Some((&result.0, &result.1)), cancel)
+                .send(
+                    method.clone(),
+                    path,
+                    bytes.clone(),
+                    Some((&result.0, &result.1)),
+                    cancel,
+                )
                 .await?;
+            drop(result);
+            if !invalid_verification_retried
+                && (400..500).contains(&answer.1)
+                && answer.0.get("Code").and_then(Value::as_u64) == Some(12087)
+                && !self.uncertain
+            {
+                // Core clears the rejected HV result and retries the original
+                // request, which may issue a fresh challenge. Never reuse the
+                // rejected token or replace this job's session. Bound recovery
+                // to one reset and one further manual challenge per request.
+                self.checkpoint(generation, cancel)?;
+                invalid_verification_retried = true;
+                answer = self
+                    .send(method.clone(), path, bytes.clone(), None, cancel)
+                    .await?;
+                continue;
+            }
+            break;
         }
         let code = answer
             .0
@@ -207,6 +238,8 @@ impl Client {
                     "session_not_allowed"
                 } else if code == 10200 {
                     "credentialless_disabled"
+                } else if code == 12087 {
+                    "human_verification_invalid"
                 } else if code == 429 || answer.1 == 429 {
                     "rate_limited"
                 } else {

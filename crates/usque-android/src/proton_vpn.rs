@@ -150,14 +150,30 @@ fn command(
         } else {
             usque_transport::proton_vpn::ClientConfig::default()
         };
-        let config = if request.needs_network() || request.action == "forget" {
+        let config = if request.mutates_account() {
             Some(
                 ConfigStore::new(path)
                     .load()
                     .map_err(|_| "PROTON_UNAVAILABLE")?,
             )
         } else {
-            None
+            ConfigStore::new(path).load().ok()
+        };
+        let accounts = usque_transport::proton_vpn::AccountContext {
+            active: engine_snapshot()
+                .vpn_gate
+                .unwrap_or_default()
+                .current_profile
+                .map(|profile| profile.id)
+                .into_iter()
+                .collect(),
+            selected: config.as_ref().and_then(|config| {
+                config
+                    .network
+                    .chain_exit
+                    .as_ref()
+                    .and_then(|settings| settings.profile_id)
+            }),
         };
         if let Some(config) = &config {
             let active = engine_snapshot()
@@ -207,7 +223,7 @@ fn command(
         } else {
             None
         };
-        match manager.command_with_client(request, input, context, client) {
+        match manager.command_scoped(request, input, context, client, accounts) {
             Ok(output) => Ok((
                 serde_json::to_vec(&output.metadata).map_err(|_| "PROTON_UNAVAILABLE")?,
                 output.sensitive_handoff,
@@ -323,7 +339,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativePro
             };
             // Fence configuration before reading its identity/network pair;
             // Kotlin's earlier secret snapshot is checked again under this lease.
-            let provider_lease = if request.needs_network() || request.action == "forget" {
+            let provider_lease = if request.mutates_account() {
                 Some(Arc::new(
                     usque_core::proton_vpn::lifecycle_lease(
                         path.parent().ok_or("PROTON_UNAVAILABLE")?,

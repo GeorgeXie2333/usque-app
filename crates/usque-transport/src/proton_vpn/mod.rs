@@ -8,10 +8,11 @@ pub(crate) mod local_agent;
 mod manager;
 mod nodes;
 pub(crate) mod renew;
+mod session;
 mod workflow;
 pub use crate::warp_wireguard::Context;
 pub use client::ClientConfig;
-pub use manager::{Manager, Output, attach};
+pub use manager::{AccountContext, Manager, Output, attach};
 #[cfg(test)]
 mod api_tests;
 #[cfg(test)]
@@ -24,7 +25,6 @@ mod workflow_tests;
 use async_trait::async_trait;
 use std::fmt;
 use tokio_util::sync::CancellationToken;
-use usque_core::proton_vpn::Node;
 use zeroize::Zeroizing;
 
 #[derive(Clone)]
@@ -78,6 +78,5 @@ pub(super) trait Interaction: Send + Sync {
         cancel: &CancellationToken,
     ) -> Result<(Zeroizing<String>, String), Failure>;
     async fn totp(&self, cancel: &CancellationToken) -> Result<Zeroizing<String>, Failure>;
-    async fn node(&self, nodes: Vec<Node>, cancel: &CancellationToken) -> Result<String, Failure>;
     fn phase(&self, phase: &str);
 }

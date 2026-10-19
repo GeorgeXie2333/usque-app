@@ -10,8 +10,8 @@ use std::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-const MAX_PLAINTEXT: usize = 128 * 1024;
-const MAX_CIPHERTEXT: usize = 192 * 1024;
+const MAX_PLAINTEXT: usize = 8 * 1024 * 1024;
+const MAX_CIPHERTEXT: usize = 12 * 1024 * 1024;
 const MAX_RECORDS: usize = 128;
 
 pub struct SessionStore<'a> {
@@ -140,6 +140,23 @@ impl<'a> SessionStore<'a> {
             .into_iter()
             .map(|id| self.read(id).map(|r| r.summary()))
             .collect()
+    }
+    /// The complete catalogue stays encrypted. Public IPC reads only one page.
+    pub fn records(&self) -> Result<Vec<Record>, ImportError> {
+        let _guard = self.lock()?;
+        self.ids()?.into_iter().map(|id| self.read(id)).collect()
+    }
+    pub fn related_ids(&self, id: Uuid) -> Result<Vec<Uuid>, ImportError> {
+        let records = self.records()?;
+        let target = records
+            .iter()
+            .find(|record| record.id == id)
+            .ok_or_else(|| error("session_not_found"))?;
+        Ok(records
+            .iter()
+            .filter(|record| record.session.user_id == target.session.user_id)
+            .map(|record| record.id)
+            .collect())
     }
     pub fn save(&self, record: &Record) -> Result<(), ImportError> {
         record.validate()?;

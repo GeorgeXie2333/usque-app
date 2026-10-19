@@ -10,6 +10,7 @@ import '../core/proton_strings.dart';
 import '../models/proton_vpn_models.dart' show takeProtonSensitiveBytes;
 import '../services/engine_client.dart' show EngineException;
 import '../state/app_controller.dart';
+import 'chain_editor_layout.dart';
 import 'common.dart';
 import 'usque_dialog.dart';
 
@@ -18,10 +19,20 @@ class ProtonVpnPanel extends StatefulWidget {
   const ProtonVpnPanel({
     required this.controller,
     required this.onChanged,
+    this.selectedProfileId,
+    this.savedProfileId,
+    this.currentProfileId,
+    this.onSelectProfile,
+    this.beforeRemove,
+    this.selectionEnabled = true,
     super.key,
   });
   final AppController controller;
   final VoidCallback onChanged;
+  final String? selectedProfileId, savedProfileId, currentProfileId;
+  final ValueChanged<String>? onSelectProfile;
+  final Future<bool> Function(List<String>)? beforeRemove;
+  final bool selectionEnabled;
 
   @override
   State<ProtonVpnPanel> createState() => ProtonVpnPanelState();
@@ -36,6 +47,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   bool _busy = false;
   bool _verifying = false;
   bool _handoffLoading = false;
+  bool _serversLoading = false;
+  String? _serverChanged;
   int _verificationEpoch = 0;
   Object? _verificationJob, _verificationChallenge;
   Completer<void>? _commandDone;
@@ -125,6 +138,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     'api_rejected' => 'api_rejected',
     'session_not_allowed' => 'session_not_allowed',
     'credentialless_disabled' => 'credentialless_disabled',
+    'human_verification_invalid' => 'verification_invalid',
+    'selected_server_unavailable' => 'selected_server_unavailable',
     'no_free_wireguard_nodes' => 'no_free_nodes',
     'invalid_server_directory' => 'invalid_directory',
     'invalid_client_configuration' => 'invalid_client_configuration',
@@ -143,30 +158,6 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     'unavailable' => 'unavailable',
     _ => 'failed',
   });
-
-  Future<void> _forget(String profileId) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => UsqueDialog(
-        icon: LucideIcons.trash2,
-        title: p('forget'),
-        content: Text(p('forget_confirm')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(_app.strings.get('cancel')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(p('forget')),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted && !_busy && !_running && !_verifying) {
-      await _command({'action': 'forget', 'profile_id': profileId});
-    }
-  }
 
   Future<void> _command(
     Map<String, Object?> command, {
@@ -269,7 +260,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     unawaited(_command({'action': 'totp', 'job_id': _job['id']}, input: input));
   }
 
-  Future<void> _login() async {
+  Future<void> _login({String? profileId}) async {
     final input = await showDialog<Uint8List>(
       context: context,
       builder: (_) => _ProtonLoginDialog(controller: _app),
@@ -279,7 +270,231 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       input.fillRange(0, input.length, 0);
       return;
     }
-    await _command({'action': 'login'}, input: input);
+    await _command({'action': 'login', 'profile_id': ?profileId}, input: input);
+  }
+
+  List<String> _related(Map<Object?, Object?> profile) {
+    final ids =
+        (profile['related_ids'] as List?)?.whereType<String>().toList() ?? [];
+    final id = profile['id'];
+    if (id is String && !ids.contains(id)) ids.add(id);
+    return ids;
+  }
+
+  Future<void> _removeAccount(Map<Object?, Object?> profile) async {
+    final id = profile['id'];
+    if (id is! String || _busy || _running || _verifying) return;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => UsqueDialog(
+        icon: LucideIcons.trash2,
+        danger: true,
+        title: p('remove_account'),
+        subtitle: profile['name'] as String?,
+        content: Text(p('remove_account_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(_app.strings.get('cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'forget'),
+            child: Text(p('forget_local')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, 'logout'),
+            child: Text(p('sign_out_remove')),
+          ),
+        ],
+      ),
+    );
+    if (action == null || !mounted || _busy || _running || _verifying) return;
+    if (!(await widget.beforeRemove?.call(_related(profile)) ?? true) ||
+        !mounted) {
+      return;
+    }
+    await _command({'action': action, 'profile_id': id});
+  }
+
+  Future<void> _chooseServer(Map<Object?, Object?> profile) async {
+    final id = profile['id'];
+    if (id is! String || _serversLoading || _busy || _running || _verifying) {
+      return;
+    }
+    if ((profile['server_count'] as int? ?? 0) == 0) {
+      await _command({'action': 'refresh', 'profile_id': id});
+      return;
+    }
+    setState(() {
+      _serversLoading = true;
+      _error = null;
+    });
+    final nodes = <Map<Object?, Object?>>[];
+    try {
+      var offset = 0, total = 0;
+      String? revision;
+      do {
+        final response = await _app.protonVpn({
+          'action': 'servers',
+          'profile_id': id,
+          'offset': offset,
+        });
+        try {
+          if (!mounted) return;
+          final metadata = response.metadata;
+          final page = (metadata['servers'] as List?)
+              ?.whereType<Map<Object?, Object?>>()
+              .toList();
+          final nextTotal = metadata['server_total'];
+          final nextRevision = metadata['server_revision'];
+          if (metadata['error'] != null ||
+              page == null ||
+              page.length > 128 ||
+              nextTotal is! int ||
+              nextTotal < 0 ||
+              nextTotal > 20000 ||
+              nextRevision is! String ||
+              metadata['server_offset'] != offset ||
+              offset > nextTotal ||
+              offset != 0 && (total != nextTotal || revision != nextRevision) ||
+              page.isEmpty && offset < nextTotal) {
+            throw const FormatException('Invalid server page');
+          }
+          total = nextTotal;
+          revision = nextRevision;
+          nodes.addAll(page);
+          offset += page.length;
+          if (offset > total ||
+              nodes.map((node) => node['id']).toSet().length != nodes.length) {
+            throw const FormatException('Invalid server catalogue');
+          }
+        } finally {
+          response.clearHandoff();
+        }
+      } while (offset < total);
+      if (!mounted) return;
+      setState(() => _serversLoading = false);
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (_) => _ProtonServerPicker(
+          nodes: nodes,
+          selected: profile['server_id'] as String?,
+          text: p,
+        ),
+      );
+      if (choice == null || !mounted) return;
+      await _command({
+        'action': 'choose_server',
+        'profile_id': id,
+        'node_id': choice.isEmpty ? null : choice,
+      });
+      if (mounted && _error == null) setState(() => _serverChanged = id);
+    } on Object {
+      if (mounted) setState(() => _error = p('invalid_directory'));
+    } finally {
+      if (mounted) setState(() => _serversLoading = false);
+    }
+  }
+
+  Widget _account(Map<Object?, Object?> profile) {
+    final id = profile['id'] as String;
+    final related = _related(profile);
+    final current = related.contains(widget.currentProfileId);
+    final server = profile['node_name'] as String? ?? '';
+    final waiting = _busy || _running || _verifying || _serversLoading;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ChainExitTile<String>(
+          value: id,
+          tileKey: ValueKey('proton-account-$id'),
+          selected: related.contains(widget.selectedProfileId),
+          enabled: widget.selectionEnabled && !waiting,
+          title: Text(profile['name'] as String? ?? p('account')),
+          subtitle: Text(
+            [
+              profile['needs_login'] == true
+                  ? p('session_requires_login')
+                  : p('signed_in'),
+              if (current)
+                p('current_account')
+              else if (related.contains(widget.savedProfileId))
+                p('saved_account'),
+            ].join(' · '),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${p('selected_server')}: ${profile['server_id'] == null || server.isEmpty ? p('automatic_server') : server}',
+              ),
+              Text(
+                '${p('available_servers')}: ${profile['server_count'] ?? 0}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (profile['cleanup_pending'] == true)
+                Text(
+                  p('cleanup_pending'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  TextButton.icon(
+                    onPressed: waiting || current
+                        ? null
+                        : () => unawaited(_chooseServer(profile)),
+                    icon: const Icon(LucideIcons.listFilter, size: 18),
+                    label: Text(
+                      (profile['server_count'] as int? ?? 0) == 0
+                          ? p('load_servers')
+                          : p('change_server'),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: waiting || current
+                        ? null
+                        : () => unawaited(
+                            _command({'action': 'refresh', 'profile_id': id}),
+                          ),
+                    icon: const Icon(LucideIcons.refreshCw, size: 18),
+                    label: Text(p('refresh_servers')),
+                  ),
+                  if (profile['needs_login'] == true)
+                    TextButton(
+                      onPressed: waiting || current
+                          ? null
+                          : () => unawaited(_login(profileId: id)),
+                      child: Text(p('needs_login')),
+                    ),
+                  TextButton.icon(
+                    onPressed: waiting
+                        ? null
+                        : () => unawaited(_removeAccount(profile)),
+                    icon: const Icon(LucideIcons.trash2, size: 18),
+                    label: Text(p('remove_account')),
+                  ),
+                ],
+              ),
+              if (_serverChanged == id)
+                Text(
+                  p('next_connection'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              if (current)
+                Text(
+                  p('disconnect_to_change'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _dismissVerification() async {
@@ -409,13 +624,13 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           runSpacing: 8,
           children: [
             OutlinedButton(
-              onPressed: _busy || _running || _verifying
+              onPressed: _busy || _running || _verifying || _serversLoading
                   ? null
                   : () => unawaited(_command({'action': 'guest'})),
               child: Text(p('guest')),
             ),
             OutlinedButton(
-              onPressed: _busy || _running || _verifying
+              onPressed: _busy || _running || _verifying || _serversLoading
                   ? null
                   : () => unawaited(_login()),
               child: Text(p('login')),
@@ -500,36 +715,30 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
                     ),
             ),
         ],
-        for (final profile in _profiles)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ListTile(
-                title: Text(profile['name'] as String? ?? ''),
-                subtitle: Text(
-                  '${profile['node_name'] ?? ''}${profile['needs_login'] == true ? ' · ${p('needs_login')}' : ''}',
-                ),
-                trailing: IconButton(
-                  tooltip: p('refresh'),
-                  icon: const Icon(LucideIcons.refreshCw),
-                  onPressed: _busy || _running || _verifying
-                      ? null
-                      : () => unawaited(
-                          _command({
-                            'action': 'refresh',
-                            'profile_id': profile['id'],
-                          }),
-                        ),
-                ),
-              ),
-              TextButton(
-                onPressed: _busy || _running || _verifying
-                    ? null
-                    : () => unawaited(_forget(profile['id'] as String)),
-                child: Text(p('forget')),
-              ),
-            ],
+        if (_serversLoading) const LinearProgressIndicator(minHeight: 2),
+        if (_profiles.isEmpty && !_running) Text(p('empty')),
+        if (_profiles.isNotEmpty) ...[
+          Text(p('accounts'), style: Theme.of(context).textTheme.titleMedium),
+          RadioGroup<String>(
+            groupValue:
+                _profiles
+                        .where(
+                          (profile) => _related(
+                            profile,
+                          ).contains(widget.selectedProfileId),
+                        )
+                        .firstOrNull?['id']
+                    as String?,
+            onChanged: (id) {
+              if (id != null) widget.onSelectProfile?.call(id);
+            },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 16,
+              children: _profiles.map(_account).toList(),
+            ),
           ),
+        ],
         if (_error != null || _verificationError != null || _state == 'failed')
           Text(
             _error ?? _verificationError ?? _failure(_job['failure']),
@@ -573,6 +782,103 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
                 'HTTP $status',
             ].join(' · '),
           ),
+      ],
+    );
+  }
+}
+
+class _ProtonServerPicker extends StatefulWidget {
+  const _ProtonServerPicker({
+    required this.nodes,
+    required this.selected,
+    required this.text,
+  });
+  final List<Map<Object?, Object?>> nodes;
+  final String? selected;
+  final String Function(String) text;
+  @override
+  State<_ProtonServerPicker> createState() => _ProtonServerPickerState();
+}
+
+class _ProtonServerPickerState extends State<_ProtonServerPicker> {
+  final _search = TextEditingController();
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.text.trim().toLowerCase();
+    final nodes = widget.nodes
+        .where(
+          (node) => [
+            node['name'],
+            node['country'],
+            node['city'],
+          ].whereType<String>().join(' ').toLowerCase().contains(query),
+        )
+        .toList();
+    final available =
+        MediaQuery.sizeOf(context).height -
+        MediaQuery.viewInsetsOf(context).bottom;
+    return UsqueDialog(
+      icon: LucideIcons.globe,
+      title: widget.text('choose_server'),
+      content: SizedBox(
+        width: 560,
+        height: (available * .55).clamp(100.0, 480.0),
+        child: Column(
+          children: [
+            TextField(
+              controller: _search,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: widget.text('search_servers'),
+                prefixIcon: const Icon(LucideIcons.search),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: RadioGroup<String>(
+                groupValue: widget.selected ?? '',
+                onChanged: (value) {
+                  if (value != null) Navigator.pop(context, value);
+                },
+                child: ListView.builder(
+                  itemCount: nodes.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return RadioListTile<String>(
+                        value: '',
+                        title: Text(widget.text('automatic_server')),
+                        subtitle: Text(widget.text('automatic_hint')),
+                      );
+                    }
+                    final node = nodes[index - 1];
+                    return RadioListTile<String>(
+                      value: node['id'] as String,
+                      title: Text(node['name'] as String? ?? ''),
+                      subtitle: Text(
+                        [node['country'], node['city']]
+                            .whereType<String>()
+                            .where((value) => value.isNotEmpty)
+                            .join(' · '),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(widget.text('close')),
+        ),
       ],
     );
   }

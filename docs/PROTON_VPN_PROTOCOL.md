@@ -360,7 +360,7 @@ User-Agent 同步为 `ProtonVPN/5.20.74.0 (Android <实际系统版本>; <实际
 不出现在普通状态/诊断中。旧版会话缺少身份字段时保持原有默认头。
 非 Android 平台继续使用独立 `external-vpn@0.1.0` 身份和真实系统/架构 frame。
 这些请求格式调整不证明真实服务端已接受此客户端。支持 SRP v4、单独 TOTP、
-每个实际返回 9001 的请求各自进行一次人工验证重试；9002 和 8004 不进入普通拼图。
+每个实际返回 9001 的请求分别人工验证；明确 12087 时可清除结果后额外获取一次新挑战；9002 和 8004 不进入普通拼图。
 验证码 WebView 保留平台浏览器默认 User-Agent，与官方 HV3 页面设置一致，
 不会把 API User-Agent 强加给网页资源。
 Android 收到带有效挑战的 9001 后自动打开原生验证窗口，同一 job/challenge 只自动
@@ -368,12 +368,12 @@ Android 收到带有效挑战的 9001 后自动打开原生验证窗口，同一
 
 | 原生状态边界 | 实现约束 |
 | --- | --- |
-| 配置准备 | 游客以匿名会话申请 credentialless，检查 scopes 和 VPN 权限；普通账号验证用户资源和 VPN 权限。新登录不额外旋转 token；选择免费候选并校验返回证书，保存后不撤销正在使用的会话 |
+| 配置准备 | 游客以匿名会话申请 credentialless，检查 scopes 和 VPN 权限；普通账号验证用户资源和 VPN 权限。新登录不额外旋转 token；按账号合并保存本地密钥、逻辑节点偏好及完整可用目录，证书延迟到连接时申请 |
 | 持久化 | 账号/seed/证书放入平台加密 sidecar；密码不落盘；轮转请求前持久化 pending 标记，超时或身份未知不重放旧刷新令牌 |
-| 开始连接 | 在同一 WARP underlay 上检查并按需刷新账号及证书，再启动内存 WireGuard/agent 栈；没有宿主 TCP 或 DNS 回退 |
+| 开始连接 | 在同一 WARP underlay 上检查账号，刷新目录并解析逻辑节点当前入口；复用有效证书，仅缺失或到期时申请，再启动内存 WireGuard/agent 栈；没有宿主回退 |
 | 最终授权 | WireGuard 握手后通过隧道内 TCP `10.2.0.1:65432` 建立 mTLS；校验节点 SNI、VPN 专用 CA、客户端 Ed25519 密钥/证书和 agent 状态及功能确认，之后才放行业务 |
 | 持续授权 | 定期检查 agent 状态，在到期前刷新同一账号/密钥证书；过期、撤权、侧车变更或无法确认的授权关闭业务；取消时等待所持有任务完成 |
-| 退出与本机遗忘 | 联网退出只尝试撤销本机拥有的会话；显式“仅忘记本机”只删除本地记录，不宣称远端已撤销；两者都保护正在使用或已保存选择的配置 |
+| 退出与本机遗忘 | 联网退出只尝试撤销本机拥有的会话；显式“仅忘记本机”只删除本地记录，不宣称远端已撤销；两者保护正在使用的账号；界面先清除已保存选择，保存失败则停止删除 |
 
 额外只读协议参考固定如下。实现为独立 Rust 内存 TCP/TLS/framing/state
 代码，没有移植或链接这两个 GPL 项目的实现。
@@ -460,3 +460,41 @@ token、原生窗口桥接或 API 请求身份。
 上述平台选择和 frame 结果路由，执行实际生成的监听代码，保留 Windows 空分支
 并验证结果 token 未拼接。未把官方 JavaScript 源码复制进仓库，也没有据此宣称
 真实 WebView 页面、服务端接受性或 WebView/API 出口一致性已经通过。
+
+
+## 逻辑节点、会话与证书生命周期补充
+
+2026-10-19 再次通过官方 GitHub Contents API 校验了固定提交的
+[CertificateRepository](https://github.com/ProtonVPN/android-app/blob/316a3d499e120bd2cab63c2cd8ac396e3ab3b24a/app/src/main/java/com/protonvpn/android/vpn/CertificateRepository.kt)、
+[RefreshSessionRequest](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/auth/data/src/main/kotlin/me/proton/core/auth/data/api/request/RefreshSessionRequest.kt)
+与 [HumanVerificationInvalidHandler](https://github.com/ProtonMail/protoncore_android/blob/1b87f94ebfdfaf5e67145e8668efc52dbb931e0b/network/domain/src/main/kotlin/me/proton/core/network/domain/handlers/HumanVerificationInvalidHandler.kt)。
+Git blob 与本地缓存逐字节一致；后者还与 Android 实际声明的 Core 36.8.0
+network-domain sources 包对应文件一致。未复制 Kotlin 实现。
+
+官方证书仓库按 sessionId 维护密钥与证书，复用未到期证书，按期限刷新；不要求
+每次连接都先旋转 OAuth token。一个 LogicalServer 可以包含多个 ConnectingDomain，
+节点选择和物理入口选择属于不同层次。原生实现据此按逻辑 ID 去重，保留账号
+MaxTier 内、非 Secure Core／受限类型且兼容在线 WireGuard UDP 的全部候选，
+取消旧的 200 项截断；API 与加密目录仍限制 20,000 个逻辑节点。公开 IPC 每页
+128 个节点，仅含名称、国家、城市、负载及逻辑 ID；页数、总量及目录 revision
+必须一致。Proton 账号摘要和节点分页不包含入口、公钥、会话 UserID、token 或证书。
+
+v2 加密记录允许尚未签发证书，兼容读取 v1，并将旧的 logical:physical 选择迁移为
+逻辑 ID。账号重新登录复用原本地密钥和配置 ID；同一 UserID 的旧记录合并展示。
+连接时解析当前入口、公钥及 agent SNI，保留本地静态配置作为完整性绑定，不将
+该旧入口当作运行时授权。手动选择的逻辑 ID 不可用即报错，Automatic 才自动选择。
+下载的普通 WireGuard 配置与原生 session-mode agent 认证不能互相替代；握手后
+仍须通过 mTLS、agent 状态和功能确认，不削弱授权门禁。
+
+受保护请求首次 401 才启动一次 token 恢复：先持久化 pending，发出唯一刷新请求，
+校验并立即保存已知替换令牌，再做后续请求。已知响应与取消或外层变化同时到达时，
+仍在独占 lease 内完成本机保存，但检查点阻止后续网络或业务授权。刷新结果未知
+保持 pending，不重放旧 refresh token；畸形成功里可用的 UID/access 只作加密撤销
+能力保存，不能作为认证账号。UID 改变会废弃旧会话证书，保留本地密钥重新签发。
+撤销句柄保留各自 API 身份，失败不宣称远端已撤销。
+
+Core 将 12087 定义为 USER_CREATE_TOKEN_INVALID；官方 handler 清除当前 HV 结果
+后重试原请求。原生仅在验证后的明确 4xx/12087 时清除该结果，以同一会话、正文
+和身份重发原请求一次；若收到新 9001，仍由用户完成新挑战。最多两次人工挑战，
+第二次失败或任何未知变更终止。不复用旧结果，不拼接 start token，不规避拼图；
+WebView 与 API 出口差异仍可能导致拒绝，未宣称重试必定解决用户设备上的 12087。

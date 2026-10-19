@@ -67,6 +67,31 @@ class _LinuxGoldenEngine extends FakeEngineClient
     Map<String, Object?> command, {
     Uint8List? sensitiveInput,
   }) async {
+    if (command['action'] == 'servers') {
+      return ProtonVpnResult(
+        metadata: {
+          'server_offset': 0,
+          'server_total': 2,
+          'server_revision': 'fixture-revision',
+          'servers': const [
+            {
+              'id': 'logical-jp',
+              'name': 'JP-FREE#1',
+              'country': 'JP',
+              'city': 'Tokyo',
+              'load': 42,
+            },
+            {
+              'id': 'logical-nl',
+              'name': 'NL-FREE#2',
+              'country': 'NL',
+              'city': 'Amsterdam',
+              'load': 28,
+            },
+          ],
+        },
+      );
+    }
     if (command['action'] != 'get' && command['action'] != 'cancel') {
       throw StateError(
         'Screenshot fixtures never authenticate or alter Proton sessions.',
@@ -470,36 +495,16 @@ void _configure(
           'phase': 'credentialless',
           'challenge_id': 'fixture-challenge',
         };
-      } else if (fixture.scene == _Scene.protonNodes) {
-        engine.protonJob = const {
-          'id': 'fixture-proton',
-          'state': 'waiting_node',
-          'phase': 'directory',
-          'nodes': [
-            {
-              'id': 'fixture-jp',
-              'name': 'JP-FREE#1',
-              'country': 'JP',
-              'city': 'Tokyo',
-              'load': 42,
-            },
-            {
-              'id': 'fixture-nl',
-              'name': 'NL-FREE#2',
-              'country': 'NL',
-              'city': 'Amsterdam',
-              'load': 28,
-            },
-          ],
-        };
       } else {
         engine.hasProtonProfile = true;
-        engine.protonProfiles = const [
+        engine.protonProfiles = [
           {
             'id': 'fixture-proton',
             'name': 'Proton Free',
             'node_name': 'JP-FREE#1',
-            'needs_login': true,
+            'server_id': 'logical-jp',
+            'server_count': fixture.scene == _Scene.protonNodes ? 2 : 119,
+            'needs_login': false,
           },
         ];
       }
@@ -785,12 +790,18 @@ void main() {
                   find.text(app.strings.chain('import_file')),
                   findsNothing,
                 );
+                if (fixture.scene == _Scene.protonNodes) {
+                  final change = find.text(app.strings.proton('change_server'));
+                  await tester.ensureVisible(change);
+                  await tester.tap(change);
+                  await tester.pumpAndSettle();
+                }
                 final target = switch (fixture.scene) {
                   _Scene.protonVerification => find.text(
                     app.strings.proton('verify'),
                   ),
                   _Scene.protonNodes => find.text('NL-FREE#2'),
-                  _ => find.text(app.strings.proton('forget')),
+                  _ => find.text(app.strings.proton('remove_account')),
                 };
                 await tester.ensureVisible(target);
                 await tester.pumpAndSettle();

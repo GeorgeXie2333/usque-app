@@ -55,6 +55,8 @@ struct Peer {
     generation: AtomicU64,
     cancel_on_retire: Option<CancellationToken>,
     invalid_directory: bool,
+    authenticated_uid: String,
+    failed_revocation: Mutex<Option<String>>,
 }
 #[async_trait]
 impl Http for Peer {
@@ -76,13 +78,13 @@ impl Http for Peer {
         self.seen
             .lock()
             .unwrap()
-            .push((request.method.to_string(), path.into(), uid));
+            .push((request.method.to_string(), path.into(), uid.clone()));
         let value = match path {
             "/auth/v4/sessions" => {
                 json!({"Code":1000,"UID":"synthetic-anonymous","AccessToken":"synthetic-private-anonymous-access","RefreshToken":"synthetic-private-anonymous-refresh"})
             }
             "/auth/v4/credentialless" => {
-                json!({"Code":1000,"UID":"synthetic-auth","AccessToken":"synthetic-private-access","RefreshToken":"synthetic-private-refresh","UserID":"synthetic-user"})
+                json!({"Code":1000,"UID":self.authenticated_uid,"AccessToken":"synthetic-private-access","RefreshToken":"synthetic-private-refresh","UserID":"synthetic-user"})
             }
             "/auth/v4/refresh" => {
                 json!({"Code":1000,"UID":"synthetic-auth","AccessToken":"synthetic-private-fresh-access","RefreshToken":"synthetic-private-fresh-refresh","UserID":"synthetic-user"})
@@ -127,6 +129,9 @@ impl Http for Peer {
                 json!({"Code":1000,"Certificate":String::from_utf8(cert.build().to_pem().unwrap()).unwrap(),"ExpirationTime":expires,"RefreshTime":expires-1800})
             }
             "/auth/v4" if request.method == Method::DELETE => {
+                if self.failed_revocation.lock().unwrap().as_deref() == Some(&uid) {
+                    return Err(InternalHttpError::Timeout);
+                }
                 if let Some(cancel) = &self.cancel_on_retire {
                     cancel.cancel();
                 }
@@ -163,6 +168,8 @@ fn peer(cancel: Option<CancellationToken>, invalid: bool) -> Arc<Peer> {
         generation: AtomicU64::new(1),
         cancel_on_retire: cancel,
         invalid_directory: invalid,
+        authenticated_uid: "synthetic-auth".into(),
+        failed_revocation: Mutex::new(None),
     })
 }
 struct Select;
@@ -179,9 +186,6 @@ impl Interaction for Select {
     async fn totp(&self, _: &CancellationToken) -> Result<Zeroizing<String>, Failure> {
         Err(Failure::new("unexpected_totp"))
     }
-    async fn node(&self, nodes: Vec<Node>, _: &CancellationToken) -> Result<String, Failure> {
-        Ok(nodes[0].id.clone())
-    }
     fn phase(&self, _: &str) {}
 }
 fn guest() -> Request {
@@ -192,6 +196,7 @@ fn guest() -> Request {
         challenge_id: None,
         node_id: None,
         name: "Synthetic Proton".into(),
+        offset: 0,
     }
 }
 
@@ -207,7 +212,8 @@ async fn guest_provisions_persistent_session_profile_and_bound_runtime_credentia
         Zeroizing::new(Vec::new()),
         Storage {
             parent: directory.path(),
-            cipher: &FixtureCipher,
+            cipher: Arc::new(FixtureCipher),
+            accounts: Default::default(),
         },
         &Select,
         &cancel,
@@ -220,6 +226,10 @@ async fn guest_provisions_persistent_session_profile_and_bound_runtime_credentia
     let record = sessions.load(id).unwrap();
     assert_eq!(record.session.access_token, "synthetic-private-access");
     assert!(!record.rotation_pending);
+    assert_eq!(record.version, 2);
+    assert!(record.certificate_chain.is_empty());
+    assert_eq!(record.server_catalog.len(), 1);
+    assert!(record.server_id.is_none());
     let chain = ChainProfileStore::new(directory.path(), &FixtureCipher);
     let profiles = chain.list().unwrap();
     assert_eq!(profiles.len(), 1);
@@ -257,7 +267,6 @@ async fn guest_provisions_persistent_session_profile_and_bound_runtime_credentia
             "/vpn/v2",
             "/vpn/v2/clientconfig",
             "/vpn/v2/logicals?WithEntriesForProtocols=WireGuardUDP&WithState=true",
-            "/vpn/v1/certificate",
             "/auth/v4",
         ]
     );
@@ -288,7 +297,8 @@ async fn cancellation_during_retired_cleanup_cannot_commit_new_profile() {
         Zeroizing::new(Vec::new()),
         Storage {
             parent: directory.path(),
-            cipher: &FixtureCipher,
+            cipher: Arc::new(FixtureCipher),
+            accounts: Default::default(),
         },
         &Select,
         &cancel,
@@ -322,7 +332,8 @@ async fn forbidden_directory_never_creates_configuration_and_known_sessions_can_
         Zeroizing::new(Vec::new()),
         Storage {
             parent: directory.path(),
-            cipher: &FixtureCipher,
+            cipher: Arc::new(FixtureCipher),
+            accounts: Default::default(),
         },
         &Select,
         &CancellationToken::new(),
@@ -384,7 +395,8 @@ async fn explicit_forget_removes_pending_local_identity_without_network_or_touch
         Zeroizing::new(Vec::new()),
         Storage {
             parent: directory.path(),
-            cipher: &FixtureCipher,
+            cipher: Arc::new(FixtureCipher),
+            accounts: Default::default(),
         },
         &Select,
         &CancellationToken::new(),
@@ -428,4 +440,357 @@ async fn explicit_forget_removes_pending_local_identity_without_network_or_touch
         .command(request, Zeroizing::new(Vec::new()), None)
         .unwrap();
     assert_eq!(http.seen.lock().unwrap().len(), requests);
+}
+
+async fn saved_fixture(parent: &std::path::Path) -> (Uuid, Arc<Peer>) {
+    let http = peer(None, false);
+    let mut client = Client::new(http.clone());
+    let id = provision(
+        &mut client,
+        &guest(),
+        Zeroizing::new(Vec::new()),
+        Storage {
+            parent,
+            cipher: Arc::new(FixtureCipher),
+            accounts: Default::default(),
+        },
+        &Select,
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    (id, http)
+}
+fn duplicate(parent: &std::path::Path, id: Uuid) -> Uuid {
+    let sessions = SessionStore::new(parent, &FixtureCipher);
+    let mut record = sessions.load(id).unwrap();
+    let chain = ChainProfileStore::new(parent, &FixtureCipher);
+    let summary = chain
+        .list()
+        .unwrap()
+        .into_iter()
+        .find(|profile| profile.id == id)
+        .unwrap();
+    let (_, _, config) = chain.load(&summary.selection()).unwrap();
+    let copy = chain
+        .import(ChainSource::ProtonVpn, "Legacy duplicate", config)
+        .unwrap();
+    record.id = copy.id;
+    record.revision = copy.revision;
+    record.session.uid = "legacy-uid".into();
+    sessions.save(&record).unwrap();
+    copy.id
+}
+fn manager(parent: &std::path::Path) -> Arc<Manager> {
+    Arc::new(Manager::new(
+        parent.join("profiles-v2.json"),
+        Arc::new(FixtureCipher),
+    ))
+}
+fn request(action: &str, id: Uuid) -> Request {
+    Request::parse(&format!(r#"{{"action":"{action}","profile_id":"{id}"}}"#)).unwrap()
+}
+#[tokio::test]
+async fn legacy_duplicates_are_one_account_and_every_related_active_or_selected_id_is_protected() {
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path();
+    let (id, _) = saved_fixture(parent).await;
+    let legacy = duplicate(parent, id);
+    let manager = manager(parent);
+    let summary = manager
+        .command(request("list", id), Zeroizing::new(Vec::new()), None)
+        .unwrap()
+        .metadata
+        .profiles
+        .remove(0);
+    assert_eq!(summary.related_ids.len(), 2);
+    assert!(summary.related_ids.contains(&legacy));
+    let metadata = serde_json::to_string(&summary).unwrap();
+    assert!(!metadata.contains("synthetic-user"));
+    let sessions = SessionStore::new(parent, &FixtureCipher);
+    let mut selected = sessions.load(id).unwrap();
+    selected.rotation_pending = true;
+    sessions.save(&selected).unwrap();
+    let selected_summary = manager
+        .command_scoped(
+            request("list", id),
+            Zeroizing::new(Vec::new()),
+            None,
+            Default::default(),
+            AccountContext {
+                active: Vec::new(),
+                selected: Some(id),
+            },
+        )
+        .unwrap()
+        .metadata
+        .profiles
+        .remove(0);
+    assert_eq!(selected_summary.id, id);
+    assert!(selected_summary.needs_login); // never hide the selected stale lease behind a healthy duplicate
+
+    for action in ["refresh", "forget", "logout", "choose_server"] {
+        let failure = manager
+            .command_scoped(
+                request(action, id),
+                Zeroizing::new(Vec::new()),
+                None,
+                Default::default(),
+                AccountContext {
+                    active: vec![legacy],
+                    selected: None,
+                },
+            )
+            .err()
+            .unwrap();
+        assert_eq!(failure.reason, "profile_in_use");
+    }
+    for action in ["forget", "logout"] {
+        let failure = manager
+            .command_scoped(
+                request(action, id),
+                Zeroizing::new(Vec::new()),
+                None,
+                Default::default(),
+                AccountContext {
+                    active: Vec::new(),
+                    selected: Some(legacy),
+                },
+            )
+            .err()
+            .unwrap();
+        assert_eq!(failure.reason, "profile_in_use");
+    }
+    workflow::forget(id, parent, &FixtureCipher).unwrap();
+    assert!(
+        SessionStore::new(parent, &FixtureCipher)
+            .list()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        ChainProfileStore::new(parent, &FixtureCipher)
+            .list()
+            .unwrap()
+            .is_empty()
+    );
+}
+#[tokio::test]
+async fn local_catalogue_pages_are_complete_revision_bound_and_choices_do_not_request_certificates()
+{
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path();
+    let (id, http) = saved_fixture(parent).await;
+    let sessions = SessionStore::new(parent, &FixtureCipher);
+    let mut record = sessions.load(id).unwrap();
+    record.server_catalog = (0..301)
+        .map(|i| Node {
+            id: format!("logical-{i}"),
+            name: format!("Server {i}"),
+            country: "IS".into(),
+            city: "".into(),
+            load: 0,
+        })
+        .collect();
+    sessions.save(&record).unwrap();
+    let requests = http.seen.lock().unwrap().len();
+    let manager = manager(parent);
+    let mut ids = Vec::new();
+    for (offset, count) in [(0, 128), (128, 128), (256, 45), (301, 0)] {
+        let mut command = request("servers", id);
+        command.offset = offset;
+        let result = manager
+            .command(command, Zeroizing::new(Vec::new()), None)
+            .unwrap()
+            .metadata;
+        assert_eq!(result.servers.len(), count);
+        assert_eq!(result.server_total, 301);
+        assert_eq!(result.server_offset, offset);
+        assert_eq!(result.server_revision, Some(record.catalog_revision));
+        ids.extend(result.servers.into_iter().map(|node| node.id));
+    }
+    assert_eq!(ids.len(), 301);
+    assert_eq!(ids.last().unwrap(), "logical-300");
+    let mut command = request("choose_server", id);
+    command.node_id = Some("logical-300".into());
+    manager
+        .command(command.clone(), Zeroizing::new(Vec::new()), None)
+        .unwrap();
+    assert_eq!(
+        sessions.load(id).unwrap().server_id.as_deref(),
+        Some("logical-300")
+    );
+    command.node_id = None;
+    manager
+        .command(command.clone(), Zeroizing::new(Vec::new()), None)
+        .unwrap();
+    assert!(sessions.load(id).unwrap().server_id.is_none());
+    command.node_id = Some("unlisted".into());
+    assert!(
+        manager
+            .command(command, Zeroizing::new(Vec::new()), None)
+            .is_err()
+    );
+    assert_eq!(http.seen.lock().unwrap().len(), requests);
+    assert!(sessions.load(id).unwrap().certificate_chain.is_empty());
+}
+#[tokio::test]
+async fn repeat_authentication_updates_the_selected_account_without_duplicating_profiles_or_keys() {
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path();
+    let (id, _) = saved_fixture(parent).await;
+    let before = SessionStore::new(parent, &FixtureCipher).load(id).unwrap();
+    let http = peer(None, false);
+    let mut client = Client::new(http);
+    let mut command = guest();
+    command.profile_id = Some(id);
+    let updated = provision(
+        &mut client,
+        &command,
+        Zeroizing::new(Vec::new()),
+        Storage {
+            parent,
+            cipher: Arc::new(FixtureCipher),
+            accounts: AccountContext {
+                active: Vec::new(),
+                selected: Some(id),
+            },
+        },
+        &Select,
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(updated, id);
+    let sessions = SessionStore::new(parent, &FixtureCipher);
+    let after = sessions.load(id).unwrap();
+    assert_eq!(after.ed25519_seed, before.ed25519_seed);
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(sessions.records().unwrap().len(), 1);
+    assert_eq!(
+        ChainProfileStore::new(parent, &FixtureCipher)
+            .list()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+#[tokio::test]
+async fn sign_out_revokes_all_owned_legacy_sessions_before_removing_the_account() {
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path();
+    let (id, http) = saved_fixture(parent).await;
+    duplicate(parent, id);
+    let mut client = Client::new(http.clone());
+    workflow::logout(
+        &mut client,
+        id,
+        parent,
+        &FixtureCipher,
+        &Select,
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    let seen = http.seen.lock().unwrap();
+    let revoked: Vec<_> = seen
+        .iter()
+        .filter(|(method, _, _)| method == "DELETE")
+        .map(|(_, _, uid)| uid.as_str())
+        .collect();
+    assert!(revoked.contains(&"synthetic-auth"));
+    assert!(revoked.contains(&"legacy-uid"));
+    assert!(
+        SessionStore::new(parent, &FixtureCipher)
+            .records()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        ChainProfileStore::new(parent, &FixtureCipher)
+            .list()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn failed_group_revocation_keeps_all_local_handles_and_requires_explicit_local_removal() {
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path();
+    let (id, http) = saved_fixture(parent).await;
+    duplicate(parent, id);
+    *http.failed_revocation.lock().unwrap() = Some("synthetic-auth".into());
+    let mut client = Client::new(http);
+    let failure = workflow::logout(
+        &mut client,
+        id,
+        parent,
+        &FixtureCipher,
+        &Select,
+        &CancellationToken::new(),
+    )
+    .await
+    .err()
+    .unwrap();
+    assert_eq!(failure.reason, "revocation_failed_remote_state_unknown");
+    let records = SessionStore::new(parent, &FixtureCipher).records().unwrap();
+    assert_eq!(records.len(), 2);
+    assert!(records.iter().all(|record| record.rotation_pending));
+    assert_eq!(
+        ChainProfileStore::new(parent, &FixtureCipher)
+            .list()
+            .unwrap()
+            .len(),
+        2
+    );
+    workflow::forget(id, parent, &FixtureCipher).unwrap();
+    assert!(
+        SessionStore::new(parent, &FixtureCipher)
+            .records()
+            .unwrap()
+            .is_empty()
+    );
+}
+#[tokio::test]
+async fn old_session_cleanup_failure_never_revokes_the_new_durably_saved_account() {
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path();
+    let (id, _) = saved_fixture(parent).await;
+    let mut http = peer(None, false);
+    Arc::get_mut(&mut http).unwrap().authenticated_uid = "new-auth".into();
+    *http.failed_revocation.lock().unwrap() = Some("synthetic-auth".into());
+    let mut client = Client::new(http.clone());
+    let mut command = guest();
+    command.profile_id = Some(id);
+    let failure = provision(
+        &mut client,
+        &command,
+        Zeroizing::new(Vec::new()),
+        Storage {
+            parent,
+            cipher: Arc::new(FixtureCipher),
+            accounts: Default::default(),
+        },
+        &Select,
+        &CancellationToken::new(),
+    )
+    .await
+    .err()
+    .unwrap();
+    assert_eq!(failure.reason, "cleanup_failed_remote_state_unknown");
+    let record = SessionStore::new(parent, &FixtureCipher).load(id).unwrap();
+    assert_eq!(record.session.uid, "new-auth");
+    assert!(!record.rotation_pending);
+    assert!(record.summary().cleanup_pending);
+    assert_eq!(record.retired_sessions[0].uid, "synthetic-auth");
+    assert!(client.revoke_all(&CancellationToken::new()).await);
+    assert!(
+        !http
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(method, _, uid)| method == "DELETE" && uid == "new-auth")
+    );
 }

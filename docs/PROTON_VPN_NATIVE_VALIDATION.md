@@ -587,3 +587,109 @@ API headers, challenge tokens, server proof validation, session rotation,
 revocation ownership or runtime authorization gates. Workstation HTTPS and
 offline fixtures cannot establish successful verification or connectivity on
 the user's Android device.
+
+## Account catalogue and connection lifecycle follow-up / 账号目录与连接生命周期修正
+
+Date: 2026-10-19. This candidate changes account/node lifecycle and the explicit
+12087 recovery described in the current [protocol reference](PROTON_VPN_PROTOCOL.md).
+It does not change the historical candidates above or establish live native
+acceptance.
+
+| Candidate identity | Value |
+| --- | --- |
+| Baseline | `717b83f913351d750d66081a3d569afa6504cf44` |
+| Complete source identity | Uncommitted working tree, 5,511 entries; version-1 manifest `/tmp/usque-proton-lifecycle-source-manifest.json`, 1,086,486 bytes, SHA-256 `765730c3012a1b9a1cff5d394846719ec977e3a66ec706b14af1a110f5735067` |
+| Manifest scope | Sorted tracked/unignored source union, regular-file hashes/size/executable bit, symlink targets and deletions; only this validation record excluded to avoid recursion; ignored SDKs, JNI libraries and build output excluded |
+| Toolchains | Same pinned Linux x86_64 Rust 1.97.1, Flutter 3.44.7 / `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`, NDK 29.0.14206865 and SDK CMake 3.22.1 as above |
+
+The official pinned `CertificateRepository`, `RefreshSessionRequest` and
+`HumanVerificationInvalidHandler` were fetched through GitHub's Contents API;
+Git blob hashes and cached bytes matched. The invalid-HV handler also matched
+Core 36.8.0's published source artifact. Source links and the differences between
+that artifact and the public Core snapshot remain in the protocol reference.
+
+| Safe check | Result |
+| --- | --- |
+| `bash tool/dev.sh check rust` | passed; exact format, workspace Clippy and locked workspace/all-target tests; 1,792 passed, 3 intentionally ignored |
+| Proton tests within the workspace | passed; 83 transport tests, including lazy certificates, fresh peer resolution, 401-only recovery, known/unknown refresh results, key/UID binding, cancellation, grouped accounts and retained cleanup ownership |
+| Core encrypted-store tests within the workspace | passed; v1 compatibility, v2 deferred certificates, metadata/size bounds, complete encrypted catalogues and cleanup-only capabilities |
+| `cargo check -p usque-transport --locked --no-default-features` and `cargo check -p usque-android --locked --no-default-features` | passed |
+| `bash tool/dev.sh check flutter` | passed; locked pub resolution, Dart format/analyze, 1,153 widgets passed with 1 existing skip, 19 Linux goldens passed |
+| Final Linux node-picker fixture | regenerated with the documented Linux-only command, visually reviewed with the two other changed Proton images, then `flutter test --no-pub --tags linux-golden`: 19 passed; final Dart format and analysis passed |
+| `bash tool/dev.sh check android` | passed; fixed-NDK arm64 Clippy, Flutter debug configuration, Kotlin lint/unit and Android lint; 477 unit tests, no failures/errors/skips |
+| Final Android Rust check | `pwsh -NoProfile -File tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy`: passed on final production source |
+| Linux GUI debug preview and production release | both documented `flutter build linux ... --no-pub` commands passed; no application started |
+| Linux production sidecars | `cargo build --release --locked -p usque-engine -p usque-agent -p usque-update`: passed |
+| Linux native fixtures | both documented CMake targets built and both executables passed: authenticated fake socket and Proton verification policy |
+| Linux package contract | `python -m unittest discover -s tool -p "test_linux_package.py" -v`: 19 passed, 1 skipped for unavailable desktop-file-utils; no installation |
+| Aggregate source checks | `bash tool/dev.sh check static`: passed, including exact `pwsh -NoProfile -File tool/check_source.ps1`, repository policy, actionlint and whitespace checks |
+| Windows Rust/Flutter/runner/goldens, native Android VPN/device/TV, protected leak/lifecycle checks | **not_run**; host/infrastructure unavailable; no emulator or release APK installed |
+
+The Flutter wrapper ran the full widget suite before the final screenshot fixture
+was changed from the retired setup-node prompt to the new local server picker.
+Only that tagged fixture changed afterward; all 19 Linux goldens, Dart format and
+analysis were rerun. Windows screenshots were not updated on Linux.
+Local logs are `/tmp/usque-proton-rust-complete.log`,
+`/tmp/usque-proton-flutter-gates.log`, `/tmp/usque-proton-golden-final.log`,
+`/tmp/usque-proton-android-gates.log`,
+`/tmp/usque-proton-android-clippy-exact-final.log`,
+`/tmp/usque-proton-static-final.log`, `/tmp/usque-proton-linux-sidecars-final.log`,
+`/tmp/usque-proton-linux-preview.log`, `/tmp/usque-proton-linux-release.log`,
+`/tmp/usque-proton-linux-native.log` and `/tmp/usque-proton-linux-package.log`.
+These remain local workstation evidence, not protected-runner or release evidence.
+
+### Bounded HTTPS experiment and offline directory replay
+
+The earlier explicit authorization to submit synthetic guest requests was used
+for one owned-session experiment. A memory-only Ed25519 key and synthetic Android
+request context were used through verified workstation HTTPS, **without WARP**.
+Anonymous creation, credentialless creation, scopes, VPN permission, certificate
+issuance, token refresh, repeated scopes/permission/certificate issuance and
+owned-session deletion each returned HTTP 200 / API 1000. Both certificates
+matched the generated key. Cleanup was confirmed; no tokens, UID, private key or
+certificate were recorded. The sanitized numeric report is
+`/tmp/usque-proton-lifecycle-probe-20261019-result.json`.
+
+This probe did not require a puzzle and cannot reproduce or resolve the user's
+12087, validate a real account login, or establish native WireGuard/agent
+interoperability. No additional guest request was made for the parser test.
+Offline replay of the previously obtained public v2 directory found 119 free
+logical servers, of which 116 had an online entry and 3 were offline. The current
+parser returned all 116 compatible online logical IDs exactly once. It no longer
+creates multiple rows for physical entries or truncates at 200 candidates.
+Synthetic fixtures separately cover 600 logical IDs, duplicate physical entries,
+paid-tier filtering, revision-consistent pagination and selection past item 300.
+
+### Cleanup, fail-closed and privacy analysis
+
+Accounts keep their immutable local profile/key binding while each connection
+resolves the current logical server's entrance, peer key and agent hostname.
+Missing/due certificates are acquired on that connection; healthy access tokens
+and certificates are reused. A selected unavailable server fails explicitly.
+The existing in-tunnel mTLS/status/features authorization gate remains required;
+there is no WARP-only or host-network fallback.
+
+Token recovery writes a pending journal before its sole refresh call and saves a
+validated replacement before any later protected request. A known response is
+saved under the held account lease even if cancellation/underlay change arrives
+with it; the following checkpoint prevents further network use. Unknown outcomes
+remain pending. Malformed success handles are persisted solely for revocation,
+with their original API identity, and cannot validate as an account session.
+Cleanup failures retain ownership; they do not revoke a newly stored account.
+
+One public row groups the same user privately, preferring the actual saved
+selection so a healthy duplicate cannot hide its pending session. Related active
+or saved references are checked natively. Removal first confirms clearing the
+saved selection; failed confirmation prevents deletion. Remote sign-out and
+local-only forgetting remain separate explicit choices. A partial remote failure
+preserves records and reports uncertainty. Unrelated sources and other devices'
+sessions are outside the removal scope.
+
+The encrypted catalogue is bounded to 20,000 logical nodes, with 8 MiB plaintext /
+12 MiB ciphertext records and 128 accounts. Public pages contain at most 128
+metadata entries; existing IPC/Android response limits were not raised. Passwords,
+challenge data, session UserID, tokens, keys and certificates stay out of account
+summaries, node pages and ordinary error text. Logs use synthetic fixtures or
+numeric live results. Real Android acceptance, WebView/API egress consistency,
+certificate expiry/revocation on a live tunnel and platform restoration remain
+**not_run**.

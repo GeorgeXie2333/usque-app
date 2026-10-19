@@ -137,6 +137,10 @@ fn record() -> Record {
             public_key: "R0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0c=".into(),
         },
         rotation_pending: false,
+        server_id: None,
+        server_catalog: Vec::new(),
+        retired_sessions: Vec::new(),
+        catalog_revision: Uuid::nil(),
     }
 }
 fn path(parent: &Path, id: Uuid) -> PathBuf {
@@ -274,11 +278,13 @@ fn proton_vpn_store_rejects_truncation_tamper_and_size_limits() {
         fs::write(&file, corrupted).unwrap();
         assert!(store.load(record.id).is_err());
     }
-    fs::write(&file, vec![0u8; 192 * 1024 + 1]).unwrap();
+    fs::write(&file, vec![0u8; 12 * 1024 * 1024 + 1]).unwrap();
     assert!(store.load(record.id).is_err());
     fs::write(
         &file,
-        cipher.seal(record.id, &vec![b' '; 128 * 1024 + 1]).unwrap(),
+        cipher
+            .seal(record.id, &vec![b' '; 8 * 1024 * 1024 + 1])
+            .unwrap(),
     )
     .unwrap();
     assert!(store.load(record.id).is_err());
@@ -628,4 +634,82 @@ fn proton_vpn_windows_failed_write_through_replace_keeps_old_file_and_cleans_tem
         previous.session.refresh_token,
         "synthetic-sensitive-refresh"
     );
+}
+
+#[test]
+fn v1_records_migrate_without_inventing_a_certificate_or_changing_the_logical_selection() {
+    let mut old = record();
+    old.node.metadata.id = "logical:physical".into();
+    let mut value = serde_json::to_value(&old).unwrap();
+    for field in [
+        "server_id",
+        "server_catalog",
+        "retired_sessions",
+        "catalog_revision",
+    ] {
+        value.as_object_mut().unwrap().remove(field);
+    }
+    let mut restored: Record = serde_json::from_value(value).unwrap();
+    restored.validate().unwrap();
+    assert_eq!(restored.selected_server(), Some("logical"));
+    restored.server_id = restored.selected_server().map(str::to_owned);
+    restored.version = 2;
+    restored.certificate_chain.zeroize();
+    restored.expires_at = 0;
+    restored.refresh_at = 0;
+    restored.validate().unwrap();
+    assert_eq!(restored.summary().server_id.as_deref(), Some("logical"));
+    assert!(!restored.summary().needs_login);
+    restored.version = 1;
+    assert!(restored.validate().is_err());
+}
+#[test]
+fn complete_catalogues_are_encrypted_and_reject_duplicates_and_invalid_metadata() {
+    let parent = tempfile::tempdir().unwrap();
+    let cipher = TestCipher::new();
+    let store = store::SessionStore::new(parent.path(), &cipher);
+    let mut record = record();
+    record.version = 2;
+    record.server_catalog = (0..600)
+        .map(|i| Node {
+            id: format!("logical-{i}"),
+            name: format!("Server {i}"),
+            country: "IS".into(),
+            city: "".into(),
+            load: 0,
+        })
+        .collect();
+    record.catalog_revision = Uuid::new_v4();
+    store.save(&record).unwrap();
+    let loaded = store.load(record.id).unwrap();
+    assert_eq!(loaded.server_catalog.len(), 600);
+    assert_eq!(loaded.catalog_revision, record.catalog_revision);
+    assert!(
+        !String::from_utf8_lossy(&fs::read(path(parent.path(), record.id)).unwrap())
+            .contains("logical-599")
+    );
+    record.server_catalog.push(record.server_catalog[0].clone());
+    assert!(record.validate().is_err());
+    record.server_catalog.pop();
+    record.server_catalog[0].load = 101;
+    assert!(record.validate().is_err());
+}
+#[test]
+fn revocation_capabilities_never_become_authentication_records_or_public_metadata() {
+    let mut record = record();
+    let mut partial = SessionSecrets::default();
+    partial.uid = "synthetic-sensitive-retired".into();
+    partial.access_token = "synthetic-sensitive-partial".into();
+    record
+        .retired_sessions
+        .push(RevocationHandle::capture(&partial, &record.api_identity).unwrap());
+    record.validate().unwrap();
+    assert!(record.retired_sessions[0].session().validate().is_err());
+    assert!(record.summary().cleanup_pending);
+    assert_private(&serde_json::to_string(&record.summary()).unwrap());
+    record.retired_sessions[0].uid = record.session.uid.clone();
+    assert!(record.validate().is_err());
+    record.rotation_pending = true;
+    record.validate().unwrap();
+    assert!(RevocationHandle::capture(&SessionSecrets::default(), &record.api_identity).is_none());
 }

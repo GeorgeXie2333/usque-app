@@ -28,7 +28,7 @@ fn v2_entry_ip_directory_without_per_protocol_map_yields_free_wireguard_nodes() 
     assert_eq!(nodes.len(), 1);
     assert_eq!(nodes[0].endpoint.host, "8.8.8.8");
     assert_eq!(nodes[0].endpoint.port, 443);
-    assert_eq!(nodes[0].metadata.id, "logical:physical");
+    assert_eq!(nodes[0].metadata.id, "logical");
     // Binary logical status/load is separate; no fabricated zero-load score.
     assert_eq!(nodes[0].metadata.load, 100);
 }
@@ -124,4 +124,30 @@ fn default_entry_requires_public_ip_online_peer_key_and_free_unrestricted_server
         collect(&directory(), &json!({})).err().unwrap().reason,
         "invalid_client_configuration"
     );
+}
+
+#[test]
+fn catalogue_is_logical_unique_complete_and_filtered_by_authenticated_tier() {
+    let mut value = directory();
+    let template = value["LogicalServers"][0].clone();
+    let mut logicals = Vec::new();
+    for i in 0..600 {
+        let mut logical = template.clone();
+        logical["ID"] = json!(format!("logical-{i}"));
+        logical["Tier"] = json!(i % 3);
+        let physical = logical["Servers"][0].clone();
+        logical["Servers"]
+            .as_array_mut()
+            .unwrap()
+            .extend([physical.clone(), physical]);
+        logicals.push(logical.clone());
+        logicals.push(logical);
+    }
+    value["LogicalServers"] = json!(logicals);
+    assert_eq!(collect(&value, &config()).unwrap().len(), 200);
+    let paid = super::nodes::collect_for_tier(&value, &config(), 2).unwrap();
+    assert_eq!(paid.len(), 600);
+    let ids: std::collections::BTreeSet<_> = paid.iter().map(|node| &node.metadata.id).collect();
+    assert_eq!(ids.len(), 600);
+    assert!(paid.iter().all(|node| !node.metadata.id.contains(':')));
 }

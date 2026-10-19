@@ -28,7 +28,7 @@ impl ControlService {
         {
             let request = usque_core::proton_vpn::Request::parse(&request.command_json)
                 .map_err(ControlServiceError::configuration)?;
-            let provider_lease = if request.needs_network() || request.action == "forget" {
+            let provider_lease = if request.mutates_account() {
                 Some(Arc::new(
                     usque_core::proton_vpn::lifecycle_lease(&self.profile_dir)
                         .map_err(ControlServiceError::configuration)?,
@@ -36,7 +36,7 @@ impl ControlService {
             } else {
                 None
             };
-            let _lifecycle = if request.needs_network() || request.action == "forget" {
+            let _lifecycle = if request.mutates_account() {
                 Some(self.mutation_lock.clone().try_lock_owned().map_err(|_| {
                     ControlServiceError::InvalidRequest(
                         "Proton operation unavailable during a connection change".into(),
@@ -44,6 +44,24 @@ impl ControlService {
                 })?)
             } else {
                 None
+            };
+            let accounts = usque_transport::proton_vpn::AccountContext {
+                selected: self
+                    .config
+                    .read()
+                    .await
+                    .network
+                    .chain_exit
+                    .as_ref()
+                    .and_then(|settings| settings.profile_id),
+                active: self
+                    .gate_status
+                    .borrow()
+                    .current_profile
+                    .as_ref()
+                    .map(|profile| profile.id)
+                    .into_iter()
+                    .collect(),
             };
             if matches!(request.action.as_str(), "logout" | "refresh" | "forget") {
                 let selected = self
@@ -137,7 +155,13 @@ impl ControlService {
             let manager = self.proton_manager.clone();
             let result = tokio::task::spawn_blocking(move || {
                 let _provider_lease = provider_lease;
-                manager.command(request, input, context)
+                manager.command_scoped(
+                    request,
+                    input,
+                    context,
+                    usque_transport::proton_vpn::ClientConfig::default(),
+                    accounts,
+                )
             })
             .await
             .map_err(|_| ControlServiceError::InvalidRequest("Proton worker failed".into()))?;

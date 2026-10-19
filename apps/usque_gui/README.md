@@ -146,6 +146,22 @@ session uses them. It reads saved/confirmed state, not editor drafts, and remain
 visible during a deferred reset until that session stops or registered addresses
 are applied. Ordinary WARP and unchanged registration addresses have no banner.
 
+## Proton accounts and server selection
+
+The Proton source shows one row per authenticated user, grouping legacy duplicate
+profiles. Select an account separately from its searchable server preference;
+Automatic and manual logical-server choices apply on the next connection. The
+native layer retains the complete eligible directory and exposes revision-bound
+128-entry metadata pages. Physical entries and session credentials stay private.
+Connection resolves a fresh peer and obtains or renews its session certificate
+only when needed. Removal offers remote sign-out or explicit local-only forgetting,
+clears a saved selection first, and protects the running account. See the
+[Proton guide](../../docs/PROTON_VPN.md) for behavior and validation limits.
+
+Proton 来源按账号显示，旧版重复记录合并为一行；可搜索并选择完整可用逻辑节点，
+偏好在下次连接生效。连接时解析当前入口并按需获取证书。移除账号明确区分联网退出
+和仅本机遗忘，先清除已保存选择，并保护正在使用的账号。
+
 ## Native UI composition
 
 - `ContentSection` and `ContentHeading` group ordinary content with typography and spacing, not a card background. `ContentList` separates adjacent entries; `ActionRow` provides native ink, keyboard/D-pad activation and a visible, layout-stable focus outline. `LinkRow` builds Settings navigation rows on `ActionRow`: the chevron always stays at the trailing edge, and below 480 logical pixels or above 150% text a row value moves under its summary. `RowTileTheme` gives Material list tiles the same 20-pixel icons, 12-pixel gap and title style, so switch and navigation rows share one text column; Settings, Proxy outputs, Advanced protection, Bypass Ads and the chain-proxy enable switch use it. `HintText` is the muted style for explanations under a control. `FieldDropdown` gives dropdowns the typed-value style and a text field's height at any text scale; Advanced, the chain-proxy DNS picker, the routing-rule dialog and the VPN Gate country filter use it. Expanders inside a section use zero tile padding so their titles share the section edge, and section-level apply bars align with the 880-pixel form column. `InlineStatus` pairs a readable state label with a supplementary icon.

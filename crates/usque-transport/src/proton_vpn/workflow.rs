@@ -8,14 +8,14 @@ use super::{
 use http::Method;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use usque_core::{
     chain_exit::{
         ChainSource,
         store::{ChainProfileStore, ProfileCipher},
     },
-    proton_vpn::{Record, Request, SessionSecrets, store::SessionStore},
+    proton_vpn::{Record, Request, RevocationHandle, SessionSecrets, store::SessionStore},
 };
 use uuid::Uuid;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -344,7 +344,8 @@ pub(super) async fn certificate(
 
 pub(super) struct Storage<'a> {
     pub parent: &'a Path,
-    pub cipher: &'a dyn ProfileCipher,
+    pub cipher: Arc<dyn ProfileCipher>,
+    pub accounts: super::AccountContext,
 }
 pub(super) async fn provision(
     client: &mut Client,
@@ -354,54 +355,86 @@ pub(super) async fn provision(
     interaction: &dyn Interaction,
     cancel: &CancellationToken,
 ) -> Result<Uuid, Failure> {
-    let Storage { parent, cipher } = storage;
+    let Storage {
+        parent,
+        cipher,
+        accounts,
+    } = storage;
     let generation = client.generation();
     client.checkpoint(generation, cancel)?;
-    let sessions = SessionStore::new(parent, cipher);
-    let existing_id = if request.action == "refresh" {
-        Some(
-            request
-                .profile_id
-                .ok_or_else(|| Failure::new("missing_profile"))?,
-        )
-    } else {
-        None
-    };
-    let _lease = existing_id.map(|id| sessions.lease(id)).transpose()?;
-    let mut existing = existing_id.map(|id| sessions.load(id)).transpose()?;
-    let max_tier = if let Some(record) = existing.as_mut() {
+    let sessions = SessionStore::new(parent, &*cipher);
+    if request.action == "refresh" {
+        let id = request
+            .profile_id
+            .ok_or_else(|| Failure::new("missing_profile"))?;
+        let _lease = sessions.lease(id)?;
+        let mut record = sessions.load(id)?;
         if record.rotation_pending {
             return Err(Failure::new("reauthentication_required"));
         }
         client.session = record.session.clone();
         client.config.identity = record.api_identity.clone();
-        record.rotation_pending = true;
-        client.checkpoint(generation, cancel)?;
-        sessions.save(record)?;
-        refresh_session(client, interaction, cancel).await?;
-        client.checkpoint(generation, cancel)?;
-        record.max_tier = permissions(
+        let mut access = super::session::Access::new(
+            super::manager::persistence(parent, cipher.clone(), id),
             client,
-            interaction,
-            cancel,
-            Some(&record.session.user_id),
-            record.identity == "guest",
-        )
-        .await?;
-        record.session = client.session.clone();
-        record.api_identity = client.config.identity.clone();
-        record.rotation_pending = false;
-        client.checkpoint(generation, cancel)?;
-        sessions.save(record)?;
-        record.max_tier
+        );
+        access.cleanup(client, &mut record, cancel).await?;
+        access
+            .permissions(client, &mut record, interaction, cancel)
+            .await?;
+        access
+            .directory(client, &mut record, interaction, cancel)
+            .await?;
+        record.server_id = record.selected_server().map(str::to_owned);
+        record.version = 2;
+        access.save(&record, cancel).await?;
+        client.session = SessionSecrets::default();
+        return Ok(id);
+    }
+    let label = if request.action == "login" {
+        let credentials: Credentials = serde_json::from_slice(&input)
+            .map_err(|_| Failure::new("invalid_credentials_input"))?;
+        let label = credentials.username.chars().take(64).collect::<String>();
+        drop(credentials);
+        login(client, input, interaction, cancel).await?;
+        label
     } else {
-        if request.action == "login" {
-            login(client, input, interaction, cancel).await?;
-        } else {
-            guest(client, interaction, cancel).await?;
-        }
-        permissions(client, interaction, cancel, None, request.action == "guest").await?
+        guest(client, interaction, cancel).await?;
+        "Proton guest".into()
     };
+    let max_tier =
+        permissions(client, interaction, cancel, None, request.action == "guest").await?;
+    let mut related: Vec<Record> = sessions
+        .records()?
+        .into_iter()
+        .filter(|record| record.session.user_id == client.session.user_id)
+        .collect();
+    if related
+        .iter()
+        .any(|record| accounts.active.contains(&record.id))
+    {
+        return Err(Failure::new("profile_in_use"));
+    }
+    if request
+        .profile_id
+        .is_some_and(|id| !related.iter().any(|record| record.id == id))
+    {
+        return Err(Failure::new("protected_user_mismatch"));
+    }
+    related.sort_by_key(|record| {
+        (
+            request.profile_id != Some(record.id),
+            accounts.selected != Some(record.id),
+            record.rotation_pending,
+            record.version != 2,
+            record.id,
+        )
+    });
+    let existing = related.into_iter().next();
+    let _lease = existing
+        .as_ref()
+        .map(|record| sessions.lease(record.id))
+        .transpose()?;
     interaction.phase("directory");
     let config = client
         .request(
@@ -421,14 +454,7 @@ pub(super) async fn provision(
             cancel,
         )
         .await?;
-    let nodes = nodes::collect(&directory.0, &config.0)?;
-    let selected = interaction
-        .node(nodes.iter().map(|n| n.metadata.clone()).collect(), cancel)
-        .await?;
-    let node = nodes
-        .into_iter()
-        .find(|n| n.metadata.id == selected)
-        .ok_or_else(|| Failure::new("invalid_node"))?;
+    let nodes = nodes::collect_for_tier(&directory.0, &config.0, max_tier)?;
     let keys = if let Some(record) = &existing {
         KeyMaterial::from_seed(
             record
@@ -440,63 +466,89 @@ pub(super) async fn provision(
     } else {
         KeyMaterial::generate()?
     };
-    let certificate = certificate(client, &keys, interaction, cancel).await?;
-    let secrets = nodes::configuration(&keys, &node)?;
-    if cancel.is_cancelled() {
-        return Err(Failure::new("cancelled"));
-    }
+    // This peer binds the saved local profile/key. A fresh directory resolves
+    // the actual peer only when connecting; it is never a saved authorization.
+    let node = existing
+        .as_ref()
+        .map(|record| record.node.clone())
+        .unwrap_or_else(|| nodes[0].clone());
     if !client.revoke_retired(&CancellationToken::new()).await {
         return Err(Failure::new("cleanup_failed_remote_state_unknown"));
     }
     client.checkpoint(generation, cancel)?;
     interaction.phase("secure_storage");
-    let chain = ChainProfileStore::new(parent, cipher);
-    let summary = if let Some(record) = &existing {
-        if record.node.endpoint == node.endpoint && record.node.public_key == node.public_key {
-            chain
-                .list()?
-                .into_iter()
-                .find(|p| {
-                    p.id == record.id
-                        && p.revision == record.revision
-                        && p.source == ChainSource::ProtonVpn
-                })
-                .ok_or_else(|| Failure::new("profile_revision_mismatch"))?
-        } else {
-            chain.replace_proton(record.id, record.revision, secrets)?
-        }
+    let chain = ChainProfileStore::new(parent, &*cipher);
+    let mut summary = if let Some(record) = &existing {
+        chain
+            .list()?
+            .into_iter()
+            .find(|profile| {
+                profile.id == record.id
+                    && profile.revision == record.revision
+                    && profile.source == ChainSource::ProtonVpn
+            })
+            .ok_or_else(|| Failure::new("profile_revision_mismatch"))?
     } else {
         chain.import(
             ChainSource::ProtonVpn,
             if request.name.is_empty() {
-                "Proton VPN"
+                &label
             } else {
                 &request.name
             },
-            secrets,
+            nodes::configuration(&keys, &node)?,
         )?
     };
-    let record = Record {
-        version: 1,
+    if existing.is_some() && (!request.name.is_empty() || summary.name == "Proton VPN") {
+        summary = chain.rename(
+            summary.id,
+            summary.edit_revision,
+            if request.name.is_empty() {
+                &label
+            } else {
+                &request.name
+            },
+        )?;
+    }
+    let mut retired_sessions = existing
+        .as_ref()
+        .map(|record| record.retired_sessions.clone())
+        .unwrap_or_default();
+    if let Some(record) = &existing
+        && record.session.uid != client.session.uid
+        && !retired_sessions
+            .iter()
+            .any(|session| session.uid == record.session.uid)
+        && let Some(handle) = RevocationHandle::capture(&record.session, &record.api_identity)
+    {
+        retired_sessions.push(handle);
+    }
+    retired_sessions.retain(|session| session.uid != client.session.uid);
+    let mut record = Record {
+        version: 2,
         id: summary.id,
         revision: summary.revision,
         name: summary.name.clone(),
-        identity: existing
-            .as_ref()
-            .map_or_else(|| request.action.clone(), |r| r.identity.clone()),
+        identity: request.action.clone(),
         api_identity: client.config.identity.clone(),
         session: client.session.clone(),
         ed25519_seed: Zeroizing::new(keys.ed25519_seed().to_vec()),
-        certificate_chain: certificate.pem,
-        expires_at: certificate.expiration_time,
-        refresh_at: certificate.refresh_time,
+        certificate_chain: Zeroizing::new(String::new()),
+        expires_at: 0,
+        refresh_at: 0,
         max_tier,
         node,
         rotation_pending: false,
+        server_id: existing
+            .as_ref()
+            .and_then(|record| record.selected_server().map(str::to_owned)),
+        server_catalog: nodes.into_iter().map(|node| node.metadata).collect(),
+        retired_sessions,
+        catalog_revision: Uuid::new_v4(),
     };
     if let Err(failure) = client
         .checkpoint(generation, cancel)
-        .map_err(|f| usque_core::proton_vpn::error(&f.reason))
+        .map_err(|failure| usque_core::proton_vpn::error(&failure.reason))
         .and_then(|()| sessions.save(&record))
     {
         if existing.is_none() {
@@ -504,50 +556,50 @@ pub(super) async fn provision(
         }
         return Err(failure.into());
     }
-    // Persisting the session deliberately transfers ownership to the encrypted
-    // account record. A generated session-mode configuration must remain live.
+    // The durable account now owns the new session. Cleanup cannot revoke it
+    // when an older, independently owned handle cannot be confirmed revoked.
     client.session = SessionSecrets::default();
-    Ok(summary.id)
+    let access = super::session::Access::new(
+        super::manager::persistence(parent, cipher, record.id),
+        client,
+    );
+    access.cleanup(client, &mut record, cancel).await?;
+    Ok(record.id)
 }
 
-pub(super) async fn logout(
-    client: &mut Client,
+fn removal_records(
+    sessions: &SessionStore<'_>,
+    chain: &ChainProfileStore<'_>,
     id: Uuid,
-    parent: &Path,
-    cipher: &dyn ProfileCipher,
-    interaction: &dyn Interaction,
-    cancel: &CancellationToken,
-) -> Result<Uuid, Failure> {
-    let sessions = SessionStore::new(parent, cipher);
-    let _lease = sessions.lease(id)?;
-    let mut record = sessions.load(id)?;
-    client.config.identity = record.api_identity.clone();
-    record.rotation_pending = true;
-    sessions.save(&record)?;
-    client.session = record.session.clone();
-    interaction.phase("session_revoke");
-    if !client.revoke_all(cancel).await {
-        return Err(Failure::new("revocation_failed_remote_state_unknown"));
-    }
-    let chain = ChainProfileStore::new(parent, cipher);
-    let summary = chain
-        .list()?
+) -> Result<Vec<Record>, Failure> {
+    let target = match sessions.load(id) {
+        Ok(record) => record,
+        Err(failure) if failure.reason == "session_not_found" => return Ok(Vec::new()),
+        Err(failure) => return Err(failure.into()),
+    };
+    let mut records: Vec<_> = sessions
+        .records()?
         .into_iter()
-        .find(|s| s.id == id && s.source == ChainSource::ProtonVpn)
-        .ok_or_else(|| Failure::new("profile_not_found"))?;
-    chain.remove(id, summary.edit_revision, &[])?;
-    sessions.delete(id)?;
-    Ok(Uuid::nil())
+        .filter(|record| record.session.user_id == target.session.user_id)
+        .collect();
+    records.sort_by_key(|record| (record.id == id, record.id));
+    let library = chain.list()?;
+    for record in &records {
+        if library
+            .iter()
+            .any(|summary| summary.id == record.id && summary.source != ChainSource::ProtonVpn)
+        {
+            return Err(Failure::new("invalid_profile_source"));
+        }
+    }
+    Ok(records)
 }
-
-/// Explicit local-only removal. Never claims or attempts remote revocation.
-/// Callers must retain the platform lifecycle lock and reject active/selected
-/// references, just as for logout. Retrying after a partial deletion is safe.
-pub(super) fn forget(id: Uuid, parent: &Path, cipher: &dyn ProfileCipher) -> Result<(), Failure> {
-    let sessions = SessionStore::new(parent, cipher);
-    let _lease = sessions.lease(id)?;
-    let chain = ChainProfileStore::new(parent, cipher);
-    if let Some(summary) = chain.list()?.into_iter().find(|s| s.id == id) {
+fn remove_local(
+    sessions: &SessionStore<'_>,
+    chain: &ChainProfileStore<'_>,
+    id: Uuid,
+) -> Result<(), Failure> {
+    if let Some(summary) = chain.list()?.into_iter().find(|summary| summary.id == id) {
         if summary.source != ChainSource::ProtonVpn {
             return Err(Failure::new("invalid_profile_source"));
         }
@@ -558,4 +610,83 @@ pub(super) fn forget(id: Uuid, parent: &Path, cipher: &dyn ProfileCipher) -> Res
         Err(failure) if failure.reason == "session_not_found" => Ok(()),
         Err(failure) => Err(failure.into()),
     }
+}
+
+pub(super) async fn logout(
+    client: &mut Client,
+    id: Uuid,
+    parent: &Path,
+    cipher: &dyn ProfileCipher,
+    interaction: &dyn Interaction,
+    cancel: &CancellationToken,
+) -> Result<Uuid, Failure> {
+    let generation = client.generation();
+    let sessions = SessionStore::new(parent, cipher);
+    let chain = ChainProfileStore::new(parent, cipher);
+    let mut records = removal_records(&sessions, &chain, id)?;
+    let mut ids: Vec<_> = records.iter().map(|record| record.id).collect();
+    ids.sort();
+    let _leases: Vec<_> = ids
+        .into_iter()
+        .map(|id| sessions.lease(id))
+        .collect::<Result<_, _>>()?;
+    // Preserve every owned handle until remote revocation has been confirmed.
+    // A partial failure remains explicit and can be followed by local removal.
+    for record in &mut records {
+        record.rotation_pending = true;
+        sessions.save(record)?;
+    }
+    interaction.phase("session_revoke");
+    let mut revoked = std::collections::BTreeSet::new();
+    for record in records.iter().rev() {
+        for handle in record
+            .retired_sessions
+            .iter()
+            .cloned()
+            .chain(RevocationHandle::capture(
+                &record.session,
+                &record.api_identity,
+            ))
+        {
+            if !revoked.insert(handle.uid.clone()) {
+                continue;
+            }
+            client.checkpoint(generation, cancel)?;
+            client.config.identity = handle.api_identity.clone();
+            client.session = handle.session();
+            if !client.revoke_all(cancel).await {
+                return Err(Failure::new("revocation_failed_remote_state_unknown"));
+            }
+        }
+    }
+    if records.is_empty() {
+        remove_local(&sessions, &chain, id)?;
+    } else {
+        for record in records {
+            remove_local(&sessions, &chain, record.id)?;
+        }
+    }
+    Ok(Uuid::nil())
+}
+
+/// Explicit local-only removal of the account and its legacy profiles. Callers
+/// retain the platform lifecycle lock and reject all active/selected references.
+pub(super) fn forget(id: Uuid, parent: &Path, cipher: &dyn ProfileCipher) -> Result<(), Failure> {
+    let sessions = SessionStore::new(parent, cipher);
+    let chain = ChainProfileStore::new(parent, cipher);
+    let records = removal_records(&sessions, &chain, id)?;
+    let mut ids: Vec<_> = records.iter().map(|record| record.id).collect();
+    if ids.is_empty() {
+        ids.push(id);
+    }
+    let mut lock_ids = ids.clone();
+    lock_ids.sort();
+    let _leases: Vec<_> = lock_ids
+        .into_iter()
+        .map(|id| sessions.lease(id))
+        .collect::<Result<_, _>>()?;
+    for id in ids {
+        remove_local(&sessions, &chain, id)?;
+    }
+    Ok(())
 }

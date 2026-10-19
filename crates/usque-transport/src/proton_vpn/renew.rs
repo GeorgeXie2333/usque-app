@@ -4,7 +4,8 @@ use super::{
     Failure, Interaction,
     api::{Client, Http},
     crypto::KeyMaterial,
-    workflow,
+    nodes,
+    session::Access,
 };
 use crate::InternalNetwork;
 use async_trait::async_trait;
@@ -14,7 +15,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use usque_core::{
     chain_exit::{ChainSource, ValidatedProfile},
-    proton_vpn::{LeasePersistence, Node, Record, TunnelCredentials},
+    proton_vpn::{LeasePersistence, Record, SelectedNode, TunnelCredentials},
     vpngate::{GateFailure, PreparedProfile},
 };
 use zeroize::Zeroizing;
@@ -35,9 +36,6 @@ impl Interaction for NoInteraction {
     async fn totp(&self, _: &CancellationToken) -> Result<Zeroizing<String>, Failure> {
         Err(Failure::new("reauthentication_required"))
     }
-    async fn node(&self, _: Vec<Node>, _: &CancellationToken) -> Result<String, Failure> {
-        Err(Failure::new("reauthentication_required"))
-    }
     fn phase(&self, _: &str) {}
 }
 
@@ -46,6 +44,7 @@ pub(crate) struct Lease {
     http: Arc<dyn Http>,
     generation: Option<u64>,
     current: Record,
+    peer: Option<SelectedNode>,
 }
 
 fn current(
@@ -73,7 +72,12 @@ fn gate_failure(failure: &Failure) -> GateFailure {
         "profile_revision_mismatch"
         | "invalid_saved_key"
         | "secure_storage_failed"
-        | "session_busy" => GateFailure::Configuration,
+        | "session_busy"
+        | "selected_server_unavailable"
+        | "no_free_wireguard_nodes"
+        | "invalid_server_directory"
+        | "invalid_client_configuration" => GateFailure::Configuration,
+        "cleanup_failed_remote_state_unknown" => GateFailure::Cleanup,
         _ => GateFailure::Authentication,
     }
 }
@@ -139,28 +143,14 @@ impl Lease {
         let mut client = Client::new(self.http.clone());
         client.config.identity = record.api_identity.clone();
         client.session = record.session.clone();
-        record.rotation_pending = true;
-        self.save(&record, cancel).await?;
-        workflow::refresh_session(&mut client, &NoInteraction, cancel).await?;
-        self.check(cancel)?;
-        record.max_tier = workflow::permissions(
-            &mut client,
-            &NoInteraction,
-            cancel,
-            Some(&record.session.user_id),
-            record.identity == "guest",
-        )
-        .await?;
-        self.check(cancel)?;
-        record.session = client.session.clone();
-        record.rotation_pending = false;
-        // Persist the known replacement before asking for its certificate. A
-        // later certificate failure never replays an already rotated token.
-        self.save(&record, cancel).await?;
-        if !client.revoke_retired(cancel).await {
-            return Err(Failure::new("cleanup_failed_remote_state_unknown"));
-        }
-        let certificate = workflow::certificate(&mut client, &keys, &NoInteraction, cancel).await?;
+        let mut access = Access::new(self.persistence.clone(), &client);
+        access.cleanup(&mut client, &mut record, cancel).await?;
+        access
+            .permissions(&mut client, &mut record, &NoInteraction, cancel)
+            .await?;
+        let certificate = access
+            .certificate(&mut client, &mut record, &keys, &NoInteraction, cancel)
+            .await?;
         self.check(cancel)?;
         record.certificate_chain = certificate.pem;
         record.expires_at = certificate.expiration_time;
@@ -169,7 +159,7 @@ impl Lease {
         let credentials = Arc::new(TunnelCredentials {
             certificate_chain: record.certificate_chain.clone(),
             private_key_pkcs8: keys.pkcs8_der(),
-            server_name: record.node.domain.clone(),
+            server_name: self.peer.as_ref().unwrap_or(&record.node).domain.clone(),
             expires_at: record.expires_at,
         });
         self.current = record;
@@ -234,6 +224,8 @@ fn unchanged(left: &Record, right: &Record) -> bool {
     left.id == right.id
         && left.revision == right.revision
         && left.identity == right.identity
+        && left.api_identity == right.api_identity
+        && left.retired_sessions == right.retired_sessions
         && left.session.uid == right.session.uid
         && left.session.user_id == right.session.user_id
         && left.session.access_token == right.session.access_token
@@ -287,7 +279,7 @@ fn bound(profile: &PreparedProfile, record: &Record) -> Result<(), Failure> {
 }
 
 pub(crate) async fn prepare(
-    profile: &PreparedProfile,
+    profile: &mut PreparedProfile,
     network: InternalNetwork,
     cancel: &CancellationToken,
 ) -> Result<(Arc<TunnelCredentials>, Lease), GateFailure> {
@@ -297,7 +289,7 @@ pub(crate) async fn prepare(
 }
 
 async fn prepare_with_http(
-    profile: &PreparedProfile,
+    profile: &mut PreparedProfile,
     http: Arc<dyn Http>,
     cancel: &CancellationToken,
 ) -> Result<(Arc<TunnelCredentials>, Lease), Failure> {
@@ -307,15 +299,85 @@ async fn prepare_with_http(
         .proton_persistence
         .clone()
         .ok_or_else(|| Failure::new("secure_storage_failed"))?;
-    let record = load(persistence.clone()).await?;
+    let _lock = lock(persistence.clone()).await?;
+    let mut record = load(persistence.clone()).await?;
     bound(profile, &record)?;
-    let mut lease = Lease {
+    if record.rotation_pending {
+        return Err(Failure::new("reauthentication_required"));
+    }
+    let mut client = Client::new(http.clone());
+    client.config.identity = record.api_identity.clone();
+    client.session = record.session.clone();
+    let mut access = Access::new(persistence.clone(), &client);
+    access.cleanup(&mut client, &mut record, cancel).await?;
+    access
+        .permissions(&mut client, &mut record, &NoInteraction, cancel)
+        .await?;
+    let selected = record.selected_server().map(str::to_owned);
+    let directory = access
+        .directory(&mut client, &mut record, &NoInteraction, cancel)
+        .await?;
+    let peer = if let Some(id) = selected.as_deref() {
+        directory
+            .into_iter()
+            .find(|node| node.metadata.id == id)
+            .ok_or_else(|| Failure::new("selected_server_unavailable"))?
+    } else {
+        directory
+            .into_iter()
+            .next()
+            .ok_or_else(|| Failure::new("no_free_wireguard_nodes"))?
+    };
+    let keys = KeyMaterial::from_seed(
+        record
+            .ed25519_seed
+            .as_slice()
+            .try_into()
+            .map_err(|_| Failure::new("invalid_saved_key"))?,
+    )?;
+    if record.certificate_chain.is_empty()
+        || record.refresh_at <= super::interaction::now()
+        || record.expires_at <= super::interaction::now()
+    {
+        let certificate = access
+            .certificate(&mut client, &mut record, &keys, &NoInteraction, cancel)
+            .await?;
+        record.certificate_chain = certificate.pem;
+        record.expires_at = certificate.expiration_time;
+        record.refresh_at = certificate.refresh_time;
+    } else {
+        super::crypto::validate_certificate(
+            &record.certificate_chain,
+            &keys,
+            record.expires_at,
+            record.refresh_at,
+            super::interaction::now(),
+        )?;
+    }
+    record.server_id = selected;
+    record.version = 2;
+    access.save(&record, cancel).await?;
+    let credentials = Arc::new(TunnelCredentials {
+        certificate_chain: record.certificate_chain.clone(),
+        private_key_pkcs8: keys.pkcs8_der(),
+        server_name: peer.domain.clone(),
+        expires_at: record.expires_at,
+    });
+    let secrets = nodes::configuration(&keys, &peer)?;
+    let parsed = ValidatedProfile::parse(ChainSource::ProtonVpn, &secrets)?;
+    let mut summary = parsed.summary(&record.name, record.id, record.revision)?;
+    summary.source = ChainSource::ProtonVpn;
+    let mut resolved = PreparedProfile::imported(summary, parsed, secrets);
+    resolved.proton = Some(credentials.clone());
+    resolved.proton_persistence = Some(persistence.clone());
+    *profile = resolved;
+    let lease = Lease {
         persistence,
         http,
         generation,
         current: record,
+        peer: Some(peer),
     };
-    let credentials = lease.rotate(cancel).await?;
     Ok((credentials, lease))
 }
 

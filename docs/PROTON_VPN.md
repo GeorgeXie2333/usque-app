@@ -9,17 +9,16 @@ select it, apply settings or establish a tunnel.
 打开 **代理 → 链式代理 → Proton VPN**，在外层 WARP 之后准备并保存 Proton
 WireGuard 出口。准备完成不会自动选用、应用或连接；显式直连和分应用例外继续生效。
 
-This is a native implementation under validation. No usable account was supplied
-for live testing. The earlier standalone guest experiment received HTTP 422 /
-API 8004 before authentication; that result belongs to the historical Python
-candidate, not this native implementation. Native guest/account authentication,
-a real human puzzle, token renewal and the complete tunnel are **not_run**.
-See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md) and
-[historical PoC results](PROTON_VPN_POC_VALIDATION.md).
+This native implementation remains under validation. A bounded, synthetic
+workstation HTTPS probe completed guest creation, VPN permissions, certificate
+issuance, token refresh and owned-session revocation. It did not run through the
+native WARP stack or a human puzzle. Native Android account/guest setup and the
+complete WireGuard/local-agent tunnel have not been validated on this candidate.
+See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
 
-本原生实现仍在验证中。本轮没有可用于实测的账号；此前独立 Python 游客实验在
-认证前收到 HTTP 422 / API 8004，不能把该历史结果当成本次原生实现的实测。
-原生游客／账号认证、真人拼图、实网续期和完整隧道均为 **not_run**。
+本原生实现仍在验证中。一次有限的开发机 HTTPS 实验完成了合成游客注册、VPN 权限、
+证书签发、令牌刷新及本机所建会话撤销；它没有使用原生 WARP 栈或真人拼图。
+本次候选的 Android 认证与完整 WireGuard/local-agent 隧道仍未实测，不能以离线检查代替。
 
 ## Prepare an account / 准备账号
 
@@ -44,26 +43,39 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md) and
    when available. The app does not solve,
    drag or automate the puzzle. A challenge is usable once, for the current
    job/session/outer-connection generation, for at most five minutes.
-5. Choose a server from **Choose a free server**. The list contains eligible
-   free-tier directory candidates; visibility and load are remote observations,
-   not evidence that a server is reachable. Setup checks the returned key,
-   certificate and authorization before saving a configuration.
-6. After **Ready. Select the saved configuration and apply changes.**, enable
-   chain proxy, select that saved configuration, and use **Apply changes** or
-   **Apply and reconnect**. The current connection section describes the
-   running exit. A saved configuration or a WireGuard handshake alone does not
-   establish final Proton authorization: the session-mode local agent also has
-   to accept the connection.
+5. Setup saves the account, its local key and the complete eligible logical
+   server list. It does not issue a connection certificate yet. Repeating sign-in
+   to the same Proton user updates the existing account. Legacy duplicates appear
+   as one account, rather than several copies of the same server.
+6. Under the account, use **Change server** to search by server name, country
+   code or city. **Automatic** chooses an available server when connecting.
+   **Refresh list** updates the catalogue. Each logical server appears once;
+   its multiple physical entrances do not create duplicate rows. The list includes
+   available, compatible WireGuard UDP servers within the account's authorized
+   tier, without the former 200-candidate truncation.
+7. Enable chain proxy, select the account and use **Apply changes** or **Apply
+   and reconnect**. At connection time Usque checks the session, retrieves a fresh
+   directory and resolves the selected logical server's current entrance, peer key
+   and agent hostname. It obtains a session certificate only when missing or due,
+   reusing a valid certificate bound to the saved local key. An unavailable manual
+   choice reports an error; choose another server or Automatic. WireGuard must
+   still complete local-agent authorization before business traffic is admitted.
 
-先选择可用的 WARP 账号和支持 UDP 出口的 MASQUE 模式；L4 不支持该来源。
-在 Proton 区域选择“以游客身份继续”或“登录 Proton”，按提示输入账号密码、
-六位身份验证器验证码。Android 收到人机验证要求时自动打开官方窗口；桌面端点击
-“完成人机验证”，由本人完成拼图。成功结果被接收后窗口自动关闭并继续设置。
-点击“取消”或 Android 返回键会终止等待任务；Android 窗口内部失败单独显示错误，
-并在可用时显示验证错误代码。
-挑战只绑定本次任务、会话和
-外层连接代次，最多五分钟、使用一次。选择免费服务器，准备成功后还需在配置库
-选用并应用。目录可见、配置已保存或 WireGuard 已握手，都不等于最终授权完成。
+先选择可用的 WARP 账号及支持 UDP 出口的 MASQUE 模式；L4 不支持此来源。
+选择“以游客身份继续”或“登录 Proton”，按提示输入密码、六位身份验证器验证码，
+由本人完成官方窗口的拼图。Android 自动打开验证窗口，桌面点击“完成人机验证”。
+取消或 Android 返回键会终止任务；窗口失败单独显示错误。挑战绑定本次任务、会话
+和外层连接代次，最多五分钟、使用一次。12087 表示验证结果被拒，应用清除该结果，
+最多重新获取一次挑战，新的拼图仍需本人完成；再次失败会显示错误。
+
+准备成功只保存账号、本地密钥和完整可用逻辑节点列表，不提前申请连接证书。
+相同 Proton 用户再次登录会更新已有账号；旧版本重复记录合并显示。
+在账号下点击“更换节点”，可按名称、国家代码或城市搜索，或选择“自动”；
+“刷新列表”更新目录。账号权限内、兼容且在线的 WireGuard UDP 逻辑节点完整保留，
+不再截断为 200 个候选，也不把同一节点的多个入口显示成多行。
+启用链式代理、选择账号并应用后，连接时重新解析节点入口、公钥和 agent hostname，
+检查会话并按需申请证书，有效证书继续复用同一密钥。手动节点不可用会明确报错。
+目录可见、账号已保存或 WireGuard 已握手，都不等于最终授权完成。
 
 ## Verification window and network path / 验证窗口与网络路径
 
@@ -115,40 +127,39 @@ profile，也不保证进程死亡后已清理。Android 不因触碰弹窗外�
 
 ## Refresh, cancel and remove / 续期、取消与移除
 
-Use **Refresh authorization or change server** on a saved Proton account to
-prepare renewed authorization or another eligible server. Disconnect before
-changing an account used by the running exit. While connected, the runtime
-uses the saved account lease for renewal before certificate expiry. Refused,
-expired, ambiguous or unverifiable authorization does not fall back to a
-WARP-only exit. An interrupted token rotation marks the account **Sign in
-again** rather than replaying its previous refresh token.
+Use **Refresh list** to update available servers. Disconnect before changing a
+server on the account used by the running exit. The server preference takes effect
+on the next connection; selecting a server does not independently reconnect.
+Valid access tokens are reused. Only a protected request returning HTTP 401
+triggers one journaled token recovery per operation. A known replacement is saved
+before later requests, so a directory or certificate error does not leave a
+successful rotation marked **Sign in again**. An unknown refresh result requires
+explicit sign-in and never replays the old refresh token. While connected, the
+runtime renews the same key's certificate when due. Authorization failure does not
+fall back to a WARP-only exit.
 
-Use the saved configuration's remove action to sign out and delete it. A
-running or saved chain selection must be disconnected and deselected first.
-Removal attempts to revoke only the owned Proton session; a failed or unknown
-remote revocation is reported as such. Canceling unfinished setup also attempts
-to clean up its known sessions. It is not equivalent to signing out all Proton
-sessions on other devices.
+Use **Remove account** and choose **Sign out and remove** to revoke sessions
+owned by this app, then remove the local account and its legacy duplicate
+profiles. **Forget locally** removes only the local records without contacting
+Proton or promising remote revocation. It needs no WARP connection. The dialog
+clears a saved chain selection before removal; if that save fails, removal stops.
+A running account must first be disconnected. Failed remote cleanup remains
+visible and retains the local handles for an explicit retry or local removal.
+Canceling unfinished setup also attempts to clean up its known sessions. These
+actions do not sign out other devices' Proton sessions.
 
-已保存账号的“刷新授权或更换服务器”可重新准备授权或服务器；正在使用的出口需先
-断开。运行时通过该账号的独占 lease 在证书到期前续期。授权被拒、过期、结果未知或
-无法校验时，不降级成仅 WARP 出口；轮转中断的账号要求重新登录，不重放旧刷新令牌。
-移除配置会尝试撤销本机持有的会话并删除记录；需先断开并解除已保存的出口选择。
-撤销失败或远端状态未知会保留错误，不宣称已退出其他设备的全部 Proton 会话。
+“刷新列表”更新节点目录。正在使用的账号需先断开，再更换节点；偏好在下次连接
+时生效，选节点本身不会单独触发重连。有效 access token 不强制轮换；一次操作中，
+只有受保护接口返回 401 时才尝试一次带持久化日志的恢复。已知的新令牌先保存，
+后续目录或证书失败不会把成功刷新误标为“重新登录”；刷新结果未知才要求明确
+重新认证，绝不重放旧 refresh token。运行时按期限续签同一密钥的证书，授权失败
+不会降级为仅 WARP 出口。
 
-If the saved token is no longer usable, or a previous rotation/revocation has an
-unknown result, use **Forget on this device only** and confirm the local-only
-removal. This deletes the managed profile and encrypted Proton record without
-contacting Proton; it needs no WARP connection and **does not revoke the remote
-session**. The same active/saved-selection protection applies: disconnect and
-deselect the configuration first. Use online **Sign out and delete** when you
-want to attempt remote revocation. A local forget must not be reported as a
-successful remote sign-out.
-
-保存的令牌失效，或轮转／撤销结果无法确认时，可选择**仅忘记本机**并明确确认。
-此操作无需 WARP，只删除本机托管配置和加密 Proton 记录，**不撤销远端会话**。
-仍须先断开并解除已保存的出口选择；希望尝试远端撤销时，使用联网的“退出登录并
-删除”。仅本机遗忘不能记为远端退出成功。
+点击“移除账号”，选择“退出并移除”会先尝试撤销本应用拥有的会话，再删除本机
+记录及旧版本重复配置。“仅本机遗忘”只删除本机记录，无需 WARP，**不撤销远端
+会话**。移除前会清除已保存的链式选择；保存失败即停止删除。正在连接的账号必须
+先断开。撤销失败会保留本机记录并明确提示，供重试或选择仅本机遗忘。
+这些操作不表示已退出用户其他设备的全部 Proton 会话。
 
 ## Storage and current limits / 存储与当前限制
 
@@ -166,7 +177,7 @@ the checked HTTPS API response. Token rotation is journaled before sending its
 single request. Unix directory synchronization and Windows write-through
 replacement are implemented; real power-loss recovery has not been tested.
 
-This source currently selects free-tier WireGuard UDP candidates. Guest
+This source currently supports eligible WireGuard UDP logical servers. Guest
 eligibility, third-party client acceptance, device verification, other second
 factors, the real local-agent protocol and platform cleanup still need live
 validation. API 8004 means the client is not allowed to create a session; the

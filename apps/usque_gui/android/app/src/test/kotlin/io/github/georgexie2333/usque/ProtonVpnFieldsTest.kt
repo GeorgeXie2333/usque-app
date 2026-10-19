@@ -45,4 +45,67 @@ class ProtonVpnFieldsTest {
         assertEquals("waiting_verification", (metadata["job"] as Map<*, *>)["state"])
         assertEquals(1, (metadata["profiles"] as List<*>).size)
     }
+
+    @Test
+    fun pagedCatalogueExposesOnlyLogicalMetadataWithinTheBridgeBudget() {
+        val id = "00000000-0000-4000-8000-000000000001"
+        val page = org.json.JSONArray()
+        repeat(128) {
+            page.put(
+                JSONObject()
+                    .put(
+                        "id",
+                        "logical-$it",
+                    ).put(
+                        "name",
+                        "Server $it",
+                    ).put("country", "IS")
+                    .put("city", "")
+                    .put("load", 10)
+                    .put("access_token", "synthetic-private"),
+            )
+        }
+        val source =
+            JSONObject()
+                .put(
+                    "servers",
+                    page,
+                ).put("server_offset", 128)
+                .put("server_total", 600)
+                .put("server_revision", id)
+                .put(
+                    "profiles",
+                    org.json.JSONArray().put(
+                        JSONObject()
+                            .put(
+                                "id",
+                                id,
+                            ).put(
+                                "related_ids",
+                                org.json.JSONArray().put(id),
+                            ).put("server_count", 600)
+                            .put("cleanup_pending", true),
+                    ),
+                )
+        val result = ProtonVpnFields.response(source.toString().toByteArray())
+        assertEquals(128, (result["servers"] as List<*>).size)
+        assertEquals(600L, result["server_total"])
+        assertFalse(result.toString().contains("synthetic-private"))
+        page.put(JSONObject().put("id", "overflow"))
+        assertTrue(runCatching { ProtonVpnFields.response(source.toString().toByteArray()) }.isFailure)
+        source.put("servers", org.json.JSONArray()).put("server_total", 20001)
+        assertTrue(runCatching { ProtonVpnFields.response(source.toString().toByteArray()) }.isFailure)
+        assertEquals(
+            128,
+            JSONObject(
+                ProtonVpnFields.command("""{"action":"servers","profile_id":"$id","offset":128}"""),
+            ).getInt("offset"),
+        )
+        assertEquals(
+            "choose_server",
+            JSONObject(
+                ProtonVpnFields.command("""{"action":"choose_server","profile_id":"$id","node_id":null}"""),
+            ).getString("action"),
+        )
+    }
 }

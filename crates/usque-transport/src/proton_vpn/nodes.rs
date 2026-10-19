@@ -1,13 +1,22 @@
 use super::{Failure, crypto::KeyMaterial};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::net::Ipv4Addr;
 use usque_core::{
     chain_exit::{ChainSource, Endpoint, ImportSecrets, ValidatedProfile},
     proton_vpn::{Node, SelectedNode},
 };
 
+#[cfg(test)]
 pub(super) fn collect(directory: &Value, config: &Value) -> Result<Vec<SelectedNode>, Failure> {
+    collect_for_tier(directory, config, 0)
+}
+pub(super) fn collect_for_tier(
+    directory: &Value,
+    config: &Value,
+    max_tier: u32,
+) -> Result<Vec<SelectedNode>, Failure> {
     let fallback = config
         .pointer("/DefaultPorts/WireGuard/UDP")
         .and_then(Value::as_array)
@@ -28,8 +37,12 @@ pub(super) fn collect(directory: &Value, config: &Value) -> Result<Vec<SelectedN
         .filter(|v| v.len() <= 20000)
         .ok_or_else(|| Failure::new("invalid_server_directory"))?;
     let mut output = Vec::new();
+    let mut ids = BTreeSet::new();
     for logical in logicals {
-        if logical.get("Tier").and_then(Value::as_u64) != Some(0)
+        if logical
+            .get("Tier")
+            .and_then(Value::as_u64)
+            .is_none_or(|tier| tier > u64::from(max_tier))
             || logical.get("Status").and_then(Value::as_u64).unwrap_or(1) != 1
             || logical
                 .get("Features")
@@ -41,6 +54,9 @@ pub(super) fn collect(directory: &Value, config: &Value) -> Result<Vec<SelectedN
         let Some(logical_id) = text(logical.get("ID"), 100) else {
             continue;
         };
+        if ids.contains(logical_id) {
+            continue;
+        }
         let Some(name) = text(logical.get("Name"), 64) else {
             continue;
         };
@@ -58,9 +74,6 @@ pub(super) fn collect(directory: &Value, config: &Value) -> Result<Vec<SelectedN
             if physical.get("Status").and_then(Value::as_u64) != Some(1) {
                 continue;
             }
-            let Some(id) = text(physical.get("ID"), 100) else {
-                continue;
-            };
             let entry = match physical.get("EntryPerProtocol") {
                 None | Some(Value::Null) => None,
                 Some(Value::Object(protocols)) => match protocols.get("WireGuardUDP") {
@@ -111,7 +124,7 @@ pub(super) fn collect(directory: &Value, config: &Value) -> Result<Vec<SelectedN
             };
             let node = SelectedNode {
                 metadata: Node {
-                    id: format!("{logical_id}:{id}"),
+                    id: logical_id.into(),
                     name: name.into(),
                     country: country.into(),
                     city: text(logical.get("City"), 128).unwrap_or("").into(),
@@ -130,13 +143,9 @@ pub(super) fn collect(directory: &Value, config: &Value) -> Result<Vec<SelectedN
             };
             if node.validate().is_ok() {
                 output.push(node);
-            }
-            if output.len() >= 1024 {
+                ids.insert(logical_id);
                 break;
             }
-        }
-        if output.len() >= 1024 {
-            break;
         }
     }
     output.sort_by(|a, b| {
@@ -147,7 +156,6 @@ pub(super) fn collect(directory: &Value, config: &Value) -> Result<Vec<SelectedN
         ))
     });
     output.dedup_by(|a, b| a.metadata.id == b.metadata.id);
-    output.truncate(200);
     if output.is_empty() {
         return Err(Failure::new("no_free_wireguard_nodes"));
     }

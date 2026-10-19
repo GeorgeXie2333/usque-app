@@ -578,6 +578,44 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     }
   }
 
+  Future<bool> _prepareProtonRemoval(List<String> ids) async {
+    if (_saving) return false;
+    if (ids.contains(_app.snapshot.chainExit.currentProfile?.id)) {
+      setState(() => _error = _app.strings.proton('profile_in_use'));
+      return false;
+    }
+    final latest = _app.activeProfile;
+    final stored = _storedChainExit(latest);
+    if (ids.contains(stored.profileId)) {
+      setState(() {
+        _saving = true;
+        _error = null;
+      });
+      final saved = await _app.saveNetwork(
+        latest.copyWith(
+          chainExit: stored.copyWith(enabled: false, clearSelection: true),
+        ),
+        changedFields: ['chain_exit'],
+      );
+      if (!mounted) return false;
+      setState(() {
+        _saving = false;
+        if (saved) {
+          _baseline = _stored;
+        } else {
+          _error = _app.lastError ?? _app.strings.chain('error');
+        }
+      });
+      if (!saved) return false;
+    }
+    if (mounted && ids.contains(_draft.profileId)) {
+      setState(
+        () => _setDraft(_draft.copyWith(enabled: false, clearSelection: true)),
+      );
+    }
+    return mounted;
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = _app.strings;
@@ -658,7 +696,9 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${(_draft.endpointOverride ?? ChainEndpoint(_selected!.host, _selected!.port)).label} · ${_selected!.transportLabel}',
+                      widget.source == ChainSource.protonVpn
+                          ? strings.proton('resolve_on_connect')
+                          : '${(_draft.endpointOverride ?? ChainEndpoint(_selected!.host, _selected!.port)).label} · ${_selected!.transportLabel}',
                       style: UsqueTheme.address(
                         context,
                         color: theme.colorScheme.onSurfaceVariant,
@@ -672,6 +712,15 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
               : null,
         ),
         slivers: [
+          if (widget.source == ChainSource.protonVpn && _libraryError != null)
+            SliverToBoxAdapter(
+              child: WarningBanner(
+                title: strings.get('error_generic'),
+                message: _libraryError!,
+                danger: true,
+                onDismiss: () => setState(() => _libraryError = null),
+              ),
+            ),
           if (widget.source == ChainSource.protonVpn && _supported)
             SliverToBoxAdapter(
               child: Padding(
@@ -680,151 +729,180 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                   key: _protonPanel,
                   controller: _app,
                   onChanged: () => unawaited(_load()),
+                  selectedProfileId: _draft.profileId,
+                  savedProfileId: _baseline.profileId,
+                  currentProfileId: current?.id,
+                  selectionEnabled:
+                      !_saving &&
+                      !_loading &&
+                      _libraryError == null &&
+                      _supported,
+                  beforeRemove: _prepareProtonRemoval,
+                  onSelectProfile: (id) {
+                    final profile = profiles
+                        .where((profile) => profile.id == id)
+                        .firstOrNull;
+                    if (profile != null && !_saving) {
+                      setState(
+                        () => _setDraft(
+                          _draft.copyWith(
+                            profileId: profile.id,
+                            revision: profile.revision,
+                          ),
+                        ),
+                      );
+                    }
+                  },
                 ),
               ),
             ),
-          SliverToBoxAdapter(
-            child: ContentSection(
-              title: strings.chain('profiles'),
-              gap: 12,
-              children: [
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (widget.source == ChainSource.warpWireguard)
-                      OutlinedButton.icon(
-                        onPressed: !_supported || _saving
-                            ? null
-                            : () async {
-                                final state = _warpPanel.currentState;
-                                if (state != null) await state.generate();
-                              },
-                        icon: const Icon(LucideIcons.plus),
-                        label: Text(strings.warp('generate')),
-                      ),
-                    if (widget.source.isProxy)
-                      OutlinedButton.icon(
-                        onPressed: _supported && !_saving ? _addProxy : null,
-                        icon: const Icon(LucideIcons.plus),
-                        label: Text(strings.chain('add_proxy')),
-                      ),
-                    if (!widget.source.isProxy &&
-                        widget.source != ChainSource.protonVpn)
-                      OutlinedButton.icon(
-                        onPressed: _supported && !_saving && !_importing
-                            ? () => unawaited(_import(true))
-                            : null,
-                        icon: const Icon(LucideIcons.fileUp),
-                        label: Text(strings.chain('import_file')),
-                      ),
-                    if (!widget.source.isProxy &&
-                        widget.source != ChainSource.protonVpn)
-                      OutlinedButton.icon(
-                        onPressed: _supported && !_saving && !_importing
-                            ? () => unawaited(_import(false))
-                            : null,
-                        icon: const Icon(LucideIcons.clipboard),
-                        label: Text(strings.chain('paste')),
-                      ),
-                  ],
-                ),
-                BannerSlot(
-                  spacing: 0,
-                  child: _libraryError == null
-                      ? null
-                      : WarningBanner(
-                          key: const ValueKey('chain-library-error'),
-                          title: strings.get('error_generic'),
-                          message: _libraryError!,
-                          danger: true,
-                          onDismiss: () => setState(() => _libraryError = null),
-                        ),
-                ),
-                if (_loading) const LinearProgressIndicator(minHeight: 2),
-                // Explanations keep a gap below the action buttons.
-                if (!_loading && profiles.isEmpty) const SizedBox(height: 8),
-                if (!_loading && profiles.isEmpty)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    spacing: 4,
+          if (widget.source != ChainSource.protonVpn)
+            SliverToBoxAdapter(
+              child: ContentSection(
+                title: strings.chain('profiles'),
+                gap: 12,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      if (!widget.source.isProxy)
-                        Text(
-                          widget.source == ChainSource.protonVpn
-                              ? strings.proton('empty')
-                              : strings.chain('empty'),
+                      if (widget.source == ChainSource.warpWireguard)
+                        OutlinedButton.icon(
+                          onPressed: !_supported || _saving
+                              ? null
+                              : () async {
+                                  final state = _warpPanel.currentState;
+                                  if (state != null) await state.generate();
+                                },
+                          icon: const Icon(LucideIcons.plus),
+                          label: Text(strings.warp('generate')),
                         ),
-                      if (widget.source != ChainSource.protonVpn)
-                        Text(
-                          strings.chain(
-                            widget.source.isProxy
-                                ? 'proxy_hint'
-                                : widget.source.isWireguard
-                                ? 'empty_hint_wireguard'
-                                : 'empty_hint_openvpn',
-                          ),
-                          style: mutedStyle,
+                      if (widget.source.isProxy)
+                        OutlinedButton.icon(
+                          onPressed: _supported && !_saving ? _addProxy : null,
+                          icon: const Icon(LucideIcons.plus),
+                          label: Text(strings.chain('add_proxy')),
                         ),
                       if (!widget.source.isProxy &&
                           widget.source != ChainSource.protonVpn)
-                        Text(strings.chain('import_limits'), style: mutedStyle),
-                    ],
-                  ),
-                if (profiles.isNotEmpty && !_draft.enabled && _supported)
-                  Text(strings.chain('enable_to_choose'), style: mutedStyle),
-                RadioGroup<String>(
-                  groupValue: _draft.profileId,
-                  onChanged: (id) {
-                    if (!_draft.enabled || _saving || id == null) return;
-                    final profile = profiles.firstWhere((p) => p.id == id);
-                    setState(
-                      () => _setDraft(
-                        _draft.copyWith(
-                          profileId: profile.id,
-                          revision: profile.revision,
+                        OutlinedButton.icon(
+                          onPressed: _supported && !_saving && !_importing
+                              ? () => unawaited(_import(true))
+                              : null,
+                          icon: const Icon(LucideIcons.fileUp),
+                          label: Text(strings.chain('import_file')),
                         ),
-                      ),
-                    );
-                  },
-                  child: ContentList(
-                    children: [
-                      for (final profile in profiles)
-                        _ProfileRow(
-                          controller: _app,
-                          profile: profile,
-                          enabled: _draft.enabled && !_saving && _supported,
-                          busy: _saving,
-                          selected: profile.id == _draft.profileId,
-                          saved:
-                              _baseline.enabled &&
-                              profile.id == _baseline.profileId,
-                          current: profile.id == current?.id,
-                          needsConnectIp: _l4 && profile.requiresUdp,
-                          onAction: (action) =>
-                              unawaited(_manage(profile, action)),
+                      if (!widget.source.isProxy &&
+                          widget.source != ChainSource.protonVpn)
+                        OutlinedButton.icon(
+                          onPressed: _supported && !_saving && !_importing
+                              ? () => unawaited(_import(false))
+                              : null,
+                          icon: const Icon(LucideIcons.clipboard),
+                          label: Text(strings.chain('paste')),
                         ),
                     ],
                   ),
-                ),
-                if (_draft.enabled && _draft.profileId != null)
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton.icon(
-                      onPressed: _saving
-                          ? null
-                          : () => setState(
-                              () => _setDraft(
-                                _draft.copyWith(clearSelection: true),
-                              ),
+                  BannerSlot(
+                    spacing: 0,
+                    child: _libraryError == null
+                        ? null
+                        : WarningBanner(
+                            key: const ValueKey('chain-library-error'),
+                            title: strings.get('error_generic'),
+                            message: _libraryError!,
+                            danger: true,
+                            onDismiss: () =>
+                                setState(() => _libraryError = null),
+                          ),
+                  ),
+                  if (_loading) const LinearProgressIndicator(minHeight: 2),
+                  // Explanations keep a gap below the action buttons.
+                  if (!_loading && profiles.isEmpty) const SizedBox(height: 8),
+                  if (!_loading && profiles.isEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      spacing: 4,
+                      children: [
+                        if (!widget.source.isProxy)
+                          Text(
+                            widget.source == ChainSource.protonVpn
+                                ? strings.proton('empty')
+                                : strings.chain('empty'),
+                          ),
+                        if (widget.source != ChainSource.protonVpn)
+                          Text(
+                            strings.chain(
+                              widget.source.isProxy
+                                  ? 'proxy_hint'
+                                  : widget.source.isWireguard
+                                  ? 'empty_hint_wireguard'
+                                  : 'empty_hint_openvpn',
                             ),
-                      icon: const Icon(LucideIcons.x, size: 18),
-                      label: Text(strings.chain('clear')),
+                            style: mutedStyle,
+                          ),
+                        if (!widget.source.isProxy &&
+                            widget.source != ChainSource.protonVpn)
+                          Text(
+                            strings.chain('import_limits'),
+                            style: mutedStyle,
+                          ),
+                      ],
+                    ),
+                  if (profiles.isNotEmpty && !_draft.enabled && _supported)
+                    Text(strings.chain('enable_to_choose'), style: mutedStyle),
+                  RadioGroup<String>(
+                    groupValue: _draft.profileId,
+                    onChanged: (id) {
+                      if (!_draft.enabled || _saving || id == null) return;
+                      final profile = profiles.firstWhere((p) => p.id == id);
+                      setState(
+                        () => _setDraft(
+                          _draft.copyWith(
+                            profileId: profile.id,
+                            revision: profile.revision,
+                          ),
+                        ),
+                      );
+                    },
+                    child: ContentList(
+                      children: [
+                        for (final profile in profiles)
+                          _ProfileRow(
+                            controller: _app,
+                            profile: profile,
+                            enabled: _draft.enabled && !_saving && _supported,
+                            busy: _saving,
+                            selected: profile.id == _draft.profileId,
+                            saved:
+                                _baseline.enabled &&
+                                profile.id == _baseline.profileId,
+                            current: profile.id == current?.id,
+                            needsConnectIp: _l4 && profile.requiresUdp,
+                            onAction: (action) =>
+                                unawaited(_manage(profile, action)),
+                          ),
+                      ],
                     ),
                   ),
-              ],
+                  if (_draft.enabled && _draft.profileId != null)
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton.icon(
+                        onPressed: _saving
+                            ? null
+                            : () => setState(
+                                () => _setDraft(
+                                  _draft.copyWith(clearSelection: true),
+                                ),
+                              ),
+                        icon: const Icon(LucideIcons.x, size: 18),
+                        label: Text(strings.chain('clear')),
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
           if (widget.source == ChainSource.warpWireguard && _supported)
             SliverToBoxAdapter(
               child: Padding(

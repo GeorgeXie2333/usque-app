@@ -7,6 +7,7 @@ import 'package:flutter/services.dart' show StandardMethodCodec;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/proton_strings.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/chain_proxy_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/widgets/proton_vpn_panel.dart';
@@ -28,6 +29,8 @@ class ProtonEngine extends ChainEngine
   @override
   Future<EngineCapabilities?> getCapabilities() async =>
       const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
+        vpnGateTcp: true,
         automaticEndpoints: true,
         chainProfileImport: true,
         chainWireguard: true,
@@ -224,6 +227,86 @@ class DelayedProtonEngine extends ProtonEngine {
   }
 }
 
+class CatalogueEngine extends ProtonEngine {
+  bool stalePage = false;
+  CatalogueEngine() {
+    profiles = [
+      {
+        'id': 'proton-profile',
+        'name': 'Account',
+        'needs_login': false,
+        'related_ids': ['proton-profile'],
+        'server_count': 301,
+      },
+    ];
+  }
+  @override
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) async {
+    if (command['action'] == 'servers') {
+      requests.add(Map.of(command));
+      final offset = command['offset']! as int;
+      return ProtonVpnResult(
+        metadata: {
+          'server_offset': offset,
+          'server_total': 301,
+          'server_revision': stalePage && offset > 0
+              ? 'changed'
+              : 'catalogue-revision',
+          'servers': [
+            for (var i = offset; i < 301 && i < offset + 128; i++)
+              {
+                'id': 'logical-$i',
+                'name': 'Server $i',
+                'country': 'IS',
+                'city': 'City $i',
+                'load': 0,
+              },
+          ],
+        },
+      );
+    }
+    if (command['action'] == 'choose_server') {
+      requests.add(Map.of(command));
+      final id = command['node_id'] as String?;
+      profiles = [
+        {
+          ...profiles.first,
+          'server_id': id,
+          'node_name': id == null ? '' : 'Server ${id.split('-').last}',
+        },
+      ];
+      job = {
+        'id': 'choice',
+        'state': 'completed',
+        'phase': 'complete',
+        'profile_id': 'proton-profile',
+      };
+      return ProtonVpnResult(metadata: {'job': job, 'profiles': profiles});
+    }
+    return super.protonVpn(command, sensitiveInput: sensitiveInput);
+  }
+}
+
+class RemovalEngine extends CatalogueEngine {
+  bool? selectionWasCleared;
+  @override
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) async {
+    if (command['action'] == 'forget') {
+      selectionWasCleared = storedProfiles.every(
+        (profile) => profile.chainExit?.profileId != 'proton-profile',
+      );
+      library = [];
+    }
+    return super.protonVpn(command, sensitiveInput: sensitiveInput);
+  }
+}
+
 void _protonWidgetTest(
   String description,
   WidgetTesterCallback callback, {
@@ -237,6 +320,223 @@ void _protonWidgetTest(
 }
 
 void main() {
+  for (final chinese in [false, true]) {
+    _protonWidgetTest(
+      'Android account and server picker support 200 percent text, Chinese=$chinese',
+      (tester) async {
+        final engine = CatalogueEngine();
+        final app = await hostChain(tester, engine, width: 390);
+        if (chinese) app.localePreference = LocalePreference.simplifiedChinese;
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            dark: chinese,
+            scale: 2,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ProtonVpnPanel(controller: app, onChanged: () {}),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final change = find.text(app.strings.proton('change_server'));
+        await tester.ensureVisible(change);
+        await tester.tap(change);
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Server 300');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.widgetWithText(RadioListTile<String>, 'Server 300'),
+        );
+        await tester.tap(
+          find.widgetWithText(RadioListTile<String>, 'Server 300'),
+        );
+        await tester.pumpAndSettle();
+        expect(engine.requests.last['node_id'], 'logical-300');
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      platform: TargetPlatform.android,
+    );
+  }
+  for (final fail in [false, true]) {
+    _protonWidgetTest(
+      'account removal clears the saved selection before deleting, save fails=$fail',
+      (tester) async {
+        final engine = RemovalEngine()
+          ..library = [
+            const ChainProfileSummary(
+              id: 'proton-profile',
+              revision: 'r1',
+              editRevision: 'e1',
+              name: 'Account',
+              source: ChainSource.protonVpn,
+              protocol: 'wireguard',
+              host: '192.0.2.1',
+              port: 443,
+            ),
+          ];
+        final app = await hostChain(
+          tester,
+          engine,
+          source: ChainSource.protonVpn,
+          chainEnabled: true,
+        );
+        expect(
+          await app.saveNetwork(
+            app.activeProfile.copyWith(
+              chainExit: const ChainExitSettings(
+                enabled: true,
+                source: ChainSource.protonVpn,
+                profileId: 'proton-profile',
+                revision: 'r1',
+              ),
+            ),
+            changedFields: ['chain_exit'],
+          ),
+          isTrue,
+          reason: app.lastError,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpWidget(
+          workflowHost(app, home: ChainProxyScreen(controller: app)),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Saved configurations'), findsNothing);
+        engine.failSave = fail;
+        await tester.ensureVisible(find.text('Remove account'));
+        await tester.tap(find.text('Remove account'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Forget locally'));
+        await tester.pumpAndSettle();
+        if (fail) {
+          expect(engine.selectionWasCleared, isNull);
+          expect(
+            engine.requests.where((r) => r['action'] == 'forget'),
+            isEmpty,
+          );
+          expect(app.activeProfile.chainExit?.profileId, 'proton-profile');
+        } else {
+          expect(engine.selectionWasCleared, isTrue);
+          expect(app.activeProfile.chainExit?.profileId, isNull);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      platform: TargetPlatform.android,
+    );
+  }
+
+  for (final stale in [false, true]) {
+    _protonWidgetTest(
+      'complete searchable server catalogue rejects stale pages=$stale',
+      (tester) async {
+        final engine = CatalogueEngine()..stalePage = stale;
+        final app = await hostChain(tester, engine, width: 390);
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ProtonVpnPanel(controller: app, onChanged: () {}),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Change server'));
+        await tester.tap(find.text('Change server'));
+        await tester.pumpAndSettle();
+        final pages = engine.requests
+            .where((r) => r['action'] == 'servers')
+            .toList();
+        expect(pages.map((r) => r['offset']), stale ? [0, 128] : [0, 128, 256]);
+        if (stale) {
+          expect(
+            find.text(app.strings.proton('invalid_directory')),
+            findsOneWidget,
+          );
+          expect(
+            engine.requests.where((r) => r['action'] == 'choose_server'),
+            isEmpty,
+          );
+        } else {
+          await tester.enterText(find.byType(TextField), 'Server 300');
+          await tester.pumpAndSettle();
+          expect(
+            find.widgetWithText(RadioListTile<String>, 'Server 300'),
+            findsOneWidget,
+          );
+          await tester.tap(
+            find.widgetWithText(RadioListTile<String>, 'Server 300'),
+          );
+          await tester.pumpAndSettle();
+          expect(engine.requests.last, {
+            'action': 'choose_server',
+            'profile_id': 'proton-profile',
+            'node_id': 'logical-300',
+          });
+          expect(
+            find.text('Server preference saved for the next connection.'),
+            findsOneWidget,
+          );
+          await tester.ensureVisible(find.text('Change server'));
+          await tester.tap(find.text('Change server'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Automatic'));
+          await tester.pumpAndSettle();
+          expect(engine.requests.last, {
+            'action': 'choose_server',
+            'profile_id': 'proton-profile',
+            'node_id': null,
+          });
+          expect(engine.inputs, isEmpty);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+  _protonWidgetTest(
+    'removal waits for selection cleanup and stops when it fails',
+    (tester) async {
+      final engine = CatalogueEngine();
+      final app = await hostChain(tester, engine);
+      var allowed = false, calls = 0;
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(
+                controller: app,
+                onChanged: () {},
+                beforeRemove: (ids) async {
+                  expect(ids, ['proton-profile']);
+                  calls++;
+                  return allowed;
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 2; i++) {
+        await tester.ensureVisible(find.text('Remove account'));
+        await tester.tap(find.text('Remove account'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Forget locally'));
+        await tester.pumpAndSettle();
+        expect(engine.requests.where((r) => r['action'] == 'forget').length, i);
+        allowed = true;
+      }
+      expect(calls, 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   test(
     'Proton handoffs own mutable bytes from read-only platform envelopes',
     () {
@@ -940,20 +1240,18 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Forget on this device only'));
+      await tester.tap(find.text('Remove account'));
       await tester.pumpAndSettle();
       expect(
-        find.textContaining('does not revoke the remote Proton session'),
+        find.textContaining('Forget locally leaves remote sessions unchanged'),
         findsOneWidget,
       );
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(engine.requests.where((r) => r['action'] == 'forget'), isEmpty);
-      await tester.tap(find.text('Forget on this device only'));
+      await tester.tap(find.text('Remove account'));
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.widgetWithText(FilledButton, 'Forget on this device only'),
-      );
+      await tester.tap(find.widgetWithText(TextButton, 'Forget locally'));
       await tester.pumpAndSettle();
       expect(engine.requests.last, {
         'action': 'forget',
@@ -963,7 +1261,7 @@ void main() {
       expect(changed, 1);
       expect(find.text('Saved Proton'), findsNothing);
       expect(
-        find.text('The Proton configuration was removed from this device.'),
+        find.text('The Proton account was removed from this device.'),
         findsOneWidget,
       );
       await tester.pumpWidget(const SizedBox.shrink());

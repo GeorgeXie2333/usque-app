@@ -16,7 +16,7 @@ const _english = <String, String>{
   'waiting_totp': 'Enter your authenticator code to continue.',
   'waiting_verification': 'Verification required',
   'waiting_node': 'Choose a server to finish setup.',
-  'completed': 'Ready. Select the saved configuration and apply changes.',
+  'completed': 'Account saved. Select it and apply changes to use Proton VPN.',
   'cancelled': 'Setup cancelled',
   'failed': 'Proton setup failed. Retry when you are ready.',
   'unavailable': 'Proton VPN is unavailable in this Engine.',
@@ -26,20 +26,51 @@ const _english = <String, String>{
   'underlay': 'Check your WARP account and MASQUE connection, then retry.',
   'verification_failed':
       'Verification could not be completed. Start setup again.',
+  'verification_invalid':
+      'Proton rejected the verification result. Start setup again for a new challenge.',
+  'accounts': 'Proton accounts',
+  'resolve_on_connect':
+      'The server and authorization are checked when connecting.',
+  'account': 'Proton account',
+  'signed_in': 'Signed in',
+  'session_requires_login': 'Session needs sign-in',
+  'selected_server': 'Server',
+  'automatic_server': 'Automatic',
+  'automatic_hint': 'Choose an available server when connecting.',
+  'available_servers': 'Available servers',
+  'choose_server': 'Choose a server',
+  'search_servers': 'Search by name, country or city',
+  'load_servers': 'Load server list',
+  'change_server': 'Change server',
+  'refresh_servers': 'Refresh list',
+  'remove_account': 'Remove account',
+  'remove_account_confirm':
+      'Remove this account and its saved server preference? Sign out also revokes this app’s saved sessions. Forget locally leaves remote sessions unchanged. A saved chain selection will be cleared.',
+  'forget_local': 'Forget locally',
+  'sign_out_remove': 'Sign out and remove',
+  'current_account': 'Connected account',
+  'saved_account': 'Saved selection',
+  'next_connection': 'Server preference saved for the next connection.',
+  'disconnect_to_change':
+      'Disconnect this account to change its server or remove it.',
+  'cleanup_pending':
+      'An earlier session could not be confirmed revoked. Sign out again or explicitly forget the account locally.',
+  'selected_server_unavailable':
+      'The selected server is unavailable. Choose another server or Automatic.',
+  'close': 'Close',
   'verification_error': 'Verification error',
   'refresh': 'Refresh authorization or change server',
   'logout': 'Sign out and delete',
   'forget': 'Forget on this device only',
   'forget_confirm':
       'Remove this Proton configuration and its saved session from this device? This does not revoke the remote Proton session.',
-  'removed': 'The Proton configuration was removed from this device.',
+  'removed': 'The Proton account was removed from this device.',
   'needs_login': 'Sign in again',
   'expires': 'Authorization expires',
   'unsupported_second_factor':
       'This account requires a sign-in method that is not supported here.',
   'reauthentication_required': 'Sign in again to renew this Proton session.',
-  'profile_in_use':
-      'Disconnect and remove this configuration from the saved chain selection first.',
+  'profile_in_use': 'Disconnect this account before changing or removing it.',
   'session_busy':
       'Another Proton operation is still running. Wait or cancel it first.',
   'api_rejected':
@@ -47,7 +78,8 @@ const _english = <String, String>{
   'session_not_allowed':
       'Proton does not allow this client to create a session.',
   'credentialless_disabled': 'Proton guest access is currently unavailable.',
-  'no_free_nodes': 'Proton returned no compatible free WireGuard servers.',
+  'no_free_nodes':
+      'Proton returned no available WireGuard servers for this account.',
   'invalid_directory': 'Proton returned an unsupported server list.',
   'invalid_client_configuration': 'Proton returned no usable WireGuard ports.',
   'stage': 'Failed step',
@@ -71,7 +103,7 @@ const _english = <String, String>{
       'Cancelled on this device. Remote session revocation could not be confirmed.',
   'privacy':
       'Your password is used only to sign in. Sessions and keys are protected on this device.',
-  'empty': 'Sign in or continue as guest to add a Proton configuration.',
+  'empty': 'Sign in or continue as guest to add a Proton account.',
 };
 
 const _chinese = <String, String>{
@@ -89,7 +121,7 @@ const _chinese = <String, String>{
   'waiting_totp': '请输入身份验证器验证码以继续。',
   'waiting_verification': '需要人机验证',
   'waiting_node': '请选择服务器以完成设置。',
-  'completed': '已就绪。请选择保存的配置并应用更改。',
+  'completed': '账号已保存。请选择该账号并应用更改，以使用 Proton VPN。',
   'cancelled': '已取消设置',
   'failed': 'Proton 设置失败，可稍后重试。',
   'unavailable': '当前引擎不支持 Proton VPN。',
@@ -97,6 +129,33 @@ const _chinese = <String, String>{
   'rate_limited': 'Proton 限制了此请求，请稍后再试。',
   'underlay': '请检查 WARP 账号和 MASQUE 连接后重试。',
   'verification_failed': '未能完成验证，请重新开始设置。',
+  'verification_invalid': 'Proton 拒绝了验证结果，请重新开始设置以获取新的挑战。',
+  'accounts': 'Proton 账号',
+  'resolve_on_connect': '连接时获取节点入口并检查授权。',
+  'account': 'Proton 账号',
+  'signed_in': '已登录',
+  'session_requires_login': '会话需要重新登录',
+  'selected_server': '节点',
+  'automatic_server': '自动选择',
+  'automatic_hint': '连接时选择可用节点。',
+  'available_servers': '可用节点',
+  'choose_server': '选择节点',
+  'search_servers': '搜索名称、国家或城市',
+  'load_servers': '加载节点列表',
+  'change_server': '切换节点',
+  'refresh_servers': '刷新列表',
+  'remove_account': '移除账号',
+  'remove_account_confirm':
+      '要移除此账号及其节点选择吗？退出登录也会撤销本应用保存的会话；仅忘记本机不会改变远端会话。已保存的链式出口选择会一并清除。',
+  'forget_local': '仅忘记本机',
+  'sign_out_remove': '退出并移除',
+  'current_account': '当前连接账号',
+  'saved_account': '已保存选择',
+  'next_connection': '节点选择已保存，将在下次连接时生效。',
+  'disconnect_to_change': '请先断开此账号的连接，再切换节点或移除账号。',
+  'cleanup_pending': '先前会话的撤销结果未知，请重试退出登录，或明确选择仅忘记本机账号。',
+  'selected_server_unavailable': '所选节点不可用，请选择其他节点或自动选择。',
+  'close': '关闭',
   'verification_error': '验证错误',
   'refresh': '刷新授权或更换服务器',
   'logout': '退出登录并删除',
@@ -107,12 +166,12 @@ const _chinese = <String, String>{
   'expires': '授权到期时间',
   'unsupported_second_factor': '此账号需要的登录验证方式暂不受支持。',
   'reauthentication_required': '请重新登录以续期此 Proton 会话。',
-  'profile_in_use': '请先断开连接，并从已保存的链式出口选择中解除此配置。',
+  'profile_in_use': '请先断开此账号的连接，再修改或移除账号。',
   'session_busy': '另一个 Proton 操作仍在进行，请等待或先取消该操作。',
   'api_rejected': 'Proton 拒绝了此请求，下方代码标明服务端响应。',
   'session_not_allowed': 'Proton 不允许此客户端创建会话。',
   'credentialless_disabled': 'Proton 当前不提供游客访问。',
-  'no_free_nodes': 'Proton 未返回可用的免费 WireGuard 服务器。',
+  'no_free_nodes': 'Proton 未返回此账号可用的 WireGuard 服务器。',
   'invalid_directory': 'Proton 返回的服务器列表格式不受支持。',
   'invalid_client_configuration': 'Proton 未返回可用的 WireGuard 端口。',
   'stage': '失败步骤',
@@ -134,7 +193,7 @@ const _chinese = <String, String>{
   'remote_unknown': '远端会话撤销结果未知。',
   'cancelled_remote_unknown': '本机已取消，远端会话撤销结果未知。',
   'privacy': '密码仅用于登录，会话和密钥由本机安全存储保护。',
-  'empty': '请登录或以游客身份继续，以添加 Proton 配置。',
+  'empty': '请登录或以游客身份继续，以添加 Proton 账号。',
 };
 
 extension ProtonStrings on AppStrings {

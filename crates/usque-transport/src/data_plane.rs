@@ -629,7 +629,7 @@ impl DataPlaneRuntime {
             let (credentials, lease) = {
                 let refresh_cancel = cancellation.child_token();
                 let refresh = crate::proton_vpn::renew::prepare(
-                    &prepared,
+                    &mut prepared,
                     self.warp_internal_network(),
                     &refresh_cancel,
                 );

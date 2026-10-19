@@ -16,7 +16,7 @@ use std::{
     },
 };
 use tokio_util::sync::CancellationToken;
-use usque_core::proton_vpn::{Node, Request, SessionSecrets};
+use usque_core::proton_vpn::{Request, SessionSecrets};
 use zeroize::Zeroizing;
 
 struct Seen {
@@ -99,9 +99,6 @@ impl Interaction for Manual {
     }
     async fn totp(&self, _: &CancellationToken) -> Result<Zeroizing<String>, Failure> {
         Err(Failure::new("unexpected_totp"))
-    }
-    async fn node(&self, _: Vec<Node>, _: &CancellationToken) -> Result<String, Failure> {
-        Err(Failure::new("unexpected_node"))
     }
     fn phase(&self, phase: &str) {
         self.phases.lock().unwrap().push(phase.into());
@@ -834,6 +831,7 @@ fn request(action: &str, job_id: uuid::Uuid, challenge_id: Option<uuid::Uuid>) -
         challenge_id,
         node_id: None,
         name: String::new(),
+        offset: 0,
     }
 }
 #[tokio::test]
@@ -912,5 +910,89 @@ proptest::proptest! {
             && let Err(failure)=api::token(value.get("AccessToken")){
             proptest::prop_assert_eq!(failure.reason,"invalid_api_response");
         }
+    }
+}
+
+#[tokio::test]
+async fn invalid_manual_verification_is_cleared_once_before_a_fresh_challenge() {
+    let peer = make_peer(vec![
+        Ok((422, challenge())),
+        Ok((422, json!({"Code":12087}))),
+        Ok((422, challenge())),
+        Ok((200, json!({"Code":1000}))),
+    ]);
+    let mut client = Client::new(peer.clone());
+    client.session = session();
+    let io = manual();
+    client
+        .request(
+            Method::POST,
+            "/auth/v4/credentialless",
+            &json!({"Payload":"unchanged"}),
+            &io,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(io.calls.load(Ordering::Acquire), 2);
+    let seen = peer.seen.lock().unwrap();
+    assert_eq!(seen.len(), 4);
+    for (index, request) in seen.iter().enumerate() {
+        assert_eq!(
+            request.url,
+            format!(
+                "{}/auth/v4/credentialless",
+                usque_core::proton_vpn::API_ORIGIN
+            )
+        );
+        assert_eq!(request.body, seen[0].body);
+        assert!(
+            request
+                .headers
+                .contains(&("x-pm-uid".into(), "synthetic-uid".into()))
+        );
+        let hv = request
+            .headers
+            .iter()
+            .find(|(key, _)| key == "x-pm-human-verification-token");
+        if index % 2 == 0 {
+            assert!(hv.is_none());
+        } else {
+            assert_eq!(hv.unwrap().1, "synthetic-private-success");
+        }
+    }
+    assert_eq!(client.session.uid, "synthetic-uid");
+}
+#[tokio::test]
+async fn invalid_verification_recovery_is_bounded_and_ambiguous_mutations_are_not_retried() {
+    for status in [422, 500] {
+        let mut replies = vec![Ok((422, challenge())), Ok((status, json!({"Code":12087})))];
+        if status == 422 {
+            replies.extend([Ok((422, challenge())), Ok((422, json!({"Code":12087})))]);
+        }
+        let peer = make_peer(replies);
+        let mut client = Client::new(peer.clone());
+        let io = manual();
+        let failure = client
+            .request(
+                Method::POST,
+                "/auth/v4/credentialless",
+                &Value::Null,
+                &io,
+                &CancellationToken::new(),
+            )
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(failure.reason, "human_verification_invalid");
+        assert_eq!(failure.code, Some(12087));
+        assert_eq!(
+            peer.seen.lock().unwrap().len(),
+            if status == 422 { 4 } else { 2 }
+        );
+        assert_eq!(
+            io.calls.load(Ordering::Acquire),
+            if status == 422 { 2 } else { 1 }
+        );
     }
 }

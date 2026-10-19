@@ -72,13 +72,13 @@ WARP via WireGuard 支持生成／导入配置和编辑端点，详见
 [使用指南](WARP_WIREGUARD.md)。
 
 Proton VPN provides guest/account setup, a manual official verification window,
-free-server selection and encrypted session storage. See the
+searchable logical-server selection, account removal and encrypted session storage. See the
 [Proton VPN guide](PROTON_VPN.md) for setup, renewal and current validation limits.
 Its verification WebView uses the system network path; matching its egress to
 WARP API traffic remains unproven. Live native authentication and the complete
 Proton tunnel have not been validated.
 
-Proton VPN 提供游客／账号准备、官方窗口人工验证、免费服务器选择和加密会话存储，
+Proton VPN 提供游客／账号准备、官方窗口人工验证、可搜索的逻辑节点选择、账号移除和加密会话存储，
 详见 [Proton VPN 指南](PROTON_VPN.md)。验证码 WebView 使用系统网络路径，尚未证明
 与 WARP API 出口一致；原生实网认证和完整 Proton 隧道仍未完成验证。
 

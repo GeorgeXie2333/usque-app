@@ -11,12 +11,14 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 pub const MAX_INPUT_BYTES: usize = 40 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_CERTIFICATE_BYTES: usize = 48 * 1024;
+pub const MAX_CATALOG_NODES: usize = 20000;
+pub const CATALOG_PAGE_SIZE: usize = 128;
 pub const API_ORIGIN: &str = "https://vpn-api.proton.me";
 pub const APP_VERSION: &str = "external-vpn@0.1.0";
 
 /// Headers are kept with the encrypted session so renewal uses the same client
 /// identity. Device challenge data is never persisted with this record.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ApiIdentity {
     pub app_version: String,
@@ -80,6 +82,8 @@ pub struct Request {
     pub node_id: Option<String>,
     #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    pub offset: usize,
 }
 impl Request {
     pub fn parse(text: &str) -> Result<Self, ImportError> {
@@ -105,8 +109,12 @@ impl Request {
                 | "logout"
                 | "forget"
                 | "list"
+                | "servers"
+                | "choose_server"
         ) || self.name.chars().count() > 64
             || self.name.chars().any(char::is_control)
+            || self.offset > MAX_CATALOG_NODES
+            || self.offset != 0 && self.action != "servers"
             || self.node_id.as_ref().is_some_and(|v| {
                 v.is_empty() || v.len() > 256 || !v.is_ascii() || v.chars().any(char::is_control)
             })
@@ -115,8 +123,10 @@ impl Request {
                 "cancel" | "totp" | "handoff" | "verify" | "select_node"
             ) && self.job_id.is_none()
             || matches!(self.action.as_str(), "handoff" | "verify") && self.challenge_id.is_none()
-            || matches!(self.action.as_str(), "refresh" | "logout" | "forget")
-                && self.profile_id.is_none()
+            || matches!(
+                self.action.as_str(),
+                "refresh" | "logout" | "forget" | "servers" | "choose_server"
+            ) && self.profile_id.is_none()
             || self.action == "select_node" && self.node_id.is_none()
         {
             return Err(error("invalid_request"));
@@ -128,6 +138,9 @@ impl Request {
             self.action.as_str(),
             "guest" | "login" | "refresh" | "logout"
         )
+    }
+    pub fn mutates_account(&self) -> bool {
+        self.needs_network() || matches!(self.action.as_str(), "forget" | "choose_server")
     }
 }
 impl fmt::Debug for Request {
@@ -146,6 +159,26 @@ pub struct Node {
     pub city: String,
     pub load: u32,
 }
+impl Node {
+    pub fn validate(&self) -> Result<(), ImportError> {
+        if self.id.is_empty()
+            || self.id.len() > 256
+            || !self.id.is_ascii()
+            || self.id.chars().any(char::is_control)
+            || self.name.is_empty()
+            || self.name.len() > 64
+            || self.name.chars().any(char::is_control)
+            || self.city.len() > 128
+            || self.city.chars().any(char::is_control)
+            || self.country.len() != 2
+            || !self.country.bytes().all(|c| c.is_ascii_uppercase())
+            || self.load > 100
+        {
+            return Err(error("invalid_node"));
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SelectedNode {
     pub metadata: Node,
@@ -155,6 +188,7 @@ pub struct SelectedNode {
 }
 impl SelectedNode {
     pub fn validate(&self) -> Result<(), ImportError> {
+        self.metadata.validate()?;
         let domain = self.domain.as_str();
         if domain.len() > 253
             || domain.is_empty()
@@ -222,12 +256,20 @@ pub struct AccountSummary {
     pub country: String,
     pub expires_at: i64,
     pub needs_login: bool,
+    pub server_id: Option<String>,
+    pub server_count: usize,
+    pub related_ids: Vec<Uuid>,
+    pub cleanup_pending: bool,
 }
 #[derive(Default, Serialize)]
 pub struct Response {
     pub job: Option<Job>,
     pub profiles: Vec<AccountSummary>,
     pub error: Option<String>,
+    pub servers: Vec<Node>,
+    pub server_offset: usize,
+    pub server_total: usize,
+    pub server_revision: Option<Uuid>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -259,6 +301,37 @@ impl SessionSecrets {
 impl fmt::Debug for SessionSecrets {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("SessionSecrets([redacted])")
+    }
+}
+
+/// Cleanup-only capability, never usable as an authenticated account record.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct RevocationHandle {
+    pub uid: String,
+    pub access_token: String,
+    #[zeroize(skip)]
+    pub api_identity: ApiIdentity,
+}
+impl RevocationHandle {
+    pub fn capture(session: &SessionSecrets, api_identity: &ApiIdentity) -> Option<Self> {
+        let valid = |value: &str| {
+            !value.is_empty()
+                && value.len() <= 8192
+                && value.bytes().all(|c| (33..=126).contains(&c))
+        };
+        (valid(&session.uid) && valid(&session.access_token)).then(|| Self {
+            uid: session.uid.clone(),
+            access_token: session.access_token.clone(),
+            api_identity: api_identity.clone(),
+        })
+    }
+    pub fn session(&self) -> SessionSecrets {
+        SessionSecrets {
+            uid: self.uid.clone(),
+            access_token: self.access_token.clone(),
+            refresh_token: String::new(),
+            user_id: String::new(),
+        }
     }
 }
 
@@ -302,36 +375,100 @@ pub struct Record {
     /// Written before a token-rotating request; an ambiguous result requires
     /// explicit reauthentication rather than replaying a stale refresh token.
     pub rotation_pending: bool,
+    #[serde(default)]
+    pub server_id: Option<String>,
+    #[serde(default)]
+    pub server_catalog: Vec<Node>,
+    #[serde(default)]
+    pub retired_sessions: Vec<RevocationHandle>,
+    #[serde(default)]
+    pub catalog_revision: Uuid,
 }
 impl Record {
     pub fn validate(&self) -> Result<(), ImportError> {
         self.api_identity.validate()?;
         self.session.validate()?;
         self.node.validate()?;
-        if self.version != 1
+        let deferred = self.version == 2
+            && self.certificate_chain.is_empty()
+            && self.expires_at == 0
+            && self.refresh_at == 0;
+        if !matches!(self.version, 1 | 2)
             || self.ed25519_seed.len() != 32
             || !matches!(self.identity.as_str(), "guest" | "login")
             || self.name.is_empty()
             || self.name.chars().count() > 64
             || self.name.chars().any(char::is_control)
-            || self.certificate_chain.is_empty()
+            || !deferred && self.certificate_chain.is_empty()
             || self.certificate_chain.len() > MAX_CERTIFICATE_BYTES
-            || self.refresh_at <= 0
-            || self.expires_at <= self.refresh_at
+            || !deferred && (self.refresh_at <= 0 || self.expires_at <= self.refresh_at)
+            || self.server_catalog.len() > MAX_CATALOG_NODES
+            || self.retired_sessions.len() > 128
+            || self.server_id.as_ref().is_some_and(|id| {
+                id.is_empty()
+                    || id.len() > 256
+                    || !id.is_ascii()
+                    || id.chars().any(char::is_control)
+            })
         {
             return Err(error("invalid_record"));
         }
+        let mut ids = std::collections::BTreeSet::new();
+        for node in &self.server_catalog {
+            node.validate()?;
+            if !ids.insert(&node.id) {
+                return Err(error("invalid_record"));
+            }
+        }
+        for session in &self.retired_sessions {
+            session.api_identity.validate()?;
+            if RevocationHandle::capture(&session.session(), &session.api_identity).is_none()
+                || !self.rotation_pending && session.uid == self.session.uid
+            {
+                return Err(error("invalid_record"));
+            }
+        }
         Ok(())
+    }
+    pub fn selected_server(&self) -> Option<&str> {
+        if self.version == 1 {
+            Some(
+                self.node
+                    .metadata
+                    .id
+                    .split(':')
+                    .next()
+                    .unwrap_or(&self.node.metadata.id),
+            )
+        } else {
+            self.server_id.as_deref()
+        }
     }
     pub fn summary(&self) -> AccountSummary {
         AccountSummary {
             id: self.id,
             name: self.name.clone(),
             identity: self.identity.clone(),
-            node_name: self.node.metadata.name.clone(),
+            node_name: self
+                .selected_server()
+                .and_then(|id| self.server_catalog.iter().find(|node| node.id == id))
+                .map_or_else(
+                    || {
+                        if self.selected_server().is_some() {
+                            self.node.metadata.name.clone()
+                        } else {
+                            String::new()
+                        }
+                    },
+                    |node| node.name.clone(),
+                ),
             country: self.node.metadata.country.clone(),
             expires_at: self.expires_at,
             needs_login: self.rotation_pending,
+            server_id: self.selected_server().map(str::to_owned),
+            server_count: self.server_catalog.len(),
+            related_ids: vec![self.id],
+            cleanup_pending: !self.retired_sessions.is_empty(),
         }
     }
 }

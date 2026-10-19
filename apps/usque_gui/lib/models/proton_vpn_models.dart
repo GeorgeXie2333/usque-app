@@ -22,6 +22,7 @@ String encodeProtonVpnCommand(Map<String, Object?> command) {
     'challenge_id',
     'node_id',
     'name',
+    'offset',
   };
   const actions = {
     'guest',
@@ -36,6 +37,8 @@ String encodeProtonVpnCommand(Map<String, Object?> command) {
     'logout',
     'forget',
     'list',
+    'servers',
+    'choose_server',
   };
   if (command.keys.any((key) => !keys.contains(key)) ||
       !actions.contains(command['action'])) {
