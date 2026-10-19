@@ -42,10 +42,6 @@ class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
     super.dispose();
   }
 
-  void resetDiscardDecision() {
-    if (mounted) setState(() => _discarding = false);
-  }
-
   /// Shares the route's discard decision with navigation outside this route.
   Future<bool> confirmLeave() async {
     if (widget.saving) return false;

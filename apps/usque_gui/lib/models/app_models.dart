@@ -786,8 +786,6 @@ class ProxySettings {
     return (host: address.address, port: port);
   }
 
-  bool get remoteDns => dnsMode == ProxyDnsMode.remote;
-
   bool get hasAuth => authUsername.isNotEmpty;
 
   bool get exposesLan {
@@ -1343,8 +1341,6 @@ class ExitInfo {
   final String? flagSvg;
   final String? ipv4;
   final String? ipv6;
-
-  bool get hasLocation => city != null || country != null;
 
   String get location {
     return <String?>[

@@ -931,49 +931,6 @@ class SectionTitle extends StatelessWidget {
   }
 }
 
-/// The common panel shape: a [SectionTitle] header over a body column.
-class SectionPanel extends StatelessWidget {
-  const SectionPanel({
-    required this.icon,
-    required this.title,
-    required this.children,
-    this.subtitle,
-    this.trailing,
-    this.gap = 18,
-    super.key,
-  });
-
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final Widget? trailing;
-  final List<Widget> children;
-
-  /// Space between the header and the body.
-  final double gap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          SectionTitle(
-            icon: icon,
-            title: title,
-            subtitle: subtitle,
-            trailing: trailing,
-          ),
-          if (children.isNotEmpty) ...<Widget>[
-            SizedBox(height: gap),
-            ...children,
-          ],
-        ],
-      ),
-    );
-  }
-}
-
 enum StatusTone { success, warning, danger, brand, neutral }
 
 /// Foreground colour for a tone, resolved against the current theme.

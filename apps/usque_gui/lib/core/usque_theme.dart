@@ -94,9 +94,6 @@ class UsqueColors {
   static const Color outbound = Color(0xFF7A4CC9);
   static const Color outboundLight = Color(0xFFC4A5FF);
 
-  /// Legacy alias kept for call sites that still reference the deep orange.
-  static const Color deepOrange = ember;
-
   /// Legacy alias; new code should use [caution].
   static const Color warning = caution;
 }
