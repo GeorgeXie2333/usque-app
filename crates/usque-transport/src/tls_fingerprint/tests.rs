@@ -18,6 +18,11 @@ const NONFINAL_WINDOW24: &[u8] = &[
     15, 13, 0, 248, 165, 203, 228, 232, 234, 100, 33, 162, 0, 147, 174, 200, 227, 146, 124, 87,
     175, 190, 22, 3, 3,
 ];
+// Node Brotli with quality 4, lgwin 24: write 1024 'a' bytes, FLUSH, then
+// finish with 1024 'b' bytes. The two metablocks grow the ring from 1 to 2 KiB.
+const GROWING_RING: &[u8] = &[
+    143, 255, 1, 0, 36, 194, 162, 177, 64, 114, 27, 241, 63, 0, 64, 66, 44, 26, 11, 32, 55,
+];
 
 #[test]
 fn certificate_decoder_accepts_valid_bounded_data() {
@@ -91,15 +96,58 @@ fn certificate_decoder_rejects_nonstandard_large_window() {
 }
 
 #[test]
-fn certificate_decoder_rejects_excessive_ring_allocation_without_panicking() {
-    // Valid standard Brotli with a non-final 24-bit-window block. Only 27
-    // bytes would be emitted, but it requests a 16 MiB working ring first.
+fn certificate_decoder_sizes_nonfinal_large_window_to_actual_data() {
+    // A standard 24-bit window no longer forces a 16 MiB allocation in 6.1.0.
+    // Verify the bound on real allocations rather than on the advertised window.
+    let mut allocator = BrotliByteAllocator::<CERTIFICATE_BYTE_BUDGET>::default();
     let mut output = Vec::new();
-    assert!(
-        BrotliDecoder
-            .decompress(NONFINAL_WINDOW24, &mut output)
-            .is_err()
-    );
+    decompress_certificate(NONFINAL_WINDOW24, &mut output, &mut allocator).unwrap();
+    assert_eq!(output, PLAIN);
+    assert!(allocator.peak_allocated > 0);
+    assert!(allocator.peak_allocated <= CERTIFICATE_BYTE_BUDGET);
+    assert!(allocator.rejected_allocation.is_none());
+    assert_eq!(allocator.allocated, 0);
+}
+
+#[test]
+fn certificate_decoder_grows_ring_within_the_live_allocation_budget() {
+    let mut allocator = BrotliByteAllocator::<CERTIFICATE_BYTE_BUDGET>::default();
+    let mut output = Vec::new();
+    decompress_certificate(GROWING_RING, &mut output, &mut allocator).unwrap();
+    assert_eq!(output.len(), 2048);
+    assert!(output[..1024].iter().all(|byte| *byte == b'a'));
+    assert!(output[1024..].iter().all(|byte| *byte == b'b'));
+    assert!(allocator.successful_allocations >= 2);
+    assert!(allocator.peak_allocated <= CERTIFICATE_BYTE_BUDGET);
+    assert!(allocator.rejected_allocation.is_none());
+    assert_eq!(allocator.allocated, 0);
+}
+
+#[test]
+fn certificate_decoder_rejects_initial_allocation_failure_without_partial_output() {
+    let mut allocator = BrotliByteAllocator::<0>::default();
+    let mut output = Vec::new();
+    assert!(decompress_certificate(COMPRESSED, &mut output, &mut allocator).is_err());
+    assert!(allocator.rejected_allocation.is_some());
+    assert_eq!(allocator.peak_allocated, 0);
+    assert_eq!(allocator.allocated, 0);
+    assert!(output.is_empty());
+}
+
+#[test]
+fn certificate_decoder_rejects_ring_growth_over_budget_without_partial_output() {
+    // Each ring fits in 4 KiB individually; their combined live allocations
+    // during growth do not. A failure must also free the previous ring.
+    const TEST_BUDGET: usize = 4096;
+    let mut allocator = BrotliByteAllocator::<TEST_BUDGET>::default();
+    let mut output = Vec::new();
+    assert!(decompress_certificate(GROWING_RING, &mut output, &mut allocator).is_err());
+    let (requested, live) = allocator.rejected_allocation.unwrap();
+    assert!((2048..=TEST_BUDGET).contains(&requested));
+    assert!(live >= 1024);
+    assert!(requested + live > TEST_BUDGET);
+    assert!(allocator.peak_allocated <= TEST_BUDGET);
+    assert_eq!(allocator.allocated, 0);
     assert!(output.is_empty());
 }
 
@@ -136,7 +184,7 @@ fn certificate_decoder_rejects_excessive_compressed_input() {
 fn certificate_byte_allocator_releases_budget_and_rejects_overflow() {
     use brotli_decompressor::{Allocator, SliceWrapper};
 
-    let mut allocator = BrotliByteAllocator::default();
+    let mut allocator = &mut BrotliByteAllocator::<CERTIFICATE_BYTE_BUDGET>::default();
     let allocation = allocator.alloc_cell(4 * 1024 * 1024);
     assert_eq!(allocation.slice().len(), 4 * 1024 * 1024);
     assert!(allocator.alloc_cell(128 * 1024).slice().is_empty());
@@ -155,8 +203,11 @@ proptest! {
         input in prop::collection::vec(any::<u8>(), 0..4096),
     ) {
         let mut output = Vec::new();
-        let result = BrotliDecoder.decompress(&input, &mut output);
+        let mut allocator = BrotliByteAllocator::<CERTIFICATE_BYTE_BUDGET>::default();
+        let result = decompress_certificate(&input, &mut output, &mut allocator);
         prop_assert!(output.len() <= 1024 * 1024);
+        prop_assert!(allocator.peak_allocated <= CERTIFICATE_BYTE_BUDGET);
+        prop_assert_eq!(allocator.allocated, 0);
         if result.is_err() {
             prop_assert!(output.is_empty());
         }
@@ -164,12 +215,12 @@ proptest! {
 
     #[test]
     fn mutated_or_truncated_certificate_streams_remain_bounded(
-        fixture_index in 0usize..5,
+        fixture_index in 0usize..6,
         mutations in prop::collection::vec((any::<usize>(), any::<u8>()), 0..5),
         truncate in any::<bool>(),
         length in any::<usize>(),
     ) {
-        let fixtures = [COMPRESSED, AT_LIMIT, OVER_LIMIT, LARGE_WINDOW, NONFINAL_WINDOW24];
+        let fixtures = [COMPRESSED, AT_LIMIT, OVER_LIMIT, LARGE_WINDOW, NONFINAL_WINDOW24, GROWING_RING];
         let mut input = fixtures[fixture_index].to_vec();
         for (index, mask) in mutations {
             let index = index % input.len();
@@ -179,8 +230,11 @@ proptest! {
             input.truncate(length % (input.len() + 1));
         }
         let mut output = Vec::new();
-        let result = BrotliDecoder.decompress(&input, &mut output);
+        let mut allocator = BrotliByteAllocator::<CERTIFICATE_BYTE_BUDGET>::default();
+        let result = decompress_certificate(&input, &mut output, &mut allocator);
         prop_assert!(output.len() <= 1024 * 1024);
+        prop_assert!(allocator.peak_allocated <= CERTIFICATE_BYTE_BUDGET);
+        prop_assert_eq!(allocator.allocated, 0);
         if result.is_err() {
             prop_assert!(output.is_empty());
         }
