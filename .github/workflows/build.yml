@@ -170,6 +170,10 @@ jobs:
           $symbolDirectory = Join-Path $env:RUNNER_TEMP "flutter-symbols-windows-${{ matrix.variant }}"
           flutter --suppress-analytics build windows --release --no-pub --split-debug-info="$symbolDirectory"
           if ($LASTEXITCODE -ne 0) { throw "Flutter Windows build failed." }
+          cmake --build "build/windows/${{ matrix.flutter_arch }}" --config Release --target usque_proton_verification_test
+          if ($LASTEXITCODE -ne 0) { throw "Proton policy fixture build failed." }
+          & "./build/windows/${{ matrix.flutter_arch }}/tests/Release/usque_proton_verification_test.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Proton policy fixture failed." }
           $version = ((Get-Content pubspec.yaml | Where-Object { $_ -match '^version: ' }) -replace '^version:\s*', '').Trim()
           $sourceCommit = (git rev-parse HEAD).Trim()
           python ../../tool/archive_flutter_symbols.py archive `

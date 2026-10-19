@@ -2,17 +2,20 @@
 
 The Linux desktop app uses the real Rust Engine; the separate **Usque UI
 preview** is a debug-only build with simulated data. Linux packages have not
-been released yet, and the validation table below shows what has been tested.
+been included in a stable release; v0.3.3-beta.1 is the first planned Linux
+pre-release. Back up before manual testing. The validation table below shows
+what has been tested.
 
 Linux 桌面版使用真实的 Rust Engine；单独的 **Usque UI preview** 是仅供调试、使用
-模拟数据的版本。Linux 安装包尚未发布，已测试的范围见下方验证表。
+模拟数据的版本。Linux 安装包尚未纳入稳定版；v0.3.3-beta.1 是首个计划提供 Linux 包的预发布。
+手动测试前请备份，已测试的范围见下方验证表。
 
 ## Choose and verify a package
 
 The target baseline is Ubuntu 22.04+, Debian 12+, and Fedora releases still
 supported when the package is published, with systemd and a GNOME or KDE
-session on X11 or Wayland. No published release contains Linux packages yet;
-v0.3.2 predates Linux support. Filenames use the release version in place of
+session on X11 or Wayland. Stable v0.3.2 predates Linux packages; this Beta
+does not change the stable Latest or add a Beta update channel. Filenames use the release version in place of
 `vX.Y.Z`:
 
 | Host | AppImage | Debian package | RPM package |
@@ -44,6 +47,12 @@ digest and size with that exact manifest entry. Use `arm64` for ARM64. A valid
 signature does not authorize a downgrade or a different installation format.
 Each update independently checks the same constraints inside the privileged
 helper.
+
+Canonical Beta versions use `X.Y.Z-beta.N` in filenames, signed manifests
+and root-owned installation records. Only deb/rpm metadata maps this to
+`X.Y.Z~beta.N` (RPM Release `1`). Numeric Beta ordinals sort before the
+corresponding stable version; malformed, older and mixed-format candidates
+are rejected. Do not edit the version record to bypass these checks.
 
 ## Install and start
 

@@ -1,0 +1,1 @@
+v0.3.3-beta.1 pre-release: first Linux desktop packages, experimental native Proton VPN chain exits, simpler chain editing, settings-save recovery and packaging fixes. Manual testing only; back up first. Stable Latest stays v0.3.2. No new Beta update channel or separate app ID. Live networking and upgrades are not established by static tests.

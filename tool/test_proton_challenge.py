@@ -5,12 +5,22 @@ import json
 import os
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from proton_poc.challenge import FRAME_NAME, _timezone_name, build_payload, rolling_hash
 
 
 class ChallengeTests(unittest.TestCase):
+    def setUp(self):
+        for name, value in (
+            ("statvfs", SimpleNamespace(f_blocks=100_000, f_frsize=4096)),
+            ("geteuid", 1000),
+        ):
+            fixture = patch("proton_poc.challenge.os." + name, return_value=value, create=True)
+            fixture.start()
+            self.addCleanup(fixture.stop)
+
     def test_signed_utf8_bytes_and_unreduced_sum(self):
         self.assertEqual(rolling_hash(""), 0)
         self.assertEqual(rolling_hash("abc"), 97 + 98 * 7 + 99 * 49)

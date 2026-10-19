@@ -51,7 +51,7 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
-[**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) is the latest published release; application metadata and the release workflow still target **v0.3.2 / 0.3.2+26**. These development docs also describe unreleased changes: Linux packages are not part of v0.3.2 and will first ship in a later release. For published packages, use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. v0.3.2 has six Windows/Android installers, plus two Windows MSI files used only by in-app updates; the next release adds six Linux packages:
+The stable Latest remains [**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2). This branch prepares **v0.3.3-beta.1 / 0.3.3-beta.1+27**, a manual-install pre-release with the first Linux desktop packages and experimental native Proton VPN chain exits. Back up before testing; it does not introduce a Beta auto-update channel or a separate application identity. Use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. The Beta targets twelve user installers, plus two Windows MSI files reserved for in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |

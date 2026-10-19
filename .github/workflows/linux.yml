@@ -91,6 +91,8 @@ jobs:
           flutter build linux --release --no-pub -t lib/main.dart
           cmake --build "build/linux/${{ matrix.flutter_arch }}/release" --target usque_linux_socket_test
           "build/linux/${{ matrix.flutter_arch }}/release/runner/usque_linux_socket_test"
+          cmake --build "build/linux/${{ matrix.flutter_arch }}/release" --target usque_proton_verification_test
+          "build/linux/${{ matrix.flutter_arch }}/release/runner/usque_proton_verification_test"
 
       - name: Generate ephemeral compile-only signing identity
         if: ${{ !inputs.release }}

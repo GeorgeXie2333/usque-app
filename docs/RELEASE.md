@@ -5,12 +5,15 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The checked-in application metadata and workflow target `v0.3.2` / `0.3.2+26`.
+The checked-in application metadata and workflow target `v0.3.3-beta.1` /
+`0.3.3-beta.1+27`; the stable Latest remains v0.3.2.
 [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) was
 published on 2026-10-17 from `02685ee399debf93731751f59b33cdfaef49dcdf`.
-New changes require a separately reviewed version and workflow update.
-The workflow accepts only `v0.3.2`. Its accepted tag must point at the current
-`main` commit when the gate runs. Only the release maintainer creates the tag.
+The workflow accepts only `v0.3.3-beta.1`. Its tag must match the current
+`release/v0.3.3-beta.1` branch tip and a completed successful CI push run for
+that branch and exact SHA. Stable tags retain the current-main/exact-main-push
+CI requirement; release/dev checks cannot substitute. Only the maintainer
+creates the tag. This Beta does not promote or change main.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
 local bundle, MSI, or APK cannot replace a failed Actions build.
@@ -25,7 +28,42 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
-## Unreleased packaging changes
+## Preparing v0.3.3-beta.1
+
+Use the short-lived `release/v0.3.3-beta.1` branch from dev; no main PR or
+promotion is applicable. Require its exact-SHA push CI and CodeQL and one
+successful Build. See the [Beta readiness review](RELEASE_V0.3.3-beta.1_READINESS.md).
+Synchronize all 12 Cargo packages, Flutter `0.3.3-beta.1+27` and 21 catalogs.
+MSI/Agent PE are `0.3.301` / `0.3.301.0`; BundleVersion retains SemVer.
+The Android base is 27: universal/ARMv7/ARM64/x86_64 are
+27000/27001/27002/27004. Future Beta/stable builds must increase the base.
+Linux deb/rpm metadata uses `0.3.3~beta.1` (RPM Release `1`); filenames,
+signed manifests and installed records retain `0.3.3-beta.1`. Compare numeric
+Beta ordinals, with `beta.1 < beta.2 < beta.10 < stable`; refuse rollback,
+malformed versions and mixed package formats. Windows accepts an installed
+Beta only as the source of a newer stable update, not as an update target.
+
+```shell
+python tool/release_contract.py verify-version --root . --tag v0.3.3-beta.1 --android-version-code 27
+```
+
+Keep the short bilingual notes, twelve user download entries and manual-test/
+backup/privacy limits. Publish non-draft with `prerelease: true` and
+`make_latest: false`; v0.3.2 remains stable Latest. There is no new Beta
+update channel or separate app identity. Preserve configuration 26, Agent 3,
+Windows/Linux journals 6/1 and recovery export 2. Do not claim real-machine
+upgrade, live Proton routing, leak or performance acceptance from fixtures.
+
+Require both protected approvals, fourteen signed packages, fourteen SPDX
+SBOMs and 28 provenance/SPDX attestations. Verify 35 staged files (including
+two ELF reports) and 34 public assets (ELF reports excluded, checksums added).
+Retain the three Windows/Android Flutter symbol groups under
+`dist/flutter-symbols/0.3.3-beta.1+27/<SHA>/`; Linux symbol separation is not
+claimed. After verification, ordinary-merge the candidate back into dev,
+preserving concurrent commits; delete the release branch with an exact-head
+lease only after confirming candidate ancestry. Keep main unchanged.
+
+## Beta packaging changes
 
 Linux desktop packages and the F-Droid packaging fixes were added after the
 v0.3.2 tag and require a new release and tag. v0.3.2 published no Linux
@@ -126,9 +164,10 @@ Which signatures count as official, how fingerprints are published, and what hap
 
 ## Before signing starts
 
-- For `v0.3.2`, complete the version and workflow changes above first. The
-  accepted tag must match `release.yml` and point at the current `main` commit.
-- That commit must already have a successful `ci.yml` push run, including `CI / gate`.
+- For `v0.3.3-beta.1`, complete the preparation above first. The accepted tag
+  must match `release.yml` and the exact release-branch tip.
+- That commit must already have a successful release-branch `ci.yml` push run,
+  including `CI / gate`, CodeQL and Build. Main/PR gates are not applicable.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
 - Signing material stays in environment secrets. Do not put it in repository variables, files, artifacts, logs, or caches.
@@ -137,7 +176,8 @@ Review the live `main` ruleset, tag restrictions and both environment approval
 settings before tagging. A checked-in document cannot establish their current
 GitHub configuration. `PR Check / gate`, `CI / gate` and `Build / gate` are the
 documented merge checks. The release gate separately requires a successful
-`ci.yml` **push** run for the exact tagged current `main` SHA; an earlier PR
+`ci.yml` **push** run for the exact tag SHA and appropriate source branch:
+current `main` for stable, `release/<tag>` for Beta. An earlier PR, other-branch
 run or local check is insufficient. `publish` depends only on `stage-candidate`
 and requires `release-publish` approval; protected reliability jobs are not
 dependencies of publication.

@@ -4,28 +4,25 @@ Keep it short: one line per item, English first, then Simplified Chinese.
 Rendering is not approval.
 -->
 
-## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
+## Usque {{release_tag}} pre-release / Usque {{release_tag}} 预发布
 
-Usque {{release_tag}} adds Chrome 155 TLS fingerprints and built-in IPv6 endpoint presets, applies Ads rule updates without reconnecting, and makes connections recover more reliably.
+Usque {{release_tag}} is a pre-release introducing Linux desktop packages and experimental native Proton VPN chain exits, with improvements to chain-proxy setup, settings recovery and packaging.
 
-Usque {{release_tag}} 新增 Chrome 155 TLS 指纹和内置 IPv6 端点预设，Ads 规则更新无需重连即可生效，连接恢复也更加可靠。
+Usque {{release_tag}} 是一个预发布版本，首次提供 Linux 桌面安装包和实验性原生 Proton VPN 链式出口，并改进链式代理设置、配置恢复与打包。
 
 ## Highlights / 更新亮点 ✨
 
-- **Chrome 155 TLS fingerprint** — The new default for H2, H3 and L4. The original handshake is still available as **unsafe**.
-  <br>**Chrome 155 TLS 指纹** — H2、H3 和 L4 的新默认值，原握手方式仍可选，现标记为 **unsafe**。
+- **Linux desktop preview** — Native amd64 and arm64 AppImage, deb and rpm packages, signed with the fixed project Ed25519 identity.
+  <br>**Linux 桌面预览** — 提供原生 amd64 与 arm64 AppImage、deb、rpm 安装包，使用固定项目 Ed25519 身份签名。
 
-- **IPv6 endpoint presets** — Pick United States, Germany or Finland; addresses match your account type.
-  <br>**IPv6 端点预设** — 可选美国、德国或芬兰，地址自动匹配账号类型。
+- **Experimental Proton VPN exits** — Prepare a guest or account, select a server and connect after WARP. Complete any official human verification yourself; native Android and complete live-tunnel acceptance remain unverified.
+  <br>**实验性 Proton VPN 出口** — 准备游客或账号、选择节点，经 WARP 串联连接。官方人机验证需本人完成；原生 Android 和完整实网隧道验收仍未完成。
 
-- **Live Ads updates** — Rules download, verify and apply to new requests without reconnecting.
-  <br>**Ads 在线更新** — 规则自动下载并校验，无需重连即可用于新请求。
+- **Simpler chain setup** — A unified editor, full eligible Proton catalogues, reusable certificates and clearer authorization errors.
+  <br>**简化链式配置** — 统一编辑器、完整可用 Proton 节点目录、证书复用与更清晰的授权错误。
 
-- **More reliable recovery** — Registration fallback, steadier WARP DNS and DoT recovery, and DIRECT traffic no longer slips into WARP when your network lacks IPv4 or IPv6.
-  <br>**恢复更可靠** — 注册增加备用请求，WARP DNS 与 DoT 恢复更稳定；当前网络缺少 IPv4 或 IPv6 时，DIRECT 流量不再误走 WARP。
-
-- **Android and Windows** — Android asks for VPN permission only when a connection needs it. Windows 10 2004 (build 19041) is now supported.
-  <br>**Android 与 Windows** — Android 仅在连接需要时才申请 VPN 权限；现已支持 Windows 10 2004（内部版本 19041）。
+- **Settings and packaging recovery** — Recover unconfirmed saves, isolate automatic-endpoint pin failures, and group Android version codes by build number.
+  <br>**设置与打包恢复** — 恢复未确认的保存操作、隔离自动端点公钥校验失败，并按构建号分组 Android 版本代码。
 
 ## Download / 下载 📥
 
@@ -42,8 +39,8 @@ Usque {{release_tag}} 新增 Chrome 155 TLS 指纹和内置 IPv6 端点预设，
 
 ## Before upgrading / 升级须知
 
-- **No downgrade after upgrading** — Settings migrate to schema 26, which v0.3.1 and older cannot read. Back up first if you may need to go back.
-  <br>**升级后无法降级** — 配置会迁移到 schema 26，v0.3.1 及更早版本无法读取。如可能需要回退，请先备份。
+- **Beta: install manually and back up first** — This is not the stable Latest release and is not offered to stable clients. It uses the same application identity, not a parallel installation. Do not downgrade migrated data to v0.3.2 or older.
+  <br>**Beta：手动安装并先备份** — 本版不是稳定 Latest，不会推送给稳定版客户端；使用相同应用身份，不是并行安装。请勿将已迁移的数据降级给 v0.3.2 或更早版本。
 
 - **Defaults stay off** — Ads, chain proxy and encrypted WARP DNS stay off until you enable them; your saved choices are kept.
   <br>**默认保持关闭** — Ads、链式代理和加密 WARP DNS 需手动开启；已保存的设置会保留。
@@ -62,6 +59,9 @@ Usque {{release_tag}} 新增 Chrome 155 TLS 指纹和内置 IPv6 端点预设，
 
 - Chrome 155 is a fixed TLS profile, not full browser emulation. ECH GREASE is not real ECH, and authentication and endpoint pins are always enforced.
   <br>Chrome 155 是固定 TLS 配置，并非完整模拟浏览器；ECH GREASE 不是真正的 ECH，认证与端点公钥校验始终生效。
+
+- Proton account management and its verification window use the ordinary system HTTPS/DNS path; connection and renewal APIs use the established WARP session, while the private agent stays inside Proton. No automatic telemetry or diagnostic upload is added.
+  <br>Proton 账号管理与验证窗口使用系统普通 HTTPS/DNS 路径；连接与续期 API 使用既有 WARP 会话，私有 agent 留在 Proton 内部。不新增自动遥测或诊断上传。
 
 - Chain exits connect through the WARP tunnel. If the exit fails, traffic stops instead of falling back to WARP only. UDP-based exits need non-L4 mode.
   <br>链式出口经 WARP 隧道连接；出口失败时流量停止，不会退回仅 WARP。基于 UDP 的出口需要非 L4 模式。

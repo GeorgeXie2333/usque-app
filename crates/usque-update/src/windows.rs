@@ -140,10 +140,7 @@ impl ExpectedPackage {
                 "the update version must be a stable three-part numeric version".to_owned(),
             )
         })?;
-        let (_, current_parts) = stable_version(env!("CARGO_PKG_VERSION")).ok_or_else(|| {
-            UpdateError::InvalidArgument("the installed Usque version is invalid".to_owned())
-        })?;
-        if version_parts <= current_parts {
+        if !stable_update_is_newer(version, env!("CARGO_PKG_VERSION")) {
             return Err(UpdateError::InvalidArgument(
                 "the update version must be newer than the installed Usque version".to_owned(),
             ));
@@ -585,6 +582,19 @@ fn is_sha256(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+fn stable_update_is_newer(target: &str, installed: &str) -> bool {
+    if stable_version(target).is_none() {
+        return false;
+    }
+    match (
+        usque_core::linux_release::version(target),
+        usque_core::linux_release::version(installed),
+    ) {
+        (Ok(target), Ok(installed)) => target > installed,
+        _ => false,
+    }
+}
+
 fn stable_version(value: &str) -> Option<(&str, (u64, u64, u64))> {
     let value = value.strip_prefix('v').unwrap_or(value);
     let parts = value.split('.').collect::<Vec<_>>();
@@ -783,6 +793,16 @@ mod tests {
         let error = io::Error::last_os_error();
         assert_eq!(status, 0, "probe child retained the {stream} pipe writer");
         assert_eq!(error.raw_os_error(), Some(ERROR_BROKEN_PIPE as i32));
+    }
+
+    #[test]
+    fn beta_installation_can_update_only_to_newer_stable_release() {
+        assert!(stable_update_is_newer("0.3.3", "0.3.3-beta.1"));
+        assert!(stable_update_is_newer("0.3.4", "0.3.3-beta.1"));
+        assert!(!stable_update_is_newer("0.3.2", "0.3.3-beta.1"));
+        assert!(!stable_update_is_newer("0.3.3-beta.2", "0.3.3-beta.1"));
+        assert!(!stable_update_is_newer("0.3.3", "0.3.3"));
+        assert!(!stable_update_is_newer("0.3.3", "invalid"));
     }
 
     #[test]

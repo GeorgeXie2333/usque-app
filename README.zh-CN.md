@@ -51,7 +51,7 @@ Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系�
 
 ## 下载与安装
 
-[**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) 是最新的已发布版本；应用版本元数据与发布流程仍为 **v0.3.2 / 0.3.2+26**。本开发文档同时描述尚未发布的改动：Linux 安装包不包含在 v0.3.2 中，将在之后的版本首次提供。安装已发布版本时，请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。v0.3.2 提供六种 Windows/Android 安装包，另有两个仅供应用内更新使用的 Windows MSI 文件；下一版本将新增六种 Linux 安装包：
+稳定 Latest 仍为 [**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2)。本分支准备 **v0.3.3-beta.1 / 0.3.3-beta.1+27** 预发布，首次提供 Linux 桌面安装包及实验性原生 Proton VPN 链式出口。需手动安装，测试前请备份；不新增 Beta 自动更新通道或独立应用身份。请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。Beta 面向用户提供十二种安装入口，另有两个仅供应用内更新使用的 Windows MSI 文件：
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |

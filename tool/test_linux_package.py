@@ -5,6 +5,7 @@ import os
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,7 +40,7 @@ class LinuxPackageTests(unittest.TestCase):
         self.assertEqual(linux_package.ARCHITECTURES["amd64"][1], "x86_64")
         self.assertEqual(linux_package.ARCHITECTURES["arm64"][1], "aarch64")
         self.assertIn("usque-v1.2.3-linux-amd64.AppImage", names)
-        for version in ("../1.2.3", "01.2.3", "1.2.3\n", "1.2.3-beta.1"):
+        for version in ("../1.2.3", "01.2.3", "1.2.3\n", "1.2.3-beta.0"):
             with self.assertRaises(ValueError):
                 linux_package.artifact_name(version, "amd64", "deb")
 
@@ -177,6 +178,7 @@ class LinuxPackageTests(unittest.TestCase):
                 )
                 self.assertEqual(result[3], "inert argument")
 
+    @unittest.skipUnless(sys.platform == "linux", "Linux path ownership semantics required")
     def test_distribution_ownership_accepts_usr_merge_and_rejects_missing_or_ambiguous_files(
         self,
     ) -> None:
@@ -310,6 +312,7 @@ class LinuxPackageTests(unittest.TestCase):
                 self.assertEqual(arguments[0], "--prepare-remove")
                 self.assertEqual("--disable-service" in arguments, action in ("remove", "0"))
 
+    @unittest.skipUnless(sys.platform == "linux", "Linux permission and link semantics required")
     def test_payload_inventory_rejects_escaping_links_and_privileged_modes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -381,7 +384,15 @@ class LinuxPackageTests(unittest.TestCase):
             linux_package.write(root / "usr/lib/usque/usque-engine", "inert engine\n", 0o755)
             archive = Path(directory) / "fixture.deb"
             with patch.object(linux_package, "inspect_bundle"):
-                linux_package.build_deb(root, archive, "1.2.3", "amd64")
+                linux_package.build_deb(root, archive, "1.2.3-beta.1", "amd64")
+                self.assertEqual(
+                    linux_package.run(["dpkg-deb", "--field", archive, "Version"]).strip(),
+                    "1.2.3~beta.1",
+                )
+                self.assertEqual(
+                    json.loads((root / "etc/usque/install.json").read_text())["version"],
+                    "1.2.3-beta.1",
+                )
                 (root / "usr/lib/usque/usque-engine").write_text("changed engine\n")
                 with self.assertRaisesRegex(ValueError, "content differs"):
                     linux_package.inspect_archive(root, archive, "amd64", "deb")

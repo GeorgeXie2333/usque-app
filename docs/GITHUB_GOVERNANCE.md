@@ -38,7 +38,7 @@ The owner can bypass the ruleset. Bypass must not be used to publish a release t
 
 Details are in [RELEASE.md](RELEASE.md):
 
-- only the release maintainer creates the current stable tag;
+- only the release maintainer creates the current release tag;
 - `release-signing` and `release-publish` need approval;
 - signing identities live only in `release-signing` environment secrets;
 - a local build cannot replace a failed GitHub Actions candidate.
@@ -47,13 +47,15 @@ Before the next release tag, verify the live `main` ruleset, maintainer-only rel
 restrictions, required environment reviewers and deployment branch/tag rules.
 An `environment:` entry in YAML selects an environment; it does not prove that
 GitHub approval protection is enabled. Keep those protections when changing
-the accepted release tag. The current executable contract is still the published `v0.3.2`
-with Android base versionCode `26`. The `v0.3.2` / `26` coordination and
-checks are described in [Preparing v0.3.2](RELEASE.md#preparing-v032). A document
+the accepted release tag. The executable contract targets `v0.3.3-beta.1`
+with Android base build number `27`; see the
+[Beta readiness review](RELEASE_V0.3.3-beta.1_READINESS.md). A document
 update does not change the accepted tag or server-side protections.
 
-The tag workflow separately checks that the tagged SHA is current `main` and
-has a completed successful `ci.yml` push run on branch `main` for the exact SHA. Publication requires the signed staged
+For stable releases, the tag workflow requires current `main` and its exact-SHA
+successful `ci.yml` push run. Beta requires the current `release/<tag>` tip and
+its exact-SHA successful push CI instead, without changing main or treating
+PR/main gates as passed. Neither path accepts dev or workflow-dispatch CI. Publication requires the signed staged
 candidate and `release-publish` approval. The four protected reliability jobs
 and their summary remain optional and are skipped in the public repository;
 their `not_run` or failure status cannot be presented as a pass and is not a
@@ -64,4 +66,4 @@ publication prerequisite.
 - A fork pull request gets a read-only token, cannot read secrets, and cannot upload an installable package.
 - Dependency Review runs on public pull requests.
 - Only packages published by the approved tag workflow are official; the
-  checked-in workflow accepts only `v0.3.2`.
+  checked-in workflow accepts only `v0.3.3-beta.1`.

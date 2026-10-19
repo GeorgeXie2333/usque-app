@@ -51,6 +51,7 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 | [Proton VPN PoC validation](PROTON_VPN_POC_VALIDATION.md) | Implementation, offline checks, rejected guest attempt and untested account path / 实现、离线检查、游客请求被拒及未实测账号路径 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |
 | [Release process](RELEASE.md) | Candidate preparation, approval, signing, and publication / 候选包、审批、签名与发布 |
+| [v0.3.3-beta.1 readiness review](RELEASE_V0.3.3-beta.1_READINESS.md) | Three-platform prerelease, exact release-branch gates and validation limits / 三端预发布、精确发布分支门禁及验证边界 |
 | [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) | Baseline and final-candidate evidence, schema-26/journal-6 compatibility and release gates / 基线与最终候选证据、schema 26／日志 6 兼容性及发布门禁 |
 | [v0.3.1 readiness review](RELEASE_V0.3.1_READINESS.md) | Documentation checks, planned version synchronization, schema-24 upgrade limits and remaining release requirements / 文档检查、版本同步计划、schema 24 升级限制与发布待办 |
 | [Flutter release symbols](FLUTTER_SYMBOLS.md) | Separate and archive matching Dart symbols; restore stack traces / 分离、归档 Dart 符号与还原堆栈 |

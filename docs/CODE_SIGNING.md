@@ -75,9 +75,10 @@ Before approving publication, review the exact tagged commit and staged
 `release-manifest.json`; its fourteen package names, sizes, SHA-256 values and
 signer fingerprints must describe the candidate produced by that release run.
 A documentation review, a previous release's signatures or a local compile is
-not that evidence. The checked-in workflow still accepts only the published
-`v0.3.2`; a new tag first needs the separately reviewed version and workflow
-update described in [Release process](RELEASE.md). Documentation preparation
+not that evidence. The checked-in workflow targets only
+`v0.3.3-beta.1`, gated by the exact release-branch push CI and both approvals;
+see [Release process](RELEASE.md). The stable main-push requirement remains
+unchanged for stable tags. Documentation preparation
 does not authorize key access, signing or publication.
 
 ## What users should check

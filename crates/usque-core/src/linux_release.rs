@@ -258,8 +258,30 @@ pub fn package_name(
     ))
 }
 
-pub fn version(text: &str) -> Result<[u64; 3], ReleaseError> {
-    let parts: Vec<_> = text.split('.').collect();
+/// Canonical stable/beta release ordering; stable always follows its betas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ReleaseVersion([u64; 3], ReleaseStage);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ReleaseStage {
+    Beta(u64),
+    Stable,
+}
+
+pub fn version(text: &str) -> Result<ReleaseVersion, ReleaseError> {
+    let (core, stage) = if let Some((core, ordinal)) = text.split_once("-beta.") {
+        if ordinal.is_empty()
+            || ordinal.starts_with('0')
+            || !ordinal.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(ReleaseError::Metadata);
+        }
+        let ordinal = ordinal.parse().map_err(|_| ReleaseError::Metadata)?;
+        (core, ReleaseStage::Beta(ordinal))
+    } else {
+        (text, ReleaseStage::Stable)
+    };
+    let parts: Vec<_> = core.split('.').collect();
     if parts.len() != 3 {
         return Err(ReleaseError::Metadata);
     }
@@ -273,7 +295,7 @@ pub fn version(text: &str) -> Result<[u64; 3], ReleaseError> {
         }
         result[index] = part.parse().map_err(|_| ReleaseError::Metadata)?;
     }
-    Ok(result)
+    Ok(ReleaseVersion(result, stage))
 }
 
 fn decode_hex<const N: usize>(value: &str) -> Result<[u8; N], ReleaseError> {
@@ -316,6 +338,41 @@ pub enum ReleaseError {
 mod tests {
     use super::*;
     use ring::signature::{Ed25519KeyPair, KeyPair};
+
+    #[test]
+    fn beta_versions_sort_numerically_before_stable_and_reject_noncanonical_input() {
+        let texts = [
+            "0.3.2",
+            "0.3.3-beta.1",
+            "0.3.3-beta.2",
+            "0.3.3-beta.10",
+            "0.3.3",
+        ];
+        let values: Vec<_> = texts
+            .into_iter()
+            .map(|text| version(text).unwrap())
+            .collect();
+        assert!(values.windows(2).all(|pair| pair[0] < pair[1]));
+        for invalid in [
+            "0.3.3-beta.0",
+            "0.3.3-beta.01",
+            "0.3.3-rc.1",
+            "0.3.3~beta.1",
+            "0.3.3\n",
+            "00.3.3",
+            "0.3.3-beta.18446744073709551616",
+        ] {
+            assert!(version(invalid).is_err(), "{invalid}");
+        }
+        let (mut manifest, key) = fixture();
+        manifest.version = "1.2.3-beta.1".into();
+        for entry in &mut manifest.entries {
+            entry.name = entry.name.replace("1.2.3", "1.2.3-beta.1");
+        }
+        assert!(verify(&manifest, &key, "amd64", "1.2.2").is_ok());
+        assert!(verify(&manifest, &key, "amd64", "1.2.3").is_err());
+        assert!(verify(&manifest, &key, "amd64", "1.2.3-beta.2").is_err());
+    }
 
     fn fixture() -> (Manifest, Ed25519KeyPair) {
         let manifest = Manifest {
@@ -455,7 +512,7 @@ mod tests {
             record.require_source("deb", "amd64"),
             Err(ReleaseError::MixedInstallation)
         ));
-        for text in ["01.2.3", "1.2", "1.2.3.4", "1.2.3-beta.1", "1.2.+3"] {
+        for text in ["01.2.3", "1.2", "1.2.3.4", "1.2.3-beta.0", "1.2.+3"] {
             assert!(version(text).is_err());
         }
     }

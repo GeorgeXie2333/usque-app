@@ -399,9 +399,9 @@ void main() {
       final downloader = UpdateDownloader(FakeEngineClient());
       for (final format in ['AppImage', 'deb', 'rpm']) {
         final package = UpdatePackage(
-          name: 'usque-v0.3.2-linux-amd64.$format',
+          name: 'usque-v0.3.3-beta.1-linux-amd64.$format',
           downloadUrl:
-              'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.3.2/usque-v0.3.2-linux-amd64.$format',
+              'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.3.3-beta.1/usque-v0.3.3-beta.1-linux-amd64.$format',
           size: 10,
           sha256: 'a' * 64,
           platform: 'linux',

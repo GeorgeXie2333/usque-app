@@ -140,6 +140,30 @@ def verify_main_ci(runs: dict[str, Any], commit: str) -> None:
     raise ContractError("no successful completed main push CI exists for the exact commit")
 
 
+def verify_beta_ci(runs: dict[str, Any], commit: str, tag: str) -> None:
+    """Require exact release/<beta tag> push CI, never a dev/main substitute."""
+    if not TAG_PATTERN.fullmatch(tag) or "-beta." not in tag:
+        raise ContractError("beta CI requires a supported beta tag")
+    ordinal = tag.rsplit(".", 1)[1]
+    if ordinal.startswith("0"):
+        raise ContractError("beta ordinal must be canonical and positive")
+    commit = normalize_commit(commit)
+    records = runs.get("workflow_runs")
+    if not isinstance(records, list) or any(not isinstance(run, dict) for run in records):
+        raise ContractError("CI response must contain workflow run objects")
+    for run in records:
+        if (
+            run.get("path") == ".github/workflows/ci.yml"
+            and run.get("head_sha") == commit
+            and run.get("head_branch") == f"release/{tag}"
+            and run.get("event") == "push"
+            and run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+        ):
+            return
+    raise ContractError("no successful completed beta release-branch push CI for exact commit")
+
+
 def render_release_notes(
     template: Path,
     tag: str,
@@ -460,6 +484,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     main_ci.add_argument("--runs", type=Path, required=True)
     main_ci.add_argument("--commit", required=True)
 
+    beta_ci = subparsers.add_parser("verify-beta-ci")
+    beta_ci.add_argument("--runs", type=Path, required=True)
+    beta_ci.add_argument("--commit", required=True)
+    beta_ci.add_argument("--tag", required=True)
+
     notes = subparsers.add_parser("render-release-notes")
     notes.add_argument("--template", type=Path, required=True)
     notes.add_argument("--tag", required=True)
@@ -490,6 +519,8 @@ def main(argv: list[str] | None = None) -> int:
             verify_release_version(args.root, args.tag, args.android_version_code)
         elif args.command == "verify-main-ci":
             verify_main_ci(load_json(args.runs), args.commit)
+        elif args.command == "verify-beta-ci":
+            verify_beta_ci(load_json(args.runs), args.commit, args.tag)
         elif args.command == "render-release-notes":
             notes = render_release_notes(
                 args.template,

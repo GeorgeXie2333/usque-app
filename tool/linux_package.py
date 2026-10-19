@@ -27,7 +27,7 @@ SERVICE_FILES = (
     "usr/lib/systemd/system/usque-agent.service",
     "usr/share/polkit-1/actions/io.github.georgexie2333.usque.policy",
 )
-VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-beta\.([1-9][0-9]*))?")
 GTK_SCHEMAS = tuple(
     f"org.gtk.Settings.{name}.gschema.xml"
     for name in ("ColorChooser", "Debug", "EmojiChooser", "FileChooser")
@@ -59,7 +59,25 @@ def digest(path: Path) -> str:
     return result.hexdigest()
 
 
+def release_version(version: str) -> tuple[int, int, int, int, int]:
+    match = VERSION.fullmatch(version)
+    if match is None:
+        raise ValueError("Invalid release version")
+    major, minor, patch = (int(match[index]) for index in (1, 2, 3))
+    ordinal = match[4]
+    numbers = (major, minor, patch, int(ordinal or 0))
+    if any(value > 2**64 - 1 for value in numbers):
+        raise ValueError("Release version number overflow")
+    return major, minor, patch, int(ordinal is None), int(ordinal or 0)
+
+
+def distribution_version(version: str) -> str:
+    release_version(version)
+    return version.replace("-beta.", "~beta.")
+
+
 def artifact_name(version: str, architecture: str, package_format: str) -> str:
+    release_version(version)
     if (
         not VERSION.fullmatch(version)
         or architecture not in ARCHITECTURES
@@ -438,6 +456,18 @@ def record(root: Path, version: str, architecture: str, package_format: str) -> 
 
 def preinstall(package_format: str, version: str = "0.0.0", architecture: str = "amd64") -> str:
     # Exact fixed-format record check before dpkg/rpm may overwrite shared paths.
+    release_version(version)
+    comparison = (
+        "def release_version(value):\n"
+        "    match = re.fullmatch(" + repr(VERSION.pattern) + ", value)\n"
+        "    if match is None:\n"
+        "        raise SystemExit('Invalid installed version')\n"
+        "    values = [int(match[i]) for i in (1, 2, 3)]\n"
+        "    ordinal = int(match[4] or 0)\n"
+        "    if any(v > 2**64 - 1 for v in values + [ordinal]):\n"
+        "        raise SystemExit('Invalid installed version')\n"
+        "    return (*values, int(match[4] is None), ordinal)\n"
+    )
     return f"""#!/bin/sh
 set -eu
 if [ -e /etc/usque/install.json ] || [ -L /etc/usque/install.json ]; then
@@ -457,9 +487,9 @@ if len(data) > 8192:
 d = json.loads(data)
 if not (d["schema_version"] == 1 and d["format"] == "{package_format}" and d["architecture"] == "{architecture}"):
     raise SystemExit("Mixed Usque installations are not supported")
-if re.fullmatch(r"(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)", d["version"]) is None:
-    raise SystemExit("Invalid installed version")
-if "{version}" != "0.0.0" and tuple(map(int, d["version"].split("."))) > tuple(map(int, "{version}".split("."))):
+{comparison}
+installed_version = release_version(d["version"])
+if "{version}" != "0.0.0" and installed_version > release_version("{version}"):
     raise SystemExit("Usque version rollback is not supported")
 PY
   /usr/lib/usque/usque-update --prepare-remove
@@ -499,7 +529,7 @@ def build_deb(root: Path, output: Path, version: str, architecture: str) -> None
     write(
         root / "DEBIAN/control",
         f"""Package: usque
-Version: {version}
+Version: {distribution_version(version)}
 Architecture: {architecture}
 Maintainer: Usque contributors <65408965+GeorgeXie2333@users.noreply.github.com>
 Section: net
@@ -517,6 +547,8 @@ Description: Desktop client compatible with Cloudflare WARP
     run(["dpkg-deb", "--root-owner-group", "--build", root, output])
     if run(["dpkg-deb", "--field", output, "Architecture"]).strip() != architecture:
         raise ValueError("Debian package architecture mismatch")
+    if run(["dpkg-deb", "--field", output, "Version"]).strip() != distribution_version(version):
+        raise ValueError("Debian package version mismatch")
     inspect_archive(root, output, architecture, "deb")
 
 
@@ -533,7 +565,7 @@ def inspect_rpm_metadata(archive: Path, version: str, architecture: str) -> None
     """Read RPM headers only; never invoke an installed or packaged scriptlet."""
     expected = {
         "NAME": "usque",
-        "VERSION": version,
+        "VERSION": distribution_version(version),
         "RELEASE": "1",
         "ARCH": ARCHITECTURES[architecture][1],
     }
@@ -576,7 +608,7 @@ def build_rpm(root: Path, output: Path, version: str, architecture: str, tempora
     write(
         spec,
         f"""Name: usque
-Version: {version}
+Version: {distribution_version(version)}
 Release: 1
 Summary: Desktop client compatible with Cloudflare WARP
 License: MIT

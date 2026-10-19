@@ -3,7 +3,7 @@ name: Public release
 on:
   push:
     tags:
-      - "v0.3.2"
+      - "v0.3.3-beta.1"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,8 +17,8 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.3.2
-  ANDROID_VERSION_CODE: "26"
+  RELEASE_TAG: v0.3.3-beta.1
+  ANDROID_VERSION_CODE: "27"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -68,6 +68,7 @@ jobs:
           done
 
       - name: Require this exact main commit to have a successful CI / gate workflow
+        if: ${{ !contains(env.RELEASE_TAG, '-beta.') }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -94,6 +95,22 @@ jobs:
           python tool/release_contract.py verify-main-ci \
             --runs "$RUNNER_TEMP/main-ci-runs.json" \
             --commit "$GITHUB_SHA"
+
+      - name: Require exact beta release branch push CI
+        if: ${{ contains(env.RELEASE_TAG, '-beta.') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="release/$RELEASE_TAG"
+          git fetch --no-tags --depth 1 origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+          test "$(git rev-parse "refs/remotes/origin/$branch")" = "$GITHUB_SHA"
+          gh api --method GET "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f "head_sha=$GITHUB_SHA" -f "branch=$branch" -f "event=push" \
+            -f "status=success" -f "per_page=100" > "$RUNNER_TEMP/beta-ci-runs.json"
+          python tool/release_contract.py verify-beta-ci \
+            --runs "$RUNNER_TEMP/beta-ci-runs.json" --commit "$GITHUB_SHA" --tag "$RELEASE_TAG"
 
   windows:
     name: Windows ${{ matrix.variant }}
@@ -1331,9 +1348,9 @@ jobs:
           name: ${{ env.RELEASE_TAG }}
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          prerelease: false
+          prerelease: true
           draft: false
-          make_latest: true
+          make_latest: false
           fail_on_unmatched_files: true
           body_path: ${{ runner.temp }}/release-notes.md
           files: ${{ runner.temp }}/publish/*
