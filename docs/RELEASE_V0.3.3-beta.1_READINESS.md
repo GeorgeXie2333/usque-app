@@ -48,13 +48,19 @@ completed 276 tests with 134 skips and no failures on Windows. Ruff lint
 and format also passed. A narrow Settings row overflow caused by the longer
 Beta label was fixed by allowing that existing label to wrap. The diagnostics
 Windows golden was regenerated with the pinned SDK; visual review found only
-the version text changed. These results cover the worktree at that check, not a future
+the version text changed. The first candidate exposed one Linux Settings
+golden mismatch; a local pinned Linux-SDK regeneration retained right-aligned
+update actions, and a regression asserts that alignment. The reviewed Linux
+image changes only the version text. CI now installs Node/MIME fixture tools
+in the existing Python job as well as hash-locked PoC dependencies. These results cover the worktree at that check, not a future
 tag. Final native/Flutter/Android/packaging and hosted
 gates are still pending and must be recorded against the final source.
 
 Run the exact [contribution matrix](../CONTRIBUTING.md) and
-[release procedure](RELEASE.md). Missing native Linux/ARM64 hosts are
-`not_run` locally; hosted checks do not turn a local omission into a pass.
+[release procedure](RELEASE.md). Local native ARM64 tools are unavailable and remain `not_run`. The existing
+WSL Linux SDK matches the pin and supports local widget/golden validation;
+it does not replace Ubuntu-22.04 package-baseline checks or native ARM64.
+Hosted checks do not turn a local omission into a pass.
 Protected labs and real install/upgrade/network/leak/performance checks
 remain `not_run`, supplemental and non-blocking. No package is installed
 or executed and no networking or certificate trust is changed.

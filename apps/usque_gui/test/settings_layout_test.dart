@@ -256,6 +256,20 @@ void main() {
       tester.getCenter(version).dy,
       closeTo(tester.getCenter(checkNow).dy, 2),
     );
+    final versionRow = find
+        .ancestor(of: version, matching: find.byType(Row))
+        .first;
+    final checkButton = find.widgetWithText(
+      OutlinedButton,
+      app.strings.get('check_now'),
+    );
+    expect(
+      tester.getRect(checkButton).right,
+      closeTo(tester.getRect(versionRow).right, 1),
+      reason:
+          'A longer Beta label must not pull the actions off the right edge.',
+    );
+    expect(tester.takeException(), isNull);
     // Theme and language labels share the switch rows' text column.
     expect(
       tester.getTopLeft(find.text(app.strings.get('theme'))).dx,

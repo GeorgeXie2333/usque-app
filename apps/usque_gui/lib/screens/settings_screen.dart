@@ -580,7 +580,7 @@ class _UpdateActions extends StatelessWidget {
             }
             return Row(
               children: <Widget>[
-                Flexible(child: version),
+                Expanded(child: version),
                 const SizedBox(width: 16),
                 Expanded(child: actions),
               ],
