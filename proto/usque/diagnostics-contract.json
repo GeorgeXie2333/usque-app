@@ -475,7 +475,19 @@
     "L4_RESOURCE_EXHAUSTED",
     "L4_DNS_FAILED",
     "ENDPOINT_PIN_REFRESH_FAILED",
-    "ENDPOINT_PIN_RETRY_FAILED"
+    "ENDPOINT_PIN_RETRY_FAILED",
+    "PROTON_AUTHENTICATION_FAILED",
+    "PROTON_CERTIFICATE_FAILED",
+    "PROTON_SERVER_RESTRICTED",
+    "PROTON_SESSION_LIMIT",
+    "PROTON_KEY_REUSED",
+    "PROTON_POLICY_RESTRICTED",
+    "PROTON_SERVER_FAILED",
+    "PROTON_RATE_LIMITED",
+    "PROTON_API_FAILED",
+    "PROTON_PROTOCOL_FAILED",
+    "PROTON_TRANSPORT_FAILED",
+    "PROTON_RECONNECT_REQUIRED"
   ],
   "summary_keys": [
     "diagnostic_address_assignment_missing",
@@ -606,7 +618,9 @@
     "no_transport_handshake",
     "no_active_runtime",
     "no_active_tunnel",
-    "payload_family_unavailable"
+    "payload_family_unavailable",
+    "review_proton_account",
+    "retry_proton_connection"
   ],
   "evidence_tokens": [
     "responsive",

@@ -151,3 +151,31 @@ fn catalogue_is_logical_unique_complete_and_filtered_by_authenticated_tier() {
     assert_eq!(ids.len(), 600);
     assert!(paid.iter().all(|node| !node.metadata.id.contains(':')));
 }
+
+#[test]
+fn physical_label_is_preserved_including_zero_and_malformed_labels_are_rejected() {
+    for label in ["0", "1", "partner", "node-3"] {
+        let mut value = directory();
+        physical(&mut value)["Label"] = json!(label);
+        assert_eq!(
+            collect(&value, &config()).unwrap()[0].label.as_deref(),
+            Some(label)
+        );
+    }
+    for label in [json!(""), json!("  "), Value::Null] {
+        let mut value = directory();
+        physical(&mut value)["Label"] = label;
+        assert!(collect(&value, &config()).unwrap()[0].label.is_none());
+    }
+    for label in [
+        json!(1),
+        json!(true),
+        json!("x\nsecret"),
+        json!("../endpoint"),
+        json!("x".repeat(65)),
+    ] {
+        let mut value = directory();
+        physical(&mut value)["Label"] = label;
+        assert!(collect(&value, &config()).is_err());
+    }
+}

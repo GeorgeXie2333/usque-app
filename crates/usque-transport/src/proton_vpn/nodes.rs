@@ -122,6 +122,14 @@ pub(super) fn collect_for_tier(
             let Some(domain) = text(physical.get("Domain"), 253) else {
                 continue;
             };
+            let label = match physical.get("Label") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(label)) if label.trim().is_empty() => None,
+                Some(Value::String(label)) if usque_core::proton_vpn::valid_label(label) => {
+                    Some(label.clone())
+                }
+                _ => continue,
+            };
             let node = SelectedNode {
                 metadata: Node {
                     id: logical_id.into(),
@@ -140,6 +148,7 @@ pub(super) fn collect_for_tier(
                     port,
                 },
                 public_key: public_key.into(),
+                label,
             };
             if node.validate().is_ok() {
                 output.push(node);

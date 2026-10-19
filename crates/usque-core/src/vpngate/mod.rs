@@ -129,10 +129,12 @@ pub enum GateFailure {
     AddressChanged,
     Protocol,
     Cleanup,
+    Proton(crate::proton_vpn::ConnectionFailure),
 }
 impl GateFailure {
     pub fn retryable(self) -> bool {
         matches!(self, Self::Transport | Self::AddressChanged)
+            || matches!(self, Self::Proton(failure) if failure.retryable())
     }
 }
 

@@ -199,6 +199,39 @@ pub(crate) struct GateDriver {
 }
 
 impl GateDriver {
+    #[cfg(feature = "wireguard")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "managed startup owns the same absolute deadline and its account lease"
+    )]
+    pub(crate) async fn start_proton(
+        profile: &PreparedProfile,
+        warp: InternalNetwork,
+        telemetry: crate::NetworkQualityTelemetry,
+        status: Option<watch::Sender<GateStatus>>,
+        cancel: &CancellationToken,
+        deadline: Instant,
+        lease: crate::proton_vpn::renew::Lease,
+    ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
+        Self::start_attempt(
+            profile,
+            warp,
+            telemetry,
+            status.unwrap_or_else(|| watch::channel(GateStatus::default()).0),
+            cancel,
+            StartupAttempt::Once,
+            None,
+            deadline,
+            Some(lease),
+        )
+        .await
+        .map_err(|error| match error {
+            TransportError::VpnGate(reason) => {
+                TransportError::VpnGate(crate::proton_vpn::renew::scoped(reason))
+            }
+            error => error,
+        })
+    }
     pub(crate) async fn start(
         profile: &PreparedProfile,
         warp: InternalNetwork,
@@ -243,6 +276,8 @@ impl GateDriver {
                             StartupAttempt::Once,
                             Some((candidate, attempt_deadline)),
                             connection_deadline,
+                            #[cfg(feature = "wireguard")]
+                            None,
                         )
                         .await;
                         if let Err(TransportError::VpnGate(reason)) = &result {
@@ -277,6 +312,8 @@ impl GateDriver {
                     attempt,
                     None,
                     connection_deadline,
+                    #[cfg(feature = "wireguard")]
+                    None,
                 )
             },
         )
@@ -300,6 +337,7 @@ impl GateDriver {
         startup_attempt: StartupAttempt,
         candidate: Option<(usque_core::chain_exit::OpenVpnEndpoint, Instant)>,
         connection_deadline: Instant,
+        #[cfg(feature = "wireguard")] proton_lease: Option<crate::proton_vpn::renew::Lease>,
     ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
         if startup_cancel.is_cancelled() {
             return Err(TransportError::TunnelClosed);
@@ -382,6 +420,8 @@ impl GateDriver {
             None => (None, None),
         };
         let native_input = native.input();
+        #[cfg(feature = "wireguard")]
+        let (proton_recovery, proton_requests) = tokio::sync::mpsc::channel(1);
         let diagnostic_id = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let actor = Actor {
             diagnostic_id,
@@ -412,6 +452,8 @@ impl GateDriver {
             #[cfg(feature = "wireguard")]
             proton_updates,
             #[cfg(feature = "wireguard")]
+            proton_recovery: proton_lease.as_ref().map(|_| proton_recovery),
+            #[cfg(feature = "wireguard")]
             agent: None,
             #[cfg(feature = "wireguard")]
             pending_runtime: None,
@@ -430,6 +472,17 @@ impl GateDriver {
             #[cfg(feature = "wireguard")]
             proton_renewal: None,
         };
+        #[cfg(feature = "wireguard")]
+        if let Some(lease) = proton_lease
+            && let Err(reason) = driver.start_proton_renewal(lease, proton_requests)
+        {
+            let stopped = driver.shutdown().await;
+            return Err(TransportError::VpnGate(if stopped {
+                reason
+            } else {
+                GateFailure::Cleanup
+            }));
+        }
         let result = tokio::select! {
             biased;
             _ = startup_cancel.cancelled() => {
@@ -492,6 +545,7 @@ impl GateDriver {
     pub(crate) fn start_proton_renewal(
         &mut self,
         lease: crate::proton_vpn::renew::Lease,
+        requests: tokio::sync::mpsc::Receiver<crate::proton_vpn::renew::RecoveryRequest>,
     ) -> Result<(), GateFailure> {
         if self.proton_renewal.is_some() || self.cancellation.is_cancelled() {
             return Err(GateFailure::Configuration);
@@ -508,7 +562,10 @@ impl GateDriver {
             input: self.native_input.clone(),
         };
         self.proton_renewal = Some(tokio::spawn(async move {
-            if let Err(reason) = lease.run(sender, &guard.cancellation).await {
+            if let Err(reason) = lease
+                .run_with_recovery(sender, requests, &guard.cancellation)
+                .await
+            {
                 guard.fail(reason);
             }
             // Drop also closes admission if a panic or unexpected early exit
@@ -609,6 +666,8 @@ struct Actor {
     proton_updates:
         Option<watch::Receiver<std::sync::Arc<usque_core::proton_vpn::TunnelCredentials>>>,
     #[cfg(feature = "wireguard")]
+    proton_recovery: Option<tokio::sync::mpsc::Sender<crate::proton_vpn::renew::RecoveryRequest>>,
+    #[cfg(feature = "wireguard")]
     agent: Option<AgentControl>,
     #[cfg(feature = "wireguard")]
     pending_runtime: Option<ManagedTunnelRuntime>,
@@ -619,6 +678,18 @@ impl Actor {
         let result = until_cancelled(&cancel, self.drive())
             .await
             .unwrap_or(Ok(()));
+        #[cfg(feature = "wireguard")]
+        let result = if self
+            .status
+            .borrow()
+            .current_profile
+            .as_ref()
+            .is_some_and(|profile| profile.source == usque_core::chain_exit::ChainSource::ProtonVpn)
+        {
+            result.map_err(crate::proton_vpn::renew::scoped)
+        } else {
+            result
+        };
         self.connected = false;
         if let Err(reason) = result {
             publish_failure(
@@ -834,6 +905,7 @@ impl Actor {
                                     },
                                     self.native.input(),
                                     &self.cancellation,
+                                    self.proton_recovery.clone(),
                                 )
                                 .await?,
                             );
@@ -1560,6 +1632,8 @@ mod tests {
                             attempt,
                             None,
                             Instant::now() + Duration::from_secs(180),
+                            #[cfg(feature = "wireguard")]
+                            None,
                         )
                         .await
                     }

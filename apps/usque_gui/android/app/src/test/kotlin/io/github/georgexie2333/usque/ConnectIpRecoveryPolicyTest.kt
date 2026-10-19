@@ -307,4 +307,64 @@ class ConnectIpRecoveryPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun protonRecoveryRequiresMatchingProviderReasonAndRetryableFailure() {
+        for ((kind, code) in listOf(
+            "reconnect" to "PROTON_RECONNECT_REQUIRED",
+            "transport" to "PROTON_TRANSPORT_FAILED",
+            "restricted" to "PROTON_SERVER_RESTRICTED",
+        )) {
+            val status =
+                gate(JSONObject().put("proton", JSONObject().put("kind", kind)))
+                    .put("current_profile", JSONObject().put("source", "proton_vpn"))
+            val bridged = JSONObject(VpnGateFields.status(status)!!)
+            assertTrue(ConnectIpRecoveryPolicy.canRecoverChainFailure(failure(code), code, bridged))
+            assertTrue(ConnectIpRecoveryPolicy.canRecoverChainFailure(failure(code), code, status))
+            assertTrue(ConnectIpRecoveryPolicy.canRecoverChainStartup(code, failure(code), status))
+            assertFalse(ConnectIpRecoveryPolicy.canRecoverChainFailure(failure(code, false), code, status))
+            assertFalse(
+                ConnectIpRecoveryPolicy.canRecoverChainFailure(
+                    failure("AUTHENTICATION_FAILED"),
+                    "AUTHENTICATION_FAILED",
+                    status,
+                ),
+            )
+            status.put("current_profile", JSONObject().put("source", "wireguard_custom"))
+            assertFalse(ConnectIpRecoveryPolicy.canRecoverChainFailure(failure(code), code, status))
+        }
+        for (kind in listOf("certificate", "authentication", "policy", "api", "unknown")) {
+            val status =
+                gate(JSONObject().put("proton", JSONObject().put("kind", kind)))
+                    .put("current_profile", JSONObject().put("source", "proton_vpn"))
+            assertFalse(
+                ConnectIpRecoveryPolicy.canRecoverChainFailure(
+                    failure("PROTON_RECONNECT_REQUIRED"),
+                    "PROTON_RECONNECT_REQUIRED",
+                    status,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun protonFailureDetailsAcceptOnlyBoundedNumericContext() {
+        for (value in listOf(
+            "proton agent 86102",
+            "proton api 401 http 401",
+            "proton api 12087 http 422",
+        )) {
+            assertTrue(value, ProtonFailureDetail.isSafe(value))
+        }
+        for (value in listOf(
+            "proton agent secret",
+            "proton agent 4294967296",
+            "proton api 1 http 700",
+            "proton api 1 http 401 token",
+            "proton agent 86102\n",
+            "proton api -1 http 401",
+        )) {
+            assertFalse(value, ProtonFailureDetail.isSafe(value))
+        }
+    }
 }

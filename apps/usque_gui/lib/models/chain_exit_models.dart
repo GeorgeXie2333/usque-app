@@ -264,7 +264,7 @@ class ChainExitStatus {
     currentProfile: map['current_profile'] is Map
         ? ChainProfileSummary.fromMap(map['current_profile'] as Map)
         : null,
-    failure: map['failure'] as String?,
+    failure: _gateFailure(map['failure']),
     dnsUnavailable: map['dns_unavailable'] == true,
     attemptingEndpoint: map['attempting_endpoint'] is Map
         ? ChainEndpoint.fromMap(map['attempting_endpoint'] as Map)
@@ -273,7 +273,9 @@ class ChainExitStatus {
     attemptCount: map['attempt_count'] as int? ?? 0,
     candidateCount: map['candidate_count'] as int? ?? 0,
     attemptFailures: (map['attempt_failures'] as List? ?? const [])
-        .cast<String>(),
+        .map(_gateFailure)
+        .whereType<String>()
+        .toList(),
   );
   @override
   bool operator ==(Object other) =>
@@ -309,4 +311,29 @@ class ChainExitStatus {
     candidateCount,
     Object.hashAll(attemptFailures),
   );
+}
+
+String? _gateFailure(Object? value) {
+  if (value is String) return value;
+  if (value is Map && value['proton'] is Map) {
+    final kind = (value['proton'] as Map)['kind'];
+    if (kind is String &&
+        const {
+          'authentication',
+          'certificate',
+          'restricted',
+          'max_sessions',
+          'key_reused',
+          'policy',
+          'server',
+          'rate_limited',
+          'api',
+          'protocol',
+          'transport',
+          'reconnect',
+        }.contains(kind)) {
+      return 'proton_$kind';
+    }
+  }
+  return null;
 }

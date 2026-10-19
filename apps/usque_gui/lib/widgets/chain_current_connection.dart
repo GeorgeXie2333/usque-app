@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/chain_scope_presentation.dart';
 import '../core/chain_strings.dart';
+import '../core/proton_strings.dart';
 import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
@@ -109,6 +110,8 @@ class ChainCurrentConnection extends StatelessWidget {
           };
     final failure = chain.failure;
     String reason(String value) {
+      final proton = protonGateFailure(strings, value);
+      if (proton != null) return proton;
       final key = 'failure_$value';
       final label = strings.chain(key);
       return label == strings.chain('invalid_configuration') ? value : label;
@@ -206,11 +209,13 @@ class ChainCurrentConnection extends StatelessWidget {
               child: WarningBanner(
                 key: const ValueKey('chain-failure'),
                 title: strings.chain('error'),
-                message: failure == 'authentication'
-                    ? strings.chain('authentication_failed')
-                    : strings
-                          .chain('failure_reason')
-                          .replaceAll('{reason}', reason(failure)),
+                message:
+                    protonGateFailure(strings, failure) ??
+                    (failure == 'authentication'
+                        ? strings.chain('authentication_failed')
+                        : strings
+                              .chain('failure_reason')
+                              .replaceAll('{reason}', reason(failure))),
                 danger: true,
               ),
             ),

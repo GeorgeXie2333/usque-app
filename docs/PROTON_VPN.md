@@ -138,6 +138,19 @@ explicit sign-in and never replays the old refresh token. While connected, the
 runtime renews the same key's certificate when due. Authorization failure does not
 fall back to a WARP-only exit.
 
+Connection errors name Proton separately from WARP. A temporarily restricted
+server stays in connecting with business traffic blocked; if it does not recover
+within the connection budget, choose another server or retry. Expired client
+certificates are renewed automatically. Revoked certificates or invalid
+signatures trigger one new tunnel key and a complete inner WireGuard restart.
+Repeated key recovery within five minutes stops with the original Proton error.
+Session limits, reused keys and account policy restrictions have distinct
+messages. Numeric API/HTTP or agent codes may appear below the message.
+
+A temporary scheduled-refresh failure retains a still-valid certificate and
+retries after 30 seconds, backing off to at most five minutes. Certificate expiry,
+unknown token rotation and loss of agent authorization still block traffic.
+
 Use **Remove account** and choose **Sign out and remove** to revoke sessions
 owned by this app, then remove the local account and its legacy duplicate
 profiles. **Forget locally** removes only the local records without contacting
@@ -154,6 +167,14 @@ actions do not sign out other devices' Proton sessions.
 后续目录或证书失败不会把成功刷新误标为“重新登录”；刷新结果未知才要求明确
 重新认证，绝不重放旧 refresh token。运行时按期限续签同一密钥的证书，授权失败
 不会降级为仅 WARP 出口。
+
+连接错误明确标明 Proton，不会引导重置 WARP 账号。节点暂时受限时保持连接中并
+阻断业务流量，超出连接预算仍未解除则提示重试或换节点。客户端证书过期会自动
+续签；吊销或签名错误会更换隧道密钥并完整重建内层 WireGuard，五分钟内重复
+触发则保留 Proton 原因并停止。连接数上限、密钥重复使用和账号政策限制分别
+显示，附带允许公开的 API／HTTP 或 agent 数字代码。定时续证暂时失败时继续使用
+尚未过期的证书，30 秒后重试并逐步退避至最多五分钟；证书过期、令牌轮换结果
+未知或 agent 不再授权时仍会阻断流量。
 
 点击“移除账号”，选择“退出并移除”会先尝试撤销本应用拥有的会话，再删除本机
 记录及旧版本重复配置。“仅本机遗忘”只删除本机记录，无需 WARP，**不撤销远端

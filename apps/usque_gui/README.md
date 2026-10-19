@@ -148,6 +148,16 @@ are applied. Ordinary WARP and unchanged registration addresses have no banner.
 
 ## Proton accounts and server selection
 
+Connection failures preserve Proton as the source and distinguish authorization,
+certificate recovery, restricted servers, session limits, repeated keys, policy,
+API and transport errors. The Home banner and chain editor share these messages;
+bounded numeric API/HTTP or agent context is separate from remote descriptions.
+Proton failures never direct users to recreate a WARP account. Recovery keeps
+business traffic blocked until the agent authorizes the new connection.
+
+Proton 连接错误在首页和链式代理页使用一致的来源与分类，不再引导重置 WARP；
+只显示允许公开的数字上下文。恢复期间保持业务流量阻断，直到 agent 重新授权。
+
 The Proton source shows one row per authenticated user, grouping legacy duplicate
 profiles. Select an account separately from its searchable server preference;
 Automatic and manual logical-server choices apply on the next connection. The

@@ -483,6 +483,9 @@ v2 加密记录允许尚未签发证书，兼容读取 v1，并将旧的 logical
 逻辑 ID。账号重新登录复用原本地密钥和配置 ID；同一 UserID 的旧记录合并展示。
 连接时解析当前入口、公钥及 agent SNI，保留本地静态配置作为完整性绑定，不将
 该旧入口当作运行时授权。手动选择的逻辑 ID 不可用即报错，Automatic 才自动选择。
+v3 记录在同一个原子加密文件中增加当前隧道密钥和最近自动换钥时间；原静态配置
+的绑定密钥和 revision 保持不变。读取仍兼容 v1/v2。重新登录、刷新列表和更换
+逻辑节点不会丢弃已恢复的隧道密钥。
 下载的普通 WireGuard 配置与原生 session-mode agent 认证不能互相替代；握手后
 仍须通过 mTLS、agent 状态和功能确认，不削弱授权门禁。
 
@@ -498,3 +501,37 @@ Core 将 12087 定义为 USER_CREATE_TOKEN_INVALID；官方 handler 清除当前
 和身份重发原请求一次；若收到新 9001，仍由用户完成新挑战。最多两次人工挑战，
 第二次失败或任何未知变更终止。不复用旧结果，不拼接 start token，不规避拼图；
 WebView 与 API 出口差异仍可能导致拒绝，未宣称重试必定解决用户设备上的 12087。
+
+### 节点标签、agent 原因与证书恢复
+
+再次通过官方 GitHub API 校验 Android 当前 master 仍为 `316a3d499e120bd2cab63c2cd8ac396e3ab3b24a`。
+官方 [ConnectionParams.bouncing](https://github.com/ProtonVPN/android-app/blob/316a3d499e120bd2cab63c2cd8ac396e3ab3b24a/app/src/main/java/com/protonvpn/android/models/vpn/ConnectionParams.kt#L61)
+取 ConnectingDomain.Label 非空值；[VpnBackend](https://github.com/ProtonVPN/android-app/blob/316a3d499e120bd2cab63c2cd8ac396e3ab3b24a/app/src/main/java/com/protonvpn/android/vpn/VpnBackend.kt#L436)
+将它加入 agent features。原生保留当前物理入口的标签，包括字符串 `"0"`，发送
+`bouncing` 并要求相同值回显后才开放业务流量。标签只允许有界 ASCII 标识符，
+畸形目录标签不能变成任意控制消息。
+
+按官方 [错误分派与恢复](https://github.com/ProtonVPN/android-app/blob/316a3d499e120bd2cab63c2cd8ac396e3ab3b24a/app/src/main/java/com/protonvpn/android/vpn/VpnBackend.kt#L151)
+区分 `86104` 暂时受限、`86101` 证书过期、`86102` 吊销、`86105` 签名错误、
+`86103` 密钥重复、`86110..86115` 会话上限和 `86151..86154` 政策限制。
+未知 nonfinal 原因只等待，不授权；未知 final 原因停止。受限状态在绝对连接
+预算内等待，已连接会话重新受限则立即关闭业务门禁，最多等待 35 秒。
+只有恢复后的 connected 与完整功能确认才能重新授权。
+
+续证 worker 在首次 agent 握手前启动。过期或远端 TLS 客户端证书警报触发同钥
+续签与 agent 重连；远端证书信任或 hostname 校验失败不触发此恢复。吊销／签名
+错误先持久化新隧道密钥及空证书，再签发并结束旧 WireGuard。首次连接在旧 worker
+全部退出后最多重试一次；已连接会话经既有平台恢复流程重建完整链。每个 agent
+最多一次证书恢复，跨重连五分钟内最多一次自动换钥。操作由同一账号 lease 串行化，
+取消和外层 generation 检查不变。
+
+定时续证的网络、429 或 5xx 暂时失败保留仍有效的证书，并从 30 秒退避到最多
+五分钟。权限等级变化或 UID 变化会先废弃旧证书。已知 token 替换仍先落盘，
+未知替换不能继续使用。连接时的 due 刷新暂时失败也只允许复用校验通过、尚未
+过期的缓存证书。加密 sidecar 的独立变更、证书过期和终止授权仍关闭门禁。
+
+连接错误增加 append-only `PROTON_*` 诊断分类，保留失败阶段和数字 API/HTTP
+或 agent 上下文；不再压为 WARP 的 `AUTHENTICATION_FAILED` 或 pin 失败。
+Android 恢复只接受当前 Proton profile、对应的结构化原因和匹配的 retryable
+代码，不能用普通认证／证书失败开启重试。公开错误不含远端 description、URL、
+会话标识、token、密钥或证书。

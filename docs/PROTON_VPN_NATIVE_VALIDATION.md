@@ -693,3 +693,121 @@ summaries, node pages and ordinary error text. Logs use synthetic fixtures or
 numeric live results. Real Android acceptance, WebView/API egress consistency,
 certificate expiry/revocation on a live tunnel and platform restoration remain
 **not_run**.
+
+## Follow-up: agent recovery and Proton error provenance (2026-10-19)
+
+This follow-up starts from `31f1165b0dc80449d4071bf1fff3883adc056d13` and
+addresses the Android connection failure reported as a WARP account problem.
+Official Android master was verified through GitHub as
+`316a3d499e120bd2cab63c2cd8ac396e3ab3b24a`; VpnBackend and CertificateRepository
+matched the cached source byte for byte. The pinned go-vpn-lib client/message
+sources were also reverified. This audit made no new guest or account API request.
+
+### Tested source identity and scope
+
+The complete tracked/unignored source inventory, excluding only this validation
+record to avoid self-reference, is
+`/tmp/usque-proton-connection-source-manifest.json`: version 1, 5,513 entries,
+1,086,896 bytes, SHA-256
+`fdbdb7208c4740ed36f68d3d4f13646fe39c245e667389f9b4540b622f8ae0df`.
+Entries record path, content length/hash and executable bit, or symlink target
+and deletion. Ignored SDKs, build/JNI output, logs and private configuration are
+excluded. The source inventory is checked again before committing.
+
+Physical Label now reaches the agent's bouncing feature, including `"0"`, and
+matching features are required for business admission. Restricted/nonfinal
+statuses keep admission closed while waiting; their watchdog retains the
+numeric reason. Expired client certificates renew on the same key. Revoked or
+bad-signature certificates create a new tunnel key, durably save it with an empty
+certificate in one atomic encrypted v3 record, then request its certificate and
+restart WireGuard after the old workers exit. The original saved profile/key
+binding and revision remain unchanged; v1/v2 records remain readable. Automatic
+certificate recovery is bounded per agent, and automatic key replacement is
+bounded across reconnects by a five-minute cooldown.
+
+The credential worker starts before initial agent admission. Temporary scheduled
+renewal failures retry with bounded backoff while a validated unexpired
+certificate remains usable. Initial due-refresh failures have the same cache
+rule. UID/plan changes invalidate old certificates. Unknown token rotation,
+expiry, external sidecar mutation and lost agent authorization remain terminal
+or block admission as appropriate. Android accepts recovery only for a matching
+retryable provider code, typed Proton reason and current Proton profile.
+
+Append-only PROTON failure codes preserve provider provenance and numeric API /
+HTTP or agent context. Home and the chain editor distinguish session limits,
+reused keys, policy restrictions, certificate, API and transport failures. Android
+status, UI and diagnostic bridges allowlist numeric context and drop remote
+descriptions; the typed reason survives both bridge directions. Proton failures
+cannot select WARP identity or endpoint-pin remediation.
+
+### Workstation checks
+
+Pinned toolchains and exact CONTRIBUTING commands were used. Flutter commands
+ran in `apps/usque_gui`, Gradle commands in its `android` subdirectory. Wrappers
+`bash tool/dev.sh check rust`, `flutter`, `android` and `static` execute their
+respective exact commands below. The final Kotlin checks were repeated after the
+status-bridge change. Intermediate runs found strict Clippy/style findings and a
+local Kotlin dynamic-value expression rejected by the compiler; those were
+corrected without suppressing checks. An initial targeted Flutter invocation
+included Windows goldens on Linux and was rejected by the existing host guard;
+no Windows baseline was changed. Final widget and Linux golden commands used the
+required host selection. An overlapping intermediate Rust log was discarded;
+final Rust evidence is the separate `rust-confirmed` log.
+
+| Exact command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | passed |
+| `cargo test --workspace --all-targets --locked` | passed: 1,806 tests; 3 existing ignores |
+| `cargo check -p usque-transport --locked --no-default-features` | passed |
+| `cargo check -p usque-android --locked --no-default-features` | passed |
+| `flutter pub get --enforce-lockfile` | passed |
+| `dart format --output=none --set-exit-if-changed lib test` | passed |
+| `flutter analyze --no-pub` | passed |
+| `flutter test --no-pub --exclude-tags golden` | passed: 1,155 tests; 1 existing skip |
+| `flutter test --no-pub --tags linux-golden` | passed: 19 tests; baselines unchanged |
+| `flutter build linux --debug --no-pub -t lib/main_preview.dart` | passed |
+| `flutter build linux --release --no-pub -t lib/main.dart` | passed |
+| `cargo build --release --locked -p usque-engine -p usque-agent -p usque-update` | passed |
+| `cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_socket_test` and `apps/usque_gui/build/linux/x64/release/runner/usque_linux_socket_test` | passed |
+| `cmake --build apps/usque_gui/build/linux/x64/release --target usque_proton_verification_test` and `apps/usque_gui/build/linux/x64/release/runner/usque_proton_verification_test` | passed |
+| `python -m unittest discover -s tool -p "test_linux_package.py" -v` | passed: 19 tests; 1 existing skip (desktop-file-utils unavailable) |
+| `pwsh -NoProfile -File tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter build apk --debug --config-only --no-pub` | passed |
+| `./gradlew --no-daemon :app:ktlintCheck` | passed |
+| `./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed: 480 tests; no failures/errors/skips; lint passed |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed |
+| `python tool/check_repository_policy.py`, `actionlint -no-color`, `git diff --check` | passed |
+| Windows Rust/Flutter/runner/golden gates | **not_run**: Linux workstation |
+| Real Android device/TV, Proton/WARP/WireGuard/agent tunnel, expiry/revocation and protected leak/lifecycle checks | **not_run**: no isolated device or protected environment; no emulator installed |
+
+Final logs use the `/tmp/usque-proton-connection-` and
+`/tmp/usque-proton-kotlin-` prefixes. They are local workstation evidence, not
+protected-runner or release evidence. Memory peers verify initial recovery,
+closed admission through restriction/recovery, matching bouncing, server trust
+failure separation, same-key expiry renewal, new-key persistence/restart,
+recovery cooldown, cancellation, transient renewal/cache reuse and precise
+provider failure export. Android fixtures verify recovery through the actual
+allowlisted status bridge, and Flutter fixtures verify provider-specific copy
+without backend text.
+
+### Cleanup, fail-closed and privacy
+
+The outer WARP handle, generation checks, dedicated agent control tuple,
+certificate/SNI verification and explicit feature confirmation remain required.
+No failed Proton setup or recovery can select a WARP-only or host-network exit.
+A server-certificate trust failure cannot invoke client-certificate recovery.
+Business admission closes before recovery requests and stays closed until a new
+validated connection authorizes it. Startup retries await credential and native
+worker cleanup, including failure to start the credential worker. Cancellation
+is propagated and owned work is awaited; no detached refresh or key rotation is
+allowed to outlive its owner.
+
+Recovered runtime keys and their cooldown live in the same atomic encrypted
+record; interrupted certificate issuance cannot restore a revoked key. The
+existing token-rotation journal and known-response persistence remain in force.
+Public metadata and diagnostics expose no passwords, session identifiers,
+tokens, key material, certificates or remote descriptions. Tests use synthetic
+memory peers only. No VPN/TUN, firewall, routes, DNS, system proxy, installation,
+signing or publication state was exercised. Live Android acceptance and native
+platform restoration remain **not_run**.

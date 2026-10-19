@@ -207,4 +207,73 @@ void main() {
       expect(directDnsBootstrapError('192.0.2.1\n2001:db8::1'), isNull);
     },
   );
+  test(
+    'Proton connection failures retain their provider and accept numeric context only',
+    () {
+      for (final locale in [
+        LocalePreference.english,
+        LocalePreference.simplifiedChinese,
+      ]) {
+        final strings = AppStrings(locale);
+        for (final suffix in [
+          'AUTHENTICATION_FAILED',
+          'CERTIFICATE_FAILED',
+          'SERVER_RESTRICTED',
+          'SESSION_LIMIT',
+          'KEY_REUSED',
+          'POLICY_RESTRICTED',
+          'SERVER_FAILED',
+          'RATE_LIMITED',
+          'API_FAILED',
+          'PROTOCOL_FAILED',
+          'TRANSPORT_FAILED',
+          'RECONNECT_REQUIRED',
+        ]) {
+          final message = userFacingFailure(
+            strings,
+            code: 'PROTON_$suffix',
+            details: _privateError,
+          );
+          expect(message, contains('Proton'));
+          expect(message, isNot(contains(_privateError)));
+          expect(message, isNot(contains('设置 WARP 账号')));
+          expect(message, isNot(contains('Set up WARP')));
+        }
+        expect(
+          userFacingFailure(
+            strings,
+            code: 'PROTON_AUTHENTICATION_FAILED',
+            protonContext: 'proton api 401 http 401',
+          ),
+          contains('Proton API 401 · HTTP 401'),
+        );
+        expect(
+          userFacingFailure(
+            strings,
+            code: 'PROTON_CERTIFICATE_FAILED',
+            protonContext: 'proton agent 86102',
+          ),
+          contains('Proton agent 86102'),
+        );
+        for (final value in [
+          _privateError,
+          'proton agent uid',
+          'proton api 401 http 401 token',
+        ]) {
+          expect(
+            userFacingFailure(
+              strings,
+              code: 'PROTON_API_FAILED',
+              protonContext: value,
+            ),
+            isNot(contains(value)),
+          );
+        }
+        expect(
+          userFacingFailure(strings, code: 'AUTHENTICATION_FAILED'),
+          strings.get('diag_fix_refresh_or_replace_identity'),
+        );
+      }
+    },
+  );
 }

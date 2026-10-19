@@ -386,7 +386,7 @@ pub(super) async fn provision(
             .directory(client, &mut record, interaction, cancel)
             .await?;
         record.server_id = record.selected_server().map(str::to_owned);
-        record.version = 2;
+        record.promote();
         access.save(&record, cancel).await?;
         client.session = SessionSecrets::default();
         return Ok(id);
@@ -426,7 +426,7 @@ pub(super) async fn provision(
             request.profile_id != Some(record.id),
             accounts.selected != Some(record.id),
             record.rotation_pending,
-            record.version != 2,
+            record.version == 1,
             record.id,
         )
     });
@@ -545,7 +545,12 @@ pub(super) async fn provision(
         server_catalog: nodes.into_iter().map(|node| node.metadata).collect(),
         retired_sessions,
         catalog_revision: Uuid::new_v4(),
+        tunnel_seed: existing
+            .as_ref()
+            .and_then(|record| record.tunnel_seed.clone()),
+        key_recovery_at: existing.as_ref().map_or(0, |record| record.key_recovery_at),
     };
+    record.promote();
     if let Err(failure) = client
         .checkpoint(generation, cancel)
         .map_err(|failure| usque_core::proton_vpn::error(&failure.reason))

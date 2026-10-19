@@ -71,6 +71,10 @@ internal object ConnectIpRecoveryPolicy {
         if (failure == null || !failure.retryable || failure.code != errorCode || !recoverableGate(gateStatus)) {
             return false
         }
+        val proton = protonRecovery(gateStatus)
+        if (proton != null) {
+            return gateStatus?.optString("stage") == "error" && failure.code == proton
+        }
         // L4 maps only H3 reachability, handshake, closure and PMTU errors to this code.
         if (failure.code in networkFailures || failure.code == "L4_SESSION_UNAVAILABLE") return true
         // GateFailure::Transport maps to this code for every chain source. A generic
@@ -94,6 +98,18 @@ internal object ConnectIpRecoveryPolicy {
 
     private fun recoverableGate(gateStatus: JSONObject?): Boolean {
         val reason = gateStatus?.opt("failure")
-        return reason == null || reason == JSONObject.NULL || reason == "transport"
+        return reason == null || reason == JSONObject.NULL || reason == "transport" ||
+            protonRecovery(gateStatus) != null
+    }
+
+    private fun protonRecovery(gateStatus: JSONObject?): String? {
+        if (gateStatus?.optJSONObject("current_profile")?.optString("source") != "proton_vpn") return null
+        val failure = gateStatus.optJSONObject("failure")?.optJSONObject("proton") ?: return null
+        return when (failure.optString("kind")) {
+            "reconnect" -> "PROTON_RECONNECT_REQUIRED"
+            "transport" -> "PROTON_TRANSPORT_FAILED"
+            "restricted" -> "PROTON_SERVER_RESTRICTED"
+            else -> null
+        }
     }
 }

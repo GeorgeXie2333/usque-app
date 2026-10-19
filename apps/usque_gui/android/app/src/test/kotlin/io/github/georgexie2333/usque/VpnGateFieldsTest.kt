@@ -122,4 +122,30 @@ class VpnGateFieldsTest {
             }.isFailure,
         )
     }
+
+    @Test
+    fun protonReasonSurvivesBothBridgeDirectionsWithoutRemoteDescriptions() {
+        val reason =
+            JSONObject()
+                .put(
+                    "kind",
+                    "certificate",
+                ).put("code", 86102)
+                .put("http_status", JSONObject.NULL)
+                .put("description", "private token")
+        val source = JSONObject().put("stage", "error").put("failure", JSONObject().put("proton", reason))
+        val bridged = VpnGateFields.status(source)!!
+        val restored = VpnGateFields.decodeStatus(JSONObject(bridged).toString())!!
+        val publicReason = ((restored["failure"] as Map<*, *>)["proton"] as Map<*, *>)
+        assertEquals("certificate", publicReason["kind"])
+        assertEquals(86102L, publicReason["code"])
+        assertFalse(publicReason.containsKey("description"))
+        assertFalse(JSONObject(restored).toString().contains("private token"))
+        for (invalid in listOf(-1, 4294967296L, 1.5, "86102")) {
+            reason.put("code", invalid)
+            assertNull(VpnGateFields.status(source)!!["failure"])
+        }
+        reason.put("code", 86102).put("http_status", 700)
+        assertNull(VpnGateFields.status(source)!!["failure"])
+    }
 }

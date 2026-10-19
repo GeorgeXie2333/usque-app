@@ -2973,6 +2973,7 @@ class AppController extends ChangeNotifier {
             strings,
             code: next.errorCode,
             details: next.warning,
+            protonContext: next.failure?.sanitizedDetail,
           )
         : null;
     final errorChanged = nextError != null && nextError != lastError;

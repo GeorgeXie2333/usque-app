@@ -7,6 +7,7 @@
 //! a3705cd0790c8a665ae7e8e4269974c2ee318aed03cf0c7e860c2228cf17e4ab,
 //! matching the pinned agent_connector.rs and Android Constants.kt trust anchors.
 
+use super::renew::RecoveryRequest;
 use crate::chain_session::Input;
 use crate::packet_pipe::PacketSender;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -18,13 +19,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Instant, timeout_at};
 use tokio_rustls::TlsConnector;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 use ts_netstack_smoltcp::netcore::{Config, HasChannel, NetstackControl};
-use usque_core::proton_vpn::TunnelCredentials;
+use usque_core::proton_vpn::{ConnectionFailure, FailureKind, TunnelCredentials};
 use usque_core::vpngate::GateFailure;
 
 const CLIENT: Ipv4Addr = Ipv4Addr::new(10, 2, 0, 2);
@@ -148,6 +149,8 @@ struct Lifetime<'a> {
     cancellation: &'a CancellationToken,
     startup_deadline: Instant,
     expires_at_gate: &'a AtomicI64,
+    recovery: Option<mpsc::Sender<RecoveryRequest>>,
+    roots: &'static str,
 }
 
 #[derive(Clone)]
@@ -178,6 +181,7 @@ impl AgentControl {
         parameters: Parameters,
         input: Input,
         parent: &CancellationToken,
+        recovery: Option<mpsc::Sender<RecoveryRequest>>,
     ) -> Result<Self, GateFailure> {
         let Parameters {
             local,
@@ -254,6 +258,8 @@ impl AgentControl {
                     cancellation: &task_cancel,
                     startup_deadline,
                     expires_at_gate: &expires_at,
+                    recovery,
+                    roots: ROOT_CERTIFICATES,
                 },
             );
             let result = tokio::select! {
@@ -343,6 +349,41 @@ fn tls_config(
     Ok(Arc::new(config))
 }
 
+async fn recover_credentials(
+    recovery: &Option<mpsc::Sender<RecoveryRequest>>,
+    code: u32,
+    reason: GateFailure,
+    cancel: &CancellationToken,
+) -> Result<Arc<TunnelCredentials>, GateFailure> {
+    let Some(recovery) = recovery else {
+        return Err(reason);
+    };
+    let (reply, response) = oneshot::channel();
+    let recover = async {
+        recovery
+            .send(RecoveryRequest { code, reply })
+            .await
+            .map_err(|_| reason)?;
+        response.await.map_err(|_| reason)?
+    };
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Err(GateFailure::Transport),
+        result = timeout_at(Instant::now() + Duration::from_secs(35), recover) => result.map_err(|_| reason)?,
+    }
+}
+
+fn client_certificate_alert(error: &std::io::Error) -> bool {
+    matches!(
+        error
+            .get_ref()
+            .and_then(|error| error.downcast_ref::<rustls::Error>()),
+        Some(rustls::Error::AlertReceived(
+            rustls::AlertDescription::CertificateExpired | rustls::AlertDescription::UnknownCA
+        ))
+    )
+}
+
 async fn credential_loop(
     mut credentials: watch::Receiver<Arc<TunnelCredentials>>,
     channel: ts_netstack_smoltcp::netcore::Channel,
@@ -354,10 +395,13 @@ async fn credential_loop(
         cancellation,
         startup_deadline,
         expires_at_gate,
+        recovery,
+        roots,
     } = lifetime;
     let mut first = true;
+    let mut certificate_recoveries = 0;
     loop {
-        publisher.send_replace(AgentState::Connecting);
+        deauthorize(publisher);
         let current = credentials.borrow_and_update().clone();
         expires_at_gate.store(current.expires_at, Ordering::Release);
         let connect_deadline = if first {
@@ -366,7 +410,7 @@ async fn credential_loop(
             Instant::now() + IO_BUDGET
         };
         first = false;
-        let config = tls_config(&current, ROOT_CERTIFICATES)?;
+        let config = tls_config(&current, roots)?;
         let name = ServerName::try_from(current.server_name.clone())
             .map_err(|_| GateFailure::Certificate)?;
         if !matches!(name, ServerName::DnsName(_)) {
@@ -379,16 +423,27 @@ async fn credential_loop(
                 SocketAddr::new(SERVER.into(), SERVER_PORT),
             )
             .await
-            .map_err(|_| GateFailure::Transport)?;
+            .map_err(|_| (GateFailure::Transport, false))?;
             TlsConnector::from(config)
                 .connect(name, stream)
                 .await
-                .map_err(|_| GateFailure::Certificate)
+                .map_err(|error| (GateFailure::Certificate, client_certificate_alert(&error)))
         };
-        let mut stream = tokio::select! {
+        let stream = tokio::select! {
             biased;
             _ = cancellation.cancelled() => return Err(GateFailure::Transport),
-            result = timeout_at(connect_deadline, establish) => result.map_err(|_| GateFailure::Transport)??,
+            result = timeout_at(connect_deadline, establish) => result.map_err(|_| GateFailure::Transport)?,
+        };
+        let mut stream = match stream {
+            Ok(stream) => stream,
+            Err((reason, true)) if certificate_recoveries == 0 => {
+                certificate_recoveries += 1;
+                // This is a server TLS alert about our client certificate, not
+                // a failure validating the remote server's trust or hostname.
+                recover_credentials(&recovery, 86101, reason, cancellation).await?;
+                continue;
+            }
+            Err((reason, _)) => return Err(reason),
         };
         let until_expiry = Duration::from_secs(
             u64::try_from(current.expires_at - unix_now()?)
@@ -397,22 +452,46 @@ async fn credential_loop(
         let expires = Instant::now()
             .checked_add(until_expiry)
             .ok_or(GateFailure::Certificate)?;
-        tokio::select! {
+        let protocol_deadline = if startup_deadline > Instant::now() {
+            startup_deadline
+        } else {
+            Instant::now() + Duration::from_secs(35)
+        };
+        let result = tokio::select! {
             biased;
             _ = cancellation.cancelled() => return Err(GateFailure::Transport),
-            _ = tokio::time::sleep_until(expires) => return Err(GateFailure::Certificate),
+            _ = tokio::time::sleep_until(expires) => return Err(GateFailure::Proton(ConnectionFailure::new(FailureKind::Certificate))),
             result = credentials.changed() => {
                 result.map_err(|_| GateFailure::Certificate)?;
-                // A changed WireGuard identity requires a complete new tunnel.
-                if credentials.borrow().private_key_pkcs8.as_slice() != current.private_key_pkcs8.as_slice()
+                if credentials.borrow().private_key_pkcs8 != current.private_key_pkcs8
                     || credentials.borrow().server_name != current.server_name {
-                    return Err(GateFailure::Certificate);
+                    return Err(GateFailure::Proton(ConnectionFailure::new(FailureKind::Reconnect)));
                 }
-                publisher.send_replace(AgentState::Connecting);
+                Ok(())
             }
-            result = protocol_loop(&mut stream, publisher, connect_deadline, current.expires_at) => return result,
+            result = protocol_loop_with_label(&mut stream, publisher, protocol_deadline, current.expires_at, current.label.as_deref()) => result,
+        };
+        drop(stream);
+        if let Err(reason) = result {
+            let code = match reason {
+                GateFailure::Proton(ConnectionFailure {
+                    code: Some(code @ (86101 | 86102 | 86105)),
+                    ..
+                }) => code,
+                _ => return Err(reason),
+            };
+            if certificate_recoveries >= 1 {
+                return Err(reason);
+            }
+            certificate_recoveries += 1;
+            deauthorize(publisher);
+            let updated = recover_credentials(&recovery, code, reason, cancellation).await?;
+            if updated.private_key_pkcs8 != current.private_key_pkcs8 {
+                return Err(GateFailure::Proton(ConnectionFailure::new(
+                    FailureKind::Reconnect,
+                )));
+            }
         }
-        // Dropping this stream closes the old agent before the next certificate.
     }
 }
 
@@ -451,49 +530,110 @@ async fn read_frame<S: AsyncRead + Unpin>(stream: &mut S) -> Result<Value, GateF
     serde_json::from_slice(&body).map_err(|_| GateFailure::Protocol)
 }
 
+fn deauthorize(publisher: &watch::Sender<AgentState>) {
+    publisher.send_if_modified(|state| {
+        if *state == AgentState::Connecting {
+            false
+        } else {
+            *state = AgentState::Connecting;
+            true
+        }
+    });
+}
+
 fn status(value: &Value) -> Result<bool, GateFailure> {
     let object = value.as_object().ok_or(GateFailure::Protocol)?;
-    if object.contains_key("error") {
-        return Err(GateFailure::Authentication);
+    if let Some(error) = object.get("error").filter(|v| !v.is_null()) {
+        return reason_status(error, false).map(|_| false);
     }
     let status = object
         .get("status")
         .and_then(Value::as_object)
         .ok_or(GateFailure::Protocol)?;
-    if status.get("reason").is_some_and(|v| !v.is_null()) {
-        return Err(GateFailure::Authentication);
+    if let Some(reason) = status.get("reason").filter(|v| !v.is_null()) {
+        return reason_status(reason, true).map(|_| false);
     }
     match status.get("state").and_then(Value::as_str) {
         Some("connected") => Ok(true),
         Some("jailed") => Ok(false),
-        Some("hard-jailed") => Err(GateFailure::Authentication),
+        Some("hard-jailed") => Err(GateFailure::Proton(ConnectionFailure::agent(0))),
         _ => Err(GateFailure::Protocol),
     }
 }
 
-fn requested_features() -> Value {
-    json!({"netshield-level": 0, "randomized-nat": false, "split-tcp": false, "jail": false})
+fn reason_status(reason: &Value, has_final: bool) -> Result<(), GateFailure> {
+    let object = reason.as_object().ok_or(GateFailure::Protocol)?;
+    let code = object
+        .get("code")
+        .and_then(Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok())
+        .ok_or(GateFailure::Protocol)?;
+    let final_error = match object.get("final") {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        _ => return Err(GateFailure::Protocol),
+    };
+    if code == 86104 {
+        return Ok(());
+    }
+    if code == 0
+        || matches!(code, 86100..=86106 | 86110..=86115 | 86120..=86122 | 86150..=86154)
+        || has_final && final_error
+    {
+        return Err(GateFailure::Proton(ConnectionFailure::agent(code)));
+    }
+    Ok(())
 }
 
-fn features_match(value: &Value) -> bool {
+#[cfg(test)]
+fn requested_features() -> Value {
+    features(None)
+}
+
+fn features(label: Option<&str>) -> Value {
+    let mut value =
+        json!({"netshield-level": 0, "randomized-nat": false, "split-tcp": false, "jail": false});
+    if let Some(label) = label {
+        value["bouncing"] = json!(label);
+    }
+    value
+}
+
+fn features_match(value: &Value, label: Option<&str>) -> bool {
     let Some(received) = value["status"]["features"].as_object() else {
         return false;
     };
-    requested_features()
+    features(label)
         .as_object()
         .expect("fixed object")
         .iter()
         .all(|(key, expected)| received.get(key) == Some(expected))
 }
 
+#[cfg(test)]
 async fn protocol_loop<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     publisher: &watch::Sender<AgentState>,
     startup_deadline: Instant,
     expires_at: i64,
 ) -> Result<(), GateFailure> {
+    protocol_loop_with_label(stream, publisher, startup_deadline, expires_at, None).await
+}
+
+async fn protocol_loop_with_label<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    publisher: &watch::Sender<AgentState>,
+    startup_deadline: Instant,
+    expires_at: i64,
+    label: Option<&str>,
+) -> Result<(), GateFailure> {
+    if label.is_some_and(|label| !usque_core::proton_vpn::valid_label(label)) {
+        return Err(GateFailure::Protocol);
+    }
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut authenticated = false;
+    let mut authorization_deadline = startup_deadline;
+    let mut waiting_failure = GateFailure::Transport;
     // Both requests are standard agent operations; no privileged features are requested.
     timeout_at(
         startup_deadline,
@@ -510,7 +650,7 @@ async fn protocol_loop<S: AsyncRead + AsyncWrite + Unpin>(
         let mut deadline = if authenticated {
             next_poll + IO_BUDGET
         } else {
-            startup_deadline
+            authorization_deadline
         };
         // Keep one decoder future alive across heartbeat ticks. Cancelling a
         // partially read length/body would lose framing on the TLS byte stream.
@@ -519,25 +659,43 @@ async fn protocol_loop<S: AsyncRead + AsyncWrite + Unpin>(
         let response = loop {
             tokio::select! {
                 biased;
-                _ = tokio::time::sleep_until(deadline) => return Err(GateFailure::Transport),
+                _ = tokio::time::sleep_until(deadline) => return Err(if authenticated { GateFailure::Transport } else { waiting_failure }),
                 response = &mut reading => break response?,
-                _ = tokio::time::sleep_until(next_poll), if authenticated => {
+                _ = tokio::time::sleep_until(next_poll) => {
                     timeout_at(Instant::now() + IO_BUDGET,
                         write_frame(&mut writer, &json!({"status-get": {"features-statistics": false}})))
                         .await.map_err(|_| GateFailure::Transport)??;
                     next_poll = Instant::now() + STATUS_INTERVAL;
-                    deadline = Instant::now() + IO_BUDGET;
+                    if authenticated { deadline = Instant::now() + IO_BUDGET; }
                 }
             }
         };
         if unix_now()? >= expires_at {
             return Err(GateFailure::Certificate);
         }
-        let connected = status(&response)?;
+        let connected = match status(&response) {
+            Ok(connected) => connected,
+            Err(reason) => {
+                deauthorize(publisher);
+                return Err(reason);
+            }
+        };
+        if !connected {
+            deauthorize(publisher);
+            if let Some(code) = response["status"]["reason"]["code"]
+                .as_u64()
+                .or_else(|| response["error"]["code"].as_u64())
+                .and_then(|code| u32::try_from(code).ok())
+            {
+                waiting_failure = GateFailure::Proton(ConnectionFailure::agent(code));
+            }
+        } else if !features_match(&response, label) {
+            waiting_failure = GateFailure::Protocol;
+        }
         if !features_sent {
             timeout_at(
                 startup_deadline,
-                write_frame(&mut writer, &json!({"features-set": requested_features()})),
+                write_frame(&mut writer, &json!({"features-set": features(label)})),
             )
             .await
             .map_err(|_| GateFailure::Transport)??;
@@ -552,14 +710,15 @@ async fn protocol_loop<S: AsyncRead + AsyncWrite + Unpin>(
             )
             .await
             .map_err(|_| GateFailure::Transport)??;
-        } else if connected && features_match(&response) {
+        } else if connected && features_match(&response, label) {
             authenticated = true;
             publisher.send_replace(AgentState::Connected);
         } else {
             if authenticated {
-                return Err(GateFailure::Authentication);
+                authenticated = false;
+                authorization_deadline = Instant::now() + Duration::from_secs(35);
             }
-            publisher.send_replace(AgentState::Connecting);
+            deauthorize(publisher);
         }
     }
 }

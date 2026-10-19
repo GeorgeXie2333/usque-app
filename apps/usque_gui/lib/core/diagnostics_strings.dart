@@ -1,6 +1,7 @@
 import '../models/diagnostics_models.dart';
 import 'app_strings.dart';
 import 'diagnostics_contract_generated.dart';
+import 'proton_strings.dart';
 
 String diagnosticStatusLabel(AppStrings strings, DiagnosticCheckStatus status) {
   return strings.get(switch (status) {
@@ -43,6 +44,8 @@ String diagnosticFailureTitle(AppStrings strings, String code) {
   if (!DiagnosticsContract.failureCodes.contains(code)) {
     return strings.get('operation_failed');
   }
+  final proton = protonConnectionFailure(strings, code);
+  if (proton != null) return proton;
   return _catalogOrFallback(
     strings,
     'diag_fail_$code',
@@ -51,6 +54,12 @@ String diagnosticFailureTitle(AppStrings strings, String code) {
 }
 
 String diagnosticRemediation(AppStrings strings, String key) {
+  if (key == 'review_proton_account') {
+    return strings.proton('connection_review');
+  }
+  if (key == 'retry_proton_connection') {
+    return strings.proton('connection_retry');
+  }
   if (key == 'none' || key.isEmpty) {
     return strings.get('diag_fix_none');
   }

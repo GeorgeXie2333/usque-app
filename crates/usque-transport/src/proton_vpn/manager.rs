@@ -198,7 +198,7 @@ impl Manager {
             {
                 return Err(usque_core::proton_vpn::error("invalid_node"));
             }
-            record.version = 2;
+            record.promote();
             record.server_id = request.node_id.clone();
             sessions.save(&record)?;
             let io = Arc::new(JobIo::new());
@@ -343,7 +343,7 @@ impl Manager {
                             (
                                 accounts.selected != Some(record.id),
                                 record.rotation_pending,
-                                record.version != 2,
+                                record.version == 1,
                                 std::cmp::Reverse(record.expires_at),
                                 record.id,
                             )
@@ -492,10 +492,7 @@ pub fn attach(
         cipher,
     });
     let record = persistence.load()?;
-    if record.revision != summary.revision
-        || record.node.endpoint != summary.endpoint
-        || record.rotation_pending
-    {
+    if record.revision != summary.revision || record.node.endpoint != summary.endpoint {
         return Err(usque_core::proton_vpn::error("reauthentication_required"));
     }
     let keys = KeyMaterial::from_seed(
@@ -523,6 +520,7 @@ pub fn attach(
         private_key_pkcs8: keys.pkcs8_der(),
         server_name: record.node.domain.clone(),
         expires_at: record.expires_at,
+        label: record.node.label.clone(),
     }));
     prepared.proton_persistence = Some(persistence);
     Ok(())

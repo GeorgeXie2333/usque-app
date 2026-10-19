@@ -48,6 +48,7 @@ enum Answer {
     Json(Value),
     Status(u16, Value),
     Failed,
+    FreshCertificate,
     Cancel(CancellationToken),
     ChangeGeneration,
 }
@@ -91,6 +92,17 @@ impl Http for MockHttp {
         {
             Answer::Json(v) => (200, v),
             Answer::Status(status, v) => (status, v),
+            Answer::FreshCertificate => {
+                let body: Value = serde_json::from_slice(&request.body).unwrap();
+                let public =
+                    PKey::public_key_from_pem(body["ClientPublicKey"].as_str().unwrap().as_bytes())
+                        .unwrap();
+                let expiry = super::super::interaction::now() + 3600;
+                (
+                    200,
+                    json!({"Code":1000,"Certificate":certificate_with_public(&public, expiry),"ExpirationTime":expiry,"RefreshTime":expiry-1800}),
+                )
+            }
             Answer::Failed => return Err(InternalHttpError::Timeout),
             Answer::Cancel(cancel) => {
                 cancel.cancel();
@@ -161,6 +173,13 @@ fn success_answers() -> Vec<Answer> {
 }
 fn certificate(keys: &KeyMaterial, expiry: i64) -> String {
     let private = PKey::private_key_from_der(&keys.pkcs8_der()).unwrap();
+    let public = PKey::public_key_from_pem(&private.public_key_to_pem().unwrap()).unwrap();
+    certificate_with_public(&public, expiry)
+}
+fn certificate_with_public(
+    public: &boring::pkey::PKeyRef<boring::pkey::Public>,
+    expiry: i64,
+) -> String {
     let mut name = X509NameBuilder::new().unwrap();
     name.append_entry_by_text("CN", "synthetic-runtime-certificate")
         .unwrap();
@@ -171,7 +190,7 @@ fn certificate(keys: &KeyMaterial, expiry: i64) -> String {
         .unwrap();
     cert.set_subject_name(&name).unwrap();
     cert.set_issuer_name(&name).unwrap();
-    cert.set_pubkey(&private).unwrap();
+    cert.set_pubkey(public).unwrap();
     cert.set_not_before(&Asn1Time::from_unix(super::super::interaction::now() - 60).unwrap())
         .unwrap();
     cert.set_not_after(&Asn1Time::from_unix(expiry).unwrap())
@@ -199,6 +218,7 @@ fn fixture() -> (Record, PreparedProfile, Arc<MemoryStore>) {
         domain: "agent.example.invalid".into(),
         endpoint: Endpoint::parse("192.0.2.1", "51820", 0).unwrap(),
         public_key: STANDARD.encode(KeyMaterial::from_seed([8; 32]).unwrap().wireguard_public()),
+        label: None,
     };
     let record = Record {
         api_identity: Default::default(),
@@ -224,6 +244,8 @@ fn fixture() -> (Record, PreparedProfile, Arc<MemoryStore>) {
         server_catalog: Vec::new(),
         retired_sessions: Vec::new(),
         catalog_revision: Uuid::nil(),
+        tunnel_seed: None,
+        key_recovery_at: 0,
     };
     let config = super::super::nodes::configuration(&keys, &record.node).unwrap();
     let parsed = ValidatedProfile::parse(ChainSource::ProtonVpn, &config).unwrap();
@@ -237,6 +259,7 @@ fn fixture() -> (Record, PreparedProfile, Arc<MemoryStore>) {
         private_key_pkcs8: keys.pkcs8_der(),
         server_name: record.node.domain.clone(),
         expires_at,
+        label: None,
     }));
     let storage = Arc::new(MemoryStore {
         record: Mutex::new(record.clone()),
@@ -529,12 +552,13 @@ async fn sidecar_change_revokes_the_running_lease_without_network_or_overwriting
         generation: Some(1),
         http: http.clone(),
         peer: None,
+        retry_at: None,
     };
     let (sender, _) = watch::channel(prepared.proton.unwrap());
     storage.record.lock().unwrap().rotation_pending = true;
     assert_eq!(
         lease.run(sender, &CancellationToken::new()).await,
-        Err(GateFailure::Authentication)
+        Err(gate_failure(&Failure::new("reauthentication_required")))
     );
     assert!(storage.writes.lock().unwrap().is_empty());
     assert!(http.requests.lock().unwrap().is_empty());
@@ -562,6 +586,7 @@ async fn due_certificate_renewal_uses_the_existing_session_and_publishes_the_sam
         generation: Some(1),
         http: http.clone(),
         peer: None,
+        retry_at: None,
     };
     let original = prepared.proton.unwrap();
     let (sender, mut observed) = watch::channel(original.clone());
@@ -591,11 +616,14 @@ async fn expiry_stops_a_lease_before_any_further_network_request() {
         generation: Some(1),
         http: http.clone(),
         peer: None,
+        retry_at: None,
     };
     let (sender, _) = watch::channel(prepared.proton.unwrap());
     assert_eq!(
         lease.run(sender, &CancellationToken::new()).await,
-        Err(GateFailure::Certificate)
+        Err(GateFailure::Proton(ConnectionFailure::new(
+            FailureKind::Certificate
+        )))
     );
     assert!(http.requests.lock().unwrap().is_empty());
 }
@@ -667,4 +695,203 @@ fn a_different_key_peer_revision_or_domain_cannot_borrow_the_runtime_lease() {
         }
         assert!(bound(&prepared, &wrong).is_err());
     }
+}
+
+#[tokio::test]
+async fn revoked_certificate_rotates_only_runtime_key_and_next_start_uses_it() {
+    let (record, prepared, storage) = fixture();
+    let http = mock(vec![
+        Answer::Json(user()),
+        Answer::Json(permissions()),
+        Answer::FreshCertificate,
+    ]);
+    let mut lease = Lease {
+        current: record.clone(),
+        persistence: storage.clone(),
+        generation: Some(1),
+        http: http.clone(),
+        peer: None,
+        retry_at: None,
+    };
+    let updated = lease
+        .recover(86102, &CancellationToken::new())
+        .await
+        .unwrap();
+    let saved = storage.load().unwrap();
+    assert_eq!(saved.version, 3);
+    assert_eq!(saved.ed25519_seed, record.ed25519_seed);
+    assert_ne!(saved.tunnel_seed(), record.tunnel_seed());
+    assert_eq!(saved.revision, record.revision);
+    assert_eq!(saved.session.uid, record.session.uid);
+    assert_ne!(
+        updated.private_key_pkcs8,
+        prepared.proton.as_ref().unwrap().private_key_pkcs8
+    );
+    assert_eq!(http.requests.lock().unwrap().len(), 3);
+    {
+        let writes = storage.writes.lock().unwrap();
+        assert!(writes[0].certificate_chain.is_empty());
+        assert_eq!(writes[0].tunnel_seed, saved.tunnel_seed);
+    }
+    let failure = lease
+        .recover(86105, &CancellationToken::new())
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(
+        failure,
+        GateFailure::Proton(ConnectionFailure::agent(86105))
+    );
+    assert_eq!(http.requests.lock().unwrap().len(), 3);
+    let mut next = prepared;
+    let (credentials, _) = prepare_with_http(
+        &mut next,
+        mock(success_answers()),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(credentials.private_key_pkcs8, updated.private_key_pkcs8);
+    assert_eq!(storage.load().unwrap().tunnel_seed, saved.tunnel_seed);
+}
+
+#[tokio::test]
+async fn server_expiry_renews_certificate_without_changing_wireguard_key() {
+    let (record, prepared, storage) = fixture();
+    let http = mock(vec![
+        Answer::Json(user()),
+        Answer::Json(permissions()),
+        Answer::FreshCertificate,
+    ]);
+    let mut lease = Lease {
+        current: record.clone(),
+        persistence: storage.clone(),
+        generation: Some(1),
+        http: http.clone(),
+        peer: None,
+        retry_at: None,
+    };
+    let updated = lease
+        .recover(86101, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        updated.private_key_pkcs8,
+        prepared.proton.unwrap().private_key_pkcs8
+    );
+    assert!(storage.load().unwrap().tunnel_seed.is_none());
+    assert_eq!(storage.load().unwrap().key_recovery_at, 0);
+    assert_eq!(http.requests.lock().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn cancelled_key_recovery_never_persists_or_requests_a_new_key() {
+    let (record, _, storage) = fixture();
+    let http = mock(Vec::new());
+    let mut lease = Lease {
+        current: record.clone(),
+        persistence: storage.clone(),
+        generation: Some(1),
+        http: http.clone(),
+        peer: None,
+        retry_at: None,
+    };
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    assert!(lease.recover(86102, &cancel).await.is_err());
+    assert!(storage.writes.lock().unwrap().is_empty());
+    assert!(http.requests.lock().unwrap().is_empty());
+    assert_eq!(storage.load().unwrap().tunnel_seed(), record.tunnel_seed());
+}
+
+#[tokio::test(start_paused = true)]
+async fn temporary_renewal_failure_keeps_unexpired_certificate_and_retries_with_backoff() {
+    let (mut record, prepared, storage) = fixture();
+    record.refresh_at = super::super::interaction::now() - 1;
+    *storage.record.lock().unwrap() = record.clone();
+    let http = mock(vec![
+        Answer::Json(user()),
+        Answer::Json(permissions()),
+        Answer::Status(503, json!({"Code":503})),
+        Answer::Json(user()),
+        Answer::Json(permissions()),
+        Answer::FreshCertificate,
+    ]);
+    let lease = Lease {
+        current: record,
+        persistence: storage.clone(),
+        generation: Some(1),
+        http: http.clone(),
+        peer: None,
+        retry_at: None,
+    };
+    let original = prepared.proton.unwrap();
+    let (sender, mut observed) = watch::channel(original.clone());
+    let cancel = CancellationToken::new();
+    let task_cancel = cancel.clone();
+    let worker = tokio::spawn(async move { lease.run(sender, &task_cancel).await });
+    while http.requests.lock().unwrap().len() < 3 {
+        tokio::task::yield_now().await;
+    }
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!worker.is_finished());
+    assert_eq!(
+        observed.borrow().certificate_chain,
+        original.certificate_chain
+    );
+    assert_eq!(http.requests.lock().unwrap().len(), 3);
+    tokio::time::advance(Duration::from_secs(31)).await;
+    observed.changed().await.unwrap();
+    assert_eq!(
+        observed.borrow().private_key_pkcs8,
+        original.private_key_pkcs8
+    );
+    cancel.cancel();
+    assert_eq!(worker.await.unwrap(), Ok(()));
+    assert_eq!(http.requests.lock().unwrap().len(), 6);
+}
+
+#[test]
+fn api_failure_classification_preserves_provider_status_and_never_becomes_warp_auth() {
+    for (reason, code, status, expected) in [
+        ("api_rejected", 401, 401, FailureKind::Authentication),
+        ("rate_limited", 429, 429, FailureKind::RateLimited),
+        ("api_rejected", 503, 503, FailureKind::Api),
+        ("invalid_server_directory", 1000, 200, FailureKind::Protocol),
+    ] {
+        let failure = gate_failure(&Failure::api(reason, code, status));
+        assert_eq!(
+            failure,
+            GateFailure::Proton(ConnectionFailure {
+                kind: expected,
+                code: Some(code),
+                http_status: Some(status)
+            })
+        );
+        let public = crate::TransportError::VpnGate(failure).failure(None, None);
+        assert!(public.code.as_str().starts_with("PROTON_"));
+        assert_eq!(
+            public.sanitized_detail.as_deref(),
+            Some(format!("proton api {code} http {status}").as_str())
+        );
+        assert!(!public.fallback_allowed);
+    }
+}
+
+#[tokio::test]
+async fn connect_can_reuse_a_valid_certificate_after_a_transient_due_refresh_failure() {
+    let (mut record, mut prepared, storage) = fixture();
+    record.refresh_at = super::super::interaction::now() - 1;
+    *storage.record.lock().unwrap() = record.clone();
+    let mut answers = success_answers();
+    answers.push(Answer::Status(503, json!({"Code":503})));
+    let (credentials, lease) =
+        prepare_with_http(&mut prepared, mock(answers), &CancellationToken::new())
+            .await
+            .unwrap();
+    assert_eq!(credentials.certificate_chain, record.certificate_chain);
+    assert!(lease.retry_at.is_some());
+    assert!(lease.current.expires_at > super::super::interaction::now());
 }

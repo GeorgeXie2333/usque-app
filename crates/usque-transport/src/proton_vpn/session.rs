@@ -93,7 +93,7 @@ impl Access {
         }
         if record.session.uid != client.session.uid {
             record.server_id = record.selected_server().map(str::to_owned);
-            record.version = 2;
+            record.promote();
             record.certificate_chain.zeroize();
             record.expires_at = 0;
             record.refresh_at = 0;
@@ -184,6 +184,7 @@ impl Access {
             record.identity == "guest",
         )
         .await;
+        let old_tier = record.max_tier;
         record.max_tier = match result {
             Err(failure) if failure.status == Some(401) && !client.uncertain && !self.recovered => {
                 self.recover(client, record, interaction, cancel).await?;
@@ -198,6 +199,14 @@ impl Access {
             }
             result => result?,
         };
+        if old_tier != record.max_tier {
+            record.server_id = record.selected_server().map(str::to_owned);
+            record.promote();
+            record.certificate_chain.zeroize();
+            record.expires_at = 0;
+            record.refresh_at = 0;
+            self.save(record, cancel).await?;
+        }
         Ok(())
     }
     pub async fn directory(

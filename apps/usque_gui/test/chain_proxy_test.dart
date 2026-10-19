@@ -199,6 +199,31 @@ Future<void> chooseSource(WidgetTester tester, ChainSource source) async {
 }
 
 void main() {
+  test(
+    'structured Proton gate failures preserve source without interpreting remote descriptions',
+    () {
+      final status = ChainExitStatus.fromMap({
+        'stage': 'error',
+        'failure': {
+          'proton': {
+            'kind': 'certificate',
+            'code': 86102,
+            'description': 'private token',
+          },
+        },
+      });
+      expect(status.failure, 'proton_certificate');
+      expect(
+        ChainExitStatus.fromMap({
+          'failure': {
+            'proton': {'kind': 'private token'},
+          },
+        }).failure,
+        isNull,
+      );
+    },
+  );
+
   TestWidgetsFlutterBinding.ensureInitialized();
   testWidgets('proxy validation keeps port and DNS errors localized', (
     tester,

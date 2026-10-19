@@ -65,10 +65,22 @@ pub enum TransportFailureCode {
     L4DnsFailed,
     EndpointPinRefreshFailed,
     EndpointPinRetryFailed,
+    ProtonAuthenticationFailed,
+    ProtonCertificateFailed,
+    ProtonServerRestricted,
+    ProtonSessionLimit,
+    ProtonKeyReused,
+    ProtonPolicyRestricted,
+    ProtonServerFailed,
+    ProtonRateLimited,
+    ProtonApiFailed,
+    ProtonProtocolFailed,
+    ProtonTransportFailed,
+    ProtonReconnectRequired,
 }
 
 impl TransportFailureCode {
-    pub const ALL: [Self; 56] = [
+    pub const ALL: [Self; 68] = [
         Self::EngineUnavailable,
         Self::AgentUnreachable,
         Self::VpnServiceUnavailable,
@@ -125,6 +137,18 @@ impl TransportFailureCode {
         Self::L4DnsFailed,
         Self::EndpointPinRefreshFailed,
         Self::EndpointPinRetryFailed,
+        Self::ProtonAuthenticationFailed,
+        Self::ProtonCertificateFailed,
+        Self::ProtonServerRestricted,
+        Self::ProtonSessionLimit,
+        Self::ProtonKeyReused,
+        Self::ProtonPolicyRestricted,
+        Self::ProtonServerFailed,
+        Self::ProtonRateLimited,
+        Self::ProtonApiFailed,
+        Self::ProtonProtocolFailed,
+        Self::ProtonTransportFailed,
+        Self::ProtonReconnectRequired,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -185,6 +209,18 @@ impl TransportFailureCode {
             Self::L4DnsFailed => "L4_DNS_FAILED",
             Self::EndpointPinRefreshFailed => "ENDPOINT_PIN_REFRESH_FAILED",
             Self::EndpointPinRetryFailed => "ENDPOINT_PIN_RETRY_FAILED",
+            Self::ProtonAuthenticationFailed => "PROTON_AUTHENTICATION_FAILED",
+            Self::ProtonCertificateFailed => "PROTON_CERTIFICATE_FAILED",
+            Self::ProtonServerRestricted => "PROTON_SERVER_RESTRICTED",
+            Self::ProtonSessionLimit => "PROTON_SESSION_LIMIT",
+            Self::ProtonKeyReused => "PROTON_KEY_REUSED",
+            Self::ProtonPolicyRestricted => "PROTON_POLICY_RESTRICTED",
+            Self::ProtonServerFailed => "PROTON_SERVER_FAILED",
+            Self::ProtonRateLimited => "PROTON_RATE_LIMITED",
+            Self::ProtonApiFailed => "PROTON_API_FAILED",
+            Self::ProtonProtocolFailed => "PROTON_PROTOCOL_FAILED",
+            Self::ProtonTransportFailed => "PROTON_TRANSPORT_FAILED",
+            Self::ProtonReconnectRequired => "PROTON_RECONNECT_REQUIRED",
         }
     }
 
@@ -225,6 +261,22 @@ impl TransportFailureCode {
             ),
             Self::EndpointPinRefreshFailed | Self::EndpointPinRetryFailed => {
                 FailureMetadata::new(Error, false, false, Stop, "export_diagnostics", true)
+            }
+            Self::ProtonAuthenticationFailed
+            | Self::ProtonCertificateFailed
+            | Self::ProtonSessionLimit
+            | Self::ProtonKeyReused
+            | Self::ProtonPolicyRestricted
+            | Self::ProtonServerFailed
+            | Self::ProtonRateLimited
+            | Self::ProtonApiFailed
+            | Self::ProtonProtocolFailed => {
+                FailureMetadata::new(Error, false, false, Stop, "review_proton_account", true)
+            }
+            Self::ProtonServerRestricted
+            | Self::ProtonTransportFailed
+            | Self::ProtonReconnectRequired => {
+                FailureMetadata::new(Warning, true, false, Retry, "retry_proton_connection", true)
             }
             Self::IdentityInvalid | Self::AuthenticationFailed => {
                 FailureMetadata::new(Error, false, false, Stop, "replace_identity", true)
@@ -453,6 +505,22 @@ impl TransportFailure {
     pub fn sanitized_detail_is_safe(detail: &str) -> bool {
         if detail.is_empty() || detail.len() > 64 || !detail.is_ascii() {
             return false;
+        }
+        let number = |value: &str| {
+            !value.is_empty() && value.len() <= 10 && value.bytes().all(|b| b.is_ascii_digit())
+        };
+        if let Some(value) = detail.strip_prefix("proton agent ") {
+            return number(value) && value.parse::<u32>().is_ok();
+        }
+        if let Some(value) = detail.strip_prefix("proton api ") {
+            return value.split_once(" http ").is_some_and(|(code, status)| {
+                number(code)
+                    && code.parse::<u32>().is_ok()
+                    && number(status)
+                    && status
+                        .parse::<u16>()
+                        .is_ok_and(|status| (100..600).contains(&status))
+            });
         }
         ["attempt ", "status ", "generation ", "queue depth "]
             .iter()

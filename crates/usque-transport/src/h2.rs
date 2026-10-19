@@ -1545,6 +1545,9 @@ impl TransportError {
         let (code, stage) = match self {
             Self::VpnGate(reason) => {
                 use usque_core::vpngate::GateFailure;
+                if let GateFailure::Proton(failure) = reason {
+                    return failure.failure();
+                }
                 let (code, stage) = match reason {
                     GateFailure::Transport => (Code::PacketReceiveFailed, Stage::PacketReceive),
                     GateFailure::Authentication => {
@@ -1557,6 +1560,7 @@ impl TransportError {
                     GateFailure::AddressChanged => {
                         (Code::AddressAssignmentInvalid, Stage::AddressAssignment)
                     }
+                    GateFailure::Proton(_) => unreachable!("handled above"),
                 };
                 let mut failure = TransportFailure::new(code, stage);
                 failure.retryable = reason.retryable();

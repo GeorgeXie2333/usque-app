@@ -625,8 +625,13 @@ impl DataPlaneRuntime {
         #[cfg(feature = "wireguard")]
         let mut prepared = prepared;
         #[cfg(feature = "wireguard")]
-        let proton_lease = if proton_source {
-            let (credentials, lease) = {
+        let mut proton_attempt = 0;
+        #[cfg(feature = "wireguard")]
+        let saved_proton = prepared.clone();
+        let (mut driver, tunnel, mut network) = loop {
+            #[cfg(feature = "wireguard")]
+            let lease = if proton_source {
+                prepared = saved_proton.clone();
                 let refresh_cancel = cancellation.child_token();
                 let refresh = crate::proton_vpn::renew::prepare(
                     &mut prepared,
@@ -634,46 +639,76 @@ impl DataPlaneRuntime {
                     &refresh_cancel,
                 );
                 tokio::pin!(refresh);
-                let result = tokio::select! {
+                let (_, lease) = tokio::select! {
                     biased;
                     _ = cancellation.cancelled() => {
-                        refresh_cancel.cancel();
-                        let _ = refresh.await;
+                        refresh_cancel.cancel(); let _ = refresh.await;
                         return Err(TransportError::TunnelClosed);
                     }
                     _ = tokio::time::sleep_until(connection_deadline) => {
-                        refresh_cancel.cancel();
-                        let _ = refresh.await;
-                        return Err(TransportError::VpnGate(GateFailure::Transport));
+                        refresh_cancel.cancel(); let _ = refresh.await;
+                        return Err(TransportError::VpnGate(GateFailure::Proton(usque_core::proton_vpn::ConnectionFailure::new(usque_core::proton_vpn::FailureKind::Transport))));
                     }
-                    result = &mut refresh => result,
+                    result = &mut refresh => result.map_err(TransportError::VpnGate)?,
                 };
-                result.map_err(TransportError::VpnGate)?
+                Some(lease)
+            } else {
+                None
             };
-            prepared.proton = Some(credentials);
-            Some(lease)
-        } else {
-            if prepared.proton_persistence.is_some() {
-                return Err(TransportError::VpnGate(GateFailure::Configuration));
+            #[cfg(feature = "wireguard")]
+            let result = if let Some(lease) = lease {
+                crate::vpngate::GateDriver::start_proton(
+                    &prepared,
+                    self.warp_internal_network(),
+                    self.underlay_monitor().network_quality_telemetry(),
+                    status.clone(),
+                    &cancellation,
+                    connection_deadline,
+                    lease,
+                )
+                .await
+            } else {
+                crate::vpngate::GateDriver::start(
+                    &prepared,
+                    self.warp_internal_network(),
+                    self.underlay_monitor().network_quality_telemetry(),
+                    status.clone(),
+                    &cancellation,
+                    connection_deadline,
+                )
+                .await
+            };
+            #[cfg(not(feature = "wireguard"))]
+            let result = crate::vpngate::GateDriver::start(
+                &prepared,
+                self.warp_internal_network(),
+                self.underlay_monitor().network_quality_telemetry(),
+                status.clone(),
+                &cancellation,
+                connection_deadline,
+            )
+            .await;
+            #[cfg(feature = "wireguard")]
+            if proton_source
+                && proton_attempt == 0
+                && matches!(
+                    result,
+                    Err(TransportError::VpnGate(GateFailure::Proton(
+                        usque_core::proton_vpn::ConnectionFailure {
+                            kind: usque_core::proton_vpn::FailureKind::Reconnect,
+                            ..
+                        }
+                    )))
+                )
+            {
+                // start_proton awaits both native and credential workers before
+                // returning. The retry uses the new atomic encrypted tunnel key
+                // and the same absolute deadline, never an overlapping session.
+                proton_attempt += 1;
+                continue;
             }
-            None
+            break result?;
         };
-        let (mut driver, tunnel, mut network) = crate::vpngate::GateDriver::start(
-            &prepared,
-            self.warp_internal_network(),
-            self.underlay_monitor().network_quality_telemetry(),
-            status.clone(),
-            &cancellation,
-            connection_deadline,
-        )
-        .await?;
-        #[cfg(feature = "wireguard")]
-        if let Some(lease) = proton_lease
-            && let Err(reason) = driver.start_proton_renewal(lease)
-        {
-            driver.shutdown().await;
-            return Err(TransportError::VpnGate(reason));
-        }
         network.mtu = final_mtu(profile, network.mtu);
         filter_final_dns(
             &mut network,

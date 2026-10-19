@@ -498,14 +498,17 @@ internal class ServiceSnapshotState {
         }
 
         private fun safeFailureDetail(value: String): Boolean =
-            value.length <= 64 &&
-                FAILURE_DETAIL_PREFIXES.any { prefix ->
-                    value.removePrefix(prefix).let { suffix ->
-                        suffix.length < value.length &&
-                            suffix.isNotEmpty() &&
-                            suffix.all { character -> character in '0'..'9' }
-                    }
-                }
+            ProtonFailureDetail.isSafe(value) ||
+                (
+                    value.length <= 64 &&
+                        FAILURE_DETAIL_PREFIXES.any { prefix ->
+                            value.removePrefix(prefix).let { suffix ->
+                                suffix.length < value.length &&
+                                    suffix.isNotEmpty() &&
+                                    suffix.all { character -> character in '0'..'9' }
+                            }
+                        }
+                )
 
         private val SAFE_CODE = Regex("^[A-Z][A-Z0-9_]{1,63}$")
         private val SAFE_TOKEN = Regex("^[a-z][a-z0-9_]{0,63}$")

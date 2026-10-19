@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../services/engine_client.dart';
 import 'app_strings.dart';
+import 'proton_strings.dart';
 
 /// Translate structured failure codes, never backend messages or exception text.
 /// Raw diagnostics may contain paths, addresses or credentials. The existing
@@ -26,7 +27,28 @@ String userFacingError(AppStrings strings, Object error) {
   };
 }
 
-String userFacingFailure(AppStrings strings, {String? code, String? details}) {
+String userFacingFailure(
+  AppStrings strings, {
+  String? code,
+  String? details,
+  String? protonContext,
+}) {
+  final proton = protonConnectionFailure(strings, code);
+  if (proton != null) {
+    final context = protonContext;
+    if (context != null &&
+        RegExp(
+          r'^proton api [0-9]{1,10} http [1-5][0-9]{2}$',
+        ).hasMatch(context)) {
+      final parts = context.split(' ');
+      return '$proton\nProton API ${parts[2]} · HTTP ${parts[4]}';
+    }
+    if (context != null &&
+        RegExp(r'^proton agent [0-9]{1,10}$').hasMatch(context)) {
+      return '$proton\nProton agent ${context.split(' ').last}';
+    }
+    return proton;
+  }
   final recovery = strings.windowsRecoveryError(code, details: details);
   if (recovery != null) return recovery;
   final key = switch (code) {

@@ -89,6 +89,7 @@ internal object VpnGateFields {
                     "attempt_failures",
                 ),
             ).toMutableMap().apply {
+                put("failure", gateFailure(it.opt("failure")))
                 put("current_server", it.optJSONObject("current_server")?.let { node -> server(node) })
                 put("current_profile", ChainProfileFields.summary(it.optJSONObject("current_profile")))
                 put(
@@ -105,6 +106,64 @@ internal object VpnGateFields {
                 )
             }
         }
+
+    private fun gateFailure(value: Any?): Any? {
+        if (value is String) {
+            return value.takeIf {
+                it in
+                    setOf(
+                        "transport",
+                        "authentication",
+                        "certificate",
+                        "configuration",
+                        "address_changed",
+                        "protocol",
+                        "cleanup",
+                    )
+            }
+        }
+        val proton = (value as? JSONObject)?.optJSONObject("proton") ?: return null
+        val kind = proton.optString("kind")
+        if (kind !in
+            setOf(
+                "authentication",
+                "certificate",
+                "restricted",
+                "max_sessions",
+                "key_reused",
+                "policy",
+                "server",
+                "rate_limited",
+                "api",
+                "protocol",
+                "transport",
+                "reconnect",
+            )
+        ) {
+            return null
+        }
+
+        fun number(
+            name: String,
+            maximum: Long,
+        ): Long? {
+            val raw = proton.opt(name)
+            val number =
+                if (raw is Int) {
+                    raw.toLong()
+                } else if (raw is Long) {
+                    raw
+                } else {
+                    return null
+                }
+            return number.takeIf { it in 0..maximum }
+        }
+        val code = number("code", 0xffff_ffffL)
+        val status = number("http_status", 599)?.takeIf { it >= 100 }
+        if (!proton.isNull("code") && code == null) return null
+        if (!proton.isNull("http_status") && status == null) return null
+        return mapOf("proton" to mapOf("kind" to kind, "code" to code, "http_status" to status))
+    }
 
     fun directory(raw: String): Map<String, Any?> {
         require(raw.length <= 512 * 1024)

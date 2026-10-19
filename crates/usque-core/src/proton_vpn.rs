@@ -1,6 +1,8 @@
 //! Proton control-plane contracts. Secrets use a separate authenticated IPC field
 //! and an encrypted sidecar; ordinary status never contains an authentication URL.
+mod connection;
 pub mod store;
+pub use connection::{ConnectionFailure, FailureKind, valid_label};
 
 use crate::chain_exit::{Endpoint, ImportError};
 use serde::{Deserialize, Serialize};
@@ -185,10 +187,15 @@ pub struct SelectedNode {
     pub domain: String,
     pub endpoint: Endpoint,
     pub public_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 impl SelectedNode {
     pub fn validate(&self) -> Result<(), ImportError> {
         self.metadata.validate()?;
+        if self.label.as_ref().is_some_and(|label| !valid_label(label)) {
+            return Err(error("invalid_node"));
+        }
         let domain = self.domain.as_str();
         if domain.len() > 253
             || domain.is_empty()
@@ -343,6 +350,7 @@ pub struct TunnelCredentials {
     pub private_key_pkcs8: Zeroizing<Vec<u8>>,
     pub server_name: String,
     pub expires_at: i64,
+    pub label: Option<String>,
 }
 /// An owned capability for one selected account, never a platform vault.
 pub trait LeasePersistence: Send + Sync {
@@ -383,18 +391,38 @@ pub struct Record {
     pub retired_sessions: Vec<RevocationHandle>,
     #[serde(default)]
     pub catalog_revision: Uuid,
+    /// The saved profile keeps its original binding key. A recovered tunnel key
+    /// lives in this same atomic encrypted record, so a crash cannot split two
+    /// separately written key stores.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tunnel_seed: Option<Zeroizing<Vec<u8>>>,
+    #[serde(default)]
+    pub key_recovery_at: i64,
 }
 impl Record {
+    pub fn tunnel_seed(&self) -> &[u8] {
+        self.tunnel_seed
+            .as_deref()
+            .map_or(&self.ed25519_seed, |seed| seed)
+    }
+    pub fn promote(&mut self) {
+        self.version = if self.tunnel_seed.is_some() { 3 } else { 2 };
+    }
     pub fn validate(&self) -> Result<(), ImportError> {
         self.api_identity.validate()?;
         self.session.validate()?;
         self.node.validate()?;
-        let deferred = self.version == 2
+        let deferred = matches!(self.version, 2 | 3)
             && self.certificate_chain.is_empty()
             && self.expires_at == 0
             && self.refresh_at == 0;
-        if !matches!(self.version, 1 | 2)
+        if !matches!(self.version, 1..=3)
             || self.ed25519_seed.len() != 32
+            || self
+                .tunnel_seed
+                .as_ref()
+                .is_some_and(|seed| self.version != 3 || seed.len() != 32)
+            || self.key_recovery_at < 0
             || !matches!(self.identity.as_str(), "guest" | "login")
             || self.name.is_empty()
             || self.name.chars().count() > 64

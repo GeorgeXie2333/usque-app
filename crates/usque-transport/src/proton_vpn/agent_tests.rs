@@ -10,6 +10,7 @@ fn credentials() -> TunnelCredentials {
         private_key_pkcs8: Zeroizing::new(STANDARD.decode(CLIENT_KEY_DER).unwrap()),
         server_name: "agent.example.invalid".into(),
         expires_at: unix_now().unwrap() + 3600,
+        label: None,
     }
 }
 
@@ -339,7 +340,10 @@ async fn the_private_tcp_stack_completes_mutual_tls_before_business_admission() 
             .unwrap()
             .unwrap();
         done.send(()).unwrap();
-        assert_eq!(result, Err(GateFailure::Authentication));
+        assert_eq!(
+            result,
+            Err(GateFailure::Proton(ConnectionFailure::agent(86102)))
+        );
         assert!(!gate.authorized());
         peer.await.unwrap();
     })
@@ -402,7 +406,10 @@ async fn agent_requires_status_after_features_and_drops_authorization_on_jail() 
     .unwrap();
     assert!(matches!(
         worker.await.unwrap(),
-        Err(GateFailure::Authentication)
+        Err(GateFailure::Proton(ConnectionFailure {
+            code: Some(86102),
+            ..
+        }))
     ));
 }
 
@@ -446,7 +453,10 @@ async fn a_partial_frame_survives_a_heartbeat_and_then_revokes_authorization() {
     server.write_all(&body).await.unwrap();
     assert!(matches!(
         worker.await.unwrap(),
-        Err(GateFailure::Authentication)
+        Err(GateFailure::Proton(ConnectionFailure {
+            code: Some(86102),
+            ..
+        }))
     ));
 }
 
@@ -475,7 +485,7 @@ async fn connected_without_feature_confirmation_never_opens_the_gate() {
     )
     .await
     .unwrap();
-    assert!(matches!(worker.await.unwrap(), Err(GateFailure::Transport)));
+    assert!(matches!(worker.await.unwrap(), Err(GateFailure::Protocol)));
     assert_eq!(*observed.borrow(), AgentState::Connecting);
 }
 
@@ -587,3 +597,222 @@ VZ3TYmWZpSx47s6vXFzzi3PmKJOeTN8P0zs078kXdVElgYh5BZ+8V8IJ
 "#;
 const SERVER_KEY_DER: &str = "MC4CAQAwBQYDK2VwBCIEIM3qQd7LQxDZB9/evuGV97JkvDCKbbRukjFcPOopuuVF";
 const CLIENT_KEY_DER: &str = "MC4CAQAwBQYDK2VwBCIEIBmB1o89tTHu+GlbLpA4177UYUj+hFS0wIfZPxHbmAk1";
+
+#[test]
+fn reason_codes_and_final_flag_are_distinct_from_http_authentication() {
+    for code in [
+        86100, 86101, 86102, 86103, 86105, 86106, 86111, 86151, 86153,
+    ] {
+        assert_eq!(
+            status(&json!({"status":{"state":"hard-jailed","reason":{"code":code,"final":false}}})),
+            Err(GateFailure::Proton(ConnectionFailure::agent(code)))
+        );
+    }
+    for state in ["jailed", "hard-jailed", "connected"] {
+        assert_eq!(
+            status(&json!({"status":{"state":state,"reason":{"code":86104,"final":false}}})),
+            Ok(false)
+        );
+        assert_eq!(
+            status(&json!({"status":{"state":state,"reason":{"code":99000,"final":false}}})),
+            Ok(false)
+        );
+    }
+    assert_eq!(
+        status(&json!({"status":{"state":"hard-jailed","reason":{"code":99000,"final":true}}})),
+        Err(GateFailure::Proton(ConnectionFailure::agent(99000)))
+    );
+    assert_eq!(
+        status(&json!({"status":{"state":"connected","reason":null},"error":null})),
+        Ok(true)
+    );
+    for reason in [
+        json!({"code":-1}),
+        json!({"code":4294967296_u64}),
+        json!({"code":86104,"final":"false"}),
+        json!("secret"),
+    ] {
+        assert!(status(&json!({"status":{"state":"connected","reason":reason}})).is_err());
+    }
+}
+
+#[tokio::test]
+async fn labelled_restricted_node_waits_for_matching_authorized_status_and_closes_again_on_jail() {
+    let (mut client, mut server) = duplex(8192);
+    let (publisher, mut observed) = watch::channel(AgentState::Connecting);
+    let worker = tokio::spawn(async move {
+        protocol_loop_with_label(
+            &mut client,
+            &publisher,
+            Instant::now() + IO_BUDGET,
+            unix_now().unwrap() + 3600,
+            Some("0"),
+        )
+        .await
+    });
+    read_frame(&mut server).await.unwrap();
+    write_frame(
+        &mut server,
+        &json!({"status":{"state":"hard-jailed","reason":{"code":86104,"final":false}}}),
+    )
+    .await
+    .unwrap();
+    let request = read_frame(&mut server).await.unwrap();
+    assert_eq!(request["features-set"]["bouncing"], "0");
+    assert_eq!(request["features-set"]["jail"], false);
+    read_frame(&mut server).await.unwrap();
+    write_frame(
+        &mut server,
+        &json!({"status":{"state":"connected","features":features(Some("1"))}}),
+    )
+    .await
+    .unwrap();
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(*observed.borrow(), AgentState::Connecting);
+    write_frame(
+        &mut server,
+        &json!({"status":{"state":"connected","features":features(Some("0"))}}),
+    )
+    .await
+    .unwrap();
+    observed
+        .wait_for(|state| *state == AgentState::Connected)
+        .await
+        .unwrap();
+    write_frame(
+        &mut server,
+        &json!({"status":{"state":"hard-jailed","reason":{"code":86104,"final":false}}}),
+    )
+    .await
+    .unwrap();
+    observed
+        .wait_for(|state| *state == AgentState::Connecting)
+        .await
+        .unwrap();
+    assert!(!worker.is_finished());
+    write_frame(
+        &mut server,
+        &json!({"status":{"state":"connected","features":features(Some("0"))}}),
+    )
+    .await
+    .unwrap();
+    observed
+        .wait_for(|state| *state == AgentState::Connected)
+        .await
+        .unwrap();
+    drop(server);
+    assert!(worker.await.unwrap().is_err());
+}
+
+#[test]
+fn server_trust_errors_are_not_mistaken_for_client_certificate_alerts() {
+    for alert in [
+        rustls::AlertDescription::UnknownCA,
+        rustls::AlertDescription::CertificateExpired,
+    ] {
+        assert!(client_certificate_alert(&std::io::Error::other(
+            rustls::Error::AlertReceived(alert)
+        )));
+    }
+    assert!(!client_certificate_alert(&std::io::Error::other(
+        rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer)
+    )));
+    assert!(!client_certificate_alert(&std::io::Error::other(
+        "unknown_ca secret"
+    )));
+}
+
+#[tokio::test]
+async fn agent_certificate_recovery_is_available_before_initial_admission() {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        for code in [86101, 86102] {
+            let config = Config { mtu: 1216, command_channel_capacity: Some(8), tcp_buffer_size: 32*1024, ..Config::default() };
+            let (client, client_pipe) = crate::netstack::bounded_piped_with_capacity(config.clone(), 16);
+            let (server, server_pipe) = crate::netstack::bounded_piped_with_capacity(config, 16);
+            let client_channel = client.command_channel(); let server_channel = server.command_channel();
+            let _client_stack = AbortOnDropHandle::new(client.spawn_tokio());
+            let _server_stack = AbortOnDropHandle::new(server.spawn_tokio());
+            client_channel.set_ips([CLIENT.into()]).await.unwrap(); server_channel.set_ips([SERVER.into()]).await.unwrap();
+            let tuple = ControlTuple { local_port: crate::port_allocator::next_tcp_port() };
+            let mut from_client = client_pipe.rx; let mut from_server = server_pipe.rx;
+            let _outgoing = AbortOnDropHandle::new(tokio::spawn(async move { while let Some(packet) = from_client.recv_async().await { if !server_pipe.tx.send_owned_checked(packet).await { break; } } }));
+            let _incoming = AbortOnDropHandle::new(tokio::spawn(async move { while let Some(packet) = from_server.recv_async().await { if !client_pipe.tx.send_owned_checked(packet).await { break; } } }));
+            let listener = crate::stack_tcp::OnceListener::bind(server_channel.clone(), SocketAddr::new(SERVER.into(), SERVER_PORT)).await.unwrap();
+            let (publisher, mut observed) = watch::channel(AgentState::Connecting);
+            let expiry = Arc::new(AtomicI64::new(unix_now().unwrap()+3600));
+            let gate = AgentGate { status: observed.clone(), expires_at: expiry.clone() };
+            let (requests, mut received) = mpsc::channel::<RecoveryRequest>(1);
+            let (updates, credentials) = watch::channel(Arc::new(self::credentials()));
+            let (continue_peer, resumed) = oneshot::channel();
+            let peer = AbortOnDropHandle::new(tokio::spawn(async move {
+                let tcp = listener.accept(SocketAddr::new(CLIENT.into(), tuple.local_port)).await.unwrap();
+                let mut tls = tokio_rustls::TlsAcceptor::from(server_config()).accept(tcp).await.unwrap();
+                read_frame(&mut tls).await.unwrap();
+                write_frame(&mut tls, &json!({"status":{"state":"hard-jailed","reason":{"code":code,"final":true}}})).await.unwrap();
+                resumed.await.unwrap(); drop(tls);
+                if code == 86101 {
+                    let listener = crate::stack_tcp::OnceListener::bind(server_channel, SocketAddr::new(SERVER.into(), SERVER_PORT)).await.unwrap();
+                    let tcp = listener.accept(SocketAddr::new(CLIENT.into(), tuple.local_port)).await.unwrap();
+                    let mut tls = tokio_rustls::TlsAcceptor::from(server_config()).accept(tcp).await.unwrap();
+                    read_frame(&mut tls).await.unwrap();
+                    write_frame(&mut tls, &json!({"status":{"state":"jailed","reason":null}})).await.unwrap();
+                    read_frame(&mut tls).await.unwrap(); read_frame(&mut tls).await.unwrap();
+                    write_frame(&mut tls, &json!({"status":{"state":"connected","reason":null,"features":requested_features()}})).await.unwrap();
+                    std::future::pending::<()>().await;
+                }
+            }));
+            let cancel = CancellationToken::new(); let task_cancel = cancel.clone(); let task_expiry = expiry.clone();
+            let worker = AbortOnDropHandle::new(tokio::spawn(async move {
+                credential_loop(credentials, client_channel, tuple, Lifetime { publisher: &publisher, cancellation: &task_cancel, startup_deadline: Instant::now()+Duration::from_secs(15), expires_at_gate: &task_expiry, recovery: Some(requests), roots: ROOT_CA }).await
+            }));
+            let request = received.recv().await.unwrap(); assert_eq!(request.code, code); assert!(!gate.authorized());
+            let mut replacement = self::credentials();
+            if code == 86102 { replacement.private_key_pkcs8 = Zeroizing::new(STANDARD.decode(SERVER_KEY_DER).unwrap()); }
+            let replacement = Arc::new(replacement);
+            continue_peer.send(()).unwrap();
+            tokio::task::yield_now().await;
+            updates.send_replace(replacement.clone()); request.reply.send(Ok(replacement)).unwrap();
+            if code == 86102 {
+                assert_eq!(worker.await.unwrap(), Err(GateFailure::Proton(ConnectionFailure::new(FailureKind::Reconnect))));
+                assert!(!gate.authorized());
+            } else {
+                observed.wait_for(|state| *state == AgentState::Connected).await.unwrap();
+                assert!(gate.authorized()); cancel.cancel(); let _ = worker.await;
+            }
+            drop(peer);
+        }
+    }).await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn restricted_status_watchdog_preserves_reason_and_never_admits_business() {
+    for response in [
+        json!({"status":{"state":"hard-jailed","reason":{"code":86104,"final":false}}}),
+        json!({"error":{"code":86104}}),
+    ] {
+        let (mut client, mut server) = duplex(8192);
+        let (publisher, observed) = watch::channel(AgentState::Connecting);
+        let worker = tokio::spawn(async move {
+            protocol_loop(
+                &mut client,
+                &publisher,
+                Instant::now() + IO_BUDGET,
+                unix_now().unwrap() + 3600,
+            )
+            .await
+        });
+        read_frame(&mut server).await.unwrap();
+        write_frame(&mut server, &response).await.unwrap();
+        read_frame(&mut server).await.unwrap();
+        read_frame(&mut server).await.unwrap();
+        assert_eq!(*observed.borrow(), AgentState::Connecting);
+        tokio::time::advance(IO_BUDGET + Duration::from_secs(1)).await;
+        assert_eq!(
+            worker.await.unwrap(),
+            Err(GateFailure::Proton(ConnectionFailure::agent(86104)))
+        );
+        assert_eq!(*observed.borrow(), AgentState::Connecting);
+    }
+}

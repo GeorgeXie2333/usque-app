@@ -1019,14 +1019,17 @@ internal class AndroidDiagnosticsCoordinator(
         }
 
     private fun safeFailureDetail(value: String): Boolean =
-        value.length <= 64 &&
-            FAILURE_DETAIL_PREFIXES.any { prefix ->
-                value.removePrefix(prefix).let { suffix ->
-                    suffix.length < value.length &&
-                        suffix.isNotEmpty() &&
-                        suffix.all { character -> character in '0'..'9' }
-                }
-            }
+        ProtonFailureDetail.isSafe(value) ||
+            (
+                value.length <= 64 &&
+                    FAILURE_DETAIL_PREFIXES.any { prefix ->
+                        value.removePrefix(prefix).let { suffix ->
+                            suffix.length < value.length &&
+                                suffix.isNotEmpty() &&
+                                suffix.all { character -> character in '0'..'9' }
+                        }
+                    }
+            )
 
     private fun safeTransport(value: Any?): String? =
         (value as? String)?.lowercase()?.takeIf { it == "h2" || it == "h3" }

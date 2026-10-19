@@ -135,12 +135,15 @@ fn record() -> Record {
             domain: "node.example.test".into(),
             endpoint: Endpoint::parse("192.0.2.1", "51820", 0).unwrap(),
             public_key: "R0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0c=".into(),
+            label: None,
         },
         rotation_pending: false,
         server_id: None,
         server_catalog: Vec::new(),
         retired_sessions: Vec::new(),
         catalog_revision: Uuid::nil(),
+        tunnel_seed: None,
+        key_recovery_at: 0,
     }
 }
 fn path(parent: &Path, id: Uuid) -> PathBuf {
@@ -476,6 +479,7 @@ fn proton_vpn_sensitive_material_never_appears_in_debug_or_normal_status() {
         private_key_pkcs8: Zeroizing::new(b"synthetic-sensitive-key".to_vec()),
         server_name: "sensitive-host.example".into(),
         expires_at: record.expires_at,
+        label: None,
     };
     assert_private(&format!("{credentials:?}"));
     assert_private(&serde_json::to_string(&record.summary()).unwrap());
@@ -712,4 +716,31 @@ fn revocation_capabilities_never_become_authentication_records_or_public_metadat
     record.rotation_pending = true;
     record.validate().unwrap();
     assert!(RevocationHandle::capture(&SessionSecrets::default(), &record.api_identity).is_none());
+}
+
+#[test]
+fn recovered_key_record_is_atomic_private_and_legacy_binding_remains_unchanged() {
+    let parent = tempfile::tempdir().unwrap();
+    let cipher = TestCipher::new();
+    let mut record = record();
+    let binding = record.ed25519_seed.clone();
+    record.tunnel_seed = Some(Zeroizing::new(vec![8; 32]));
+    record.key_recovery_at = 123;
+    record.promote();
+    let store = store::SessionStore::new(parent.path(), &cipher);
+    store.save(&record).unwrap();
+    let saved = store.load(record.id).unwrap();
+    assert_eq!(saved.version, 3);
+    assert_eq!(saved.tunnel_seed(), &[8; 32]);
+    assert_eq!(saved.ed25519_seed, binding);
+    assert!(
+        !serde_json::to_string(&saved.summary())
+            .unwrap()
+            .contains("tunnel_seed")
+    );
+    record.version = 2;
+    assert!(record.validate().is_err());
+    record.promote();
+    record.tunnel_seed.as_mut().unwrap().pop();
+    assert!(record.validate().is_err());
 }
