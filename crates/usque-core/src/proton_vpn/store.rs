@@ -28,7 +28,9 @@ impl<'a> SessionStore<'a> {
         }
     }
     fn prepare_directory(&self) -> Result<(), ImportError> {
-        let mut builder = fs::DirBuilder::new();
+        let builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        let mut builder = builder;
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt;

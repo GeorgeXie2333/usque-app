@@ -40,5 +40,3 @@ target_include_directories(${BINARY_NAME} SYSTEM PRIVATE "${USQUE_WEBVIEW2_ROOT}
 target_link_libraries(${BINARY_NAME} PRIVATE
   "${USQUE_WEBVIEW2_ROOT}/build/native/${USQUE_WEBVIEW2_ARCH}/WebView2LoaderStatic.lib"
   "bcrypt.lib" "version.lib")
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/WebView2-LICENSE.txt"
-  DESTINATION "data/licenses" COMPONENT Runtime)
