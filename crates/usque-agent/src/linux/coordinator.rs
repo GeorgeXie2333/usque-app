@@ -18,6 +18,9 @@ pub trait Backend: Send {
     fn protection_active(&self, _resources: &Resources, _plan: &ValidatedTunnelPlan) -> bool {
         false
     }
+    fn initialize_guard(&self, _resources: &mut Resources) -> io::Result<()> {
+        Ok(())
+    }
     fn initialize_resources(&self, _resources: &mut Resources) -> io::Result<()> {
         Ok(())
     }
@@ -178,6 +181,7 @@ impl<B: Backend> Coordinator<B> {
             .generation
             .checked_add(1)
             .ok_or_else(|| denied("Linux network generation exhausted"))?;
+        self.backend.initialize_guard(&mut resources)?;
         self.backend.initialize_resources(&mut resources)?;
         let next = Journal {
             schema_version: super::journal::SCHEMA_VERSION,
@@ -447,6 +451,9 @@ impl<B: Backend> Coordinator<B> {
                 return Err(denied("Linux replacement source is not ready"));
             }
             let mut resources = Resources::for_operation(operation_id);
+            // Freeze the target guard policy before its durable intent. DNS
+            // and physical state are captured only after source cleanup.
+            self.backend.initialize_guard(&mut resources)?;
             resources.network_generation = self
                 .journal
                 .resources
@@ -804,6 +811,7 @@ fn denied(message: &'static str) -> io::Error {
 mod tests {
     use super::*;
     use std::{
+        collections::HashMap,
         fs,
         os::unix::fs::PermissionsExt,
         sync::{Arc, Mutex},
@@ -816,6 +824,8 @@ mod tests {
         restore_error: io::ErrorKind,
         path: std::path::PathBuf,
         reusable_marks: Vec<u16>,
+        dhcp_client_uids: Vec<u32>,
+        guards: HashMap<String, serde_json::Value>,
     }
 
     impl Backend for Fake {
@@ -825,9 +835,18 @@ mod tests {
         fn preflight(&self, _: &ValidatedTunnelPlan) -> io::Result<()> {
             Ok(())
         }
-        fn initialize_resources(&self, resources: &mut Resources) -> io::Result<()> {
-            resources.dhcp_client_uids = Some(vec![192]);
+        fn initialize_guard(&self, resources: &mut Resources) -> io::Result<()> {
+            if resources.dhcp_client_uids.is_none() {
+                resources.dhcp_client_uids = Some(self.dhcp_client_uids.clone());
+            }
             Ok(())
+        }
+        fn protection_active(&self, resources: &Resources, _: &ValidatedTunnelPlan) -> bool {
+            self.guards.get(&resources.nft_table)
+                == Some(&super::super::firewall::protection_transaction(
+                    resources,
+                    &[],
+                ))
         }
         fn apply(
             &mut self,
@@ -850,12 +869,18 @@ mod tests {
             if step == Step::Tun {
                 resources.interface_index = Some(42);
             }
+            if step == Step::Protection {
+                self.guards.insert(
+                    resources.nft_table.clone(),
+                    super::super::firewall::protection_transaction(resources, &[]),
+                );
+            }
             Ok(())
         }
         fn restore(
             &mut self,
             step: Step,
-            _: &Resources,
+            resources: &Resources,
             _: &ValidatedTunnelPlan,
         ) -> io::Result<()> {
             self.calls.lock().unwrap().push((step, false));
@@ -864,6 +889,9 @@ mod tests {
                     self.restore_error,
                     "injected restore failure",
                 ));
+            }
+            if step == Step::Protection {
+                self.guards.remove(&resources.nft_table);
             }
             Ok(())
         }
@@ -883,6 +911,10 @@ mod tests {
             if self.fail_apply == Some(Step::Protection) {
                 return Err(io::Error::other("injected bridge failure"));
             }
+            self.guards.insert(
+                resources.nft_table.clone(),
+                super::super::firewall::protection_transaction(resources, &[]),
+            );
             Ok(())
         }
         fn duplicate_tun(&self, _: &Resources) -> io::Result<OwnedFd> {
@@ -932,6 +964,8 @@ mod tests {
             restore_error: io::ErrorKind::Other,
             path: path.clone(),
             reusable_marks: Vec::new(),
+            dhcp_client_uids: vec![192],
+            guards: HashMap::new(),
         };
         let coordinator = Coordinator::open(JournalStore::for_test(path), backend).unwrap();
         (directory, coordinator)
@@ -1197,6 +1231,7 @@ mod tests {
             1
         );
         assert_eq!(coordinator.state().operation_id, Some(target));
+        assert!(coordinator.protection_active());
         coordinator
             .replace(&owner(), source, target, 0, target_plan.clone())
             .unwrap();
@@ -1206,6 +1241,68 @@ mod tests {
             .unwrap();
         coordinator.rollback(&owner(), target).unwrap();
         assert_eq!(coordinator.state().phase, Phase::Clean);
+    }
+
+    #[test]
+    fn replacement_retry_retains_the_installed_dhcp_receipt_and_abort_removes_both_guards() {
+        for abort in [false, true] {
+            let (directory, mut coordinator) = setup(None, None);
+            let source = Uuid::new_v4();
+            let target = Uuid::new_v4();
+            coordinator.prepare(owner(), source, 0, plan()).unwrap();
+            coordinator.commit(&owner(), source).unwrap();
+            coordinator.backend.fail_restore = Some(Step::Dns);
+            let target_plan = plan();
+            assert!(
+                coordinator
+                    .replace(
+                        &owner(),
+                        source,
+                        target,
+                        coordinator.state().generation,
+                        target_plan.clone(),
+                    )
+                    .is_err()
+            );
+            let replacement = coordinator.state().replacement.clone().unwrap();
+            assert_eq!(replacement.resources.dhcp_client_uids, Some(vec![192]));
+            let guards = coordinator.backend.guards.clone();
+            assert_eq!(guards.len(), 2);
+            // A restarted/cancelled caller retries with a changed passwd view.
+            // The durable bridge must retain the policy installed before it.
+            coordinator.backend.dhcp_client_uids = vec![977];
+            coordinator.backend.fail_restore = None;
+            let backend = coordinator.backend;
+            let mut coordinator = Coordinator::open(
+                JournalStore::for_test(directory.path().join("journal.json")),
+                backend,
+            )
+            .unwrap();
+            if abort {
+                coordinator
+                    .abort_replacement(&owner(), target, coordinator.state().generation)
+                    .unwrap();
+                assert_eq!(coordinator.state().phase, Phase::Clean);
+                assert!(coordinator.backend.guards.is_empty());
+            } else {
+                coordinator
+                    .replace(
+                        &owner(),
+                        source,
+                        target,
+                        coordinator.state().generation,
+                        target_plan,
+                    )
+                    .unwrap();
+                let resources = coordinator.state().resources.as_ref().unwrap();
+                assert_eq!(resources.dhcp_client_uids, Some(vec![192]));
+                assert_eq!(
+                    coordinator.backend.guards.get(&resources.nft_table),
+                    guards.get(&resources.nft_table),
+                );
+                assert!(coordinator.protection_active());
+            }
+        }
     }
 
     #[test]

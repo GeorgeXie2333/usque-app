@@ -346,16 +346,7 @@ fn serve_connection(
             Err(error) => (
                 AgentResponse {
                     request_id: request.request_id,
-                    error: Some(agent_v1::AgentError {
-                        code: match error.kind() {
-                            io::ErrorKind::PermissionDenied => "linux_permission_denied",
-                            io::ErrorKind::Unsupported => "linux_unavailable",
-                            _ => "linux_operation_failed",
-                        }
-                        .into(),
-                        message: error.to_string(),
-                        retryable: error.kind() != io::ErrorKind::PermissionDenied,
-                    }),
+                    error: Some(agent_error(error)),
                     payload: None,
                 },
                 None,
@@ -500,14 +491,10 @@ fn dispatch(
         }
         Request::AcquireDirectEgress(request) => {
             coordinator.check_owner(&caller, parse_operation(&request.operation_id)?)?;
-            if coordinator
-                .state()
-                .resources
-                .as_ref()
-                .is_none_or(|resources| request.expected_generation != resources.network_generation)
-            {
-                return Err(denied("Linux egress generation changed"));
-            }
+            validate_network_generation(
+                request.expected_generation,
+                coordinator.state().resources.as_ref(),
+            )?;
             let descriptor =
                 descriptor.ok_or_else(|| denied("Linux egress requires one socket descriptor"))?;
             let remote = request
@@ -571,6 +558,10 @@ fn dispatch(
         }
         Request::SetPresetEndpointCandidates(request) => {
             coordinator.check_owner(&caller, parse_operation(&request.operation_id)?)?;
+            validate_network_generation(
+                request.expected_generation,
+                coordinator.state().resources.as_ref(),
+            )?;
             let candidates = request
                 .ipv6_candidates
                 .iter()
@@ -826,6 +817,48 @@ fn denied(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, message)
 }
 
+#[derive(Debug)]
+struct StaleNetworkGeneration;
+
+impl std::fmt::Display for StaleNetworkGeneration {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Linux egress generation changed")
+    }
+}
+
+impl std::error::Error for StaleNetworkGeneration {}
+
+fn validate_network_generation(
+    expected: u64,
+    resources: Option<&super::journal::Resources>,
+) -> io::Result<()> {
+    let resources = resources.ok_or_else(|| denied("Linux network is absent"))?;
+    if expected != resources.network_generation {
+        return Err(io::Error::other(StaleNetworkGeneration));
+    }
+    Ok(())
+}
+
+fn agent_error(error: io::Error) -> agent_v1::AgentError {
+    let stale_generation = error
+        .get_ref()
+        .is_some_and(|error| error.is::<StaleNetworkGeneration>());
+    agent_v1::AgentError {
+        code: if stale_generation {
+            "linux_stale_generation"
+        } else {
+            match error.kind() {
+                io::ErrorKind::PermissionDenied => "linux_permission_denied",
+                io::ErrorKind::Unsupported => "linux_unavailable",
+                _ => "linux_operation_failed",
+            }
+        }
+        .into(),
+        message: error.to_string(),
+        retryable: stale_generation || error.kind() != io::ErrorKind::PermissionDenied,
+    }
+}
+
 fn require_root() -> io::Result<()> {
     // SAFETY: geteuid returns a scalar and has no preconditions.
     if unsafe { libc::geteuid() } != 0 {
@@ -885,6 +918,24 @@ fn remove_owned_socket() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_typed_generation_mismatch_gets_the_retryable_network_code() {
+        let mut resources = super::super::journal::Resources::for_operation(Uuid::new_v4());
+        resources.network_generation = 7;
+        assert!(validate_network_generation(7, Some(&resources)).is_ok());
+        let stale = agent_error(validate_network_generation(6, Some(&resources)).unwrap_err());
+        assert_eq!(stale.code, "linux_stale_generation");
+        assert!(stale.retryable);
+        for error in [
+            denied("Linux egress generation changed"),
+            validate_network_generation(6, None).unwrap_err(),
+        ] {
+            let denied = agent_error(error);
+            assert_eq!(denied.code, "linux_permission_denied");
+            assert!(!denied.retryable);
+        }
+    }
 
     #[test]
     fn linux_capabilities_never_advertise_windows_handles_or_unimplemented_lifecycle() {
