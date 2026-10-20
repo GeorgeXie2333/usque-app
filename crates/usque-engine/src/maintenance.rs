@@ -55,6 +55,11 @@ pub struct DiagnosticTransportContext {
     pub socket_receive: Option<usque_transport::SocketReceiveQuality>,
     pub platform_state: Option<usque_ipc::agent_v1::PlatformState>,
     pub capture: Option<crate::connection_evidence::CaptureMetadata>,
+    pub(crate) startup_failure: Option<crate::connection_evidence::StartupFailureEvidence>,
+    #[cfg(target_os = "linux")]
+    pub(crate) linux_platform: Option<crate::diagnostics::LinuxPlatformObservation>,
+    #[cfg(target_os = "linux")]
+    pub(crate) linux_session_generation: u64,
 }
 
 pub struct Maintenance {
@@ -179,7 +184,26 @@ fn write_diagnostic_bundle(
     let configuration = configuration_summary(config);
     let connection = connection_summary(snapshot);
     let timeline = connection_timeline_summary(&transport.timeline);
-    let platform = platform_health_summary(snapshot);
+    let mut platform = platform_health_summary(snapshot);
+    platform["schema_version"] = serde_json::json!(2);
+    // This is failure evidence from the attempt, never a current-state claim.
+    platform["startup_failure"] = transport.startup_failure.as_ref().map(|failure| {
+        let failure = failure.resolved();
+        serde_json::json!({
+            "source": "startup_attempt",
+            "session_generation": transport.capture.as_ref().and_then(|c| c.session_generation),
+            "detail_availability": if failure.detail.is_some() { "available" } else { "unavailable" },
+            "detail": failure.detail,
+            "cleanup_detail": failure.cleanup_detail,
+            "cleanup_status": failure.cleanup_status,
+        })
+    }).unwrap_or(serde_json::Value::Null);
+    #[cfg(target_os = "linux")]
+    project_linux_platform(
+        &mut platform,
+        transport.linux_platform.as_ref(),
+        transport.linux_session_generation,
+    );
     let readme = concat!(
         "Usque diagnostic bundle\n\n",
         "This archive is created locally and is never uploaded automatically.\n",
@@ -494,6 +518,62 @@ fn platform_health_summary(snapshot: &ConnectionSnapshot) -> serde_json::Value {
         "recovery_journal_state": "unknown",
         "independent_leak_verification": false,
     })
+}
+
+#[cfg(target_os = "linux")]
+fn project_linux_platform(
+    summary: &mut serde_json::Value,
+    observed: Option<&crate::diagnostics::LinuxPlatformObservation>,
+    generation: u64,
+) {
+    use usque_ipc::agent_v1::AgentPhase;
+    let Some(observed) = observed else {
+        summary["observation_availability"] = serde_json::json!("unavailable");
+        return;
+    };
+    let age = observed
+        .captured_at
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
+    summary["observation_age_ms"] = serde_json::json!(age);
+    summary["observation_source"] = serde_json::json!("agent_read_only_inspection");
+    summary["observation_generation"] = serde_json::json!(observed.session_generation);
+    summary["observation_scope"] = serde_json::json!("export_current_state");
+    if age > 10_000 || observed.session_generation != generation {
+        summary["observation_availability"] = serde_json::json!("stale");
+        return;
+    }
+    summary["observation_availability"] = serde_json::json!("available");
+    summary["agent_journal_generation"] = serde_json::json!(observed.state.journal_generation);
+    summary["physical_generation"] =
+        serde_json::json!(observed.physical.as_ref().map(|p| p.generation));
+    if let Ok(phase) = AgentPhase::try_from(observed.state.phase) {
+        summary["agent_state"] = serde_json::json!(phase.as_str_name());
+        summary["recovery_journal_state"] = serde_json::json!(phase.as_str_name());
+    }
+    if let Some(platform) = &observed.state.linux_platform {
+        let status = |known: bool, correct: bool| {
+            if !known {
+                "unknown"
+            } else if correct {
+                "consistent"
+            } else {
+                "inconsistent"
+            }
+        };
+        summary["tun_state"] = serde_json::json!(if !platform.tun_known {
+            "unknown"
+        } else if platform.tun_present {
+            "present"
+        } else {
+            "absent"
+        });
+        summary["route_state"] =
+            serde_json::json!(status(platform.routes_known, platform.routes_consistent));
+        summary["dns_state"] =
+            serde_json::json!(status(platform.dns_known, platform.dns_consistent));
+    }
 }
 
 fn diagnostic_session_summary(
@@ -1018,6 +1098,108 @@ pub enum MaintenanceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_startup_archive_rejects_message_stderr_paths_and_invalid_details() {
+        use usque_ipc::{
+            agent_v1::{LinuxFailureDetail, LinuxFailureReason, LinuxFailureStage},
+            linux_failure,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("diagnostics.zip");
+        let error = linux_failure::wrap(
+            LinuxFailureStage::DnsApply,
+            io::Error::other(
+                "PRIVATE_TUN_SENTINEL_9374 /private-exit 192.0.2.53 raw-stderr-secret-9374",
+            ),
+        );
+        let detail = linux_failure::detail(&error).unwrap();
+        for detail in [
+            Some(detail),
+            None,
+            Some(LinuxFailureDetail {
+                stage: LinuxFailureStage::DnsApply as i32,
+                reason: LinuxFailureReason::Io as i32,
+                os_errno: Some(99999),
+                ..Default::default()
+            }),
+        ] {
+            let context = DiagnosticTransportContext {
+                startup_failure: Some(crate::connection_evidence::StartupFailureEvidence {
+                    detail,
+                    cleanup_detail: None,
+                    cleanup_status: "completed",
+                    cleanup_owner: None,
+                }),
+                ..Default::default()
+            };
+            write_diagnostic_bundle(
+                &destination,
+                &AppConfig::default(),
+                &ConnectionSnapshot::default(),
+                None,
+                &context,
+                &directory.path().join("missing-logs"),
+            )
+            .unwrap();
+            let bytes = fs::read(&destination).unwrap();
+            let zip = String::from_utf8_lossy(&bytes);
+            for private in [
+                "PRIVATE_TUN_SENTINEL_9374",
+                "/private-exit",
+                "192.0.2.53",
+                "raw-stderr-secret-9374",
+                "99999",
+            ] {
+                assert!(
+                    !zip.contains(private),
+                    "private or unbounded field exported"
+                );
+            }
+            assert!(zip.contains("detail_availability"));
+            assert!(zip.contains("startup_attempt"));
+            assert!(zip.contains("platform-health.json"));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_platform_export_marks_missing_stale_and_wrong_generation_without_addresses() {
+        let snapshot = ConnectionSnapshot::default();
+        let mut summary = platform_health_summary(&snapshot);
+        project_linux_platform(&mut summary, None, 7);
+        assert_eq!(summary["observation_availability"], "unavailable");
+        let mut observed = crate::diagnostics::LinuxPlatformObservation {
+            state: usque_ipc::agent_v1::AgentState {
+                phase: usque_ipc::agent_v1::AgentPhase::Clean as i32,
+                operation_id: "SECRET-OPERATION".into(),
+                ..Default::default()
+            },
+            physical: Some(usque_ipc::agent_v1::PhysicalNetworkInfo {
+                generation: 9,
+                interfaces: vec![usque_ipc::agent_v1::PhysicalInterface {
+                    dns_servers: vec!["192.0.2.53".into()],
+                    ..Default::default()
+                }],
+            }),
+            captured_at: tokio::time::Instant::now(),
+            session_generation: 7,
+        };
+        project_linux_platform(&mut summary, Some(&observed), 8);
+        assert_eq!(summary["observation_availability"], "stale");
+        assert_eq!(summary["tun_state"], "unknown");
+        observed.captured_at -= Duration::from_secs(11);
+        project_linux_platform(&mut summary, Some(&observed), 7);
+        assert_eq!(summary["observation_availability"], "stale");
+        observed.captured_at = tokio::time::Instant::now();
+        project_linux_platform(&mut summary, Some(&observed), 7);
+        assert_eq!(summary["observation_availability"], "available");
+        assert_eq!(summary["physical_generation"], 9);
+        assert_eq!(summary["tun_state"], "unknown");
+        let public = summary.to_string();
+        assert!(!public.contains("192.0.2.53"));
+        assert!(!public.contains("SECRET-OPERATION"));
+    }
 
     #[test]
     fn export_masks_findings_from_another_connection_without_changing_the_session() {
@@ -1330,7 +1512,9 @@ mod tests {
         assert!(!combined.contains("private-resolver.example"));
         assert!(!combined.contains("private-dns-path"));
         assert!(!combined.contains("198.51.100.74"));
-        assert!(!combined.contains("9443"));
+        // Archive timestamps can coincidentally contain these digits. The
+        // configuration projection is the only entry that reads resolver config.
+        assert!(!configuration_summary(&config).to_string().contains("9443"));
         assert!(!combined.contains("192.0.2.1"));
         assert!(!combined.contains("example.com"));
         assert!(combined.contains("uses_default_sni"));

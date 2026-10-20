@@ -275,6 +275,7 @@ mod tests {
             wintun_adapter_state: hostile.clone(),
             automatic_recovery: Some(agent_v1::AutomaticRecoveryStatus {
                 terminal_error: Some(agent_v1::AgentError {
+                    linux_detail: None,
                     code: hostile.clone(),
                     message: hostile,
                     retryable: true,

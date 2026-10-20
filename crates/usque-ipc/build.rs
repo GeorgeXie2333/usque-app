@@ -57,6 +57,7 @@ fn main() {
     config.boxed(".usque.agent.v1.TunnelReplacementStatus.target_plan");
     // The optional diagnostic extension must not inflate every Agent envelope.
     config.boxed(".usque.agent.v1.PlatformState.recovery_diagnostics");
+    config.boxed(".usque.agent.v1.AgentError.linux_detail");
     config
         .compile_protos(&[control, agent], &[proto_root])
         .expect("compile protobuf contracts");

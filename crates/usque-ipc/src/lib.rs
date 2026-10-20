@@ -10,6 +10,8 @@ pub mod agent_v1 {
     include!(concat!(env!("OUT_DIR"), "/usque.agent.v1.rs"));
 }
 
+pub mod linux_failure;
+
 #[cfg(target_os = "linux")]
 pub mod unix_fd;
 

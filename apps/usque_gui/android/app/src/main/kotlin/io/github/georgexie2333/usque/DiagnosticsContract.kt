@@ -122,6 +122,7 @@ internal object DiagnosticsContract {
             "L4_PROTOCOL_ERROR",
             "L4_RESOURCE_EXHAUSTED",
             "L4_SESSION_UNAVAILABLE",
+            "LINUX_PLATFORM_FAILED",
             "PACKET_RECEIVE_FAILED",
             "PACKET_RECEIVE_STALLED",
             "PACKET_SEND_FAILED",

@@ -26,6 +26,8 @@ const PROTOCOL_VERSION: u32 = 3;
 struct RemoteAgentError {
     code: String,
     message: String,
+    detail: Option<agent_v1::LinuxFailureDetail>,
+    retryable: bool,
 }
 
 impl std::fmt::Display for RemoteAgentError {
@@ -35,6 +37,32 @@ impl std::fmt::Display for RemoteAgentError {
 }
 
 impl std::error::Error for RemoteAgentError {}
+
+pub(crate) fn local_stage(stage: agent_v1::LinuxFailureStage, error: io::Error) -> io::Error {
+    if error.get_ref().is_some_and(|e| e.is::<RemoteAgentError>()) {
+        // Optional remote evidence must stay absent for old/unknown Agents;
+        // an Engine-side wrapper must not replace their retry policy.
+        error
+    } else {
+        usque_ipc::linux_failure::wrap(stage, error)
+    }
+}
+
+pub(crate) fn failure_detail(error: &io::Error) -> Option<agent_v1::LinuxFailureDetail> {
+    error
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<RemoteAgentError>())
+        .and_then(|e| e.detail.clone())
+        .or_else(|| usque_ipc::linux_failure::detail(error))
+}
+pub(crate) fn retryable(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<RemoteAgentError>())
+        .map_or(error.kind() != io::ErrorKind::PermissionDenied, |e| {
+            e.retryable
+        })
+}
 
 pub(crate) fn is_stale_generation(error: &io::Error) -> bool {
     error
@@ -329,6 +357,11 @@ impl LinuxAgentClient {
                 return Err(io::Error::other(RemoteAgentError {
                     code: error.code,
                     message: error.message,
+                    detail: error
+                        .linux_detail
+                        .map(|d| *d)
+                        .filter(usque_ipc::linux_failure::valid),
+                    retryable: error.retryable,
                 }));
             }
             let payload = message
@@ -571,6 +604,54 @@ fn denied(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn old_and_invalid_agent_details_preserve_original_failure_policy() {
+        for detail in [
+            None,
+            Some(Box::new(agent_v1::LinuxFailureDetail {
+                stage: 999,
+                reason: 1,
+                os_errno: Some(99999),
+                ..Default::default()
+            })),
+        ] {
+            let (client, server) = LinuxAgentClient::fake_pair();
+            let worker = std::thread::spawn(move || {
+                let peer = unix_fd::peer_credentials(&server).unwrap();
+                let frame = unix_fd::receive_frame(&server, peer).unwrap();
+                let request: AgentRequest = decode_frame(frame.bytes.into()).unwrap();
+                let response = AgentResponse {
+                    request_id: request.request_id,
+                    payload: None,
+                    error: Some(agent_v1::AgentError {
+                        code: "linux_permission_denied".into(),
+                        message: "secret nft /private 192.0.2.1".into(),
+                        retryable: false,
+                        linux_detail: detail,
+                    }),
+                };
+                unix_fd::send_frame(&server, &encode_frame(&response).unwrap(), None::<&OwnedFd>)
+                    .unwrap();
+            });
+            let error = local_stage(
+                agent_v1::LinuxFailureStage::AgentHandshake,
+                client.capabilities().await.unwrap_err(),
+            );
+            assert!(failure_detail(&error).is_none());
+            assert!(!retryable(&error));
+            assert!(!is_stale_generation(&error));
+            let result = crate::linux_runtime::map_error(error);
+            assert!(matches!(
+                result,
+                crate::ControlServiceError::LinuxPlatform {
+                    detail: None,
+                    retryable: false
+                }
+            ));
+            assert!(!result.to_string().contains("secret"));
+            worker.join().unwrap();
+        }
+    }
 
     fn egress_request() -> agent_v1::AcquireDirectEgressRequest {
         agent_v1::AcquireDirectEgressRequest {

@@ -20,6 +20,8 @@ pub(crate) struct LinuxPlatformObservation {
     pub state: usque_ipc::agent_v1::AgentState,
     pub physical: Option<usque_ipc::agent_v1::PhysicalNetworkInfo>,
     pub captured_at: tokio::time::Instant,
+    #[cfg(target_os = "linux")]
+    pub session_generation: u64,
 }
 
 #[derive(Clone)]
@@ -806,6 +808,9 @@ impl PassiveCheck {
     fn evaluate_linux(&self, context: &DiagnosticContext) -> Option<DiagnosticFinding> {
         use PassiveCheckKind as Kind;
         let observed = context.linux_platform.as_ref()?;
+        if observed.captured_at.elapsed() > Duration::from_secs(10) {
+            return None;
+        }
         let state = &observed.state;
         let platform = state.linux_platform.as_ref();
         let inspected = ["agent_read_only_inspection"];
@@ -1534,6 +1539,8 @@ mod tests {
         context.platform_state = None;
         context.connection.kill_switch_state = KillSwitchState::Error;
         context.linux_platform = Some(LinuxPlatformObservation {
+            #[cfg(target_os = "linux")]
+            session_generation: 0,
             state: usque_ipc::agent_v1::AgentState {
                 phase: usque_ipc::agent_v1::AgentPhase::Active as i32,
                 kill_switch_active: true,
@@ -1675,6 +1682,7 @@ mod tests {
             attempts_completed: 3,
             attempt_limit: 3,
             terminal_error: Some(usque_ipc::agent_v1::AgentError {
+                linux_detail: None,
                 code: "AGENT_AUTOMATIC_RECOVERY_EXHAUSTED".to_owned(),
                 message: "must not be copied into evidence".to_owned(),
                 retryable: true,

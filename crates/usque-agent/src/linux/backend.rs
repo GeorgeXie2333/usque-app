@@ -15,6 +15,13 @@ use ipnet::IpNet;
 use serde_json::{Value, json};
 
 use crate::plan::ValidatedTunnelPlan;
+use usque_ipc::{
+    agent_v1::{
+        LinuxDnsBackend, LinuxFailureDetail, LinuxFailureReason as FailureReason,
+        LinuxFailureStage as FailureStage,
+    },
+    linux_failure,
+};
 
 use super::{
     auth::AuthenticatedPeer,
@@ -38,6 +45,10 @@ pub struct NativeBackend {
     preset_generation: u64,
     sockets: HashMap<u32, OwnedFd>,
     reusable_marks: Vec<u16>,
+    binding_indices: HashMap<u32, u32>,
+    owned_resources: Vec<Resources>,
+    pub(crate) observation: super::coordinator::PhysicalObservation,
+    pub(crate) egress_cleanup_uncertain: bool,
 }
 
 impl Backend for NativeBackend {
@@ -52,6 +63,11 @@ impl Backend for NativeBackend {
         resources: &mut Resources,
         plan: &ValidatedTunnelPlan,
     ) -> io::Result<()> {
+        self.owned_resources
+            .retain(|r| r.route_table != resources.route_table);
+        self.owned_resources.push(resources.clone());
+        self.observation.routing_baseline =
+            Some(network::routing_fingerprint(&self.owned_resources)?);
         firewall::install_bridge(resources, &exclusions(plan))
     }
     fn invalidate_network(&mut self, resources: &Resources) -> io::Result<()> {
@@ -76,12 +92,9 @@ impl Backend for NativeBackend {
     }
 
     fn initialize_resources(&self, resources: &mut Resources) -> io::Result<()> {
-        resources.dns = if active_resolver().is_ok() {
-            super::dns::DnsReceipt::Resolved
-        } else {
-            super::dns::capture_network_manager()?
-        };
-        resources.physical_interfaces = physical_snapshot(&resources.dns)?;
+        resources.dns = select_dns_backend(active_resolver(), super::dns::capture_network_manager)?;
+        resources.physical_interfaces = physical_snapshot(&resources.dns)
+            .map_err(|e| linux_failure::wrap(FailureStage::PhysicalSnapshot, e))?;
         Ok(())
     }
 
@@ -93,14 +106,25 @@ impl Backend for NativeBackend {
     ) -> io::Result<()> {
         match step {
             Step::Protection => {
+                self.owned_resources
+                    .retain(|r| r.route_table != resources.route_table);
+                self.owned_resources.push(resources.clone());
+                self.observation.routing_baseline =
+                    Some(network::routing_fingerprint(&self.owned_resources)?);
+                self.observation.unavailable = false;
+                self.observation.invalidated = false;
                 network::assert_route_ids_available(resources)?;
                 firewall::install(resources, &exclusions(plan))?;
                 self.leases.clear();
+                self.egress_cleanup_uncertain = false;
                 self.reusable_marks.clear();
             }
             Step::Tun => {
                 network::assert_route_ids_available(resources)?;
                 self.tun = Some(network::create_tun(resources)?);
+                self.owned_resources
+                    .retain(|r| r.route_table != resources.route_table);
+                self.owned_resources.push(resources.clone());
             }
             Step::Addresses => network::configure(
                 resources,
@@ -158,9 +182,18 @@ impl Backend for NativeBackend {
                 self.tun = None;
             }
             Step::Protection => {
-                self.clear_socket_marks()?;
+                // Never remove the host guard after uncertain socket cleanup.
+                // An Intended protection step may have created no table at all.
+                if !self.sockets.is_empty() || !self.leases.is_empty() {
+                    self.revoke_egress(resources)?;
+                }
                 firewall::remove(resources)?;
+                self.sockets.clear();
+                self.binding_indices.clear();
                 self.leases.clear();
+                self.egress_cleanup_uncertain = false;
+                self.owned_resources
+                    .retain(|r| r.route_table != resources.route_table);
             }
         }
         Ok(())
@@ -184,7 +217,14 @@ impl NativeBackend {
     pub fn resume_tun(&mut self, resources: &Resources, descriptor: OwnedFd) -> io::Result<()> {
         network::verify_tun_descriptor(resources, &descriptor)?;
         self.tun = Some(descriptor.into());
+        self.owned_resources
+            .retain(|r| r.route_table != resources.route_table);
+        self.owned_resources.push(resources.clone());
         Ok(())
+    }
+
+    pub fn routing_snapshot(&self) -> io::Result<Vec<Vec<u8>>> {
+        network::routing_fingerprint(&self.owned_resources)
     }
 
     /// The descriptor must be in this authenticated process's fd table and
@@ -252,7 +292,12 @@ impl NativeBackend {
         }
         peer.ensure_alive()?;
         verify_socket_owner(descriptor, peer)?;
-        let physical = egress_interface(resources, remote)?;
+        if self.observation.unavailable {
+            return Err(linux_failure::wrap(
+                FailureStage::PhysicalSnapshot,
+                unavailable("physical snapshot unavailable"),
+            ));
+        }
         let domain: i32 = socket_option(descriptor, libc::SO_DOMAIN)?;
         let socket_protocol: i32 = socket_option(descriptor, libc::SO_PROTOCOL)?;
         let socket_type: i32 = socket_option(descriptor, libc::SO_TYPE)?;
@@ -283,7 +328,25 @@ impl NativeBackend {
                 && existing.protocol == protocol
                 && existing.mark == current_mark
             {
-                return Ok((physical.index, existing.lease_id));
+                let index = *self
+                    .binding_indices
+                    .get(&existing.mark)
+                    .ok_or_else(|| denied("retained socket binding unavailable"))?;
+                if bound_device(descriptor)? != network::interface_name(index)? {
+                    return Err(denied("retained socket binding changed"));
+                }
+                let query = socket_route_query(
+                    descriptor,
+                    remote,
+                    protocol,
+                    existing.mark,
+                    peer.credentials.uid,
+                    Some(index),
+                )?;
+                if network::lookup_physical_route(resources, &query)? != index {
+                    return Err(denied("retained socket route changed"));
+                }
+                return Ok((index, existing.lease_id));
             }
             return Err(denied("Linux egress socket already has a different permit"));
         }
@@ -307,21 +370,51 @@ impl NativeBackend {
         {
             return Err(denied("Linux egress mark was not allocated"));
         }
-        let interface = std::ffi::CString::new(network::interface_name(physical.index)?)
-            .map_err(|_| denied("invalid physical interface"))?;
-        // SAFETY: interface is a live NUL-terminated string; the kernel copies
-        // it into this one authenticated socket, not a global route.
-        if unsafe {
-            libc::setsockopt(
-                descriptor.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_BINDTODEVICE,
-                interface.as_ptr().cast(),
-                interface.as_bytes_with_nul().len() as _,
-            )
-        } != 0
+        if !bound_device(descriptor)?.is_empty() {
+            return Err(denied("fresh socket has an external device binding"));
+        }
+        // DNS keeps its explicit physical owner/scope constraint. Ordinary
+        // destinations use the kernel FIB, not the main-default candidate list.
+        let owner = if remote.port() == 53 {
+            Some(egress_interface(resources, remote)?.index)
+        } else {
+            None
+        };
+        let query = socket_route_query(
+            descriptor,
+            remote,
+            protocol,
+            mark,
+            peer.credentials.uid,
+            owner,
+        )?;
+        let physical_index = network::lookup_physical_route(resources, &query)
+            .map_err(|e| linux_failure::wrap(FailureStage::EgressPermission, e))?;
+        if self
+            .owned_resources
+            .iter()
+            .any(|r| r.interface_index == Some(physical_index))
         {
-            return Err(io::Error::last_os_error());
+            return Err(denied("egress selected an owned TUN"));
+        }
+        // Retain before any socket mutation. Failed cleanup keeps the descriptor
+        // and retires the mark until recovery can confirm both fields cleared.
+        self.sockets.insert(mark, retained);
+        self.binding_indices.insert(mark, physical_index);
+        let activation = (|| {
+            set_device(descriptor, Some(physical_index))?;
+            let constrained = network::RouteQuery {
+                interface: Some(physical_index),
+                ..query
+            };
+            network::lookup_physical_route(resources, &constrained)?;
+            set_mark(descriptor, mark)
+        })();
+        if let Err(error) = activation {
+            if self.clear_retained_socket(mark).is_err() {
+                self.egress_cleanup_uncertain = true;
+            }
+            return Err(error);
         }
         let lease_id = loop {
             let candidate = uuid::Uuid::new_v4().as_u64_pair().1;
@@ -339,21 +432,29 @@ impl NativeBackend {
         let mut leases = self.leases.clone();
         leases.push(lease);
         // The mark alone cannot grant egress before the exact nft rule exists.
-        set_mark(descriptor, mark)?;
         if let Err(error) = firewall::update_egress(resources, &leases) {
-            let _ = set_mark(descriptor, 0);
+            // The command may have committed before its reply was lost.
+            if let Some(socket) = self.sockets.get(&mark) {
+                let _ = clear_socket(socket.as_fd());
+            }
+            self.egress_cleanup_uncertain = true;
             return Err(error);
         }
         self.leases = leases;
-        self.sockets.insert(mark, retained);
-        Ok((physical.index, lease_id))
+        Ok((physical_index, lease_id))
     }
 
     pub fn revoke_egress(&mut self, resources: &Resources) -> io::Result<()> {
-        self.clear_socket_marks()?;
-        firewall::update_egress(resources, &[])?;
-        // Every leased socket was retained and unmarked, and no nft rule
-        // remains, so these slots satisfy the same reuse rule as a release.
+        // Remove authorization even if one socket refuses field cleanup.
+        let rules = firewall::update_egress(resources, &[]);
+        let sockets = self.clear_socket_marks();
+        if rules.is_err() || sockets.is_err() {
+            self.egress_cleanup_uncertain = true;
+        }
+        rules?;
+        sockets?;
+        self.sockets.clear();
+        self.binding_indices.clear();
         for lease in mem::take(&mut self.leases) {
             self.recycle_mark(resources, lease.mark);
         }
@@ -370,16 +471,22 @@ impl NativeBackend {
         let Some(socket) = self.sockets.get(&mark) else {
             return Err(denied("Linux permit socket is not retained"));
         };
-        set_mark(socket.as_fd(), 0)?;
         let leases: Vec<_> = self
             .leases
             .iter()
             .filter(|lease| lease.lease_id != lease_id)
             .cloned()
             .collect();
-        firewall::update_egress(resources, &leases)?;
+        let rules = firewall::update_egress(resources, &leases);
+        let socket = clear_socket(socket.as_fd());
+        if rules.is_err() || socket.is_err() {
+            self.egress_cleanup_uncertain = true;
+        }
+        rules?;
+        socket?;
         self.leases = leases;
         self.sockets.remove(&mark);
+        self.binding_indices.remove(&mark);
         // Reuse is allowed only after both the retained kernel socket mark and
         // its nft rule are gone. Restart drops this volatile free list; durable
         // highwater prevents reusing any unknown surviving socket's mark.
@@ -387,11 +494,32 @@ impl NativeBackend {
         Ok(())
     }
 
-    fn clear_socket_marks(&mut self) -> io::Result<()> {
-        for descriptor in self.sockets.values() {
-            set_mark(descriptor.as_fd(), 0)?;
+    fn clear_retained_socket(&mut self, mark: u32) -> io::Result<()> {
+        self.clear_retained_socket_using(mark, clear_socket)
+    }
+    fn clear_retained_socket_using(
+        &mut self,
+        mark: u32,
+        clear: impl FnOnce(BorrowedFd<'_>) -> io::Result<()>,
+    ) -> io::Result<()> {
+        if let Some(descriptor) = self.sockets.get(&mark) {
+            clear(descriptor.as_fd())?;
         }
-        self.sockets.clear();
+        self.sockets.remove(&mark);
+        self.binding_indices.remove(&mark);
+        Ok(())
+    }
+    fn clear_socket_marks(&mut self) -> io::Result<()> {
+        let mut failure = None;
+        for socket in self.sockets.values() {
+            if let Err(error) = clear_socket(socket.as_fd()) {
+                failure.get_or_insert(error);
+            }
+        }
+        if let Some(error) = failure {
+            self.egress_cleanup_uncertain = true;
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -477,6 +605,32 @@ impl NativeBackend {
         }
         Ok(())
     }
+}
+
+fn select_dns_backend(
+    resolved: io::Result<()>,
+    manager: impl FnOnce() -> io::Result<super::dns::DnsReceipt>,
+) -> io::Result<super::dns::DnsReceipt> {
+    Ok(match resolved {
+        Ok(()) => super::dns::DnsReceipt::Resolved,
+        Err(resolved) => match manager() {
+            Ok(receipt) => receipt,
+            Err(manager) => {
+                return Err(linux_failure::with_detail(
+                    LinuxFailureDetail {
+                        stage: FailureStage::DnsProbe as i32,
+                        reason: FailureReason::NoDnsBackend as i32,
+                        dns_probe_failures: vec![
+                            linux_failure::probe(LinuxDnsBackend::Resolved, &resolved),
+                            linux_failure::probe(LinuxDnsBackend::NetworkManager, &manager),
+                        ],
+                        ..Default::default()
+                    },
+                    manager,
+                ));
+            }
+        },
+    })
 }
 
 fn egress_interface(resources: &Resources, remote: SocketAddr) -> io::Result<&PhysicalInterface> {
@@ -583,6 +737,169 @@ fn socket_option<T: Copy>(descriptor: BorrowedFd<'_>, option: i32) -> io::Result
     Ok(unsafe { value.assume_init() })
 }
 
+fn bound_device(descriptor: BorrowedFd<'_>) -> io::Result<String> {
+    let mut bytes = [0u8; libc::IF_NAMESIZE];
+    let mut length = bytes.len() as libc::socklen_t;
+    // SAFETY: bytes is writable for length bytes and the FD remains borrowed.
+    if unsafe {
+        libc::getsockopt(
+            descriptor.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_BINDTODEVICE,
+            bytes.as_mut_ptr().cast(),
+            &mut length,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    if length as usize > bytes.len() {
+        return Err(denied("invalid device binding length"));
+    }
+    let end = bytes[..length as usize]
+        .iter()
+        .position(|b| *b == 0)
+        .unwrap_or(length as usize);
+    std::str::from_utf8(&bytes[..end])
+        .map(str::to_owned)
+        .map_err(|_| denied("invalid device binding"))
+}
+
+fn set_device(descriptor: BorrowedFd<'_>, index: Option<u32>) -> io::Result<()> {
+    let name = index
+        .map(network::interface_name)
+        .transpose()?
+        .unwrap_or_default();
+    let name = std::ffi::CString::new(name).map_err(|_| denied("invalid interface name"))?;
+    // SAFETY: name is NUL terminated and the kernel copies its bytes during the call.
+    if unsafe {
+        libc::setsockopt(
+            descriptor.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_BINDTODEVICE,
+            name.as_ptr().cast(),
+            name.as_bytes_with_nul().len() as _,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn clear_socket(descriptor: BorrowedFd<'_>) -> io::Result<()> {
+    let mark = set_mark(descriptor, 0);
+    let device = set_device(descriptor, None);
+    mark?;
+    device?;
+    if socket_option::<u32>(descriptor, libc::SO_MARK)? != 0
+        || !bound_device(descriptor)?.is_empty()
+    {
+        return Err(denied("socket protection cleanup could not be verified"));
+    }
+    Ok(())
+}
+
+fn socket_route_query(
+    descriptor: BorrowedFd<'_>,
+    remote: SocketAddr,
+    protocol: u32,
+    mark: u32,
+    uid: u32,
+    interface: Option<u32>,
+) -> io::Result<network::RouteQuery> {
+    // SAFETY: sockaddr_storage is output storage for getsockname and large
+    // enough for either family. Casts below check the returned family/length.
+    let mut address: libc::sockaddr_storage = unsafe { mem::zeroed() };
+    let mut length = mem::size_of_val(&address) as libc::socklen_t;
+    // SAFETY: address and length point to valid writable output storage.
+    if unsafe {
+        libc::getsockname(
+            descriptor.as_raw_fd(),
+            ptr::from_mut(&mut address).cast(),
+            &mut length,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let source = match address.ss_family as i32 {
+        libc::AF_INET
+            if length as usize >= mem::size_of::<libc::sockaddr_in>() && remote.is_ipv4() =>
+        {
+            // SAFETY: storage alignment, length and family were checked above.
+            let address = unsafe { &*ptr::from_ref(&address).cast::<libc::sockaddr_in>() };
+            SocketAddr::new(
+                std::net::Ipv4Addr::from(address.sin_addr.s_addr.to_ne_bytes()).into(),
+                u16::from_be(address.sin_port),
+            )
+        }
+        libc::AF_INET6
+            if length as usize >= mem::size_of::<libc::sockaddr_in6>() && remote.is_ipv6() =>
+        {
+            // SAFETY: storage alignment, length and family were checked above.
+            let address = unsafe { &*ptr::from_ref(&address).cast::<libc::sockaddr_in6>() };
+            SocketAddr::V6(std::net::SocketAddrV6::new(
+                address.sin6_addr.s6_addr.into(),
+                u16::from_be(address.sin6_port),
+                0,
+                address.sin6_scope_id,
+            ))
+        }
+        _ => return Err(denied("egress socket source family mismatch")),
+    };
+    let mut tos = 0_i32;
+    let mut size = mem::size_of_val(&tos) as libc::socklen_t;
+    let (level, option) = if remote.is_ipv4() {
+        (libc::IPPROTO_IP, libc::IP_TOS)
+    } else {
+        (libc::IPPROTO_IPV6, libc::IPV6_TCLASS)
+    };
+    // SAFETY: tos is a complete integer output and size describes it.
+    if unsafe {
+        libc::getsockopt(
+            descriptor.as_raw_fd(),
+            level,
+            option,
+            ptr::from_mut(&mut tos).cast(),
+            &mut size,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    if size as usize != mem::size_of_val(&tos) {
+        return Err(denied("invalid traffic class option length"));
+    }
+    let source_scope = match source {
+        SocketAddr::V6(a) if a.scope_id() != 0 => Some(a.scope_id()),
+        _ => None,
+    };
+    let destination_scope = match remote {
+        SocketAddr::V6(a) if a.scope_id() != 0 => Some(a.scope_id()),
+        _ => None,
+    };
+    if source_scope
+        .zip(destination_scope)
+        .is_some_and(|(a, b)| a != b)
+    {
+        return Err(denied("socket source and destination scopes differ"));
+    }
+    let scope = destination_scope.or(source_scope);
+    if interface.zip(scope).is_some_and(|(a, b)| a != b) {
+        return Err(denied("DNS owner and scope differ"));
+    }
+    Ok(network::RouteQuery {
+        remote,
+        source: Some(source),
+        mark,
+        uid,
+        protocol: u8::try_from(protocol).map_err(|_| denied("invalid egress protocol"))?,
+        tos: u8::try_from(tos).map_err(|_| denied("invalid traffic class"))?,
+        interface: interface.or(scope),
+    })
+}
+
 fn set_mark(descriptor: BorrowedFd<'_>, mark: u32) -> io::Result<()> {
     // SAFETY: mark is a live u32 option and descriptor remains borrowed.
     if unsafe {
@@ -653,12 +970,16 @@ fn parse_dhcp_client_uids(passwd: &str) -> Vec<u32> {
 fn active_resolver() -> io::Result<()> {
     let value = property(RESOLVE_PATH, RESOLVE_MANAGER, "ResolvConfMode")?;
     if !matches!(value.as_str(), Some("stub" | "static")) {
-        return Err(unavailable(
+        return Err(linux_failure::classified(
+            FailureReason::ResolverMode,
             "systemd-resolved is not the active stub resolver",
         ));
     }
     if property(RESOLVE_PATH, RESOLVE_MANAGER, "DNSStubListener")?.as_str() != Some("yes") {
-        return Err(unavailable("systemd-resolved DNS stub is unavailable"));
+        return Err(linux_failure::classified(
+            FailureReason::StubListener,
+            "systemd-resolved DNS stub is unavailable",
+        ));
     }
     let metadata = fs::metadata("/etc/resolv.conf")?;
     if metadata.len() > 64 * 1024 {
@@ -745,7 +1066,8 @@ fn validate_resolv_conf(content: &str) -> io::Result<()> {
         })
         .collect();
     if servers.is_empty() || servers.iter().any(|server| *server != "127.0.0.53") {
-        return Err(unavailable(
+        return Err(linux_failure::classified(
+            FailureReason::ResolverConfig,
             "system DNS does not exclusively use the resolved stub",
         ));
     }
@@ -829,7 +1151,10 @@ fn configure_dns(resources: &Resources, plan: &ValidatedTunnelPlan) -> io::Resul
     if property(&path, "org.freedesktop.resolve1.Link", "DNS")? != expected_dns(plan)
         || property(&path, "org.freedesktop.resolve1.Link", "Domains")? != json!([[".", true]])
     {
-        return Err(unavailable("Linux DNS configuration could not be verified"));
+        return Err(linux_failure::classified(
+            FailureReason::Verification,
+            "Linux DNS configuration could not be verified",
+        ));
     }
     Ok(())
 }
@@ -911,6 +1236,90 @@ fn unavailable(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dns_fallback_is_lazy_and_preserves_both_rejections() {
+        assert_eq!(
+            select_dns_backend(Ok(()), || panic!("resolved succeeded")).unwrap(),
+            super::super::dns::DnsReceipt::Resolved
+        );
+        let receipt = super::super::dns::DnsReceipt::NetworkManager {
+            previous: Default::default(),
+        };
+        assert_eq!(
+            select_dns_backend(
+                Err(io::Error::from_raw_os_error(13)),
+                || Ok(receipt.clone())
+            )
+            .unwrap(),
+            receipt
+        );
+        let error = select_dns_backend(
+            Err(linux_failure::classified(
+                FailureReason::StubListener,
+                "secret 192.0.2.1 /private",
+            )),
+            || Err(io::Error::from_raw_os_error(2)),
+        )
+        .unwrap_err();
+        let detail = linux_failure::detail(&error).unwrap();
+        assert!(linux_failure::valid(&detail));
+        assert_eq!(
+            detail.dns_probe_failures[0].backend,
+            LinuxDnsBackend::Resolved as i32
+        );
+        assert_eq!(
+            detail.dns_probe_failures[0].reason,
+            FailureReason::StubListener as i32
+        );
+        assert_eq!(detail.dns_probe_failures[1].os_errno, Some(2));
+        assert!(!serde_json::to_string(&detail).unwrap().contains("secret"));
+    }
+
+    #[test]
+    fn uncertain_socket_cleanup_retains_descriptor_binding_and_mark_slot() {
+        let mut backend = NativeBackend::default();
+        let mut resources = Resources::for_operation(uuid::Uuid::new_v4());
+        resources.egress_mark_highwater = 1;
+        let mark = resources.socket_mark | 1;
+        let (socket, _) = std::os::unix::net::UnixStream::pair().unwrap();
+        backend.sockets.insert(mark, socket.into());
+        backend.binding_indices.insert(mark, 42);
+        assert!(
+            backend
+                .clear_retained_socket_using(mark, |_| Err(io::Error::from_raw_os_error(1)))
+                .is_err()
+        );
+        backend.recycle_mark(&resources, mark);
+        assert!(backend.reusable_marks.is_empty());
+        assert_eq!(backend.binding_indices[&mark], 42);
+        assert!(backend.sockets.contains_key(&mark));
+        backend
+            .clear_retained_socket_using(mark, |_| Ok(()))
+            .unwrap();
+        backend.recycle_mark(&resources, mark);
+        assert_eq!(backend.reusable_marks, [1]);
+        assert!(!backend.binding_indices.contains_key(&mark));
+    }
+
+    #[test]
+    fn socket_query_keeps_actual_bound_source_and_caller_context() {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let query = socket_route_query(
+            socket.as_fd(),
+            "192.0.2.1:443".parse().unwrap(),
+            17,
+            0x12340008,
+            1001,
+            None,
+        )
+        .unwrap();
+        assert_eq!(query.source, Some(socket.local_addr().unwrap()));
+        assert_eq!(query.uid, 1001);
+        assert_eq!(query.mark, 0x12340008);
+        assert_eq!(query.protocol, 17);
+        assert_eq!(query.tos, 0);
+    }
 
     fn multiple_physical_interfaces() -> Resources {
         let mut resources = Resources::for_operation(uuid::Uuid::new_v4());

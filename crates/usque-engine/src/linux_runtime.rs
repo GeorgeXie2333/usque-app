@@ -22,14 +22,99 @@ use usque_transport::{
 use uuid::Uuid;
 
 pub(crate) fn map_error(error: io::Error) -> ControlServiceError {
-    ControlServiceError::PlatformVpn(error.to_string())
+    let detail = crate::linux_agent::failure_detail(&error);
+    let retryable = crate::linux_agent::retryable(&error);
+    if let Some(inner) = error.into_inner() {
+        let inner = match inner.downcast::<TransportError>() {
+            Ok(transport) => return ControlServiceError::Transport(*transport),
+            Err(inner) => inner,
+        };
+        if let Ok(startup) = inner.downcast::<StartupError>() {
+            return map_error(startup.primary);
+        }
+    }
+    ControlServiceError::LinuxPlatform {
+        detail: detail.map(Box::new),
+        retryable,
+    }
 }
+
+#[derive(Debug)]
+struct StartupError {
+    primary: io::Error,
+    cleanup: io::Error,
+}
+impl std::fmt::Display for StartupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Linux activation and cleanup failed")
+    }
+}
+impl std::error::Error for StartupError {}
+
+pub(crate) fn startup_evidence(
+    error: &io::Error,
+) -> crate::connection_evidence::StartupFailureEvidence {
+    if let Some(startup) = error
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<StartupError>())
+    {
+        return crate::connection_evidence::StartupFailureEvidence {
+            detail: crate::linux_agent::failure_detail(&startup.primary),
+            cleanup_detail: crate::linux_agent::failure_detail(&startup.cleanup),
+            cleanup_status: "failed",
+            cleanup_owner: None,
+        };
+    }
+    let mut detail = crate::linux_agent::failure_detail(error);
+    let cleanup_detail = detail
+        .as_mut()
+        .and_then(|d| d.cleanup_detail.take())
+        .map(|d| *d);
+    crate::connection_evidence::StartupFailureEvidence {
+        cleanup_detail,
+        detail,
+        cleanup_status: "pending",
+        cleanup_owner: None,
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct StartupAttempt {
+    pub telemetry: usque_transport::ConnectionTelemetry,
+    pub cleanup: crate::connection_evidence::StartupCleanup,
+}
+
+impl StartupAttempt {
+    pub fn evidence(
+        &self,
+        error: &io::Error,
+    ) -> crate::connection_evidence::StartupFailureEvidence {
+        let mut evidence = startup_evidence(error);
+        evidence.cleanup_owner = Some(self.cleanup.clone());
+        evidence
+    }
+}
+async fn bounded_startup<T>(
+    cancellation: &CancellationToken,
+    deadline: tokio::time::Instant,
+    startup: impl std::future::Future<Output = io::Result<T>>,
+) -> io::Result<T> {
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted, "Linux startup cancelled")),
+        result = tokio::time::timeout_at(deadline, startup) =>
+            result.unwrap_or_else(|_| Err(usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::Activation, io::Error::new(io::ErrorKind::TimedOut, "Linux startup timed out")))),
+    }
+}
+
 fn error(value: impl std::fmt::Display) -> io::Error {
     io::Error::other(value.to_string())
 }
 
 pub(crate) struct LinuxVpnRuntime {
     tunnel: DataPlaneRuntime,
+    telemetry: usque_transport::ConnectionTelemetry,
+    startup_failure: Option<crate::connection_evidence::StartupFailureEvidence>,
     agent: LinuxAgentClient,
     operation: Uuid,
     plan: agent_v1::TunnelPlan,
@@ -67,25 +152,35 @@ struct StartupGuard {
     agent: LinuxAgentClient,
     id: Uuid,
     armed: bool,
+    cleanup: crate::connection_evidence::StartupCleanup,
 }
 impl Drop for StartupGuard {
     fn drop(&mut self) {
         if self.armed {
             let agent = self.agent.clone();
             let id = self.id;
+            let cleanup = self.cleanup.clone();
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
                 runtime.spawn(async move {
-                    let _ = agent.rollback(id).await;
+                    let result = restore_agent_transaction(&agent, id, None).await;
+                    cleanup.complete(&result);
                 });
             }
         }
     }
 }
 impl LinuxVpnRuntime {
+    pub fn startup_failure(&self) -> Option<crate::connection_evidence::StartupFailureEvidence> {
+        self.startup_failure.clone()
+    }
     pub(crate) fn operation_id(&self) -> Uuid {
         self.operation
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "startup receives caller-owned evidence alongside transport and platform dependencies"
+    )]
     pub(crate) async fn start(
         profile: &Profile,
         identity: MasqueTlsIdentity,
@@ -93,10 +188,50 @@ impl LinuxVpnRuntime {
         policy: Arc<GeoDirectPolicy>,
         gate: usque_transport::VpnGateStart,
         cipher: Arc<dyn ProfileCipher>,
+        attempt: StartupAttempt,
     ) -> io::Result<Self> {
-        let agent = LinuxAgentClient::connect().await?;
-        let caps = agent.capabilities().await?;
-        validate_capabilities(&caps, profile)?;
+        let cancellation = gate.cancellation.clone();
+        let deadline = gate.deadline.unwrap_or_else(|| {
+            tokio::time::Instant::now() + usque_core::endpoint_connection_budget(profile)
+        });
+        attempt.telemetry.record(
+            usque_transport::ConnectionEventType::AttemptStarted,
+            Some(usque_core::TransportStage::TunnelStartup),
+            Default::default(),
+            None,
+            None,
+        );
+        bounded_startup(
+            &cancellation,
+            deadline,
+            Self::start_inner(profile, identity, refresher, policy, gate, cipher, attempt),
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "startup receives caller-owned evidence alongside transport and platform dependencies"
+    )]
+    async fn start_inner(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        refresher: Arc<dyn EndpointPinRefresher>,
+        policy: Arc<GeoDirectPolicy>,
+        gate: usque_transport::VpnGateStart,
+        cipher: Arc<dyn ProfileCipher>,
+        attempt: StartupAttempt,
+    ) -> io::Result<Self> {
+        let telemetry = attempt.telemetry;
+        let agent = LinuxAgentClient::connect().await.map_err(|e| {
+            usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::AgentConnect, e)
+        })?;
+        let caps = agent.capabilities().await.map_err(|e| {
+            crate::linux_agent::local_stage(agent_v1::LinuxFailureStage::AgentHandshake, e)
+        })?;
+        validate_capabilities(&caps, profile).map_err(|e| {
+            usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::Preflight, e)
+        })?;
         let state = agent.state().await?;
         if state.phase != agent_v1::AgentPhase::Clean as i32 {
             if state.operation_id.is_empty() {
@@ -132,7 +267,9 @@ impl LinuxVpnRuntime {
             agent: agent.clone(),
             id: operation,
             armed: true,
+            cleanup: attempt.cleanup.clone(),
         };
+        attempt.cleanup.pending();
         agent
             .prepare(operation, plan.clone(), state.journal_generation)
             .await?;
@@ -141,13 +278,14 @@ impl LinuxVpnRuntime {
         let cancel = CancellationToken::new();
         let (failure_tx, failure) = watch::channel(None);
         let monitor = protector.monitor(cancel.clone(), failure_tx.clone());
-        let mut tunnel = match Box::pin(DataPlaneRuntime::start_with_vpngate(
+        let mut tunnel = match Box::pin(DataPlaneRuntime::start_with_vpngate_and_telemetry(
             profile,
             identity,
             protector.clone(),
             Some(refresher),
             policy,
             gate,
+            telemetry.clone(),
         ))
         .await
         {
@@ -155,7 +293,7 @@ impl LinuxVpnRuntime {
             Err(error_value) => {
                 cancel.cancel();
                 drop(monitor);
-                return Err(error(error_value));
+                return Err(io::Error::other(error_value));
             }
         };
         let prepared = async {
@@ -167,9 +305,13 @@ impl LinuxVpnRuntime {
                 return Err(error("Linux final exit did not become ready"));
             }
             let (_, descriptor) = agent.packet_session(operation).await?;
-            protector.set_device(&descriptor)?;
-            let device = register_packet_descriptor(descriptor)?;
-            let io = tunnel.attach_tun().map_err(error)?;
+            protector.set_device(&descriptor).map_err(|e| {
+                usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::PacketDescriptor, e)
+            })?;
+            let device = register_packet_descriptor(descriptor).map_err(|e| {
+                usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::PacketDescriptor, e)
+            })?;
+            let io = tunnel.attach_tun().map_err(io::Error::other)?;
             agent.commit(operation).await?;
             Ok::<_, io::Error>((device, io))
         }
@@ -186,6 +328,8 @@ impl LinuxVpnRuntime {
         let packet_task = spawn_packet_pump(io, device, packets_cancel.clone(), failure_tx.clone());
         let mut runtime = Self {
             tunnel,
+            telemetry,
+            startup_failure: None,
             agent,
             operation,
             plan,
@@ -207,15 +351,22 @@ impl LinuxVpnRuntime {
         startup.armed = false;
         let activation = async {
             runtime.replace_system_proxy(profile).await?;
-            runtime.tunnel.activate_final().await.map_err(error)
+            runtime
+                .tunnel
+                .activate_final()
+                .await
+                .map_err(io::Error::other)
         }
         .await;
         if let Err(activation) = activation {
-            return match runtime.shutdown().await {
+            let result = runtime.shutdown().await;
+            attempt.cleanup.complete(&result);
+            return match result {
                 Ok(()) => Err(activation),
-                Err(cleanup) => Err(error(format!(
-                    "Linux startup failed and recovery remains pending: {cleanup}"
-                ))),
+                Err(cleanup) => Err(io::Error::other(StartupError {
+                    primary: activation,
+                    cleanup,
+                })),
             };
         }
         Ok(runtime)
@@ -280,7 +431,7 @@ impl LinuxVpnRuntime {
         self.tunnel
             .reconfigure_frontends(profile)
             .await
-            .map_err(error)
+            .map_err(io::Error::other)
     }
     pub(crate) fn health(&self) -> RuntimeHealth {
         if let Some(message) = self.failure.borrow().clone() {
@@ -342,6 +493,28 @@ impl LinuxVpnRuntime {
         status: watch::Sender<usque_core::vpngate::GateStatus>,
         cancellation: &CancellationToken,
     ) -> io::Result<()> {
+        self.startup_failure = None;
+        let result = self
+            .replace_gate_inner(profile, selected, policy, status, cancellation)
+            .await;
+        if let Err(error) = &result {
+            let mut failure = startup_evidence(error);
+            failure.cleanup_status = "retained";
+            self.startup_failure = Some(failure);
+        }
+        result
+    }
+    async fn replace_gate_inner(
+        &mut self,
+        profile: &Profile,
+        selected: Option<(
+            usque_core::vpngate::ServerSummary,
+            usque_core::vpngate::PreparedProfile,
+        )>,
+        policy: Arc<GeoDirectPolicy>,
+        status: watch::Sender<usque_core::vpngate::GateStatus>,
+        cancellation: &CancellationToken,
+    ) -> io::Result<()> {
         self.tunnel.quiesce_final();
         self.stop_packets().await;
         self.agent.begin_chain_transition(self.operation).await?;
@@ -351,15 +524,19 @@ impl LinuxVpnRuntime {
                 .replace_gate(profile, selected, policy, status, cancellation),
         )
         .await
-        .map_err(error)?;
+        .map_err(io::Error::other)?;
         let mut plan = self.plan.clone();
         plan.vpn_chain = profile.chain_enabled();
         apply_final_network(&mut plan, &self.tunnel.network_parameters());
         self.agent.finalize(self.operation, plan.clone()).await?;
         let (_, descriptor) = self.agent.packet_session(self.operation).await?;
-        self.protector.set_device(&descriptor)?;
-        let device = register_packet_descriptor(descriptor)?;
-        let io = self.tunnel.attach_tun().map_err(error)?;
+        self.protector.set_device(&descriptor).map_err(|e| {
+            usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::PacketDescriptor, e)
+        })?;
+        let device = register_packet_descriptor(descriptor).map_err(|e| {
+            usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::PacketDescriptor, e)
+        })?;
+        let io = self.tunnel.attach_tun().map_err(io::Error::other)?;
         self.agent.commit(self.operation).await?;
         self.packets_cancel = self.cancel.child_token();
         self.packet_task = Some(spawn_packet_pump(
@@ -369,7 +546,10 @@ impl LinuxVpnRuntime {
             self.failure_tx.clone(),
         ));
         self.replace_system_proxy(profile).await?;
-        self.tunnel.activate_final().await.map_err(error)?;
+        self.tunnel
+            .activate_final()
+            .await
+            .map_err(io::Error::other)?;
         self.plan = plan;
         self.retained = false;
         Ok(())
@@ -377,6 +557,33 @@ impl LinuxVpnRuntime {
     /// Replaces the entire transport behind an Agent-owned durable guard. A
     /// failed attempt remains owned by this runtime until retry or disconnect.
     pub(crate) async fn replace_connection(
+        &mut self,
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        refresher: Arc<dyn EndpointPinRefresher>,
+        policy: Arc<GeoDirectPolicy>,
+        gate: usque_transport::VpnGateStart,
+    ) -> io::Result<()> {
+        self.startup_failure = None;
+        self.telemetry.record(
+            usque_transport::ConnectionEventType::AttemptStarted,
+            Some(usque_core::TransportStage::TunnelStartup),
+            Default::default(),
+            None,
+            None,
+        );
+        let result = self
+            .replace_connection_inner(profile, identity, refresher, policy, gate)
+            .await;
+        if let Err(error) = &result {
+            let mut failure = startup_evidence(error);
+            failure.cleanup_status = "retained";
+            self.startup_failure = Some(failure);
+        }
+        result
+    }
+
+    async fn replace_connection_inner(
         &mut self,
         profile: &Profile,
         identity: MasqueTlsIdentity,
@@ -423,16 +630,17 @@ impl LinuxVpnRuntime {
         self.failure_tx.send_replace(None);
         self.monitor = Some(protector.monitor(self.cancel.clone(), self.failure_tx.clone()));
         self.protector = protector.clone();
-        let mut tunnel = Box::pin(DataPlaneRuntime::start_with_vpngate(
+        let mut tunnel = Box::pin(DataPlaneRuntime::start_with_vpngate_and_telemetry(
             profile,
             identity,
             protector.clone(),
             Some(refresher),
             policy,
             gate,
+            self.telemetry.clone(),
         ))
         .await
-        .map_err(error)?;
+        .map_err(io::Error::other)?;
         let activation = async {
             if plan.defer_network_configuration {
                 apply_final_network(&mut plan, &tunnel.network_parameters());
@@ -442,9 +650,13 @@ impl LinuxVpnRuntime {
                 return Err(error("Linux final exit did not become ready"));
             }
             let (_, descriptor) = self.agent.packet_session(target).await?;
-            self.protector.set_device(&descriptor)?;
-            let device = register_packet_descriptor(descriptor)?;
-            let io = tunnel.attach_tun().map_err(error)?;
+            self.protector.set_device(&descriptor).map_err(|e| {
+                usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::PacketDescriptor, e)
+            })?;
+            let device = register_packet_descriptor(descriptor).map_err(|e| {
+                usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::PacketDescriptor, e)
+            })?;
+            let io = tunnel.attach_tun().map_err(io::Error::other)?;
             self.agent.commit(target).await?;
             self.target_committed = true;
             self.packets_cancel = self.cancel.child_token();
@@ -454,7 +666,7 @@ impl LinuxVpnRuntime {
                 self.packets_cancel.clone(),
                 self.failure_tx.clone(),
             ));
-            tunnel.activate_final().await.map_err(error)
+            tunnel.activate_final().await.map_err(io::Error::other)
         }
         .await;
         self.tunnel = tunnel;
@@ -716,6 +928,76 @@ async fn write_packet(device: &AsyncFd<OwnedFd>, packet: &[u8]) -> io::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn startup_cancellation_and_timeout_drop_the_pending_owner_and_keep_classification() {
+        struct Owner(std::sync::Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for Owner {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+        for cancelled in [false, true] {
+            let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let owner = Owner(dropped.clone());
+            let future = async move {
+                let _owner = owner;
+                std::future::pending::<io::Result<()>>().await
+            };
+            let cancellation = CancellationToken::new();
+            if cancelled {
+                cancellation.cancel();
+            }
+            let error = bounded_startup(
+                &cancellation,
+                tokio::time::Instant::now() + Duration::from_millis(1),
+                future,
+            )
+            .await
+            .unwrap_err();
+            assert!(dropped.load(std::sync::atomic::Ordering::Acquire));
+            assert_eq!(
+                error.kind(),
+                if cancelled {
+                    io::ErrorKind::Interrupted
+                } else {
+                    io::ErrorKind::TimedOut
+                }
+            );
+            if !cancelled {
+                assert_eq!(
+                    crate::linux_agent::failure_detail(&error).unwrap().reason,
+                    agent_v1::LinuxFailureReason::Timeout as i32
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tun_startup_preserves_proxy_transport_failure_and_primary_cleanup_separately() {
+        for transport in [
+            TransportError::EndpointPinMismatch,
+            TransportError::TlsHandshake("secret path /private".into()),
+            TransportError::ConnectTimeout,
+        ] {
+            let expected = transport.failure(None, None);
+            let cleanup = usque_ipc::linux_failure::wrap(
+                agent_v1::LinuxFailureStage::Recovery,
+                io::Error::from_raw_os_error(13),
+            );
+            let error = io::Error::other(StartupError {
+                primary: io::Error::other(transport),
+                cleanup,
+            });
+            let evidence = startup_evidence(&error);
+            assert_eq!(evidence.cleanup_status, "failed");
+            assert_eq!(evidence.cleanup_detail.unwrap().os_errno, Some(13));
+            let ControlServiceError::Transport(actual) = map_error(error) else {
+                panic!("typed transport lost")
+            };
+            assert_eq!(actual.failure(None, None), expected);
+        }
+    }
+
     use usque_ipc::{
         agent_v1::{AgentRequest, AgentResponse, agent_request, agent_response},
         decode_frame, encode_frame, unix_fd,
@@ -783,6 +1065,7 @@ mod tests {
                     AgentReply::Rejected => (
                         None,
                         Some(agent_v1::AgentError {
+                            linux_detail: None,
                             code: "linux_permission_denied".into(),
                             message: "generation changed".into(),
                             retryable: false,

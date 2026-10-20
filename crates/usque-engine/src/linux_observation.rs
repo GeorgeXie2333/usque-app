@@ -28,7 +28,12 @@ impl ControlService {
             if state.phase != AgentPhase::Clean as i32 {
                 client.recover(&state).await?;
             }
-            let observed = capture(&client).await?;
+            let observed = capture(
+                &client,
+                self.session_generation
+                    .load(std::sync::atomic::Ordering::Acquire),
+            )
+            .await?;
             if observed.state.phase != AgentPhase::Clean as i32 {
                 return Err(std::io::Error::other("Linux recovery remains pending"));
             }
@@ -66,7 +71,12 @@ impl ControlService {
                 if client.is_none() {
                     client = Some(LinuxAgentClient::connect().await?);
                 }
-                capture(client.as_ref().expect("connected client")).await
+                capture(
+                    client.as_ref().expect("connected client"),
+                    self.session_generation
+                        .load(std::sync::atomic::Ordering::Acquire),
+                )
+                .await
             })
             .await;
             if let Ok(Ok(observation)) = result {
@@ -83,17 +93,18 @@ impl ControlService {
     pub(crate) async fn linux_diagnostic_observation(&self) -> Option<LinuxPlatformObservation> {
         #[cfg(not(test))]
         if let Ok(Ok(observation)) = tokio::time::timeout(Duration::from_secs(5), async {
-            capture(&LinuxAgentClient::connect().await?).await
+            capture(
+                &LinuxAgentClient::connect().await?,
+                self.session_generation
+                    .load(std::sync::atomic::Ordering::Acquire),
+            )
+            .await
         })
         .await
         {
             return Some(observation);
         }
-        self.linux_platform
-            .lock()
-            .await
-            .clone()
-            .filter(|value| value.captured_at.elapsed() <= MAX_AGE)
+        self.linux_platform.lock().await.clone()
     }
 
     pub(crate) async fn project_linux_recovery(&self, snapshot: &mut ConnectionSnapshot) {
@@ -121,13 +132,17 @@ pub(crate) async fn disconnected_probe_safe() -> bool {
     .unwrap_or(false)
 }
 
-async fn capture(client: &LinuxAgentClient) -> std::io::Result<LinuxPlatformObservation> {
+async fn capture(
+    client: &LinuxAgentClient,
+    session_generation: u64,
+) -> std::io::Result<LinuxPlatformObservation> {
     let state = client.state().await?;
     let physical = match uuid::Uuid::parse_str(&state.operation_id) {
         Ok(id) => client.physical_network(id).await.ok(),
         Err(_) => None,
     };
     Ok(LinuxPlatformObservation {
+        session_generation,
         state,
         physical,
         captured_at: tokio::time::Instant::now(),
@@ -216,6 +231,7 @@ mod tests {
     #[test]
     fn cold_recovery_and_stale_protection_do_not_appear_disconnected_or_safe() {
         let mut observation = LinuxPlatformObservation {
+            session_generation: 0,
             state: usque_ipc::agent_v1::AgentState {
                 phase: AgentPhase::RecoveryRequired as i32,
                 kill_switch_active: true,

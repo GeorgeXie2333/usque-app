@@ -33,6 +33,80 @@ message AgentError {
   string code = 1;
   string message = 2;
   bool retryable = 3;
+  // Optional, export-safe evidence. Never used to authorize an operation.
+  LinuxFailureDetail linux_detail = 4;
+}
+
+enum LinuxFailureStage {
+  LINUX_FAILURE_STAGE_UNSPECIFIED = 0;
+  LINUX_FAILURE_STAGE_PREFLIGHT = 1;
+  LINUX_FAILURE_STAGE_DNS_PROBE = 2;
+  LINUX_FAILURE_STAGE_PHYSICAL_SNAPSHOT = 3;
+  LINUX_FAILURE_STAGE_PROTECTION = 4;
+  LINUX_FAILURE_STAGE_TUN_CREATE = 5;
+  LINUX_FAILURE_STAGE_ADDRESS_APPLY = 6;
+  LINUX_FAILURE_STAGE_DNS_APPLY = 7;
+  LINUX_FAILURE_STAGE_ROUTE_APPLY = 8;
+  LINUX_FAILURE_STAGE_PACKET_DESCRIPTOR = 9;
+  LINUX_FAILURE_STAGE_JOURNAL = 10;
+  LINUX_FAILURE_STAGE_RECOVERY = 11;
+  LINUX_FAILURE_STAGE_EGRESS_PERMISSION = 12;
+  LINUX_FAILURE_STAGE_AGENT_CONNECT = 13;
+  LINUX_FAILURE_STAGE_AGENT_HANDSHAKE = 14;
+  LINUX_FAILURE_STAGE_ACTIVATION = 15;
+}
+
+enum LinuxFailureReason {
+  LINUX_FAILURE_REASON_UNSPECIFIED = 0;
+  LINUX_FAILURE_REASON_IO = 1;
+  LINUX_FAILURE_REASON_TIMEOUT = 2;
+  LINUX_FAILURE_REASON_COMMAND_REJECTED = 3;
+  LINUX_FAILURE_REASON_COMMAND_SIGNALED = 4;
+  LINUX_FAILURE_REASON_MALFORMED_RESPONSE = 5;
+  LINUX_FAILURE_REASON_RESOLVER_MODE = 6;
+  LINUX_FAILURE_REASON_STUB_LISTENER = 7;
+  LINUX_FAILURE_REASON_RESOLVER_CONFIG = 8;
+  LINUX_FAILURE_REASON_DNS_OWNERSHIP = 9;
+  LINUX_FAILURE_REASON_SCHEMA = 10;
+  LINUX_FAILURE_REASON_VERIFICATION = 11;
+  LINUX_FAILURE_REASON_RESOURCE_OWNERSHIP = 12;
+  LINUX_FAILURE_REASON_NO_DNS_BACKEND = 13;
+  LINUX_FAILURE_REASON_ROUTE_UNAVAILABLE = 14;
+  LINUX_FAILURE_REASON_UNSUPPORTED_ROUTE = 15;
+  LINUX_FAILURE_REASON_SNAPSHOT_UNAVAILABLE = 16;
+  LINUX_FAILURE_REASON_HANDSHAKE_INCOMPLETE = 17;
+}
+
+enum LinuxDnsBackend {
+  LINUX_DNS_BACKEND_UNSPECIFIED = 0;
+  LINUX_DNS_BACKEND_RESOLVED = 1;
+  LINUX_DNS_BACKEND_NETWORK_MANAGER = 2;
+}
+
+enum LinuxCommandAdapter {
+  LINUX_COMMAND_ADAPTER_UNSPECIFIED = 0;
+  LINUX_COMMAND_ADAPTER_NFT = 1;
+  LINUX_COMMAND_ADAPTER_BUSCTL = 2;
+}
+
+message LinuxDnsProbeFailure {
+  LinuxDnsBackend backend = 1;
+  LinuxFailureReason reason = 2;
+  LinuxCommandAdapter adapter = 3;
+  optional int32 os_errno = 4;
+  optional int32 exit_code = 5;
+}
+
+message LinuxFailureDetail {
+  LinuxFailureStage stage = 1;
+  LinuxFailureReason reason = 2;
+  LinuxDnsBackend backend = 3;
+  LinuxCommandAdapter adapter = 4;
+  optional int32 os_errno = 5;
+  optional int32 exit_code = 6;
+  repeated LinuxDnsProbeFailure dns_probe_failures = 7;
+  // At most one level: cleanup never replaces the primary failure.
+  LinuxFailureDetail cleanup_detail = 8;
 }
 
 message AgentCapabilities {

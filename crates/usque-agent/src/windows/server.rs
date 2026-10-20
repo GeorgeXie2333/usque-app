@@ -371,6 +371,7 @@ where
                 .terminal
                 .as_ref()
                 .map(|terminal| agent_v1::AgentError {
+                    linux_detail: None,
                     code: terminal.code.to_owned(),
                     message: terminal.message.chars().take(512).collect(),
                     retryable: terminal.retryable,
@@ -2697,6 +2698,7 @@ fn error_response(request_id: String, error: ServiceError) -> AgentResponse {
     AgentResponse {
         request_id,
         error: Some(agent_v1::AgentError {
+            linux_detail: None,
             code: code.to_owned(),
             message,
             retryable,

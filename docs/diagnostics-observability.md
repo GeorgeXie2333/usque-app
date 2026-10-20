@@ -6,6 +6,34 @@ Use [Network Doctor](network-doctor.md) for the user workflow and
 
 ## Public contract and evidence
 
+Linux Agent protocol v3 preserves `AgentError` fields 1–3 and appends optional
+`linux_detail = 4`. Its fixed enums describe stage, reason, DNS backend and
+command adapter; errno is limited to 1–4095 and exit status to 1–255. DNS probe
+rejections have at most two entries, ordered resolved then NetworkManager.
+An optional bounded cleanup detail preserves a cleanup failure independently
+of the primary failure. Unknown enums, invalid bounds and recursive cleanup
+details are discarded without changing the original code or retry policy.
+No decision derives a classification from `message`, stderr or command text.
+
+Linux startup preserves typed transport failures across proxy and TUN starts
+and protected replacements. A caller-owned bounded timeline exists before
+Agent preparation and survives cancellation, deadline expiry and failed startup.
+Rollback updates only its own evidence owner, so a late cleanup cannot overwrite
+a later connection's evidence.
+
+`platform-health.json` schema 2 retains the original summary keys. Its
+`startup_failure` records the failed attempt and cleanup separately; current
+Linux platform fields come from the existing read-only Agent observation and
+are labelled with source, age, Engine session generation and Agent generations.
+Missing evidence is unavailable. Observations older than ten seconds or from a
+different Engine generation are stale and cannot establish absence or health.
+The export never serializes the full Agent state, physical DNS addresses or
+route snapshots. Old Agents without details report detail availability as
+unavailable. Authentication rejection closes IPC and writes only a rate-limited
+fixed reason/kind and bounded errno to the service journal; EOF establishes only
+an incomplete handshake. Command failures retain adapter, stage and bounded
+exit status without stderr, arguments, input or executable paths.
+
 [diagnostics-contract.json](../proto/usque/diagnostics-contract.json) defines
 stable check IDs, failure/event codes, summary/remediation keys, evidence keys
 and fact tokens. [The generator](../tool/generate_diagnostics_contract.py)

@@ -561,6 +561,7 @@ async fn failed_abort_then_new_disconnect_retries_that_target_and_never_a_retarg
         }
         let failure = AgentResponse {
             error: Some(agent_v1::AgentError {
+                linux_detail: None,
                 code: "AGENT_RECOVERY_FAILED".into(),
                 message: "cleanup unavailable".into(),
                 retryable: true,

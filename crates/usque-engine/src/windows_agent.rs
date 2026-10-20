@@ -4937,6 +4937,7 @@ mod tests {
     async fn startup_failure_keeps_the_original_cause_when_rollback_also_fails() {
         let (client, task) = scripted_recovery_client(vec![AgentResponse {
             error: Some(agent_v1::AgentError {
+                linux_detail: None,
                 code: "AGENT_RECOVERY_FAILED".to_owned(),
                 message: "private diagnostic fixture".to_owned(),
                 retryable: false,
@@ -5109,11 +5110,13 @@ mod tests {
     fn automatic_recovery_state_response(phase: agent_v1::AutomaticRecoveryPhase) -> AgentResponse {
         let terminal_error = match phase {
             agent_v1::AutomaticRecoveryPhase::Exhausted => Some(agent_v1::AgentError {
+                linux_detail: None,
                 code: "AGENT_AUTOMATIC_RECOVERY_EXHAUSTED".to_owned(),
                 message: "sanitized exhausted".to_owned(),
                 retryable: true,
             }),
             agent_v1::AutomaticRecoveryPhase::Blocked => Some(agent_v1::AgentError {
+                linux_detail: None,
                 code: "AGENT_AUTOMATIC_RECOVERY_BLOCKED".to_owned(),
                 message: "sanitized blocked".to_owned(),
                 retryable: false,
@@ -5144,6 +5147,7 @@ mod tests {
     fn pending_adapter_removal_response() -> AgentResponse {
         AgentResponse {
             error: Some(agent_v1::AgentError {
+            linux_detail: None,
                 code: "AGENT_RECOVERY_FAILED".to_owned(),
                 message: "adapter_cleanup stage=Confirm failure=Pending interface=Some(true) device=Some(false)".to_owned(),
                 retryable: true,
@@ -5796,6 +5800,7 @@ mod tests {
 
         let mut waiting = state_for(agent_v1::AutomaticRecoveryPhase::Waiting);
         waiting.automatic_recovery.as_mut().unwrap().terminal_error = Some(agent_v1::AgentError {
+            linux_detail: None,
             code: "must-not-surface-yet".to_owned(),
             message: "intermediate".to_owned(),
             retryable: true,
@@ -5904,6 +5909,7 @@ mod tests {
                 recovery_state_response(agent_v1::AgentPhase::RecoveryRequired),
                 AgentResponse {
                     error: Some(agent_v1::AgentError {
+                        linux_detail: None,
                         code: code.to_owned(),
                         message: "test failure".to_owned(),
                         retryable: false,

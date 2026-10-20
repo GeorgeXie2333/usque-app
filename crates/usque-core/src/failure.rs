@@ -77,10 +77,11 @@ pub enum TransportFailureCode {
     ProtonProtocolFailed,
     ProtonTransportFailed,
     ProtonReconnectRequired,
+    LinuxPlatformFailed,
 }
 
 impl TransportFailureCode {
-    pub const ALL: [Self; 68] = [
+    pub const ALL: [Self; 69] = [
         Self::EngineUnavailable,
         Self::AgentUnreachable,
         Self::VpnServiceUnavailable,
@@ -149,10 +150,12 @@ impl TransportFailureCode {
         Self::ProtonProtocolFailed,
         Self::ProtonTransportFailed,
         Self::ProtonReconnectRequired,
+        Self::LinuxPlatformFailed,
     ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::LinuxPlatformFailed => "LINUX_PLATFORM_FAILED",
             Self::EngineUnavailable => "ENGINE_UNAVAILABLE",
             Self::AgentUnreachable => "AGENT_UNREACHABLE",
             Self::VpnServiceUnavailable => "VPN_SERVICE_UNAVAILABLE",
@@ -326,7 +329,8 @@ impl TransportFailureCode {
             | Self::SystemProxyStateMismatch
             | Self::RouteRestoreIncomplete
             | Self::SystemProxyStale
-            | Self::PlatformRecoveryPending => ErrorCode::PlatformSetupFailed,
+            | Self::PlatformRecoveryPending
+            | Self::LinuxPlatformFailed => ErrorCode::PlatformSetupFailed,
             Self::Internal => ErrorCode::Internal,
             _ => ErrorCode::TransportUnavailable,
         }

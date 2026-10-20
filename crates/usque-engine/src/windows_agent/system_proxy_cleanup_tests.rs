@@ -51,6 +51,7 @@ fn proxy_capabilities(supported: bool, version: u32) -> AgentResponse {
 fn restore_failure() -> AgentResponse {
     AgentResponse {
         error: Some(agent_v1::AgentError {
+            linux_detail: None,
             code: "AGENT_RECOVERY_FAILED".into(),
             message: "inert restore failure".into(),
             retryable: true,
@@ -254,6 +255,7 @@ async fn restoration_racing_with_an_owner_change_accepts_only_global_clean() {
             proxy_capabilities(true, AGENT_PROTOCOL_VERSION),
             AgentResponse {
                 error: Some(agent_v1::AgentError {
+                    linux_detail: None,
                     code: "AGENT_OPERATION_MISMATCH".into(),
                     message: "inert ownership race".into(),
                     retryable: false,

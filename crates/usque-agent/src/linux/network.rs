@@ -35,6 +35,151 @@ const DUMP: u16 = 0x300;
 const ROUTE_PROTOCOL: u8 = 186;
 const MARK_MASK: u32 = 0xffff_0000;
 
+/// Context of the actual authenticated socket, not the Agent's root process.
+#[derive(Clone, Debug)]
+pub struct RouteQuery {
+    pub remote: std::net::SocketAddr,
+    pub source: Option<std::net::SocketAddr>,
+    pub mark: u32,
+    pub uid: u32,
+    pub protocol: u8,
+    pub tos: u8,
+    pub interface: Option<u32>,
+}
+
+fn route_query(query: &RouteQuery) -> Vec<u8> {
+    let remote = query.remote.ip();
+    let source = query.source.filter(|s| !s.ip().is_unspecified());
+    let mut bytes = vec![
+        family(remote),
+        if remote.is_ipv4() { 32 } else { 128 },
+        source.map_or(0, |s| if s.is_ipv4() { 32 } else { 128 }),
+        query.tos,
+        0,
+        0,
+        0,
+        0,
+    ];
+    // RTM_F_LOOKUP_TABLE: return the actual selected table, not a synthetic main.
+    bytes.extend_from_slice(&0x1000_u32.to_ne_bytes());
+    attribute(&mut bytes, 1, &ip_bytes(remote));
+    if let Some(source) = source {
+        attribute(&mut bytes, 2, &ip_bytes(source.ip()));
+    }
+    attribute(&mut bytes, 16, &query.mark.to_ne_bytes());
+    attribute(&mut bytes, 25, &query.uid.to_ne_bytes());
+    attribute(&mut bytes, 27, &[query.protocol]);
+    attribute(&mut bytes, 29, &query.remote.port().to_be_bytes());
+    if let Some(source) = query.source.filter(|s| s.port() != 0) {
+        attribute(&mut bytes, 28, &source.port().to_be_bytes());
+    }
+    if let Some(index) = query.interface {
+        attribute(&mut bytes, 4, &index.to_ne_bytes());
+    }
+    bytes
+}
+
+fn selected_route(
+    resources: &Resources,
+    query: &RouteQuery,
+    records: &[Vec<u8>],
+) -> io::Result<u32> {
+    let [record] = records else {
+        return Err(conflict("route lookup did not return one resolved route"));
+    };
+    if record.len() < 12 || record[0] != family(query.remote.ip()) || record[7] != 1 {
+        return Err(conflict("physical route is not unicast"));
+    }
+    let attrs = attributes(&record[12..])?;
+    let mut seen = std::collections::BTreeSet::new();
+    for (kind, value) in &attrs {
+        if !seen.insert(*kind) || !matches!(*kind, 1..=8 | 11 | 12 | 15 | 16 | 20 | 23 | 25..=29) {
+            return Err(conflict("unexplained or duplicate route lookup attribute"));
+        }
+        if matches!(*kind, 1 | 2 | 5 | 7)
+            && value.len() != if query.remote.is_ipv4() { 4 } else { 16 }
+        {
+            return Err(conflict("invalid route lookup address length"));
+        }
+    }
+    if attrs
+        .iter()
+        .any(|(kind, _)| matches!(*kind, 9 | 19 | 21 | 22 | 30))
+    {
+        return Err(conflict(
+            "physical route has unresolved nexthop or encapsulation",
+        ));
+    }
+    let value = |key| -> io::Result<Option<u32>> {
+        let mut values = attrs.iter().filter(|(kind, _)| *kind == key);
+        let value = values
+            .next()
+            .map(|(_, bytes)| native_u32(bytes))
+            .transpose()?;
+        if values.next().is_some() {
+            return Err(conflict("duplicate route lookup attribute"));
+        }
+        Ok(value)
+    };
+    let table = value(15)?.unwrap_or(u32::from(record[4]));
+    let index = value(4)?
+        .filter(|i| *i != 0)
+        .ok_or_else(|| conflict("physical route has no resolved interface"))?;
+    if table == 0
+        || table == resources.route_table
+        || resources.interface_index == Some(index)
+        || query.interface.is_some_and(|required| required != index)
+    {
+        return Err(conflict(
+            "physical route selects a protected or unexpected path",
+        ));
+    }
+    Ok(index)
+}
+
+pub fn lookup_physical_route(resources: &Resources, query: &RouteQuery) -> io::Result<u32> {
+    lookup_physical_route_inner(resources, query).map_err(|error| {
+        use usque_ipc::agent_v1::{
+            LinuxFailureDetail, LinuxFailureReason as R, LinuxFailureStage as S,
+        };
+        let reason = if matches!(
+            error.raw_os_error(),
+            Some(libc::ENETUNREACH | libc::EHOSTUNREACH | libc::ENOENT | libc::ESRCH)
+        ) {
+            R::RouteUnavailable
+        } else if error.kind() == io::ErrorKind::InvalidData {
+            R::UnsupportedRoute
+        } else {
+            R::Io
+        };
+        usque_ipc::linux_failure::with_detail(
+            LinuxFailureDetail {
+                stage: S::EgressPermission as i32,
+                reason: reason as i32,
+                os_errno: error.raw_os_error().filter(|n| (1..=4095).contains(n)),
+                ..Default::default()
+            },
+            error,
+        )
+    })
+}
+fn lookup_physical_route_inner(resources: &Resources, query: &RouteQuery) -> io::Result<u32> {
+    let records = request(RTM_GETROUTE, 0, route_query(query))?;
+    let index = selected_route(resources, query, &records)?;
+    let links = request(18, 0, link_message(index, 0, 0))?; // RTM_GETLINK
+    let [link] = links.as_slice() else {
+        return Err(conflict("physical interface is unavailable"));
+    };
+    if link.len() < 16 || native_u32(&link[4..8])? != index {
+        return Err(conflict("physical interface identity changed"));
+    }
+    let flags = native_u32(&link[8..12])?;
+    if flags & libc::IFF_UP as u32 == 0 || flags & libc::IFF_LOOPBACK as u32 != 0 {
+        return Err(conflict("physical interface is down or loopback"));
+    }
+    Ok(index)
+}
+
 /// Multicast rtnetlink subscription. Overruns force a complete snapshot; event
 /// payloads are never interpreted as authorization or mutation instructions.
 pub struct ChangeWatcher(OwnedFd);
@@ -56,7 +201,9 @@ impl ChangeWatcher {
         // SAFETY: all-zero sockaddr_nl is a valid initial representation.
         let mut address: libc::sockaddr_nl = unsafe { mem::zeroed() };
         address.nl_family = libc::AF_NETLINK as _;
-        address.nl_groups = 1 | 0x10 | 0x40 | 0x100 | 0x400;
+        // Link/address/route and IPv4/IPv6 rule notifications. Periodic
+        // snapshots remain the fallback if a notification is lost.
+        address.nl_groups = 1 | 0x10 | 0x40 | 0x80 | 0x100 | 0x400 | 0x40000;
         // SAFETY: address is initialized and the supplied length matches it.
         if unsafe {
             libc::bind(
@@ -334,6 +481,69 @@ pub fn physical_interfaces() -> io::Result<Vec<super::journal::PhysicalInterface
             dns_servers: Vec::new(),
         })
         .collect())
+}
+
+/// Private volatile fingerprint; never serialized into journals or diagnostics.
+/// Include all foreign routing tables/rules, not just main/default routes.
+pub fn routing_fingerprint(owned: &[Resources]) -> io::Result<Vec<Vec<u8>>> {
+    let mut records = Vec::new();
+    for family in [libc::AF_INET as u8, libc::AF_INET6 as u8] {
+        for kind in [RTM_GETROUTE, RTM_GETRULE] {
+            for record in request(kind, DUMP, vec![family, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])? {
+                if let Some(record) = fingerprint_record(kind, &record, owned)? {
+                    records.push(record);
+                }
+            }
+        }
+    }
+    records.sort();
+    Ok(records)
+}
+
+fn fingerprint_record(
+    kind: u16,
+    record: &[u8],
+    owned: &[Resources],
+) -> io::Result<Option<Vec<u8>>> {
+    if record.len() < 12 {
+        return Err(conflict("truncated routing snapshot"));
+    }
+    let attrs = attributes(&record[12..])?;
+    // Cloned cache entries reflect traffic, not FIB policy.
+    if kind == RTM_GETROUTE && native_u32(&record[8..12])? & 0x200 != 0 {
+        return Ok(None);
+    }
+    let value = |key| {
+        attrs
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, b)| native_u32(b))
+            .transpose()
+    };
+    let table = value(15)?.unwrap_or(u32::from(record[4]));
+    let oif = if kind == RTM_GETROUTE {
+        value(4)?
+    } else {
+        None
+    };
+    if owned
+        .iter()
+        .any(|own| table == own.route_table || oif.is_some() && oif == own.interface_index)
+    {
+        return Ok(None);
+    }
+    let mut canonical = record[..12].to_vec();
+    canonical.extend_from_slice(&kind.to_ne_bytes());
+    canonical.extend_from_slice(&[0; 2]);
+    let mut attrs: Vec<_> = attrs
+        .into_iter()
+        .filter(|(key, _)| kind != RTM_GETROUTE || !matches!(*key, 12 | 23))
+        .collect(); // cacheinfo/remaining expiry
+    attrs.sort();
+    for (kind, bytes) in attrs {
+        attribute(&mut canonical, kind, bytes);
+    }
+    Ok(Some(canonical))
 }
 
 pub fn interface_name(index: u32) -> io::Result<String> {
@@ -883,6 +1093,131 @@ fn conflict(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lookup_context() -> RouteQuery {
+        RouteQuery {
+            remote: "192.0.2.8:443".parse().unwrap(),
+            source: Some("192.0.2.9:24567".parse().unwrap()),
+            mark: 0x12340007,
+            uid: 1001,
+            protocol: 6,
+            tos: 16,
+            interface: None,
+        }
+    }
+
+    #[test]
+    fn kernel_lookup_encodes_real_mark_uid_ports_source_and_scope() {
+        let mut query = lookup_context();
+        for (remote, source, index) in [
+            ("192.0.2.8:443", "192.0.2.9:24567", None),
+            ("[fe80::1%42]:53", "[fe80::2%42]:12345", Some(42)),
+        ] {
+            query.remote = remote.parse().unwrap();
+            query.source = Some(source.parse().unwrap());
+            query.interface = index;
+            let payload = route_query(&query);
+            let attrs = attributes(&payload[12..]).unwrap();
+            assert!(attrs.contains(&(16, query.mark.to_ne_bytes().as_slice())));
+            assert!(attrs.contains(&(25, 1001u32.to_ne_bytes().as_slice())));
+            assert!(attrs.contains(&(27, [6].as_slice())));
+            assert!(attrs.contains(&(29, query.remote.port().to_be_bytes().as_slice())));
+            assert!(attrs.contains(&(28, query.source.unwrap().port().to_be_bytes().as_slice())));
+            assert!(attrs.contains(&(2, ip_bytes(query.source.unwrap().ip()).as_slice())));
+            assert_eq!(payload[3], 16);
+            assert_eq!(native_u32(&payload[8..12]).unwrap(), 0x1000);
+            assert_eq!(
+                attrs
+                    .iter()
+                    .find(|(k, _)| *k == 4)
+                    .map(|(_, v)| native_u32(v).unwrap()),
+                index
+            );
+        }
+    }
+
+    #[test]
+    fn resolved_route_never_falls_back_to_first_candidate_or_own_tun() {
+        let mut resources = Resources::for_operation(uuid::Uuid::new_v4());
+        resources.interface_index = Some(42);
+        let query = lookup_context();
+        let mut chosen = vec![libc::AF_INET as u8, 32, 0, 0, 100, 0, 0, 1, 0, 0, 0, 0];
+        attribute(&mut chosen, 4, &99u32.to_ne_bytes());
+        assert_eq!(
+            selected_route(&resources, &query, &[chosen.clone()]).unwrap(),
+            99
+        );
+        assert!(selected_route(&resources, &query, &[]).is_err());
+        assert!(selected_route(&resources, &query, &[chosen.clone(), chosen.clone()]).is_err());
+        for kind in [9, 19, 21, 22, 30] {
+            let mut unsupported = chosen.clone();
+            attribute(&mut unsupported, kind, &[0; 4]);
+            assert!(selected_route(&resources, &query, &[unsupported]).is_err());
+        }
+        for kind in [0, 6, 7, 9] {
+            let mut rejected = chosen.clone();
+            rejected[7] = kind;
+            assert!(selected_route(&resources, &query, &[rejected]).is_err());
+        }
+        resources.interface_index = Some(99);
+        assert!(selected_route(&resources, &query, &[chosen.clone()]).is_err());
+        resources.interface_index = None;
+        let mut own = chosen.clone();
+        attribute(&mut own, 15, &resources.route_table.to_ne_bytes());
+        assert!(selected_route(&resources, &query, &[own]).is_err());
+        assert!(
+            selected_route(
+                &resources,
+                &RouteQuery {
+                    interface: Some(7),
+                    ..query
+                },
+                &[chosen]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn foreign_fingerprint_tracks_gateway_metric_and_rules_but_ignores_own_and_cache() {
+        let resources = Resources::for_operation(uuid::Uuid::new_v4());
+        let mut route = vec![libc::AF_INET as u8, 0, 0, 0, 254, 0, 0, 1, 0, 0, 0, 0];
+        attribute(&mut route, 4, &99u32.to_ne_bytes());
+        let base =
+            fingerprint_record(RTM_GETROUTE, &route, std::slice::from_ref(&resources)).unwrap();
+        for (kind, value) in [
+            (5, [192, 0, 2, 1]),
+            (6, 100u32.to_ne_bytes()),
+            (1, [198, 51, 100, 0]),
+        ] {
+            let mut changed = route.clone();
+            attribute(&mut changed, kind, &value);
+            assert_ne!(
+                base,
+                fingerprint_record(RTM_GETROUTE, &changed, &[]).unwrap()
+            );
+        }
+        let mut cache = route.clone();
+        attribute(&mut cache, 12, &[1; 32]);
+        attribute(&mut cache, 23, &[1; 4]);
+        assert_eq!(base, fingerprint_record(RTM_GETROUTE, &cache, &[]).unwrap());
+        let mut own = route.clone();
+        attribute(&mut own, 15, &resources.route_table.to_ne_bytes());
+        assert!(
+            fingerprint_record(RTM_GETROUTE, &own, std::slice::from_ref(&resources))
+                .unwrap()
+                .is_none()
+        );
+        let rule = vec![libc::AF_INET as u8, 0, 0, 0, 100, 0, 0, 1, 0, 0, 0, 0];
+        for kind in [6, 10, 16, 20, 21, 22, 23, 24] {
+            let mut changed = rule.clone();
+            attribute(&mut changed, kind, &[1; 4]);
+            assert_ne!(
+                fingerprint_record(RTM_GETRULE, &rule, &[]).unwrap(),
+                fingerprint_record(RTM_GETRULE, &changed, &[]).unwrap()
+            );
+        }
+    }
 
     // Deliberately not 1: inspection must use the resolved namespace interface.
     const LOOPBACK_INDEX: u32 = 7;

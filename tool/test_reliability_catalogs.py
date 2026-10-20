@@ -41,6 +41,10 @@ class ReliabilityCatalogueTest(unittest.TestCase):
             encoding="utf-8"
         )
         chinese_catalog += _section(diagnostics, "'zh_CN':", "'zh_TW':")
+        linux_catalog = (ROOT / "apps/usque_gui/lib/core/l10n/linux_desktop.dart").read_text(
+            encoding="utf-8"
+        )
+        chinese_catalog += _section(linux_catalog, "'zh_CN':", "'zh_TW':")
         chinese_codes = set(
             re.findall(
                 r"'diag_fail_([A-Z][A-Z0-9_]+)'\s*:",
@@ -75,7 +79,7 @@ class ReliabilityCatalogueTest(unittest.TestCase):
                 _section(android, "val failureCodes", "val summaryKeys"),
             )
         )
-        self.assertEqual(68, len(rust_codes))
+        self.assertEqual(69, len(rust_codes))
         self.assertSetEqual(rust_codes, chinese_codes)
         self.assertSetEqual(rust_codes, android_codes)
         self.assertSetEqual(rust_codes, set(_contract()["failure_codes"]))

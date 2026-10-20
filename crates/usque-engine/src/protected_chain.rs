@@ -177,6 +177,10 @@ impl ControlService {
             .await
             .take()
             .expect("serialized protected session");
+        #[cfg(target_os = "linux")]
+        {
+            active.session_generation = self.next_session_generation();
+        }
         let ActiveRuntime::Vpn(runtime) = &mut active.runtime else {
             unreachable!("non-test Windows VPN")
         };
@@ -276,7 +280,10 @@ impl ControlService {
             self.mark_connection_error(&error).await;
             return Err(error);
         }
+        #[cfg(windows)]
         let generation = self.next_session_generation();
+        #[cfg(target_os = "linux")]
+        let generation = active.session_generation;
         active.profile_id = target.id;
         active.profile = target.clone();
         active.session_generation = generation;

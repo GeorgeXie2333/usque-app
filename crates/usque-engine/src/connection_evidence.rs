@@ -7,6 +7,83 @@ use usque_transport::{ConnectionTimelineSnapshot, NetworkQualitySnapshot};
 
 use crate::{ActiveDataPlane, ControlService};
 
+#[derive(Clone, serde::Serialize)]
+pub(crate) struct StartupFailureEvidence {
+    pub detail: Option<usque_ipc::agent_v1::LinuxFailureDetail>,
+    pub cleanup_detail: Option<usque_ipc::agent_v1::LinuxFailureDetail>,
+    pub cleanup_status: &'static str,
+    #[serde(skip)]
+    #[cfg(target_os = "linux")]
+    pub cleanup_owner: Option<StartupCleanup>,
+}
+
+#[derive(Clone)]
+#[cfg(target_os = "linux")]
+pub(crate) struct StartupCleanup(
+    std::sync::Arc<
+        std::sync::Mutex<(
+            &'static str,
+            Option<usque_ipc::agent_v1::LinuxFailureDetail>,
+        )>,
+    >,
+);
+
+#[cfg(target_os = "linux")]
+impl Default for StartupCleanup {
+    fn default() -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new((
+            "not_requested",
+            None,
+        ))))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl StartupCleanup {
+    pub fn pending(&self) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = ("pending", None);
+    }
+    #[cfg(target_os = "linux")]
+    pub fn complete(&self, result: &std::io::Result<()>) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = match result {
+            Ok(()) => ("completed", None),
+            Err(error) => ("failed", crate::linux_agent::failure_detail(error)),
+        };
+    }
+}
+
+impl StartupFailureEvidence {
+    pub fn resolved(&self) -> Self {
+        let mut value = self.clone();
+        #[cfg(target_os = "linux")]
+        if let Some(owner) = &value.cleanup_owner {
+            let (status, detail) = owner.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            value.cleanup_status = status;
+            if detail.is_some() {
+                value.cleanup_detail = detail;
+            }
+        }
+        value.detail = value.detail.filter(usque_ipc::linux_failure::valid);
+        value.cleanup_detail = value.cleanup_detail.filter(usque_ipc::linux_failure::valid);
+        value
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_failure_stage(stage: i32) -> usque_core::TransportStage {
+    use usque_core::TransportStage as T;
+    use usque_ipc::agent_v1::LinuxFailureStage as S;
+    match S::try_from(stage).ok() {
+        Some(S::DnsProbe | S::DnsApply) => T::DnsApply,
+        Some(S::Protection) => T::KillSwitchApply,
+        Some(S::RouteApply) => T::RouteApply,
+        Some(S::AddressApply) => T::AddressAssignment,
+        Some(S::EgressPermission) => T::SocketProtection,
+        Some(S::Recovery) => T::PlatformRecovery,
+        _ => T::TunnelStartup,
+    }
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CaptureScope {
@@ -22,7 +99,7 @@ pub(crate) struct CaptureMetadata {
     captured_at: chrono::DateTime<chrono::Utc>,
     current_phase: usque_core::ConnectionPhase,
     captured_phase: usque_core::ConnectionPhase,
-    session_generation: Option<u64>,
+    pub(crate) session_generation: Option<u64>,
     connection_instance_id: Option<uuid::Uuid>,
     quality_age_milliseconds: Option<u64>,
     cleanup_status: &'static str,
@@ -34,6 +111,7 @@ pub(crate) struct CaptureMetadata {
 
 #[derive(Clone)]
 pub(crate) struct ConnectionEvidence {
+    pub startup_failure: Option<StartupFailureEvidence>,
     pub connection: ConnectionSnapshot,
     pub timeline: ConnectionTimelineSnapshot,
     pub quality: Option<NetworkQualitySnapshot>,
@@ -68,6 +146,19 @@ impl ConnectionEvidence {
         let updates = active.runtime.subscribe_network_quality();
         let quality = updates.borrow().clone();
         Self {
+            startup_failure: {
+                #[cfg(target_os = "linux")]
+                {
+                    match &active.runtime {
+                        crate::ActiveRuntime::Vpn(runtime) => runtime.startup_failure(),
+                        _ => None,
+                    }
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    None
+                }
+            },
             connection,
             timeline: active.runtime.connection_timeline(),
             quality: Some(quality),
@@ -115,7 +206,11 @@ impl ConnectionEvidence {
                     .as_millis()
                     .min(u128::from(u64::MAX)) as u64
             }),
-            cleanup_status: self.cleanup_status,
+            cleanup_status: self
+                .startup_failure
+                .as_ref()
+                .map(|f| f.resolved().cleanup_status)
+                .unwrap_or(self.cleanup_status),
             connection_stable_during_capture: stable,
             platform_observation_included: platform_included,
             timeline_dropped_events: self.timeline.dropped_event_count,
@@ -125,6 +220,46 @@ impl ConnectionEvidence {
 }
 
 impl ControlService {
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn retain_linux_startup(
+        &self,
+        generation: u64,
+        telemetry: &usque_transport::ConnectionTelemetry,
+        failure: Option<StartupFailureEvidence>,
+    ) {
+        // Startup is serialized by mutation_lock, but asynchronous old cleanup
+        // can finish later. Never publish its evidence over a newer attempt.
+        let connection = self.state.lock().await.snapshot().clone();
+        telemetry.record(
+            if connection.failure.is_some() {
+                usque_transport::ConnectionEventType::Failed
+            } else {
+                usque_transport::ConnectionEventType::Disconnected
+            },
+            connection.failure.as_ref().map(|f| f.stage),
+            Default::default(),
+            None,
+            connection.failure.clone(),
+        );
+        let mut evidence = self.retained_connection_evidence.lock().await;
+        if self
+            .session_generation
+            .load(std::sync::atomic::Ordering::Relaxed)
+            != generation
+        {
+            return;
+        }
+        *evidence = Some(ConnectionEvidence {
+            connection,
+            timeline: telemetry.snapshot(),
+            quality: None,
+            session_generation: generation,
+            retained: true,
+            cleanup_status: failure.as_ref().map_or("cancelled", |e| e.cleanup_status),
+            startup_failure: failure,
+            captured_at: SystemTime::now(),
+        });
+    }
     pub(crate) async fn capture_connection_evidence(&self) -> ConnectionEvidence {
         // Use the same lock ordering as status reads. This does not reconcile
         // runtime state or create observations, sockets or sampling timers.
@@ -137,6 +272,7 @@ impl ControlService {
             return retained.clone();
         }
         ConnectionEvidence {
+            startup_failure: None,
             connection,
             timeline: ConnectionTimelineSnapshot::default(),
             quality: None,
@@ -176,6 +312,58 @@ impl ControlService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn startup_owner_retains_timeline_and_old_cleanup_cannot_replace_new_attempt() {
+        let directory = tempfile::tempdir().unwrap();
+        let service =
+            ControlService::open(ConfigStore::new(directory.path().join("config.json"))).unwrap();
+        let first = service.next_session_generation();
+        let attempt = crate::linux_runtime::StartupAttempt::default();
+        attempt.cleanup.pending();
+        let failure = attempt.evidence(&std::io::Error::from_raw_os_error(1));
+        service
+            .retain_linux_startup(first, &attempt.telemetry, Some(failure.clone()))
+            .await;
+        assert!(
+            !service
+                .capture_connection_evidence()
+                .await
+                .timeline
+                .events
+                .is_empty()
+        );
+        let second = service.next_session_generation();
+        let next = crate::linux_runtime::StartupAttempt::default();
+        service
+            .retain_linux_startup(
+                second,
+                &next.telemetry,
+                Some(next.evidence(&std::io::Error::from_raw_os_error(2))),
+            )
+            .await;
+        let cleanup = usque_ipc::linux_failure::wrap(
+            usque_ipc::agent_v1::LinuxFailureStage::Recovery,
+            std::io::Error::from_raw_os_error(13),
+        );
+        attempt.cleanup.complete(&Err(cleanup));
+        assert_eq!(failure.resolved().cleanup_status, "failed");
+        assert_eq!(
+            failure.resolved().cleanup_detail.unwrap().os_errno,
+            Some(13)
+        );
+        service
+            .retain_linux_startup(first, &attempt.telemetry, Some(failure))
+            .await;
+        let captured = service.capture_connection_evidence().await;
+        assert_eq!(captured.session_generation, second);
+        assert_eq!(
+            captured.startup_failure.unwrap().resolved().cleanup_status,
+            "not_requested"
+        );
+    }
+
     use usque_core::storage::ConfigStore;
     use usque_transport::{ConnectionEventType, ConnectionTelemetry};
 
@@ -224,6 +412,7 @@ mod tests {
             None,
         );
         let terminal = ConnectionEvidence {
+            startup_failure: None,
             connection: ConnectionSnapshot::default(),
             timeline: telemetry.snapshot(),
             quality: None,

@@ -118,6 +118,23 @@ require the HTTP proxy output. Restoration preserves later external changes.
 
 ## TUN mode and host networking
 
+The Agent selects each authorized socket's physical exit with a kernel route
+lookup for the exact destination, Engine UID, protocol, ports, source address,
+traffic class, IPv6 scope and lease mark. It binds the chosen device and checks
+that route again. Main-table default interfaces are candidate/DNS ownership
+hints; their absence does not establish that a family is offline. Unresolved
+or unsupported routing results fail without falling back to the first NIC.
+Physical DNS retains its existing ownership and scope requirements; policy-only
+DNS discovery and rules requiring a not-yet-bound TCP source port are not
+guaranteed by this implementation.
+
+Foreign route and rule changes revoke socket permits and advance the durable
+network generation, including changes of gateway or metric on the same NIC.
+Failed snapshots retain last-good hints and suspend new permits. An Agent
+restart requires verified Resume and revocation of old permits before admitting
+new ones. Release and recovery clear both socket marks and Agent device bindings;
+uncertain cleanup retains the descriptor and retires the mark until recovery.
+
 While a Linux TUN session holds its nftables guard, the host's output policy
 allows only loopback, the Usque interface, Agent-authorized Engine sockets,
 link-local neighbor discovery, configured direct exclusions and DHCP renewal.

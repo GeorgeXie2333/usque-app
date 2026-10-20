@@ -487,7 +487,8 @@
     "PROTON_API_FAILED",
     "PROTON_PROTOCOL_FAILED",
     "PROTON_TRANSPORT_FAILED",
-    "PROTON_RECONNECT_REQUIRED"
+    "PROTON_RECONNECT_REQUIRED",
+    "LINUX_PLATFORM_FAILED"
   ],
   "summary_keys": [
     "diagnostic_address_assignment_missing",

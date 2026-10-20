@@ -192,20 +192,9 @@ impl LinuxSocketProtector {
     }
 }
 fn observation(network: &agent_v1::PhysicalNetworkInfo) -> PhysicalNetworkSnapshot {
-    let mask = network
-        .interfaces
-        .iter()
-        .fold(0, |mask, i| mask | i.address_family_mask);
     PhysicalNetworkSnapshot {
         generation: network.generation,
-        availability: if mask & 3 == 0 {
-            PhysicalNetworkAvailability::Offline
-        } else {
-            PhysicalNetworkAvailability::Online {
-                ipv4: mask & 1 != 0,
-                ipv6: mask & 2 != 0,
-            }
-        },
+        availability: PhysicalNetworkAvailability::Unknown,
     }
 }
 #[async_trait]
@@ -222,12 +211,10 @@ impl SocketProtector for LinuxSocketProtector {
     fn network_generation(&self) -> Option<u64> {
         self.physical.read().ok().map(|p| p.generation)
     }
-    fn endpoint_family_available(&self, endpoint: SocketAddr) -> Option<bool> {
-        self.physical.read().ok().map(|p| {
-            p.interfaces
-                .iter()
-                .any(|i| i.address_family_mask & if endpoint.is_ipv4() { 1 } else { 2 } != 0)
-        })
+    fn endpoint_family_available(&self, _endpoint: SocketAddr) -> Option<bool> {
+        // Main-table candidates are DNS ownership hints. Policy routing can
+        // select a different interface/family; only exact grants authorize it.
+        None
     }
     fn physical_dns_servers(&self) -> Vec<SocketAddr> {
         let Ok(physical) = self.physical.read() else {
@@ -410,6 +397,7 @@ mod tests {
                 let response = AgentResponse {
                     request_id: request.request_id,
                     error: Some(agent_v1::AgentError {
+                        linux_detail: None,
                         code: code.into(),
                         // Identical text and retry hints cannot turn a permission
                         // refusal into evidence of a network-generation change.
@@ -467,15 +455,12 @@ mod tests {
             observation(&network),
             PhysicalNetworkSnapshot {
                 generation: 42,
-                availability: PhysicalNetworkAvailability::Online {
-                    ipv4: true,
-                    ipv6: true
-                }
+                availability: PhysicalNetworkAvailability::Unknown
             }
         );
         assert_eq!(
             observation(&Default::default()).availability,
-            PhysicalNetworkAvailability::Offline
+            PhysicalNetworkAvailability::Unknown
         );
     }
 }

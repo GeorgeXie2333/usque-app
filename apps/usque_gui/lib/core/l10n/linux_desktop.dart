@@ -1,5 +1,9 @@
 const kLinuxDesktopCatalogs = <String, Map<String, String>>{
   'en': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Linux network setup failed. Export diagnostics for the failed stage.",
+    'linux_platform_failed':
+        "Linux network setup failed. Export diagnostics for the failed stage.",
     'linux_service_dependencies':
         "Install systemd, nftables and libsecret-1 using your system package manager, then retry. Your login session also needs a Secret Service keyring.",
     'linux_service_title': 'Background service',
@@ -19,6 +23,8 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'A desktop tray host is unavailable. Closing the window exits Usque.',
   },
   'zh_CN': {
+    'diag_fail_LINUX_PLATFORM_FAILED': "Linux 网络初始化失败，请导出诊断查看失败阶段。",
+    'linux_platform_failed': "Linux 网络初始化失败，请导出诊断查看失败阶段。",
     'linux_service_dependencies':
         "请使用系统软件包管理器安装 systemd、nftables 和 libsecret-1，然后重试。登录会话还需要支持 Secret Service 的钥匙串。",
     'linux_service_title': '后台服务',
@@ -34,6 +40,8 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_tray_unavailable': '桌面托盘服务不可用。关闭窗口将退出 Usque。',
   },
   'zh_TW': {
+    'diag_fail_LINUX_PLATFORM_FAILED': "Linux 網路初始化失敗，請匯出診斷查看失敗階段。",
+    'linux_platform_failed': "Linux 網路初始化失敗，請匯出診斷查看失敗階段。",
     'linux_service_dependencies':
         "請使用系統套件管理員安裝 systemd、nftables 和 libsecret-1，然後重試。登入工作階段還需要支援 Secret Service 的鑰匙圈。",
     'linux_service_title': '背景服務',
@@ -49,6 +57,8 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_tray_unavailable': '桌面系統匣服務無法使用。關閉視窗將結束 Usque。',
   },
   'zh_HK': {
+    'diag_fail_LINUX_PLATFORM_FAILED': "Linux 網絡初始化失敗，請匯出診斷查看失敗階段。",
+    'linux_platform_failed': "Linux 網絡初始化失敗，請匯出診斷查看失敗階段。",
     'linux_service_dependencies':
         "請使用系統套件管理員安裝 systemd、nftables 和 libsecret-1，然後重試。登入工作階段還需要支援 Secret Service 的鑰匙圈。",
     'linux_service_title': '背景服務',
@@ -64,6 +74,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_tray_unavailable': '桌面系統匣服務無法使用。關閉視窗將結束 Usque。',
   },
   'ja': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Linux のネットワーク設定に失敗しました。診断をエクスポートして失敗した段階を確認してください。",
+    'linux_platform_failed':
+        "Linux のネットワーク設定に失敗しました。診断をエクスポートして失敗した段階を確認してください。",
     'linux_service_dependencies':
         "システムのパッケージマネージャーで systemd、nftables、libsecret-1 をインストールして再試行してください。ログインセッションには Secret Service 対応のキーリングも必要です。",
     'linux_service_title': 'バックグラウンドサービス',
@@ -80,6 +94,9 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_tray_unavailable': 'デスクトップのトレイが利用できません。ウィンドウを閉じると Usque が終了します。',
   },
   'ko': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Linux 네트워크 설정에 실패했습니다. 진단을 내보내 실패한 단계를 확인하세요.",
+    'linux_platform_failed': "Linux 네트워크 설정에 실패했습니다. 진단을 내보내 실패한 단계를 확인하세요.",
     'linux_service_dependencies':
         "시스템 패키지 관리자로 systemd, nftables, libsecret-1을 설치한 후 다시 시도하세요. 로그인 세션에는 Secret Service 키링도 필요합니다.",
     'linux_service_title': '백그라운드 서비스',
@@ -95,6 +112,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_tray_unavailable': '데스크톱 트레이를 사용할 수 없습니다. 창을 닫으면 Usque가 종료됩니다.',
   },
   'es': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Falló la configuración de red de Linux. Exporta el diagnóstico para ver la etapa del fallo.",
+    'linux_platform_failed':
+        "Falló la configuración de red de Linux. Exporta el diagnóstico para ver la etapa del fallo.",
     'linux_service_dependencies':
         "Instala systemd, nftables y libsecret-1 con el gestor de paquetes del sistema y vuelve a intentarlo. Tu sesión también necesita un llavero Secret Service.",
     'linux_service_title': 'Servicio en segundo plano',
@@ -114,6 +135,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'La bandeja del sistema no está disponible. Cerrar la ventana sale de Usque.',
   },
   'pt': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "A configuração de rede do Linux falhou. Exporte o diagnóstico para ver a etapa da falha.",
+    'linux_platform_failed':
+        "A configuração de rede do Linux falhou. Exporte o diagnóstico para ver a etapa da falha.",
     'linux_service_dependencies':
         "Instale systemd, nftables e libsecret-1 com o gerenciador de pacotes do sistema e tente novamente. Sua sessão também precisa de um chaveiro Secret Service.",
     'linux_service_title': 'Serviço em segundo plano',
@@ -133,6 +158,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'A bandeja do sistema não está disponível. Fechar a janela encerra o Usque.',
   },
   'fr': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "La configuration réseau de Linux a échoué. Exportez le diagnostic pour identifier la phase en échec.",
+    'linux_platform_failed':
+        "La configuration réseau de Linux a échoué. Exportez le diagnostic pour identifier la phase en échec.",
     'linux_service_dependencies':
         "Installez systemd, nftables et libsecret-1 avec le gestionnaire de paquets du système, puis réessayez. Votre session nécessite aussi un trousseau Secret Service.",
     'linux_service_title': 'Service en arrière-plan',
@@ -152,6 +181,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'La zone de notification est indisponible. Fermer la fenêtre quitte Usque.',
   },
   'nl': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "De Linux-netwerkinstelling is mislukt. Exporteer de diagnose om de mislukte stap te bekijken.",
+    'linux_platform_failed':
+        "De Linux-netwerkinstelling is mislukt. Exporteer de diagnose om de mislukte stap te bekijken.",
     'linux_service_dependencies':
         "Installeer systemd, nftables en libsecret-1 via de pakketbeheerder en probeer opnieuw. Je sessie heeft ook een Secret Service-sleutelbos nodig.",
     'linux_service_title': 'Achtergrondservice',
@@ -171,6 +204,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'Het systeemvak is niet beschikbaar. Het sluiten van het venster beëindigt Usque.',
   },
   'tr': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Linux ağ kurulumu başarısız oldu. Başarısız aşamayı görmek için tanılamayı dışa aktarın.",
+    'linux_platform_failed':
+        "Linux ağ kurulumu başarısız oldu. Başarısız aşamayı görmek için tanılamayı dışa aktarın.",
     'linux_service_dependencies':
         "Sistem paket yöneticisiyle systemd, nftables ve libsecret-1 yükleyip yeniden deneyin. Oturumunuz ayrıca Secret Service anahtarlığı gerektirir.",
     'linux_service_title': 'Arka plan hizmeti',
@@ -190,6 +227,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'Sistem tepsisi kullanılamıyor. Pencereyi kapatmak Usque uygulamasından çıkar.',
   },
   'ru': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Не удалось настроить сеть Linux. Экспортируйте диагностику, чтобы узнать этап сбоя.",
+    'linux_platform_failed':
+        "Не удалось настроить сеть Linux. Экспортируйте диагностику, чтобы узнать этап сбоя.",
     'linux_service_dependencies':
         "Установите systemd, nftables и libsecret-1 через системный менеджер пакетов и повторите попытку. Для сеанса также нужно хранилище ключей Secret Service.",
     'linux_service_title': 'Фоновая служба',
@@ -209,6 +250,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'Системный трей недоступен. Закрытие окна завершит Usque.',
   },
   'fa': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "راه‌اندازی شبکه Linux ناموفق بود. برای دیدن مرحله خطا، اطلاعات عیب‌یابی را صادر کنید.",
+    'linux_platform_failed':
+        "راه‌اندازی شبکه Linux ناموفق بود. برای دیدن مرحله خطا، اطلاعات عیب‌یابی را صادر کنید.",
     'linux_service_dependencies':
         "systemd، nftables و libsecret-1 را با مدیر بستهٔ سیستم نصب کنید و دوباره تلاش کنید. نشست ورود شما به دسته‌کلید Secret Service نیز نیاز دارد.",
     'linux_service_title': 'سرویس پس‌زمینه',
@@ -228,6 +273,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'سینی سیستم در دسترس نیست. بستن پنجره، Usque را می‌بندد.',
   },
   'ar': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "فشل إعداد شبكة Linux. صدّر بيانات التشخيص لمعرفة المرحلة التي فشلت.",
+    'linux_platform_failed':
+        "فشل إعداد شبكة Linux. صدّر بيانات التشخيص لمعرفة المرحلة التي فشلت.",
     'linux_service_dependencies':
         "ثبّت systemd وnftables وlibsecret-1 باستخدام مدير حزم النظام، ثم أعد المحاولة. تحتاج جلسة تسجيل الدخول أيضًا إلى مخزن مفاتيح يدعم Secret Service.",
     'linux_service_title': 'خدمة الخلفية',
@@ -246,6 +295,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'علبة النظام غير متاحة. إغلاق النافذة ينهي Usque.',
   },
   'de': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Die Linux-Netzwerkeinrichtung ist fehlgeschlagen. Exportieren Sie die Diagnose, um den fehlgeschlagenen Schritt zu sehen.",
+    'linux_platform_failed':
+        "Die Linux-Netzwerkeinrichtung ist fehlgeschlagen. Exportieren Sie die Diagnose, um den fehlgeschlagenen Schritt zu sehen.",
     'linux_service_dependencies':
         "Installiere systemd, nftables und libsecret-1 mit der Paketverwaltung und versuche es erneut. Deine Sitzung benötigt außerdem einen Secret-Service-Schlüsselbund.",
     'linux_service_title': 'Hintergrunddienst',
@@ -265,6 +318,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'Die Systemleiste ist nicht verfügbar. Das Schließen des Fensters beendet Usque.',
   },
   'id': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Penyiapan jaringan Linux gagal. Ekspor diagnostik untuk melihat tahap yang gagal.",
+    'linux_platform_failed':
+        "Penyiapan jaringan Linux gagal. Ekspor diagnostik untuk melihat tahap yang gagal.",
     'linux_service_dependencies':
         "Instal systemd, nftables, dan libsecret-1 melalui pengelola paket sistem, lalu coba lagi. Sesi login juga memerlukan keyring Secret Service.",
     'linux_service_title': 'Layanan latar belakang',
@@ -284,6 +341,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'Baki sistem tidak tersedia. Menutup jendela akan keluar dari Usque.',
   },
   'it': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Configurazione di rete Linux non riuscita. Esporta la diagnostica per individuare la fase non riuscita.",
+    'linux_platform_failed':
+        "Configurazione di rete Linux non riuscita. Esporta la diagnostica per individuare la fase non riuscita.",
     'linux_service_dependencies':
         "Installa systemd, nftables e libsecret-1 con il gestore pacchetti di sistema, poi riprova. La sessione richiede anche un portachiavi Secret Service.",
     'linux_service_title': 'Servizio in background',
@@ -303,6 +364,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'Il vassoio di sistema non è disponibile. Chiudere la finestra termina Usque.',
   },
   'pl': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Konfiguracja sieci Linux nie powiodła się. Wyeksportuj diagnostykę, aby sprawdzić etap błędu.",
+    'linux_platform_failed':
+        "Konfiguracja sieci Linux nie powiodła się. Wyeksportuj diagnostykę, aby sprawdzić etap błędu.",
     'linux_service_dependencies':
         "Zainstaluj systemd, nftables i libsecret-1 za pomocą systemowego menedżera pakietów i spróbuj ponownie. Sesja wymaga też magazynu kluczy Secret Service.",
     'linux_service_title': 'Usługa w tle',
@@ -322,6 +387,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'Zasobnik systemowy jest niedostępny. Zamknięcie okna zakończy Usque.',
   },
   'th': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "ตั้งค่าเครือข่าย Linux ไม่สำเร็จ ส่งออกข้อมูลวินิจฉัยเพื่อดูขั้นตอนที่ล้มเหลว",
+    'linux_platform_failed':
+        "ตั้งค่าเครือข่าย Linux ไม่สำเร็จ ส่งออกข้อมูลวินิจฉัยเพื่อดูขั้นตอนที่ล้มเหลว",
     'linux_service_dependencies':
         "ติดตั้ง systemd, nftables และ libsecret-1 ผ่านตัวจัดการแพ็กเกจของระบบ แล้วลองอีกครั้ง เซสชันเข้าสู่ระบบต้องมีพวงกุญแจที่รองรับ Secret Service ด้วย",
     'linux_service_title': 'บริการเบื้องหลัง',
@@ -341,6 +410,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'ถาดระบบไม่พร้อมใช้งาน การปิดหน้าต่างจะออกจาก Usque',
   },
   'uk': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Не вдалося налаштувати мережу Linux. Експортуйте діагностику, щоб визначити етап збою.",
+    'linux_platform_failed':
+        "Не вдалося налаштувати мережу Linux. Експортуйте діагностику, щоб визначити етап збою.",
     'linux_service_dependencies':
         "Установіть systemd, nftables і libsecret-1 через системний менеджер пакунків і повторіть спробу. Сеанс також потребує сховища ключів Secret Service.",
     'linux_service_title': 'Фонова служба',
@@ -360,6 +433,10 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
         'Системний трей недоступний. Закриття вікна завершить Usque.',
   },
   'vi': {
+    'diag_fail_LINUX_PLATFORM_FAILED':
+        "Thiết lập mạng Linux thất bại. Xuất chẩn đoán để xem bước gặp lỗi.",
+    'linux_platform_failed':
+        "Thiết lập mạng Linux thất bại. Xuất chẩn đoán để xem bước gặp lỗi.",
     'linux_service_dependencies':
         "Cài systemd, nftables và libsecret-1 bằng trình quản lý gói hệ thống rồi thử lại. Phiên đăng nhập cũng cần kho khóa hỗ trợ Secret Service.",
     'linux_service_title': 'Dịch vụ nền',

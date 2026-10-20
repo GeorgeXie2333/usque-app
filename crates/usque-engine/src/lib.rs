@@ -1157,10 +1157,15 @@ impl ControlService {
                 let platform_state = Some(recovery_diagnostics::capture().await);
                 #[cfg(not(windows))]
                 let platform_state = None;
+                #[cfg(target_os = "linux")]
+                let linux_platform = self.linux_diagnostic_observation().await;
                 let stable = self.evidence_capture_is_current(&evidence).await;
                 let platform_state = platform_state.filter(|_| stable);
                 let current = self.state.lock().await.snapshot().clone();
-                let capture = evidence.capture_metadata(&current, stable, platform_state.is_some());
+                let platform_included = platform_state.is_some();
+                #[cfg(target_os = "linux")]
+                let platform_included = platform_included || stable && linux_platform.is_some();
+                let capture = evidence.capture_metadata(&current, stable, platform_included);
                 let socket_receive = evidence
                     .quality
                     .as_ref()
@@ -1172,6 +1177,13 @@ impl ControlService {
                         evidence.connection,
                         diagnostic_session,
                         maintenance::DiagnosticTransportContext {
+                            startup_failure: evidence.startup_failure,
+                            #[cfg(target_os = "linux")]
+                            linux_platform: linux_platform.filter(|_| stable),
+                            #[cfg(target_os = "linux")]
+                            linux_session_generation: self
+                                .session_generation
+                                .load(Ordering::Acquire),
                             timeline: evidence.timeline,
                             network_quality: evidence.quality,
                             socket_receive,
@@ -1481,6 +1493,10 @@ impl ControlService {
         let platform_state = None;
         #[cfg(target_os = "linux")]
         let linux_platform = self.linux_diagnostic_observation().await;
+        #[cfg(target_os = "linux")]
+        let linux_platform = linux_platform.filter(|value| {
+            value.session_generation == self.session_generation.load(Ordering::Acquire)
+        });
         #[cfg(not(target_os = "linux"))]
         let linux_platform = None;
         let probes = if mode == usque_core::DiagnosticMode::Deep {
@@ -2386,6 +2402,9 @@ impl ControlService {
         });
         #[cfg(not(all(test, windows)))]
         let test_runtime: Option<ActiveRuntime> = None;
+        let session_generation = self.next_session_generation();
+        #[cfg(target_os = "linux")]
+        let startup_attempt = linux_runtime::StartupAttempt::default();
         let runtime = if let Some(runtime) = test_runtime {
             runtime
         } else if profile.frontends.tunnel {
@@ -2449,16 +2468,34 @@ impl ControlService {
                         deadline: Some(connection_deadline),
                     },
                     cipher,
+                    startup_attempt.clone(),
                 ))
                 .await
                 {
                     Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
                     Err(_) if startup_cancel.is_cancelled() => {
-                        return self.disconnect_locked().await;
+                        let result = self.disconnect_locked().await;
+                        self.retain_linux_startup(
+                            session_generation,
+                            &startup_attempt.telemetry,
+                            Some(startup_attempt.evidence(&std::io::Error::new(
+                                std::io::ErrorKind::Interrupted,
+                                "Linux startup cancelled",
+                            ))),
+                        )
+                        .await;
+                        return result;
                     }
                     Err(error) => {
+                        let evidence = startup_attempt.evidence(&error);
                         let error = linux_runtime::map_error(error);
                         self.mark_connection_error(&error).await;
+                        self.retain_linux_startup(
+                            session_generation,
+                            &startup_attempt.telemetry,
+                            Some(evidence),
+                        )
+                        .await;
                         return Err(error);
                     }
                 }
@@ -2687,7 +2724,6 @@ impl ControlService {
             );
             state.snapshot().clone()
         };
-        let session_generation = self.next_session_generation();
         *self.session_profile.lock().await = Some(profile.clone());
         let quality_source = runtime.subscribe_network_quality();
         *self.data_plane.lock().await = Some(ActiveDataPlane {
@@ -3275,6 +3311,26 @@ impl ControlService {
         if state.snapshot().error.as_ref() != Some(&connection_error_for(error)) {
             windows_agent::log_recovery_error(error);
         }
+        #[cfg(target_os = "linux")]
+        if let ControlServiceError::LinuxPlatform { detail, retryable } = error {
+            let mut failure = usque_core::TransportFailure::new(
+                usque_core::TransportFailureCode::LinuxPlatformFailed,
+                usque_core::TransportStage::TunnelStartup,
+            );
+            failure.retryable = *retryable;
+            if let Some(detail) = detail {
+                failure.stage = crate::connection_evidence::linux_failure_stage(detail.stage);
+            }
+            state.mark_failure(failure, "Linux platform setup failed");
+        } else if let ControlServiceError::Transport(transport) = error {
+            state.mark_failure(
+                transport.failure(None, None),
+                error.as_structured_error().message,
+            );
+        } else {
+            state.mark_error(connection_error_for(error));
+        }
+        #[cfg(not(target_os = "linux"))]
         if let ControlServiceError::Transport(transport) = error {
             state.mark_failure(
                 transport.failure(None, None),
@@ -4599,6 +4655,12 @@ pub enum ControlServiceError {
     Transport(#[from] TransportError),
     #[error("the Windows platform VPN failed: {0}")]
     PlatformVpn(String),
+    #[cfg(target_os = "linux")]
+    #[error("Linux platform setup failed")]
+    LinuxPlatform {
+        detail: Option<Box<usque_ipc::agent_v1::LinuxFailureDetail>>,
+        retryable: bool,
+    },
     #[error("Windows automatic recovery is pending")]
     PlatformRecoveryPending {
         operation_id: String,
@@ -4728,6 +4790,8 @@ impl ControlServiceError {
             ) => ("PROXY_LISTENER_FAILED", false),
             Self::Transport(_) => ("DATA_PLANE_FAILED", true),
             Self::PlatformVpn(_) => ("PLATFORM_VPN_FAILED", true),
+            #[cfg(target_os = "linux")]
+            Self::LinuxPlatform { retryable, .. } => ("LINUX_PLATFORM_FAILED", *retryable),
             Self::PlatformRecoveryPending { .. } => ("WINDOWS_RECOVERY_PENDING", true),
             Self::PlatformRecovery {
                 code, retryable, ..
@@ -4842,6 +4906,8 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
         ControlServiceError::Transport(TransportError::Http3DatagramUnavailable)
         | ControlServiceError::OperatingModeUnavailable(_) => ErrorCode::TransportUnavailable,
         ControlServiceError::PlatformVpn(_) => ErrorCode::PlatformSetupFailed,
+        #[cfg(target_os = "linux")]
+        ControlServiceError::LinuxPlatform { .. } => ErrorCode::PlatformSetupFailed,
         ControlServiceError::PlatformRecoveryPending { .. } => ErrorCode::WindowsRecoveryFailed,
         ControlServiceError::PlatformRecovery { code, .. } => match *code {
             "WINDOWS_RECOVERY_EXHAUSTED" => ErrorCode::WindowsRecoveryExhausted,

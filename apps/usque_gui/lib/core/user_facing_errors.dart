@@ -56,6 +56,7 @@ String userFacingFailure(
         when defaultTargetPlatform == TargetPlatform.linux =>
       'linux_keyring_unavailable',
     'TRAY_UNAVAILABLE' => 'linux_tray_unavailable',
+    'LINUX_PLATFORM_FAILED' => 'linux_platform_failed',
     'LINUX_SERVICE_DEPENDENCIES_MISSING' => 'linux_service_dependencies',
     'ENGINE_UNAVAILABLE' ||
     'ENGINE_IPC_UNAVAILABLE' ||

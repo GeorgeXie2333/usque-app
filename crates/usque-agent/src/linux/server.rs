@@ -169,12 +169,9 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
                     Phase::Prepared | Phase::Active
                 )
                 && let Some(resources) = state.coordinator.state().resources.clone()
+                && let Err(error) = refresh_physical_network(&mut state.coordinator, &resources)
             {
-                let snapshot =
-                    super::backend::physical_snapshot(&resources.dns).unwrap_or_default();
-                if let Err(error) = state.coordinator.update_physical_snapshot(snapshot) {
-                    tracing::error!(kind = ?error.kind(), "Linux physical network changed but lease invalidation failed");
-                }
+                tracing::error!(kind = ?error.kind(), "Linux physical network changed but lease invalidation failed");
             }
             last_snapshot = Instant::now();
         }
@@ -217,7 +214,10 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
         let peer =
             match transport::peer_credentials(&socket).and_then(|peer| policy.authenticate(peer)) {
                 Ok(peer) => peer,
-                Err(_) => continue,
+                Err(error) => {
+                    log_connection_rejection("authentication", &error);
+                    continue;
+                }
             };
         active.fetch_add(1, Ordering::AcqRel);
         let active = Arc::clone(&active);
@@ -233,7 +233,11 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
                     state.lease_epoch = state.lease_epoch.wrapping_add(1);
                 }
             }
-            let _ = serve_connection(&socket, &peer, &policy, &service);
+            if let Err(error) = serve_connection(&socket, &peer, &policy, &service)
+                && error.kind() != io::ErrorKind::UnexpectedEof
+            {
+                log_connection_rejection("connection", &error);
+            }
             let mut orphaned = false;
             if let Ok(mut state) = service.lock() {
                 if let Some(count) = state.connections.get_mut(&key) {
@@ -295,6 +299,27 @@ fn transient_accept_error(error: &io::Error) -> bool {
     )
 }
 
+fn log_connection_rejection(stage: &'static str, error: &io::Error) {
+    use std::sync::{OnceLock, atomic::AtomicU64};
+    static START: OnceLock<Instant> = OnceLock::new();
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let now = START.get_or_init(Instant::now).elapsed().as_secs();
+    let next = NEXT.load(Ordering::Relaxed);
+    if now >= next
+        && NEXT
+            .compare_exchange(
+                next,
+                now.saturating_add(5),
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+    {
+        // No peer identifiers, paths, environment, error text or mapping names.
+        tracing::warn!(linux_agent_stage = stage, io_error_kind = ?error.kind(), os_errno = error.raw_os_error().filter(|n| (1..=4095).contains(n)), "Linux Agent connection rejected");
+    }
+}
+
 fn serve_connection(
     socket: &UnixStream,
     peer: &AuthenticatedPeer,
@@ -334,6 +359,12 @@ fn serve_connection(
             request.payload,
             frame.descriptor,
         );
+        if state.coordinator.backend_mut().egress_cleanup_uncertain {
+            state.coordinator.backend_mut().observation.unavailable = true;
+            if state.coordinator.require_recovery().is_err() {
+                tracing::error!("Linux socket cleanup and recovery journal remain unresolved");
+            }
+        }
         let (response, descriptor) = match result {
             Ok((payload, fd)) => (
                 AgentResponse {
@@ -359,6 +390,47 @@ fn serve_connection(
 }
 
 fn dispatch(
+    coordinator: &mut Coordinator<NativeBackend>,
+    peer: &AuthenticatedPeer,
+    payload: Option<Request>,
+    descriptor: Option<OwnedFd>,
+) -> io::Result<(Response, Option<OwnedFd>)> {
+    use agent_v1::LinuxFailureStage as S;
+    let stage = match &payload {
+        Some(Request::GetCapabilities(_)) => S::AgentHandshake,
+        Some(
+            Request::OpenPacketSession(_)
+            | Request::ClosePacketSession(_)
+            | Request::ResumeTunnel(_),
+        ) => S::PacketDescriptor,
+        Some(
+            Request::AcquireDirectEgress(_)
+            | Request::ReleaseLinuxDirectEgress(_)
+            | Request::SetPresetEndpointCandidates(_),
+        ) => S::EgressPermission,
+        Some(Request::GetPhysicalNetworkInfo(_)) => S::PhysicalSnapshot,
+        Some(
+            Request::RollbackTunnel(_)
+            | Request::RecoverOrphaned(_)
+            | Request::RestartAutomaticRecovery(_),
+        ) => S::Recovery,
+        Some(Request::CommitTunnel(_) | Request::FinalizeTunnel(_)) => S::Activation,
+        _ => S::Preflight,
+    };
+    dispatch_inner(coordinator, peer, payload, descriptor).map_err(|error| {
+        // This public classification is an existing protocol result, not text.
+        if error
+            .get_ref()
+            .is_some_and(|e| e.is::<StaleNetworkGeneration>())
+        {
+            error
+        } else {
+            usque_ipc::linux_failure::wrap(stage, error)
+        }
+    })
+}
+
+fn dispatch_inner(
     coordinator: &mut Coordinator<NativeBackend>,
     peer: &AuthenticatedPeer,
     payload: Option<Request>,
@@ -449,12 +521,14 @@ fn dispatch(
                 .resources
                 .clone()
                 .expect("active resources");
+            coordinator.backend_mut().observation.unavailable = true;
             coordinator.backend_mut().resume_tun(
                 &resources,
                 descriptor
                     .ok_or_else(|| denied("Linux resume requires the retained TUN descriptor"))?,
             )?;
             coordinator.invalidate_physical_network()?;
+            refresh_physical_network(coordinator, &resources)?;
             Response::State(state_proto(coordinator, caller.uid))
         }
         Request::ClosePacketSession(request) => {
@@ -491,6 +565,7 @@ fn dispatch(
         }
         Request::AcquireDirectEgress(request) => {
             coordinator.check_owner(&caller, parse_operation(&request.operation_id)?)?;
+            require_physical_network(coordinator)?;
             validate_network_generation(
                 request.expected_generation,
                 coordinator.state().resources.as_ref(),
@@ -558,6 +633,7 @@ fn dispatch(
         }
         Request::SetPresetEndpointCandidates(request) => {
             coordinator.check_owner(&caller, parse_operation(&request.operation_id)?)?;
+            require_physical_network(coordinator)?;
             validate_network_generation(
                 request.expected_generation,
                 coordinator.state().resources.as_ref(),
@@ -608,6 +684,7 @@ fn dispatch(
         }
         Request::GetPhysicalNetworkInfo(request) => {
             coordinator.check_owner(&caller, parse_operation(&request.operation_id)?)?;
+            require_physical_network(coordinator)?;
             let resources = coordinator
                 .state()
                 .resources
@@ -637,6 +714,48 @@ fn dispatch(
         }
     };
     Ok((response, None))
+}
+
+fn require_physical_network(coordinator: &mut Coordinator<NativeBackend>) -> io::Result<()> {
+    let phase = coordinator.state().phase;
+    let backend = coordinator.backend_mut();
+    if !physical_network_ready(phase, backend.has_tun(), backend.observation.unavailable) {
+        return Err(usque_ipc::linux_failure::wrap(
+            agent_v1::LinuxFailureStage::PhysicalSnapshot,
+            usque_ipc::linux_failure::classified(
+                agent_v1::LinuxFailureReason::SnapshotUnavailable,
+                "Linux physical network observation unavailable",
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn physical_network_ready(phase: Phase, has_tun: bool, unavailable: bool) -> bool {
+    matches!(phase, Phase::Prepared | Phase::Active) && has_tun && !unavailable
+}
+
+fn refresh_physical_network(
+    coordinator: &mut Coordinator<NativeBackend>,
+    resources: &super::journal::Resources,
+) -> io::Result<()> {
+    // An active journal after Agent restart is not a live socket-lease owner.
+    // Resume must first verify the retained TUN, revoke old grants and persist
+    // the new generation before any physical snapshot can admit new grants.
+    if coordinator.state().phase == Phase::Active && !coordinator.backend_mut().has_tun() {
+        coordinator.backend_mut().observation.unavailable = true;
+        return Ok(());
+    }
+    let snapshot = super::backend::physical_snapshot(&resources.dns).and_then(|interfaces| {
+        coordinator
+            .backend_mut()
+            .routing_snapshot()
+            .map(|routing| (interfaces, routing))
+    });
+    let mut observation = std::mem::take(&mut coordinator.backend_mut().observation);
+    let result = coordinator.observe_physical_network(&mut observation, snapshot);
+    coordinator.backend_mut().observation = observation;
+    result
 }
 
 pub fn capabilities() -> agent_v1::AgentCapabilities {
@@ -704,6 +823,7 @@ fn state_proto(coordinator: &Coordinator<NativeBackend>, uid: u32) -> agent_v1::
         attempts_completed: u32::from(recovery.attempts),
         attempt_limit: u32::from(super::journal::RECOVERY_ATTEMPT_LIMIT),
         terminal_error: matches!(recovery.phase, super::journal::AutomaticPhase::Exhausted | super::journal::AutomaticPhase::Blocked).then(|| agent_v1::AgentError {
+            linux_detail: None,
             code: "linux_recovery_required".into(),
             message: "Linux network recovery requires attention; protection and recovery evidence were retained".into(),
             retryable: true,
@@ -844,6 +964,9 @@ fn agent_error(error: io::Error) -> agent_v1::AgentError {
         .get_ref()
         .is_some_and(|error| error.is::<StaleNetworkGeneration>());
     agent_v1::AgentError {
+        linux_detail: usque_ipc::linux_failure::detail(&error)
+            .filter(usque_ipc::linux_failure::valid)
+            .map(Box::new),
         code: if stale_generation {
             "linux_stale_generation"
         } else {
@@ -918,6 +1041,21 @@ fn remove_owned_socket() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restart_recovery_and_unavailable_snapshots_never_admit_physical_grants() {
+        assert!(!physical_network_ready(Phase::Active, false, false));
+        assert!(!physical_network_ready(Phase::Prepared, false, false));
+        assert!(!physical_network_ready(
+            Phase::RecoveryRequired,
+            true,
+            false
+        ));
+        assert!(!physical_network_ready(Phase::Recovering, true, false));
+        assert!(!physical_network_ready(Phase::Active, true, true));
+        assert!(physical_network_ready(Phase::Active, true, false));
+        assert!(physical_network_ready(Phase::Prepared, true, false));
+    }
 
     #[test]
     fn only_a_typed_generation_mismatch_gets_the_retryable_network_code() {

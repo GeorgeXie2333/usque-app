@@ -5,12 +5,42 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use usque_ipc::{
+    agent_v1::{LinuxCommandAdapter, LinuxFailureDetail, LinuxFailureReason},
+    linux_failure,
+};
 
 const MAX_OUTPUT: u64 = 1024 * 1024;
 
 /// Fixed executable paths, an empty environment and bounded pipe readers keep
 /// network managers' D-Bus/nft JSON adapters out of shell parsing and PATH.
 pub fn run(
+    program: &'static str,
+    arguments: &[String],
+    input: Option<Vec<u8>>,
+) -> io::Result<Vec<u8>> {
+    run_inner(program, arguments, input).map_err(|error| {
+        let mut detail = linux_failure::detail(&error).unwrap_or_default();
+        if detail.reason == 0 {
+            detail.reason = if error.kind() == io::ErrorKind::TimedOut {
+                LinuxFailureReason::Timeout
+            } else {
+                LinuxFailureReason::Io
+            } as i32;
+        }
+        detail.adapter = match program {
+            "/usr/sbin/nft" => LinuxCommandAdapter::Nft,
+            "/usr/bin/busctl" => LinuxCommandAdapter::Busctl,
+            _ => LinuxCommandAdapter::Unspecified,
+        } as i32;
+        detail.os_errno = detail
+            .os_errno
+            .or_else(|| error.raw_os_error().filter(|n| (1..=4095).contains(n)));
+        linux_failure::with_detail(detail, error)
+    })
+}
+
+fn run_inner(
     program: &'static str,
     arguments: &[String],
     input: Option<Vec<u8>>,
@@ -58,21 +88,43 @@ pub fn run(
     };
     let stdout = output
         .join()
-        .map_err(|_| io::Error::other("Linux adapter output worker failed"))??;
+        .map_err(|_| io::Error::other("Linux adapter output worker failed"))
+        .and_then(|result| result);
     let _stderr = errors
         .join()
-        .map_err(|_| io::Error::other("Linux adapter error worker failed"))??;
-    if let Some(input) = input {
+        .map_err(|_| io::Error::other("Linux adapter error worker failed"))
+        .and_then(|result| result);
+    let input = if let Some(input) = input {
         input
             .join()
-            .map_err(|_| io::Error::other("Linux adapter input worker failed"))??;
-    }
-    if !status?.success() {
-        return Err(io::Error::other(
-            "Linux network adapter rejected the operation",
+            .map_err(|_| io::Error::other("Linux adapter input worker failed"))
+            .and_then(|result| result)
+    } else {
+        Ok(())
+    };
+    let status = status?;
+    if !status.success() {
+        return Err(linux_failure::with_detail(
+            LinuxFailureDetail {
+                reason: if status.code().is_some() {
+                    LinuxFailureReason::CommandRejected
+                } else {
+                    LinuxFailureReason::CommandSignaled
+                } as i32,
+                adapter: if program == "/usr/sbin/nft" {
+                    LinuxCommandAdapter::Nft
+                } else {
+                    LinuxCommandAdapter::Busctl
+                } as i32,
+                exit_code: status.code().filter(|n| (1..=255).contains(n)),
+                ..Default::default()
+            },
+            io::Error::other("Linux network adapter rejected the operation"),
         ));
     }
-    Ok(stdout)
+    input?;
+    _stderr?;
+    stdout
 }
 
 fn bounded_read(reader: impl Read) -> io::Result<Vec<u8>> {

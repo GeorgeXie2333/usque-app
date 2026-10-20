@@ -1,5 +1,6 @@
 use std::{io, os::fd::OwnedFd};
 
+use usque_ipc::{agent_v1::LinuxFailureStage as FailureStage, linux_failure};
 use uuid::Uuid;
 
 use crate::plan::ValidatedTunnelPlan;
@@ -47,6 +48,14 @@ pub trait Backend: Send {
     fn invalidate_network(&mut self, _resources: &Resources) -> io::Result<()> {
         Ok(())
     }
+}
+
+/// Volatile route/rule evidence. It deliberately does not extend the journal.
+#[derive(Default)]
+pub struct PhysicalObservation {
+    pub routing_baseline: Option<Vec<Vec<u8>>>,
+    pub unavailable: bool,
+    pub invalidated: bool,
 }
 
 pub struct Coordinator<B> {
@@ -132,9 +141,53 @@ impl<B: Backend> Coordinator<B> {
         self.persist(next)
     }
 
+    #[cfg(test)]
     pub fn update_physical_snapshot(
         &mut self,
         interfaces: Vec<super::journal::PhysicalInterface>,
+    ) -> io::Result<()> {
+        self.update_physical_snapshot_with_routing(interfaces, false)
+    }
+
+    pub fn observe_physical_network(
+        &mut self,
+        observation: &mut PhysicalObservation,
+        snapshot: io::Result<(Vec<super::journal::PhysicalInterface>, Vec<Vec<u8>>)>,
+    ) -> io::Result<()> {
+        match snapshot {
+            Ok((interfaces, routing)) => {
+                let changed = observation.unavailable
+                    || observation.routing_baseline.as_ref() != Some(&routing);
+                if let Err(error) = self.update_physical_snapshot_with_routing(interfaces, changed)
+                {
+                    observation.unavailable = true;
+                    let _ = self.require_recovery();
+                    return Err(error);
+                }
+                observation.routing_baseline = Some(routing);
+                observation.unavailable = false;
+                observation.invalidated = false;
+                Ok(())
+            }
+            Err(error) => {
+                observation.unavailable = true;
+                if !observation.invalidated {
+                    if let Err(error) = self.invalidate_physical_network() {
+                        let _ = self.require_recovery();
+                        return Err(error);
+                    }
+                    observation.invalidated = true;
+                }
+                // Preserve last-good data. A read failure cannot prove Offline.
+                Err(error)
+            }
+        }
+    }
+
+    pub fn update_physical_snapshot_with_routing(
+        &mut self,
+        interfaces: Vec<super::journal::PhysicalInterface>,
+        routing_changed: bool,
     ) -> io::Result<()> {
         if self.persistence_uncertain {
             return Err(denied("Linux recovery journal requires reconciliation"));
@@ -142,7 +195,7 @@ impl<B: Backend> Coordinator<B> {
         let Some(resources) = &self.journal.resources else {
             return Ok(());
         };
-        if resources.physical_interfaces == interfaces {
+        if !routing_changed && resources.physical_interfaces == interfaces {
             return Ok(());
         }
         self.backend.invalidate_network(resources)?;
@@ -174,7 +227,9 @@ impl<B: Backend> Coordinator<B> {
         }
         plan.validate()
             .map_err(|_| denied("invalid Linux tunnel plan"))?;
-        self.backend.preflight(&plan)?;
+        self.backend
+            .preflight(&plan)
+            .map_err(|e| linux_failure::wrap(FailureStage::Preflight, e))?;
         let mut resources = Resources::for_operation(operation_id);
         resources.network_generation = self
             .journal
@@ -182,7 +237,9 @@ impl<B: Backend> Coordinator<B> {
             .checked_add(1)
             .ok_or_else(|| denied("Linux network generation exhausted"))?;
         self.backend.initialize_guard(&mut resources)?;
-        self.backend.initialize_resources(&mut resources)?;
+        self.backend
+            .initialize_resources(&mut resources)
+            .map_err(|e| linux_failure::wrap(FailureStage::DnsProbe, e))?;
         let next = Journal {
             schema_version: super::journal::SCHEMA_VERSION,
             generation: self.journal.generation,
@@ -211,8 +268,7 @@ impl<B: Backend> Coordinator<B> {
             if let Err(error) = self.apply(step) {
                 // Keep the original operation evidence even if a subsequent
                 // persistence or cleanup operation also fails.
-                self.record_failure();
-                return Err(error);
+                return Err(self.record_failure(error));
             }
         }
         let mut next = self.journal.clone();
@@ -239,8 +295,7 @@ impl<B: Backend> Coordinator<B> {
             ));
         }
         if let Err(error) = self.apply(Step::Routes) {
-            self.record_failure();
-            return Err(error);
+            return Err(self.record_failure(error));
         }
         let mut next = self.journal.clone();
         next.phase = Phase::Active;
@@ -297,8 +352,7 @@ impl<B: Backend> Coordinator<B> {
         self.persist(next)?;
         for step in [Step::Addresses, Step::Dns] {
             if let Err(error) = self.apply(step) {
-                self.record_failure();
-                return Err(error);
+                return Err(self.record_failure(error));
             }
         }
         let mut next = self.journal.clone();
@@ -346,7 +400,7 @@ impl<B: Backend> Coordinator<B> {
                 let mut next = self.journal.clone();
                 next.phase = Phase::RecoveryRequired;
                 let _ = self.persist(next);
-                return Err(error);
+                return Err(linux_failure::wrap(FailureStage::Recovery, error));
             }
             let mut next = self.journal.clone();
             next.records[index].state = StepState::Restored;
@@ -441,7 +495,9 @@ impl<B: Backend> Coordinator<B> {
         }
         plan.validate()
             .map_err(|_| denied("invalid Linux replacement plan"))?;
-        self.backend.preflight(&plan)?;
+        self.backend
+            .preflight(&plan)
+            .map_err(|e| linux_failure::wrap(FailureStage::Preflight, e))?;
         if let Some(replacement) = &self.journal.replacement {
             if replacement.operation_id != operation_id || replacement.plan != plan {
                 return Err(denied("another Linux replacement already owns protection"));
@@ -501,7 +557,7 @@ impl<B: Backend> Coordinator<B> {
                 let mut next = self.journal.clone();
                 next.phase = Phase::RecoveryRequired;
                 let _ = self.persist(next);
-                return Err(error);
+                return Err(linux_failure::wrap(FailureStage::Recovery, error));
             }
             let mut next = self.journal.clone();
             next.records[index].state = StepState::Restored;
@@ -536,8 +592,7 @@ impl<B: Backend> Coordinator<B> {
             },
         ) {
             if let Err(error) = self.apply(step) {
-                self.record_failure();
-                return Err(error);
+                return Err(self.record_failure(error));
             }
         }
         let mut next = self.journal.clone();
@@ -545,13 +600,24 @@ impl<B: Backend> Coordinator<B> {
         self.persist(next)
     }
 
-    fn record_failure(&mut self) {
-        if self.journal.replacement_origin.is_some() || self.journal.replacement.is_some() {
-            let mut next = self.journal.clone();
-            next.phase = Phase::RecoveryRequired;
-            let _ = self.persist(next);
-        } else {
-            let _ = self.recover();
+    pub fn require_recovery(&mut self) -> io::Result<()> {
+        let mut next = self.journal.clone();
+        next.phase = Phase::RecoveryRequired;
+        self.persist(next)
+    }
+
+    fn record_failure(&mut self, primary: io::Error) -> io::Error {
+        let cleanup =
+            if self.journal.replacement_origin.is_some() || self.journal.replacement.is_some() {
+                let mut next = self.journal.clone();
+                next.phase = Phase::RecoveryRequired;
+                self.persist(next)
+            } else {
+                self.recover()
+            };
+        match cleanup {
+            Ok(()) => primary,
+            Err(cleanup) => linux_failure::with_cleanup(primary, cleanup),
         }
     }
 
@@ -706,7 +772,7 @@ impl<B: Backend> Coordinator<B> {
                 let _ = self.persist(next);
                 // Never continue to remove the guard after a failed dependent
                 // cleanup, including Intended records from an interrupted call.
-                return Err(error);
+                return Err(linux_failure::wrap(FailureStage::Recovery, error));
             }
             let mut next = self.journal.clone();
             next.records[index].state = StepState::Restored;
@@ -743,11 +809,38 @@ impl<B: Backend> Coordinator<B> {
         });
         self.persist(next)?;
         let mut resources = self.journal.resources.clone().expect("validated resources");
-        self.backend.apply(
-            step,
-            &mut resources,
-            self.journal.plan.as_ref().expect("validated plan"),
-        )?;
+        self.backend
+            .apply(
+                step,
+                &mut resources,
+                self.journal.plan.as_ref().expect("validated plan"),
+            )
+            .map_err(|e| {
+                let error = linux_failure::wrap(
+                    match step {
+                        Step::Protection => FailureStage::Protection,
+                        Step::Tun => FailureStage::TunCreate,
+                        Step::Addresses => FailureStage::AddressApply,
+                        Step::Dns => FailureStage::DnsApply,
+                        Step::Routes => FailureStage::RouteApply,
+                    },
+                    e,
+                );
+                if step == Step::Dns {
+                    let mut detail = linux_failure::detail(&error).expect("typed DNS stage");
+                    detail.backend = match &resources.dns {
+                        super::dns::DnsReceipt::Resolved => {
+                            usque_ipc::agent_v1::LinuxDnsBackend::Resolved
+                        }
+                        super::dns::DnsReceipt::NetworkManager { .. } => {
+                            usque_ipc::agent_v1::LinuxDnsBackend::NetworkManager
+                        }
+                    } as i32;
+                    linux_failure::with_detail(detail, error)
+                } else {
+                    error
+                }
+            })?;
         let mut next = self.journal.clone();
         next.resources = Some(resources);
         next.records.last_mut().expect("step persisted").state = StepState::Applied;
@@ -757,7 +850,7 @@ impl<B: Backend> Coordinator<B> {
     fn persist(&mut self, mut next: Journal) -> io::Result<()> {
         if let Err(error) = self.store.save(&mut next) {
             self.persistence_uncertain = true;
-            return Err(error);
+            return Err(linux_failure::wrap(FailureStage::Journal, error));
         }
         self.journal = next;
         Ok(())
@@ -810,6 +903,125 @@ fn denied(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn snapshot_failures_preserve_last_good_and_recovery_publishes_only_durable_baseline() {
+        let (directory, mut coordinator) = setup(None, None);
+        let id = Uuid::new_v4();
+        coordinator.prepare(owner(), id, 0, plan()).unwrap();
+        let initial = coordinator.state().resources.as_ref().unwrap().clone();
+        let mut observation = PhysicalObservation {
+            routing_baseline: Some(vec![vec![1]]),
+            ..Default::default()
+        };
+        for _ in 0..3 {
+            assert!(
+                coordinator
+                    .observe_physical_network(
+                        &mut observation,
+                        Err(io::Error::other("snapshot refused"))
+                    )
+                    .is_err()
+            );
+            assert!(observation.unavailable && observation.invalidated);
+            let actual = coordinator.state().resources.as_ref().unwrap();
+            assert_eq!(actual.network_generation, initial.network_generation + 1);
+            assert_eq!(actual.physical_interfaces, initial.physical_interfaces);
+            assert_eq!(observation.routing_baseline, Some(vec![vec![1]]));
+        }
+        coordinator
+            .observe_physical_network(
+                &mut observation,
+                Ok((initial.physical_interfaces.clone(), vec![vec![2]])),
+            )
+            .unwrap();
+        assert!(!observation.unavailable && !observation.invalidated);
+        assert_eq!(observation.routing_baseline, Some(vec![vec![2]]));
+        let generation = coordinator
+            .state()
+            .resources
+            .as_ref()
+            .unwrap()
+            .network_generation;
+        let path = directory.path().join("journal.json");
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(
+            coordinator
+                .observe_physical_network(
+                    &mut observation,
+                    Ok((initial.physical_interfaces, vec![vec![3]]))
+                )
+                .is_err()
+        );
+        assert!(observation.unavailable);
+        assert_eq!(observation.routing_baseline, Some(vec![vec![2]]));
+        assert!(
+            coordinator
+                .reserve_egress_mark(&owner(), id, generation)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn primary_stage_and_failed_rollback_survive_together() {
+        let (_directory, mut coordinator) = setup(Some(Step::Dns), Some(Step::Dns));
+        let error = coordinator
+            .prepare(owner(), Uuid::new_v4(), 0, plan())
+            .unwrap_err();
+        let detail = linux_failure::detail(&error).unwrap();
+        assert_eq!(detail.stage, FailureStage::DnsApply as i32);
+        assert_eq!(
+            detail.cleanup_detail.as_ref().unwrap().stage,
+            FailureStage::Recovery as i32
+        );
+        assert!(linux_failure::valid(&detail));
+        assert_eq!(coordinator.state().phase, Phase::RecoveryRequired);
+    }
+
+    #[test]
+    fn unchanged_interfaces_still_advance_generation_on_foreign_routing_change() {
+        let (directory, mut coordinator) = setup(None, None);
+        let id = Uuid::new_v4();
+        coordinator.prepare(owner(), id, 0, plan()).unwrap();
+        let resources = coordinator.state().resources.as_ref().unwrap().clone();
+        coordinator
+            .update_physical_snapshot_with_routing(resources.physical_interfaces.clone(), false)
+            .unwrap();
+        assert_eq!(
+            coordinator
+                .state()
+                .resources
+                .as_ref()
+                .unwrap()
+                .network_generation,
+            resources.network_generation
+        );
+        coordinator
+            .update_physical_snapshot_with_routing(resources.physical_interfaces, true)
+            .unwrap();
+        assert_eq!(
+            coordinator
+                .state()
+                .resources
+                .as_ref()
+                .unwrap()
+                .network_generation,
+            resources.network_generation + 1
+        );
+        let saved = JournalStore::for_test(directory.path().join("journal.json"))
+            .load()
+            .unwrap();
+        assert_eq!(
+            saved.resources.unwrap().network_generation,
+            resources.network_generation + 1
+        );
+        assert!(
+            coordinator
+                .reserve_egress_mark(&owner(), id, resources.network_generation)
+                .is_err()
+        );
+    }
+
     use std::{
         collections::HashMap,
         fs,
