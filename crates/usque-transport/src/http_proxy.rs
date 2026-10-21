@@ -204,14 +204,21 @@ impl HttpProxyFrontend {
         let (failure_tx, failure) = watch::channel(None);
         let performance = Arc::new(HttpPoolCounters::default());
         let context = Arc::new(HttpContext {
-            l4: profile.data_plane == usque_core::DataPlaneMode::L4Proxy,
+            telemetry: services.telemetry.clone(),
             relay_buffer: if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
                 crate::l4::Limits::platform().relay
             } else {
                 crate::relay::RELAY_BUFFER_SIZE
             },
             admission: services.admission,
-            resolver: services.resolver.with_routing(services.geo_policy.clone()),
+            resolver: services
+                .resolver
+                .with_routing(services.geo_policy.clone())
+                .with_readiness(
+                    services.health.clone(),
+                    services.cancellation.clone(),
+                    services.telemetry.clone(),
+                ),
             dialer: services.dialer,
             edge_resolved: profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved,
             protector: services.protector,
@@ -279,7 +286,7 @@ impl Drop for HttpProxyFrontend {
 }
 
 struct HttpContext {
-    l4: bool,
+    telemetry: crate::ConnectionTelemetry,
     relay_buffer: usize,
     admission: Option<Arc<crate::tcp::FrontendAdmission>>,
     dialer: Arc<dyn crate::tcp::TcpDialer>,
@@ -390,17 +397,6 @@ async fn handle_request(
 ) -> Result<Response<ProxyBody>, Infallible> {
     if let Some(response) = authenticate_http_proxy(request.headers(), context.auth.as_deref()) {
         return Ok(response);
-    }
-
-    if !context.dialer.is_ready()
-        || matches!(&*context.health.borrow(), RuntimeHealth::Failed { .. })
-        || (!context.l4 && !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }))
-    {
-        return Ok(error_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "the MASQUE channel is reconnecting",
-            true,
-        ));
     }
 
     let response = if request.method() == Method::CONNECT {
@@ -601,6 +597,7 @@ struct SessionPool {
 
 struct PoolEntry {
     authority: String,
+    tunnel_epoch: Option<u32>,
     last_used: Instant,
     sender: SendRequest<ProxyBody>,
     _permit: OwnedSemaphorePermit,
@@ -669,8 +666,10 @@ impl SessionPool {
         if !force_new {
             let mut idle = self.idle.lock().await;
             prune_idle(&mut idle);
+            idle.retain(|entry| entry.tunnel_epoch.is_none_or(|epoch| matches!(*self.context.health.borrow(), RuntimeHealth::Connected { reconnect_count, .. } if reconnect_count == epoch)));
             if let Some(index) = idle.iter().rposition(|entry| {
                 entry.authority.eq_ignore_ascii_case(authority) && entry.sender.is_ready()
+                    && entry.tunnel_epoch.is_none_or(|epoch| matches!(*self.context.health.borrow(), RuntimeHealth::Connected { reconnect_count, .. } if reconnect_count == epoch))
             }) {
                 self.context
                     .performance
@@ -700,6 +699,8 @@ impl SessionPool {
                 RemoteConnectError::BudgetExhausted => PoolError::Busy,
                 RemoteConnectError::Failed(message) => PoolError::Upstream(message),
             })?;
+        let tunnel_epoch = matches!(&remote, RoutedTcpStream::Tunnel(_))
+            .then(|| self.context.health.borrow().reconnect_count());
         let (sender, connection) = hyper::client::conn::http1::Builder::new()
             .max_buf_size(HTTP_IO_BUFFER_SIZE)
             .handshake::<_, ProxyBody>(TokioIo::new(remote))
@@ -719,6 +720,7 @@ impl SessionPool {
         Ok((
             PoolEntry {
                 authority: destination.authority,
+                tunnel_epoch,
                 last_used: Instant::now(),
                 sender,
                 _permit: permit,
@@ -907,14 +909,7 @@ async fn connect_remote(
     host: &str,
     port: u16,
 ) -> Result<RoutedTcpStream, RemoteConnectError> {
-    let operation = connect_remote_inner(context, host, port);
-    if context.l4 {
-        tokio::time::timeout(REMOTE_CONNECT_TIMEOUT, operation)
-            .await
-            .unwrap_or_else(|_| Err(RemoteConnectError::Failed("L4_CONNECT_TIMEOUT".to_owned())))
-    } else {
-        operation.await
-    }
+    connect_remote_inner(context, host, port).await
 }
 
 async fn connect_remote_inner(
@@ -931,31 +926,43 @@ async fn connect_remote_inner(
             |reason| RemoteConnectError::Failed(reason.to_owned()),
             || RemoteConnectError::Rejected,
         ),
-        |resolved| async {
-            let deadline = tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT;
-            if resolved.is_none() && context.edge_resolved {
-                let target =
-                    crate::tcp::TcpTarget::new(host, port).map_err(remote_connect_error)?;
-                return context
-                    .dialer
-                    .connect(
-                        target,
-                        deadline,
-                        &context.cancellation,
-                        crate::tcp::FlowClass::Business,
-                    )
-                    .await
-                    .map_err(remote_connect_error);
-            }
-            let resolution = if let Some(addresses) = resolved {
-                CandidateResolution::from_addresses(addresses)
-            } else {
-                context
-                    .resolver
-                    .resolve_candidates(host, deadline)
-                    .map_err(|error| resolution_failure(error.to_string()))?
-            };
-            connect_tunnel_remote(context, resolution, port, deadline).await
+        |resolved| async move {
+            crate::tcp::with_ready_budget_tracked(
+                &context.health,
+                &context.cancellation,
+                REMOTE_CONNECT_TIMEOUT,
+                Some(&context.telemetry),
+                |deadline| {
+                    let resolved = resolved.clone();
+                    async move {
+                        if resolved.is_none() && context.edge_resolved {
+                            let target = crate::tcp::TcpTarget::new(host, port)
+                                .map_err(remote_connect_error)?;
+                            return context
+                                .dialer
+                                .connect(
+                                    target,
+                                    deadline,
+                                    &context.cancellation,
+                                    crate::tcp::FlowClass::Business,
+                                )
+                                .await
+                                .map_err(remote_connect_error);
+                        }
+                        let resolution = if let Some(addresses) = resolved {
+                            CandidateResolution::from_addresses(addresses)
+                        } else {
+                            context
+                                .resolver
+                                .resolve_candidates(host, deadline)
+                                .map_err(|error| resolution_failure(error.to_string()))?
+                        };
+                        connect_tunnel_remote(context, resolution, port, deadline).await
+                    }
+                },
+                remote_connect_error,
+            )
+            .await
         },
     )
     .await
@@ -1129,6 +1136,7 @@ mod tests {
 
     struct StackedProxy {
         context: Arc<HttpContext>,
+        health: watch::Sender<RuntimeHealth>,
         origin: ts_netstack_smoltcp::netsock::TcpListener,
         _tasks: StackTasks,
     }
@@ -1157,7 +1165,7 @@ mod tests {
                 .await
                 .unwrap();
             let (failure, _) = watch::channel(None);
-            let (_, health) = watch::channel(RuntimeHealth::Connected {
+            let (health_sender, health) = watch::channel(RuntimeHealth::Connected {
                 path: RuntimePath {
                     transport: usque_core::Transport::Http3,
                     endpoint_family: usque_core::AddressFamily::Ipv4,
@@ -1168,7 +1176,9 @@ mod tests {
             });
             let protector = crate::socket::noop_socket_protector();
             Self {
+                health: health_sender,
                 context: Arc::new(HttpContext {
+                    telemetry: crate::ConnectionTelemetry::default(),
                     resolver: Resolver::new(
                         client_channel.clone(),
                         client_ip,
@@ -1183,7 +1193,6 @@ mod tests {
                         ipv6: Ipv6Addr::LOCALHOST,
                     }),
                     edge_resolved: false,
-                    l4: false,
                     relay_buffer: crate::relay::RELAY_BUFFER_SIZE,
                     admission: None,
                     protector,
@@ -1292,8 +1301,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn post_waits_thirty_minutes_and_sends_its_body_once() {
+        let fixture = StackedProxy::new().await;
+        let ready = fixture.health.borrow().clone();
+        fixture.health.send_replace(RuntimeHealth::Connecting {
+            requested: ready.path(),
+            attempt: 1,
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let context = fixture.context.clone();
+        let server = tokio::spawn(async move {
+            let (client, _) = listener.accept().await.unwrap();
+            serve_client(client, context).await
+        });
+        let mut client = TcpStream::connect(address).await.unwrap();
+        client.write_all(b"POST http://10.0.0.2:8080/ HTTP/1.1\r\nHost: 10.0.0.2:8080\r\nContent-Length: 4\r\nConnection: close\r\n\r\nonce").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(1_801)).await;
+        assert!(!server.is_finished());
+        tokio::time::resume();
+        fixture.health.send_replace(ready);
+        let origin = fixture.origin;
+        let upstream = tokio::spawn(async move {
+            let stream = origin.accept().await.unwrap();
+            hyper::server::conn::http1::Builder::new()
+                .serve_connection(
+                    TokioIo::new(stream),
+                    service_fn(|request: Request<Incoming>| async move {
+                        assert_eq!(
+                            request.into_body().collect().await.unwrap().to_bytes(),
+                            "once"
+                        );
+                        Ok::<_, Infallible>(Response::new(Full::new(Bytes::from_static(b"ok"))))
+                    }),
+                )
+                .await
+                .unwrap();
+        });
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(3), client.read_to_end(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 200"));
+        server.await.unwrap().unwrap();
+        upstream.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn waiting_http_client_close_releases_its_request() {
+        let fixture = StackedProxy::new().await;
+        let ready = fixture.health.borrow().path();
+        fixture.health.send_replace(RuntimeHealth::Connecting {
+            requested: ready,
+            attempt: 1,
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let context = fixture.context.clone();
+        let server = tokio::spawn(async move {
+            let (client, _) = listener.accept().await.unwrap();
+            serve_client(client, context).await
+        });
+        let mut client = TcpStream::connect(address).await.unwrap();
+        client
+            .write_all(b"CONNECT 10.0.0.2:8080 HTTP/1.1\r\nHost: 10.0.0.2:8080\r\n\r\n")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert!(!server.is_finished());
+        drop(client);
+        let _ = tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("client close releases waiting service")
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn session_pool_reuses_one_upstream_connection_for_two_requests() {
         let StackedProxy {
+            health: _health,
             context,
             origin: listener,
             _tasks,
@@ -1341,6 +1430,7 @@ mod tests {
     #[tokio::test]
     async fn connect_relays_pipelined_bytes_on_the_raw_socket() {
         let StackedProxy {
+            health: _health,
             context,
             origin: listener,
             _tasks,
@@ -1394,6 +1484,7 @@ mod tests {
         const BODY_LEN: usize = 64 * 1024 + 1;
         let payload = Bytes::from(vec![0x5A; BODY_LEN]);
         let StackedProxy {
+            health: _health,
             context,
             origin: listener,
             _tasks,

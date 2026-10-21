@@ -37,9 +37,44 @@ pub(crate) struct Resolver {
     final_doh: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
     final_tcp: Option<Arc<crate::dns_stream::StreamDns>>,
     protector: Arc<dyn SocketProtector>,
+    readiness: Option<Arc<ResolverReadiness>>,
+    deferred: Option<crate::tcp::DeferredServices>,
+}
+
+struct ResolverReadiness {
+    health: tokio::sync::watch::Receiver<crate::RuntimeHealth>,
+    cancellation: tokio_util::sync::CancellationToken,
+    telemetry: crate::ConnectionTelemetry,
 }
 
 impl Resolver {
+    pub(crate) fn deferred(
+        mut self,
+        target: crate::tcp::DeferredServices,
+        profile: &usque_core::Profile,
+    ) -> Self {
+        self.channel = None;
+        self.stream_dns = None;
+        self.final_doh = None;
+        self.final_tcp = None;
+        self.servers = profile.proxy.dns_servers.clone();
+        self.mode = profile.proxy.dns_mode;
+        self.deferred = Some(target);
+        self
+    }
+    pub(crate) fn with_readiness(
+        mut self,
+        health: tokio::sync::watch::Receiver<crate::RuntimeHealth>,
+        cancellation: tokio_util::sync::CancellationToken,
+        telemetry: crate::ConnectionTelemetry,
+    ) -> Self {
+        self.readiness = Some(Arc::new(ResolverReadiness {
+            health,
+            cancellation,
+            telemetry,
+        }));
+        self
+    }
     pub(crate) fn with_routing(mut self, policy: Arc<crate::geo_direct::GeoDirectPolicy>) -> Self {
         self.routing = policy;
         self
@@ -122,6 +157,8 @@ impl Resolver {
             final_doh: None,
             final_tcp: None,
             protector,
+            readiness: None,
+            deferred: None,
         }
     }
 
@@ -145,11 +182,39 @@ impl Resolver {
             final_doh: None,
             final_tcp: None,
             protector,
+            readiness: None,
+            deferred: None,
         }
     }
 
+    pub(crate) fn without_recovery_wait(mut self) -> Self {
+        self.readiness = None;
+        self
+    }
+
     pub(crate) async fn resolve(&self, name: &str) -> Result<Vec<IpAddr>, TransportError> {
-        let mut resolution = self.resolve_candidates(name, Instant::now() + DNS_TIMEOUT)?;
+        if matches!(self.mode, ProxyDnsMode::Remote | ProxyDnsMode::EdgeResolved)
+            && let Some(readiness) = &self.readiness
+        {
+            return crate::tcp::with_ready_budget_tracked(
+                &readiness.health,
+                &readiness.cancellation,
+                DNS_TIMEOUT,
+                Some(&readiness.telemetry),
+                |deadline| self.resolve_ready(name, deadline),
+                |error| TransportError::Dns(error.to_string()),
+            )
+            .await;
+        }
+        self.resolve_ready(name, Instant::now() + DNS_TIMEOUT).await
+    }
+
+    async fn resolve_ready(
+        &self,
+        name: &str,
+        deadline: Instant,
+    ) -> Result<Vec<IpAddr>, TransportError> {
+        let mut resolution = self.resolve_candidates(name, deadline)?;
         let mut addresses = Vec::new();
         let mut errors = Vec::new();
         while let Some(result) = resolution.next().await {
@@ -207,6 +272,19 @@ impl Resolver {
         validate_name(name)?;
         if self.routing.route_host(name) == crate::geo_direct::GeoRoute::Reject {
             return Err(TransportError::Dns("routing_rejected".into()));
+        }
+        if self.mode == ProxyDnsMode::Remote
+            && let Some(target) = &self.deferred
+        {
+            let resolver = target
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .map(|s| s.resolver.clone())
+                .ok_or_else(|| TransportError::Dns("final network is reconnecting".into()))?;
+            return resolver
+                .with_routing(self.routing.clone())
+                .resolve_candidates(name, deadline);
         }
         let deadline = deadline.min(Instant::now() + DNS_TIMEOUT);
         match self.mode {

@@ -25,6 +25,7 @@ internal object ConnectIpRecoveryPolicy {
             "ALL_TRANSPORTS_FAILED",
             "PACKET_SEND_TIMEOUT",
             "PACKET_RECEIVE_STALLED",
+            "L4_SESSION_UNAVAILABLE",
         )
 
     /** Unknown, missing, inconsistent or terminal failures never authorize a restart. */

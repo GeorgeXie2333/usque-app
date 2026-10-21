@@ -16,6 +16,8 @@ For setup and practical tutorials, start with the Wiki: [English](https://github
 
 ## Use Usque / 使用指南
 
+Continuous connection behavior and control compatibility: [English / 简体中文参考](CONTINUOUS_CONNECTION.md).
+
 | Document | Read it for / 用途 |
 | --- | --- |
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |

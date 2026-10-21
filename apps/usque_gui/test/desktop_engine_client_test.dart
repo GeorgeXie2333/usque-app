@@ -83,6 +83,71 @@ const List<int> _goldenProfileBytes = <int>[
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('continuous capability appends connect and retry flags', () async {
+    final frames = <Uint8List>[];
+    final client = DesktopEngineClient.forTest(
+      transport: DesktopEngineTransport.forTest(
+        requestIdFactory: () => 'r1',
+        exchange: (frame) async {
+          frames.add(frame);
+          if (frames.length == 1) {
+            final caps = ControlPayloadWriter()..boolean(51, true);
+            final response = ControlPayloadWriter()
+              ..string(1, 'r1')
+              ..message(15, caps.takeBytes());
+            return const ControlCodec().frame(response.takeBytes());
+          }
+          return _statusResponse('r1');
+        },
+      ),
+    );
+    addTearDown(client.dispose);
+    expect((await client.getCapabilities())!.continuousConnection, isTrue);
+    await client.connect(UsqueProfile.defaultProfile());
+    await client.retry();
+    expect(frames[1].sublist(frames[1].length - 2), [16, 1]);
+    expect(frames[2].sublist(frames[2].length - 2), [8, 1]);
+  });
+
+  test(
+    'lost continuous acknowledgement queries status without resubmission',
+    () async {
+      var exchanges = 0;
+      final frames = <Uint8List>[];
+      final client = DesktopEngineClient.forTest(
+        requestTimeout: (_) => const Duration(milliseconds: 30),
+        transport: DesktopEngineTransport.forTest(
+          requestIdFactory: () => 'r1',
+          exchange: (frame) async {
+            frames.add(frame);
+            exchanges++;
+            if (exchanges == 1) {
+              final caps = ControlPayloadWriter()..boolean(51, true);
+              final response = ControlPayloadWriter()
+                ..string(1, 'r1')
+                ..message(15, caps.takeBytes());
+              return const ControlCodec().frame(response.takeBytes());
+            }
+            if (exchanges == 2) {
+              return Completer<Uint8List>().future;
+            }
+            final status = ControlPayloadWriter()..enumeration(1, 2);
+            final response = ControlPayloadWriter()
+              ..string(1, 'r1')
+              ..message(11, status.takeBytes());
+            return const ControlCodec().frame(response.takeBytes());
+          },
+        ),
+      );
+      addTearDown(client.dispose);
+      await client.getCapabilities();
+      final snapshot = await client.connect(UsqueProfile.defaultProfile());
+      expect(snapshot.phase, ConnectionPhase.preparing);
+      expect(exchanges, 3);
+      expect(frames.last.sublist(frames.last.length - 2), [0x52, 0]);
+    },
+  );
+
   test('LAN bypass defaults on but preserves saved settings', () {
     const profile = UsqueProfile(
       id: UsqueProfile.defaultProfileId,

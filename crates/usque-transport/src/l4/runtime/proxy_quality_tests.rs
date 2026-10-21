@@ -220,6 +220,7 @@ impl Underlay {
             None,
             &self.cancellation,
             Instant::now() + Duration::from_secs(5),
+            false,
         )
         .await
         .unwrap();
@@ -443,7 +444,7 @@ async fn proxy_quality_follows_selected_underlay_and_preserves_unavailable_metri
 }
 
 #[tokio::test(start_paused = true)]
-async fn replaced_underlay_generation_closes_old_final_streams_without_fallback() {
+async fn replaced_underlay_keeps_frontend_and_live_streams_while_verifying_exit() {
     for source in [ChainSource::HttpProxy, ChainSource::Socks5Proxy] {
         let underlay = Underlay::new(source, Transport::Http3, DataPlaneMode::L4Proxy);
         let mut original = underlay.start(source, DataPlaneMode::L4Proxy).await;
@@ -460,31 +461,17 @@ async fn replaced_underlay_generation_closes_old_final_streams_without_fallback(
         assert_eq!(stream.session_generation(), Some(1));
         underlay.generation.store(2, Ordering::Release);
         advance(Duration::from_secs(1)).await;
-        timeout(Duration::from_secs(2), original.cancellation.cancelled())
-            .await
-            .unwrap();
-        assert!(!original.client.is_ready());
-        assert!(stream.write_all(b"old session").await.is_err());
-        assert!(matches!(
-            original
-                .client
-                .connect(
-                    TcpTarget::address("203.0.113.20:443".parse().unwrap()),
-                    Instant::now() + Duration::from_secs(2),
-                    &original.cancellation,
-                    FlowClass::Business,
-                )
-                .await,
-            Err(DialError::Cancelled | DialError::Closed)
-        ));
-        drop(stream);
-        assert!(!underlay.cancellation.is_cancelled());
-
-        let mut replacement = underlay.start(source, DataPlaneMode::L4Proxy).await;
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!original.cancellation.is_cancelled());
+        stream.write_all(b"old session").await.unwrap();
+        let mut reply = [0; 11];
+        stream.read_exact(&mut reply).await.unwrap();
+        assert_eq!(&reply, b"old session");
+        echo(&original, b"new final stream").await;
+        assert_eq!(original.client.session_generation(), Some(2));
         original.shutdown().await;
-        echo(&replacement, b"new final session").await;
-        assert_eq!(replacement.client.session_generation(), Some(2));
-        replacement.shutdown().await;
         assert!(!underlay.cancellation.is_cancelled());
     }
 }

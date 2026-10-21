@@ -2,6 +2,10 @@
 use boringtun::noise::{Tunn, TunnResult};
 use bytes::Bytes;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -22,9 +26,11 @@ const MAX_PACKET: usize = 65535;
 const PACKET_QUEUE: usize = 23;
 #[derive(Clone)]
 pub(crate) struct Input {
-    encrypted: mpsc::Sender<Bytes>,
-    plaintext: mpsc::Sender<Bytes>,
-    control: mpsc::Sender<()>,
+    encrypted: mpsc::Sender<(u64, Bytes)>,
+    plaintext: mpsc::Sender<(u64, Bytes)>,
+    control: mpsc::Sender<(u8, u64)>,
+    generation: Arc<AtomicU64>,
+    ready: Arc<AtomicBool>,
     cancel: CancellationToken,
 }
 impl Input {
@@ -38,21 +44,23 @@ impl Input {
         generation: u64,
         bytes: Bytes,
     ) -> Result<(), Error> {
-        if generation != GENERATION || bytes.len() > MAX_PACKET {
+        if generation != self.generation.load(Ordering::Acquire) || bytes.len() > MAX_PACKET {
             return Err(Error::InvalidPacket);
         }
         if kind == 4 {
-            self.cancel.cancel();
-            return Ok(());
+            self.ready.store(false, Ordering::Release);
+        }
+        if kind == 2 && !self.ready.load(Ordering::Acquire) {
+            return Err(Error::Closed);
         }
         tokio::select! {
             biased;
             _ = self.cancel.cancelled() => Err(Error::Closed),
             result = async {
                 match kind {
-                    1 => self.encrypted.send(bytes).await.map_err(|_| Error::Closed),
-                    2 => self.plaintext.send(bytes).await.map_err(|_| Error::Closed),
-                    3 => self.control.send(()).await.map_err(|_| Error::Closed),
+                    1 => self.encrypted.send((generation, bytes)).await.map_err(|_| Error::Closed),
+                    2 => self.plaintext.send((generation, bytes)).await.map_err(|_| Error::Closed),
+                    3 | 4 => self.control.send((kind, generation)).await.map_err(|_| Error::Closed),
                     _ => Err(Error::InvalidPacket),
                 }
             } => result,
@@ -78,7 +86,11 @@ impl Session {
         let (events, output) = mpsc::channel(4);
         let (network, transport) = mpsc::channel(PACKET_QUEUE);
         let (ip, packets) = mpsc::channel(PACKET_QUEUE);
+        let generation = Arc::new(AtomicU64::new(GENERATION));
+        let ready = Arc::new(AtomicBool::new(false));
         let input = Input {
+            generation: generation.clone(),
+            ready: ready.clone(),
             encrypted,
             plaintext,
             control,
@@ -93,6 +105,8 @@ impl Session {
                 &events,
                 &network,
                 &ip,
+                generation,
+                ready,
             );
             tokio::select! { biased; _ = cancel.cancelled() => {}, _ = work => {} }
             cancel.cancel();
@@ -168,21 +182,27 @@ impl HandshakeWatch {
 )]
 async fn run(
     profile: WireGuardProfile,
-    mut encrypted: mpsc::Receiver<Bytes>,
-    mut plaintext: mpsc::Receiver<Bytes>,
-    mut control: mpsc::Receiver<()>,
+    mut encrypted: mpsc::Receiver<(u64, Bytes)>,
+    mut plaintext: mpsc::Receiver<(u64, Bytes)>,
+    mut control: mpsc::Receiver<(u8, u64)>,
     events: &mpsc::Sender<Event>,
     network: &mpsc::Sender<Event>,
     ip: &mpsc::Sender<Event>,
+    current_generation: Arc<AtomicU64>,
+    ready: Arc<AtomicBool>,
 ) -> Result<(), Error> {
-    let mut tunnel = Tunn::new(
-        (*profile.private_key).into(),
-        profile.public_key.into(),
-        profile.preshared_key.as_ref().map(|key| **key),
-        profile.keepalive,
-        1,
-        None,
-    );
+    let make_tunnel = || {
+        Tunn::new(
+            (*profile.private_key).into(),
+            profile.public_key.into(),
+            profile.preshared_key.as_ref().map(|key| **key),
+            profile.keepalive,
+            1,
+            None,
+        )
+    };
+    let mut tunnel = make_tunnel();
+    let mut generation = GENERATION;
     events
         .try_send(Event::Dial {
             generation: GENERATION,
@@ -198,7 +218,39 @@ async fn run(
     let mut pending_ip = None;
     let mut drain = false;
     let mut batch = 0usize;
+    let mut restart = false;
     loop {
+        if restart {
+            ready.store(false, Ordering::Release);
+            if !connected {
+                tokio::time::sleep(usque_core::recovery::RETRY_INTERVAL).await;
+            }
+            events
+                .send(Event::State {
+                    generation,
+                    name: "RECONNECTING".into(),
+                    error: false,
+                    fatal: false,
+                })
+                .await
+                .map_err(|_| Error::Closed)?;
+            generation = generation.wrapping_add(1);
+            current_generation.store(generation, Ordering::Release);
+            connected = false;
+            transport_ready = false;
+            pending_network = None;
+            pending_ip = None;
+            drain = false;
+            watch = HandshakeWatch::default();
+            tunnel = make_tunnel();
+            while encrypted.try_recv().is_ok() {}
+            while plaintext.try_recv().is_ok() {}
+            events
+                .send(Event::Dial { generation })
+                .await
+                .map_err(|_| Error::Closed)?;
+            restart = false;
+        }
         let mut draining_result = false;
         let result = tokio::select! {
             permit = network.reserve(), if pending_network.is_some() => {
@@ -209,18 +261,24 @@ async fn run(
                 permit.map_err(|_| Error::Closed)?.send(pending_ip.take().expect("pending output"));
                 continue;
             },
-            command = control.recv(), if !transport_ready => {
-                command.ok_or(Error::Closed)?;
+            command = control.recv() => {
+                let (kind, command_generation) = command.ok_or(Error::Closed)?;
+                if command_generation != generation { continue; }
+                if kind == 4 { restart = true; continue; }
+                if transport_ready { continue; }
                 transport_ready = true;
+                watch.initiated(Instant::now());
                 tunnel.format_handshake_initiation(&mut buffer, false)
             },
             bytes = encrypted.recv(), if transport_ready && pending_network.is_none() && pending_ip.is_none() && !drain => {
-                let bytes = bytes.ok_or(Error::Closed)?;
+                let (packet_generation, bytes) = bytes.ok_or(Error::Closed)?;
+                if packet_generation != generation { continue; }
                 draining_result = true;
                 tunnel.decapsulate(None, &bytes, &mut buffer)
             },
             bytes = plaintext.recv(), if connected && pending_network.is_none() && !drain => {
-                let bytes = bytes.ok_or(Error::Closed)?;
+                let (packet_generation, bytes) = bytes.ok_or(Error::Closed)?;
+                if packet_generation != generation { continue; }
                 if bytes.len() > usize::from(profile.mtu) || packet_address(&bytes, false).is_none_or(|address| !profile.allows(address)) { continue; }
                 tunnel.encapsulate(&bytes, &mut buffer)
             },
@@ -232,7 +290,7 @@ async fn run(
                 // Watchdog progress is independent of business output capacity.
                 // The core may emit a packet, so defer that part until its
                 // bounded pending slot is available.
-                if watch.expired(Instant::now()) { return Err(Error::Closed); }
+                if watch.expired(Instant::now()) { restart = true; continue; }
                 if pending_network.is_some() || drain { continue; }
                 tunnel.update_timers(&mut buffer)
             },
@@ -246,14 +304,14 @@ async fn run(
         match result {
             TunnResult::WriteToNetwork(bytes) => {
                 pending_network = Some(Event::TransportPacket {
-                    generation: GENERATION,
+                    generation,
                     packet: Bytes::copy_from_slice(bytes),
                 })
             }
             TunnResult::WriteToTunnelV4(bytes, _) | TunnResult::WriteToTunnelV6(bytes, _) => {
                 if packet_address(bytes, true).is_some_and(|address| profile.allows(address)) {
                     pending_ip = Some(Event::IpPacket {
-                        generation: GENERATION,
+                        generation,
                         packet: Bytes::copy_from_slice(bytes),
                     });
                 }
@@ -263,6 +321,7 @@ async fn run(
         watch.observe(tunnel.time_since_last_handshake());
         if !connected && watch.age.is_some() {
             connected = true;
+            ready.store(true, Ordering::Release);
             let config = NetworkConfig {
                 ipv4: profile.addresses.iter().find_map(|net| {
                     if let IpAddr::V4(ip) = net.addr() {
@@ -282,14 +341,11 @@ async fn run(
                 dns_servers: profile.dns_servers.clone(),
             };
             events
-                .try_send(Event::Network {
-                    generation: GENERATION,
-                    config,
-                })
+                .try_send(Event::Network { generation, config })
                 .map_err(|_| Error::Closed)?;
             events
                 .try_send(Event::State {
-                    generation: GENERATION,
+                    generation,
                     name: "CONNECTED".into(),
                     error: false,
                     fatal: false,
@@ -297,7 +353,7 @@ async fn run(
                 .map_err(|_| Error::Closed)?;
         }
         if watch.expired(Instant::now()) {
-            return Err(Error::Closed);
+            restart = true;
         }
         batch += 1;
         if batch == crate::packet_batch::MAX_PACKET_BATCH_PACKETS {

@@ -51,6 +51,7 @@ use zeroize::Zeroizing;
 mod chain_dns_live_tests;
 mod chain_exit;
 mod connection_evidence;
+mod continuous_connection;
 pub mod diagnostics;
 #[cfg(any(windows, target_os = "linux", test))]
 mod event_stream;
@@ -68,6 +69,7 @@ mod protected_chain;
 #[cfg(test)]
 mod protected_chain_tests;
 mod proton_vpn;
+mod proxy_network;
 mod routing;
 mod sensitive_output;
 mod vpngate;
@@ -154,6 +156,7 @@ pub struct ControlServiceState {
     gate_status: watch::Sender<usque_core::vpngate::GateStatus>,
     gate_supervisor: Mutex<Option<AbortOnDropHandle<()>>>,
     gate_startup_cancel: Mutex<tokio_util::sync::CancellationToken>,
+    continuous_connection: Mutex<Option<continuous_connection::ConnectionIntent>>,
     network_quality_tx: watch::Sender<usque_transport::NetworkQualitySnapshot>,
     network_quality_relay: Mutex<Option<AbortOnDropHandle<()>>>,
     session_generation: AtomicU64,
@@ -525,6 +528,7 @@ impl ControlService {
                 gate_status: watch::channel(Default::default()).0,
                 gate_supervisor: Mutex::new(None),
                 gate_startup_cancel: Mutex::new(tokio_util::sync::CancellationToken::new()),
+                continuous_connection: Mutex::new(None),
                 cache_dir,
                 profile_dir,
                 chain_cipher,
@@ -753,7 +757,9 @@ impl ControlService {
             Some((applied.id, applied.congestion_control));
         {
             let mut state = self.state.lock().await;
-            state.transition(ConnectionPhase::Preparing)?;
+            if state.snapshot().phase != ConnectionPhase::Preparing {
+                state.transition(ConnectionPhase::Preparing)?;
+            }
             state.transition(ConnectionPhase::ConnectingHttp3)?;
             state.mark_connected(Transport::Http3, AddressFamily::Ipv4, true, true)?;
             state.update_runtime_metadata(reconnect_count, Vec::new(), Vec::new());
@@ -819,6 +825,7 @@ impl ControlService {
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
         self.gate_startup_cancel.lock().await.cancel();
+        self.retire_continuous_startup().await;
         self.cancel_warp_jobs().await?;
         self.cancel_gate_refresh().await;
         let _provider_lease = usque_core::proton_vpn::lifecycle_lease(&self.profile_dir)
@@ -1022,7 +1029,11 @@ impl ControlService {
             }
             control_request::Payload::Connect(request) => {
                 let id = parse_profile_id(&request.profile_id)?;
-                let snapshot = self.connect(id).await?;
+                let snapshot = if request.continuous {
+                    self.connect_continuously(id).await?
+                } else {
+                    self.connect(id).await?
+                };
                 Ok(control_response::Payload::Status(Box::new(
                     self.snapshot_with_quality_to_proto(&snapshot),
                 )))
@@ -1101,8 +1112,17 @@ impl ControlService {
                 self.update_proxy_auth(request).await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))
             }
-            control_request::Payload::Retry(_) => {
-                let snapshot = self.retry().await?;
+            control_request::Payload::Retry(request) => {
+                let snapshot = if request.continuous {
+                    let id = self.config.read().await.active_profile_id.ok_or_else(|| {
+                        ControlServiceError::InvalidRequest(
+                            "an active profile is required".to_owned(),
+                        )
+                    })?;
+                    self.connect_continuously(id).await?
+                } else {
+                    self.retry().await?
+                };
                 Ok(control_response::Payload::Status(Box::new(
                     self.snapshot_with_quality_to_proto(&snapshot),
                 )))
@@ -1329,6 +1349,8 @@ impl ControlService {
                             ConnectionPhase::Connected
                                 | ConnectionPhase::Degraded
                                 | ConnectionPhase::Reconnecting
+                                | ConnectionPhase::ConnectingHttp3
+                                | ConnectionPhase::ConnectingHttp2
                         ) && (state.snapshot().phase == ConnectionPhase::Reconnecting
                             || runtime_path_changed(state.snapshot(), path)
                             || state.snapshot().phase
@@ -1338,6 +1360,12 @@ impl ControlService {
                                     Some(&gate),
                                 )) =>
                     {
+                        if matches!(
+                            state.snapshot().phase,
+                            ConnectionPhase::ConnectingHttp3 | ConnectionPhase::ConnectingHttp2
+                        ) {
+                            active.connected_at = Instant::now();
+                        }
                         if let Err(error) = state.mark_connected_with_gate(
                             path.transport,
                             path.endpoint_family,
@@ -1411,7 +1439,14 @@ impl ControlService {
                 active.last_proxy_performance = performance;
             }
             state.update_statistics(Statistics {
-                connected_seconds: active.connected_at.elapsed().as_secs(),
+                connected_seconds: if matches!(
+                    active.runtime.health(),
+                    RuntimeHealth::Connecting { .. }
+                ) {
+                    0
+                } else {
+                    active.connected_at.elapsed().as_secs()
+                },
                 bytes_sent: traffic.bytes_sent,
                 bytes_received: traffic.bytes_received,
                 current_upload_bytes_per_second: upload_rate,
@@ -2099,6 +2134,7 @@ impl ControlService {
     }
 
     async fn connect(&self, profile_id: Uuid) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.retire_continuous_startup().await;
         let startup_cancel = self.gate_connection_request().await;
         let _mutation = self.mutation_lock.lock().await;
         if startup_cancel.is_cancelled() {
@@ -2157,6 +2193,25 @@ impl ControlService {
         startup_cancel: tokio_util::sync::CancellationToken,
         restart_exhausted_recovery: bool,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        if self.continuous_enabled().await && !startup_cancel.is_cancelled() {
+            return self.restart_continuously(profile_id, startup_cancel).await;
+        }
+        Box::pin(self.connect_with_startup_lock(
+            profile_id,
+            startup_cancel,
+            restart_exhausted_recovery,
+            None,
+        ))
+        .await
+    }
+
+    async fn connect_with_startup_lock(
+        &self,
+        profile_id: Uuid,
+        startup_cancel: tokio_util::sync::CancellationToken,
+        restart_exhausted_recovery: bool,
+        startup_lock: Option<tokio::sync::OwnedMutexGuard<()>>,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
         }
@@ -2206,7 +2261,9 @@ impl ControlService {
             #[cfg(not(windows))]
             let inspect_current_recovery = false;
             if !inspect_current_recovery {
-                self.mark_connection_error(&error).await;
+                if !startup_cancel.is_cancelled() {
+                    self.mark_connection_error(&error).await;
+                }
                 return Err(error);
             }
         }
@@ -2245,6 +2302,7 @@ impl ControlService {
         self.attach_proxy_auth(&mut profile).await?;
         let connection_deadline =
             connection_started + usque_core::endpoint_connection_budget(&profile);
+        let continuous = self.continuous_requested(profile_id).await;
         self.gate_status.send_replace(Default::default());
         {
             let mut session = self.session_congestion_control.lock().await;
@@ -2279,12 +2337,21 @@ impl ControlService {
 
         {
             let mut state = self.state.lock().await;
-            state.transition(ConnectionPhase::Preparing)?;
+            if !matches!(
+                state.snapshot().phase,
+                ConnectionPhase::Preparing
+                    | ConnectionPhase::ConnectingHttp3
+                    | ConnectionPhase::ConnectingHttp2
+            ) {
+                state.transition(ConnectionPhase::Preparing)?;
+            }
         }
         let warp_identity = match self.load_warp_identity(profile_id).await {
             Ok(identity) => identity,
             Err(error) => {
-                self.mark_connection_error(&error).await;
+                if !startup_cancel.is_cancelled() {
+                    self.mark_connection_error(&error).await;
+                }
                 return Err(error);
             }
         };
@@ -2292,7 +2359,9 @@ impl ControlService {
             Ok(identity) => identity,
             Err(error) => {
                 let error = ControlServiceError::Transport(error);
-                self.mark_connection_error(&error).await;
+                if !startup_cancel.is_cancelled() {
+                    self.mark_connection_error(&error).await;
+                }
                 return Err(error);
             }
         };
@@ -2329,7 +2398,9 @@ impl ControlService {
                             message: failure.message,
                         },
                     );
-                    self.mark_connection_error(&error).await;
+                    if !startup_cancel.is_cancelled() {
+                        self.mark_connection_error(&error).await;
+                    }
                     return Err(error);
                 }
                 Ok(Some(windows_agent::AutomaticRecoveryObservation::Blocked(failure))) => {
@@ -2338,12 +2409,16 @@ impl ControlService {
                             message: failure.message,
                         },
                     );
-                    self.mark_connection_error(&error).await;
+                    if !startup_cancel.is_cancelled() {
+                        self.mark_connection_error(&error).await;
+                    }
                     return Err(error);
                 }
                 Err(error) => {
                     let error = map_windows_vpn_error(error);
-                    self.mark_connection_error(&error).await;
+                    if !startup_cancel.is_cancelled() {
+                        self.mark_connection_error(&error).await;
+                    }
                     return Err(error);
                 }
                 Ok(Some(windows_agent::AutomaticRecoveryObservation::Clean)) | Ok(None) => {}
@@ -2357,7 +2432,9 @@ impl ControlService {
         let geo_policy = match load_geo_direct_policy(&profile, &self.cache_dir) {
             Ok(policy) => policy,
             Err(error) => {
-                self.mark_connection_error(&error).await;
+                if !startup_cancel.is_cancelled() {
+                    self.mark_connection_error(&error).await;
+                }
                 return Err(error);
             }
         };
@@ -2368,7 +2445,9 @@ impl ControlService {
             let error = ControlServiceError::GeoRules(
                 "the configured GeoIP/GeoSite cache is missing or invalid".to_owned(),
             );
-            self.mark_connection_error(&error).await;
+            if !startup_cancel.is_cancelled() {
+                self.mark_connection_error(&error).await;
+            }
             return Err(error);
         }
 
@@ -2381,13 +2460,19 @@ impl ControlService {
                 profile.transport
             } {
                 TransportPolicy::Auto => {
-                    state.transition(ConnectionPhase::ConnectingHttp3)?;
+                    if state.snapshot().phase != ConnectionPhase::ConnectingHttp3 {
+                        state.transition(ConnectionPhase::ConnectingHttp3)?;
+                    }
                 }
                 TransportPolicy::Http3 => {
-                    state.transition(ConnectionPhase::ConnectingHttp3)?;
+                    if state.snapshot().phase != ConnectionPhase::ConnectingHttp3 {
+                        state.transition(ConnectionPhase::ConnectingHttp3)?;
+                    }
                 }
                 TransportPolicy::Http2 => {
-                    state.transition(ConnectionPhase::ConnectingHttp2)?;
+                    if state.snapshot().phase != ConnectionPhase::ConnectingHttp2 {
+                        state.transition(ConnectionPhase::ConnectingHttp2)?;
+                    }
                 }
             }
         }
@@ -2403,6 +2488,10 @@ impl ControlService {
         #[cfg(not(all(test, windows)))]
         let test_runtime: Option<ActiveRuntime> = None;
         let session_generation = self.next_session_generation();
+        // Continuous startup owns its cancellation token while doing network work.
+        // Release the mutation lock so settings and stop remain responsive.
+        let reacquire_startup_lock = startup_lock.is_some();
+        drop(startup_lock);
         #[cfg(target_os = "linux")]
         let startup_attempt = linux_runtime::StartupAttempt::default();
         let runtime = if let Some(runtime) = test_runtime {
@@ -2410,24 +2499,25 @@ impl ControlService {
         } else if profile.frontends.tunnel {
             #[cfg(windows)]
             {
-                match windows_agent::WindowsVpnRuntime::start(
+                match Box::pin(windows_agent::WindowsVpnRuntime::start(
                     &profile,
                     identity,
                     Arc::clone(&pin_refresher),
                     Arc::new(geo_policy.clone()),
                     usque_transport::VpnGateStart {
+                        continuous,
                         selected: selected_gate,
                         status: Some(self.gate_status.clone()),
                         cancellation: startup_cancel.clone(),
                         deadline: Some(connection_deadline),
                     },
                     &self.windows_device,
-                )
+                ))
                 .await
                 {
                     Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
                     Err(_) if startup_cancel.is_cancelled() => {
-                        return self.disconnect_locked().await;
+                        return Ok(self.state.lock().await.snapshot().clone());
                     }
                     Err(windows_agent::WindowsVpnError::AutomaticRecoveryPending {
                         operation_id,
@@ -2443,7 +2533,9 @@ impl ControlService {
                     }
                     Err(error) => {
                         let error = map_windows_vpn_error(error);
-                        self.mark_connection_error(&error).await;
+                        if !startup_cancel.is_cancelled() {
+                            self.mark_connection_error(&error).await;
+                        }
                         return Err(error);
                     }
                 }
@@ -2462,6 +2554,7 @@ impl ControlService {
                     Arc::clone(&pin_refresher),
                     Arc::new(geo_policy.clone()),
                     usque_transport::VpnGateStart {
+                        continuous,
                         selected: selected_gate,
                         status: Some(self.gate_status.clone()),
                         cancellation: startup_cancel.clone(),
@@ -2489,7 +2582,9 @@ impl ControlService {
                     Err(error) => {
                         let evidence = startup_attempt.evidence(&error);
                         let error = linux_runtime::map_error(error);
-                        self.mark_connection_error(&error).await;
+                        if !startup_cancel.is_cancelled() {
+                            self.mark_connection_error(&error).await;
+                        }
                         self.retain_linux_startup(
                             session_generation,
                             &startup_attempt.telemetry,
@@ -2508,10 +2603,11 @@ impl ControlService {
             match Box::pin(usque_transport::DataPlaneRuntime::start_with_vpngate(
                 &profile,
                 identity,
-                Arc::new(NoopSocketProtector),
+                proxy_network::socket_protector(),
                 Some(pin_refresher),
                 Arc::new(geo_policy),
                 usque_transport::VpnGateStart {
+                    continuous,
                     selected: selected_gate,
                     status: Some(self.gate_status.clone()),
                     cancellation: startup_cancel.clone(),
@@ -2538,7 +2634,9 @@ impl ControlService {
                             let error = ControlServiceError::PlatformVpn(
                                 "system proxy requires a Loopback HTTP listener".to_owned(),
                             );
-                            self.mark_connection_error(&error).await;
+                            if !startup_cancel.is_cancelled() {
+                                self.mark_connection_error(&error).await;
+                            }
                             return Err(error);
                         };
                         match windows_agent::WindowsSystemProxyGuard::start(listener).await {
@@ -2559,7 +2657,9 @@ impl ControlService {
                             Err(error) => {
                                 runtime.shutdown().await;
                                 let error = map_windows_vpn_error(error);
-                                self.mark_connection_error(&error).await;
+                                if !startup_cancel.is_cancelled() {
+                                    self.mark_connection_error(&error).await;
+                                }
                                 return Err(error);
                             }
                         }
@@ -2583,7 +2683,9 @@ impl ControlService {
                             let error = ControlServiceError::PlatformVpn(
                                 "system proxy requires a loopback HTTP listener and secure recovery storage".into(),
                             );
-                            self.mark_connection_error(&error).await;
+                            if !startup_cancel.is_cancelled() {
+                                self.mark_connection_error(&error).await;
+                            }
                             return Err(error);
                         };
                         Some(
@@ -2607,7 +2709,9 @@ impl ControlService {
                             let _ = guard.shutdown().await;
                         }
                         let error = ControlServiceError::Transport(error);
-                        self.mark_connection_error(&error).await;
+                        if !startup_cancel.is_cancelled() {
+                            self.mark_connection_error(&error).await;
+                        }
                         return Err(error);
                     }
                     ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
@@ -2616,18 +2720,28 @@ impl ControlService {
                         system_proxy,
                     }))
                 }
+                Err(_) if startup_cancel.is_cancelled() => {
+                    return Ok(self.state.lock().await.snapshot().clone());
+                }
                 Err(error) => {
                     let error = ControlServiceError::Transport(error);
-                    self.mark_connection_error(&error).await;
+                    if !startup_cancel.is_cancelled() {
+                        self.mark_connection_error(&error).await;
+                    }
                     return Err(error);
                 }
             }
+        };
+        let _startup_lock = if reacquire_startup_lock {
+            Some(self.mutation_lock.clone().lock_owned().await)
+        } else {
+            None
         };
         if startup_cancel.is_cancelled() {
             let mut runtime = runtime;
             runtime.cancel_immediately();
             self.queue_runtime_shutdown(runtime, None).await;
-            return self.disconnect_locked().await;
+            return Ok(self.state.lock().await.snapshot().clone());
         }
         let runtime = self.accept_gate_runtime(runtime, &profile).await?;
         let path = runtime.path();
@@ -2640,10 +2754,14 @@ impl ControlService {
                 &profile,
                 path.endpoint_family,
             ));
-            if profile.transport == TransportPolicy::Auto && path.transport == Transport::Http2 {
+            if profile.transport == TransportPolicy::Auto
+                && path.transport == Transport::Http2
+                && state.snapshot().phase != ConnectionPhase::ConnectingHttp2
+            {
                 state.transition(ConnectionPhase::ConnectingHttp2)?;
             }
             match runtime.health() {
+                RuntimeHealth::Connecting { .. } => {}
                 RuntimeHealth::Failed {
                     failure, message, ..
                 } => {
@@ -2766,7 +2884,18 @@ impl ControlService {
         };
         let state = Arc::clone(&self.state);
         let data_plane = Arc::clone(&self.data_plane);
+        let readiness = data_plane
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|active| active.runtime.internal_networks())
+            .map(|(network, _)| network);
         *self.exit_probe_task.lock().await = Some(tokio::spawn(async move {
+            if let Some(network) = readiness
+                && network.wait_until_ready().await.is_err()
+            {
+                return;
+            }
             let Ok(exit) = probe.probe().await else {
                 return;
             };
@@ -2784,6 +2913,7 @@ impl ControlService {
         // The startup owner must finish/retain its platform guard before the
         // serialized teardown runs. Signal it without waiting for that lock.
         self.gate_startup_cancel.lock().await.cancel();
+        self.disable_continuous().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
@@ -2895,6 +3025,7 @@ impl ControlService {
     }
 
     async fn retry(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.retire_continuous_startup().await;
         let startup_cancel = self.gate_connection_request().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         let _mutation = self.mutation_lock.lock().await;
@@ -3039,6 +3170,8 @@ impl ControlService {
         if !confirmed {
             return Err(ControlServiceError::ConfirmationRequired);
         }
+        self.gate_startup_cancel.lock().await.cancel();
+        self.retire_continuous_startup().await;
         self.update_config(|config| {
             config.initial_identity_operation = None;
             Ok(())
@@ -3306,7 +3439,22 @@ impl ControlService {
     }
 
     async fn mark_connection_error(&self, error: &ControlServiceError) {
+        let continuing = continuous_connection::retry_network_error(error)
+            && self
+                .continuous_connection
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|intent| intent.is_active());
         let mut state = self.state.lock().await;
+        if continuing {
+            if state.snapshot().transport.is_some()
+                && state.snapshot().phase != ConnectionPhase::Reconnecting
+            {
+                let _ = state.transition(ConnectionPhase::Reconnecting);
+            }
+            return;
+        }
         #[cfg(windows)]
         if state.snapshot().error.as_ref() != Some(&connection_error_for(error)) {
             windows_agent::log_recovery_error(error);
@@ -5658,6 +5806,7 @@ async fn runtime_capabilities() -> v1::Capabilities {
 
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
+        continuous_connection: true,
         chain_profile_import: cfg!(any(windows, target_os = "linux")),
         chain_openvpn_udp: cfg!(any(windows, target_os = "linux")),
         chain_wireguard: cfg!(any(windows, target_os = "linux")) && cfg!(feature = "wireguard"),
@@ -7416,7 +7565,7 @@ mod tests {
         let retry = service
             .handle(request(
                 "retry",
-                control_request::Payload::Retry(v1::RetryRequest {}),
+                control_request::Payload::Retry(v1::RetryRequest::default()),
             ))
             .await;
         assert_eq!(
@@ -7534,6 +7683,7 @@ mod tests {
             .handle(request(
                 "connect",
                 control_request::Payload::Connect(v1::ConnectRequest {
+                    continuous: false,
                     profile_id: profile_id.to_string(),
                 }),
             ))
@@ -7648,6 +7798,7 @@ mod tests {
             .handle(request(
                 "connect",
                 control_request::Payload::Connect(v1::ConnectRequest {
+                    continuous: false,
                     profile_id: profile_id.to_string(),
                 }),
             ))
@@ -7678,6 +7829,7 @@ mod tests {
             .handle(request(
                 "connect",
                 control_request::Payload::Connect(v1::ConnectRequest {
+                    continuous: false,
                     profile_id: profile_id.to_string(),
                 }),
             ))
@@ -8004,6 +8156,7 @@ mod tests {
             .handle(request(
                 "live-connect",
                 control_request::Payload::Connect(v1::ConnectRequest {
+                    continuous: false,
                     profile_id: profile.id.to_string(),
                 }),
             ))
@@ -8207,6 +8360,7 @@ mod tests {
             .handle(request(
                 "live-http-connect",
                 control_request::Payload::Connect(v1::ConnectRequest {
+                    continuous: false,
                     profile_id: profile.id.to_string(),
                 }),
             ))

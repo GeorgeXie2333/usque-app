@@ -155,6 +155,30 @@ pub(crate) async fn connect<T, F, Fut>(
     identity: &MasqueTlsIdentity,
     protector: &Arc<dyn SocketProtector>,
     telemetry: &crate::ConnectionTelemetry,
+    attempt: F,
+) -> Result<T, TransportError>
+where
+    T: crate::endpoint_race::RaceConnection,
+    F: FnMut(Vec<SocketAddr>, u64) -> Fut,
+    Fut: std::future::Future<Output = Result<T, TransportError>>,
+{
+    connect_cancellable(
+        profile,
+        identity,
+        protector,
+        telemetry,
+        &tokio_util::sync::CancellationToken::new(),
+        attempt,
+    )
+    .await
+}
+
+pub(crate) async fn connect_cancellable<T, F, Fut>(
+    profile: &Profile,
+    identity: &MasqueTlsIdentity,
+    protector: &Arc<dyn SocketProtector>,
+    telemetry: &crate::ConnectionTelemetry,
+    cancellation: &tokio_util::sync::CancellationToken,
     mut attempt: F,
 ) -> Result<T, TransportError>
 where
@@ -163,7 +187,12 @@ where
     Fut: std::future::Future<Output = Result<T, TransportError>>,
 {
     let generation = protector.network_generation().unwrap_or_default();
-    let error = match resolve(profile, identity, protector).await {
+    let resolved = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(TransportError::UnderlyingNetworkChanged),
+        result = resolve(profile, identity, protector) => result,
+    };
+    let error = match resolved {
         Ok(resolved) => match attempt(resolved.candidates, resolved.generation).await {
             Ok(connection) => {
                 if protector.network_generation().unwrap_or_default() != generation {

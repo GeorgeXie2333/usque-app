@@ -185,6 +185,8 @@ impl ControlService {
             unreachable!("non-test Windows VPN")
         };
         #[cfg(windows)]
+        runtime.set_continuous_connection(self.continuous_enabled().await);
+        #[cfg(windows)]
         let result = {
             let class = usque_core::classify_reconfigure(&previous, target);
             let same_operation = previous.id == target.id
@@ -232,6 +234,7 @@ impl ControlService {
                 refresher,
                 policy,
                 usque_transport::VpnGateStart {
+                    continuous: self.continuous_enabled().await,
                     selected,
                     status: Some(self.gate_status.clone()),
                     cancellation: cancellation.clone(),

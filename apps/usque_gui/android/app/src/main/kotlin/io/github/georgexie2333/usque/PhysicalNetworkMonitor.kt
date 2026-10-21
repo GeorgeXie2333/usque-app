@@ -74,6 +74,31 @@ internal class PhysicalNetworkMonitor(
     private val recoverySnapshot = AtomicReference(RecoveryNetworkSnapshot())
     private val generationNetworks = GenerationNetworkHistory<Network>()
     private val networkSelectionTask = Runnable(::selectUnderlyingNetwork)
+    private var connectivity: ConnectivityManager? = null
+    private val periodicSelection =
+        object : Runnable {
+            override fun run() {
+                val manager = connectivity ?: return
+                refreshCandidates(manager)
+                selectUnderlyingNetwork()
+                mainHandler.postDelayed(this, 1_000L)
+            }
+        }
+
+    // Enumeration recovers missed callbacks, including a network that appeared
+    // while the service was suspended. Exact-generation binding still checks it.
+    @Suppress("DEPRECATION")
+    private fun refreshCandidates(manager: ConnectivityManager) {
+        val current = runCatching { manager.allNetworks.toSet() }.getOrNull() ?: return
+        availableNetworks.keys.removeAll { it !in current }
+        for (network in current) {
+            val capabilities = runCatching { manager.getNetworkCapabilities(network) }.getOrNull()
+            val properties = runCatching { manager.getLinkProperties(network) }.getOrNull()
+            availableNetworks.compute(network) { _, previous ->
+                (previous ?: NetworkCandidate()).copy(capabilities = capabilities, linkProperties = properties)
+            }
+        }
+    }
 
     private val networkCallback =
         object : ConnectivityManager.NetworkCallback() {
@@ -126,9 +151,14 @@ internal class PhysicalNetworkMonitor(
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 .build()
         connectivityManager.registerNetworkCallback(request, networkCallback)
+        connectivity = connectivityManager
+        mainHandler.removeCallbacks(periodicSelection)
+        mainHandler.post(periodicSelection)
     }
 
     fun unregister(connectivityManager: ConnectivityManager) {
+        connectivity = null
+        mainHandler.removeCallbacks(periodicSelection)
         mainHandler.removeCallbacks(networkSelectionTask)
         try {
             connectivityManager.unregisterNetworkCallback(networkCallback)

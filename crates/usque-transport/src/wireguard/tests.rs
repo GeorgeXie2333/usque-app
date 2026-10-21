@@ -71,7 +71,10 @@ async fn peer_receive(peer: &mut Tunn, bytes: &[u8], input: &Input) -> Vec<Vec<u
     let mut plaintext = Vec::new();
     loop {
         match result {
-            TunnResult::WriteToNetwork(bytes) => input.push(1, GENERATION, bytes).await.unwrap(),
+            TunnResult::WriteToNetwork(bytes) => input
+                .push(1, input.generation.load(Ordering::Acquire), bytes)
+                .await
+                .unwrap(),
             TunnResult::WriteToTunnelV4(bytes, _) | TunnResult::WriteToTunnelV6(bytes, _) => {
                 plaintext.push(bytes.to_vec());
                 break;
@@ -329,4 +332,37 @@ async fn saturated_bidirectional_packet_channels_resume_and_cancel() {
         .await
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test]
+async fn transport_loss_rehandshakes_without_closing_packet_channels() {
+    let (mut session, mut peer) = setup();
+    connect(&mut session, &mut peer).await;
+    let input = session.input();
+    input.push(4, GENERATION, &[]).await.unwrap();
+    assert_eq!(
+        input
+            .push(2, GENERATION, &packet([10, 8, 0, 2], [10, 8, 0, 3], 80))
+            .await,
+        Err(Error::Closed)
+    );
+    connect(&mut session, &mut peer).await;
+    let generation = input.generation.load(Ordering::Acquire);
+    assert_eq!(generation, GENERATION + 1);
+    let outgoing = packet([10, 8, 0, 2], [10, 8, 0, 3], 80);
+    input.push(2, generation, &outgoing).await.unwrap();
+    timeout(Duration::from_secs(2), async {
+        loop {
+            if let Event::TransportPacket { packet, .. } = session.next_event().await.unwrap() {
+                let received = peer_receive(&mut peer, &packet, &input).await;
+                if !received.is_empty() {
+                    assert_eq!(received[0], outgoing);
+                    break;
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+    session.shutdown().await.unwrap();
 }

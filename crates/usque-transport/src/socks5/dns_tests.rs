@@ -280,7 +280,7 @@ impl Fixture {
             query_closed: Notify::new(),
             cancellation: CancellationToken::new(),
         });
-        let (_, health) = watch::channel(RuntimeHealth::Connected {
+        let (health_sender, health) = watch::channel(RuntimeHealth::Connected {
             path: RuntimePath {
                 transport: Transport::Http3,
                 endpoint_family: AddressFamily::Ipv4,
@@ -289,6 +289,12 @@ impl Fixture {
             },
             reconnect_count: 0,
         });
+        let hold_health = cancellation.clone();
+        tokio::spawn(async move {
+            let _health_sender = health_sender;
+            hold_health.cancelled().await;
+        });
+
         let mut network = crate::InternalNetwork::for_streams(
             Arc::new(peer.clone()),
             health.clone(),
@@ -357,6 +363,7 @@ impl Fixture {
         profile.proxy.dns_mode = mode;
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let services = crate::tcp::ProxyServices {
+            telemetry: crate::ConnectionTelemetry::default(),
             traffic_policy: Arc::default(),
             admission: Some(Arc::new(crate::tcp::FrontendAdmission::new(
                 proxy.budget.clone(),

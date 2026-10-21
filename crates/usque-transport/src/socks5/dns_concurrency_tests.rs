@@ -180,7 +180,7 @@ impl Fixture {
             cancellation.clone(),
             metrics,
         ));
-        let (_, health) = watch::channel(RuntimeHealth::Connected {
+        let (health_sender, health) = watch::channel(RuntimeHealth::Connected {
             path: RuntimePath {
                 transport: usque_core::Transport::Http3,
                 endpoint_family: usque_core::AddressFamily::Ipv4,
@@ -189,10 +189,17 @@ impl Fixture {
             },
             reconnect_count: 0,
         });
+        let hold_health = cancellation.clone();
+        tokio::spawn(async move {
+            let _health_sender = health_sender;
+            hold_health.cancelled().await;
+        });
+
         let mut profile = Profile::default();
         profile.proxy.dns_mode = usque_core::ProxyDnsMode::EdgeResolved;
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let services = crate::tcp::ProxyServices {
+            telemetry: crate::ConnectionTelemetry::default(),
             traffic_policy: Arc::default(),
             admission: Some(Arc::new(crate::tcp::FrontendAdmission::new(
                 budget.clone(),

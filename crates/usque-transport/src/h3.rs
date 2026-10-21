@@ -1,3 +1,4 @@
+mod liveness;
 mod send_progress;
 use send_progress::{
     BatchProgress, BatchStop, DatagramHeader, ReadyAdmission, WireProgress, WireStop,
@@ -1045,6 +1046,7 @@ async fn drive_h3_actor(
     );
     let mut migration_commands_open = true;
     let mut keepalive = interval_at(Instant::now() + KEEPALIVE_INTERVAL, KEEPALIVE_INTERVAL);
+    let mut liveness = liveness::Liveness::default();
     keepalive.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut quality_tick = interval_at(
         Instant::now() + QUALITY_SAMPLE_INTERVAL,
@@ -1380,6 +1382,17 @@ async fn drive_h3_actor(
                 }
             }
             _ = quality_tick.tick(), if connection.is_established() => {
+                if ready && let Some(path) = connection.path_stats().find(|path| path.active)
+                    && liveness.stalled(
+                        (path.local_addr, path.peer_addr),
+                        connection.stats().acked_bytes,
+                        path.total_pto_count,
+                        path.rtt,
+                        Instant::now(),
+                    )
+                {
+                    return Err(TransportError::H3LivenessTimeout);
+                }
                 if l4.is_none() && let Some(path) = path_sockets.active()
                     && let Some(source) = path.receive_source()
                 {
@@ -2587,6 +2600,11 @@ pub(crate) mod tests {
 
     use super::*;
     use usque_core::MasqueKeyPair;
+
+    #[test]
+    fn idle_keepalive_remains_thirty_seconds() {
+        assert_eq!(KEEPALIVE_INTERVAL, Duration::from_secs(30));
+    }
 
     #[test]
     fn startup_preserves_the_typed_pmtu_exhaustion_failure() {

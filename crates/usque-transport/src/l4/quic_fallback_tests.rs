@@ -290,6 +290,7 @@ async fn real_quic_rejection_allows_tls_http2_through_http_and_tcp_only_socks_ex
                 metrics.clone(),
             ));
             let services = ProxyServices {
+                telemetry: crate::ConnectionTelemetry::default(),
                 traffic_policy: Arc::new(
                     crate::application_traffic::ApplicationTrafficPolicy::new(true),
                 ),

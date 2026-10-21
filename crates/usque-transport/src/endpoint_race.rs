@@ -14,6 +14,9 @@ use crate::recovery_policy::RecoveryDecision;
 
 pub(crate) const FAMILY_DELAY: Duration = Duration::from_millis(250);
 
+mod automatic;
+pub(crate) use automatic::race_automatic;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RacePolicy {
     Strict,

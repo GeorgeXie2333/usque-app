@@ -329,6 +329,7 @@ async fn live_wireguard_dns_through_loopback_socks_without_tun() {
         Some(refresher),
         Arc::new(GeoDirectPolicy::disabled()),
         usque_transport::VpnGateStart {
+            continuous: false,
             selected,
             status: Some(status),
             cancellation: cancel.clone(),

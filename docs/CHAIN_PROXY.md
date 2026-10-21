@@ -444,14 +444,13 @@ WireGuard 首版支持标准单 Peer 和部分 AllowedIPs；范围之外的代�
 
 ## DNS, MTU and failures / DNS、MTU 与故障
 
-On Android, a physical-network change during an established chain connection
-rebuilds the whole chain after native cleanup is confirmed. The existing VPN
-interface remains blocking until the replacement final network is attached.
-Recovery waits while no usable physical network is selected and coalesces rapid
-changes. A retryable chain transport error uses the same recovery even when its
-error snapshot arrives before the physical-network callback. Replacement network
-failures use 1/2/4/8/15/30-second backoff. The profile, blocking TUN and armed Kill
-Switch remain in place throughout recovery. Disconnect cancels recovery.
+WARP recovers internally after physical-network changes. HTTP/SOCKS chain exits
+retain their local listeners and check the selected exit again after WARP becomes
+ready. Packet chains retain local channels through native reconnects when their
+final network assignment stays unchanged. Android service recovery takes over
+when the native worker exits, after cleanup is confirmed. It retains the TUN and
+retries immediately, then every second, including while the physical network is
+unavailable. Disconnect cancels recovery.
 Authentication, certificate, configuration and unconfirmed-cleanup failures stop
 automatic attempts and preserve the error evidence. For HTTP/SOCKS chains,
 terminal failure retains the blocking interface with Kill Switch on; with it off,
@@ -477,12 +476,11 @@ Underlay security failures keep
 their original classification. Ordinary WARP mode keeps its existing native
 migration/reconnect behavior.
 
-Android 上已建立的链式连接遇到物理网络变化时，会在确认原生实例清理完成后
-重建整条链。新出口网络接管前保留用于阻断流量的 VPN 接口；没有可用物理网络
-时等待恢复，连续变化会合并处理。可重试的链传输错误也进入同一恢复流程，
-包括错误快照先于网络回调到达的情况；重建中的网络失败按 1/2/4/8/15/30 秒
-退避重试。恢复期间保留配置、阻断用 TUN 和已开启的 Kill Switch。主动断开会
-取消恢复。认证、证书、配置错误或清理未确认会停止自动尝试并保留错误证据。
+物理网络变化后，WARP 在原生运行时内持续恢复。HTTP/SOCKS 链式出口保留本地
+监听器，WARP 就绪后重新检查所选出口；数据包链在最终网络地址不变时保留本地
+通道。Android 服务仅在原生任务退出且清理完成后接管，保留 TUN 并立即重试，
+之后固定每秒尝试一次，物理网络暂时不可用时也持续执行。主动断开取消恢复。
+认证、证书、配置错误或清理未确认会停止自动尝试并保留错误证据。
 HTTP/SOCKS 链式终止失败时，开启 Kill Switch 会保留阻断接口；关闭时仅在确认
 原生实例停止后，由当前代次释放仍属自己的接口。清理未确认时始终保持阻断。
 其他链式来源保留原有接口行为，重试和主动断开仍由用户决定。已应用的 HTTP/SOCKS

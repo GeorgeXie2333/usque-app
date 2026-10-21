@@ -419,6 +419,7 @@ async fn live_saved_vpngate_handshake_without_tun() {
         Some(refresher),
         Arc::new(GeoDirectPolicy::disabled()),
         VpnGateStart {
+            continuous: false,
             selected: Some(selected),
             status: None,
             cancellation,

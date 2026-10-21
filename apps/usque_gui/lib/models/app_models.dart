@@ -2163,6 +2163,7 @@ class EngineCapabilities {
     this.liveAdsRules = false,
     this.automaticEndpoints = false,
     this.endpointPresets = false,
+    this.continuousConnection = false,
     this.zeroTrustEndpointEditing = false,
     this.chainOpenvpnMultiEndpoint = false,
     this.vpnGatePoolFavorites = false,
@@ -2201,6 +2202,7 @@ class EngineCapabilities {
     liveAdsRules: map['live_ads_rules'] == true,
     automaticEndpoints: map['automatic_endpoints'] == true,
     endpointPresets: map['endpoint_presets'] == true,
+    continuousConnection: map['continuous_connection'] == true,
     zeroTrustEndpointEditing: map['zero_trust_endpoint_editing'] == true,
     chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
     vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
@@ -2241,6 +2243,7 @@ class EngineCapabilities {
   final bool liveAdsRules;
   final bool automaticEndpoints;
   final bool endpointPresets;
+  final bool continuousConnection;
   final bool zeroTrustEndpointEditing;
   final bool networkQuality;
   final bool vpnGateTcp;
@@ -2289,6 +2292,7 @@ class EngineCapabilities {
           liveAdsRules == other.liveAdsRules &&
           automaticEndpoints == other.automaticEndpoints &&
           endpointPresets == other.endpointPresets &&
+          continuousConnection == other.continuousConnection &&
           zeroTrustEndpointEditing == other.zeroTrustEndpointEditing &&
           chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
@@ -2331,6 +2335,7 @@ class EngineCapabilities {
       liveAdsRules,
       automaticEndpoints,
       endpointPresets,
+      continuousConnection,
       zeroTrustEndpointEditing,
     ),
     chainOpenvpnMultiEndpoint,

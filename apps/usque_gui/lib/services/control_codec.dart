@@ -1655,6 +1655,7 @@ ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
   String? queueKind;
   int? candidateId;
   int? enrollmentRound;
+  var repetitions = 1;
   var sequence = 0;
   DateTime? timestamp;
   var elapsedMilliseconds = 0;
@@ -1708,6 +1709,8 @@ ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
         candidateId = reader.varint(field);
       case 12:
         enrollmentRound = reader.varint(field);
+      case 13:
+        repetitions = reader.varint(field).clamp(1, 0xffffffff);
       default:
         reader.skip(field);
     }
@@ -1716,6 +1719,7 @@ ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
     queueKind: queueKind,
     candidateId: candidateId,
     enrollmentRound: enrollmentRound,
+    repetitions: repetitions,
     sequence: sequence,
     timestamp: timestamp,
     elapsedMilliseconds: elapsedMilliseconds,
@@ -1787,6 +1791,8 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
   var dropCount = 0;
   String? lastFailureCode;
   String? lastReconnectCode;
+  var waitingRequests = 0;
+  var peakWaitingRequests = 0;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -1817,6 +1823,10 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
         lastFailureCode = _emptyToNull(reader.string(field));
       case 12:
         lastReconnectCode = _emptyToNull(reader.string(field));
+      case 67:
+        waitingRequests = reader.varint(field);
+      case 68:
+        peakWaitingRequests = reader.varint(field);
       default:
         reader.skip(field);
     }
@@ -1833,6 +1843,8 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
     sendQueueDropCount: dropCount,
     lastFailureCode: lastFailureCode,
     lastReconnectCode: lastReconnectCode,
+    waitingRequests: waitingRequests,
+    peakWaitingRequests: peakWaitingRequests,
   );
 }
 
@@ -1861,6 +1873,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var liveAdsRules = false;
   var automaticEndpoints = false;
   var endpointPresets = false;
+  var continuousConnection = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   final tlsFingerprints = <TlsFingerprint>[];
@@ -1903,6 +1916,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         endpointPresets = reader.varint(field) != 0;
       case 50:
         chainProtonVpn = reader.varint(field) != 0;
+      case 51:
+        continuousConnection = reader.varint(field) != 0;
       case 47:
         liveAdsRules = reader.varint(field) != 0;
       case 48:
@@ -1993,6 +2008,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     liveAdsRules: liveAdsRules,
     automaticEndpoints: automaticEndpoints,
     endpointPresets: endpointPresets,
+    continuousConnection: continuousConnection,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),

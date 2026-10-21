@@ -14,6 +14,9 @@ use ts_netstack_smoltcp::netsock::UdpSocket;
 
 #[async_trait]
 pub(crate) trait UdpFactory: Send + Sync {
+    fn generation(&self) -> Option<u64> {
+        None
+    }
     async fn open(
         &self,
         cancel: &CancellationToken,
@@ -53,12 +56,16 @@ impl UdpFactory for DirectOnly {
     }
 }
 
-/// DNS-only associations never await an upstream UDP handshake. Only a send
-/// initializes this bounded, shared attempt; the receiver waits for its result.
+/// The local association owns its port while upstream associations are replaced.
+/// Only a new datagram opens an upstream; failed datagrams are never replayed.
+type OpenAssociation = (Option<u64>, Arc<dyn UdpAssociation>);
+
 pub(crate) struct LazyAssociation {
     factory: Arc<dyn UdpFactory>,
     cancel: CancellationToken,
-    opened: tokio::sync::OnceCell<Result<Arc<dyn UdpAssociation>, DialError>>,
+    opened: Mutex<Option<OpenAssociation>>,
+    terminal: std::sync::Mutex<Option<DialError>>,
+    accounts: std::sync::atomic::AtomicBool,
     changed: tokio::sync::Notify,
 }
 impl LazyAssociation {
@@ -66,62 +73,120 @@ impl LazyAssociation {
         Self {
             factory,
             cancel,
-            opened: tokio::sync::OnceCell::new(),
+            opened: Mutex::new(None),
+            terminal: std::sync::Mutex::new(None),
+            accounts: std::sync::atomic::AtomicBool::new(true),
             changed: tokio::sync::Notify::new(),
         }
+    }
+    fn terminal_error(error: DialError) -> bool {
+        matches!(
+            error,
+            DialError::Protocol | DialError::Rejected(401 | 403 | 407) | DialError::Cancelled
+        )
+    }
+    async fn invalidate(&self, association: &Arc<dyn UdpAssociation>, error: DialError) {
+        let mut opened = self.opened.lock().await;
+        if opened
+            .as_ref()
+            .is_some_and(|(_, current)| Arc::ptr_eq(current, association))
+        {
+            *opened = None;
+            if Self::terminal_error(error) {
+                *self.terminal.lock().unwrap_or_else(|e| e.into_inner()) = Some(error);
+            }
+        }
+        drop(opened);
+        self.changed.notify_waiters();
     }
 }
 #[async_trait]
 impl UdpAssociation for LazyAssociation {
     fn accounts_traffic(&self) -> bool {
-        self.opened
-            .get()
-            .and_then(|result| result.as_ref().ok())
-            .is_none_or(|association| association.accounts_traffic())
+        self.accounts.load(std::sync::atomic::Ordering::Relaxed)
     }
     async fn prepare(&self) -> Result<(), DialError> {
+        if self.cancel.is_cancelled() {
+            return Err(DialError::Cancelled);
+        }
+        let mut opened = self.opened.lock().await;
+        if let Some(error) = *self.terminal.lock().unwrap_or_else(|e| e.into_inner()) {
+            return Err(error);
+        }
+        let generation = self.factory.generation();
+        if opened
+            .as_ref()
+            .is_some_and(|(current, _)| *current == generation)
+        {
+            return Ok(());
+        }
+        *opened = None;
         let result = self
-            .opened
-            .get_or_init(|| {
-                self.factory.open(
-                    &self.cancel,
-                    Instant::now() + std::time::Duration::from_secs(10),
-                )
-            })
+            .factory
+            .open(
+                &self.cancel,
+                Instant::now() + std::time::Duration::from_secs(10),
+            )
             .await;
-        self.changed.notify_waiters();
         match result {
-            Ok(_) => Ok(()),
-            Err(error) => Err(*error),
+            Ok(association) => {
+                self.accounts.store(
+                    association.accounts_traffic(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                *opened = Some((generation, association));
+                drop(opened);
+                self.changed.notify_waiters();
+                Ok(())
+            }
+            Err(error) => {
+                if Self::terminal_error(error) {
+                    *self.terminal.lock().unwrap_or_else(|e| e.into_inner()) = Some(error);
+                }
+                drop(opened);
+                self.changed.notify_waiters();
+                Err(error)
+            }
         }
     }
     async fn send(&self, target: &TcpTarget, payload: &[u8]) -> Result<(), DialError> {
         self.prepare().await?;
-        self.opened
-            .get()
-            .expect("prepared association")
-            .as_ref()
-            .map_err(|error| *error)?
-            .send(target, payload)
+        let association = self
+            .opened
+            .lock()
             .await
+            .as_ref()
+            .map(|(_, a)| a.clone())
+            .ok_or(DialError::Closed)?;
+        let result = association.send(target, payload).await;
+        if let Err(error) = result {
+            self.invalidate(&association, error).await;
+        }
+        result
     }
     async fn recv(&self) -> Result<(TcpTarget, Bytes), DialError> {
         loop {
             let notified = self.changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            if let Some(result) = self.opened.get() {
+            if let Some(error) = *self.terminal.lock().unwrap_or_else(|e| e.into_inner()) {
+                return Err(error);
+            }
+            let association = self.opened.lock().await.as_ref().map(|(_, a)| a.clone());
+            if let Some(association) = association {
+                let result = tokio::select! {
+                    biased;
+                    _ = self.cancel.cancelled() => return Err(DialError::Cancelled),
+                    _ = &mut notified => continue,
+                    result = association.recv() => result,
+                };
                 match result {
-                    Ok(association) => return association.recv().await,
-                    // These disable ordinary UDP while DNS remains usable.
-                    Err(
-                        error @ (DialError::Protocol
-                        | DialError::Rejected(401 | 403 | 407)
-                        | DialError::Cancelled),
-                    ) => return Err(*error),
-                    Err(_) => self.cancel.cancelled().await,
+                    Ok(packet) => return Ok(packet),
+                    Err(error) => {
+                        self.invalidate(&association, error).await;
+                        continue;
+                    }
                 }
-                return Err(DialError::Cancelled);
             }
             tokio::select! { _ = self.cancel.cancelled() => return Err(DialError::Cancelled), _ = notified => {} }
         }
@@ -241,6 +306,14 @@ struct SocksAssociation {
 }
 #[async_trait]
 impl UdpFactory for SocksFactory {
+    fn generation(&self) -> Option<u64> {
+        match self.0.network.health_snapshot() {
+            crate::RuntimeHealth::Connected {
+                reconnect_count, ..
+            } => Some(u64::from(reconnect_count)),
+            _ => None,
+        }
+    }
     async fn open(
         &self,
         cancel: &CancellationToken,
@@ -424,6 +497,84 @@ pub(crate) fn decode(packet: &[u8]) -> Result<(TcpTarget, Bytes), DialError> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[tokio::test]
+    async fn local_association_survives_failed_open_and_upstream_eof() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Factory {
+            opens: AtomicUsize,
+            closed: Arc<tokio::sync::Notify>,
+            sent: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+        }
+        struct Association {
+            broken: bool,
+            closed: Arc<tokio::sync::Notify>,
+            sent: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+        }
+        #[async_trait]
+        impl UdpFactory for Factory {
+            async fn open(
+                &self,
+                _: &CancellationToken,
+                _: Instant,
+            ) -> Result<Arc<dyn UdpAssociation>, DialError> {
+                let index = self.opens.fetch_add(1, Ordering::SeqCst);
+                if index == 0 {
+                    return Err(DialError::Timeout);
+                }
+                Ok(Arc::new(Association {
+                    broken: index == 1,
+                    closed: self.closed.clone(),
+                    sent: self.sent.clone(),
+                }))
+            }
+        }
+        #[async_trait]
+        impl UdpAssociation for Association {
+            async fn send(&self, _: &TcpTarget, payload: &[u8]) -> Result<(), DialError> {
+                self.sent.lock().unwrap().push(payload.to_vec());
+                Ok(())
+            }
+            async fn recv(&self) -> Result<(TcpTarget, Bytes), DialError> {
+                if self.broken {
+                    self.closed.notify_one();
+                    return Err(DialError::Closed);
+                }
+                Ok((
+                    TcpTarget::new("example.test", 443).unwrap(),
+                    Bytes::from_static(b"resumed"),
+                ))
+            }
+        }
+        let closed = Arc::new(tokio::sync::Notify::new());
+        let sent = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let factory = Arc::new(Factory {
+            opens: AtomicUsize::new(0),
+            closed: closed.clone(),
+            sent: sent.clone(),
+        });
+        let association = Arc::new(LazyAssociation::new(
+            factory.clone(),
+            CancellationToken::new(),
+        ));
+        let target = TcpTarget::new("example.test", 443).unwrap();
+        assert_eq!(
+            association.send(&target, b"failed").await,
+            Err(DialError::Timeout)
+        );
+        association.send(&target, b"before").await.unwrap();
+        let receiver = association.clone();
+        let receiving = tokio::spawn(async move { receiver.recv().await });
+        closed.notified().await;
+        tokio::task::yield_now().await;
+        association.send(&target, b"after").await.unwrap();
+        assert_eq!(receiving.await.unwrap().unwrap().1, b"resumed"[..]);
+        assert_eq!(factory.opens.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            *sent.lock().unwrap(),
+            [b"before".to_vec(), b"after".to_vec()]
+        );
+    }
     #[test]
     fn datagrams_round_trip_all_targets_and_reject_fragments() {
         for host in ["192.0.2.1", "2001:db8::1", "example.test"] {

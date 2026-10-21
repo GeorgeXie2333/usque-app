@@ -48,6 +48,9 @@ pub(crate) struct L4Runtime {
 }
 
 impl L4Runtime {
+    pub(crate) fn proxy_services(&self) -> ProxyServices {
+        self.services.clone()
+    }
     pub(crate) fn ads_policy(&self) -> &GeoDirectPolicy {
         &self.services.geo_policy
     }
@@ -268,6 +271,7 @@ impl L4Runtime {
             resolver.with_warp_dns(doh)
         };
         let services = ProxyServices {
+            telemetry: telemetry.clone(),
             traffic_policy: Arc::new(crate::application_traffic::ApplicationTrafficPolicy::new(
                 profile.disable_quic || client.proxy.is_some(),
             )),
@@ -372,6 +376,7 @@ impl L4Runtime {
         status: Option<tokio::sync::watch::Sender<usque_core::vpngate::GateStatus>>,
         startup_cancel: &CancellationToken,
         deadline: tokio::time::Instant,
+        continuous: bool,
     ) -> Result<Self, TransportError> {
         crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let cancellation = CancellationToken::new();
@@ -395,21 +400,49 @@ impl L4Runtime {
             metrics.clone(),
             Arc::new(tokio::sync::Notify::new()),
         ));
-        let proxy = tokio::select! {
-            _ = startup_cancel.cancelled() => return Err(TransportError::TunnelClosed),
-            result = crate::proxy_exit::ProxyDialer::start(prepared, network.clone(), status, cancellation.clone(), budget.clone(), counters.clone(), deadline) => result.map_err(|e| TransportError::VpnGate(match e {
-                crate::tcp::DialError::Rejected(407) => usque_core::vpngate::GateFailure::Authentication,
-                crate::tcp::DialError::Protocol => usque_core::vpngate::GateFailure::Protocol,
-                crate::tcp::DialError::InvalidTarget => usque_core::vpngate::GateFailure::Configuration,
-                _ => usque_core::vpngate::GateFailure::Transport,
-            }))?,
+        let proxy_result = if continuous {
+            crate::proxy_exit::ProxyDialer::prepare(
+                prepared,
+                network.clone(),
+                status,
+                cancellation.clone(),
+                budget.clone(),
+                counters.clone(),
+            )
+        } else {
+            tokio::select! {
+                biased;
+                _ = startup_cancel.cancelled() => return Err(TransportError::TunnelClosed),
+                result = crate::proxy_exit::ProxyDialer::start(prepared, network.clone(), status, cancellation.clone(), budget.clone(), counters.clone(), deadline) => result,
+            }
         };
+        let proxy = proxy_result.map_err(|e| {
+            TransportError::VpnGate(match e {
+                crate::tcp::DialError::Rejected(407) => {
+                    usque_core::vpngate::GateFailure::Authentication
+                }
+                crate::tcp::DialError::Protocol => usque_core::vpngate::GateFailure::Protocol,
+                crate::tcp::DialError::InvalidTarget => {
+                    usque_core::vpngate::GateFailure::Configuration
+                }
+                _ => usque_core::vpngate::GateFailure::Transport,
+            })
+        })?;
+        let initial_health = if continuous {
+            RuntimeHealth::Connecting {
+                requested: network.health_snapshot().path(),
+                attempt: 0,
+            }
+        } else {
+            network.health_snapshot()
+        };
+        let (final_health, final_updates) = tokio::sync::watch::channel(initial_health);
         let client = Arc::new(crate::stream_client::StreamClient {
             l4: None,
             proxy: Some(proxy.clone()),
             budget,
             metrics,
-            health: network.health(),
+            health: final_updates,
         });
         // The final exit owns its identity and traffic. Transport observations
         // remain attached to the selected WARP attempt, including H2/L4 limits.
@@ -428,20 +461,54 @@ impl L4Runtime {
         )
         .await?;
         let mut health = network.health();
-        let generation = network.session_generation();
         runtime.tasks.push(tokio::spawn(async move {
-            let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+            use std::sync::atomic::Ordering;
+            use usque_core::vpngate::{GateFailure, GateStage};
+            let mut generation = if proxy.verified.load(Ordering::Acquire) { network.session_generation() } else { None };
+            let mut attempt = 0u32;
+            let mut ever_ready = !continuous;
             loop {
+                let state = health.borrow_and_update().clone();
+                match &state {
+                    RuntimeHealth::Failed { .. } => {
+                        final_health.send_replace(state);
+                        proxy.fail(GateFailure::Transport);
+                        break;
+                    }
+                    RuntimeHealth::Connected { .. } => {
+                        if generation != network.session_generation() || !proxy.verified.load(Ordering::Acquire) {
+                            proxy.verified.store(false, Ordering::Release);
+                            attempt = attempt.saturating_add(1);
+                            final_health.send_replace(if !ever_ready { RuntimeHealth::Connecting { requested: state.path(), attempt } } else { RuntimeHealth::Reconnecting {
+                                last_path: state.path(), attempt, reconnect_count: state.reconnect_count(),
+                                reason: "Checking final proxy after WARP recovery".into(),
+                                failure: TransportError::VpnGate(GateFailure::Transport).failure(None, None),
+                            }});
+                            let verified = tokio::select! {
+                                biased;
+                                _ = proxy.cancellation.cancelled() => break,
+                                changed = health.changed() => { if changed.is_err() { break; } continue; },
+                                result = proxy.verify(tokio::time::Instant::now() + std::time::Duration::from_secs(10)) => result,
+                            };
+                            match verified {
+                                Ok(()) => { ever_ready = true; generation = network.session_generation(); final_health.send_replace(state); },
+                                Err(crate::tcp::DialError::Rejected(407)) => { proxy.fail(GateFailure::Authentication); break; },
+                                Err(crate::tcp::DialError::Protocol | crate::tcp::DialError::InvalidTarget) => { proxy.fail(GateFailure::Protocol); break; },
+                                Err(_) => {},
+                            }
+                        } else { final_health.send_replace(state); }
+                    }
+                    _ => {
+                        proxy.verified.store(false, Ordering::Release);
+                        proxy.status.send_modify(|s| s.stage = GateStage::Reconnecting);
+                        final_health.send_replace(state);
+                    }
+                }
                 tokio::select! {
+                    biased;
                     _ = proxy.cancellation.cancelled() => break,
                     changed = health.changed() => if changed.is_err() { break; },
-                    _ = tick.tick() => {},
-                }
-                if !matches!(*health.borrow(), RuntimeHealth::Connected { .. })
-                    || generation != network.session_generation()
-                {
-                    proxy.fail(usque_core::vpngate::GateFailure::Transport);
-                    break;
+                    _ = tokio::time::sleep(usque_core::recovery::RETRY_INTERVAL) => {},
                 }
             }
         }));

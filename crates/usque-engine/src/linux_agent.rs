@@ -64,6 +64,58 @@ pub(crate) fn retryable(error: &io::Error) -> bool {
         })
 }
 
+/// Only physical observations and missing routes permit a networking retry.
+pub(crate) fn unavailable_physical_network(detail: &agent_v1::LinuxFailureDetail) -> bool {
+    use agent_v1::{LinuxFailureReason as R, LinuxFailureStage as S};
+    detail.cleanup_detail.is_none()
+        && usque_ipc::linux_failure::valid(detail)
+        && matches!(
+            (S::try_from(detail.stage), R::try_from(detail.reason)),
+            (Ok(S::PhysicalSnapshot), Ok(R::SnapshotUnavailable))
+                | (Ok(S::EgressPermission), Ok(R::RouteUnavailable))
+        )
+}
+pub(crate) fn physical_network_error(error: &io::Error) -> bool {
+    retryable(error)
+        && failure_detail(error)
+            .as_ref()
+            .is_some_and(unavailable_physical_network)
+}
+
+#[cfg(test)]
+mod physical_retry_tests {
+    use super::*;
+    #[test]
+    fn only_missing_physical_snapshots_and_routes_are_continuously_retryable() {
+        use agent_v1::{LinuxFailureReason as R, LinuxFailureStage as S};
+        for (stage, reason, expected) in [
+            (S::PhysicalSnapshot, R::SnapshotUnavailable, true),
+            (S::EgressPermission, R::RouteUnavailable, true),
+            (S::EgressPermission, R::UnsupportedRoute, false),
+            (S::EgressPermission, R::Io, false),
+            (S::Recovery, R::SnapshotUnavailable, false),
+        ] {
+            let detail = agent_v1::LinuxFailureDetail {
+                stage: stage as i32,
+                reason: reason as i32,
+                ..Default::default()
+            };
+            assert_eq!(unavailable_physical_network(&detail), expected);
+            let error =
+                usque_ipc::linux_failure::with_detail(detail.clone(), io::Error::other("test"));
+            assert_eq!(physical_network_error(&error), expected);
+            let mapped = crate::linux_runtime::map_error(error);
+            assert_eq!(
+                crate::continuous_connection::retry_network_error(&mapped),
+                expected
+            );
+            let mut cleanup = detail.clone();
+            cleanup.cleanup_detail = Some(Box::new(detail));
+            assert!(!unavailable_physical_network(&cleanup));
+        }
+    }
+}
+
 pub(crate) fn is_stale_generation(error: &io::Error) -> bool {
     error
         .get_ref()

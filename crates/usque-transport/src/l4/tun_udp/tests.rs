@@ -322,6 +322,7 @@ impl Fixture {
         });
         let associations = Arc::new(Associations::default());
         let services = ProxyServices {
+            telemetry: crate::ConnectionTelemetry::default(),
             traffic_policy: Arc::new(if loopback_quic {
                 crate::application_traffic::ApplicationTrafficPolicy::for_loopback_quic(
                     remote.port(),

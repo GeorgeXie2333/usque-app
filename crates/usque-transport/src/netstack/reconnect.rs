@@ -2,13 +2,11 @@
 use super::*;
 use crate::socket::PhysicalNetworkSnapshot;
 
-const NETWORK_SETTLE: Duration = Duration::from_millis(250);
-const NETWORK_ATTEMPT_SPACING: Duration = Duration::from_secs(1);
+use usque_core::recovery::{NETWORK_SETTLE, RETRY_INTERVAL};
 
 pub(super) struct ReconnectSchedule {
     network: Option<watch::Receiver<PhysicalNetworkSnapshot>>,
     observed: Option<PhysicalNetworkSnapshot>,
-    last_attempt: Option<Instant>,
     fast_retry_at: Option<Instant>,
     policy: IpPolicy,
 }
@@ -20,15 +18,9 @@ impl ReconnectSchedule {
         Self {
             network,
             observed,
-            last_attempt: None,
             fast_retry_at: None,
             policy,
         }
-    }
-
-    fn offline(&self) -> bool {
-        self.observed
-            .is_some_and(|state| state.usable_for(self.policy) == Some(false))
     }
 
     fn observe(&mut self, next: Option<PhysicalNetworkSnapshot>) {
@@ -40,12 +32,7 @@ impl ReconnectSchedule {
         let old = self.observed;
         self.observed = next;
         if next.is_some_and(|state| state.usable_for(self.policy) == Some(true)) && old != next {
-            self.fast_retry_at = Some(
-                (Instant::now() + NETWORK_SETTLE).max(
-                    self.last_attempt
-                        .map_or(Instant::now(), |at| at + NETWORK_ATTEMPT_SPACING),
-                ),
-            );
+            self.fast_retry_at = Some(Instant::now() + NETWORK_SETTLE);
         } else {
             self.fast_retry_at = None;
         }
@@ -71,8 +58,8 @@ impl ReconnectSchedule {
         }
     }
 
-    /// Returns whether a physical-network event reset the backoff. Cancellation
-    /// or closed packet input returns None. Packet queues stay bounded offline.
+    /// Network observations can accelerate retry, but never suspend the timer.
+    /// Cancellation or closed packet input returns None.
     pub(super) async fn wait(
         &mut self,
         delay: Duration,
@@ -80,24 +67,14 @@ impl ReconnectSchedule {
         cancellation: &CancellationToken,
     ) -> Option<bool> {
         self.refresh();
-        let retry_at = Instant::now() + delay;
+        let retry_at = Instant::now() + delay.min(RETRY_INTERVAL);
         loop {
-            let deadline = if self.offline() {
-                None
-            } else {
-                Some(self.fast_retry_at.unwrap_or(retry_at))
-            };
+            let deadline = self.fast_retry_at.map_or(retry_at, |at| at.min(retry_at));
             tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => return None,
                 _ = self.changed() => {},
-                _ = async {
-                    match deadline {
-                        Some(at) => tokio::time::sleep_until(at).await,
-                        None => std::future::pending().await,
-                    }
-                } => {
-                    self.last_attempt = Some(Instant::now());
+                _ = tokio::time::sleep_until(deadline) => {
                     return Some(self.fast_retry_at.take().is_some());
                 },
                 batch = packet_io.receive_outgoing_batch() => { batch?; },

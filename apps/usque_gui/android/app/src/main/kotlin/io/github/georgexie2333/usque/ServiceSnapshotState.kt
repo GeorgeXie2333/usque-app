@@ -315,9 +315,8 @@ internal class ServiceSnapshotState {
         if (phase == "error") return
         errorCode = null
         if (!networkPresent) {
-            phase = "reconnecting"
-            warning =
-                "ANDROID_WAITING_FOR_PHYSICAL_NETWORK: waiting for a usable non-VPN network."
+            if (phase == "connected" || phase == "degraded") phase = "reconnecting"
+            warning = null
         } else {
             // Native H3 may keep the same connection through path migration.
             // Do not predict a reconnect or claim recovery before its snapshot.

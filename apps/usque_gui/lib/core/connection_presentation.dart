@@ -76,7 +76,7 @@ class ConnectionPresentation {
         mode: RingMode.scan,
         tone: StatusTone.brand,
         labelKey: 'preparing',
-        actionKey: 'connecting',
+        actionKey: 'cancel',
         recoverable: false,
       ),
       ConnectionPhase.connectingH3 ||
@@ -84,7 +84,7 @@ class ConnectionPresentation {
         mode: RingMode.scan,
         tone: StatusTone.brand,
         labelKey: 'connecting',
-        actionKey: 'connecting',
+        actionKey: 'cancel',
         recoverable: false,
       ),
       ConnectionPhase.connected => const ConnectionPresentation(
@@ -105,7 +105,7 @@ class ConnectionPresentation {
         mode: RingMode.scan,
         tone: StatusTone.warning,
         labelKey: 'reconnecting',
-        actionKey: 'connecting',
+        actionKey: 'cancel',
         recoverable: false,
       ),
       ConnectionPhase.disconnecting => const ConnectionPresentation(

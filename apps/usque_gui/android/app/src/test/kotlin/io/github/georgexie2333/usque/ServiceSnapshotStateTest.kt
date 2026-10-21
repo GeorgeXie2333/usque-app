@@ -127,10 +127,20 @@ class ServiceSnapshotStateTest {
         assertNull(snapshot.warning)
         snapshot.noteUnderlyingNetworkChange(networkPresent = false)
         assertEquals("reconnecting", snapshot.phase)
-        assertNotNull(snapshot.warning)
+        assertNull(snapshot.warning)
         snapshot.noteUnderlyingNetworkChange(networkPresent = true)
         assertEquals("reconnecting", snapshot.phase)
         assertNull(snapshot.warning)
+    }
+
+    @Test
+    fun initialOfflineNetworkKeepsConnectingWithoutWarning() {
+        val snapshot = state()
+        snapshot.phase = "connectingH3"
+        repeat(1_800) { snapshot.noteUnderlyingNetworkChange(networkPresent = false) }
+        assertEquals("connectingH3", snapshot.phase)
+        assertNull(snapshot.warning)
+        assertNull(snapshot.errorCode)
     }
 
     @Test

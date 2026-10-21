@@ -12,6 +12,13 @@ use crate::network_quality::{H3MetricsSample, NetworkQualityTelemetry};
 
 pub const CONNECTION_TIMELINE_CAPACITY: usize = 512;
 
+pub(crate) struct WaitingRequest(Arc<AtomicU64>);
+impl Drop for WaitingRequest {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionEventType {
     AttemptStarted,
@@ -53,6 +60,7 @@ pub enum ConnectionEventType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionEvent {
+    pub repetitions: u32,
     pub sequence: u64,
     pub timestamp: SystemTime,
     pub elapsed_from_attempt_start: Duration,
@@ -92,6 +100,8 @@ impl ConnectionEventPath {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConnectionMetrics {
+    pub waiting_requests: u64,
+    pub peak_waiting_requests: u64,
     pub last_connect_duration: Option<Duration>,
     pub last_h3_handshake_duration: Option<Duration>,
     pub last_h2_handshake_duration: Option<Duration>,
@@ -118,6 +128,11 @@ pub struct ConnectionTelemetry {
     inner: Arc<Mutex<TelemetryState>>,
     sequence: Arc<AtomicU64>,
     startup_cancellation: CancellationToken,
+    continuous_connection: Arc<AtomicBool>,
+    recovery_wake: Arc<tokio::sync::Notify>,
+    pub(crate) candidate_slots: Arc<tokio::sync::Semaphore>,
+    waiting_requests: Arc<AtomicU64>,
+    peak_waiting_requests: Arc<AtomicU64>,
     candidate_sequence: Arc<AtomicU64>,
     enrollment_round: Arc<AtomicU64>,
     first_packet_sent: Arc<AtomicBool>,
@@ -252,6 +267,13 @@ impl ConnectionTelemetry {
             })),
             sequence: Arc::new(AtomicU64::new(0)),
             startup_cancellation: CancellationToken::new(),
+            continuous_connection: Arc::new(AtomicBool::new(false)),
+            recovery_wake: Arc::new(tokio::sync::Notify::new()),
+            candidate_slots: Arc::new(tokio::sync::Semaphore::new(
+                usque_core::recovery::AUTOMATIC_CANDIDATE_LIMIT,
+            )),
+            waiting_requests: Arc::new(AtomicU64::new(0)),
+            peak_waiting_requests: Arc::new(AtomicU64::new(0)),
             candidate_sequence: Arc::new(AtomicU64::new(0)),
             enrollment_round: Arc::new(AtomicU64::new(0)),
             first_packet_sent: Arc::new(AtomicBool::new(false)),
@@ -268,6 +290,33 @@ impl ConnectionTelemetry {
         state.attempt_started = Instant::now();
         self.first_packet_sent.store(false, Ordering::Release);
         self.first_packet_received.store(false, Ordering::Release);
+    }
+
+    pub fn enable_continuous_connection(&self) {
+        self.continuous_connection.store(true, Ordering::Release);
+    }
+
+    pub fn continuous_connection(&self) -> bool {
+        self.continuous_connection.load(Ordering::Acquire)
+    }
+
+    pub fn set_continuous_connection(&self, enabled: bool) {
+        self.continuous_connection.store(enabled, Ordering::Release);
+    }
+
+    pub fn request_recovery(&self) {
+        self.recovery_wake.notify_one();
+    }
+
+    pub(crate) fn request_wait(&self) -> WaitingRequest {
+        let count = self.waiting_requests.fetch_add(1, Ordering::AcqRel) + 1;
+        self.peak_waiting_requests
+            .fetch_max(count, Ordering::Relaxed);
+        WaitingRequest(self.waiting_requests.clone())
+    }
+
+    pub(crate) async fn recovery_requested(&self) {
+        self.recovery_wake.notified().await;
     }
 
     pub(crate) fn cancel_startup(&self) {
@@ -337,7 +386,26 @@ impl ConnectionTelemetry {
             self.quality.end_connection();
         }
         let mut state = self.state();
+        if event_type == ConnectionEventType::ReconnectScheduled
+            && let Some(previous) = state.events.iter_mut().rev().find(|event| {
+                matches!(
+                    event.event_type,
+                    ConnectionEventType::ReconnectScheduled
+                        | ConnectionEventType::TunnelReady
+                        | ConnectionEventType::NetworkChanged
+                )
+            })
+            && previous.event_type == event_type
+            && previous.failure.as_ref().map(|value| value.code)
+                == failure.as_ref().map(|value| value.code)
+            && previous.transport == path.transport
+            && previous.address_family == path.address_family
+        {
+            previous.repetitions = previous.repetitions.saturating_add(1);
+            return;
+        }
         let event = ConnectionEvent {
+            repetitions: 1,
             sequence: self.sequence.fetch_add(1, Ordering::Relaxed) + 1,
             timestamp: SystemTime::now(),
             elapsed_from_attempt_start: state.attempt_started.elapsed(),
@@ -492,6 +560,8 @@ impl ConnectionTelemetry {
     pub fn snapshot(&self) -> ConnectionTimelineSnapshot {
         let state = self.state();
         let mut metrics = state.metrics.clone();
+        metrics.waiting_requests = self.waiting_requests.load(Ordering::Acquire);
+        metrics.peak_waiting_requests = self.peak_waiting_requests.load(Ordering::Relaxed);
         metrics.current_smoothed_rtt = self.quality.current_smoothed_rtt();
         metrics.send_queue_high_watermark = self.send_queue_high_watermark.load(Ordering::Relaxed);
         metrics.send_queue_drop_count = self.send_queue_drop_count.load(Ordering::Relaxed);
@@ -516,6 +586,28 @@ impl ConnectionTelemetry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_recovery_reasons_are_counted_without_filling_the_timeline() {
+        let telemetry = ConnectionTelemetry::new(16);
+        let failure = TransportFailure::new(
+            TransportFailureCode::PhysicalNetworkChanged,
+            TransportStage::SocketConnect,
+        );
+        for _ in 0..7_200 {
+            telemetry.phase(
+                ConnectionEventType::ReconnectScheduled,
+                Some(failure.clone()),
+            );
+        }
+        let snapshot = telemetry.snapshot();
+        assert_eq!(snapshot.events.len(), 1);
+        assert_eq!(snapshot.events[0].repetitions, 7_200);
+        assert_eq!(snapshot.dropped_event_count, 0);
+        telemetry.phase(ConnectionEventType::TunnelReady, None);
+        telemetry.phase(ConnectionEventType::ReconnectScheduled, Some(failure));
+        assert_eq!(telemetry.snapshot().events.last().unwrap().repetitions, 1);
+    }
 
     #[test]
     fn inv_bounded_work_timeline_evicts_oldest_records() {

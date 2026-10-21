@@ -220,6 +220,25 @@ impl InternalNetwork {
     pub fn health_snapshot(&self) -> RuntimeHealth {
         self.health.borrow().clone()
     }
+
+    pub async fn wait_until_ready(&self) -> Result<(), DirectoryError> {
+        let mut health = self.health.clone();
+        loop {
+            if self.cancellation.is_cancelled() {
+                return Err(DirectoryError::Cancelled);
+            }
+            match health.borrow_and_update().clone() {
+                RuntimeHealth::Connected { .. } => return Ok(()),
+                RuntimeHealth::Failed { .. } => return Err(DirectoryError::Request),
+                _ => {}
+            }
+            tokio::select! {
+                biased;
+                _ = self.cancellation.cancelled() => return Err(DirectoryError::Cancelled),
+                changed = health.changed() => if changed.is_err() { return Err(DirectoryError::Request); },
+            }
+        }
+    }
     pub(crate) fn for_stack(
         profile: &usque_core::Profile,
         stack: &PacketStack,

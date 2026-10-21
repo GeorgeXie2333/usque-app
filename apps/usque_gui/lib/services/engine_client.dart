@@ -359,6 +359,7 @@ class MethodChannelEngineClient
         InitialIdentityClient,
         OnboardingPermissionsClient,
         AdsRulesClient {
+  bool _continuousConnection = false;
   @override
   Future<InitialIdentityState> initializeIdentity(
     UsqueProfile profile, {
@@ -639,7 +640,11 @@ class MethodChannelEngineClient
   @override
   Future<EngineCapabilities?> getCapabilities() async {
     final value = await _invoke<Map<Object?, Object?>>('getCapabilities');
-    return value == null ? null : EngineCapabilities.fromMap(value);
+    final capabilities = value == null
+        ? null
+        : EngineCapabilities.fromMap(value);
+    _continuousConnection = capabilities?.continuousConnection ?? false;
+    return capabilities;
   }
 
   @override
@@ -889,10 +894,10 @@ class MethodChannelEngineClient
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) async {
-    final result = await _invoke<Map<Object?, Object?>>(
-      'connect',
-      profile.toMap(),
-    );
+    final result = await _invoke<Map<Object?, Object?>>('connect', {
+      ...profile.toMap(),
+      if (_continuousConnection) 'continuous': true,
+    });
     return _snapshotFromMap(result);
   }
 
@@ -904,7 +909,9 @@ class MethodChannelEngineClient
 
   @override
   Future<EngineSnapshot> retry() async {
-    final result = await _invoke<Map<Object?, Object?>>('retry');
+    final result = await _invoke<Map<Object?, Object?>>('retry', {
+      if (_continuousConnection) 'continuous': true,
+    });
     return _snapshotFromMap(result);
   }
 

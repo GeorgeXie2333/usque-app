@@ -177,11 +177,12 @@ the second slot. Only losing attempts are cancelled; the winner remains owned
 by its session's cancellation token. Edge-resolved CONNECT keeps server-side
 resolution.
 
-Session failures use jittered 1/2/4/8/15/30-second backoff. Active flows retain
-the 30-second keepalive baseline. Idle sessions may expire and reconnect on
-the next request. Only an undelivered CONNECT can be retried; accepted TCP bytes
-are not replayed. Same-endpoint/same-family verified path migration keeps L4
-streams and TUN mappings. A real session rebuild ends its old flows.
+Session failures restore the outer connection immediately, then retry at a fixed
+one-second interval while the connection intent remains enabled. Recovery runs
+even without pending business requests. New HTTP/SOCKS requests wait for session
+readiness; their ten-second connect budget counts only ready time. Established
+L4 streams finish according to their underlying stream result. H3 keepalive
+remains 30 seconds, with separate ACK/PTO liveness observation.
 
 DNS has a four-second total deadline, 16 active operations, 64 additional
 admitted waiters and at most two reusable TCP streams per resolver. Idle streams

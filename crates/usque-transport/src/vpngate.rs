@@ -6,8 +6,11 @@ use crate::internal_network::InternalNetwork;
 use crate::netstack::{ExternalPacketChannels, ManagedTunnelRuntime, RuntimeHealth, RuntimePath};
 use crate::packet_batch::PacketBatch;
 #[cfg(feature = "wireguard")]
-use crate::proton_vpn::local_agent::{AgentControl, AgentState, ControlTuple};
+use crate::proton_vpn::local_agent::{
+    AgentControl, AgentGate, AgentIngress, AgentState, ControlTuple,
+};
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{oneshot, watch};
@@ -453,6 +456,8 @@ impl GateDriver {
             channels: None,
             network: None,
             generation: 0,
+            packet_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            packet_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             connected: false,
             connection: None,
             cancellation: cancellation.clone(),
@@ -464,6 +469,8 @@ impl GateDriver {
             proton_recovery: proton_lease.as_ref().map(|_| proton_recovery),
             #[cfg(feature = "wireguard")]
             agent: None,
+            #[cfg(feature = "wireguard")]
+            agent_route: Arc::default(),
             #[cfg(feature = "wireguard")]
             pending_runtime: None,
         };
@@ -667,6 +674,8 @@ struct Actor {
     channels: Option<ExternalPacketChannels>,
     network: Option<FinalNetworkParameters>,
     generation: u64,
+    packet_generation: Arc<std::sync::atomic::AtomicU64>,
+    packet_ready: Arc<std::sync::atomic::AtomicBool>,
     reconnect_count: u32,
     connected: bool,
     connection: Option<Connection>,
@@ -679,6 +688,8 @@ struct Actor {
     proton_recovery: Option<tokio::sync::mpsc::Sender<crate::proton_vpn::renew::RecoveryRequest>>,
     #[cfg(feature = "wireguard")]
     agent: Option<AgentControl>,
+    #[cfg(feature = "wireguard")]
+    agent_route: Arc<std::sync::RwLock<Option<(AgentGate, AgentIngress)>>>,
     #[cfg(feature = "wireguard")]
     pending_runtime: Option<ManagedTunnelRuntime>,
 }
@@ -786,6 +797,11 @@ impl Actor {
                     {
                     let state = *self.agent.as_ref().ok_or(GateFailure::Protocol)?.status.borrow();
                     match state {
+                        AgentState::Failed(reason) if reason.retryable() => {
+                            self.reconnecting();
+                            if let Some(connection) = self.connection.take() { connection.shutdown().await; }
+                            let _ = self.native.input().transport_failed(self.generation).await;
+                        },
                         AgentState::Failed(reason) => return Err(reason),
                         AgentState::Connected => {
                             if let Some(runtime) = self.pending_runtime.take() {
@@ -810,8 +826,10 @@ impl Actor {
                 })?).await?,
                 changed = self.underlay_health.changed() => {
                     if changed.is_err() { return Err(GateFailure::Transport); }
+                    if matches!(*self.underlay_health.borrow(), RuntimeHealth::Failed { .. }) {
+                        return Err(GateFailure::Transport);
+                    }
                     if !matches!(*self.underlay_health.borrow(), RuntimeHealth::Connected { .. }) {
-                        if self.channels.is_some() { return Err(GateFailure::Transport); }
                         self.reconnecting();
                         if let Some(connection) = self.connection.take() { connection.shutdown().await; }
                         let _ = self.native.input().transport_failed(self.generation).await;
@@ -829,11 +847,10 @@ impl Actor {
     async fn event(&mut self, event: Event) -> Result<(), GateFailure> {
         match event {
             Event::Dial { generation } => {
-                if self.channels.is_some() {
-                    return Err(GateFailure::Transport);
-                }
-                self.connected = false;
+                self.reconnecting();
                 self.generation = generation;
+                self.packet_generation
+                    .store(generation, std::sync::atomic::Ordering::Release);
                 if let Some(connection) = self.connection.take() {
                     connection.shutdown().await;
                 }
@@ -887,39 +904,52 @@ impl Actor {
                         *self.underlay_health.borrow(),
                         RuntimeHealth::Connected { .. }
                     ) {
-                        return Err(GateFailure::Transport);
+                        self.reconnecting();
+                        if let Some(connection) = self.connection.take() {
+                            connection.shutdown().await;
+                        }
+                        let _ = self.native.input().transport_failed(self.generation).await;
+                        return Ok(());
                     }
                     self.connected = true;
                     let path = self.path();
+                    #[cfg(feature = "wireguard")]
+                    if self.agent.is_none()
+                        && let Some(updates) = self.proton_updates.clone()
+                    {
+                        self.agent = Some(
+                            AgentControl::start(
+                                updates,
+                                crate::proton_vpn::local_agent::Parameters {
+                                    local: network.ipv4.ok_or(GateFailure::Configuration)?,
+                                    mtu: if path.transport == usque_core::Transport::Http3 {
+                                        self.tcp_packet_budget
+                                            .map_or(network.mtu, |budget| network.mtu.min(budget))
+                                    } else {
+                                        network.mtu
+                                    },
+                                    generation: self.generation,
+                                    startup_deadline: if self.channels.is_some() {
+                                        Instant::now() + Duration::from_secs(35)
+                                    } else {
+                                        self.connection_deadline
+                                    },
+                                },
+                                self.native.input(),
+                                &self.cancellation,
+                                self.proton_recovery.clone(),
+                            )
+                            .await?,
+                        );
+                        let agent = self.agent.as_ref().expect("started local agent");
+                        *self.agent_route.write().unwrap_or_else(|e| e.into_inner()) =
+                            Some((agent.gate(), agent.ingress.clone()));
+                    }
                     if self.channels.is_none() {
                         let (runtime, mut channels) = ManagedTunnelRuntime::for_external_packets(
                             path,
                             self.transport_telemetry.clone(),
                         );
-                        #[cfg(feature = "wireguard")]
-                        if let Some(updates) = self.proton_updates.take() {
-                            self.agent = Some(
-                                AgentControl::start(
-                                    updates,
-                                    crate::proton_vpn::local_agent::Parameters {
-                                        local: network.ipv4.ok_or(GateFailure::Configuration)?,
-                                        mtu: if path.transport == usque_core::Transport::Http3 {
-                                            self.tcp_packet_budget.map_or(network.mtu, |budget| {
-                                                network.mtu.min(budget)
-                                            })
-                                        } else {
-                                            network.mtu
-                                        },
-                                        generation: self.generation,
-                                        startup_deadline: self.connection_deadline,
-                                    },
-                                    self.native.input(),
-                                    &self.cancellation,
-                                    self.proton_recovery.clone(),
-                                )
-                                .await?,
-                            );
-                        }
                         self.start_packet_tasks(&mut channels, &network)?;
                         self.channels = Some(channels);
                         self.publish_connected();
@@ -943,13 +973,10 @@ impl Actor {
                         self.publish_connected();
                     }
                 } else if name == "RECONNECTING" || name == "DISCONNECTED" {
-                    if self.channels.is_some() {
-                        return Err(GateFailure::Transport);
-                    }
                     self.reconnecting();
                 } else if error || fatal {
                     let reason = event_failure(&name);
-                    if fatal || !reason.retryable() || self.channels.is_some() {
+                    if fatal || !reason.retryable() {
                         return Err(reason);
                     }
                     self.reconnecting();
@@ -971,27 +998,36 @@ impl Actor {
     ) -> Result<(), GateFailure> {
         let mut outgoing = channels.outgoing.take().ok_or(GateFailure::Configuration)?;
         let input = self.native.input();
-        let generation = self.generation;
+        let generation = self.packet_generation.clone();
         let cancel = self.cancellation.clone();
         let admitted = self.admitted.clone();
         let network = network.clone();
         let counters = channels.counters.clone();
         let tcp_packet_budget = self.tcp_packet_budget;
         let health = self.underlay_health.clone();
+        let packet_ready = self.packet_ready.clone();
         #[cfg(feature = "wireguard")]
-        let agent_gate = self.agent.as_ref().map(AgentControl::gate);
+        let agent_route = self.agent_route.clone();
+        #[cfg(feature = "wireguard")]
+        let agent_required = self.proton_updates.is_some();
         self.packet_tasks
             .push(AbortOnDropHandle::new(tokio::spawn(async move {
                 let result = until_cancelled(&cancel, async {
                     while let Some(packet) = outgoing.recv().await {
                         let packet = packet.freeze();
                         #[cfg(feature = "wireguard")]
-                        let authorized = agent_gate.as_ref().is_none_or(|gate| {
-                            gate.authorized() && !ControlTuple::reserved_outgoing(&packet)
-                        });
+                        let authorized = !agent_required
+                            || (agent_route
+                                .read()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .as_ref()
+                                .is_some_and(|(gate, _)| gate.authorized())
+                                && !ControlTuple::reserved_outgoing(&packet));
                         #[cfg(not(feature = "wireguard"))]
                         let authorized = true;
-                        if !*admitted.borrow()
+                        if !packet_ready.load(std::sync::atomic::Ordering::Acquire)
+                            || !matches!(*health.borrow(), RuntimeHealth::Connected { .. })
+                            || !*admitted.borrow()
                             || !authorized
                             || !packet_family_supported(&network, &packet)
                         {
@@ -1003,8 +1039,21 @@ impl Actor {
                             health.borrow().path().transport,
                         );
                         let length = packet.len();
-                        input.send_ip_owned(generation, packet).await?;
-                        counters.record_sent(length);
+                        match input
+                            .send_ip_owned(
+                                generation.load(std::sync::atomic::Ordering::Acquire),
+                                packet,
+                            )
+                            .await
+                        {
+                            Ok(()) => counters.record_sent(length),
+                            // Native can change generation before its Dial event
+                            // reaches this actor. The next TCP retransmit resumes.
+                            Err(
+                                usque_openvpn::Error::Closed | usque_openvpn::Error::InvalidPacket,
+                            ) => continue,
+                            Err(error) => return Err(error),
+                        }
                     }
                     Err::<(), _>(usque_openvpn::Error::Closed)
                 })
@@ -1014,16 +1063,19 @@ impl Actor {
                 }
             })));
         let output = self.ip_output.clone();
+        let generation = self.packet_generation.clone();
         let incoming = channels.incoming.clone();
         let counters = channels.counters.clone();
         let input = self.native.input();
         let cancel = self.cancellation.clone();
         let admitted = self.admitted.clone();
         let health = self.underlay_health.clone();
+        let packet_ready = self.packet_ready.clone();
         #[cfg(feature = "wireguard")]
-        let agent_gate = self.agent.as_ref().map(AgentControl::gate);
+        let agent_route = self.agent_route.clone();
         #[cfg(feature = "wireguard")]
-        let agent_ingress = self.agent.as_ref().map(|agent| agent.ingress.clone());
+        let agent_required = self.proton_updates.is_some();
+
         self.packet_tasks
             .push(AbortOnDropHandle::new(tokio::spawn(async move {
                 let result = until_cancelled(&cancel, async {
@@ -1043,26 +1095,37 @@ impl Actor {
                                 Event::IpPacket {
                                     generation: current,
                                     packet,
-                                } if current == generation => {
+                                } if current
+                                    == generation.load(std::sync::atomic::Ordering::Acquire) =>
+                                {
                                     #[cfg(feature = "wireguard")]
-                                    if let Some(ingress) = &agent_ingress {
-                                        if ingress
-                                            .route(&packet)
-                                            .await
-                                            .map_err(|_| usque_openvpn::Error::Closed)?
-                                        {
-                                            continue;
+                                    let route = agent_route
+                                        .read()
+                                        .unwrap_or_else(|e| e.into_inner())
+                                        .clone();
+                                    #[cfg(feature = "wireguard")]
+                                    if agent_required {
+                                        if let Some((_, ingress)) = &route {
+                                            match ingress.route(&packet).await {
+                                                Ok(true) | Err(_) => continue,
+                                                Ok(false) => {}
+                                            }
                                         }
                                         if ControlTuple::reserved_incoming(&packet) {
                                             continue;
                                         }
                                     }
                                     #[cfg(feature = "wireguard")]
-                                    let authorized =
-                                        agent_gate.as_ref().is_none_or(|gate| gate.authorized());
+                                    let authorized = !agent_required
+                                        || route
+                                            .as_ref()
+                                            .is_some_and(|(gate, _)| gate.authorized());
                                     #[cfg(not(feature = "wireguard"))]
                                     let authorized = true;
-                                    if !*admitted.borrow() || !authorized {
+                                    if !packet_ready.load(std::sync::atomic::Ordering::Acquire)
+                                        || !*admitted.borrow()
+                                        || !authorized
+                                    {
                                         continue;
                                     }
                                     let packet = crate::chain_mss::clamp(
@@ -1124,6 +1187,14 @@ impl Actor {
                 .is_none_or(|agent| agent.gate().authorized());
         #[cfg(not(feature = "wireguard"))]
         let admitted = *self.admitted.borrow();
+        let admitted = admitted
+            && self.connected
+            && matches!(
+                *self.underlay_health.borrow(),
+                RuntimeHealth::Connected { .. }
+            );
+        self.packet_ready
+            .store(admitted, std::sync::atomic::Ordering::Release);
         if let Some(channels) = &self.channels {
             let path = self.path();
             let health = if admitted {
@@ -1158,6 +1229,13 @@ impl Actor {
         });
     }
     fn reconnecting(&mut self) {
+        self.packet_ready
+            .store(false, std::sync::atomic::Ordering::Release);
+        #[cfg(feature = "wireguard")]
+        {
+            self.agent.take();
+            *self.agent_route.write().unwrap_or_else(|e| e.into_inner()) = None;
+        }
         if self.connected {
             self.reconnect_count = self.reconnect_count.saturating_add(1);
         }
@@ -1293,6 +1371,9 @@ impl Connection {
         let cancel = cancellation.clone();
         let task = tokio::spawn(async move {
             let work = async {
+                warp.wait_until_ready()
+                    .await
+                    .map_err(|_| std::io::ErrorKind::NotConnected)?;
                 if udp {
                     let counts = UdpTransportCounts::default();
                     let socket = warp

@@ -1517,6 +1517,16 @@ impl WindowsVpnRuntime {
         self.monitor.path()
     }
 
+    pub(crate) fn request_recovery(&self) {
+        if let Some(tunnel) = &self.tunnel {
+            tunnel.request_recovery();
+        }
+    }
+
+    pub(crate) fn set_continuous_connection(&self, enabled: bool) {
+        self.monitor.tunnel.set_continuous_connection(enabled);
+    }
+
     pub(crate) fn health(&self) -> RuntimeHealth {
         if let Some(tunnel) = &self.tunnel {
             let health = tunnel.health();
@@ -1682,6 +1692,7 @@ impl WindowsVpnRuntime {
                 Some(bootstrap.refresher.clone()),
                 policy,
                 usque_transport::VpnGateStart {
+                    continuous: self.monitor.tunnel.continuous_connection(),
                     selected,
                     status: Some(status),
                     cancellation: startup_cancel.clone(),
@@ -3472,37 +3483,56 @@ impl WindowsAgentClient {
         expected_generation: u64,
         purpose: agent_v1::DirectEgressPurpose,
     ) -> Result<(NamedPipeClient, AgentDirectEgressLease), WindowsVpnError> {
-        let mut pipe = self.open_pipe().await?;
-        let response = timeout(
-            AGENT_RPC_TIMEOUT,
-            self.exchange(
-                &mut pipe,
-                agent_request::Payload::AcquireDirectEgress(AcquireDirectEgressRequest {
-                    operation_id: operation_id.to_string(),
-                    remote_endpoint: remote.to_string(),
-                    protocol: u32::from(protocol.iana_number()),
-                    expected_generation,
-                    purpose: purpose as i32,
-                }),
-            ),
-        )
-        .await
-        .map_err(|_| WindowsVpnError::RpcTimeout)??;
-        match response {
-            agent_response::Payload::DirectEgressLease(lease)
-                if lease.remote_endpoint == remote.to_string()
-                    && lease.protocol == u32::from(protocol.iana_number())
-                    && lease.interface_luid != 0
-                    && lease.interface_index != 0
-                    && lease.network_generation == expected_generation
-                    && lease.network_generation != 0 =>
-            {
-                Ok((pipe, lease))
-            }
-            agent_response::Payload::DirectEgressLease(_) => {
-                Err(WindowsVpnError::InvalidDirectEgressLease)
-            }
-            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        loop {
+            let mut pipe = self.open_pipe().await?;
+            let response = timeout(
+                AGENT_RPC_TIMEOUT,
+                self.exchange(
+                    &mut pipe,
+                    agent_request::Payload::AcquireDirectEgress(AcquireDirectEgressRequest {
+                        operation_id: operation_id.to_string(),
+                        remote_endpoint: remote.to_string(),
+                        protocol: u32::from(protocol.iana_number()),
+                        expected_generation,
+                        purpose: purpose as i32,
+                    }),
+                ),
+            )
+            .await
+            .map_err(|_| WindowsVpnError::RpcTimeout)?;
+            let response = match response {
+                Err(WindowsVpnError::Remote { ref code, .. })
+                    if code == "AGENT_DIRECT_EGRESS_LIMIT"
+                        && matches!(
+                            purpose,
+                            agent_v1::DirectEgressPurpose::AutomaticMasque
+                                | agent_v1::DirectEgressPurpose::PresetMasque
+                        ) =>
+                {
+                    // The previous pipe can close before the Agent has consumed
+                    // its EOF. A refused acquisition owns no authorization.
+                    drop(pipe);
+                    tokio::time::sleep(usque_core::recovery::NETWORK_SETTLE).await;
+                    continue;
+                }
+                result => result?,
+            };
+            return match response {
+                agent_response::Payload::DirectEgressLease(lease)
+                    if lease.remote_endpoint == remote.to_string()
+                        && lease.protocol == u32::from(protocol.iana_number())
+                        && lease.interface_luid != 0
+                        && lease.interface_index != 0
+                        && lease.network_generation == expected_generation
+                        && lease.network_generation != 0 =>
+                {
+                    Ok((pipe, lease))
+                }
+                agent_response::Payload::DirectEgressLease(_) => {
+                    Err(WindowsVpnError::InvalidDirectEgressLease)
+                }
+                payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+            };
         }
     }
 
@@ -5091,6 +5121,73 @@ mod tests {
         (client, task)
     }
 
+    #[tokio::test]
+    async fn automatic_egress_waits_for_agent_release_but_keeps_other_refusals_terminal() {
+        use agent_v1::DirectEgressPurpose as Purpose;
+        let remote: SocketAddr = "198.51.100.23:443".parse().unwrap();
+        let operation = Uuid::new_v4();
+        let refusal = |code: &str| AgentResponse {
+            error: Some(agent_v1::AgentError {
+                code: code.into(),
+                retryable: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        for purpose in [Purpose::AutomaticMasque, Purpose::PresetMasque] {
+            let valid = AgentResponse {
+                payload: Some(agent_response::Payload::DirectEgressLease(
+                    AgentDirectEgressLease {
+                        remote_endpoint: remote.to_string(),
+                        protocol: 6,
+                        interface_luid: 1,
+                        interface_index: 2,
+                        network_generation: 7,
+                        ..Default::default()
+                    },
+                )),
+                ..Default::default()
+            };
+            let (client, task) = scripted_recovery_client(vec![
+                refusal("AGENT_DIRECT_EGRESS_LIMIT"),
+                refusal("AGENT_DIRECT_EGRESS_LIMIT"),
+                valid,
+            ]);
+            let started = tokio::time::Instant::now();
+            let lease = client
+                .acquire_direct_egress(operation, remote, DirectProtocol::Tcp, 7, purpose)
+                .await
+                .unwrap();
+            assert!(started.elapsed() >= 2 * usque_core::recovery::NETWORK_SETTLE);
+            drop(lease);
+            let requests = task.await.unwrap();
+            assert_eq!(requests.len(), 3);
+            for request in requests {
+                let agent_request::Payload::AcquireDirectEgress(request) = request else {
+                    panic!()
+                };
+                assert_eq!(request.operation_id, operation.to_string());
+                assert_eq!(request.remote_endpoint, remote.to_string());
+                assert_eq!(request.expected_generation, 7);
+                assert_eq!(request.purpose, purpose as i32);
+            }
+        }
+        for (purpose, code) in [
+            (Purpose::Unspecified, "AGENT_DIRECT_EGRESS_LIMIT"),
+            (Purpose::AutomaticMasque, "AGENT_OWNER_MISMATCH"),
+            (Purpose::PresetMasque, "AGENT_WFP_PROVIDER_NOT_FOUND"),
+        ] {
+            let (client, task) = scripted_recovery_client(vec![refusal(code)]);
+            assert!(
+                client
+                    .acquire_direct_egress(operation, remote, DirectProtocol::Tcp, 7, purpose)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(task.await.unwrap().len(), 1);
+        }
+    }
+
     fn recovery_state_response(phase: agent_v1::AgentPhase) -> AgentResponse {
         AgentResponse {
             payload: Some(agent_response::Payload::State(AgentState {
@@ -5617,6 +5714,7 @@ mod tests {
                 request_id: "recovery-entry".to_owned(),
                 payload: Some(usque_ipc::v1::control_request::Payload::Connect(
                     usque_ipc::v1::ConnectRequest {
+                        continuous: false,
                         profile_id: profile_id.to_string(),
                     },
                 )),

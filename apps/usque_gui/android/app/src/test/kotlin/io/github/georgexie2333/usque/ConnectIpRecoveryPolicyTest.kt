@@ -235,7 +235,7 @@ class ConnectIpRecoveryPolicyTest {
             assertTrue(ConnectIpRecoveryPolicy.canRecoverChainStartup(code, failure(code), status))
             assertFalse(ConnectIpRecoveryPolicy.canRecoverChainFailure(failure(code, false), code, status))
         }
-        assertFalse(ConnectIpRecoveryPolicy.canRecoverFailure(failure(code), code))
+        assertTrue(ConnectIpRecoveryPolicy.canRecoverFailure(failure(code), code))
         assertFalse(ConnectIpRecoveryPolicy.canRecoverStartup(code))
         assertFalse(ConnectIpRecoveryPolicy.canRecoverChainFailure(null, code, null))
         assertFalse(ConnectIpRecoveryPolicy.canRecoverChainStartup(code, null, null))

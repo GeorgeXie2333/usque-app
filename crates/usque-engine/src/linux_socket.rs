@@ -106,7 +106,8 @@ impl LinuxSocketProtector {
     ) -> tokio_util::task::AbortOnDropHandle<()> {
         let protector = Arc::clone(self);
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(2));
+            let mut interval = tokio::time::interval(usque_core::recovery::RETRY_INTERVAL);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     biased;
@@ -120,6 +121,16 @@ impl LinuxSocketProtector {
                 };
                 let observed = match observed {
                     Ok(value) => Some(value),
+                    Err(error) if crate::linux_agent::physical_network_error(&error) => {
+                        protector.updates.send_if_modified(|snapshot| {
+                            if snapshot.availability == PhysicalNetworkAvailability::Unknown {
+                                return false;
+                            }
+                            snapshot.availability = PhysicalNetworkAvailability::Unknown;
+                            true
+                        });
+                        continue;
+                    }
                     Err(_) => protector.resume_after_disconnect(&cancel).await,
                 };
                 match observed {
@@ -362,7 +373,9 @@ impl SocketProtector for LinuxSocketProtector {
     }
 }
 fn authorization_error(error: std::io::Error, denied: &'static str) -> String {
-    if crate::linux_agent::is_stale_generation(&error) {
+    if crate::linux_agent::is_stale_generation(&error)
+        || crate::linux_agent::physical_network_error(&error)
+    {
         STALE_GENERATION_REASON.into()
     } else {
         denied.into()
@@ -434,6 +447,87 @@ mod tests {
             );
             worker.join().unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn unavailable_snapshot_keeps_the_monitor_and_agent_session_until_network_returns() {
+        use usque_ipc::{
+            agent_v1::{AgentRequest, AgentResponse},
+            decode_frame, encode_frame, unix_fd,
+        };
+        let (agent, server) = LinuxAgentClient::fake_pair();
+        let (complete, completed) = tokio::sync::oneshot::channel();
+        let worker = std::thread::spawn(move || {
+            let peer = unix_fd::peer_credentials(&server).unwrap();
+            for attempt in 0..3 {
+                let frame = unix_fd::receive_frame(&server, peer).unwrap();
+                let request: AgentRequest = decode_frame(frame.bytes.into()).unwrap();
+                assert!(matches!(
+                    request.payload,
+                    Some(agent_request::Payload::GetPhysicalNetworkInfo(_))
+                ));
+                let mut response = AgentResponse {
+                    request_id: request.request_id,
+                    ..Default::default()
+                };
+                if attempt < 2 {
+                    response.error = Some(agent_v1::AgentError {
+                        code: "linux_operation_failed".into(),
+                        retryable: true,
+                        linux_detail: Some(Box::new(agent_v1::LinuxFailureDetail {
+                            stage: agent_v1::LinuxFailureStage::PhysicalSnapshot as i32,
+                            reason: agent_v1::LinuxFailureReason::SnapshotUnavailable as i32,
+                            ..Default::default()
+                        })),
+                        ..Default::default()
+                    });
+                } else {
+                    response.payload = Some(agent_response::Payload::PhysicalNetworkInfo(
+                        agent_v1::PhysicalNetworkInfo {
+                            generation: 8,
+                            ..Default::default()
+                        },
+                    ));
+                }
+                unix_fd::send_frame(&server, &encode_frame(&response).unwrap(), None::<&OwnedFd>)
+                    .unwrap();
+            }
+            complete.send(()).unwrap();
+        });
+        let physical = agent_v1::PhysicalNetworkInfo {
+            generation: 7,
+            ..Default::default()
+        };
+        let protector = Arc::new(LinuxSocketProtector {
+            agent,
+            operation: Uuid::new_v4(),
+            updates: watch::channel(observation(&physical)).0,
+            physical: RwLock::new(physical),
+            registration: Vec::new(),
+            automatic: false,
+            preset: None,
+            profile: Uuid::new_v4().to_string(),
+            retained_device: std::sync::Mutex::new(None),
+        });
+        let cancel = CancellationToken::new();
+        let (failure, failed) = watch::channel(None);
+        let monitor = protector.monitor(cancel.clone(), failure);
+        tokio::time::timeout(Duration::from_secs(5), completed)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while protector.network_generation() != Some(8) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!cancel.is_cancelled());
+        assert!(failed.borrow().is_none());
+        cancel.cancel();
+        monitor.await.unwrap();
+        worker.join().unwrap();
     }
 
     #[test]

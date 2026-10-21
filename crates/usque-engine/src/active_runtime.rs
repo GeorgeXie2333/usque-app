@@ -413,6 +413,16 @@ impl ActiveRuntime {
         }
     }
 
+    pub(crate) fn request_recovery(&self) {
+        match self {
+            Self::Proxy(runtime) => runtime.runtime.request_recovery(),
+            #[cfg(any(windows, target_os = "linux"))]
+            Self::Vpn(runtime) => runtime.request_recovery(),
+            #[cfg(test)]
+            Self::Harness(_) => {}
+        }
+    }
+
     pub(crate) fn subscribe_network_quality(
         &self,
     ) -> tokio::sync::watch::Receiver<NetworkQualitySnapshot> {
@@ -473,6 +483,7 @@ impl ActiveRuntime {
     pub(crate) fn frontend_statuses(&self, configured: FrontendSettings) -> Vec<FrontendStatus> {
         let runtime_phase = match self.health() {
             RuntimeHealth::Connected { .. } => FrontendPhase::Active,
+            RuntimeHealth::Connecting { .. } => FrontendPhase::Preparing,
             RuntimeHealth::Reconnecting { .. } => FrontendPhase::Reconnecting,
             RuntimeHealth::Failed { .. } => FrontendPhase::Error,
         };

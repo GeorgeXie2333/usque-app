@@ -503,6 +503,63 @@ mod tests {
     }
 
     #[test]
+    fn continuous_connection_wire_snapshots_keep_legacy_defaults() {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct LegacyConnect {
+            #[prost(string, tag = "1")]
+            profile_id: String,
+        }
+        let capability = v1::Capabilities {
+            continuous_connection: true,
+            ..Default::default()
+        };
+        assert_eq!(capability.encode_to_vec(), [0x98, 0x03, 1]);
+        let connect = v1::ConnectRequest {
+            profile_id: "p".into(),
+            continuous: true,
+        };
+        assert_eq!(connect.encode_to_vec(), [10, 1, b'p', 16, 1]);
+        assert_eq!(
+            LegacyConnect::decode(connect.encode_to_vec().as_slice())
+                .unwrap()
+                .profile_id,
+            "p"
+        );
+        assert!(
+            !v1::ConnectRequest::decode([10, 1, b'p'].as_slice())
+                .unwrap()
+                .continuous
+        );
+        assert_eq!(
+            v1::RetryRequest { continuous: true }.encode_to_vec(),
+            [8, 1]
+        );
+        assert!(!v1::RetryRequest::decode(&[][..]).unwrap().continuous);
+        assert!(
+            !v1::Capabilities::decode(&[][..])
+                .unwrap()
+                .continuous_connection
+        );
+        assert_eq!(
+            v1::ConnectionMetrics {
+                waiting_requests: 2,
+                peak_waiting_requests: 3,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x98, 0x04, 2, 0xa0, 0x04, 3]
+        );
+        assert_eq!(
+            v1::ConnectionEvent {
+                repetitions: 7,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x68, 7]
+        );
+    }
+
+    #[test]
     fn proxy_exit_fields_are_append_only() {
         let capabilities = v1::Capabilities {
             chain_http_proxy: true,

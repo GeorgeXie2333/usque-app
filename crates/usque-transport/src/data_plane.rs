@@ -33,9 +33,11 @@ pub struct DataPlaneRuntime {
     transition_status: GateStatus,
     pending_frontends: Option<Profile>,
     activation_deadline: Option<Instant>,
+    prebound_frontends: Option<crate::masque_runtime::PendingFrontends>,
 }
 #[derive(Default)]
 pub struct VpnGateStart {
+    pub continuous: bool,
     pub selected: Option<(ServerSummary, PreparedProfile)>,
     pub status: Option<watch::Sender<GateStatus>>,
     /// Cancels startup only; the established OpenVPN worker owns its lifetime.
@@ -46,7 +48,7 @@ pub type ChainExitStart = VpnGateStart;
 struct StartupContext {
     telemetry: crate::ConnectionTelemetry,
     cancellation: CancellationToken,
-    deadline: Instant,
+    deadline: Option<Instant>,
 }
 
 struct GateRuntime {
@@ -83,8 +85,10 @@ impl ExitDriver {
             Self::Proxy(d) => {
                 if !d.cancellation.is_cancelled() {
                     d.admitted.store(true, std::sync::atomic::Ordering::Release);
-                    d.status
-                        .send_modify(|s| s.stage = usque_core::vpngate::GateStage::Connected);
+                    if d.verified.load(std::sync::atomic::Ordering::Acquire) {
+                        d.status
+                            .send_modify(|s| s.stage = usque_core::vpngate::GateStage::Connected);
+                    }
                 }
             }
         }
@@ -258,6 +262,10 @@ impl DataPlaneRuntime {
         if let Some(pending) = &mut self.pending_frontends {
             pending.disable_quic = disable_quic;
         }
+        if let Some(pending) = &self.prebound_frontends {
+            pending.update_traffic_policy(disable_quic);
+            return;
+        }
         if let Some(gate) = &self.gate {
             gate.frontend.update_traffic_policy(disable_quic);
         } else {
@@ -331,6 +339,7 @@ impl DataPlaneRuntime {
             transition_status: GateStatus::default(),
             pending_frontends: None,
             activation_deadline: None,
+            prebound_frontends: None,
         })
     }
 
@@ -374,7 +383,7 @@ impl DataPlaneRuntime {
         let failure = tokio::select! {
             biased;
             _ = context.cancellation.cancelled() => TransportError::TunnelClosed,
-            _ = tokio::time::sleep_until(context.deadline) => TransportError::ConnectTimeout,
+            _ = async { match context.deadline { Some(at) => tokio::time::sleep_until(at).await, None => std::future::pending().await } } => TransportError::ConnectTimeout,
             result = &mut startup => return result,
         };
         context.telemetry.cancel_startup();
@@ -400,11 +409,15 @@ impl DataPlaneRuntime {
     ) -> Result<Self, TransportError> {
         policy.start_ads_watcher();
         let VpnGateStart {
+            continuous,
             selected,
             status,
             cancellation,
             deadline,
         } = gate;
+        if continuous {
+            telemetry.enable_continuous_connection();
+        }
         let overall_deadline = deadline
             .unwrap_or_else(|| Instant::now() + usque_core::endpoint_connection_budget(profile));
         let underlay_deadline =
@@ -419,7 +432,7 @@ impl DataPlaneRuntime {
                 StartupContext {
                     telemetry,
                     cancellation,
-                    deadline: underlay_deadline,
+                    deadline: (!continuous).then_some(underlay_deadline),
                 },
             )
             .await;
@@ -455,50 +468,106 @@ impl DataPlaneRuntime {
             StartupContext {
                 telemetry,
                 cancellation: cancellation.clone(),
-                deadline: underlay_deadline,
+                deadline: (!continuous).then_some(underlay_deadline),
             },
         )
         .await?;
-        let deadline = if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
-            overall_deadline.min(Instant::now() + Duration::from_secs(180))
-        } else {
-            overall_deadline
-        };
-        runtime.activation_deadline = Some(deadline);
         runtime.quiesce_final();
         runtime.transition_status.current_server = Some(selected.0.clone());
         runtime.transition_status.current_profile = selected.1.summary.clone();
-        let status_copy = status.clone();
-        if let Err(error) = runtime
-            .install_gate(
-                profile,
-                protector,
-                policy,
-                VpnGateStart {
-                    selected: Some(selected),
-                    status,
-                    cancellation,
-                    deadline: Some(deadline),
-                },
+        if continuous
+            && !matches!(
+                selected.1.custom.as_deref(),
+                Some(usque_core::chain_exit::ValidatedProfile::Proxy(_))
             )
-            .await
         {
-            // Capture a terminal WARP cause before chain cleanup cancels its
-            // producers. A final transport failure must not hide that cause.
-            let error = runtime.preserve_underlay_error(error);
-            let reason = match error {
-                TransportError::VpnGate(reason) => reason,
-                _ => GateFailure::Transport,
+            let pending_profile = final_profile(
+                profile,
+                &FinalNetworkParameters {
+                    ipv4: None,
+                    ipv6: None,
+                    dns_servers: vec![],
+                    mtu: profile.mtu,
+                },
+            );
+            let services = match &runtime.inner {
+                RuntimeInner::ConnectIp(inner) => inner.proxy_services(&pending_profile),
+                RuntimeInner::L4(inner) => inner.proxy_services(),
             };
-            if let Some(status) = &status_copy {
-                runtime.transition_status = status.borrow().clone();
+            runtime.prebound_frontends = Some(crate::masque_runtime::PendingFrontends::start(
+                &pending_profile,
+                services,
+            )?);
+        }
+        loop {
+            if continuous
+                && !matches!(
+                    selected.1.custom.as_deref(),
+                    Some(usque_core::chain_exit::ValidatedProfile::Proxy(_))
+                )
+                && let Err(error) = runtime
+                    .underlay_monitor()
+                    .wait_until_ready(&cancellation)
+                    .await
+            {
+                runtime.shutdown().await;
+                return Err(error);
             }
-            runtime.fail_gate(reason).await;
-            if let Some(status) = status_copy {
-                status.send_replace(runtime.gate_status());
+            let deadline = if continuous {
+                Instant::now() + Duration::from_secs(180)
+            } else if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+                overall_deadline.min(Instant::now() + Duration::from_secs(180))
+            } else {
+                overall_deadline
+            };
+            runtime.activation_deadline = Some(deadline);
+            match runtime
+                .install_gate(
+                    profile,
+                    protector.clone(),
+                    policy.clone(),
+                    VpnGateStart {
+                        continuous,
+                        selected: Some(selected.clone()),
+                        status: status.clone(),
+                        cancellation: cancellation.clone(),
+                        deadline: Some(deadline),
+                    },
+                )
+                .await
+            {
+                Ok(()) => break,
+                Err(error) => {
+                    let error = runtime.preserve_underlay_error(error);
+                    let failure = error.failure(None, None);
+                    if continuous
+                        && !cancellation.is_cancelled()
+                        && failure.retryable
+                        && failure.action() != usque_core::FailureAction::Stop
+                        && failure.code != usque_core::TransportFailureCode::EndpointPinMismatch
+                    {
+                        tokio::select! {
+                            biased;
+                            _ = cancellation.cancelled() => { runtime.shutdown().await; return Err(TransportError::TunnelClosed); },
+                            _ = tokio::time::sleep(usque_core::recovery::RETRY_INTERVAL) => {},
+                        }
+                        continue;
+                    }
+                    let reason = match error {
+                        TransportError::VpnGate(reason) => reason,
+                        _ => GateFailure::Transport,
+                    };
+                    if let Some(status) = &status {
+                        runtime.transition_status = status.borrow().clone();
+                    }
+                    runtime.fail_gate(reason).await;
+                    if let Some(status) = &status {
+                        status.send_replace(runtime.gate_status());
+                    }
+                    runtime.shutdown().await;
+                    return Err(error);
+                }
             }
-            runtime.shutdown().await;
-            return Err(error);
         }
         Ok(runtime)
     }
@@ -531,6 +600,7 @@ impl DataPlaneRuntime {
         gate: VpnGateStart,
     ) -> Result<(), TransportError> {
         let VpnGateStart {
+            continuous,
             selected,
             status,
             cancellation,
@@ -596,6 +666,7 @@ impl DataPlaneRuntime {
                 status,
                 &cancellation,
                 deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(180)),
+                continuous,
             )
             .await?;
             if cancellation.is_cancelled() {
@@ -722,8 +793,14 @@ impl DataPlaneRuntime {
             });
         }
         let effective = final_profile(profile, &network);
-        let mut frontend = match MasqueRuntime::start_over_tunnel(
-            &effective,
+        let mut startup_profile = effective.clone();
+        if self.prebound_frontends.is_some() {
+            startup_profile.frontends.socks5 = false;
+            startup_profile.frontends.http = false;
+            startup_profile.proxy.system_proxy = false;
+        }
+        let mut frontend = match MasqueRuntime::start_over_bound_tunnel(
+            &startup_profile,
             tunnel,
             (
                 network.ipv4.unwrap_or(Ipv4Addr::UNSPECIFIED),
@@ -731,6 +808,7 @@ impl DataPlaneRuntime {
             ),
             protector,
             policy,
+            None,
         )
         .await
         {
@@ -744,6 +822,9 @@ impl DataPlaneRuntime {
             frontend.shutdown().await;
             driver.shutdown().await;
             return Err(TransportError::TunnelClosed);
+        }
+        if let Some(pending) = self.prebound_frontends.take() {
+            pending.attach(&mut frontend, &effective);
         }
         self.gate = Some(Box::new(GateRuntime {
             frontend: GateFrontend::Packet(Box::new(frontend)),
@@ -824,6 +905,7 @@ impl DataPlaneRuntime {
                         protector,
                         policy,
                         VpnGateStart {
+                            continuous: false,
                             selected: Some(selected),
                             status: Some(status.clone()),
                             cancellation: cancellation.clone(),
@@ -917,6 +999,11 @@ impl DataPlaneRuntime {
         if let Some(gate) = &mut self.gate {
             let mut status = gate.driver.status();
             gate.driver.admit();
+            if matches!(&gate.driver, ExitDriver::Proxy(d) if !d.verified.load(std::sync::atomic::Ordering::Acquire))
+            {
+                self.activation_deadline = None;
+                return Ok(());
+            }
             loop {
                 match status.borrow().stage {
                     usque_core::vpngate::GateStage::Connected => {
@@ -966,6 +1053,7 @@ impl DataPlaneRuntime {
                 match self.underlay_monitor().health() {
                     _ if self.stopped => "disconnected",
                     RuntimeHealth::Connected { .. } => "connected",
+                    RuntimeHealth::Connecting { .. } => "connecting",
                     RuntimeHealth::Reconnecting { .. } => "reconnecting",
                     RuntimeHealth::Failed { .. } => "error",
                 }
@@ -994,6 +1082,9 @@ impl DataPlaneRuntime {
             RuntimeInner::ConnectIp(r) => r.monitor(),
             RuntimeInner::L4(r) => r.monitor.clone(),
         }
+    }
+    pub fn request_recovery(&self) {
+        self.underlay_monitor().request_recovery();
     }
     pub fn mode(&self) -> DataPlaneMode {
         match &self.inner {
@@ -1111,7 +1202,20 @@ impl DataPlaneRuntime {
         self.monitor().statistics()
     }
     pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
-        self.underlay_monitor().connection_timeline()
+        let mut timeline = self.underlay_monitor().connection_timeline();
+        if let Some(gate) = &self.gate {
+            let metrics = gate.frontend.monitor().connection_timeline().metrics;
+            timeline.metrics.waiting_requests = timeline
+                .metrics
+                .waiting_requests
+                .saturating_add(metrics.waiting_requests);
+            timeline.metrics.peak_waiting_requests = timeline
+                .metrics
+                .peak_waiting_requests
+                .max(metrics.peak_waiting_requests)
+                .max(timeline.metrics.waiting_requests);
+        }
+        timeline
     }
     pub fn network_quality(&self) -> NetworkQualitySnapshot {
         self.monitor().network_quality()
@@ -1284,6 +1388,7 @@ impl DataPlaneRuntime {
         }
         self.final_blocked = true;
         self.pending_frontends = None;
+        self.prebound_frontends = None;
         self.stopped = true;
         if let Some(gate) = &mut self.gate {
             gate.driver.cancel();
@@ -1712,6 +1817,7 @@ mod tests {
             },
             pending_frontends: None,
             activation_deadline: None,
+            prebound_frontends: None,
         };
         (runtime, channels)
     }

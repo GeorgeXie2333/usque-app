@@ -120,6 +120,7 @@ pub(crate) fn timeline_to_proto(timeline: &ConnectionTimelineSnapshot) -> v1::Co
 
 fn event_to_proto(event: &ConnectionEvent) -> v1::ConnectionEvent {
     v1::ConnectionEvent {
+        repetitions: event.repetitions,
         sequence: event.sequence,
         timestamp_unix_milliseconds: system_time_milliseconds(event.timestamp),
         elapsed_from_attempt_start_milliseconds: duration_milliseconds(
@@ -223,6 +224,8 @@ fn event_to_proto(event: &ConnectionEvent) -> v1::ConnectionEvent {
 
 fn metrics_to_proto(metrics: &ConnectionMetrics) -> v1::ConnectionMetrics {
     v1::ConnectionMetrics {
+        waiting_requests: metrics.waiting_requests,
+        peak_waiting_requests: metrics.peak_waiting_requests,
         last_connect_duration_milliseconds: metrics
             .last_connect_duration
             .map_or(0, duration_milliseconds),

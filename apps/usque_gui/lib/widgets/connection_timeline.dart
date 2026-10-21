@@ -218,7 +218,10 @@ class _TimelineRow extends StatelessWidget {
         : event.failure == null
         ? tokens.brand
         : tokens.caution;
-    final label = connectionEventLabel(strings, event.eventType);
+    final eventLabel = connectionEventLabel(strings, event.eventType);
+    final label = event.repetitions > 1
+        ? '$eventLabel ×${event.repetitions}'
+        : eventLabel;
     return Semantics(
       label: '$label, ${_elapsed(event.elapsedMilliseconds)}',
       child: IntrinsicHeight(

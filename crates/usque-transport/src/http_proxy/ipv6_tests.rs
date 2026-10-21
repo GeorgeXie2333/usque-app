@@ -185,6 +185,7 @@ impl Fixture {
         profile.proxy.dns_mode = mode;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let services = ProxyServices {
+            telemetry: crate::ConnectionTelemetry::default(),
             traffic_policy: Arc::default(),
             admission: None,
             dialer: dialer.clone(),

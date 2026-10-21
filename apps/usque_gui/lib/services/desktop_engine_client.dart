@@ -314,6 +314,7 @@ class DesktopEngineClient
   final Duration Function(int payloadField)? _requestTimeoutOverride;
   Future<void> _requestTail = Future<void>.value();
   int _connectionIntent = 0;
+  bool _continuousConnection = false;
 
   @override
   bool get supportsSnapshotEvents => _transport.supportsSnapshotEvents;
@@ -624,7 +625,8 @@ class DesktopEngineClient
     final intent = ++_connectionIntent;
     return _serialized(() async {
       final payload = ControlPayloadWriter()..string(1, profile.id);
-      final response = await _request(
+      if (_continuousConnection) payload.boolean(2, true);
+      final response = await _connectionRequest(
         12,
         payload.takeBytes(),
         connectionIntent: intent,
@@ -646,9 +648,11 @@ class DesktopEngineClient
   Future<EngineSnapshot> retry() {
     final intent = ++_connectionIntent;
     return _serialized(() async {
-      final response = await _request(
+      final payload = ControlPayloadWriter();
+      if (_continuousConnection) payload.boolean(1, true);
+      final response = await _connectionRequest(
         14,
-        Uint8List(0),
+        payload.takeBytes(),
         connectionIntent: intent,
       );
       return response.snapshot ?? const EngineSnapshot();
@@ -989,6 +993,35 @@ class DesktopEngineClient
     await _request(15, request.takeBytes());
   }
 
+  Future<ControlResponse> _connectionRequest(
+    int payloadField,
+    Uint8List payload, {
+    required int connectionIntent,
+  }) async {
+    try {
+      return await _request(
+        payloadField,
+        payload,
+        connectionIntent: connectionIntent,
+      );
+    } on EngineException catch (error) {
+      if (!_continuousConnection || error.code != 'ENGINE_REQUEST_TIMEOUT') {
+        rethrow;
+      }
+      final observed = await _request(
+        10,
+        Uint8List(0),
+        connectionIntent: connectionIntent,
+      );
+      final snapshot = observed.snapshot;
+      if (snapshot != null &&
+          (snapshot.isTransitional || snapshot.isConnected)) {
+        return observed;
+      }
+      rethrow;
+    }
+  }
+
   Future<ControlResponse> _request(
     int payloadField,
     Uint8List payload, {
@@ -1051,7 +1084,11 @@ class DesktopEngineClient
       // errors must reach the UI unchanged instead of being retried and later
       // mislabeled as an IPC outage.
       try {
-        return _codec.decodeResponse(responseFrame, requestId);
+        final response = _codec.decodeResponse(responseFrame, requestId);
+        if (response.capabilities != null) {
+          _continuousConnection = response.capabilities!.continuousConnection;
+        }
+        return response;
       } on FormatException catch (error) {
         throw EngineException(
           'ENGINE_IPC_INVALID_RESPONSE',
@@ -1073,6 +1110,9 @@ class DesktopEngineClient
     final override = _requestTimeoutOverride;
     if (override != null) {
       return override(payloadField);
+    }
+    if (_continuousConnection && (payloadField == 12 || payloadField == 14)) {
+      return const Duration(seconds: 5);
     }
     return Platform.isLinux
         ? linuxRequestTimeoutForPayload(payloadField)

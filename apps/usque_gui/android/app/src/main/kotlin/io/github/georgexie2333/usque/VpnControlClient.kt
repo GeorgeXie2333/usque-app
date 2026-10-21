@@ -397,6 +397,7 @@ internal class VpnControlClient(
     private var eventRefreshGeneration = 0L
     private var pendingDisconnectResult: MethodChannel.Result? = null
     private var pendingRetryResult: MethodChannel.Result? = null
+    private var pendingRetryContinuous = false
     private var pendingReconfigure: PendingReconfigure? = null
     private var desiredLocaleCatalog: String? = null
     private var pendingPerAppRevision: Long? = null
@@ -784,7 +785,10 @@ internal class VpnControlClient(
         pendingNetworkProbe?.second?.complete(NetworkProbeReply(null, false))
     }
 
-    fun requestRetry(result: MethodChannel.Result) {
+    fun requestRetry(
+        result: MethodChannel.Result,
+        continuous: Boolean = false,
+    ) {
         if (destroyed) {
             result.error(
                 "ENGINE_IPC_CLOSED",
@@ -800,6 +804,7 @@ internal class VpnControlClient(
                 previous.error("ENGINE_REQUEST_CANCELLED", "A newer retry superseded this request.", null)
             }
             pendingRetryResult = result
+            pendingRetryContinuous = continuous
             bind()
             scheduler.postDelayed(snapshotTimeoutMillis, result) {
                 if (pendingRetryResult === result) {
@@ -811,7 +816,7 @@ internal class VpnControlClient(
         }
         val requestId = allocateRequestId()
         pendingSnapshots[requestId] = result
-        if (!service.send(UsqueVpnService.MSG_RETRY, requestId)) {
+        if (!service.send(UsqueVpnService.MSG_RETRY, requestId, mapOf("continuous" to continuous))) {
             pendingSnapshots.remove(requestId)
             endpoint = null
             result.error(
@@ -835,7 +840,7 @@ internal class VpnControlClient(
         if (endpoint == null) return
         pendingRetryResult = null
         scheduler.cancel(result)
-        requestRetry(result)
+        requestRetry(result, pendingRetryContinuous)
     }
 
     private fun cancelPendingConnections(code: String = "ENGINE_REQUEST_CANCELLED") {

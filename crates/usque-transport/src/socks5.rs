@@ -212,6 +212,7 @@ impl Socks5Frontend {
         let cancellation = services.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
         let context = Arc::new(SocksContext {
+            telemetry: services.telemetry.clone(),
             traffic_policy: services.traffic_policy,
             relay_buffer: if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
                 crate::l4::Limits::platform().relay
@@ -220,7 +221,14 @@ impl Socks5Frontend {
             },
             admission: services.admission,
             channel: services.udp,
-            resolver: services.resolver.with_routing(services.geo_policy.clone()),
+            resolver: services
+                .resolver
+                .with_routing(services.geo_policy.clone())
+                .with_readiness(
+                    services.health.clone(),
+                    services.cancellation.clone(),
+                    services.telemetry.clone(),
+                ),
             dialer: services.dialer,
             edge_resolved: profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved,
             protector: services.protector,
@@ -284,7 +292,9 @@ impl Drop for Socks5Frontend {
     }
 }
 
+#[derive(Clone)]
 struct SocksContext {
+    telemetry: crate::ConnectionTelemetry,
     traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
     relay_buffer: usize,
     admission: Option<Arc<crate::tcp::FrontendAdmission>>,
@@ -366,19 +376,6 @@ async fn serve_client(
             read_request(&mut client).await
         }) => result.map_err(|_| TransportError::Socks5("SOCKS5 negotiation timed out".to_owned()))??,
     };
-    if !context.dialer.is_ready()
-        || matches!(&*context.health.borrow(), RuntimeHealth::Failed { .. })
-        || (context.channel.is_some()
-            && !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }))
-    {
-        send_reply(
-            &mut client,
-            REPLY_NETWORK_UNREACHABLE,
-            SocketAddr::from(([0, 0, 0, 0], 0)),
-        )
-        .await?;
-        return Ok(());
-    }
     match request.command {
         COMMAND_CONNECT => serve_connect(client, context, request).await,
         COMMAND_UDP_ASSOCIATE => serve_udp_association(client, peer, context, request).await,
@@ -410,7 +407,38 @@ async fn serve_connect(
             "SOCKS5 CONNECT target port cannot be zero".to_owned(),
         ));
     }
-    let mut remote = match connect_remote(&context, &request.target, request.port).await {
+    let mut early_data = Vec::new();
+    let mut client_read_eof = false;
+    let mut peeked_full_prefix = false;
+    let connecting = connect_remote(&context, &request.target, request.port);
+    tokio::pin!(connecting);
+    let result = loop {
+        // A bounded prefix preserves pipelined bytes and lets a waiting client
+        // release its request immediately on EOF without a polling timer.
+        let mut bytes = [0u8; 4096];
+        let mut peek = [0_u8; 1];
+        let room = context
+            .relay_buffer
+            .saturating_sub(early_data.len())
+            .min(bytes.len());
+        tokio::select! {
+            biased;
+            _ = context.cancellation.cancelled() => return Ok(()),
+            result = async {
+                if room > 0 { client.read(&mut bytes[..room]).await }
+                else { client.peek(&mut peek).await }
+            }, if !client_read_eof && (room > 0 || !peeked_full_prefix) => {
+                let count = result?;
+                if count == 0 {
+                    if early_data.is_empty() { return Ok(()); }
+                    client_read_eof = true;
+                } else if room > 0 { early_data.extend_from_slice(&bytes[..count]); }
+                if room == 0 { peeked_full_prefix = true; }
+            },
+            result = &mut connecting => break result,
+        }
+    };
+    let mut remote = match result {
         Ok(remote) => remote,
         Err(error) => {
             send_reply(
@@ -425,11 +453,28 @@ async fn serve_connect(
 
     send_reply(&mut client, REPLY_SUCCEEDED, remote.local_addr()?).await?;
     tokio::select! {
+        biased;
         _ = context.cancellation.cancelled() => Ok(()),
-        result = crate::relay::copy_bidirectional_with_buffer(&mut client, &mut remote, context.relay_buffer) => {
+        result = async {
+            remote.write_all(&early_data).await?;
+            drop(early_data);
+            crate::relay::copy_bidirectional_with_buffer(&mut client, &mut remote, context.relay_buffer).await
+        } => {
             result
                 .map(|_| ())
                 .map_err(|error| TransportError::Socks5(error.to_string()))
+        }
+    }
+}
+
+async fn udp_epoch_ended(health: &mut watch::Receiver<RuntimeHealth>, epoch: Option<u32>) {
+    loop {
+        if !matches!(*health.borrow_and_update(), RuntimeHealth::Connected { reconnect_count, .. } if Some(reconnect_count) == epoch)
+        {
+            return;
+        }
+        if health.changed().await.is_err() {
+            return;
         }
     }
 }
@@ -480,16 +525,10 @@ async fn serve_udp_association(
         None
     };
     let opened = match context.channel.as_ref() {
-        Some(channel) if dns.is_some() => Ok(Arc::new(crate::proxy_udp::LazyAssociation::new(
+        Some(channel) => Ok(Arc::new(crate::proxy_udp::LazyAssociation::new(
             channel.clone(),
             association_cancel.clone(),
-        ))
-            as Arc<dyn crate::proxy_udp::UdpAssociation>),
-        Some(channel) => {
-            channel
-                .open(&association_cancel, Instant::now() + REMOTE_CONNECT_TIMEOUT)
-                .await
-        }
+        )) as Arc<dyn crate::proxy_udp::UdpAssociation>),
         None => {
             Ok(Arc::new(crate::proxy_udp::DirectOnly) as Arc<dyn crate::proxy_udp::UdpAssociation>)
         }
@@ -570,10 +609,22 @@ async fn serve_udp_association(
     let mut udp_sends = JoinSet::new();
     let idle = tokio::time::sleep(context.udp_idle_timeout);
     tokio::pin!(idle);
+    let mut health = context.health.clone();
+    let mut paused_remaining = (!matches!(*health.borrow(), RuntimeHealth::Connected { .. }))
+        .then_some(context.udp_idle_timeout);
     let result = loop {
         tokio::select! {
+            biased;
             _ = context.cancellation.cancelled() => break Ok(()),
-            _ = &mut idle => break Ok(()),
+            changed = health.changed() => {
+                if changed.is_err() || matches!(*health.borrow(), RuntimeHealth::Failed { .. }) { break Ok(()); }
+                if matches!(*health.borrow(), RuntimeHealth::Connected { .. }) {
+                    if let Some(remaining) = paused_remaining.take() { idle.as_mut().reset(Instant::now() + remaining); }
+                } else if paused_remaining.is_none() {
+                    paused_remaining = Some(idle.deadline().saturating_duration_since(Instant::now()));
+                }
+            },
+            _ = &mut idle, if paused_remaining.is_none() => break Ok(()),
             control_result = control.read_u8() => {
                 match control_result {
                     Ok(_) => {
@@ -603,6 +654,7 @@ async fn serve_udp_association(
                 // Keep the query/response reservation until delivery finishes.
                 drop(reply);
                 idle.as_mut().reset(Instant::now() + context.udp_idle_timeout);
+                if let Some(remaining) = &mut paused_remaining { *remaining = context.udp_idle_timeout; }
             }
             _ = udp_sends.join_next(), if !udp_sends.is_empty() => {},
             received = relay.recv_from(&mut datagram) => {
@@ -638,6 +690,7 @@ async fn serve_udp_association(
                     Target::Domain(name) => GeoTarget::Host(name),
                 }.route(&context.geo_policy);
                 if route == GeoRoute::Reject { continue; }
+                if route == GeoRoute::Tunnel && !matches!(*health.borrow(), RuntimeHealth::Connected { .. }) { continue; }
                 if valid_dns && let Some(refused) = crate::split_dns::routing_dns_refused(parsed.payload, &context.geo_policy) {
                     let target = match &parsed.target {
                         Target::Address(ip) => crate::tcp::TcpTarget::address(SocketAddr::new(*ip, parsed.port)),
@@ -674,6 +727,7 @@ async fn serve_udp_association(
                     // by another endpoint sharing the TCP peer's address.
                     client_endpoint.get_or_insert(source);
                     idle.as_mut().reset(Instant::now() + context.udp_idle_timeout);
+                if let Some(remaining) = &mut paused_remaining { *remaining = context.udp_idle_timeout; }
                     let lease = (dns_queries.len() < MAX_UDP_DNS_QUERIES)
                         .then(|| context.admission.as_ref()
                             .and_then(|admission| admission.reserve_udp_dns_query(parsed.payload.len())))
@@ -701,11 +755,14 @@ async fn serve_udp_association(
                     let context = context.clone();
                     let dns = dns.clone();
                     let cancel = association_cancel.clone();
+                    let mut epoch_health = context.health.clone();
+                    let epoch = match *epoch_health.borrow_and_update() { RuntimeHealth::Connected { reconnect_count, .. } => Some(reconnect_count), _ => None };
                     dns_queries.spawn(async move {
                         let request = SocksUdpRequest { target, port, payload: &query };
                         let response = tokio::select! {
                             biased;
                             _ = cancel.cancelled() => return None,
+                            _ = udp_epoch_ended(&mut epoch_health, epoch) => return None,
                             response = forward_udp_dns(&context, &dns, &request) => response,
                         };
                         let response = response?;
@@ -717,21 +774,27 @@ async fn serve_udp_association(
                     });
                     continue;
                 }
-                if dns.is_some() && route == GeoRoute::Tunnel {
+                {
                     let lease = (udp_sends.len() < 4).then(|| context.admission.as_ref()
                         .and_then(|admission| admission.reserve_udp_dns_query(parsed.payload.len()))).flatten();
                     let Some(lease) = lease else { continue; };
                     let payload = parsed.payload.to_vec();
                     let target = parsed.target;
                     let port = parsed.port;
-                    let send_context = context.clone();
+                    let mut send_context = (*context).clone();
+                    send_context.resolver = send_context.resolver.without_recovery_wait();
+                    let send_context = Arc::new(send_context);
                     let association = association.clone();
                     let direct = direct_udp.clone();
                     let cancel = association_cancel.clone();
+                    let mut epoch_health = context.health.clone();
+                    let epoch = match *epoch_health.borrow_and_update() { RuntimeHealth::Connected { reconnect_count, .. } => Some(reconnect_count), _ => None };
                     udp_sends.spawn(async move {
                         let _lease = lease;
                         tokio::select! {
+                            biased;
                             _ = cancel.cancelled() => {},
+                            _ = udp_epoch_ended(&mut epoch_health, epoch), if route == GeoRoute::Tunnel => {},
                             result = send_udp_routed(&send_context, &target, port, &payload, &direct,
                                 TunnelUdpSockets::Association(association.as_ref())) => {
                                 if let Err(error) = result { tracing::debug!(%error, "SOCKS5 UDP send failed"); }
@@ -740,21 +803,10 @@ async fn serve_udp_association(
                     });
                     client_endpoint.get_or_insert(source);
                     idle.as_mut().reset(Instant::now() + context.udp_idle_timeout);
+                if let Some(remaining) = &mut paused_remaining { *remaining = context.udp_idle_timeout; }
                     continue;
                 }
-                if let Err(error) = send_udp_routed(
-                    &context,
-                    &parsed.target,
-                    parsed.port,
-                    parsed.payload,
-                    &direct_udp,
-                    TunnelUdpSockets::Association(association.as_ref()),
-                ).await {
-                    tracing::debug!(%error, "SOCKS5 UDP send failed");
-                    continue;
-                }
-                client_endpoint.get_or_insert(source);
-                idle.as_mut().reset(Instant::now() + context.udp_idle_timeout);
+
             }
             response = response_rx.recv() => {
                 let Some(response) = response else {
@@ -786,6 +838,7 @@ async fn serve_udp_association(
                     break Err(TransportError::Io(error));
                 }
                 idle.as_mut().reset(Instant::now() + context.udp_idle_timeout);
+                if let Some(remaining) = &mut paused_remaining { *remaining = context.udp_idle_timeout; }
             }
         }
     };
@@ -1605,19 +1658,7 @@ async fn connect_remote(
     target: &Target,
     port: u16,
 ) -> Result<RoutedTcpStream, ConnectFailure> {
-    let operation = connect_remote_inner(context, target, port);
-    if context.channel.is_none() {
-        tokio::time::timeout(REMOTE_CONNECT_TIMEOUT, operation)
-            .await
-            .unwrap_or_else(|_| {
-                Err(ConnectFailure {
-                    reply: REPLY_HOST_UNREACHABLE,
-                    message: "L4_CONNECT_TIMEOUT".to_owned(),
-                })
-            })
-    } else {
-        operation.await
-    }
+    connect_remote_inner(context, target, port).await
 }
 
 async fn connect_remote_inner(
@@ -1644,39 +1685,54 @@ async fn connect_remote_inner(
                 message: "routing_rejected".into(),
             },
         ),
-        |resolved| async {
-            let deadline = tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT;
-            if resolved.is_none()
-                && context.edge_resolved
-                && let Target::Domain(name) = target
-            {
-                let target = crate::tcp::TcpTarget::new(name, port).map_err(connect_failure)?;
-                return context
-                    .dialer
-                    .connect(
-                        target,
-                        deadline,
-                        &context.cancellation,
-                        crate::tcp::FlowClass::Business,
-                    )
-                    .await
-                    .map_err(connect_failure);
-            }
-            let resolution = if let Some(addresses) = resolved {
-                CandidateResolution::from_addresses(addresses)
-            } else {
-                match target {
-                    Target::Address(address) => CandidateResolution::from_addresses(vec![*address]),
-                    Target::Domain(name) => context
-                        .resolver
-                        .resolve_candidates(name, deadline)
-                        .map_err(|error| ConnectFailure {
-                            reply: REPLY_HOST_UNREACHABLE,
-                            message: error.to_string(),
-                        })?,
-                }
-            };
-            connect_tunnel_remote(context, resolution, port, deadline).await
+        |resolved| async move {
+            crate::tcp::with_ready_budget_tracked(
+                &context.health,
+                &context.cancellation,
+                REMOTE_CONNECT_TIMEOUT,
+                Some(&context.telemetry),
+                |deadline| {
+                    let resolved = resolved.clone();
+                    async move {
+                        if resolved.is_none()
+                            && context.edge_resolved
+                            && let Target::Domain(name) = target
+                        {
+                            let target =
+                                crate::tcp::TcpTarget::new(name, port).map_err(connect_failure)?;
+                            return context
+                                .dialer
+                                .connect(
+                                    target,
+                                    deadline,
+                                    &context.cancellation,
+                                    crate::tcp::FlowClass::Business,
+                                )
+                                .await
+                                .map_err(connect_failure);
+                        }
+                        let resolution = if let Some(addresses) = resolved {
+                            CandidateResolution::from_addresses(addresses)
+                        } else {
+                            match target {
+                                Target::Address(address) => {
+                                    CandidateResolution::from_addresses(vec![*address])
+                                }
+                                Target::Domain(name) => context
+                                    .resolver
+                                    .resolve_candidates(name, deadline)
+                                    .map_err(|error| ConnectFailure {
+                                        reply: REPLY_HOST_UNREACHABLE,
+                                        message: error.to_string(),
+                                    })?,
+                            }
+                        };
+                        connect_tunnel_remote(context, resolution, port, deadline).await
+                    }
+                },
+                connect_failure,
+            )
+            .await
         },
     )
     .await
@@ -1816,7 +1872,7 @@ mod tests {
         let (client_stack, server_stack) = ts_netstack_smoltcp::piped_pair(Config::default());
         let channel = client_stack.command_channel();
         let server_channel = server_stack.command_channel();
-        let tasks = vec![client_stack.spawn_tokio(), server_stack.spawn_tokio()];
+        let mut tasks = vec![client_stack.spawn_tokio(), server_stack.spawn_tokio()];
         let assigned_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
         channel.set_ips([IpAddr::V4(assigned_ipv4)]).await.unwrap();
         server_channel
@@ -1830,7 +1886,7 @@ mod tests {
                 .unwrap(),
         );
         let (failure, _) = watch::channel(None);
-        let (_, health) = watch::channel(RuntimeHealth::Connected {
+        let (health_sender, health) = watch::channel(RuntimeHealth::Connected {
             path: RuntimePath {
                 transport: usque_core::Transport::Http3,
                 endpoint_family: usque_core::AddressFamily::Ipv4,
@@ -1839,7 +1895,12 @@ mod tests {
             },
             reconnect_count: 0,
         });
+        tasks.push(tokio::spawn(async move {
+            let _sender = health_sender;
+            std::future::pending::<()>().await;
+        }));
         let context = SocksContext {
+            telemetry: crate::ConnectionTelemetry::default(),
             traffic_policy: Arc::default(),
             channel: Some(crate::proxy_udp::StackFactory::shared(
                 channel.clone(),
@@ -1853,7 +1914,7 @@ mod tests {
             }),
             edge_resolved: false,
             relay_buffer: crate::relay::RELAY_BUFFER_SIZE,
-            admission: None,
+            admission: Some(crate::tcp::FrontendAdmission::for_connect_ip()),
             resolver: Resolver::new(
                 channel,
                 assigned_ipv4,
@@ -1872,6 +1933,247 @@ mod tests {
             auth: None,
         };
         (context, tunnel, server_channel, tasks)
+    }
+
+    #[tokio::test]
+    async fn waiting_socks_client_close_releases_its_request() {
+        let (mut context, _udp, _server, tasks) =
+            test_socks_context(Arc::new(crate::socket::NoopSocketProtector)).await;
+        context.geo_policy = Arc::new(GeoDirectPolicy::disabled());
+        let (sender, health) = watch::channel(RuntimeHealth::Connecting {
+            requested: context.health.borrow().path(),
+            attempt: 1,
+        });
+        context.health = health;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (client, _) = listener.accept().await.unwrap();
+            serve_connect(
+                client,
+                Arc::new(context),
+                SocksRequest {
+                    command: COMMAND_CONNECT,
+                    target: Target::Address("10.0.0.2".parse().unwrap()),
+                    port: 8080,
+                },
+            )
+            .await
+        });
+        let client = TcpStream::connect(address).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert!(!task.is_finished());
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        drop(sender);
+        for task in tasks {
+            task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn pipelined_socks_half_close_keeps_the_bounded_prefix_until_recovery() {
+        for payload in [b"once".as_slice(), b"once-more".as_slice()] {
+            let (mut context, _udp, server, tasks) =
+                test_socks_context(Arc::new(crate::socket::NoopSocketProtector)).await;
+            context.geo_policy = Arc::new(GeoDirectPolicy::disabled());
+            context.relay_buffer = 4;
+            let connected = context.health.borrow().clone();
+            let (health, updates) = watch::channel(RuntimeHealth::Connecting {
+                requested: connected.path(),
+                attempt: 1,
+            });
+            context.health = updates;
+            let cancel = context.cancellation.clone();
+            let upstream = server
+                .tcp_listen("10.0.0.2:8080".parse().unwrap())
+                .await
+                .unwrap();
+            let expected = payload.to_vec();
+            let origin = tokio::spawn(async move {
+                let mut stream = upstream.accept().await.unwrap();
+                let mut received = Vec::new();
+                stream.read_to_end(&mut received).await.unwrap();
+                assert_eq!(received, expected);
+                stream.write_all(b"done").await.unwrap();
+                stream.shutdown().await.unwrap();
+            });
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let task = tokio::spawn(async move {
+                let (client, _) = listener.accept().await.unwrap();
+                serve_connect(
+                    client,
+                    Arc::new(context),
+                    SocksRequest {
+                        command: COMMAND_CONNECT,
+                        target: Target::Address("10.0.0.2".parse().unwrap()),
+                        port: 8080,
+                    },
+                )
+                .await
+            });
+            let mut client = TcpStream::connect(address).await.unwrap();
+            client.write_all(payload).await.unwrap();
+            client.shutdown().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            assert!(!task.is_finished());
+            health.send_replace(connected);
+            let mut reply = Vec::new();
+            timeout(Duration::from_secs(3), client.read_to_end(&mut reply))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(reply[1], REPLY_SUCCEEDED);
+            assert_eq!(&reply[10..], b"done");
+            origin.await.unwrap();
+            task.await.unwrap().unwrap();
+            cancel.cancel();
+            for task in tasks {
+                task.abort();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn socks_waits_thirty_minutes_and_keeps_established_relay_across_recovery() {
+        let (mut context, _udp, server, tasks) =
+            test_socks_context(Arc::new(crate::socket::NoopSocketProtector)).await;
+        context.geo_policy = Arc::new(GeoDirectPolicy::disabled());
+        let connected = context.health.borrow().clone();
+        let pending = RuntimeHealth::Connecting {
+            requested: connected.path(),
+            attempt: 1,
+        };
+        let (health, updates) = watch::channel(pending.clone());
+        context.health = updates;
+        let cancel = context.cancellation.clone();
+        let upstream = server
+            .tcp_listen("10.0.0.2:8080".parse().unwrap())
+            .await
+            .unwrap();
+        let origin = tokio::spawn(async move {
+            let mut stream = upstream.accept().await.unwrap();
+            for expected in [b"once", b"more"] {
+                let mut payload = [0; 4];
+                stream.read_exact(&mut payload).await.unwrap();
+                assert_eq!(&payload, expected);
+                stream.write_all(&payload).await.unwrap();
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (client, _) = listener.accept().await.unwrap();
+            serve_connect(
+                client,
+                Arc::new(context),
+                SocksRequest {
+                    command: COMMAND_CONNECT,
+                    target: Target::Address("10.0.0.2".parse().unwrap()),
+                    port: 8080,
+                },
+            )
+            .await
+        });
+        let mut client = TcpStream::connect(address).await.unwrap();
+        client.write_all(b"once").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(1_801)).await;
+        assert!(!task.is_finished());
+        tokio::time::resume();
+        health.send_replace(connected.clone());
+        let mut reply = [0; 10];
+        tokio::time::timeout(Duration::from_secs(3), client.read_exact(&mut reply))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reply[1], REPLY_SUCCEEDED);
+        let mut payload = [0; 4];
+        client.read_exact(&mut payload).await.unwrap();
+        assert_eq!(&payload, b"once");
+        health.send_replace(pending);
+        client.write_all(b"more").await.unwrap();
+        client.read_exact(&mut payload).await.unwrap();
+        assert_eq!(&payload, b"more");
+        health.send_replace(connected);
+        origin.await.unwrap();
+        cancel.cancel();
+        let _ = task.await;
+        for task in tasks {
+            task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn udp_association_retains_control_and_port_during_long_recovery() {
+        let (mut context, _udp, server, tasks) =
+            test_socks_context(Arc::new(crate::socket::NoopSocketProtector)).await;
+        context.geo_policy = Arc::new(GeoDirectPolicy::disabled());
+        let connected = context.health.borrow().clone();
+        let (health, updates) = watch::channel(RuntimeHealth::Connecting {
+            requested: connected.path(),
+            attempt: 1,
+        });
+        context.health = updates;
+        let upstream = server
+            .udp_bind("10.0.0.2:9000".parse().unwrap())
+            .await
+            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (client, peer) = listener.accept().await.unwrap();
+            serve_udp_association(
+                client,
+                peer,
+                Arc::new(context),
+                SocksRequest {
+                    command: COMMAND_UDP_ASSOCIATE,
+                    target: Target::Address("0.0.0.0".parse().unwrap()),
+                    port: 0,
+                },
+            )
+            .await
+        });
+        let mut control = TcpStream::connect(address).await.unwrap();
+        let mut reply = [0; 10];
+        control.read_exact(&mut reply).await.unwrap();
+        assert_eq!(reply[1], 0);
+        let port = u16::from_be_bytes([reply[8], reply[9]]);
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(1_801)).await;
+        assert!(!task.is_finished());
+        tokio::time::resume();
+        health.send_replace(connected);
+        let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        udp.send_to(
+            &[0, 0, 0, 1, 10, 0, 0, 2, 0x23, 0x28, 42],
+            SocketAddr::from(([127, 0, 0, 1], port)),
+        )
+        .await
+        .unwrap();
+        let mut data = [0; 16];
+        let (_, count) =
+            tokio::time::timeout(Duration::from_secs(2), upstream.recv_from(&mut data))
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(&data[..count], &[42]);
+        drop(control);
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        for task in tasks {
+            task.abort();
+        }
     }
 
     #[test]

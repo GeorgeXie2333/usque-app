@@ -293,6 +293,12 @@ internal object NativeEngine {
 
     private external fun nativeNotifyNetworkChanged(generation: Long)
 
+    fun wakeRecovery() {
+        if (libraryLoaded) nativeWakeRecovery()
+    }
+
+    private external fun nativeWakeRecovery()
+
     private external fun nativeStartProxy(
         profileJson: String,
         warpSecret: ByteArray,

@@ -705,6 +705,7 @@ fn enum_name(value: impl serde::Serialize) -> String {
 }
 fn health_name(health: &RuntimeHealth) -> &'static str {
     match health {
+        RuntimeHealth::Connecting { .. } => "connecting",
         RuntimeHealth::Connected { .. } => "connected",
         RuntimeHealth::Reconnecting { .. } => "reconnecting",
         RuntimeHealth::Failed { .. } => "error",

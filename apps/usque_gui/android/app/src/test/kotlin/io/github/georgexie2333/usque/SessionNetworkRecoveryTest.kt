@@ -59,7 +59,7 @@ class SessionNetworkRecoveryTest {
         assertEquals(listOf("suspend", "stop"), h.events)
         assertEquals(emptyList<Long>(), h.delays)
         h.stops.removeFirst()(true)
-        assertEquals(listOf(250L), h.delays)
+        assertEquals(listOf(0L), h.delays)
         h.flush()
         assertEquals(listOf("suspend", "stop", "restart"), h.events)
         assertTrue(h.recovery.active)
@@ -82,7 +82,7 @@ class SessionNetworkRecoveryTest {
         repeat(3) { h.recovery.networkChanged(12L, true) }
         h.flush()
         assertEquals(listOf("suspend", "stop", "restart"), h.events)
-        assertEquals(listOf(250L), h.delays)
+        assertEquals(listOf(100L), h.delays)
     }
 
     @Test
@@ -107,11 +107,11 @@ class SessionNetworkRecoveryTest {
         h.stops.removeFirst()(true)
         h.flush()
         assertEquals(1, h.events.count { it == "restart" })
-        assertEquals(listOf(250L), h.delays)
+        assertEquals(listOf(0L), h.delays)
         h.recovery.networkChanged(2L, true)
         h.flush()
         assertEquals(2, h.events.count { it == "restart" })
-        assertEquals(listOf(250L, 250L), h.delays)
+        assertEquals(listOf(0L, 100L), h.delays)
     }
 
     @Test
@@ -128,17 +128,14 @@ class SessionNetworkRecoveryTest {
     }
 
     @Test
-    fun offlineWaitPreservesIntentWithoutRepeatedCleanupOrHandshakes() {
+    fun offlineStillAttemptsReplacementAndPreservesIntent() {
         val h = Harness()
         h.fail(online = false)
         h.stops.removeFirst()(true)
         repeat(5) { h.recovery.networkChanged(2L, false) }
         h.flush()
-        assertEquals(listOf("suspend", "stop"), h.events)
-        assertTrue(h.recovery.active)
-        h.recovery.networkChanged(3L, true)
-        h.flush()
         assertEquals(listOf("suspend", "stop", "restart"), h.events)
+        assertTrue(h.recovery.active)
     }
 
     @Test
@@ -151,37 +148,37 @@ class SessionNetworkRecoveryTest {
         h.stops.removeFirst()(true)
         repeat(5) { h.fail(generation = 3L) }
         h.flush()
-        assertEquals(listOf(250L), h.delays)
+        assertEquals(listOf(100L), h.delays)
         assertEquals(1, h.events.count { it == "restart" })
     }
 
     @Test
-    fun replacementNetworkFailuresBackOffAndCapAtThirtySeconds() {
+    fun replacementNetworkFailuresRemainAtOneSecondForTwoHours() {
         val h = Harness()
         h.restartAfterFailure()
-        repeat(9) { h.restartAfterFailure() }
+        repeat(7_200) { h.restartAfterFailure() }
         assertEquals(
-            listOf(250L, 1_000L, 2_000L, 4_000L, 8_000L, 15_000L, 30_000L, 30_000L, 30_000L, 30_000L),
+            listOf(0L) + List(7_200) { 1_000L },
             h.delays,
         )
-        assertEquals(10, h.events.count { it == "stop" })
-        assertEquals(10, h.events.count { it == "restart" })
+        assertEquals(7_201, h.events.count { it == "stop" })
+        assertEquals(7_201, h.events.count { it == "restart" })
     }
 
     @Test
-    fun duplicateGenerationCannotResetBackoffOrScheduleAnotherTimer() {
+    fun duplicateGenerationCannotScheduleAnotherTimer() {
         val h = Harness()
         h.restartAfterFailure()
         h.fail()
         h.stops.removeFirst()(true)
         repeat(5) { h.recovery.networkChanged(1L, true) }
-        assertEquals(listOf(250L, 1_000L), h.delays)
+        assertEquals(listOf(0L, 1_000L), h.delays)
         h.flush()
         assertEquals(2, h.events.count { it == "restart" })
     }
 
     @Test
-    fun newUsableGenerationReplacesPendingBackoffWithSettleDelay() {
+    fun newUsableGenerationReplacesPendingRetryWithSettleDelay() {
         val h = Harness()
         h.restartAfterFailure()
         h.fail()
@@ -190,7 +187,7 @@ class SessionNetworkRecoveryTest {
         h.recovery.networkChanged(2L, true)
         oldTimer()
         assertEquals(1, h.events.count { it == "restart" })
-        assertEquals(listOf(250L, 1_000L, 250L), h.delays)
+        assertEquals(listOf(0L, 1_000L, 100L), h.delays)
         h.flush()
         assertEquals(2, h.events.count { it == "restart" })
         h.fail(generation = 2L)
@@ -199,7 +196,7 @@ class SessionNetworkRecoveryTest {
     }
 
     @Test
-    fun lossRevokesTimerAndRapidNetworkChangesCoalesce() {
+    fun lossAndRapidChangesCoalesceWithoutSuspendingPeriodicRecovery() {
         val h = Harness()
         h.fail()
         h.stops.removeFirst()(true)
@@ -207,11 +204,8 @@ class SessionNetworkRecoveryTest {
         h.recovery.networkChanged(3L, true)
         h.recovery.networkChanged(4L, false)
         h.flush()
-        assertEquals(listOf("suspend", "stop"), h.events)
-        h.recovery.networkChanged(5L, true)
-        repeat(5) { h.recovery.networkChanged(5L, true) }
-        h.flush()
         assertEquals(1, h.events.count { it == "restart" })
+        assertTrue(h.delays.all { it <= 1_000L })
     }
 
     @Test
@@ -223,20 +217,21 @@ class SessionNetworkRecoveryTest {
         h.flush()
         assertEquals(listOf("suspend", "stop", "restart", "suspend", "stop"), h.events)
         h.stops.removeFirst()(true)
-        assertEquals(listOf(250L, 250L), h.delays)
+        assertEquals(listOf(0L, 100L), h.delays)
         h.flush()
         assertEquals(2, h.events.count { it == "restart" })
     }
 
     @Test
-    fun staleNetworkEventCannotMakeOfflineSessionUsable() {
+    fun staleNetworkEventsDoNotDuplicateTheOfflineRetry() {
         val h = Harness()
         h.fail(generation = 3L, online = false)
         h.stops.removeFirst()(true)
         h.recovery.networkChanged(2L, true)
         h.recovery.networkChanged(3L, true)
         h.flush()
-        assertEquals(listOf("suspend", "stop"), h.events)
+        assertEquals(1, h.events.count { it == "restart" })
+        assertEquals(listOf(0L), h.delays)
     }
 
     @Test
@@ -314,13 +309,13 @@ class SessionNetworkRecoveryTest {
     }
 
     @Test
-    fun connectedClearsRecoveryAndResetsBackoffForNextEstablishedExit() {
+    fun connectedClearsRecoveryForNextImmediateEstablishedExit() {
         val h = Harness()
         repeat(3) { h.restartAfterFailure() }
         h.recovery.connected()
         assertFalse(h.recovery.active)
         h.restartAfterFailure()
-        assertEquals(listOf(250L, 1_000L, 2_000L, 250L), h.delays)
+        assertEquals(listOf(0L, 1_000L, 1_000L, 0L), h.delays)
     }
 
     @Test
@@ -332,7 +327,7 @@ class SessionNetworkRecoveryTest {
         h.stops.removeFirst()(true)
         h.flush()
         assertEquals(listOf("suspend", "stop", "restart"), h.events)
-        assertEquals(listOf(250L), h.delays)
+        assertEquals(listOf(0L), h.delays)
         h.recovery.connected()
         assertFalse(h.recovery.active)
     }
@@ -349,22 +344,16 @@ class SessionNetworkRecoveryTest {
     }
 
     @Test
-    fun establishedChainLossWaitsOfflineAndCoalescesLaterChanges() {
+    fun establishedChainLossKeepsRetryingOffline() {
         val h = Harness()
         h.recovery.networkChanged(1L, false, restartEstablishedSession = true)
         h.stops.removeFirst()(true)
-        repeat(5) { h.recovery.networkChanged(2L, false) }
         h.flush()
-        assertEquals(listOf("suspend", "stop"), h.events)
-        h.recovery.networkChanged(3L, true)
-        h.recovery.networkChanged(4L, true)
-        h.recovery.networkChanged(5L, false)
+        h.fail(generation = 2L, online = false)
+        h.stops.removeFirst()(true)
         h.flush()
-        assertEquals(listOf("suspend", "stop"), h.events)
-        h.recovery.networkChanged(6L, true)
-        h.flush()
-        assertEquals(1, h.events.count { it == "restart" })
-        assertEquals(1, h.events.count { it == "stop" })
+        assertEquals(2, h.events.count { it == "restart" })
+        assertEquals(listOf(0L, 1_000L), h.delays)
     }
 
     @Test
@@ -378,7 +367,7 @@ class SessionNetworkRecoveryTest {
         h.stops.removeFirst()(true)
         h.flush()
         assertEquals(listOf("suspend", "stop", "restart"), h.events)
-        assertEquals(listOf(250L), h.delays)
+        assertEquals(listOf(100L), h.delays)
     }
 
     @Test
@@ -392,12 +381,12 @@ class SessionNetworkRecoveryTest {
         h.stops.removeFirst()(true)
         h.flush()
         assertEquals(listOf("suspend", "stop", "restart", "suspend", "stop", "restart"), h.events)
-        assertEquals(listOf(250L, 1_000L), h.delays)
+        assertEquals(listOf(0L, 1_000L), h.delays)
         assertTrue(h.recovery.active)
     }
 
     @Test
-    fun replacementNativeFailureWhileOfflineWaitsForNewUsableGeneration() {
+    fun replacementNativeFailureWhileOfflineDoesNotNeedACallback() {
         val h = Harness()
         h.recovery.networkChanged(1L, true, restartEstablishedSession = true)
         h.stops.removeFirst()(true)
@@ -405,15 +394,8 @@ class SessionNetworkRecoveryTest {
         h.fail(generation = 2L, online = false)
         h.stops.removeFirst()(true)
         h.flush()
-        assertEquals(1, h.events.count { it == "restart" })
-        assertTrue(h.recovery.active)
-        h.recovery.networkChanged(2L, true)
-        h.flush()
-        assertEquals(1, h.events.count { it == "restart" })
-        h.recovery.networkChanged(3L, true)
-        h.flush()
         assertEquals(2, h.events.count { it == "restart" })
-        assertEquals(listOf(250L, 250L), h.delays)
+        assertEquals(listOf(0L, 1_000L), h.delays)
     }
 
     @Test

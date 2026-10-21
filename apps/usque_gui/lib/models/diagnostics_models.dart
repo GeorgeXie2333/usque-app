@@ -620,6 +620,7 @@ class ConnectionTimelineEvent {
     this.queueKind,
     this.candidateId,
     this.enrollmentRound,
+    this.repetitions = 1,
     this.failure,
   });
 
@@ -634,6 +635,7 @@ class ConnectionTimelineEvent {
   final String? queueKind;
   final int? candidateId;
   final int? enrollmentRound;
+  final int repetitions;
   final TransportFailureInfo? failure;
 
   @override
@@ -650,6 +652,7 @@ class ConnectionTimelineEvent {
             queueKind == other.queueKind &&
             candidateId == other.candidateId &&
             enrollmentRound == other.enrollmentRound &&
+            repetitions == other.repetitions &&
             durationMilliseconds == other.durationMilliseconds &&
             failure == other.failure;
   }
@@ -667,6 +670,7 @@ class ConnectionTimelineEvent {
     queueKind,
     candidateId,
     enrollmentRound,
+    repetitions,
     failure,
   );
 }
@@ -685,6 +689,8 @@ class ConnectionMetrics {
     this.sendQueueDropCount,
     this.lastFailureCode,
     this.lastReconnectCode,
+    this.waitingRequests,
+    this.peakWaitingRequests,
   });
 
   final int? lastConnectDurationMilliseconds;
@@ -698,6 +704,8 @@ class ConnectionMetrics {
   final int? sendQueueDropCount;
   final String? lastFailureCode;
   final String? lastReconnectCode;
+  final int? waitingRequests;
+  final int? peakWaitingRequests;
 }
 
 @immutable
@@ -774,6 +782,10 @@ ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
               addressFamily: event['address_family'] as String?,
               queueKind: event['queue_kind'] as String?,
               candidateId: _unsignedValue(event['candidate_id']),
+              repetitions: (_unsignedValue(event['repetitions']) ?? 1).clamp(
+                1,
+                0xffffffff,
+              ),
               enrollmentRound: switch (_unsignedValue(
                 event['enrollment_round'],
               )) {
@@ -816,6 +828,8 @@ ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
       sendQueueDropCount: (metrics['send_queue_drop_count'] as num?)?.toInt(),
       lastFailureCode: metrics['last_failure_code'] as String?,
       lastReconnectCode: metrics['last_reconnect_code'] as String?,
+      waitingRequests: (metrics['waiting_requests'] as num?)?.toInt(),
+      peakWaitingRequests: (metrics['peak_waiting_requests'] as num?)?.toInt(),
     ),
     droppedEventCount: (map['dropped_event_count'] as num?)?.toInt() ?? 0,
     connectionInstanceId:

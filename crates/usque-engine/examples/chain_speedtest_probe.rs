@@ -322,6 +322,7 @@ mod windows_probe {
             Some(refresher),
             Arc::new(GeoDirectPolicy::disabled()),
             VpnGateStart {
+                continuous: false,
                 selected,
                 status: None,
                 cancellation: cancel.clone(),

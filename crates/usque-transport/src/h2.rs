@@ -62,12 +62,11 @@ const H2_PACKET_QUEUE_CAPACITY: usize = 1_024;
 const H2_RECEIVE_BATCH_MAX_FRAMES: usize = 64;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const H2_PING_INTERVAL: Duration = Duration::from_secs(5);
-const H2_PING_DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
-const H2_PING_MIN_TIMEOUT: Duration = Duration::from_secs(2);
+#[cfg(test)]
+const H2_PING_DEFAULT_TIMEOUT: Duration = Duration::from_secs(3);
+const H2_PING_MIN_TIMEOUT: Duration = Duration::from_secs(3);
 const H2_PING_MAX_TIMEOUT: Duration = Duration::from_secs(10);
-const H2_PING_MIN_DEADLINE: Duration = Duration::from_secs(15);
-const H2_PING_MAX_DEADLINE: Duration = Duration::from_secs(30);
-const H2_SCHEDULING_GAP: Duration = Duration::from_secs(15);
+const H2_SCHEDULING_GAP: Duration = Duration::from_secs(5);
 const H2_RESUME_GRACE: Duration = Duration::from_secs(5);
 const H2_CAPACITY_STALL_THRESHOLD: Duration = Duration::from_millis(1);
 
@@ -812,12 +811,7 @@ impl H2RttEstimator {
     }
 
     fn timeout(&self) -> Duration {
-        self.smoothed.map_or(H2_PING_DEFAULT_TIMEOUT, |smoothed| {
-            smoothed
-                .saturating_mul(3)
-                .max(smoothed.saturating_add(self.variance.unwrap_or_default().saturating_mul(4)))
-                .clamp(H2_PING_MIN_TIMEOUT, H2_PING_MAX_TIMEOUT)
-        })
+        usque_core::recovery::liveness_timeout(self.smoothed)
     }
 }
 
@@ -918,15 +912,14 @@ where
     F: Future<Output = Result<T, h2::Error>>,
 {
     let started = Instant::now();
-    let soft_at = started + soft;
-    let mut hard_at = started
-        + soft
-            .saturating_mul(3)
-            .clamp(H2_PING_MIN_DEADLINE, H2_PING_MAX_DEADLINE);
+    let limit = soft.clamp(H2_PING_MIN_TIMEOUT, H2_PING_MAX_TIMEOUT);
+    let soft_at = started + limit / 2;
+    let mut hard_at = started + limit;
     let mut observed_at = started;
     let mut grace_used = false;
     let mut soft_reported = false;
-    let mut ticker = interval_at(started + H2_PING_INTERVAL, H2_PING_INTERVAL);
+    let observation_interval = Duration::from_secs(1);
+    let mut ticker = interval_at(started + observation_interval, observation_interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     tokio::pin!(pong);
     loop {
@@ -1473,6 +1466,10 @@ pub enum TransportError {
     SendTimeout,
     #[error("the HTTP/2 PING acknowledgment deadline expired")]
     H2LivenessTimeout,
+    #[error("the HTTP/3 acknowledgment progress deadline expired")]
+    H3LivenessTimeout,
+    #[error("the transport stopped before becoming ready")]
+    RuntimeFailure(Box<TransportFailure>),
     #[error("the HTTP/2 driver stopped: {0}")]
     Driver(String),
     #[error("a received HTTP capsule exceeded the safety limit")]
@@ -1638,7 +1635,10 @@ impl TransportError {
             },
             Self::SendQueueFull => (Code::SendQueueFull, Stage::PacketSend),
             Self::SendTimeout => (Code::PacketSendTimeout, Stage::PacketSend),
-            Self::H2LivenessTimeout => (Code::PacketReceiveStalled, Stage::PacketReceive),
+            Self::RuntimeFailure(failure) => return failure.as_ref().clone(),
+            Self::H2LivenessTimeout | Self::H3LivenessTimeout => {
+                (Code::PacketReceiveStalled, Stage::PacketReceive)
+            }
             Self::Driver(_) | Self::Http2(_) => (Code::H2StreamClosed, Stage::PacketReceive),
             Self::CapsuleTooLarge | Self::InvalidVarint | Self::Protocol(_) | Self::Http(_) => {
                 (Code::ConnectIpRejected, Stage::PeerSettings)
@@ -2160,8 +2160,7 @@ mod tests {
             assert!(matches!(result, Err(TransportError::H2LivenessTimeout)));
             assert_eq!(
                 started.elapsed(),
-                soft.saturating_mul(3)
-                    .clamp(H2_PING_MIN_DEADLINE, H2_PING_MAX_DEADLINE)
+                soft.clamp(H2_PING_MIN_TIMEOUT, H2_PING_MAX_TIMEOUT)
             );
             assert_eq!(
                 NetworkQualitySampler::new(quality)
@@ -2176,7 +2175,7 @@ mod tests {
         assert!(
             await_h2_pong(
                 async {
-                    tokio::time::sleep(Duration::from_secs(8)).await;
+                    tokio::time::sleep(Duration::from_secs(4)).await;
                     Ok::<_, h2::Error>(())
                 },
                 Duration::from_secs(5),
@@ -2199,13 +2198,13 @@ mod tests {
         let task = tokio::spawn(async {
             await_h2_pong(
                 std::future::pending::<Result<(), h2::Error>>(),
-                Duration::from_secs(5),
+                H2_PING_DEFAULT_TIMEOUT,
                 &NetworkQualityTelemetry::default(),
             )
             .await
         });
         tokio::task::yield_now().await;
-        tokio::time::advance(Duration::from_secs(60)).await;
+        tokio::time::advance(Duration::from_secs(6)).await;
         tokio::task::yield_now().await;
         assert!(!task.is_finished());
         tokio::time::advance(Duration::from_secs(4)).await;
@@ -2228,7 +2227,7 @@ mod tests {
             tokio::task::yield_now().await;
             tokio::time::advance(H2_PING_INTERVAL).await;
             tokio::task::yield_now().await;
-            tokio::time::advance(H2_PING_DEFAULT_TIMEOUT).await;
+            tokio::time::advance(H2_PING_DEFAULT_TIMEOUT / 2).await;
             tokio::task::yield_now().await;
             assert_eq!(quality.active_h2_ping_tasks(), 1);
             loopback._client_driver.abort();
@@ -2267,7 +2266,7 @@ mod tests {
                     Err(TransportError::H2LivenessTimeout)
                 ));
             }
-            assert_eq!(started.elapsed(), H2_PING_INTERVAL + H2_PING_MIN_DEADLINE);
+            assert_eq!(started.elapsed(), H2_PING_INTERVAL + H2_PING_MIN_TIMEOUT);
             assert!(matches!(
                 loopback
                     .send
@@ -2559,13 +2558,13 @@ mod tests {
     #[test]
     fn h2_rtt_ewma_and_adaptive_timeout_are_bounded() {
         let mut estimator = H2RttEstimator::default();
-        assert_eq!(estimator.timeout(), Duration::from_secs(5));
+        assert_eq!(estimator.timeout(), Duration::from_secs(3));
 
         let first = estimator.observe(Duration::from_millis(100));
         assert_eq!(first.smoothed, Duration::from_millis(100));
         assert_eq!(first.minimum, Duration::from_millis(100));
         assert_eq!(first.variance, Duration::ZERO);
-        assert_eq!(estimator.timeout(), Duration::from_secs(2));
+        assert_eq!(estimator.timeout(), Duration::from_secs(3));
 
         let second = estimator.observe(Duration::from_millis(180));
         assert_eq!(second.smoothed, Duration::from_millis(110));
@@ -2573,12 +2572,12 @@ mod tests {
         assert_eq!(second.variance, Duration::from_millis(10));
 
         estimator.smoothed = Some(Duration::from_secs(1));
-        assert_eq!(estimator.timeout(), Duration::from_secs(3));
+        assert_eq!(estimator.timeout(), Duration::from_secs(4));
         estimator.smoothed = Some(Duration::from_secs(4));
         assert_eq!(estimator.timeout(), Duration::from_secs(10));
         estimator.smoothed = Some(Duration::from_secs(1));
         estimator.variance = Some(Duration::from_secs(1));
-        assert_eq!(estimator.timeout(), Duration::from_secs(5));
+        assert_eq!(estimator.timeout(), Duration::from_secs(4));
     }
 
     #[tokio::test(start_paused = true)]

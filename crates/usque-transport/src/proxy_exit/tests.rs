@@ -143,6 +143,7 @@ impl AdmissionFixture {
             cancellation,
             status: watch::channel(GateStatus::default()).0,
             admitted: AtomicBool::new(true),
+            verified: AtomicBool::new(true),
             active: Arc::new(Semaphore::new(1)),
             pending: Arc::new(Semaphore::new(1)),
             dns_active: Arc::new(Semaphore::new(1)),

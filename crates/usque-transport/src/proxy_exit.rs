@@ -28,6 +28,7 @@ pub(crate) struct ProxyDialer {
     pub(crate) cancellation: CancellationToken,
     pub(crate) status: watch::Sender<GateStatus>,
     pub(crate) admitted: AtomicBool,
+    pub(crate) verified: AtomicBool,
     pub(crate) active: Arc<Semaphore>,
     pub(crate) pending: Arc<Semaphore>,
     dns_active: Arc<Semaphore>,
@@ -50,7 +51,19 @@ impl ProxyDialer {
         counters: Arc<crate::netstack::TrafficCounters>,
         deadline: Instant,
     ) -> Result<Arc<Self>, DialError> {
-        let deadline = deadline.min(Instant::now() + std::time::Duration::from_secs(10));
+        let result = Self::prepare(prepared, network, status, cancellation, budget, counters)?;
+        result.verify(deadline).await?;
+        Ok(result)
+    }
+
+    pub(crate) fn prepare(
+        prepared: &PreparedProfile,
+        network: crate::InternalNetwork,
+        status: Option<watch::Sender<GateStatus>>,
+        cancellation: CancellationToken,
+        budget: Arc<crate::l4::BufferBudget>,
+        counters: Arc<crate::netstack::TrafficCounters>,
+    ) -> Result<Arc<Self>, DialError> {
         let Some(usque_core::chain_exit::ValidatedProfile::Proxy(config)) =
             prepared.custom.as_deref()
         else {
@@ -80,6 +93,7 @@ impl ProxyDialer {
             cancellation,
             status,
             admitted: AtomicBool::new(false),
+            verified: AtomicBool::new(false),
             active: Arc::new(Semaphore::new(limits.active)),
             pending: Arc::new(Semaphore::new(limits.pending)),
             dns_active: Arc::new(Semaphore::new(crate::l4::DNS_OPERATIONS)),
@@ -87,20 +101,30 @@ impl ProxyDialer {
             budget,
             counters,
         });
-        let (mut stream, _) = result
-            .server(deadline, &result.cancellation, FlowClass::Business)
+        Ok(result)
+    }
+
+    pub(crate) async fn verify(&self, deadline: Instant) -> Result<(), DialError> {
+        let deadline = deadline.min(Instant::now() + std::time::Duration::from_secs(10));
+        let (mut stream, _) = self
+            .server(deadline, &self.cancellation, FlowClass::Business)
             .await?;
-        if result.config.protocol == ChainProtocol::Socks5 {
-            result
-                .authenticate(&mut stream, deadline, &result.cancellation)
+        if self.config.protocol == ChainProtocol::Socks5 {
+            self.authenticate(&mut stream, deadline, &self.cancellation)
                 .await?;
         }
         drop(stream);
-        result.status.send_modify(|s| {
-            s.stage = GateStage::ConfiguringNetwork;
+        self.verified.store(true, Ordering::Release);
+        self.status.send_modify(|s| {
+            s.stage = if self.admitted.load(Ordering::Acquire) {
+                GateStage::Connected
+            } else {
+                GateStage::ConfiguringNetwork
+            };
+            s.failure = None;
             s.attempting_endpoint = None;
         });
-        Ok(result)
+        Ok(())
     }
 
     pub(crate) fn fail(&self, failure: GateFailure) {
@@ -153,7 +177,9 @@ impl TcpDialer for ProxyDialer {
         self.network.session_generation()
     }
     fn is_ready(&self) -> bool {
-        self.admitted.load(Ordering::Acquire) && !self.cancellation.is_cancelled()
+        self.admitted.load(Ordering::Acquire)
+            && self.verified.load(Ordering::Acquire)
+            && !self.cancellation.is_cancelled()
     }
     async fn connect(
         &self,

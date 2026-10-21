@@ -508,7 +508,7 @@ internal class AndroidEngineMethodHandler(
                     "VPN_PERMISSION_CANCELLED",
                     "A newer connection was requested.",
                 )
-                controlClient.requestRetry(result)
+                controlClient.requestRetry(result, call.argument<Boolean>("continuous") == true)
             }
 
             "connect" -> {
@@ -3198,7 +3198,10 @@ internal class AndroidEngineMethodHandler(
                     requireNotNull(
                         engineBridge.applyProfileCommand(profileConfigPath, """{"command":"list_profiles"}"""),
                     )
-                val profileJson = NetworkSettingsFields.savedProfile(requested, catalog)
+                val profileJson =
+                    JSONObject(NetworkSettingsFields.savedProfile(requested, catalog))
+                        .put("continuous", arguments["continuous"] == true)
+                        .toString()
                 val tunnel = VpnReconfigure.tunnelFrontendEnabled(profileJson)
                 val mode = VpnReconfigure.canonicalMode(tunnel)
                 mainScheduler.post {

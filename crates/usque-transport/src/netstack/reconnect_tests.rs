@@ -141,40 +141,29 @@ async fn actual_supervisor_stops_on_established_authentication_and_replacement_p
 }
 
 #[tokio::test(start_paused = true)]
-async fn actual_supervisor_waits_offline_without_attempts_and_resumes_on_a_usable_network() {
+async fn actual_supervisor_attempts_even_when_observer_reports_offline() {
     let protector = Arc::new(DeniedNetwork {
         network: Network(watch::channel(snapshot(1, Availability::Offline)).0),
         calls: 0.into(),
     });
-    let (mut task, health, _packets) = supervisor(
+    let (task, health, _packets) = supervisor(
         TransportError::TunnelClosed,
         protector.clone(),
         CancellationToken::new(),
     )
     .await;
-    assert!(timeout(Duration::from_secs(300), &mut task).await.is_err());
-    assert_eq!(protector.calls.load(Ordering::Relaxed), 0);
-    assert!(matches!(
-        &*health.borrow(),
-        RuntimeHealth::Reconnecting {
-            reconnect_count: 0,
-            ..
-        }
-    ));
-    let now = Instant::now();
-    protector.network.0.send_replace(snapshot(
-        2,
-        Availability::Online {
-            ipv4: true,
-            ipv6: false,
-        },
-    ));
     timeout(Duration::from_secs(1), task)
         .await
         .unwrap()
         .unwrap();
-    assert!(now.elapsed() < Duration::from_secs(1));
     assert_eq!(protector.calls.load(Ordering::Relaxed), 1);
+    assert!(matches!(
+        &*health.borrow(),
+        RuntimeHealth::Failed {
+            reconnect_count: 1,
+            ..
+        }
+    ));
 }
 
 fn snapshot(generation: u64, availability: Availability) -> PhysicalNetworkSnapshot {
@@ -234,14 +223,21 @@ fn packets() -> (TrackedSender<OutboundPacket>, PacketIo) {
 }
 
 #[tokio::test(start_paused = true)]
-async fn offline_wait_does_not_dial_and_online_event_bypasses_long_backoff() {
+async fn offline_keeps_one_second_retries_for_two_hours_and_network_event_accelerates() {
     let network = Network(watch::channel(snapshot(1, Availability::Offline)).0);
     let mut schedule = reconnect::ReconnectSchedule::new(&network, IpPolicy::Auto);
     let (_packets, mut packets) = packets();
     let cancel = CancellationToken::new();
-    let wait = schedule.wait(Duration::from_secs(30), &mut packets, &cancel);
-    tokio::pin!(wait);
-    assert!(timeout(Duration::from_secs(300), &mut wait).await.is_err());
+    for _ in 0..7_200 {
+        let now = Instant::now();
+        assert_eq!(
+            schedule
+                .wait(Duration::from_secs(30), &mut packets, &cancel)
+                .await,
+            Some(false)
+        );
+        assert_eq!(now.elapsed(), Duration::from_secs(1));
+    }
     network.0.send_replace(snapshot(
         2,
         Availability::Online {
@@ -250,8 +246,13 @@ async fn offline_wait_does_not_dial_and_online_event_bypasses_long_backoff() {
         },
     ));
     let now = Instant::now();
-    assert_eq!(wait.await, Some(true));
-    assert_eq!(now.elapsed(), Duration::from_millis(250));
+    assert_eq!(
+        schedule
+            .wait(Duration::from_secs(1), &mut packets, &cancel)
+            .await,
+        Some(true)
+    );
+    assert_eq!(now.elapsed(), Duration::from_millis(100));
 }
 
 #[tokio::test(start_paused = true)]
@@ -272,7 +273,7 @@ async fn unknown_and_closed_observer_keep_bounded_timed_retries() {
                 .await,
             Some(false)
         );
-        assert_eq!(now.elapsed(), Duration::from_secs(2));
+        assert_eq!(now.elapsed(), Duration::from_secs(1));
     }
 }
 
@@ -303,7 +304,7 @@ async fn cancellation_wins_over_network_and_ready_connection() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn wrong_family_waits_and_network_flapping_is_rate_limited() {
+async fn wrong_family_retries_and_network_events_have_a_short_settle_period() {
     let network = Network(
         watch::channel(snapshot(
             1,
@@ -317,13 +318,9 @@ async fn wrong_family_waits_and_network_flapping_is_rate_limited() {
     let mut schedule = reconnect::ReconnectSchedule::new(&network, IpPolicy::Ipv6Only);
     let (_packets, mut packets) = packets();
     let cancel = CancellationToken::new();
-    assert!(
-        timeout(
-            Duration::from_secs(50),
-            schedule.wait(Duration::ZERO, &mut packets, &cancel)
-        )
-        .await
-        .is_err()
+    assert_eq!(
+        schedule.wait(Duration::ZERO, &mut packets, &cancel).await,
+        Some(false)
     );
     network.0.send_replace(snapshot(
         2,
@@ -352,7 +349,7 @@ async fn wrong_family_waits_and_network_flapping_is_rate_limited() {
             .await,
         Some(true)
     );
-    assert_eq!(started.elapsed(), Duration::from_secs(1));
+    assert_eq!(started.elapsed(), Duration::from_millis(100));
     network.0.send_replace(snapshot(2, Availability::Offline));
     assert_eq!(
         schedule

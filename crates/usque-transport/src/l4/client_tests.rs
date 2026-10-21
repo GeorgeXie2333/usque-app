@@ -7,6 +7,7 @@ use crate::h3_buffer::H3BufferFactory;
 use crate::tcp::{FlowClass, ProxyServices, TcpDialer, TcpTarget};
 use quiche::h3::NameValue;
 use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -194,6 +195,99 @@ fn identities() -> (MasqueTlsIdentity, MasqueTlsIdentity) {
     (build(&client, &server), build(&server, &client))
 }
 
+#[tokio::test(start_paused = true)]
+async fn new_network_cancels_inflight_startup_and_dials_after_settling() {
+    use crate::socket::{
+        DirectEgressLease, DirectProtocol, PhysicalNetworkAvailability, PhysicalNetworkSnapshot,
+        SocketHandle, SocketProtector,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    struct Pending(Arc<AtomicBool>);
+    impl Drop for Pending {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    struct Network {
+        state: tokio::sync::watch::Sender<PhysicalNetworkSnapshot>,
+        started: tokio::sync::mpsc::UnboundedSender<(u64, Instant)>,
+        cancelled: Arc<AtomicBool>,
+    }
+    #[async_trait::async_trait]
+    impl SocketProtector for Network {
+        fn protect(&self, _: SocketHandle) -> Result<(), String> {
+            Ok(())
+        }
+        fn network_generation(&self) -> Option<u64> {
+            Some(self.state.borrow().generation)
+        }
+        fn subscribe_physical_network(
+            &self,
+        ) -> Option<tokio::sync::watch::Receiver<PhysicalNetworkSnapshot>> {
+            Some(self.state.subscribe())
+        }
+        async fn protect_for_target_generation(
+            &self,
+            _: SocketHandle,
+            _: SocketAddr,
+            _: DirectProtocol,
+            generation: u64,
+        ) -> Result<DirectEgressLease, String> {
+            let _pending = Pending(self.cancelled.clone());
+            self.started.send((generation, Instant::now())).unwrap();
+            std::future::pending().await
+        }
+    }
+    let (mut identity, _) = identities();
+    identity.provider = Some(IdentityProvider::Consumer);
+    let mut profile = Profile {
+        data_plane: DataPlaneMode::L4Proxy,
+        transport: TransportPolicy::Http3,
+        ip_policy: IpPolicy::Ipv4Only,
+        ..Profile::default()
+    };
+    profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+    profile.endpoint.ipv4 = "127.0.0.1".parse().unwrap();
+    let (started, mut calls) = tokio::sync::mpsc::unbounded_channel();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let network = Arc::new(Network {
+        state: tokio::sync::watch::channel(PhysicalNetworkSnapshot {
+            generation: 1,
+            availability: PhysicalNetworkAvailability::Online {
+                ipv4: true,
+                ipv6: false,
+            },
+        })
+        .0,
+        started,
+        cancelled: cancelled.clone(),
+    });
+    let telemetry = crate::ConnectionTelemetry::default();
+    telemetry.set_continuous_connection(true);
+    let client = L4Client::start(
+        profile,
+        identity,
+        network.clone(),
+        None,
+        telemetry,
+        Arc::default(),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(calls.recv().await.unwrap().0, 1);
+    let changed = Instant::now();
+    network.state.send_modify(|state| state.generation = 2);
+    let (generation, admitted) = timeout(Duration::from_secs(1), calls.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(generation, 2);
+    assert!(cancelled.load(Ordering::SeqCst));
+    assert_eq!(admitted - changed, usque_core::recovery::NETWORK_SETTLE);
+    client.shutdown().await;
+}
+
 async fn server(
     socket: UdpSocket,
     identity: MasqueTlsIdentity,
@@ -359,7 +453,7 @@ async fn shared_session_serves_parallel_connects_socks_http_and_half_close_witho
             assert!(client.snapshot().connect_verified);
             assert_eq!(client.snapshot().sessions, 1);
             let dns = Arc::new(StreamDns::new(client.clone(), protector.clone(), cancel.clone(), client.metrics.clone()));
-            let services = ProxyServices { traffic_policy: Arc::default(), admission: None, dialer: client.clone(), udp: None,
+            let services = ProxyServices { telemetry: crate::ConnectionTelemetry::default(), traffic_policy: Arc::default(), admission: None, dialer: client.clone(), udp: None,
                 resolver: Resolver::for_streams(dns, vec![], ProxyDnsMode::EdgeResolved, protector.clone()),
                 protector, geo_policy: Arc::default(), counters, cancellation: cancel.clone(), health: client.health.clone() };
             let socks_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -452,5 +546,114 @@ async fn authenticated_l4_peer_without_settings_never_publishes_readiness() {
             .unwrap()
             .is_err()
     );
+    drop(server);
+}
+
+#[tokio::test]
+async fn network_change_joins_quic_receiver_and_releases_lease_before_next_dial() {
+    use crate::socket::{
+        DirectEgressLease, DirectProtocol, PhysicalNetworkSnapshot, SocketHandle, SocketProtector,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Lease(Arc<AtomicUsize>);
+    impl Drop for Lease {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    struct Network {
+        state: tokio::sync::watch::Sender<PhysicalNetworkSnapshot>,
+        leases: Arc<AtomicUsize>,
+        redial: tokio::sync::Notify,
+    }
+    #[async_trait::async_trait]
+    impl SocketProtector for Network {
+        fn protect(&self, _: SocketHandle) -> Result<(), String> {
+            Ok(())
+        }
+        fn network_generation(&self) -> Option<u64> {
+            Some(self.state.borrow().generation)
+        }
+        fn subscribe_physical_network(
+            &self,
+        ) -> Option<tokio::sync::watch::Receiver<PhysicalNetworkSnapshot>> {
+            Some(self.state.subscribe())
+        }
+        async fn protect_for_target_generation(
+            &self,
+            _: SocketHandle,
+            _: SocketAddr,
+            _: DirectProtocol,
+            generation: u64,
+        ) -> Result<DirectEgressLease, String> {
+            if generation > 1 {
+                assert_eq!(
+                    self.leases.load(Ordering::SeqCst),
+                    0,
+                    "old QUIC receiver still owns its lease"
+                );
+                self.redial.notify_one();
+                return std::future::pending().await;
+            }
+            self.leases.fetch_add(1, Ordering::SeqCst);
+            Ok(DirectEgressLease::hold_for_generation(
+                Lease(self.leases.clone()),
+                generation,
+            ))
+        }
+    }
+    let (mut identity, peer) = identities();
+    identity.provider = Some(IdentityProvider::Consumer);
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = socket.local_addr().unwrap();
+    let established = Arc::new(tokio::sync::Notify::new());
+    let server = AbortOnDropHandle::new(tokio::spawn(server(
+        socket,
+        peer,
+        usque_core::l4_server_name(&IdentityProvider::Consumer),
+        Arc::new(Mutex::new(Vec::new())),
+        Some(established.clone()),
+    )));
+    let mut profile = Profile {
+        data_plane: DataPlaneMode::L4Proxy,
+        transport: TransportPolicy::Http3,
+        ip_policy: IpPolicy::Ipv4Only,
+        ..Profile::default()
+    };
+    profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+    profile.endpoint.ipv4 = "127.0.0.1".parse().unwrap();
+    profile.endpoint.port = endpoint.port();
+    let network = Arc::new(Network {
+        state: tokio::sync::watch::channel(PhysicalNetworkSnapshot {
+            generation: 1,
+            ..Default::default()
+        })
+        .0,
+        leases: Arc::default(),
+        redial: tokio::sync::Notify::new(),
+    });
+    let telemetry = crate::ConnectionTelemetry::default();
+    telemetry.set_continuous_connection(true);
+    let client = L4Client::start(
+        profile,
+        identity,
+        network.clone(),
+        None,
+        telemetry,
+        Arc::default(),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    timeout(Duration::from_secs(2), established.notified())
+        .await
+        .unwrap();
+    assert_eq!(network.leases.load(Ordering::SeqCst), 1);
+    network.state.send_modify(|state| state.generation = 2);
+    timeout(Duration::from_secs(1), network.redial.notified())
+        .await
+        .unwrap();
+    assert_eq!(network.leases.load(Ordering::SeqCst), 0);
+    client.shutdown().await;
     drop(server);
 }

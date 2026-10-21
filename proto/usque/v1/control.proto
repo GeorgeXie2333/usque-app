@@ -528,6 +528,7 @@ message Capabilities {
   repeated TlsFingerprint tls_fingerprints = 48;
   bool endpoint_presets = 49;
   bool chain_proton_vpn = 50;
+  bool continuous_connection = 51;
 }
 
 message FrontendStatus {
@@ -690,9 +691,12 @@ message ImportLegacyProfilesRequest {
 message ListProfilesRequest {}
 message ConnectRequest {
   string profile_id = 1;
+  bool continuous = 2;
 }
 message DisconnectRequest {}
-message RetryRequest {}
+message RetryRequest {
+  bool continuous = 1;
+}
 message UpsertProfileRequest {
   Profile profile = 1;
 }
@@ -874,6 +878,7 @@ message ConnectionEvent {
   QueueKind queue_kind = 10;
   optional uint64 candidate_id = 11;
   optional uint32 enrollment_round = 12;
+  uint32 repetitions = 13;
 }
 
 message ConnectionMetrics {
@@ -943,6 +948,8 @@ message ConnectionMetrics {
   uint64 latest_rtt_ms = 64;
   bool latest_rtt_known = 65;
   MetricAvailability latest_rtt_availability = 66;
+  uint64 waiting_requests = 67;
+  uint64 peak_waiting_requests = 68;
 }
 
 enum MetricAvailability {

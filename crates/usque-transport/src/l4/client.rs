@@ -197,14 +197,9 @@ impl L4Client {
         let (requests, rx) = mpsc::channel(limits.pending + 80);
         let pool = super::pool::ReceivePool::shared(&budget);
         let path = path_for(AddressFamily::Ipv4);
-        let initial_failure =
-            TransportError::UnderlyingNetworkChanged.failure(Some(Transport::Http3), None);
-        let (health_tx, health) = watch::channel(RuntimeHealth::Reconnecting {
-            last_path: path,
+        let (health_tx, health) = watch::channel(RuntimeHealth::Connecting {
+            requested: path,
             attempt: 0,
-            reconnect_count: 0,
-            reason: "L4 connecting".to_owned(),
-            failure: initial_failure,
         });
         let (startup_tx, startup_rx) = oneshot::channel();
         let client = Arc::new(Self {
@@ -220,6 +215,7 @@ impl L4Client {
             task: Mutex::new(None),
             pool,
         });
+        let continuous = telemetry.continuous_connection();
         let supervisor = Supervisor {
             #[cfg(test)]
             test_options,
@@ -244,6 +240,9 @@ impl L4Client {
         };
         *client.task.lock().unwrap_or_else(|e| e.into_inner()) =
             Some(tokio::spawn(supervisor.run()));
+        if continuous {
+            return Ok(client);
+        }
         match startup_rx.await {
             Ok(Ok(())) => Ok(client),
             Ok(Err(error)) => {
@@ -320,8 +319,10 @@ impl Supervisor {
         let mut connecting: Option<
             tokio_util::task::AbortOnDropHandle<Result<Session, TransportError>>,
         > = None;
+        let mut connecting_cancel = self.cancellation.child_token();
         let mut migration: Option<tokio_util::task::AbortOnDropHandle<H3MigrationResult>> = None;
         let mut generation = self.protector.network_generation();
+        let mut network = self.protector.subscribe_physical_network();
         let mut tick = interval(Duration::from_millis(100));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut next_connect = Instant::now();
@@ -329,7 +330,6 @@ impl Supervisor {
         let mut reconnects = 0u32;
         let mut pin_refreshed = false;
         let mut pin_retry_pending = false;
-        let mut established_at: Option<Instant> = None;
         loop {
             budget_waiter.disarm();
             let lost_main = sessions.iter().any(|s| {
@@ -338,13 +338,7 @@ impl Supervisor {
             });
             sessions.retain(|s| !s.handle.closed.load(Ordering::Acquire));
             if lost_main {
-                if established_at
-                    .take()
-                    .is_some_and(|at| at.elapsed() >= Duration::from_secs(30))
-                {
-                    retry = 0;
-                }
-                next_connect = Instant::now() + retry_delay(retry);
+                next_connect = Instant::now();
                 retry = retry.saturating_add(1);
                 let last_path = self.health.borrow().path();
                 self.health.send_replace(RuntimeHealth::Reconnecting {
@@ -355,10 +349,51 @@ impl Supervisor {
                     failure: super::failure(&TransportError::TunnelClosed),
                 });
             }
+            let observed = self.protector.network_generation();
+            if observed != generation {
+                generation = observed;
+                next_connect = Instant::now() + usque_core::recovery::NETWORK_SETTLE;
+                migration.take();
+                if let Some(task) = connecting.take() {
+                    connecting_cancel.cancel();
+                    if let Ok(Ok(session)) = task.await {
+                        crate::endpoint_race::RaceConnection::shutdown(session).await;
+                    }
+                }
+                if let Some(index) = sessions
+                    .iter()
+                    .position(|s| !s.handle.draining.load(Ordering::Acquire))
+                {
+                    let handle = sessions[index].tunnel.migration_handle();
+                    if let Some(target) = observed
+                        && handle.enabled()
+                        && self.profile.endpoint.preset_region.is_none()
+                        && self.protector.endpoint_family_available(handle.endpoint())
+                            != Some(false)
+                    {
+                        migration = Some(tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
+                            handle.start_migration(target),
+                        )));
+                    } else {
+                        sessions.clear();
+                    }
+                }
+            }
             let main = sessions
                 .iter()
                 .position(|s| !s.handle.draining.load(Ordering::Acquire));
             if main.is_none() {
+                let path = self.health.borrow().path();
+                if matches!(*self.health.borrow(), RuntimeHealth::Connected { .. }) {
+                    retry = retry.saturating_add(1);
+                    self.health.send_replace(RuntimeHealth::Reconnecting {
+                        last_path: path,
+                        attempt: retry as u32,
+                        reconnect_count: reconnects,
+                        reason: "L4 session reconnecting".into(),
+                        failure: super::failure(&TransportError::UnderlyingNetworkChanged),
+                    });
+                }
                 self.metrics
                     .performance
                     .active_epoch
@@ -443,12 +478,13 @@ impl Supervisor {
             // This is a bounded cold start or replacement, never a background
             // CONNECT-IP probe. One draining connection leaves one slot.
             if main.is_none()
-                && (self.startup.is_some() || !queue.is_empty())
                 && connecting.is_none()
                 && sessions.len() < 2
                 && Instant::now() >= next_connect
             {
+                connecting_cancel = self.cancellation.child_token();
                 let setup = Setup {
+                    cancellation: connecting_cancel.clone(),
                     #[cfg(test)]
                     test_options: self.test_options,
                     profile: self.profile.clone(),
@@ -460,35 +496,16 @@ impl Supervisor {
                     changed: self.changed.clone(),
                     slots: self.slots.clone(),
                     startup_slots: self.startup_slots.clone(),
-                    race: sessions.is_empty(),
                 };
                 connecting = Some(tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
                     setup.connect(),
                 )));
             }
-            let observed = self.protector.network_generation();
-            if observed != generation {
-                generation = observed;
-                migration.take();
-                if let Some(index) = main {
-                    let handle = sessions[index].tunnel.migration_handle();
-                    if let Some(target) = observed
-                        && handle.enabled()
-                        && self.profile.endpoint.preset_region.is_none()
-                        && self.protector.endpoint_family_available(handle.endpoint())
-                            != Some(false)
-                    {
-                        migration = Some(tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                            handle.start_migration(target),
-                        )));
-                    } else {
-                        sessions.clear();
-                        next_connect = Instant::now();
-                    }
-                }
-            }
             tokio::select! {
+                biased;
                 _ = self.cancellation.cancelled() => break,
+                _ = network_changed(&mut network) => {},
+                _ = self.telemetry.recovery_requested() => { next_connect = Instant::now(); },
                 request = self.requests.recv() => match request { Some(request) => queue.push_back(request), None => break },
                 result = wait_connect(&mut connecting), if connecting.is_some() => {
                     connecting.take();
@@ -509,7 +526,6 @@ impl Supervisor {
                             if self.startup.is_none() { reconnects = reconnects.saturating_add(1); }
                             self.health.send_replace(RuntimeHealth::Connected { path, reconnect_count: reconnects });
                             if let Some(startup) = self.startup.take() { let _ = startup.send(Ok(())); }
-                            established_at = Some(Instant::now());
                         }
                         Err(TransportError::EndpointPinMismatch) if !pin_refreshed && self.pin_refresher.is_some() => {
                             pin_refreshed = true;
@@ -540,13 +556,13 @@ impl Supervisor {
                         }
                         Err(error) => {
                             let failure = super::failure(&error);
-                            if self.startup.is_some() || !failure.retryable || matches!(error, TransportError::EndpointPinMismatch | TransportError::InvalidIdentity | TransportError::SocketProtection(_)) {
+                            if (self.startup.is_some() && !self.telemetry.continuous_connection()) || !failure.retryable || matches!(error, TransportError::EndpointPinMismatch | TransportError::InvalidIdentity | TransportError::SocketProtection(_)) {
                                 self.fail(error, reconnects); break;
                             }
-                            next_connect = Instant::now() + retry_delay(retry);
+                            next_connect = Instant::now() + usque_core::recovery::RETRY_INTERVAL;
                             retry = retry.saturating_add(1);
                             let last_path = self.health.borrow().path();
-                            self.health.send_replace(RuntimeHealth::Reconnecting { last_path, attempt: retry as u32, reconnect_count: reconnects, reason: "L4 session reconnecting".to_owned(), failure });
+                            self.health.send_replace(if self.startup.is_some() { RuntimeHealth::Connecting { requested: last_path, attempt: retry as u32 } } else { RuntimeHealth::Reconnecting { last_path, attempt: retry as u32, reconnect_count: reconnects, reason: "L4 session reconnecting".to_owned(), failure } });
                         }
                     }
                 }
@@ -568,7 +584,12 @@ impl Supervisor {
             }
         }
         self.cancellation.cancel();
-        drop(connecting);
+        connecting_cancel.cancel();
+        if let Some(task) = connecting
+            && let Ok(Ok(session)) = task.await
+        {
+            crate::endpoint_race::RaceConnection::shutdown(session).await;
+        }
         self.metrics
             .performance
             .active_epoch
@@ -601,6 +622,7 @@ impl Supervisor {
 }
 
 struct Setup {
+    cancellation: CancellationToken,
     #[cfg(test)]
     test_options: super::test_options::TestOptions,
     profile: Profile,
@@ -612,18 +634,15 @@ struct Setup {
     changed: Arc<Notify>,
     slots: Arc<Semaphore>,
     startup_slots: Arc<Semaphore>,
-    race: bool,
 }
 
 impl Setup {
     async fn connect(self) -> Result<Session, TransportError> {
-        let slot = Arc::new(
-            self.slots
-                .clone()
-                .acquire_owned()
-                .await
-                .map_err(|_| TransportError::TunnelClosed)?,
-        );
+        let slot = Arc::new(tokio::select! {
+            biased;
+            _ = self.cancellation.cancelled() => return Err(TransportError::UnderlyingNetworkChanged),
+            result = self.slots.clone().acquire_owned() => result.map_err(|_| TransportError::TunnelClosed)?,
+        });
         if self.profile.endpoint.preset_region.is_some() {
             return self.connect_preset(slot).await;
         }
@@ -671,32 +690,27 @@ impl Setup {
             IpPolicy::PreferIpv4 => (v4, Some(v6)),
             _ => (v6, Some(v4)),
         };
-        let first_attempt =
-            self.candidate_with_cancellation(first, slot.clone(), CancellationToken::new());
-        tokio::pin!(first_attempt);
-        let Some(second) = second else {
-            return first_attempt.await;
-        };
-        if !self.race {
-            return match first_attempt.await {
-                Ok(s) => Ok(s),
-                Err(error) if terminal(&error) => Err(error),
-                Err(_) => {
-                    self.candidate_with_cancellation(second, slot.clone(), CancellationToken::new())
-                        .await
-                }
-            };
+        let mut targets = vec![crate::endpoint_race::RaceTarget {
+            endpoint: first,
+            delay: Duration::ZERO,
+        }];
+        if let Some(second) = second {
+            targets.push(crate::endpoint_race::RaceTarget {
+                endpoint: second,
+                delay: crate::endpoint_race::FAMILY_DELAY,
+            });
         }
-        tokio::select! {
-            result = &mut first_attempt => match result { Ok(s) => Ok(s), Err(error) if terminal(&error) => Err(error), Err(_) => self.candidate_with_cancellation(second, slot.clone(), CancellationToken::new()).await },
-            _ = tokio::time::sleep(Duration::from_millis(250)) => {
-                let second_attempt = self.candidate_with_cancellation(second, slot.clone(), CancellationToken::new()); tokio::pin!(second_attempt);
-                tokio::select! {
-                    result = &mut first_attempt => match result { Ok(s) => Ok(s), Err(error) if terminal(&error) => Err(error), Err(_) => second_attempt.await },
-                    result = &mut second_attempt => match result { Ok(s) => Ok(s), Err(error) if terminal(&error) => Err(error), Err(_) => first_attempt.await },
-                }
+        let setup = Arc::new(self);
+        crate::endpoint_race::race_batch(targets, None, move |endpoint, cancellation| {
+            let setup = setup.clone();
+            let slot = slot.clone();
+            async move {
+                setup
+                    .candidate_with_cancellation(endpoint, slot, cancellation)
+                    .await
             }
-        }
+        })
+        .await
     }
 
     async fn connect_preset(
@@ -707,11 +721,12 @@ impl Setup {
         let original_protector = self.protector.clone();
         self.protector = crate::endpoint_preset::for_generation(self.protector.clone(), generation);
         let setup = Arc::new(self);
-        crate::endpoint_preset::connect(
+        crate::endpoint_preset::connect_cancellable(
             &setup.profile,
             &setup.identity,
             &original_protector,
             &setup.telemetry,
+            &setup.cancellation,
             |candidates, _| {
                 let setup = setup.clone();
                 let slot = slot.clone();
@@ -781,6 +796,9 @@ impl Setup {
         slot: Arc<tokio::sync::OwnedSemaphorePermit>,
         cancellation: CancellationToken,
     ) -> Result<Session, TransportError> {
+        if self.cancellation.is_cancelled() {
+            return Err(TransportError::UnderlyingNetworkChanged);
+        }
         if self.telemetry.startup_is_cancelled() {
             return Err(TransportError::TunnelClosed);
         }
@@ -796,6 +814,7 @@ impl Setup {
         let startup_slot = tokio::select! {
             biased;
             _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
+            _ = self.cancellation.cancelled() => return Err(TransportError::UnderlyingNetworkChanged),
             result = self.startup_slots.clone().acquire_owned() => result.map_err(|_| TransportError::TunnelClosed)?,
         };
         let mut actor = L4Actor::new(
@@ -838,6 +857,11 @@ impl Setup {
         tokio::pin!(connecting);
         let tunnel = tokio::select! {
             biased;
+            _ = self.cancellation.cancelled() => {
+                cancellation.cancel();
+                if let Ok(tunnel) = connecting.await { tunnel.shutdown().await; }
+                return Err(TransportError::UnderlyingNetworkChanged);
+            }
             _ = self.telemetry.startup_cancelled() => {
                 cancellation.cancel();
                 if let Ok(tunnel) = connecting.await { tunnel.shutdown().await; }
@@ -861,28 +885,24 @@ impl Setup {
     }
 }
 
-fn terminal(error: &TransportError) -> bool {
-    matches!(
-        error,
-        TransportError::EndpointPinMismatch
-            | TransportError::InvalidIdentity
-            | TransportError::SocketProtection(_)
-    )
-}
-
-fn retry_delay(retry: usize) -> Duration {
-    const BACKOFF: [u64; 6] = [1, 2, 4, 8, 15, 30];
-    let mut random = [0u8; 1];
-    let _ = boring::rand::rand_bytes(&mut random);
-    Duration::from_millis(BACKOFF[retry.min(5)] * (900 + u64::from(random[0]) * 200 / 255))
-}
-
 fn path_for(family: AddressFamily) -> RuntimePath {
     RuntimePath {
         transport: Transport::Http3,
         endpoint_family: family,
         ipv4_available: true,
         ipv6_available: true,
+    }
+}
+
+async fn network_changed(
+    network: &mut Option<watch::Receiver<crate::socket::PhysicalNetworkSnapshot>>,
+) {
+    if let Some(receiver) = network {
+        if receiver.changed().await.is_err() {
+            *network = None;
+        }
+    } else {
+        std::future::pending::<()>().await;
     }
 }
 

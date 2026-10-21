@@ -96,14 +96,19 @@ impl StartupAttempt {
 }
 async fn bounded_startup<T>(
     cancellation: &CancellationToken,
-    deadline: tokio::time::Instant,
+    deadline: Option<tokio::time::Instant>,
     startup: impl std::future::Future<Output = io::Result<T>>,
 ) -> io::Result<T> {
     tokio::select! {
         biased;
         _ = cancellation.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted, "Linux startup cancelled")),
-        result = tokio::time::timeout_at(deadline, startup) =>
-            result.unwrap_or_else(|_| Err(usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::Activation, io::Error::new(io::ErrorKind::TimedOut, "Linux startup timed out")))),
+        result = startup => result,
+        _ = async {
+            match deadline {
+                Some(deadline) => tokio::time::sleep_until(deadline).await,
+                None => std::future::pending().await,
+            }
+        } => Err(usque_ipc::linux_failure::wrap(agent_v1::LinuxFailureStage::Activation, io::Error::new(io::ErrorKind::TimedOut, "Linux startup timed out"))),
     }
 }
 
@@ -191,8 +196,10 @@ impl LinuxVpnRuntime {
         attempt: StartupAttempt,
     ) -> io::Result<Self> {
         let cancellation = gate.cancellation.clone();
-        let deadline = gate.deadline.unwrap_or_else(|| {
-            tokio::time::Instant::now() + usque_core::endpoint_connection_budget(profile)
+        let deadline = (!gate.continuous).then(|| {
+            gate.deadline.unwrap_or_else(|| {
+                tokio::time::Instant::now() + usque_core::endpoint_connection_budget(profile)
+            })
         });
         attempt.telemetry.record(
             usque_transport::ConnectionEventType::AttemptStarted,
@@ -247,15 +254,27 @@ impl LinuxVpnRuntime {
         }
         // Resolve the one control host while system DNS still belongs to the
         // physical network. Later refreshes only consume this numeric snapshot.
-        let registration = tokio::task::spawn_blocking(|| {
-            usque_transport::NoopSocketProtector.resolve(
-                usque_core::REGISTRATION_API_HOST,
-                usque_core::REGISTRATION_API_PORT,
-            )
-        })
+        let registration = tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::task::spawn_blocking(|| {
+                usque_transport::NoopSocketProtector.resolve(
+                    usque_core::REGISTRATION_API_HOST,
+                    usque_core::REGISTRATION_API_PORT,
+                )
+            }),
+        )
         .await
+        .map_err(|_| {
+            io::Error::other(TransportError::Dns(
+                "physical registration DNS timed out".into(),
+            ))
+        })?
         .map_err(error)?
-        .map_err(error)?;
+        .map_err(|_| {
+            io::Error::other(TransportError::Dns(
+                "physical registration DNS unavailable".into(),
+            ))
+        })?;
         let mut plan = desktop_tunnel_plan::tunnel_plan(
             profile,
             &identity,
@@ -949,7 +968,7 @@ mod tests {
             }
             let error = bounded_startup(
                 &cancellation,
-                tokio::time::Instant::now() + Duration::from_millis(1),
+                Some(tokio::time::Instant::now() + Duration::from_millis(1)),
                 future,
             )
             .await
@@ -970,6 +989,27 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn continuous_startup_waits_until_cancelled_without_a_total_deadline() {
+        let cancellation = CancellationToken::new();
+        let worker = cancellation.clone();
+        let task = tokio::spawn(async move {
+            bounded_startup(&worker, None, std::future::pending::<io::Result<()>>()).await
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1_800)).await;
+        assert!(!task.is_finished());
+        cancellation.cancel();
+        assert_eq!(
+            task.await.unwrap().unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+        let error = map_error(io::Error::other(TransportError::Dns(
+            "physical DNS unavailable".into(),
+        )));
+        assert!(crate::continuous_connection::retry_network_error(&error));
     }
 
     #[test]

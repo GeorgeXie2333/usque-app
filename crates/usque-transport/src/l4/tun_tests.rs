@@ -195,6 +195,7 @@ async fn bridge_with_protector(
         reconnect_count: 0,
     });
     let services = ProxyServices {
+        telemetry: crate::ConnectionTelemetry::default(),
         traffic_policy: Arc::default(),
         admission: None,
         dialer: dialer.clone(),

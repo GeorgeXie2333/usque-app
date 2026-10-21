@@ -165,6 +165,9 @@ impl ProxyRuntime {
     pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
         self.inner().connection_timeline()
     }
+    pub fn request_recovery(&self) {
+        self.inner().request_recovery();
+    }
 
     pub fn network_quality(&self) -> NetworkQualitySnapshot {
         self.inner().network_quality()

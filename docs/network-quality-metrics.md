@@ -203,13 +203,11 @@ per consumed frame, and a lookahead failure is reported on the next receive
 after delivering the already-completed batch.
 
 One protocol PING may be outstanding at a time. The interval is five seconds.
-The soft deadline is five seconds before the first sample, then
-`max(3 * smoothed RTT, smoothed RTT + 4 * RTT variation)` clamped to two through
-ten seconds. Smoothed RTT and variance use an integer EWMA with alpha 1/8;
-minimum RTT is monotonic for the connection. A soft timeout marks retained RTT
-stale, increments the timeout and consecutive-failure counters, and keeps
-waiting for the same PONG. The hard liveness deadline, measured from that
-PING's start, is three times the soft deadline clamped to 15–30 seconds. If it
+The PONG deadline is three seconds before the first sample, then four times
+smoothed RTT clamped to three through ten seconds. RTT and variance retain their
+integer EWMA with alpha 1/8. Halfway through the deadline, the observation marks
+RTT stale and increments the timeout counter while continuing to poll the same
+PONG. If it
 expires, the PING task records an error and the H2 driver fails with
 `H2LivenessTimeout`, reported as `PACKET_RECEIVE_STALLED`; see
 [HTTP/2 liveness](h3-client-reliability.md#http2-liveness). A usable RTT sample

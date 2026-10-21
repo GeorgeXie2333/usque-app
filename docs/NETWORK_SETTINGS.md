@@ -135,6 +135,18 @@ The endpoint picker refreshes when capabilities arrive without replacing drafts.
 启动时能力查询暂时失败会自动重试。
 能力信息返回后端点选择控件立即刷新，并保留未应用的草稿。
 
+Automatic connection and reconnection continuously traverse the full pool.
+Auto transport starts H3 immediately and H2 after 250 ms, sharing 14 candidates
+(H3 up to eight, H2 up to ten). Failed rounds retry every second. The previous
+winner remains a normal candidate. Keepalive stays at 30 seconds for H3.
+See [continuous connection](CONTINUOUS_CONNECTION.md) for request waiting and
+control-protocol compatibility.
+
+自动模式在首次连接和重连时持续遍历完整候选池。Auto 立即尝试 H3，250ms 后加入
+H2；总并发 14，H3 最多 8，H2 最多 10。失败后每秒继续恢复，上一次成功端点作为
+普通候选参与选择。H3 保活保持 30 秒。恢复期间本地代理保持运行，需要 WARP 的
+新请求等待恢复；用户可随时取消。
+
 ### Built-in IPv6 presets / 内置 IPv6 预设
 
 Open **Settings → Advanced network settings → Endpoint → Custom → Built-in

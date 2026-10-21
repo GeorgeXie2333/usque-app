@@ -12,7 +12,7 @@ internal class SessionNetworkRecovery(
     private var timerRevision = 0L
     private var networkGeneration = 0L
     private var lastObservedNetworkGeneration = Long.MIN_VALUE
-    private var online = false
+    private var networkWake = false
     private var stopping = false
     private var stopped = false
     private var connecting = false
@@ -39,13 +39,12 @@ internal class SessionNetworkRecovery(
         if (!active) {
             active = true
             this.networkGeneration = networkGeneration
-            online = networkPresent
             retryFailures = 0
             stopSession()
         } else {
             val newUsableNetwork = updateNetwork(networkGeneration, networkPresent)
             if (connecting) {
-                if (!newUsableNetwork) retryFailures = (retryFailures + 1).coerceAtMost(RETRY_DELAYS.size)
+                if (!newUsableNetwork) retryFailures = (retryFailures + 1).coerceAtMost(1)
                 stopSession()
             } else {
                 scheduleRestart()
@@ -89,9 +88,8 @@ internal class SessionNetworkRecovery(
     ): Boolean {
         if (generation <= networkGeneration) return false
         networkGeneration = generation
-        online = present
+        networkWake = present
         invalidateTimer()
-        if (present) retryFailures = 0
         return present
     }
 
@@ -119,7 +117,7 @@ internal class SessionNetworkRecovery(
     }
 
     private fun scheduleRestart() {
-        if (!active || !stopped || stopping || !online || connecting || timerScheduled ||
+        if (!active || !stopped || stopping || connecting || timerScheduled ||
             waitingForNetworkChange
         ) {
             return
@@ -127,9 +125,17 @@ internal class SessionNetworkRecovery(
         val owner = revision
         val timer = ++timerRevision
         timerScheduled = true
-        val delay = if (retryFailures == 0) 250L else RETRY_DELAYS[retryFailures - 1]
+        val delay =
+            if (networkWake) {
+                NETWORK_SETTLE_MILLIS
+            } else if (retryFailures == 0) {
+                0L
+            } else {
+                RETRY_INTERVAL_MILLIS
+            }
+        networkWake = false
         schedule(delay) {
-            if (!active || revision != owner || timerRevision != timer || !stopped || !online || connecting) {
+            if (!active || revision != owner || timerRevision != timer || !stopped || connecting) {
                 return@schedule
             }
             timerScheduled = false
@@ -158,11 +164,13 @@ internal class SessionNetworkRecovery(
         connecting = false
         waitingForNetworkChange = false
         retryFailures = 0
+        networkWake = false
         // Keep consumed generations: a delayed duplicate physical callback
         // cannot reauthorize a canceled or successfully replaced session.
     }
 
     private companion object {
-        val RETRY_DELAYS = longArrayOf(1_000L, 2_000L, 4_000L, 8_000L, 15_000L, 30_000L)
+        const val RETRY_INTERVAL_MILLIS = 1_000L
+        const val NETWORK_SETTLE_MILLIS = 100L
     }
 }

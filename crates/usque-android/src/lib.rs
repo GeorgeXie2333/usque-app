@@ -138,6 +138,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "chain_wireguard": engine_ready() && cfg!(feature = "wireguard"),
             "chain_warp_wireguard": engine_ready() && cfg!(feature = "wireguard"),
             "chain_proton_vpn": engine_ready() && cfg!(feature = "wireguard"),
+            "continuous_connection": engine_ready(),
             "chain_http_proxy": engine_ready(),
             "chain_socks5_proxy": engine_ready(),
             "chain_proxy_encrypted_dns": engine_ready(),
@@ -275,6 +276,7 @@ fn native_start<'local>(environment: &mut Env<'local>, request: NativeVpnStart<'
     };
     start_engine(
         tun_file_descriptor,
+        continuous_connection_requested(&profile_json),
         profile,
         identity,
         geo_cache_dir,
@@ -373,6 +375,7 @@ fn native_start_proxy<'local>(
         AndroidSocketRoutePolicy::Proxy
     };
     start_proxy_engine(
+        continuous_connection_requested(&profile_json),
         profile,
         identity,
         geo_cache_dir,
@@ -3312,8 +3315,27 @@ mod session_pump;
 #[cfg(any(test, target_os = "android"))]
 mod tun_read_slab;
 
+fn continuous_connection_requested(json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|value| value.get("continuous").and_then(serde_json::Value::as_bool))
+        .unwrap_or(false)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeWakeRecovery<
+    'local,
+>(
+    _environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) {
+    #[cfg(target_os = "android")]
+    android_runtime::wake_recovery();
+}
+
 fn start_engine(
     tun_file_descriptor: jint,
+    continuous: bool,
     profile: Profile,
     identity: WarpIdentity,
     geo_cache_dir: PathBuf,
@@ -3335,6 +3357,7 @@ fn start_engine(
     {
         android_runtime::start(
             tun_file_descriptor,
+            continuous,
             profile,
             identity,
             geo_cache_dir,
@@ -3345,6 +3368,7 @@ fn start_engine(
     {
         let _ = (
             tun_file_descriptor,
+            continuous,
             profile,
             identity,
             geo_cache_dir,
@@ -3355,6 +3379,7 @@ fn start_engine(
 }
 
 fn start_proxy_engine(
+    continuous: bool,
     profile: Profile,
     identity: WarpIdentity,
     geo_cache_dir: PathBuf,
@@ -3374,11 +3399,11 @@ fn start_proxy_engine(
     }
     #[cfg(target_os = "android")]
     {
-        android_runtime::start_proxy(profile, identity, geo_cache_dir, protector)
+        android_runtime::start_proxy(continuous, profile, identity, geo_cache_dir, protector)
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (profile, identity, geo_cache_dir, protector);
+        let _ = (continuous, profile, identity, geo_cache_dir, protector);
         START_NOT_READY
     }
 }

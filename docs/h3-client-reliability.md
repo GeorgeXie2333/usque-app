@@ -115,19 +115,9 @@ no new CONNECT request is opened. Repeated GOAWAY cannot extend the deadline.
 Rejection of the current request, stream FIN/reset, connection closure, or
 deadline expiry ends the old session through normal teardown.
 
-Under the saved Auto policy only, two short-lived established H3 failures
-temporarily prefer H2 for 120 seconds. A PMTU revalidation exhaustion can do
-so immediately. A 60-second stable H3 session resets the streak; stale failure
-history and physical-generation changes also reset it. The existing H2-to-H3
-recovery probe scheduling remains in use. The original saved profile is not
-modified, and explicit H3/H2 selection is never overridden.
-
-The preference requires both the existing `fallback_allowed` contract and an
-explicit H3 network/protocol failure allowlist. Authentication, identity, pin,
-socket protection, address assignment, generic packet send timeout/failure,
-and platform failures cannot activate it. In particular, this patch does not
-reinterpret confirmed IPv6 minimum-MTU termination as a generic network
-failure or silently disable IPv6.
+The saved Auto policy always races H3 and H2 during recovery. H3 failures do not
+create a protocol cooldown. Explicit H3/H2 selections remain unchanged. The
+existing background H2-to-H3 recovery probes remain available while H2 is healthy.
 
 H3 packet-send, packet-receive, and control-channel closure all resolve the
 same driver result before applying recovery policy. Actor channels can close
@@ -138,83 +128,67 @@ budget. If cleanup stalls past that budget, it reports the non-fallback-eligible
 `PacketReceiveStalled` failure and aborts the owned driver; it never invents a
 network failure to enable H2.
 
-## Established CONNECT-IP recovery
+## Continuous CONNECT-IP recovery
 
-The established-session supervisor classifies driver exits and failed replacement
-attempts using the same failure contract. Authentication, identity, configuration,
-address-assignment and socket-protection failures stop automatic attempts. Address
-family races cancel remaining candidates after an observed terminal error;
-H3/H2 aggregate errors cannot erase a terminal child cause. An endpoint pin mismatch
-retains the existing single protected enrollment refresh, with unchanged address
-assignment and pin verification. Initial connection failures still return to the
-caller rather than starting an unlimited background retry loop.
+A continuous connection intent owns local HTTP/SOCKS listeners, the local TCP
+stack and one recovery supervisor. The first attempt starts immediately;
+retryable failures continue at a fixed one-second interval with no total deadline.
+The legacy control call and bounded diagnostic probes retain their startup limits.
+Authentication, identity, configuration, address-assignment and socket-protection
+failures keep their existing terminal handling and cleanup order. Automatic
+candidate pin failures retain the protected enrollment refresh contract.
 
-Ordinary network failures retain the 1/2/4/8/15/30-second retry delays with 20%
-jitter. A connection lasting at least 60 seconds resets this backoff. An optional
-latest-value physical-network subscription distinguishes Unknown, Offline and
-Online address families. Offline waits do not start handshakes or advance the
-backoff/count. Unknown or a closed observation channel retains timed retry. A usable
-new network resets the old backoff after 250 milliseconds of settling; event-driven
-attempts start no more than once per second. A newer observation cancels an obsolete
-handshake, and cancellation takes precedence over both ready success and recovery.
-Waiting and connecting continue draining bounded outgoing packet queues; they do
-not retain an unbounded backlog or recreate local proxy listeners.
+Automatic mode keeps the complete Consumer pool. H3 starts immediately and H2
+starts 250 ms later; candidates share 14 slots, with H3 capped at eight and H2 at
+ten. H3 candidates retain their eight-second timeout, H2 candidates use two
+seconds. Each failed candidate frees a slot after socket/authorization cleanup.
+The candidate queue advances through the round; subsequent rounds shuffle IPv4
+and resample IPv6. A previous winner participates normally in the next race.
 
-Android publishes an immutable generation/availability/family snapshot through
-JNI. Windows VPN reuses the existing 500-millisecond Agent observations. The new
-`AGENT_PHYSICAL_NETWORK_OFFLINE` code means the Agent confirmed there was no usable
-physical interface. Older Agents' generic errors, invalid observations and failed
-queries mean Unknown. Windows pure proxy mode has no physical subscription and
-keeps timed retries. These are scheduling hints, never authorization to bypass
-exact-generation socket protection. L4 demand-driven replacement, downstream chain
-recovery and platform-service recovery retain their separate policies.
+Physical-network observations accelerate recovery after a 100 ms settle window.
+The one-second timer continues without a usable interface or a callback. New
+network generations cancel old candidates and refresh address-family availability.
+Windows VPN retains its Agent observations; desktop proxy sessions observe local
+source addresses and routes. Android passes immutable observations through JNI.
+All transport sockets still use the current platform protection and generation.
 
-If an established Android CONNECT-IP worker exits with an allowlisted retryable
-network failure, the service retains its connection intent and blocking TUN,
-confirms native cleanup, and starts one replacement on a usable physical network.
-The first attempt waits 250 milliseconds; failed replacements use 1/2/4/8/15/30
-second delays. A newer usable physical generation resets that backoff, while
-duplicate callbacks do not. Offline recovery waits without handshakes. Manual
-connection, disconnect, service destruction, other terminal failures, and
-unconfirmed cleanup revoke pending work. Initial connection failures do not start
-this loop.
-For an established Android CONNECT-IP session without a chain, a typed
-socket-protection failure retains the TUN and connection intent after confirmed
-cleanup, but waits for a newer usable physical-network generation before one
-replacement attempt. If protection fails again, it waits for another generation;
-there is no timed retry on the same network. Initial startup and chain failures
-keep their existing policy. Every replacement creates and protects new sockets.
-Live ordinary sessions continue using native migration and reconnect scheduling.
-Android chain exits share this service recovery owner and rebuild the whole chain
-on a physical-generation change or an explicitly retryable final transport error.
-The order of the native failure snapshot and physical callback does not determine
-whether recovery survives. Chain startup failures retain typed native evidence;
-authentication, certificate, configuration, address and cleanup failures cannot
-be reclassified as generic transport failures. A terminal failure stops attempts
-and native ingress while Java retains the blocking TUN and armed Kill Switch until
-the user retries or disconnects. Clearing stale runtime observations during
-recovery does not clear that protection intent.
+HTTP/SOCKS requests that require WARP wait on shared state subscriptions. Recovery
+waiting does not consume the ten-second remote-connect budget. Local listeners,
+active relays, UDP control connections and the CONNECT-IP stack remain running.
+DIRECT and REJECT decisions retain their routing behavior. UDP packets are not
+queued across an outage, and the association idle timer pauses during recovery.
+The Home action remains Cancel during startup and recovery, using the existing
+translations in every supported language.
 
-Android socket binding always rejects a socket whose protection fails. A binding
-failure caused by a changed generation or netd's `ENONET` (the selected network no longer
-exists) rejects that socket as a stale path so native recovery can retry exact
-protection and binding. Other binding failures remain rejected; no unprotected
-socket or fallback route is authorized. Physical-network callbacks also preserve
-terminal error evidence until an explicit retry or disconnect, except for the
-established CONNECT-IP network-change recovery described above.
+Android normally leaves recovery to Rust. Its service takes over after a native
+worker exit, confirms cleanup, and retries immediately, then once per second.
+The TUN and connection intent are retained. Physical network loss keeps the UI
+connecting/reconnecting. A typed socket-protection failure retains its existing
+new-network requirement. User stop revokes both native and service recovery.
+
+HTTP/SOCKS chain exits retain their frontends and verify the selected server after
+WARP recovers. Packet chain drivers retain their channels and local stack through
+native reconnects with unchanged final addressing. Address changes and terminal
+credential/protection failures retain the platform handoff and cleanup rules.
+
+## HTTP/3 liveness
+
+The idle keepalive remains **30 seconds**. ACK/PTO observation is independent:
+at least two PTO events with no ACK progress and an outstanding QUIC probe use
+`clamp(4 * RTT, 3 seconds, 10 seconds)` as the failure window. Idle business traffic
+alone does not start recovery. A path change or scheduling pause resets observation;
+resume has a five-second grace. Successful QUIC migration preserves the session;
+a failed migration immediately enters endpoint selection.
 
 ## HTTP/2 liveness
 
-H2 retains its five-second PING cadence and permits only one outstanding PING.
-The soft deadline is five seconds before any RTT sample, otherwise
-`max(3 * smoothed RTT, smoothed RTT + 4 * RTT variation)`, clamped to 2–10 seconds.
-It records one timeout and continues polling the same PONG. The final deadline,
-measured from this PING's start, is three times the soft timeout, clamped to
-15–30 seconds. A PONG before that deadline preserves the connection. A permanent
-blackhole therefore ends the old driver within this deadline plus at most one
-PING interval under normal scheduling.
+H2 retains its five-second PING cadence and one outstanding PING. Its PONG
+deadline is `clamp(4 * smoothed RTT, 3 seconds, 10 seconds)`, initially three
+seconds. Halfway through that deadline it records a delayed PONG observation;
+the same PING remains pending until acknowledgement or the deadline. Expiration
+ends the driver with `H2LivenessTimeout` and wakes continuous recovery.
 
-A scheduling gap exceeding 15 seconds permits one five-second resume grace for
+A scheduling gap exceeding 5 seconds permits one five-second resume grace for
 the current PING; it cannot repeatedly extend the deadline, and its RTT sample is
 discarded. Driver completion, explicit cancellation and network replacement remain
 independently interruptible. Final timeout reports `PACKET_RECEIVE_STALLED` on the

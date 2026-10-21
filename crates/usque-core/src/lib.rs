@@ -12,6 +12,7 @@ pub mod linux_release;
 pub mod network_settings;
 pub mod proton_vpn;
 pub mod reconfigure;
+pub mod recovery;
 pub mod redaction;
 pub mod registration;
 pub mod state;

@@ -573,6 +573,9 @@ class UsqueVpnService : VpnService() {
             sessionNetworkRecovery.cancel()
         }
         var profileJson = requestedProfileJson
+        val continuous =
+            runCatching { ContinuousConnectionIntent.continuous(requestedProfileJson, activeProfileJson.get()) }
+                .getOrDefault(false)
         diagnosticProbes.cancel()
         if (profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             sessionNetworkRecovery.cancel()
@@ -594,6 +597,7 @@ class UsqueVpnService : VpnService() {
                         requireNotNull(NativeEngine.applyProfileCommand(configPath, """{"command":"list_profiles"}"""))
                     profileJson = NetworkSettingsFields.savedProfile(profileJson, catalog)
                 }
+                profileJson = JSONObject(profileJson).put("continuous", continuous).toString()
                 val source = JSONObject(profileJson)
                 val tunnelEnabled = VpnReconfigure.tunnelFrontendEnabled(source)
                 val parsedVpnProfile =
@@ -619,6 +623,10 @@ class UsqueVpnService : VpnService() {
                 broadcastSnapshot()
                 return
             }
+        if (continuous && nativeRuntimeActive.get() && activeProfileJson.get() == profileJson) {
+            NativeEngine.wakeRecovery()
+            return
+        }
         val recoveryProfile = if (settingsApplication.busy && !newSession) confirmedSettingsProfile else profileJson
         if (
             !recoveryPreferences
@@ -776,7 +784,9 @@ class UsqueVpnService : VpnService() {
                 if (profile == null) {
                     replyControlError(request, "PROFILE_STORE_FAILED", "The current account could not be loaded.")
                 } else {
-                    beginConnection(profile)
+                    beginConnection(
+                        JSONObject(profile).put("continuous", request.data.getBoolean("continuous", false)).toString(),
+                    )
                     replyWithSnapshot(request)
                 }
             }
@@ -865,7 +875,9 @@ class UsqueVpnService : VpnService() {
         }
         if (settingsToken != null && !settingsApplication.owns(settingsToken, connectionGeneration.get())) return
         val desiredProfileJson = request.data.getString(EXTRA_PROFILE_JSON).orEmpty()
-        val profileJson = desiredProfileJson
+        val profileJson =
+            runCatching { ContinuousConnectionIntent.inherit(desiredProfileJson, activeProfileJson.get()) }
+                .getOrDefault(desiredProfileJson)
         if (profileJson.isEmpty() || profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             replyControlError(request, "INVALID_ARGUMENT", "The reconfigure profile is malformed.")
             return
@@ -1417,7 +1429,7 @@ class UsqueVpnService : VpnService() {
             if (profile.vpnGateEnabled) {
                 val finalNetwork =
                     try {
-                        val native = JSONObject(NativeEngine.snapshot() ?: error("Missing final network"))
+                        val native = awaitFinalNetwork(generation, JSONObject(profileJson).optBoolean("continuous"))
                         val network = VpnGateNetwork.parse(native.getJSONObject("final_network"))
                         if (!isCurrent(generation)) {
                             stopNativeRuntime(beginNativeStop())
@@ -1469,9 +1481,6 @@ class UsqueVpnService : VpnService() {
             mainHandler.post {
                 if (isCurrent(generation)) {
                     nativeRuntimeActive.set(true)
-                    sessionNetworkRecovery.connected()
-                    snapshotState.killSwitchEnabled = profile.killSwitch
-                    accountHandoff.stable()
                     ensureStatusTask()
                     refreshNativeSnapshot()
                 }
@@ -1507,7 +1516,7 @@ class UsqueVpnService : VpnService() {
             return
         }
         try {
-            if (!awaitPhysicalNetwork(generation)) {
+            if (!JSONObject(profileJson).optBoolean("continuous") && !awaitPhysicalNetwork(generation)) {
                 fail(
                     generation,
                     "ANDROID_WAITING_FOR_PHYSICAL_NETWORK",
@@ -1535,9 +1544,6 @@ class UsqueVpnService : VpnService() {
             mainHandler.post {
                 if (isCurrent(generation)) {
                     nativeRuntimeActive.set(true)
-                    snapshotState.killSwitchEnabled = false
-                    if (accountHandoff.retained) tunnel.get()?.let { closeOwnedTun(generation, it) }
-                    accountHandoff.stable()
                     ensureStatusTask()
                     refreshNativeSnapshot()
                 }
@@ -2101,14 +2107,8 @@ class UsqueVpnService : VpnService() {
                 applyNativeSnapshot(pendingFailure.value, failureNetworkGeneration = nativeNetworkGeneration)
             }
         }
-        val chainRunning =
-            nativeRuntimeActive.get() && canRecoverVpnSession() &&
-                snapshotState.phase in setOf("connected", "degraded", "reconnecting") &&
-                activeProfileJson.get()?.let { profile ->
-                    runCatching { ChainProfileFields.enabled(JSONObject(profile)) }.getOrDefault(false)
-                } == true
         val recoveringSession =
-            sessionNetworkRecovery.networkChanged(generation, selectedNetwork != null, chainRunning)
+            sessionNetworkRecovery.networkChanged(generation, selectedNetwork != null)
         NativeEngine.notifyNetworkChanged(generation)
         nativeNetworkGeneration = generation
         recordLog(
@@ -2136,16 +2136,21 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun canRecoverVpnSession(): Boolean {
-        if (destroyed || clearAllRequested.get() || activeMode.get() != "vpn" ||
-            tunnel.get()?.fileDescriptor?.valid() != true || runtimeReconfigureInFlight ||
+        if (destroyed || clearAllRequested.get() || runtimeReconfigureInFlight ||
             settingsApplication.busy || settingsUncertain
         ) {
             return false
         }
         val profile = activeProfileJson.get() ?: return false
         return runCatching {
-            AndroidVpnProfile.parse(profile)
-            ConnectIpRecoveryPolicy.canRecoverProfile(JSONObject(profile))
+            val json = JSONObject(profile)
+            if (VpnReconfigure.tunnelFrontendEnabled(json)) AndroidVpnProfile.parse(profile)
+            if (json.optBoolean("continuous", false)) {
+                activeMode.get() in setOf("vpn", "socks5", "httpProxy")
+            } else {
+                activeMode.get() == "vpn" && tunnel.get()?.fileDescriptor?.valid() == true &&
+                    ConnectIpRecoveryPolicy.canRecoverProfile(json)
+            }
         }.getOrDefault(false)
     }
 
@@ -2153,9 +2158,12 @@ class UsqueVpnService : VpnService() {
         reason: ConnectionFailure,
         startup: Boolean = false,
     ): Boolean {
-        if (!canRecoverVpnSession() || (startup && !sessionNetworkRecovery.active)) return false
+        if (!canRecoverVpnSession()) return false
         val profile = activeProfileJson.get() ?: return false
         return runCatching {
+            if (startup && !sessionNetworkRecovery.active && !JSONObject(profile).optBoolean("continuous", false)) {
+                return@runCatching false
+            }
             if (ChainProfileFields.enabled(JSONObject(profile))) {
                 val gate = reason.gateStatus?.let(::JSONObject)
                 if (startup) {
@@ -2184,12 +2192,40 @@ class UsqueVpnService : VpnService() {
     private fun awaitPhysicalNetwork(
         connectionToken: Long,
         requireDns: Boolean = false,
-    ): Boolean =
-        networkMonitor.awaitPhysicalNetwork(
-            isCurrent = { isCurrent(connectionToken) },
-            waitMillis = PHYSICAL_NETWORK_WAIT_MILLIS,
-            requireDns = requireDns,
-        )
+    ): Boolean {
+        val continuous =
+            activeProfileJson.get()?.let {
+                runCatching { JSONObject(it).optBoolean("continuous") }.getOrDefault(false)
+            } == true
+        do {
+            if (networkMonitor.awaitPhysicalNetwork(
+                    isCurrent = { isCurrent(connectionToken) },
+                    waitMillis = if (continuous) 1_000L else PHYSICAL_NETWORK_WAIT_MILLIS,
+                    requireDns = requireDns,
+                )
+            ) {
+                return true
+            }
+        } while (continuous && isCurrent(connectionToken))
+        return false
+    }
+
+    private fun awaitFinalNetwork(
+        generation: Long,
+        continuous: Boolean,
+    ): JSONObject {
+        while (isCurrent(generation)) {
+            val snapshot = JSONObject(NativeEngine.snapshot() ?: error("Missing native snapshot"))
+            if (snapshot.optJSONObject("final_network") != null || !continuous ||
+                snapshot.optString("phase") == "error"
+            ) {
+                return snapshot
+            }
+            // One service worker owns startup; UI stop revokes its generation.
+            Thread.sleep(100)
+        }
+        error("Startup cancelled")
+    }
 
     private fun ensureStatusTask() {
         synchronized(statusTaskLock) {
@@ -2521,6 +2557,26 @@ class UsqueVpnService : VpnService() {
                 )
             handleSessionFailure(reason, canRecoverFailure(reason), failureNetworkGeneration)
             return
+        }
+        val tunnelEnabled =
+            activeProfileJson.get()?.let {
+                runCatching { VpnReconfigure.tunnelFrontendEnabled(JSONObject(it)) }.getOrDefault(false)
+            } == true
+        if (ContinuousConnectionIntent.ready(
+                snapshotState.phase,
+                nativeRuntimeActive.get(),
+                tunnelEnabled,
+                tunnel.get()?.fileDescriptor?.valid() == true,
+                runtimeReconfigureInFlight,
+            )
+        ) {
+            sessionNetworkRecovery.connected()
+            snapshotState.killSwitchEnabled =
+                tunnelEnabled && activeProfileJson.get()?.let { JSONObject(it).optBoolean("kill_switch") } == true
+            if (!tunnelEnabled && accountHandoff.retained) {
+                tunnel.get()?.let { closeOwnedTun(connectionGeneration.get(), it) }
+            }
+            accountHandoff.stable()
         }
         if (merge.phaseChanged) {
             recordLog(

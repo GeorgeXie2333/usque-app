@@ -142,6 +142,87 @@ pub(crate) enum FlowClass {
     Dns,
 }
 
+/// Runs only pre-payload work. Recovery pauses its budget and restarts DNS/TCP
+/// setup against the new epoch; established streams are owned by their relays.
+#[cfg(test)]
+pub(crate) async fn with_ready_budget<T, E, F, Fut>(
+    health: &tokio::sync::watch::Receiver<crate::netstack::RuntimeHealth>,
+    cancellation: &CancellationToken,
+    budget: std::time::Duration,
+    operation: F,
+    failure: impl Fn(DialError) -> E,
+) -> Result<T, E>
+where
+    F: FnMut(Instant) -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+{
+    with_ready_budget_tracked(health, cancellation, budget, None, operation, failure).await
+}
+
+pub(crate) async fn with_ready_budget_tracked<T, E, F, Fut>(
+    health: &tokio::sync::watch::Receiver<crate::netstack::RuntimeHealth>,
+    cancellation: &CancellationToken,
+    budget: std::time::Duration,
+    telemetry: Option<&crate::ConnectionTelemetry>,
+    mut operation: F,
+    failure: impl Fn(DialError) -> E,
+) -> Result<T, E>
+where
+    F: FnMut(Instant) -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+{
+    use crate::netstack::RuntimeHealth;
+    let mut health = health.clone();
+    let mut remaining = budget;
+    loop {
+        let mut waiting = None;
+        let epoch = loop {
+            if cancellation.is_cancelled() {
+                return Err(failure(DialError::Cancelled));
+            }
+            let state = health.borrow_and_update().clone();
+            match state {
+                RuntimeHealth::Connected {
+                    reconnect_count, ..
+                } => break reconnect_count,
+                RuntimeHealth::Failed { .. } => return Err(failure(DialError::Closed)),
+                RuntimeHealth::Connecting { .. } | RuntimeHealth::Reconnecting { .. } => {}
+            }
+            if waiting.is_none() {
+                waiting = telemetry.map(|telemetry| telemetry.request_wait());
+            }
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => return Err(failure(DialError::Cancelled)),
+                result = health.changed() => if result.is_err() { return Err(failure(DialError::Closed)); },
+            }
+        };
+        drop(waiting);
+        if remaining.is_zero() {
+            return Err(failure(DialError::Timeout));
+        }
+        let started = Instant::now();
+        let deadline = started + remaining;
+        let work = operation(deadline);
+        tokio::pin!(work);
+        loop {
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => return Err(failure(DialError::Cancelled)),
+                changed = health.changed() => {
+                    if changed.is_err() { return Err(failure(DialError::Closed)); }
+                    if !matches!(*health.borrow(), RuntimeHealth::Connected { reconnect_count, .. } if reconnect_count == epoch) {
+                        remaining = remaining.saturating_sub(started.elapsed());
+                        break;
+                    }
+                },
+                result = &mut work => return result,
+                _ = tokio::time::sleep_until(deadline) => return Err(failure(DialError::Timeout)),
+            }
+        }
+    }
+}
+
 #[async_trait]
 pub(crate) trait TcpDialer: Send + Sync {
     fn is_ready(&self) -> bool {
@@ -263,6 +344,7 @@ impl TcpDialer for StackDialer {
 /// Shared frontend context; an optional factory owns each final UDP association.
 #[derive(Clone)]
 pub(crate) struct ProxyServices {
+    pub(crate) telemetry: crate::ConnectionTelemetry,
     pub(crate) traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
     pub(crate) admission: Option<Arc<FrontendAdmission>>,
     pub(crate) dialer: Arc<dyn TcpDialer>,
@@ -273,6 +355,63 @@ pub(crate) struct ProxyServices {
     pub(crate) counters: Arc<crate::netstack::TrafficCounters>,
     pub(crate) cancellation: CancellationToken,
     pub(crate) health: tokio::sync::watch::Receiver<crate::netstack::RuntimeHealth>,
+}
+
+pub(crate) type DeferredServices = Arc<std::sync::RwLock<Option<ProxyServices>>>;
+
+pub(crate) struct DeferredDialer(pub(crate) DeferredServices);
+#[async_trait]
+impl TcpDialer for DeferredDialer {
+    fn is_ready(&self) -> bool {
+        self.0
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|s| s.dialer.is_ready())
+    }
+    fn session_generation(&self) -> Option<u64> {
+        self.0
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|s| s.dialer.session_generation())
+    }
+    async fn connect(
+        &self,
+        target: TcpTarget,
+        deadline: Instant,
+        cancellation: &CancellationToken,
+        class: FlowClass,
+    ) -> Result<TcpStream, DialError> {
+        let dialer = self
+            .0
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|s| s.dialer.clone())
+            .ok_or(DialError::Closed)?;
+        dialer.connect(target, deadline, cancellation, class).await
+    }
+}
+#[async_trait]
+impl crate::proxy_udp::UdpFactory for DeferredDialer {
+    fn generation(&self) -> Option<u64> {
+        self.session_generation()
+    }
+    async fn open(
+        &self,
+        cancellation: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<Arc<dyn crate::proxy_udp::UdpAssociation>, DialError> {
+        let factory = self
+            .0
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|s| s.udp.clone())
+            .ok_or(DialError::Closed)?;
+        factory.open(cancellation, deadline).await
+    }
 }
 
 impl ProxyServices {
@@ -288,7 +427,8 @@ impl ProxyServices {
             profile.dns_servers.clone()
         };
         Self {
-            admission: None,
+            telemetry: stack.telemetry.clone(),
+            admission: Some(stack.frontend_admission.clone()),
             traffic_policy: Arc::clone(&stack.traffic_policy),
             dialer: Arc::new(StackDialer {
                 channel: stack.channel.clone(),
@@ -331,6 +471,18 @@ pub(crate) struct FrontendPermit {
 }
 
 impl FrontendAdmission {
+    pub(crate) fn for_connect_ip() -> Arc<Self> {
+        let limits = crate::l4::Limits::platform();
+        Arc::new(Self::new(
+            Arc::new(crate::l4::BufferBudget::new(
+                limits.buffers,
+                Arc::default(),
+                Arc::default(),
+            )),
+            limits.active + limits.pending,
+        ))
+    }
+
     pub(crate) fn new(budget: Arc<crate::l4::BufferBudget>, capacity: usize) -> Self {
         Self {
             permits: Arc::new(tokio::sync::Semaphore::new(capacity)),
@@ -366,6 +518,10 @@ impl FrontendAdmission {
             .reserve_admission(query_bytes + usize::from(u16::MAX) + 16 * 1024 + 256)
     }
 }
+
+#[cfg(test)]
+#[path = "tcp_recovery_tests.rs"]
+mod recovery_tests;
 
 #[cfg(test)]
 mod tests {

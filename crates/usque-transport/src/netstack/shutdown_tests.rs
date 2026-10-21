@@ -6,7 +6,6 @@ use tokio::sync::oneshot;
 
 use super::*;
 use crate::h3::regression_tests::{ClosedTestChannel, tunnel_with_closed_channel};
-use crate::recovery_policy::AutoRecoveryPolicy;
 
 const CHANNELS: [ClosedTestChannel; 4] = [
     ClosedTestChannel::Send,
@@ -115,37 +114,10 @@ async fn h3_shutdown_preserves_typed_failure_before_and_after_driver_completion(
                     failure, expected,
                     "channel={channel:?}, finished={already_finished}"
                 );
-                let mut policy = AutoRecoveryPolicy::default();
-                let now = Instant::now();
-                let immediate = policy.record_failure(&failure, None, Duration::from_secs(1), now);
                 assert_eq!(
-                    immediate,
-                    expected.code == TransportFailureCode::PmtuRevalidationExhausted
+                    RecoveryDecision::for_failure(&failure),
+                    RecoveryDecision::for_failure(&expected)
                 );
-                assert_eq!(
-                    policy.reconnect_transport(TransportPolicy::Auto, None, now),
-                    if immediate {
-                        TransportPolicy::Http2
-                    } else {
-                        TransportPolicy::Auto
-                    }
-                );
-                if expected.fallback_allowed {
-                    assert!(policy.record_failure(&failure, None, Duration::from_secs(1), now));
-                    assert_eq!(
-                        policy.reconnect_transport(TransportPolicy::Auto, None, now),
-                        TransportPolicy::Http2
-                    );
-                }
-                if !expected.fallback_allowed {
-                    for _ in 0..3 {
-                        assert!(!policy.record_failure(&failure, None, Duration::ZERO, now));
-                    }
-                    assert_eq!(
-                        policy.reconnect_transport(TransportPolicy::Auto, None, now),
-                        TransportPolicy::Auto
-                    );
-                }
             }
         }
     }

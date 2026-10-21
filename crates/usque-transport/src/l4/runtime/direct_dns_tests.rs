@@ -205,6 +205,7 @@ async fn final_proxy_encrypted_direct_dns_fails_closed_without_plaintext_fallbac
                 None,
                 &cancellation,
                 Instant::now() + Duration::from_secs(5),
+                false,
             )
             .await
             .unwrap();

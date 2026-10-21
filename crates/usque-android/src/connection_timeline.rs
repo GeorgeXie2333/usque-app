@@ -131,6 +131,7 @@ fn to_value(snapshot: &ConnectionTimelineSnapshot) -> Value {
             "elapsed_from_attempt_start_milliseconds": millis(event.elapsed_from_attempt_start),
             "event_type": event_type(event.event_type),
             "candidate_id": event.candidate_id, "enrollment_round": event.enrollment_round,
+            "repetitions": event.repetitions,
             "queue_kind": event.queue_kind.map(usque_transport::QueueKind::as_str),
             "stage": event.stage.map(|stage| stage.as_str()),
             "transport": event.transport.map(|transport| match transport { Transport::Http2 => "http2", Transport::Http3 => "http3" }),
@@ -154,6 +155,8 @@ fn to_value(snapshot: &ConnectionTimelineSnapshot) -> Value {
             "send_queue_drop_count": metrics.send_queue_drop_count.min(i64::MAX as u64),
             "last_failure_code": metrics.last_failure_code.map(|code| code.as_str()),
             "last_reconnect_code": metrics.last_reconnect_code.map(|code| code.as_str()),
+            "waiting_requests": metrics.waiting_requests,
+            "peak_waiting_requests": metrics.peak_waiting_requests,
         }
     })
 }
@@ -228,6 +231,7 @@ mod tests {
         );
         failure.sanitized_detail = Some("private.example 192.0.2.1 SSID=private".to_owned());
         let event = ConnectionEvent {
+            repetitions: 1,
             candidate_id: None,
             enrollment_round: None,
             queue_kind: None,

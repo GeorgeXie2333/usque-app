@@ -156,21 +156,161 @@ pub struct MasqueRuntime {
     assigned_ipv4: Ipv4Addr,
     assigned_ipv6: Ipv6Addr,
     internal_network: crate::InternalNetwork,
+    deferred_frontends: Option<PendingFrontends>,
 }
 
-struct BoundFrontends {
+pub(crate) struct BoundFrontends {
     socks5: Option<Vec<tokio::net::TcpListener>>,
     http: Option<Vec<tokio::net::TcpListener>>,
     credentials: Option<ProxyAuthCredentials>,
 }
+impl BoundFrontends {
+    pub(crate) fn bind(profile: &Profile) -> Result<Self, TransportError> {
+        let credentials = profile
+            .proxy
+            .listener_credentials()
+            .map_err(|_| TransportError::InvalidIdentity)?;
+        let socks5 = profile
+            .frontends
+            .socks5
+            .then(|| Socks5Frontend::prebind(profile))
+            .transpose()?;
+        let http = profile
+            .frontends
+            .http
+            .then(|| HttpProxyFrontend::prebind(profile))
+            .transpose()?;
+        Ok(Self {
+            socks5,
+            http,
+            credentials,
+        })
+    }
+}
+
+pub(crate) struct PendingFrontends {
+    socks5: Option<Socks5Frontend>,
+    http: Option<HttpProxyFrontend>,
+    target: crate::tcp::DeferredServices,
+    traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
+    health: watch::Sender<RuntimeHealth>,
+    cancellation: CancellationToken,
+    relay: Option<tokio_util::task::AbortOnDropHandle<()>>,
+}
+impl Drop for PendingFrontends {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+    }
+}
+impl PendingFrontends {
+    pub(crate) fn start(
+        profile: &Profile,
+        mut services: crate::tcp::ProxyServices,
+    ) -> Result<Self, TransportError> {
+        let bound = BoundFrontends::bind(profile)?;
+        let target = Arc::new(std::sync::RwLock::new(None));
+        let cancellation = CancellationToken::new();
+        let health = watch::channel(RuntimeHealth::Connecting {
+            requested: services.health.borrow().path(),
+            attempt: 0,
+        })
+        .0;
+        let traffic_policy = Arc::new(crate::application_traffic::ApplicationTrafficPolicy::new(
+            profile.disable_quic,
+        ));
+        services.traffic_policy = traffic_policy.clone();
+        services.resolver = services.resolver.deferred(target.clone(), profile);
+        services.dialer = Arc::new(crate::tcp::DeferredDialer(target.clone()));
+        services.udp = Some(Arc::new(crate::tcp::DeferredDialer(target.clone())));
+        services.cancellation = cancellation.clone();
+        services.health = health.subscribe();
+        let socks5 = bound
+            .socks5
+            .map(|bound| Socks5Frontend::activate_services(profile, services.clone(), bound))
+            .transpose()?;
+        let http = bound
+            .http
+            .map(|bound| HttpProxyFrontend::activate_services(profile, services.clone(), bound))
+            .transpose()?;
+        Ok(Self {
+            socks5,
+            http,
+            target,
+            traffic_policy,
+            health,
+            cancellation,
+            relay: None,
+        })
+    }
+    pub(crate) fn update_traffic_policy(&self, disable_quic: bool) {
+        self.traffic_policy.set_disable_quic(disable_quic);
+    }
+
+    pub(crate) fn attach(mut self, runtime: &mut MasqueRuntime, profile: &Profile) {
+        let services = runtime.proxy_services(profile);
+        let mut source = services.health.clone();
+        *self.target.write().unwrap_or_else(|e| e.into_inner()) = Some(services);
+        self.health.send_replace(source.borrow_and_update().clone());
+        let publisher = self.health.clone();
+        let cancellation = self.cancellation.clone();
+        self.relay = Some(tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
+            async move {
+                loop {
+                    tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => return,
+                        changed = source.changed() => {
+                            if changed.is_err() { cancellation.cancel(); return; }
+                            publisher.send_replace(source.borrow_and_update().clone());
+                        }
+                    }
+                }
+            },
+        )));
+        runtime.socks5 = self.socks5.take();
+        runtime.http = self.http.take();
+        let credentials = profile.proxy.listener_credentials().ok().flatten();
+        runtime.socks5_spec = runtime
+            .socks5
+            .as_ref()
+            .map(|s| FrontendSpec::socks5(s.listeners(), profile, credentials.clone()));
+        runtime.http_spec = runtime
+            .http
+            .as_ref()
+            .map(|s| FrontendSpec::http(s.listeners(), profile, credentials.clone()));
+        runtime.listeners = runtime
+            .socks5
+            .iter()
+            .flat_map(|s| s.listeners().iter().copied())
+            .chain(
+                runtime
+                    .http
+                    .iter()
+                    .flat_map(|s| s.listeners().iter().copied()),
+            )
+            .collect();
+        runtime.deferred_frontends = Some(self);
+    }
+}
 
 impl MasqueRuntime {
+    pub(crate) fn proxy_services(&self, profile: &Profile) -> crate::tcp::ProxyServices {
+        crate::tcp::ProxyServices::from_stack(
+            profile,
+            self.assigned_ipv4,
+            self.assigned_ipv6,
+            &self.stack,
+        )
+    }
     pub(crate) fn ads_policy(&self) -> &GeoDirectPolicy {
         &self.stack.geo_policy
     }
     /// Update all existing application forwarding tasks without replacing flows.
     pub fn update_traffic_policy(&self, disable_quic: bool) {
         self.stack.traffic_policy.set_disable_quic(disable_quic);
+        if let Some(deferred) = &self.deferred_frontends {
+            deferred.update_traffic_policy(disable_quic);
+        }
     }
     pub async fn start(
         profile: &Profile,
@@ -323,6 +463,7 @@ impl MasqueRuntime {
 
     /// Reuses the final packet stack, routing and frontend machinery for an
     /// embedded VPN. There is still exactly one system TUN consumer.
+    #[cfg(test)]
     pub(crate) async fn start_over_tunnel(
         profile: &Profile,
         tunnel: ManagedTunnelRuntime,
@@ -330,33 +471,22 @@ impl MasqueRuntime {
         protector: Arc<dyn SocketProtector>,
         policy: Arc<GeoDirectPolicy>,
     ) -> Result<Self, TransportError> {
-        let credentials = profile
-            .proxy
-            .listener_credentials()
-            .map_err(|_| TransportError::InvalidIdentity)?;
-        let socks5 = profile
-            .frontends
-            .socks5
-            .then(|| Socks5Frontend::prebind(profile))
-            .transpose()?;
-        let http = profile
-            .frontends
-            .http
-            .then(|| HttpProxyFrontend::prebind(profile))
-            .transpose()?;
-        Self::start_bound(
-            profile,
-            tunnel,
-            addresses,
-            protector,
-            policy,
-            BoundFrontends {
-                socks5,
-                http,
-                credentials,
-            },
-        )
-        .await
+        Self::start_over_bound_tunnel(profile, tunnel, addresses, protector, policy, None).await
+    }
+
+    pub(crate) async fn start_over_bound_tunnel(
+        profile: &Profile,
+        tunnel: ManagedTunnelRuntime,
+        addresses: (Ipv4Addr, Ipv6Addr),
+        protector: Arc<dyn SocketProtector>,
+        policy: Arc<GeoDirectPolicy>,
+        bound: Option<BoundFrontends>,
+    ) -> Result<Self, TransportError> {
+        let bound = match bound {
+            Some(bound) => bound,
+            None => BoundFrontends::bind(profile)?,
+        };
+        Self::start_bound(profile, tunnel, addresses, protector, policy, bound).await
     }
 
     async fn start_bound(
@@ -494,6 +624,7 @@ impl MasqueRuntime {
             assigned_ipv4,
             assigned_ipv6,
             internal_network,
+            deferred_frontends: None,
         })
     }
 
@@ -797,6 +928,9 @@ impl MasqueRuntime {
     }
 
     pub fn cancel_immediately(&mut self) {
+        if let Some(deferred) = &self.deferred_frontends {
+            deferred.cancellation.cancel();
+        }
         // Cut every ingress before any slower platform cleanup begins.
         self.raw_outgoing.take();
         if let Some(frontend) = self.socks5.as_mut() {
@@ -1337,6 +1471,102 @@ mod tests {
         }
         packet[10..12].copy_from_slice(&(!(sum as u16)).to_be_bytes());
         Bytes::from(packet)
+    }
+
+    #[tokio::test]
+    async fn deferred_frontends_serve_protocol_and_direct_before_exit_and_reuse_ports() {
+        struct LocalDirect;
+        impl crate::GeoDirectClassifier for LocalDirect {
+            fn host_matches(&self, _: &str, _: &usque_geo::CountryCode) -> bool {
+                false
+            }
+            fn ip_matches(&self, ip: IpAddr, _: &usque_geo::CountryCode) -> bool {
+                ip.is_loopback()
+            }
+        }
+        let socks = free_loopback();
+        let http = free_loopback();
+        let mut profile = proxy_profile(socks, http);
+        profile.disable_quic = true;
+        let mut headless = profile.clone();
+        headless.frontends.socks5 = false;
+        headless.frontends.http = false;
+        let path = RuntimePath {
+            transport: usque_core::Transport::Http3,
+            endpoint_family: usque_core::AddressFamily::Ipv4,
+            ipv4_available: true,
+            ipv6_available: false,
+        };
+        let (tunnel, _channels) =
+            ManagedTunnelRuntime::for_external_packets(path, Default::default());
+        let mut runtime = MasqueRuntime::start_over_tunnel(
+            &headless,
+            tunnel,
+            (Ipv4Addr::new(172, 16, 0, 2), Ipv6Addr::UNSPECIFIED),
+            crate::socket::noop_socket_protector(),
+            Arc::new(GeoDirectPolicy::disabled()),
+        )
+        .await
+        .unwrap();
+        let mut services = runtime.proxy_services(&profile);
+        services.geo_policy = Arc::new(GeoDirectPolicy::with_classifier(
+            Arc::new(LocalDirect),
+            [usque_geo::CountryCode::parse("JP").unwrap()],
+        ));
+        let pending = PendingFrontends::start(&profile, services).unwrap();
+        let policy = pending.traffic_policy.clone();
+        assert!(policy.blocks_udp(443));
+        assert_eq!(socks_no_auth_method(socks).await, 0);
+        let mut waiting = tokio::net::TcpStream::connect(http).await.unwrap();
+        waiting
+            .write_all(b"CONNECT pending.example:443 HTTP/1.1\r\nHost: pending.example:443\r\n\r\n")
+            .await
+            .unwrap();
+        assert!(
+            timeout(Duration::from_millis(30), waiting.read_u8())
+                .await
+                .is_err()
+        );
+        let origin = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let remote = origin.local_addr().unwrap();
+        let mut direct = tokio::net::TcpStream::connect(socks).await.unwrap();
+        direct.write_all(&[5, 1, 0]).await.unwrap();
+        let mut method = [0; 2];
+        direct.read_exact(&mut method).await.unwrap();
+        assert_eq!(method, [5, 0]);
+        let mut command = vec![5, 1, 0, 1, 127, 0, 0, 1];
+        command.extend_from_slice(&remote.port().to_be_bytes());
+        direct.write_all(&command).await.unwrap();
+        let mut reply = [0; 10];
+        timeout(Duration::from_secs(2), direct.read_exact(&mut reply))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reply[1], 0);
+        let (mut peer, _) = origin.accept().await.unwrap();
+        pending.attach(&mut runtime, &profile);
+        assert_eq!(runtime.socks5_listeners(), &[socks]);
+        assert_eq!(runtime.http_listeners(), &[http]);
+        runtime.update_traffic_policy(false);
+        assert!(!policy.blocks_udp(443));
+        direct.write_all(b"kept").await.unwrap();
+        let mut received = [0; 4];
+        timeout(Duration::from_secs(2), peer.read_exact(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&received, b"kept");
+        runtime.shutdown().await;
+        assert_eq!(
+            timeout(Duration::from_secs(1), direct.read_u8())
+                .await
+                .unwrap()
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::UnexpectedEof
+        );
+        assert!(tokio::net::TcpStream::connect(socks).await.is_err());
+        assert!(tokio::net::TcpStream::connect(http).await.is_err());
     }
 
     #[test]
@@ -2138,6 +2368,7 @@ mod tests {
         let (tun_sink, tun_sink_rx) = watch::channel(None);
         tokio::task::yield_now().await;
         MasqueRuntime {
+            deferred_frontends: None,
             internal_network: crate::InternalNetwork::for_stack(
                 profile,
                 &stack,

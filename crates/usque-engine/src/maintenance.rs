@@ -468,6 +468,7 @@ fn connection_timeline_summary(timeline: &ConnectionTimelineSnapshot) -> serde_j
                 ),
                 "event_type": connection_event_type_name(event.event_type),
                 "candidate_id": event.candidate_id, "enrollment_round": event.enrollment_round,
+                "repetitions": event.repetitions,
                 "queue_kind": event.queue_kind.map(usque_transport::QueueKind::as_str),
                 "stage": event.stage.map(usque_core::TransportStage::as_str),
                 "transport": event.transport,
@@ -493,6 +494,8 @@ fn connection_timeline_summary(timeline: &ConnectionTimelineSnapshot) -> serde_j
             "send_queue_drop_count": timeline.metrics.send_queue_drop_count,
             "last_failure_code": timeline.metrics.last_failure_code.map(usque_core::TransportFailureCode::as_str),
             "last_reconnect_code": timeline.metrics.last_reconnect_code.map(usque_core::TransportFailureCode::as_str),
+            "waiting_requests": timeline.metrics.waiting_requests,
+            "peak_waiting_requests": timeline.metrics.peak_waiting_requests,
         }
     })
 }

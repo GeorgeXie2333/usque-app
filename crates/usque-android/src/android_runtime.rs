@@ -46,6 +46,7 @@ pub(super) fn is_running() -> bool {
 }
 
 enum RuntimeCommand {
+    WakeRecovery,
     Reconfigure {
         profile: Profile,
         deadline: Instant,
@@ -68,6 +69,15 @@ enum RuntimeCommand {
     },
 }
 
+pub(super) fn wake_recovery() {
+    if let Some(engine) = ENGINE.get()
+        && let Ok(slot) = engine.lock()
+        && let Some(handle) = slot.as_ref()
+    {
+        let _ = handle.commands.send(RuntimeCommand::WakeRecovery);
+    }
+}
+
 struct EngineHandle {
     cancellation: CancellationToken,
     status: Arc<Mutex<NativeSnapshot>>,
@@ -81,6 +91,7 @@ struct EngineHandle {
 
 pub(super) fn start(
     tun_file_descriptor: i32,
+    continuous: bool,
     profile: Profile,
     identity: WarpIdentity,
     geo_cache_dir: PathBuf,
@@ -89,6 +100,7 @@ pub(super) fn start(
     spawn_runtime(
         "usque-vpn",
         Some(tun_file_descriptor),
+        continuous,
         profile,
         identity,
         geo_cache_dir,
@@ -97,6 +109,7 @@ pub(super) fn start(
 }
 
 pub(super) fn start_proxy(
+    continuous: bool,
     profile: Profile,
     identity: WarpIdentity,
     geo_cache_dir: PathBuf,
@@ -105,6 +118,7 @@ pub(super) fn start_proxy(
     spawn_runtime(
         "usque-proxy",
         None,
+        continuous,
         profile,
         identity,
         geo_cache_dir,
@@ -112,17 +126,23 @@ pub(super) fn start_proxy(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "startup carries the continuous command flag alongside the owned native inputs"
+)]
 fn spawn_runtime(
     thread_name: &str,
     tun_file_descriptor: Option<i32>,
+    continuous: bool,
     profile: Profile,
     identity: WarpIdentity,
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> i32 {
-    let connection_deadline = Arc::new(Mutex::new(Some(
-        Instant::now() + usque_core::endpoint_connection_budget(&profile),
-    )));
+    let connection_deadline =
+        Arc::new(Mutex::new((!continuous).then(|| {
+            Instant::now() + usque_core::endpoint_connection_budget(&profile)
+        })));
     clear_last_start_error();
     let engine = ENGINE.get_or_init(|| Mutex::new(None));
     let mut slot = match engine.lock() {
@@ -217,6 +237,7 @@ fn spawn_runtime(
                 }
             };
             runtime.block_on(run(
+                continuous,
                 tun,
                 profile,
                 tls_identity,
@@ -246,6 +267,9 @@ fn spawn_runtime(
         thread: Arc::new(Mutex::new(Some(thread))),
     });
     drop(slot);
+    if continuous {
+        return START_OK;
+    }
 
     let wait = connection_deadline
         .lock()
@@ -497,6 +521,7 @@ fn last_start_error() -> Option<NativeSnapshot> {
     reason = "session startup owns optional TUN, profile, identity, protector, pin refresh, cancellation, status, start handshake, and reconfigure commands"
 )]
 async fn run(
+    continuous: bool,
     tun: Option<OwnedFd>,
     profile: Profile,
     identity: MasqueTlsIdentity,
@@ -566,6 +591,7 @@ async fn run(
             Some(pin_refresher),
             geo_policy,
             usque_transport::VpnGateStart {
+                continuous,
                 selected: selected_gate,
                 status: Some(gate_tx.clone()),
                 cancellation: cancellation.clone(),
@@ -686,6 +712,9 @@ fn spawn_exit_probe(context: &GateContext, tunnel: &DataPlaneRuntime, profile: &
         .chain_enabled()
         .then(|| tunnel.gate_status().generation);
     tokio::spawn(async move {
+        if network.wait_until_ready().await.is_err() {
+            return;
+        }
         if let Some(Ok(exit)) = run_probe(&cancellation, network.probe_exit()).await
             && let Ok(mut snapshot) = status.lock()
             && !cancellation.is_cancelled()
@@ -1018,6 +1047,7 @@ async fn handle_runtime_command(
 ) {
     let status = &gate_context.snapshot;
     match command {
+        RuntimeCommand::WakeRecovery => tunnel.request_recovery(),
         RuntimeCommand::RejectFinalNetwork { reply, cancelled } => {
             if !super::jni_command_abandoned(&cancelled) && profile.chain_enabled() {
                 gate_context.exit_probe.cancel();
@@ -1319,6 +1349,21 @@ fn update_health(
     );
     snapshot.reconnect_count = health.reconnect_count();
     match health {
+        RuntimeHealth::Connecting { requested, .. } => {
+            snapshot.transport = None;
+            snapshot.address_family = None;
+            snapshot.tunnel_ipv4_available = false;
+            snapshot.tunnel_ipv6_available = false;
+            snapshot.phase = if requested.transport == Transport::Http2 {
+                "connectingH2"
+            } else {
+                "connectingH3"
+            }
+            .to_owned();
+            snapshot.warning = None;
+            snapshot.error_code = None;
+            snapshot.failure = None;
+        }
         RuntimeHealth::Connected { path, .. } => {
             snapshot.tunnel_ipv4_available = path.ipv4_available;
             snapshot.tunnel_ipv6_available = path.ipv6_available;
