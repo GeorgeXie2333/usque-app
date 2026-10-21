@@ -2,13 +2,15 @@ package io.github.georgexie2333.usque
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
+import android.app.Dialog
+import android.content.res.Configuration
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
@@ -24,7 +26,12 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.ImageButton
 import androidx.core.net.toUri
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayInputStream
 import java.security.SecureRandom
@@ -38,7 +45,7 @@ internal class ProtonVerificationWindow(
     private val activity: Activity,
 ) {
     private val handler = Handler(Looper.getMainLooper())
-    private var dialog: AlertDialog? = null
+    private var dialog: Dialog? = null
 
     @Volatile private var webView: WebView? = null
 
@@ -280,22 +287,46 @@ internal class ProtonVerificationWindow(
                         }
                     }
                 }
-            dialog =
-                AlertDialog
-                    .Builder(
-                        activity,
-                    ).setTitle(
-                        "Proton VPN",
-                    ).setView(browser)
-                    .setNegativeButton(android.R.string.cancel) { _, _ -> if (currentWindow()) cancel() }
-                    .create()
-                    .also {
-                        // A puzzle drag may leave the dialog bounds. Only the
-                        // Cancel button or Back should cancel the native job.
-                        it.setCanceledOnTouchOutside(false)
-                        it.setOnCancelListener { if (currentWindow()) cancel() }
-                        it.show()
-                    }
+            val modal = Dialog(activity, R.style.ProtonVerificationTheme)
+            dialog = modal
+            modal.setContentView(R.layout.proton_verification)
+            val content = modal.findViewById<View>(R.id.proton_verification_content)
+            ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
+                val safeArea =
+                    insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars() or
+                            WindowInsetsCompat.Type.displayCutout() or
+                            WindowInsetsCompat.Type.ime(),
+                    )
+                view.setPadding(safeArea.left, safeArea.top, safeArea.right, safeArea.bottom)
+                WindowInsetsCompat.CONSUMED
+            }
+            modal.findViewById<FrameLayout>(R.id.proton_verification_browser).addView(
+                browser,
+                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+            )
+            modal.findViewById<ImageButton>(R.id.proton_verification_close).apply {
+                val label = AndroidLocaleController.getString(activity, android.R.string.cancel)
+                contentDescription = label
+                tooltipText = label
+                setOnClickListener { if (currentWindow()) cancel() }
+            }
+            // Page content must never measure or resize the native window.
+            // Keep the close control outside the WebView and inside safe insets.
+            modal.window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
+            modal.setCanceledOnTouchOutside(false)
+            modal.setOnCancelListener { if (currentWindow()) cancel() }
+            modal.show()
+            modal.window?.let { window ->
+                window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                val nightMode = activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+                val light = nightMode != Configuration.UI_MODE_NIGHT_YES
+                WindowCompat.getInsetsController(window, content).apply {
+                    isAppearanceLightStatusBars = light
+                    isAppearanceLightNavigationBars = light
+                }
+            }
+            ViewCompat.requestApplyInsets(content)
             handler.postDelayed(timeout, remaining.coerceAtMost(250))
             CookieManager.getInstance().removeAllCookies {
                 if (result === reply && webView === browser && generation == opening) {

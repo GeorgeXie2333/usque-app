@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="proton_verification_title" translatable="false">Proton VPN</string>
     <string name="vpn_channel_name">Usque network service</string>
     <string name="vpn_channel_description">Persistent status for the active Usque VPN or local proxy</string>
     <string name="vpn_notif_disconnect">Disconnect</string>

@@ -34,13 +34,14 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
 3. If requested, enter the six-digit **Authenticator code**. The implemented
    second factor is TOTP. Other required sign-in methods are reported as
    unsupported rather than silently skipped.
-4. Android opens the official verification window automatically when Proton
-   requires it. On desktop, select **Complete verification** when
+4. Android opens the official verification page automatically in a fixed
+   full-screen window with an **X** at the top right when Proton requires it.
+   On desktop, select **Complete verification** when
    **Verification required** appears. Finish the puzzle yourself; the window
-   closes and setup resumes when its result is accepted. Use **Cancel** or
-   Android Back to abandon verification. Android reports window failures as
-   errors, separately from cancellation, and shows a verification error code
-   when available. The app does not solve,
+   closes and setup resumes when its result is accepted. Use the **X** or
+   Android Back to abandon verification on Android, or **Cancel** on desktop.
+   Android reports window failures as errors, separately from cancellation,
+   and shows a verification error code when available. The app does not solve,
    drag or automate the puzzle. A challenge is usable once, for the current
    job/session/challenge, for at most five minutes.
 5. Setup saves the account, its local key and the complete eligible logical
@@ -67,9 +68,9 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
 准备 Proton 账号不要求 WARP 身份或已连接的 WARP。
 在“Proton 账号”下选择“以游客身份继续”或“登录 Proton”（已有账号后两者位于
 “添加账号”中），按提示输入密码、六位身份验证器验证码，
-由本人完成官方窗口的拼图。Android 自动打开验证窗口，桌面点击“完成人机验证”。
-取消或 Android 返回键会终止任务；窗口失败单独显示错误。挑战绑定本次任务、会话
-和当前挑战，最多五分钟、使用一次。12087 表示验证结果被拒，应用清除该结果，
+由本人完成官方窗口的拼图。Android 自动打开固定全屏验证窗口，右上角 **X** 或
+返回键会终止任务；桌面点击“完成人机验证”，可用“取消”退出。窗口失败单独显示错误。
+挑战绑定本次任务、会话和当前挑战，最多五分钟、使用一次。12087 表示验证结果被拒，应用清除该结果，
 最多重新获取一次挑战，新的拼图仍需本人完成；再次失败会显示错误。
 
 On Windows and Linux, **Continue as guest** automatically uses a fixed synthetic
