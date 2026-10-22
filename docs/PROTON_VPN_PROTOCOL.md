@@ -435,8 +435,10 @@ Root DER SHA-256 为
 
 拼图本身已有独立的官方 frame 消息合同，其调用链为：
 
-1. `g`（约 514437）构造同源 `/core/v4/captcha`，设置 `Token` 为当前 start
-   token，并设置 `ForceWebMessaging=1`。
+1. `g`（约 514437）调用 `Uq` 构造 `/core/v4/captcha`，设置 `Token` 为当前
+   start token，并设置 `ForceWebMessaging=1`。`Uq`（模块 46083）在生产域名上
+   将主机改为 `verify-api.proton.me`，因此 iframe 与顶层 `verify.proton.me`
+   跨来源；只有 localhost、IP 及指定开发域名才走同源 `/api` 前缀。
 2. frame listener（约 514952）校验 origin 及该 iframe 的 `contentWindow`，
    收到 `pm_captcha` 后将 `event.data.token` 原样传给 `onSubmit`。
 3. captcha method（约 550680）把该值原样传为 `onSubmit(value, "captcha")`。
@@ -450,6 +452,13 @@ Windows 原生实现据此限定为 CAPTCHA，强制官方页面的允许方法�
 frame 的严格来源、路径、唯一 `Token`、`ForceWebMessaging=1`、消息 source、
 当前挑战 SHA-256、期限及一次性状态后，将该值映射为同一嵌入 success schema。
 不解决或操作拼图。没有可用 CAPTCHA 方法时直接报告不可用。
+
+2026-10-22 复核纠正了此前的“同源”假设。直接接收 `pm_captcha` 时必须校验
+`https://verify-api.proton.me`，顶层成功消息及原生消息来源仍必须为
+`https://verify.proton.me`，两者不能混用。Linux 导航策略只为当前挑战、指定路径、
+唯一 `Token` 和 `ForceWebMessaging=1` 的验证码 iframe 增加来源许可；顶层响应
+和原生回调继续要求原挑战根 URL。Android 保留正常的顶层转发路径，并修正备用
+直接接收路径的验证码来源；不会向任意子 frame 暴露 native interface。
 
 2026-10-20 的回调修正将 Windows 结果传递改为绑定随机 nonce 的
 [WebMessageReceived](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2#add_webmessagereceived)
@@ -487,9 +496,15 @@ token、原生窗口桥接或 API 请求身份。
 
 [离线永久回归](../tool/test_proton_native_bridge.py)使用独立接口 fixture 表达
 上述平台选择和 frame 结果路由，执行实际生成的监听代码，保留 Windows 空分支，
-覆盖脚本对话框无回调、缺少顶层转发、submit 移除 iframe、重复结果及错误来源，
+使用生产环境的跨来源 iframe 地址，并按该 iframe 的 origin 模拟官方父页面的
+转发。覆盖脚本对话框无回调、缺少顶层转发、submit 移除 iframe、重复结果及错误来源，
 并验证结果 token 未拼接。未把官方 JavaScript 源码复制进仓库，也没有据此宣称
 真实 WebView 页面、服务端接受性或 WebView/API 出口一致性已经通过。
+
+[Windows WebView2 回归](../apps/usque_gui/windows/runner/proton_verification_webview_test.cpp)
+另以真实浏览器内核加载两个不同 HTTPS origin 的合成文档，执行正式 Session 的
+注入、原生回调和关闭流程；所有请求均被拦截为本地合成响应。它验证跨来源结果
+会自动关闭窗口及错误来源、错误挑战被拒绝，不等价于真实 Proton 拼图或服务端验收。
 
 
 ## 逻辑节点、会话与证书生命周期补充

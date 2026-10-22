@@ -143,12 +143,12 @@ gboolean Policy(void*,void* decision,int type,gpointer data) {
     void* request=action ? api.request(action) : nullptr;
     const char* url=request ? api.request_uri(request) : nullptr;
     // Older WebKitGTK has no reliable main-frame navigation-action marker.
-    // Require the official origin for every frame; the same-origin
-    // /core/v4/captcha iframe must remain available. Never infer top from an
-    // empty frame name. Main-resource responses and every bridge message also
-    // require the exact challenge hash/root URL below. Subresources remain
-    // subject to Proton's own CSP.
-    if (url && usque::proton::Official(url)) api.use(decision);
+    // The CAPTCHA is cross-origin on verify-api.proton.me. Allow only its
+    // exact path and current challenge hash/ForceWebMessaging query, alongside
+    // the official page origin. Never infer top from an empty frame name.
+    // Main-resource responses and bridge messages still require the exact
+    // challenge root URL below. Subresources retain Proton's own CSP.
+    if (url && session->handoff.NavigationAllowed(url,Sha)) api.use(decision);
     else api.ignore(decision);
   } else if (type==2) { // WEBKIT_POLICY_DECISION_TYPE_RESPONSE
     if (api.main_resource(decision)) {

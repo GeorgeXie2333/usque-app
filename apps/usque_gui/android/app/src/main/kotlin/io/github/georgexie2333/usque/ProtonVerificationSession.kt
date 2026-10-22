@@ -74,6 +74,7 @@ internal class ProtonVerificationSession private constructor(
               'use strict';
               const s = $settings;
               const origin = 'https://verify.proton.me';
+              const captchaOrigin = 'https://verify-api.proton.me';
               const initial = new URL(window.location.href);
               const tokens = initial.searchParams.getAll('token');
               const same = () => {
@@ -95,18 +96,19 @@ internal class ProtonVerificationSession private constructor(
                 const receive = e => {
                   if (used) return;
                   if (!same()) { stop(); return; }
-                  if (e.origin !== origin) return;
                   let message;
-                  if (e.source === window && typeof e.data === 'string' && e.data.length <= 32768) {
+                  if (e.origin === origin && e.source === window && typeof e.data === 'string' && e.data.length <= 32768) {
                     message = e.data;
-                  } else if (s.methods.includes('captcha') && e.data && typeof e.data === 'object' && !Array.isArray(e.data) && e.data.type === 'pm_captcha' && typeof e.data.token === 'string' && /^[\x21-\x7e]{1,8192}$/.test(e.data.token)) {
+                  } else if (e.origin === captchaOrigin && s.methods.includes('captcha') && e.data && typeof e.data === 'object' && !Array.isArray(e.data) && e.data.type === 'pm_captcha' && typeof e.data.token === 'string' && /^[\x21-\x7e]{1,8192}$/.test(e.data.token)) {
+                    const page = new URL(window.location.href);
+                    if (page.searchParams.getAll('embed').length !== 1 || page.searchParams.get('embed') !== 'true') return;
                     // The official embedded page forwards this token unchanged.
                     // Receive it directly as well, before relying on its second
                     // asynchronous top-level dispatch. Never expose a JS interface.
                     const frames = Array.from(document.querySelectorAll('iframe')).filter(frame => {
                       try {
                         const u = new URL(frame.src), values = u.searchParams.getAll('Token'), force = u.searchParams.getAll('ForceWebMessaging');
-                        return u.origin === origin && !u.username && !u.password && u.pathname === '/core/v4/captcha' && !u.hash && values.length === 1 && values[0] === tokens[0] && force.length === 1 && force[0] === '1';
+                        return u.origin === captchaOrigin && !u.username && !u.password && u.pathname === '/core/v4/captcha' && !u.hash && values.length === 1 && values[0] === tokens[0] && force.length === 1 && force[0] === '1';
                       } catch (_) { return false; }
                     });
                     if (frames.length !== 1 || e.source !== frames[0].contentWindow) return;

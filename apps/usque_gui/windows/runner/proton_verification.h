@@ -13,6 +13,7 @@ class ProtonVerification {
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   void Cancel();
  private:
+  friend class ProtonVerificationTest;
   struct Session;
   HWND parent_;
   std::shared_ptr<Session> current_;

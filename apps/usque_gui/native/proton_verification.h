@@ -176,6 +176,40 @@ struct Handoff {
     Wipe(token);
     return actual.size() == 64 && actual == digest;
   }
+  bool CaptchaFrameMatches(const std::string& candidate, const Digest& sha, int64_t now = Now()) const {
+    constexpr char prefix[] = "https://verify-api.proton.me/core/v4/captcha?";
+    if (now >= expires || !methods.count("captcha") || !Printable(candidate,16384) ||
+        candidate.compare(0,sizeof(prefix)-1,prefix)!=0 || candidate.find('#')!=std::string::npos || candidate.find('\\')!=std::string::npos) return false;
+    unsigned tokens=0,forces=0;
+    std::string token;
+    Erase erase_token{token};
+    for (size_t start=sizeof(prefix)-1;start<=candidate.size();) {
+      const size_t end=candidate.find('&',start);
+      auto pair=candidate.substr(start,end==std::string::npos ? end : end-start);
+      Erase erase_pair{pair};
+      const size_t equals=pair.find('=');
+      std::string key,value;
+      Erase erase_value{value};
+      if (!Decode(pair.substr(0,equals),key)) return false;
+      if (key=="Token" || key=="ForceWebMessaging") {
+        if (equals==std::string::npos || !Decode(pair.substr(equals+1),value)) return false;
+        if (key=="Token") {
+          if (++tokens!=1 || !Printable(value,8192)) return false;
+          token=value;
+        } else if (++forces!=1 || value!="1") return false;
+      }
+      if (end==std::string::npos) break;
+      start=end+1;
+    }
+    const std::string actual=tokens==1 && forces==1 ? sha(token) : "";
+    return actual.size()==64 && actual==digest;
+  }
+  // Older WebKitGTK cannot reliably identify a navigation action's main frame.
+  // Only the bound CAPTCHA gets an additional origin. Main-resource responses
+  // and all native bridge messages still require Matches() on the top URL.
+  bool NavigationAllowed(const std::string& candidate, const Digest& sha, int64_t now = Now()) const {
+    return now<expires && (Official(candidate) || CaptchaFrameMatches(candidate,sha,now));
+  }
   bool Accept(const std::string& message) const {
     if (message.empty() || message.size() > 32768 || Now() >= expires) return false;
     Json root;
@@ -211,19 +245,19 @@ inline std::string Script(const Handoff& h, const std::string& send, bool captch
   std::string methods;
   for (const auto& method : h.methods) { if (!methods.empty()) methods+=','; methods+='"'+method+'"'; }
   return "(()=>{'use strict';const captchaOnly="+std::string(captcha_only ? "true" : "false")+",expires="+std::to_string(h.expires)+",expected='"+h.digest+"',methods=["+methods+R"JS(];
-const origin='https://verify.proton.me';let initial;
+const origin='https://verify.proton.me',captchaOrigin='https://verify-api.proton.me';let initial;
 try{initial=new URL(window.location.href).searchParams.getAll('token');}catch(_){return;}
 const same=()=>{try{const u=new URL(window.location.href),v=u.searchParams.getAll('token');return window.top===window&&u.origin===origin&&!u.username&&!u.password&&!u.hash&&(u.pathname==='/'||u.pathname==='')&&(!captchaOnly||(u.searchParams.getAll('embed').length===1&&u.searchParams.get('embed')==='true'&&u.searchParams.getAll('methods').length===1&&u.searchParams.get('methods')==='captcha'))&&v.length===1&&v[0]===initial[0]&&Date.now()<expires;}catch(_){return false;}};
 if(initial.length!==1||!same())return;
 (async()=>{const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(initial[0]))),v=>v.toString(16).padStart(2,'0')).join('');
 if(hash!==expected||!same())return;
 let used=false;const stop=()=>{used=true;clearTimeout(timer);window.removeEventListener('message',receive,true);};
-const receive=e=>{if(used)return;if(!same()){stop();return;}if(e.origin!==origin)return;
+const receive=e=>{if(used)return;if(!same()){stop();return;}
 let message;
-if(!captchaOnly&&e.source===window&&typeof e.data==='string'&&e.data.length<=32768){message=e.data;}
-else if(methods.includes('captcha')&&e.data&&typeof e.data==='object'&&!Array.isArray(e.data)&&e.data.type==='pm_captcha'&&typeof e.data.token==='string'&&/^[\x21-\x7e]{1,8192}$/.test(e.data.token)){
+if(!captchaOnly&&e.origin===origin&&e.source===window&&typeof e.data==='string'&&e.data.length<=32768){message=e.data;}
+else if(e.origin===captchaOrigin&&methods.includes('captcha')&&e.data&&typeof e.data==='object'&&!Array.isArray(e.data)&&e.data.type==='pm_captcha'&&typeof e.data.token==='string'&&/^[\x21-\x7e]{1,8192}$/.test(e.data.token)){
 const top=new URL(window.location.href);if(top.searchParams.getAll('embed').length!==1||top.searchParams.get('embed')!=='true')return;
-const frames=Array.from(document.querySelectorAll('iframe')).filter(frame=>{try{const u=new URL(frame.src),tokens=u.searchParams.getAll('Token'),force=u.searchParams.getAll('ForceWebMessaging');return u.origin===origin&&!u.username&&!u.password&&u.pathname==='/core/v4/captcha'&&!u.hash&&tokens.length===1&&tokens[0]===initial[0]&&force.length===1&&force[0]==='1';}catch(_){return false;}});
+const frames=Array.from(document.querySelectorAll('iframe')).filter(frame=>{try{const u=new URL(frame.src),tokens=u.searchParams.getAll('Token'),force=u.searchParams.getAll('ForceWebMessaging');return u.origin===captchaOrigin&&!u.username&&!u.password&&u.pathname==='/core/v4/captcha'&&!u.hash&&tokens.length===1&&tokens[0]===initial[0]&&force.length===1&&force[0]==='1';}catch(_){return false;}});
 if(frames.length!==1||e.source!==frames[0].contentWindow)return;
 message=JSON.stringify({type:'HUMAN_VERIFICATION_SUCCESS',payload:{token:e.data.token,type:'captcha'}});
 }else return;

@@ -489,12 +489,22 @@ repository root:
 ```powershell
 cmake --build apps/usque_gui/build/windows/x64 --config Release --target usque_proton_verification_test
 & ./apps/usque_gui/build/windows/x64/tests/Release/usque_proton_verification_test.exe
+cmake --build apps/usque_gui/build/windows/x64 --config Release --target usque_proton_webview_test
+& ./apps/usque_gui/build/windows/x64/tests/Release/usque_proton_webview_test.exe
 ```
 
 Use the `arm64` directory for a Windows arm64 build. This fixture tests synthetic
 handoff/message parsing, challenge binding and bounds; it does not open a
 WebView, authenticate an account or establish VPN behavior. It supplements the
 complete platform gates above.
+
+The separate `usque_proton_webview_test` requires the installed Evergreen
+WebView2 runtime. It exercises the production verification session with a real
+cross-origin iframe at `verify-api.proton.me`, intercepting all requests with
+synthetic HTTPS documents. It checks automatic closure, a queued result followed
+by window closure, wrong origins and mismatched challenges without contacting
+Proton, submitting a puzzle or starting a VPN. An unavailable runtime is a failed
+or `not_run` check, never a pass.
 
 Keep Dart symbols outside the installable payload and archive them with the exact
 source and binary identity as described in [Flutter release symbols](docs/FLUTTER_SYMBOLS.md).

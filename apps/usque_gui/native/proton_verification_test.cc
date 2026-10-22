@@ -23,6 +23,35 @@ int main() {
   assert(usque::proton::Official("https://verify.proton.me/core/v4/captcha?Token=frame"));
   for (const auto candidate : {"https://verify.proton.me.evil/", "https://verify.proton.me@evil/", "https://verify.proton.me:443/", "http://verify.proton.me/", "https://verify.proton.me/\nheader"}) assert(!usque::proton::Official(candidate));
   assert(!handoff.Matches(url,Sha,now+60000));
+  const std::string captcha="https://verify-api.proton.me/core/v4/captcha?Token=challenge%7Ekey&ForceWebMessaging=1";
+  assert(handoff.CaptchaFrameMatches(captcha,Sha,now));
+  assert(handoff.CaptchaFrameMatches("https://verify-api.proton.me/core/v4/captcha?Dark=true&ForceWebMessaging=1&Token=challenge~key",Sha,now));
+  assert(handoff.NavigationAllowed(url,Sha,now));
+  assert(handoff.NavigationAllowed(captcha,Sha,now));
+  assert(!handoff.Matches(captcha,Sha,now)); // The iframe never becomes a valid top page.
+  assert(!handoff.NavigationAllowed(captcha,Sha,now+60000));
+  assert(!handoff.NavigationAllowed(url,Sha,now+60000));
+  for (const char* candidate : {
+      "https://verify.proton.me/core/v4/captcha?Token=challenge~key&ForceWebMessaging=1",
+      "https://verify-api.proton.me/?token=challenge~key",
+      "https://verify-api.proton.me/api/core/v4/captcha?Token=challenge~key&ForceWebMessaging=1",
+      "https://verify-api.proton.me/core/v4/captcha?Token=wrong&ForceWebMessaging=1",
+      "https://verify-api.proton.me/core/v4/captcha?Token=challenge~key&Token=wrong&ForceWebMessaging=1",
+      "https://verify-api.proton.me/core/v4/captcha?Token=challenge~key&%54oken=wrong&ForceWebMessaging=1",
+      "https://verify-api.proton.me/core/v4/captcha?Token=challenge~key",
+      "https://verify-api.proton.me/core/v4/captcha?Token=challenge~key&ForceWebMessaging=0",
+      "https://verify-api.proton.me/core/v4/captcha?Token=challenge~key&ForceWebMessaging=1&ForceWebMessaging=1",
+      "https://verify-api.proton.me/core/v4/captcha?Token=challenge~key&ForceWebMessaging=1#fragment",
+      "https://user@verify-api.proton.me/core/v4/captcha?Token=challenge~key&ForceWebMessaging=1",
+      "https://verify-api.proton.me:444/core/v4/captcha?Token=challenge~key&ForceWebMessaging=1",
+      "https://verify-api.proton.me.evil/core/v4/captcha?Token=challenge~key&ForceWebMessaging=1",
+      "http://verify-api.proton.me/core/v4/captcha?Token=challenge~key&ForceWebMessaging=1"}) {
+    assert(!handoff.CaptchaFrameMatches(candidate,Sha,now));
+    if (!usque::proton::Official(candidate)) assert(!handoff.NavigationAllowed(candidate,Sha,now));
+  }
+  auto email_only=handoff;
+  email_only.methods={"email"};
+  assert(!email_only.NavigationAllowed(captcha,Sha,now));
   assert(!Parse(Handoff(url,now),now));
   assert(!Parse(Handoff(url,now+300001),now));
   for (const char* candidate : {

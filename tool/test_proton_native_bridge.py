@@ -62,7 +62,7 @@ async function run() {
     // The frame result and the subsequent top-level success are separate
     // messages. Exercise a missing second delivery without changing identity.
     window.postMessage = value => {
-        if(!input.suppress_top_level_dispatch) pending.push({origin:'https://verify.proton.me', source:window, data:value});
+        if(!input.suppress_top_level_dispatch) pending.push({origin:input.top_origin||'https://verify.proton.me', source:input.top_source_frame ? frameWindow : window, data:value});
     };
     // Match the exposed platform capabilities without changing the page's
     // selector. The dedicated native message channel must not change the
@@ -105,7 +105,7 @@ async function run() {
         data:{type:'pm_captcha',token:input.result}};
     for(let repeat=0;repeat<2;repeat++) {
         if(!input.top_level_only) emit(event);
-        if(event.origin==='https://verify.proton.me' && event.source===frameWindow) {
+        if(event.origin===new URL(input.frame_url).origin && event.source===frameWindow) {
             officialDispatch({type:'HUMAN_VERIFICATION_SUCCESS',payload:{token:event.data.token,type:input.method||'captcha'}});
         }
         while(pending.length) {
@@ -189,9 +189,9 @@ class NativeBridgeTest(unittest.TestCase):
             "start": START_MS,
             "expires": EXPIRES_MS,
             "url": URL,
-            "frame_url": f"https://verify.proton.me/core/v4/captcha?Token={FIXTURE['challenge']}&ForceWebMessaging=1",
+            "frame_url": f"https://verify-api.proton.me/core/v4/captcha?Token={FIXTURE['challenge']}&ForceWebMessaging=1",
             "nonce": FIXTURE["nonce"],
-            "origin": "https://verify.proton.me",
+            "origin": "https://verify-api.proton.me",
             "result": FIXTURE["result"],
             **changes,
         }
@@ -235,6 +235,53 @@ class NativeBridgeTest(unittest.TestCase):
             json.loads(result["reports"][0]["message"])["payload"]["token"], FIXTURE["result"]
         )
 
+    def test_cross_origin_captcha_completes_once_without_parent_forwarding(self) -> None:
+        for platform in ("windows", "linux", "android"):
+            with self.subTest(platform=platform):
+                result = self.run_script(platform, suppress_top_level_dispatch=True)
+                messages = (
+                    result["privateMessages"]
+                    if platform == "android"
+                    else [report["message"] for report in result["reports"]]
+                )
+                self.assertEqual(len(messages), 1)
+                self.assertEqual(
+                    json.loads(messages[0])["payload"],
+                    {
+                        "type": "captcha",
+                        "token": FIXTURE["result"],
+                    },
+                )
+                self.assertEqual(result["active"], 0)
+
+    def test_parent_success_requires_top_origin_and_top_source(self) -> None:
+        for platform in ("linux", "android"):
+            for change in (
+                {"top_origin": "https://verify-api.proton.me"},
+                {"top_source_frame": True},
+            ):
+                with self.subTest(platform=platform, change=change):
+                    result = self.run_script(platform, top_level_only=True, **change)
+                    self.assertEqual(result["reports"], [])
+                    self.assertEqual(result["privateMessages"], [])
+
+    def test_all_platforms_reject_page_origin_and_untrusted_captcha_frames(self) -> None:
+        for platform in ("windows", "linux", "android"):
+            for origin in ("https://verify.proton.me", "https://verify-api.proton.me.evil"):
+                with self.subTest(platform=platform, origin=origin):
+                    result = self.run_script(
+                        platform,
+                        origin=origin,
+                        frame_url=f"{origin}/core/v4/captcha?Token={FIXTURE['challenge']}&ForceWebMessaging=1",
+                        suppress_top_level_dispatch=True,
+                    )
+                    self.assertEqual(result["reports"], [])
+                    self.assertEqual(result["privateMessages"], [])
+
+    def test_android_still_rejects_an_unoffered_parent_method(self) -> None:
+        result = self.run_script("android", top_level_only=True, method="email")
+        self.assertEqual(result["privateMessages"], [])
+
     def test_desktop_captcha_survives_missing_top_dispatch_and_removed_puzzle(self) -> None:
         for platform in ("windows", "linux"):
             with self.subTest(platform=platform):
@@ -270,20 +317,17 @@ class NativeBridgeTest(unittest.TestCase):
         self.assertEqual(len(result["reports"]), 1)
         self.assertEqual(json.loads(result["reports"][0]["message"])["payload"]["type"], "email")
 
-    def test_desktop_direct_captcha_requires_embedded_challenge(self) -> None:
-        for platform in ("windows", "linux"):
+    def test_direct_captcha_requires_embedded_challenge(self) -> None:
+        for platform in ("windows", "linux", "android"):
             for url in (
                 URL.replace("embed=true", "embed=false"),
                 URL.replace("embed=true&", ""),
                 URL + "&embed=true",
             ):
                 with self.subTest(platform=platform, url=url):
-                    self.assertEqual(
-                        self.run_script(platform, url=url, suppress_top_level_dispatch=True)[
-                            "reports"
-                        ],
-                        [],
-                    )
+                    result = self.run_script(platform, url=url, suppress_top_level_dispatch=True)
+                    self.assertEqual(result["reports"], [])
+                    self.assertEqual(result["privateMessages"], [])
 
     def test_android_captcha_result_survives_an_unavailable_top_level_dispatch(self) -> None:
         result = self.run_script("android", suppress_top_level_dispatch=True)
@@ -305,28 +349,28 @@ class NativeBridgeTest(unittest.TestCase):
             {"origin": "https://evil.example"},
             {"other_source": True},
             {
-                "frame_url": "https://verify.proton.me/other?Token=synthetic-native-challenge&ForceWebMessaging=1"
+                "frame_url": "https://verify-api.proton.me/other?Token=synthetic-native-challenge&ForceWebMessaging=1"
             },
             {
                 "frame_url": "https://evil.example/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=wrong&ForceWebMessaging=1"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=wrong&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&Token=wrong&ForceWebMessaging=1"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&Token=wrong&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=0"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=0"
             },
             {
-                "frame_url": "https://user@verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1"
+                "frame_url": "https://user@verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1&ForceWebMessaging=1"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1#fragment"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1#fragment"
             },
             {"duplicate_frame": True},
             {"result": "invalid\r\nheader"},
@@ -345,28 +389,28 @@ class NativeBridgeTest(unittest.TestCase):
             {"origin": "https://evil.example"},
             {"other_source": True},
             {
-                "frame_url": "https://verify.proton.me/other?Token=synthetic-native-challenge&ForceWebMessaging=1"
+                "frame_url": "https://verify-api.proton.me/other?Token=synthetic-native-challenge&ForceWebMessaging=1"
             },
             {
                 "frame_url": "https://evil.example/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=wrong&ForceWebMessaging=1"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=wrong&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&Token=wrong&ForceWebMessaging=1"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&Token=wrong&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=0"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=0"
             },
             {
-                "frame_url": "https://user@verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1"
+                "frame_url": "https://user@verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1&ForceWebMessaging=1"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1&ForceWebMessaging=1"
             },
             {
-                "frame_url": "https://verify.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1#fragment"
+                "frame_url": "https://verify-api.proton.me/core/v4/captcha?Token=synthetic-native-challenge&ForceWebMessaging=1#fragment"
             },
             {"duplicate_frame": True},
             {"result": "invalid\r\nheader"},

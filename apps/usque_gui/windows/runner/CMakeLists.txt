@@ -76,3 +76,18 @@ set_target_properties(usque_proton_verification_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 apply_standard_settings(usque_proton_verification_test)
 target_compile_features(usque_proton_verification_test PRIVATE cxx_std_17)
+
+# Actual cross-origin WebView2 regression. Synthetic HTTPS responses only;
+# explicitly built/run, never installed into the application bundle.
+add_executable(usque_proton_webview_test EXCLUDE_FROM_ALL
+  "proton_verification_webview_test.cpp")
+set_target_properties(usque_proton_webview_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+apply_standard_settings(usque_proton_webview_test)
+target_compile_definitions(usque_proton_webview_test PRIVATE "NOMINMAX")
+target_include_directories(usque_proton_webview_test SYSTEM PRIVATE
+  "${USQUE_WEBVIEW2_ROOT}/build/native/include"
+  "${FLUTTER_MANAGED_DIR}/ephemeral/cpp_client_wrapper/include")
+target_link_libraries(usque_proton_webview_test PRIVATE
+  "${USQUE_WEBVIEW2_ROOT}/build/native/${USQUE_WEBVIEW2_ARCH}/WebView2LoaderStatic.lib"
+  "bcrypt.lib" "advapi32.lib" "ole32.lib" "oleaut32.lib" "user32.lib" "shlwapi.lib" "version.lib")
