@@ -19,6 +19,7 @@ flags. Unsupported codes and failed asset loads use a globe in the same box.
 Adjacent text supplies accessible names; flags do not add focus targets.
 
 VPN Gate filters, nodes and selection summaries use catalog country codes.
+The Proton VPN server picker uses each logical server's country code.
 Home's exit region and Location use the measured exit country code independently
 of the selected node. Geo direct settings use the existing country catalog.
 Disabled VPN Gate server rows also mute their flags, without changing the

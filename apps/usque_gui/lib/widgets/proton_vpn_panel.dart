@@ -12,6 +12,7 @@ import '../services/engine_client.dart' show EngineException;
 import '../state/app_controller.dart';
 import 'chain_editor_layout.dart';
 import 'common.dart';
+import 'country_flag.dart';
 import 'usque_dialog.dart';
 
 /// Native controls around a native-owned, cancellable authentication job.
@@ -906,9 +907,11 @@ class _ProtonServerPicker extends StatefulWidget {
 
 class _ProtonServerPickerState extends State<_ProtonServerPicker> {
   final _search = TextEditingController();
+  final _scroll = ScrollController();
   @override
   void dispose() {
     _search.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -950,28 +953,58 @@ class _ProtonServerPickerState extends State<_ProtonServerPicker> {
                 onChanged: (value) {
                   if (value != null) Navigator.pop(context, value);
                 },
-                child: ListView.builder(
-                  itemCount: nodes.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return RadioListTile<String>(
-                        value: '',
-                        title: Text(widget.text('automatic_server')),
-                        subtitle: Text(widget.text('automatic_hint')),
-                      );
-                    }
-                    final node = nodes[index - 1];
-                    return RadioListTile<String>(
-                      value: node['id'] as String,
-                      title: Text(node['name'] as String? ?? ''),
-                      subtitle: Text(
-                        [node['country'], node['city']]
-                            .whereType<String>()
-                            .where((value) => value.isNotEmpty)
-                            .join(' · '),
-                      ),
-                    );
-                  },
+                child: ScrollConfiguration(
+                  behavior: ScrollConfiguration.of(
+                    context,
+                  ).copyWith(scrollbars: false),
+                  child: Scrollbar(
+                    controller: _scroll,
+                    thumbVisibility: true,
+                    interactive: true,
+                    child: ListView.builder(
+                      controller: _scroll,
+                      primary: false,
+                      padding: const EdgeInsetsDirectional.only(end: 12),
+                      itemCount: nodes.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == 0) {
+                          return RadioListTile<String>(
+                            value: '',
+                            title: Text(widget.text('automatic_server')),
+                            subtitle: Text(widget.text('automatic_hint')),
+                          );
+                        }
+                        final node = nodes[index - 1];
+                        return RadioListTile<String>(
+                          value: node['id'] as String,
+                          title: Text(node['name'] as String? ?? ''),
+                          subtitle: Text.rich(
+                            TextSpan(
+                              children: [
+                                WidgetSpan(
+                                  alignment: PlaceholderAlignment.middle,
+                                  child: Padding(
+                                    padding: const EdgeInsetsDirectional.only(
+                                      end: 8,
+                                    ),
+                                    child: CountryFlag(
+                                      countryCode: node['country'] as String?,
+                                    ),
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: [node['country'], node['city']]
+                                      .whereType<String>()
+                                      .where((value) => value.isNotEmpty)
+                                      .join(' · '),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),

@@ -71,9 +71,9 @@ class _LinuxGoldenEngine extends FakeEngineClient
       return ProtonVpnResult(
         metadata: {
           'server_offset': 0,
-          'server_total': 2,
+          'server_total': 12,
           'server_revision': 'fixture-revision',
-          'servers': const [
+          'servers': [
             {
               'id': 'logical-jp',
               'name': 'JP-FREE#1',
@@ -88,6 +88,14 @@ class _LinuxGoldenEngine extends FakeEngineClient
               'city': 'Amsterdam',
               'load': 28,
             },
+            for (var index = 3; index <= 12; index++)
+              {
+                'id': 'logical-nl-$index',
+                'name': 'NL-FREE#$index',
+                'country': 'NL',
+                'city': 'Amsterdam',
+                'load': 28,
+              },
           ],
         },
       );
@@ -503,7 +511,7 @@ void _configure(
             'name': 'Proton Free',
             'node_name': 'JP-FREE#1',
             'server_id': 'logical-jp',
-            'server_count': fixture.scene == _Scene.protonNodes ? 2 : 119,
+            'server_count': fixture.scene == _Scene.protonNodes ? 12 : 119,
             'needs_login': false,
           },
         ];
@@ -631,6 +639,15 @@ void main() {
                   const AssetImage('assets/flags/w80/sg.png'),
                   context,
                 );
+              }
+              if (fixture.scene == _Scene.protonNodes) {
+                await Future.wait([
+                  for (final code in ['jp', 'nl'])
+                    precacheImage(
+                      AssetImage('assets/flags/w80/$code.png'),
+                      context,
+                    ),
+                ]);
               }
               if (fixture.scene == _Scene.routing) {
                 await Future.wait([
@@ -807,8 +824,10 @@ void main() {
                     const ValueKey('proton-account-menu-fixture-proton'),
                   ),
                 };
-                await tester.ensureVisible(target);
-                await tester.pumpAndSettle();
+                if (fixture.scene != _Scene.protonNodes) {
+                  await tester.ensureVisible(target);
+                  await tester.pumpAndSettle();
+                }
                 _expectInViewport(tester, target, fixture.size);
               case _Scene.onboardingZeroTrustRtl:
                 final method = find.text(app.strings.get('zero_trust_title'));

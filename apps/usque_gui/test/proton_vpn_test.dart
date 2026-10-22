@@ -11,6 +11,7 @@ import 'package:usque/screens/chain_proxy_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/proton_vpn_panel.dart';
 
 import 'chain_proxy_test.dart' show ChainEngine, hostChain;
@@ -889,6 +890,13 @@ void main() {
         await tester.ensureVisible(
           find.widgetWithText(RadioListTile<String>, 'Server 300'),
         );
+        await tester.pumpAndSettle();
+        final flag = find.descendant(
+          of: find.widgetWithText(RadioListTile<String>, 'Server 300'),
+          matching: find.byType(CountryFlag),
+        );
+        expect(tester.widget<CountryFlag>(flag).countryCode, 'IS');
+        expect(tester.getSize(flag), const Size(24, 18));
         await tester.tap(
           find.widgetWithText(RadioListTile<String>, 'Server 300'),
         );
@@ -898,6 +906,92 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
       },
       platform: TargetPlatform.android,
+    );
+  }
+
+  for (final platform in [TargetPlatform.windows, TargetPlatform.android]) {
+    _protonWidgetTest(
+      'server flags and scrollbar stay visible and the thumb can drag on $platform',
+      (tester) async {
+        final engine = CatalogueEngine();
+        final app = await hostChain(tester, engine, width: 390);
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ProtonVpnPanel(controller: app, onChanged: () {}),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _changeServer(tester);
+        final list = find.byType(ListView);
+        final controller = tester.widget<ListView>(list).controller!;
+        final scrollbar = find.ancestor(
+          of: list,
+          matching: find.byWidgetPredicate(
+            (widget) => widget is Scrollbar && widget.controller == controller,
+          ),
+        );
+        expect(scrollbar, findsOneWidget);
+        final automatic = find.widgetWithText(
+          RadioListTile<String>,
+          app.strings.proton('automatic_server'),
+        );
+        expect(
+          find.descendant(of: automatic, matching: find.byType(CountryFlag)),
+          findsNothing,
+        );
+        final flag = find.descendant(
+          of: find.widgetWithText(RadioListTile<String>, 'Server 0'),
+          matching: find.byType(CountryFlag),
+        );
+        expect(tester.widget<CountryFlag>(flag).countryCode, 'IS');
+        expect(
+          tester
+              .widget<Image>(
+                find.descendant(of: flag, matching: find.byType(Image)),
+              )
+              .image,
+          isA<AssetImage>().having(
+            (asset) => asset.assetName,
+            'assetName',
+            'assets/flags/w80/is.png',
+          ),
+        );
+        // The thumb remains painted after the usual idle fade-out interval.
+        await tester.pump(const Duration(seconds: 3));
+        final painter = tester
+            .widgetList<CustomPaint>(
+              find.descendant(
+                of: scrollbar,
+                matching: find.byType(CustomPaint),
+              ),
+            )
+            .map((paint) => paint.foregroundPainter)
+            .whereType<ScrollbarPainter>()
+            .single;
+        expect(painter.fadeoutOpacityAnimation.value, 1);
+        final bounds = tester.getRect(scrollbar);
+        await tester.dragFrom(
+          Offset(bounds.right - 4, bounds.top + 12),
+          const Offset(0, 120),
+        );
+        await tester.pumpAndSettle();
+        expect(controller.offset, greaterThan(0));
+        await tester.enterText(find.byType(TextField), 'Server 300');
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.widgetWithText(RadioListTile<String>, 'Server 300'),
+        );
+        await tester.pumpAndSettle();
+        expect(engine.requests.last['node_id'], 'logical-300');
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      platform: platform,
     );
   }
   for (final fail in [false, true]) {

@@ -162,6 +162,8 @@ The Proton source shows one row per authenticated user under **Proton accounts**
 grouping legacy duplicate profiles. Select an account separately from its
 searchable server preference, which is a **Server** row under the account;
 Automatic and manual logical-server choices apply on the next connection.
+The server picker shows bundled country flags beside country codes and keeps its
+draggable scrollbar visible while the list overflows.
 Refresh, sign-in renewal and removal sit in the account's menu; once an account
 exists, guest setup and sign-in move under **Add account**. Setup and job errors
 use the shared warning banner. The
@@ -173,8 +175,9 @@ clears a saved selection first, and protects the running account. See the
 [Proton guide](../../docs/PROTON_VPN.md) for behavior and validation limits.
 
 Proton 来源在“Proton 账号”下按账号显示，旧版重复记录合并为一行；点击账号下的
-“节点”行可搜索并选择完整可用逻辑节点，偏好在下次连接生效。刷新、重新登录和
-移除位于账号菜单；已有账号后，游客设置和登录收进“添加账号”。连接时解析当前入口并按需获取证书。移除账号明确区分联网退出
+“节点”行可搜索并选择完整可用逻辑节点，偏好在下次连接生效。
+节点国家代码前显示内置国旗；列表超出可见范围时，滚动条常驻并支持拖动。
+刷新、重新登录和移除位于账号菜单；已有账号后，游客设置和登录收进“添加账号”。连接时解析当前入口并按需获取证书。移除账号明确区分联网退出
 和仅本机遗忘，先清除已保存选择，并保护正在使用的账号。
 
 ## Native UI composition
