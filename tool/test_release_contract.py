@@ -349,6 +349,27 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
         )
         self.assertIn('wc -l)" -eq 34', publish)
 
+    def test_signing_batch_retains_per_platform_protection_and_separate_publish(self) -> None:
+        for name in ("windows", "android"):
+            job = self.job(name)
+            self.assertIn("needs: release-gate", job)
+            self.assertIn("environment: release-signing", job)
+            self.assertNotIn("max-parallel: 1", job)
+        linux = self.job("linux")
+        self.assertIn("needs: release-gate", linux)
+        self.assertIn("uses: ./.github/workflows/linux.yml", linux)
+        root = Path(__file__).resolve().parent.parent
+        reusable = (root / ".github/workflows/linux.yml").read_text(encoding="utf-8")
+        self.assertIn("environment: ${{ inputs.release && 'release-signing' || '' }}", reusable)
+        gate = self.job("release-gate")
+        self.assertIn("release_signing_review.py", gate)
+        self.assertIn("--wait-seconds 900", gate)
+        self.assertNotIn("--approve", gate)
+        publish = self.job("publish")
+        self.assertIn("environment: release-publish", publish)
+        self.assertIn("needs: stage-candidate", publish)
+        self.assertNotIn("release_signing_review.py", publish)
+
     def test_windows_release_signs_msi_engine_and_final_bundle(self) -> None:
         windows = self.job("windows")
         self.assertIn("build_windows_installer_payload.ps1", windows)

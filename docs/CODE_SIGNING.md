@@ -65,6 +65,16 @@ Public fingerprints are repository or environment variables (`WINDOWS_SIGNER_SHA
 
 Only the release maintainer may approve `release-signing` and `release-publish`. A local bundle, MSI, or APK cannot replace a failed or missing GitHub Actions build.
 
+For future releases, collect all five platform signing review requests before
+approving `release-signing` as one batch. Keep each platform bound to the
+protected environment; batching does not transfer approval or secrets to an
+unprotected job. The checked-in batching helper is read-only unless the
+maintainer explicitly authorizes its approval mode, which rechecks the exact
+candidate and includes only `release-signing`. Never bypass a protection rule
+or automatically retry a partial/uncertain approval. `release-publish` remains
+an independent approval after exact-candidate verification. See
+[batch signing reviews](RELEASE.md#batch-the-signing-review).
+
 The published `v0.3.2` used only the Windows and Android identities; it
 predates Linux packaging and the Linux key signed none of its assets. For the
 next release, retain the existing Windows/Android identities and the fixed

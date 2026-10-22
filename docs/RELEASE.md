@@ -190,6 +190,48 @@ run or local check is insufficient. `publish` depends only on `stage-candidate`
 and requires `release-publish` approval; protected reliability jobs are not
 dependencies of publication.
 
+### Batch the signing review
+
+For future tags containing the batching helper, wait until **all five** signing
+jobs (Windows x64-v2/ARM64, Android, Linux amd64/arm64) are awaiting review, then
+approve `release-signing` together. Do not approve the first arriving job and
+then repeatedly approve later platforms. The release-gate summary supplies a
+candidate-bound command; it does not approve anything:
+
+```shell
+python tool/release_signing_review.py --repo OWNER/REPO --run-id RUN_ID --attempt 1 --tag TAG --commit FULL_SHA --wait-seconds 900
+```
+
+This defaults to read-only observation. It requires the exact tag-push Release
+workflow, candidate and run attempt, a successful release-gate, unchanged
+annotated tag/source branch, all five job review requests and permission to
+review `release-signing`. Missing/queued jobs wait within the time bound; failure,
+an already-started subset or changed identity stops without approval. Exit 2
+means the full batch is not ready; never treat it as approval or success.
+
+Only with explicit maintainer authorization, add `--approve --tag-object
+RECORDED_TAG_OBJECT_SHA` to the command. It fetches the full snapshot again,
+then sends **one** environment-review request containing only `release-signing`.
+It expects five distinct approved deployments for the same candidate. A changed
+snapshot, uncertain response, timeout or partial approval must be inspected in
+GitHub; do not automatically retry or approve the remaining jobs one by one.
+Reruns must use the explicitly reviewed attempt number, not earlier evidence.
+
+GitHub still protects each job individually, so this targets a single review
+batch rather than promising a single deployment object. See GitHub's
+[deployment reviews](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments)
+and [environment protection](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments).
+Keep all platform environment bindings and environment-scoped signing secrets;
+do not replace them with an unprotected downstream job, export keys through
+outputs/artifacts, auto-approve with a workflow token, bypass protection, or
+change reviewer rules. If the platform matrix changes, update the helper's
+expected batch and its offline tests in the same change.
+
+`release-publish` is never part of this batch. It retains its independent review
+after signatures, package checks, staged manifest, provenance/SBOM and symbols
+have passed. No build job, CI gate or protected-lab requirement is changed, and
+previously published tags and records remain immutable.
+
 ## Signing inputs
 
 The `release-signing` environment holds these secrets:

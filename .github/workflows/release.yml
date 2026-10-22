@@ -112,6 +112,22 @@ jobs:
           python tool/release_contract.py verify-beta-ci \
             --runs "$RUNNER_TEMP/beta-ci-runs.json" --commit "$GITHUB_SHA" --tag "$RELEASE_TAG"
 
+      - name: Explain one-batch signing review
+        shell: bash
+        run: |
+          {
+            echo '### Signing review: wait for all five platform jobs'
+            echo 'Keep every platform protected by release-signing. Do not approve jobs as they arrive.'
+            echo 'From the reviewed candidate checkout, wait for the full batch with this read-only command:'
+            echo '```sh'
+            printf 'python tool/release_signing_review.py --repo %s --run-id %s --attempt %s --tag %s --commit %s --wait-seconds 900\n' \
+              "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$RELEASE_TAG" "$GITHUB_SHA"
+            echo '```'
+            echo 'Only after state=ready, review release-signing once for the complete batch.'
+            echo 'See docs/RELEASE.md for explicit maintainer-authorized API approval and retry rules.'
+            echo 'release-publish remains a separate review after signed-candidate verification.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   windows:
     name: Windows ${{ matrix.variant }}
     needs: release-gate
