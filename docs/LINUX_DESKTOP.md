@@ -104,6 +104,12 @@ missing, locked or cancelled keyring stays retryable. Usque does not fall back
 to plaintext credentials. Unlock the keyring in the desktop session and retry
 the operation; installing the root Agent does not unlock a user's keyring.
 
+At startup the window displays non-secret account settings before credential
+validation finishes. Connection and account actions wait for that validation;
+the initial summary never establishes that an identity is ready. Window size
+and maximization changes are coalesced and saved off the GTK main thread, with
+the latest pending state drained before a normal exit.
+
 Configuration, cache and logs use the user's XDG directories. The GUI and
 Engine communicate in a private `0700` directory below `XDG_RUNTIME_DIR`, with
 `0600` sockets and authenticated peer credentials. Another user cannot use that

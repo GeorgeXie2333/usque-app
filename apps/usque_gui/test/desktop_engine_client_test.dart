@@ -83,6 +83,32 @@ const List<int> _goldenProfileBytes = <int>[
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('startup requests only non-secret profile metadata', () async {
+    Uint8List? request;
+    final client = DesktopEngineClient.forTest(
+      transport: DesktopEngineTransport.forTest(
+        requestIdFactory: () => 'r',
+        exchange: (frame) async {
+          request = frame;
+          final catalog = ControlPayloadWriter()
+            ..message(1, const ControlCodec().encodeProfile(_goldenProfile))
+            ..string(2, 'p');
+          return const ControlCodec().frame(
+            (ControlPayloadWriter()
+                  ..string(1, 'r')
+                  ..message(12, catalog.takeBytes()))
+                .takeBytes(),
+          );
+        },
+      ),
+    );
+    addTearDown(client.dispose);
+    final catalog = await client.readStartupProfiles();
+    expect(request!.sublist(4), [10, 1, 114, 90, 2, 8, 1]);
+    expect(catalog.profiles.single.name, 'X');
+    expect(catalog.identityStates, isEmpty);
+    expect(catalog.identityStatuses, isEmpty);
+  });
   test('continuous capability appends connect and retry flags', () async {
     final frames = <Uint8List>[];
     final client = DesktopEngineClient.forTest(

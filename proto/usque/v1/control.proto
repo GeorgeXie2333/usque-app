@@ -688,7 +688,11 @@ message ImportLegacyProfilesRequest {
   repeated Profile profiles = 1;
   string active_profile_id = 2;
 }
-message ListProfilesRequest {}
+message ListProfilesRequest {
+  // Startup can display non-secret configuration before the session keyring
+  // is unlocked. This response never establishes identity readiness.
+  bool metadata_only = 1;
+}
 message ConnectRequest {
   string profile_id = 1;
   bool continuous = 2;

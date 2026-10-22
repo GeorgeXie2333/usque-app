@@ -1,6 +1,7 @@
 #include "desktop_shell.h"
 
 #include "engine_bridge.h"
+#include "preferences_writer.h"
 #include "proton_verification.h"
 
 #include <fcntl.h>
@@ -10,6 +11,7 @@
 
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -22,6 +24,7 @@ struct Shell {
   GKeyFile* preferences;
   GdkPixbuf* icon = nullptr;
   std::string directory;
+  std::unique_ptr<UsquePreferencesWriter> preferences_writer;
   std::string callback;
   std::string team;
   FlValue* tray = nullptr;
@@ -92,14 +95,19 @@ void fail(FlMethodCall* call, const char* code, const char* message) {
   fl_method_call_respond_error(call, code, message, nullptr, nullptr);
 }
 
-bool save_preferences(Shell* self) {
-  if (g_mkdir_with_parents(self->directory.c_str(), 0700) != 0) return false;
+void save_preferences(Shell* self, UsquePreferencesWriter::Completion completion = {}) {
   gsize size = 0;
   g_autofree gchar* bytes = g_key_file_to_data(self->preferences, &size, nullptr);
-  const auto path = self->directory + "/" + kPreferences;
-  return g_file_set_contents_full(path.c_str(), bytes, size,
-      static_cast<GFileSetContentsFlags>(G_FILE_SET_CONTENTS_CONSISTENT |
-                                         G_FILE_SET_CONTENTS_DURABLE), 0600, nullptr);
+  self->preferences_writer->Save(std::string(bytes, size), std::move(completion));
+}
+
+void quit_after_preferences(GApplication* application) {
+  g_object_ref(application);
+  shell->preferences_writer->Flush([application](bool ok) {
+    if (!ok) g_warning("Window preferences could not be saved.");
+    g_application_quit(application);
+    g_object_unref(application);
+  });
 }
 
 std::string autostart_path() {
@@ -154,7 +162,7 @@ void quit_finished(GObject* source, GAsyncResult* result, gpointer data) {
   g_autoptr(FlMethodResponse) response = fl_method_channel_invoke_method_finish(
       FL_METHOD_CHANNEL(source), result, nullptr);
   (void)response;
-  g_application_quit(G_APPLICATION(data));
+  quit_after_preferences(G_APPLICATION(data));
 }
 void tray_command(Shell* self, const char* command) {
   g_autoptr(FlValue) argument = fl_value_new_string(command);
@@ -542,8 +550,12 @@ void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
       return;
     }
     g_key_file_set_boolean(self->preferences, "Window", "close-to-tray", enabled);
-    if (!save_preferences(self)) fail(call, "PREFERENCE_SAVE_FAILED", "The window preference could not be saved.");
-    else { self->close_to_tray = enabled; success(call); }
+    g_object_ref(call);
+    save_preferences(self, [self, call, enabled](bool ok) {
+      if (!ok) fail(call, "PREFERENCE_SAVE_FAILED", "The window preference could not be saved.");
+      else { self->close_to_tray = enabled; success(call); }
+      g_object_unref(call);
+    });
   } else if (strcmp(method, "setStartOnBoot") == 0) {
     const auto path = autostart_path();
     if (!boolean(args, "enabled")) {
@@ -636,7 +648,7 @@ void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
     self->team.clear(); self->callback.clear(); success(call);
   } else if (strcmp(method, "exitApplication") == 0) {
     usque_proton_verification_cancel();
-    success(call); g_application_quit(G_APPLICATION(self->application));
+    success(call); quit_after_preferences(G_APPLICATION(self->application));
   } else {
     fl_method_call_respond_not_implemented(call, nullptr);
   }
@@ -690,6 +702,8 @@ void usque_register_desktop_shell(GtkApplication* application, GtkWindow* window
     shell->icon = gdk_pixbuf_new_from_file_at_scale(icon.c_str(), 32, 32, TRUE, nullptr);
   }
   g_key_file_load_from_file(shell->preferences, (shell->directory + "/" + kPreferences).c_str(), G_KEY_FILE_NONE, nullptr);
+  shell->preferences_writer = std::make_unique<UsquePreferencesWriter>(
+      shell->directory + "/" + kPreferences);
   shell->close_to_tray = g_key_file_get_boolean(shell->preferences, "Window", "close-to-tray", nullptr);
   int width = g_key_file_get_integer(shell->preferences, "Window", "width", nullptr);
   int height = g_key_file_get_integer(shell->preferences, "Window", "height", nullptr);

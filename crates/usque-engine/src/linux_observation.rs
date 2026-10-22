@@ -228,6 +228,94 @@ mod tests {
         .unwrap();
         drop(startup);
     }
+
+    #[tokio::test]
+    async fn startup_metadata_bypasses_locked_keyring_and_migration_lease() {
+        use usque_ipc::v1::{self, control_request, control_response};
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Arc::new(LockedVault(tokio::sync::Notify::new()));
+        let service = ControlService::open_with_vault(
+            usque_core::storage::ConfigStore::new(dir.path().join("config.json")),
+            vault.clone(),
+        )
+        .unwrap();
+        let before = service.config_snapshot().await;
+        let startup = tokio_util::task::AbortOnDropHandle::new(tokio::spawn({
+            let service = service.clone();
+            async move { service.initialize_linux_user_state().await }
+        }));
+        tokio::time::timeout(Duration::from_secs(1), vault.0.notified())
+            .await
+            .unwrap();
+        let response = tokio::time::timeout(
+            Duration::from_secs(1),
+            service.handle(v1::ControlRequest {
+                request_id: "startup-metadata".into(),
+                payload: Some(control_request::Payload::ListProfiles(
+                    v1::ListProfilesRequest {
+                        metadata_only: true,
+                    },
+                )),
+            }),
+        )
+        .await
+        .expect("metadata must not wait for the migration lease or vault");
+        assert!(response.error.is_none());
+        let Some(control_response::Payload::ProfileList(catalog)) = response.payload else {
+            panic!("expected profile metadata");
+        };
+        assert_eq!(catalog.profiles.len(), before.profiles.len());
+        assert_eq!(
+            catalog.active_profile_id,
+            before.active_profile_id.unwrap().to_string()
+        );
+        assert!(
+            catalog.identity_statuses.is_empty(),
+            "metadata must never grant readiness"
+        );
+        assert_eq!(service.config_snapshot().await, before);
+        // Full validation still waits for the vault instead of claiming Ready.
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(20),
+                service.handle(v1::ControlRequest {
+                    request_id: "validated-catalog".into(),
+                    payload: Some(control_request::Payload::ListProfiles(
+                        v1::ListProfilesRequest::default()
+                    )),
+                })
+            )
+            .await
+            .is_err()
+        );
+        drop(startup);
+    }
+
+    #[tokio::test]
+    async fn completed_flutter_migration_read_does_not_take_mutation_lease() {
+        use usque_ipc::v1;
+        let dir = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            usque_core::storage::ConfigStore::new(dir.path().join("config.json")),
+            Arc::new(LockedVault(tokio::sync::Notify::new())),
+        )
+        .unwrap();
+        service
+            .config
+            .write()
+            .await
+            .preferences
+            .profiles_migrated_from_flutter = true;
+        let _mutation = service.mutation_lock.lock().await;
+        let catalog = tokio::time::timeout(
+            Duration::from_secs(1),
+            service.import_legacy_profiles(v1::ImportLegacyProfilesRequest::default()),
+        )
+        .await
+        .expect("already migrated reads must not wait for keyring recovery")
+        .unwrap();
+        assert!(!catalog.profiles.is_empty());
+    }
     #[test]
     fn cold_recovery_and_stale_protection_do_not_appear_disconnected_or_safe() {
         let mut observation = LinuxPlatformObservation {

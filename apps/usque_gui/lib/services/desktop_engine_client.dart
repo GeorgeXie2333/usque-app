@@ -28,6 +28,7 @@ export 'control_codec.dart'
 class DesktopEngineClient
     implements
         EngineClient,
+        StartupProfileClient,
         VpnGateClient,
         ChainProfileClient,
         WarpWireguardClient,
@@ -333,6 +334,15 @@ class DesktopEngineClient
       ),
     );
   }
+
+  @override
+  Future<ProfileCatalog> readStartupProfiles() async =>
+      _codec.requireProfileCatalog(
+        await _request(
+          11,
+          (ControlPayloadWriter()..boolean(1, true)).takeBytes(),
+        ),
+      );
 
   @override
   Future<ProfileCatalog> importLegacyProfiles(

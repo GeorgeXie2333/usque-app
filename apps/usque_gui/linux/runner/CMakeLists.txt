@@ -12,6 +12,7 @@ add_executable(${BINARY_NAME}
   "engine_bridge.cc"
   "unix_engine_socket.cc"
   "desktop_shell.cc"
+  "preferences_writer.cc"
   "proton_verification.cc"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
 )
@@ -49,3 +50,9 @@ add_executable(usque_proton_verification_test EXCLUDE_FROM_ALL
   "../../native/proton_verification_test.cc")
 apply_standard_settings(usque_proton_verification_test)
 target_compile_features(usque_proton_verification_test PRIVATE cxx_std_17)
+
+add_executable(usque_linux_preferences_test EXCLUDE_FROM_ALL
+  "preferences_writer_test.cc" "preferences_writer.cc")
+apply_standard_settings(usque_linux_preferences_test)
+target_compile_features(usque_linux_preferences_test PRIVATE cxx_std_17)
+target_link_libraries(usque_linux_preferences_test PRIVATE PkgConfig::GTK)

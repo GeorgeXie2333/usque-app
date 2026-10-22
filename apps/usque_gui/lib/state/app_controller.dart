@@ -301,7 +301,10 @@ class AppController extends ChangeNotifier {
       _onboardingSubmitting ||
       onboardingPhase == OnboardingPhase.submitting ||
       onboardingPhase == OnboardingPhase.reconciling;
-  bool busy = false;
+  bool _busy = false;
+  bool get busy => _busy || profileIdentitiesLoading;
+  set busy(bool value) => _busy = value;
+  bool profileIdentitiesLoading = false;
   int _activeOperations = 0;
   bool updateChecksEnabled = true;
   bool startOnBoot = false;
@@ -428,6 +431,7 @@ class AppController extends ChangeNotifier {
   UsqueProfile sharedNetwork = UsqueProfile.defaultProfile();
   NetworkSettingsState? _acceptedSettings;
   bool _profilesLoaded = false;
+  Future<void>? _profileLoadWork;
   String? _profileLoadError;
   bool _initialStatusLoaded = false;
   bool _startupAutoConnectChecked = false;
@@ -561,7 +565,19 @@ class AppController extends ChangeNotifier {
     _notifyListeners();
   }
 
-  Future<void> initialize() async {
+  Future<void>? _initializationWork;
+
+  Future<void> initialize() {
+    // Widget rebuilds or a second caller must join the original startup. In
+    // particular, metadata must not clear a catalog that already validated.
+    if (defaultTargetPlatform == TargetPlatform.linux &&
+        _engine is StartupProfileClient) {
+      return _initializationWork ??= _initializeOnce();
+    }
+    return _initializeOnce();
+  }
+
+  Future<void> _initializeOnce() async {
     final dataGeneration = _dataGeneration;
     _bootstrapGeneration++;
     _preferences = await SharedPreferences.getInstance();
@@ -584,11 +600,32 @@ class AppController extends ChangeNotifier {
       _preferences?.getString('locale'),
       LocalePreference.system,
     );
-    await _loadProfiles();
+    final startupEngine = _engine;
+    final progressiveStartup =
+        defaultTargetPlatform == TargetPlatform.linux &&
+        startupEngine is StartupProfileClient;
+    if (progressiveStartup) {
+      profileIdentitiesLoading = true;
+      try {
+        final catalog = await (startupEngine as StartupProfileClient)
+            .readStartupProfiles();
+        if (_disposed || dataGeneration != _dataGeneration) return;
+        profiles = catalog.profiles;
+        activeProfileId = catalog.activeProfileId;
+        // A metadata response is never evidence that credentials are usable.
+        profileIdentityStates = {};
+        profileIdentityStatuses = {};
+        sharedNetwork = catalog.sharedNetwork ?? sharedNetwork;
+      } on Object {
+        // Keep the existing retry/error path when a sidecar cannot start.
+      }
+    } else {
+      await _loadProfiles();
+    }
     if (_disposed || dataGeneration != _dataGeneration) {
       return;
     }
-    if (!onboardingComplete) {
+    if (!onboardingComplete && !progressiveStartup) {
       await refreshOnboardingPermissions();
       await refreshInitialIdentityState();
       if (_disposed || dataGeneration != _dataGeneration) return;
@@ -624,6 +661,9 @@ class AppController extends ChangeNotifier {
     if (_disposed || dataGeneration != _dataGeneration) return;
     initialized = true;
     _notifyListeners();
+    // Queue required startup reads before optional work on the serialized
+    // desktop transport; an update host must not delay keyring validation.
+    final bootstrap = _finishBootstrap();
     unawaited(diagnostics.restore(silent: true));
     unawaited(_updateDownloader.cleanupStale());
     if (updateChecksEnabled && !_startupUpdateCheckStarted) {
@@ -632,10 +672,7 @@ class AppController extends ChangeNotifier {
     }
     // Rendering can proceed after the deadline; a late bootstrap still checks
     // the user's current intent before it may auto-connect.
-    await _finishBootstrap().timeout(
-      const Duration(seconds: 12),
-      onTimeout: () {},
-    );
+    await bootstrap.timeout(const Duration(seconds: 12), onTimeout: () {});
   }
 
   Future<void> _finishBootstrap() {
@@ -662,6 +699,11 @@ class AppController extends ChangeNotifier {
     final intent = _connectionIntent;
     try {
       if (!_profilesLoaded) await _loadProfiles();
+      if (!onboardingComplete &&
+          defaultTargetPlatform == TargetPlatform.linux &&
+          _engine is StartupProfileClient) {
+        await refreshInitialIdentityState();
+      }
       await Future.wait<void>([
         _refreshCapabilities(),
         refreshSnapshot(silent: true),
@@ -730,7 +772,28 @@ class AppController extends ChangeNotifier {
         !snapshot.isTransitional;
   }
 
-  Future<void> _loadProfiles() async {
+  Future<void> _loadProfiles() {
+    final pending = _profileLoadWork;
+    if (pending != null) return pending;
+    if (defaultTargetPlatform == TargetPlatform.linux &&
+        _engine is StartupProfileClient) {
+      profileIdentitiesLoading = true;
+      _notifyListeners();
+    }
+    final generation = _dataGeneration;
+    late final Future<void> work;
+    work = _loadProfilesOnce().whenComplete(() {
+      if (identical(_profileLoadWork, work)) _profileLoadWork = null;
+      if (!_disposed && generation == _dataGeneration) {
+        profileIdentitiesLoading = false;
+        _notifyListeners();
+      }
+    });
+    _profileLoadWork = work;
+    return work;
+  }
+
+  Future<void> _loadProfilesOnce() async {
     final generation = _bootstrapGeneration;
     final preferences = _preferences;
     final raw = preferences?.getString(_profilesKey);
@@ -775,8 +838,10 @@ class AppController extends ChangeNotifier {
       }
     }
 
-    profiles = legacyProfiles;
-    activeProfileId = legacyActiveProfileId;
+    if (!profileIdentitiesLoading) {
+      profiles = legacyProfiles;
+      activeProfileId = legacyActiveProfileId;
+    }
     try {
       final catalog = await _engine.importLegacyProfiles(
         legacyProfiles,
@@ -2135,6 +2200,8 @@ class AppController extends ChangeNotifier {
           adsRulesBusy = false;
           adsRulesFailed = false;
           _profilesLoaded = false;
+          _profileLoadWork = null;
+          profileIdentitiesLoading = false;
           _profileLoadError = null;
           _initialStatusLoaded = false;
           _startupAutoConnectChecked = false;

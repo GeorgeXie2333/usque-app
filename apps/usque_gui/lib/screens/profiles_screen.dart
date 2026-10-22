@@ -26,39 +26,44 @@ class ProfilesScreen extends StatelessWidget {
       subtitle: strings.get('profiles_subtitle'),
       actions: <Widget>[
         FilledButton.icon(
-          onPressed: () => _createProfile(context),
+          onPressed: controller.profileIdentitiesLoading
+              ? null
+              : () => _createProfile(context),
           icon: const Icon(LucideIcons.plus),
           label: Text(strings.get('new_profile')),
         ),
       ],
-      child: ContentList(
-        children: controller.profiles
-            .map(
-              (profile) => _ProfileRow(
-                profile: profile,
-                active: profile.id == controller.activeProfileId,
-                identityState: controller.identityState(profile.id),
-                identityStatus: controller.identityStatus(profile.id),
-                strings: strings,
-                canDelete: controller.profiles.length > 1,
-                onActivate: () => _activateProfile(context, profile, strings),
-                onConfigureIdentity: () => showProfileIdentityDialog(
-                  context,
-                  controller: controller,
-                  profile: profile,
-                ),
-                onEdit: () => _editProfile(context, profile, strings),
-                onManageIdentity: () => _showIdentityManagement(
-                  context,
-                  profile,
-                  controller.identityStatus(profile.id),
-                  strings,
-                ),
-                onDelete: () => _deleteProfile(context, profile, strings),
-              ),
-            )
-            .toList(growable: false),
-      ),
+      child: controller.profileIdentitiesLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ContentList(
+              children: controller.profiles
+                  .map(
+                    (profile) => _ProfileRow(
+                      profile: profile,
+                      active: profile.id == controller.activeProfileId,
+                      identityState: controller.identityState(profile.id),
+                      identityStatus: controller.identityStatus(profile.id),
+                      strings: strings,
+                      canDelete: controller.profiles.length > 1,
+                      onActivate: () =>
+                          _activateProfile(context, profile, strings),
+                      onConfigureIdentity: () => showProfileIdentityDialog(
+                        context,
+                        controller: controller,
+                        profile: profile,
+                      ),
+                      onEdit: () => _editProfile(context, profile, strings),
+                      onManageIdentity: () => _showIdentityManagement(
+                        context,
+                        profile,
+                        controller.identityStatus(profile.id),
+                        strings,
+                      ),
+                      onDelete: () => _deleteProfile(context, profile, strings),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
     );
   }
 

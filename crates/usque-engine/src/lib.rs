@@ -961,9 +961,15 @@ impl ControlService {
                     self.snapshot_with_quality_to_proto(&snapshot),
                 )))
             }
-            control_request::Payload::ListProfiles(_) => Ok(
-                control_response::Payload::ProfileList(self.profile_catalog().await),
-            ),
+            control_request::Payload::ListProfiles(request) => {
+                let catalog = if request.metadata_only {
+                    let config = self.config.read().await;
+                    profile_list_to_proto(&config)
+                } else {
+                    self.profile_catalog().await
+                };
+                Ok(control_response::Payload::ProfileList(catalog))
+            }
             control_request::Payload::GetCapabilities(_) => Ok(
                 control_response::Payload::Capabilities(runtime_capabilities().await),
             ),
@@ -3237,6 +3243,15 @@ impl ControlService {
         &self,
         profile_id: Uuid,
     ) -> Result<WarpIdentity, ControlServiceError> {
+        self.load_warp_identity_with_metadata(profile_id, None)
+            .await
+    }
+
+    async fn load_warp_identity_with_metadata(
+        &self,
+        profile_id: Uuid,
+        metadata: Option<IdentityMetadata>,
+    ) -> Result<WarpIdentity, ControlServiceError> {
         let private_key = self
             .required_secret(profile_id, SecretRecord::MasquePrivateKey)
             .await?;
@@ -3256,7 +3271,10 @@ impl ControlService {
             .required_secret(profile_id, SecretRecord::DeviceId)
             .await?;
         let license = self.vault.get(profile_id, SecretRecord::License).await?;
-        let metadata = self.load_identity_metadata(profile_id).await?;
+        let metadata = match metadata {
+            Some(metadata) => metadata,
+            None => self.load_identity_metadata(profile_id).await?,
+        };
         let key_pair = MasqueKeyPair::from_sec1_der(&private_key)?;
         let endpoint_pin = EndpointPin::from_spki_der(&endpoint_pin)?;
         let assigned_ipv4 = std::str::from_utf8(&assigned_ipv4)
@@ -3307,17 +3325,6 @@ impl ControlService {
         drop(config);
         self.load_identity_metadata_for_profile(profile_id, binding.as_ref())
             .await
-    }
-
-    async fn load_identity_provider_for_profile(
-        &self,
-        profile_id: Uuid,
-        binding: Option<&IdentityProvider>,
-    ) -> Result<IdentityProvider, ControlServiceError> {
-        Ok(self
-            .load_identity_metadata_for_profile(profile_id, binding)
-            .await?
-            .provider)
     }
 
     async fn load_identity_metadata_for_profile(
@@ -3750,48 +3757,57 @@ impl ControlService {
             || !config.pending_identity_replacements.is_empty();
         for account in &config.profiles {
             let binding = config.identity_bindings.get(&account.id).cloned();
-            let stored_provider = self
-                .load_identity_provider_for_profile(account.id, binding.as_ref())
-                .await
-                .ok();
-            let boundary_provider = stored_provider.clone().or(binding);
-            let (mut state, mut license_state, mut account_type, provider) =
-                match self.load_warp_identity(account.id).await {
-                    Ok(identity)
-                        if matches!(identity.provider(), IdentityProvider::ZeroTrust { .. }) =>
-                    {
-                        (
-                            v1::ProfileIdentityState::Ready,
-                            v1::LicenseState::NotApplicable,
-                            "Zero Trust".to_owned(),
-                            identity.provider().clone(),
-                        )
-                    }
-                    Ok(identity) => {
-                        let (license_state, account_type) = match identity.entitlement() {
-                            Some(entitlement) => consumer_license_presentation(entitlement),
-                            None => (v1::LicenseState::Unknown, String::new()),
-                        };
-                        (
-                            v1::ProfileIdentityState::Ready,
-                            license_state,
-                            account_type,
-                            IdentityProvider::Consumer,
-                        )
-                    }
-                    Err(ControlServiceError::MissingCredential(_)) => (
-                        v1::ProfileIdentityState::Missing,
-                        v1::LicenseState::Unknown,
-                        String::new(),
-                        boundary_provider.clone().unwrap_or_default(),
-                    ),
-                    Err(_) => (
-                        v1::ProfileIdentityState::Invalid,
-                        v1::LicenseState::Unknown,
-                        String::new(),
-                        boundary_provider.clone().unwrap_or_default(),
-                    ),
-                };
+            let metadata = self
+                .load_identity_metadata_for_profile(account.id, binding.as_ref())
+                .await;
+            let boundary_provider = metadata
+                .as_ref()
+                .ok()
+                .map(|metadata| metadata.provider.clone())
+                .or(binding);
+            let identity = match metadata {
+                Ok(metadata) => {
+                    self.load_warp_identity_with_metadata(account.id, Some(metadata))
+                        .await
+                }
+                Err(_) => self.load_warp_identity(account.id).await,
+            };
+            let (mut state, mut license_state, mut account_type, provider) = match identity {
+                Ok(identity)
+                    if matches!(identity.provider(), IdentityProvider::ZeroTrust { .. }) =>
+                {
+                    (
+                        v1::ProfileIdentityState::Ready,
+                        v1::LicenseState::NotApplicable,
+                        "Zero Trust".to_owned(),
+                        identity.provider().clone(),
+                    )
+                }
+                Ok(identity) => {
+                    let (license_state, account_type) = match identity.entitlement() {
+                        Some(entitlement) => consumer_license_presentation(entitlement),
+                        None => (v1::LicenseState::Unknown, String::new()),
+                    };
+                    (
+                        v1::ProfileIdentityState::Ready,
+                        license_state,
+                        account_type,
+                        IdentityProvider::Consumer,
+                    )
+                }
+                Err(ControlServiceError::MissingCredential(_)) => (
+                    v1::ProfileIdentityState::Missing,
+                    v1::LicenseState::Unknown,
+                    String::new(),
+                    boundary_provider.clone().unwrap_or_default(),
+                ),
+                Err(_) => (
+                    v1::ProfileIdentityState::Invalid,
+                    v1::LicenseState::Unknown,
+                    String::new(),
+                    boundary_provider.clone().unwrap_or_default(),
+                ),
+            };
             let zero_trust = matches!(provider, IdentityProvider::ZeroTrust { .. });
             if zero_trust {
                 if account.managed_endpoint_ips.is_none()
@@ -4405,6 +4421,14 @@ impl ControlService {
         } else {
             Some(parse_profile_id(&request.active_profile_id)?)
         };
+        // An already migrated configuration needs no mutation lease. In
+        // particular, background keyring recovery must not serialize this read.
+        {
+            let config = self.config.read().await;
+            if config.preferences.profiles_migrated_from_flutter {
+                return Ok(profile_list_to_proto(&config));
+            }
+        }
         let _mutation = self.mutation_lock.lock().await;
         let mut next = self.config.read().await.clone();
         if !next.preferences.profiles_migrated_from_flutter {

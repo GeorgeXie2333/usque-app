@@ -257,14 +257,18 @@ python -m unittest discover -s tool -p "test_linux_package.py" -v
 
 Native Linux runner IPC tests use fake sockets and a fake child process; the
 Proton verification policy test uses synthetic challenges and bounded malformed
-inputs. After the production compile, build and run both executables for the
-host architecture:
+inputs. The preferences fixture simulates a blocked disk and checks main-loop
+responsiveness, coalescing, save failures and exit draining using temporary files.
+After the production compile, build and run all three executables for the host
+architecture:
 
 ```shell
 cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_socket_test
 apps/usque_gui/build/linux/x64/release/runner/usque_linux_socket_test
 cmake --build apps/usque_gui/build/linux/x64/release --target usque_proton_verification_test
 apps/usque_gui/build/linux/x64/release/runner/usque_proton_verification_test
+cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_preferences_test
+apps/usque_gui/build/linux/x64/release/runner/usque_linux_preferences_test
 ```
 
 Use the `arm64` directory on a native arm64 host. The exact test target is defined

@@ -95,6 +95,11 @@ class EngineSnapshotEvent {
   final NetworkSettingsState? networkSettings;
 }
 
+/// Non-secret desktop startup data; identities still need full validation.
+abstract interface class StartupProfileClient {
+  Future<ProfileCatalog> readStartupProfiles();
+}
+
 abstract interface class EngineClient {
   Future<NetworkSettingsState> saveNetworkSettings(
     String operationId,
