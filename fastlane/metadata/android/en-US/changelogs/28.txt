@@ -1,0 +1,1 @@
+v0.3.3-beta.2 pre-release: improve continuous connection and proxy recovery, Linux startup and network diagnostics, and Proton verification and server selection. Includes certificate-validation dependency fixes. Manual testing only; back up first. Stable Latest stays v0.3.2. No Beta auto-update channel. Live networking and upgrades remain unverified.

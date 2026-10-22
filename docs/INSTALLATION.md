@@ -6,8 +6,8 @@ Download packages from this repository's
 ## Version scope
 
 This is the development-branch guide. [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2)
-remains the stable Latest. This branch prepares v0.3.3-beta.1 /
-0.3.3-beta.1+27, including the first Linux desktop packages. The Beta is for
+remains the stable Latest. This branch prepares v0.3.3-beta.2 /
+0.3.3-beta.2+28, improving recovery, Linux startup and Proton verification. The Beta is for
 manual testing: back up first. It shares the application identity, adds no
 Beta auto-update channel and does not promise rollback to v0.3.2.
 For an installed release, use its release notes and the guide at the matching
@@ -46,21 +46,21 @@ official fix.
 | --- | --- | --- |
 | Windows x64 | Windows 10 2004, build 19041 or later; x86-64-v2 CPU | x64-v2 EXE |
 | Windows ARM64 | Windows 10 2004, build 19041 or later, native ARM64 | ARM64 EXE |
-| Linux (v0.3.3-beta.1 preview) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
+| Linux (v0.3.3-beta.2 preview) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Package names (v0.3.3-beta.1 candidate)
+### Package names (v0.3.3-beta.2 candidate)
 
-- `usque-v0.3.3-beta.1-windows-x64-v2.exe`
-- `usque-v0.3.3-beta.1-windows-arm64.exe`
-- `usque-v0.3.3-beta.1-android-arm64-v8a.apk`
-- `usque-v0.3.3-beta.1-android-x86_64.apk`
-- `usque-v0.3.3-beta.1-android-armeabi-v7a.apk`
-- `usque-v0.3.3-beta.1-android-universal.apk`
+- `usque-v0.3.3-beta.2-windows-x64-v2.exe`
+- `usque-v0.3.3-beta.2-windows-arm64.exe`
+- `usque-v0.3.3-beta.2-android-arm64-v8a.apk`
+- `usque-v0.3.3-beta.2-android-x86_64.apk`
+- `usque-v0.3.3-beta.2-android-armeabi-v7a.apk`
+- `usque-v0.3.3-beta.2-android-universal.apk`
 
-The release also includes `usque-v0.3.3-beta.1-windows-x64-v2.msi` and
-`usque-v0.3.3-beta.1-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The release also includes `usque-v0.3.3-beta.2-windows-x64-v2.msi` and
+`usque-v0.3.3-beta.2-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation. Linux AppImage/deb/rpm packages for amd64/arm64
 use the same Beta version; the six filenames are listed in [Linux desktop](LINUX_DESKTOP.md#choose-and-verify-a-package).
 
@@ -71,7 +71,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use the v0.3.3-beta.1 candidate names; substitute the exact filename and published tag you
+use the v0.3.3-beta.2 candidate names; substitute the exact filename and published tag you
 downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -79,7 +79,7 @@ downloaded. These commands inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.3.3-beta.1-windows-x64-v2.exe'
+$package = '.\usque-v0.3.3-beta.2-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -133,7 +133,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.3-beta.1-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.3-beta.2-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -147,7 +147,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.3-beta.1 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.3-beta.2 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 if ($LASTEXITCODE -ne 0) { throw 'Build provenance verification failed.' }
 ```
 

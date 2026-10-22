@@ -51,7 +51,7 @@ Usque は独立したプロジェクトです。Cloudflare, Inc. との提携関
 
 ## ダウンロードとインストール
 
-安定版 Latest は [**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) のままです。このブランチでは **v0.3.3-beta.1 / 0.3.3-beta.1+27** を準備しています。手動インストール用のプレリリースで、初の Linux デスクトップパッケージと実験的なネイティブ Proton VPN チェーン出口を含みます。テスト前にバックアップしてください。Beta 自動更新チャンネルや別のアプリ識別子は追加しません。[GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) と対応するタグの文書を確認してください。Beta は利用者向け 12 種類のパッケージと、アプリ内更新専用の Windows MSI 2 個を対象とします。
+安定版 Latest は [**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) のままです。このブランチでは **v0.3.3-beta.2 / 0.3.3-beta.2+28** を準備しています。手動インストール用のプレリリースで、継続接続とプロキシの復旧、Linux の起動と診断、Proton の認証とサーバー選択を改善します。テスト前にバックアップしてください。Beta 自動更新チャンネルや別のアプリ識別子は追加しません。[GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) と対応するタグの文書を確認してください。Beta は利用者向け 12 種類のパッケージと、アプリ内更新専用の Windows MSI 2 個を対象とします。
 
 | プラットフォーム | 最低 OS 要件 | パッケージ |
 | --- | --- | --- |

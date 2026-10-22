@@ -40,8 +40,8 @@ else {
 
 $architecture = if ($Variant -eq "arm64") { "arm64" } else { "x64" }
 $wintunArchitecture = if ($Variant -eq "arm64") { "arm64" } else { "amd64" }
-$version = "0.3.3-beta.1"
-$msiVersion = "0.3.301"
+$version = "0.3.3-beta.2"
+$msiVersion = "0.3.302"
 $productCode = "11111111-1111-1111-1111-111111111111"
 $signer = "0" * 64
 $expectedCultures = @(
@@ -105,8 +105,8 @@ try {
     $summary.completed_checks += "version_mapping"
 
     $currentStable = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "v0.3.3"
-    $currentBeta = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "0.3.3-beta.1"
-    if ($currentStable -ne "0.3.399" -or $currentBeta -ne "0.3.301" -or
+    $currentBeta = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") -SemVer "0.3.3-beta.2"
+    if ($currentStable -ne "0.3.399" -or $currentBeta -ne "0.3.302" -or
         [version]$currentStable -le [version]$nextStable) {
         throw "Current MSI version mapping or upgrade ordering is invalid."
     }

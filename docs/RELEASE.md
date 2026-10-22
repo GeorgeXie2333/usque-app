@@ -5,12 +5,12 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The checked-in application metadata and workflow target `v0.3.3-beta.1` /
-`0.3.3-beta.1+27`; the stable Latest remains v0.3.2.
+The checked-in application metadata and workflow target `v0.3.3-beta.2` /
+`0.3.3-beta.2+28`; the stable Latest remains v0.3.2.
 [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) was
 published on 2026-10-17 from `02685ee399debf93731751f59b33cdfaef49dcdf`.
-The workflow accepts only `v0.3.3-beta.1`. Its tag must match the current
-`release/v0.3.3-beta.1` branch tip and a completed successful CI push run for
+The workflow accepts only `v0.3.3-beta.2`. Its tag must match the current
+`release/v0.3.3-beta.2` branch tip and a completed successful CI push run for
 that branch and exact SHA. Stable tags retain the current-main/exact-main-push
 CI requirement; release/dev checks cannot substitute. Only the maintainer
 creates the tag. This Beta does not promote or change main.
@@ -28,23 +28,23 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
-## Preparing v0.3.3-beta.1
+## Preparing v0.3.3-beta.2
 
-Use the short-lived `release/v0.3.3-beta.1` branch from dev; no main PR or
+Use the short-lived `release/v0.3.3-beta.2` branch from dev; no main PR or
 promotion is applicable. Require its exact-SHA push CI and CodeQL and one
-successful Build. See the [Beta readiness review](RELEASE_V0.3.3-beta.1_READINESS.md).
-Synchronize all 12 Cargo packages, Flutter `0.3.3-beta.1+27` and 21 catalogs.
-MSI/Agent PE are `0.3.301` / `0.3.301.0`; BundleVersion retains SemVer.
-The Android base is 27: universal/ARMv7/ARM64/x86_64 are
-27000/27001/27002/27004. Future Beta/stable builds must increase the base.
-Linux deb/rpm metadata uses `0.3.3~beta.1` (RPM Release `1`); filenames,
-signed manifests and installed records retain `0.3.3-beta.1`. Compare numeric
+successful Build. See the [Beta readiness review](RELEASE_V0.3.3-beta.2_READINESS.md).
+Synchronize all 12 Cargo packages, Flutter `0.3.3-beta.2+28` and 21 catalogs.
+MSI/Agent PE are `0.3.302` / `0.3.302.0`; BundleVersion retains SemVer.
+The Android base is 28: universal/ARMv7/ARM64/x86_64 are
+28000/28001/28002/28004. Future Beta/stable builds must increase the base.
+Linux deb/rpm metadata uses `0.3.3~beta.2` (RPM Release `1`); filenames,
+signed manifests and installed records retain `0.3.3-beta.2`. Compare numeric
 Beta ordinals, with `beta.1 < beta.2 < beta.10 < stable`; refuse rollback,
 malformed versions and mixed package formats. Windows accepts an installed
 Beta only as the source of a newer stable update, not as an update target.
 
 ```shell
-python tool/release_contract.py verify-version --root . --tag v0.3.3-beta.1 --android-version-code 27
+python tool/release_contract.py verify-version --root . --tag v0.3.3-beta.2 --android-version-code 28
 ```
 
 Keep the short bilingual notes, twelve user download entries and manual-test/
@@ -58,15 +58,23 @@ Require both protected approvals, fourteen signed packages, fourteen SPDX
 SBOMs and 28 provenance/SPDX attestations. Verify 35 staged files (including
 two ELF reports) and 34 public assets (ELF reports excluded, checksums added).
 Retain the three Windows/Android Flutter symbol groups under
-`dist/flutter-symbols/0.3.3-beta.1+27/<SHA>/`; Linux symbol separation is not
+`dist/flutter-symbols/0.3.3-beta.2+28/<SHA>/`; Linux symbol separation is not
 claimed. After verification, ordinary-merge the candidate back into dev,
 preserving concurrent commits; delete the release branch with an exact-head
 lease only after confirming candidate ancestry. Keep main unchanged.
 
+## Preparing v0.3.3-beta.1
+
+This historical anchor describes beta.1, published from
+`38bb4e93db319cbcd72b388b58ee5956e1da6093` with build number 27.
+It introduced Linux desktop packages and experimental native Proton exits.
+Its [readiness review](RELEASE_V0.3.3-beta.1_READINESS.md) retains the original
+sources, checks and limitations; beta.2 evidence must be recorded separately.
+
 ## Beta packaging changes
 
 Linux desktop packages and the F-Droid packaging fixes were added after the
-v0.3.2 tag and require a new release and tag. v0.3.2 published no Linux
+v0.3.2 tag and first shipped in beta.1. v0.3.2 published no Linux
 package. Existing v0.3.2 APKs and their version codes remain historical
 release artifacts.
 
@@ -164,7 +172,7 @@ Which signatures count as official, how fingerprints are published, and what hap
 
 ## Before signing starts
 
-- For `v0.3.3-beta.1`, complete the preparation above first. The accepted tag
+- For `v0.3.3-beta.2`, complete the preparation above first. The accepted tag
   must match `release.yml` and the exact release-branch tip.
 - That commit must already have a successful release-branch `ci.yml` push run,
   including `CI / gate`, CodeQL and Build. Main/PR gates are not applicable.
@@ -249,12 +257,10 @@ Separate each bilingual list item from the next with a blank line so GitHub
 renders paragraph spacing after the Chinese text as well as before it.
 Keep the standard sections for official downloads, installation requirements,
 signature and evidence verification, and issue feedback.
-Keep the version summary, highlights, download table, official-source warning,
-and Windows EXE guidance visible. Put supplementary installation guidance,
-upgrade notes, technical and DNS details, verification instructions and evidence,
-and feedback guidance in separate, default-collapsed `details` blocks with
-English-first bilingual summaries. Keep the standard section headings outside
-the blocks so readers can find them without expanding the content.
+Keep the short format: summary, highlights, twelve download entries, EXE
+guidance, upgrade warnings, verification and feedback remain visible. Fold
+supplementary technical/privacy detail in a default-collapsed `details` block
+with an English-first bilingual summary. Do not restore the older long format.
 
 The release renderer accepts only the version, official repository URL, and
 the two validated certificate fingerprints and the checked-in Linux Ed25519 public key as template values. It rejects missing

@@ -2,12 +2,13 @@
 
 The Linux desktop app uses the real Rust Engine; the separate **Usque UI
 preview** is a debug-only build with simulated data. Linux packages have not
-been included in a stable release; v0.3.3-beta.1 is the first planned Linux
-pre-release. Back up before manual testing. The validation table below shows
+been included in a stable release; v0.3.3-beta.1 introduced the first Linux
+pre-release packages, and beta.2 improves startup and recovery diagnostics.
+Back up before manual testing. The validation table below shows
 what has been tested.
 
 Linux 桌面版使用真实的 Rust Engine；单独的 **Usque UI preview** 是仅供调试、使用
-模拟数据的版本。Linux 安装包尚未纳入稳定版；v0.3.3-beta.1 是首个计划提供 Linux 包的预发布。
+模拟数据的版本。Linux 安装包尚未纳入稳定版；v0.3.3-beta.1 首次提供 Linux 包，beta.2 改进启动与恢复诊断。
 手动测试前请备份，已测试的范围见下方验证表。
 
 ## Choose and verify a package

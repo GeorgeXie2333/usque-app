@@ -11,7 +11,7 @@ import release_contract
 
 
 class BetaReleaseTests(unittest.TestCase):
-    tag = "v0.3.3-beta.1"
+    tag = "v0.3.3-beta.2"
     commit = "a" * 40
 
     def test_only_exact_completed_release_push_is_admitted(self):
@@ -27,7 +27,7 @@ class BetaReleaseTests(unittest.TestCase):
         for field, values in {
             "path": [".github/workflows/build.yml"],
             "head_sha": ["b" * 40],
-            "head_branch": ["main", "dev", "release/v0.3.3-beta.2"],
+            "head_branch": ["main", "dev", "release/v0.3.3-beta.1", "release/v0.3.3-beta.3"],
             "event": ["workflow_dispatch", "pull_request"],
             "status": ["queued", "in_progress"],
             "conclusion": ["failure", "cancelled", "skipped", None],
@@ -72,6 +72,18 @@ class BetaReleaseTests(unittest.TestCase):
             )
         with self.assertRaises(release_contract.ContractError):
             release_contract.verify_main_ci({"workflow_runs": [run]}, self.commit)
+
+    def test_previous_beta_success_cannot_admit_the_current_candidate(self):
+        previous = {
+            "path": ".github/workflows/ci.yml",
+            "head_sha": self.commit,
+            "head_branch": "release/v0.3.3-beta.1",
+            "event": "push",
+            "status": "completed",
+            "conclusion": "success",
+        }
+        with self.assertRaises(release_contract.ContractError):
+            release_contract.verify_beta_ci({"workflow_runs": [previous]}, self.commit, self.tag)
 
     def test_beta_workflow_is_not_latest_and_preserves_stable_gate(self):
         workflow = (linux_package.ROOT / ".github/workflows/release.yml").read_text()

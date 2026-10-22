@@ -68,7 +68,8 @@ Only the release maintainer may approve `release-signing` and `release-publish`.
 The published `v0.3.2` used only the Windows and Android identities; it
 predates Linux packaging and the Linux key signed none of its assets. For the
 next release, retain the existing Windows/Android identities and the fixed
-Linux key. Before approving signing, confirm the live environment protection
+Linux key. Linux packages first shipped in v0.3.3-beta.1; beta.2 retains that
+identity. Before approving signing, confirm the live environment protection
 settings, the two public certificate fingerprints, the checked-in Linux public
 key, and Android's **Registered** application-ID/certificate pair.
 Before approving publication, review the exact tagged commit and staged
@@ -76,7 +77,7 @@ Before approving publication, review the exact tagged commit and staged
 signer fingerprints must describe the candidate produced by that release run.
 A documentation review, a previous release's signatures or a local compile is
 not that evidence. The checked-in workflow targets only
-`v0.3.3-beta.1`, gated by the exact release-branch push CI and both approvals;
+`v0.3.3-beta.2`, gated by the exact release-branch push CI and both approvals;
 see [Release process](RELEASE.md). The stable main-push requirement remains
 unchanged for stable tags. Documentation preparation
 does not authorize key access, signing or publication.

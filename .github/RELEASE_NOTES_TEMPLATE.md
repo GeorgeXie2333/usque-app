@@ -6,23 +6,23 @@ Rendering is not approval.
 
 ## Usque {{release_tag}} pre-release / Usque {{release_tag}} 预发布
 
-Usque {{release_tag}} is a pre-release introducing Linux desktop packages and experimental native Proton VPN chain exits, with improvements to chain-proxy setup, settings recovery and packaging.
+Usque {{release_tag}} is a pre-release that improves continuous connection and proxy recovery, Linux startup and network diagnostics, and Proton verification and server selection.
 
-Usque {{release_tag}} 是一个预发布版本，首次提供 Linux 桌面安装包和实验性原生 Proton VPN 链式出口，并改进链式代理设置、配置恢复与打包。
+Usque {{release_tag}} 是一个预发布版本，改进持续连接与代理恢复、Linux 启动与网络诊断，以及 Proton 验证和节点选择体验。
 
 ## Highlights / 更新亮点 ✨
 
-- **Linux desktop preview** — Native amd64 and arm64 AppImage, deb and rpm packages, signed with the fixed project Ed25519 identity.
-  <br>**Linux 桌面预览** — 提供原生 amd64 与 arm64 AppImage、deb、rpm 安装包，使用固定项目 Ed25519 身份签名。
+- **Connection and proxy recovery** — Cancellable recovery handles recoverable transport failures while local HTTP/SOCKS listeners stay available with bounded waiting queues; stop, credential, configuration and protection failures still end the attempt.
+  <br>**连接与代理恢复** — 可取消的恢复处理可恢复传输故障，本地 HTTP/SOCKS 监听保持可用并采用有界等待队列；停止、凭据、配置及保护失败仍会终止尝试。
 
-- **Experimental Proton VPN exits** — Prepare a guest or account, select a server and connect after WARP. Complete any official human verification yourself; native Android and complete live-tunnel acceptance remain unverified.
-  <br>**实验性 Proton VPN 出口** — 准备游客或账号、选择节点，经 WARP 串联连接。官方人机验证需本人完成；原生 Android 和完整实网隧道验收仍未完成。
+- **Linux recovery and startup** — Preserve TUN failure and cleanup diagnostics, select physical egress through kernel route queries, and defer sensitive initialization and disk writes to keep startup and settings responsive.
+  <br>**Linux 恢复与启动** — 保留 TUN 故障和清理诊断，通过内核路由查询选择物理出口，并延后敏感初始化和磁盘写入，改善启动与设置响应。
 
-- **Simpler chain setup** — A unified editor, full eligible Proton catalogues, reusable certificates and clearer authorization errors.
-  <br>**简化链式配置** — 统一编辑器、完整可用 Proton 节点目录、证书复用与更清晰的授权错误。
+- **Proton verification and selection** — Restore desktop verification callbacks, use a full-screen Android verification window, and add server country flags and a persistent scrollbar. Complete official human verification yourself; flags describe directory metadata, not proven egress geography.
+  <br>**Proton 验证与选择** — 修复桌面验证回调，Android 使用全屏验证窗口，并新增节点国家旗帜与常显滚动条。官方人机验证需本人完成；旗帜表示目录元数据，不证明实际出口地区。
 
-- **Settings and packaging recovery** — Recover unconfirmed saves, isolate automatic-endpoint pin failures, and group Android version codes by build number.
-  <br>**设置与打包恢复** — 恢复未确认的保存操作、隔离自动端点公钥校验失败，并按构建号分组 Android 版本代码。
+- **Certificate-validation maintenance** — Update webpki and root-certificate dependencies while retaining strict endpoint authentication and pin checks.
+  <br>**证书校验维护** — 更新 webpki 与根证书依赖，保留严格的端点认证和公钥校验。
 
 ## Download / 下载 📥
 
@@ -48,11 +48,14 @@ Usque {{release_tag}} 是一个预发布版本，首次提供 Linux 桌面安装
 - **Android blocking** — To keep apps blocked when the VPN stops, enable **Always-on VPN** and **Block connections without VPN** in Android settings.
   <br>**Android 断网保护** — 若要在 VPN 停止后继续阻止应用联网，请在系统设置中开启“始终开启的 VPN”和“阻止未使用 VPN 的连接”。
 
+- **Test boundaries** — Linux packages and experimental Proton exits were introduced in beta.1. Native Android Proton and complete live-tunnel, real-upgrade, leak and performance acceptance remain unverified; interrupted UDP datagrams are not guaranteed to survive recovery.
+  <br>**测试边界** — Linux 安装包与实验性 Proton 出口已在 beta.1 提供。原生 Android Proton、完整实网隧道、真实升级、泄漏与性能验收仍未完成；恢复不保证保留中断期间的 UDP 数据报。
+
 <details>
 <summary>Technical details / 技术细节</summary>
 
-- Configuration schema 26, Agent protocol 3, recovery journal 6. All IPC additions are append-only, and diagnostic exports keep their privacy filtering.
-  <br>配置 schema 26、Agent 协议 3、恢复日志 6。IPC 改动均为追加，诊断导出继续执行隐私过滤。
+- Configuration schema 26, Agent protocol 3, Windows/Linux recovery journals 6/1 and recovery export 2. All IPC additions are append-only, and diagnostic exports keep their privacy filtering.
+  <br>配置 schema 26、Agent 协议 3、Windows/Linux 恢复日志 6/1、恢复导出 2。IPC 改动均为追加，诊断导出继续执行隐私过滤。
 
 - IPv6 presets look up their endpoint hostname through your network's DNS before the tunnel starts. Your DNS provider can see that lookup.
   <br>IPv6 预设在隧道建立前通过当前网络的 DNS 查询端点域名，DNS 服务商可以看到这次查询。
