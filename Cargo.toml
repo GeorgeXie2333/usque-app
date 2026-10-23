@@ -142,6 +142,12 @@ webpki-roots = "1.0.10"
 winresource = { version = "0.1.31", default-features = false }
 zeroize = { version = "1.8.2", features = ["derive", "serde"] }
 
+# The test profile inherits dev. Keep file/line backtraces without full
+# type/variable metadata or the large per-crate incremental cache.
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

@@ -165,6 +165,17 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
 ```
 
+Development and test builds use line-table debug information and disable
+incremental compilation to limit `target/` disk usage. Backtraces retain file
+names and line numbers, but debugger inspection of types and variables is
+limited. Cargo still reuses unchanged compiled dependencies; recompiling changed
+crates can take longer. For a debugging session, temporarily set
+`CARGO_PROFILE_DEV_DEBUG=2` and `CARGO_PROFILE_TEST_DEBUG=2` for full Rust debug
+information, and `CARGO_INCREMENTAL=1` if incremental compilation is needed.
+These overrides increase disk usage. Release settings are independent. Changing
+profiles does not remove old artifacts; preserve local validation evidence and
+avoid deleting the entire `target/` tree.
+
 Every `unsafe` block needs a `// SAFETY:` comment that states the invariants. A public unsafe API needs a rustdoc `# Safety` section.
 
 Userspace TCP budget or pinned stack changes also run the dependency tests;
