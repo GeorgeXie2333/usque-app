@@ -259,7 +259,7 @@ Native Linux runner IPC tests use fake sockets and a fake child process; the
 Proton verification policy test uses synthetic challenges and bounded malformed
 inputs. The preferences fixture simulates a blocked disk and checks main-loop
 responsiveness, coalescing, save failures and exit draining using temporary files.
-After the production compile, build and run all three executables for the host
+After the production compile, build and run the fixtures below for the host
 architecture:
 
 ```shell
@@ -269,7 +269,18 @@ cmake --build apps/usque_gui/build/linux/x64/release --target usque_proton_verif
 apps/usque_gui/build/linux/x64/release/runner/usque_proton_verification_test
 cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_preferences_test
 apps/usque_gui/build/linux/x64/release/runner/usque_linux_preferences_test
+cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_startup_io_test usque_nm_dns_fixture
+apps/usque_gui/build/linux/x64/release/runner/usque_linux_startup_io_test
+USQUE_NM_DNS_FIXTURE="$PWD/apps/usque_gui/build/linux/x64/release/runner/usque_nm_dns_fixture" \
+  cargo test --locked -p usque-agent --lib private_network_manager_bus -- --ignored
 ```
+
+The startup I/O fixture holds storage and socket workers for two seconds while
+checking the GLib main loop, cancellation and descriptor cleanup. The DNS fixture
+owns a private session D-Bus daemon and synthetic NetworkManager objects; it
+checks the production busctl arguments and IPv4/IPv6 schemas without accessing
+the system bus. The Rust test is ignored in the generic suite and must be run
+explicitly with the compiled fixture above. It requires `dbus-daemon` and `busctl`.
 
 Use the `arm64` directory on a native arm64 host. The exact test target is defined
 in `apps/usque_gui/linux/runner/CMakeLists.txt`; no desktop session or VPN is

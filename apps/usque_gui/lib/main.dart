@@ -5,10 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app.dart';
+import 'services/gui_startup_observation.dart';
+import 'services/linux_preferences_store.dart';
 import 'state/window_frame.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && Platform.isLinux) {
+    LinuxPreferencesStore.register();
+    GuiStartupObservation.instance.start();
+  }
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(const [
       'Flagpedia country and region flags',

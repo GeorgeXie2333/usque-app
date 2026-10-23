@@ -21,6 +21,23 @@ Agent preparation and survives cancellation, deadline expiry and failed startup.
 Rollback updates only its own evidence owner, so a late cleanup cannot overwrite
 a later connection's evidence.
 
+`LinuxFailureDetail.dns_snapshot_operation` is append-only field 9. Fixed enum
+values identify resolved DNS, NetworkManager device lookup, and each address
+family's configuration/DNS read. Snapshot errors retain the selected backend.
+Unknown optional operation values are normalized to unspecified without erasing
+the original failure; command arguments, D-Bus paths and stderr remain excluded.
+
+`gui-startup.json` schema 1 is a bounded, GUI-supplied historical observation,
+not a platform-health claim. Optional control export field 3 carries fixed
+startup stage/source/status enums, relative monotonic milliseconds, and optional
+Dart/GTK maximum event-loop gaps. Each source has its own time origin. Sampling
+ends after 60 seconds, at most 16 unique source/stage pairs are accepted, and
+pending stages become timed out when that window ends. Values outside the
+contract make only this observation invalid. Missing old-client observations
+are unavailable; absent gap samples are not zero pauses. No configuration,
+user paths, addresses, account names or error strings are accepted. Old Engines
+can ignore the new optional request field and continue exporting existing data.
+
 `platform-health.json` schema 2 retains the original summary keys. Its
 `startup_failure` records the failed attempt and cleanup separately; current
 Linux platform fields come from the existing read-only Agent observation and

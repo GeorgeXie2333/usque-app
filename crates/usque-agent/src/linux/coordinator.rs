@@ -1030,6 +1030,7 @@ mod tests {
     };
 
     struct Fake {
+        fail_snapshot: bool,
         calls: Arc<Mutex<Vec<(Step, bool)>>>,
         fail_apply: Option<Step>,
         fail_restore: Option<Step>,
@@ -1041,6 +1042,16 @@ mod tests {
     }
 
     impl Backend for Fake {
+        fn initialize_resources(&self, _: &mut Resources) -> io::Result<()> {
+            if self.fail_snapshot {
+                return Err(linux_failure::dns_snapshot(
+                    usque_ipc::agent_v1::LinuxDnsBackend::NetworkManager,
+                    usque_ipc::agent_v1::LinuxDnsSnapshotOperation::NmIpv6Dns,
+                    io::Error::new(io::ErrorKind::InvalidData, "invalid DNS fixture"),
+                ));
+            }
+            Ok(())
+        }
         fn take_reusable_egress_mark(&mut self) -> Option<u16> {
             self.reusable_marks.pop()
         }
@@ -1170,6 +1181,7 @@ mod tests {
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let path = directory.path().join("journal.json");
         let backend = Fake {
+            fail_snapshot: false,
             calls: Arc::default(),
             fail_apply,
             fail_restore,
@@ -1181,6 +1193,24 @@ mod tests {
         };
         let coordinator = Coordinator::open(JournalStore::for_test(path), backend).unwrap();
         (directory, coordinator)
+    }
+
+    #[test]
+    fn snapshot_failure_precedes_every_privileged_resource_mutation() {
+        let (_directory, mut coordinator) = setup(None, None);
+        coordinator.backend.fail_snapshot = true;
+        let error = coordinator
+            .prepare(owner(), Uuid::new_v4(), 0, plan())
+            .unwrap_err();
+        assert!(coordinator.backend.calls.lock().unwrap().is_empty());
+        assert_eq!(coordinator.state().phase, Phase::Clean);
+        assert_eq!(coordinator.state().generation, 0);
+        let detail = linux_failure::detail(&error).unwrap();
+        assert_eq!(detail.stage, FailureStage::PhysicalSnapshot as i32);
+        assert_eq!(
+            detail.dns_snapshot_operation,
+            usque_ipc::agent_v1::LinuxDnsSnapshotOperation::NmIpv6Dns as i32
+        );
     }
 
     #[test]

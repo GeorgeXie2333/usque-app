@@ -412,7 +412,7 @@ impl LinuxAgentClient {
                     detail: error
                         .linux_detail
                         .map(|d| *d)
-                        .filter(usque_ipc::linux_failure::valid),
+                        .and_then(usque_ipc::linux_failure::normalize),
                     retryable: error.retryable,
                 }));
             }

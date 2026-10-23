@@ -55,6 +55,7 @@ mod continuous_connection;
 pub mod diagnostics;
 #[cfg(any(windows, target_os = "linux", test))]
 mod event_stream;
+mod gui_startup;
 #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 mod ipc_stream;
 #[cfg(target_os = "linux")]
@@ -1203,6 +1204,7 @@ impl ControlService {
                         evidence.connection,
                         diagnostic_session,
                         maintenance::DiagnosticTransportContext {
+                            gui_startup: request.gui_startup,
                             startup_failure: evidence.startup_failure,
                             #[cfg(target_os = "linux")]
                             linux_platform: linux_platform.filter(|_| stable),

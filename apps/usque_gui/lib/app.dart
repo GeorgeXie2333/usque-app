@@ -9,6 +9,7 @@ import 'screens/onboarding_screen.dart';
 import 'screens/shell_screen.dart';
 import 'services/engine_client.dart';
 import 'services/engine_client_factory.dart';
+import 'services/gui_startup_observation.dart';
 import 'services/platform_shell_bridge.dart';
 import 'services/update_downloader.dart';
 import 'state/app_controller.dart';
@@ -23,6 +24,7 @@ typedef _BootstrapView = ({
   LocalePreference locale,
   bool onboardingBusy,
   String? onboardingError,
+  String? startupError,
 });
 
 class UsqueBootstrap extends StatefulWidget {
@@ -57,7 +59,15 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle != null) didChangeAppLifecycleState(lifecycle);
     shellBridge = PlatformShellBridge(controller);
-    controller.initialize();
+    if (defaultTargetPlatform == TargetPlatform.linux) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        GuiStartupObservation.instance.mark(2);
+        controller.initialize();
+      });
+    } else {
+      controller.initialize();
+    }
   }
 
   @override
@@ -91,6 +101,7 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
       controller: controller,
       selector: (controller) => (
         initialized: controller.initialized,
+        startupError: controller.startupError,
         onboardingComplete: controller.onboardingComplete,
         theme: controller.themePreference,
         locale: controller.localePreference,
@@ -179,7 +190,7 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
                 }
               : null,
           home: !view.initialized
-              ? const _LoadingScreen()
+              ? _LoadingScreen(controller: controller, error: view.startupError)
               : view.onboardingComplete
               ? ShellScreen(controller: controller)
               : OnboardingScreen(controller: controller),
@@ -216,20 +227,37 @@ class _WindowChrome extends StatelessWidget {
 }
 
 class _LoadingScreen extends StatelessWidget {
-  const _LoadingScreen();
+  const _LoadingScreen({required this.controller, this.error});
+  final AppController controller;
+  final String? error;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Center(
-        child: Semantics(
-          label: 'Loading Usque',
-          child: const SizedBox(
-            width: 34,
-            height: 34,
-            child: CircularProgressIndicator(strokeWidth: 3),
-          ),
-        ),
+        child: error != null
+            ? Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: controller.initialize,
+                      child: Text(controller.strings.get('retry')),
+                    ),
+                  ],
+                ),
+              )
+            : Semantics(
+                label: 'Loading Usque',
+                child: const SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+              ),
       ),
     );
   }

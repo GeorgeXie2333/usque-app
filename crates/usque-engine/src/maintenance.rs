@@ -50,6 +50,7 @@ struct CollectedLogs {
 
 #[derive(Default)]
 pub struct DiagnosticTransportContext {
+    pub gui_startup: Option<usque_ipc::v1::GuiStartupObservation>,
     pub timeline: ConnectionTimelineSnapshot,
     pub network_quality: Option<usque_transport::NetworkQualitySnapshot>,
     pub socket_receive: Option<usque_transport::SocketReceiveQuality>,
@@ -212,6 +213,13 @@ fn write_diagnostic_bundle(
     );
 
     let mut entries = vec![
+        (
+            "gui-startup.json".to_owned(),
+            serde_json::to_vec_pretty(&crate::gui_startup::summary(
+                transport.gui_startup.as_ref(),
+            ))?
+            .into_boxed_slice(),
+        ),
         (
             "log-export.json".to_owned(),
             serde_json::to_vec_pretty(&log.metadata)?.into_boxed_slice(),

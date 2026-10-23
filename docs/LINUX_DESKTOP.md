@@ -111,6 +111,15 @@ the initial summary never establishes that an identity is ready. Window size
 and maximization changes are coalesced and saved off the GTK main thread, with
 the latest pending state drained before a normal exit.
 
+Linux GUI preferences and startup file reads also run outside the GTK thread;
+JSON processing runs outside the Dart UI isolate. Existing XDG and legacy
+preference locations remain supported. A failed preference read offers Retry
+without resetting saved data. Event-socket authentication runs asynchronously,
+and cancelled subscriptions cannot publish a late connection. Diagnostic exports
+include a bounded `gui-startup.json` with startup milestones and event-loop gaps;
+missing observations are explicitly unavailable. These observations do not prove
+native desktop responsiveness without a matching real-session check.
+
 Configuration, cache and logs use the user's XDG directories. The GUI and
 Engine communicate in a private `0700` directory below `XDG_RUNTIME_DIR`, with
 `0600` sockets and authenticated peer credentials. Another user cannot use that

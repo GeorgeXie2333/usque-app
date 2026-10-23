@@ -7,6 +7,7 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include "desktop_shell.h"
+#include "startup_observation.h"
 
 #ifdef USQUE_PREVIEW
 constexpr const char* kWindowTitle = "Usque UI preview";
@@ -23,6 +24,7 @@ G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
+  usque_startup_mark(2);
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 

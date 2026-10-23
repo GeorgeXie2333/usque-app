@@ -2,6 +2,8 @@
 
 #include <gio/gio.h>
 #include <glib/gstdio.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <optional>
 #include <utility>
@@ -90,11 +92,24 @@ UsquePreferencesWriter::UsquePreferencesWriter(std::string path, Write write,
   state_->debounce_ms = debounce_ms;
   state_->write = write ? std::move(write) : [path = std::move(path)](const std::string& contents) {
     g_autofree gchar* directory = g_path_get_dirname(path.c_str());
-    return g_mkdir_with_parents(directory, 0700) == 0 &&
-        g_file_set_contents_full(path.c_str(), contents.data(), contents.size(),
+    if (g_mkdir_with_parents(directory, 0700) != 0) return false;
+    // GLib preserves an existing destination's mode. Legacy shared_preferences
+    // files can be 0644, so create a fresh private inode before atomic replace.
+    g_autofree gchar* temporary = g_strdup((path + ".write-XXXXXX").c_str());
+    if (!g_mkdtemp_full(temporary, 0700)) return false;
+    const auto file = std::string(temporary) + "/value";
+    bool ok = g_file_set_contents_full(file.c_str(), contents.data(), contents.size(),
             static_cast<GFileSetContentsFlags>(G_FILE_SET_CONTENTS_CONSISTENT |
                                                G_FILE_SET_CONTENTS_DURABLE),
             0600, nullptr);
+    if (ok) ok = g_rename(file.c_str(), path.c_str()) == 0;
+    g_unlink(file.c_str());
+    g_rmdir(temporary);
+    const int parent = open(directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (parent < 0) return false;
+    if (fsync(parent) != 0) ok = false;
+    close(parent);
+    return ok;
   };
 }
 

@@ -2,7 +2,8 @@
 //! error text is deliberately not part of the public evidence projection.
 use crate::agent_v1::{
     LinuxCommandAdapter as Adapter, LinuxDnsBackend as Backend, LinuxDnsProbeFailure,
-    LinuxFailureDetail, LinuxFailureReason as Reason, LinuxFailureStage as Stage,
+    LinuxDnsSnapshotOperation, LinuxFailureDetail, LinuxFailureReason as Reason,
+    LinuxFailureStage as Stage,
 };
 use std::{error::Error, fmt, io};
 
@@ -12,6 +13,36 @@ pub fn valid(detail: &LinuxFailureDetail) -> bool {
             .cleanup_detail
             .as_ref()
             .is_none_or(|cleanup| cleanup.cleanup_detail.is_none() && valid_fields(cleanup))
+}
+
+/// Unknown optional operations from newer Agents do not erase older evidence.
+pub fn normalize(mut detail: LinuxFailureDetail) -> Option<LinuxFailureDetail> {
+    if !valid(&detail) {
+        return None;
+    }
+    if LinuxDnsSnapshotOperation::try_from(detail.dns_snapshot_operation).is_err() {
+        detail.dns_snapshot_operation = 0;
+    }
+    if let Some(cleanup) = &mut detail.cleanup_detail
+        && LinuxDnsSnapshotOperation::try_from(cleanup.dns_snapshot_operation).is_err()
+    {
+        cleanup.dns_snapshot_operation = 0;
+    }
+    Some(detail)
+}
+
+pub fn dns_snapshot(
+    backend: Backend,
+    operation: LinuxDnsSnapshotOperation,
+    error: io::Error,
+) -> io::Error {
+    let error = wrap(Stage::PhysicalSnapshot, error);
+    let mut detail = detail(&error).expect("wrapped DNS snapshot");
+    detail.backend = backend as i32;
+    if detail.dns_snapshot_operation == 0 {
+        detail.dns_snapshot_operation = operation as i32;
+    }
+    with_detail(detail, error)
 }
 fn valid_fields(detail: &LinuxFailureDetail) -> bool {
     fn numbers(errno: Option<i32>, exit: Option<i32>) -> bool {
@@ -139,6 +170,22 @@ pub fn probe(backend: Backend, error: &io::Error) -> LinuxDnsProbeFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn newer_snapshot_operations_do_not_erase_known_failure_fields() {
+        let detail = LinuxFailureDetail {
+            stage: Stage::PhysicalSnapshot as i32,
+            reason: Reason::CommandRejected as i32,
+            backend: Backend::NetworkManager as i32,
+            dns_snapshot_operation: 999,
+            exit_code: Some(1),
+            ..Default::default()
+        };
+        let normalized = normalize(detail).unwrap();
+        assert_eq!(normalized.dns_snapshot_operation, 0);
+        assert_eq!(normalized.exit_code, Some(1));
+        assert_eq!(normalized.backend, Backend::NetworkManager as i32);
+    }
 
     #[test]
     fn unknown_or_invalid_probe_evidence_is_rejected_without_parsing_messages() {

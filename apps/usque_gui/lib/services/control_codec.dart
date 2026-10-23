@@ -532,6 +532,12 @@ class ControlPayloadWriter {
 
   void enumeration(int number, int value) => unsigned(number, value);
 
+  /// Optional scalar presence matters even when its value is zero.
+  void optionalUnsigned(int number, int value) {
+    _tag(number, 0);
+    _varint(value);
+  }
+
   void boolean(int number, bool value) {
     if (value) {
       unsigned(number, 1);

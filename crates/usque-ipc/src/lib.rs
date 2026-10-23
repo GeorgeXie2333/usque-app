@@ -114,6 +114,46 @@ pub enum FrameError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gui_startup_and_dns_operation_extensions_are_optional_and_append_only() {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct OldExport {
+            #[prost(string, tag = "1")]
+            destination: String,
+            #[prost(string, tag = "2")]
+            diagnostic_session_id: String,
+        }
+        let old = OldExport {
+            destination: "/synthetic.zip".into(),
+            diagnostic_session_id: String::new(),
+        };
+        let current = v1::ExportDiagnosticsRequest::decode(old.encode_to_vec().as_slice()).unwrap();
+        assert!(current.gui_startup.is_none());
+        let current = v1::ExportDiagnosticsRequest {
+            gui_startup: Some(v1::GuiStartupObservation {
+                schema_version: 1,
+                dart_max_gap_ms: Some(0),
+                ..Default::default()
+            }),
+            ..current
+        };
+        assert_eq!(
+            OldExport::decode(current.encode_to_vec().as_slice()).unwrap(),
+            old
+        );
+        let decoded =
+            v1::ExportDiagnosticsRequest::decode(current.encode_to_vec().as_slice()).unwrap();
+        assert_eq!(decoded.gui_startup.unwrap().dart_max_gap_ms, Some(0));
+        assert_eq!(
+            agent_v1::LinuxFailureDetail {
+                dns_snapshot_operation: agent_v1::LinuxDnsSnapshotOperation::NmIpv6Dns as i32,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x48, 6]
+        );
+    }
     #[test]
     fn initial_identity_wire_numbers_are_append_only() {
         let initial = v1::ControlRequest {

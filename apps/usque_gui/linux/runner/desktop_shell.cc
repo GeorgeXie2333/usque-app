@@ -2,6 +2,8 @@
 
 #include "engine_bridge.h"
 #include "preferences_writer.h"
+#include "linux_preferences_store.h"
+#include "startup_observation.h"
 #include "proton_verification.h"
 
 #include <fcntl.h>
@@ -25,6 +27,11 @@ struct Shell {
   GdkPixbuf* icon = nullptr;
   std::string directory;
   std::unique_ptr<UsquePreferencesWriter> preferences_writer;
+  std::unique_ptr<UsqueLinuxPreferencesStore> shared_preferences;
+  bool files_ready = false;
+  bool preferences_valid = false;
+  bool window_touched = false;
+  std::vector<std::function<void()>> ready_callbacks;
   std::string callback;
   std::string team;
   FlValue* tray = nullptr;
@@ -95,7 +102,41 @@ void fail(FlMethodCall* call, const char* code, const char* message) {
   fl_method_call_respond_error(call, code, message, nullptr, nullptr);
 }
 
+void after_files(Shell* self, FlMethodCall* call, std::function<void()> action) {
+  g_object_ref(call);
+  auto run = [call, action = std::move(action)] { action(); g_object_unref(call); };
+  if (self->files_ready) run();
+  else self->ready_callbacks.push_back(std::move(run));
+}
+
+// Only independent values are created by the worker; channel replies remain
+// on the GTK context. Every pending request retains its method-call object.
+void read_async(FlMethodCall* call, std::function<FlValue*()> read,
+                std::function<void(FlValue*)> finish = {}) {
+  struct Job { FlMethodCall* call; std::function<FlValue*()> read;
+    std::function<void(FlValue*)> finish;
+    ~Job() { g_object_unref(call); }
+  };
+  auto* job = new Job{FL_METHOD_CALL(g_object_ref(call)), std::move(read), std::move(finish)};
+  g_autoptr(GTask) task = g_task_new(nullptr, nullptr,
+      [](GObject*, GAsyncResult* result, gpointer) {
+        auto* job = static_cast<Job*>(g_task_get_task_data(G_TASK(result)));
+        g_autoptr(FlValue) value = static_cast<FlValue*>(g_task_propagate_pointer(G_TASK(result), nullptr));
+        if (job->finish) job->finish(value);
+        success(job->call, value);
+      }, nullptr);
+  g_task_set_task_data(task, job, [](gpointer p) { delete static_cast<Job*>(p); });
+  g_task_run_in_thread(task, [](GTask* task, gpointer, gpointer p, GCancellable*) {
+    g_task_return_pointer(task, static_cast<Job*>(p)->read(),
+        reinterpret_cast<GDestroyNotify>(fl_value_unref));
+  });
+}
+
 void save_preferences(Shell* self, UsquePreferencesWriter::Completion completion = {}) {
+  if (!self->files_ready || !self->preferences_valid) {
+    if (completion) completion(false);
+    return;
+  }
   gsize size = 0;
   g_autofree gchar* bytes = g_key_file_to_data(self->preferences, &size, nullptr);
   self->preferences_writer->Save(std::string(bytes, size), std::move(completion));
@@ -104,9 +145,13 @@ void save_preferences(Shell* self, UsquePreferencesWriter::Completion completion
 void quit_after_preferences(GApplication* application) {
   g_object_ref(application);
   shell->preferences_writer->Flush([application](bool ok) {
-    if (!ok) g_warning("Window preferences could not be saved.");
-    g_application_quit(application);
-    g_object_unref(application);
+    auto finish = [application, ok](bool shared_ok) {
+      if (!ok || !shared_ok) g_warning("Preferences could not be saved.");
+      g_application_quit(application);
+      g_object_unref(application);
+    };
+    if (shell->shared_preferences) shell->shared_preferences->Flush(finish);
+    else finish(true);
   });
 }
 
@@ -485,7 +530,29 @@ void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
   if (usque_proton_verification_method(self->window, call)) return;
   const char* method = fl_method_call_get_name(call);
   FlValue* args = fl_method_call_get_args(call);
-  if (strcmp(method, "copySensitiveText") == 0) {
+  if (strcmp(method, "guiStartupObservation") == 0) {
+    g_autoptr(FlValue) value = usque_startup_snapshot(); success(call, value);
+  } else if (strcmp(method, "readLinuxPreferences") == 0) {
+    after_files(self, call, [self, call] {
+      g_object_ref(call);
+      self->shared_preferences->Read([call](bool ok, const std::string& contents) {
+        if (ok) { g_autoptr(FlValue) value = fl_value_new_string(contents.c_str()); success(call, value); }
+        else fail(call, "PREFERENCE_LOAD_FAILED", "Saved preferences could not be read. Retry without resetting data.");
+        g_object_unref(call);
+      });
+    });
+  } else if (strcmp(method, "writeLinuxPreferences") == 0) {
+    if (args == nullptr || fl_value_get_type(args) != FL_VALUE_TYPE_STRING) {
+      fail(call, "PREFERENCE_SAVE_FAILED", "Invalid preferences."); return;
+    }
+    std::string contents(fl_value_get_string(args));
+    after_files(self, call, [self, call, contents = std::move(contents)] {
+      g_object_ref(call);
+      self->shared_preferences->Write(contents, [call](bool ok) {
+        g_autoptr(FlValue) value = fl_value_new_bool(ok); success(call, value); g_object_unref(call);
+      });
+    });
+  } else if (strcmp(method, "copySensitiveText") == 0) {
     FlValue* value = field(args, "value");
     FlValue* timeout = field(args, "clear_after_seconds");
     if (value == nullptr || fl_value_get_type(value) != FL_VALUE_TYPE_UINT8_LIST ||
@@ -516,13 +583,14 @@ void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
     // advisory; external clipboard managers remain outside the app's control.
     success(call);
   } else if (strcmp(method, "getLinuxServiceState") == 0) {
+    read_async(call, [] {
     g_autoptr(FlValue) record = installation_record();
     const char* appdir = g_getenv("APPDIR");
     g_autofree gchar* executable = g_file_read_link("/proc/self/exe", nullptr);
     const bool appimage_bundle = appdir != nullptr && appdir[0] == '/' &&
         executable != nullptr &&
         std::string(executable) == std::string(appdir) + "/usr/lib/usque/usque";
-    g_autoptr(FlValue) state = fl_value_new_map();
+    FlValue* state = fl_value_new_map();
     put(state, "installed", fl_value_new_bool(record != nullptr));
     put(state, "compatible", fl_value_new_bool(compatible_record(record)));
     const bool installed_appimage = record != nullptr &&
@@ -531,20 +599,26 @@ void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
     put(state, "can_install", fl_value_new_bool(appimage_bundle &&
         (record == nullptr || (installed_appimage && !compatible_record(record)))));
     put(state, "can_repair", fl_value_new_bool(record != nullptr && trusted_file("/usr/lib/usque/usque-update", true)));
-    success(call, state);
+    return state;
+    });
   } else if (strcmp(method, "linuxEngineExecutable") == 0) {
+    read_async(call, [] {
     g_autoptr(FlValue) record = installation_record();
-    g_autoptr(FlValue) executable = compatible_record(record)
-        ? fl_value_new_string("/usr/lib/usque/usque-engine") : nullptr;
-    success(call, executable);
+    return compatible_record(record)
+        ? fl_value_new_string("/usr/lib/usque/usque-engine") : fl_value_new_null();
+    });
   } else if (strcmp(method, "platformPreferences") == 0) {
-    g_autoptr(FlValue) prefs = fl_value_new_map();
+    after_files(self, call, [self, call] { read_async(call, [] {
+    FlValue* prefs = fl_value_new_map();
     put(prefs, "start_on_boot", fl_value_new_bool(start_on_boot()));
+    return prefs;
+    }, [self](FlValue* prefs) {
     put(prefs, "close_to_tray", fl_value_new_bool(self->close_to_tray && self->tray_available));
     put(prefs, "tray_available", fl_value_new_bool(self->tray_available));
-    success(call, prefs);
+    }); });
   } else if (strcmp(method, "setCloseToTray") == 0) {
     bool enabled = boolean(args, "enabled");
+    after_files(self, call, [self, call, enabled] {
     if (enabled && !self->tray_available) {
       fail(call, "TRAY_UNAVAILABLE", "The desktop session has no status notifier host.");
       return;
@@ -555,6 +629,7 @@ void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
       if (!ok) fail(call, "PREFERENCE_SAVE_FAILED", "The window preference could not be saved.");
       else { self->close_to_tray = enabled; success(call); }
       g_object_unref(call);
+    });
     });
   } else if (strcmp(method, "setStartOnBoot") == 0) {
     const auto path = autostart_path();
@@ -656,6 +731,11 @@ void method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
 
 gboolean window_state(GtkWidget* widget, GdkEvent*, gpointer data) {
   auto* self = static_cast<Shell*>(data);
+  if (!self->files_ready) {
+    int width, height; gtk_window_get_size(self->window, &width, &height);
+    self->window_touched |= width != 1280 || height != 720 || gtk_window_is_maximized(self->window);
+    return FALSE;
+  }
   const bool maximized = gtk_window_is_maximized(GTK_WINDOW(widget));
   g_key_file_set_boolean(self->preferences, "Window", "maximized", maximized);
   if (!maximized) {
@@ -666,6 +746,62 @@ gboolean window_state(GtkWidget* widget, GdkEvent*, gpointer data) {
   }
   save_preferences(self);
   return FALSE;
+}
+
+void load_shell_files(Shell* self) {
+  struct Files {
+    std::string directory, executable = "usque";
+    GKeyFile* preferences = g_key_file_new();
+    GdkPixbuf* icon = nullptr;
+    bool valid = false;
+    ~Files() { g_key_file_unref(preferences); if (icon) g_object_unref(icon); }
+  };
+  auto* files = new Files{}; files->directory = self->directory;
+  g_autoptr(GTask) task = g_task_new(nullptr, nullptr,
+      [](GObject*, GAsyncResult* result, gpointer data) {
+        auto* self = static_cast<Shell*>(data);
+        auto* files = static_cast<Files*>(g_task_get_task_data(G_TASK(result)));
+        g_task_propagate_boolean(G_TASK(result), nullptr);
+        g_key_file_unref(self->preferences);
+        self->preferences = g_key_file_ref(files->preferences);
+        self->preferences_valid = files->valid;
+        self->icon = files->icon ? GDK_PIXBUF(g_object_ref(files->icon)) : nullptr;
+        self->shared_preferences = std::make_unique<UsqueLinuxPreferencesStore>(
+            g_get_user_data_dir(), APPLICATION_ID, files->executable);
+        self->close_to_tray = files->valid && g_key_file_get_boolean(self->preferences, "Window", "close-to-tray", nullptr);
+        self->files_ready = true;
+        if (!self->window_touched) {
+          int width = g_key_file_get_integer(self->preferences, "Window", "width", nullptr);
+          int height = g_key_file_get_integer(self->preferences, "Window", "height", nullptr);
+          if (width >= 480 && width <= 7680 && height >= 360 && height <= 4320)
+            gtk_window_resize(self->window, width, height);
+          if (g_key_file_get_boolean(self->preferences, "Window", "maximized", nullptr)) gtk_window_maximize(self->window);
+        } else window_state(GTK_WIDGET(self->window), nullptr, self);
+        usque_startup_mark(1, !files->valid);
+        auto callbacks = std::move(self->ready_callbacks);
+        for (auto& callback : callbacks) callback();
+        if (self->bus) g_dbus_connection_emit_signal(self->bus, nullptr, "/StatusNotifierItem",
+            "org.kde.StatusNotifierItem", "NewIcon", nullptr, nullptr);
+      }, self);
+  g_task_set_task_data(task, files, [](gpointer p) { delete static_cast<Files*>(p); });
+  g_task_run_in_thread(task, [](GTask* task, gpointer, gpointer data, GCancellable*) {
+    auto* files = static_cast<Files*>(data);
+    g_autofree gchar* executable = g_file_read_link("/proc/self/exe", nullptr);
+    if (executable) {
+      g_autofree gchar* directory = g_path_get_dirname(executable);
+      g_autofree gchar* name = g_path_get_basename(executable);
+      files->executable = name;
+      auto dot = files->executable.rfind('.');
+      if (dot != std::string::npos && dot != 0) files->executable.resize(dot);
+      auto path = std::string(directory) + "/data/flutter_assets/assets/branding/usque-ui-icon.png";
+      files->icon = gdk_pixbuf_new_from_file_at_scale(path.c_str(), 32, 32, TRUE, nullptr);
+    }
+    g_autoptr(GError) error = nullptr;
+    files->valid = g_key_file_load_from_file(files->preferences,
+        (files->directory + "/" + kPreferences).c_str(), G_KEY_FILE_NONE, &error) ||
+        g_error_matches(error, G_FILE_ERROR, G_FILE_ERROR_NOENT);
+    g_task_return_boolean(task, TRUE);
+  });
 }
 }  // namespace
 
@@ -695,26 +831,18 @@ void usque_register_desktop_shell(GtkApplication* application, GtkWindow* window
   shell->window = window;
   shell->directory = std::string(g_get_user_config_dir()) + "/usque";
   shell->preferences = g_key_file_new();
-  g_autofree gchar* executable = g_file_read_link("/proc/self/exe", nullptr);
-  if (executable != nullptr) {
-    g_autofree gchar* directory = g_path_get_dirname(executable);
-    const auto icon = std::string(directory) + "/data/flutter_assets/assets/branding/usque-ui-icon.png";
-    shell->icon = gdk_pixbuf_new_from_file_at_scale(icon.c_str(), 32, 32, TRUE, nullptr);
-  }
-  g_key_file_load_from_file(shell->preferences, (shell->directory + "/" + kPreferences).c_str(), G_KEY_FILE_NONE, nullptr);
   shell->preferences_writer = std::make_unique<UsquePreferencesWriter>(
       shell->directory + "/" + kPreferences);
-  shell->close_to_tray = g_key_file_get_boolean(shell->preferences, "Window", "close-to-tray", nullptr);
-  int width = g_key_file_get_integer(shell->preferences, "Window", "width", nullptr);
-  int height = g_key_file_get_integer(shell->preferences, "Window", "height", nullptr);
-  if (width >= 480 && width <= 7680 && height >= 360 && height <= 4320)
-    gtk_window_set_default_size(window, width, height);
-  if (g_key_file_get_boolean(shell->preferences, "Window", "maximized", nullptr)) gtk_window_maximize(window);
   // Window positioning belongs to the compositor on Wayland. GTK restores size
   // and maximization on both systems without moving windows to absent monitors.
   g_signal_connect(window, "configure-event", G_CALLBACK(window_state), shell);
   g_signal_connect(window, "window-state-event", G_CALLBACK(window_state), shell);
   g_signal_connect(window, "delete-event", G_CALLBACK(delete_window), shell);
+  for (const char* signal : {"button-press-event", "key-press-event"}) {
+    g_signal_connect(window, signal, G_CALLBACK(+[](GtkWidget*, GdkEvent*, gpointer data) -> gboolean {
+      static_cast<Shell*>(data)->window_touched = true; return FALSE;
+    }), shell);
+  }
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
   shell->channel = fl_method_channel_new(messenger,
       "io.github.georgexie2333.usque/engine", FL_METHOD_CODEC(codec));
@@ -743,4 +871,5 @@ void usque_register_desktop_shell(GtkApplication* application, GtkWindow* window
       shell->watcher = g_bus_watch_name_on_connection(shell->bus, "org.kde.StatusNotifierWatcher",
           G_BUS_NAME_WATCHER_FLAGS_NONE, watcher_appeared, watcher_vanished, shell, nullptr);
   }
+  load_shell_files(shell);
 }

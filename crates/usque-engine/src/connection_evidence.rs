@@ -63,8 +63,10 @@ impl StartupFailureEvidence {
                 value.cleanup_detail = detail;
             }
         }
-        value.detail = value.detail.filter(usque_ipc::linux_failure::valid);
-        value.cleanup_detail = value.cleanup_detail.filter(usque_ipc::linux_failure::valid);
+        value.detail = value.detail.and_then(usque_ipc::linux_failure::normalize);
+        value.cleanup_detail = value
+            .cleanup_detail
+            .and_then(usque_ipc::linux_failure::normalize);
         value
     }
 }

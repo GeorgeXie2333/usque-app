@@ -8,7 +8,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::command;
-use usque_ipc::{agent_v1::LinuxFailureReason as FailureReason, linux_failure};
+use usque_ipc::{
+    agent_v1::{
+        LinuxDnsBackend, LinuxDnsSnapshotOperation as SnapshotOperation,
+        LinuxFailureReason as FailureReason,
+    },
+    linux_failure,
+};
 
 const SERVICE: &str = "org.freedesktop.NetworkManager";
 const PATH: &str = "/org/freedesktop/NetworkManager";
@@ -308,6 +314,21 @@ pub fn property(path: &str, interface: &str, name: &str) -> io::Result<Value> {
 
 pub fn physical_dns(index: u32) -> io::Result<Vec<IpAddr>> {
     let name = super::network::interface_name(index)?;
+    physical_dns_with(&name, |args| {
+        serde_json::from_slice(&command::run("/usr/bin/busctl", args, None)?)
+            .map_err(|_| invalid("invalid NetworkManager snapshot response"))
+    })
+}
+
+fn snapshot_error(operation: SnapshotOperation, error: io::Error) -> io::Error {
+    linux_failure::dns_snapshot(LinuxDnsBackend::NetworkManager, operation, error)
+}
+
+/// The injected reader observes the exact production busctl arguments.
+fn physical_dns_with(
+    name: &str,
+    mut read: impl FnMut(&[String]) -> io::Result<Value>,
+) -> io::Result<Vec<IpAddr>> {
     let args = [
         "--system",
         "--json=short",
@@ -318,45 +339,81 @@ pub fn physical_dns(index: u32) -> io::Result<Vec<IpAddr>> {
         SERVICE,
         "GetDeviceByIpIface",
         "s",
-        &name,
+        name,
     ]
     .map(str::to_owned);
-    let response: Value = serde_json::from_slice(&command::run("/usr/bin/busctl", &args, None)?)
-        .map_err(|_| invalid("invalid NetworkManager device response"))?;
+    let response = read(&args).map_err(|e| snapshot_error(SnapshotOperation::NmDevice, e))?;
     let data = &response["data"];
     let device = data
         .as_str()
         .or_else(|| data.get(0).and_then(Value::as_str))
-        .ok_or_else(|| invalid("NetworkManager device unavailable"))?;
+        .filter(|path| path.starts_with('/') && *path != "/")
+        .ok_or_else(|| {
+            snapshot_error(
+                SnapshotOperation::NmDevice,
+                invalid("NetworkManager device unavailable"),
+            )
+        })?;
+    let mut property = |path: &str, interface: &str, name: &str, operation| {
+        let args = [
+            "--system",
+            "--json=short",
+            "--timeout=5",
+            "get-property",
+            SERVICE,
+            path,
+            interface,
+            name,
+        ]
+        .map(str::to_owned);
+        let response = read(&args).map_err(|e| snapshot_error(operation, e))?;
+        response.get("data").cloned().ok_or_else(|| {
+            snapshot_error(operation, invalid("NetworkManager property unavailable"))
+        })
+    };
     let mut servers = Vec::new();
-    for (property_name, interface) in [
-        ("Ip4Config", "org.freedesktop.NetworkManager.IP4Config"),
-        ("Ip6Config", "org.freedesktop.NetworkManager.IP6Config"),
+    for (property_name, interface, config_operation, dns_operation, dns_property) in [
+        (
+            "Ip4Config",
+            "org.freedesktop.NetworkManager.IP4Config",
+            SnapshotOperation::NmIpv4Config,
+            SnapshotOperation::NmIpv4Dns,
+            "NameserverData",
+        ),
+        (
+            "Ip6Config",
+            "org.freedesktop.NetworkManager.IP6Config",
+            SnapshotOperation::NmIpv6Config,
+            SnapshotOperation::NmIpv6Dns,
+            "Nameservers",
+        ),
     ] {
         let path = property(
             device,
             "org.freedesktop.NetworkManager.Device",
             property_name,
+            config_operation,
         )?;
         let path = path
             .as_str()
-            .ok_or_else(|| invalid("invalid NetworkManager IP configuration"))?;
+            .filter(|path| path.starts_with('/'))
+            .ok_or_else(|| {
+                snapshot_error(
+                    config_operation,
+                    invalid("invalid NetworkManager IP configuration"),
+                )
+            })?;
         if path == "/" {
             continue;
         }
-        let values = unvariant(property(path, interface, "NameserverData")?)?;
-        for entry in values
-            .as_array()
-            .ok_or_else(|| invalid("invalid NetworkManager nameservers"))?
-        {
-            if let Some(address) = entry
-                .get("address")
-                .and_then(Value::as_str)
-                .and_then(|address| address.parse::<IpAddr>().ok())
-                && !address.is_unspecified()
-                && !address.is_loopback()
-                && !address.is_multicast()
-            {
+        let values = unvariant(property(path, interface, dns_property, dns_operation)?)
+            .map_err(|e| snapshot_error(dns_operation, e))?;
+        for entry in values.as_array().ok_or_else(|| {
+            snapshot_error(dns_operation, invalid("invalid NetworkManager nameservers"))
+        })? {
+            let address = parse_nameserver(entry, dns_operation)
+                .map_err(|e| snapshot_error(dns_operation, e))?;
+            if !address.is_unspecified() && !address.is_loopback() && !address.is_multicast() {
                 servers.push(address);
             }
         }
@@ -365,6 +422,29 @@ pub fn physical_dns(index: u32) -> io::Result<Vec<IpAddr>> {
     servers.dedup();
     servers.truncate(8);
     Ok(servers)
+}
+
+fn parse_nameserver(entry: &Value, operation: SnapshotOperation) -> io::Result<IpAddr> {
+    if operation == SnapshotOperation::NmIpv4Dns {
+        return entry
+            .get("address")
+            .and_then(Value::as_str)
+            .and_then(|address| address.parse::<std::net::Ipv4Addr>().ok())
+            .map(IpAddr::V4)
+            .ok_or_else(|| invalid("invalid NetworkManager IPv4 DNS address"));
+    }
+    let values = entry
+        .as_array()
+        .filter(|values| values.len() == 16)
+        .ok_or_else(|| invalid("invalid NetworkManager IPv6 DNS address"))?;
+    let mut bytes = [0; 16];
+    for (byte, value) in bytes.iter_mut().zip(values) {
+        *byte = value
+            .as_u64()
+            .and_then(|value| u8::try_from(value).ok())
+            .ok_or_else(|| invalid("invalid NetworkManager IPv6 DNS byte"))?;
+    }
+    Ok(IpAddr::V6(bytes.into()))
 }
 
 pub fn unvariant(value: Value) -> io::Result<Value> {
@@ -426,6 +506,194 @@ fn invalid(message: &'static str) -> io::Error {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    #[ignore = "requires the private usque_nm_dns_fixture native target and dbus-daemon"]
+    fn private_network_manager_bus_matches_public_ipv6_schema() {
+        use std::{
+            io::{BufRead, BufReader},
+            process::{Child, Command, Stdio},
+        };
+        struct Process(Child);
+        impl Drop for Process {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        fn first_line(child: &mut Process) -> String {
+            let pipe = child.0.stdout.take().unwrap();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut line = String::new();
+                let result = BufReader::new(pipe).read_line(&mut line).map(|_| line);
+                let _ = tx.send(result);
+            });
+            rx.recv_timeout(std::time::Duration::from_secs(5))
+                .expect("private fixture startup deadline")
+                .unwrap()
+                .trim()
+                .to_owned()
+        }
+        let fixture =
+            std::env::var_os("USQUE_NM_DNS_FIXTURE").expect("native fixture executable required");
+        let mut daemon = Process(
+            Command::new("dbus-daemon")
+                .args(["--session", "--nofork", "--print-address=1", "--nopidfile"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let address = first_line(&mut daemon);
+        assert!(address.starts_with("unix:"));
+        let mut server = Process(
+            Command::new(fixture)
+                .arg(&address)
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        assert_eq!(first_line(&mut server), "READY");
+        let servers = physical_dns_with("synthetic0", |args| {
+            let mut args = args.to_vec();
+            assert_eq!(args[0], "--system");
+            args[0] = format!("--address={address}");
+            serde_json::from_slice(&command::run("/usr/bin/busctl", &args, None)?)
+                .map_err(io::Error::other)
+        })
+        .unwrap();
+        assert_eq!(
+            servers,
+            [
+                "192.0.2.53".parse::<IpAddr>().unwrap(),
+                "fe80::53".parse().unwrap()
+            ]
+        );
+    }
+
+    fn snapshot_fixture(ip4: Value, ip6: Value, missing: bool) -> io::Result<Vec<IpAddr>> {
+        let mut calls = Vec::new();
+        let result = physical_dns_with("synthetic0", |args| {
+            assert_eq!(&args[..3], ["--system", "--json=short", "--timeout=5"]);
+            let key = args.last().unwrap().as_str();
+            calls.push(key.to_owned());
+            Ok(match key {
+                "synthetic0" => {
+                    assert_eq!(args[7], "GetDeviceByIpIface");
+                    json!({"type":"o","data":["/device"]})
+                }
+                "Ip4Config" => json!({"type":"o","data":if missing {"/"} else {"/ipv4"}}),
+                "Ip6Config" => json!({"type":"o","data":if missing {"/"} else {"/ipv6"}}),
+                "NameserverData" => {
+                    assert_eq!(args[5], "/ipv4");
+                    assert_eq!(args[6], "org.freedesktop.NetworkManager.IP4Config");
+                    json!({"type":"aa{sv}","data":ip4})
+                }
+                "Nameservers" => {
+                    assert_eq!(args[5], "/ipv6");
+                    assert_eq!(args[6], "org.freedesktop.NetworkManager.IP6Config");
+                    json!({"type":"aay","data":ip6})
+                }
+                _ => panic!("unexpected snapshot operation"),
+            })
+        });
+        if result.is_ok() {
+            assert_eq!(
+                calls,
+                if missing {
+                    vec!["synthetic0", "Ip4Config", "Ip6Config"]
+                } else {
+                    vec![
+                        "synthetic0",
+                        "Ip4Config",
+                        "NameserverData",
+                        "Ip6Config",
+                        "Nameservers",
+                    ]
+                }
+            );
+        }
+        result
+    }
+
+    #[test]
+    fn snapshot_uses_each_address_familys_actual_dbus_contract() {
+        let v6: std::net::Ipv6Addr = "fe80::53".parse().unwrap();
+        let servers = snapshot_fixture(
+            json!([{"address":{"type":"s","data":"192.0.2.53"}}, {"address":"127.0.0.1"}]),
+            json!([
+                v6.octets(),
+                v6.octets(),
+                std::net::Ipv6Addr::LOCALHOST.octets()
+            ]),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            servers,
+            vec!["192.0.2.53".parse::<IpAddr>().unwrap(), v6.into()]
+        );
+        assert!(
+            snapshot_fixture(json!([]), json!([]), false)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            snapshot_fixture(Value::Null, Value::Null, true)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn malformed_dns_arrays_preserve_backend_and_exact_operation() {
+        for value in [
+            json!([[1, 2]]),
+            json!([vec![256; 16]]),
+            json!([vec![-1; 16]]),
+            json!(["fe80::53"]),
+            json!({}),
+        ] {
+            let error = snapshot_fixture(json!([]), value, false).unwrap_err();
+            let detail = linux_failure::detail(&error).unwrap();
+            assert_eq!(detail.backend, LinuxDnsBackend::NetworkManager as i32);
+            assert_eq!(
+                detail.dns_snapshot_operation,
+                SnapshotOperation::NmIpv6Dns as i32
+            );
+            assert_eq!(
+                detail.stage,
+                usque_ipc::agent_v1::LinuxFailureStage::PhysicalSnapshot as i32
+            );
+        }
+        assert!(snapshot_fixture(json!([{"address":"::1"}]), json!([]), false).is_err());
+    }
+
+    #[test]
+    fn failed_device_lookup_retains_command_evidence_without_fallback() {
+        let mut calls = 0;
+        let error = physical_dns_with("synthetic0", |_| {
+            calls += 1;
+            Err(linux_failure::with_detail(
+                usque_ipc::agent_v1::LinuxFailureDetail {
+                    reason: FailureReason::CommandRejected as i32,
+                    adapter: usque_ipc::agent_v1::LinuxCommandAdapter::Busctl as i32,
+                    exit_code: Some(1),
+                    ..Default::default()
+                },
+                io::Error::other("private stderr /private 192.0.2.1"),
+            ))
+        })
+        .unwrap_err();
+        assert_eq!(calls, 1);
+        let detail = linux_failure::detail(&error).unwrap();
+        assert_eq!(
+            detail.dns_snapshot_operation,
+            SnapshotOperation::NmDevice as i32
+        );
+        assert_eq!(detail.exit_code, Some(1));
+        assert!(!serde_json::to_string(&detail).unwrap().contains("private"));
+    }
 
     #[test]
     fn network_manager_snapshots_round_trip_known_variants() {

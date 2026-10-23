@@ -723,6 +723,49 @@ message CheckUpdateRequest {
 message ExportDiagnosticsRequest {
   string destination = 1;
   string diagnostic_session_id = 2;
+  GuiStartupObservation gui_startup = 3;
+}
+
+enum GuiStartupStage {
+  GUI_STARTUP_STAGE_UNSPECIFIED = 0;
+  GUI_STARTUP_STAGE_NATIVE_INITIALIZATION = 1;
+  GUI_STARTUP_STAGE_FIRST_FRAME = 2;
+  GUI_STARTUP_STAGE_PREFERENCES_READ = 3;
+  GUI_STARTUP_STAGE_ENGINE_READY = 4;
+  GUI_STARTUP_STAGE_PROFILE_METADATA = 5;
+  GUI_STARTUP_STAGE_IDENTITY_VALIDATION = 6;
+  GUI_STARTUP_STAGE_INTERACTIVE_READY = 7;
+}
+
+enum GuiStartupSource {
+  GUI_STARTUP_SOURCE_UNSPECIFIED = 0;
+  GUI_STARTUP_SOURCE_DART = 1;
+  GUI_STARTUP_SOURCE_GTK = 2;
+}
+
+enum GuiStartupStatus {
+  GUI_STARTUP_STATUS_UNSPECIFIED = 0;
+  GUI_STARTUP_STATUS_PENDING = 1;
+  GUI_STARTUP_STATUS_COMPLETED = 2;
+  GUI_STARTUP_STATUS_FAILED = 3;
+  GUI_STARTUP_STATUS_TIMED_OUT = 4;
+}
+
+message GuiStartupStageObservation {
+  GuiStartupStage stage = 1;
+  GuiStartupSource source = 2;
+  GuiStartupStatus status = 3;
+  // Relative to the beginning of this source's observation, never wall time.
+  optional uint64 elapsed_ms = 4;
+}
+
+message GuiStartupObservation {
+  uint32 schema_version = 1;
+  uint64 observation_window_ms = 2;
+  optional uint64 dart_max_gap_ms = 3;
+  optional uint64 gtk_max_gap_ms = 4;
+  repeated GuiStartupStageObservation stages = 5;
+  bool observation_complete = 6;
 }
 
 enum DiagnosticMode {

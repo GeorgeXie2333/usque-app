@@ -10,6 +10,8 @@ import '../core/app_strings.dart';
 import '../core/user_facing_errors.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
+import '../services/gui_startup_observation.dart';
+import '../services/linux_preferences_store.dart';
 import '../services/update_downloader.dart';
 import 'diagnostics_controller.dart';
 import 'network_quality_controller.dart';
@@ -566,21 +568,33 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void>? _initializationWork;
+  String? startupError;
 
   Future<void> initialize() {
     // Widget rebuilds or a second caller must join the original startup. In
     // particular, metadata must not clear a catalog that already validated.
     if (defaultTargetPlatform == TargetPlatform.linux &&
         _engine is StartupProfileClient) {
-      return _initializationWork ??= _initializeOnce();
+      return _initializationWork ??= _initializeOnce().catchError((
+        Object error,
+      ) {
+        if (_disposed) return;
+        startupError = userFacingError(strings, error);
+        GuiStartupObservation.instance.mark(3, failed: true);
+        _initializationWork = null;
+        _notifyListeners();
+      });
     }
     return _initializeOnce();
   }
 
   Future<void> _initializeOnce() async {
     final dataGeneration = _dataGeneration;
+    startupError = null;
+    _notifyListeners();
     _bootstrapGeneration++;
     _preferences = await SharedPreferences.getInstance();
+    GuiStartupObservation.instance.mark(3);
     if (_disposed || dataGeneration != _dataGeneration) return;
     adsRulesFailed = _preferences?.getBool('ads_check_failed') ?? false;
     onboardingComplete = _preferences?.getBool('onboarding_complete') ?? false;
@@ -609,6 +623,7 @@ class AppController extends ChangeNotifier {
       try {
         final catalog = await (startupEngine as StartupProfileClient)
             .readStartupProfiles();
+        GuiStartupObservation.instance.mark(5);
         if (_disposed || dataGeneration != _dataGeneration) return;
         profiles = catalog.profiles;
         activeProfileId = catalog.activeProfileId;
@@ -618,6 +633,7 @@ class AppController extends ChangeNotifier {
         sharedNetwork = catalog.sharedNetwork ?? sharedNetwork;
       } on Object {
         // Keep the existing retry/error path when a sidecar cannot start.
+        GuiStartupObservation.instance.mark(5, failed: true);
       }
     } else {
       await _loadProfiles();
@@ -660,6 +676,7 @@ class AppController extends ChangeNotifier {
     }
     if (_disposed || dataGeneration != _dataGeneration) return;
     initialized = true;
+    GuiStartupObservation.instance.mark(7);
     _notifyListeners();
     // Queue required startup reads before optional work on the serialized
     // desktop transport; an update host must not delay keyring validation.
@@ -858,8 +875,12 @@ class AppController extends ChangeNotifier {
       _captureSharedNetwork();
       sharedNetwork = catalog.sharedNetwork ?? sharedNetwork;
       _rememberManagedAccounts();
-      await preferences?.remove(_profilesKey);
+      if (preferences?.containsKey(_profilesKey) ?? false) {
+        await preferences?.remove(_profilesKey);
+      }
+      GuiStartupObservation.instance.mark(6);
     } on Object catch (error) {
+      GuiStartupObservation.instance.mark(6, failed: true);
       if (!_disposed &&
           generation == _bootstrapGeneration &&
           lastError == null) {
@@ -1448,6 +1469,8 @@ class AppController extends ChangeNotifier {
 
   Future<void> disconnectForExit() async {
     _connectionIntent++;
+    await _onboardingPreferenceWrites;
+    await LinuxPreferencesStore.flushPending();
     if (snapshot.phase != ConnectionPhase.disconnected) {
       try {
         snapshot = await _engine.disconnect();

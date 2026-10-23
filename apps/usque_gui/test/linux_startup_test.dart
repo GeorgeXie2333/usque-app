@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:usque/app.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/profiles_screen.dart';
@@ -52,6 +53,21 @@ class _LockedStartupEngine extends FakeEngineClient
   }
 }
 
+class _RetryablePreferences extends InMemorySharedPreferencesStore {
+  _RetryablePreferences()
+    : super.withData({
+        'flutter.onboarding_complete': true,
+        'flutter.update_checks_enabled': false,
+        'flutter.locale': 'english',
+      });
+  bool fail = true;
+  @override
+  Future<Map<String, Object>> getAll() {
+    if (fail) return Future.error(const FormatException('Invalid preferences'));
+    return super.getAll();
+  }
+}
+
 class _RetryingStartupEngine extends _LockedStartupEngine {
   final retryStarted = Completer<void>();
   final retryReply = Completer<void>();
@@ -95,6 +111,34 @@ void main() {
     });
   });
   tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+  testWidgets('preference failure leaves a retryable loading window', (
+    tester,
+  ) async {
+    SharedPreferences.resetStatic();
+    final preferences = _RetryablePreferences();
+    SharedPreferencesStorePlatform.instance = preferences;
+    final engine = _LockedStartupEngine();
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(find.byType(FilledButton), findsOneWidget);
+    expect(engine.imports, 0);
+    preferences.fail = false;
+    await tester.tap(find.byType(FilledButton));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(find.byType(ShellScreen), findsOneWidget);
+    expect(engine.calls, isNot(contains('connect')));
+    engine.unlock.complete();
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
+  });
 
   testWidgets('Linux opens a navigable shell while the keyring is waiting', (
     tester,

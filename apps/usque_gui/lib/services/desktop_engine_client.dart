@@ -9,6 +9,8 @@ import '../models/diagnostics_models.dart';
 import 'control_codec.dart';
 import 'desktop_engine_transport.dart';
 import 'engine_client.dart';
+import 'gui_startup_observation.dart';
+import 'linux_preferences_store.dart';
 
 export 'control_codec.dart'
     show
@@ -752,6 +754,8 @@ class DesktopEngineClient
     final payload = ControlPayloadWriter()
       ..string(1, destination)
       ..string(2, diagnosticSessionId ?? '');
+    final startup = await GuiStartupObservation.instance.encode();
+    if (startup != null) payload.message(3, startup);
     await _serialized(() => _request(21, payload.takeBytes()));
     return destination;
   }
@@ -823,6 +827,7 @@ class DesktopEngineClient
   }) async {
     if (Platform.isLinux) {
       await _runLinuxUpdate(path, package, install: true);
+      await LinuxPreferencesStore.flushPending();
       await _transport.invokePlatformMethod<void>('exitApplication');
       return;
     }

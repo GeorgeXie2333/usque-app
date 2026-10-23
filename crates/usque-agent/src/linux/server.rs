@@ -965,7 +965,7 @@ fn agent_error(error: io::Error) -> agent_v1::AgentError {
         .is_some_and(|error| error.is::<StaleNetworkGeneration>());
     agent_v1::AgentError {
         linux_detail: usque_ipc::linux_failure::detail(&error)
-            .filter(usque_ipc::linux_failure::valid)
+            .and_then(usque_ipc::linux_failure::normalize)
             .map(Box::new),
         code: if stale_generation {
             "linux_stale_generation"

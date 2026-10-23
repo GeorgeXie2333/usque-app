@@ -10,9 +10,12 @@ add_executable(${BINARY_NAME}
   "main.cc"
   "my_application.cc"
   "engine_bridge.cc"
+  "async_engine_connection.cc"
   "unix_engine_socket.cc"
   "desktop_shell.cc"
   "preferences_writer.cc"
+  "linux_preferences_store.cc"
+  "startup_observation.cc"
   "proton_verification.cc"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
 )
@@ -56,3 +59,14 @@ add_executable(usque_linux_preferences_test EXCLUDE_FROM_ALL
 apply_standard_settings(usque_linux_preferences_test)
 target_compile_features(usque_linux_preferences_test PRIVATE cxx_std_17)
 target_link_libraries(usque_linux_preferences_test PRIVATE PkgConfig::GTK)
+
+add_executable(usque_linux_startup_io_test EXCLUDE_FROM_ALL
+  "startup_io_test.cc" "async_engine_connection.cc" "unix_engine_socket.cc"
+  "linux_preferences_store.cc" "preferences_writer.cc")
+apply_standard_settings(usque_linux_startup_io_test)
+target_compile_features(usque_linux_startup_io_test PRIVATE cxx_std_17)
+target_link_libraries(usque_linux_startup_io_test PRIVATE PkgConfig::GTK)
+
+add_executable(usque_nm_dns_fixture EXCLUDE_FROM_ALL "nm_dns_fixture.cc")
+apply_standard_settings(usque_nm_dns_fixture)
+target_link_libraries(usque_nm_dns_fixture PRIVATE PkgConfig::GTK)

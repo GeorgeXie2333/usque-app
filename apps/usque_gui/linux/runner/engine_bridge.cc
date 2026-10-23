@@ -1,5 +1,6 @@
 #include "engine_bridge.h"
 #include "unix_engine_socket.h"
+#include "async_engine_connection.h"
 
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -11,6 +12,8 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <memory>
+#include <utility>
 
 namespace {
 constexpr size_t kMaximumFrame = 4 * 1024 * 1024;
@@ -123,12 +126,14 @@ void request_finished(GObject*, GAsyncResult* result, gpointer data) {
 }
 
 struct EventBridge {
+  UsqueAsyncEngineConnection connection;
   FlEventChannel* channel = nullptr;
   GSocket* socket = nullptr;
   GSource* source = nullptr;
   std::vector<uint8_t> pending;
 
   void stop() {
+    connection.Cancel();
     if (source != nullptr) {
       g_source_destroy(source);
       g_source_unref(source);
@@ -177,35 +182,38 @@ gboolean event_ready(GSocket* socket, GIOCondition condition, gpointer data) {
 
 FlMethodErrorResponse* listen_events(FlEventChannel* channel, FlValue* args,
                                       gpointer data) {
-  auto* bridge = static_cast<EventBridge*>(data);
+  auto bridge = *static_cast<std::shared_ptr<EventBridge>*>(data);
   bridge->stop();
   Request request {};
   if (!parse_peer(args, &request.path, &request.pid)) {
     return fl_method_error_response_new("ENGINE_IPC_INVALID_PEER",
                                          "Invalid Engine event peer.", nullptr);
   }
-  const int fd = usque_connect_engine_socket(request.path, request.pid);
-  if (fd < 0) {
-    return fl_method_error_response_new("ENGINE_EVENT_UNAVAILABLE",
-                                         "Engine events are unavailable.", nullptr);
-  }
-  bridge->channel = channel;
-  bridge->socket = g_socket_new_from_fd(fd, nullptr);
-  if (bridge->socket == nullptr) {
-    close(fd);
-    return fl_method_error_response_new("ENGINE_EVENT_UNAVAILABLE",
-                                         "Engine events are unavailable.", nullptr);
-  }
-  g_socket_set_blocking(bridge->socket, FALSE);
-  bridge->source = g_socket_create_source(
-      bridge->socket, static_cast<GIOCondition>(G_IO_IN | G_IO_HUP | G_IO_ERR), nullptr);
-  g_source_set_callback(bridge->source, G_SOURCE_FUNC(event_ready), bridge, nullptr);
-  g_source_attach(bridge->source, nullptr);
+  auto retained = std::shared_ptr<FlEventChannel>(FL_EVENT_CHANNEL(g_object_ref(channel)),
+      [](FlEventChannel* p) { g_object_unref(p); });
+  bridge->connection.Start(request.path, request.pid, [bridge, retained](int fd) {
+        if (fd >= 0) {
+          bridge->socket = g_socket_new_from_fd(fd, nullptr);
+          if (!bridge->socket) close(fd);
+        }
+        if (!bridge->socket) {
+          fl_event_channel_send_error(retained.get(), "ENGINE_EVENT_UNAVAILABLE",
+              "Engine events are unavailable.", nullptr, nullptr, nullptr);
+          fl_event_channel_send_end_of_stream(retained.get(), nullptr, nullptr);
+          return;
+        }
+        bridge->channel = retained.get();
+        g_socket_set_blocking(bridge->socket, FALSE);
+        bridge->source = g_socket_create_source(bridge->socket,
+            static_cast<GIOCondition>(G_IO_IN | G_IO_HUP | G_IO_ERR), nullptr);
+        g_source_set_callback(bridge->source, G_SOURCE_FUNC(event_ready), bridge.get(), nullptr);
+        g_source_attach(bridge->source, nullptr);
+  });
   return nullptr;
 }
 
 FlMethodErrorResponse* cancel_events(FlEventChannel*, FlValue*, gpointer data) {
-  static_cast<EventBridge*>(data)->stop();
+  (*static_cast<std::shared_ptr<EventBridge>*>(data))->stop();
   return nullptr;
 }
 }  // namespace
@@ -253,5 +261,8 @@ void usque_register_engine_events(FlBinaryMessenger* messenger) {
   g_autoptr(FlEventChannel) channel = fl_event_channel_new(
       messenger, "io.github.georgexie2333.usque/engine_events", FL_METHOD_CODEC(codec));
   fl_event_channel_set_stream_handlers(channel, listen_events, cancel_events,
-      new EventBridge {}, [](gpointer value) { delete static_cast<EventBridge*>(value); });
+      new std::shared_ptr<EventBridge>(std::make_shared<EventBridge>()), [](gpointer value) {
+        auto* owner = static_cast<std::shared_ptr<EventBridge>*>(value);
+        (*owner)->stop(); delete owner;
+      });
 }

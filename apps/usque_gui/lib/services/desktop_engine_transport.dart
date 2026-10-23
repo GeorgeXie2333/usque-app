@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import 'control_codec.dart';
 import 'engine_client.dart';
+import 'gui_startup_observation.dart';
 
 const String _pipePrefix =
     r'\\.\pipe\io.github.georgexie2333.usque.engine.v1-ui-';
@@ -209,6 +210,9 @@ class DesktopEngineTransport {
       if (!_isTestTransport && !_disposed) {
         _startCount++;
       }
+    } on Object {
+      GuiStartupObservation.instance.mark(4, failed: true);
+      rethrow;
     } finally {
       _starting = null;
     }
@@ -452,6 +456,7 @@ class DesktopEngineTransport {
               '${stderr.isEmpty ? '.' : ': $stderr'}',
         );
       }
+      GuiStartupObservation.instance.mark(4);
     }
   }
 

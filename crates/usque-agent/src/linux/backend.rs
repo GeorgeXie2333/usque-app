@@ -990,52 +990,83 @@ fn active_resolver() -> io::Result<()> {
 }
 
 pub fn physical_snapshot(backend: &super::dns::DnsReceipt) -> io::Result<Vec<PhysicalInterface>> {
+    physical_snapshot_inner(backend).map_err(|error| {
+        linux_failure::dns_snapshot(
+            match backend {
+                super::dns::DnsReceipt::Resolved => LinuxDnsBackend::Resolved,
+                super::dns::DnsReceipt::NetworkManager { .. } => LinuxDnsBackend::NetworkManager,
+            },
+            usque_ipc::agent_v1::LinuxDnsSnapshotOperation::Unspecified,
+            error,
+        )
+    })
+}
+
+fn physical_snapshot_inner(backend: &super::dns::DnsReceipt) -> io::Result<Vec<PhysicalInterface>> {
     let mut interfaces = network::physical_interfaces()?;
     match backend {
         super::dns::DnsReceipt::Resolved => {
-            let dns = property(RESOLVE_PATH, RESOLVE_MANAGER, "DNS")?;
-            for entry in dns
-                .as_array()
-                .ok_or_else(|| unavailable("invalid resolved physical DNS snapshot"))?
-            {
-                let fields = entry
+            (|| -> io::Result<()> {
+                let dns = property(RESOLVE_PATH, RESOLVE_MANAGER, "DNS").map_err(|error| {
+                    linux_failure::dns_snapshot(
+                        LinuxDnsBackend::Resolved,
+                        usque_ipc::agent_v1::LinuxDnsSnapshotOperation::ResolvedDns,
+                        error,
+                    )
+                })?;
+                for entry in dns
                     .as_array()
-                    .filter(|fields| fields.len() == 3)
-                    .ok_or_else(|| unavailable("invalid resolved DNS record"))?;
-                let index = fields[0]
-                    .as_u64()
-                    .and_then(|value| u32::try_from(value).ok())
-                    .ok_or_else(|| unavailable("invalid resolved DNS interface"))?;
-                let bytes = fields[2]
-                    .as_array()
-                    .ok_or_else(|| unavailable("invalid resolved DNS address"))?
-                    .iter()
-                    .map(|value| {
-                        value
-                            .as_u64()
-                            .and_then(|value| u8::try_from(value).ok())
-                            .ok_or_else(|| unavailable("invalid resolved DNS byte"))
-                    })
-                    .collect::<io::Result<Vec<_>>>()?;
-                let address = match (fields[1].as_i64(), bytes.as_slice()) {
-                    (Some(2), [a, b, c, d]) => {
-                        std::net::IpAddr::V4(std::net::Ipv4Addr::new(*a, *b, *c, *d))
-                    }
-                    (Some(10), bytes) if bytes.len() == 16 => std::net::IpAddr::V6(
-                        std::net::Ipv6Addr::from(<[u8; 16]>::try_from(bytes).expect("IPv6 length")),
-                    ),
-                    _ => return Err(unavailable("invalid resolved DNS family")),
-                };
-                if address.is_loopback() || address.is_unspecified() || address.is_multicast() {
-                    continue;
-                }
-                for link in interfaces
-                    .iter_mut()
-                    .filter(|link| index == 0 || link.index == index)
+                    .ok_or_else(|| unavailable("invalid resolved physical DNS snapshot"))?
                 {
-                    link.dns_servers.push(address);
+                    let fields = entry
+                        .as_array()
+                        .filter(|fields| fields.len() == 3)
+                        .ok_or_else(|| unavailable("invalid resolved DNS record"))?;
+                    let index = fields[0]
+                        .as_u64()
+                        .and_then(|value| u32::try_from(value).ok())
+                        .ok_or_else(|| unavailable("invalid resolved DNS interface"))?;
+                    let bytes = fields[2]
+                        .as_array()
+                        .ok_or_else(|| unavailable("invalid resolved DNS address"))?
+                        .iter()
+                        .map(|value| {
+                            value
+                                .as_u64()
+                                .and_then(|value| u8::try_from(value).ok())
+                                .ok_or_else(|| unavailable("invalid resolved DNS byte"))
+                        })
+                        .collect::<io::Result<Vec<_>>>()?;
+                    let address = match (fields[1].as_i64(), bytes.as_slice()) {
+                        (Some(2), [a, b, c, d]) => {
+                            std::net::IpAddr::V4(std::net::Ipv4Addr::new(*a, *b, *c, *d))
+                        }
+                        (Some(10), bytes) if bytes.len() == 16 => {
+                            std::net::IpAddr::V6(std::net::Ipv6Addr::from(
+                                <[u8; 16]>::try_from(bytes).expect("IPv6 length"),
+                            ))
+                        }
+                        _ => return Err(unavailable("invalid resolved DNS family")),
+                    };
+                    if address.is_loopback() || address.is_unspecified() || address.is_multicast() {
+                        continue;
+                    }
+                    for link in interfaces
+                        .iter_mut()
+                        .filter(|link| index == 0 || link.index == index)
+                    {
+                        link.dns_servers.push(address);
+                    }
                 }
-            }
+                Ok(())
+            })()
+            .map_err(|error| {
+                linux_failure::dns_snapshot(
+                    LinuxDnsBackend::Resolved,
+                    usque_ipc::agent_v1::LinuxDnsSnapshotOperation::ResolvedDns,
+                    error,
+                )
+            })?;
         }
         super::dns::DnsReceipt::NetworkManager { .. } => {
             for link in &mut interfaces {
