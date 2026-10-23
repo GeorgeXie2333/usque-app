@@ -42,6 +42,13 @@ directories, for example `build/symbols/android/split` and
 the corresponding symbol directory. A split package takes one ABI in
 `--architecture`; universal takes `armeabi-v7a,arm64-v8a,x86_64`.
 
+Build and Release keep the compiler's `--split-debug-info` path stable across
+both APK builds so Flutter can reuse matching AOT inputs. Each completed build
+immediately copies its `*.symbols` files into its separate `split` or
+`universal` snapshot directory. Archive from those snapshots, preserving the
+split build's symbols before starting the universal build. Every APK still
+requires its own build-ID and symbol-hash verification below.
+
 The archive tool checks every AOT library against its symbols using ELF
 architecture, GNU build ID and nonempty DWARF information. Missing, empty,
 wrong-architecture or mismatched symbols fail before creating an archive.

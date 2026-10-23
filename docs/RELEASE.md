@@ -286,6 +286,25 @@ bypasses the fingerprint check.
 5. Only in a private repository, and when repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`, five protected self-hosted runner classes separately exercise the staged candidate: separate Windows and Linux snapshot VMs, a dedicated Android device, an independent network observer, and a controlled performance lab. The public repository skips these jobs even if the variable is enabled; its Actions artifacts cannot provide a restricted evidence store.
 6. Protected validation is supplemental and does not gate publication. In the private execution context, the aggregator emits `reliability-report.json` and `device-matrix.md` only when every required report and evidence file passes its exact-candidate and isolation checks. These artifacts inherit the private repository's read permissions. Skipped or unavailable validation is `not_run`, not a pass. Missing infrastructure, `failed`, and `not_run` never become release approval.
 
+## Build-time reuse
+
+The native Linux jobs keep their baseline CPU flags consistent across Rust,
+Flutter and the later Rust/native fixtures. On hosted x64 Ubuntu 22.04 runners,
+the known Azure APT mirror entry is replaced with Ubuntu's primary HTTPS
+archive. Package installation omits optional recommendations, uses bounded
+network timeouts and retries, and requires every package-index update to
+succeed. Ubuntu's signed package indexes and package verification remain
+required; the baseline distribution and explicit build dependencies are
+unchanged.
+
+Build and Release use a shared Android compiler symbol-output path for the
+split and universal APK builds. Each build immediately snapshots its symbols
+separately, as described in [Flutter release symbols](FLUTTER_SYMBOLS.md).
+Matching AOT work can be reused within the same job; each final package still
+passes architecture, packaging, signer and symbol-identity checks before
+upload. Signing identities retain their existing protected environments and
+cleanup steps, and publication retains its separate review.
+
 ## Release-note format
 
 `.github/RELEASE_NOTES_TEMPLATE.md` is the publication source for the GitHub

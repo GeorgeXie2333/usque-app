@@ -339,17 +339,23 @@ jobs:
           USQUE_ANDROID_KEY_ALIAS: usque-build-only
           USQUE_ANDROID_KEY_PASSWORD: usque-build-only-password
         run: |
+          set -euo pipefail
+          symbol_root="$RUNNER_TEMP/flutter-symbols-android"
+          mkdir -p "$symbol_root/split" "$symbol_root/universal"
+          # Match the release workflow's compiler reuse and separate snapshots.
           flutter --suppress-analytics build apk \
             --release \
             --split-per-abi \
             --target-platform android-arm,android-arm64,android-x64 \
-            --split-debug-info="$RUNNER_TEMP/flutter-symbols-android/split" \
+            --split-debug-info="$symbol_root/build" \
             --no-pub
+          cp -- "$symbol_root"/build/*.symbols "$symbol_root/split/"
           flutter --suppress-analytics build apk \
             --release \
             --target-platform android-arm,android-arm64,android-x64 \
-            --split-debug-info="$RUNNER_TEMP/flutter-symbols-android/universal" \
+            --split-debug-info="$symbol_root/build" \
             --no-pub
+          cp -- "$symbol_root"/build/*.symbols "$symbol_root/universal/"
 
       - name: Verify all APK architectures and release hygiene
         run: |

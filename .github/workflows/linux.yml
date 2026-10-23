@@ -24,6 +24,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     environment: ${{ inputs.release && 'release-signing' || '' }}
+    # Keep the baseline flags identical for Rust builds and later native fixtures.
+    env:
+      RUSTFLAGS: ${{ matrix.architecture == 'amd64' && '-C target-cpu=x86-64' || '' }}
+      CFLAGS: ${{ matrix.architecture == 'amd64' && '-march=x86-64 -mtune=generic' || '' }}
+      CXXFLAGS: ${{ matrix.architecture == 'amd64' && '-march=x86-64 -mtune=generic' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -44,8 +49,15 @@ jobs:
 
       - name: Install baseline build tools
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev liblzma-dev libstdc++-12-dev libclang-dev rpm libarchive-tools squashfs-tools desktop-file-utils openssl
+          set -euo pipefail
+          # The hosted x64 image's Azure mirror can stall for minutes per file.
+          # Use Ubuntu's primary HTTPS archive, retaining APT signature checks.
+          if [ "$(uname -m)" = x86_64 ] && [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
+          fi
+          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
+          sudo apt-get "${apt_options[@]}" install --yes --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev liblzma-dev libstdc++-12-dev libclang-dev rpm libarchive-tools squashfs-tools desktop-file-utils openssl
 
       - name: Install locked Rust toolchain
         run: |
@@ -66,15 +78,8 @@ jobs:
           echo "flutter.sdk=$flutter_root" > apps/usque_gui/android/local.properties
 
       - name: Compile and test native Rust without system mutations
-        env:
-          USQUE_ARCHITECTURE: ${{ matrix.architecture }}
         run: |
           set -euo pipefail
-          if [ "$USQUE_ARCHITECTURE" = amd64 ]; then
-            export RUSTFLAGS='-C target-cpu=x86-64'
-            export CFLAGS='-march=x86-64 -mtune=generic'
-            export CXXFLAGS='-march=x86-64 -mtune=generic'
-          fi
           cargo fmt --all --check
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo test --workspace --all-targets --locked
