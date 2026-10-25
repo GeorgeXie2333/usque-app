@@ -296,6 +296,59 @@ fn cache_record(record: &mut Record) {
 }
 
 #[tokio::test]
+async fn applied_server_choice_resolves_a_new_peer_without_rotating_account_keys() {
+    for choice in [None, Some(""), Some("other"), Some("missing")] {
+        let (record, mut prepared, storage) = fixture();
+        prepared.proton_server_id = choice.map(str::to_owned);
+        let mut servers = directory();
+        let mut other = servers["LogicalServers"][0].clone();
+        other["ID"] = json!("other");
+        other["Name"] = json!("Other server");
+        other["Servers"][0]["EntryIP"] = json!("1.1.1.1");
+        other["Servers"][0]["Domain"] = json!("other.example.invalid");
+        servers["LogicalServers"]
+            .as_array_mut()
+            .unwrap()
+            .push(other);
+        let http = mock(vec![
+            Answer::Json(user()),
+            Answer::Json(permissions()),
+            Answer::Json(config()),
+            Answer::Json(servers),
+        ]);
+        let result =
+            prepare_with_http(&mut prepared, http.clone(), &CancellationToken::new()).await;
+        if choice == Some("missing") {
+            assert_eq!(result.err().unwrap().reason, "selected_server_unavailable");
+            assert_eq!(storage.load().unwrap().server_id, record.server_id);
+            continue;
+        }
+        let (credentials, lease) = result.unwrap();
+        if choice == Some("other") {
+            assert_eq!(credentials.server_name, "other.example.invalid");
+            assert_eq!(lease.peer.as_ref().unwrap().metadata.id, "other");
+            assert_eq!(prepared.summary.as_ref().unwrap().endpoint.host, "1.1.1.1");
+        }
+        let saved = storage.load().unwrap();
+        assert_eq!(
+            saved.server_id.as_deref(),
+            match choice {
+                None => Some("logical"),
+                Some("") => None,
+                other => other,
+            }
+        );
+        assert_eq!(saved.ed25519_seed, record.ed25519_seed);
+        assert_eq!(saved.session.access_token, record.session.access_token);
+        assert_eq!(
+            serde_json::to_value(&saved.node).unwrap(),
+            serde_json::to_value(&record.node).unwrap()
+        );
+        assert_eq!(http.requests.lock().unwrap().len(), 4);
+    }
+}
+
+#[tokio::test]
 async fn warm_connection_uses_no_api_and_first_connection_only_requests_certificate() {
     for deferred in [false, true] {
         let (mut record, mut profile, store) = fixture();

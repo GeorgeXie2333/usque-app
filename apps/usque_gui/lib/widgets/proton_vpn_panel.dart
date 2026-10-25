@@ -27,6 +27,8 @@ class ProtonVpnPanel extends StatefulWidget {
     this.onSelectProfile,
     this.beforeRemove,
     this.selectionEnabled = true,
+    this.selectedServerId,
+    this.onSelectServer,
     super.key,
   });
   final AppController controller;
@@ -39,6 +41,8 @@ class ProtonVpnPanel extends StatefulWidget {
   final ValueChanged<String>? onSelectProfile;
   final Future<bool> Function(List<String>)? beforeRemove;
   final bool selectionEnabled;
+  final String? selectedServerId;
+  final void Function(String profileId, String serverId)? onSelectServer;
 
   @override
   State<ProtonVpnPanel> createState() => ProtonVpnPanelState();
@@ -64,8 +68,13 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   final _completedJobs = <String>{};
   final _cancelledJobs = <String>{};
   final _automaticVerifications = <(String, String)>{};
+  final _serverNames = <(String, String), String?>{};
+  final _nameLoads = <(String, String)>{};
   final _totp = TextEditingController();
   AppController get _app => widget.controller;
+  bool get _serverDrafts =>
+      widget.onSelectServer != null &&
+      _app.engineCapabilities?.protonServerSwitching == true;
   String p(String key) => _app.strings.proton(key);
   String get _state => _job['state'] as String? ?? '';
   String? get _verificationError {
@@ -114,6 +123,12 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
         unawaited(_command({'action': 'get', 'job_id': _job['id']}));
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant ProtonVpnPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _resolveServerName();
   }
 
   @override
@@ -259,6 +274,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           }
           _error = error == null ? null : _failure(error);
         });
+        _resolveServerName();
         if (_verifying &&
             (_job['id'] != _verificationJob ||
                 _job['challenge_id'] != _verificationChallenge ||
@@ -386,73 +402,134 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     await _command({'action': action, 'profile_id': id});
   }
 
+  String? _selectedServer(Map<Object?, Object?> profile) =>
+      _serverDrafts && _related(profile).contains(widget.selectedProfileId)
+      ? widget.selectedServerId ?? profile['server_id'] as String?
+      : profile['server_id'] as String?;
+
+  void _resolveServerName() {
+    final choice = widget.selectedServerId;
+    if (!_serverDrafts || choice == null || choice.isEmpty) return;
+    final profile = _profiles
+        .where((p) => _related(p).contains(widget.selectedProfileId))
+        .firstOrNull;
+    if (profile == null || choice == profile['server_id']) return;
+    final id = profile['id'] as String;
+    if (_serverNames.containsKey((id, choice)) ||
+        !_nameLoads.add((id, choice))) {
+      return;
+    }
+    unawaited(() async {
+      try {
+        final nodes = await _loadServers(id);
+        if (mounted) setState(() => _cacheServerName(id, choice, nodes));
+      } on Object {
+        // Keep the persisted choice visible even when its local catalogue is
+        // temporarily unavailable; never silently turn it into Automatic.
+        if (mounted) setState(() => _cacheServerName(id, choice, []));
+      } finally {
+        _nameLoads.remove((id, choice));
+      }
+    }());
+  }
+
+  void _cacheServerName(
+    String id,
+    String choice,
+    List<Map<Object?, Object?>> nodes,
+  ) {
+    _serverNames[(id, choice)] =
+        nodes.where((node) => node['id'] == choice).firstOrNull?['name']
+            as String?;
+    while (_serverNames.length > 256) {
+      _serverNames.remove(_serverNames.keys.first);
+    }
+  }
+
+  Future<List<Map<Object?, Object?>>> _loadServers(String id) async {
+    final nodes = <Map<Object?, Object?>>[];
+    var offset = 0, total = 0;
+    String? revision;
+    do {
+      final response = await _app.protonVpn({
+        'action': 'servers',
+        'profile_id': id,
+        'offset': offset,
+      });
+      try {
+        if (!mounted) return [];
+        final metadata = response.metadata;
+        final page = (metadata['servers'] as List?)
+            ?.whereType<Map<Object?, Object?>>()
+            .toList();
+        final nextTotal = metadata['server_total'];
+        final nextRevision = metadata['server_revision'];
+        if (metadata['error'] != null ||
+            page == null ||
+            page.length > 128 ||
+            nextTotal is! int ||
+            nextTotal < 0 ||
+            nextTotal > 20000 ||
+            nextRevision is! String ||
+            metadata['server_offset'] != offset ||
+            offset > nextTotal ||
+            offset != 0 && (total != nextTotal || revision != nextRevision) ||
+            page.isEmpty && offset < nextTotal) {
+          throw const FormatException('Invalid server page');
+        }
+        total = nextTotal;
+        revision = nextRevision;
+        nodes.addAll(page);
+        offset += page.length;
+        if (offset > total ||
+            nodes.map((node) => node['id']).toSet().length != nodes.length) {
+          throw const FormatException('Invalid server catalogue');
+        }
+      } finally {
+        response.clearHandoff();
+      }
+    } while (offset < total);
+    return nodes;
+  }
+
   Future<void> _chooseServer(Map<Object?, Object?> profile) async {
     final id = profile['id'];
-    if (id is! String || _serversLoading || _blocked) {
+    if (id is! String ||
+        _serversLoading ||
+        _blocked ||
+        !widget.selectionEnabled) {
       return;
     }
     if ((profile['server_count'] as int? ?? 0) == 0) {
-      await _command({'action': 'refresh', 'profile_id': id});
+      if (!_related(profile).contains(widget.currentProfileId)) {
+        await _command({'action': 'refresh', 'profile_id': id});
+      }
       return;
     }
     setState(() {
       _serversLoading = true;
       _error = null;
     });
-    final nodes = <Map<Object?, Object?>>[];
     try {
-      var offset = 0, total = 0;
-      String? revision;
-      do {
-        final response = await _app.protonVpn({
-          'action': 'servers',
-          'profile_id': id,
-          'offset': offset,
-        });
-        try {
-          if (!mounted) return;
-          final metadata = response.metadata;
-          final page = (metadata['servers'] as List?)
-              ?.whereType<Map<Object?, Object?>>()
-              .toList();
-          final nextTotal = metadata['server_total'];
-          final nextRevision = metadata['server_revision'];
-          if (metadata['error'] != null ||
-              page == null ||
-              page.length > 128 ||
-              nextTotal is! int ||
-              nextTotal < 0 ||
-              nextTotal > 20000 ||
-              nextRevision is! String ||
-              metadata['server_offset'] != offset ||
-              offset > nextTotal ||
-              offset != 0 && (total != nextTotal || revision != nextRevision) ||
-              page.isEmpty && offset < nextTotal) {
-            throw const FormatException('Invalid server page');
-          }
-          total = nextTotal;
-          revision = nextRevision;
-          nodes.addAll(page);
-          offset += page.length;
-          if (offset > total ||
-              nodes.map((node) => node['id']).toSet().length != nodes.length) {
-            throw const FormatException('Invalid server catalogue');
-          }
-        } finally {
-          response.clearHandoff();
-        }
-      } while (offset < total);
+      final nodes = await _loadServers(id);
       if (!mounted) return;
-      setState(() => _serversLoading = false);
+      setState(() {
+        _serversLoading = false;
+      });
       final choice = await showDialog<String>(
         context: context,
         builder: (_) => _ProtonServerPicker(
           nodes: nodes,
-          selected: profile['server_id'] as String?,
+          selected: _selectedServer(profile),
           text: p,
         ),
       );
       if (choice == null || !mounted) return;
+      if (_serverDrafts) {
+        setState(() => _cacheServerName(id, choice, nodes));
+        widget.onSelectServer!(id, choice);
+        return;
+      }
       await _command({
         'action': 'choose_server',
         'profile_id': id,
@@ -470,7 +547,15 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     final id = profile['id'] as String;
     final related = _related(profile);
     final current = related.contains(widget.currentProfileId);
-    final server = profile['node_name'] as String? ?? '';
+    final choice = _selectedServer(profile);
+    final server = choice == profile['server_id']
+        ? profile['node_name'] as String? ?? ''
+        : _serverNames[(id, choice ?? '')] ??
+              p(
+                _serverNames.containsKey((id, choice ?? ''))
+                    ? 'selected_server_unavailable'
+                    : 'load_servers',
+              );
     final count = profile['server_count'] as int? ?? 0;
     final waiting = _blocked || _serversLoading;
     final theme = Theme.of(context);
@@ -558,7 +643,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
             dense: true,
             contentPadding: const EdgeInsetsDirectional.only(start: 16),
             title: Text(
-              '${p('selected_server')}: ${profile['server_id'] == null || server.isEmpty ? p('automatic_server') : server}',
+              '${p('selected_server')}: ${choice == null || choice.isEmpty ? p('automatic_server') : server}',
             ),
             subtitle: Text(
               count == 0
@@ -566,7 +651,10 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
                   : '${p('available_servers')}: $count',
             ),
             trailing: const Icon(LucideIcons.chevronRight, size: 18),
-            enabled: !waiting && !current,
+            enabled:
+                !waiting &&
+                widget.selectionEnabled &&
+                (!current || _serverDrafts && count > 0),
             onTap: () => unawaited(_chooseServer(profile)),
           ),
         ),
@@ -582,7 +670,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
                   tone: StatusTone.warning,
                 ),
               if (_serverChanged == id) Text(p('next_connection'), style: hint),
-              if (current) Text(p('disconnect_to_change'), style: hint),
+              if (current && !_serverDrafts)
+                Text(p('disconnect_to_change'), style: hint),
             ],
           ),
         ),

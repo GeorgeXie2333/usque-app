@@ -13,6 +13,7 @@ pub(crate) fn settings_from_proto(
         source,
         profile_id: uuid(&value.profile_id)?,
         revision: uuid(&value.revision)?,
+        proton_server_id: value.proton_server_id,
         endpoint_override: match (value.endpoint_override_ip, value.endpoint_override_port) {
             (None, None) => None,
             (Some(ip), Some(port)) => Some(
@@ -42,6 +43,7 @@ pub(crate) fn settings_to_proto(value: &ChainExitSettings) -> v1::ChainExitSetti
         revision: value.revision.map(|id| id.to_string()).unwrap_or_default(),
         endpoint_override_ip: value.endpoint_override.as_ref().map(|v| v.host.clone()),
         endpoint_override_port: value.endpoint_override.as_ref().map(|v| u32::from(v.port)),
+        proton_server_id: value.proton_server_id.clone(),
     }
 }
 fn source(value: &str) -> Result<ChainSource, ControlServiceError> {
@@ -202,5 +204,27 @@ impl ControlService {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod server_selection_tests {
+    use super::*;
+    #[test]
+    fn server_choice_preserves_presence_across_protobuf_mapping() {
+        for choice in [None, Some(String::new()), Some("logical-server".into())] {
+            let settings = ChainExitSettings {
+                enabled: true,
+                source: ChainSource::ProtonVpn,
+                profile_id: Some(uuid::Uuid::new_v4()),
+                revision: Some(uuid::Uuid::new_v4()),
+                proton_server_id: choice,
+                ..Default::default()
+            };
+            assert_eq!(
+                settings_from_proto(settings_to_proto(&settings)).unwrap(),
+                settings
+            );
+        }
     }
 }

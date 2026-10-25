@@ -613,6 +613,7 @@ impl DataPlaneRuntime {
                 Some(summary.id) == chain.profile_id
                     && Some(summary.revision) == chain.revision
                     && summary.source == chain.source
+                    && prepared.proton_server_id == chain.proton_server_id
                     && !(summary.protocol.requires_udp()
                         && profile.data_plane == DataPlaneMode::L4Proxy)
             })
@@ -1634,6 +1635,7 @@ mod tests {
             chain_exit: Some(usque_core::chain_exit::ChainExitSettings {
                 source: usque_core::chain_exit::ChainSource::WireguardCustom,
                 endpoint_override: None,
+                proton_server_id: None,
                 ..Default::default()
             }),
             ..Default::default()

@@ -69,9 +69,22 @@ pub struct ChainExitSettings {
     pub revision: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint_override: Option<Endpoint>,
+    /// None inherits the saved account preference; an empty string explicitly
+    /// selects Automatic. A concrete logical ID is resolved through Proton.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proton_server_id: Option<String>,
 }
 impl ChainExitSettings {
     pub fn validate(&self) -> Result<(), ImportError> {
+        if self.proton_server_id.as_ref().is_some_and(|id| {
+            self.source != ChainSource::ProtonVpn
+                || self.profile_id.is_none()
+                || id.len() > 256
+                || !id.is_ascii()
+                || id.chars().any(char::is_control)
+        }) {
+            return Err(ImportError::new(0, "proton_server_id", "invalid_selection"));
+        }
         if let Some(endpoint) = &self.endpoint_override {
             if self.source != ChainSource::WarpWireguard
                 || self.profile_id.is_none()
@@ -259,6 +272,7 @@ impl ChainProfileSummary {
             profile_id: Some(self.id),
             revision: Some(self.revision),
             endpoint_override: None,
+            proton_server_id: None,
         }
     }
     pub fn reference_hash(&self) -> String {
@@ -572,10 +586,9 @@ pub fn prepare_selection(
             return Err(ImportError::new(0, "data_plane", "connect_ip_required"));
         }
         let server = summary.server_summary();
-        return Ok(Some((
-            server,
-            crate::vpngate::PreparedProfile::imported(summary, parsed, secrets),
-        )));
+        let mut prepared = crate::vpngate::PreparedProfile::imported(summary, parsed, secrets);
+        prepared.proton_server_id = chain.proton_server_id.clone();
+        return Ok(Some((server, prepared)));
     }
     let selection = profile
         .vpn_gate

@@ -161,7 +161,12 @@ Proton 连接错误在首页和链式代理页使用一致的来源与分类，�
 The Proton source shows one row per authenticated user under **Proton accounts**,
 grouping legacy duplicate profiles. Select an account separately from its
 searchable server preference, which is a **Server** row under the account;
-Automatic and manual logical-server choices apply on the next connection.
+With a supporting Engine, Automatic and manual logical-server choices are
+staged with the account in the shared apply bar. While connected, choose a new
+server and use **Apply and reconnect** to replace the Proton exit through the
+existing protected connection lifecycle. Closing the picker or discarding the
+draft does not change the running server. Older Engines retain next-connection
+preferences and require disconnection before editing the current account.
 The server picker shows bundled country flags beside country codes and keeps its
 draggable scrollbar visible while the list overflows.
 Refresh, sign-in renewal and removal sit in the account's menu; once an account
@@ -175,7 +180,9 @@ clears a saved selection first, and protects the running account. See the
 [Proton guide](../../docs/PROTON_VPN.md) for behavior and validation limits.
 
 Proton 来源在“Proton 账号”下按账号显示，旧版重复记录合并为一行；点击账号下的
-“节点”行可搜索并选择完整可用逻辑节点，偏好在下次连接生效。
+“节点”行可搜索并选择完整可用逻辑节点。支持的新引擎将账号和节点暂存为待应用选择；
+连接中可选择其他节点或“自动”，再点击“应用并重连”，通过现有保护流程切换出口。
+关闭节点列表或放弃未应用更改不会影响当前连接；旧引擎保留下次连接生效的行为。
 节点国家代码前显示内置国旗；列表超出可见范围时，滚动条常驻并支持拖动。
 刷新、重新登录和移除位于账号菜单；已有账号后，游客设置和登录收进“添加账号”。连接时解析当前入口并按需获取证书。移除账号明确区分联网退出
 和仅本机遗忘，先清除已保存选择，并保护正在使用的账号。

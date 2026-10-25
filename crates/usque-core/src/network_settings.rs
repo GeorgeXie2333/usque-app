@@ -693,6 +693,7 @@ mod tests {
             profile_id: Some(Uuid::new_v4()),
             revision: Some(Uuid::new_v4()),
             endpoint_override: None,
+            proton_server_id: None,
         });
         config.network.proxy.dns_mode = crate::ProxyDnsMode::EdgeResolved;
         let before = config.active_profile().unwrap();

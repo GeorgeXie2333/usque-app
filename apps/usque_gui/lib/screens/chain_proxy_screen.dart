@@ -905,6 +905,23 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                   controller: _app,
                   onChanged: () => unawaited(_load()),
                   selectedProfileId: _draft.profileId,
+                  selectedServerId: _draft.protonServerId,
+                  onSelectServer: (id, server) {
+                    final profile = profiles
+                        .where((p) => p.id == id)
+                        .firstOrNull;
+                    if (profile == null || _saving || !_supported) return;
+                    setState(
+                      () => _setDraft(
+                        _draft.copyWith(
+                          enabled: true,
+                          profileId: profile.id,
+                          revision: profile.revision,
+                          protonServerId: server,
+                        ),
+                      ),
+                    );
+                  },
                   savedProfileId: _baseline.profileId,
                   currentProfileId: current?.id,
                   currentStatus: marker == null

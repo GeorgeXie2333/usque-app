@@ -254,6 +254,8 @@ message ChainExitSettings {
   string revision = 4;
   optional string endpoint_override_ip = 5;
   optional uint32 endpoint_override_port = 6;
+  // Absent inherits the account preference; present empty selects Automatic.
+  optional string proton_server_id = 7;
 }
 
 // Single bounded secret-bearing request. It must never enter logs/diagnostics.
@@ -530,6 +532,7 @@ message Capabilities {
   bool chain_proton_vpn = 50;
   bool continuous_connection = 51;
   bool proton_account_warp_fallback = 52;
+  bool proton_server_switching = 53;
 }
 
 message FrontendStatus {

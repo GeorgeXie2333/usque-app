@@ -29,18 +29,23 @@ class ChainExitSettings {
     this.profileId,
     this.revision,
     this.endpointOverride,
+    this.protonServerId,
   });
   final bool enabled;
   final ChainSource source;
   final String? profileId;
   final String? revision;
   final ChainEndpoint? endpointOverride;
+
+  /// Null inherits the account preference; empty explicitly selects Automatic.
+  final String? protonServerId;
   factory ChainExitSettings.fromMap(Map<Object?, Object?> map) =>
       ChainExitSettings(
         enabled: map['enabled'] == true,
         source: ChainSource.parse(map['source'] ?? 'openvpn_custom'),
         profileId: _reference(map['profile_id']),
         revision: _reference(map['revision']),
+        protonServerId: map['proton_server_id'] as String?,
         endpointOverride: map['endpoint_override'] is Map
             ? ChainEndpoint.fromMap(map['endpoint_override'] as Map)
             : map['endpoint_override_ip'] is String
@@ -57,6 +62,7 @@ class ChainExitSettings {
     'source': source.wire,
     'profile_id': profileId,
     'revision': revision,
+    if (protonServerId != null) 'proton_server_id': protonServerId,
     'endpoint_override': endpointOverride == null
         ? null
         : {'host': endpointOverride!.host, 'port': endpointOverride!.port},
@@ -68,11 +74,19 @@ class ChainExitSettings {
     bool clearSelection = false,
     ChainEndpoint? endpointOverride,
     bool clearEndpoint = false,
+    String? protonServerId,
+    bool clearProtonServer = false,
   }) => ChainExitSettings(
     enabled: enabled ?? this.enabled,
     source: source,
     profileId: clearSelection ? null : profileId ?? this.profileId,
     revision: clearSelection ? null : revision ?? this.revision,
+    protonServerId: clearSelection || clearProtonServer
+        ? null
+        : protonServerId ??
+              (profileId != null && profileId != this.profileId
+                  ? null
+                  : this.protonServerId),
     endpointOverride: clearSelection || clearEndpoint
         ? null
         : endpointOverride ?? this.endpointOverride,
@@ -84,10 +98,17 @@ class ChainExitSettings {
       source == other.source &&
       profileId == other.profileId &&
       revision == other.revision &&
+      protonServerId == other.protonServerId &&
       endpointOverride == other.endpointOverride;
   @override
-  int get hashCode =>
-      Object.hash(enabled, source, profileId, revision, endpointOverride);
+  int get hashCode => Object.hash(
+    enabled,
+    source,
+    profileId,
+    revision,
+    endpointOverride,
+    protonServerId,
+  );
 }
 
 @immutable

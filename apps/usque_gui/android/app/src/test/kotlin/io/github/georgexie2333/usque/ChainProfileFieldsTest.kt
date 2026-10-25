@@ -9,6 +9,25 @@ import org.junit.Test
 
 class ChainProfileFieldsTest {
     @Test
+    fun protonServerChangesAreDifferentSelectionsIncludingAutomaticAndInheritance() {
+        val chain =
+            JSONObject()
+                .put("enabled", true)
+                .put("source", "proton_vpn")
+                .put("profile_id", "account")
+                .put("revision", "revision")
+        val profile = JSONObject().put("chain_exit", chain)
+        val inherited = ChainProfileFields.selection(profile)
+        chain.put("proton_server_id", "")
+        val automatic = ChainProfileFields.selection(profile)
+        assertFalse(inherited == automatic)
+        chain.put("proton_server_id", "node-2")
+        assertFalse(automatic == ChainProfileFields.selection(profile))
+        chain.put("proton_server_id", "null")
+        assertFalse(inherited == ChainProfileFields.selection(profile))
+    }
+
+    @Test
     fun candidateAndAttemptMetadataHaveNestedSecretAllowlists() {
         val endpoint = JSONObject().put("host", "2001:db8::1").put("port", 1194).put("password", "hidden")
         val candidate = JSONObject().put("endpoint", endpoint).put("ipv6", true).put("private_key", "hidden")

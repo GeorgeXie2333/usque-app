@@ -1,6 +1,46 @@
 use super::*;
 use store::ProfileCipher;
 
+#[test]
+fn proton_server_selection_is_durable_and_only_replaces_the_exit() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = store::ChainProfileStore::new(directory.path(), &TestCipher);
+    let account = store
+        .import(ChainSource::ProtonVpn, "Proton", wg(""))
+        .unwrap();
+    let previous = crate::Profile {
+        chain_exit: Some(account.selection()),
+        ..Default::default()
+    };
+    for id in ["", "new-logical-server"] {
+        let mut next = previous.clone();
+        next.chain_exit.as_mut().unwrap().proton_server_id = Some(id.into());
+        assert_eq!(
+            crate::classify_reconfigure(&previous, &next),
+            crate::ReconfigureClass::HotVpnGate
+        );
+        let encoded = serde_json::to_vec(&next).unwrap();
+        let decoded: crate::Profile = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded, next);
+        let (_, prepared) = prepare_selection(directory.path(), &decoded, &TestCipher)
+            .unwrap()
+            .unwrap();
+        assert_eq!(prepared.proton_server_id.as_deref(), Some(id));
+        assert_eq!(store.list().unwrap(), vec![account.clone()]);
+    }
+    let mut invalid = account.selection();
+    for id in ["a".repeat(257), "bad\nnode".into(), "非 ASCII".into()] {
+        invalid.proton_server_id = Some(id);
+        assert!(invalid.validate().is_err());
+    }
+    invalid.proton_server_id = Some("node".into());
+    invalid.source = ChainSource::WireguardCustom;
+    assert!(invalid.validate().is_err());
+    invalid.source = ChainSource::ProtonVpn;
+    invalid.profile_id = None;
+    assert!(invalid.validate().is_err());
+}
+
 fn proxy_fixture(_source: ChainSource, auth: bool) -> ImportSecrets {
     ImportSecrets {
         proxy: Some(ProxyExitConfiguration {
@@ -243,6 +283,7 @@ fn imported_library_is_shared_and_legacy_writers_cannot_clear_its_selection() {
         enabled: true,
         source: ChainSource::WireguardCustom,
         endpoint_override: None,
+        proton_server_id: None,
         profile_id: Some(Uuid::new_v4()),
         revision: Some(Uuid::new_v4()),
     });

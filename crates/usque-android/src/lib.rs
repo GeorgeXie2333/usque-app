@@ -138,6 +138,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "chain_wireguard": engine_ready() && cfg!(feature = "wireguard"),
             "chain_warp_wireguard": engine_ready() && cfg!(feature = "wireguard"),
             "proton_account_warp_fallback": engine_ready() && cfg!(feature = "wireguard"),
+            "proton_server_switching": engine_ready() && cfg!(feature = "wireguard"),
             "chain_proton_vpn": engine_ready() && cfg!(feature = "wireguard"),
             "continuous_connection": engine_ready(),
             "chain_http_proxy": engine_ready(),

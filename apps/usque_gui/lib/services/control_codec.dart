@@ -150,6 +150,10 @@ class ControlCodec {
           ..string(5, endpoint.host)
           ..unsigned(6, endpoint.port);
       }
+      if (chain.protonServerId case final server?) {
+        // An explicitly empty value means Automatic, so retain wire presence.
+        payload.message(7, Uint8List.fromList(utf8.encode(server)));
+      }
       writer.message(22, payload.takeBytes());
     }
 
@@ -590,6 +594,7 @@ Map<String, Object?> _decodeVpnGate(_ProtoReader reader, String kind) {
       4: ('revision', 's'),
       5: ('endpoint_override_ip', 's'),
       6: ('endpoint_override_port', 'u'),
+      7: ('proton_server_id', 's'),
     },
     'settings': {
       1: ('enabled', 'b'),
@@ -1881,6 +1886,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var endpointPresets = false;
   var continuousConnection = false;
   var protonAccountWarpFallback = false;
+  var protonServerSwitching = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   final tlsFingerprints = <TlsFingerprint>[];
@@ -1927,6 +1933,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         continuousConnection = reader.varint(field) != 0;
       case 52:
         protonAccountWarpFallback = reader.varint(field) != 0;
+      case 53:
+        protonServerSwitching = reader.varint(field) != 0;
       case 47:
         liveAdsRules = reader.varint(field) != 0;
       case 48:
@@ -2019,6 +2027,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     endpointPresets: endpointPresets,
     continuousConnection: continuousConnection,
     protonAccountWarpFallback: protonAccountWarpFallback,
+    protonServerSwitching: protonServerSwitching,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),

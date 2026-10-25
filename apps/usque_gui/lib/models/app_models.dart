@@ -2156,6 +2156,7 @@ class EngineCapabilities {
     this.chainWarpWireguard = false,
     this.chainProtonVpn = false,
     this.protonAccountWarpFallback = false,
+    this.protonServerSwitching = false,
     this.chainHttpProxy = false,
     this.chainSocks5Proxy = false,
     this.chainProxyEncryptedDns = false,
@@ -2196,6 +2197,7 @@ class EngineCapabilities {
     chainWarpWireguard: map['chain_warp_wireguard'] == true,
     chainProtonVpn: map['chain_proton_vpn'] == true,
     protonAccountWarpFallback: map['proton_account_warp_fallback'] == true,
+    protonServerSwitching: map['proton_server_switching'] == true,
     chainHttpProxy: map['chain_http_proxy'] == true,
     chainSocks5Proxy: map['chain_socks5_proxy'] == true,
     chainProxyEncryptedDns: map['chain_proxy_encrypted_dns'] == true,
@@ -2255,6 +2257,7 @@ class EngineCapabilities {
       chainWarpWireguard,
       chainProtonVpn,
       protonAccountWarpFallback,
+      protonServerSwitching,
       chainHttpProxy,
       chainSocks5Proxy,
       chainProxyEncryptedDns,
@@ -2288,6 +2291,7 @@ class EngineCapabilities {
           chainWarpWireguard == other.chainWarpWireguard &&
           chainProtonVpn == other.chainProtonVpn &&
           protonAccountWarpFallback == other.protonAccountWarpFallback &&
+          protonServerSwitching == other.protonServerSwitching &&
           chainHttpProxy == other.chainHttpProxy &&
           chainSocks5Proxy == other.chainSocks5Proxy &&
           chainProxyEncryptedDns == other.chainProxyEncryptedDns &&
@@ -2332,6 +2336,7 @@ class EngineCapabilities {
       chainWarpWireguard,
       chainProtonVpn,
       protonAccountWarpFallback,
+      protonServerSwitching,
       chainHttpProxy,
       chainSocks5Proxy,
       chainProxyEncryptedDns,

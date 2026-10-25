@@ -54,6 +54,15 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
    server appears once; its multiple physical entrances do not create duplicate
    rows. The list includes available, compatible WireGuard UDP servers within
    the account's authorized tier, without the former 200-candidate truncation.
+   On supporting Engines, choosing a server stages that account and server in
+   the apply bar, including while connected. Use **Apply and reconnect** to
+   switch; existing connections can be interrupted during replacement. The
+   current connection stays in use until Apply, and cancelling the picker or
+   discarding the draft leaves it unchanged. Automatic is an explicit choice;
+   it does not restore an older manual preference. Failed application keeps
+   the requested choice visible for correction or retry and uses the existing
+   connection protection/recovery behavior. Refresh, sign-in and account removal
+   still require the account to be disconnected.
 7. To connect, select a configured WARP account and a MASQUE mode that supports
    the WireGuard UDP exit; L4 TCP proxy mode cannot provide this exit. Select the
    Proton account, which also turns on chain proxy in the draft, and use **Apply
@@ -95,6 +104,10 @@ Windows 和 Linux 的“以游客身份继续”自动使用固定的合成 Andr
 点击账号下的“节点”行，可按名称、国家代码或城市搜索，或选择“自动”；
 账号菜单中的“刷新列表”更新目录。账号权限内、兼容且在线的 WireGuard UDP 逻辑节点完整保留，
 不再截断为 200 个候选，也不把同一节点的多个入口显示成多行。
+支持的新引擎允许连接中更换节点：选择节点会同时暂存该账号和节点，点击“应用并重连”后，
+通过现有保护流程切换 Proton 出口。切换可能中断已有连接；应用前继续使用当前节点，
+关闭节点列表或放弃草稿不会改变它。显式选择“自动”不会恢复旧的手动偏好；手动节点不可用
+则保留目标并报错，供重试或更换。刷新目录、重新登录和移除正在使用的账号仍须先断开。
 实际连接仍需配置 WARP 账号及支持 UDP 出口的 MASQUE 模式，L4 不支持此出口。
 选择账号（同时在草稿中启用链式代理）并应用后，连接时重新解析节点入口、公钥和 agent hostname，
 检查会话并按需申请证书，有效证书继续复用同一密钥。手动节点不可用会明确报错。

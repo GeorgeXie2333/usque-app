@@ -647,7 +647,10 @@ async fn prepare_with_http(
             .permissions(&mut client, &mut record, &NoInteraction, cancel)
             .await?;
     }
-    let selected = record.selected_server().map(str::to_owned);
+    let selected = match &profile.proton_server_id {
+        Some(id) => (!id.is_empty()).then(|| id.clone()),
+        None => record.selected_server().map(str::to_owned),
+    };
     let cached_peer = record.connection_cache.as_ref().and_then(|cache| {
         cache
             .peer(selected.as_deref(), super::interaction::now())
@@ -723,6 +726,7 @@ async fn prepare_with_http(
     let mut resolved = PreparedProfile::imported(summary, parsed, secrets);
     resolved.proton = Some(credentials.clone());
     resolved.proton_persistence = Some(persistence.clone());
+    resolved.proton_server_id = profile.proton_server_id.clone();
     *profile = resolved;
     tracing::debug!(
         probe_stage = "proton_prepare",

@@ -25,6 +25,7 @@ internal object ChainProfileFields {
                 chain.optString("source"),
                 chain.optString("profile_id"),
                 chain.optString("revision"),
+                JSONArray().put(chain.opt("proton_server_id")).toString(),
                 chain.optJSONObject("endpoint_override")?.optString("host"),
                 chain.optJSONObject("endpoint_override")?.optInt("port"),
             ).joinToString("|")

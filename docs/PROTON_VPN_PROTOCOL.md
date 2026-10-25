@@ -356,6 +356,15 @@ peer 选择中；这不证明宿主路由已经配置或系统防泄漏成立。
 能力 `proton_account_warp_fallback` 使用 protobuf 字段 52。新 GUI 仅在能力存在时，
 对 guest/login/refresh/logout 设置 `network_policy_version: 1`；缺省 0 保留旧行为。
 任务状态仅增加 `account_network` 与 `network_phase`，不包含凭据或 URL。
+
+连接中切换节点使用能力 `proton_server_switching`（字段 53）。
+`ChainExitSettings.proton_server_id`（可选字符串，字段 7）缺省时沿用账号偏好，
+显式空串表示“自动”，非空为最多 256 字节的 ASCII 逻辑节点 ID；仅允许 Proton 来源。
+GUI 将账号及节点暂存为同一设置草稿，用户应用后走现有 `HotVpnGate`／平台保护替换流程。
+切换账号时清除原账号的节点覆盖值。Android 连接身份比较包含该字段，并区分缺省与空串。
+准备的出口必须与设置中的节点覆盖一致；节点经 WARP 内部控制通道解析，复用有效证书，
+不更改本地账号密钥或绕过最终授权门。找不到手动节点时失败，不自动改用其他节点。
+用户点击应用后，先持久化目标设置再替换运行时，失败或进程恢复后仍可重试；旧引擎不展示连接中的节点编辑。
 敏感 handoff 的 version 2 包含 route_epoch（system=0，WARP=1），WARP 时附带随机
 loopback 端口、用户名、密码、nonce。`verification_failed` 绑定 job/challenge/route_epoch。
 旧原生窗口无法解析新 handoff 时停止，不降级系统路径。

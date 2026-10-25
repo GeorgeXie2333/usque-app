@@ -506,6 +506,7 @@ fn migrate_app_config(config: &mut AppConfig) {
             profile_id: None,
             revision: None,
             endpoint_override: None,
+            proton_server_id: None,
         });
         config.schema_version = 17;
     }

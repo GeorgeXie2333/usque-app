@@ -1377,3 +1377,88 @@ All live/isolated acceptance rows in the preceding entry remain `not_run`,
 including Android WebView execution, real Linux WebKit proxy routing, a real
 Proton puzzle over WARP, external leak observation and privileged VPN lifecycle.
 No installer, release APK, system VPN or system-network mutation was exercised.
+
+## 2026-10-25 connected server selection / 连接中切换节点
+
+The connected account's server picker now stages an explicit logical-server
+choice with the account. **Apply and reconnect** uses the existing shared
+settings transaction and protected exit replacement; choosing or cancelling in
+the picker does not itself mutate a live account or reconnect. Existing TCP
+connections may be interrupted during application. Account removal, refresh and
+sign-in remain protected from use against the running account.
+
+Capability 53 advertises support. Optional `ChainExitSettings` field 7 preserves
+three states: absent inherits the account preference, empty explicitly selects
+Automatic, and a bounded ASCII ID selects that logical server. The prepared
+exit must match the requested override. Proton resolves its peer over the WARP
+control channel and retains the account's keys and usable certificate. A missing
+manual server fails instead of silently selecting another server. Selection
+changes use the existing cancellation, final-traffic admission and cleanup
+paths; no privileged platform mutation implementation was added.
+
+New regressions cover Windows/Android/Linux widget interactions, cancel without
+saving, failed save/retry, explicit Automatic, capability and protobuf presence,
+Android selection identity, persisted profile roundtrip, hot-exit classification,
+fresh peer resolution, immutable account keys and unavailable manual selection.
+The server-name cache is bounded and contains only display metadata.
+
+| Workstation check | Result |
+| --- | --- |
+| `build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | passed |
+| `build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | passed; 2,066 tests, 13 ignored |
+| `build_windows_rust_release.ps1 -Variant x64-v2` | passed |
+| Windows locked pub resolution, Dart format, `flutter analyze --no-pub`, `flutter test --no-pub` | passed; 1,299 tests, 19 skipped |
+| `prepare_windows_plugin_junctions.ps1 -FlutterProject .`; `flutter build windows --release --no-pub --split-debug-info=build/symbols/windows` | passed |
+| `build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter build apk --debug --config-only --no-pub`; `gradlew.bat --no-daemon :app:ktlintCheck`; `gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed; 493 JUnit tests, no failures |
+| Linux `cargo clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --all-targets --locked` | passed; 1,916 tests, four ignored |
+| Linux `cargo build --release --locked -p usque-engine -p usque-agent -p usque-update` | passed |
+| Linux locked pub resolution, Dart format, `flutter analyze --no-pub`, `flutter test --no-pub --exclude-tags golden`; `flutter test --no-pub --tags linux-golden` | passed; 1,207 widget tests, one skip; 19 goldens |
+| `flutter build linux --debug --no-pub -t lib/main_preview.dart`; `flutter build linux --release --no-pub -t lib/main.dart` | passed |
+| Linux CMake socket, Proton policy/resource, preferences and startup-I/O fixtures from `CONTRIBUTING.md` | passed |
+| `USQUE_NM_DNS_FIXTURE=... cargo test --locked -p usque-agent --lib private_network_manager_bus -- --ignored`; `python -m unittest discover -s tool -p "test_linux_package.py" -v` | passed; one private D-Bus test; 20 package tests, one skip |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed |
+| `python tool/check_repository_policy.py`; `git diff --check` | passed |
+
+The first Linux Rust check encountered stale generated protocol bindings in the
+disposable copy; regeneration and the complete Rust gates subsequently passed.
+Windows native DLL loading and linker temporary-file restrictions required
+retrying through the same supported helper. Failed attempts are not passes.
+
+Real connected Proton node switching, failure/cancellation under network loss,
+external leak observation, Windows VPN/TUN/WFP lifecycle, Android device VPN
+lifecycle and Linux privileged network restoration remain `not_run`. These need
+the corresponding isolated environments. Widget and memory-peer tests do not
+establish live platform protection. No real Proton request, system VPN, installer
+or release APK was exercised for this feature.
+
+### 2026-10-25 dependency audit follow-up
+
+[CI run 40197648510](https://github.com/GeorgeXie2333/usque-app/actions/runs/40197648510)
+failed the shipping dependency audit on `crypto-bigint@0.7.5` because of
+[RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html).
+The workspace pin and lockfile now use the patched `0.7.6`; no other locked
+package, audit exception or frozen Go-oracle source changed.
+
+The following audit commands passed with the checksum-verified Windows build of
+OSV Scanner 2.3.8 and the same inputs and policy as CI:
+
+```powershell
+python tool/export_gradle_runtime_sbom.py apps/usque_gui/android/app/gradle.lockfile target/proton-ci-android-runtime.cdx.json
+target/osv-scanner-windows-amd64-2.3.8.exe scan --format json --output-file target/proton-ci-osv-shipping.json --config osv-scanner.toml -L Cargo.lock -L apps/usque_gui/pubspec.lock -L target/proton-ci-android-runtime.cdx.json
+target/osv-scanner-windows-amd64-2.3.8.exe scan --format json --output-file target/proton-ci-osv-oracle.json --config osv-scanner.toml -L oracle/go/go.mod
+python tool/check_osv_results.py --shipping target/proton-ci-osv-shipping.json --oracle target/proton-ci-osv-oracle.json --config osv-scanner.toml
+```
+
+The shipping scan found no vulnerabilities. The oracle scan completed with its
+expected findings exit code; the policy check passed and kept those findings
+informational. The Linux scanner attempt timed out during the OSV TLS handshake
+and is not counted as a pass.
+
+With `0.7.6`, the Windows and Linux Rust Clippy and test commands in the table
+above were repeated successfully, including the Proton SRP proof vectors:
+2,066 Windows tests (13 ignored) and 1,916 Linux tests (four ignored). The Windows
+and Linux Rust release builds, Android arm64 Rust Clippy, and Android debug unit-test/lint
+commands also passed again (493 JUnit tests, no failures). The unchanged Flutter
+checks retain the results above; these deterministic checks do not change any
+live/isolated `not_run` result.

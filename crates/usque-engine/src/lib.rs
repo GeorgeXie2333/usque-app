@@ -5840,6 +5840,8 @@ fn current_capabilities() -> v1::Capabilities {
             && cfg!(feature = "wireguard"),
         proton_account_warp_fallback: cfg!(any(windows, target_os = "linux"))
             && cfg!(feature = "wireguard"),
+        proton_server_switching: cfg!(any(windows, target_os = "linux"))
+            && cfg!(feature = "wireguard"),
         chain_proton_vpn: cfg!(any(windows, target_os = "linux")) && cfg!(feature = "wireguard"),
         chain_http_proxy: cfg!(any(windows, target_os = "linux")),
         chain_socks5_proxy: cfg!(any(windows, target_os = "linux")),

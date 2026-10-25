@@ -348,6 +348,17 @@ class LostProtonLaunchEngine extends ProtonEngine {
 }
 
 class CatalogueEngine extends ProtonEngine {
+  bool serverSwitching = false;
+  @override
+  Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    chainProtonVpn: true,
+    chainWireguard: true,
+    chainProfileImport: true,
+    networkSettingsApplication: true,
+    protonServerSwitching: serverSwitching,
+    tlsFingerprints: TlsFingerprint.values,
+    automaticEndpoints: true,
+  );
   bool stalePage = false;
   CatalogueEngine() {
     profiles = [
@@ -501,6 +512,161 @@ Future<void> _startProtonAuthentication(
 }
 
 void main() {
+  for (final platform in [
+    TargetPlatform.windows,
+    TargetPlatform.android,
+    TargetPlatform.linux,
+  ]) {
+    _protonWidgetTest(
+      'connected server choice is staged and applied, $platform',
+      (tester) async {
+        const summary = ChainProfileSummary(
+          id: 'proton-profile',
+          revision: 'r1',
+          editRevision: 'r1',
+          name: 'Account',
+          protocol: 'wireguard',
+          source: ChainSource.protonVpn,
+          host: '192.0.2.1',
+          port: 443,
+        );
+        final engine = CatalogueEngine()
+          ..serverSwitching = true
+          ..library = [summary];
+        final app = await hostChain(
+          tester,
+          engine,
+          source: ChainSource.protonVpn,
+        );
+        await app.saveNetwork(
+          app.activeProfile.copyWith(
+            chainExit: const ChainExitSettings(
+              enabled: true,
+              source: ChainSource.protonVpn,
+              profileId: 'proton-profile',
+              revision: 'r1',
+            ),
+          ),
+          changedFields: ['chain_exit'],
+        );
+        engine.current = const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          chainExit: ChainExitStatus(
+            stage: 'connected',
+            currentProfile: summary,
+          ),
+        );
+        await app.refreshSnapshot();
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpWidget(
+          workflowHost(app, home: ChainProxyScreen(controller: app)),
+        );
+        await tester.pumpAndSettle();
+        final saves = engine.saves;
+        expect(
+          tester.widget<ListTile>(_keyed('proton-account-server-')).enabled,
+          isTrue,
+        );
+        await _changeServer(tester);
+        // Closing the picker leaves the running selection untouched.
+        await tester.tap(find.text('Close').last);
+        await tester.pumpAndSettle();
+        expect(engine.saves, saves);
+        await _changeServer(tester);
+        await tester.enterText(find.byType(TextField), 'Server 300');
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.widgetWithText(RadioListTile<String>, 'Server 300'),
+        );
+        await tester.pumpAndSettle();
+        expect(engine.saves, saves);
+        expect(find.text('Server: Server 300'), findsOneWidget);
+        expect(
+          engine.requests.where((r) => r['action'] == 'choose_server'),
+          isEmpty,
+        );
+        engine.failSave = true;
+        await tester.tap(
+          find.widgetWithText(FilledButton, 'Apply and reconnect'),
+        );
+        await tester.pumpAndSettle();
+        expect(app.activeProfile.chainExit!.protonServerId, isNull);
+        expect(find.text('Server: Server 300'), findsOneWidget);
+        engine.failSave = false;
+        await tester.tap(
+          find.widgetWithText(FilledButton, 'Apply and reconnect'),
+        );
+        await tester.pumpAndSettle();
+        expect(app.activeProfile.chainExit!.protonServerId, 'logical-300');
+        expect(engine.fields, ['chain_exit', 'vpn_gate']);
+        await _changeServer(tester);
+        await tester.tap(find.text('Automatic'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.widgetWithText(FilledButton, 'Apply and reconnect'),
+        );
+        await tester.pumpAndSettle();
+        expect(app.activeProfile.chainExit!.protonServerId, '');
+        expect(engine.inputs, isEmpty);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      platform: platform,
+    );
+  }
+
+  test(
+    'server choice wire presence and capability survive desktop and Android mappings',
+    () {
+      const codec = ControlCodec();
+      for (final server in [null, '', 'logical-2']) {
+        final chain = ChainExitSettings(
+          enabled: true,
+          source: ChainSource.protonVpn,
+          profileId: 'account',
+          revision: 'revision',
+          protonServerId: server,
+        );
+        expect(ChainExitSettings.fromMap(chain.toMap()), chain);
+        expect(chain.copyWith(profileId: 'other').protonServerId, isNull);
+        expect(chain.copyWith(clearSelection: true).protonServerId, isNull);
+        final profile = UsqueProfile.defaultProfile().copyWith(
+          chainExit: chain,
+        );
+        final catalog = ControlPayloadWriter()
+          ..message(1, codec.encodeProfile(profile))
+          ..string(2, profile.id);
+        final envelope = ControlPayloadWriter()
+          ..string(1, 'wire')
+          ..message(12, catalog.takeBytes());
+        expect(
+          debugDecodeProfileCatalogFrame(
+            codec.frame(envelope.takeBytes()),
+            'wire',
+          ).profiles.single.chainExit,
+          chain,
+        );
+      }
+      for (final enabled in [false, true]) {
+        final caps = ControlPayloadWriter()..boolean(53, enabled);
+        final envelope = ControlPayloadWriter()
+          ..string(1, 'caps')
+          ..message(15, caps.takeBytes());
+        expect(
+          codec
+              .decodeResponse(codec.frame(envelope.takeBytes()), 'caps')
+              .capabilities!
+              .protonServerSwitching,
+          enabled,
+        );
+        expect(
+          EngineCapabilities.fromMap({
+            'proton_server_switching': enabled,
+          }).protonServerSwitching,
+          enabled,
+        );
+      }
+    },
+  );
   _protonWidgetTest(
     'fallback waits for a fresh challenge after a stale command reply',
     (tester) async {

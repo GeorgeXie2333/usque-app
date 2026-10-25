@@ -4651,6 +4651,7 @@ mod tests {
                 enabled: true,
                 source: usque_core::chain_exit::ChainSource::WireguardCustom,
                 endpoint_override: None,
+                proton_server_id: None,
                 profile_id: Some(Uuid::new_v4()),
                 revision: Some(Uuid::new_v4()),
             }),
