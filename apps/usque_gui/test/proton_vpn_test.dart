@@ -117,6 +117,60 @@ class ProtonEngine extends ChainEngine
   }
 }
 
+class FallbackEngine extends ProtonEngine {
+  FallbackEngine({this.staleReply = false});
+  final bool staleReply;
+  final consumed = <Object?>{};
+  int windows = 0;
+  @override
+  Future<EngineCapabilities?> getCapabilities() async =>
+      const EngineCapabilities(
+        chainProtonVpn: true,
+        protonAccountWarpFallback: true,
+      );
+  @override
+  Future<ProtonVpnResult> protonVpn(
+    Map<String, Object?> command, {
+    Uint8List? sensitiveInput,
+  }) async {
+    if (command['action'] == 'handoff' &&
+        !consumed.add(command['challenge_id'])) {
+      throw const EngineException(
+        'PROTON_HANDOFF_ALREADY_CONSUMED',
+        'Consumed',
+      );
+    }
+    if (command['action'] == 'verification_failed') {
+      requests.add(Map.of(command));
+      if (staleReply) {
+        return ProtonVpnResult(metadata: {'job': job, 'profiles': profiles});
+      }
+      job = {
+        'id': 'synthetic-job',
+        'state': 'waiting_verification',
+        'phase': 'credentialless',
+        'challenge_id': 'replacement-challenge',
+        'account_network': 'warp',
+        'network_phase': 'active',
+      };
+      return ProtonVpnResult(metadata: {'job': job, 'profiles': profiles});
+    }
+    return super.protonVpn(command, sensitiveInput: sensitiveInput);
+  }
+
+  @override
+  Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff) async {
+    windows++;
+    return Uint8List.fromList(
+      utf8.encode(
+        windows == 1
+            ? '{"type":"USQUE_VERIFICATION_NETWORK_FAILED","route_epoch":0}'
+            : ProtonEngine.success,
+      ),
+    );
+  }
+}
+
 class PendingLogoutEngine extends ProtonEngine {
   @override
   Future<ProtonVpnResult> protonVpn(
@@ -447,6 +501,121 @@ Future<void> _startProtonAuthentication(
 }
 
 void main() {
+  _protonWidgetTest(
+    'fallback waits for a fresh challenge after a stale command reply',
+    (tester) async {
+      final engine = FallbackEngine(staleReply: true);
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue as guest'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Complete verification'));
+      await tester.pumpAndSettle();
+      expect(engine.windows, 1);
+      expect(engine.consumed, {'synthetic-challenge'});
+      expect(engine.requests.where((r) => r['action'] == 'cancel'), isEmpty);
+      engine.job = {
+        'id': 'synthetic-job',
+        'state': 'running',
+        'phase': 'credentialless',
+      };
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      engine.job = {
+        'id': 'synthetic-job',
+        'state': 'waiting_verification',
+        'phase': 'credentialless',
+        'challenge_id': 'replacement-challenge',
+        'account_network': 'warp',
+        'network_phase': 'active',
+      };
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(engine.windows, 2);
+      expect(engine.consumed, {'synthetic-challenge', 'replacement-challenge'});
+      expect(engine.requests.where((r) => r['action'] == 'cancel'), isEmpty);
+      expect(
+        engine.requests.singleWhere(
+          (r) => r['action'] == 'verify',
+        )['challenge_id'],
+        'replacement-challenge',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  test(
+    'desktop protobuf capability 52 opts in while legacy responses stay disabled',
+    () {
+      const codec = ControlCodec();
+      for (final enabled in [false, true]) {
+        final caps = ControlPayloadWriter()..boolean(50, true);
+        if (enabled) caps.boolean(52, true);
+        final frame = ControlPayloadWriter()
+          ..string(1, 'caps')
+          ..message(15, caps.takeBytes());
+        final decoded = codec
+            .decodeResponse(codec.frame(frame.takeBytes()), 'caps')
+            .capabilities!;
+        expect(decoded.chainProtonVpn, isTrue);
+        expect(decoded.protonAccountWarpFallback, enabled);
+      }
+    },
+  );
+  _protonWidgetTest(
+    'capability opts in and desktop automatically opens the replacement challenge',
+    (tester) async {
+      final engine = FallbackEngine();
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue as guest'));
+      await tester.pumpAndSettle();
+      expect(
+        engine.requests.singleWhere(
+          (r) => r['action'] == 'guest',
+        )['network_policy_version'],
+        1,
+      );
+      await tester.tap(find.text('Complete verification'));
+      await tester.pumpAndSettle();
+      expect(engine.windows, 2);
+      expect(
+        engine.requests.singleWhere(
+          (r) => r['action'] == 'verification_failed',
+        )['challenge_id'],
+        'synthetic-challenge',
+      );
+      expect(
+        engine.requests.singleWhere(
+          (r) => r['action'] == 'verify',
+        )['challenge_id'],
+        'replacement-challenge',
+      );
+      expect(engine.requests.where((r) => r['action'] == 'cancel'), isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   for (final (action, invalidResponse) in [
     ('guest', false),
     ('login', false),

@@ -40,6 +40,31 @@ impl AsRef<[u8]> for PrivateBody {
 
 #[async_trait]
 pub(super) trait Http: Send + Sync {
+    async fn prepare(&self, _cancel: &CancellationToken) -> Result<(), Failure> {
+        Ok(())
+    }
+    async fn recover(&self, _cancel: &CancellationToken) -> Result<bool, Failure> {
+        Ok(false)
+    }
+    async fn verification_proxy(
+        &self,
+        _cancel: &CancellationToken,
+    ) -> Result<Option<super::verification_proxy::Descriptor>, Failure> {
+        Ok(None)
+    }
+    fn network_status(&self) -> Option<(&'static str, &'static str)> {
+        None
+    }
+    async fn exchange_delivery(
+        &self,
+        request: InternalRequest<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<InternalResponse, HttpFailure> {
+        self.exchange(request, cancel)
+            .await
+            .map_err(HttpFailure::from)
+    }
+    async fn close_verification(&self) {}
     async fn shutdown(&self) {}
     async fn exchange(
         &self,
@@ -48,6 +73,22 @@ pub(super) trait Http: Send + Sync {
     ) -> Result<InternalResponse, InternalHttpError>;
     fn generation(&self) -> Option<u64>;
     fn current(&self, generation: Option<u64>) -> bool;
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct HttpFailure {
+    pub kind: InternalHttpError,
+    pub not_submitted: bool,
+    pub reason: Option<String>,
+}
+impl From<InternalHttpError> for HttpFailure {
+    fn from(kind: InternalHttpError) -> Self {
+        Self {
+            kind,
+            not_submitted: false,
+            reason: None,
+        }
+    }
 }
 
 pub(super) struct Client {
@@ -135,6 +176,7 @@ impl Client {
             .send(method.clone(), path, bytes.clone(), None, cancel)
             .await?;
         let mut invalid_verification_retried = false;
+        let mut migrated_verification = false;
         while answer.0.get("Code").and_then(Value::as_u64) == Some(9001) {
             let details = answer
                 .0
@@ -168,14 +210,31 @@ impl Client {
             let generation = self.http.generation();
             let result = interaction
                 .verify(Zeroizing::new(challenge_token), methods, cancel)
-                .await?;
+                .await;
+            let result = match result {
+                Err(error)
+                    if error.reason == "verification_network_failed"
+                        && !migrated_verification
+                        && !self.uncertain =>
+                {
+                    if !self.http.recover(cancel).await? {
+                        return Err(error);
+                    }
+                    migrated_verification = true;
+                    answer = self
+                        .send(method.clone(), path, bytes.clone(), None, cancel)
+                        .await?;
+                    continue;
+                }
+                result => result?,
+            };
             if !self.http.current(generation) {
                 return Err(Failure::new("verification_underlay_changed"));
             }
             if cancel.is_cancelled() {
                 return Err(Failure::new("cancelled"));
             }
-            answer = self
+            let submitted = self
                 .send(
                     method.clone(),
                     path,
@@ -183,8 +242,25 @@ impl Client {
                     Some((&result.0, &result.1)),
                     cancel,
                 )
-                .await?;
+                .await;
             drop(result);
+            answer = match submitted {
+                Err(error)
+                    if error.reason == "verification_network_failed"
+                        && !migrated_verification
+                        && !self.uncertain =>
+                {
+                    if !self.http.recover(cancel).await? {
+                        return Err(error);
+                    }
+                    migrated_verification = true;
+                    answer = self
+                        .send(method.clone(), path, bytes.clone(), None, cancel)
+                        .await?;
+                    continue;
+                }
+                result => result?,
+            };
             if !invalid_verification_retried
                 && (400..500).contains(&answer.1)
                 && answer.0.get("Code").and_then(Value::as_u64) == Some(12087)
@@ -242,6 +318,8 @@ impl Client {
         verification: Option<(&str, &str)>,
         cancel: &CancellationToken,
     ) -> Result<(Json, u16), Failure> {
+        self.http.prepare(cancel).await?;
+        let previously_uncertain = self.uncertain;
         let changes_session = method == Method::POST
             && matches!(
                 path,
@@ -274,7 +352,7 @@ impl Client {
             }
             let response = self
                 .http
-                .exchange(
+                .exchange_delivery(
                     InternalRequest {
                         url: &format!("{API_ORIGIN}{path}"),
                         method: method.clone(),
@@ -287,7 +365,13 @@ impl Client {
                 )
                 .await
                 .map_err(|failure| {
-                    Failure::new(match failure {
+                    if failure.not_submitted {
+                        self.uncertain = previously_uncertain;
+                    }
+                    if let Some(reason) = failure.reason {
+                        return Failure::new(&reason);
+                    }
+                    Failure::new(match failure.kind {
                         InternalHttpError::Cancelled => "cancelled",
                         InternalHttpError::Timeout => "api_timeout",
                         InternalHttpError::Tls => "api_tls_failed",

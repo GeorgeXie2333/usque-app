@@ -1880,6 +1880,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var automaticEndpoints = false;
   var endpointPresets = false;
   var continuousConnection = false;
+  var protonAccountWarpFallback = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   final tlsFingerprints = <TlsFingerprint>[];
@@ -1924,6 +1925,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainProtonVpn = reader.varint(field) != 0;
       case 51:
         continuousConnection = reader.varint(field) != 0;
+      case 52:
+        protonAccountWarpFallback = reader.varint(field) != 0;
       case 47:
         liveAdsRules = reader.varint(field) != 0;
       case 48:
@@ -2015,6 +2018,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     automaticEndpoints: automaticEndpoints,
     endpointPresets: endpointPresets,
     continuousConnection: continuousConnection,
+    protonAccountWarpFallback: protonAccountWarpFallback,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),

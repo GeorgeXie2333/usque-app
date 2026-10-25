@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <!-- Only the authenticated loopback proxy handles this reserved probe host.
+         Proton pages and every other host still require HTTPS. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">usque-proton-proxy.invalid</domain>
+    </domain-config>
+</network-security-config>

@@ -146,7 +146,16 @@ struct Handoff {
   std::string job_id, challenge_id, url, digest;
   std::set<std::string> methods;
   int64_t expires = 0;
-  ~Handoff() { Wipe(url); }
+  unsigned version = 1, route_epoch = 0, proxy_port = 0;
+  std::string proxy_username, proxy_password, proxy_nonce;
+  std::string ProxyOrigin() const { return "http://127.0.0.1:"+std::to_string(proxy_port); }
+  std::string Probe(const std::string& path="probe") const { return "http://"+proxy_nonce+".usque-proton-proxy.invalid/"+path; }
+  std::string ProbeHttps() const { return "https://"+proxy_nonce+".usque-proton-proxy.invalid/"; }
+  std::string Ready(const Digest& sha) const { return "usque-proxy-ready://"+proxy_nonce+"/"+sha(proxy_password); }
+  bool ProbeUrl(const std::string& candidate) const { return proxy_port && (candidate==Probe() || candidate==Probe("ready") || candidate==ProbeHttps()); }
+  std::string NetworkFailure() const { return "{\"type\":\"USQUE_VERIFICATION_NETWORK_FAILED\",\"route_epoch\":"+std::to_string(route_epoch)+"}"; }
+
+  ~Handoff() { Wipe(url); Wipe(proxy_username); Wipe(proxy_password); Wipe(proxy_nonce); }
   bool Matches(const std::string& candidate, const Digest& sha, int64_t now = Now()) const {
     constexpr char origin[] = "https://verify.proton.me";
     if (now >= expires || candidate.size() > 16384 || candidate.compare(0, sizeof(origin)-1, origin) != 0) return false;
@@ -225,7 +234,22 @@ struct Handoff {
 inline bool Parse(const std::string& input, Handoff& handoff, const Digest& sha, int64_t now = Now()) {
   if (input.empty() || input.size() > 65536) return false;
   Json root;
-  if (!Parser(input).Parse(root) || root.kind != Json::kObject || root.object.size() != 6) return false;
+  if (!Parser(input).Parse(root) || root.kind != Json::kObject || (root.object.size() != 6 && root.object.size() != 8 && root.object.size() != 9)) return false;
+  if (root.object.size()!=6) {
+    const auto version=Field(root,"version",Json::kNumber), epoch=Field(root,"route_epoch",Json::kNumber);
+    if (!version || version->text!="2" || !epoch || (epoch->text!="0" && epoch->text!="1")) return false;
+    handoff.version=2; handoff.route_epoch=epoch->text=="1" ? 1 : 0;
+    if (handoff.route_epoch) {
+      const auto proxy=Field(root,"proxy",Json::kObject);
+      if (!proxy || proxy->object.size()!=4 || root.object.size()!=9) return false;
+      const auto port=Field(*proxy,"port",Json::kNumber), user=Field(*proxy,"username",Json::kString), password=Field(*proxy,"password",Json::kString), nonce=Field(*proxy,"nonce",Json::kString);
+      const auto hex=[](const Json* value,size_t size) { return value && value->text.size()==size && std::all_of(value->text.begin(),value->text.end(),[](char c){return (c>='0'&&c<='9')||(c>='a'&&c<='f');}); };
+      if (!port || port->text.size()>5 || !hex(user,32) || !hex(password,64) || !hex(nonce,32)) return false;
+      for (char c:port->text) handoff.proxy_port=handoff.proxy_port*10+c-'0';
+      if (!handoff.proxy_port || handoff.proxy_port>65535) return false;
+      handoff.proxy_username=user->text; handoff.proxy_password=password->text; handoff.proxy_nonce=nonce->text;
+    } else if (root.object.size()!=8) return false;
+  }
   const auto job = Field(root,"job_id",Json::kString), challenge = Field(root,"challenge_id",Json::kString),
     url = Field(root,"url",Json::kString), digest = Field(root,"challenge_sha256",Json::kString),
     expiry = Field(root,"expires_at",Json::kNumber), methods = Field(root,"methods",Json::kArray);

@@ -278,6 +278,8 @@ cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_socket
 apps/usque_gui/build/linux/x64/release/runner/usque_linux_socket_test
 cmake --build apps/usque_gui/build/linux/x64/release --target usque_proton_verification_test
 apps/usque_gui/build/linux/x64/release/runner/usque_proton_verification_test
+cmake --build apps/usque_gui/build/linux/x64/release --target usque_proton_resource_test
+apps/usque_gui/build/linux/x64/release/runner/usque_proton_resource_test
 cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_preferences_test
 apps/usque_gui/build/linux/x64/release/runner/usque_linux_preferences_test
 cmake --build apps/usque_gui/build/linux/x64/release --target usque_linux_startup_io_test usque_nm_dns_fixture

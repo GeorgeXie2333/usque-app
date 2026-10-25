@@ -529,6 +529,7 @@ message Capabilities {
   bool endpoint_presets = 49;
   bool chain_proton_vpn = 50;
   bool continuous_connection = 51;
+  bool proton_account_warp_fallback = 52;
 }
 
 message FrontendStatus {

@@ -1,6 +1,6 @@
 use super::{
-    ClientConfig, Failure, Interaction, api, crypto::KeyMaterial, interaction::JobIo,
-    system_http::SystemHttp, workflow,
+    AccountWarpProvider, ClientConfig, Failure, account_network::AccountNetworkSession, api,
+    crypto::KeyMaterial, interaction::JobIo, system_http::SystemHttp, workflow,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::{
@@ -37,6 +37,7 @@ struct RunContext {
     _lifecycle_lease: Option<Arc<std::fs::File>>,
     client: ClientConfig,
     accounts: AccountContext,
+    network: Option<Arc<dyn AccountWarpProvider>>,
 }
 #[derive(Clone, Default)]
 pub struct AccountContext {
@@ -111,9 +112,29 @@ impl Manager {
         client_config: ClientConfig,
         accounts: AccountContext,
     ) -> Result<Output, ImportError> {
+        self.command_with_network(
+            request,
+            input,
+            lifecycle_lease,
+            client_config,
+            (accounts, None),
+        )
+    }
+    pub fn command_with_network(
+        self: &Arc<Self>,
+        request: Request,
+        input: Zeroizing<Vec<u8>>,
+        lifecycle_lease: Option<Arc<std::fs::File>>,
+        client_config: ClientConfig,
+        account_network: (AccountContext, Option<Arc<dyn AccountWarpProvider>>),
+    ) -> Result<Output, ImportError> {
+        let (accounts, network) = account_network;
         request.validate()?;
         if input.len() > MAX_INPUT_BYTES
-            || !matches!(request.action.as_str(), "login" | "totp" | "verify") && !input.is_empty()
+            || !matches!(
+                request.action.as_str(),
+                "login" | "totp" | "verify" | "verification_failed"
+            ) && !input.is_empty()
         {
             return Err(usque_core::proton_vpn::error("invalid_sensitive_input"));
         }
@@ -262,8 +283,9 @@ impl Manager {
                                 _lifecycle_lease: lifecycle_lease,
                                 client: client_config,
                                 accounts: thread_accounts,
+                                network,
                             },
-                            &*thread_io,
+                            &thread_io,
                             &thread_cancel,
                         ))
                     }))
@@ -275,7 +297,7 @@ impl Manager {
             *slot = Some(Running { io, cancel, done });
         } else if matches!(
             request.action.as_str(),
-            "cancel" | "totp" | "handoff" | "verify" | "select_node"
+            "cancel" | "totp" | "handoff" | "verify" | "verification_failed" | "select_node"
         ) {
             let run = slot
                 .as_ref()
@@ -381,14 +403,29 @@ impl Manager {
         request: &Request,
         input: Zeroizing<Vec<u8>>,
         context: RunContext,
-        io: &dyn Interaction,
+        io: &JobIo,
         cancel: &CancellationToken,
     ) -> Result<Uuid, Failure> {
         let parent = self
             .path
             .parent()
             .ok_or_else(|| Failure::new("unavailable"))?;
-        let mut client = api::Client::new(Arc::new(SystemHttp::new()?));
+        let network: Arc<dyn api::Http> = if request.network_policy_version == 1 {
+            Arc::new(AccountNetworkSession::new(
+                context
+                    .network
+                    .ok_or_else(|| Failure::new("warp_fallback_unavailable"))?,
+                cancel.clone(),
+            )?)
+        } else {
+            Arc::new(SystemHttp::new()?)
+        };
+        io.set_network(network.clone());
+        if let Err(error) = network.prepare(cancel).await {
+            network.shutdown().await;
+            return Err(error);
+        }
+        let mut client = api::Client::new(network.clone());
         client.config = context.client;
         let mut result = if request.action == "logout" {
             workflow::logout(
@@ -430,6 +467,7 @@ impl Manager {
                 result = Err(Failure::new("cleanup_failed_remote_state_unknown"));
             }
         }
+        network.shutdown().await;
         result
     }
 }

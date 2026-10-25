@@ -14,12 +14,14 @@ import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
+import android.webkit.HttpAuthHandler
 import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebMessage
 import android.webkit.WebMessagePort
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -32,9 +34,13 @@ import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.webkit.ProxyConfig
+import androidx.webkit.ProxyController
+import androidx.webkit.WebViewFeature
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayInputStream
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Only the official puzzle; no JavaScript interface is exposed to subframes.
  *
@@ -51,6 +57,16 @@ internal class ProtonVerificationWindow(
 
     @Volatile private var result: MethodChannel.Result? = null
     private var closing = false
+    private var session: ProtonVerificationSession? = null
+    private var proxyApplied = false
+    private var ownsLease = false
+    private var probeStage = 0
+    private var loadDeadline = 0L
+    private var loaded = false
+
+    companion object {
+        private val processLease = AtomicBoolean(false)
+    }
 
     private enum class Failure {
         EXPIRED,
@@ -74,7 +90,9 @@ internal class ProtonVerificationWindow(
     private val timeout =
         object : Runnable {
             override fun run() {
-                if (!active()) {
+                if (!loaded && loadDeadline != 0L && SystemClock.elapsedRealtime() >= loadDeadline) {
+                    fail(Failure.LOAD)
+                } else if (!active()) {
                     fail(Failure.EXPIRED)
                 } else {
                     handler.postDelayed(this, 250)
@@ -99,8 +117,19 @@ internal class ProtonVerificationWindow(
             reply.error("PROTON_VERIFICATION_INVALID", "Verification expired or is invalid.", null)
             return
         }
+        if (!processLease.compareAndSet(false, true)) {
+            reply.error("PROTON_VERIFICATION_BUSY", "Verification is already open.", null)
+            return
+        }
+        ownsLease = true
+        this.session = session
+        loaded = false
+        probeStage = if (session.proxy == null) 0 else 1
         val remaining = (session.expiresAt - System.currentTimeMillis()).coerceIn(0, 300000)
         if (remaining == 0L) {
+            processLease.set(false)
+            ownsLease = false
+            this.session = null
             reply.error("PROTON_VERIFICATION_INVALID", "Verification expired or is invalid.", null)
             return
         }
@@ -166,6 +195,16 @@ internal class ProtonVerificationWindow(
                             fail(Failure.EXPIRED)
                             return true
                         }
+                        val proxy = session.proxy
+                        if (probeStage != 0 && proxy != null) {
+                            if (probeStage == 2 && request.isForMainFrame && request.url.toString() == proxy.ready) {
+                                probeStage = 0
+                                loadDeadline = SystemClock.elapsedRealtime() + 15000
+                                view.loadUrl(session.url)
+                                return true
+                            }
+                            return !proxy.matches(request.url.toString())
+                        }
                         if (request.isForMainFrame &&
                             !session.matches(request.url.toString())
                         ) {
@@ -180,13 +219,54 @@ internal class ProtonVerificationWindow(
                         view: WebView?,
                         request: WebResourceRequest,
                     ): WebResourceResponse? =
-                        if (!currentWindow() || !active() || request.url.scheme != "https" ||
+                        if (currentWindow() && active() && probeStage != 0 &&
+                            session.proxy?.matches(request.url.toString()) == true
+                        ) {
+                            null
+                        } else if (!currentWindow() || !active() || request.url.scheme != "https" ||
                             request.url.host !in setOf("verify.proton.me", "verify-api.proton.me", "account.proton.me")
                         ) {
                             WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
                         } else {
                             null
                         }
+
+                    override fun onReceivedHttpAuthRequest(
+                        view: WebView?,
+                        callback: HttpAuthHandler,
+                        host: String?,
+                        realm: String?,
+                    ) {
+                        val proxy = session.proxy
+                        if (currentWindow() && active() && proxyApplied && proxy != null && host == "127.0.0.1" &&
+                            realm == proxy.nonce
+                        ) {
+                            callback.proceed(proxy.username, proxy.password)
+                        } else {
+                            callback.cancel()
+                        }
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView,
+                        request: WebResourceRequest,
+                        error: WebResourceError,
+                    ) {
+                        if (!currentWindow()) return
+                        val proxy = session.proxy
+                        if (probeStage == 1 && proxy != null && request.isForMainFrame &&
+                            request.url.toString() == proxy.https
+                        ) {
+                            probeStage = 2
+                            view.loadUrl(proxy.probe("ready"))
+                            return
+                        }
+                        if (error.errorCode in
+                            setOf(ERROR_HOST_LOOKUP, ERROR_CONNECT, ERROR_TIMEOUT, ERROR_FAILED_SSL_HANDSHAKE, ERROR_IO)
+                        ) {
+                            fail(Failure.LOAD)
+                        }
+                    }
 
                     override fun onReceivedSslError(
                         view: WebView?,
@@ -203,6 +283,7 @@ internal class ProtonVerificationWindow(
                         favicon: android.graphics.Bitmap?,
                     ) {
                         if (!currentWindow()) return
+                        if (probeStage != 0 && session.proxy?.matches(url) == true) return
                         generation++
                         closeNativePort()
                         installedGeneration = -1
@@ -222,7 +303,8 @@ internal class ProtonVerificationWindow(
                             fail(Failure.EXPIRED)
                             return
                         }
-                        if (!session.matches(url)) return
+                        if (!session.matches(url) || probeStage != 0) return
+                        loaded = true
                         if (installedGeneration == generation) return
                         installedGeneration = generation
                         val current = generation
@@ -335,7 +417,25 @@ internal class ProtonVerificationWindow(
                         return@removeAllCookies
                     }
                     try {
-                        browser.loadUrl(session.url)
+                        val proxy = session.proxy
+                        if (proxy == null) {
+                            loadDeadline = SystemClock.elapsedRealtime() + 15000
+                            browser.loadUrl(session.url)
+                        } else if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                            proxyApplied = true
+                            loadDeadline = SystemClock.elapsedRealtime() + 5000
+                            ProxyController.getInstance().setProxyOverride(
+                                ProxyConfig
+                                    .Builder()
+                                    .addProxyRule(proxy.origin)
+                                    .removeImplicitRules()
+                                    .build(),
+                                { handler.post(it) },
+                                { if (currentWindow() && active()) browser.loadUrl(proxy.probe()) },
+                            )
+                        } else {
+                            fail(Failure.BRIDGE)
+                        }
                     } catch (_: Exception) {
                         fail(Failure.LOAD)
                     }
@@ -356,7 +456,19 @@ internal class ProtonVerificationWindow(
 
     fun hostStopped() = fail(Failure.HOST_STOPPED)
 
-    private fun fail(reason: Failure) = finish(null, reason)
+    private fun fail(reason: Failure) {
+        val current = session
+        if (current?.version == 2 && current.proxy == null && reason in setOf(Failure.LOAD, Failure.TLS)) {
+            val bytes = current.networkFailure()
+            try {
+                finish(bytes)
+            } finally {
+                bytes.fill(0)
+            }
+        } else {
+            finish(null, reason)
+        }
+    }
 
     private fun finish(
         value: ByteArray?,
@@ -365,6 +477,7 @@ internal class ProtonVerificationWindow(
         val reply = result ?: return
         result = null
         closing = true
+        session = null
         deadlineElapsed = 0L
         deadlineWall = 0L
         generation++
@@ -389,15 +502,63 @@ internal class ProtonVerificationWindow(
                 runCatching { browser?.destroy() }
                 runCatching { CookieManager.getInstance().removeAllCookies(null) }
                 runCatching { WebStorage.getInstance().deleteAllData() }
-                closing = false
-                try {
-                    if (failure == null) {
-                        reply.success(response)
-                    } else {
-                        reply.error("PROTON_VERIFICATION_${failure.name}", "Verification could not complete.", null)
+                val delivered = AtomicBoolean(false)
+                val cleanupTimeout =
+                    Runnable {
+                        if (delivered.compareAndSet(false, true)) {
+                            response?.fill(0)
+                            reply.error(
+                                "PROTON_VERIFICATION_UNAVAILABLE",
+                                "Verification proxy cleanup timed out.",
+                                null,
+                            )
+                        }
                     }
-                } finally {
-                    response?.fill(0)
+                val complete =
+                    Runnable {
+                        closing = false
+                        if (ownsLease) {
+                            ownsLease = false
+                            processLease.set(false)
+                        }
+                        handler.removeCallbacks(cleanupTimeout)
+                        if (!delivered.compareAndSet(false, true)) return@Runnable
+                        try {
+                            if (failure == null) {
+                                reply.success(response)
+                            } else {
+                                reply.error(
+                                    "PROTON_VERIFICATION_${failure.name}",
+                                    "Verification could not complete.",
+                                    null,
+                                )
+                            }
+                        } finally {
+                            response?.fill(0)
+                        }
+                    }
+                if (proxyApplied) {
+                    proxyApplied = false
+                    // Keep the process lease until WebView confirms removal.
+                    handler.postDelayed(cleanupTimeout, 5000)
+                    runCatching {
+                        if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                            ProxyController.getInstance().clearProxyOverride(
+                                { handler.post(it) },
+                                complete,
+                            )
+                        } else {
+                            error("Proxy override unavailable")
+                        }
+                    }.onFailure {
+                        handler.removeCallbacks(cleanupTimeout)
+                        response?.fill(0)
+                        if (delivered.compareAndSet(false, true)) {
+                            reply.error("PROTON_VERIFICATION_UNAVAILABLE", "Verification proxy cleanup failed.", null)
+                        }
+                    }
+                } else {
+                    complete.run()
                 }
             }
         if (!runCatching { handler.post(cleanup) }.getOrDefault(false)) cleanup.run()

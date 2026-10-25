@@ -25,6 +25,124 @@ struct Seen {
     body: Vec<u8>,
     headers: Vec<(String, String)>,
 }
+
+struct RecoveryPeer {
+    inner: Arc<Peer>,
+    recoveries: AtomicUsize,
+}
+#[async_trait]
+impl Http for RecoveryPeer {
+    async fn exchange(
+        &self,
+        request: InternalRequest<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<InternalResponse, InternalHttpError> {
+        self.inner.exchange(request, cancel).await
+    }
+    async fn recover(&self, _: &CancellationToken) -> Result<bool, Failure> {
+        Ok(self.recoveries.fetch_add(1, Ordering::AcqRel) == 0)
+    }
+    fn generation(&self) -> Option<u64> {
+        self.inner.generation()
+    }
+    fn current(&self, generation: Option<u64>) -> bool {
+        self.inner.current(generation)
+    }
+}
+struct BrokenVerification {
+    calls: AtomicUsize,
+    always: bool,
+}
+#[async_trait]
+impl Interaction for BrokenVerification {
+    async fn verify(
+        &self,
+        _: Zeroizing<String>,
+        _: Vec<String>,
+        _: &CancellationToken,
+    ) -> Result<(Zeroizing<String>, String), Failure> {
+        if self.calls.fetch_add(1, Ordering::AcqRel) == 0 || self.always {
+            Err(Failure::new("verification_network_failed"))
+        } else {
+            Ok((
+                Zeroizing::new("replacement-answer".into()),
+                "captcha".into(),
+            ))
+        }
+    }
+    async fn totp(&self, _: &CancellationToken) -> Result<Zeroizing<String>, Failure> {
+        unreachable!()
+    }
+    fn phase(&self, _: &str) {}
+}
+
+#[tokio::test]
+async fn verification_recovery_reissues_once_only_after_a_known_rejection() {
+    for (status, always) in [(400, false), (400, true), (200, false)] {
+        let inner = make_peer(vec![
+            Ok((status, challenge())),
+            Ok((400, challenge())),
+            Ok((200, json!({"Code":1000}))),
+        ]);
+        let http = Arc::new(RecoveryPeer {
+            inner: inner.clone(),
+            recoveries: AtomicUsize::new(0),
+        });
+        let io = BrokenVerification {
+            calls: AtomicUsize::new(0),
+            always,
+        };
+        let mut client = Client::new(http.clone());
+        let answer = client
+            .request(
+                Method::POST,
+                "/auth/v4",
+                &json!({}),
+                &io,
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(answer.is_ok(), status == 400 && !always);
+        assert_eq!(
+            http.recoveries.load(Ordering::Acquire),
+            usize::from(status == 400)
+        );
+        let seen = inner.seen.lock().unwrap();
+        assert_eq!(
+            seen.len(),
+            if status == 200 {
+                1
+            } else if always {
+                2
+            } else {
+                3
+            }
+        );
+        assert!(
+            !seen[0]
+                .headers
+                .iter()
+                .any(|(name, _)| name.starts_with("x-pm-human-verification"))
+        );
+        if seen.len() > 1 {
+            assert!(
+                !seen[1]
+                    .headers
+                    .iter()
+                    .any(|(name, _)| name.starts_with("x-pm-human-verification"))
+            );
+        }
+        if seen.len() == 3 {
+            assert!(
+                seen[2]
+                    .headers
+                    .iter()
+                    .any(|(name, value)| name == "x-pm-human-verification-token"
+                        && value == "replacement-answer")
+            );
+        }
+    }
+}
 struct Peer {
     replies: Mutex<VecDeque<Result<(u16, Value), InternalHttpError>>>,
     seen: Mutex<Vec<Seen>>,
@@ -934,6 +1052,7 @@ async fn ambiguous_mutation_and_partial_session_preserve_cleanup_boundaries() {
 }
 fn request(action: &str, job_id: uuid::Uuid, challenge_id: Option<uuid::Uuid>) -> Request {
     Request {
+        network_policy_version: 0,
         action: action.into(),
         job_id: Some(job_id),
         profile_id: None,

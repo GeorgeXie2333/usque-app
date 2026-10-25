@@ -17,7 +17,7 @@ internal object NativeEngine {
                 } else {
                     ""
                 }
-            nativeProtonVpn(configPath, command, sensitiveInput, context)
+            nativeProtonVpn(configPath, command, sensitiveInput, context, service)
         } else {
             null
         }
@@ -27,6 +27,7 @@ internal object NativeEngine {
         command: String,
         sensitiveInput: ByteArray,
         clientContext: String,
+        service: UsqueVpnService,
     ): Array<ByteArray>?
 
     private external fun nativeInitializeChainCrypto(codec: ChainProfileCipher): Boolean

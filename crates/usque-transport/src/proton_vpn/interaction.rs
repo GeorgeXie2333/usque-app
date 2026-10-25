@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{sync::oneshot, time::Instant};
@@ -22,11 +22,12 @@ pub(super) fn now() -> i64 {
     now_ms() / 1000
 }
 enum Kind {
-    Verification(Uuid),
+    Verification(Uuid, u64),
     Totp,
 }
 pub(super) struct Shared {
     pub job: Job,
+    network: Option<Arc<dyn super::api::Http>>,
     handoff: Option<Zeroizing<Vec<u8>>>,
     waiting: Option<(Kind, oneshot::Sender<Zeroizing<Vec<u8>>>)>,
 }
@@ -35,22 +36,31 @@ impl JobIo {
     pub fn new() -> Self {
         Self(Mutex::new(Shared {
             job: Job::new(),
+            network: None,
             handoff: None,
             waiting: None,
         }))
     }
+    pub fn set_network(&self, network: Arc<dyn super::api::Http>) {
+        if let Ok(mut shared) = self.0.lock() {
+            shared.network = Some(network);
+        }
+    }
     pub fn snapshot(&self) -> Result<Job, Failure> {
-        Ok(self
-            .0
-            .lock()
-            .map_err(|_| Failure::new("unavailable"))?
-            .job
-            .clone())
+        let shared = self.0.lock().map_err(|_| Failure::new("unavailable"))?;
+        let mut job = shared.job.clone();
+        if let Some((route, phase)) = shared.network.as_ref().and_then(|n| n.network_status()) {
+            job.account_network = Some(route.into());
+            job.network_phase = Some(phase.into());
+        }
+        Ok(job)
     }
     pub fn finish(&self, result: Result<Uuid, Failure>, cancelled: bool) {
         if let Ok(mut shared) = self.0.lock() {
             shared.handoff = None;
             shared.waiting = None;
+            // Also releases task-owned transports after a caught worker panic.
+            shared.network = None;
             shared.job.nodes.clear();
             shared.job.challenge_id = None;
             shared.job.expires_at = None;
@@ -91,8 +101,16 @@ impl JobIo {
                 .ok_or_else(|| Failure::new("handoff_already_consumed"));
         }
         let valid = match shared.waiting.as_ref().map(|v| &v.0) {
-            Some(Kind::Verification(id)) => {
-                request.action == "verify" && request.challenge_id == Some(*id) && !input.is_empty()
+            Some(Kind::Verification(id, epoch)) => {
+                let failed = request.action == "verification_failed"
+                    && serde_json::from_slice::<serde_json::Value>(&input).is_ok_and(|v| {
+                        v.get("type").and_then(|v| v.as_str())
+                            == Some("USQUE_VERIFICATION_NETWORK_FAILED")
+                            && v.get("route_epoch").and_then(|v| v.as_u64()) == Some(*epoch)
+                    });
+                (request.action == "verify" || failed)
+                    && request.challenge_id == Some(*id)
+                    && !input.is_empty()
             }
             Some(Kind::Totp) => {
                 request.action == "totp" && input.len() == 6 && input.iter().all(u8::is_ascii_digit)
@@ -126,12 +144,12 @@ impl JobIo {
                 return Err(Failure::new("interaction_busy"));
             }
             shared.job.state = match &kind {
-                Kind::Verification(_) => "waiting_verification",
+                Kind::Verification(..) => "waiting_verification",
                 Kind::Totp => "waiting_totp",
             }
             .into();
             shared.job.challenge_id = match &kind {
-                Kind::Verification(id) => Some(*id),
+                Kind::Verification(id, _) => Some(*id),
                 _ => None,
             };
             shared.job.expires_at = Some(now_ms() + seconds as i64 * 1000);
@@ -168,6 +186,7 @@ fn encode(value: &str) -> String {
     }
     out
 }
+
 #[async_trait]
 impl Interaction for JobIo {
     async fn verify(
@@ -182,23 +201,56 @@ impl Interaction for JobIo {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let handoff = Json(
+        let network = self
+            .0
+            .lock()
+            .map_err(|_| Failure::new("unavailable"))?
+            .network
+            .clone();
+        let modern = network
+            .as_ref()
+            .is_some_and(|n| n.network_status().is_some());
+        let proxy = match &network {
+            Some(n) => n.verification_proxy(cancel).await?,
+            None => None,
+        };
+        let epoch = u64::from(proxy.is_some());
+        let mut handoff = Json(
             json!({ "job_id":self.snapshot()?.id, "challenge_id":id, "url":format!("https://verify.proton.me?embed=true&token={}&methods={}&theme=2&vpn=true",encode(&challenge),encode(&methods.join(","))), "expires_at":expiry, "methods":methods, "challenge_sha256":digest }),
         );
+        if modern {
+            handoff.0["version"] = json!(2);
+            handoff.0["route_epoch"] = json!(epoch);
+            if let Some(proxy) = proxy {
+                handoff.0["proxy"] =
+                    serde_json::to_value(proxy).map_err(|_| Failure::new("invalid_handoff"))?;
+            }
+        }
         let input = self
             .wait(
-                Kind::Verification(id),
+                Kind::Verification(id, epoch),
                 Some(Zeroizing::new(
                     serde_json::to_vec(&handoff.0).map_err(|_| Failure::new("invalid_handoff"))?,
                 )),
                 300,
                 cancel,
             )
-            .await?;
+            .await;
+        if let Some(network) = network {
+            network.close_verification().await;
+        }
+        let input = input?;
         let value = Json(
             serde_json::from_slice(&input)
                 .map_err(|_| Failure::new("invalid_verification_result"))?,
         );
+        if modern
+            && value.get("type").and_then(|v| v.as_str())
+                == Some("USQUE_VERIFICATION_NETWORK_FAILED")
+            && value.get("route_epoch").and_then(|v| v.as_u64()) == Some(epoch)
+        {
+            return Err(Failure::new("verification_network_failed"));
+        }
         if value.get("type").and_then(|v| v.as_str()) != Some("HUMAN_VERIFICATION_SUCCESS") {
             return Err(Failure::new("invalid_verification_result"));
         }
@@ -229,5 +281,50 @@ impl Interaction for JobIo {
         if let Ok(mut shared) = self.0.lock() {
             shared.job.phase = phase.into();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn stale_route_and_challenge_failures_cannot_consume_the_current_waiter() {
+        let io = Arc::new(JobIo::new());
+        let job = io.snapshot().unwrap().id;
+        let challenge = Uuid::new_v4();
+        let task_io = io.clone();
+        let task = tokio::spawn(async move {
+            task_io
+                .wait(
+                    Kind::Verification(challenge, 1),
+                    None,
+                    300,
+                    &CancellationToken::new(),
+                )
+                .await
+        });
+        while io.snapshot().unwrap().challenge_id.is_none() {
+            tokio::task::yield_now().await;
+        }
+        let command = Request::parse(
+            &json!({"action":"verification_failed","job_id":job,"challenge_id":challenge})
+                .to_string(),
+        )
+        .unwrap();
+        let payload = |epoch| {
+            Zeroizing::new(
+                serde_json::to_vec(
+                    &json!({"type":"USQUE_VERIFICATION_NETWORK_FAILED","route_epoch":epoch}),
+                )
+                .unwrap(),
+            )
+        };
+        assert!(io.command(&command, payload(0)).is_err());
+        let mut wrong = command.clone();
+        wrong.challenge_id = Some(Uuid::new_v4());
+        assert!(io.command(&wrong, payload(1)).is_err());
+        assert!(io.command(&command, payload(1)).is_ok());
+        assert!(io.command(&command, payload(1)).is_err());
+        assert_eq!(*task.await.unwrap().unwrap(), *payload(1));
     }
 }

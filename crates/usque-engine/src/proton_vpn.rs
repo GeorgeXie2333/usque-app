@@ -89,14 +89,18 @@ impl ControlService {
                     });
                 }
             }
+            let network = Arc::new(AccountNetworkProvider {
+                service: self.clone(),
+                selected: self.config.read().await.active_profile().map(|p| p.id),
+            });
             let manager = self.proton_manager.clone();
             let result = tokio::task::spawn_blocking(move || {
-                manager.command_scoped(
+                manager.command_with_network(
                     request,
                     input,
                     provider_lease,
                     usque_transport::proton_vpn::ClientConfig::default(),
-                    accounts,
+                    (accounts, Some(network)),
                 )
             })
             .await
@@ -124,5 +128,91 @@ impl ControlService {
                 "Proton VPN unavailable",
             ))
         }
+    }
+}
+
+#[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+struct AccountNetworkProvider {
+    service: ControlService,
+    selected: Option<uuid::Uuid>,
+}
+#[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+#[async_trait::async_trait]
+impl usque_transport::proton_vpn::AccountWarpProvider for AccountNetworkProvider {
+    async fn context(
+        &self,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<usque_transport::warp_wireguard::Context, usque_core::chain_exit::ImportError> {
+        use usque_core::proton_vpn::error;
+        let service = &self.service;
+        if cancel.is_cancelled() {
+            return Err(error("cancelled"));
+        }
+        let profile = service
+            .config
+            .read()
+            .await
+            .active_profile()
+            .ok_or_else(|| error("warp_identity_required"))?;
+        if Some(profile.id) != self.selected {
+            return Err(error("underlay_changed"));
+        }
+        let existing = service
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|r| r.runtime.internal_networks())
+            .map(|(_, warp)| warp)
+            .filter(|network| {
+                matches!(
+                    network.health_snapshot(),
+                    usque_transport::RuntimeHealth::Connected { .. }
+                )
+            });
+        #[cfg(windows)]
+        let allow_physical = existing.is_none()
+            && crate::windows_agent::catalogue_physical_network_permitted().await;
+        #[cfg(all(target_os = "linux", not(test)))]
+        let allow_physical =
+            existing.is_none() && crate::linux_observation::disconnected_probe_safe().await;
+        #[cfg(all(target_os = "linux", test))]
+        let allow_physical = existing.is_none();
+        let identity = if existing.is_none() && allow_physical {
+            Some(
+                service
+                    .load_warp_identity(profile.id)
+                    .await
+                    .map_err(|_| error("warp_identity_required"))?,
+            )
+        } else {
+            None
+        };
+        let refresh_identity = if identity.is_some() {
+            Some(
+                service
+                    .load_warp_identity(profile.id)
+                    .await
+                    .map_err(|_| error("warp_identity_required"))?,
+            )
+        } else {
+            None
+        };
+        let refresher = refresh_identity.map(|identity| {
+            Arc::new(crate::VaultEndpointPinRefresher {
+                profile_id: profile.id,
+                vault: service.vault.clone(),
+                identity: tokio::sync::Mutex::new(identity),
+            }) as Arc<dyn usque_transport::EndpointPinRefresher>
+        });
+        Ok(usque_transport::warp_wireguard::Context {
+            profile,
+            existing,
+            identity,
+            allow_physical,
+            refresher,
+            lifecycle_lease: None,
+            protector: Arc::new(usque_transport::NoopSocketProtector),
+        })
     }
 }

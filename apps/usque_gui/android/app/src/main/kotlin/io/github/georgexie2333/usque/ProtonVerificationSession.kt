@@ -9,10 +9,46 @@ import java.security.MessageDigest
 internal class ProtonVerificationSession private constructor(
     val url: String,
     val expiresAt: Long,
+    val version: Int,
+    val routeEpoch: Int,
+    val proxy: Proxy?,
     private val digest: String,
     private val methods: Set<String>,
     private val now: () -> Long,
 ) {
+    internal data class Proxy(
+        val port: Int,
+        val username: String,
+        val password: String,
+        val nonce: String,
+    ) {
+        val origin get() = "http://127.0.0.1:$port"
+
+        fun probe(path: String = "probe") = "http://$nonce.usque-proton-proxy.invalid/$path"
+
+        val https get() = "https://$nonce.usque-proton-proxy.invalid/"
+        val ready: String
+            get() {
+                val proof =
+                    MessageDigest
+                        .getInstance("SHA-256")
+                        .digest(password.toByteArray(Charsets.US_ASCII))
+                        .joinToString("") { "%02x".format(it.toInt() and 255) }
+                return "usque-proxy-ready://$nonce/$proof"
+            }
+
+        fun matches(url: String?) = url == probe() || url == probe("ready") || url == https
+    }
+
+    fun networkFailure(): ByteArray =
+        JSONObject()
+            .put(
+                "type",
+                "USQUE_VERIFICATION_NETWORK_FAILED",
+            ).put("route_epoch", routeEpoch)
+            .toString()
+            .toByteArray(Charsets.UTF_8)
+
     private var used = false
 
     fun expired(): Boolean = now() >= expiresAt
@@ -144,7 +180,35 @@ internal class ProtonVerificationSession private constructor(
             require(values.length() in 1..16)
             val methods = (0 until values.length()).map { values.getString(it) }.toSet()
             require(methods.isNotEmpty() && methods.all { it in setOf("captcha", "sms", "email") })
-            return ProtonVerificationSession(value.getString("url"), expiry, digest, methods, now).also {
+            val version = value.optInt("version", 1)
+            require(version in 1..2)
+            val epoch = value.optInt("route_epoch", 0)
+            require(epoch in 0..1 && (version == 2 || epoch == 0))
+            val proxy =
+                if (epoch == 1) {
+                    val item = value.getJSONObject("proxy")
+                    val port = item.getInt("port")
+
+                    fun hex(
+                        key: String,
+                        size: Int,
+                    ): String = item.getString(key).also { require(it.matches(Regex("[0-9a-f]{$size}"))) }
+                    require(port in 1..65535 && item.length() == 4)
+                    Proxy(port, hex("username", 32), hex("password", 64), hex("nonce", 32))
+                } else {
+                    require(!value.has("proxy"))
+                    null
+                }
+            return ProtonVerificationSession(
+                value.getString("url"),
+                expiry,
+                version,
+                epoch,
+                proxy,
+                digest,
+                methods,
+                now,
+            ).also {
                 require(it.matches(it.url))
             }
         }

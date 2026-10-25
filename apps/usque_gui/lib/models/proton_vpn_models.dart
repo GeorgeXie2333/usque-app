@@ -23,6 +23,7 @@ String encodeProtonVpnCommand(Map<String, Object?> command) {
     'node_id',
     'name',
     'offset',
+    'network_policy_version',
   };
   const actions = {
     'guest',
@@ -32,6 +33,7 @@ String encodeProtonVpnCommand(Map<String, Object?> command) {
     'totp',
     'handoff',
     'verify',
+    'verification_failed',
     'select_node',
     'refresh',
     'logout',

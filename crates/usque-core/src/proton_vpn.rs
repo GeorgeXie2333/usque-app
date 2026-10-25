@@ -88,6 +88,8 @@ pub struct Request {
     pub name: String,
     #[serde(default)]
     pub offset: usize,
+    #[serde(default)]
+    pub network_policy_version: u32,
 }
 impl Request {
     pub fn parse(text: &str) -> Result<Self, ImportError> {
@@ -108,6 +110,7 @@ impl Request {
                 | "totp"
                 | "handoff"
                 | "verify"
+                | "verification_failed"
                 | "select_node"
                 | "refresh"
                 | "logout"
@@ -115,7 +118,9 @@ impl Request {
                 | "list"
                 | "servers"
                 | "choose_server"
-        ) || self.name.chars().count() > 64
+        ) || self.network_policy_version > 1
+            || self.network_policy_version != 0 && !self.needs_network()
+            || self.name.chars().count() > 64
             || self.name.chars().any(char::is_control)
             || self.offset > MAX_CATALOG_NODES
             || self.offset != 0 && self.action != "servers"
@@ -124,9 +129,12 @@ impl Request {
             })
             || matches!(
                 self.action.as_str(),
-                "cancel" | "totp" | "handoff" | "verify" | "select_node"
+                "cancel" | "totp" | "handoff" | "verify" | "verification_failed" | "select_node"
             ) && self.job_id.is_none()
-            || matches!(self.action.as_str(), "handoff" | "verify") && self.challenge_id.is_none()
+            || matches!(
+                self.action.as_str(),
+                "handoff" | "verify" | "verification_failed"
+            ) && self.challenge_id.is_none()
             || matches!(
                 self.action.as_str(),
                 "refresh" | "logout" | "forget" | "servers" | "choose_server"
@@ -222,6 +230,10 @@ impl SelectedNode {
 
 #[derive(Clone, Serialize)]
 pub struct Job {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_network: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_phase: Option<String>,
     pub id: Uuid,
     pub state: String,
     pub phase: String,
@@ -237,6 +249,8 @@ pub struct Job {
 impl Job {
     pub fn new() -> Self {
         Self {
+            account_network: None,
+            network_phase: None,
             id: Uuid::new_v4(),
             state: "running".into(),
             phase: "underlay".into(),

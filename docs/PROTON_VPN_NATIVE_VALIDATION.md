@@ -1185,3 +1185,195 @@ Validation commands and results for this candidate:
 - `python3 tool/check_repository_policy.py` and `git diff --check`: **passed**.
 - Windows, physical Android/emulator, protected runners, external leak observation,
   controlled performance sampling, packaging and installation: **not_run**.
+
+
+## Follow-up: account-task WARP fallback (2026-10-24)
+
+Status: **implementation and workstation checks passed; live acceptance not_run**.
+This supersedes the earlier system-only account-management routing description.
+It does not change the separate WARP-only runtime authorization client.
+
+Baseline: `188dfdc2f1416cc3aa80426d0f9514e8cb5c780c` plus the uncommitted
+implementation. The sorted SHA-256 manifest of the 39 changed implementation,
+dependency and test files, excluding documentation, is
+`ad9a0f70b17a5b90c211da43485b49f8ced513b85cb8a9c499902e5d579a6494`.
+The local manifest and sanitized command logs are under `target/proton-*` and
+are not committed or published. Linux checks used a separate source copy with
+the same relevant files; the final runner-only check followed the WebKit error-domain
+API correction. Formatting-only test changes do not alter the tested behavior.
+
+### Implemented behavior / 已实现行为
+
+- Guest setup, login, manual directory refresh and remote logout start on the
+  system path. A credential-free five-second ping precedes mutations. Only
+  transport failures permit one task-wide switch to WARP; business responses
+  and an ambiguous mutation do not trigger blind replay.
+- Recovery borrows a healthy underlay or uses the selected enrolled WARP
+  account for a headless connection. Cold sockets retain OS routing and do
+  not use VPN protection/interface binding to bypass another VPN. Retained
+  platform guards remain authoritative; no identity is created automatically.
+- API traffic, verification CONNECT traffic and verification DNS share the
+  WARP handle. A replacement WARP generation invalidates the task and proxy.
+  The proxy checks the generation again after DNS/dialing before acknowledging
+  CONNECT. An old verification answer is never replayed across migration.
+- The browser must prove HTTP and CONNECT proxy use before loading a challenge.
+  Its ready marker includes SHA-256 of the random proxy password, so knowing
+  the public `.invalid` nonce alone cannot forge a successful preflight.
+  Origin/challenge binding and ordinary TLS verification remain intact.
+- Cancellation and completion close task-owned proxy connections and headless
+  resources. Borrowed WARP runtimes remain owned by their original connection.
+  Android holds its process lease through the asynchronous proxy-clear
+  acknowledgement; a missing acknowledgement returns an error within five
+  seconds and keeps the lease closed until removal is confirmed.
+- Commands opt in with `network_policy_version: 1` only after capability
+  negotiation. Legacy commands retain the system path. Proxy credentials and
+  URLs remain in the bounded sensitive handoff channel; public job state
+  contains only the route and phase. Existing encrypted account storage and
+  token-rotation uncertainty handling are retained.
+
+### Executed checks / 已执行检查
+
+Windows used Rust 1.97.1, Flutter 3.44.7 at
+`84fc5cbb223bc12f83d65b647ff8a56caf779ffd`, Visual Studio 18 Build Tools,
+and the supported helper-selected native environment. Native runner CMake was
+the Visual Studio-bundled version capable of its Visual Studio 18 generator.
+WebView2 SDK was the pinned `1.0.4258.31`; installed Evergreen runtime was
+`155.0.4283.62`. Linux checks ran on WSL Ubuntu 26.04 amd64 with the same Rust
+and Flutter pins. These are workstation checks, not protected-runner evidence.
+
+| Command / scope | Result | Evidence and limits |
+| --- | --- | --- |
+| `cargo fmt --all --check` | passed | Final Rust formatting |
+| `tool/build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | passed | Locked complete workspace/all-targets gate |
+| `tool/build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | passed | 2,062 passed, 13 ignored; includes new recovery, delivery-certainty, stale-challenge and loopback-proxy tests |
+| `tool/build_windows_rust_release.ps1 -Variant x64-v2` | passed | Compile-only release sidecars; no installation |
+| `tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed | Pinned Android target, NDK and CMake |
+| `flutter pub get --enforce-lockfile`; `dart format --output=none --set-exit-if-changed lib test`; `flutter analyze --no-pub` | passed | Verified SDK; no dependency drift |
+| Windows `flutter test --no-pub` | passed | 1,293 passed, 19 platform skips; fake Engine |
+| `tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .`; `flutter build windows --release --no-pub --split-debug-info=build/symbols/windows` | passed | Final native runner compiled |
+| Windows CMake `usque_proton_verification_test` build and executable | passed | Handoff versions, proxy bounds and existing challenge/result policy |
+| Windows CMake `usque_proton_webview_test` build and executable | passed | Seven real WebView2 scenarios: HTTP/CONNECT, wrong proxy realm, forged preflight proof, and four existing bridge/close/origin/challenge cases |
+| `flutter build apk --debug --config-only --no-pub` | passed | Configuration only; no release APK or device installation |
+| `gradlew --no-daemon :app:ktlintCheck` | passed | Pinned Kotlin formatter |
+| `gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed | 491 unit tests, zero failures/errors/skips; debug JNI prerequisites compiled |
+| Linux `cargo clippy --workspace --all-targets --locked -- -D warnings` | passed | Generated dependency warnings remained non-first-party; no source check was weakened |
+| Linux `cargo test --workspace --all-targets --locked` | passed | 1,912 passed, 4 ignored |
+| Linux `cargo build --release --locked -p usque-engine -p usque-agent -p usque-update` | passed | Compile-only sidecars |
+| Linux `flutter test --no-pub --exclude-tags golden` | passed | 1,201 passed, 1 platform skip |
+| Linux `flutter test --no-pub --tags linux-golden` | passed | 19 exact bitmap comparisons; no baselines changed |
+| Linux `flutter build linux --debug --no-pub -t lib/main_preview.dart`; `flutter build linux --release --no-pub -t lib/main.dart` | passed | Both preview and production runner; final WebKit symbol correction rebuilt |
+| Linux CMake socket, Proton policy, preferences, startup-I/O and NetworkManager fixture targets | passed | Corresponding inert executables completed; no system networking changed |
+| `USQUE_NM_DNS_FIXTURE=... cargo test --locked -p usque-agent --lib private_network_manager_bus -- --ignored` | passed | One explicitly selected private D-Bus test; synthetic NetworkManager only |
+| `python -m unittest discover -s tool -p "test_linux_package.py" -v` | passed | 20 tests, one skip; no package installation |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed | Complete aggregate gate, after supported Windows native initialization |
+| `buf lint`; `buf format --exit-code --diff` | passed | Append-only capability field 52 |
+| `python tool/check_repository_policy.py`; `git diff --check` | passed | Documentation/local-link/UTF-8 policy and whitespace |
+
+Initial attempts exposed a WebView2 authentication-navigation ordering bug,
+which was fixed before the successful browser runs. Sandbox-only native-tool
+startup failures were retried through the same supported helper outside the
+sandbox. Linux dependency downloads timed out; checks then used a private copy
+of the already downloaded locked crate cache with Cargo offline mode. An initial
+Linux invocation included Windows-only golden tests; the documented Linux
+selectors above were subsequently run successfully. None of those unsuccessful
+attempts was counted as a pass.
+
+### Remaining acceptance / 尚未执行的验收
+
+| Scope | Status | Limit |
+| --- | --- | --- |
+| Real Proton registration/login and completed human puzzle over WARP | not_run | All new HTTP peers and credentials were synthetic |
+| Dedicated Android device/emulator WebView routing, process death and cleanup | not_run | No isolated Android runtime was provisioned or exercised |
+| Real Linux WebKitGTK browser proxy/authentication behavior | not_run | WebKitGTK runtime was absent; dynamic-loading source compiled, policy fixtures passed |
+| External IPv4/IPv6/DNS, third-party VPN, retained Kill Switch and leak observation | not_run | Requires the designated isolated network observer and platform environments |
+| Windows installed VPN/TUN/WFP/route/DNS/system-proxy lifecycle | not_run | No privileged platform mutation or installer was run |
+| Linux arm64/Ubuntu 22.04 package compatibility and protected performance runs | not_run | Local amd64/Ubuntu 26.04 compilation does not establish these |
+
+The loopback WebView2 test proves scoped HTTP/CONNECT delivery and the preflight
+proof checks. Its upstream intentionally rejects CONNECT; the separate puzzle
+bridge tests use intercepted synthetic HTTPS documents. Neither establishes
+real WARP egress, Proton acceptance or production TLS through the entire chain.
+Windows proxy flags remain an Evergreen compatibility dependency and require
+ongoing runtime testing. Unsupported runtimes stop verification explicitly.
+Protected-runner absence remains optional, non-blocking and never a pass.
+
+实现与离线检查已完成；真实受限网络、Android 真机、Linux WebKit 运行时和外部出口观测
+仍为 `not_run`。没有创建真实 Proton 账号、安装应用、启动系统 VPN，或修改系统路由、
+DNS、WFP、代理。功能与协议边界见 [使用说明](PROTON_VPN.md#verification-window-and-network-path--验证窗口与网络路径)
+和 [协议说明](PROTON_VPN_PROTOCOL.md)。
+
+## 2026-10-25 review fixes / 审查问题修复
+
+The five review findings were addressed without changing the single-fallback
+or mutation-delivery rules:
+
+- Desktop capability decoding now reads protobuf field 52. A framed wire test
+  covers both an enabled modern engine and a legacy response with no field.
+- The probe namespace is now `<nonce>.usque-proton-proxy.invalid` on Rust,
+  Android and desktop. Android's network security configuration denies cleartext
+  by default and allows only that reserved namespace. The host test checks the
+  manifest/configuration linkage and generated probe hosts; it is not a device
+  WebView test.
+- Manual verification openings are recorded alongside automatic openings. A
+  stale `verification_failed` reply cannot consume the old handoff again. The
+  widget regression exercises old waiting state, running state, then a new
+  challenge, and checks that the job is never cancelled.
+- HTTP errors inspect their underlying Hyper/I/O causes. TLS loopback peers
+  cover EOF before response headers and a truncated response body, preserving
+  `not_submitted=false`. Malformed HTTP stays a protocol error. Safe reads can
+  migrate, while uncertain mutations remain non-replayable.
+- Windows observes browser-owned resource failure events, including attached
+  cross-origin frame/worker targets before their scripts run. Linux observes
+  resource failure and the separate TLS-failure signal, with a bounded set of
+  session-owned signal connections. Cancellation, policy rejection, unknown
+  errors and HTTP status responses do not trigger migration. No page messages,
+  request bodies or headers are used to classify failures.
+
+Three independent review agents rechecked the fixes. That second pass identified
+the separate Linux TLS signal and CORS error-domain distinction; both were
+corrected and covered by the GObject signal fixture before final validation.
+
+### Workstation checks
+
+Commands run from the locations specified in `CONTRIBUTING.md`, using the same
+pinned Rust, Flutter, Android NDK and SDK CMake as the preceding entry. Linux
+checks used the disposable Ubuntu 26.04 amd64 copy, with the unchanged locked
+Cargo cache. Logs and generated artifacts remain ignored local files.
+
+| Command / scope | Result |
+| --- | --- |
+| `build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | passed |
+| `build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | passed; 2,063 tests, 13 ignored |
+| `build_windows_rust_release.ps1 -Variant x64-v2` | passed |
+| `build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `flutter pub get --enforce-lockfile`; `flutter build apk --debug --config-only --no-pub` | passed |
+| `gradlew.bat --no-daemon :app:ktlintCheck`; `gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug` | passed; 492 JUnit tests, no failures |
+| Windows `dart format --output=none --set-exit-if-changed lib test`; `flutter analyze --no-pub`; `flutter test --no-pub` | passed; 1,295 tests, 19 skipped |
+| `prepare_windows_plugin_junctions.ps1 -FlutterProject .`; `flutter build windows --release --no-pub --split-debug-info=build/symbols/windows` | passed |
+| Windows `cmake --build apps/usque_gui/build/windows/x64 --config Release --target usque_proton_webview_test usque_proton_verification_test`, followed by both executables | passed; policy fixture and 14 WebView2 cases |
+| Linux `cargo clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --all-targets --locked` | passed; 1,913 tests, four ignored |
+| Linux `cargo build --release --locked -p usque-engine -p usque-agent -p usque-update` | passed |
+| Linux locked pub resolution, format and analyzer checks; `flutter test --no-pub --exclude-tags golden`; `flutter test --no-pub --tags linux-golden` | passed; 1,203 widget tests, one skip; 19 goldens |
+| Linux `flutter build linux --debug --no-pub -t lib/main_preview.dart`; `flutter build linux --release --no-pub -t lib/main.dart` | passed |
+| Linux CMake socket, Proton policy/resource, preferences, startup-I/O and NetworkManager fixtures | passed; resource fixture covers network/TLS errors, policy exclusions and stale callbacks |
+| `USQUE_NM_DNS_FIXTURE=... cargo test --locked -p usque-agent --lib private_network_manager_bus -- --ignored`; `python -m unittest discover -s tool -p "test_linux_package.py" -v` | passed; one private D-Bus test; 20 package tests, one skip |
+| `pwsh -NoProfile -File tool/check_source.ps1` | passed |
+| `python tool/check_repository_policy.py`; `git diff --check` | passed |
+
+The real WebView2 fixture serves synthetic documents and uses a loopback proxy
+that never opens an upstream connection. It covers a successful HTML load
+followed by script, image, fetch, XHR, cross-origin iframe-fetch and worker-fetch
+network failures, plus cancellation/CORS/CSP exclusions, existing bridge cases
+and authenticated proxy preflight checks. The Linux resource fixture invokes
+production callbacks using local GObject signals, not a real WebKit browser.
+
+Initial Windows attempts hit native DLL loading and temporary-file permissions;
+the supported helper and standard user temporary directory were used for the
+successful checks. The first stale-snapshot widget fixture incorrectly waited
+for an indefinite progress animation to settle; it now advances the running
+state explicitly. Failed attempts are not counted as passes.
+
+All live/isolated acceptance rows in the preceding entry remain `not_run`,
+including Android WebView execution, real Linux WebKit proxy routing, a real
+Proton puzzle over WARP, external leak observation and privileged VPN lifecycle.
+No installer, release APK, system VPN or system-network mutation was exercised.

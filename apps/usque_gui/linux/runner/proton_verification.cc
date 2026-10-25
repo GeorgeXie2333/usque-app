@@ -11,6 +11,23 @@ struct Api {
   void* library = nullptr;
   void* (*context_new)() = nullptr;
   void* (*manager_new)() = nullptr;
+  void* (*data_manager)(void*) = nullptr;
+  void* (*proxy_new)(const char*,const char* const*) = nullptr;
+  void (*proxy_free)(void*) = nullptr;
+  void (*proxy_set)(void*,int,void*) = nullptr;
+  gboolean (*auth_proxy)(void*) = nullptr;
+  const char* (*auth_host)(void*) = nullptr;
+  unsigned (*auth_port)(void*) = nullptr;
+  const char* (*auth_realm)(void*) = nullptr;
+  void* (*credential_new)(const char*,const char*,int) = nullptr;
+  void (*credential_free)(void*) = nullptr;
+  void (*authenticate)(void*,void*) = nullptr;
+  void (*auth_cancel)(void*) = nullptr;
+  GQuark (*network_error)() = nullptr;
+  GQuark (*policy_error)() = nullptr;
+  bool ProxySymbols() {
+    return Symbol(data_manager,"webkit_web_context_get_website_data_manager") && Symbol(proxy_new,"webkit_network_proxy_settings_new") && Symbol(proxy_free,"webkit_network_proxy_settings_free") && Symbol(proxy_set,"webkit_website_data_manager_set_network_proxy_settings") && Symbol(auth_proxy,"webkit_authentication_request_is_for_proxy") && Symbol(auth_host,"webkit_authentication_request_get_host") && Symbol(auth_port,"webkit_authentication_request_get_port") && Symbol(auth_realm,"webkit_authentication_request_get_realm") && Symbol(credential_new,"webkit_credential_new") && Symbol(credential_free,"webkit_credential_free") && Symbol(authenticate,"webkit_authentication_request_authenticate") && Symbol(auth_cancel,"webkit_authentication_request_cancel");
+  }
   void* (*script_new)(const char*,int,int,const char* const*,const char* const*) = nullptr;
   void (*script_unref)(void*) = nullptr;
   void (*add_script)(void*,void*) = nullptr;
@@ -40,6 +57,7 @@ struct Api {
       if (!library) continue;
       if (Symbol(context_new,"webkit_web_context_new_ephemeral") &&
           Symbol(manager_new,"webkit_user_content_manager_new") &&
+          Symbol(network_error,"webkit_network_error_quark") && Symbol(policy_error,"webkit_policy_error_quark") &&
           Symbol(script_new,"webkit_user_script_new") &&
           Symbol(script_unref,"webkit_user_script_unref") &&
           Symbol(add_script,"webkit_user_content_manager_add_script") &&
@@ -76,6 +94,10 @@ struct Session {
   int64_t monotonic_deadline=0;
   std::string nonce;
   bool finishing=false;
+  unsigned probe_stage=0;
+  int64_t load_deadline=0;
+  bool loaded=false;
+  std::set<GObject*> resources;
   bool Active() const { return !finishing && usque::proton::Now()<handoff.expires && g_get_monotonic_time()<monotonic_deadline; }
 };
 std::unique_ptr<Session> current;
@@ -83,6 +105,11 @@ void Finish(bool unavailable=false,const std::string* message=nullptr) {
   if (!current || current->finishing) return;
   auto session=std::move(current);
   session->finishing=true;
+  for (auto* resource:session->resources) {
+    g_signal_handlers_disconnect_by_data(resource,session.get());
+    g_object_unref(resource);
+  }
+  session->resources.clear();
   if (session->timer) { g_source_remove(session->timer); session->timer=0; }
   if (session->view) g_signal_handlers_disconnect_by_data(session->view,session.get());
   if (session->manager) g_signal_handlers_disconnect_by_data(session->manager,session.get());
@@ -103,11 +130,94 @@ void Finish(bool unavailable=false,const std::string* message=nullptr) {
   if (session->manager) g_object_unref(session->manager);
   if (session->context) g_object_unref(session->context);
 }
+void NetworkFailed() {
+  if (current && current->handoff.version==2 && !current->handoff.proxy_port) { auto message=current->handoff.NetworkFailure(); Finish(false,&message); }
+  else Finish(true);
+}
+
+// WebView load-failed covers navigation, not scripts, images or fetch/XHR.
+// Keep resource handlers owned by the session so a late error cannot affect a
+// replacement window. Cancellation and policy rejection are not network loss.
+bool ResourceTransportError(const GError* error) {
+  if (!error) return false;
+  if (error->domain==G_RESOLVER_ERROR || error->domain==G_TLS_ERROR) return true;
+  if (error->domain==G_IO_ERROR) {
+    switch (error->code) {
+      case G_IO_ERROR_HOST_NOT_FOUND:
+      case G_IO_ERROR_HOST_UNREACHABLE:
+      case G_IO_ERROR_NETWORK_UNREACHABLE:
+      case G_IO_ERROR_CONNECTION_REFUSED:
+      case G_IO_ERROR_CONNECTION_CLOSED:
+      case G_IO_ERROR_NOT_CONNECTED:
+      case G_IO_ERROR_TIMED_OUT:
+      case G_IO_ERROR_PARTIAL_INPUT:
+      case G_IO_ERROR_PROXY_FAILED: return true;
+      default: return false;
+    }
+  }
+  if (error->domain==api.network_error()) {
+    // WebKitNetworkError transport / failed, plus WebCore's request timeout.
+    return error->code==300 || error->code==399 || error->code==-1001;
+  }
+  // WebKitGTK 4.0 can use libsoup 2 transport status codes. HTTP statuses,
+  // cancellation, malformed HTTP, redirect errors and unknown domains stay out.
+  return error->domain==g_quark_from_static_string("soup-http-error-quark") &&
+    error->code>=2 && error->code<=7;
+}
+void ResourceFailed(void*,GError* error,gpointer data) {
+  auto* s=static_cast<Session*>(data);
+  if (current.get()!=s || !s->Active() || s->probe_stage || !error) return;
+  if (ResourceTransportError(error)) NetworkFailed();
+}
+void ResourceTlsFailed(void*,void*,guint,gpointer data) {
+  auto* s=static_cast<Session*>(data);
+  if (current.get()==s && s->Active() && !s->probe_stage) NetworkFailed();
+}
+void ResourceFinished(GObject* resource,gpointer data) {
+  auto* s=static_cast<Session*>(data);
+  if (current.get()!=s || !s->resources.erase(resource)) return;
+  g_signal_handlers_disconnect_by_data(resource,s);
+  g_object_unref(resource);
+}
+void ResourceStarted(void*,GObject* resource,void*,gpointer data) {
+  auto* s=static_cast<Session*>(data);
+  if (current.get()!=s || !s->Active() || s->probe_stage) return;
+  if (s->resources.size()>=256) { Finish(true); return; }
+  if (!s->resources.insert(resource).second) return;
+  g_object_ref(resource);
+  g_signal_connect(resource,"failed",G_CALLBACK(ResourceFailed),s);
+  g_signal_connect(resource,"failed-with-tls-errors",G_CALLBACK(ResourceTlsFailed),s);
+  g_signal_connect(resource,"finished",G_CALLBACK(ResourceFinished),s);
+}
+gboolean Authenticate(void*,void* request,gpointer data) {
+  auto* s=static_cast<Session*>(data);
+  const char* host=api.auth_host(request); const char* realm=api.auth_realm(request);
+  if (current.get()!=s || !s->Active() || !api.auth_proxy(request) || !host || std::string(host)!="127.0.0.1" || api.auth_port(request)!=s->handoff.proxy_port || !realm || realm!=s->handoff.proxy_nonce) { api.auth_cancel(request); return TRUE; }
+  void* credential=api.credential_new(s->handoff.proxy_username.c_str(),s->handoff.proxy_password.c_str(),0);
+  if (!credential) { api.auth_cancel(request); return TRUE; }
+  api.authenticate(request,credential); api.credential_free(credential); return TRUE;
+}
+gboolean LoadFailed(void*,int,const char* url,GError* error,gpointer data) {
+  auto* s=static_cast<Session*>(data);
+  if (current.get()!=s) return TRUE;
+  if (error && ((error->domain==api.network_error() && error->code==302) || error->domain==api.policy_error())) return TRUE;
+  if (s->probe_stage==1 && url && url==s->handoff.ProbeHttps()) {
+    s->probe_stage=2; api.load(s->view,s->handoff.Probe("ready").c_str());
+  } else NetworkFailed();
+  return TRUE;
+}
+void LoadChanged(void*,int event,gpointer data) {
+  auto* s=static_cast<Session*>(data);
+  if (current.get()==s && !s->probe_stage && event==3) {
+    const char* url=api.uri(s->view); if (url && s->handoff.Matches(url,Sha)) s->loaded=true;
+  }
+}
 gboolean Closed(GtkWidget*,GdkEvent*,gpointer) { Finish(); return TRUE; }
 void Destroyed(GtkWidget*,gpointer) { if (current) current->window=nullptr; Finish(); }
 gboolean Expired(gpointer data) {
   auto* session=static_cast<Session*>(data);
   if (!current || current.get()!=session) return G_SOURCE_REMOVE;
+  if (!session->loaded && session->load_deadline && g_get_monotonic_time()>=session->load_deadline) { session->timer=0; NetworkFailed(); return G_SOURCE_REMOVE; }
   if (!session->Active()) { session->timer=0; Finish(); return G_SOURCE_REMOVE; }
   return G_SOURCE_CONTINUE;
 }
@@ -148,12 +258,19 @@ gboolean Policy(void*,void* decision,int type,gpointer data) {
     // the official page origin. Never infer top from an empty frame name.
     // Main-resource responses and bridge messages still require the exact
     // challenge root URL below. Subresources retain Proton's own CSP.
+    if (session->probe_stage) {
+      if (url && session->probe_stage==2 && url==session->handoff.Ready(Sha)) {
+        api.ignore(decision); session->probe_stage=0; session->load_deadline=g_get_monotonic_time()+15000000;
+        api.load(session->view,session->handoff.url.c_str());
+      } else if (url && session->handoff.ProbeUrl(url)) api.use(decision); else api.ignore(decision);
+      return TRUE;
+    }
     if (url && session->handoff.NavigationAllowed(url,Sha)) api.use(decision);
     else api.ignore(decision);
   } else if (type==2) { // WEBKIT_POLICY_DECISION_TYPE_RESPONSE
     if (api.main_resource(decision)) {
       const char* url=api.uri(session->view);
-      if (!url || !session->handoff.Matches(url,Sha)) { api.ignore(decision); return TRUE; }
+      if (!url || !(session->probe_stage ? session->handoff.ProbeUrl(url) : session->handoff.Matches(url,Sha))) { api.ignore(decision); return TRUE; }
     }
     api.use(decision);
   } else api.ignore(decision); // new windows
@@ -162,7 +279,7 @@ gboolean Policy(void*,void* decision,int type,gpointer data) {
 gboolean Permission(void*,void* request,gpointer) { api.deny(request); return TRUE; }
 void Download(void*,void* download,gpointer) { api.download_cancel(download); }
 GtkWidget* NewWindow(void*,void*,gpointer) { return nullptr; }
-gboolean TlsError(void*,const char*,void*,int,gpointer) { Finish(true); return TRUE; }
+gboolean TlsError(void*,const char*,void*,int,gpointer) { NetworkFailed(); return TRUE; }
 void SetBoolean(void* settings,const char* name,gboolean value) {
   if (g_object_class_find_property(G_OBJECT_GET_CLASS(settings),name)) g_object_set(settings,name,value,nullptr);
 }
@@ -184,6 +301,14 @@ void SetBoolean(void* settings,const char* name,gboolean value) {
   session->context=G_OBJECT(api.context_new());
   session->manager=G_OBJECT(api.manager_new());
   if (!session->context || !session->manager || !api.register_handler(session->manager,"proton")) { Finish(true); return; }
+  if (session->handoff.proxy_port) {
+    if (!api.ProxySymbols()) { Finish(true); return; }
+    void* settings=api.proxy_new(session->handoff.ProxyOrigin().c_str(),nullptr);
+    void* manager=api.data_manager(session->context);
+    if (!settings || !manager) { if (settings) api.proxy_free(settings); Finish(true); return; }
+    api.proxy_set(manager,2,settings); api.proxy_free(settings); // CUSTOM; no DIRECT bypass
+    session->probe_stage=1;
+  }
   unsigned char random[16];
   if (getrandom(random,sizeof(random),0)!=sizeof(random)) { Finish(true); return; }
   constexpr char hex[]="0123456789abcdef";
@@ -195,7 +320,7 @@ void SetBoolean(void* settings,const char* name,gboolean value) {
   session->view=GTK_WIDGET(g_object_new(api.view_type(),"web-context",session->context,"user-content-manager",session->manager,nullptr));
   if (!session->view) { Finish(true); return; }
   void* settings=api.settings(session->view);
-  for (const char* setting : {"enable-developer-extras","enable-html5-database","enable-html5-local-storage","enable-page-cache","enable-offline-web-application-cache","enable-media-stream","enable-media-source","enable-webaudio","enable-write-console-messages-to-stdout","allow-file-access-from-file-urls","allow-universal-access-from-file-urls","javascript-can-open-windows-automatically"}) SetBoolean(settings,setting,FALSE);
+  for (const char* setting : {"enable-developer-extras","enable-html5-database","enable-html5-local-storage","enable-page-cache","enable-offline-web-application-cache","enable-media-stream","enable-webrtc","enable-media-source","enable-webaudio","enable-write-console-messages-to-stdout","allow-file-access-from-file-urls","allow-universal-access-from-file-urls","javascript-can-open-windows-automatically"}) SetBoolean(settings,setting,FALSE);
   session->window=gtk_window_new(GTK_WINDOW_TOPLEVEL);
   gtk_window_set_title(GTK_WINDOW(session->window),"Usque · Proton VPN");
   gtk_window_set_default_size(GTK_WINDOW(session->window),520,680);
@@ -209,11 +334,16 @@ void SetBoolean(void* settings,const char* name,gboolean value) {
   g_signal_connect(session->view,"decide-policy",G_CALLBACK(Policy),session);
   g_signal_connect(session->view,"permission-request",G_CALLBACK(Permission),session);
   g_signal_connect(session->view,"create",G_CALLBACK(NewWindow),session);
+  if (session->handoff.proxy_port) g_signal_connect(session->view,"authenticate",G_CALLBACK(Authenticate),session);
+  g_signal_connect(session->view,"load-failed",G_CALLBACK(LoadFailed),session);
+  g_signal_connect(session->view,"resource-load-started",G_CALLBACK(ResourceStarted),session);
+  g_signal_connect(session->view,"load-changed",G_CALLBACK(LoadChanged),session);
   g_signal_connect(session->view,"load-failed-with-tls-errors",G_CALLBACK(TlsError),session);
   g_signal_connect(session->context,"download-started",G_CALLBACK(Download),session);
   session->timer=g_timeout_add(100,Expired,session);
   gtk_widget_show_all(session->window);
-  api.load(session->view,session->handoff.url.c_str());
+  session->load_deadline=g_get_monotonic_time()+(session->probe_stage ? 5000000 : 15000000);
+  api.load(session->view,(session->probe_stage ? session->handoff.Probe() : session->handoff.url).c_str());
 }
 }  // namespace
 bool usque_proton_verification_method(GtkWindow* parent,FlMethodCall* call) {

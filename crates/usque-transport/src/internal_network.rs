@@ -57,6 +57,7 @@ impl TcpDialer for InternalEndpointDialer {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct InternalRequest<'a> {
     pub url: &'a str,
     pub method: http::Method,
@@ -478,6 +479,57 @@ impl InternalNetwork {
             result = self.dialer.connect(target, deadline, cancel, class) => result,
         }
     }
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn connect_proton_verification(
+        &self,
+        host: &str,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<TcpStream, InternalHttpError> {
+        if !crate::proton_vpn::verification_proxy::HOSTS.contains(&host) {
+            return Err(InternalHttpError::Protocol);
+        }
+        if let Some(resolver) = &self.resolver {
+            let addresses = timeout_at(deadline, resolver.resolve_remote(host))
+                .await
+                .map_err(|_| InternalHttpError::Timeout)?
+                .map_err(|_| InternalHttpError::Dns)?;
+            for ip in addresses {
+                let allowed = match ip {
+                    std::net::IpAddr::V4(ip) => {
+                        !ip.is_private()
+                            && !ip.is_loopback()
+                            && !ip.is_link_local()
+                            && !ip.is_unspecified()
+                            && !ip.is_multicast()
+                            && !ip.is_broadcast()
+                            && ip.octets()[0] != 0
+                    }
+                    std::net::IpAddr::V6(ip) => {
+                        !ip.is_loopback()
+                            && !ip.is_unspecified()
+                            && !ip.is_multicast()
+                            && !ip.is_unique_local()
+                            && !ip.is_unicast_link_local()
+                            && ip.to_ipv4_mapped().is_none()
+                    }
+                };
+                if !allowed {
+                    continue;
+                }
+                if let Ok(stream) = self
+                    .connect_address(SocketAddr::new(ip, 443), cancel, deadline)
+                    .await
+                {
+                    return Ok(stream);
+                }
+            }
+            Err(InternalHttpError::Connect)
+        } else {
+            self.connect_host(host, 443, cancel, deadline, None).await
+        }
+    }
+
     async fn connect_host(
         &self,
         host: &str,

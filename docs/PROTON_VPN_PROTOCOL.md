@@ -348,13 +348,32 @@ peer 选择中；这不证明宿主路由已经配置或系统防泄漏成立。
 当前产品增加 `proton_vpn` 来源，排列在 WARP 后面。控制面使用 Rust；Flutter
 只展示任务、节点和允许公开的状态，通过独立敏感字节字段传递短期凭据与验证码
 交接。Windows、Linux、Android 的原生窗口仅用于官方人工验证；用户完成拼图，
-程序不解题。验证码 WebView 与交互账号管理 API 均遵循普通系统网络路由；网络变化前后
-的出口 IP 不作固定保证，真实验证续接与服务器接受情况仍需实测。
+程序不解题。验证码 WebView 与交互账号管理 API 默认遵循系统网络路由；任务可在网络失败后
+单向切换一次到 WARP，包含验证码和其 DNS 请求。业务拒绝不切换；不确定是否已提交的
+会话变更不重放。原操作已明确被 9001 拒绝且会话状态确定时，验证码网络失败可触发
+一次新挑战，旧窗口／挑战失效。
 
-原生游客/账号认证、手动目录刷新、会话撤销，以及这些交互操作中的权限／会话请求，
-使用系统 HTTPS/DNS，遵循当前路由与适用于本应用的已连接 VPN。账号准备不要求
-WARP 身份或 CONNECT-IP，不启动或借用 WARP、不绑定网卡、不 protect API socket。
-Usque 自身 VPN 尚未就绪时可能阻断这些交互请求。
+能力 `proton_account_warp_fallback` 使用 protobuf 字段 52。新 GUI 仅在能力存在时，
+对 guest/login/refresh/logout 设置 `network_policy_version: 1`；缺省 0 保留旧行为。
+任务状态仅增加 `account_network` 与 `network_phase`，不包含凭据或 URL。
+敏感 handoff 的 version 2 包含 route_epoch（system=0，WARP=1），WARP 时附带随机
+loopback 端口、用户名、密码、nonce。`verification_failed` 绑定 job/challenge/route_epoch。
+旧原生窗口无法解析新 handoff 时停止，不降级系统路径。
+
+WARP 优先借用现有健康 underlay，否则使用已选账户身份临时启动 headless 数据面。
+API 不 protect／绑定物理网卡，不改系统 VPN、代理、路由或 DNS。保留的网络保护仍约束
+临时连接。验证码代理仅 CONNECT 三个固定 Proton 验证域名的 443 端口，DNS 使用同一
+WARP；HTTP + CONNECT 随机 `<nonce>.usque-proton-proxy.invalid` 预检先于含令牌页面，完成标记包含随机代理
+密码的 SHA-256，不能仅凭公开 nonce 伪造通过。无 MITM 或证书绕过。
+Android 网络安全配置默认禁止明文，仅为该保留域及子域开放预检；Proton 请求仍须 HTTPS。
+桌面资源级失败检测覆盖脚本、图片、fetch/XHR；Windows 也订阅跨域 iframe 和 worker 的
+网络失败。取消、CSP/CORS 阻止及正常 HTTP 错误响应不作为网络切换依据。
+任务回复可短暂保留旧 challenge；GUI 记录手动及自动打开过的 challenge，仅自动打开新挑战。
+预检 5 秒，页面加载 15 秒，人工输入最多 300 秒，代理至多 32 连接、16 KiB 头、64 个头字段，30 秒空闲超时、每方向 64 KiB 缓冲。
+任务网络预算为 120 秒（不计人工输入）；每次验证窗口预留其 15/20 秒加载上限，
+避免信任前端上报的计时。初始无凭据 ping 5 秒、WARP 获取 30 秒；
+API 原有 5/15 秒限制及清理 25 秒、停止等待 45 秒继续生效。
+
 连接准备则显式接收已建立的 WARP 内部网络句柄：账号／权限检查、目录刷新、
 证书申请及其后整个 lease 的续期、令牌恢复、agent 授权恢复都使用该句柄，DNS 也在
 WARP 内解析，不依赖被最终授权门阻断的系统 VPN 路径。结果绑定 WARP 会话代次；

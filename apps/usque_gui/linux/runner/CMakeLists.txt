@@ -54,6 +54,11 @@ add_executable(usque_proton_verification_test EXCLUDE_FROM_ALL
 apply_standard_settings(usque_proton_verification_test)
 target_compile_features(usque_proton_verification_test PRIVATE cxx_std_17)
 
+add_executable(usque_proton_resource_test EXCLUDE_FROM_ALL "proton_resource_test.cc")
+apply_standard_settings(usque_proton_resource_test)
+target_compile_features(usque_proton_resource_test PRIVATE cxx_std_17)
+target_link_libraries(usque_proton_resource_test PRIVATE flutter PkgConfig::GTK ${CMAKE_DL_LIBS})
+
 add_executable(usque_linux_preferences_test EXCLUDE_FROM_ALL
   "preferences_writer_test.cc" "preferences_writer.cc")
 apply_standard_settings(usque_linux_preferences_test)

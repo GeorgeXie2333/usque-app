@@ -55,6 +55,8 @@ fn manager(path: &Path) -> Result<Arc<usque_transport::proton_vpn::Manager>, Str
 struct CommandContext<'a> {
     provider_lease: Option<Arc<std::fs::File>>,
     client_context: &'a str,
+    #[cfg(feature = "wireguard")]
+    network: Option<Arc<dyn usque_transport::proton_vpn::AccountWarpProvider>>,
 }
 fn command(
     path: &Path,
@@ -65,6 +67,8 @@ fn command(
     let CommandContext {
         provider_lease,
         client_context,
+        #[cfg(feature = "wireguard")]
+        network,
     } = context;
     #[cfg(feature = "wireguard")]
     {
@@ -123,7 +127,13 @@ fn command(
                 ));
             }
         }
-        match manager.command_scoped(request, input, provider_lease, client, accounts) {
+        match manager.command_with_network(
+            request,
+            input,
+            provider_lease,
+            client,
+            (accounts, network),
+        ) {
             Ok(output) => Ok((
                 serde_json::to_vec(&output.metadata).map_err(|_| "PROTON_UNAVAILABLE")?,
                 output.sensitive_handoff,
@@ -153,6 +163,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativePro
     command_json: JString<'local>,
     sensitive_input: JByteArray<'local>,
     client_context: JString<'local>,
+    vpn_service: JObject<'local>,
 ) -> jni::sys::jobjectArray {
     with_jni_env(&mut environment, |env| {
         let result = (|| -> Result<_, String> {
@@ -205,6 +216,25 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativePro
             } else {
                 None
             };
+            #[cfg(feature = "wireguard")]
+            let network = if request.network_policy_version == 1 {
+                Some(Arc::new(AccountNetworkProvider {
+                    path: path.clone(),
+                    selected: ConfigStore::new(&path)
+                        .load()
+                        .ok()
+                        .and_then(|c| c.active_profile().map(|p| p.id)),
+                    java_vm: env.get_java_vm().map_err(|_| "PROTON_UNAVAILABLE")?,
+                    service: env
+                        .new_global_ref(vpn_service)
+                        .map_err(|_| "PROTON_UNAVAILABLE")?,
+                })
+                    as Arc<dyn usque_transport::proton_vpn::AccountWarpProvider>)
+            } else {
+                None
+            };
+            #[cfg(not(feature = "wireguard"))]
+            let _ = vpn_service;
             command(
                 &path,
                 request,
@@ -212,6 +242,8 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativePro
                 CommandContext {
                     provider_lease,
                     client_context: &client_context,
+                    #[cfg(feature = "wireguard")]
+                    network,
                 },
             )
         })();
@@ -235,4 +267,120 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativePro
             }
         }
     })
+}
+
+#[cfg(feature = "wireguard")]
+struct AccountNetworkProvider {
+    path: PathBuf,
+    selected: Option<uuid::Uuid>,
+    java_vm: JavaVM,
+    service: Global<JObject<'static>>,
+}
+#[cfg(feature = "wireguard")]
+#[async_trait::async_trait]
+impl usque_transport::proton_vpn::AccountWarpProvider for AccountNetworkProvider {
+    async fn context(
+        &self,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<usque_transport::warp_wireguard::Context, usque_core::chain_exit::ImportError> {
+        use usque_core::proton_vpn::error;
+        if cancel.is_cancelled() {
+            return Err(error("cancelled"));
+        }
+        let profile = ConfigStore::new(&self.path)
+            .load()
+            .ok()
+            .and_then(|c| c.active_profile())
+            .ok_or_else(|| error("warp_identity_required"))?;
+        if Some(profile.id) != self.selected {
+            return Err(error("underlay_changed"));
+        }
+        #[cfg(target_os = "android")]
+        let existing = android_runtime::internal_networks()
+            .map(|(_, warp)| warp)
+            .filter(|network| {
+                matches!(
+                    network.health_snapshot(),
+                    usque_transport::RuntimeHealth::Connected { .. }
+                )
+            });
+        #[cfg(not(target_os = "android"))]
+        let existing = None;
+        let (allow_physical, identity) = if existing.is_none() {
+            self.java_vm
+                .attach_current_thread(|env| -> jni::errors::Result<_> {
+                    let allowed = env
+                        .call_method(
+                            &self.service,
+                            jni_str!("cataloguePhysicalAllowed"),
+                            jni_sig!("()Z"),
+                            &[],
+                        )?
+                        .z()?;
+                    if !allowed {
+                        return Ok((false, None));
+                    }
+                    let id = JObject::from(env.new_string(profile.id.to_string())?);
+                    let json = JObject::from(
+                        env.new_string(serde_json::to_string(&profile).unwrap_or_default())?,
+                    );
+                    let raw = env
+                        .call_method(
+                            &self.service,
+                            jni_str!("protonWarpSecret"),
+                            jni_sig!("(Ljava/lang/String;Ljava/lang/String;)[B"),
+                            &[JValue::Object(&id), JValue::Object(&json)],
+                        )?
+                        .l()?;
+                    let array = env.cast_local::<JByteArray>(raw)?;
+                    let bytes = Zeroizing::new(env.convert_byte_array(&array)?);
+                    array.set_region(env, 0, &vec![0i8; bytes.len()])?;
+                    Ok((true, warp_identity_from_secret(&bytes).ok()))
+                })
+                .map_err(|_| error("warp_identity_required"))?
+        } else {
+            (false, None)
+        };
+        // The endpoint refresher receives the Context's NoopSocketProtector.
+        // This Java holder is only used to persist the existing identity.
+        #[cfg(target_os = "android")]
+        let refresher = if identity.is_some() {
+            let protector = self
+                .java_vm
+                .attach_current_thread(|env| -> jni::errors::Result<_> {
+                    Ok(Arc::new(AndroidSocketProtector {
+                        java_vm: env.get_java_vm()?,
+                        service: env.new_global_ref(&self.service)?,
+                        policy: AndroidSocketRoutePolicy::Proxy,
+                        network_generation: AtomicU64::new(0),
+                        physical_watch: OnceLock::new(),
+                    }))
+                })
+                .map_err(|_| error("warp_identity_required"))?;
+            identity
+                .as_ref()
+                .and_then(|identity| identity.to_portable_secret_json().ok())
+                .and_then(|json| warp_identity_from_secret(json.as_bytes()).ok())
+                .map(|identity| {
+                    Arc::new(AndroidEndpointPinRefresher {
+                        profile_id: profile.id.to_string(),
+                        identity: tokio::sync::Mutex::new(identity),
+                        protector,
+                    }) as Arc<dyn EndpointPinRefresher>
+                })
+        } else {
+            None
+        };
+        #[cfg(not(target_os = "android"))]
+        let refresher = None;
+        Ok(usque_transport::warp_wireguard::Context {
+            profile,
+            existing,
+            identity,
+            refresher,
+            allow_physical,
+            lifecycle_lease: None,
+            protector: Arc::new(usque_transport::NoopSocketProtector),
+        })
+    }
 }

@@ -356,6 +356,12 @@ class UsqueVpnService : VpnService() {
             !runtimeReconfigureInFlight && snapshotState.phase in setOf("disconnected", "error") &&
             !(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isLockdownEnabled)
 
+    @Keep
+    fun protonWarpSecret(
+        id: String,
+        profileJson: String,
+    ): ByteArray = loadWarpSecret(id, profileJson, readOnly = true) ?: ByteArray(0)
+
     private fun vpnGateCommand(request: Message) {
         settingsExecutor.execute {
             var secret = ByteArray(0)

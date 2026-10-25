@@ -237,6 +237,7 @@ impl Interaction for Select {
 }
 fn guest() -> Request {
     Request {
+        network_policy_version: 0,
         action: "guest".into(),
         job_id: None,
         profile_id: None,

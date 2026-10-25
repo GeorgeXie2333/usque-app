@@ -1,5 +1,6 @@
 #include "proton_verification.h"
 #include "../../native/proton_verification.h"
+#include "proton_resource_monitor.h"
 
 #include <WebView2.h>
 #include <WebView2EnvironmentOptions.h>
@@ -84,12 +85,22 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
   ComPtr<ICoreWebView2Environment> environment;
   ComPtr<ICoreWebView2Controller> controller;
   ComPtr<ICoreWebView2> webview;
+  std::vector<ComPtr<ICoreWebView2DevToolsProtocolEventReceiver>> resource_events;
   std::wstring directory;
   std::string nonce;
   std::string pending_message;
   static constexpr UINT kComplete=WM_APP+0x3d5;
   ULONGLONG deadline=0;
   bool finished=false;
+  unsigned probe_stage=0;
+  std::string pending_navigation;
+  ULONGLONG load_deadline=0;
+  bool loaded=false;
+  void NetworkFailed() {
+    if (handoff.version==2 && !handoff.proxy_port) { auto message=handoff.NetworkFailure(); Finish(false,&message); }
+    else Finish(true);
+  }
+
   bool Active() const { return !finished && usque::proton::Now()<handoff.expires && GetTickCount64()<deadline; }
   ~Session() {
     usque::proton::Wipe(pending_message);
@@ -104,6 +115,7 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
     if (finished) return;
     auto keep=shared_from_this();
     finished=true;
+    resource_events.clear();
     usque::proton::Wipe(pending_message);
     if (window) { HWND target=window; window=nullptr; KillTimer(target,1); DestroyWindow(target); }
     if (controller) controller->Close();
@@ -146,6 +158,7 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
         if (!self->pending_message.empty()) self->Complete(); else self->Finish();
         return 0;
       }
+      if (message==WM_TIMER && wparam==1 && !self->loaded && self->load_deadline && GetTickCount64()>=self->load_deadline) { self->NetworkFailed(); return 0; }
       if (message==WM_TIMER && wparam==1 && !self->Active()) { self->Finish(); return 0; }
       if (message==WM_SIZE && self->controller) { RECT bounds; GetClientRect(window,&bounds); self->controller->put_Bounds(bounds); return 0; }
       if (message==WM_NCDESTROY) SetWindowLongPtrW(window,GWLP_USERDATA,0);
@@ -157,8 +170,68 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
     usque::proton::Erase erase{value};
     return Active() && handoff.Matches(value,Sha);
   }
+  void ResourceCommand(const std::wstring& session_id,const wchar_t* method,
+                       const wchar_t* parameters,std::function<void()> complete) {
+    if (!Active()) return;
+    const std::weak_ptr<Session> weak=shared_from_this();
+    auto callback=Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+      [weak,complete](HRESULT error,LPCWSTR)->HRESULT {
+        if (auto self=weak.lock(); self && self->Active()) {
+          if (FAILED(error)) self->Finish(true); else complete();
+        }
+        return S_OK;
+      });
+    HRESULT status=E_NOINTERFACE;
+    if (session_id.empty()) status=webview->CallDevToolsProtocolMethod(method,parameters,callback.Get());
+    else {
+      ComPtr<ICoreWebView2_11> modern;
+      if (SUCCEEDED(webview.As(&modern))) status=modern->CallDevToolsProtocolMethodForSession(session_id.c_str(),method,parameters,callback.Get());
+    }
+    if (FAILED(status)) Finish(true);
+  }
+  void EnableResourceEvents(const std::wstring& session_id,std::function<void()> complete) {
+    const std::weak_ptr<Session> weak=shared_from_this();
+    ResourceCommand(session_id,L"Network.enable",L"{\"maxTotalBufferSize\":0,\"maxResourceBufferSize\":0,\"maxPostDataSize\":0}",
+      [weak,session_id,complete] {
+        if (auto self=weak.lock()) self->ResourceCommand(session_id,L"Target.setAutoAttach",
+          L"{\"autoAttach\":true,\"waitForDebuggerOnStart\":true,\"flatten\":true}",complete);
+      });
+  }
+  bool ObserveResources() {
+    const std::weak_ptr<Session> weak=shared_from_this();
+    for (const bool attached:{false,true}) {
+      ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> receiver;
+      EventRegistrationToken token{};
+      if (FAILED(webview->GetDevToolsProtocolEventReceiver(attached ? L"Target.attachedToTarget" : L"Network.loadingFailed",&receiver)) ||
+          FAILED(receiver->add_DevToolsProtocolEventReceived(Callback<ICoreWebView2DevToolsProtocolEventReceivedEventHandler>(
+            [weak,attached](ICoreWebView2*,ICoreWebView2DevToolsProtocolEventReceivedEventArgs* args)->HRESULT {
+              auto self=weak.lock(); if (!self || !self->Active()) return S_OK;
+              LPWSTR text=nullptr;
+              if (FAILED(args->get_ParameterObjectAsJson(&text))) { self->Finish(true); return S_OK; }
+              if (attached) {
+                  const auto value=usque::proton::ResourceEvent(text);
+                  const auto id=usque::proton::ResourceString(value,L"sessionId");
+                  if (id.empty()) self->Finish(true);
+                  else {
+                    const std::wstring session_id(id);
+                    // Cross-origin CAPTCHA frames and their workers are CDP
+                    // targets too. Observe them before allowing their code to run.
+                    self->EnableResourceEvents(session_id,[weak,session_id] {
+                      if (auto live=weak.lock()) live->ResourceCommand(session_id,L"Runtime.runIfWaitingForDebugger",L"{}",[]{});
+                    });
+                  }
+              } else if (!self->probe_stage && usque::proton::ResourceNetworkFailure(text)) self->NetworkFailed();
+              if (text) SecureZeroMemory(text,wcslen(text)*sizeof(wchar_t));
+              CoTaskMemFree(text);
+              return S_OK;
+            }).Get(),&token))) return false;
+      resource_events.push_back(receiver);
+    }
+    return true;
+  }
   void Setup() {
     if (!Active()) { Finish(); return; }
+    if (!ObserveResources()) { Finish(true); return; }
     ComPtr<ICoreWebView2Settings> settings;
     ComPtr<ICoreWebView2Settings4> settings4;
     ComPtr<ICoreWebView2_4> webview4;
@@ -174,10 +247,19 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
     if (FAILED(webview->add_NavigationStarting(Callback<ICoreWebView2NavigationStartingEventHandler>([weak](ICoreWebView2*,ICoreWebView2NavigationStartingEventArgs* args)->HRESULT {
       if (auto self=weak.lock()) {
         LPWSTR url=nullptr;
-        bool allowed=SUCCEEDED(args->get_Uri(&url)) && self->Matches(url);
+        bool obtained=SUCCEEDED(args->get_Uri(&url));
+        const auto candidate=obtained ? Utf8(url) : "";
+        if (self->probe_stage && candidate==self->handoff.Ready(Sha) && self->probe_stage==2) {
+          args->put_Cancel(TRUE); CoTaskMemFree(url);
+          self->probe_stage=0; self->load_deadline=GetTickCount64()+15000;
+          if (FAILED(self->webview->Navigate(Wide(self->handoff.url).c_str()))) self->NetworkFailed();
+          return S_OK;
+        }
+        bool allowed=obtained && (self->probe_stage ? self->handoff.ProbeUrl(candidate) : self->Matches(url));
+        if (allowed && self->probe_stage) self->pending_navigation=candidate;
         if (url) SecureZeroMemory(url,wcslen(url)*sizeof(wchar_t));
         CoTaskMemFree(url);
-        if (!allowed) { args->put_Cancel(TRUE); self->Finish(); }
+        if (!allowed) { args->put_Cancel(TRUE); self->Finish(self->probe_stage!=0); }
       } else args->put_Cancel(TRUE);
       return S_OK;
     }).Get(),&token)) || FAILED(webview->add_NewWindowRequested(Callback<ICoreWebView2NewWindowRequestedEventHandler>([](ICoreWebView2*,ICoreWebView2NewWindowRequestedEventArgs* args)->HRESULT { args->put_Handled(TRUE); return S_OK; }).Get(),&token)) ||
@@ -209,6 +291,43 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
           usque::proton::Wipe(message);
           return S_OK;
         }).Get(),&token))) { Finish(true); return; }
+    if (FAILED(webview->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>([weak](ICoreWebView2*,ICoreWebView2NavigationCompletedEventArgs* args)->HRESULT {
+      auto self=weak.lock(); if (!self || !self->Active()) return S_OK;
+      BOOL success=FALSE; args->get_IsSuccess(&success);
+      if (self->probe_stage==1 && self->pending_navigation==self->handoff.ProbeHttps()) {
+        // The gateway records CONNECT but deliberately supplies no TLS server.
+        self->probe_stage=2;
+        self->webview->Navigate(Wide(self->handoff.Probe("ready")).c_str());
+      } else if (!self->probe_stage) {
+        if (success) self->loaded=true;
+        else {
+          COREWEBVIEW2_WEB_ERROR_STATUS status{}; args->get_WebErrorStatus(&status);
+          if (status>=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT && status<=COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED) self->NetworkFailed();
+          else if (status!=COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) self->Finish(true);
+        }
+      }
+      return S_OK;
+    }).Get(),&token))) { Finish(true); return; }
+    if (FAILED(webview->add_FrameNavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>([weak](ICoreWebView2*,ICoreWebView2NavigationCompletedEventArgs* args)->HRESULT {
+      auto self=weak.lock(); if (!self || !self->Active() || self->probe_stage) return S_OK;
+      BOOL success=FALSE; args->get_IsSuccess(&success);
+      COREWEBVIEW2_WEB_ERROR_STATUS status{}; args->get_WebErrorStatus(&status);
+      if (!success && status>=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT && status<=COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED) self->NetworkFailed();
+      return S_OK;
+    }).Get(),&token))) { Finish(true); return; }
+    if (handoff.proxy_port) {
+      ComPtr<ICoreWebView2_10> authentication;
+      if (FAILED(webview.As(&authentication)) || FAILED(authentication->add_BasicAuthenticationRequested(Callback<ICoreWebView2BasicAuthenticationRequestedEventHandler>([weak](ICoreWebView2*,ICoreWebView2BasicAuthenticationRequestedEventArgs* args)->HRESULT {
+        auto self=weak.lock(); LPWSTR uri=nullptr,challenge=nullptr;
+        const bool obtained=SUCCEEDED(args->get_Uri(&uri)) && SUCCEEDED(args->get_Challenge(&challenge));
+        const auto origin=uri ? Utf8(uri) : "", realm=challenge ? Utf8(challenge) : "";
+        CoTaskMemFree(uri); CoTaskMemFree(challenge);
+        if (!self || !self->Active() || !obtained || (origin!=self->handoff.ProxyOrigin() && origin!=self->handoff.ProxyOrigin()+"/") || realm!="Basic realm=\""+self->handoff.proxy_nonce+"\"") { args->put_Cancel(TRUE); return S_OK; }
+        ComPtr<ICoreWebView2BasicAuthenticationResponse> response;
+        if (FAILED(args->get_Response(&response)) || FAILED(response->put_UserName(Wide(self->handoff.proxy_username).c_str())) || FAILED(response->put_Password(Wide(self->handoff.proxy_password).c_str()))) args->put_Cancel(TRUE);
+        return S_OK;
+      }).Get(),&token))) { Finish(true); return; }
+    }
     // Default runtime TLS validation is retained; no certificate-error override.
     const auto script=Wide(usque::proton::CaptchaScript(handoff,nonce));
     HRESULT status=webview->AddScriptToExecuteOnDocumentCreated(script.c_str(),Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>([weak](HRESULT error,LPCWSTR)->HRESULT {
@@ -218,7 +337,13 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
       RECT bounds; GetClientRect(self->window,&bounds);
       self->controller->put_Bounds(bounds);
       self->controller->put_IsVisible(TRUE);
-      if (FAILED(self->webview->Navigate(Wide(self->handoff.url).c_str()))) self->Finish(true);
+      self->probe_stage=self->handoff.proxy_port ? 1 : 0;
+      self->load_deadline=GetTickCount64()+(self->probe_stage ? 5000 : 15000);
+      self->EnableResourceEvents(L"",[weak] {
+        if (auto live=weak.lock(); live && live->Active()) {
+          if (FAILED(live->webview->Navigate(Wide(live->probe_stage ? live->handoff.Probe() : live->handoff.url).c_str()))) live->NetworkFailed();
+        }
+      });
       return S_OK;
     }).Get());
     if (FAILED(status)) Finish(true);
@@ -244,6 +369,11 @@ struct ProtonVerification::Session : std::enable_shared_from_this<Session> {
         FAILED(options->put_ExclusiveUserDataFolderAccess(TRUE)) ||
         FAILED(options->put_IsCustomCrashReportingEnabled(TRUE)) ||
         FAILED(options->put_ReleaseChannels(COREWEBVIEW2_RELEASE_CHANNELS_STABLE))) { Finish(true); return; }
+    if (handoff.proxy_port) {
+      // Scoped to the fresh environment. No system proxy mutation or DIRECT rule.
+      const auto arguments=Wide("--proxy-server="+handoff.ProxyOrigin()+" --proxy-bypass-list=<-loopback> --disable-quic --force-webrtc-ip-handling-policy=disable_non_proxied_udp");
+      if (FAILED(options->put_AdditionalBrowserArguments(arguments.c_str()))) { Finish(true); return; }
+    }
     const HRESULT status=CreateCoreWebView2EnvironmentWithOptions(nullptr,directory.c_str(),options.Get(),
       Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([weak](HRESULT error,ICoreWebView2Environment* environment)->HRESULT {
         auto self=weak.lock(); if (!self) return S_OK;

@@ -4,9 +4,22 @@ import org.json.JSONObject
 
 /** Allowlisted metadata only; handoff material has its own private byte channel. */
 internal object ProtonVpnFields {
-    private val commandKeys = setOf("action", "job_id", "profile_id", "challenge_id", "node_id", "name", "offset")
+    private val commandKeys =
+        setOf("action", "job_id", "profile_id", "challenge_id", "node_id", "name", "offset", "network_policy_version")
     private val jobKeys =
-        setOf("id", "state", "phase", "failure", "api_code", "http_status", "challenge_id", "expires_at", "profile_id")
+        setOf(
+            "id",
+            "state",
+            "phase",
+            "failure",
+            "api_code",
+            "http_status",
+            "challenge_id",
+            "expires_at",
+            "profile_id",
+            "account_network",
+            "network_phase",
+        )
     private val profileKeys =
         setOf(
             "id",
@@ -36,6 +49,7 @@ internal object ProtonVpnFields {
                     "totp",
                     "handoff",
                     "verify",
+                    "verification_failed",
                     "select_node",
                     "refresh",
                     "logout",

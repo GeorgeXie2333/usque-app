@@ -164,6 +164,15 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     'human_verification_expired' ||
     'human_verification_failed' ||
     'verification_unavailable' => 'verification_failed',
+    'warp_identity_required' || 'identity_required' => 'fallback_account',
+    'underlay_unavailable' ||
+    'underlay_start_failed' ||
+    'warp_fallback_timeout' ||
+    'warp_fallback_unavailable' ||
+    'account_network_unavailable' ||
+    'account_network_budget_exhausted' => 'fallback_failed',
+    'verification_network_failed' ||
+    'verification_proxy_unavailable' => 'verification_failed',
     'unavailable' => 'unavailable',
     _ => 'failed',
   });
@@ -177,6 +186,15 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       return;
     }
     final app = _app;
+    if (app.engineCapabilities?.protonAccountWarpFallback == true &&
+        const {
+          'guest',
+          'login',
+          'refresh',
+          'logout',
+        }.contains(command['action'])) {
+      command = {...command, 'network_policy_version': 1};
+    }
     final recoveringLaunch = _launchUnconfirmed && command['action'] == 'get';
     var recoverLaunch = false;
     setState(() {
@@ -285,7 +303,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   }
 
   void _openAndroidVerification() {
-    if (defaultTargetPlatform != TargetPlatform.android ||
+    if ((defaultTargetPlatform != TargetPlatform.android &&
+            _resumeVerificationJob != _job['id']) ||
         _state != 'waiting_verification' ||
         _busy ||
         _launchUnconfirmed ||
@@ -613,10 +632,17 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       _job['id'] == jobId &&
       _job['challenge_id'] == challengeId;
 
+  Object? _resumeVerificationJob;
+
   Future<void> _verify() async {
     if (_busy || _launchUnconfirmed || _verifying) return;
     final jobId = _job['id'], challengeId = _job['challenge_id'];
     if (jobId == null || challengeId == null) return;
+    // Manual openings consume the handoff too. A command reply may still
+    // contain this challenge until the worker publishes its next snapshot.
+    if (jobId is String && challengeId is String) {
+      _automaticVerifications.add((jobId, challengeId));
+    }
     final epoch = ++_verificationEpoch;
     _verificationJob = jobId;
     _verificationChallenge = challengeId;
@@ -652,8 +678,16 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       if (answer == null) {
         await _cancel();
       } else {
+        if (jsonDecode(utf8.decode(answer))['type'] ==
+            'USQUE_VERIFICATION_NETWORK_FAILED') {
+          _resumeVerificationJob = jobId;
+        }
         await _command({
-          'action': 'verify',
+          'action':
+              jsonDecode(utf8.decode(answer))['type'] ==
+                  'USQUE_VERIFICATION_NETWORK_FAILED'
+              ? 'verification_failed'
+              : 'verify',
           'job_id': jobId,
           'challenge_id': challengeId,
         }, input: answer);
@@ -856,6 +890,14 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           if (_verificationFailure?.$3 case final String code
               when _verificationError != null)
             Text('${p('verification_error')}: $code'),
+          if (_running && _job['account_network'] == 'warp')
+            HintText(
+              p(
+                _job['network_phase'] == 'starting'
+                    ? 'fallback_starting'
+                    : 'fallback_active',
+              ),
+            ),
           if (_job['phase'] case final String phase
               when _state == 'failed' &&
                   const {

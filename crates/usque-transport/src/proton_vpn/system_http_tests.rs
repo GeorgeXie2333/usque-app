@@ -81,6 +81,37 @@ async fn peer(response: &'static str) -> (SystemHttp, String, AbortOnDropHandle<
     (http, url, peer)
 }
 
+#[tokio::test]
+async fn interrupted_responses_are_network_errors_without_proving_non_submission() {
+    for response in [
+        "CLOSE_WITHOUT_RESPONSE",
+        "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nshort",
+    ] {
+        let (http, url, peer) = peer(response).await;
+        let mut options = request(&url, 256);
+        options.method = Method::POST;
+        let error = http
+            .exchange_delivery(options, &CancellationToken::new())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, InternalHttpError::Connect);
+        assert!(
+            !error.not_submitted,
+            "a transport error must not replay mutations"
+        );
+        assert!(peer.await.unwrap().starts_with(b"POST "));
+    }
+    let (http, url, peer) = peer("not an HTTP response\r\n\r\n").await;
+    assert_eq!(
+        http.exchange(request(&url, 256), &CancellationToken::new())
+            .await
+            .err(),
+        Some(InternalHttpError::Protocol)
+    );
+    peer.await.unwrap();
+}
+
 async fn peer_with_timeout(
     response: &'static str,
     timeout: Duration,
@@ -128,6 +159,8 @@ async fn peer_with_timeout(
             // future alive also exercises cancellation after a socket is opened.
             let mut rest = Vec::new();
             let _ = tls.read_to_end(&mut rest).await;
+        } else if response == "CLOSE_WITHOUT_RESPONSE" {
+            let _ = tls.shutdown().await;
         } else {
             let _ = tls.write_all(response.as_bytes()).await;
             let _ = tls.shutdown().await;
@@ -155,6 +188,34 @@ fn request(url: &str, limit: usize) -> InternalRequest<'_> {
         limit,
         ipv6: None,
     }
+}
+
+#[tokio::test]
+async fn delivery_certainty_distinguishes_tls_rejection_from_a_submitted_timeout() {
+    let (_, url, peer) = peer("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n").await;
+    let untrusted = SystemHttp {
+        client: builder().no_proxy().build().unwrap(),
+    };
+    let failure = untrusted
+        .exchange_delivery(request(&url, 256), &CancellationToken::new())
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(failure.kind, InternalHttpError::Tls);
+    assert!(failure.not_submitted);
+    assert!(peer.await.unwrap().is_empty());
+
+    let (http, url, peer, _) = peer_with_timeout("", Duration::from_millis(300)).await;
+    let mut mutation = request(&url, 256);
+    mutation.method = Method::POST;
+    let failure = http
+        .exchange_delivery(mutation, &CancellationToken::new())
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(failure.kind, InternalHttpError::Timeout);
+    assert!(!failure.not_submitted);
+    assert!(peer.await.unwrap().starts_with(b"POST "));
 }
 
 #[tokio::test]

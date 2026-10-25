@@ -1,6 +1,7 @@
 //! Interactive setup follows the system network, including its active VPN.
 //! Connection preparation and runtime authorization use the established WARP.
 //! Sessions use platform-encrypted persistence and one-use human verification.
+mod account_network;
 mod api;
 mod client;
 mod crypto;
@@ -11,8 +12,10 @@ mod nodes;
 pub(crate) mod renew;
 mod session;
 mod system_http;
+pub(crate) mod verification_proxy;
 mod warp_http;
 mod workflow;
+pub use account_network::AccountWarpProvider;
 pub use client::ClientConfig;
 pub use manager::{AccountContext, Manager, Output, attach};
 #[cfg(test)]

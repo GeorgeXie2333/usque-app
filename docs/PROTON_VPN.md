@@ -4,10 +4,10 @@ Open **Proxy → Chain proxy → Proton VPN**. This source prepares and saves a
 Proton session for a WireGuard exit after the outer WARP connection. The order
 is `Application → WARP → Proton VPN → Internet`. Explicit direct rules and
 app exclusions keep their existing meaning. Preparing an account does not
-select it, apply settings or establish a tunnel.
+select the Proton account, apply settings or activate the system VPN.
 
 打开 **代理 → 链式代理 → Proton VPN**，准备并保存 Proton 账号，用作 WARP
-之后的 WireGuard 出口。准备完成不会自动选用、应用或连接；显式直连和分应用例外继续生效。
+之后的 WireGuard 出口。准备完成不会自动选用 Proton 账号、应用设置或启动系统 VPN；显式直连和分应用例外继续生效。
 
 This native implementation remains under validation. A bounded, synthetic
 workstation HTTPS probe completed guest creation, VPN permissions, certificate
@@ -102,54 +102,60 @@ Windows 和 Linux 的“以游客身份继续”自动使用固定的合成 Andr
 
 ## Verification window and network path / 验证窗口与网络路径
 
-Guest registration, account sign-in, manual directory refresh and sign-out use
-ordinary system HTTPS sockets and system DNS, including the permissions and
-session requests needed by those operations. They follow the current OS routes
-and any VPN that applies to this app. The HTTP client retains its supported
-environment proxy settings. These account-management operations do not start or
-borrow a WARP underlay, bind an interface, protect sockets from a VPN or try
-another network after failure. Android does not read a WARP secret for them.
-API identity, User-Agent and locale are preserved on both network paths.
+Guest registration, account sign-in, manual directory refresh and sign-out first
+use system HTTPS and DNS. They follow the current OS routes, an existing VPN,
+and the HTTP client's supported environment proxy settings. A network failure
+can switch the entire task once to WARP, including subsequent API requests,
+DNS, verification and session cleanup. Business rejections such as a wrong
+password, 8004, 10200 or rate limiting do not trigger this switch.
 
-The verification WebView also uses the platform's normal network path. This
-aligns its routing policy with account-management API traffic, but does not pin a source IP across
-OS network changes or prove that Proton accepts the completed challenge.
+Fallback borrows a healthy WARP underlay or starts a temporary headless
+connection using the currently selected, already enrolled WARP account.
+It never creates a new WARP identity. Temporary connections keep OS routing,
+including another VPN, and respect retained network guards. They do not install
+a TUN, change system proxy/DNS/routes or replace the current connection.
+If no usable account/path exists, the task reports an error. Once switched,
+the task cannot return to system sockets; an external WARP generation change
+invalidates its lease.
 
-Connection preparation uses a separate API client over the already established
-WARP stack: session/permission checks, fresh directory lookup and certificate
-issuance must work while the Proton traffic gate is closed. The connection's
-lease keeps this WARP path for certificate renewal, token recovery and agent
-authorization recovery, including when Proton access is temporarily restricted.
-API DNS also stays inside WARP. These requests are bound to that WARP session;
-reconnection invalidates old results, and failure never switches to system or
-physical sockets. The private local-agent remains inside the Proton WireGuard
-tunnel. Ordinary application traffic still waits for final Proton authorization;
-it cannot use the control channel as a WARP-only exit.
+Requests that might already have changed a session are not blindly replayed.
+Automatic replay is limited to reads, SRP information, or a transport failure
+proven to have occurred before submission. The existing rotation journal and
+remote-state-unknown reporting remain authoritative. If verification fails
+before a rejected operation is submitted, the old window closes, WARP is
+acquired, and one fresh challenge is requested. Complete the replacement puzzle
+manually; a desktop window already opened by the user reopens automatically.
 
-Account management and the verification WebView retain strict system routing
-even while Usque owns the active VPN. They may time out if that VPN captures and
-blocks them while connecting. The runtime WARP client does not reroute those
-interactive jobs or expose a general VPN bypass.
+On WARP, the native browser uses an authenticated, short-lived loopback CONNECT
+proxy scoped to this task. HTTP plus CONNECT preflight, with a completion
+proof derived from the random proxy password, must succeed before the
+challenge URL is loaded. Only `verify.proton.me`, `verify-api.proton.me` and
+`account.proton.me` on port 443 are allowed. DNS and TCP use the same WARP
+handle; HTTPS retains original origins and normal certificate checks. Android
+requires WebView proxy override support and serializes process-wide overrides;
+Windows uses a fresh WebView2 environment with scoped proxy arguments; Linux
+requires WebKitGTK proxy/authentication APIs. Unsupported or failed routing
+stops verification instead of silently using system traffic.
 
-游客注册、账号登录、手动刷新目录和退出，以及这些操作所需的权限检查、会话请求，
-使用普通系统 HTTPS socket 与系统 DNS，遵循当前系统路由及适用于本应用的已连接
-VPN，并保留 HTTP 客户端支持的环境代理设置。这些账号管理操作不启动或借用 WARP，
-不绑定网卡，不使用 socket protect 绕过 VPN，失败后也不切换网络。
-Android 不为它们读取 WARP 密钥；两种网络路径均保留原有 API 身份、User-Agent 和语言头。
+Connection preparation and ongoing Proton certificate/session renewal keep
+their separate WARP-only client. Ordinary application traffic still waits for
+final Proton authorization; this account-control channel is not an application
+exit. OS route changes can still change the source address of the initial
+system path. Live external egress consistency requires the isolated network
+observer; local tests alone do not establish it.
 
-验证码 WebView 同样使用平台普通网络路径。两者采用一致的路由策略，但系统网络
-变化仍可能改变出口 IP，也不代表 Proton 已接受验证结果。
+游客注册、登录、手动刷新目录和退出首先使用系统 HTTPS/DNS，遵循当前 VPN 与支持的
+环境代理。网络失败后，整个任务可单向切换一次到 WARP，涵盖后续 API、DNS、
+验证码和会话清理。密码错误、8004、10200、限流等业务拒绝不会触发切换。
+优先复用健康的 WARP，否则用当前已选、已有身份的 WARP 账户启动临时无界面连接；
+不创建账户，不修改系统 VPN、路由、DNS 或代理，也不绕过其他 VPN 或保留的网络保护。
+WARP 不可用会报错；切换后不会重新直连。
 
-开始连接时，Proton 会话／权限检查、目录更新与证书申请改用已建立的 WARP 内部栈，
-DNS 同样经由 WARP，使 Proton 授权门关闭期间仍可完成连接准备。
-该连接持有的 API 客户端在运行中继续通过同一 WARP 路径续期证书、恢复令牌和
-agent 授权；不依赖尚未就绪或已受限的 Proton 出口。WARP 会话更换会使旧结果失效，
-失败不会转向系统或物理直连。local-agent 仍在 Proton WireGuard 隧道内通信。
-普通应用流量继续等待 Proton 最终授权，不能借用控制通道退化为仅 WARP 出口。
-
-账号管理和验证码窗口仍严格遵循系统路由，包括 Usque 自身占用 VPN 的情况；
-若正在连接的 VPN 捕获并阻断这些交互请求，它们仍可能超时。
-连接专用的 WARP 客户端不会改道这些任务，也不提供通用 VPN 绕过通道。
+可能已提交的会话变更不会自动重放。验证码网络失败时，只有原操作已明确被拒绝，
+才会关闭旧窗口、获取 WARP 并重新请求一次挑战；新拼图仍由本人完成。
+WARP 验证窗口必须先通过本地代理的 HTTP/CONNECT 预检，所有允许的页面请求及
+域名解析再经由同一 WARP。运行时不支持代理能力或预检失败时明确停止验证。
+本地测试不能代替隔离环境对实际出口、DNS 和断线泄漏的观测。
 
 The window opens only `https://verify.proton.me` as the official top-level
 challenge. Windows uses a fresh InPrivate profile and Linux an ephemeral

@@ -44,6 +44,7 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "advapi32.lib" "comctl32.lib" "shell32.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "ole32.lib" "propsys.lib" "shlwapi.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "windowsapp.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
@@ -90,4 +91,4 @@ target_include_directories(usque_proton_webview_test SYSTEM PRIVATE
   "${FLUTTER_MANAGED_DIR}/ephemeral/cpp_client_wrapper/include")
 target_link_libraries(usque_proton_webview_test PRIVATE
   "${USQUE_WEBVIEW2_ROOT}/build/native/${USQUE_WEBVIEW2_ARCH}/WebView2LoaderStatic.lib"
-  "bcrypt.lib" "advapi32.lib" "ole32.lib" "oleaut32.lib" "user32.lib" "shlwapi.lib" "version.lib")
+  "bcrypt.lib" "advapi32.lib" "ole32.lib" "oleaut32.lib" "user32.lib" "shlwapi.lib" "version.lib" "ws2_32.lib" "windowsapp.lib")

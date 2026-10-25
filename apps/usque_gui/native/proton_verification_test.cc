@@ -98,6 +98,14 @@ int main() {
     std::string input=Handoff(url,now+60000);input[0]=static_cast<char>(byte);
     if (byte!='{') assert(!Parse(input,now));
   }
+  auto modern=Handoff(url,now+60000);modern.pop_back();
+  modern+=",\"version\":2,\"route_epoch\":1,\"proxy\":{\"port\":12345,\"username\":\""+std::string(32,'a')+"\",\"password\":\""+std::string(64,'b')+"\",\"nonce\":\""+std::string(32,'c')+"\"}}";
+  usque::proton::Handoff proxied;
+  assert(usque::proton::Parse(modern,proxied,Sha,now));
+  assert(proxied.proxy_port==12345 && proxied.route_epoch==1);
+  assert(proxied.ProbeUrl(proxied.Probe()) && !proxied.ProbeUrl(url));
+  auto invalid=modern;invalid.replace(invalid.find("12345"),5,"65536");assert(!Parse(invalid,now));
+  invalid=modern;invalid.replace(invalid.find("\"version\":2"),11,"\"version\":3");assert(!Parse(invalid,now));
   auto duplicate=Handoff(url,now+60000);duplicate.insert(1,"\"job_id\":\"duplicate\",");
   assert(!Parse(duplicate,now));
   std::cout << "Proton verification policy tests passed\n";

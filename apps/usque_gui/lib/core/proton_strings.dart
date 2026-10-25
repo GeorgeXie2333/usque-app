@@ -1,6 +1,12 @@
 import 'app_strings.dart';
 
 const _english = <String, String>{
+  'fallback_account':
+      'Could not reach Proton. Select an existing WARP account and retry.',
+  'fallback_failed':
+      'Could not connect through WARP. Check the selected WARP account and network, then retry.',
+  'fallback_starting': 'Connecting through WARP…',
+  'fallback_active': 'This account task is using WARP, including verification.',
   'connection_api':
       'A Proton API request failed. Retry or review the Proton account in Chain proxy.',
   "connection_authentication":
@@ -136,6 +142,10 @@ const _english = <String, String>{
 };
 
 const _chinese = <String, String>{
+  'fallback_account': '无法连接 Proton。请选择已有的 WARP 账户后重试。',
+  'fallback_failed': '无法通过 WARP 连接。请检查所选 WARP 账户及网络后重试。',
+  'fallback_starting': '正在通过 WARP 连接…',
+  'fallback_active': '本次账户操作及人机验证正在通过 WARP 连接。',
   'connection_api': 'Proton API 请求失败，请重试或在“链式代理”中检查 Proton 账号。',
   "connection_authentication": "Proton 授权失败，请打开“链式代理”重新登录 Proton。",
   "connection_certificate": "Proton 拒绝了连接证书且自动恢复失败，请重新连接或重新登录 Proton。",
