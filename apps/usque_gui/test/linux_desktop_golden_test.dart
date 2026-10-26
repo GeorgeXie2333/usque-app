@@ -12,8 +12,11 @@ import 'package:usque/core/proton_strings.dart';
 import 'package:usque/core/user_facing_errors.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/models/diagnostics_models.dart';
 import 'package:usque/screens/chain_proxy_screen.dart';
+import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/geo_direct_settings_screen.dart';
+import 'package:usque/screens/network_quality_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/services/engine_client.dart';
@@ -61,6 +64,18 @@ class _LinuxGoldenEngine extends FakeEngineClient
   Map<Object?, Object?> protonJob = const {};
   List<Map<Object?, Object?>> protonProfiles = const [];
   bool hasProtonProfile = false;
+  DiagnosticSession? diagnosticSession;
+  ConnectionTimeline timeline = const ConnectionTimeline();
+
+  @override
+  Future<DiagnosticSession?> getDiagnostics() async => diagnosticSession;
+
+  @override
+  Future<ConnectionTimeline> getConnectionTimeline() async => timeline;
+
+  @override
+  Future<DiagnosticSession> startDiagnostics(DiagnosticMode mode) =>
+      throw StateError('Screenshot fixtures never run diagnostics.');
 
   @override
   Future<ProtonVpnResult> protonVpn(
@@ -193,7 +208,155 @@ enum _Scene {
   protonNodes,
   protonProfile,
   profiles,
+  qualityGood,
+  qualityDegraded,
+  qualityDegradedPhone,
+  qualityDisconnected,
+  diagnosticsIdle,
+  diagnosticsRunning,
+  diagnosticsCompleted,
+  diagnosticsCompletedPhone,
 }
+
+const _qualityScenes = {
+  _Scene.qualityGood,
+  _Scene.qualityDegraded,
+  _Scene.qualityDegradedPhone,
+  _Scene.qualityDisconnected,
+};
+
+const _diagnosticsScenes = {
+  _Scene.diagnosticsIdle,
+  _Scene.diagnosticsRunning,
+  _Scene.diagnosticsCompleted,
+  _Scene.diagnosticsCompletedPhone,
+};
+
+final _diagnosticsStarted = DateTime.utc(2026, 9, 2, 11, 58);
+
+DiagnosticSession _runningDiagnostics() => DiagnosticSession(
+  sessionId: 'fixture-running',
+  state: DiagnosticSessionState.running,
+  startedAt: _diagnosticsStarted,
+  mode: DiagnosticMode.standard,
+  currentCheck: 'transport.h3_connect',
+  progressPercent: 45,
+  summary: const DiagnosticSummary(passed: 4),
+  findings: const [
+    DiagnosticFinding(
+      checkId: 'engine.control_channel',
+      category: DiagnosticCategory.localComponent,
+      status: DiagnosticCheckStatus.passed,
+    ),
+    DiagnosticFinding(
+      checkId: 'engine.configuration',
+      category: DiagnosticCategory.localComponent,
+      status: DiagnosticCheckStatus.passed,
+    ),
+    DiagnosticFinding(
+      checkId: 'physical.network_present',
+      category: DiagnosticCategory.physicalNetwork,
+      status: DiagnosticCheckStatus.passed,
+    ),
+    DiagnosticFinding(
+      checkId: 'physical.dns_available',
+      category: DiagnosticCategory.physicalNetwork,
+      status: DiagnosticCheckStatus.passed,
+    ),
+    DiagnosticFinding(
+      checkId: 'transport.h3_connect',
+      category: DiagnosticCategory.transport,
+      status: DiagnosticCheckStatus.running,
+    ),
+  ],
+);
+
+// Problems sit in later categories, so ordering by category alone would
+// put them below the passing checks.
+DiagnosticSession _completedDiagnostics() => DiagnosticSession(
+  sessionId: 'fixture-completed',
+  state: DiagnosticSessionState.completed,
+  startedAt: _diagnosticsStarted,
+  completedAt: _diagnosticsStarted.add(const Duration(seconds: 12)),
+  mode: DiagnosticMode.standard,
+  progressPercent: 100,
+  summary: const DiagnosticSummary(passed: 5, warnings: 1, failed: 1),
+  findings: const [
+    DiagnosticFinding(
+      checkId: 'engine.control_channel',
+      category: DiagnosticCategory.localComponent,
+      status: DiagnosticCheckStatus.passed,
+    ),
+    DiagnosticFinding(
+      checkId: 'engine.configuration',
+      category: DiagnosticCategory.localComponent,
+      status: DiagnosticCheckStatus.passed,
+    ),
+    DiagnosticFinding(
+      checkId: 'physical.network_present',
+      category: DiagnosticCategory.physicalNetwork,
+      status: DiagnosticCheckStatus.passed,
+    ),
+    DiagnosticFinding(
+      checkId: 'physical.dns_available',
+      category: DiagnosticCategory.physicalNetwork,
+      status: DiagnosticCheckStatus.passed,
+    ),
+    DiagnosticFinding(
+      checkId: 'transport.h3_connect',
+      category: DiagnosticCategory.transport,
+      status: DiagnosticCheckStatus.failed,
+      severity: DiagnosticSeverity.error,
+      remediationKey: 'try_http2',
+      failure: TransportFailureInfo(
+        code: 'H3_UDP_UNREACHABLE',
+        stage: 'quic_handshake',
+        transport: 'h3',
+        addressFamily: 'ipv4',
+        retryable: true,
+        fallbackAllowed: true,
+        remediationKey: 'try_http2',
+      ),
+    ),
+    DiagnosticFinding(
+      checkId: 'transport.h2_connect',
+      category: DiagnosticCategory.transport,
+      status: DiagnosticCheckStatus.passed,
+    ),
+    DiagnosticFinding(
+      checkId: 'quality.packet_loss',
+      category: DiagnosticCategory.tunnel,
+      status: DiagnosticCheckStatus.warning,
+      severity: DiagnosticSeverity.warning,
+      remediationKey: 'nq_network',
+    ),
+  ],
+);
+
+const _diagnosticsTimeline = ConnectionTimeline(
+  events: [
+    ConnectionTimelineEvent(
+      sequence: 1,
+      eventType: ConnectionTimelineEventType.attemptStarted,
+      elapsedMilliseconds: 0,
+      transport: 'h3',
+      addressFamily: 'ipv4',
+    ),
+    ConnectionTimelineEvent(
+      sequence: 2,
+      eventType: ConnectionTimelineEventType.fallbackStarted,
+      elapsedMilliseconds: 3100,
+      transport: 'h2',
+    ),
+    ConnectionTimelineEvent(
+      sequence: 3,
+      eventType: ConnectionTimelineEventType.tunnelReady,
+      elapsedMilliseconds: 4200,
+      transport: 'h2',
+      addressFamily: 'ipv4',
+    ),
+  ],
+);
 
 typedef _Fixture = ({
   _Scene scene,
@@ -357,6 +520,70 @@ const _fixtures = <_Fixture>[
     dark: false,
     scale: 1,
   ),
+  (
+    scene: _Scene.qualityGood,
+    name: 'network_quality_good_en_light',
+    size: Size(1280, 1500),
+    locale: LocalePreference.english,
+    dark: false,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.qualityDegraded,
+    name: 'network_quality_degraded_zh_dark',
+    size: Size(1280, 2400),
+    locale: LocalePreference.simplifiedChinese,
+    dark: true,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.qualityDegradedPhone,
+    name: 'network_quality_degraded_en_phone',
+    size: Size(390, 3000),
+    locale: LocalePreference.english,
+    dark: false,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.qualityDisconnected,
+    name: 'network_quality_disconnected_en_dark',
+    size: Size(1280, 1000),
+    locale: LocalePreference.english,
+    dark: true,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.diagnosticsIdle,
+    name: 'diagnostics_idle_en_light',
+    size: Size(1280, 1100),
+    locale: LocalePreference.english,
+    dark: false,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.diagnosticsRunning,
+    name: 'diagnostics_running_zh_dark',
+    size: Size(1280, 1300),
+    locale: LocalePreference.simplifiedChinese,
+    dark: true,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.diagnosticsCompleted,
+    name: 'diagnostics_completed_en_light',
+    size: Size(1280, 1700),
+    locale: LocalePreference.english,
+    dark: false,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.diagnosticsCompletedPhone,
+    name: 'diagnostics_completed_zh_phone',
+    size: Size(390, 2600),
+    locale: LocalePreference.simplifiedChinese,
+    dark: false,
+    scale: 1,
+  ),
 ];
 
 Widget _host(AppController app, _Fixture fixture) {
@@ -370,6 +597,12 @@ Widget _host(AppController app, _Fixture fixture) {
     _Scene.onboardingKeyringCancelled ||
     _Scene.onboardingZeroTrustRtl => OnboardingScreen(controller: app),
     _Scene.routing => GeoDirectSettingsScreen(controller: app),
+    _ when _qualityScenes.contains(fixture.scene) => NetworkQualityScreen(
+      controller: app,
+    ),
+    _ when _diagnosticsScenes.contains(fixture.scene) => DiagnosticsScreen(
+      controller: app,
+    ),
     _Scene.chain ||
     _Scene.protonVerification ||
     _Scene.protonNodes ||
@@ -482,6 +715,13 @@ void _configure(
           ],
         ),
       );
+    case _Scene.diagnosticsRunning:
+      engine.diagnosticSession = _runningDiagnostics();
+      engine.timeline = _diagnosticsTimeline;
+    case _Scene.diagnosticsCompleted:
+    case _Scene.diagnosticsCompletedPhone:
+      engine.diagnosticSession = _completedDiagnostics();
+      engine.timeline = _diagnosticsTimeline;
     case _Scene.chain:
       app.sharedNetwork = app.sharedNetwork.copyWith(
         chainExit: const ChainExitSettings(
@@ -529,6 +769,17 @@ void _configure(
   app.engineCapabilities = _capabilities;
 }
 
+/// A running diagnostic keeps an indeterminate spinner, which never settles;
+/// a fixed pump in fake time renders the same frame on every run.
+Future<void> _settle(WidgetTester tester, _Fixture fixture) async {
+  if (fixture.scene == _Scene.diagnosticsRunning) {
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 600));
+    return;
+  }
+  await tester.pumpAndSettle();
+}
+
 void _expectInViewport(WidgetTester tester, Finder finder, Size size) {
   expect(finder, findsOneWidget);
   final bounds = tester.getRect(finder);
@@ -573,6 +824,34 @@ void main() {
             final connected =
                 fixture.scene == _Scene.homeConnected ||
                 fixture.scene == _Scene.homeDetails;
+            final qualityState = switch (fixture.scene) {
+              _Scene.qualityGood => 'h3',
+              _Scene.qualityDegraded ||
+              _Scene.qualityDegradedPhone => 'degraded',
+              _ => null,
+            };
+            if (qualityState != null) {
+              for (var second = 0; second < 60; second++) {
+                now = DateTime.utc(
+                  2026,
+                  9,
+                  2,
+                  12,
+                ).add(Duration(seconds: second));
+                app.snapshot = EngineSnapshot(
+                  phase: ConnectionPhase.connected,
+                  transport: 'HTTP/3',
+                  addressFamily: 'IPv4',
+                  downloadedBytes: second * 750000,
+                  uploadedBytes: second * 210000,
+                  networkQuality: qualityFixture(
+                    now,
+                    state: qualityState,
+                    rtt: 32 + (second % 11) * 3,
+                  ),
+                );
+              }
+            }
             if (connected) {
               var downloaded = 0;
               var uploaded = 0;
@@ -659,7 +938,7 @@ void main() {
                 ]);
               }
             });
-            await tester.pumpAndSettle();
+            await _settle(tester, fixture);
             expect(engine.maintenanceCalls, 0);
             expect(find.byType(WindowTitleBar), findsNothing);
             switch (fixture.scene) {
@@ -829,6 +1108,18 @@ void main() {
                   await tester.pumpAndSettle();
                 }
                 _expectInViewport(tester, target, fixture.size);
+              case _Scene.diagnosticsCompleted:
+              case _Scene.diagnosticsCompletedPhone:
+                // The failed check's explanation is part of the reviewed
+                // layout, so open it before capturing.
+                final failed = find.byKey(
+                  const PageStorageKey<String>(
+                    'diagnostic-transport.h3_connect',
+                  ),
+                );
+                await tester.ensureVisible(failed);
+                await tester.tap(failed);
+                await tester.pumpAndSettle();
               case _Scene.onboardingZeroTrustRtl:
                 final method = find.text(app.strings.get('zero_trust_title'));
                 await tester.ensureVisible(method);
@@ -844,7 +1135,7 @@ void main() {
                 break;
             }
             FocusManager.instance.primaryFocus?.unfocus();
-            await tester.pumpAndSettle();
+            await _settle(tester, fixture);
             if ({
               _Scene.serviceInstall,
               _Scene.serviceRepair,
@@ -882,6 +1173,9 @@ void main() {
               matchesGoldenFile('goldens/linux/${fixture.name}.png'),
             );
             await tester.pumpWidget(const SizedBox.shrink());
+            // An active session polls the engine until it is no longer
+            // observed; stop it before the test checks for pending timers.
+            app.diagnostics.setObservationVisible(false);
           },
           variant: const TargetPlatformVariant({TargetPlatform.linux}),
           tags: const ['golden', 'linux-golden'],

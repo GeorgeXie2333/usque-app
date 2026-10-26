@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/diagnostics_presentation.dart';
 import '../core/diagnostics_strings.dart';
 import '../core/usque_theme.dart';
 import '../models/diagnostics_models.dart';
@@ -20,7 +21,7 @@ class DiagnosticCheckTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = UsqueTokens.of(context);
-    final color = _statusColor(tokens, finding.status);
+    final color = diagnosticCheckStatusColor(tokens, finding.status);
     final label = diagnosticCheckLabel(strings, finding.checkId);
     final status = diagnosticStatusLabel(strings, finding.status);
     return ExpansionTile(
@@ -42,7 +43,11 @@ class DiagnosticCheckTile extends StatelessWidget {
                     color: color,
                   ),
                 )
-              : Icon(_statusIcon(finding.status), size: 19, color: color),
+              : Icon(
+                  diagnosticCheckStatusIcon(finding.status),
+                  size: 19,
+                  color: color,
+                ),
         ),
       ),
       title: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -74,28 +79,4 @@ class DiagnosticCheckTile extends StatelessWidget {
       ],
     );
   }
-}
-
-IconData _statusIcon(DiagnosticCheckStatus status) {
-  return switch (status) {
-    DiagnosticCheckStatus.passed => LucideIcons.circleCheck,
-    DiagnosticCheckStatus.warning => LucideIcons.triangleAlert,
-    DiagnosticCheckStatus.failed => LucideIcons.circleX,
-    DiagnosticCheckStatus.cancelled => LucideIcons.circleX,
-    DiagnosticCheckStatus.pending ||
-    DiagnosticCheckStatus.skipped => LucideIcons.circle,
-    DiagnosticCheckStatus.running => LucideIcons.refreshCw,
-  };
-}
-
-Color _statusColor(UsqueTokens tokens, DiagnosticCheckStatus status) {
-  return switch (status) {
-    DiagnosticCheckStatus.passed => tokens.success,
-    DiagnosticCheckStatus.warning => tokens.caution,
-    DiagnosticCheckStatus.failed => tokens.danger,
-    DiagnosticCheckStatus.running => tokens.brand,
-    DiagnosticCheckStatus.pending ||
-    DiagnosticCheckStatus.skipped ||
-    DiagnosticCheckStatus.cancelled => tokens.hairlineStrong,
-  };
 }
