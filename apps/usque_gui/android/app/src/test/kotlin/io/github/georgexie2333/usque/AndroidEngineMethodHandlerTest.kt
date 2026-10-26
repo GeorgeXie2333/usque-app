@@ -19,6 +19,28 @@ import java.util.concurrent.TimeUnit
 
 class AndroidEngineMethodHandlerTest {
     @Test
+    fun protonAccountFallbackCapabilityReachesFlutterOnlyWithExplicitNativeSupport() {
+        val cases =
+            listOf(
+                """{"chain_proton_vpn":true,"proton_account_warp_fallback":true,"unknown_capability":true}""" to true,
+                """{"chain_proton_vpn":true}""" to false,
+                """{"proton_account_warp_fallback":false}""" to false,
+                """{"proton_account_warp_fallback":"true"}""" to false,
+                "invalid" to false,
+                null to false,
+            )
+        for ((native, supported) in cases) {
+            engineBridge.capabilitiesJson = native
+            val result = RecordingResult()
+            handler.handle(MethodCall("getCapabilities", null), result)
+            val capabilities = result.successValue as Map<*, *>
+            assertEquals(supported, capabilities["proton_account_warp_fallback"])
+            assertFalse(capabilities.containsKey("unknown_capability"))
+            assertEquals(1, result.completionCount)
+        }
+    }
+
+    @Test
     fun onboardingPermissionPreparationDoesNotRequireNativeEngineOrConnect() {
         engineBridge.ready = false
         engineBridge.linked = false
@@ -1938,6 +1960,7 @@ class AndroidEngineMethodHandlerTest {
         private var initialOperation: JSONObject? = null
         var ready = true
         var linked = true
+        var capabilitiesJson: String? = null
         var zeroTrustFailure: IOException? = null
         var zeroTrustRegistrationCount = 0
         var consumerLicenseFailure: IOException? = null
@@ -1947,6 +1970,8 @@ class AndroidEngineMethodHandlerTest {
         override fun isLinked(): Boolean = linked
 
         override fun isReady(): Boolean = ready
+
+        override fun capabilities(): String? = capabilitiesJson
 
         override fun applyProfileCommand(
             configPath: String,
