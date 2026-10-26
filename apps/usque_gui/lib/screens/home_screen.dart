@@ -23,6 +23,7 @@ import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
 import '../widgets/usque_logo.dart';
 import 'chain_proxy_screen.dart';
+import 'diagnostics_screen.dart';
 
 /// The instrument panel: one connection control, one status readout, and the
 /// live numbers that prove the tunnel is doing something.
@@ -33,11 +34,15 @@ class HomeScreen extends StatelessWidget {
   const HomeScreen({
     required this.controller,
     this.onOpenChainProxy,
+    this.onOpenDiagnostics,
     super.key,
   });
 
   final AppController controller;
   final VoidCallback? onOpenChainProxy;
+
+  /// Opens Diagnostics with a Standard run; the shell keeps it in Settings.
+  final VoidCallback? onOpenDiagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +61,16 @@ class HomeScreen extends StatelessWidget {
         builder: (_) => ChainProxyScreen(controller: controller),
       ),
     );
+    void openDiagnostics() {
+      startStandardDiagnostics(controller);
+      Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => DiagnosticsScreen(controller: controller),
+        ),
+      );
+    }
+
+    final diagnose = onOpenDiagnostics ?? openDiagnostics;
     final notice = _ZeroTrustEndpointRiskNotice(controller: controller);
     if (compact) {
       return PageFrame(
@@ -77,6 +92,7 @@ class HomeScreen extends StatelessWidget {
                   controller: controller,
                   strings: strings,
                   compact: true,
+                  onOpenDiagnostics: diagnose,
                 ),
                 MobileTrafficPanel(controller: controller),
                 MobileConnectionOverview(
@@ -102,7 +118,11 @@ class HomeScreen extends StatelessWidget {
       child: FillColumn(
         children: <Widget>[
           notice,
-          _ErrorSlot(controller: controller, strings: strings),
+          _ErrorSlot(
+            controller: controller,
+            strings: strings,
+            onOpenDiagnostics: diagnose,
+          ),
           _DesktopHomeConnection(
             controller: controller,
             strings: strings,
@@ -501,10 +521,15 @@ class _ChainSummary extends StatelessWidget {
 }
 
 class _ErrorSlot extends StatelessWidget {
-  const _ErrorSlot({required this.controller, required this.strings});
+  const _ErrorSlot({
+    required this.controller,
+    required this.strings,
+    this.onOpenDiagnostics,
+  });
 
   final AppController controller;
   final AppStrings strings;
+  final VoidCallback? onOpenDiagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -525,6 +550,16 @@ class _ErrorSlot extends StatelessWidget {
                 message: view.error!,
                 danger: true,
                 onDismiss: controller.clearError,
+                // A failed connection gets a next step beyond Retry; other
+                // operations sharing this slot report their own outcome.
+                action: view.failed && onOpenDiagnostics != null
+                    ? TextButton.icon(
+                        key: const ValueKey('home-error-diagnostics'),
+                        onPressed: onOpenDiagnostics,
+                        icon: const Icon(LucideIcons.stethoscope),
+                        label: Text(strings.get('diag_start')),
+                      )
+                    : null,
               ),
       ),
     );
@@ -564,9 +599,11 @@ class _ConnectionHero extends StatelessWidget {
     required this.controller,
     required this.strings,
     this.compact = false,
+    this.onOpenDiagnostics,
   });
 
   final bool compact;
+  final VoidCallback? onOpenDiagnostics;
 
   final AppController controller;
   final AppStrings strings;
@@ -705,7 +742,11 @@ class _ConnectionHero extends StatelessWidget {
             const SizedBox(height: 6),
             statusText(),
             const SizedBox(height: 10),
-            _ErrorSlot(controller: controller, strings: strings),
+            _ErrorSlot(
+              controller: controller,
+              strings: strings,
+              onOpenDiagnostics: onOpenDiagnostics,
+            ),
             if (connection.recoverable && !error) ...[
               Center(
                 child: OutlinedButton.icon(
@@ -1056,7 +1097,7 @@ class _DesktopSessionReadout extends StatelessWidget {
         connected: snapshot.isConnected,
         location: snapshot.exit.country?.trim().isNotEmpty == true
             ? snapshot.exit.country!.trim()
-            : strings.get('not_available'),
+            : strings.get('home_exit_unknown'),
         countryCode: snapshot.exit.countryCode,
         killKey: killSwitchStatusKey(
           profile: app.activeProfile,
@@ -1322,11 +1363,12 @@ String killSwitchStatusKey({
       return 'ks_active';
     case 'error':
       return 'ks_error';
-    case 'inactive':
-    case 'notApplicable':
-    case 'not_applicable':
-      return snapshot.isTransitional ? 'ks_engaging' : 'ks_inactive';
     default:
-      return snapshot.isTransitional ? 'ks_engaging' : 'ks_inactive';
+      if (snapshot.isTransitional) return 'ks_engaging';
+      // While idle the enabled switch is armed, not failing; "Inactive" is
+      // kept for a session that is up or failed without protection.
+      return snapshot.phase == ConnectionPhase.disconnected
+          ? 'ks_standby'
+          : 'ks_inactive';
   }
 }

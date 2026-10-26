@@ -1550,11 +1550,7 @@ void main() {
           TargetPlatform.android,
         ]) {
           final name = localized.tunnelOutputLabel(platform);
-          for (final key in [
-            'outputs',
-            'channel_only',
-            'channel_only_warning',
-          ]) {
+          for (final key in ['channel_only', 'channel_only_warning']) {
             final text = localized.get(key, platform: platform);
             expect(
               text,
@@ -2868,6 +2864,8 @@ void main() {
       find.widgetWithText(TextFormField, 'SNI'),
       'shared.example.com',
     );
+    // The apply bar slides in with the first edit.
+    await tester.pumpAndSettle();
     final save = find.widgetWithText(FilledButton, 'Apply changes');
     await tester.ensureVisible(save);
     await tester.tap(save);
@@ -3828,75 +3826,55 @@ void main() {
     await moveDown(AppSection.home);
   });
 
-  testWidgets(
-    'extended rail aligns the brand with destinations and docks theme at the end',
-    (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(1280, 900);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(tester.view.resetPhysicalSize);
-      SharedPreferences.setMockInitialValues(<String, Object>{
-        'onboarding_complete': true,
-      });
+  testWidgets('extended rail aligns the brand with destinations', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
 
-      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpAndSettle();
 
-      final Finder rail = find.byType(NavigationRail);
-      final railWidget = tester.widget<NavigationRail>(rail);
-      expect(railWidget.extended, isTrue);
-      final Finder brand = find.descendant(
-        of: rail,
-        matching: find.text('Usque'),
-      );
-      final Finder brandIcon = find.byWidgetPredicate(
-        (widget) =>
-            widget is Image &&
-            widget.image is AssetImage &&
-            <String>{
-              UsqueLogo.lightAsset,
-              UsqueLogo.darkAsset,
-            }.contains((widget.image as AssetImage).assetName) &&
-            widget.width == 30,
-      );
-      final Finder homeIcon = find.descendant(
-        of: rail,
-        matching: find.byIcon(LucideIcons.house),
-      );
-      final Finder themeButton = find.descendant(
-        of: rail,
-        matching: find.byTooltip('Theme · System'),
-      );
-      expect(brand, findsOneWidget);
-      expect(brandIcon, findsOneWidget);
-      expect(themeButton, findsOneWidget);
-      expect(
-        tester.getCenter(brandIcon).dx,
-        closeTo(tester.getCenter(homeIcon).dx, 1),
-      );
-      expect(
-        tester.getCenter(themeButton).dx,
-        greaterThan(tester.getRect(rail).center.dx),
-      );
-      expect(
-        tester.getCenter(themeButton).dx,
-        greaterThan(tester.getCenter(brand).dx),
-      );
-      expect(
-        (tester.getCenter(themeButton).dy - tester.getCenter(brand).dy).abs(),
-        lessThan(12),
-      );
+    final Finder rail = find.byType(NavigationRail);
+    final railWidget = tester.widget<NavigationRail>(rail);
+    expect(railWidget.extended, isTrue);
+    final Finder brand = find.descendant(
+      of: rail,
+      matching: find.text('Usque'),
+    );
+    final Finder brandIcon = find.byWidgetPredicate(
+      (widget) =>
+          widget is Image &&
+          widget.image is AssetImage &&
+          <String>{
+            UsqueLogo.lightAsset,
+            UsqueLogo.darkAsset,
+          }.contains((widget.image as AssetImage).assetName) &&
+          widget.width == 30,
+    );
+    final Finder homeIcon = find.descendant(
+      of: rail,
+      matching: find.byIcon(LucideIcons.house),
+    );
+    expect(brand, findsOneWidget);
+    expect(brandIcon, findsOneWidget);
+    expect(
+      tester.getCenter(brandIcon).dx,
+      closeTo(tester.getCenter(homeIcon).dx, 1),
+    );
+    // Theme is chosen in Settings only; the rail keeps navigation.
+    expect(
+      find.descendant(of: rail, matching: find.byType(IconButton)),
+      findsNothing,
+    );
+  });
 
-      await tester.tap(themeButton);
-      await tester.pumpAndSettle();
-      expect(
-        find.descendant(of: rail, matching: find.byTooltip('Theme · Light')),
-        findsOneWidget,
-      );
-    },
-  );
-
-  testWidgets('compact rail hides the brand and centres the theme cycle', (
+  testWidgets('compact rail hides the brand and holds only destinations', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -3924,53 +3902,24 @@ void main() {
           }.contains((widget.image as AssetImage).assetName) &&
           widget.width == 30,
     );
-    final Finder themeButton = find.descendant(
-      of: rail,
-      matching: find.byTooltip('Theme · System'),
-    );
     expect(
       find.descendant(of: rail, matching: find.text('Usque')),
       findsNothing,
     );
     expect(brandIcon, findsNothing);
-    expect(themeButton, findsOneWidget);
     expect(
-      tester.getCenter(themeButton).dx,
+      find.descendant(of: rail, matching: find.byType(IconButton)),
+      findsNothing,
+    );
+    expect(
+      tester
+          .getCenter(
+            find.descendant(of: rail, matching: find.byIcon(LucideIcons.house)),
+          )
+          .dx,
       closeTo(tester.getRect(rail).center.dx, 2),
     );
     expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('Android rail theme target is at least 48dp', (tester) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    try {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(900, 800);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(tester.view.resetPhysicalSize);
-      SharedPreferences.setMockInitialValues(<String, Object>{
-        'onboarding_complete': true,
-      });
-
-      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
-      await tester.pumpAndSettle();
-
-      final themeButton = find.descendant(
-        of: find.byType(NavigationRail),
-        matching: find.byTooltip('Theme · System'),
-      );
-      expect(themeButton, findsOneWidget);
-      expect(
-        tester.getSize(themeButton).shortestSide,
-        greaterThanOrEqualTo(48),
-      );
-      expect(
-        tester.getSemantics(themeButton).rect.size.shortestSide,
-        greaterThanOrEqualTo(48),
-      );
-    } finally {
-      debugDefaultTargetPlatformOverride = null;
-    }
   });
 
   testWidgets('Android settings exposes boot, tile, and Always-on controls', (
@@ -4256,7 +4205,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(DiagnosticsScreen), findsOneWidget);
-      expect(find.text('Diagnostics & app information'), findsOneWidget);
+      // About keeps the app information; this page is only Diagnostics.
+      expect(
+        find.descendant(
+          of: find.byType(DiagnosticsScreen),
+          matching: find.text('Diagnostics'),
+        ),
+        findsOneWidget,
+      );
       expect(find.widgetWithText(TextButton, 'Back'), findsOneWidget);
       expect(find.byIcon(LucideIcons.arrowLeftDir), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -4651,6 +4607,17 @@ void main() {
           killSwitchState: 'inactive',
         ),
       ),
+      'ks_standby',
+    );
+    // A session that is up without protection still reads as inactive.
+    expect(
+      killSwitchStatusKey(
+        profile: tunnelOn,
+        snapshot: const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          killSwitchState: 'inactive',
+        ),
+      ),
       'ks_inactive',
     );
     expect(
@@ -4965,7 +4932,7 @@ void main() {
           tester.widget<SettingsScreen>(find.byType(SettingsScreen));
       final controller = settings().controller;
 
-      expect(find.text('TUN and local proxies'), findsNothing);
+      expect(find.text('Device traffic'), findsNothing);
       expect(controller.activeProfile.frontends.tunnel, isTrue);
       expect(controller.activeProfile.frontends.socks5, isTrue);
       expect(controller.activeProfile.frontends.http, isTrue);
@@ -4982,17 +4949,17 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('TUN and local proxies'), findsOneWidget);
+      expect(find.text('Device traffic'), findsOneWidget);
       await toggle('TUN');
       expect(controller.activeProfile.frontends.tunnel, isFalse);
 
-      await toggle('SOCKS5');
+      await toggle('SOCKS5 proxy');
       expect(controller.activeProfile.frontends.socks5, isFalse);
 
       await toggle('System proxy');
       expect(controller.activeProfile.proxy.systemProxy, isTrue);
 
-      await toggle('HTTP');
+      await toggle('HTTP proxy');
       expect(controller.activeProfile.frontends.http, isFalse);
       expect(controller.activeProfile.proxy.systemProxy, isFalse);
       expect(controller.activeProfile.frontends.any, isFalse);
@@ -5030,7 +4997,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('VPN and local proxies'), findsOneWidget);
+      expect(find.text('Device traffic'), findsOneWidget);
       expect(find.text('VPN'), findsOneWidget);
       expect(find.text('VPN (TUN)'), findsNothing);
       expect(find.text('System proxy'), findsNothing);

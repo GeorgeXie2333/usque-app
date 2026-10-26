@@ -48,7 +48,6 @@ const Map<String, String> kEsCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch bloquea el tráfico de red hasta que se restablezca la conexión o te desconectes.',
   'connection_status': 'Estado de la conexión',
-  'outputs': '{tunnel} y proxies locales',
   'home': 'Inicio',
   'profiles': 'Cuentas',
   'profiles_subtitle': 'Cambiar y administrar las cuentas WARP.',
@@ -355,7 +354,6 @@ const Map<String, String> kEsCatalog = <String, String>{
   'invalid_address': 'Dirección no válida',
   'invalid_dns_name': 'Nombre DNS no válido',
   'invalid_cidr': 'CIDR no válido',
-  'diagnostics_title': 'Diagnóstico e información',
   'diagnostics_subtitle':
       'Revisa problemas de conexión, exporta registros y administra los datos locales.',
   'engine_status': 'Información de conexión',

@@ -47,7 +47,6 @@ const Map<String, String> kPtCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'O Kill Switch está bloqueando o tráfego de rede até que a conexão seja restaurada ou você se desconecte.',
   'connection_status': 'Status da conexão',
-  'outputs': '{tunnel} e proxies locais',
   'home': 'Início',
   'profiles': 'Contas',
   'profiles_subtitle': 'Alterne e gerencie contas WARP.',
@@ -352,7 +351,6 @@ const Map<String, String> kPtCatalog = <String, String>{
   'invalid_address': 'Endereço inválido',
   'invalid_dns_name': 'Nome DNS inválido',
   'invalid_cidr': 'CIDR inválido',
-  'diagnostics_title': 'Diagnóstico e informações',
   'diagnostics_subtitle':
       'Verifique problemas de conexão, exporte registros e gerencie os dados locais.',
   'engine_status': 'Informações da conexão',

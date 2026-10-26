@@ -47,7 +47,6 @@ const Map<String, String> kTrCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Bağlantı geri yüklenene veya bağlantıyı kesene kadar Kill Switch ağ trafiğini engelliyor.',
   'connection_status': 'Bağlantı durumu',
-  'outputs': '{tunnel} ve yerel proxy’ler',
   'home': 'Ana sayfa',
   'profiles': 'Hesaplar',
   'profiles_subtitle':
@@ -351,7 +350,6 @@ const Map<String, String> kTrCatalog = <String, String>{
   'invalid_address': 'Geçersiz adres',
   'invalid_dns_name': 'Geçersiz DNS adı',
   'invalid_cidr': 'Geçersiz CIDR',
-  'diagnostics_title': 'Tanılama ve uygulama hakkında',
   'diagnostics_subtitle':
       'Bağlantı sorunlarını kontrol edin, günlükleri dışa aktarın ve yerel verileri yönetin.',
   'engine_status': 'Bağlantı bilgileri',

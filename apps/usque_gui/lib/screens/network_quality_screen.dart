@@ -81,6 +81,17 @@ class NetworkQualityScreen extends StatelessWidget {
     final migration = snapshot?.migration ?? const MigrationQualityInfo();
     final dns = snapshot?.directDns ?? const DirectDnsQualityInfo();
     final migrationKnown = connected && h3 && snapshot != null;
+    final pmtuPhase = h2 ? 'unsupported' : pmtu.phaseCode;
+    final migrationPhase = h2 ? 'unsupported' : migration.phaseCode;
+    // Problems inside the folded group are counted on its heading, so a
+    // collapsed group never hides a degraded path.
+    final attention = !connected
+        ? 0
+        : <bool>[
+            _phaseTone(pmtuPhase) == StatusTone.warning,
+            _phaseTone(migrationPhase) == StatusTone.warning,
+            dns.phaseCode == 'degraded',
+          ].where((value) => value).length;
     final dnsKnown =
         connected &&
         (dns.mode == DirectDnsMode.doh || dns.mode == DirectDnsMode.dot);
@@ -200,23 +211,33 @@ class NetworkQualityScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  _QualityVerdict(
+                    label: s.get('nq_$level'),
+                    tone: switch (level) {
+                      'good' => StatusTone.success,
+                      'fair' => StatusTone.warning,
+                      'poor' => StatusTone.danger,
+                      _ => StatusTone.neutral,
+                    },
+                    icon: level == 'good'
+                        ? LucideIcons.circleCheck
+                        : LucideIcons.activity,
+                    // The two readings most users act on; everything else is
+                    // in the sections below.
+                    summary: connected && !state.stale && snapshot != null
+                        ? [
+                            '${s.get('nq_rtt')} ${ms(metrics.latestRttMilliseconds, metrics.latestRttAvailability)}',
+                            if (lossValue != null)
+                              '${s.get('nq_loss')} ${(lossValue / 100).toStringAsFixed(2)}%',
+                          ].join(' · ')
+                        : null,
+                  ),
+                  const SizedBox(height: 14),
                   Wrap(
                     spacing: 10,
                     runSpacing: 10,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: <Widget>[
-                      InlineStatus(
-                        label: s.get('nq_$level'),
-                        tone: switch (level) {
-                          'good' => StatusTone.success,
-                          'fair' => StatusTone.warning,
-                          'poor' => StatusTone.danger,
-                          _ => StatusTone.neutral,
-                        },
-                        icon: level == 'good'
-                            ? LucideIcons.circleCheck
-                            : LucideIcons.activity,
-                      ),
                       Text(
                         s.get(
                           controller.snapshot.isTransitional
@@ -418,219 +439,233 @@ class NetworkQualityScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                _QualitySection(
-                  title: s.get(h2 ? 'nq_h2_window' : 'nq_congestion'),
-                  icon: LucideIcons.waves,
-                  children: <Widget>[
-                    _Readouts(
-                      values: h2
-                          ? <(String, String)>[
-                              (
-                                s.get('nq_stream_window'),
-                                metrics.h2StreamReceiveWindowBytes > 0
-                                    ? qualityBytes(
-                                        metrics.h2StreamReceiveWindowBytes,
-                                      )
-                                    : s.get('nq_unavailable'),
-                              ),
-                              (
-                                s.get('nq_connection_window'),
-                                metrics.h2ConnectionReceiveWindowBytes > 0
-                                    ? qualityBytes(
-                                        metrics.h2ConnectionReceiveWindowBytes,
-                                      )
-                                    : s.get('nq_unavailable'),
-                              ),
-                              (
-                                s.get('nq_stalls'),
-                                count(
-                                  metrics.h2FlowControlStallCount,
-                                  metrics.h2StreamReceiveWindowBytes > 0,
-                                ),
-                              ),
-                            ]
-                          : <(String, String)>[
-                              (
-                                s.get('nq_cwnd'),
-                                qualityBytes(
-                                  availableMetric(
-                                    metrics.congestionWindowBytes,
-                                    metrics.congestionWindowAvailability,
-                                  ),
-                                ),
-                              ),
-                              (
-                                s.get('nq_in_flight'),
-                                qualityBytes(
-                                  availableMetric(
-                                    metrics.bytesInFlight,
-                                    metrics.bytesInFlightAvailability,
-                                  ),
-                                ),
-                              ),
-                              (
-                                s.get('nq_send_rate'),
-                                metrics.sendRateAvailability ==
-                                            MetricAvailability.available &&
-                                        metrics.sendRateBitsPerSecond != null
-                                    ? qualityByteRate(
-                                        metrics.sendRateBitsPerSecond! ~/ 8,
-                                      )
-                                    : s.get('nq_unavailable'),
-                              ),
-                            ],
-                    ),
-                  ],
-                ),
               ],
             ),
-            _QualitySections(
+            _AdvancedMetrics(
+              title: s.get('nq_advanced_metrics'),
+              attention: attention,
+              strings: s,
               children: <Widget>[
-                _QualitySection(
-                  title: s.get('nq_pmtu'),
-                  icon: LucideIcons.scanLine,
-                  help: ContextHelpButton(
-                    title: s.get('nq_pmtu'),
-                    message: s.get('nq_pmtu_help'),
-                    strings: s,
-                  ),
+                _QualitySections(
                   children: <Widget>[
-                    Text(_phase(s, h2 ? 'unsupported' : pmtu.phaseCode)),
-                    _Readouts(
-                      values: <(String, String)>[
-                        (
-                          s.get('nq_outer_pmtu'),
-                          h2
-                              ? s.get('nq_unsupported')
-                              : exactBytes(
-                                  availableMetric(
-                                    pmtu.outerPmtuBytes,
-                                    pmtu.availability,
+                    _QualitySection(
+                      title: s.get(h2 ? 'nq_h2_window' : 'nq_congestion'),
+                      icon: LucideIcons.waves,
+                      children: <Widget>[
+                        _Readouts(
+                          values: h2
+                              ? <(String, String)>[
+                                  (
+                                    s.get('nq_stream_window'),
+                                    metrics.h2StreamReceiveWindowBytes > 0
+                                        ? qualityBytes(
+                                            metrics.h2StreamReceiveWindowBytes,
+                                          )
+                                        : s.get('nq_unavailable'),
                                   ),
-                                ),
-                        ),
-                        (
-                          s.get('nq_inner_payload'),
-                          l4
-                              ? s.get('l4_not_applicable')
-                              : h2
-                              ? s.get('nq_unsupported')
-                              : exactBytes(
-                                  availableMetric(
-                                    pmtu.effectiveConnectIpPayloadBytes,
-                                    pmtu.effectivePayloadAvailability,
+                                  (
+                                    s.get('nq_connection_window'),
+                                    metrics.h2ConnectionReceiveWindowBytes > 0
+                                        ? qualityBytes(
+                                            metrics
+                                                .h2ConnectionReceiveWindowBytes,
+                                          )
+                                        : s.get('nq_unavailable'),
                                   ),
-                                ),
+                                  (
+                                    s.get('nq_stalls'),
+                                    count(
+                                      metrics.h2FlowControlStallCount,
+                                      metrics.h2StreamReceiveWindowBytes > 0,
+                                    ),
+                                  ),
+                                ]
+                              : <(String, String)>[
+                                  (
+                                    s.get('nq_cwnd'),
+                                    qualityBytes(
+                                      availableMetric(
+                                        metrics.congestionWindowBytes,
+                                        metrics.congestionWindowAvailability,
+                                      ),
+                                    ),
+                                  ),
+                                  (
+                                    s.get('nq_in_flight'),
+                                    qualityBytes(
+                                      availableMetric(
+                                        metrics.bytesInFlight,
+                                        metrics.bytesInFlightAvailability,
+                                      ),
+                                    ),
+                                  ),
+                                  (
+                                    s.get('nq_send_rate'),
+                                    metrics.sendRateAvailability ==
+                                                MetricAvailability.available &&
+                                            metrics.sendRateBitsPerSecond !=
+                                                null
+                                        ? qualityByteRate(
+                                            metrics.sendRateBitsPerSecond! ~/ 8,
+                                          )
+                                        : s.get('nq_unavailable'),
+                                  ),
+                                ],
+                        ),
+                      ],
+                    ),
+                    _QualitySection(
+                      title: s.get('nq_pmtu'),
+                      icon: LucideIcons.scanLine,
+                      help: ContextHelpButton(
+                        title: s.get('nq_pmtu'),
+                        message: s.get('nq_pmtu_help'),
+                        strings: s,
+                      ),
+                      children: <Widget>[
+                        _phaseStatus(s, pmtuPhase),
+                        _Readouts(
+                          values: <(String, String)>[
+                            (
+                              s.get('nq_outer_pmtu'),
+                              h2
+                                  ? s.get('nq_unsupported')
+                                  : exactBytes(
+                                      availableMetric(
+                                        pmtu.outerPmtuBytes,
+                                        pmtu.availability,
+                                      ),
+                                    ),
+                            ),
+                            (
+                              s.get('nq_inner_payload'),
+                              l4
+                                  ? s.get('l4_not_applicable')
+                                  : h2
+                                  ? s.get('nq_unsupported')
+                                  : exactBytes(
+                                      availableMetric(
+                                        pmtu.effectiveConnectIpPayloadBytes,
+                                        pmtu.effectivePayloadAvailability,
+                                      ),
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    _QualitySection(
+                      title: s.get('nq_migration'),
+                      icon: LucideIcons.route,
+                      help: ContextHelpButton(
+                        title: s.get('nq_migration'),
+                        message: s.get('nq_migration_help'),
+                        strings: s,
+                      ),
+                      children: <Widget>[
+                        _phaseStatus(s, migrationPhase),
+                        _Readouts(
+                          values: <(String, String)>[
+                            (
+                              s.get('nq_attempts'),
+                              count(migration.attemptCount, migrationKnown),
+                            ),
+                            (
+                              s.get('nq_successes'),
+                              count(migration.successCount, migrationKnown),
+                            ),
+                            (
+                              s.get('nq_failures'),
+                              count(migration.failureCount, migrationKnown),
+                            ),
+                            (
+                              s.get('nq_last_duration'),
+                              !migrationKnown ||
+                                      migration.lastDurationMilliseconds == null
+                                  ? s.get('nq_not_ready')
+                                  : '${migration.lastDurationMilliseconds} ms',
+                            ),
+                          ],
+                        ),
+                        if (migration.lastReasonCode.isNotEmpty)
+                          Text(_reason(s, migration.lastReasonCode)),
+                      ],
+                    ),
+                    _QualitySection(
+                      title: s.get('nq_direct_dns'),
+                      icon: LucideIcons.shieldCheck,
+                      children: <Widget>[
+                        Text(
+                          s.get(switch (dns.mode) {
+                            DirectDnsMode.physicalSystem => 'nq_system_dns',
+                            DirectDnsMode.doh => 'nq_doh',
+                            DirectDnsMode.dot => 'nq_dot',
+                            _ => 'nq_unavailable',
+                          }),
+                        ),
+                        InlineStatus(
+                          label: s.get(switch (dns.phaseCode) {
+                            'ready' || 'system' => 'nq_ready',
+                            'degraded' => 'nq_degraded',
+                            'connecting' => 'nq_connecting',
+                            _ => 'nq_not_ready',
+                          }),
+                          tone: switch (dns.phaseCode) {
+                            'ready' || 'system' => StatusTone.success,
+                            'degraded' => StatusTone.warning,
+                            _ => StatusTone.neutral,
+                          },
+                        ),
+                        _Readouts(
+                          values: <(String, String)>[
+                            (
+                              s.get('nq_last_rtt'),
+                              !dnsKnown || dns.lastRttMilliseconds == null
+                                  ? s.get('nq_not_ready')
+                                  : '${dns.lastRttMilliseconds} ms',
+                            ),
+                            (
+                              s.get('nq_successes'),
+                              count(dns.successCount, dnsKnown),
+                            ),
+                            (
+                              s.get('nq_failures'),
+                              count(dns.failureCount, dnsKnown),
+                            ),
+                            (
+                              s.get('nq_timeouts'),
+                              count(dns.timeoutCount, dnsKnown),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ],
                 ),
                 _QualitySection(
-                  title: s.get('nq_migration'),
-                  icon: LucideIcons.route,
-                  help: ContextHelpButton(
-                    title: s.get('nq_migration'),
-                    message: s.get('nq_migration_help'),
-                    strings: s,
-                  ),
+                  title: s.get('nq_queues'),
+                  icon: LucideIcons.layers3,
                   children: <Widget>[
-                    Text(_phase(s, h2 ? 'unsupported' : migration.phaseCode)),
-                    _Readouts(
-                      values: <(String, String)>[
-                        (
-                          s.get('nq_attempts'),
-                          count(migration.attemptCount, migrationKnown),
+                    if (queues.isEmpty) Text(s.get('nq_queue_empty')),
+                    for (final queue in mainQueues)
+                      _QueueReadout(queue: queue, strings: s),
+                    if (lowQueues.isNotEmpty)
+                      ExpansionTile(
+                        // Keep expansion state separate from PageFrame's scroll offset.
+                        key: const PageStorageKey<String>(
+                          'network-quality-low-level-queues',
                         ),
-                        (
-                          s.get('nq_successes'),
-                          count(migration.successCount, migrationKnown),
-                        ),
-                        (
-                          s.get('nq_failures'),
-                          count(migration.failureCount, migrationKnown),
-                        ),
-                        (
-                          s.get('nq_last_duration'),
-                          !migrationKnown ||
-                                  migration.lastDurationMilliseconds == null
-                              ? s.get('nq_not_ready')
-                              : '${migration.lastDurationMilliseconds} ms',
-                        ),
-                      ],
-                    ),
-                    if (migration.lastReasonCode.isNotEmpty)
-                      Text(_reason(s, migration.lastReasonCode)),
+                        title: Text(s.get('nq_queue_details')),
+                        children: <Widget>[
+                          for (final queue in lowQueues)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: _QueueReadout(queue: queue, strings: s),
+                            ),
+                        ],
+                      ),
                   ],
                 ),
-                _QualitySection(
-                  title: s.get('nq_direct_dns'),
-                  icon: LucideIcons.shieldCheck,
-                  children: <Widget>[
-                    Text(
-                      s.get(switch (dns.mode) {
-                        DirectDnsMode.physicalSystem => 'nq_system_dns',
-                        DirectDnsMode.doh => 'nq_doh',
-                        DirectDnsMode.dot => 'nq_dot',
-                        _ => 'nq_unavailable',
-                      }),
-                    ),
-                    Text(
-                      s.get(switch (dns.phaseCode) {
-                        'ready' || 'system' => 'nq_ready',
-                        'degraded' => 'nq_degraded',
-                        'connecting' => 'nq_connecting',
-                        _ => 'nq_not_ready',
-                      }),
-                    ),
-                    _Readouts(
-                      values: <(String, String)>[
-                        (
-                          s.get('nq_last_rtt'),
-                          !dnsKnown || dns.lastRttMilliseconds == null
-                              ? s.get('nq_not_ready')
-                              : '${dns.lastRttMilliseconds} ms',
-                        ),
-                        (
-                          s.get('nq_successes'),
-                          count(dns.successCount, dnsKnown),
-                        ),
-                        (
-                          s.get('nq_failures'),
-                          count(dns.failureCount, dnsKnown),
-                        ),
-                        (
-                          s.get('nq_timeouts'),
-                          count(dns.timeoutCount, dnsKnown),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            _QualitySection(
-              title: s.get('nq_queues'),
-              icon: LucideIcons.layers3,
-              children: <Widget>[
-                if (queues.isEmpty) Text(s.get('nq_queue_empty')),
-                for (final queue in mainQueues)
-                  _QueueReadout(queue: queue, strings: s),
-                if (lowQueues.isNotEmpty)
-                  ExpansionTile(
-                    // Keep expansion state separate from PageFrame's scroll offset.
-                    key: const PageStorageKey<String>(
-                      'network-quality-low-level-queues',
-                    ),
-                    title: Text(s.get('nq_queue_details')),
-                    children: <Widget>[
-                      for (final queue in lowQueues)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: _QueueReadout(queue: queue, strings: s),
-                        ),
-                    ],
-                  ),
               ],
             ),
             Text(s.get('nq_doctor_help')),
@@ -644,6 +679,15 @@ class NetworkQualityScreen extends StatelessWidget {
     );
   }
 }
+
+StatusTone _phaseTone(String value) => switch (value) {
+  'degraded' || 'aborted' => StatusTone.warning,
+  'validated' || 'stable' => StatusTone.success,
+  _ => StatusTone.neutral,
+};
+
+InlineStatus _phaseStatus(AppStrings strings, String value) =>
+    InlineStatus(label: _phase(strings, value), tone: _phaseTone(value));
 
 String _phase(AppStrings strings, String value) {
   const allowed = <String>{
@@ -677,6 +721,99 @@ String _reason(AppStrings strings, String value) {
   };
   return strings.get(
     'nq_reason_${allowed.contains(value) ? value : 'unknown'}',
+  );
+}
+
+/// The overall level in display size, with the latest round trip and loss,
+/// so the answer to "is my connection OK?" is the first thing on the page.
+class _QualityVerdict extends StatelessWidget {
+  const _QualityVerdict({
+    required this.label,
+    required this.tone,
+    required this.icon,
+    this.summary,
+  });
+  final String label;
+  final StatusTone tone;
+  final IconData icon;
+  final String? summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      container: true,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: ExcludeSemantics(
+              child: Icon(
+                icon,
+                size: 28,
+                color: statusToneColor(context, tone),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(label, style: theme.textTheme.headlineSmall),
+                if (summary case final summary?) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Text(
+                    summary,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Transport internals for troubleshooting, folded below the everyday
+/// readings. Opens on first view when one of them needs attention.
+class _AdvancedMetrics extends StatelessWidget {
+  const _AdvancedMetrics({
+    required this.title,
+    required this.attention,
+    required this.strings,
+    required this.children,
+  });
+  final String title;
+  final int attention;
+  final AppStrings strings;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => ExpansionTile(
+    key: const PageStorageKey<String>('network-quality-advanced-metrics'),
+    initiallyExpanded: attention > 0,
+    tilePadding: EdgeInsets.zero,
+    childrenPadding: EdgeInsets.zero,
+    expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+    title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+    subtitle: attention == 0
+        ? null
+        : Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: InlineStatus(
+              label: strings
+                  .get('nq_attention_count')
+                  .replaceAll('{count}', '$attention'),
+              tone: StatusTone.warning,
+            ),
+          ),
+    children: children,
   );
 }
 

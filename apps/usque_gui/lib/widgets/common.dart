@@ -1040,6 +1040,7 @@ class WarningBanner extends StatelessWidget {
     required this.message,
     this.onDismiss,
     this.danger = false,
+    this.action,
     super.key,
   });
 
@@ -1048,6 +1049,9 @@ class WarningBanner extends StatelessWidget {
   final String message;
   final VoidCallback? onDismiss;
   final bool danger;
+
+  /// A next step for the reported problem, placed under the message.
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -1091,6 +1095,13 @@ class WarningBanner extends StatelessWidget {
                       const SizedBox(height: 3),
                     ],
                     Text(message, style: theme.textTheme.bodyMedium),
+                    if (action case final action?) ...<Widget>[
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: action,
+                      ),
+                    ],
                   ],
                 ),
               ),

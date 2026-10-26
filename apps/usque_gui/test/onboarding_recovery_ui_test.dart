@@ -49,6 +49,34 @@ class _PermissionScenarioEngine extends FakeEngineClient {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+  for (final (name, size, wide) in [
+    ('wide', const Size(1280, 900), true),
+    ('narrow', const Size(390, 844), false),
+  ]) {
+    testWidgets('welcome states the non-affiliation notice once: $name', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final app = AppController(FakeEngineClient())
+        ..localePreference = LocalePreference.english;
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        workflowHost(app, home: OnboardingScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(app.strings.get('welcome_title')), findsOneWidget);
+      // The wide brand pane carries the notice on every step, so the
+      // welcome step explains what comes next instead of repeating it.
+      expect(find.text(app.strings.get('unofficial')), findsOneWidget);
+      expect(
+        find.text(app.strings.get('welcome_body')),
+        wide ? findsOneWidget : findsNothing,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets(
     'pending setup permits a read-only check but blocks an actual busy operation',
     (tester) async {

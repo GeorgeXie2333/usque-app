@@ -311,8 +311,9 @@ not request it. Granting Android's VPN authorization may disconnect another
 active VPN. Setup checks interrupted account operations before registering
 again; use **Check result** or **Continue with saved account** when offered.
 
-After setup, choose outputs in **Proxy → VPN and local proxies**, then connect
-from Home. Proxy-only operation does not start a VPN. If Android has revoked VPN
+After setup, open **Proxy** and choose outputs: **VPN** under **Device
+traffic**, and the SOCKS5 or HTTP proxy with the switch at the top of its own
+section. Then connect from Home. Proxy-only operation does not start a VPN. If Android has revoked VPN
 consent, enabling VPN output requests it again.
 
 ### Quick Settings control

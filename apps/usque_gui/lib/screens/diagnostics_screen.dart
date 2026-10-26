@@ -1,10 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/connection_presentation.dart';
 import '../core/diagnostics_strings.dart';
-import '../core/legal_links.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../models/diagnostics_models.dart';
@@ -13,8 +14,19 @@ import '../widgets/common.dart';
 import '../widgets/connection_timeline.dart';
 import '../widgets/desktop_shortcuts.dart';
 import '../widgets/diagnostic_check_tile.dart';
-import '../widgets/external_link.dart';
 import '../widgets/usque_dialog.dart';
+
+/// Starts a Standard run unless one is already starting, running or stopping.
+/// Standard checks do not send traffic or change settings.
+void startStandardDiagnostics(AppController controller) {
+  final diagnostics = controller.diagnostics;
+  if (diagnostics.isActive ||
+      diagnostics.state == DiagnosticsControllerState.starting ||
+      diagnostics.state == DiagnosticsControllerState.cancelling) {
+    return;
+  }
+  unawaited(diagnostics.start(DiagnosticMode.standard));
+}
 
 class DiagnosticsScreen extends StatefulWidget {
   const DiagnosticsScreen({required this.controller, super.key});
@@ -85,23 +97,11 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
       child: SubPage(
-        title: strings.get('diagnostics_title'),
+        // Version, source and licences live in About; this page only checks
+        // and records the connection.
+        title: strings.get('diagnostics'),
         subtitle: strings.get('diagnostics_page_subtitle'),
         backLabel: strings.get('back'),
-        actions: <Widget>[
-          OutlinedButton.icon(
-            onPressed: diagnostics.timelineLoading
-                ? null
-                : diagnostics.loadTimeline,
-            icon: diagnostics.timelineLoading
-                ? const SizedBox.square(
-                    dimension: 17,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(LucideIcons.refreshCw),
-            label: Text(strings.get('diag_refresh_timeline')),
-          ),
-        ],
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -190,44 +190,6 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 _ExportPanel(
                   controller: controller,
                   onExport: () => _confirmAndExport(context),
-                ),
-                ContentSection(
-                  icon: LucideIcons.info,
-                  title: 'Usque',
-                  subtitle: strings.get('unofficial'),
-                  children: <Widget>[
-                    ReadoutRow(
-                      icon: LucideIcons.tag,
-                      label: strings.get('version'),
-                      value: MonoValue(value: strings.get('app_version')),
-                    ),
-                    const SizedBox(height: 12),
-                    ExpansionTile(
-                      key: const PageStorageKey<String>(
-                        'app-technical-details',
-                      ),
-                      title: Text(strings.get('technical_details')),
-                      tilePadding: EdgeInsets.zero,
-                      childrenPadding: const EdgeInsets.only(bottom: 16),
-                      expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: const <Widget>[
-                        SelectableText(
-                          'IPC API: usque.v1',
-                          key: PageStorageKey<String>('app-ipc-api'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Align(
-                      alignment: AlignmentDirectional.centerEnd,
-                      child: OutlinedButton.icon(
-                        onPressed: () =>
-                            openExternalLink(context, strings, kSourceCodeUrl),
-                        icon: const Icon(LucideIcons.code2),
-                        label: Text(strings.get('source_code')),
-                      ),
-                    ),
-                  ],
                 ),
                 _DangerPanel(
                   controller: controller,
@@ -613,10 +575,25 @@ class _TimelinePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
+    final diagnostics = controller.diagnostics;
     return ContentSection(
       icon: LucideIcons.gitCommitVertical,
       title: strings.get('diag_timeline'),
       subtitle: strings.get('diag_timeline_subtitle'),
+      // Refresh belongs to the timeline it reloads (also F5 on desktop).
+      trailing: IconButton(
+        key: const ValueKey('diag-refresh-timeline'),
+        tooltip: strings.get('diag_refresh_timeline'),
+        onPressed: diagnostics.timelineLoading
+            ? null
+            : diagnostics.loadTimeline,
+        icon: diagnostics.timelineLoading
+            ? const SizedBox.square(
+                dimension: 17,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(LucideIcons.refreshCw),
+      ),
       children: <Widget>[
         ConnectionTimelineView(
           timeline: controller.diagnostics.timeline,

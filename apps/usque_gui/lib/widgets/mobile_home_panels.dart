@@ -279,7 +279,8 @@ class MobileConnectionOverview extends StatelessWidget {
                               label: strings.get('home_exit_region'),
                               child: Tooltip(
                                 message:
-                                    location ?? strings.get('not_available'),
+                                    location ??
+                                    strings.get('home_exit_unknown'),
                                 child: Row(
                                   children: [
                                     CountryFlag(
@@ -289,7 +290,7 @@ class MobileConnectionOverview extends StatelessWidget {
                                     Expanded(
                                       child: Text(
                                         location ??
-                                            strings.get('not_available'),
+                                            strings.get('home_exit_unknown'),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.titleSmall,

@@ -373,30 +373,44 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         ],
         bottomBar: AnimatedBuilder(
           animation: widget.controller,
-          builder: (context, _) => SaveChangesBar(
-            strings: strings,
-            dirty: _dirty,
-            saving: _saving,
-            saved: _saved,
-            statusLabel:
-                !_dirty ||
-                    widget.controller.networkSettings.unconfirmed ||
-                    widget.controller.networkSettings.saveError != null
+          builder: (context, _) {
+            final settings = widget.controller.networkSettings;
+            final statusLabel =
+                !_dirty || settings.unconfirmed || settings.saveError != null
                 ? widget.controller.networkSettingsMessage
-                : null,
-            onReconnect: widget.controller.networkSettingsCanReconnect
+                : null;
+            final onReconnect = widget.controller.networkSettingsCanReconnect
                 ? widget.controller.retry
-                : null,
-            onRefresh: widget.controller.networkSettings.canRefresh
-                ? widget.controller.networkSettings.refresh
-                : null,
-            refreshing: widget.controller.networkSettings.refreshing,
-            error: _saveError,
-            validationError: _validationError,
-            contentWidth: 880,
-            matchPageGutter: true,
-            onSave: _save,
-          ),
+                : null;
+            final onRefresh = settings.canRefresh ? settings.refresh : null;
+            return RevealedSaveBar(
+              visible: RevealedSaveBar.hasContent(
+                dirty: _dirty,
+                saving: _saving,
+                saved: _saved,
+                error: _saveError,
+                validationError: _validationError,
+                statusLabel: statusLabel,
+                onReconnect: onReconnect,
+                onRefresh: onRefresh,
+              ),
+              child: SaveChangesBar(
+                strings: strings,
+                dirty: _dirty,
+                saving: _saving,
+                saved: _saved,
+                statusLabel: statusLabel,
+                onReconnect: onReconnect,
+                onRefresh: onRefresh,
+                refreshing: settings.refreshing,
+                error: _saveError,
+                validationError: _validationError,
+                contentWidth: 880,
+                matchPageGutter: true,
+                onSave: _save,
+              ),
+            );
+          },
         ),
         child: Form(
           key: _formKey,

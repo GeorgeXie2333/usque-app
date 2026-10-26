@@ -47,7 +47,6 @@ const Map<String, String> kFaCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch تا زمان بازیابی اتصال یا قطع اتصال توسط شما، ترافیک شبکه را مسدود می‌کند.',
   'connection_status': 'وضعیت اتصال',
-  'outputs': '{tunnel} و پروکسی‌های محلی',
   'home': 'خانه',
   'profiles': 'حساب‌ها',
   'profiles_subtitle': 'حساب‌های WARP را عوض و مدیریت کنید.',
@@ -346,7 +345,6 @@ const Map<String, String> kFaCatalog = <String, String>{
   'invalid_address': 'نشانی نامعتبر',
   'invalid_dns_name': 'نام DNS نامعتبر',
   'invalid_cidr': 'CIDR نامعتبر',
-  'diagnostics_title': 'عیب‌یابی و اطلاعات برنامه',
   'diagnostics_subtitle':
       'مشکلات اتصال را بررسی کنید، گزارش‌ها را خروجی بگیرید و داده‌های محلی را مدیریت کنید.',
   'engine_status': 'اطلاعات اتصال',

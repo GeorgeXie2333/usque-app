@@ -48,7 +48,6 @@ const Map<String, String> kDeCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch blockiert den Netzwerkverkehr, bis die Verbindung wiederhergestellt ist oder du sie trennst.',
   'connection_status': 'Verbindungsstatus',
-  'outputs': '{tunnel} und lokale Proxys',
   'home': 'Start',
   'profiles': 'Konten',
   'profiles_subtitle': 'WARP-Konten wechseln und verwalten.',
@@ -356,7 +355,6 @@ const Map<String, String> kDeCatalog = <String, String>{
   'invalid_address': 'Ungültige Adresse',
   'invalid_dns_name': 'Ungültiger DNS-Name',
   'invalid_cidr': 'Ungültiges CIDR',
-  'diagnostics_title': 'Diagnose und Informationen',
   'diagnostics_subtitle':
       'Verbindungsprobleme prüfen, Protokolle exportieren und lokale Daten verwalten.',
   'engine_status': 'Verbindungsinformationen',

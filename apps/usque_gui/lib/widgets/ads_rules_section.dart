@@ -55,7 +55,25 @@ class AdsRulesSection extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(LucideIcons.megaphoneOff),
               title: Text(strings.get('routing_ads')),
-              subtitle: Text(strings.get(status)),
+              // Whether blocking is actually in effect is a state, not a
+              // hint, so it reads as one; the other lines explain next steps.
+              subtitle: switch (status) {
+                'ads_active' => Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: InlineStatus(
+                    label: strings.get(status),
+                    tone: StatusTone.success,
+                  ),
+                ),
+                'ads_missing' => Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: InlineStatus(
+                    label: strings.get(status),
+                    tone: StatusTone.warning,
+                  ),
+                ),
+                _ => Text(strings.get(status)),
+              },
               value: enabled,
               onChanged: onChanged,
             ),

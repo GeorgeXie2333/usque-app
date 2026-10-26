@@ -67,6 +67,23 @@ class AboutScreen extends StatelessWidget {
               ),
             ],
           ),
+          // Shares the notice's text edge above the links.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: ExpansionTile(
+              key: const PageStorageKey<String>('app-technical-details'),
+              title: Text(strings.get('technical_details')),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 16),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+              children: const <Widget>[
+                SelectableText(
+                  'IPC API: usque.v1',
+                  key: PageStorageKey<String>('app-ipc-api'),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

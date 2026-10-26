@@ -772,9 +772,9 @@ void main() {
                   isTrue,
                 );
                 for (final target in [
-                  '1. example.com',
-                  '2. ads.example.com',
-                  '3. 192.0.2.7/32',
+                  'example.com',
+                  'ads.example.com',
+                  '192.0.2.7/32',
                 ]) {
                   _expectInViewport(tester, find.text(target), fixture.size);
                 }

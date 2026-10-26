@@ -45,7 +45,6 @@ const Map<String, String> kArCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'يحظر Kill Switch حركة مرور الشبكة حتى تتم استعادة الاتصال أو تقطع الاتصال.',
   'connection_status': 'حالة الاتصال',
-  'outputs': '{tunnel} والوكلاء المحليون',
   'home': 'الرئيسية',
   'profiles': 'الحسابات',
   'profiles_subtitle': 'بدّل حسابات WARP وأدرها.',
@@ -340,7 +339,6 @@ const Map<String, String> kArCatalog = <String, String>{
   'invalid_address': 'عنوان غير صالح',
   'invalid_dns_name': 'اسم DNS غير صالح',
   'invalid_cidr': 'CIDR غير صالح',
-  'diagnostics_title': 'التشخيص ومعلومات التطبيق',
   'diagnostics_subtitle':
       'تحقق من مشكلات الاتصال وصدّر السجلات وأدِر البيانات المحلية.',
   'engine_status': 'معلومات الاتصال',

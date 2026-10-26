@@ -5,7 +5,7 @@ import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/diagnostics_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/diagnostics_models.dart';
-import 'package:usque/screens/diagnostics_screen.dart';
+import 'package:usque/screens/about_screen.dart';
 import 'package:usque/screens/network_quality_screen.dart';
 import 'package:usque/widgets/diagnostic_finding_card.dart';
 
@@ -134,6 +134,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(budget), findsNothing);
     expect(find.text(app.strings.get('nq_pmtu_help')), findsNothing);
+    final advanced = find.text(app.strings.get('nq_advanced_metrics'));
+    await tester.ensureVisible(advanced);
+    if (find.byTooltip(app.strings.get('nq_pmtu')).evaluate().isEmpty) {
+      await tester.tap(advanced);
+      await tester.pumpAndSettle();
+    }
     final help = find.byTooltip(app.strings.get('nq_pmtu'));
     await tester.ensureVisible(help);
     await tester.tap(help);
@@ -155,7 +161,7 @@ void main() {
       final app = qualityApp(QualityEngineStub());
       addTearDown(app.dispose);
       await tester.pumpWidget(
-        workflowHost(app, home: DiagnosticsScreen(controller: app)),
+        workflowHost(app, home: AboutScreen(controller: app)),
       );
       await tester.pumpAndSettle();
       expect(find.text('IPC API: usque.v1'), findsNothing);
