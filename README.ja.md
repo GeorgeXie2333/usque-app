@@ -51,12 +51,12 @@ Usque は独立したプロジェクトです。Cloudflare, Inc. との提携関
 
 ## ダウンロードとインストール
 
-安定版 Latest は [**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) のままです。このブランチでは **v0.3.3-beta.2 / 0.3.3-beta.2+28** を準備しています。手動インストール用のプレリリースで、継続接続とプロキシの復旧、Linux の起動と診断、Proton の認証とサーバー選択を改善します。テスト前にバックアップしてください。Beta 自動更新チャンネルや別のアプリ識別子は追加しません。[GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) と対応するタグの文書を確認してください。Beta は利用者向け 12 種類のパッケージと、アプリ内更新専用の Windows MSI 2 個を対象とします。
+このブランチでは **v0.3.3 / 0.3.3+29** を準備しています。Linux デスクトップ版、選択可能な Proton VPN、日常の接続体験の改善を提供します。公開版は [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) と対応するタグの文書を確認してください。利用者向け 12 種類のパッケージと、アプリ内更新専用の Windows MSI 2 個を予定しています。
 
 | プラットフォーム | 最低 OS 要件 | パッケージ |
 | --- | --- | --- |
 | Windows | Windows 10 2004、ビルド 19041 | x64-v2 または ARM64 の EXE インストーラー |
-| Linux（未リリース） | Ubuntu 22.04+、Debian 12+、サポート中の Fedora；systemd | amd64 / arm64 × AppImage / deb / rpm |
+| Linux（v0.3.3） | Ubuntu 22.04+、Debian 12+、サポート中の Fedora；systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0、API 26 | arm64-v8a、x86_64、armeabi-v7a の APK |
 | Android / Android TV | Android 8.0、API 26 | 上記 3 種類の ABI を含むユニバーサル APK |
 

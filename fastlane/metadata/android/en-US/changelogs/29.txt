@@ -1,0 +1,2 @@
+Linux desktop is here, with optional Proton VPN support.
+Enjoy a clearer home screen, improved network checks and connection recovery, and updated translations.

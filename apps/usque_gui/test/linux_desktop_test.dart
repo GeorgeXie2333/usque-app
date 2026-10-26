@@ -77,11 +77,11 @@ void main() {
         final controller = AppController(engine, updateDownloader: downloader);
         addTearDown(controller.dispose);
         await controller.initialize();
-        final name = 'usque-v0.3.3-linux-amd64.$format';
+        final name = 'usque-v0.3.4-linux-amd64.$format';
         final path = 'test-update-cache/$name';
         controller.updateResult = UpdateCheckResult(
           available: true,
-          version: 'v0.3.3',
+          version: 'v0.3.4',
           package: UpdatePackage(
             name: name,
             downloadUrl: 'https://example.invalid/$name',

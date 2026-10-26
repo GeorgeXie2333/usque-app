@@ -85,10 +85,10 @@ class BetaReleaseTests(unittest.TestCase):
         with self.assertRaises(release_contract.ContractError):
             release_contract.verify_beta_ci({"workflow_runs": [previous]}, self.commit, self.tag)
 
-    def test_beta_workflow_is_not_latest_and_preserves_stable_gate(self):
+    def test_stable_workflow_preserves_both_release_gates(self):
         workflow = (linux_package.ROOT / ".github/workflows/release.yml").read_text()
-        self.assertIn("prerelease: true", workflow)
-        self.assertIn("make_latest: false", workflow)
+        self.assertIn("prerelease: false", workflow)
+        self.assertIn("make_latest: true", workflow)
         self.assertIn("draft: false", workflow)
         self.assertIn("verify-main-ci", workflow)
         self.assertIn("verify-beta-ci", workflow)

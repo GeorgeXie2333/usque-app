@@ -51,12 +51,12 @@ Usque پروژه‌ای مستقل است. به Cloudflare, Inc. وابسته ن
 
 ## دانلود و نصب
 
-نسخهٔ پایدار Latest همچنان [**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) است. این شاخه **v0.3.3-beta.2 / 0.3.3-beta.2+28** را آماده می‌کند: پیش‌انتشاری برای نصب دستی، با بهبود بازیابی اتصال و پروکسی، راه‌اندازی و عیب‌یابی Linux و تأیید Proton و انتخاب سرور. پیش از آزمایش پشتیبان بگیرید؛ کانال به‌روزرسانی خودکار Beta یا شناسهٔ برنامهٔ جداگانه اضافه نمی‌شود. از [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) و مستندات برچسب متناظر استفاده کنید. Beta شامل دوازده نصب‌کنندهٔ کاربر و دو فایل Windows MSI ویژهٔ به‌روزرسانی درون‌برنامه خواهد بود:
+این شاخه **v0.3.3 / 0.3.3+29** را آماده می‌کند: نسخهٔ دسکتاپ Linux، پشتیبانی اختیاری Proton VPN و بهبود اتصال روزمره. برای نسخه‌های منتشرشده به [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) و مستندات برچسب مربوط مراجعه کنید. دوازده نصب‌کنندهٔ کاربر و دو فایل Windows MSI ویژهٔ به‌روزرسانی درون‌برنامه پیش‌بینی شده است:
 
 | سکو | حداقل سیستم | بسته‌ها |
 | --- | --- | --- |
 | Windows | Windows 10 2004، build 19041 | نصب‌کنندهٔ EXE برای x64-v2 یا نصب‌کنندهٔ EXE برای ARM64 |
-| Linux (منتشرنشده) | Ubuntu 22.04+، Debian 12+، Fedora پشتیبانی‌شده؛ systemd | amd64 / arm64 × AppImage / deb / rpm |
+| Linux (v0.3.3) | Ubuntu 22.04+، Debian 12+، Fedora پشتیبانی‌شده؛ systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0، API 26 | APK برای arm64-v8a، x86_64 یا armeabi-v7a |
 | Android / Android TV | Android 8.0، API 26 | APK یکپارچه شامل هر سه ABI |
 

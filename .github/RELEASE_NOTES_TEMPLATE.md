@@ -4,25 +4,31 @@ Keep it short: one line per item, English first, then Simplified Chinese.
 Rendering is not approval.
 -->
 
-## Usque {{release_tag}} pre-release / Usque {{release_tag}} 预发布
+## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 
-Usque {{release_tag}} is a pre-release that improves continuous connection and proxy recovery, Linux startup and network diagnostics, and Proton verification and server selection.
+Usque {{release_tag}} brings a Linux desktop app, adds optional Proton VPN support, and makes everyday connections easier to manage.
 
-Usque {{release_tag}} 是一个预发布版本，改进持续连接与代理恢复、Linux 启动与网络诊断，以及 Proton 验证和节点选择体验。
+Usque {{release_tag}} 带来 Linux 桌面版和可选的 Proton VPN 支持，让日常连接更容易管理。
 
 ## Highlights / 更新亮点 ✨
 
-- **Connection and proxy recovery** — Cancellable recovery handles recoverable transport failures while local HTTP/SOCKS listeners stay available with bounded waiting queues; stop, credential, configuration and protection failures still end the attempt.
-  <br>**连接与代理恢复** — 可取消的恢复处理可恢复传输故障，本地 HTTP/SOCKS 监听保持可用并采用有界等待队列；停止、凭据、配置及保护失败仍会终止尝试。
+- **Linux desktop** — Usque is now available on Linux, with downloads for different devices and popular distributions.
+  <br>**Linux 桌面版** — 现在可以在 Linux 上使用 Usque，并为不同设备和常见发行版提供下载。
 
-- **Linux recovery and startup** — Preserve TUN failure and cleanup diagnostics, select physical egress through kernel route queries, and defer sensitive initialization and disk writes to keep startup and settings responsive.
-  <br>**Linux 恢复与启动** — 保留 TUN 故障和清理诊断，通过内核路由查询选择物理出口，并延后敏感初始化和磁盘写入，改善启动与设置响应。
+- **Proton VPN (experimental)** — Use Proton VPN with WARP, sign in or continue as a guest, and choose a server by country or city. You can also select another server while connected.
+  <br>**Proton VPN（实验性）** — 在 WARP 连接基础上使用 Proton VPN，支持账号登录或游客模式，并可按国家和城市选择节点；连接期间也能选择其他节点。
 
-- **Proton verification and selection** — Restore desktop verification callbacks, use a full-screen Android verification window, and add server country flags and a persistent scrollbar. Complete official human verification yourself; flags describe directory metadata, not proven egress geography.
-  <br>**Proton 验证与选择** — 修复桌面验证回调，Android 使用全屏验证窗口，并新增节点国家旗帜与常显滚动条。官方人机验证需本人完成；旗帜表示目录元数据，不证明实际出口地区。
+- **A clearer home screen** — See your connection, selected exit and traffic together in a layout adapted to your device.
+  <br>**更清晰的首页** — 在一处查看连接状态、所选出口和流量，桌面与手机布局都更加清晰。
 
-- **Certificate-validation maintenance** — Update webpki and root-certificate dependencies while retaining strict endpoint authentication and pin checks.
-  <br>**证书校验维护** — 更新 webpki 与根证书依赖，保留严格的端点认证和公钥校验。
+- **More intuitive network checks** — Network quality and diagnostics now present results and suggested next steps more clearly.
+  <br>**更直观的网络检查** — 网络质量和诊断页面更清楚地展示结果与建议。
+
+- **Connection recovery** — Improved recovery after network changes and connection interruptions.
+  <br>**连接恢复** — 改进网络变化和连接中断后的恢复体验。
+
+- **Everyday refinements** — Simplified connection settings and more complete translations across 21 languages.
+  <br>**日常体验改进** — 简化连接设置，并完善 21 种语言的界面翻译。
 
 ## Download / 下载 📥
 
@@ -37,40 +43,20 @@ Usque {{release_tag}} 是一个预发布版本，改进持续连接与代理恢�
 >
 > 请仅从此 Release 下载。不确定选哪个 APK 时请用 **Universal**。Windows 请安装 EXE，MSI 文件仅供应用内更新。
 
-## Before upgrading / 升级须知
+<details>
+<summary>Usage and privacy / 使用与隐私</summary>
 
-- **Beta: install manually and back up first** — This is not the stable Latest release and is not offered to stable clients. It uses the same application identity, not a parallel installation. Do not downgrade migrated data to v0.3.2 or older.
-  <br>**Beta：手动安装并先备份** — 本版不是稳定 Latest，不会推送给稳定版客户端；使用相同应用身份，不是并行安装。请勿将已迁移的数据降级给 v0.3.2 或更早版本。
+- **Proton VPN** — Choose it in **Proxy → Chain proxy** and complete any verification when prompted. [Proton VPN guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/PROTON_VPN.md)
+  <br>**Proton VPN** — 在“代理 → 链式代理”中选择，并按提示完成验证。[Proton VPN 指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/PROTON_VPN.md)
 
-- **Defaults stay off** — Ads, chain proxy and encrypted WARP DNS stay off until you enable them; your saved choices are kept.
-  <br>**默认保持关闭** — Ads、链式代理和加密 WARP DNS 需手动开启；已保存的设置会保留。
+- **Server changes** — Choose a server while connected, then select **Apply and reconnect** to use it.
+  <br>**更换节点** — 连接期间可选择节点，然后点击“应用并重新连接”以使用新节点。
+
+- **Your network choices** — Proton account setup uses your current network; direct rules follow your saved settings. [Connection and privacy guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/CHAIN_PROXY.md)
+  <br>**网络选择** — Proton 账号设置使用当前网络；直连规则遵循你保存的设置。[连接与隐私指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/CHAIN_PROXY.md)
 
 - **Android blocking** — To keep apps blocked when the VPN stops, enable **Always-on VPN** and **Block connections without VPN** in Android settings.
   <br>**Android 断网保护** — 若要在 VPN 停止后继续阻止应用联网，请在系统设置中开启“始终开启的 VPN”和“阻止未使用 VPN 的连接”。
-
-- **Test boundaries** — Linux packages and experimental Proton exits were introduced in beta.1. Native Android Proton and complete live-tunnel, real-upgrade, leak and performance acceptance remain unverified; interrupted UDP datagrams are not guaranteed to survive recovery.
-  <br>**测试边界** — Linux 安装包与实验性 Proton 出口已在 beta.1 提供。原生 Android Proton、完整实网隧道、真实升级、泄漏与性能验收仍未完成；恢复不保证保留中断期间的 UDP 数据报。
-
-<details>
-<summary>Technical details / 技术细节</summary>
-
-- Configuration schema 26, Agent protocol 3, Windows/Linux recovery journals 6/1 and recovery export 2. All IPC additions are append-only, and diagnostic exports keep their privacy filtering.
-  <br>配置 schema 26、Agent 协议 3、Windows/Linux 恢复日志 6/1、恢复导出 2。IPC 改动均为追加，诊断导出继续执行隐私过滤。
-
-- IPv6 presets look up their endpoint hostname through your network's DNS before the tunnel starts. Your DNS provider can see that lookup.
-  <br>IPv6 预设在隧道建立前通过当前网络的 DNS 查询端点域名，DNS 服务商可以看到这次查询。
-
-- Chrome 155 is a fixed TLS profile, not full browser emulation. ECH GREASE is not real ECH, and authentication and endpoint pins are always enforced.
-  <br>Chrome 155 是固定 TLS 配置，并非完整模拟浏览器；ECH GREASE 不是真正的 ECH，认证与端点公钥校验始终生效。
-
-- Proton account management and its verification window use the ordinary system HTTPS/DNS path; connection and renewal APIs use the established WARP session, while the private agent stays inside Proton. No automatic telemetry or diagnostic upload is added.
-  <br>Proton 账号管理与验证窗口使用系统普通 HTTPS/DNS 路径；连接与续期 API 使用既有 WARP 会话，私有 agent 留在 Proton 内部。不新增自动遥测或诊断上传。
-
-- Chain exits connect through the WARP tunnel. If the exit fails, traffic stops instead of falling back to WARP only. UDP-based exits need non-L4 mode.
-  <br>链式出口经 WARP 隧道连接；出口失败时流量停止，不会退回仅 WARP。基于 UDP 的出口需要非 L4 模式。
-
-- On Windows, the Usque adapter stays after disconnect for reuse and is removed when you fully exit the app.
-  <br>Windows 断开后会保留 Usque 虚拟网卡以便复用，完全退出应用时移除。
 
 </details>
 

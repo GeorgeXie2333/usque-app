@@ -51,12 +51,12 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
-The stable Latest remains [**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2). This branch prepares **v0.3.3-beta.2 / 0.3.3-beta.2+28**, a manual-install pre-release improving continuous connection and proxy recovery, Linux startup and diagnostics, and Proton verification and server selection. Back up before testing; it does not introduce a Beta auto-update channel or a separate application identity. Use [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and documentation at the matching tag. The Beta targets twelve user installers, plus two Windows MSI files reserved for in-app updates:
+This branch prepares **v0.3.3 / 0.3.3+29**, bringing Linux desktop support, optional Proton VPN and improvements to everyday connections. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and the documentation at the matching tag for published versions. The release targets twelve user installers, plus two Windows MSI files reserved for in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
 | Windows | Windows 10 2004, build 19041 | x64-v2 installer EXE or ARM64 installer EXE |
-| Linux (unreleased) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64 / arm64 × AppImage / deb / rpm |
+| Linux (v0.3.3) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64, or armeabi-v7a APK |
 | Android / Android TV | Android 8.0, API 26 | Universal APK containing all three ABIs |
 

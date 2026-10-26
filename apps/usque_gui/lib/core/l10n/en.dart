@@ -348,7 +348,7 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Check connection problems, export logs and manage local data.',
   'engine_status': 'Connection information',
   'version': 'Version',
-  'app_version': 'Usque 0.3.3-beta.2',
+  'app_version': 'Usque 0.3.3',
   'logs': 'Local logs',
   'export_diagnostics': 'Export diagnostic bundle',
   'diagnostics_saved': 'Diagnostic bundle saved to',

@@ -201,12 +201,12 @@ profile，也不保证进程死亡后已清理。Android 不因触碰弹窗外�
 
 ## Refresh, cancel and remove / 续期、取消与移除
 
-Use **Refresh list** in the account's menu to update available servers.
-Disconnect before changing a server on the account used by the running exit;
-its server row and menu actions stay disabled until then. The account row shows
-the running session's state, and a failed connection is never shown as
-connected. The server preference takes effect
-on the next connection; selecting a server does not independently reconnect.
+Use **Refresh list** in the account's menu to update available servers when the
+account is disconnected. On supporting Engines, a server can be selected while
+connected; the existing connection stays active until **Apply and reconnect**
+is chosen. Reconnection can interrupt existing traffic. Selecting a server
+alone does not reconnect. The account row shows the running session's state,
+and a failed connection is never shown as connected.
 
 If the reply starting guest setup or sign-in is lost, Usque checks the current
 task once without repeating the login request. Until its status is confirmed,

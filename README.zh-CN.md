@@ -51,12 +51,12 @@ Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系�
 
 ## 下载与安装
 
-稳定 Latest 仍为 [**v0.3.2**](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2)。本分支准备 **v0.3.3-beta.2 / 0.3.3-beta.2+28** 预发布，改进持续连接与代理恢复、Linux 启动与诊断，以及 Proton 验证和节点选择。需手动安装，测试前请备份；不新增 Beta 自动更新通道或独立应用身份。请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。Beta 面向用户提供十二种安装入口，另有两个仅供应用内更新使用的 Windows MSI 文件：
+本分支准备 **v0.3.3 / 0.3.3+29**，带来 Linux 桌面版、可选 Proton VPN 和日常连接体验改进。已发布版本请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。本版计划提供十二种用户安装入口，另有两个仅供应用内更新使用的 Windows MSI 文件：
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |
 | Windows | Windows 10 2004，Build 19041 | x64-v2 安装程序 EXE 或 ARM64 安装程序 EXE |
-| Linux（尚未发布） | Ubuntu 22.04+、Debian 12+、受支持的 Fedora；systemd | amd64 / arm64 × AppImage / deb / rpm |
+| Linux（v0.3.3） | Ubuntu 22.04+、Debian 12+、受支持的 Fedora；systemd | amd64 / arm64 × AppImage / deb / rpm |
 | Android / Android TV | Android 8.0，API 26 | arm64-v8a、x86_64 或 armeabi-v7a APK |
 | Android / Android TV | Android 8.0，API 26 | 包含上述三种 ABI 的通用 APK |
 

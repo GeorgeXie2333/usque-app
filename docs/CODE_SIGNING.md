@@ -87,9 +87,8 @@ Before approving publication, review the exact tagged commit and staged
 signer fingerprints must describe the candidate produced by that release run.
 A documentation review, a previous release's signatures or a local compile is
 not that evidence. The checked-in workflow targets only
-`v0.3.3-beta.2`, gated by the exact release-branch push CI and both approvals;
-see [Release process](RELEASE.md). The stable main-push requirement remains
-unchanged for stable tags. Documentation preparation
+`v0.3.3`, gated by the exact main push CI and both approvals;
+see [Release process](RELEASE.md). Documentation preparation
 does not authorize key access, signing or publication.
 
 ## What users should check

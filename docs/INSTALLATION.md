@@ -5,15 +5,11 @@ Download packages from this repository's
 
 ## Version scope
 
-This is the development-branch guide. [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2)
-remains the stable Latest. This branch prepares v0.3.3-beta.2 /
-0.3.3-beta.2+28, improving recovery, Linux startup and Proton verification. The Beta is for
-manual testing: back up first. It shares the application identity, adds no
-Beta auto-update channel and does not promise rollback to v0.3.2.
-For an installed release, use its release notes and the guide at the matching
-Git tag; the
-[v0.3.2 installation guide](https://github.com/GeorgeXie2333/usque-app/blob/v0.3.2/docs/INSTALLATION.md)
-describes that published version.
+This development-branch guide prepares v0.3.3 / 0.3.3+29, including Linux
+desktop packages and optional Proton VPN. For an installed release, use its
+release notes and guide at the matching Git tag; consult GitHub Releases for
+published versions. Back up data before upgrading and review compatibility
+below before considering a downgrade.
 
 The Windows upgrade recovery fix was introduced in v0.2.5; the multilingual EXE
 installer arrived in v0.2.6. The original v0.2.4 MSI does not have those fixes.
@@ -46,23 +42,23 @@ official fix.
 | --- | --- | --- |
 | Windows x64 | Windows 10 2004, build 19041 or later; x86-64-v2 CPU | x64-v2 EXE |
 | Windows ARM64 | Windows 10 2004, build 19041 or later, native ARM64 | ARM64 EXE |
-| Linux (v0.3.3-beta.2 preview) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
+| Linux (v0.3.3) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Package names (v0.3.3-beta.2 candidate)
+### Package names (v0.3.3 candidate)
 
-- `usque-v0.3.3-beta.2-windows-x64-v2.exe`
-- `usque-v0.3.3-beta.2-windows-arm64.exe`
-- `usque-v0.3.3-beta.2-android-arm64-v8a.apk`
-- `usque-v0.3.3-beta.2-android-x86_64.apk`
-- `usque-v0.3.3-beta.2-android-armeabi-v7a.apk`
-- `usque-v0.3.3-beta.2-android-universal.apk`
+- `usque-v0.3.3-windows-x64-v2.exe`
+- `usque-v0.3.3-windows-arm64.exe`
+- `usque-v0.3.3-android-arm64-v8a.apk`
+- `usque-v0.3.3-android-x86_64.apk`
+- `usque-v0.3.3-android-armeabi-v7a.apk`
+- `usque-v0.3.3-android-universal.apk`
 
-The release also includes `usque-v0.3.3-beta.2-windows-x64-v2.msi` and
-`usque-v0.3.3-beta.2-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The release also includes `usque-v0.3.3-windows-x64-v2.msi` and
+`usque-v0.3.3-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation. Linux AppImage/deb/rpm packages for amd64/arm64
-use the same Beta version; the six filenames are listed in [Linux desktop](LINUX_DESKTOP.md#choose-and-verify-a-package).
+use the same version; the six filenames are listed in [Linux desktop](LINUX_DESKTOP.md#choose-and-verify-a-package).
 
 Each release includes `SHA256SUMS`, `release-manifest.json` and a software
 component inventory (SPDX SBOM) for each package. Pull Request builds, local
@@ -71,7 +67,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use the v0.3.3-beta.2 candidate names; substitute the exact filename and published tag you
+use the v0.3.3 candidate names; substitute the exact filename and published tag you
 downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -79,7 +75,7 @@ downloaded. These commands inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.3.3-beta.2-windows-x64-v2.exe'
+$package = '.\usque-v0.3.3-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -133,7 +129,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.3-beta.2-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.3-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -147,7 +143,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.3-beta.2 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.3 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 if ($LASTEXITCODE -ne 0) { throw 'Build provenance verification failed.' }
 ```
 
@@ -283,8 +279,8 @@ to close.
 
 ## Linux
 
-Linux packages are not part of any published release yet, including v0.3.2.
-Once published, use the [Linux desktop guide](LINUX_DESKTOP.md) to select one installation
+Linux packages first appeared in v0.3.3-beta.1; v0.3.2 did not include them.
+Use the [Linux desktop guide](LINUX_DESKTOP.md) to select one installation
 format, verify the Ed25519 manifest, install the service and unlock the session
 keyring. Updates require confirmation; removal restores Usque's network changes
 before deleting the service and keeps personal data.

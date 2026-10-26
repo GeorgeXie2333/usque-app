@@ -3,7 +3,7 @@ name: Public release
 on:
   push:
     tags:
-      - "v0.3.3-beta.2"
+      - "v0.3.3"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,8 +17,8 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.3.3-beta.2
-  ANDROID_VERSION_CODE: "28"
+  RELEASE_TAG: v0.3.3
+  ANDROID_VERSION_CODE: "29"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -1371,9 +1371,9 @@ jobs:
           name: ${{ env.RELEASE_TAG }}
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          prerelease: true
+          prerelease: false
           draft: false
-          make_latest: false
+          make_latest: true
           fail_on_unmatched_files: true
           body_path: ${{ runner.temp }}/release-notes.md
           files: ${{ runner.temp }}/publish/*

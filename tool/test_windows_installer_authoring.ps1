@@ -40,8 +40,8 @@ else {
 
 $architecture = if ($Variant -eq "arm64") { "arm64" } else { "x64" }
 $wintunArchitecture = if ($Variant -eq "arm64") { "arm64" } else { "amd64" }
-$version = "0.3.3-beta.2"
-$msiVersion = "0.3.302"
+$version = "0.3.3"
+$msiVersion = "0.3.399"
 $productCode = "11111111-1111-1111-1111-111111111111"
 $signer = "0" * 64
 $expectedCultures = @(
