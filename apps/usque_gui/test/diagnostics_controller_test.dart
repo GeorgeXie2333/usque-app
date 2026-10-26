@@ -11,6 +11,8 @@ import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/diagnostics_controller.dart';
+import 'package:usque/widgets/diagnostic_finding_card.dart';
+import 'package:usque/widgets/diagnostics/diagnostic_results.dart';
 
 class DiagnosticsEngineStub implements EngineClient {
   @override
@@ -637,7 +639,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('开始诊断'), findsOneWidget);
-    expect(find.text('HTTP/3 连接'), findsOneWidget);
+    // The check appears once in the results and once in the conclusion that
+    // leads to it.
+    expect(
+      find.descendant(
+        of: find.byType(DiagnosticResultsPanel),
+        matching: find.text('HTTP/3 连接'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('diag-conclusion-transport.h3_connect')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
     app.dispose();
   });
@@ -705,13 +719,23 @@ void main() {
       final check = find.semantics.byPredicate(
         (node) =>
             node.label.contains('HTTP/3 connection') &&
-            node.getSemanticsData().hasAction(SemanticsAction.tap),
+            node.getSemanticsData().hasAction(SemanticsAction.tap) &&
+            // The result row states its status; the conclusion row that
+            // leads to it does not.
+            node.label.contains('Failed'),
         describeMatch: (_) => 'expandable HTTP/3 diagnostic check',
       );
       expect(check, findsOneWidget);
+      // A failed check opens with its explanation; the button folds and
+      // reopens it.
+      final card = find.byType(DiagnosticFindingCard);
+      expect(card, findsOneWidget);
       tester.semantics.tap(check);
       await tester.pumpAndSettle();
-      expect(find.text('HTTP/3 handshake timeout'), findsOneWidget);
+      expect(card, findsNothing);
+      tester.semantics.tap(check);
+      await tester.pumpAndSettle();
+      expect(card, findsOneWidget);
       expect(tester.takeException(), isNull);
       app.dispose();
     },

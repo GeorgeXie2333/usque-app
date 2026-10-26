@@ -24,6 +24,9 @@ void main() {
     'routing_overlap',
     'diag_refresh_timeline',
     'technical_details',
+    'diag_conclusion_issues',
+    'diag_conclusion_clear',
+    'nq_attention_hint',
   ];
 
   test('refinement strings resolve in every catalog', () {
@@ -36,11 +39,13 @@ void main() {
         expect(value.trim(), isNotEmpty, reason: '${strings.catalogId}.$key');
       }
       expect(strings.chain('rename'), isNot('rename'));
-      expect(
-        strings.get('nq_attention_count'),
-        contains('{count}'),
-        reason: strings.catalogId,
-      );
+      for (final counted in ['nq_attention_count', 'diag_conclusion_issues']) {
+        expect(
+          strings.get(counted),
+          contains('{count}'),
+          reason: '${strings.catalogId}.$counted',
+        );
+      }
     }
   });
 }

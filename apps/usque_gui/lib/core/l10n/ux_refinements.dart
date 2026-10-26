@@ -12,6 +12,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} need attention',
     'welcome_body':
         'Next, review system permissions and the Cloudflare terms, then set up your WARP account.',
+    'diag_conclusion_issues': '{count} need attention',
+    'diag_conclusion_clear': 'No problems found',
+    'nq_attention_hint': 'Run diagnostics to find the cause.',
   },
   'zh_CN': {
     'ks_standby': '连接后生效',
@@ -23,6 +26,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_advanced_metrics': '高级指标',
     'nq_attention_count': '{count} 项需要注意',
     'welcome_body': '接下来确认系统权限和 Cloudflare 条款，然后设置 WARP 账号。',
+    'diag_conclusion_issues': '{count} 项需要处理',
+    'diag_conclusion_clear': '未发现问题',
+    'nq_attention_hint': '运行诊断以定位原因。',
   },
   'zh_TW': {
     'ks_standby': '連線後生效',
@@ -34,6 +40,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_advanced_metrics': '進階指標',
     'nq_attention_count': '{count} 項需要注意',
     'welcome_body': '接下來確認系統權限和 Cloudflare 條款，然後設定 WARP 帳號。',
+    'diag_conclusion_issues': '{count} 項需要處理',
+    'diag_conclusion_clear': '未發現問題',
+    'nq_attention_hint': '執行診斷以找出原因。',
   },
   'zh_HK': {
     'ks_standby': '連線後生效',
@@ -45,6 +54,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_advanced_metrics': '進階指標',
     'nq_attention_count': '{count} 項需要注意',
     'welcome_body': '接下來確認系統權限和 Cloudflare 條款，然後設定 WARP 帳戶。',
+    'diag_conclusion_issues': '{count} 項需要處理',
+    'diag_conclusion_clear': '未發現問題',
+    'nq_attention_hint': '執行診斷以找出原因。',
   },
   'ja': {
     'ks_standby': '接続時に有効',
@@ -56,6 +68,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_advanced_metrics': '詳細な指標',
     'nq_attention_count': '{count} 件の注意事項',
     'welcome_body': '次にシステム権限と Cloudflare の規約を確認し、WARP アカウントを設定します。',
+    'diag_conclusion_issues': '対応が必要な項目: {count}',
+    'diag_conclusion_clear': '問題は見つかりませんでした',
+    'nq_attention_hint': '診断を実行して原因を調べます。',
   },
   'ko': {
     'ks_standby': '연결 시 활성화',
@@ -67,6 +82,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_advanced_metrics': '고급 지표',
     'nq_attention_count': '주의 필요 {count}개',
     'welcome_body': '다음으로 시스템 권한과 Cloudflare 약관을 확인한 뒤 WARP 계정을 설정합니다.',
+    'diag_conclusion_issues': '조치 필요 {count}개',
+    'diag_conclusion_clear': '문제가 발견되지 않았습니다',
+    'nq_attention_hint': '진단을 실행해 원인을 찾으세요.',
   },
   'es': {
     'ks_standby': 'Se activa al conectar',
@@ -79,6 +97,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} requieren atención',
     'welcome_body':
         'A continuación, revisa los permisos del sistema y los términos de Cloudflare, y configura tu cuenta WARP.',
+    'diag_conclusion_issues': '{count} requieren acción',
+    'diag_conclusion_clear': 'No se encontraron problemas',
+    'nq_attention_hint': 'Ejecuta el diagnóstico para encontrar la causa.',
   },
   'pt': {
     'ks_standby': 'Ativa ao conectar',
@@ -91,6 +112,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} precisam de atenção',
     'welcome_body':
         'Em seguida, revise as permissões do sistema e os termos da Cloudflare e configure sua conta WARP.',
+    'diag_conclusion_issues': '{count} precisam de ação',
+    'diag_conclusion_clear': 'Nenhum problema encontrado',
+    'nq_attention_hint': 'Execute o diagnóstico para encontrar a causa.',
   },
   'fr': {
     'ks_standby': "S'active à la connexion",
@@ -103,6 +127,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} à surveiller',
     'welcome_body':
         'Vérifiez ensuite les autorisations système et les conditions de Cloudflare, puis configurez votre compte WARP.',
+    'diag_conclusion_issues': '{count} à traiter',
+    'diag_conclusion_clear': 'Aucun problème détecté',
+    'nq_attention_hint': 'Lancez le diagnostic pour en trouver la cause.',
   },
   'de': {
     'ks_standby': 'Aktiv nach Verbindung',
@@ -115,6 +142,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} mit Auffälligkeiten',
     'welcome_body':
         'Prüfe als Nächstes die Systemberechtigungen und die Cloudflare-Bedingungen und richte dann dein WARP-Konto ein.',
+    'diag_conclusion_issues': '{count} erfordern Handeln',
+    'diag_conclusion_clear': 'Keine Probleme gefunden',
+    'nq_attention_hint': 'Starte die Diagnose, um die Ursache zu finden.',
   },
   'nl': {
     'ks_standby': 'Actief na verbinden',
@@ -127,6 +157,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} vragen aandacht',
     'welcome_body':
         'Controleer vervolgens de systeemrechten en de voorwaarden van Cloudflare en stel daarna je WARP-account in.',
+    'diag_conclusion_issues': '{count} vragen actie',
+    'diag_conclusion_clear': 'Geen problemen gevonden',
+    'nq_attention_hint': 'Voer de diagnose uit om de oorzaak te vinden.',
   },
   'it': {
     'ks_standby': 'Si attiva alla connessione',
@@ -139,6 +172,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} da controllare',
     'welcome_body':
         'Ora controlla i permessi di sistema e i termini di Cloudflare, poi configura il tuo account WARP.',
+    'diag_conclusion_issues': '{count} da risolvere',
+    'diag_conclusion_clear': 'Nessun problema rilevato',
+    'nq_attention_hint': 'Esegui la diagnostica per trovare la causa.',
   },
   'ru': {
     'ks_standby': 'Включится при подключении',
@@ -151,6 +187,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': 'Требуют внимания: {count}',
     'welcome_body':
         'Далее проверьте системные разрешения и условия Cloudflare, затем настройте аккаунт WARP.',
+    'diag_conclusion_issues': 'Требуют действий: {count}',
+    'diag_conclusion_clear': 'Проблем не найдено',
+    'nq_attention_hint': 'Запустите диагностику, чтобы найти причину.',
   },
   'uk': {
     'ks_standby': 'Увімкнеться під час підключення',
@@ -163,6 +202,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': 'Потребують уваги: {count}',
     'welcome_body':
         'Далі перевірте системні дозволи та умови Cloudflare, а потім налаштуйте обліковий запис WARP.',
+    'diag_conclusion_issues': 'Потребують дій: {count}',
+    'diag_conclusion_clear': 'Проблем не знайдено',
+    'nq_attention_hint': 'Запустіть діагностику, щоб знайти причину.',
   },
   'pl': {
     'ks_standby': 'Włączy się po połączeniu',
@@ -175,6 +217,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': 'Wymaga uwagi: {count}',
     'welcome_body':
         'Następnie sprawdź uprawnienia systemowe i warunki Cloudflare, a potem skonfiguruj konto WARP.',
+    'diag_conclusion_issues': 'Wymaga działania: {count}',
+    'diag_conclusion_clear': 'Nie znaleziono problemów',
+    'nq_attention_hint': 'Uruchom diagnostykę, aby znaleźć przyczynę.',
   },
   'fa': {
     'ks_standby': 'پس از اتصال فعال می‌شود',
@@ -187,6 +232,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} مورد نیاز به توجه دارد',
     'welcome_body':
         'در ادامه مجوزهای سیستم و شرایط Cloudflare را بررسی کنید و سپس حساب WARP خود را راه‌اندازی کنید.',
+    'diag_conclusion_issues': '{count} مورد نیاز به رسیدگی دارد',
+    'diag_conclusion_clear': 'مشکلی پیدا نشد',
+    'nq_attention_hint': 'برای یافتن علت، عیب‌یابی را اجرا کنید.',
   },
   'ar': {
     'ks_standby': 'يُفعَّل عند الاتصال',
@@ -199,6 +247,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} تحتاج إلى انتباه',
     'welcome_body':
         'بعد ذلك، راجع أذونات النظام وشروط Cloudflare، ثم أعدّ حساب WARP.',
+    'diag_conclusion_issues': '{count} تحتاج إلى معالجة',
+    'diag_conclusion_clear': 'لم يُعثر على مشكلات',
+    'nq_attention_hint': 'شغّل التشخيص لمعرفة السبب.',
   },
   'id': {
     'ks_standby': 'Aktif saat terhubung',
@@ -211,6 +262,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} perlu perhatian',
     'welcome_body':
         'Selanjutnya, tinjau izin sistem dan ketentuan Cloudflare, lalu siapkan akun WARP Anda.',
+    'diag_conclusion_issues': '{count} perlu ditangani',
+    'diag_conclusion_clear': 'Tidak ada masalah ditemukan',
+    'nq_attention_hint': 'Jalankan diagnosis untuk menemukan penyebabnya.',
   },
   'vi': {
     'ks_standby': 'Bật khi kết nối',
@@ -223,6 +277,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} mục cần chú ý',
     'welcome_body':
         'Tiếp theo, xem lại quyền hệ thống và điều khoản của Cloudflare, sau đó thiết lập tài khoản WARP.',
+    'diag_conclusion_issues': '{count} mục cần xử lý',
+    'diag_conclusion_clear': 'Không phát hiện sự cố',
+    'nq_attention_hint': 'Chạy chẩn đoán để tìm nguyên nhân.',
   },
   'tr': {
     'ks_standby': 'Bağlanınca etkinleşir',
@@ -235,6 +292,9 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': '{count} öğe dikkat gerektiriyor',
     'welcome_body':
         'Ardından sistem izinlerini ve Cloudflare koşullarını gözden geçirip WARP hesabınızı kurun.',
+    'diag_conclusion_issues': '{count} öğe işlem gerektiriyor',
+    'diag_conclusion_clear': 'Sorun bulunamadı',
+    'nq_attention_hint': 'Nedeni bulmak için tanılamayı çalıştırın.',
   },
   'th': {
     'ks_standby': 'ทำงานเมื่อเชื่อมต่อ',
@@ -247,5 +307,8 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_count': 'ต้องตรวจสอบ {count} รายการ',
     'welcome_body':
         'ถัดไป ตรวจสอบสิทธิ์ของระบบและข้อกำหนดของ Cloudflare จากนั้นตั้งค่าบัญชี WARP',
+    'diag_conclusion_issues': 'ต้องแก้ไข {count} รายการ',
+    'diag_conclusion_clear': 'ไม่พบปัญหา',
+    'nq_attention_hint': 'เรียกใช้การวินิจฉัยเพื่อหาสาเหตุ',
   },
 };

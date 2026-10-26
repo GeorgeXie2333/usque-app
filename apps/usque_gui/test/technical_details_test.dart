@@ -124,15 +124,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(app.strings.get('l4_verified')), findsOneWidget);
     expect(find.text(app.strings.get('l4_na')), findsNothing);
-    final budget = '${app.strings.get('l4_buffers')}: 42';
-    expect(find.text(budget), findsNothing);
+    // Counters read as label/value pairs in the readout grid.
+    final budget = find.text(app.strings.get('l4_buffers'));
+    expect(budget, findsNothing);
     await tester.tap(find.text(app.strings.get('technical_details')).first);
     await tester.pumpAndSettle();
-    expect(find.text(budget), findsOneWidget);
+    expect(budget, findsOneWidget);
+    expect(find.text('42'), findsOneWidget);
     expect(find.text(app.strings.get('l4_na')), findsOneWidget);
     await tester.tap(find.text(app.strings.get('technical_details')).first);
     await tester.pumpAndSettle();
-    expect(find.text(budget), findsNothing);
+    expect(budget, findsNothing);
     expect(find.text(app.strings.get('nq_pmtu_help')), findsNothing);
     final advanced = find.text(app.strings.get('nq_advanced_metrics'));
     await tester.ensureVisible(advanced);

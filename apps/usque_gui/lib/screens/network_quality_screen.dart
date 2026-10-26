@@ -1,8 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/quality_presentation.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/controller_selector.dart';
@@ -48,7 +47,10 @@ class NetworkQualityScreen extends StatelessWidget {
               QualityOverview(controller: controller),
               QualityTrendsHeading(controller: controller),
               QualityTrends(controller: controller),
-              QualityAdvancedMetrics(controller: controller),
+              QualityAdvancedMetrics(
+                controller: controller,
+                onDiagnose: () => openDiagnostics(context, controller),
+              ),
               Text(s.get('nq_doctor_help')),
               Text(
                 s.get('nq_doctor_evidence'),
@@ -62,34 +64,48 @@ class NetworkQualityScreen extends StatelessWidget {
   );
 }
 
-/// Opens Diagnostics with a Standard run.
+/// Opens Diagnostics with a Standard run. It is the page's primary action
+/// only when the quality level calls for investigation.
 class _DoctorAction extends StatelessWidget {
   const _DoctorAction({required this.controller});
   final AppController controller;
 
   @override
   Widget build(BuildContext context) => ListenableSelector(
-    listenables: <Listenable>[controller, controller.diagnostics],
+    listenables: <Listenable>[
+      controller,
+      controller.quality,
+      controller.diagnostics,
+    ],
     selector: () => (
       catalog: controller.strings.catalogId,
       busy: controller.diagnostics.busy,
+      emphasized: QualityLevelPresentation.of(
+        connected: controller.snapshot.isConnected,
+        stale: controller.quality.stale,
+        level: controller.quality.latest?.level,
+      ).needsDiagnosis,
     ),
-    builder: (context, view) => FilledButton.icon(
-      key: const ValueKey<String>('network-doctor-standard'),
-      onPressed: view.busy
+    builder: (context, view) {
+      const key = ValueKey<String>('network-doctor-standard');
+      final onPressed = view.busy
           ? null
-          : () {
-              startStandardDiagnostics(controller);
-              unawaited(
-                Navigator.of(context).push<void>(
-                  MaterialPageRoute<void>(
-                    builder: (_) => DiagnosticsScreen(controller: controller),
-                  ),
-                ),
-              );
-            },
-      icon: const Icon(LucideIcons.stethoscope),
-      label: Text(controller.strings.get('nq_doctor')),
-    ),
+          : () => openDiagnostics(context, controller);
+      const icon = Icon(LucideIcons.stethoscope);
+      final label = Text(controller.strings.get('nq_doctor'));
+      return view.emphasized
+          ? FilledButton.icon(
+              key: key,
+              onPressed: onPressed,
+              icon: icon,
+              label: label,
+            )
+          : OutlinedButton.icon(
+              key: key,
+              onPressed: onPressed,
+              icon: icon,
+              label: label,
+            );
+    },
   );
 }

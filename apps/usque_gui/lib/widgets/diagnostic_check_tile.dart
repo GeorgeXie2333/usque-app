@@ -26,6 +26,8 @@ class DiagnosticCheckTile extends StatelessWidget {
     final status = diagnosticStatusLabel(strings, finding.status);
     return ExpansionTile(
       key: PageStorageKey<String>('diagnostic-${finding.checkId}'),
+      // A problem's explanation and advice are the reason to open the page.
+      initiallyExpanded: diagnosticNeedsAttention(finding),
       internalAddSemanticForOnTap: true,
       tilePadding: const EdgeInsetsDirectional.fromSTEB(14, 2, 12, 2),
       childrenPadding: EdgeInsets.zero,
@@ -51,15 +53,15 @@ class DiagnosticCheckTile extends StatelessWidget {
         ),
       ),
       title: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
+      // The readable failure title; the code stays in the detail card for
+      // support requests.
       subtitle: finding.failure == null
           ? null
           : Text(
-              finding.failure!.code,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: color,
-                fontFamily: UsqueFonts.mono,
-                fontFamilyFallback: UsqueFonts.monoFallback,
-              ),
+              diagnosticFailureTitle(strings, finding.failure!.code),
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(color: color),
             ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,

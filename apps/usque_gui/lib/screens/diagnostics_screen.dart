@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import '../models/diagnostics_models.dart';
 import '../state/app_controller.dart';
-import '../widgets/clear_data_panel.dart';
 import '../widgets/common.dart';
 import '../widgets/desktop_shortcuts.dart';
 import '../widgets/diagnostics/diagnostic_export_panel.dart';
@@ -21,7 +20,21 @@ void startStandardDiagnostics(AppController controller) {
   unawaited(diagnostics.start(DiagnosticMode.standard));
 }
 
+/// Starts a Standard run and shows its progress on the Diagnostics page,
+/// pushed on the caller's navigator.
+void openDiagnostics(BuildContext context, AppController controller) {
+  startStandardDiagnostics(controller);
+  unawaited(
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => DiagnosticsScreen(controller: controller),
+      ),
+    ),
+  );
+}
+
 /// Active checks, the connection timeline and the local diagnostic bundle.
+/// Clearing all data is an application action and lives in About.
 /// Sections follow their own state, so connection samples arriving every
 /// second do not repaint the page.
 class DiagnosticsScreen extends StatefulWidget {
@@ -34,6 +47,8 @@ class DiagnosticsScreen extends StatefulWidget {
 }
 
 class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
+  final _rows = DiagnosticRowKeys();
+
   AppController get controller => widget.controller;
 
   @override
@@ -96,11 +111,15 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   children: <Widget>[
                     DiagnosticRunPanel(controller: controller),
                     if (view.hasSession)
-                      DiagnosticSessionPanel(controller: controller),
+                      DiagnosticSessionPanel(
+                        controller: controller,
+                        rows: _rows,
+                      ),
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final results = DiagnosticResultsPanel(
                           controller: controller,
+                          rows: _rows,
                         );
                         final timeline = DiagnosticTimelinePanel(
                           controller: controller,
@@ -121,7 +140,6 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                       },
                     ),
                     DiagnosticExportPanel(controller: controller),
-                    ClearDataPanel(controller: controller),
                   ],
                 ),
               ],

@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/legal_links.dart';
 import '../state/app_controller.dart';
+import '../widgets/clear_data_panel.dart';
 import '../widgets/common.dart';
 import '../widgets/external_link.dart';
 
@@ -84,6 +85,9 @@ class AboutScreen extends StatelessWidget {
               ],
             ),
           ),
+          // The application's only destructive action, kept apart from the
+          // links above in its own danger panel.
+          ClearDataPanel(controller: controller),
         ],
       ),
     );

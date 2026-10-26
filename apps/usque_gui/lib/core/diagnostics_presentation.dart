@@ -50,3 +50,75 @@ Color diagnosticCheckStatusColor(
   DiagnosticCheckStatus.skipped ||
   DiagnosticCheckStatus.cancelled => tokens.hairlineStrong,
 };
+
+/// Failures and warnings are what the user acts on.
+bool diagnosticNeedsAttention(DiagnosticFinding finding) =>
+    finding.status == DiagnosticCheckStatus.failed ||
+    finding.status == DiagnosticCheckStatus.warning;
+
+int _statusRank(DiagnosticCheckStatus status) => switch (status) {
+  DiagnosticCheckStatus.failed => 0,
+  DiagnosticCheckStatus.warning => 1,
+  DiagnosticCheckStatus.cancelled => 2,
+  DiagnosticCheckStatus.running => 3,
+  DiagnosticCheckStatus.pending => 4,
+  DiagnosticCheckStatus.passed => 5,
+  DiagnosticCheckStatus.skipped => 6,
+};
+
+/// Most severe first; equal statuses keep the engine's check order.
+List<DiagnosticFinding> _bySeverity(Iterable<DiagnosticFinding> findings) {
+  final indexed = findings.indexed.toList()
+    ..sort((a, b) {
+      final rank = _statusRank(a.$2.status) - _statusRank(b.$2.status);
+      return rank != 0 ? rank : a.$1 - b.$1;
+    });
+  return [for (final (_, finding) in indexed) finding];
+}
+
+/// Findings that need attention, most severe first.
+List<DiagnosticFinding> diagnosticProblems(List<DiagnosticFinding> findings) =>
+    _bySeverity(findings.where(diagnosticNeedsAttention));
+
+/// The finding's own advice, falling back to its failure's advice.
+String diagnosticRemediationKey(DiagnosticFinding finding) =>
+    finding.remediationKey.isNotEmpty && finding.remediationKey != 'none'
+    ? finding.remediationKey
+    : finding.failure?.remediationKey ?? finding.remediationKey;
+
+typedef DiagnosticFindingGroup = ({
+  DiagnosticCategory category,
+  List<DiagnosticFinding> findings,
+
+  /// Every check in the group passed or was skipped.
+  bool settled,
+});
+
+/// Category groups ordered by their most severe check, so problems lead the
+/// results; categories with equal severity keep their usual order.
+List<DiagnosticFindingGroup> groupDiagnosticFindings(
+  List<DiagnosticFinding> findings,
+) {
+  final groups = <DiagnosticFindingGroup>[
+    for (final category in DiagnosticCategory.values)
+      if (findings.where((finding) => finding.category == category).toList()
+          case final members when members.isNotEmpty)
+        (
+          category: category,
+          findings: _bySeverity(members),
+          settled: members.every(
+            (finding) =>
+                finding.status == DiagnosticCheckStatus.passed ||
+                finding.status == DiagnosticCheckStatus.skipped,
+          ),
+        ),
+  ];
+  final indexed = groups.indexed.toList()
+    ..sort((a, b) {
+      final rank =
+          _statusRank(a.$2.findings.first.status) -
+          _statusRank(b.$2.findings.first.status);
+      return rank != 0 ? rank : a.$1 - b.$1;
+    });
+  return [for (final (_, group) in indexed) group];
+}

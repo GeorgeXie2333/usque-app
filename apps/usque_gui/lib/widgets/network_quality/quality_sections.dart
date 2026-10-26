@@ -387,8 +387,15 @@ String _migrationPhase(QualityLink link, NetworkQualitySnapshot? snapshot) =>
 /// Transport internals for troubleshooting, folded below the everyday
 /// readings. Opens on first view when one of them needs attention.
 class QualityAdvancedMetrics extends StatelessWidget {
-  const QualityAdvancedMetrics({required this.controller, super.key});
+  const QualityAdvancedMetrics({
+    required this.controller,
+    required this.onDiagnose,
+    super.key,
+  });
   final AppController controller;
+
+  /// Opens Diagnostics, offered beside the count of degraded phases.
+  final VoidCallback onDiagnose;
 
   @override
   Widget build(BuildContext context) => _QualitySelector(
@@ -431,6 +438,25 @@ class QualityAdvancedMetrics extends StatelessWidget {
                 ),
               ),
         children: <Widget>[
+          // Readings say what degraded; Diagnostics can say why.
+          if (view.attention > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: <Widget>[
+                  Text(s.get('nq_attention_hint')),
+                  TextButton.icon(
+                    key: const ValueKey('network-quality-attention-diagnose'),
+                    onPressed: onDiagnose,
+                    icon: const Icon(LucideIcons.stethoscope),
+                    label: Text(s.get('diag_start')),
+                  ),
+                ],
+              ),
+            ),
           QualitySectionList(
             children: <Widget>[
               _Congestion(controller: controller),
@@ -792,34 +818,49 @@ class QualityL4Panel extends StatelessWidget {
             children: <Widget>[
               Text(s.get('l4_na')),
               if (stream != null) ...<Widget>[
-                Text(
-                  '${s.get('l4_sessions')}: ${stream.sessions} / ${stream.drainingSessions}',
-                ),
-                Text(
-                  '${s.get('l4_flows')}: ${stream.activeFlows} / ${stream.pendingFlows}',
-                ),
-                Text(
-                  '${s.get('l4_connect')}: ${stream.connectSuccesses} / ${stream.connectFailures} / ${stream.connectTimeouts}',
-                ),
-                Text('${s.get('l4_buffers')}: ${stream.bufferBytes}'),
-                Text(
-                  '${s.get('l4_backpressure')}: ${stream.sendBackpressure} / ${stream.receiveBackpressure}',
-                ),
-                Text(
-                  '${s.get('l4_tun_flows')}: ${stream.tunFlows} / ${stream.halfOpenFlows}',
-                ),
-                Text('${s.get('l4_udp')}: ${stream.udpRejected}'),
-                Text(
-                  '${s.get('l4_unsupported_packets')}: ${stream.unsupportedPackets}',
-                ),
-                Text(
-                  '${s.get('l4_budget_rejections')}: ${stream.budgetRejections}',
-                ),
-                Text(
-                  '${s.get('l4_dns')}: ${stream.dnsSuccesses} / ${stream.dnsFailures} / ${stream.dnsTimeouts}',
-                ),
-                Text(
-                  '${s.get('l4_migration')}: ${stream.migrationPreservedFlows} / ${stream.reconnectTerminatedFlows}',
+                const SizedBox(height: 16),
+                // Slash-separated values keep each counter family together.
+                QualityReadouts(
+                  values: <(String, String)>[
+                    (
+                      s.get('l4_sessions'),
+                      '${stream.sessions} / ${stream.drainingSessions}',
+                    ),
+                    (
+                      s.get('l4_flows'),
+                      '${stream.activeFlows} / ${stream.pendingFlows}',
+                    ),
+                    (
+                      s.get('l4_connect'),
+                      '${stream.connectSuccesses} / ${stream.connectFailures} / ${stream.connectTimeouts}',
+                    ),
+                    (s.get('l4_buffers'), '${stream.bufferBytes}'),
+                    (
+                      s.get('l4_backpressure'),
+                      '${stream.sendBackpressure} / ${stream.receiveBackpressure}',
+                    ),
+                    (
+                      s.get('l4_tun_flows'),
+                      '${stream.tunFlows} / ${stream.halfOpenFlows}',
+                    ),
+                    (s.get('l4_udp'), '${stream.udpRejected}'),
+                    (
+                      s.get('l4_unsupported_packets'),
+                      '${stream.unsupportedPackets}',
+                    ),
+                    (
+                      s.get('l4_budget_rejections'),
+                      '${stream.budgetRejections}',
+                    ),
+                    (
+                      s.get('l4_dns'),
+                      '${stream.dnsSuccesses} / ${stream.dnsFailures} / ${stream.dnsTimeouts}',
+                    ),
+                    (
+                      s.get('l4_migration'),
+                      '${stream.migrationPreservedFlows} / ${stream.reconnectTerminatedFlows}',
+                    ),
+                  ],
                 ),
               ],
             ],

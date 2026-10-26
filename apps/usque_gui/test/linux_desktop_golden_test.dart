@@ -23,6 +23,7 @@ import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/widgets/chain_source_picker.dart';
+import 'package:usque/widgets/diagnostic_finding_card.dart';
 import 'package:usque/widgets/linux_service_section.dart';
 import 'package:usque/widgets/proton_vpn_panel.dart';
 import 'package:usque/widgets/usque_logo.dart';
@@ -1110,16 +1111,15 @@ void main() {
                 _expectInViewport(tester, target, fixture.size);
               case _Scene.diagnosticsCompleted:
               case _Scene.diagnosticsCompletedPhone:
-                // The failed check's explanation is part of the reviewed
-                // layout, so open it before capturing.
-                final failed = find.byKey(
-                  const PageStorageKey<String>(
-                    'diagnostic-transport.h3_connect',
+                // Problems open with their explanation; passing categories
+                // fold, and the conclusion leads to the failure.
+                expect(find.byType(DiagnosticFindingCard), findsNWidgets(2));
+                expect(
+                  find.byKey(
+                    const ValueKey('diag-conclusion-transport.h3_connect'),
                   ),
+                  findsOneWidget,
                 );
-                await tester.ensureVisible(failed);
-                await tester.tap(failed);
-                await tester.pumpAndSettle();
               case _Scene.onboardingZeroTrustRtl:
                 final method = find.text(app.strings.get('zero_trust_title'));
                 await tester.ensureVisible(method);

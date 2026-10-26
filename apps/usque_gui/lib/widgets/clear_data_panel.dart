@@ -9,9 +9,19 @@ import 'usque_dialog.dart';
 
 /// The isolated danger area that deletes every account, setting, cache and
 /// diagnostic record on this device after an explicit confirmation.
-class ClearDataPanel extends StatelessWidget {
+class ClearDataPanel extends StatefulWidget {
   const ClearDataPanel({required this.controller, super.key});
   final AppController controller;
+
+  @override
+  State<ClearDataPanel> createState() => _ClearDataPanelState();
+}
+
+class _ClearDataPanelState extends State<ClearDataPanel> {
+  /// A failed wipe is reported here, beside the action that caused it.
+  String? _failure;
+
+  AppController get controller => widget.controller;
 
   Future<void> _confirmAndClear(BuildContext context) async {
     final strings = controller.strings;
@@ -42,7 +52,14 @@ class ClearDataPanel extends StatelessWidget {
       ),
     );
     if (confirmed != true) return;
+    setState(() => _failure = null);
     final cleared = await controller.clearAllData();
+    if (!cleared && mounted) {
+      setState(
+        () => _failure =
+            controller.lastError ?? controller.strings.get('operation_failed'),
+      );
+    }
     // A reset returns to onboarding, so leave every subpage above it.
     if (cleared && !controller.onboardingComplete && context.mounted) {
       Navigator.of(context).popUntil((route) => route.isFirst);
@@ -86,6 +103,16 @@ class ClearDataPanel extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+            BannerSlot(
+              child: _failure == null
+                  ? null
+                  : WarningBanner(
+                      title: null,
+                      message: _failure!,
+                      danger: true,
+                      onDismiss: () => setState(() => _failure = null),
+                    ),
             ),
             const SizedBox(height: 16),
             Align(

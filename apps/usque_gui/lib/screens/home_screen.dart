@@ -61,16 +61,8 @@ class HomeScreen extends StatelessWidget {
         builder: (_) => ChainProxyScreen(controller: controller),
       ),
     );
-    void openDiagnostics() {
-      startStandardDiagnostics(controller);
-      Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => DiagnosticsScreen(controller: controller),
-        ),
-      );
-    }
-
-    final diagnose = onOpenDiagnostics ?? openDiagnostics;
+    final diagnose =
+        onOpenDiagnostics ?? () => openDiagnostics(context, controller);
     final notice = _ZeroTrustEndpointRiskNotice(controller: controller);
     if (compact) {
       return PageFrame(

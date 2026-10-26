@@ -15,6 +15,7 @@ import 'package:usque/core/l10n/catalogs.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/diagnostics_models.dart';
+import 'package:usque/screens/about_screen.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/geo_direct_settings_screen.dart';
@@ -30,6 +31,7 @@ import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/services/update_downloader.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/clear_data_panel.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/controller_selector.dart';
@@ -4266,7 +4268,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('clearing all data from Diagnostics returns to onboarding', (
+  testWidgets('clearing all data from About returns to onboarding', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -4287,10 +4289,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
-    await tester.ensureVisible(diagnosticsCard);
+    // Clearing all data is an application action, kept in About.
+    final about = find.byKey(const ValueKey('settings-about'));
+    await tester.ensureVisible(about);
     await tester.pumpAndSettle();
-    await tester.tap(diagnosticsCard);
+    await tester.tap(about);
     await tester.pumpAndSettle();
 
     final clearButton = find.widgetWithText(OutlinedButton, 'Clear all data');
@@ -4301,12 +4304,12 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Clear all data'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(DiagnosticsScreen), findsNothing);
+    expect(find.byType(AboutScreen), findsNothing);
     expect(find.byType(OnboardingScreen), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('failed data clearing stays on Diagnostics and shows the error', (
+  testWidgets('failed data clearing stays on About and shows the error', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -4329,10 +4332,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
-    await tester.ensureVisible(diagnosticsCard);
+    // Clearing all data is an application action, kept in About.
+    final about = find.byKey(const ValueKey('settings-about'));
+    await tester.ensureVisible(about);
     await tester.pumpAndSettle();
-    await tester.tap(diagnosticsCard);
+    await tester.tap(about);
     await tester.pumpAndSettle();
 
     final clearButton = find.widgetWithText(OutlinedButton, 'Clear all data');
@@ -4343,9 +4347,14 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Clear all data'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(DiagnosticsScreen), findsOneWidget);
+    expect(find.byType(AboutScreen), findsOneWidget);
     expect(
-      find.text(AppStrings(LocalePreference.english).get('operation_failed')),
+      find.descendant(
+        of: find.byType(ClearDataPanel),
+        matching: find.text(
+          AppStrings(LocalePreference.english).get('operation_failed'),
+        ),
+      ),
       findsOneWidget,
     );
     expect(find.textContaining('clear failed'), findsNothing);
