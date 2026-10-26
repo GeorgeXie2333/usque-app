@@ -733,7 +733,8 @@ gboolean window_state(GtkWidget* widget, GdkEvent*, gpointer data) {
   auto* self = static_cast<Shell*>(data);
   if (!self->files_ready) {
     int width, height; gtk_window_get_size(self->window, &width, &height);
-    self->window_touched |= width != 1280 || height != 720 || gtk_window_is_maximized(self->window);
+    self->window_touched |= width != kUsqueDefaultWindowWidth ||
+                           height != kUsqueDefaultWindowHeight || gtk_window_is_maximized(self->window);
     return FALSE;
   }
   const bool maximized = gtk_window_is_maximized(GTK_WINDOW(widget));

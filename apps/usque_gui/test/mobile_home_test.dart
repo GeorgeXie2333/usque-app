@@ -150,6 +150,37 @@ void main() {
   );
 
   testWidgets(
+    'desktop Home stays side by side across the rail label breakpoint',
+    (tester) async {
+      final fixture = _Fixture()..sample(1);
+      await _show(tester, fixture, size: const Size(1100, 900));
+      for (final (width, extended) in [
+        (1100.0, false),
+        (1179.0, false),
+        (1180.0, true),
+        (1280.0, true),
+      ]) {
+        tester.view.physicalSize = Size(width, 900);
+        await tester.pumpAndSettle();
+        final reason = 'width=$width';
+        expect(
+          tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
+          extended,
+          reason: reason,
+        );
+        // The output card sits beside the session card, not below it.
+        expect(
+          tester.getRect(find.byKey(const ValueKey('home-local-proxies'))).left,
+          greaterThan(tester.getRect(find.byType(ConnectionRing)).right),
+          reason: reason,
+        );
+      }
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
     'desktop traffic card takes the spare page height down to its minimum',
     (tester) async {
       final fixture = _Fixture()..sample(1);

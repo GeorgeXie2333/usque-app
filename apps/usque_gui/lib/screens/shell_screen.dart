@@ -213,7 +213,9 @@ class _ShellScreenState extends State<ShellScreen> {
   static const double _railBreakpoint = 760;
 
   /// Width at which the rail can afford to show labels beside the icons.
-  static const double _extendedBreakpoint = 1050;
+  /// The extended rail takes 249 px with its divider, so this leaves Home its
+  /// 860 px side-by-side width plus page gutters instead of stacking it.
+  static const double _extendedBreakpoint = 1180;
 
   KeyEventResult _handleNavigationKey(
     KeyEvent event, {

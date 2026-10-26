@@ -65,14 +65,14 @@ void firstLaunchCentresAndRestoreRescales() {
   const RECT centred = usque::CenterWindowBounds(
       usque::kDefaultWindowWidth, usque::kDefaultWindowHeight,
       {0, 0, 1920, 1032});
-  Expect(centred.left == 450 && centred.top == 152 && centred.right == 1470 &&
-             centred.bottom == 880,
+  Expect(centred.left == 440 && centred.top == 136 && centred.right == 1480 &&
+             centred.bottom == 896,
          "windowBounds.centredOnWorkArea");
   const RECT secondary =
       usque::CenterWindowBounds(usque::kDefaultWindowWidth,
                                 usque::kDefaultWindowHeight,
                                 {-1920, 40, 0, 1040});
-  Expect(secondary.left == -1470 && secondary.top == 176,
+  Expect(secondary.left == -1480 && secondary.top == 160,
          "windowBounds.centredOnNegativeMonitor");
   const RECT oversized = usque::CenterWindowBounds(2000, 1200, {0, 0, 1024, 728});
   Expect(oversized.left == 0 && oversized.top == 0 && oversized.right == 1024 &&
