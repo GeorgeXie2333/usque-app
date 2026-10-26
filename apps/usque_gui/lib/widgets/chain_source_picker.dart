@@ -41,7 +41,7 @@ class ChainSourcePicker extends StatelessWidget {
     ),
     (
       'service',
-      [ChainSource.warpWireguard, ChainSource.protonVpn, ChainSource.vpnGate],
+      [ChainSource.protonVpn, ChainSource.warpWireguard, ChainSource.vpnGate],
     ),
   ];
 

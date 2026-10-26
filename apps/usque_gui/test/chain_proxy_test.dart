@@ -2041,17 +2041,28 @@ void main() {
       ChainSource.socks5Proxy,
     ];
     const services = [
-      ChainSource.warpWireguard,
       ChainSource.protonVpn,
+      ChainSource.warpWireguard,
       ChainSource.vpnGate,
     ];
     for (final source in own) {
       expect(top(source), top(ChainSource.openvpnCustom));
     }
     for (final source in services) {
-      expect(top(source), top(ChainSource.warpWireguard));
+      expect(top(source), top(ChainSource.protonVpn));
       expect(top(source), greaterThan(top(ChainSource.openvpnCustom)));
     }
+    double left(ChainSource source) => tester
+        .getTopLeft(find.byKey(ValueKey('chain-source-${source.wire}')))
+        .dx;
+    expect(
+      left(ChainSource.protonVpn),
+      lessThan(left(ChainSource.warpWireguard)),
+    );
+    expect(
+      left(ChainSource.warpWireguard),
+      lessThan(left(ChainSource.vpnGate)),
+    );
     expect(
       tester.getTopLeft(custom).dy,
       lessThan(tester.getTopLeft(service).dy),
@@ -2071,6 +2082,14 @@ void main() {
     for (final source in services) {
       expect(option(source), greaterThan(heading));
     }
+    expect(
+      option(ChainSource.protonVpn),
+      lessThan(option(ChainSource.warpWireguard)),
+    );
+    expect(
+      option(ChainSource.warpWireguard),
+      lessThan(option(ChainSource.vpnGate)),
+    );
     expect(tester.takeException(), isNull);
   });
 
