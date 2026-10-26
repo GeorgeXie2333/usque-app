@@ -4736,7 +4736,8 @@ void main() {
       expect(locationRect.top, greaterThan(heroRect.top));
       expect(downloadOrigin.dy, greaterThan(heroRect.bottom));
       expect(downloadOrigin.dy, greaterThan(locationRect.bottom));
-      expect(find.byType(Panel), findsNothing);
+      // Cards group the session, the outputs and the traffic.
+      expect(find.byType(Panel), findsNWidgets(3));
 
       controller.snapshot = const EngineSnapshot(
         phase: ConnectionPhase.connected,
