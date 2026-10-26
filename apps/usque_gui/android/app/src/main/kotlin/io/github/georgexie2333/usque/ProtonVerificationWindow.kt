@@ -16,6 +16,7 @@ import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.HttpAuthHandler
 import android.webkit.PermissionRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -186,6 +187,17 @@ internal class ProtonVerificationWindow(
                 }
             browser.webViewClient =
                 object : WebViewClient() {
+                    override fun onRenderProcessGone(
+                        view: WebView,
+                        detail: RenderProcessGoneDetail,
+                    ): Boolean {
+                        // finish invalidates the bridge immediately, then destroys
+                        // this view and clears its proxy before releasing the lease.
+                        // A stale callback must not replace an already accepted result.
+                        if (currentWindow()) fail(Failure.LOAD)
+                        return true
+                    }
+
                     override fun shouldOverrideUrlLoading(
                         view: WebView,
                         request: WebResourceRequest,
@@ -498,6 +510,7 @@ internal class ProtonVerificationWindow(
                 runCatching { browser?.stopLoading() }
                 runCatching { browser?.clearHistory() }
                 runCatching { browser?.clearCache(true) }
+                runCatching { (browser?.parent as? ViewGroup)?.removeView(browser) }
                 runCatching { browser?.removeAllViews() }
                 runCatching { browser?.destroy() }
                 runCatching { CookieManager.getInstance().removeAllCookies(null) }

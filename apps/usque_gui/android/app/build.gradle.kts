@@ -166,7 +166,7 @@ flutter {
 
 dependencies {
     implementation("androidx.activity:activity:1.13.0")
-    implementation("androidx.webkit:webkit:1.14.0")
+    implementation("androidx.webkit:webkit:1.18.0")
     testImplementation("junit:junit:4.13.2")
     // Host-side Android unit tests otherwise resolve org.json to framework stubs.
     // Keep the real implementation test-only; Android still supplies it at runtime.
