@@ -51,6 +51,16 @@ class DiagnosticsController extends ChangeNotifier {
   bool eventStreamDegraded = false;
 
   bool get isActive => session?.isActive ?? false;
+
+  /// A run is starting, running or stopping, so another cannot start.
+  bool get busy =>
+      isActive ||
+      state == DiagnosticsControllerState.starting ||
+      state == DiagnosticsControllerState.cancelling;
+
+  /// A run that has not already been asked to stop.
+  bool get canCancel =>
+      isActive || state == DiagnosticsControllerState.starting;
   DiagnosticMode? get requestedMode => _requestedMode;
 
   /// Visibility controls readback only; an explicit probe or export keeps ownership.

@@ -6,14 +6,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/network_settings.dart';
+import 'package:usque/screens/about_screen.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
-import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/local_proxy_outputs.dart';
+import 'package:usque/widgets/save_changes_bar.dart';
 
 import 'ui_workflow_test.dart'
     show WorkflowEngine, fieldWithLabel, pumpWorkflow, workflowHost;
@@ -183,9 +184,20 @@ void main() {
     );
     final tunnel = output(app.strings.tunnelOutputLabel(defaultTargetPlatform));
     expect(tunnel, findsOneWidget);
+    // Listener switches head their own sections below the device outputs.
+    expect(output('SOCKS5'), findsNothing);
     expect(
       tester.getTopLeft(tunnel).dy,
-      lessThan(tester.getTopLeft(output('SOCKS5')).dy),
+      lessThan(
+        tester
+            .getTopLeft(
+              find.widgetWithText(
+                SwitchListTile,
+                app.strings.get('socks_listener'),
+              ),
+            )
+            .dy,
+      ),
     );
     expect(app.activeProfile.frontends.tunnel, isTrue);
     await tester.ensureVisible(tunnel);
@@ -453,7 +465,11 @@ void main() {
       expect(ccRect.top, mtuRect.top);
       expect(ccRect.height, closeTo(mtuRect.height, 0.5));
       expect(mtuRect.left, greaterThan(ccRect.right));
-      // The apply bar lines up with the 880 px form column.
+      // A clean form has no apply bar; the first edit reveals it, lined up
+      // with the 880 px form column.
+      expect(find.byType(SaveChangesBar), findsNothing);
+      await tester.enterText(mtu, '1300');
+      await tester.pumpAndSettle();
       final apply = find.widgetWithText(
         FilledButton,
         app.strings.get('save_changes'),
@@ -494,9 +510,7 @@ void main() {
     });
   });
 
-  testWidgets('Diagnostics technical details share the section edge', (
-    tester,
-  ) async {
+  testWidgets('About technical details share the section edge', (tester) async {
     final app = await pumpWorkflow(
       tester,
       WorkflowEngine(),
@@ -504,15 +518,20 @@ void main() {
       size: const Size(1280, 1600),
     );
     await tester.pumpWidget(
-      workflowHost(app, home: DiagnosticsScreen(controller: app)),
+      workflowHost(app, home: AboutScreen(controller: app)),
     );
     await tester.pumpAndSettle();
+    // Diagnostics no longer repeats About's application information.
     final details = find.text(app.strings.get('technical_details'));
     await tester.ensureVisible(details);
     await tester.pumpAndSettle();
     expect(
       tester.getTopLeft(details).dx,
       tester.getTopLeft(find.byType(ExpansionTile)).dx,
+    );
+    expect(
+      tester.getTopLeft(details).dx,
+      tester.getTopLeft(find.text(app.strings.get('unofficial'))).dx,
     );
   });
 
@@ -522,9 +541,22 @@ void main() {
       WorkflowEngine(),
       section: AppSection.settings,
     );
+    // Custom routing makes the Ads switch an editable draft.
+    app.engineCapabilities = const EngineCapabilities(
+      tlsFingerprints: TlsFingerprint.values,
+      automaticEndpoints: true,
+      networkSettingsApplication: true,
+      routingRules: true,
+    );
     await tester.pumpWidget(
       workflowHost(app, home: GeoDirectSettingsScreen(controller: app)),
     );
+    await tester.pumpAndSettle();
+    expect(find.byType(SaveChangesBar), findsNothing);
+    final ads = find.byKey(const ValueKey('routing-ads'));
+    await tester.ensureVisible(ads);
+    await tester.pumpAndSettle();
+    await tester.tap(ads);
     await tester.pumpAndSettle();
     final search = find.byType(TextField).first;
     final apply = find.widgetWithText(

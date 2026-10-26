@@ -47,7 +47,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(tester.getTopLeft(find.byType(ContentSection).first).dy, 32);
+      expect(tester.getTopLeft(find.byType(Panel).first).dy, 32);
       app.selectSection(AppSection.settings);
       await tester.pumpAndSettle();
       expect(
@@ -252,7 +252,12 @@ void main() {
       try {
         await tester.pumpWidget(workflowHost(app));
         await tester.pumpAndSettle();
-        expect(find.byType(Panel), findsNothing, reason: section.name);
+        // Home alone groups its session, outputs and traffic in cards.
+        expect(
+          find.byType(Panel),
+          section == AppSection.home ? findsAtLeastNWidgets(2) : findsNothing,
+          reason: section.name,
+        );
         if (section == AppSection.proxy) {
           final chain = find.byKey(const ValueKey('proxy-chain-proxy-section'));
           final entry = find.byKey(const ValueKey('proxy-chain-proxy-entry'));

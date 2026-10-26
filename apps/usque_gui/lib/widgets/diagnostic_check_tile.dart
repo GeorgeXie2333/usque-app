@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/diagnostics_presentation.dart';
 import '../core/diagnostics_strings.dart';
 import '../core/usque_theme.dart';
 import '../models/diagnostics_models.dart';
@@ -20,11 +21,13 @@ class DiagnosticCheckTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = UsqueTokens.of(context);
-    final color = _statusColor(tokens, finding.status);
+    final color = diagnosticCheckStatusColor(tokens, finding.status);
     final label = diagnosticCheckLabel(strings, finding.checkId);
     final status = diagnosticStatusLabel(strings, finding.status);
     return ExpansionTile(
       key: PageStorageKey<String>('diagnostic-${finding.checkId}'),
+      // A problem's explanation and advice are the reason to open the page.
+      initiallyExpanded: diagnosticNeedsAttention(finding),
       internalAddSemanticForOnTap: true,
       tilePadding: const EdgeInsetsDirectional.fromSTEB(14, 2, 12, 2),
       childrenPadding: EdgeInsets.zero,
@@ -42,19 +45,23 @@ class DiagnosticCheckTile extends StatelessWidget {
                     color: color,
                   ),
                 )
-              : Icon(_statusIcon(finding.status), size: 19, color: color),
+              : Icon(
+                  diagnosticCheckStatusIcon(finding.status),
+                  size: 19,
+                  color: color,
+                ),
         ),
       ),
       title: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
+      // The readable failure title; the code stays in the detail card for
+      // support requests.
       subtitle: finding.failure == null
           ? null
           : Text(
-              finding.failure!.code,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: color,
-                fontFamily: UsqueFonts.mono,
-                fontFamilyFallback: UsqueFonts.monoFallback,
-              ),
+              diagnosticFailureTitle(strings, finding.failure!.code),
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(color: color),
             ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -74,28 +81,4 @@ class DiagnosticCheckTile extends StatelessWidget {
       ],
     );
   }
-}
-
-IconData _statusIcon(DiagnosticCheckStatus status) {
-  return switch (status) {
-    DiagnosticCheckStatus.passed => LucideIcons.circleCheck,
-    DiagnosticCheckStatus.warning => LucideIcons.triangleAlert,
-    DiagnosticCheckStatus.failed => LucideIcons.circleX,
-    DiagnosticCheckStatus.cancelled => LucideIcons.circleX,
-    DiagnosticCheckStatus.pending ||
-    DiagnosticCheckStatus.skipped => LucideIcons.circle,
-    DiagnosticCheckStatus.running => LucideIcons.refreshCw,
-  };
-}
-
-Color _statusColor(UsqueTokens tokens, DiagnosticCheckStatus status) {
-  return switch (status) {
-    DiagnosticCheckStatus.passed => tokens.success,
-    DiagnosticCheckStatus.warning => tokens.caution,
-    DiagnosticCheckStatus.failed => tokens.danger,
-    DiagnosticCheckStatus.running => tokens.brand,
-    DiagnosticCheckStatus.pending ||
-    DiagnosticCheckStatus.skipped ||
-    DiagnosticCheckStatus.cancelled => tokens.hairlineStrong,
-  };
 }

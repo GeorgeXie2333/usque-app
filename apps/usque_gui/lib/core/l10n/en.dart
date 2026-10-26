@@ -46,7 +46,6 @@ const Map<String, String> kEnCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch is blocking network traffic until the connection is restored or you disconnect.',
   'connection_status': 'Connection status',
-  'outputs': '{tunnel} and local proxies',
   'home': 'Home',
   'profiles': 'Accounts',
   'profiles_subtitle': 'Switch and manage WARP accounts.',
@@ -344,7 +343,6 @@ const Map<String, String> kEnCatalog = <String, String>{
   'invalid_address': 'Invalid address',
   'invalid_dns_name': 'Invalid DNS name',
   'invalid_cidr': 'Invalid CIDR',
-  'diagnostics_title': 'Diagnostics & app information',
   'diagnostics_subtitle':
       'Check connection problems, export logs and manage local data.',
   'engine_status': 'Connection information',

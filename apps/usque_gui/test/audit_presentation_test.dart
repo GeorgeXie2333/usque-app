@@ -208,13 +208,7 @@ void main() {
     expect(detailText('Exit IP:'), findsOneWidget);
     expect(detailText('IPv4'), findsNothing);
     expect(detailText('IPv6'), findsNothing);
-    for (final key in [
-      'protocol',
-      'address_family',
-      'duration',
-      'location',
-      'outputs',
-    ]) {
+    for (final key in ['protocol', 'address_family', 'duration', 'location']) {
       expect(detailText(app.strings.get(key)), findsNothing);
     }
     expect(detailText('Singapore'), findsNothing);
@@ -338,7 +332,7 @@ void main() {
         matching: find.text(
           country?.trim().isNotEmpty == true
               ? country!
-              : app.strings.get('not_available'),
+              : app.strings.get('home_exit_unknown'),
         ),
       );
       expect(icon, findsOneWidget);

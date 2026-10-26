@@ -47,7 +47,6 @@ const Map<String, String> kNlCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch blokkeert netwerkverkeer totdat de verbinding is hersteld of je de verbinding verbreekt.',
   'connection_status': 'Verbindingsstatus',
-  'outputs': '{tunnel} en lokale proxy’s',
   'home': 'Start',
   'profiles': 'Accounts',
   'profiles_subtitle': 'Wissel en beheer WARP-accounts.',
@@ -351,7 +350,6 @@ const Map<String, String> kNlCatalog = <String, String>{
   'invalid_address': 'Ongeldig adres',
   'invalid_dns_name': 'Ongeldige DNS-naam',
   'invalid_cidr': 'Ongeldige CIDR',
-  'diagnostics_title': 'Diagnostiek en informatie',
   'diagnostics_subtitle':
       'Controleer verbindingsproblemen, exporteer logboeken en beheer lokale gegevens.',
   'engine_status': 'Verbindingsinformatie',

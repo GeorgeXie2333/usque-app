@@ -79,6 +79,14 @@ void main() {
     expect(find.byTooltip(app.strings.get('profile_required')), findsOneWidget);
     expect(find.byTooltip('Rename account'), findsOneWidget);
     expect(find.byTooltip('Edit'), findsNothing);
+    // Touch screens show no tooltips, so the actions carry visible labels.
+    expect(
+      find.descendant(
+        of: find.byTooltip('Rename account'),
+        matching: find.text('Rename'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Accounts, Proxy and Settings share one heading column', (

@@ -216,10 +216,8 @@ void main() {
               findsOneWidget,
             );
             expect(app.activeProfile.disableQuic, manualPreference);
-            expect(
-              tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).dirty,
-              isFalse,
-            );
+            // A clean form reveals no apply bar.
+            expect(find.byType(SaveChangesBar), findsNothing);
             // Read-only policy must not turn a keyboard activation into a
             // persisted manual preference or a hidden pending form edit.
             toggle.focusNode!.requestFocus();

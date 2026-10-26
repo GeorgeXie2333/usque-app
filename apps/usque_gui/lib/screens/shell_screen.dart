@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
@@ -14,6 +13,7 @@ import '../widgets/controller_selector.dart';
 import '../widgets/desktop_shortcuts.dart';
 import '../widgets/section_navigator.dart';
 import '../widgets/usque_logo.dart';
+import 'diagnostics_screen.dart';
 import 'home_screen.dart';
 import 'profiles_screen.dart';
 import 'proxy_section.dart';
@@ -48,6 +48,7 @@ class _ShellScreenState extends State<ShellScreen> {
   final _subpageOpen = <AppSection>{};
   bool _changingSection = false;
   bool _openingChainProxy = false;
+  bool _openingDiagnostics = false;
 
   static const _sectionKeys = <LogicalKeyboardKey>[
     LogicalKeyboardKey.digit1,
@@ -142,6 +143,41 @@ class _ShellScreenState extends State<ShellScreen> {
       unawaited(_proxySection.currentState?.openChainProxy());
     } finally {
       _openingChainProxy = false;
+    }
+  }
+
+  /// Opens Diagnostics inside Settings, so desktop navigation stays visible
+  /// and Back returns to the Settings list, then starts a Standard run.
+  Future<void> _openDiagnostics() async {
+    if (_openingDiagnostics) return;
+    _openingDiagnostics = true;
+    final selectedController = controller;
+    try {
+      if (!await _selectSection(AppSection.settings)) return;
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted ||
+          controller != selectedController ||
+          controller.section != AppSection.settings) {
+        return;
+      }
+      final section = _sectionNavigators[AppSection.settings]?.currentState;
+      // An open Settings subpage keeps its unsaved-changes guard.
+      if (section == null || !await section.closeSubpages()) return;
+      final navigator = section.navigator;
+      if (!mounted || controller != selectedController || navigator == null) {
+        return;
+      }
+      startStandardDiagnostics(controller);
+      unawaited(
+        navigator.push<void>(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: '/settings/diagnostics'),
+            builder: (_) => DiagnosticsScreen(controller: controller),
+          ),
+        ),
+      );
+    } finally {
+      _openingDiagnostics = false;
     }
   }
 
@@ -268,6 +304,7 @@ class _ShellScreenState extends State<ShellScreen> {
             key: const ValueKey<String>('home-page'),
             controller: controller,
             onOpenChainProxy: () => unawaited(_openChainProxy()),
+            onOpenDiagnostics: () => unawaited(_openDiagnostics()),
           ),
           ControllerSelector<
             ({
@@ -374,10 +411,7 @@ class _ShellScreenState extends State<ShellScreen> {
                           labelType: extended
                               ? NavigationRailLabelType.none
                               : NavigationRailLabelType.all,
-                          leading: _RailLeading(
-                            controller: controller,
-                            extended: extended,
-                          ),
+                          leading: _RailLeading(extended: extended),
                           destinations:
                               List<NavigationRailDestination>.generate(
                                 labels.length,
@@ -468,25 +502,18 @@ class _ShellScreenState extends State<ShellScreen> {
   }
 }
 
-/// Top of the rail: brand aligned with destination icons; theme at the
-/// trailing edge when the rail is extended, or centred alone when compact.
+/// Top of the rail: the brand aligned with destination icons when the rail is
+/// extended. Theme is chosen in Settings, so the compact rail only keeps the
+/// spacing above its first destination.
 class _RailLeading extends StatelessWidget {
-  const _RailLeading({required this.controller, required this.extended});
+  const _RailLeading({required this.extended});
 
-  final AppController controller;
   final bool extended;
 
   @override
   Widget build(BuildContext context) {
-    final Widget theme = _ThemeCycleButton(controller: controller);
     if (!extended) {
-      return SizedBox(
-        width: _railMinWidth,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 10, 0, 18),
-          child: Center(child: theme),
-        ),
-      );
+      return const SizedBox(width: _railMinWidth, height: 28);
     }
 
     return Padding(
@@ -512,63 +539,9 @@ class _RailLeading extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
             ),
-            theme,
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ThemeCycleButton extends StatelessWidget {
-  const _ThemeCycleButton({required this.controller});
-
-  final AppController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = controller.strings;
-    return ControllerSelector<ThemePreference>(
-      controller: controller,
-      selector: (controller) => controller.themePreference,
-      builder: (context, preference) {
-        final bool touchPlatform =
-            Theme.of(context).platform == TargetPlatform.android;
-        final IconData icon = switch (preference) {
-          ThemePreference.system => LucideIcons.sunMoon,
-          ThemePreference.light => LucideIcons.sun,
-          ThemePreference.dark => LucideIcons.moon,
-        };
-        final String label = strings.get(switch (preference) {
-          ThemePreference.system => 'theme_system',
-          ThemePreference.light => 'theme_light',
-          ThemePreference.dark => 'theme_dark',
-        });
-        return IconButton(
-          tooltip: '${strings.get('theme')} · $label',
-          iconSize: 19,
-          visualDensity: touchPlatform
-              ? VisualDensity.standard
-              : VisualDensity.compact,
-          style: IconButton.styleFrom(
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            padding: const EdgeInsets.all(8),
-            minimumSize: Size.square(touchPlatform ? 48 : 36),
-          ),
-          onPressed: () => controller.setTheme(
-            ThemePreference.values[(preference.index + 1) %
-                ThemePreference.values.length],
-          ),
-          icon: AnimatedSwitcher(
-            duration: UsqueMotion.of(context, UsqueMotion.base),
-            transitionBuilder: (child, animation) => FadeTransition(
-              opacity: animation,
-              child: ScaleTransition(scale: animation, child: child),
-            ),
-            child: Icon(icon, key: ValueKey<ThemePreference>(preference)),
-          ),
-        );
-      },
     );
   }
 }

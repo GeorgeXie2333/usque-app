@@ -46,7 +46,6 @@ const Map<String, String> kUkCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch блокує мережевий трафік, доки зʼєднання не відновиться або ви не відʼєднаєтеся.',
   'connection_status': 'Стан зʼєднання',
-  'outputs': '{tunnel} і локальні проксі',
   'home': 'Головна',
   'profiles': 'Облікові записи',
   'profiles_subtitle': 'Перемикайте облікові записи WARP і керуйте ними.',
@@ -348,7 +347,6 @@ const Map<String, String> kUkCatalog = <String, String>{
   'invalid_address': 'Недійсна адреса',
   'invalid_dns_name': 'Недійсне імʼя DNS',
   'invalid_cidr': 'Недійсний CIDR',
-  'diagnostics_title': 'Діагностика та відомості',
   'diagnostics_subtitle':
       'Перевірте проблеми зі з’єднанням, експортуйте журнали та керуйте локальними даними.',
   'engine_status': 'Відомості про з’єднання',

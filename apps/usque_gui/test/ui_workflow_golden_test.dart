@@ -1500,6 +1500,16 @@ void main() {
                 FilledButton,
                 app.strings.get('save_changes'),
               );
+              expect(apply, findsNothing);
+              final allowLan = find.widgetWithText(
+                SwitchListTile,
+                app.strings.get('allow_lan'),
+              );
+              await tester.ensureVisible(allowLan);
+              await tester.tap(allowLan);
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+              expect(apply, findsOneWidget);
               expect(
                 tester.getRect(apply).bottom,
                 lessThanOrEqualTo(size.height),

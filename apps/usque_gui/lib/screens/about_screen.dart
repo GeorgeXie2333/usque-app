@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/legal_links.dart';
 import '../state/app_controller.dart';
+import '../widgets/clear_data_panel.dart';
 import '../widgets/common.dart';
 import '../widgets/external_link.dart';
 
@@ -67,6 +68,26 @@ class AboutScreen extends StatelessWidget {
               ),
             ],
           ),
+          // Shares the notice's text edge above the links.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: ExpansionTile(
+              key: const PageStorageKey<String>('app-technical-details'),
+              title: Text(strings.get('technical_details')),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 16),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+              children: const <Widget>[
+                SelectableText(
+                  'IPC API: usque.v1',
+                  key: PageStorageKey<String>('app-ipc-api'),
+                ),
+              ],
+            ),
+          ),
+          // The application's only destructive action, kept apart from the
+          // links above in its own danger panel.
+          ClearDataPanel(controller: controller),
         ],
       ),
     );

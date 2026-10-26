@@ -319,7 +319,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                               child: _StepTransition(
                                 step: _step,
                                 forward: _forward,
-                                child: _buildStep(context),
+                                child: _buildStep(context, wide: wide),
                               ),
                             ),
                             const SizedBox(height: 20),
@@ -361,9 +361,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  Widget _buildStep(BuildContext context) {
+  Widget _buildStep(BuildContext context, {required bool wide}) {
     return switch (_step) {
-      0 => _IntroStep(strings: strings),
+      // The wide layout's brand pane already carries the non-affiliation
+      // notice on every step; narrow layouts show it here instead.
+      0 => _IntroStep(strings: strings, showNotice: !wide),
       1 => _PermissionsStep(strings: strings, controller: widget.controller),
       2 => _TermsStep(
         strings: strings,
@@ -780,16 +782,17 @@ class _StepHeading extends StatelessWidget {
 }
 
 class _IntroStep extends StatelessWidget {
-  const _IntroStep({required this.strings});
+  const _IntroStep({required this.strings, required this.showNotice});
 
   final AppStrings strings;
+  final bool showNotice;
 
   @override
   Widget build(BuildContext context) {
     return _StepHeading(
       icon: LucideIcons.sparkles,
       title: strings.get('welcome_title'),
-      body: strings.get('unofficial'),
+      body: strings.get(showNotice ? 'unofficial' : 'welcome_body'),
     );
   }
 }
